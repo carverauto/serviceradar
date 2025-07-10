@@ -601,14 +601,14 @@ func (s *Server) processMetrics(
 		case sysmonServiceType:
 			return s.processSysmonMetrics(ctx, contextPollerID, contextPartition, contextAgentID, serviceData, now)
 		case syncServiceType:
-			return s.processSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+			return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 		default:
 			log.Printf("Unknown GRPC service type %s on poller %s", svc.ServiceType, pollerID)
 		}
 	case icmpServiceType:
 		return s.processICMPMetrics(contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
-		return s.processSNMPDiscoveryResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+		return s.discoveryService.ProcessSNMPDiscoveryResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 	case sweepService:
 		log.Print("no-op for sweep service, handled in separate flow")
 
