@@ -17,6 +17,8 @@
 package logger
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -56,7 +58,7 @@ func DefaultOTelConfig() OTelConfig {
 		Endpoint:     getEnvOrDefault("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", ""),
 		Headers:      headers,
 		ServiceName:  getEnvOrDefault("OTEL_SERVICE_NAME", "serviceradar"),
-		BatchTimeout: batchTimeout,
+		BatchTimeout: Duration(batchTimeout),
 		Insecure:     getEnvBoolOrDefault("OTEL_EXPORTER_OTLP_LOGS_INSECURE", false),
 	}
 }
@@ -78,6 +80,33 @@ func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 	value = strings.ToLower(value)
 
 	return value == "true" || value == "1" || value == "yes" || value == "on"
+}
+
+// Duration is a custom type that can unmarshal duration strings from JSON
+type Duration time.Duration
+
+// UnmarshalJSON implements json.Unmarshaler for Duration
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+
+	switch value := v.(type) {
+	case float64:
+		// parse numeric as nanoseconds
+		*d = Duration(time.Duration(value))
+		return nil
+	case string:
+		dur, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("invalid duration: %w", err)
+		}
+		*d = Duration(dur)
+		return nil
+	default:
+		return fmt.Errorf("invalid duration type: %T", value)
+	}
 }
 
 func InitWithDefaults() error {

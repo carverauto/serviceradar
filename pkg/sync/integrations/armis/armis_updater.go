@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -114,7 +114,10 @@ func setServiceRadarCompliant(ip string, resultMap map[string]SweepResult, attri
 
 // BatchUpdateDeviceAttributes updates multiple devices with sweep result attributes
 func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devices []Device, sweepResults []SweepResult) error {
-	log.Println("Batch updating device attributes for Armis...")
+	logger.Info().
+		Int("devices_count", len(devices)).
+		Int("sweep_results_count", len(sweepResults)).
+		Msg("Batch updating device attributes for Armis")
 
 	// Create a map for quick lookup
 	resultMap := make(map[string]SweepResult)
@@ -136,7 +139,10 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 
 		if len(attributes) > 0 && a.Updater != nil {
 			if err := a.Updater.UpdateDeviceCustomAttributes(ctx, devices[i].ID, attributes); err != nil {
-				log.Printf("Failed to update attributes for device %d: %v", devices[i].ID, err)
+				logger.Error().
+					Err(err).
+					Int("device_id", devices[i].ID).
+					Msg("Failed to update attributes for device")
 			}
 		}
 	}
@@ -203,7 +209,9 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 		return fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode, resp.StatusCode, string(respBody))
 	}
 
-	log.Printf("Armis bulk update response: %s", string(respBody))
+	logger.Debug().
+		Str("response_body", string(respBody)).
+		Msg("Armis bulk update response")
 
 	return nil
 }
@@ -266,7 +274,9 @@ func (u *DefaultArmisUpdater) UpdateDeviceCustomAttributes(ctx context.Context, 
 		return fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode, resp.StatusCode, string(respBody))
 	}
 
-	log.Printf("Armis custom attribute update response: %s", string(respBody))
+	logger.Debug().
+		Str("response_body", string(respBody)).
+		Msg("Armis custom attribute update response")
 
 	return nil
 }

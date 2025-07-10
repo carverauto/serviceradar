@@ -22,13 +22,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -38,7 +38,10 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 	accessToken string,
 	query models.QueryConfig,
 ) ([]Device, error) {
-	log.Printf("Fetching devices for query '%s': %s", query.Label, query.Query)
+	logger.Info().
+		Str("query_label", query.Label).
+		Str("query", query.Query).
+		Msg("Fetching devices for query")
 
 	devices := make([]Device, 0)
 
@@ -47,7 +50,10 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 	for nextPage >= 0 {
 		page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, query.Query, nextPage, a.PageSize)
 		if err != nil {
-			log.Printf("Failed query '%s': %v", query.Label, err)
+			logger.Error().
+				Err(err).
+				Str("query_label", query.Label).
+				Msg("Failed to fetch devices page")
 			return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
 		}
 
@@ -60,7 +66,11 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 			nextPage = -1
 		}
 
-		log.Printf("Fetched %d devices for '%s', total so far: %d", page.Data.Count, query.Label, len(devices))
+		logger.Info().
+			Int("page_device_count", page.Data.Count).
+			Str("query_label", query.Label).
+			Int("total_devices", len(devices)).
+			Msg("Fetched devices page")
 	}
 
 	return devices, nil
@@ -82,17 +92,21 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		}
 	}
 
-	log.Printf("Sweep config to be written: %+v", finalSweepConfig)
+	logger.Info().
+		Interface("sweep_config", finalSweepConfig).
+		Msg("Sweep config to be written")
 
 	if a.KVWriter == nil {
-		log.Printf("KVWriter not configured, skipping sweep config write")
+		logger.Warn().Msg("KVWriter not configured, skipping sweep config write")
 		return nil
 	}
 
 	err := a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
 	if err != nil {
 		// Log as warning, as per existing behavior for KV write errors during sweep config.
-		log.Printf("Warning: Failed to write full sweep config: %v", err)
+		logger.Warn().
+			Err(err).
+			Msg("Failed to write full sweep config")
 	}
 
 	return err
@@ -129,7 +143,9 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 	// Process devices
 	data, ips := a.processDevices(allDevices)
 
-	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
+	logger.Info().
+		Int("total_devices", len(allDevices)).
+		Msg("Fetched total devices from Armis")
 
 	// Create and write sweep config
 	_ = a.createAndWriteSweepConfig(ctx, ips)
@@ -187,23 +203,30 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 
 	// Part 2: Update (ServiceRadar -> Armis)
 	if a.Updater == nil || a.SweepQuerier == nil {
-		log.Println("Armis updater not configured, skipping status update.")
+		logger.Info().Msg("Armis updater not configured, skipping status update")
 		return data, modelEvents, nil
 	}
 
 	// Call the new dedicated function to get device states
 	deviceStates, err := a.SweepQuerier.GetDeviceStatesBySource(ctx, "armis")
 	if err != nil {
-		log.Printf("Failed to query device states from ServiceRadar, skipping update: %v", err)
+		logger.Error().
+			Err(err).
+			Msg("Failed to query device states from ServiceRadar, skipping update")
 		return data, modelEvents, nil
 	}
 
-	log.Printf("Successfully queried %d device states from ServiceRadar.", len(deviceStates))
+	logger.Info().
+		Int("device_states_count", len(deviceStates)).
+		Msg("Successfully queried device states from ServiceRadar")
 
 	// Generate and append retraction events for devices no longer found in Armis
 	retractionEvents := a.generateRetractionEvents(devices, deviceStates)
 	if len(retractionEvents) > 0 {
-		log.Printf("Generated %d retraction events for 'armis' source.", len(retractionEvents))
+		logger.Info().
+			Int("retraction_events_count", len(retractionEvents)).
+			Str("source", "armis").
+			Msg("Generated retraction events")
 
 		modelEvents = append(modelEvents, retractionEvents...)
 	}
@@ -211,18 +234,24 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 	// Prepare updates using the new typed slice
 	updates := a.prepareArmisUpdateFromDeviceStates(deviceStates)
 
-	log.Println("Updates:", updates)
+	logger.Debug().
+		Interface("updates", updates).
+		Msg("Prepared updates for Armis")
 
 	if len(updates) > 0 {
-		log.Printf("Prepared %d status updates to send to Armis.", len(updates))
+		logger.Info().
+			Int("updates_count", len(updates)).
+			Msg("Prepared status updates to send to Armis")
 
 		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
-			log.Printf("Failed to update device status in Armis: %v", err)
+			logger.Error().
+				Err(err).
+				Msg("Failed to update device status in Armis")
 		} else {
-			log.Println("Successfully invoked the Armis device status updater.")
+			logger.Info().Msg("Successfully invoked the Armis device status updater")
 		}
 	} else {
-		log.Println("No device status updates to send to Armis.")
+		logger.Info().Msg("No device status updates to send to Armis")
 	}
 
 	return data, modelEvents, nil
@@ -250,8 +279,10 @@ func (a *ArmisIntegration) generateRetractionEvents(
 
 		// If a device that was previously discovered is not in the current list, it's considered retracted.
 		if _, found := currentDeviceIDs[armisID]; !found {
-			log.Printf("Device with Armis ID %s (IP: %s) is no longer detected. "+
-				"Generating retraction event.", armisID, state.IP)
+			logger.Info().
+				Str("armis_id", armisID).
+				Str("ip", state.IP).
+				Msg("Device no longer detected, generating retraction event")
 
 			retractionEvent := &models.SweepResult{
 				DeviceID:        state.DeviceID,
@@ -350,7 +381,9 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 		reqURL += fmt.Sprintf("&from=%d", from)
 	}
 
-	log.Printf("Sending request to: %s", reqURL)
+	logger.Debug().
+		Str("request_url", reqURL).
+		Msg("Sending request to Armis API")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
@@ -372,7 +405,10 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	log.Printf("API response for query '%s': %s", query, string(bodyBytes))
+	logger.Debug().
+		Str("query", query).
+		Str("response_body", string(bodyBytes)).
+		Msg("API response from Armis")
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode,
@@ -391,7 +427,9 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 
 	// Handle empty results gracefully
 	if searchResp.Data.Count == 0 {
-		log.Printf("No devices found for query '%s'", query)
+		logger.Info().
+			Str("query", query).
+			Msg("No devices found for query")
 	}
 
 	return &searchResp, nil
@@ -420,7 +458,10 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		// Marshal the device with metadata to JSON
 		value, err := json.Marshal(enriched)
 		if err != nil {
-			log.Printf("Failed to marshal device %d: %v", d.ID, err)
+			logger.Error().
+				Err(err).
+				Int("device_id", d.ID).
+				Msg("Failed to marshal enriched device")
 			continue
 		}
 
@@ -455,7 +496,10 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 
 		value, err = json.Marshal(modelDevice)
 		if err != nil {
-			log.Printf("Failed to marshal device %d: %v", d.ID, err)
+			logger.Error().
+				Err(err).
+				Int("device_id", d.ID).
+				Msg("Failed to marshal model device")
 			continue
 		}
 
