@@ -19,12 +19,13 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/core/alerts"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/core/alerts"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 const (

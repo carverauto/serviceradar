@@ -33,7 +33,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -283,5 +282,3 @@ func (s *Server) GetRperfManager() metricstore.RperfManager {
 func (s *Server) GetAuth() *auth.Auth {
 	return s.authService
 }
-
-
