@@ -1,0 +1,22 @@
+[package]
+name = "otel"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "otel"
+path = "src/lib.rs"
+doctest = false
+
+[[bin]]
+name = "otel"
+path = "src/main.rs"
+
+[dependencies]
+tonic = "0.12"
+prost = "0.13"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+
+[build-dependencies]
+tonic-build = "0.12"
