@@ -25,14 +25,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
 
-// processSyncResults processes the results of a sync discovery operation.
+// discoveryService implements the DiscoveryService interface.
+type discoveryService struct {
+	db  db.Service
+	reg registry.Manager
+}
+
+// NewDiscoveryService creates a new DiscoveryService instance.
+func NewDiscoveryService(db db.Service, reg registry.Manager) DiscoveryService {
+	return &discoveryService{db: db, reg: reg}
+}
+
+// ProcessSyncResults processes the results of a sync discovery operation.
 // It handles the discovery data, extracts relevant information, and stores it in the database.
-func (s *Server) processSyncResults(
+func (s *discoveryService) ProcessSyncResults(
 	ctx context.Context,
 	reportingPollerID string,
 	_ string, // partition is not used in sync results
@@ -57,7 +70,7 @@ func (s *Server) processSyncResults(
 		return nil // Nothing to process
 	}
 
-	if s.DeviceRegistry != nil {
+	if s.reg != nil {
 		source := "unknown"
 		if len(sightings) > 0 {
 			source = sightings[0].DiscoverySource // Use the source from the first sighting
@@ -66,7 +79,7 @@ func (s *Server) processSyncResults(
 		log.Printf("Processing %d device sightings from sync service (source: %s)",
 			len(sightings), source)
 
-		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, sightings); err != nil {
+		if err := s.reg.ProcessBatchSightings(ctx, sightings); err != nil {
 			log.Printf("Error processing sync discovery sightings for poller %s: %v", reportingPollerID, err)
 			return err
 		}
@@ -88,8 +101,8 @@ func isLoopbackIP(ipStr string) bool {
 	return ip.IsLoopback()
 }
 
-// processSNMPDiscoveryResults handles the data from SNMP discovery.
-func (s *Server) processSNMPDiscoveryResults(
+// ProcessSNMPDiscoveryResults handles the data from SNMP discovery.
+func (s *discoveryService) ProcessSNMPDiscoveryResults(
 	ctx context.Context,
 	reportingPollerID string,
 	partition string,
@@ -154,7 +167,7 @@ func (s *Server) processSNMPDiscoveryResults(
 }
 
 // processDiscoveredDevices handles processing and storing device information from SNMP discovery.
-func (s *Server) processDiscoveredDevices(
+func (s *discoveryService) processDiscoveredDevices(
 	ctx context.Context,
 	devices []*discoverypb.DiscoveredDevice,
 	discoveryAgentID string,
@@ -191,16 +204,16 @@ func (s *Server) processDiscoveredDevices(
 		resultsToStore = append(resultsToStore, result)
 	}
 
-	if s.DeviceRegistry != nil {
+	if s.reg != nil {
 		// Delegate to the new registry
-		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, resultsToStore); err != nil {
+		if err := s.reg.ProcessBatchSightings(ctx, resultsToStore); err != nil {
 			log.Printf("Error processing discovered device sightings for poller %s: %v", reportingPollerID, err)
 		}
 	}
 }
 
 // extractDeviceMetadata extracts and formats metadata from a discovered device.
-func (*Server) extractDeviceMetadata(protoDevice *discoverypb.DiscoveredDevice) map[string]string {
+func (*discoveryService) extractDeviceMetadata(protoDevice *discoverypb.DiscoveredDevice) map[string]string {
 	deviceMetadata := make(map[string]string)
 
 	if protoDevice.Metadata != nil {
@@ -380,7 +393,8 @@ func classifyDeviceType(hostname, sysDescr, sysObjectID string) string {
 //
 // This function NO LONGER performs any lookups or correlation itself.
 // groupInterfacesByDevice groups interfaces by the device they were discovered on.
-func (*Server) groupInterfacesByDevice(interfaces []*discoverypb.DiscoveredInterface) map[string][]*discoverypb.DiscoveredInterface {
+func (*discoveryService) groupInterfacesByDevice(
+	interfaces []*discoverypb.DiscoveredInterface) map[string][]*discoverypb.DiscoveredInterface {
 	deviceToInterfacesMap := make(map[string][]*discoverypb.DiscoveredInterface)
 
 	for _, protoIface := range interfaces {
@@ -395,7 +409,7 @@ func (*Server) groupInterfacesByDevice(interfaces []*discoverypb.DiscoveredInter
 }
 
 // createModelInterfaces creates model interfaces for storage from proto interfaces.
-func (s *Server) createModelInterfaces(
+func (s *discoveryService) createModelInterfaces(
 	deviceToInterfacesMap map[string][]*discoverypb.DiscoveredInterface,
 	partition string,
 	discoveryAgentID string,
@@ -434,7 +448,7 @@ func (s *Server) createModelInterfaces(
 }
 
 // collectDeviceIPs collects all unique IPs associated with a device from its interfaces.
-func (*Server) collectDeviceIPs(deviceIP string, deviceInterfaces []*discoverypb.DiscoveredInterface) []string {
+func (*discoveryService) collectDeviceIPs(deviceIP string, deviceInterfaces []*discoverypb.DiscoveredInterface) []string {
 	ipSet := make(map[string]struct{})
 	// Always include the primary IP the device was discovered with.
 	ipSet[deviceIP] = struct{}{}
@@ -460,7 +474,7 @@ func (*Server) collectDeviceIPs(deviceIP string, deviceInterfaces []*discoverypb
 }
 
 // createCorrelationSighting creates a correlation sighting for a device.
-func (s *Server) createCorrelationSighting(
+func (s *discoveryService) createCorrelationSighting(
 	deviceIP string,
 	alternateIPs []string,
 	deviceMap map[string]*discoverypb.DiscoveredDevice,
@@ -503,7 +517,7 @@ func (s *Server) createCorrelationSighting(
 	}
 }
 
-func (s *Server) processDiscoveredInterfaces(
+func (s *discoveryService) processDiscoveredInterfaces(
 	ctx context.Context,
 	interfaces []*discoverypb.DiscoveredInterface,
 	deviceMap map[string]*discoverypb.DiscoveredDevice,
@@ -529,7 +543,7 @@ func (s *Server) processDiscoveredInterfaces(
 		timestamp,
 	)
 
-	if err := s.DB.PublishBatchDiscoveredInterfaces(ctx, allModelInterfaces); err != nil {
+	if err := s.db.PublishBatchDiscoveredInterfaces(ctx, allModelInterfaces); err != nil {
 		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)
 	}
 
@@ -555,15 +569,15 @@ func (s *Server) processDiscoveredInterfaces(
 	}
 
 	// Process the batch of sightings through the authoritative registry
-	if len(correlationSightings) > 0 && s.DeviceRegistry != nil {
-		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, correlationSightings); err != nil {
+	if len(correlationSightings) > 0 && s.reg != nil {
+		if err := s.reg.ProcessBatchSightings(ctx, correlationSightings); err != nil {
 			log.Printf("Error processing mapper correlation sightings: %v", err)
 		}
 	}
 }
 
 // prepareInterfaceMetadata prepares the metadata JSON for an interface. (Helper function, remains unchanged)
-func (*Server) prepareInterfaceMetadata(protoIface *discoverypb.DiscoveredInterface) json.RawMessage {
+func (*discoveryService) prepareInterfaceMetadata(protoIface *discoverypb.DiscoveredInterface) json.RawMessage {
 	finalMetadataMap := make(map[string]string)
 
 	if protoIface.Metadata != nil {
@@ -588,7 +602,7 @@ func (*Server) prepareInterfaceMetadata(protoIface *discoverypb.DiscoveredInterf
 }
 
 // processDiscoveredTopology handles processing and storing topology information from SNMP discovery.
-func (s *Server) processDiscoveredTopology(
+func (s *discoveryService) processDiscoveredTopology(
 	ctx context.Context,
 	topology []*discoverypb.TopologyLink,
 	discoveryAgentID string,
@@ -633,13 +647,13 @@ func (s *Server) processDiscoveredTopology(
 		modelTopologyEvents = append(modelTopologyEvents, modelEvent)
 	}
 
-	if err := s.DB.PublishBatchTopologyDiscoveryEvents(ctx, modelTopologyEvents); err != nil {
+	if err := s.db.PublishBatchTopologyDiscoveryEvents(ctx, modelTopologyEvents); err != nil {
 		log.Printf("Error publishing batch topology discovery events for poller %s: %v", reportingPollerID, err)
 	}
 }
 
 // getOrGenerateLocalDeviceID returns the local device ID from the topology link or generates one if not present.
-func (*Server) getOrGenerateLocalDeviceID(protoLink *discoverypb.TopologyLink, partition string) string {
+func (*discoveryService) getOrGenerateLocalDeviceID(protoLink *discoverypb.TopologyLink, partition string) string {
 	localDeviceID := protoLink.LocalDeviceId
 	if localDeviceID == "" && protoLink.LocalDeviceIp != "" {
 		localDeviceID = fmt.Sprintf("%s:%s", partition, protoLink.LocalDeviceIp)
@@ -650,7 +664,7 @@ func (*Server) getOrGenerateLocalDeviceID(protoLink *discoverypb.TopologyLink, p
 }
 
 // prepareTopologyMetadata prepares the metadata JSON for a topology link.
-func (*Server) prepareTopologyMetadata(protoLink *discoverypb.TopologyLink) json.RawMessage {
+func (*discoveryService) prepareTopologyMetadata(protoLink *discoverypb.TopologyLink) json.RawMessage {
 	metadataJSON, err := json.Marshal(protoLink.Metadata) // protoLink.Metadata is map[string]string
 	if err != nil {
 		log.Printf("Error marshaling topology metadata for local device %s, ifIndex %d: %v",

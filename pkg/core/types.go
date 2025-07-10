@@ -55,6 +55,7 @@ type Server struct {
 	config                  *models.DBConfig
 	authService             *auth.Auth
 	DeviceRegistry          registry.Manager
+	discoveryService        DiscoveryService
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus
 	serviceListBuffers      map[string][]*models.Service
