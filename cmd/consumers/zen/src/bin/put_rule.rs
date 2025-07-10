@@ -32,6 +32,7 @@ struct SecurityConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 struct Config {
     nats_url: String,
     #[serde(default)]
