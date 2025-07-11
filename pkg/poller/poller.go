@@ -203,6 +203,7 @@ func newAgentPoller(
 				pollerID:  poller.config.PollerID,
 				agentName: name,
 				interval:  time.Duration(*check.ResultsInterval),
+				logger:    poller.logger,
 			}
 			ap.resultsPollers = append(ap.resultsPollers, resultsPoller)
 		}
@@ -697,17 +698,33 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 		Details:     rp.check.Details,
 	}
 
-	// TODO: Pass logger to ResultsPoller for structured logging
+	rp.logger.Debug().
+		Str("service_name", rp.check.Name).
+		Str("service_type", rp.check.Type).
+		Str("agent_name", rp.agentName).
+		Str("poller_id", rp.pollerID).
+		Msg("Executing GetResults call")
 
 	results, err := rp.client.GetResults(ctx, req)
 	if err != nil {
 		// Check if this is an "unimplemented" error, which means the service doesn't support GetResults
 		if status.Code(err) == codes.Unimplemented {
-			// TODO: Pass logger to ResultsPoller for structured logging
+			rp.logger.Debug().
+				Str("service_name", rp.check.Name).
+				Str("service_type", rp.check.Type).
+				Str("agent_name", rp.agentName).
+				Msg("Service does not support GetResults - skipping")
+
 			return nil // Skip this service for GetResults
 		}
 
-		// TODO: Pass logger to ResultsPoller for structured logging
+		rp.logger.Error().
+			Err(err).
+			Str("service_name", rp.check.Name).
+			Str("service_type", rp.check.Type).
+			Str("agent_name", rp.agentName).
+			Str("poller_id", rp.pollerID).
+			Msg("GetResults call failed")
 
 		// Convert GetResults failure to ServiceStatus format
 		return &proto.ServiceStatus{
@@ -720,7 +737,12 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 		}
 	}
 
-	// TODO: Pass logger to ResultsPoller for structured logging
+	rp.logger.Debug().
+		Str("service_name", rp.check.Name).
+		Str("service_type", rp.check.Type).
+		Str("agent_name", rp.agentName).
+		Bool("available", results.Available).
+		Msg("GetResults call completed successfully")
 
 	// Convert ResultsResponse to ServiceStatus format for core processing
 	return &proto.ServiceStatus{
