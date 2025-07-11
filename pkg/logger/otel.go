@@ -42,7 +42,7 @@ type OTelConfig struct {
 	Endpoint     string            `json:"endpoint" yaml:"endpoint"`
 	Headers      map[string]string `json:"headers" yaml:"headers"`
 	ServiceName  string            `json:"service_name" yaml:"service_name"`
-	BatchTimeout time.Duration     `json:"batch_timeout" yaml:"batch_timeout"`
+	BatchTimeout Duration          `json:"batch_timeout" yaml:"batch_timeout"`
 	Insecure     bool              `json:"insecure" yaml:"insecure"`
 }
 
@@ -94,7 +94,7 @@ func NewOTelWriter(config OTelConfig) (*OTelWriter, error) {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	batchTimeout := config.BatchTimeout
+	batchTimeout := time.Duration(config.BatchTimeout)
 	if batchTimeout == 0 {
 		batchTimeout = 5 * time.Second
 	}

@@ -33,7 +33,7 @@ func Example_otelConfiguration() {
 			Enabled:      true,
 			Endpoint:     "localhost:4317",
 			ServiceName:  "my-service",
-			BatchTimeout: 5 * time.Second,
+			BatchTimeout: logger.Duration(5 * time.Second),
 			Insecure:     true,
 			Headers: map[string]string{
 				"Authorization": "Bearer token123",

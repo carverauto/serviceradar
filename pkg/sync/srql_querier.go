@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 // SweepResultsQuery handles querying sweep results via SRQL
@@ -129,8 +130,7 @@ func (s *SweepResultsQuery) executeQuery(ctx context.Context, queryReq QueryRequ
 	}
 
 	// log the request for debugging
-	log.Printf("Executing SRQL query: %s", queryReq.Query)
-	log.Printf("Request body: %s", string(reqBody))
+	logger.Debug().Str("query", queryReq.Query).Str("request_body", string(reqBody)).Msg("Executing SRQL query")
 
 	// Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
