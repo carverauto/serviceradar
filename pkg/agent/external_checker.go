@@ -21,13 +21,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"strconv"
 	"sync"
 	"time"
 
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -52,6 +52,7 @@ type ExternalChecker struct {
 	healthCheckInterval  time.Duration      // Dynamic backoff interval
 	lastHealthCheck      time.Time          // Last health check timestamp
 	healthStatus         bool               // Last known health status
+	logger               logger.Logger
 }
 
 var (
@@ -68,9 +69,9 @@ func NewExternalChecker(
 	ctx context.Context,
 	serviceName, serviceType, address, grpcServiceCheckName string,
 	security *models.SecurityConfig,
+	log logger.Logger,
 ) (*ExternalChecker, error) {
-	log.Printf("Configuring new external checker name=%s type=%s at %s, grpc_service_name=%s",
-		serviceName, serviceType, address, grpcServiceCheckName)
+	log.Info().Str("name", serviceName).Str("type", serviceType).Str("address", address).Str("grpcServiceName", grpcServiceCheckName).Msg("Configuring new external checker")
 
 	if address == "" {
 		return nil, errAddressRequired
@@ -94,7 +95,7 @@ func NewExternalChecker(
 	}
 
 	// Create SecurityProvider once during checker creation
-	provider, err := ggrpc.NewSecurityProvider(ctx, security)
+	provider, err := ggrpc.NewSecurityProvider(ctx, security, log)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToCreateSecurityProvider, err)
 	}
@@ -103,6 +104,7 @@ func NewExternalChecker(
 		Address:          address,
 		MaxRetries:       maxRetries,
 		SecurityProvider: provider,
+		Logger:           log,
 	}
 
 	checker := &ExternalChecker{
@@ -115,17 +117,17 @@ func NewExternalChecker(
 		healthCheckInterval:  initialHealthInterval,
 		lastHealthCheck:      time.Time{},
 		healthStatus:         false,
+		logger:               log,
 	}
 
-	log.Printf("Successfully configured external checker name=%s type=%s, grpc_service_name=%s",
-		serviceName, serviceType, grpcServiceCheckName)
+	log.Info().Str("name", serviceName).Str("type", serviceType).Str("grpcServiceName", grpcServiceCheckName).Msg("Successfully configured external checker")
 
 	return checker, nil
 }
 
 func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (healthy bool, details json.RawMessage) {
 	if e.canUseCachedStatus() {
-		log.Printf("ExternalChecker %s: Using cached health status: %v", e.serviceName, e.healthStatus)
+		e.logger.Debug().Str("service", e.serviceName).Bool("status", e.healthStatus).Msg("Using cached health status")
 
 		if !e.healthStatus {
 			return false, jsonError("Service unhealthy (cached status)")
@@ -137,7 +139,7 @@ func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (
 
 	if err := e.ensureConnected(ctx); err != nil {
 		e.updateHealthStatus(false)
-		log.Printf("ExternalChecker %s: Connection failed: %v", e.serviceName, err)
+		e.logger.Error().Err(err).Str("service", e.serviceName).Msg("Connection failed")
 
 		return false, jsonError(fmt.Sprintf("Failed to connect: %v", err))
 	}
@@ -146,7 +148,7 @@ func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (
 	if err != nil || !healthy {
 		e.updateHealthStatus(false)
 
-		log.Printf("ExternalChecker %s: Health check failed (Healthy: %v, Err: %v)", e.serviceName, healthy, err)
+		e.logger.Error().Err(err).Str("service", e.serviceName).Bool("healthy", healthy).Msg("Health check failed")
 
 		if err != nil {
 			return false, jsonError(fmt.Sprintf("Health check failed: %v", err))
@@ -157,7 +159,7 @@ func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (
 
 	e.updateHealthStatus(true)
 
-	log.Printf("ExternalChecker %s: Health check succeeded", e.serviceName)
+	e.logger.Debug().Str("service", e.serviceName).Msg("Health check succeeded")
 
 	return e.getServiceDetails(ctx, req)
 }
@@ -170,7 +172,7 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context, _ *proto.Status
 		ServiceType: e.serviceType,
 	})
 	if err != nil {
-		log.Printf("ExternalChecker %s: Failed to get status details: %v", e.serviceName, err)
+		e.logger.Error().Err(err).Str("service", e.serviceName).Msg("Failed to get status details")
 
 		return false, jsonError(fmt.Sprintf("Failed to get status: %v", err))
 	}
@@ -198,10 +200,10 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 		}
 
 		// Close the unhealthy client
-		log.Printf("ExternalChecker %s: Closing unhealthy client", e.serviceName)
+		e.logger.Debug().Str("service", e.serviceName).Msg("Closing unhealthy client")
 
 		if err := e.grpcClient.Close(); err != nil {
-			log.Printf("ExternalChecker %s: Error closing client: %v", e.serviceName, err)
+			e.logger.Error().Err(err).Str("service", e.serviceName).Msg("Error closing client")
 		}
 
 		e.grpcClient = nil
@@ -213,19 +215,19 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 	delay := initialRetryDelay
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		log.Printf("ExternalChecker %s: Connecting to %s (attempt %d/%d)", e.serviceName, e.address, attempt+1, maxRetries)
+		e.logger.Info().Str("service", e.serviceName).Str("address", e.address).Int("attempt", attempt+1).Int("maxRetries", maxRetries).Msg("Connecting to service")
 
 		client, err := ggrpc.NewClient(ctx, e.clientConfig)
 		if err == nil {
 			e.grpcClient = client
-			log.Printf("ExternalChecker %s: Connected successfully", e.serviceName)
+			e.logger.Info().Str("service", e.serviceName).Msg("Connected successfully")
 
 			return nil
 		}
 
 		lastErr = err
 
-		log.Printf("ExternalChecker %s: Connection attempt %d failed: %v", e.serviceName, attempt+1, err)
+		e.logger.Warn().Err(err).Str("service", e.serviceName).Int("attempt", attempt+1).Msg("Connection attempt failed")
 
 		if attempt < maxRetries-1 {
 			select {

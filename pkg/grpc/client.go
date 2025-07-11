@@ -19,10 +19,10 @@ package grpc
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -33,6 +33,7 @@ type ClientConfig struct {
 	Address          string
 	SecurityProvider SecurityProvider
 	MaxRetries       int
+	Logger           logger.Logger
 }
 
 // Client manages a gRPC client connection.
@@ -40,6 +41,7 @@ type Client struct {
 	conn   *grpc.ClientConn
 	health grpc_health_v1.HealthClient
 	config ClientConfig
+	logger logger.Logger
 	mu     sync.RWMutex
 	closed bool
 }
@@ -52,7 +54,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 
 	// Default to no security if none provided
 	if cfg.SecurityProvider == nil {
-		cfg.SecurityProvider = &NoSecurityProvider{}
+		cfg.SecurityProvider = &NoSecurityProvider{logger: cfg.Logger}
 	}
 
 	if cfg.MaxRetries == 0 {
@@ -73,6 +75,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 		conn:   conn,
 		health: grpc_health_v1.NewHealthClient(conn),
 		config: cfg,
+		logger: cfg.Logger,
 	}, nil
 }
 
@@ -84,7 +87,7 @@ func createDialOptions(ctx context.Context, cfg ClientConfig) ([]grpc.DialOption
 
 	return []grpc.DialOption{
 		creds,
-		grpc.WithUnaryInterceptor(RetryInterceptor(cfg.MaxRetries)),
+		grpc.WithUnaryInterceptor(RetryInterceptor(cfg.MaxRetries, cfg.Logger)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                120 * time.Second, // Match server
 			Timeout:             20 * time.Second,
@@ -120,7 +123,7 @@ func (c *Client) Close() error {
 	c.closed = true
 	if c.config.SecurityProvider != nil {
 		if err := c.config.SecurityProvider.Close(); err != nil {
-			log.Printf("Failed to close security provider: %v", err)
+			c.logger.Error().Err(err).Msg("Failed to close security provider")
 		}
 	}
 
@@ -128,7 +131,7 @@ func (c *Client) Close() error {
 }
 
 // RetryInterceptor provides basic retry logic.
-func RetryInterceptor(maxRetries int) grpc.UnaryClientInterceptor {
+func RetryInterceptor(maxRetries int, log logger.Logger) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{},
 		cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		var lastErr error
@@ -139,8 +142,9 @@ func RetryInterceptor(maxRetries int) grpc.UnaryClientInterceptor {
 			start := time.Now()
 
 			err := invoker(ctx, method, req, reply, cc, opts...)
-			log.Printf("gRPC call: %s attempt: %d target: %s duration: %v error: %v",
-				method, attempt+1, cc.Target(), time.Since(start), err)
+			if log != nil {
+				log.Debug().Str("method", method).Int("attempt", attempt+1).Str("target", cc.Target()).Dur("duration", time.Since(start)).Err(err).Msg("gRPC call")
+			}
 
 			if err == nil {
 				return nil

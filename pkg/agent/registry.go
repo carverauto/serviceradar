@@ -22,10 +22,12 @@ import (
 	"errors"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-func initRegistry() checker.Registry {
+// initRegistryWithLogger creates a registry with logger support for agent package checkers
+func initRegistryWithLogger(log logger.Logger) checker.Registry {
 	registry := checker.NewRegistry()
 
 	// Register the process checker
@@ -55,7 +57,7 @@ func initRegistry() checker.Registry {
 			return NewICMPChecker(host)
 		})
 
-	// Register the gRPC checker
+	// Register the gRPC checker with logger support
 	registry.Register("grpc",
 		func(ctx context.Context, serviceName, details string, security *models.SecurityConfig) (checker.Checker, error) {
 			if details == "" {
@@ -81,26 +83,26 @@ func initRegistry() checker.Registry {
 				actualGrpcServiceCheckName = "" // Empty string means use standard gRPC health
 			}
 
-			return NewExternalChecker(ctx, serviceName, "grpc", details, actualGrpcServiceCheckName, security)
+			return NewExternalChecker(ctx, serviceName, "grpc", details, actualGrpcServiceCheckName, security, log)
 		})
 
-	// Register the SNMP checker
+	// Register the SNMP checker with logger support
 	registry.Register("snmp", func(ctx context.Context, _, details string, security *models.SecurityConfig) (checker.Checker, error) {
 		if details == "" {
 			return nil, errDetailsRequiredSNMP
 		}
 
-		return NewSNMPChecker(ctx, details, security)
+		return NewSNMPChecker(ctx, details, security, log)
 	})
 
-	// Register the mapper_discovery checker
+	// Register the mapper_discovery checker with logger support
 	registry.Register("mapper_discovery",
 		func(ctx context.Context, _, details string, security *models.SecurityConfig) (checker.Checker, error) {
 			if details == "" {
 				return nil, errors.New("details field is required for mapper_discovery checks")
 			}
 
-			return NewMapperDiscoveryChecker(ctx, details, security)
+			return NewMapperDiscoveryChecker(ctx, details, security, log)
 		})
 
 	return registry

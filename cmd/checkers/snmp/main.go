@@ -55,7 +55,7 @@ func run() error {
 	ctx := context.Background()
 
 	// Initialize configuration loader
-	cfgLoader := config.NewConfig()
+	cfgLoader := config.NewConfigWithDefaults()
 
 	// Load configuration with context
 	var cfg snmp.SNMPConfig

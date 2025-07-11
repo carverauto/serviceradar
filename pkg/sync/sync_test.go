@@ -23,19 +23,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/proto"
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
 // testLogger creates a no-op logger for tests
-func testLogger() *zerolog.Logger {
-	logger := zerolog.New(io.Discard).Level(zerolog.Disabled)
-	return &logger
+func testLogger() logger.Logger {
+	config := &logger.Config{
+		Level:  "disabled",
+		Output: "stderr",
+	}
+	log, err := lifecycle.CreateLogger(config)
+	if err != nil {
+		panic(err)
+	}
+	return log
 }
 
 func TestNew_ValidConfig(t *testing.T) {

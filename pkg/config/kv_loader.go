@@ -24,16 +24,21 @@ import (
 	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/config/kv"
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 // KVConfigLoader loads configuration from a KV store.
 type KVConfigLoader struct {
-	store kv.KVStore
+	store  kv.KVStore
+	logger logger.Logger
 }
 
-// NewKVConfigLoader creates a new KVConfigLoader with the given KV store.
-func NewKVConfigLoader(store kv.KVStore) *KVConfigLoader {
-	return &KVConfigLoader{store: store}
+// NewKVConfigLoader creates a new KVConfigLoader with the given KV store and logger.
+func NewKVConfigLoader(store kv.KVStore, log logger.Logger) *KVConfigLoader {
+	return &KVConfigLoader{
+		store:  store,
+		logger: log,
+	}
 }
 
 var (
@@ -44,18 +49,35 @@ var (
 func (k *KVConfigLoader) Load(ctx context.Context, path string, dst interface{}) error {
 	key := "config/" + path[strings.LastIndex(path, "/")+1:]
 
+	if k.logger != nil {
+		k.logger.Debug().Str("key", key).Str("path", path).Msg("Loading configuration from KV store")
+	}
+
 	data, found, err := k.store.Get(ctx, key)
 	if err != nil {
+		if k.logger != nil {
+			k.logger.Error().Str("key", key).Err(err).Msg("Failed to get key from KV store")
+		}
 		return fmt.Errorf("failed to get key '%s' from KV store: %w", key, err)
 	}
 
 	if !found {
+		if k.logger != nil {
+			k.logger.Warn().Str("key", key).Msg("Key not found in KV store")
+		}
 		return fmt.Errorf("%w: '%s'", errKVKeyNotFound, key)
 	}
 
 	err = json.Unmarshal(data, dst)
 	if err != nil {
+		if k.logger != nil {
+			k.logger.Error().Str("key", key).Err(err).Msg("Failed to unmarshal JSON from KV store")
+		}
 		return fmt.Errorf("failed to unmarshal JSON from key '%s': %w", key, err)
+	}
+
+	if k.logger != nil {
+		k.logger.Info().Str("key", key).Msg("Successfully loaded configuration from KV store")
 	}
 
 	return nil

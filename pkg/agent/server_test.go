@@ -130,7 +130,7 @@ func TestNewServerBasic(t *testing.T) {
 		return nil, errSweepConfigNil // Default behavior for this test
 	}
 
-	cfgLoader := cconfig.NewConfig()
+	cfgLoader := cconfig.NewConfigWithDefaults()
 
 	err := s.loadConfigurations(context.Background(), cfgLoader)
 	require.NoError(t, err)
@@ -194,7 +194,7 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 		return &mockService{}, nil
 	}
 
-	cfgLoader := cconfig.NewConfig()
+	cfgLoader := cconfig.NewConfigWithDefaults()
 	cfgLoader.SetKVStore(kvStore)
 
 	err = s.loadConfigurations(context.Background(), cfgLoader)

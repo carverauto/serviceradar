@@ -26,6 +26,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/proto"
@@ -47,6 +48,7 @@ type Server struct {
 	kvStore            KVStore
 	createSweepService func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error)
 	setupKVStore       func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (KVStore, error)
+	logger             logger.Logger
 }
 type Duration time.Duration
 

@@ -21,12 +21,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
@@ -43,7 +43,9 @@ const (
 )
 
 // NoSecurityProvider implements SecurityProvider with no security (development only).
-type NoSecurityProvider struct{}
+type NoSecurityProvider struct {
+	logger logger.Logger
+}
 
 func (*NoSecurityProvider) GetClientCredentials(context.Context) (grpc.DialOption, error) {
 	return grpc.WithTransportCredentials(insecure.NewCredentials()), nil
@@ -65,27 +67,27 @@ type MTLSProvider struct {
 	closeOnce   sync.Once
 	needsClient bool
 	needsServer bool
+	logger      logger.Logger
 }
 
 // NewMTLSProvider creates a new MTLSProvider with the given configuration.
-func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
+func NewMTLSProvider(config *models.SecurityConfig, log logger.Logger) (*MTLSProvider, error) {
 	if config == nil {
 		return nil, errSecurityConfigRequired
 	}
 
 	if config.TLS.CertFile == "" || config.TLS.KeyFile == "" || config.TLS.CAFile == "" {
-		log.Printf("ERROR: mTLS mode requires tls.cert_file, tls.key_file, and tls.ca_file to be set in the security config.")
+		log.Error().Msg("ERROR: mTLS mode requires tls.cert_file, tls.key_file, and tls.ca_file to be set in the security config.")
 
 		return nil, fmt.Errorf("%w: missing required TLS file paths in config", errSecurityConfigRequired)
 	}
 
-	provider := &MTLSProvider{config: config}
+	provider := &MTLSProvider{config: config, logger: log}
 	if err := provider.setCredentialNeeds(); err != nil {
 		return nil, err
 	}
 
-	log.Printf("Initializing mTLS provider - Role: %s, NeedsClient: %v, NeedsServer: %v",
-		config.Role, provider.needsClient, provider.needsServer)
+	log.Info().Str("role", string(config.Role)).Bool("needsClient", provider.needsClient).Bool("needsServer", provider.needsServer).Msg("Initializing mTLS provider")
 
 	if err := provider.loadCredentials(); err != nil {
 		return nil, err
@@ -122,7 +124,7 @@ func (p *MTLSProvider) loadCredentials() error {
 	var err error
 
 	if p.needsClient {
-		log.Printf("Loading client credentials using paths from config.TLS")
+		p.logger.Info().Msg("Loading client credentials using paths from config.TLS")
 
 		p.clientCreds, err = loadClientCredentials(p.config)
 		if err != nil {
@@ -131,9 +133,9 @@ func (p *MTLSProvider) loadCredentials() error {
 	}
 
 	if p.needsServer {
-		log.Printf("Loading server credentials using paths from config.TLS")
+		p.logger.Info().Msg("Loading server credentials using paths from config.TLS")
 
-		p.serverCreds, err = loadServerCredentials(p.config)
+		p.serverCreds, err = loadServerCredentials(p.config, p.logger)
 		if err != nil {
 			return fmt.Errorf("%w: %w", errFailedToLoadServerCreds, err)
 		}
@@ -184,15 +186,15 @@ func loadClientCredentials(config *models.SecurityConfig) (credentials.Transport
 	return credentials.NewTLS(tlsConfig), nil
 }
 
-func loadServerCredentials(config *models.SecurityConfig) (credentials.TransportCredentials, error) {
-	certPath, keyPath, clientCaPath := normalizePaths(config)
+func loadServerCredentials(config *models.SecurityConfig, log logger.Logger) (credentials.TransportCredentials, error) {
+	certPath, keyPath, clientCaPath := normalizePaths(config, log)
 
-	cert, err := loadServerCert(certPath, keyPath)
+	cert, err := loadServerCert(certPath, keyPath, log)
 	if err != nil {
 		return nil, err
 	}
 
-	clientCaPool, err := loadClientCAPool(clientCaPath)
+	clientCaPool, err := loadClientCAPool(clientCaPath, log)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +210,7 @@ func loadServerCredentials(config *models.SecurityConfig) (credentials.Transport
 }
 
 // normalizePaths resolves certificate paths based on config.
-func normalizePaths(config *models.SecurityConfig) (certPath, keyPath, clientCaPath string) {
+func normalizePaths(config *models.SecurityConfig, log logger.Logger) (certPath, keyPath, clientCaPath string) {
 	certPath = config.TLS.CertFile
 	keyPath = config.TLS.KeyFile
 	clientCaPath = config.TLS.ClientCAFile
@@ -222,21 +224,21 @@ func normalizePaths(config *models.SecurityConfig) (certPath, keyPath, clientCaP
 	}
 
 	if clientCaPath == "" {
-		log.Printf("ClientCAFile not specified, using CAFile (%s) for client verification", config.TLS.CAFile)
+		log.Info().Str("caFile", config.TLS.CAFile).Msg("ClientCAFile not specified, using CAFile for client verification")
 
 		clientCaPath = config.TLS.CAFile
 	} else if !filepath.IsAbs(clientCaPath) && config.CertDir != "" {
 		clientCaPath = filepath.Join(config.CertDir, clientCaPath)
 
-		log.Printf("Normalized ClientCAFile to: %s", clientCaPath)
+		log.Info().Str("clientCAFile", clientCaPath).Msg("Normalized ClientCAFile")
 	}
 
 	return certPath, keyPath, clientCaPath
 }
 
 // loadServerCert loads the server certificate and key pair.
-func loadServerCert(certPath, keyPath string) (tls.Certificate, error) {
-	log.Printf("Loading server certificate from %s and key from %s", certPath, keyPath)
+func loadServerCert(certPath, keyPath string, log logger.Logger) (tls.Certificate, error) {
+	log.Info().Str("certPath", certPath).Str("keyPath", keyPath).Msg("Loading server certificate")
 
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
@@ -247,8 +249,8 @@ func loadServerCert(certPath, keyPath string) (tls.Certificate, error) {
 }
 
 // loadClientCAPool loads and parses the client CA certificate into a pool.
-func loadClientCAPool(clientCaPath string) (*x509.CertPool, error) {
-	log.Printf("Loading server Client CA certificate from %s", clientCaPath)
+func loadClientCAPool(clientCaPath string, log logger.Logger) (*x509.CertPool, error) {
+	log.Info().Str("clientCaPath", clientCaPath).Msg("Loading server Client CA certificate")
 
 	clientCaCert, err := os.ReadFile(clientCaPath)
 	if err != nil {
@@ -285,9 +287,10 @@ type SpiffeProvider struct {
 	client    *workloadapi.Client
 	source    *workloadapi.X509Source
 	closeOnce sync.Once
+	logger    logger.Logger
 }
 
-func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig) (*SpiffeProvider, error) {
+func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log logger.Logger) (*SpiffeProvider, error) {
 	if config.WorkloadSocket == "" {
 		config.WorkloadSocket = "unix:/run/spire/sockets/agent.sock"
 	}
@@ -315,6 +318,7 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig) (*Spi
 		config: config,
 		client: client,
 		source: source,
+		logger: log,
 	}, nil
 }
 
@@ -352,7 +356,7 @@ func (p *SpiffeProvider) Close() error {
 	p.closeOnce.Do(func() {
 		if p.source != nil {
 			if e := p.source.Close(); e != nil {
-				log.Printf("Failed to close X.509 source: %v", e)
+				p.logger.Error().Err(e).Msg("Failed to close X.509 source")
 
 				err = e
 			}
@@ -360,7 +364,7 @@ func (p *SpiffeProvider) Close() error {
 
 		if p.client != nil {
 			if e := p.client.Close(); e != nil {
-				log.Printf("Failed to close workload client: %v", e)
+				p.logger.Error().Err(e).Msg("Failed to close workload client")
 
 				err = e
 			}
@@ -371,52 +375,52 @@ func (p *SpiffeProvider) Close() error {
 }
 
 // NewSecurityProvider creates the appropriate security provider based on mode.
-func NewSecurityProvider(ctx context.Context, config *models.SecurityConfig) (SecurityProvider, error) {
+func NewSecurityProvider(ctx context.Context, config *models.SecurityConfig, log logger.Logger) (SecurityProvider, error) {
 	if config == nil {
-		log.Printf("SECURITY WARNING: No security config provided, using no security")
+		log.Warn().Msg("SECURITY WARNING: No security config provided, using no security")
 
-		return &NoSecurityProvider{}, nil
+		return &NoSecurityProvider{logger: log}, nil
 	}
 
 	// Defensive check: ensure mode is a non-empty string
 	if config.Mode == "" {
-		log.Printf("SECURITY WARNING: Empty security mode, using no security")
+		log.Warn().Msg("SECURITY WARNING: Empty security mode, using no security")
 
-		return &NoSecurityProvider{}, nil
+		return &NoSecurityProvider{logger: log}, nil
 	}
 
-	log.Printf("Creating security provider with mode: %s", config.Mode)
+	log.Info().Str("mode", string(config.Mode)).Msg("Creating security provider")
 
 	// Make sure we're comparing case-insensitive strings
 	mode := strings.ToLower(string(config.Mode))
 
 	switch models.SecurityMode(mode) {
 	case SecurityModeNone:
-		log.Printf("Using no security (explicitly configured)")
+		log.Info().Msg("Using no security (explicitly configured)")
 
-		return &NoSecurityProvider{}, nil
+		return &NoSecurityProvider{logger: log}, nil
 	case SecurityModeMTLS:
-		log.Printf("Initializing mTLS security provider with cert dir: %s", config.CertDir)
+		log.Info().Str("certDir", config.CertDir).Msg("Initializing mTLS security provider")
 
-		provider, err := NewMTLSProvider(config)
+		provider, err := NewMTLSProvider(config, log)
 		if err != nil {
 			// Log detailed error information for debugging
-			log.Printf("ERROR creating mTLS provider: %v", err)
+			log.Error().Err(err).Msg("ERROR creating mTLS provider")
 
 			return nil, fmt.Errorf("%w: %w", errFailedToCreateMTLSProvider, err)
 		}
 
-		log.Printf("Successfully created mTLS security provider")
+		log.Info().Msg("Successfully created mTLS security provider")
 
 		return provider, nil
 	case SecurityModeSpiffe:
-		log.Printf("Initializing SPIFFE security provider with socket: %s",
-			config.WorkloadSocket)
+		log.Info().Str("workloadSocket", config.WorkloadSocket).Msg("Initializing SPIFFE security provider")
 
-		return NewSpiffeProvider(ctx, config)
+		return NewSpiffeProvider(ctx, config, log)
 	default:
-		log.Printf("ERROR: Unknown security mode: %s", config.Mode)
+		log.Error().Str("mode", string(config.Mode)).Msg("ERROR: Unknown security mode")
 
 		return nil, fmt.Errorf("%w: %s", errUnknownSecurityMode, config.Mode)
 	}
 }
+
