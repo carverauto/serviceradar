@@ -26,8 +26,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// initRegistryWithLogger creates a registry with logger support for agent package checkers
-func initRegistryWithLogger(log logger.Logger) checker.Registry {
+// initRegistry creates a registry with logger support for agent package checkers
+func initRegistry(log logger.Logger) checker.Registry {
 	registry := checker.NewRegistry()
 
 	// Register the process checker

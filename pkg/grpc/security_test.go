@@ -26,36 +26,14 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 )
 
-// Simple test logger implementation using zerolog.Nop()
-type testLogger struct {
-	nop zerolog.Logger
-}
-
-func (t *testLogger) Debug() *zerolog.Event { return t.nop.Debug() }
-func (t *testLogger) Info() *zerolog.Event  { return t.nop.Info() }
-func (t *testLogger) Warn() *zerolog.Event  { return t.nop.Warn() }
-func (t *testLogger) Error() *zerolog.Event { return t.nop.Error() }
-func (t *testLogger) Fatal() *zerolog.Event { return t.nop.Fatal() }
-func (t *testLogger) Panic() *zerolog.Event { return t.nop.Panic() }
-func (t *testLogger) With() zerolog.Context { return t.nop.With() }
-func (t *testLogger) WithComponent(component string) zerolog.Logger {
-	return t.nop.With().Str("component", component).Logger()
-}
-func (t *testLogger) WithFields(fields map[string]interface{}) zerolog.Logger {
-	return t.nop.With().Fields(fields).Logger()
-}
-func (t *testLogger) SetLevel(level zerolog.Level) { t.nop = t.nop.Level(level) }
-func (t *testLogger) SetDebug(debug bool)          { /* no-op */ }
-
-func createTestLogger(t *testing.T) logger.Logger {
-	return &testLogger{nop: zerolog.Nop()}
+func createTestLogger(_ *testing.T) logger.Logger {
+	return logger.NewTestLogger()
 }
 
 // TestNoSecurityProvider tests the NoSecurityProvider implementation.

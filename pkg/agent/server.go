@@ -76,7 +76,7 @@ func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *S
 		configDir:    configDir,
 		services:     make([]Service, 0),
 		listenAddr:   cfg.ListenAddr,
-		registry:     initRegistryWithLogger(log),
+		registry:     initRegistry(log),
 		errChan:      make(chan error, defaultErrChansize),
 		done:         make(chan struct{}),
 		config:       cfg,

@@ -227,7 +227,7 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 		go func(check Check) {
 			defer wg.Done()
 
-			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID, ap.name)
+			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID, ap.name, ap.poller.logger)
 			results <- svcCheck.execute(checkCtx)
 		}(check)
 	}
@@ -290,12 +290,13 @@ func (ap *AgentPoller) ExecuteResults(ctx context.Context) []*proto.ServiceStatu
 	return statuses
 }
 
-func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID, agentName string) *ServiceCheck {
+func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID, agentName string, logger logger.Logger) *ServiceCheck {
 	return &ServiceCheck{
 		client:    client,
 		check:     check,
 		pollerID:  pollerID,
 		agentName: agentName,
+		logger:    logger,
 	}
 }
 
@@ -312,16 +313,32 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		req.Port = sc.check.Port
 	}
 
-	// TODO: Pass logger to ServiceCheck for structured logging
+	sc.logger.Debug().
+		Str("service_name", sc.check.Name).
+		Str("service_type", sc.check.Type).
+		Str("agent_name", sc.agentName).
+		Str("poller_id", sc.pollerID).
+		Msg("Executing service check")
 
 	status, err := sc.client.GetStatus(ctx, req)
 	if err != nil {
-		// TODO: Pass logger to ServiceCheck for structured logging
+		sc.logger.Error().
+			Err(err).
+			Str("service_name", sc.check.Name).
+			Str("service_type", sc.check.Type).
+			Str("agent_name", sc.agentName).
+			Str("poller_id", sc.pollerID).
+			Msg("Service check failed")
+
 		msg := "Service check failed"
 
 		message, err := json.Marshal(map[string]string{"error": msg})
 		if err != nil {
-			// TODO: Pass logger to ServiceCheck for structured logging
+			sc.logger.Warn().
+				Err(err).
+				Str("service_name", sc.check.Name).
+				Msg("Failed to marshal error message, using fallback")
+
 			message = []byte(msg) // Fallback to plain string if marshal fails
 		}
 
@@ -334,7 +351,12 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		}
 	}
 
-	// TODO: Pass logger to ServiceCheck for structured logging
+	sc.logger.Debug().
+		Str("service_name", sc.check.Name).
+		Str("service_type", sc.check.Type).
+		Str("agent_name", sc.agentName).
+		Bool("available", status.Available).
+		Msg("Service check completed successfully")
 
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,
