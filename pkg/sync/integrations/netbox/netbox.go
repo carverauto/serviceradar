@@ -22,11 +22,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -57,21 +57,33 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mo
 	if n.Querier != nil {
 		existingRadarDevices, err := n.Querier.GetDeviceStatesBySource(ctx, "netbox")
 		if err != nil {
-			log.Printf("Failed to query existing Netbox devices from ServiceRadar, skipping retraction: %v", err)
+			logger.Warn().
+				Err(err).
+				Str("source", "netbox").
+				Msg("Failed to query existing Netbox devices from ServiceRadar, skipping retraction")
 		} else {
-			log.Printf("Successfully queried %d device states from ServiceRadar for source 'netbox'.",
-				len(existingRadarDevices))
+			logger.Info().
+				Int("device_count", len(existingRadarDevices)).
+				Str("source", "netbox").
+				Msg("Successfully queried device states from ServiceRadar")
 
 			retractionEvents := n.generateRetractionEvents(currentEvents, existingRadarDevices)
 
 			if len(retractionEvents) > 0 {
-				log.Printf("Generated %d retraction events for 'netbox' source.", len(retractionEvents))
+				logger.Info().
+					Int("retraction_count", len(retractionEvents)).
+					Str("source", "netbox").
+					Msg("Generated retraction events")
+
 				allEvents = append(allEvents, retractionEvents...)
 			}
 		}
 	}
 
-	log.Printf("Fetched %d devices from NetBox", len(deviceResp.Results))
+	logger.Info().
+		Int("device_count", len(deviceResp.Results)).
+		Str("source", "netbox").
+		Msg("Fetched devices from NetBox")
 
 	n.writeSweepConfig(ctx, ips)
 
@@ -104,8 +116,10 @@ func (n *NetboxIntegration) generateRetractionEvents(
 
 		// If a device that was previously discovered is not in the current list, it's considered retracted.
 		if _, found := currentDeviceIDs[netboxID]; !found {
-			log.Printf("Device with Netbox ID %s (IP: %s) is no longer detected. "+
-				"Generating retraction event.", netboxID, state.IP)
+			logger.Info().
+				Str("netbox_id", netboxID).
+				Str("ip", state.IP).
+				Msg("Device no longer detected, generating retraction event")
 
 			retractionEvent := &models.SweepResult{
 				DeviceID:        state.DeviceID,
@@ -170,7 +184,9 @@ func (n *NetboxIntegration) fetchDevices(ctx context.Context) (*http.Response, e
 // closeResponse closes the HTTP response body, logging any errors.
 func (*NetboxIntegration) closeResponse(resp *http.Response) {
 	if err := resp.Body.Close(); err != nil {
-		log.Printf("Failed to close response body: %v", err)
+		logger.Warn().
+			Err(err).
+			Msg("Failed to close response body")
 	}
 }
 
@@ -207,7 +223,11 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 
 		ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
 		if err != nil {
-			log.Printf("Failed to parse IP %s: %v", device.PrimaryIP4.Address, err)
+			logger.Warn().
+				Err(err).
+				Str("ip_address", device.PrimaryIP4.Address).
+				Msg("Failed to parse IP address")
+
 			continue
 		}
 
@@ -257,12 +277,18 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 		var metaJSON []byte
 
 		if metaJSON, err = json.Marshal(event.Metadata); err == nil {
-			log.Printf("  - SweepResult Metadata: %s", string(metaJSON))
+			logger.Debug().
+				Str("metadata", string(metaJSON)).
+				Msg("SweepResult metadata")
 		}
 
 		value, err := json.Marshal(event)
 		if err != nil {
-			log.Printf("Failed to marshal device %d: %v", device.ID, err)
+			logger.Error().
+				Err(err).
+				Int("device_id", device.ID).
+				Msg("Failed to marshal device")
+
 			continue
 		}
 
@@ -277,7 +303,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 // writeSweepConfig generates and writes the sweep Config to KV.
 func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) {
 	if n.KvClient == nil {
-		log.Print("KV client not configured; skipping sweep config write")
+		logger.Warn().Msg("KV client not configured; skipping sweep config write")
 	}
 
 	// AgentID to be used for the sweep config key.
@@ -286,7 +312,9 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 	if agentIDForConfig == "" {
 		// As a fallback, we could use ServerName, but logging a warning is better
 		// to encourage explicit configuration.
-		log.Printf("Warning: agent_id not set for Netbox source. Sweep config key may be incorrect.")
+		logger.Warn().
+			Str("source", "netbox").
+			Msg("agent_id not set for Netbox source. Sweep config key may be incorrect")
 		// If you need a fallback, you can use: agentIDForConfig = n.ServerName
 
 		return // Or simply return to avoid writing a config with an unpredictable key
@@ -311,7 +339,9 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
-		log.Printf("Failed to marshal sweep config: %v", err)
+		logger.Error().
+			Err(err).
+			Msg("Failed to marshal sweep config")
 
 		return
 	}
@@ -322,13 +352,21 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		Value: configJSON,
 	})
 
-	log.Printf("Writing sweep config to %s: %s", configKey, string(configJSON))
+	logger.Info().
+		Str("config_key", configKey).
+		Str("config", string(configJSON)).
+		Msg("Writing sweep config")
 
 	if err != nil {
-		log.Printf("Failed to write sweep config to %s: %v", configKey, err)
+		logger.Error().
+			Err(err).
+			Str("config_key", configKey).
+			Msg("Failed to write sweep config")
 
 		return
 	}
 
-	log.Printf("Wrote sweep config to %s", configKey)
+	logger.Info().
+		Str("config_key", configKey).
+		Msg("Successfully wrote sweep config")
 }

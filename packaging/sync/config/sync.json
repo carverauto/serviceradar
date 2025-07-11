@@ -52,5 +52,21 @@
         }
       ]
     }
+  },
+  "logging": {
+    "level": "info",
+    "debug": false,
+    "output": "stdout",
+    "time_format": "",
+    "otel": {
+      "enabled": true,
+      "endpoint": "localhost:4317",
+      "service_name": "serviceradar-sync",
+      "batch_timeout": "5s",
+      "insecure": true,
+      "headers": {
+        "x-api-key": "your-collector-api-key"
+      }
+    }
   }
 }
