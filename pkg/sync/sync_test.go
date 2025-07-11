@@ -33,8 +33,9 @@ import (
 )
 
 // testLogger creates a no-op logger for tests
-func testLogger() zerolog.Logger {
-	return zerolog.New(io.Discard).Level(zerolog.Disabled)
+func testLogger() *zerolog.Logger {
+	logger := zerolog.New(io.Discard).Level(zerolog.Disabled)
+	return &logger
 }
 
 func TestNew_ValidConfig(t *testing.T) {
@@ -424,6 +425,7 @@ func TestWriteToKVTransformsDeviceID(t *testing.T) {
 			ListenAddr: ":50058",
 		},
 		kvClient: mockKV,
+		logger:   testLogger(),
 	}
 
 	data := map[string][]byte{
@@ -457,6 +459,7 @@ func TestWriteToKVBatchesLargeDataSets(t *testing.T) {
 			ListenAddr: ":50058",
 		},
 		kvClient: mockKV,
+		logger:   testLogger(),
 	}
 
 	// Create a large dataset that would exceed the 4MB limit if sent as one batch

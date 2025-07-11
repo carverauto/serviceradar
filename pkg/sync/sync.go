@@ -48,7 +48,7 @@ func New(
 	registry map[string]IntegrationFactory,
 	grpcClient GRPCClient,
 	clock poller.Clock,
-	logger zerolog.Logger,
+	logger *zerolog.Logger,
 ) (*PollerService, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -168,12 +168,12 @@ func (s *PollerService) Sync(ctx context.Context) error {
 }
 
 // NewDefault provides a production-ready constructor with default settings.
-func NewDefault(ctx context.Context, config *Config, logger zerolog.Logger) (*PollerService, error) {
+func NewDefault(ctx context.Context, config *Config, logger *zerolog.Logger) (*PollerService, error) {
 	return NewWithGRPC(ctx, config, logger)
 }
 
 // NewWithGRPC sets up the gRPC client for production use with default integrations.
-func NewWithGRPC(ctx context.Context, config *Config, logger zerolog.Logger) (*PollerService, error) {
+func NewWithGRPC(ctx context.Context, config *Config, logger *zerolog.Logger) (*PollerService, error) {
 	// Setup gRPC client for KV Store, if configured
 	kvClient, grpcClient, err := setupGRPCClient(ctx, config)
 	if err != nil {
@@ -199,7 +199,7 @@ func createSyncer(
 	config *Config,
 	kvClient KVClient,
 	grpcClient GRPCClient,
-	logger zerolog.Logger,
+	logger *zerolog.Logger,
 ) (*PollerService, error) {
 	serverName := getServerName(config)
 
