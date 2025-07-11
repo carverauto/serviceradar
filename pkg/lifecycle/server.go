@@ -58,7 +58,7 @@ type ServerOptions struct {
 	EnableHealthCheck    bool
 	Security             *models.SecurityConfig
 	LoggerConfig         *logger.Config
-	Logger               zerolog.Logger // Optional: if provided, uses this logger instead of creating a new one
+	Logger               *zerolog.Logger // Optional: if provided, uses this logger instead of creating a new one
 }
 
 // RunServer starts a service with the provided options and handles lifecycle.
@@ -67,7 +67,7 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 	defer cancel()
 
 	// Initialize logger if not provided
-	var log zerolog.Logger
+	var log *zerolog.Logger
 
 	if IsLoggerEmpty(opts.Logger) {
 		// No logger was provided, create one
@@ -76,8 +76,13 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 			return fmt.Errorf("failed to initialize logger: %w", err)
 		}
 
-		log = createdLogger
-		defer ShutdownLogger()
+		log = &createdLogger
+
+		defer func() {
+			if err := ShutdownLogger(); err != nil {
+				log.Error().Err(err).Msg("Failed to shutdown logger")
+			}
+		}()
 	} else {
 		log = opts.Logger
 	}
@@ -107,7 +112,7 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 }
 
 // setupGRPCServer configures and initializes a gRPC server.
-func setupGRPCServer(ctx context.Context, opts *ServerOptions, log zerolog.Logger) (*grpc.Server, error) {
+func setupGRPCServer(ctx context.Context, opts *ServerOptions, log *zerolog.Logger) (*grpc.Server, error) {
 	logSecurityConfig(opts.Security, log)
 
 	securityProvider, err := initializeSecurityProvider(ctx, opts.Security, log)
@@ -145,7 +150,7 @@ func setupGRPCServer(ctx context.Context, opts *ServerOptions, log zerolog.Logge
 }
 
 // logSecurityConfig logs the security configuration details.
-func logSecurityConfig(security *models.SecurityConfig, log zerolog.Logger) {
+func logSecurityConfig(security *models.SecurityConfig, log *zerolog.Logger) {
 	if security == nil {
 		log.Warn().Msg("No security configuration provided")
 
@@ -160,7 +165,7 @@ func logSecurityConfig(security *models.SecurityConfig, log zerolog.Logger) {
 }
 
 // initializeSecurityProvider sets up the appropriate security provider.
-func initializeSecurityProvider(ctx context.Context, security *models.SecurityConfig, log zerolog.Logger) (grpc.SecurityProvider, error) {
+func initializeSecurityProvider(ctx context.Context, security *models.SecurityConfig, log *zerolog.Logger) (grpc.SecurityProvider, error) {
 	if security == nil {
 		log.Info().Msg("No security configuration provided, using no security")
 
@@ -206,7 +211,7 @@ func copySecurityConfig(security *models.SecurityConfig) *models.SecurityConfig 
 }
 
 // normalizeSecurityMode ensures the security mode is valid and normalized.
-func normalizeSecurityMode(config *models.SecurityConfig, log zerolog.Logger) {
+func normalizeSecurityMode(config *models.SecurityConfig, log *zerolog.Logger) {
 	if config.Mode == "" {
 		log.Warn().Msg("Security mode is empty, defaulting to 'none'")
 
@@ -221,7 +226,7 @@ func normalizeSecurityMode(config *models.SecurityConfig, log zerolog.Logger) {
 }
 
 // configureServerOptions sets up gRPC server options including security.
-func configureServerOptions(ctx context.Context, provider grpc.SecurityProvider, log zerolog.Logger) ([]grpc.ServerOption, error) {
+func configureServerOptions(ctx context.Context, provider grpc.SecurityProvider, log *zerolog.Logger) ([]grpc.ServerOption, error) {
 	opts := []grpc.ServerOption{
 		grpc.WithMaxRecvSize(MaxRecvSize),
 		grpc.WithMaxSendSize(MaxSendSize),
@@ -246,7 +251,7 @@ func configureServerOptions(ctx context.Context, provider grpc.SecurityProvider,
 }
 
 // registerServices registers all provided gRPC services.
-func registerServices(server *ggrpc.Server, services []GRPCServiceRegistrar, log zerolog.Logger) {
+func registerServices(server *ggrpc.Server, services []GRPCServiceRegistrar, log *zerolog.Logger) {
 	for _, register := range services {
 		if err := register(server); err != nil {
 			log.Error().Err(err).Msg("Failed to register gRPC service")
@@ -255,7 +260,7 @@ func registerServices(server *ggrpc.Server, services []GRPCServiceRegistrar, log
 }
 
 // setupHealthCheck configures the health check service if enabled.
-func setupHealthCheck(server *grpc.Server, serviceName string, log zerolog.Logger) {
+func setupHealthCheck(server *grpc.Server, serviceName string, log *zerolog.Logger) {
 	if err := server.RegisterHealthServer(); err != nil {
 		log.Warn().Err(err).Msg("Failed to register health server")
 
@@ -290,7 +295,7 @@ func handleShutdown(
 	grpcServer *grpc.Server,
 	svc Service,
 	errChan chan error,
-	log zerolog.Logger,
+	log *zerolog.Logger,
 ) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

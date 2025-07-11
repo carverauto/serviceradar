@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/proto"
@@ -28,7 +27,7 @@ type PollerService struct {
 	grpcServer                            *grpc.Server
 	resultsCache                          []*models.SweepResult
 	resultsMu                             sync.RWMutex
-	logger                                zerolog.Logger
+	logger                                *zerolog.Logger
 }
 
 // GetStatus implements the AgentService GetStatus method.

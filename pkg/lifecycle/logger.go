@@ -62,7 +62,7 @@ func ShutdownLogger() error {
 }
 
 // IsLoggerEmpty checks if a logger is the zero value (not initialized).
-func IsLoggerEmpty(log zerolog.Logger) bool {
+func IsLoggerEmpty(log *zerolog.Logger) bool {
 	// A zero-value logger will have a nil hook chain
-	return log.GetLevel() == zerolog.NoLevel
+	return log == nil || log.GetLevel() == zerolog.NoLevel
 }
