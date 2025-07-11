@@ -20,11 +20,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
@@ -39,7 +39,7 @@ const (
 )
 
 // New creates a new poller instance.
-func New(ctx context.Context, config *Config, clock Clock) (*Poller, error) {
+func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*Poller, error) {
 	if clock == nil {
 		clock = realClock{}
 	}
@@ -49,6 +49,7 @@ func New(ctx context.Context, config *Config, clock Clock) (*Poller, error) {
 		agents: make(map[string]*AgentConnection),
 		done:   make(chan struct{}),
 		clock:  clock,
+		logger: log,
 	}
 
 	// Only connect to core if CoreAddress is set and PollFunc isn’t overriding default behavior
@@ -77,7 +78,7 @@ func (p *Poller) Start(ctx context.Context) error {
 	ticker := p.clock.Ticker(interval)
 	defer ticker.Stop()
 
-	log.Printf("Starting poller with interval %v", interval)
+	p.logger.Info().Dur("interval", interval).Msg("Starting poller")
 
 	p.startWg.Add(1) // Track Start goroutine
 	defer p.startWg.Done()
@@ -87,7 +88,7 @@ func (p *Poller) Start(ctx context.Context) error {
 
 	// Initial poll
 	if err := p.poll(ctx); err != nil {
-		log.Printf("Error during initial poll: %v", err)
+		p.logger.Error().Err(err).Msg("Error during initial poll")
 	}
 
 	for {
@@ -103,7 +104,7 @@ func (p *Poller) Start(ctx context.Context) error {
 				defer p.wg.Done()
 
 				if err := p.poll(ctx); err != nil {
-					log.Printf("Error during poll: %v", err)
+					p.logger.Error().Err(err).Msg("Error during poll")
 				}
 			}()
 		}
@@ -128,7 +129,7 @@ func (p *Poller) Stop(ctx context.Context) error {
 	// Close core client first
 	if p.coreClient != nil {
 		if err := p.grpcClient.Close(); err != nil {
-			log.Printf("Error closing core client: %v", err)
+			p.logger.Error().Err(err).Msg("Error closing core client")
 		}
 	}
 
@@ -136,7 +137,7 @@ func (p *Poller) Stop(ctx context.Context) error {
 	for name, agent := range p.agents {
 		if agent.client != nil {
 			if err := agent.client.Close(); err != nil {
-				log.Printf("Error closing agent connection %s: %v", name, err)
+				p.logger.Error().Err(err).Str("agent", name).Msg("Error closing agent connection")
 			}
 		}
 	}
@@ -311,17 +312,17 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		req.Port = sc.check.Port
 	}
 
-	log.Printf("Sending StatusRequest: %+v", req)
+	// TODO: Pass logger to ServiceCheck for structured logging
 
 	status, err := sc.client.GetStatus(ctx, req)
 	if err != nil {
-		log.Printf("Service check failed for %s: %v", sc.check.Name, err)
+		// TODO: Pass logger to ServiceCheck for structured logging
 
 		msg := "Service check failed"
 
 		message, err := json.Marshal(map[string]string{"error": msg})
 		if err != nil {
-			log.Printf("Failed to marshal error message: %v", err)
+			// TODO: Pass logger to ServiceCheck for structured logging
 
 			message = []byte(msg) // Fallback to plain string if marshal fails
 		}
@@ -335,12 +336,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		}
 	}
 
-	log.Printf("Received StatusResponse from %v: available=%v, message=%s, type=%s",
-		sc.check.Name,
-		status.Available,
-		status.Message,
-		status.ServiceType,
-	)
+	// TODO: Pass logger to ServiceCheck for structured logging
 
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,
@@ -384,7 +380,7 @@ func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config *A
 	// Close existing connection if it exists
 	if agent, exists := p.agents[agentName]; exists {
 		if err := agent.client.Close(); err != nil {
-			log.Printf("Error closing existing connection for agent %s: %v", agentName, err)
+			p.logger.Error().Err(err).Str("agent", agentName).Msg("Error closing existing connection")
 		}
 	}
 
@@ -392,10 +388,11 @@ func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config *A
 	clientCfg := grpc.ClientConfig{
 		Address:    config.Address,
 		MaxRetries: grpcRetries,
+		Logger:     p.logger,
 	}
 
 	if p.config.Security != nil {
-		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security)
+		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security, p.logger)
 		if err != nil {
 			return fmt.Errorf("failed to create security provider: %w", err)
 		}
@@ -403,7 +400,7 @@ func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config *A
 		clientCfg.SecurityProvider = provider
 	}
 
-	log.Printf("Reconnecting to agent %s at %s", agentName, config.Address)
+	p.logger.Info().Str("agent", agentName).Str("address", config.Address).Msg("Reconnecting to agent")
 
 	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
@@ -424,10 +421,11 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 	clientCfg := grpc.ClientConfig{
 		Address:    p.config.CoreAddress,
 		MaxRetries: grpcRetries,
+		Logger:     p.logger,
 	}
 
 	if p.config.Security != nil {
-		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security)
+		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security, p.logger)
 		if err != nil {
 			return fmt.Errorf("failed to create security provider: %w", err)
 		}
@@ -435,7 +433,7 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 		clientCfg.SecurityProvider = provider
 	}
 
-	log.Printf("Connecting to core service at %s", p.config.CoreAddress)
+	p.logger.Info().Str("address", p.config.CoreAddress).Msg("Connecting to core service")
 
 	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
@@ -456,10 +454,11 @@ func (p *Poller) initializeAgentConnections(ctx context.Context) error {
 		clientCfg := grpc.ClientConfig{
 			Address:    agentConfig.Address,
 			MaxRetries: grpcRetries,
+			Logger:     p.logger,
 		}
 
 		if p.config.Security != nil {
-			provider, err := grpc.NewSecurityProvider(ctx, p.config.Security)
+			provider, err := grpc.NewSecurityProvider(ctx, p.config.Security, p.logger)
 			if err != nil {
 				return fmt.Errorf("failed to create security provider for agent %s: %w", agentName, err)
 			}
@@ -467,7 +466,7 @@ func (p *Poller) initializeAgentConnections(ctx context.Context) error {
 			clientCfg.SecurityProvider = provider
 		}
 
-		log.Printf("Connecting to agent %s at %s", agentName, agentConfig.Address)
+		p.logger.Info().Str("agent", agentName).Str("address", agentConfig.Address).Msg("Connecting to agent")
 
 		client, err := grpc.NewClient(ctx, clientCfg)
 		if err != nil {
@@ -498,7 +497,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		conn, err := p.getAgentConnection(agentName)
 		if err != nil {
 			if err = p.reconnectAgent(ctx, agentName, &agentConfig); err != nil {
-				log.Printf("Failed to reconnect to agent %s: %v", agentName, err)
+				p.logger.Error().Err(err).Str("agent", agentName).Msg("Failed to reconnect to agent")
 				continue
 			}
 
@@ -509,7 +508,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		healthy, err := conn.client.CheckHealth(ctx, "AgentService")
 		if err != nil || !healthy {
 			if err = p.reconnectAgent(ctx, agentName, &agentConfig); err != nil {
-				log.Printf("Agent %s unhealthy: %v", agentName, err)
+				p.logger.Error().Err(err).Str("agent", agentName).Msg("Agent unhealthy")
 
 				continue
 			}
@@ -517,7 +516,7 @@ func (p *Poller) poll(ctx context.Context) error {
 
 		statuses, err := p.pollAgent(ctx, agentName, &agentConfig)
 		if err != nil {
-			log.Printf("Error polling agent %s: %v", agentName, err)
+			p.logger.Error().Err(err).Str("agent", agentName).Msg("Error polling agent")
 
 			continue
 		}
@@ -556,8 +555,7 @@ func (p *Poller) pollAgent(
 }
 
 func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
-	log.Printf("Reporting %d statuses for poller %s at %s",
-		len(statuses), p.config.PollerID, time.Now().Format(time.RFC3339Nano))
+	p.logger.Info().Int("statusCount", len(statuses)).Str("pollerID", p.config.PollerID).Time("timestamp", time.Now()).Msg("Reporting statuses")
 
 	// Add PollerID to each ServiceStatus if missing
 	for i, status := range statuses {
@@ -570,24 +568,22 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		// Determine the correct AgentID to use - prefer response AgentId, fall back to configured agent name
 		agentID := status.AgentId
 		if agentID == "" {
-			log.Printf("Warning: AgentID empty in response for service %s, using configured agent name as fallback", status.ServiceName)
+			p.logger.Warn().Str("serviceName", status.ServiceName).Msg("AgentID empty in response, using configured agent name as fallback")
 		}
 
 		// Enhance ALL service responses with infrastructure identity
 		enhancedMessage, err := p.enhanceServicePayload(string(status.Message), agentID, status.Partition, status.ServiceType, status.ServiceName)
 		if err != nil {
-			log.Printf("Warning: Failed to enhance payload for service %s: %v", status.ServiceName, err)
+			p.logger.Warn().Err(err).Str("serviceName", status.ServiceName).Msg("Failed to enhance payload")
 		} else {
 			status.Message = []byte(enhancedMessage)
 		}
 
-		log.Printf("Partition: %s, PollerID: %s, ServiceName: %s, AgentID: %s",
-			status.Partition, status.PollerId, status.ServiceName, status.AgentId)
+		p.logger.Debug().Str("partition", status.Partition).Str("pollerID", status.PollerId).Str("serviceName", status.ServiceName).Str("agentID", status.AgentId).Msg("Service status details")
 
 		// Log warning if AgentID is missing (debugging aid)
 		if status.AgentId == "" {
-			log.Printf("Warning: ServiceStatus[%d] for %s has empty AgentID",
-				i, status.ServiceName)
+			p.logger.Warn().Int("index", i).Str("serviceName", status.ServiceName).Msg("ServiceStatus has empty AgentID")
 		}
 	}
 
@@ -610,7 +606,7 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serviceType, serviceName string) (string, error) {
 	// Debug logging for SNMP service to understand what we're getting
 	if serviceType == "snmp" {
-		log.Printf("SNMP original message: AgentID='%s', Message='%s'", agentID, originalMessage)
+		p.logger.Debug().Str("agentID", agentID).Str("message", originalMessage).Msg("SNMP original message")
 	}
 
 	// Validate and normalize the original message to ensure it's valid JSON
@@ -619,7 +615,7 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 	// Try to parse original message as JSON
 	if originalMessage == "" {
 		// Empty message - use empty JSON object
-		log.Printf("Warning: Empty message for service %s/%s", serviceType, serviceName)
+		p.logger.Warn().Str("serviceType", serviceType).Str("serviceName", serviceName).Msg("Empty message for service")
 
 		serviceData = json.RawMessage("{}")
 	} else if json.Valid([]byte(originalMessage)) {
@@ -627,7 +623,7 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 		serviceData = json.RawMessage(originalMessage)
 	} else {
 		// Invalid JSON (likely plain text error) - wrap in JSON object
-		log.Printf("Warning: Invalid JSON for service %s/%s, wrapping: %s", serviceType, serviceName, originalMessage)
+		p.logger.Warn().Str("serviceType", serviceType).Str("serviceName", serviceName).Str("message", originalMessage).Msg("Invalid JSON for service, wrapping")
 
 		errorWrapper := map[string]string{"message": originalMessage}
 
@@ -668,17 +664,17 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 		Details:     rp.check.Details,
 	}
 
-	log.Printf("Sending GetResults request: %+v", req)
+	// TODO: Pass logger to ResultsPoller for structured logging
 
 	results, err := rp.client.GetResults(ctx, req)
 	if err != nil {
 		// Check if this is an "unimplemented" error, which means the service doesn't support GetResults
 		if status.Code(err) == codes.Unimplemented {
-			log.Printf("GetResults not supported by service %s, skipping", rp.check.Name)
+			// TODO: Pass logger to ResultsPoller for structured logging
 			return nil // Skip this service for GetResults
 		}
 
-		log.Printf("GetResults call failed for %s: %v", rp.check.Name, err)
+		// TODO: Pass logger to ResultsPoller for structured logging
 
 		// Convert GetResults failure to ServiceStatus format
 		return &proto.ServiceStatus{
@@ -691,11 +687,7 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 		}
 	}
 
-	log.Printf("Received GetResults response from %v: available=%v, data size=%d bytes",
-		rp.check.Name,
-		results.Available,
-		len(results.Data),
-	)
+	// TODO: Pass logger to ResultsPoller for structured logging
 
 	// Convert ResultsResponse to ServiceStatus format for core processing
 	return &proto.ServiceStatus{

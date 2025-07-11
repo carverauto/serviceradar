@@ -26,12 +26,12 @@ import (
 	"time"
 
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
 	"github.com/carverauto/serviceradar/proto"
-	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 )
 
@@ -48,7 +48,7 @@ func New(
 	registry map[string]IntegrationFactory,
 	grpcClient GRPCClient,
 	clock poller.Clock,
-	logger *zerolog.Logger,
+	log logger.Logger,
 ) (*PollerService, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func New(
 		clock = poller.Clock(realClock{})
 	}
 
-	p, err := poller.New(ctx, pollerConfig, clock)
+	p, err := poller.New(ctx, pollerConfig, clock, log)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func New(
 		registry:     registry,
 		grpcClient:   grpcClient,
 		resultsCache: make([]*models.SweepResult, 0),
-		logger:       logger,
+		logger:       log,
 	}
 
 	s.initializeIntegrations(ctx)
@@ -168,20 +168,20 @@ func (s *PollerService) Sync(ctx context.Context) error {
 }
 
 // NewDefault provides a production-ready constructor with default settings.
-func NewDefault(ctx context.Context, config *Config, logger *zerolog.Logger) (*PollerService, error) {
-	return NewWithGRPC(ctx, config, logger)
+func NewDefault(ctx context.Context, config *Config, log logger.Logger) (*PollerService, error) {
+	return NewWithGRPC(ctx, config, log)
 }
 
 // NewWithGRPC sets up the gRPC client for production use with default integrations.
-func NewWithGRPC(ctx context.Context, config *Config, logger *zerolog.Logger) (*PollerService, error) {
+func NewWithGRPC(ctx context.Context, config *Config, log logger.Logger) (*PollerService, error) {
 	// Setup gRPC client for KV Store, if configured
-	kvClient, grpcClient, err := setupGRPCClient(ctx, config)
+	kvClient, grpcClient, err := setupGRPCClient(ctx, config, log)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create syncer instance
-	syncer, err := createSyncer(ctx, config, kvClient, grpcClient, logger)
+	syncer, err := createSyncer(ctx, config, kvClient, grpcClient, log)
 	if err != nil {
 		if grpcClient != nil {
 			_ = grpcClient.Close()
@@ -199,7 +199,7 @@ func createSyncer(
 	config *Config,
 	kvClient KVClient,
 	grpcClient GRPCClient,
-	logger *zerolog.Logger,
+	log logger.Logger,
 ) (*PollerService, error) {
 	serverName := getServerName(config)
 
@@ -210,7 +210,7 @@ func createSyncer(
 		defaultIntegrationRegistry(kvClient, grpcClient, serverName),
 		grpcClient,
 		nil,
-		logger,
+		log,
 	)
 }
 
@@ -375,7 +375,7 @@ func defaultIntegrationRegistry(
 	}
 }
 
-func setupGRPCClient(ctx context.Context, config *Config) (proto.KVServiceClient, GRPCClient, error) {
+func setupGRPCClient(ctx context.Context, config *Config, log logger.Logger) (proto.KVServiceClient, GRPCClient, error) {
 	if config.KVAddress == "" {
 		return nil, nil, nil
 	}
@@ -383,10 +383,11 @@ func setupGRPCClient(ctx context.Context, config *Config) (proto.KVServiceClient
 	clientCfg := ggrpc.ClientConfig{
 		Address:    config.KVAddress,
 		MaxRetries: 3,
+		Logger:     log,
 	}
 
 	if config.Security != nil {
-		provider, errSec := ggrpc.NewSecurityProvider(ctx, config.Security)
+		provider, errSec := ggrpc.NewSecurityProvider(ctx, config.Security, log)
 		if errSec != nil {
 			return nil, nil, fmt.Errorf("failed to create security provider: %w", errSec)
 		}

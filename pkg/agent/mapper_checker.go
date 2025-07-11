@@ -21,14 +21,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	discovery "github.com/carverauto/serviceradar/proto/discovery"
@@ -51,6 +50,7 @@ type MapperDiscoveryChecker struct {
 	client        *ggrpc.Client
 	mapperClient  discovery.DiscoveryServiceClient
 	mu            sync.Mutex
+	logger        logger.Logger
 }
 
 // NewMapperDiscoveryChecker creates a new instance of MapperDiscoveryChecker.
@@ -58,10 +58,11 @@ func NewMapperDiscoveryChecker(
 	ctx context.Context,
 	details string,
 	security *models.SecurityConfig,
+	log logger.Logger,
 ) (*MapperDiscoveryChecker, error) {
-	log.Printf("Creating MapperDiscoveryChecker with details: %s", details)
+	log.Info().Str("details", details).Msg("Creating MapperDiscoveryChecker")
 
-	mapperConfig, err := loadMapperConfig(ctx)
+	mapperConfig, err := loadMapperConfig(ctx, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load mapper configuration: %w", err)
 	}
@@ -69,10 +70,11 @@ func NewMapperDiscoveryChecker(
 	clientCfg := ggrpc.ClientConfig{
 		Address:    mapperConfig.Address,
 		MaxRetries: 3,
+		Logger:     log,
 	}
 
 	if security != nil {
-		provider, providerErr := ggrpc.NewSecurityProvider(ctx, security)
+		provider, providerErr := ggrpc.NewSecurityProvider(ctx, security, log)
 		if providerErr != nil {
 			return nil, fmt.Errorf("failed to create security provider: %w", providerErr)
 		}
@@ -91,16 +93,17 @@ func NewMapperDiscoveryChecker(
 		security:      security,
 		client:        client,
 		mapperClient:  discovery.NewDiscoveryServiceClient(client.GetConnection()),
+		logger:        log,
 	}, nil
 }
 
 // loadMapperConfig loads the mapper configuration from the standard config path
-func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
+func loadMapperConfig(ctx context.Context, log logger.Logger) (*MapperConfig, error) {
 	configPath := filepath.Join(defaultConfigPath, "mapper.json")
 
 	if _, err := os.Stat(configPath); err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("Mapper config not found at %s, using default address", configPath)
+			log.Info().Str("configPath", configPath).Msg("Mapper config not found, using default address")
 			return &MapperConfig{Address: "127.0.0.1:50056"}, nil
 		}
 
@@ -109,7 +112,7 @@ func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 
 	var cfg MapperConfig
 
-	cfgLoader := config.NewConfig()
+	cfgLoader := config.NewConfig(log)
 	if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to load mapper config: %w", err)
 	}
@@ -118,7 +121,7 @@ func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 		return nil, fmt.Errorf("mapper address cannot be empty")
 	}
 
-	log.Printf("Loaded mapper config from %s: address=%s", configPath, cfg.Address)
+	log.Info().Str("configPath", configPath).Str("address", cfg.Address).Msg("Loaded mapper config")
 
 	return &cfg, nil
 }
@@ -136,7 +139,7 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 
 	if req.Details != "" { // req.Details is the JSON string from the checker's configuration
 		if err := json.Unmarshal([]byte(req.Details), &checkerDetails); err != nil {
-			log.Printf("MapperDiscoveryChecker: Failed to parse details JSON: %v. Details: %s. Using defaults.", err, req.Details)
+			mdc.logger.Warn().Err(err).Str("details", req.Details).Msg("Failed to parse details JSON, using defaults")
 		}
 	}
 
@@ -150,14 +153,13 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 		IncludeRawData: checkerDetails.IncludeRawData,
 	}
 
-	log.Printf("MapperDiscoveryChecker: Requesting latest cached results. AgentID: %s, PollerID: %s, IncludeRaw: %t",
-		agentIDForMapperCall, pollerIDForMapperCall, checkerDetails.IncludeRawData)
+	mdc.logger.Info().Str("agentID", agentIDForMapperCall).Str("pollerID", pollerIDForMapperCall).Bool("includeRaw", checkerDetails.IncludeRawData).Msg("Requesting latest cached results")
 
 	// Call the new gRPC method (ensure your proto client 'mdc.mapperClient' has this method)
 	resultsResp, err := mdc.mapperClient.GetLatestCachedResults(ctx, latestResultsReq)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to get latest cached discovery results from mapper: %v", err)
-		log.Printf("MapperDiscoveryChecker: %s", errMsg)
+		mdc.logger.Error().Err(err).Msg("Failed to get latest cached discovery results from mapper")
 
 		return false, jsonError(errMsg) // Checker is unavailable if gRPC call fails
 	}
@@ -169,7 +171,7 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 
 	if resultsResp.Error != "" {
 		errMsg := fmt.Sprintf("Mapper reported error for latest cached results: %s", resultsResp.Error)
-		log.Printf("MapperDiscoveryChecker: %s", errMsg)
+		mdc.logger.Error().Str("error", resultsResp.Error).Msg("Mapper reported error for latest cached results")
 		// Mapper service is up (it responded), but there's an application error with the data.
 		isDataUsable = false
 		responseData = jsonError(errMsg)
@@ -181,48 +183,47 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 			isDataUsable, responseData = mdc.formatFinalResults(resultsResp, agentIDForMapperCall, pollerIDForMapperCall)
 		case discovery.DiscoveryStatus_RUNNING:
 			// Mapper is actively running its scheduled job. Data might be partial or from a previous run.
-			log.Printf("MapperDiscoveryChecker: Mapper status is RUNNING. Progress: %.1f%%", resultsResp.Progress)
+			mdc.logger.Info().Float32("progress", resultsResp.Progress).Msg("Mapper status is RUNNING")
 
 			isDataUsable = len(resultsResp.Devices) > 0 // Usable if some devices are present
 			responseData = mdc.formatProgressStatus(resultsResp)
 		case discovery.DiscoveryStatus_PENDING:
 			// Mapper's job is pending, or no data cached yet.
-			log.Printf("MapperDiscoveryChecker: Mapper status is PENDING. No significant data expected.")
+			mdc.logger.Info().Msg("Mapper status is PENDING. No significant data expected.")
 
 			isDataUsable = false
 			responseData = mdc.formatProgressStatus(resultsResp)
 		case discovery.DiscoveryStatus_FAILED:
 			// The mapper's last discovery attempt failed. Service is up, but data is problematic.
 			errMsg := fmt.Sprintf("Latest cached discovery from mapper shows FAILED status: %s", resultsResp.Error)
-			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+			mdc.logger.Error().Str("error", resultsResp.Error).Msg("Latest cached discovery from mapper shows FAILED status")
 
 			isDataUsable = false
 			responseData = jsonError(errMsg)
 		case discovery.DiscoveryStatus_UNKNOWN:
 			// The mapper returned an unknown status.
 			errMsg := fmt.Sprintf("Mapper returned UNKNOWN status. Error: %s", resultsResp.Error)
-			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+			mdc.logger.Error().Str("error", resultsResp.Error).Msg("Mapper returned UNKNOWN status")
 
 			isDataUsable = false
 			responseData = jsonError(errMsg)
 		case discovery.DiscoveryStatus_CANCELED:
 			// The mapper's discovery was canceled.
 			errMsg := fmt.Sprintf("Mapper discovery was CANCELED. Error: %s", resultsResp.Error)
-			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+			mdc.logger.Warn().Str("error", resultsResp.Error).Msg("Mapper discovery was CANCELED")
 
 			isDataUsable = false
 			responseData = jsonError(errMsg)
 		default:
 			errMsg := fmt.Sprintf("Mapper returned unhandled status: %s. Error: %s", resultsResp.Status, resultsResp.Error)
-			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+			mdc.logger.Error().Str("status", resultsResp.Status.String()).Str("error", resultsResp.Error).Msg("Mapper returned unhandled status")
 
 			isDataUsable = false
 			responseData = jsonError(errMsg)
 		}
 	}
 
-	log.Printf("MapperDiscoveryChecker: Reporting. Mapper Status: %s, IsDataUsableByAgent: %v, Devices: %d",
-		resultsResp.Status, isDataUsable, len(resultsResp.Devices))
+	mdc.logger.Info().Str("status", resultsResp.Status.String()).Bool("isDataUsable", isDataUsable).Int("devices", len(resultsResp.Devices)).Msg("Reporting mapper discovery results")
 
 	// The first boolean (overall checker availability) is true because the mapper service responded.
 	// The 'responseData' carries the actual status of the discovery data.
@@ -230,7 +231,7 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 }
 
 // formatProgressStatus formats in-progress or partial discovery results.
-func (*MapperDiscoveryChecker) formatProgressStatus(resultsResp *discovery.ResultsResponse) json.RawMessage {
+func (mdc *MapperDiscoveryChecker) formatProgressStatus(resultsResp *discovery.ResultsResponse) json.RawMessage {
 	message := fmt.Sprintf("Mapper discovery status: %s (progress: %.1f%%). Devices: %d, Interfaces: %d, Links: %d.",
 		resultsResp.Status, resultsResp.Progress,
 		len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))
@@ -251,14 +252,14 @@ func (*MapperDiscoveryChecker) formatProgressStatus(resultsResp *discovery.Resul
 
 	data, err := json.Marshal(resp)
 	if err != nil {
-		log.Printf("MapperDiscoveryChecker: Failed to marshal progress status: %v", err)
+		mdc.logger.Error().Err(err).Msg("Failed to marshal progress status")
 		return jsonError(fmt.Sprintf("Failed to marshal progress status: %v", err))
 	}
 
 	return data
 }
 
-func (*MapperDiscoveryChecker) formatFinalResults(
+func (mdc *MapperDiscoveryChecker) formatFinalResults(
 	resultsResp *discovery.ResultsResponse,
 	requestingAgentID string,
 	requestingPollerID string) (bool, json.RawMessage) {
@@ -275,15 +276,14 @@ func (*MapperDiscoveryChecker) formatFinalResults(
 
 	data, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("MapperDiscoveryChecker: Failed to marshal SNMP discovery results payload: %v", err)
+		mdc.logger.Error().Err(err).Msg("Failed to marshal SNMP discovery results payload")
 		return false, jsonError(fmt.Sprintf("Failed to marshal SNMP discovery results payload: %v", err))
 	}
 
 	// Data is considered usable if the status is COMPLETED and there are devices.
 	isDataUsable := resultsResp.Status == discovery.DiscoveryStatus_COMPLETED && len(resultsResp.Devices) > 0
 
-	log.Printf("MapperDiscoveryChecker: Formatted final results. Mapper Status: %s, IsDataUsableByAgent: %v. Devices: %d",
-		resultsResp.Status, isDataUsable, len(resultsResp.Devices))
+	mdc.logger.Info().Str("status", resultsResp.Status.String()).Bool("isDataUsable", isDataUsable).Int("devices", len(resultsResp.Devices)).Msg("Formatted final results")
 
 	return isDataUsable, data
 }

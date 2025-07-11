@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +30,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -50,10 +50,11 @@ type SNMPChecker struct {
 	mu          sync.RWMutex
 	wg          sync.WaitGroup
 	done        chan struct{}
+	logger      logger.Logger
 }
 
-func NewSNMPChecker(ctx context.Context, address string, security *models.SecurityConfig) (checker.Checker, error) {
-	log.Printf("Creating new SNMP checker client for address: %s", address)
+func NewSNMPChecker(ctx context.Context, address string, security *models.SecurityConfig, log logger.Logger) (checker.Checker, error) {
+	log.Info().Str("address", address).Msg("Creating new SNMP checker client")
 
 	configPath := filepath.Join(defaultConfigPath, "snmp.json")
 	if _, err := os.Stat(configPath); err != nil {
@@ -62,14 +63,14 @@ func NewSNMPChecker(ctx context.Context, address string, security *models.Securi
 
 	var cfg snmp.SNMPConfig
 
-	cfgLoader := config.NewConfig()
+	cfgLoader := config.NewConfig(log)
 	if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to load SNMP config: %w", err)
 	}
 
 	// Use provided security config, with a fallback if nil
 	if security == nil {
-		log.Printf("WARNING: No security config provided for SNMP checker, using insecure defaults")
+		log.Warn().Msg("No security config provided for SNMP checker, using insecure defaults")
 
 		security = &models.SecurityConfig{
 			Mode: "none",
@@ -79,6 +80,7 @@ func NewSNMPChecker(ctx context.Context, address string, security *models.Securi
 	clientCfg := grpc.ClientConfig{
 		Address:    address,
 		MaxRetries: grpcRetries,
+		Logger:     log,
 	}
 
 	// Set server name from address if not provided
@@ -86,7 +88,7 @@ func NewSNMPChecker(ctx context.Context, address string, security *models.Securi
 		security.ServerName = strings.Split(address, ":")[0]
 	}
 
-	provider, err := grpc.NewSecurityProvider(ctx, security)
+	provider, err := grpc.NewSecurityProvider(ctx, security, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create security provider: %w", err)
 	}
@@ -106,6 +108,7 @@ func NewSNMPChecker(ctx context.Context, address string, security *models.Securi
 		agentClient: agentClient,
 		interval:    defaultInterval,
 		done:        make(chan struct{}),
+		logger:      log,
 	}
 
 	return c, nil
@@ -124,7 +127,7 @@ func (c *SNMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (avai
 
 	resp, err := c.agentClient.GetStatus(ctx, reqCheck)
 	if err != nil {
-		log.Printf("Failed to get SNMP status: %v", err)
+		c.logger.Error().Err(err).Msg("Failed to get SNMP status")
 		return false, jsonError(fmt.Sprintf("Failed to get status: %v", err))
 	}
 
@@ -136,13 +139,13 @@ func (c *SNMPChecker) Start(ctx context.Context) error {
 
 	go c.healthCheckLoop(ctx)
 
-	log.Printf("Started SNMP checker monitoring")
+	c.logger.Info().Msg("Started SNMP checker monitoring")
 
 	return nil
 }
 
 func (c *SNMPChecker) Stop(ctx context.Context) error {
-	log.Printf("Stopping SNMP checker...")
+	c.logger.Info().Msg("Stopping SNMP checker...")
 	close(c.done)
 
 	done := make(chan struct{})
@@ -153,7 +156,7 @@ func (c *SNMPChecker) Stop(ctx context.Context) error {
 
 	select {
 	case <-done:
-		log.Printf("SNMP checker monitoring stopped")
+		c.logger.Info().Msg("SNMP checker monitoring stopped")
 	case <-ctx.Done():
 		return fmt.Errorf("timeout waiting for SNMP checker to stop: %w", ctx.Err())
 	}
@@ -172,20 +175,20 @@ func (c *SNMPChecker) healthCheckLoop(ctx context.Context) {
 	defer ticker.Stop()
 
 	if err := c.checkHealth(ctx); err != nil {
-		log.Printf("Initial SNMP health check failed: %v", err)
+		c.logger.Error().Err(err).Msg("Initial SNMP health check failed")
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("Context canceled, stopping SNMP health checks")
+			c.logger.Info().Msg("Context canceled, stopping SNMP health checks")
 			return
 		case <-c.done:
-			log.Printf("Received stop signal, stopping SNMP health checks")
+			c.logger.Info().Msg("Received stop signal, stopping SNMP health checks")
 			return
 		case <-ticker.C:
 			if err := c.checkHealth(ctx); err != nil {
-				log.Printf("SNMP health check failed: %v", err)
+				c.logger.Error().Err(err).Msg("SNMP health check failed")
 			}
 		}
 	}
@@ -204,7 +207,7 @@ func (c *SNMPChecker) checkHealth(ctx context.Context) error {
 		return errSNMPServiceUnhealthy
 	}
 
-	log.Printf("SNMP service health check passed")
+	c.logger.Info().Msg("SNMP service health check passed")
 
 	return nil
 }

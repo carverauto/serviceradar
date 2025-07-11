@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -30,6 +29,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
@@ -45,12 +45,12 @@ const (
 )
 
 // NewServer initializes a new Server instance.
-func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Server, error) {
-	cfgLoader := config.NewConfig()
+func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log logger.Logger) (*Server, error) {
+	cfgLoader := config.NewConfig(log)
 
-	s := initializeServer(configDir, cfg)
+	s := initializeServer(configDir, cfg, log)
 
-	kvStore, err := setupKVStore(ctx, cfgLoader, cfg)
+	kvStore, err := setupKVStore(ctx, cfgLoader, cfg, log)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 	s.kvStore = kvStore
 
 	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
-		return createSweepService(sweepConfig, kvStore, cfg)
+		return createSweepService(sweepConfig, kvStore, cfg, log)
 	}
 
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
@@ -69,31 +69,33 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 }
 
 // initializeServer creates a new Server struct with default values.
-func initializeServer(configDir string, cfg *ServerConfig) *Server {
+func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *Server {
 	return &Server{
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]*CheckerConfig),
 		configDir:    configDir,
 		services:     make([]Service, 0),
 		listenAddr:   cfg.ListenAddr,
-		registry:     initRegistry(),
+		registry:     initRegistryWithLogger(log),
 		errChan:      make(chan error, defaultErrChansize),
 		done:         make(chan struct{}),
 		config:       cfg,
 		connections:  make(map[string]*CheckerConnection),
+		logger:       log,
 	}
 }
 
 // setupKVStore configures the KV store if an address is provided.
-func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (KVStore, error) {
+func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, error) {
 	if cfg.KVAddress == "" {
-		log.Printf("KVAddress not set, skipping KV store setup")
+		log.Info().Msg("KVAddress not set, skipping KV store setup")
 		return nil, nil
 	}
 
 	clientCfg := grpc.ClientConfig{
 		Address:    cfg.KVAddress,
 		MaxRetries: 3,
+		Logger:     log,
 	}
 
 	securityConfig := cfg.Security
@@ -105,7 +107,7 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 		return nil, errNoSecurityConfigKV
 	}
 
-	provider, err := grpc.NewSecurityProvider(ctx, securityConfig)
+	provider, err := grpc.NewSecurityProvider(ctx, securityConfig, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create KV security provider: %w", err)
 	}
@@ -124,7 +126,7 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 
 	if kvStore.client == nil {
 		if err := client.Close(); err != nil {
-			log.Printf("Error closing client: %v", err)
+			log.Error().Err(err).Msg("Error closing client")
 			return nil, err
 		}
 
@@ -137,14 +139,14 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 }
 
 // createSweepService constructs a new SweepService instance.
-func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerConfig) (Service, error) {
+func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerConfig, log logger.Logger) (Service, error) {
 	if sweepConfig == nil {
 		return nil, errSweepConfigNil
 	}
 
 	// Validate required configuration
 	if cfg.Partition == "" {
-		log.Printf("Warning: Partition not configured, using 'default'. Consider setting partition in agent config")
+		log.Warn().Msg("Partition not configured, using 'default'. Consider setting partition in agent config")
 
 		cfg.Partition = "default"
 	}
@@ -189,7 +191,7 @@ func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config,
 	}
 
 	suffix := s.getLogSuffix()
-	log.Printf("Loaded sweep config from file%s: %s", suffix, filePath)
+	s.logger.Info().Str("path", filePath).Str("suffix", suffix).Msg("Loaded sweep config from file")
 
 	service, err := s.createSweepService(&sweepConfig, s.kvStore) // Pass s.kvStore
 	if err != nil {
@@ -201,27 +203,27 @@ func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config,
 
 func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *SweepConfig) (Service, error) {
 	if s.kvStore == nil {
-		log.Printf("KV store not initialized, skipping KV fetch for sweep config")
+		s.logger.Info().Msg("KV store not initialized, skipping KV fetch for sweep config")
 		return nil, nil
 	}
 
 	value, found, err := s.kvStore.Get(ctx, kvPath)
 	if err != nil {
-		log.Printf("Failed to get sweep config from KV %s: %v", kvPath, err)
+		s.logger.Error().Err(err).Str("kvPath", kvPath).Msg("Failed to get sweep config from KV")
 		return nil, err
 	}
 
 	if !found {
-		log.Printf("Sweep config not found in KV at %s", kvPath)
+		s.logger.Info().Str("kvPath", kvPath).Msg("Sweep config not found in KV")
 		return nil, nil
 	}
 
 	if err = json.Unmarshal(value, sweepConfig); err != nil {
-		log.Printf("Failed to unmarshal sweep config from KV %s: %v", kvPath, err)
+		s.logger.Error().Err(err).Str("kvPath", kvPath).Msg("Failed to unmarshal sweep config from KV")
 		return nil, err
 	}
 
-	log.Printf("Loaded sweep config from KV: %s", kvPath)
+	s.logger.Info().Str("kvPath", kvPath).Msg("Loaded sweep config from KV")
 
 	service, err := s.createSweepService(sweepConfig, s.kvStore) // Pass s.kvStore
 	if err != nil {
@@ -247,7 +249,7 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 	}
 
 	if serverName == "" {
-		log.Printf("Warning: agent_id and agent_name are not set. KV paths for sweep config will be incorrect.")
+		s.logger.Warn().Msg("agent_id and agent_name are not set. KV paths for sweep config will be incorrect.")
 	}
 
 	kvSweepConfigPath := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
@@ -275,22 +277,22 @@ func (s *Server) getLogSuffix() string {
 }
 
 func (s *Server) Start(ctx context.Context) error {
-	log.Printf("Starting agent service...")
+	s.logger.Info().Msg("Starting agent service...")
 
 	if err := s.initializeCheckers(ctx); err != nil {
 		return fmt.Errorf("failed to initialize checkers: %w", err)
 	}
 
-	log.Printf("Found %d services to start", len(s.services))
+	s.logger.Info().Int("services", len(s.services)).Msg("Found services to start")
 
 	for i, svc := range s.services {
-		log.Printf("Starting service #%d: %s", i, svc.Name())
+		s.logger.Info().Int("index", i).Str("service", svc.Name()).Msg("Starting service")
 
 		go func(svc Service) { // Run in goroutine to avoid blocking
 			if err := svc.Start(ctx); err != nil {
-				log.Printf("Failed to start service %s: %v", svc.Name(), err)
+				s.logger.Error().Err(err).Str("service", svc.Name()).Msg("Failed to start service")
 			} else {
-				log.Printf("Service %s started successfully", svc.Name())
+				s.logger.Info().Str("service", svc.Name()).Msg("Service started successfully")
 			}
 		}(svc)
 	}
@@ -299,17 +301,17 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) Stop(_ context.Context) error {
-	log.Printf("Stopping agent service...")
+	s.logger.Info().Msg("Stopping agent service...")
 
 	for _, svc := range s.services {
 		if err := svc.Stop(context.Background()); err != nil {
-			log.Printf("Failed to stop service %s: %v", svc.Name(), err)
+			s.logger.Error().Err(err).Str("service", svc.Name()).Msg("Failed to stop service")
 		}
 	}
 
 	for name, conn := range s.connections {
 		if err := conn.client.Close(); err != nil {
-			log.Printf("Error closing connection to checker %s: %v", name, err)
+			s.logger.Error().Err(err).Str("checker", name).Msg("Error closing connection to checker")
 		}
 	}
 
@@ -338,7 +340,7 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 
 	s.connections = make(map[string]*CheckerConnection)
 
-	cfgLoader := config.NewConfig()
+	cfgLoader := config.NewConfig(s.logger)
 
 	if s.kvStore != nil {
 		cfgLoader.SetKVStore(s.kvStore)
@@ -353,15 +355,26 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 
 		conf, err := s.loadCheckerConfig(ctx, cfgLoader, filePath)
 		if err != nil {
-			log.Printf("Warning: Failed to load checker config %s: %v", file.Name(), err)
+			s.logger.Warn().Err(err).Str("file", file.Name()).Msg("Failed to load checker config")
 
+			continue
+		}
+
+		// Validate required fields
+		if conf.Name == "" {
+			s.logger.Warn().Str("file", file.Name()).Msg("Skipping checker config with empty name")
+			continue
+		}
+		
+		if conf.Type == "" {
+			s.logger.Warn().Str("file", file.Name()).Str("name", conf.Name).Msg("Skipping checker config with empty type")
 			continue
 		}
 
 		if conf.Type == grpcType {
 			conn, err := s.connectToChecker(ctx, conf)
 			if err != nil {
-				log.Printf("Warning: Failed to connect to checker %s: %v", conf.Name, err)
+				s.logger.Warn().Err(err).Str("checker", conf.Name).Msg("Failed to connect to checker")
 				continue
 			}
 
@@ -370,7 +383,7 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 
 		s.checkerConfs[conf.Name] = conf
 
-		log.Printf("Loaded checker config: %s (type: %s)", conf.Name, conf.Type)
+		s.logger.Info().Str("name", conf.Name).Str("type", conf.Type).Msg("Loaded checker config")
 	}
 
 	return nil
@@ -400,6 +413,7 @@ func (c *CheckerConnection) EnsureConnected(ctx context.Context) (*grpc.Client, 
 	clientCfg := grpc.ClientConfig{
 		Address:    c.address,
 		MaxRetries: 3,
+		Logger:     nil, // TODO: Pass logger to CheckerConnection
 	}
 
 	// Add security provider as needed
@@ -420,10 +434,11 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 	clientCfg := grpc.ClientConfig{
 		Address:    checkerConfig.Address,
 		MaxRetries: 3,
+		Logger:     s.logger,
 	}
 
 	if s.config.Security != nil {
-		provider, err := grpc.NewSecurityProvider(ctx, s.config.Security)
+		provider, err := grpc.NewSecurityProvider(ctx, s.config.Security, s.logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create security provider: %w", err)
 		}
@@ -431,7 +446,7 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 		clientCfg.SecurityProvider = provider
 	}
 
-	log.Printf("Connecting to checker service %s at %s", checkerConfig.Name, checkerConfig.Address)
+	s.logger.Info().Str("service", checkerConfig.Name).Str("address", checkerConfig.Address).Msg("Connecting to checker service")
 
 	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
@@ -453,7 +468,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	}
 
 	if req.PollerId == "" {
-		log.Printf("Warning: PollerId is empty in request: %+v", req)
+		s.logger.Warn().Interface("request", req).Msg("PollerId is empty in request")
 		req.PollerId = "unknown-poller" // Fallback to avoid empty
 	}
 
@@ -487,7 +502,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 // For grpc services, this forwards the call to the actual service.
 // For other services, this returns a "not supported" response.
 func (s *Server) GetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
-	log.Printf("GetResults called for service '%s' (type: '%s')", req.ServiceName, req.ServiceType)
+	s.logger.Info().Str("serviceName", req.ServiceName).Str("serviceType", req.ServiceType).Msg("GetResults called")
 
 	// Handle grpc services by forwarding the call
 	if req.ServiceType == "grpc" {
@@ -495,7 +510,7 @@ func (s *Server) GetResults(ctx context.Context, req *proto.ResultsRequest) (*pr
 	}
 
 	// For non-grpc services, return "not supported"
-	log.Printf("GetResults not supported for service type '%s'", req.ServiceType)
+	s.logger.Info().Str("serviceType", req.ServiceType).Msg("GetResults not supported for service type")
 
 	return nil, status.Errorf(codes.Unimplemented, "GetResults not supported for service type '%s'", req.ServiceType)
 }
@@ -517,7 +532,7 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 
 	getChecker, err := s.getChecker(ctx, statusReq)
 	if err != nil {
-		log.Printf("Failed to get getChecker for service '%s': %v", req.ServiceName, err)
+		s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Failed to get getChecker for service")
 
 		return &proto.ResultsResponse{
 			Available:   false,
@@ -534,11 +549,11 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 	// First check if the getChecker is a grpc getChecker that supports GetResults
 	if externalChecker, ok := getChecker.(*ExternalChecker); ok {
 		// Forward GetResults to the external grpc service
-		log.Printf("Forwarding GetResults call to service '%s' at %s", req.ServiceName, req.Details)
+		s.logger.Info().Str("serviceName", req.ServiceName).Str("details", req.Details).Msg("Forwarding GetResults call to service")
 
 		err := externalChecker.ensureConnected(ctx)
 		if err != nil {
-			log.Printf("Failed to connect to grpc service '%s': %v", req.ServiceName, err)
+			s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Failed to connect to grpc service")
 
 			return &proto.ResultsResponse{
 				Available:   false,
@@ -556,7 +571,7 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 		// Forward the GetResults call
 		response, err := grpcClient.GetResults(ctx, req)
 		if err != nil {
-			log.Printf("GetResults call to service '%s' failed: %v", req.ServiceName, err)
+			s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("GetResults call to service failed")
 
 			return &proto.ResultsResponse{
 				Available:   false,
@@ -573,7 +588,7 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 	}
 
 	// If it's not a grpc getChecker, return not supported
-	log.Printf("GetResults not supported for getChecker type %T", getChecker)
+	s.logger.Info().Str("checkerType", fmt.Sprintf("%T", getChecker)).Msg("GetResults not supported for getChecker type")
 
 	return nil, status.Errorf(codes.Unimplemented, "GetResults not supported by getChecker type %T", getChecker)
 }
@@ -606,7 +621,7 @@ func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusReques
 	}
 
 	if err := extChecker.ensureConnected(ctx); err != nil {
-		log.Printf("Failed to ensure connection for rperf-checker: %v", err)
+		s.logger.Error().Err(err).Msg("Failed to ensure connection for rperf-checker")
 
 		return nil, fmt.Errorf("failed to ensure rperf-checker connection: %w", err)
 	}
@@ -665,11 +680,10 @@ func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequ
 
 	available, message := c.Check(ctx, req)
 
-	log.Printf("Checker request - Type: %s, Name: %s, Details: %s",
-		req.GetServiceType(), req.GetServiceName(), req.GetDetails())
+	s.logger.Info().Str("type", req.GetServiceType()).Str("name", req.GetServiceName()).Str("details", req.GetDetails()).Msg("Checker request")
 
 	if !json.Valid(message) {
-		log.Printf("Invalid JSON from checker %s: %s", req.ServiceName, message)
+		s.logger.Error().Str("serviceName", req.ServiceName).RawJSON("message", message).Msg("Invalid JSON from checker")
 		return nil, fmt.Errorf("invalid JSON response from checker")
 	}
 
@@ -702,7 +716,7 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 }
 
 func (s *Server) loadCheckerConfig(ctx context.Context, cfgLoader *config.Config, filePath string) (*CheckerConfig, error) {
-	var conf *CheckerConfig
+	var conf CheckerConfig
 
 	// Determine KV path
 	kvPath := filepath.Base(filePath)
@@ -714,17 +728,17 @@ func (s *Server) loadCheckerConfig(ctx context.Context, cfgLoader *config.Config
 	var err error
 	if s.kvStore != nil {
 		if err = cfgLoader.LoadAndValidate(ctx, kvPath, &conf); err == nil {
-			log.Printf("Loaded checker config from KV: %s", kvPath)
+			s.logger.Info().Str("kvPath", kvPath).Msg("Loaded checker config from KV")
 
-			return s.applyCheckerDefaults(conf), nil
+			return s.applyCheckerDefaults(&conf), nil
 		}
 
-		log.Printf("Failed to load checker config from KV %s: %v", kvPath, err)
+		s.logger.Error().Err(err).Str("kvPath", kvPath).Msg("Failed to load checker config from KV")
 	}
 
 	// Load from file (either directly or as fallback)
 	if err = cfgLoader.LoadAndValidate(ctx, filePath, &conf); err != nil {
-		return conf, fmt.Errorf("failed to load checker config %s: %w", filePath, err)
+		return nil, fmt.Errorf("failed to load checker config %s: %w", filePath, err)
 	}
 
 	suffix := ""
@@ -732,9 +746,9 @@ func (s *Server) loadCheckerConfig(ctx context.Context, cfgLoader *config.Config
 		suffix = " " + fallBackSuffix
 	}
 
-	log.Printf("Loaded checker config from file%s: %s", suffix, filePath)
+	s.logger.Info().Str("filePath", filePath).Str("suffix", suffix).Msg("Loaded checker config from file")
 
-	return s.applyCheckerDefaults(conf), nil
+	return s.applyCheckerDefaults(&conf), nil
 }
 
 // applyCheckerDefaults sets default values for a CheckerConfig.
@@ -765,14 +779,25 @@ func (s *Server) loadCheckerConfigs(ctx context.Context, cfgLoader *config.Confi
 
 		conf, err := s.loadCheckerConfig(ctx, cfgLoader, filePath)
 		if err != nil {
-			log.Printf("Warning: Failed to load checker config %s: %v", file.Name(), err)
+			s.logger.Warn().Err(err).Str("file", file.Name()).Msg("Failed to load checker config")
 
+			continue
+		}
+
+		// Validate required fields
+		if conf.Name == "" {
+			s.logger.Warn().Str("file", file.Name()).Msg("Skipping checker config with empty name")
+			continue
+		}
+		
+		if conf.Type == "" {
+			s.logger.Warn().Str("file", file.Name()).Str("name", conf.Name).Msg("Skipping checker config with empty type")
 			continue
 		}
 
 		s.checkerConfs[conf.Name] = conf
 
-		log.Printf("Loaded checker config: %s (type: %s)", conf.Name, conf.Type)
+		s.logger.Info().Str("name", conf.Name).Str("type", conf.Type).Msg("Loaded checker config")
 	}
 
 	return nil
@@ -793,7 +818,7 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	var err error
 
 	if req.ServiceType == "icmp" {
-		log.Printf("ICMP checker requested for host: %s", req.Details)
+		s.logger.Info().Str("host", req.Details).Msg("ICMP checker requested")
 
 		host := req.Details
 		if host == "" {
@@ -805,11 +830,9 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 
 		if s.config.Partition != "" {
 			deviceID = fmt.Sprintf("%s:%s", s.config.Partition, s.config.HostIP)
-			log.Printf("Creating ICMP checker with target device ID: %s (partition=%s, target_ip=%s)",
-				deviceID, s.config.Partition, host)
+			s.logger.Info().Str("deviceID", deviceID).Str("partition", s.config.Partition).Str("targetIP", host).Msg("Creating ICMP checker with target device ID")
 		} else {
-			log.Printf("Creating ICMP checker without device ID - missing partition (%s)",
-				s.config.Partition)
+			s.logger.Info().Str("partition", s.config.Partition).Msg("Creating ICMP checker without device ID - missing partition")
 		}
 
 		check, err = NewICMPCheckerWithDeviceID(host, deviceID)
@@ -819,13 +842,13 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	}
 
 	if err != nil {
-		log.Printf("Failed to create checker for key %s: %v", key, err)
+		s.logger.Error().Err(err).Str("key", key).Msg("Failed to create checker")
 		return nil, fmt.Errorf("failed to create checker: %w", err)
 	}
 
 	s.checkers[key] = check
 
-	log.Printf("Cached new checker for key: %s", key)
+	s.logger.Info().Str("key", key).Msg("Cached new checker")
 
 	return check, nil
 }
@@ -844,7 +867,7 @@ func (s *Server) ListServices() []string {
 
 func (s *Server) Close(ctx context.Context) error {
 	if err := s.Stop(ctx); err != nil {
-		log.Printf("Error during stop: %v", err)
+		s.logger.Error().Err(err).Msg("Error during stop")
 
 		return err
 	}
