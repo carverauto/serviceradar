@@ -41,7 +41,14 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	syncer, err := sync.NewDefault(ctx, &cfg)
+	// Initialize logger from config
+	logger, err := lifecycle.CreateComponentLogger("sync", cfg.Logging)
+	if err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+	defer lifecycle.ShutdownLogger()
+
+	syncer, err := sync.NewDefault(ctx, &cfg, logger)
 	if err != nil {
 		log.Fatalf("Failed to create syncer: %v", err)
 	}
@@ -58,6 +65,7 @@ func main() {
 		Service:              syncer,
 		EnableHealthCheck:    true,
 		Security:             cfg.Security,
+		Logger:               logger,
 	}
 
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
