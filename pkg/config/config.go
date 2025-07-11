@@ -20,14 +20,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/config/kv"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/rs/zerolog"
 )
 
 var (
@@ -46,12 +47,90 @@ const (
 type Config struct {
 	kvStore       kv.KVStore
 	defaultLoader ConfigLoader
+	logger        logger.Logger
 }
 
-// NewConfig initializes a new Config instance with a default file loader.
-func NewConfig() *Config {
+// NewConfig initializes a new Config instance with a default file loader and logger.
+// If logger is nil, creates a basic logger for config loading.
+func NewConfig(log logger.Logger) *Config {
+	if log == nil {
+		// Create a basic logger for config loading
+		log = createBasicLogger()
+	}
+
 	return &Config{
-		defaultLoader: &FileConfigLoader{},
+		defaultLoader: &FileConfigLoader{logger: log},
+		logger:        log,
+	}
+}
+
+// basicLogger implements a simple logger for config loading without circular imports
+type basicLogger struct {
+	logger zerolog.Logger
+}
+
+// createBasicLogger creates a simple logger for config loading
+func createBasicLogger() logger.Logger {
+	// Create a minimal logger for config loading
+	zlog := zerolog.New(os.Stderr).
+		Level(zerolog.WarnLevel).
+		With().
+		Timestamp().
+		Logger()
+
+	return &basicLogger{logger: zlog}
+}
+
+func (b *basicLogger) Debug() *zerolog.Event {
+	return b.logger.Debug()
+}
+
+func (b *basicLogger) Info() *zerolog.Event {
+	return b.logger.Info()
+}
+
+func (b *basicLogger) Warn() *zerolog.Event {
+	return b.logger.Warn()
+}
+
+func (b *basicLogger) Error() *zerolog.Event {
+	return b.logger.Error()
+}
+
+func (b *basicLogger) Fatal() *zerolog.Event {
+	return b.logger.Fatal()
+}
+
+func (b *basicLogger) Panic() *zerolog.Event {
+	return b.logger.Panic()
+}
+
+func (b *basicLogger) With() zerolog.Context {
+	return b.logger.With()
+}
+
+func (b *basicLogger) WithComponent(component string) zerolog.Logger {
+	return b.logger.With().Str("component", component).Logger()
+}
+
+func (b *basicLogger) WithFields(fields map[string]interface{}) zerolog.Logger {
+	ctx := b.logger.With()
+	for key, value := range fields {
+		ctx = ctx.Interface(key, value)
+	}
+
+	return ctx.Logger()
+}
+
+func (b *basicLogger) SetLevel(level zerolog.Level) {
+	b.logger = b.logger.Level(level)
+}
+
+func (b *basicLogger) SetDebug(debug bool) {
+	if debug {
+		b.SetLevel(zerolog.DebugLevel)
+	} else {
+		b.SetLevel(zerolog.InfoLevel)
 	}
 }
 
@@ -73,7 +152,7 @@ func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface
 		return err
 	}
 
-	if err := normalizeSecurityConfig(cfg); err != nil {
+	if err := c.normalizeSecurityConfig(cfg); err != nil {
 		return fmt.Errorf("failed to normalize SecurityConfig: %w", err)
 	}
 
@@ -100,7 +179,7 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 			return errKVStoreNotSet
 		}
 
-		loader = NewKVConfigLoader(c.kvStore)
+		loader = NewKVConfigLoader(c.kvStore, c.logger)
 	}
 
 	if source == configSourceFile || source == "" {
@@ -127,7 +206,7 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 }
 
 // normalizeSecurityConfig normalizes TLS paths in any struct containing a SecurityConfig field.
-func normalizeSecurityConfig(cfg interface{}) error {
+func (c *Config) normalizeSecurityConfig(cfg interface{}) error {
 	v := reflect.ValueOf(cfg)
 
 	if v.Kind() != reflect.Ptr || v.IsNil() {
@@ -140,17 +219,17 @@ func normalizeSecurityConfig(cfg interface{}) error {
 		return nil
 	}
 
-	return normalizeStructFields(v)
+	return c.normalizeStructFields(v)
 }
 
 // normalizeStructFields processes all fields in a struct to normalize SecurityConfig instances.
-func normalizeStructFields(v reflect.Value) error {
+func (c *Config) normalizeStructFields(v reflect.Value) error {
 	t := v.Type()
 
 	for i := 0; i < t.NumField(); i++ {
 		fieldType := t.Field(i)
 
-		if err := normalizeField(v.Field(i), &fieldType); err != nil {
+		if err := c.normalizeField(v.Field(i), &fieldType); err != nil {
 			return err
 		}
 	}
@@ -158,8 +237,8 @@ func normalizeStructFields(v reflect.Value) error {
 	return nil
 }
 
-// normalizeField normalizes a single field if it’s a *SecurityConfig.
-func normalizeField(field reflect.Value, fieldType *reflect.StructField) error {
+// normalizeField normalizes a single field if it's a *SecurityConfig.
+func (c *Config) normalizeField(field reflect.Value, fieldType *reflect.StructField) error {
 	if fieldType.Type != reflect.TypeOf((*models.SecurityConfig)(nil)) {
 		return nil
 	}
@@ -172,7 +251,7 @@ func normalizeField(field reflect.Value, fieldType *reflect.StructField) error {
 
 	tls := &sec.TLS
 
-	NormalizeTLSPaths(tls, sec.CertDir)
+	c.normalizeTLSPaths(tls, sec.CertDir)
 
 	// Update the field with the normalized SecurityConfig
 	field.Set(reflect.ValueOf(sec))
@@ -180,8 +259,8 @@ func normalizeField(field reflect.Value, fieldType *reflect.StructField) error {
 	return nil
 }
 
-// NormalizeTLSPaths adjusts TLS file paths based on the certificate directory.
-func NormalizeTLSPaths(tls *models.TLSConfig, certDir string) {
+// normalizeTLSPaths adjusts TLS file paths based on the certificate directory.
+func (c *Config) normalizeTLSPaths(tls *models.TLSConfig, certDir string) {
 	if !filepath.IsAbs(tls.CertFile) {
 		tls.CertFile = filepath.Join(certDir, tls.CertFile)
 	}
@@ -200,6 +279,21 @@ func NormalizeTLSPaths(tls *models.TLSConfig, certDir string) {
 		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
 	}
 
-	log.Printf("Normalized TLS paths: CertFile=%s, KeyFile=%s, CAFile=%s, ClientCAFile=%s",
-		tls.CertFile, tls.KeyFile, tls.CAFile, tls.ClientCAFile)
+	if c.logger != nil {
+		c.logger.Info().
+			Str("cert_file", tls.CertFile).
+			Str("key_file", tls.KeyFile).
+			Str("ca_file", tls.CAFile).
+			Str("client_ca_file", tls.ClientCAFile).
+			Msg("Normalized TLS paths")
+	}
+}
+
+// NormalizeTLSPaths is a convenience function that normalizes TLS paths with default logging.
+// This function exists for backward compatibility with existing code.
+func NormalizeTLSPaths(tls *models.TLSConfig, certDir string) {
+	basicLogger := createBasicLogger()
+
+	cfg := &Config{logger: basicLogger}
+	cfg.normalizeTLSPaths(tls, certDir)
 }

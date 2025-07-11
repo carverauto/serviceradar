@@ -33,7 +33,9 @@ func main() {
 	flag.Parse()
 
 	ctx := context.Background()
-	cfgLoader := config.NewConfig()
+
+	// Step 1: Load config
+	cfgLoader := config.NewConfig(nil)
 
 	var cfg sync.Config
 
@@ -41,13 +43,16 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Initialize logger from config
+	// Step 2: Create logger from config
 	logger, err := lifecycle.CreateComponentLogger("sync", cfg.Logging)
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 
-	syncer, err := sync.NewDefault(ctx, &cfg, &logger)
+	// Step 3: Create config loader with proper logger for any future config operations
+	_ = config.NewConfig(logger)
+
+	syncer, err := sync.NewDefault(ctx, &cfg, logger)
 	if err != nil {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
 			log.Printf("Failed to shutdown logger: %v", shutdownErr)
@@ -68,7 +73,7 @@ func main() {
 		Service:              syncer,
 		EnableHealthCheck:    true,
 		Security:             cfg.Security,
-		Logger:               &logger,
+		Logger:               logger,
 	}
 
 	// Start server and handle shutdown

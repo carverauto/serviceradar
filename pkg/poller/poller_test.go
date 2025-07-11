@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
@@ -80,6 +81,7 @@ func TestAgentPoller_ExecuteResults(t *testing.T) {
 		config: Config{
 			PollerID: "test-poller",
 		},
+		logger: logger.NewTestLogger(),
 	}
 
 	agentPoller := newAgentPoller("test-agent", agentConfig, mockClient, poller)
@@ -174,6 +176,7 @@ func TestAgentPoller_ExecuteResults_UnsupportedService(t *testing.T) {
 		config: Config{
 			PollerID: "test-poller",
 		},
+		logger: logger.NewTestLogger(),
 	}
 
 	agentPoller := newAgentPoller("test-agent", agentConfig, mockClient, poller)
@@ -216,6 +219,7 @@ func TestAgentPoller_ExecuteResults_WithError(t *testing.T) {
 		config: Config{
 			PollerID: "test-poller",
 		},
+		logger: logger.NewTestLogger(),
 	}
 
 	agentPoller := newAgentPoller("test-agent", agentConfig, mockClient, poller)
@@ -264,6 +268,7 @@ func TestResultsPoller_executeGetResults(t *testing.T) {
 		pollerID:  "test-poller",
 		agentName: "test-agent",
 		interval:  time.Second * 30,
+		logger:    logger.NewTestLogger(),
 	}
 
 	ctx := context.Background()
@@ -314,6 +319,7 @@ func TestResultsPoller_executeGetResults_NotImplemented(t *testing.T) {
 		pollerID:  "test-poller",
 		agentName: "test-agent",
 		interval:  time.Second * 30,
+		logger:    logger.NewTestLogger(),
 	}
 
 	ctx := context.Background()
@@ -372,6 +378,7 @@ func TestNewAgentPoller_ResultsPollerCreation(t *testing.T) {
 		config: Config{
 			PollerID: "test-poller",
 		},
+		logger: logger.NewTestLogger(),
 	}
 
 	agentPoller := newAgentPoller("test-agent", agentConfig, mockClient, poller)
@@ -432,6 +439,7 @@ func TestPoller_pollAgent(t *testing.T) {
 			PollerID: "test-poller",
 		},
 		agents: make(map[string]*AgentConnection),
+		logger: logger.NewTestLogger(),
 	}
 
 	// Create a mock agent connection
@@ -462,6 +470,7 @@ func TestPoller_pollAgent(t *testing.T) {
 					ResultsInterval: func() *models.Duration { d := models.Duration(time.Second * 30); return &d }(),
 				},
 				interval: time.Second * 30,
+				logger:   logger.NewTestLogger(),
 			},
 		},
 	}

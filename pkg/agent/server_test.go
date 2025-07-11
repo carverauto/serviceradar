@@ -106,6 +106,7 @@ func TestNewServerBasic(t *testing.T) {
 
 	config := setupServerConfig()
 	kvStore := &mockKVStore{}
+	testLogger := createTestLogger()
 
 	s := &Server{
 		configDir:    tmpDir,
@@ -114,10 +115,11 @@ func TestNewServerBasic(t *testing.T) {
 		services:     make([]Service, 0),
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]*CheckerConfig),
-		registry:     initRegistry(),
+		registry:     initRegistry(testLogger),
 		errChan:      make(chan error, defaultErrChansize),
 		done:         make(chan struct{}),
 		connections:  make(map[string]*CheckerConnection),
+		logger:       testLogger,
 	}
 
 	s.setupKVStore = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig) (KVStore, error) {
@@ -130,12 +132,12 @@ func TestNewServerBasic(t *testing.T) {
 		return nil, errSweepConfigNil // Default behavior for this test
 	}
 
-	cfgLoader := cconfig.NewConfig()
+	cfgLoader := cconfig.NewConfig(nil)
 
 	err := s.loadConfigurations(context.Background(), cfgLoader)
 	require.NoError(t, err)
 
-	server, err := NewServer(context.Background(), tmpDir, config)
+	server, err := NewServer(context.Background(), tmpDir, config, createTestLogger())
 
 	require.NoError(t, err)
 	require.NotNil(t, server)
@@ -169,6 +171,7 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 	err = os.WriteFile(filepath.Join(sweepDir, "sweep.json"), data, 0600)
 	require.NoError(t, err)
 
+	testLogger := createTestLogger()
 	s := &Server{
 		configDir:    tmpDir,
 		config:       config,
@@ -176,10 +179,11 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 		services:     make([]Service, 0),
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]*CheckerConfig),
-		registry:     initRegistry(),
+		registry:     initRegistry(testLogger),
 		errChan:      make(chan error, defaultErrChansize),
 		done:         make(chan struct{}),
 		connections:  make(map[string]*CheckerConnection),
+		logger:       testLogger,
 	}
 
 	s.setupKVStore = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig) (KVStore, error) {
@@ -194,7 +198,7 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 		return &mockService{}, nil
 	}
 
-	cfgLoader := cconfig.NewConfig()
+	cfgLoader := cconfig.NewConfig(nil)
 	cfgLoader.SetKVStore(kvStore)
 
 	err = s.loadConfigurations(context.Background(), cfgLoader)
@@ -212,7 +216,7 @@ func TestServerGetStatus(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"}, createTestLogger())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -277,7 +281,7 @@ func TestServerLifecycle(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"}, createTestLogger())
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -303,7 +307,7 @@ func TestServerListServices(t *testing.T) {
 	err = os.WriteFile(filepath.Join(tmpDir, "test-checker.json"), data, 0600)
 	require.NoError(t, err)
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"}, createTestLogger())
 	require.NoError(t, err)
 
 	services := server.ListServices()
@@ -312,13 +316,15 @@ func TestServerListServices(t *testing.T) {
 }
 
 func TestGetCheckerCaching(t *testing.T) {
+	testLogger := createTestLogger()
 	s := &Server{
 		checkers: make(map[string]checker.Checker),
-		registry: initRegistry(),
+		registry: initRegistry(testLogger),
 		config: &ServerConfig{
 			Security: &models.SecurityConfig{},
 		},
-		mu: sync.RWMutex{},
+		logger: testLogger,
+		mu:     sync.RWMutex{},
 	}
 
 	ctx := context.Background()
@@ -353,7 +359,7 @@ func TestServerGetResults(t *testing.T) {
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{
 		ListenAddr: ":50051",
 		AgentID:    "test-agent",
-	})
+	}, createTestLogger())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -434,7 +440,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{
 		ListenAddr: ":50051",
 		AgentID:    "test-agent",
-	})
+	}, createTestLogger())
 	require.NoError(t, err)
 
 	// Test that both GetStatus and GetResults handle grpc services consistently
