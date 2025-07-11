@@ -910,7 +910,7 @@
     },
     "rpm": {
       "depends": ["systemd"],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.otel",
       "release": "1"
     },
     "binary": {
