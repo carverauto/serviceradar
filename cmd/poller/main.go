@@ -24,6 +24,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
@@ -47,17 +48,32 @@ func run() error {
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
 
-	// Initialize configuration loader
-	cfgLoader := config.NewConfig()
+	// Step 1: Load configuration
+	cfgLoader := config.NewConfig(nil)
 
-	// Load configuration with context
 	var cfg poller.Config
+
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
 
+	// Step 2: Create logger from loaded config
+	logConfig := cfg.Logging
+	if logConfig == nil {
+		// Use default config if not specified
+		logConfig = &logger.Config{
+			Level:  "info",
+			Output: "stdout",
+		}
+	}
+
+	pollerLogger, err := lifecycle.CreateComponentLogger("poller", logConfig)
+	if err != nil {
+		return fmt.Errorf("failed to initialize logger: %w", err)
+	}
+
 	// Create poller instance with a real clock for production
-	p, err := poller.New(ctx, &cfg, nil) // nil clock defaults to realClock in poller.New
+	p, err := poller.New(ctx, &cfg, nil, pollerLogger) // nil clock defaults to realClock in poller.New
 	if err != nil {
 		return err
 	}

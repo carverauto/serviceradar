@@ -34,7 +34,7 @@ func main() {
 
 	ctx := context.Background()
 
-	cfgLoader := config.NewConfig()
+	cfgLoader := config.NewConfig(nil)
 
 	var cfg kv.Config
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {

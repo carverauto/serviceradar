@@ -18,7 +18,11 @@
 
 package logger
 
-import "github.com/rs/zerolog"
+import (
+	"io"
+
+	"github.com/rs/zerolog"
+)
 
 type Logger interface {
 	Debug() *zerolog.Event
@@ -94,3 +98,30 @@ func (f *fieldLogger) Fatal(msg string) {
 func (f *fieldLogger) Panic(msg string) {
 	f.logger.Panic().Msg(msg)
 }
+
+// NewTestLogger creates a no-op logger for testing that discards all output
+func NewTestLogger() Logger {
+	nopLogger := zerolog.New(io.Discard).Level(zerolog.Disabled)
+	return &testLogger{nop: nopLogger}
+}
+
+// testLogger is a simple logger implementation for testing
+type testLogger struct {
+	nop zerolog.Logger
+}
+
+func (t *testLogger) Debug() *zerolog.Event { return t.nop.Debug() }
+func (t *testLogger) Info() *zerolog.Event  { return t.nop.Info() }
+func (t *testLogger) Warn() *zerolog.Event  { return t.nop.Warn() }
+func (t *testLogger) Error() *zerolog.Event { return t.nop.Error() }
+func (t *testLogger) Fatal() *zerolog.Event { return t.nop.Fatal() }
+func (t *testLogger) Panic() *zerolog.Event { return t.nop.Panic() }
+func (t *testLogger) With() zerolog.Context { return t.nop.With() }
+func (t *testLogger) WithComponent(component string) zerolog.Logger {
+	return t.nop.With().Str("component", component).Logger()
+}
+func (t *testLogger) WithFields(fields map[string]interface{}) zerolog.Logger {
+	return t.nop.With().Fields(fields).Logger()
+}
+func (t *testLogger) SetLevel(level zerolog.Level) { t.nop = t.nop.Level(level) }
+func (*testLogger) SetDebug(_ bool)                { /* no-op */ }

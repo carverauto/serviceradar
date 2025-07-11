@@ -20,21 +20,30 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // testLogger creates a no-op logger for tests
-func testGRPCLogger() *zerolog.Logger {
-	logger := zerolog.New(io.Discard).Level(zerolog.Disabled)
-	return &logger
+func testGRPCLogger() logger.Logger {
+	config := &logger.Config{
+		Level:  "disabled",
+		Output: "stderr",
+	}
+
+	log, err := lifecycle.CreateLogger(config)
+	if err != nil {
+		panic(err)
+	}
+
+	return log
 }
 
 func TestPollerService_GetStatus(t *testing.T) {

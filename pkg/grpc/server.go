@@ -21,11 +21,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -51,6 +51,7 @@ type Server struct {
 	srv              *grpc.Server
 	healthCheck      *health.Server
 	addr             string
+	logger           logger.Logger
 	mu               sync.RWMutex
 	services         map[string]struct{}
 	serverOpts       []grpc.ServerOption // Store server options
@@ -58,12 +59,12 @@ type Server struct {
 }
 
 // NewServer creates a new gRPC server with the given configuration.
-func NewServer(addr string, opts ...ServerOption) *Server {
+func NewServer(addr string, log logger.Logger, opts ...ServerOption) *Server {
 	// Initialize with default interceptors
 	defaultOpts := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(
-			LoggingInterceptor,
-			RecoveryInterceptor,
+			LoggingInterceptor(log),
+			RecoveryInterceptor(log),
 		),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle:     10 * time.Minute,
@@ -80,6 +81,7 @@ func NewServer(addr string, opts ...ServerOption) *Server {
 
 	s := &Server{
 		addr:             addr,
+		logger:           log,
 		services:         make(map[string]struct{}),
 		serverOpts:       defaultOpts,
 		healthRegistered: false,
@@ -118,12 +120,12 @@ func (s *Server) RegisterHealthServer() error {
 	defer s.mu.Unlock()
 
 	if s.healthRegistered {
-		log.Printf("Health server already registered, skipping")
+		s.logger.Info().Msg("Health server already registered, skipping")
 
 		return errHealthServerRegistered
 	}
 
-	log.Printf("Registering health server for %s", s.addr)
+	s.logger.Info().Str("addr", s.addr).Msg("Registering health server")
 
 	healthpb.RegisterHealthServer(s.srv, s.healthCheck)
 	s.healthRegistered = true
@@ -171,7 +173,7 @@ func (s *Server) Start() error {
 	// Register health service before starting if not already registered
 	if !s.healthRegistered && s.healthCheck != nil {
 		if err := s.RegisterHealthServer(); err != nil {
-			log.Printf("Warning: %v", err)
+			s.logger.Warn().Err(err).Msg("Warning")
 		}
 	}
 
@@ -180,7 +182,7 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	log.Printf("gRPC server listening on %s", s.addr)
+	s.logger.Info().Str("addr", s.addr).Msg("gRPC server listening")
 
 	if err := s.srv.Serve(lis); err != nil && !errors.Is(err, errServerStopped) {
 		return fmt.Errorf("failed to serve: %w", err)
@@ -214,38 +216,35 @@ func (s *Server) Stop(ctx context.Context) {
 
 	select {
 	case <-stopped:
-		log.Printf("gRPC server stopped gracefully")
+		s.logger.Info().Msg("gRPC server stopped gracefully")
 	case <-time.After(shutdownTimer):
-		log.Printf("gRPC server shutdown timed out, forcing stop")
+		s.logger.Warn().Msg("gRPC server shutdown timed out, forcing stop")
 		s.srv.Stop()
 	}
 }
 
 // LoggingInterceptor logs RPC calls.
-func LoggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	start := time.Now()
-	resp, err := handler(ctx, req)
-	log.Printf("gRPC call: %s Duration: %v Error: %v",
-		info.FullMethod,
-		time.Since(start),
-		err)
+func LoggingInterceptor(log logger.Logger) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		start := time.Now()
+		resp, err := handler(ctx, req)
+		log.Debug().Str("method", info.FullMethod).Dur("duration", time.Since(start)).Err(err).Msg("gRPC call")
 
-	return resp, err
+		return resp, err
+	}
 }
 
 // RecoveryInterceptor handles panics in RPC handlers.
-func RecoveryInterceptor(
-	ctx context.Context,
-	req interface{},
-	info *grpc.UnaryServerInfo,
-	handler grpc.UnaryHandler) (resp interface{}, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("Recovered from panic in %s: %v", info.FullMethod, r)
+func RecoveryInterceptor(log logger.Logger) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Str("method", info.FullMethod).Interface("panic", r).Msg("Recovered from panic")
 
-			err = errInternalError
-		}
-	}()
+				err = errInternalError
+			}
+		}()
 
-	return handler(ctx, req)
+		return handler(ctx, req)
+	}
 }
