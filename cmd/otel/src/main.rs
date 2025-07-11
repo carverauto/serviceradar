@@ -5,6 +5,7 @@ use log::{info, debug, warn, error};
 use otel::cli::Cli;
 use otel::config::Config;
 use otel::opentelemetry::proto::collector::trace::v1::trace_service_server::TraceServiceServer;
+use otel::opentelemetry::proto::collector::logs::v1::logs_service_server::LogsServiceServer;
 use otel::ServiceRadarCollector;
 
 #[tokio::main]
@@ -86,7 +87,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     debug!("Starting gRPC server");
     let result = Server::builder()
-        .add_service(TraceServiceServer::new(collector))
+        .add_service(TraceServiceServer::new(collector.clone()))
+        .add_service(LogsServiceServer::new(collector))
         .serve(addr)
         .await;
         

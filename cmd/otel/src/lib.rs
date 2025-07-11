@@ -13,10 +13,20 @@ pub mod opentelemetry {
                     tonic::include_proto!("opentelemetry.proto.collector.trace.v1");
                 }
             }
+            pub mod logs {
+                pub mod v1 {
+                    tonic::include_proto!("opentelemetry.proto.collector.logs.v1");
+                }
+            }
         }
         pub mod trace {
             pub mod v1 {
                 tonic::include_proto!("opentelemetry.proto.trace.v1");
+            }
+        }
+        pub mod logs {
+            pub mod v1 {
+                tonic::include_proto!("opentelemetry.proto.logs.v1");
             }
         }
         pub mod resource {
@@ -34,9 +44,12 @@ pub mod opentelemetry {
 
 use opentelemetry::proto::collector::trace::v1::trace_service_server::TraceService;
 use opentelemetry::proto::collector::trace::v1::{ExportTraceServiceRequest, ExportTraceServiceResponse};
+use opentelemetry::proto::collector::logs::v1::logs_service_server::LogsService;
+use opentelemetry::proto::collector::logs::v1::{ExportLogsServiceRequest, ExportLogsServiceResponse, ExportLogsPartialSuccess};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+#[derive(Clone)]
 pub struct ServiceRadarCollector {
     nats_output: Option<Arc<Mutex<nats_output::NatsOutput>>>,
 }
@@ -126,6 +139,60 @@ impl TraceService for ServiceRadarCollector {
     }
 }
 
+#[tonic::async_trait]
+impl LogsService for ServiceRadarCollector {
+    async fn export(
+        &self,
+        request: Request<ExportLogsServiceRequest>,
+    ) -> Result<Response<ExportLogsServiceResponse>, Status> {
+        let logs_data = request.into_inner();
+        
+        let logs_count = logs_data.resource_logs.iter()
+            .map(|rl| rl.scope_logs.iter().map(|sl| sl.log_records.len()).sum::<usize>())
+            .sum::<usize>();
+        
+        info!("Received OTEL logs export request: {} resource logs, {} total log records", 
+              logs_data.resource_logs.len(), logs_count);
+        
+        // Log some debug details about the logs
+        if log::log_enabled!(log::Level::Debug) {
+            for (i, resource_log) in logs_data.resource_logs.iter().enumerate() {
+                let resource_attrs = resource_log.resource.as_ref()
+                    .map(|r| r.attributes.len()).unwrap_or(0);
+                debug!("Resource log {}: {} scope logs, {} resource attributes", 
+                       i, resource_log.scope_logs.len(), resource_attrs);
+                
+                for (j, scope_log) in resource_log.scope_logs.iter().enumerate() {
+                    let scope_name = scope_log.scope.as_ref()
+                        .map(|s| s.name.as_str()).unwrap_or("unknown");
+                    debug!("  Scope log {}: '{}' with {} log records", 
+                           j, scope_name, scope_log.log_records.len());
+                }
+            }
+        }
+        
+        // Send to NATS if configured
+        if let Some(nats) = &self.nats_output {
+            debug!("Forwarding logs to NATS");
+            let nats_output = nats.lock().await;
+            if let Err(e) = nats_output.publish_logs(&logs_data).await {
+                error!("Failed to publish logs to NATS: {}", e);
+                // Don't fail the request, just log the error
+            }
+        } else {
+            debug!("No NATS output configured, logs received but not forwarded");
+        }
+        
+        debug!("OTEL logs export request completed successfully");
+        Ok(Response::new(ExportLogsServiceResponse {
+            partial_success: Some(ExportLogsPartialSuccess {
+                rejected_log_records: 0,
+                error_message: String::new(),
+            }),
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,7 +272,7 @@ mod tests {
         let collector = ServiceRadarCollector::new(None).await.unwrap();
         let request = tonic::Request::new(create_test_trace_request());
         
-        let response = collector.export(request).await;
+        let response = TraceService::export(&collector, request).await;
         
         assert!(response.is_ok());
         let response = response.unwrap();
@@ -220,7 +287,7 @@ mod tests {
             resource_spans: vec![],
         });
         
-        let response = collector.export(request).await;
+        let response = TraceService::export(&collector, request).await;
         
         assert!(response.is_ok());
         let response = response.unwrap();
@@ -252,7 +319,7 @@ mod tests {
         });
         
         let request = tonic::Request::new(request_data);
-        let response = collector.export(request).await;
+        let response = TraceService::export(&collector, request).await;
         
         assert!(response.is_ok());
     }
@@ -282,9 +349,73 @@ mod tests {
         };
         
         let request = tonic::Request::new(malformed_request);
-        let response = collector.export(request).await;
+        let response = TraceService::export(&collector, request).await;
         
         // Should still succeed - collector accepts any valid protobuf
         assert!(response.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_logs_export_success() {
+        let collector = ServiceRadarCollector::new(None).await.unwrap();
+        let request = tonic::Request::new(create_test_logs_request());
+        
+        let response = LogsService::export(&collector, request).await;
+        
+        assert!(response.is_ok());
+        let response = response.unwrap();
+        let inner = response.into_inner();
+        assert!(inner.partial_success.is_some());
+        let partial_success = inner.partial_success.unwrap();
+        assert_eq!(partial_success.rejected_log_records, 0);
+        assert!(partial_success.error_message.is_empty());
+    }
+
+    fn create_test_logs_request() -> ExportLogsServiceRequest {
+        ExportLogsServiceRequest {
+            resource_logs: vec![opentelemetry::proto::logs::v1::ResourceLogs {
+                resource: Some(opentelemetry::proto::resource::v1::Resource {
+                    attributes: vec![
+                        opentelemetry::proto::common::v1::KeyValue {
+                            key: "service.name".to_string(),
+                            value: Some(opentelemetry::proto::common::v1::AnyValue {
+                                value: Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                    "test-service".to_string(),
+                                )),
+                            }),
+                        },
+                    ],
+                    dropped_attributes_count: 0,
+                    entity_refs: vec![],
+                }),
+                scope_logs: vec![opentelemetry::proto::logs::v1::ScopeLogs {
+                    scope: Some(opentelemetry::proto::common::v1::InstrumentationScope {
+                        name: "test-logger".to_string(),
+                        version: "1.0.0".to_string(),
+                        attributes: vec![],
+                        dropped_attributes_count: 0,
+                    }),
+                    log_records: vec![opentelemetry::proto::logs::v1::LogRecord {
+                        time_unix_nano: 1640995200000000000, // 2022-01-01 00:00:00 UTC
+                        observed_time_unix_nano: 1640995200000000000,
+                        severity_number: opentelemetry::proto::logs::v1::SeverityNumber::Info as i32,
+                        severity_text: "INFO".to_string(),
+                        body: Some(opentelemetry::proto::common::v1::AnyValue {
+                            value: Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                "Test log message".to_string(),
+                            )),
+                        }),
+                        attributes: vec![],
+                        dropped_attributes_count: 0,
+                        flags: 0,
+                        trace_id: vec![],
+                        span_id: vec![],
+                        event_name: "".to_string(),
+                    }],
+                    schema_url: "".to_string(),
+                }],
+                schema_url: "https://opentelemetry.io/schemas/1.4.0".to_string(),
+            }],
+        }
     }
 }
