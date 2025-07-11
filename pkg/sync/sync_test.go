@@ -38,10 +38,12 @@ func testLogger() logger.Logger {
 		Level:  "disabled",
 		Output: "stderr",
 	}
+
 	log, err := lifecycle.CreateLogger(config)
 	if err != nil {
 		panic(err)
 	}
+
 	return log
 }
 

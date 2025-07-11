@@ -118,6 +118,7 @@ func (b *basicLogger) WithFields(fields map[string]interface{}) zerolog.Logger {
 	for key, value := range fields {
 		ctx = ctx.Interface(key, value)
 	}
+
 	return ctx.Logger()
 }
 
@@ -295,25 +296,4 @@ func NormalizeTLSPaths(tls *models.TLSConfig, certDir string) {
 
 	cfg := &Config{logger: basicLogger}
 	cfg.normalizeTLSPaths(tls, certDir)
-}
-
-// normalizeTLSPathsNoLog normalizes TLS paths without logging
-func normalizeTLSPathsNoLog(tls *models.TLSConfig, certDir string) {
-	if !filepath.IsAbs(tls.CertFile) {
-		tls.CertFile = filepath.Join(certDir, tls.CertFile)
-	}
-
-	if !filepath.IsAbs(tls.KeyFile) {
-		tls.KeyFile = filepath.Join(certDir, tls.KeyFile)
-	}
-
-	if !filepath.IsAbs(tls.CAFile) {
-		tls.CAFile = filepath.Join(certDir, tls.CAFile)
-	}
-
-	if tls.ClientCAFile != "" && !filepath.IsAbs(tls.ClientCAFile) {
-		tls.ClientCAFile = filepath.Join(certDir, tls.ClientCAFile)
-	} else if tls.ClientCAFile == "" {
-		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
-	}
 }

@@ -143,7 +143,13 @@ func RetryInterceptor(maxRetries int, log logger.Logger) grpc.UnaryClientInterce
 
 			err := invoker(ctx, method, req, reply, cc, opts...)
 			if log != nil {
-				log.Debug().Str("method", method).Int("attempt", attempt+1).Str("target", cc.Target()).Dur("duration", time.Since(start)).Err(err).Msg("gRPC call")
+				log.Debug().
+					Str("method", method).
+					Int("attempt", attempt+1).
+					Str("target", cc.Target()).
+					Dur("duration", time.Since(start)).
+					Err(err).
+					Msg("gRPC call")
 			}
 
 			if err == nil {

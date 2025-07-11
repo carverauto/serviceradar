@@ -831,7 +831,11 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 
 		if s.config.Partition != "" {
 			deviceID = fmt.Sprintf("%s:%s", s.config.Partition, s.config.HostIP)
-			s.logger.Info().Str("deviceID", deviceID).Str("partition", s.config.Partition).Str("targetIP", host).Msg("Creating ICMP checker with target device ID")
+			s.logger.Info().
+				Str("deviceID", deviceID).
+				Str("partition", s.config.Partition).
+				Str("targetIP", host).
+				Msg("Creating ICMP checker with target device ID")
 		} else {
 			s.logger.Info().Str("partition", s.config.Partition).Msg("Creating ICMP checker without device ID - missing partition")
 		}

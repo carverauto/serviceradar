@@ -87,7 +87,11 @@ func NewMTLSProvider(config *models.SecurityConfig, log logger.Logger) (*MTLSPro
 		return nil, err
 	}
 
-	log.Info().Str("role", string(config.Role)).Bool("needsClient", provider.needsClient).Bool("needsServer", provider.needsServer).Msg("Initializing mTLS provider")
+	log.Info().
+		Str("role", string(config.Role)).
+		Bool("needsClient", provider.needsClient).
+		Bool("needsServer", provider.needsServer).
+		Msg("Initializing mTLS provider")
 
 	if err := provider.loadCredentials(); err != nil {
 		return nil, err
