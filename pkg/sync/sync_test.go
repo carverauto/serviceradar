@@ -19,16 +19,24 @@ package sync
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+// testLogger creates a no-op logger for tests
+func testLogger() *zerolog.Logger {
+	logger := zerolog.New(io.Discard).Level(zerolog.Disabled)
+	return &logger
+}
 
 func TestNew_ValidConfig(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -62,7 +70,7 @@ func TestNew_ValidConfig(t *testing.T) {
 		},
 	}
 
-	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
 	require.NoError(t, err)
 	assert.NotNil(t, syncer)
 	assert.NotNil(t, syncer.poller)
@@ -107,7 +115,7 @@ func TestSync_Success(t *testing.T) {
 		Entries: []*proto.KeyValueEntry{{Key: "armis/devices", Value: []byte("data")}},
 	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())
@@ -159,7 +167,7 @@ func TestStartAndStop(t *testing.T) {
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil).Times(2) // Initial poll + 1 tick
 	mockKV.EXPECT().PutMany(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutManyResponse{}, nil).Times(2)
 
-	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -248,7 +256,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 		Entries: []*proto.KeyValueEntry{{Key: "armis/devices", Value: []byte("data")}},
 	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -305,7 +313,7 @@ func TestSync_NetboxSuccess(t *testing.T) {
 		Entries: []*proto.KeyValueEntry{{Key: "netbox/1", Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`)}},
 	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())
@@ -349,7 +357,7 @@ func TestCreateIntegrationAppliesDefaults(t *testing.T) {
 		},
 	}
 
-	_, err := New(context.Background(), c, mockKV, registry, mockGRPC, mockClock)
+	_, err := New(context.Background(), c, mockKV, registry, mockGRPC, mockClock, testLogger())
 	require.NoError(t, err)
 
 	assert.Equal(t, "source-agent", gotAgent)
@@ -390,7 +398,7 @@ func TestCreateIntegrationUsesGlobalDefaults(t *testing.T) {
 		},
 	}
 
-	_, err := New(context.Background(), c, mockKV, registry, mockGRPC, nil)
+	_, err := New(context.Background(), c, mockKV, registry, mockGRPC, nil, testLogger())
 	require.NoError(t, err)
 
 	assert.Equal(t, "global-agent", gotAgent)
@@ -417,6 +425,7 @@ func TestWriteToKVTransformsDeviceID(t *testing.T) {
 			ListenAddr: ":50058",
 		},
 		kvClient: mockKV,
+		logger:   testLogger(),
 	}
 
 	data := map[string][]byte{
@@ -450,6 +459,7 @@ func TestWriteToKVBatchesLargeDataSets(t *testing.T) {
 			ListenAddr: ":50058",
 		},
 		kvClient: mockKV,
+		logger:   testLogger(),
 	}
 
 	// Create a large dataset that would exceed the 4MB limit if sent as one batch
@@ -521,7 +531,7 @@ func TestCreateIntegrationSetsDefaultPartition(t *testing.T) {
 		},
 	}
 
-	_, err := New(context.Background(), c, mockKV, registry, mockGRPC, nil)
+	_, err := New(context.Background(), c, mockKV, registry, mockGRPC, nil, testLogger())
 	require.NoError(t, err)
 
 	assert.Equal(t, "default", gotPartition)

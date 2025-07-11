@@ -20,14 +20,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testLogger creates a no-op logger for tests
+func testGRPCLogger() *zerolog.Logger {
+	logger := zerolog.New(io.Discard).Level(zerolog.Disabled)
+	return &logger
+}
 
 func TestPollerService_GetStatus(t *testing.T) {
 	// Create a test service with some cached results
@@ -49,6 +57,7 @@ func TestPollerService_GetStatus(t *testing.T) {
 				Timestamp:       time.Now(),
 			},
 		},
+		logger: testGRPCLogger(),
 	}
 
 	req := &proto.StatusRequest{
@@ -104,6 +113,7 @@ func TestPollerService_GetResults(t *testing.T) {
 			AgentID: "test-agent",
 		},
 		resultsCache: testResults,
+		logger:       testGRPCLogger(),
 	}
 
 	req := &proto.ResultsRequest{
@@ -156,6 +166,7 @@ func TestPollerService_GetStatusVsGetResults_Separation(t *testing.T) {
 			AgentID: "test-agent",
 		},
 		resultsCache: testResults,
+		logger:       testGRPCLogger(),
 	}
 
 	ctx := context.Background()
@@ -214,6 +225,7 @@ func TestPollerService_GetResults_EmptyCache(t *testing.T) {
 			AgentID: "test-agent",
 		},
 		resultsCache: []*models.SweepResult{}, // Empty cache
+		logger:       testGRPCLogger(),
 	}
 
 	req := &proto.ResultsRequest{
@@ -247,6 +259,7 @@ func TestPollerService_GetStatus_EmptyCache(t *testing.T) {
 			AgentID: "test-agent",
 		},
 		resultsCache: []*models.SweepResult{}, // Empty cache
+		logger:       testGRPCLogger(),
 	}
 
 	req := &proto.StatusRequest{
