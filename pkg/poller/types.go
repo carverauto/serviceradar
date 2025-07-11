@@ -68,6 +68,7 @@ type ServiceCheck struct {
 	check     Check
 	pollerID  string
 	agentName string
+	logger    logger.Logger
 }
 
 // ResultsPoller manages GetResults polling for services that support it.
