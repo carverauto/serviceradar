@@ -44,7 +44,7 @@ func run() error {
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
 
-	// Step 1: Load config with basic config loader (bootstrap pattern)
+	// Step 1: Load config
 	cfgLoader := config.NewConfig(nil)
 
 	var cfg agent.ServerConfig
@@ -53,7 +53,7 @@ func run() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Step 2: Create proper logger for agent operations
+	// Step 2: Create logger from loaded config
 	logConfig := cfg.Logging
 	if logConfig == nil {
 		// Use default config if not specified

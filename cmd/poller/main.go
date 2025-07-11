@@ -48,16 +48,16 @@ func run() error {
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
 
-	// Initialize configuration loader
+	// Step 1: Load configuration
 	cfgLoader := config.NewConfig(nil)
 
-	// Load configuration with context
 	var cfg poller.Config
+
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
 
-	// Create logger for poller operations
+	// Step 2: Create logger from loaded config
 	logConfig := cfg.Logging
 	if logConfig == nil {
 		// Use default config if not specified

@@ -553,7 +553,11 @@ func (p *Poller) pollAgent(
 }
 
 func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
-	p.logger.Info().Int("statusCount", len(statuses)).Str("pollerID", p.config.PollerID).Time("timestamp", time.Now()).Msg("Reporting statuses")
+	p.logger.Info().
+		Int("statusCount", len(statuses)).
+		Str("pollerID", p.config.PollerID).
+		Time("timestamp", time.Now()).
+		Msg("Reporting statuses")
 
 	// Add PollerID to each ServiceStatus if missing
 	for i, status := range statuses {
@@ -577,7 +581,12 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 			status.Message = []byte(enhancedMessage)
 		}
 
-		p.logger.Debug().Str("partition", status.Partition).Str("pollerID", status.PollerId).Str("serviceName", status.ServiceName).Str("agentID", status.AgentId).Msg("Service status details")
+		p.logger.Debug().
+			Str("partition", status.Partition).
+			Str("pollerID", status.PollerId).
+			Str("serviceName", status.ServiceName).
+			Str("agentID", status.AgentId).
+			Msg("Service status details")
 
 		// Log warning if AgentID is missing (debugging aid)
 		if status.AgentId == "" {
@@ -621,7 +630,11 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 		serviceData = json.RawMessage(originalMessage)
 	} else {
 		// Invalid JSON (likely plain text error) - wrap in JSON object
-		p.logger.Warn().Str("serviceType", serviceType).Str("serviceName", serviceName).Str("message", originalMessage).Msg("Invalid JSON for service, wrapping")
+		p.logger.Warn().
+			Str("serviceType", serviceType).
+			Str("serviceName", serviceName).
+			Str("message", originalMessage).
+			Msg("Invalid JSON for service, wrapping")
 
 		errorWrapper := map[string]string{"message": originalMessage}
 

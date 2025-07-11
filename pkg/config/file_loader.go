@@ -41,6 +41,7 @@ func (f *FileConfigLoader) Load(_ context.Context, path string, dst interface{})
 		if f.logger != nil {
 			f.logger.Error().Str("path", path).Err(err).Msg("Failed to read configuration file")
 		}
+
 		return fmt.Errorf("failed to read file '%s': %w", path, err)
 	}
 
@@ -49,6 +50,7 @@ func (f *FileConfigLoader) Load(_ context.Context, path string, dst interface{})
 		if f.logger != nil {
 			f.logger.Error().Str("path", path).Err(err).Msg("Failed to unmarshal JSON from file")
 		}
+
 		return fmt.Errorf("failed to unmarshal JSON from '%s': %w", path, err)
 	}
 

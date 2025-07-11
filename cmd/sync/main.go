@@ -34,7 +34,7 @@ func main() {
 
 	ctx := context.Background()
 
-	// Step 1: Load config with basic logger
+	// Step 1: Load config
 	cfgLoader := config.NewConfig(nil)
 
 	var cfg sync.Config
@@ -43,7 +43,7 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Step 2: Create proper logger from config
+	// Step 2: Create logger from config
 	logger, err := lifecycle.CreateComponentLogger("sync", cfg.Logging)
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)

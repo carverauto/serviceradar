@@ -58,6 +58,7 @@ func (k *KVConfigLoader) Load(ctx context.Context, path string, dst interface{})
 		if k.logger != nil {
 			k.logger.Error().Str("key", key).Err(err).Msg("Failed to get key from KV store")
 		}
+
 		return fmt.Errorf("failed to get key '%s' from KV store: %w", key, err)
 	}
 
@@ -65,6 +66,7 @@ func (k *KVConfigLoader) Load(ctx context.Context, path string, dst interface{})
 		if k.logger != nil {
 			k.logger.Warn().Str("key", key).Msg("Key not found in KV store")
 		}
+
 		return fmt.Errorf("%w: '%s'", errKVKeyNotFound, key)
 	}
 
@@ -73,6 +75,7 @@ func (k *KVConfigLoader) Load(ctx context.Context, path string, dst interface{})
 		if k.logger != nil {
 			k.logger.Error().Str("key", key).Err(err).Msg("Failed to unmarshal JSON from KV store")
 		}
+
 		return fmt.Errorf("failed to unmarshal JSON from key '%s': %w", key, err)
 	}
 
