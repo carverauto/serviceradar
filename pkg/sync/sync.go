@@ -26,12 +26,12 @@ import (
 	"time"
 
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 )
 
@@ -48,20 +48,10 @@ func New(
 	registry map[string]IntegrationFactory,
 	grpcClient GRPCClient,
 	clock poller.Clock,
+	logger *zerolog.Logger,
 ) (*PollerService, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
-	}
-
-	// Initialize logger with config-based OTEL support
-	loggerConfig := config.Logging
-	if loggerConfig == nil {
-		// Use defaults if no logging config provided
-		loggerConfig = logger.DefaultConfig()
-	}
-
-	if err := logger.Init(loggerConfig); err != nil {
-		logger.Warn().Err(err).Msg("Failed to initialize logger, using defaults")
 	}
 
 	// Create a minimal poller config; no core or agents needed for the internal polling loop.
@@ -87,6 +77,7 @@ func New(
 		registry:     registry,
 		grpcClient:   grpcClient,
 		resultsCache: make([]*models.SweepResult, 0),
+		logger:       logger,
 	}
 
 	s.initializeIntegrations(ctx)
@@ -107,20 +98,15 @@ func (s *PollerService) Start(ctx context.Context) error {
 func (s *PollerService) Stop(ctx context.Context) error {
 	if s.grpcServer != nil {
 		s.grpcServer.GracefulStop()
-		logger.Info().Msg("gRPC server stopped")
+		s.logger.Info().Msg("gRPC server stopped")
 	}
 
 	err := s.poller.Stop(ctx)
 
 	if s.grpcClient != nil {
 		if errClose := s.grpcClient.Close(); errClose != nil {
-			logger.Error().Err(errClose).Msg("Error closing gRPC client")
+			s.logger.Error().Err(errClose).Msg("Error closing gRPC client")
 		}
-	}
-
-	// Shutdown logger to flush any pending OTEL logs
-	if shutdownErr := logger.Shutdown(); shutdownErr != nil {
-		logger.Error().Err(shutdownErr).Msg("Error shutting down logger")
 	}
 
 	return err
@@ -169,12 +155,12 @@ func (s *PollerService) Sync(ctx context.Context) error {
 	s.resultsCache = allEvents
 	s.resultsMu.Unlock()
 
-	logger.Info().Int("device_count", len(allEvents)).Msg("Updated discovery cache")
+	s.logger.Info().Int("device_count", len(allEvents)).Msg("Updated discovery cache")
 
 	// Log any errors that occurred during the sync cycle
 	for err := range errChan {
 		if err != nil {
-			logger.Warn().Err(err).Msg("Error during sync cycle")
+			s.logger.Warn().Err(err).Msg("Error during sync cycle")
 		}
 	}
 
@@ -182,12 +168,12 @@ func (s *PollerService) Sync(ctx context.Context) error {
 }
 
 // NewDefault provides a production-ready constructor with default settings.
-func NewDefault(ctx context.Context, config *Config) (*PollerService, error) {
-	return NewWithGRPC(ctx, config)
+func NewDefault(ctx context.Context, config *Config, logger *zerolog.Logger) (*PollerService, error) {
+	return NewWithGRPC(ctx, config, logger)
 }
 
 // NewWithGRPC sets up the gRPC client for production use with default integrations.
-func NewWithGRPC(ctx context.Context, config *Config) (*PollerService, error) {
+func NewWithGRPC(ctx context.Context, config *Config, logger *zerolog.Logger) (*PollerService, error) {
 	// Setup gRPC client for KV Store, if configured
 	kvClient, grpcClient, err := setupGRPCClient(ctx, config)
 	if err != nil {
@@ -195,7 +181,7 @@ func NewWithGRPC(ctx context.Context, config *Config) (*PollerService, error) {
 	}
 
 	// Create syncer instance
-	syncer, err := createSyncer(ctx, config, kvClient, grpcClient)
+	syncer, err := createSyncer(ctx, config, kvClient, grpcClient, logger)
 	if err != nil {
 		if grpcClient != nil {
 			_ = grpcClient.Close()
@@ -213,6 +199,7 @@ func createSyncer(
 	config *Config,
 	kvClient KVClient,
 	grpcClient GRPCClient,
+	logger *zerolog.Logger,
 ) (*PollerService, error) {
 	serverName := getServerName(config)
 
@@ -223,6 +210,7 @@ func createSyncer(
 		defaultIntegrationRegistry(kvClient, grpcClient, serverName),
 		grpcClient,
 		nil,
+		logger,
 	)
 }
 
@@ -230,7 +218,7 @@ func (s *PollerService) initializeIntegrations(ctx context.Context) {
 	for name, src := range s.config.Sources {
 		factory, ok := s.registry[src.Type]
 		if !ok {
-			logger.Warn().Str("source_type", src.Type).Msg("Unknown source type")
+			s.logger.Warn().Str("source_type", src.Type).Msg("Unknown source type")
 			continue
 		}
 
@@ -313,7 +301,7 @@ func (s *PollerService) writeBatchedEntries(ctx context.Context, sourceName stri
 		if len(currentBatch) > 0 && (len(currentBatch) >= maxBatchSize || currentBatchSize+entrySize > maxBatchBytes) {
 			batchCount++
 			if _, err := s.kvClient.PutMany(ctx, &proto.PutManyRequest{Entries: currentBatch}); err != nil {
-				logger.Error().Err(err).
+				s.logger.Error().Err(err).
 					Int("batch_number", batchCount).
 					Str("source", sourceName).
 					Int("batch_size", len(currentBatch)).
@@ -336,7 +324,7 @@ func (s *PollerService) writeBatchedEntries(ctx context.Context, sourceName stri
 		batchCount++
 
 		if _, err := s.kvClient.PutMany(ctx, &proto.PutManyRequest{Entries: currentBatch}); err != nil {
-			logger.Error().Err(err).
+			s.logger.Error().Err(err).
 				Int("batch_number", batchCount).
 				Str("source", sourceName).
 				Int("batch_size", len(currentBatch)).
@@ -347,7 +335,7 @@ func (s *PollerService) writeBatchedEntries(ctx context.Context, sourceName stri
 		}
 	}
 
-	logger.Info().
+	s.logger.Info().
 		Int("successful_writes", successfulWrites).
 		Int("total_entries", len(entries)).
 		Str("source", sourceName).
