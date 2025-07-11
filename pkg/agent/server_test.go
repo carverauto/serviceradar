@@ -106,6 +106,7 @@ func TestNewServerBasic(t *testing.T) {
 
 	config := setupServerConfig()
 	kvStore := &mockKVStore{}
+	testLogger := createTestLogger()
 
 	s := &Server{
 		configDir:    tmpDir,
@@ -114,10 +115,11 @@ func TestNewServerBasic(t *testing.T) {
 		services:     make([]Service, 0),
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]*CheckerConfig),
-		registry:     initRegistryWithLogger(createTestLogger()),
+		registry:     initRegistryWithLogger(testLogger),
 		errChan:      make(chan error, defaultErrChansize),
 		done:         make(chan struct{}),
 		connections:  make(map[string]*CheckerConnection),
+		logger:       testLogger,
 	}
 
 	s.setupKVStore = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig) (KVStore, error) {
@@ -169,6 +171,7 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 	err = os.WriteFile(filepath.Join(sweepDir, "sweep.json"), data, 0600)
 	require.NoError(t, err)
 
+	testLogger := createTestLogger()
 	s := &Server{
 		configDir:    tmpDir,
 		config:       config,
@@ -176,10 +179,11 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 		services:     make([]Service, 0),
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]*CheckerConfig),
-		registry:     initRegistryWithLogger(createTestLogger()),
+		registry:     initRegistryWithLogger(testLogger),
 		errChan:      make(chan error, defaultErrChansize),
 		done:         make(chan struct{}),
 		connections:  make(map[string]*CheckerConnection),
+		logger:       testLogger,
 	}
 
 	s.setupKVStore = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig) (KVStore, error) {
@@ -312,13 +316,15 @@ func TestServerListServices(t *testing.T) {
 }
 
 func TestGetCheckerCaching(t *testing.T) {
+	testLogger := createTestLogger()
 	s := &Server{
 		checkers: make(map[string]checker.Checker),
-		registry: initRegistryWithLogger(createTestLogger()),
+		registry: initRegistryWithLogger(testLogger),
 		config: &ServerConfig{
 			Security: &models.SecurityConfig{},
 		},
-		mu: sync.RWMutex{},
+		logger: testLogger,
+		mu:     sync.RWMutex{},
 	}
 
 	ctx := context.Background()
