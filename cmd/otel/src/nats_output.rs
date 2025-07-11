@@ -8,6 +8,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
+use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
 
 #[derive(Clone, Debug)]
 pub struct NatsConfig {
@@ -146,6 +147,53 @@ impl NatsOutput {
             Err(_) => {
                 warn!("NATS ack timed out after {:?}", self.config.timeout);
                 return Err(anyhow::anyhow!("NATS publish timeout"));
+            }
+        }
+        
+        Ok(())
+    }
+    
+    pub async fn publish_logs(&self, logs: &ExportLogsServiceRequest) -> Result<()> {
+        let logs_count = logs.resource_logs.iter()
+            .map(|rl| rl.scope_logs.iter().map(|sl| sl.log_records.len()).sum::<usize>())
+            .sum::<usize>();
+            
+        debug!("Publishing {} resource logs with {} total log records to NATS", 
+               logs.resource_logs.len(), logs_count);
+        
+        // Encode logs as protobuf
+        let mut payload = Vec::new();
+        logs.encode(&mut payload)?;
+        
+        debug!("Encoded logs data: {} bytes", payload.len());
+        
+        // Publish with acknowledgment - use a different subject for logs
+        let logs_subject = format!("{}.logs", self.config.subject);
+        debug!("Publishing to subject: {}", logs_subject);
+        let ack: PublishAckFuture = self
+            .jetstream
+            .publish(logs_subject, payload.into())
+            .await
+            .map_err(|e| {
+                error!("Failed to publish logs to NATS: {}", e);
+                e
+            })?;
+            
+        // Wait for acknowledgment with timeout
+        debug!("Waiting for NATS acknowledgment for logs (timeout: {:?})", self.config.timeout);
+        match timeout(self.config.timeout, ack).await {
+            Ok(Ok(ack_result)) => {
+                debug!("NATS logs publish acknowledged: stream={}, sequence={}", 
+                       ack_result.stream, ack_result.sequence);
+                info!("Successfully published {} log records to NATS", logs_count);
+            },
+            Ok(Err(e)) => {
+                error!("NATS logs acknowledgment failed: {}", e);
+                return Err(anyhow::anyhow!("NATS logs acknowledgment failed: {}", e));
+            },
+            Err(_) => {
+                warn!("NATS logs ack timed out after {:?}", self.config.timeout);
+                return Err(anyhow::anyhow!("NATS logs publish timeout"));
             }
         }
         
