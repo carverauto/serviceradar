@@ -317,13 +317,11 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 	status, err := sc.client.GetStatus(ctx, req)
 	if err != nil {
 		// TODO: Pass logger to ServiceCheck for structured logging
-
 		msg := "Service check failed"
 
 		message, err := json.Marshal(map[string]string{"error": msg})
 		if err != nil {
 			// TODO: Pass logger to ServiceCheck for structured logging
-
 			message = []byte(msg) // Fallback to plain string if marshal fails
 		}
 

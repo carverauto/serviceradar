@@ -423,4 +423,3 @@ func NewSecurityProvider(ctx context.Context, config *models.SecurityConfig, log
 		return nil, fmt.Errorf("%w: %s", errUnknownSecurityMode, config.Mode)
 	}
 }
-

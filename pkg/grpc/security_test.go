@@ -24,12 +24,34 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 )
+
+// testLogger is a no-op logger for testing
+type testLogger struct{}
+
+func (testLogger) Debug() *zerolog.Event                            { return &zerolog.Event{} }
+func (testLogger) Info() *zerolog.Event                             { return &zerolog.Event{} }
+func (testLogger) Warn() *zerolog.Event                             { return &zerolog.Event{} }
+func (testLogger) Error() *zerolog.Event                            { return &zerolog.Event{} }
+func (testLogger) Fatal() *zerolog.Event                            { return &zerolog.Event{} }
+func (testLogger) Panic() *zerolog.Event                            { return &zerolog.Event{} }
+func (testLogger) With() zerolog.Context                            { return zerolog.Context{} }
+func (testLogger) WithComponent(string) zerolog.Logger              { return zerolog.Nop() }
+func (testLogger) WithFields(map[string]interface{}) zerolog.Logger { return zerolog.Nop() }
+func (testLogger) SetLevel(zerolog.Level)                           {}
+func (testLogger) SetDebug(bool)                                    {}
+
+// createTestLogger creates a simple logger for testing
+func createTestLogger() logger.Logger {
+	return &testLogger{}
+}
 
 // TestNoSecurityProvider tests the NoSecurityProvider implementation.
 func TestNoSecurityProvider(t *testing.T) {
@@ -86,7 +108,7 @@ func TestMTLSProvider(t *testing.T) {
 	}
 
 	t.Run("NewMTLSProvider", func(t *testing.T) {
-		provider, err := NewMTLSProvider(config)
+		provider, err := NewMTLSProvider(config, createTestLogger())
 
 		require.NoError(t, err)
 		require.NotNil(t, provider)
@@ -102,7 +124,7 @@ func TestMTLSProvider(t *testing.T) {
 	})
 
 	t.Run("GetClientCredentials", func(t *testing.T) {
-		provider, err := NewMTLSProvider(config)
+		provider, err := NewMTLSProvider(config, createTestLogger())
 		require.NoError(t, err)
 		defer func(provider *MTLSProvider) {
 			err = provider.Close()
@@ -145,7 +167,7 @@ func TestMTLSProvider(t *testing.T) {
 			// Intentionally omit TLS fields to test missing certs behavior
 		}
 
-		provider, err := NewMTLSProvider(noCertConfig)
+		provider, err := NewMTLSProvider(noCertConfig, createTestLogger())
 		require.Error(t, err)
 		assert.Nil(t, provider)
 	})
@@ -171,7 +193,7 @@ func TestSpiffeProvider(t *testing.T) {
 	}
 
 	t.Run("NewSpiffeProvider", func(t *testing.T) {
-		provider, err := NewSpiffeProvider(ctx, config)
+		provider, err := NewSpiffeProvider(ctx, config, createTestLogger())
 		if err != nil {
 			// If we get a connection refused, skip the test
 			if strings.Contains(err.Error(), "connection refused") {
@@ -198,7 +220,7 @@ func TestSpiffeProvider(t *testing.T) {
 			TrustDomain: "invalid trust domain",
 		}
 
-		provider, err := NewSpiffeProvider(ctx, invalidConfig)
+		provider, err := NewSpiffeProvider(ctx, invalidConfig, createTestLogger())
 		require.Error(t, err)
 		assert.Nil(t, provider)
 	})
@@ -266,7 +288,7 @@ func TestNewSecurityProvider(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			provider, err := NewSecurityProvider(ctx, tt.config)
+			provider, err := NewSecurityProvider(ctx, tt.config, createTestLogger())
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Nil(t, provider)

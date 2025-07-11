@@ -19,7 +19,6 @@ package sync
 import (
 	"context"
 	"fmt"
-	"io"
 	"testing"
 	"time"
 

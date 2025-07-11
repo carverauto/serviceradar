@@ -15,7 +15,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	cfgLoader := config.NewConfigWithDefaults()
+	cfgLoader := config.NewConfig(nil)
 
 	configPath := "/etc/serviceradar/consumers/db-event-writer.json"
 

@@ -71,7 +71,12 @@ func NewExternalChecker(
 	security *models.SecurityConfig,
 	log logger.Logger,
 ) (*ExternalChecker, error) {
-	log.Info().Str("name", serviceName).Str("type", serviceType).Str("address", address).Str("grpcServiceName", grpcServiceCheckName).Msg("Configuring new external checker")
+	log.Info().
+		Str("name", serviceName).
+		Str("type", serviceType).
+		Str("address", address).
+		Str("grpcServiceName", grpcServiceCheckName).
+		Msg("Configuring new external checker")
 
 	if address == "" {
 		return nil, errAddressRequired
@@ -120,7 +125,11 @@ func NewExternalChecker(
 		logger:               log,
 	}
 
-	log.Info().Str("name", serviceName).Str("type", serviceType).Str("grpcServiceName", grpcServiceCheckName).Msg("Successfully configured external checker")
+	log.Info().
+		Str("name", serviceName).
+		Str("type", serviceType).
+		Str("grpcServiceName", grpcServiceCheckName).
+		Msg("Successfully configured external checker")
 
 	return checker, nil
 }
@@ -215,7 +224,12 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 	delay := initialRetryDelay
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		e.logger.Info().Str("service", e.serviceName).Str("address", e.address).Int("attempt", attempt+1).Int("maxRetries", maxRetries).Msg("Connecting to service")
+		e.logger.Info().
+			Str("service", e.serviceName).
+			Str("address", e.address).
+			Int("attempt", attempt+1).
+			Int("maxRetries", maxRetries).
+			Msg("Connecting to service")
 
 		client, err := ggrpc.NewClient(ctx, e.clientConfig)
 		if err == nil {

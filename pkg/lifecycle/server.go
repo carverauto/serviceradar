@@ -57,7 +57,7 @@ type ServerOptions struct {
 	EnableHealthCheck    bool
 	Security             *models.SecurityConfig
 	LoggerConfig         *logger.Config
-	Logger               logger.Logger   // Optional: if provided, uses this logger instead of creating a new one
+	Logger               logger.Logger // Optional: if provided, uses this logger instead of creating a new one
 }
 
 // RunServer starts a service with the provided options and handles lifecycle.

@@ -26,7 +26,7 @@ import (
 )
 
 // FileConfigLoader loads configuration from a local JSON file.
-type FileConfigLoader struct{
+type FileConfigLoader struct {
 	logger logger.Logger
 }
 

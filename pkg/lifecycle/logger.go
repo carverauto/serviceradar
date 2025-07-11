@@ -61,6 +61,7 @@ func NewLoggerImpl(config *logger.Config) (*LoggerImpl, error) {
 		level = zerolog.DebugLevel
 	} else if config.Level != "" {
 		var err error
+
 		level, err = zerolog.ParseLevel(config.Level)
 		if err != nil {
 			return nil, err
@@ -77,6 +78,7 @@ func NewLoggerImpl(config *logger.Config) (*LoggerImpl, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		output = logger.NewMultiWriter(output, otelWriter)
 	}
 
@@ -129,6 +131,7 @@ func (l *LoggerImpl) WithFields(fields map[string]interface{}) zerolog.Logger {
 	for key, value := range fields {
 		ctx = ctx.Interface(key, value)
 	}
+
 	return ctx.Logger()
 }
 
@@ -143,7 +146,6 @@ func (l *LoggerImpl) SetDebug(debug bool) {
 		l.SetLevel(zerolog.InfoLevel)
 	}
 }
-
 
 // CreateLogger creates a new logger instance with the provided configuration.
 // This returns a logger that can be injected into services.
@@ -170,4 +172,3 @@ func CreateComponentLogger(component string, config *logger.Config) (logger.Logg
 func ShutdownLogger() error {
 	return logger.Shutdown()
 }
-

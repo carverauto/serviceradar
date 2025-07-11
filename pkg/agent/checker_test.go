@@ -292,7 +292,7 @@ func TestExternalChecker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			checker, err := NewExternalChecker(ctx, tt.serviceName, tt.serviceType, tt.address, tt.grpcServiceName, security)
+			checker, err := NewExternalChecker(ctx, tt.serviceName, tt.serviceType, tt.address, tt.grpcServiceName, security, createTestLogger())
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Nil(t, checker)
@@ -355,7 +355,7 @@ func TestSNMPChecker(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			checker, err := NewSNMPChecker(context.Background(), tt.address, security)
+			checker, err := NewSNMPChecker(context.Background(), tt.address, security, createTestLogger())
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Nil(t, checker)
