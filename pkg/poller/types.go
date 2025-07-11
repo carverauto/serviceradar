@@ -79,6 +79,7 @@ type ResultsPoller struct {
 	agentName   string
 	lastResults time.Time
 	interval    time.Duration
+	logger      logger.Logger
 }
 
 // Duration is a wrapper around time.Duration for JSON unmarshaling.

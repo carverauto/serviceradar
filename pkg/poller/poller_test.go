@@ -268,6 +268,7 @@ func TestResultsPoller_executeGetResults(t *testing.T) {
 		pollerID:  "test-poller",
 		agentName: "test-agent",
 		interval:  time.Second * 30,
+		logger:    logger.NewTestLogger(),
 	}
 
 	ctx := context.Background()
@@ -318,6 +319,7 @@ func TestResultsPoller_executeGetResults_NotImplemented(t *testing.T) {
 		pollerID:  "test-poller",
 		agentName: "test-agent",
 		interval:  time.Second * 30,
+		logger:    logger.NewTestLogger(),
 	}
 
 	ctx := context.Background()
@@ -468,6 +470,7 @@ func TestPoller_pollAgent(t *testing.T) {
 					ResultsInterval: func() *models.Duration { d := models.Duration(time.Second * 30); return &d }(),
 				},
 				interval: time.Second * 30,
+				logger:   logger.NewTestLogger(),
 			},
 		},
 	}
