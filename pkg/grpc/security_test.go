@@ -33,24 +33,29 @@ import (
 	"google.golang.org/grpc"
 )
 
-// testLogger is a no-op logger for testing
-type testLogger struct{}
+// Simple test logger implementation using zerolog.Nop()
+type testLogger struct {
+	nop zerolog.Logger
+}
 
-func (testLogger) Debug() *zerolog.Event                            { return &zerolog.Event{} }
-func (testLogger) Info() *zerolog.Event                             { return &zerolog.Event{} }
-func (testLogger) Warn() *zerolog.Event                             { return &zerolog.Event{} }
-func (testLogger) Error() *zerolog.Event                            { return &zerolog.Event{} }
-func (testLogger) Fatal() *zerolog.Event                            { return &zerolog.Event{} }
-func (testLogger) Panic() *zerolog.Event                            { return &zerolog.Event{} }
-func (testLogger) With() zerolog.Context                            { return zerolog.Context{} }
-func (testLogger) WithComponent(string) zerolog.Logger              { return zerolog.Nop() }
-func (testLogger) WithFields(map[string]interface{}) zerolog.Logger { return zerolog.Nop() }
-func (testLogger) SetLevel(zerolog.Level)                           {}
-func (testLogger) SetDebug(bool)                                    {}
+func (t *testLogger) Debug() *zerolog.Event { return t.nop.Debug() }
+func (t *testLogger) Info() *zerolog.Event  { return t.nop.Info() }
+func (t *testLogger) Warn() *zerolog.Event  { return t.nop.Warn() }
+func (t *testLogger) Error() *zerolog.Event { return t.nop.Error() }
+func (t *testLogger) Fatal() *zerolog.Event { return t.nop.Fatal() }
+func (t *testLogger) Panic() *zerolog.Event { return t.nop.Panic() }
+func (t *testLogger) With() zerolog.Context { return t.nop.With() }
+func (t *testLogger) WithComponent(component string) zerolog.Logger {
+	return t.nop.With().Str("component", component).Logger()
+}
+func (t *testLogger) WithFields(fields map[string]interface{}) zerolog.Logger {
+	return t.nop.With().Fields(fields).Logger()
+}
+func (t *testLogger) SetLevel(level zerolog.Level) { t.nop = t.nop.Level(level) }
+func (t *testLogger) SetDebug(debug bool)          { /* no-op */ }
 
-// createTestLogger creates a simple logger for testing
-func createTestLogger() logger.Logger {
-	return &testLogger{}
+func createTestLogger(t *testing.T) logger.Logger {
+	return &testLogger{nop: zerolog.Nop()}
 }
 
 // TestNoSecurityProvider tests the NoSecurityProvider implementation.
@@ -108,7 +113,7 @@ func TestMTLSProvider(t *testing.T) {
 	}
 
 	t.Run("NewMTLSProvider", func(t *testing.T) {
-		provider, err := NewMTLSProvider(config, createTestLogger())
+		provider, err := NewMTLSProvider(config, createTestLogger(t))
 
 		require.NoError(t, err)
 		require.NotNil(t, provider)
@@ -124,7 +129,7 @@ func TestMTLSProvider(t *testing.T) {
 	})
 
 	t.Run("GetClientCredentials", func(t *testing.T) {
-		provider, err := NewMTLSProvider(config, createTestLogger())
+		provider, err := NewMTLSProvider(config, createTestLogger(t))
 		require.NoError(t, err)
 		defer func(provider *MTLSProvider) {
 			err = provider.Close()
@@ -167,7 +172,7 @@ func TestMTLSProvider(t *testing.T) {
 			// Intentionally omit TLS fields to test missing certs behavior
 		}
 
-		provider, err := NewMTLSProvider(noCertConfig, createTestLogger())
+		provider, err := NewMTLSProvider(noCertConfig, createTestLogger(t))
 		require.Error(t, err)
 		assert.Nil(t, provider)
 	})
@@ -193,7 +198,7 @@ func TestSpiffeProvider(t *testing.T) {
 	}
 
 	t.Run("NewSpiffeProvider", func(t *testing.T) {
-		provider, err := NewSpiffeProvider(ctx, config, createTestLogger())
+		provider, err := NewSpiffeProvider(ctx, config, createTestLogger(t))
 		if err != nil {
 			// If we get a connection refused, skip the test
 			if strings.Contains(err.Error(), "connection refused") {
@@ -220,7 +225,7 @@ func TestSpiffeProvider(t *testing.T) {
 			TrustDomain: "invalid trust domain",
 		}
 
-		provider, err := NewSpiffeProvider(ctx, invalidConfig, createTestLogger())
+		provider, err := NewSpiffeProvider(ctx, invalidConfig, createTestLogger(t))
 		require.Error(t, err)
 		assert.Nil(t, provider)
 	})
@@ -288,7 +293,7 @@ func TestNewSecurityProvider(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			provider, err := NewSecurityProvider(ctx, tt.config, createTestLogger())
+			provider, err := NewSecurityProvider(ctx, tt.config, createTestLogger(t))
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Nil(t, provider)
