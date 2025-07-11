@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -61,6 +62,7 @@ type Config struct {
 	Partition    string                 `json:"partition"`
 	SourceIP     string                 `json:"source_ip"`
 	Security     *models.SecurityConfig `json:"security"`
+	Logging      *logger.Config         `json:"logging,omitempty"` // Logger configuration
 }
 
 // Validate implements config.Validator interface.

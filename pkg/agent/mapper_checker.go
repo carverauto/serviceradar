@@ -153,7 +153,11 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 		IncludeRawData: checkerDetails.IncludeRawData,
 	}
 
-	mdc.logger.Info().Str("agentID", agentIDForMapperCall).Str("pollerID", pollerIDForMapperCall).Bool("includeRaw", checkerDetails.IncludeRawData).Msg("Requesting latest cached results")
+	mdc.logger.Info().
+		Str("agentID", agentIDForMapperCall).
+		Str("pollerID", pollerIDForMapperCall).
+		Bool("includeRaw", checkerDetails.IncludeRawData).
+		Msg("Requesting latest cached results")
 
 	// Call the new gRPC method (ensure your proto client 'mdc.mapperClient' has this method)
 	resultsResp, err := mdc.mapperClient.GetLatestCachedResults(ctx, latestResultsReq)
@@ -223,7 +227,11 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 		}
 	}
 
-	mdc.logger.Info().Str("status", resultsResp.Status.String()).Bool("isDataUsable", isDataUsable).Int("devices", len(resultsResp.Devices)).Msg("Reporting mapper discovery results")
+	mdc.logger.Info().
+		Str("status", resultsResp.Status.String()).
+		Bool("isDataUsable", isDataUsable).
+		Int("devices", len(resultsResp.Devices)).
+		Msg("Reporting mapper discovery results")
 
 	// The first boolean (overall checker availability) is true because the mapper service responded.
 	// The 'responseData' carries the actual status of the discovery data.
@@ -283,7 +291,11 @@ func (mdc *MapperDiscoveryChecker) formatFinalResults(
 	// Data is considered usable if the status is COMPLETED and there are devices.
 	isDataUsable := resultsResp.Status == discovery.DiscoveryStatus_COMPLETED && len(resultsResp.Devices) > 0
 
-	mdc.logger.Info().Str("status", resultsResp.Status.String()).Bool("isDataUsable", isDataUsable).Int("devices", len(resultsResp.Devices)).Msg("Formatted final results")
+	mdc.logger.Info().
+		Str("status", resultsResp.Status.String()).
+		Bool("isDataUsable", isDataUsable).
+		Int("devices", len(resultsResp.Devices)).
+		Msg("Formatted final results")
 
 	return isDataUsable, data
 }

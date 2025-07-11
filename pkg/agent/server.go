@@ -365,7 +365,7 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 			s.logger.Warn().Str("file", file.Name()).Msg("Skipping checker config with empty name")
 			continue
 		}
-		
+
 		if conf.Type == "" {
 			s.logger.Warn().Str("file", file.Name()).Str("name", conf.Name).Msg("Skipping checker config with empty type")
 			continue
@@ -413,7 +413,7 @@ func (c *CheckerConnection) EnsureConnected(ctx context.Context) (*grpc.Client, 
 	clientCfg := grpc.ClientConfig{
 		Address:    c.address,
 		MaxRetries: 3,
-		Logger:     nil, // TODO: Pass logger to CheckerConnection
+		Logger:     c.logger,
 	}
 
 	// Add security provider as needed
@@ -458,6 +458,7 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 		serviceName: checkerConfig.Name,
 		serviceType: checkerConfig.Type,
 		address:     checkerConfig.Address,
+		logger:      s.logger,
 	}, nil
 }
 
@@ -789,7 +790,7 @@ func (s *Server) loadCheckerConfigs(ctx context.Context, cfgLoader *config.Confi
 			s.logger.Warn().Str("file", file.Name()).Msg("Skipping checker config with empty name")
 			continue
 		}
-		
+
 		if conf.Type == "" {
 			s.logger.Warn().Str("file", file.Name()).Str("name", conf.Name).Msg("Skipping checker config with empty type")
 			continue

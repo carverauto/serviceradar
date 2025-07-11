@@ -43,22 +43,27 @@ func run() error {
 
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
-	
+
 	// Step 1: Load config with basic config loader (bootstrap pattern)
-	cfgLoader := config.NewConfigWithDefaults()
+	cfgLoader := config.NewConfig(nil)
+
 	var cfg agent.ServerConfig
+
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Step 2: Create proper logger for agent operations
-	// Since agent doesn't have a Logging config section yet, use default logger config
-	defaultLogConfig := &logger.Config{
-		Level:  "info",
-		Output: "stdout",
+	logConfig := cfg.Logging
+	if logConfig == nil {
+		// Use default config if not specified
+		logConfig = &logger.Config{
+			Level:  "info",
+			Output: "stdout",
+		}
 	}
-	
-	agentLogger, err := lifecycle.CreateComponentLogger("agent", defaultLogConfig)
+
+	agentLogger, err := lifecycle.CreateComponentLogger("agent", logConfig)
 	if err != nil {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
@@ -69,6 +74,7 @@ func run() error {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
 			log.Printf("Failed to shutdown logger: %v", shutdownErr)
 		}
+
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 

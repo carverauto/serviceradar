@@ -87,6 +87,7 @@ type ServerConfig struct {
 	KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
 	KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
 	CheckersDir string                 `json:"checkers_dir"`          // Directory for external checkers
+	Logging     *logger.Config         `json:"logging,omitempty"`     // Logger configuration
 }
 
 type CheckerConnection struct {
@@ -96,6 +97,7 @@ type CheckerConnection struct {
 	mu          sync.RWMutex
 	address     string
 	healthy     bool
+	logger      logger.Logger
 }
 
 type ServiceError struct {

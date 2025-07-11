@@ -31,7 +31,7 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize configuration loader
-	cfgLoader := config.NewConfigWithDefaults()
+	cfgLoader := config.NewConfig(nil)
 
 	// Load configuration
 	configPath := "/etc/serviceradar/consumers/netflow.json"

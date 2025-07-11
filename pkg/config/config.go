@@ -51,23 +51,17 @@ type Config struct {
 }
 
 // NewConfig initializes a new Config instance with a default file loader and logger.
+// If logger is nil, creates a basic logger for config loading.
 func NewConfig(log logger.Logger) *Config {
+	if log == nil {
+		// Create a basic logger for config loading
+		log = createBasicLogger()
+	}
+
 	return &Config{
 		defaultLoader: &FileConfigLoader{logger: log},
 		logger:        log,
 	}
-}
-
-// NewConfigWithDefaults initializes a new Config instance with default logger.
-// This is a convenience function for backward compatibility and bootstrap scenarios.
-func NewConfigWithDefaults() *Config {
-	// Create a basic logger for config loading
-	basicLogger, err := createBasicLogger()
-	if err != nil {
-		// If we can't create a logger, use nil and the config won't log
-		return NewConfig(nil)
-	}
-	return NewConfig(basicLogger)
 }
 
 // basicLogger implements a simple logger for config loading without circular imports
@@ -76,15 +70,15 @@ type basicLogger struct {
 }
 
 // createBasicLogger creates a simple logger for config loading
-func createBasicLogger() (logger.Logger, error) {
+func createBasicLogger() logger.Logger {
 	// Create a minimal logger for config loading
 	zlog := zerolog.New(os.Stderr).
 		Level(zerolog.WarnLevel).
 		With().
 		Timestamp().
 		Logger()
-	
-	return &basicLogger{logger: zlog}, nil
+
+	return &basicLogger{logger: zlog}
 }
 
 func (b *basicLogger) Debug() *zerolog.Event {
@@ -138,7 +132,6 @@ func (b *basicLogger) SetDebug(debug bool) {
 		b.SetLevel(zerolog.InfoLevel)
 	}
 }
-
 
 // ValidateConfig validates a configuration if it implements Validator.
 func ValidateConfig(cfg interface{}) error {
@@ -298,13 +291,8 @@ func (c *Config) normalizeTLSPaths(tls *models.TLSConfig, certDir string) {
 // NormalizeTLSPaths is a convenience function that normalizes TLS paths with default logging.
 // This function exists for backward compatibility with existing code.
 func NormalizeTLSPaths(tls *models.TLSConfig, certDir string) {
-	basicLogger, err := createBasicLogger()
-	if err != nil {
-		// If we can't create a logger, just normalize without logging
-		normalizeTLSPathsNoLog(tls, certDir)
-		return
-	}
-	
+	basicLogger := createBasicLogger()
+
 	cfg := &Config{logger: basicLogger}
 	cfg.normalizeTLSPaths(tls, certDir)
 }

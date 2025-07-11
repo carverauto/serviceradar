@@ -33,10 +33,12 @@ func main() {
 	flag.Parse()
 
 	ctx := context.Background()
-	
+
 	// Step 1: Load config with basic logger
-	cfgLoader := config.NewConfigWithDefaults()
+	cfgLoader := config.NewConfig(nil)
+
 	var cfg sync.Config
+
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}

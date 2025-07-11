@@ -49,7 +49,7 @@ func run() error {
 	ctx := context.Background()
 
 	// Initialize configuration loader
-	cfgLoader := config.NewConfigWithDefaults()
+	cfgLoader := config.NewConfig(nil)
 
 	// Load configuration with context
 	var cfg poller.Config
@@ -58,12 +58,16 @@ func run() error {
 	}
 
 	// Create logger for poller operations
-	defaultLogConfig := &logger.Config{
-		Level:  "info",
-		Output: "stdout",
+	logConfig := cfg.Logging
+	if logConfig == nil {
+		// Use default config if not specified
+		logConfig = &logger.Config{
+			Level:  "info",
+			Output: "stdout",
+		}
 	}
-	
-	pollerLogger, err := lifecycle.CreateComponentLogger("poller", defaultLogConfig)
+
+	pollerLogger, err := lifecycle.CreateComponentLogger("poller", logConfig)
 	if err != nil {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
