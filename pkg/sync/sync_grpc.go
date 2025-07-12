@@ -18,14 +18,14 @@ import (
 // PollerService manages synchronization and serves results via a standard agent gRPC interface.
 type PollerService struct {
 	proto.UnimplementedAgentServiceServer // Implements the AgentService interface
-	poller                                *poller.Poller
+	pollers                               map[string]*poller.Poller
 	config                                Config
 	kvClient                              KVClient
 	sources                               map[string]Integration
 	registry                              map[string]IntegrationFactory
 	grpcClient                            GRPCClient
 	grpcServer                            *grpc.Server
-	resultsCache                          []*models.SweepResult
+	resultsCache                          map[string][]*models.SweepResult
 	resultsMu                             sync.RWMutex
 	logger                                logger.Logger
 }
@@ -40,10 +40,16 @@ func (s *PollerService) GetStatus(_ context.Context, req *proto.StatusRequest) (
 	// The poller passes service_name, etc. We can log it for debugging.
 	s.logger.Debug().Str("service_name", req.ServiceName).Str("service_type", req.ServiceType).Msg("GetStatus called by poller")
 
+	var deviceCount int
+	for _, results := range s.resultsCache {
+		deviceCount += len(results)
+	}
+
 	// Return minimal health check data instead of full device list
 	healthData := map[string]interface{}{
 		"status":         "healthy",
-		"cached_devices": len(s.resultsCache),
+		"cached_sources": len(s.resultsCache),
+		"cached_devices": deviceCount,
 		"timestamp":      time.Now().Unix(),
 	}
 
@@ -53,7 +59,7 @@ func (s *PollerService) GetStatus(_ context.Context, req *proto.StatusRequest) (
 		return nil, status.Errorf(codes.Internal, "failed to marshal health data: %v", err)
 	}
 
-	s.logger.Debug().Int("cached_devices", len(s.resultsCache)).Msg("Returning health check")
+	s.logger.Debug().Int("cached_devices", deviceCount).Msg("Returning health check")
 
 	return &proto.StatusResponse{
 		Available: true,
@@ -72,13 +78,19 @@ func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest)
 	// The poller passes service_name, etc. We can log it for debugging.
 	s.logger.Debug().Str("service_name", req.ServiceName).Str("service_type", req.ServiceType).Msg("GetResults called by poller")
 
-	resultsJSON, err := json.Marshal(s.resultsCache)
+	// Flatten the cache from map[string][]*SweepResult to []*SweepResult
+	var allResults []*models.SweepResult
+	for _, results := range s.resultsCache {
+		allResults = append(allResults, results...)
+	}
+
+	resultsJSON, err := json.Marshal(allResults)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Error marshaling sweep results")
 		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
 	}
 
-	s.logger.Debug().Int("cached_devices", len(s.resultsCache)).Msg("Returning cached devices to poller")
+	s.logger.Debug().Int("cached_devices", len(allResults)).Msg("Returning cached devices to poller")
 
 	return &proto.ResultsResponse{
 		Available:   true,

@@ -52,18 +52,20 @@ func TestPollerService_GetStatus(t *testing.T) {
 		config: Config{
 			AgentID: "test-agent",
 		},
-		resultsCache: []*models.SweepResult{
-			{
-				IP:              "192.168.1.1",
-				DiscoverySource: "armis",
-				Available:       true,
-				Timestamp:       time.Now(),
-			},
-			{
-				IP:              "192.168.1.2",
-				DiscoverySource: "armis",
-				Available:       true,
-				Timestamp:       time.Now(),
+		resultsCache: map[string][]*models.SweepResult{
+			"armis": {
+				{
+					IP:              "192.168.1.1",
+					DiscoverySource: "armis",
+					Available:       true,
+					Timestamp:       time.Now(),
+				},
+				{
+					IP:              "192.168.1.2",
+					DiscoverySource: "armis",
+					Available:       true,
+					Timestamp:       time.Now(),
+				},
 			},
 		},
 		logger: testGRPCLogger(),
@@ -121,7 +123,7 @@ func TestPollerService_GetResults(t *testing.T) {
 		config: Config{
 			AgentID: "test-agent",
 		},
-		resultsCache: testResults,
+		resultsCache: map[string][]*models.SweepResult{"armis": testResults},
 		logger:       testGRPCLogger(),
 	}
 
@@ -174,7 +176,7 @@ func TestPollerService_GetStatusVsGetResults_Separation(t *testing.T) {
 		config: Config{
 			AgentID: "test-agent",
 		},
-		resultsCache: testResults,
+		resultsCache: map[string][]*models.SweepResult{"armis": testResults},
 		logger:       testGRPCLogger(),
 	}
 
@@ -233,7 +235,7 @@ func TestPollerService_GetResults_EmptyCache(t *testing.T) {
 		config: Config{
 			AgentID: "test-agent",
 		},
-		resultsCache: []*models.SweepResult{}, // Empty cache
+		resultsCache: map[string][]*models.SweepResult{}, // Empty cache
 		logger:       testGRPCLogger(),
 	}
 
@@ -267,7 +269,7 @@ func TestPollerService_GetStatus_EmptyCache(t *testing.T) {
 		config: Config{
 			AgentID: "test-agent",
 		},
-		resultsCache: []*models.SweepResult{}, // Empty cache
+		resultsCache: map[string][]*models.SweepResult{}, // Empty cache
 		logger:       testGRPCLogger(),
 	}
 
