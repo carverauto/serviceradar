@@ -198,6 +198,7 @@ func TestStartAndStop(t *testing.T) {
 		firstPoller = p
 		break
 	}
+
 	require.NotNil(t, firstPoller)
 
 	originalPollFunc := firstPoller.PollFunc

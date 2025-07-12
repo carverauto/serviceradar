@@ -107,13 +107,16 @@ func New(
 // Start starts the integration polling loops and the gRPC server.
 func (s *PollerService) Start(ctx context.Context) error {
 	var wg sync.WaitGroup
+
 	errChan := make(chan error, len(s.pollers))
 
 	for name, p := range s.pollers {
 		wg.Add(1)
+
 		go func(name string, p *poller.Poller) {
 			defer wg.Done()
 			s.logger.Info().Str("source", name).Msg("Starting poller for source")
+
 			if err := p.Start(ctx); err != nil {
 				if !errors.Is(err, context.Canceled) {
 					s.logger.Error().Err(err).Str("source", name).Msg("Poller for source stopped with error")
@@ -135,6 +138,7 @@ func (s *PollerService) Start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
 		return nil
 	}
 }
@@ -147,6 +151,7 @@ func (s *PollerService) Stop(ctx context.Context) error {
 	}
 
 	var lastErr error
+
 	for name, p := range s.pollers {
 		if err := p.Stop(ctx); err != nil {
 			s.logger.Error().Err(err).Str("source", name).Msg("Error stopping poller")
@@ -157,6 +162,7 @@ func (s *PollerService) Stop(ctx context.Context) error {
 	if s.grpcClient != nil {
 		if errClose := s.grpcClient.Close(); errClose != nil {
 			s.logger.Error().Err(errClose).Msg("Error closing gRPC client")
+
 			if lastErr == nil {
 				lastErr = errClose
 			}
@@ -191,6 +197,7 @@ func (s *PollerService) syncSource(ctx context.Context, sourceName string) error
 
 	// Recalculate total devices for logging.
 	var totalDevices int
+
 	s.resultsMu.RLock()
 	for _, results := range s.resultsCache {
 		totalDevices += len(results)
