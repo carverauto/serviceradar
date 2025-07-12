@@ -249,7 +249,7 @@ func (s *Server) processServices(
 	serviceList := make([]*models.Service, 0, len(services))
 
 	for _, svc := range services {
-		log.Printf("Processing Service: %s Message content: %v", svc.ServiceName, string(svc.Message))
+		log.Printf("Processing Service: %s", svc.ServiceName)
 
 		apiService := s.createAPIService(svc)
 
