@@ -69,11 +69,10 @@ func (s *PollerService) GetStatus(_ context.Context, req *proto.StatusRequest) (
 }
 
 // GetResults implements the AgentService GetResults method.
-// It returns the cached list of discovered devices as a JSON payload,
-// specifically for discovery/synchronization data collection.
+// It returns the cached sweep results and clears the cache to prevent duplicates.
 func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
-	s.resultsMu.RLock()
-	defer s.resultsMu.RUnlock()
+	s.resultsMu.Lock()
+	defer s.resultsMu.Unlock()
 
 	// The poller passes service_name, etc. We can log it for debugging.
 	s.logger.Debug().Str("service_name", req.ServiceName).Str("service_type", req.ServiceType).Msg("GetResults called by poller")
@@ -84,13 +83,16 @@ func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest)
 		allResults = append(allResults, results...)
 	}
 
+	// Clear the cache after collecting results to prevent sending duplicates
+	s.resultsCache = make(map[string][]*models.SweepResult)
+
 	resultsJSON, err := json.Marshal(allResults)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Error marshaling sweep results")
 		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
 	}
 
-	s.logger.Debug().Int("cached_devices", len(allResults)).Msg("Returning cached devices to poller")
+	s.logger.Info().Int("sweep_results_returned", len(allResults)).Msg("Returned sweep results to poller and cleared cache")
 
 	return &proto.ResultsResponse{
 		Available:   true,
