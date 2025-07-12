@@ -575,7 +575,7 @@ func (s *Server) processMetrics(
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
-	log.Printf("processMetrics - ServiceName: %s Details: %v ", svc.ServiceName)
+	log.Println("processMetrics - ServiceName: ", svc.ServiceName)
 
 	// Extract enhanced payload if present, or use original data
 	enhancedPayload, serviceData := s.extractServicePayload(details)
