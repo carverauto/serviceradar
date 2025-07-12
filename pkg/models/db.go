@@ -33,6 +33,13 @@ type Metrics struct {
 	MaxPollers int32 `json:"max_pollers"`
 }
 
+// WriteBufferConfig configures the database write buffer for performance optimization
+type WriteBufferConfig struct {
+	MaxSize       int      `json:"max_size"`       // Maximum buffer size before forced flush (default: 500)
+	FlushInterval Duration `json:"flush_interval"` // Maximum time to wait before flushing (default: 30s)
+	Enabled       bool     `json:"enabled"`        // Whether buffering is enabled (default: true)
+}
+
 type DBConfig struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	GrpcAddr       string                 `json:"grpc_addr"`
@@ -51,6 +58,7 @@ type DBConfig struct {
 	Auth           *AuthConfig            `json:"auth,omitempty"`
 	CORS           CORSConfig             `json:"cors,omitempty"`
 	Database       ProtonDatabase         `json:"database"`
+	WriteBuffer    WriteBufferConfig      `json:"write_buffer,omitempty"`
 }
 
 func (c *DBConfig) MarshalJSON() ([]byte, error) {
