@@ -72,33 +72,61 @@ func New(
 
 	s.initializeIntegrations(ctx)
 
-	// Create a dedicated poller for each integration source.
+	// Create dedicated pollers for each integration source.
 	for name, sourceCfg := range config.Sources {
-		// Use the source-specific interval if provided, otherwise fall back to the global one.
-		interval := time.Duration(config.PollInterval)
+		// Create discovery poller (sync operations)
+		syncInterval := time.Duration(config.PollInterval)
 		if sourceCfg.PollInterval > 0 {
-			interval = time.Duration(sourceCfg.PollInterval)
+			syncInterval = time.Duration(sourceCfg.PollInterval)
 		}
 
-		pollerConfig := &poller.Config{
-			PollInterval: models.Duration(interval),
+		syncPollerConfig := &poller.Config{
+			PollInterval: models.Duration(syncInterval),
 			Security:     config.Security,
-			PollerID:     fmt.Sprintf("sync-%s", name), // For clearer logging
+			PollerID:     config.PollerID,
 		}
 
-		// Create a new poller instance for this source.
-		p, err := poller.New(ctx, pollerConfig, clock, log)
+		syncPoller, err := poller.New(ctx, syncPollerConfig, clock, log)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create poller for source '%s': %w", name, err)
+			return nil, fmt.Errorf("failed to create sync poller for source '%s': %w", name, err)
 		}
 
-		// The PollFunc needs to capture the source name for the closure.
 		sourceName := name
-		p.PollFunc = func(ctx context.Context) error {
-			return s.syncSource(ctx, sourceName)
+		syncPoller.PollFunc = func(ctx context.Context) error {
+			return s.syncSourceDiscovery(ctx, sourceName)
 		}
 
-		s.pollers[sourceName] = p
+		s.pollers[sourceName+"-sync"] = syncPoller
+
+		// Create sweep poller if sweep interval is configured
+		if sourceCfg.SweepInterval != "" {
+			sweepInterval, err := time.ParseDuration(sourceCfg.SweepInterval)
+			if err != nil {
+				log.Warn().Str("source", name).
+					Str("sweep_interval", sourceCfg.SweepInterval).
+					Err(err).
+					Msg("Invalid sweep interval, skipping sweep poller")
+
+				continue
+			}
+
+			sweepPollerConfig := &poller.Config{
+				PollInterval: models.Duration(sweepInterval),
+				Security:     config.Security,
+				PollerID:     config.PollerID,
+			}
+
+			sweepPoller, err := poller.New(ctx, sweepPollerConfig, clock, log)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create sweep poller for source '%s': %w", name, err)
+			}
+
+			sweepPoller.PollFunc = func(ctx context.Context) error {
+				return s.syncSourceSweep(ctx, sourceName)
+			}
+
+			s.pollers[sourceName+"-sweep"] = sweepPoller
+		}
 	}
 
 	return s, nil
@@ -172,25 +200,52 @@ func (s *PollerService) Stop(ctx context.Context) error {
 	return lastErr
 }
 
-// syncSource performs the synchronization for a single data source.
-func (s *PollerService) syncSource(ctx context.Context, sourceName string) error {
+// syncSourceDiscovery performs discovery/sync operations for a single data source.
+func (s *PollerService) syncSourceDiscovery(ctx context.Context, sourceName string) error {
 	integration, ok := s.sources[sourceName]
 	if !ok {
 		return fmt.Errorf("integration not found for source: %s", sourceName)
 	}
 
-	s.logger.Info().Str("source", sourceName).Msg("Starting sync for source")
+	s.logger.Info().Str("source", sourceName).Msg("Starting discovery sync for source")
 
-	data, events, err := integration.Fetch(ctx)
+	// For discovery, we only want the KV data, not sweep results
+	data, _, err := integration.Fetch(ctx)
 	if err != nil {
-		// Log the error but return nil so the poller for this source continues.
-		s.logger.Warn().Err(err).Str("source", sourceName).Msg("Error fetching from source")
+		s.logger.Warn().Err(err).Str("source", sourceName).Msg("Error fetching from source during discovery")
 		return nil
 	}
 
 	s.writeToKV(ctx, sourceName, data)
 
-	// Update the cache for this specific source.
+	// DO NOT cache sweep results from discovery operations
+	// Results cache should only be updated during actual sweep operations
+
+	s.logger.Info().
+		Str("source", sourceName).
+		Int("kv_entries", len(data)).
+		Msg("Completed discovery sync for source")
+
+	return nil
+}
+
+// syncSourceSweep performs sweep operations for a single data source.
+func (s *PollerService) syncSourceSweep(ctx context.Context, sourceName string) error {
+	integration, ok := s.sources[sourceName]
+	if !ok {
+		return fmt.Errorf("integration not found for source: %s", sourceName)
+	}
+
+	s.logger.Info().Str("source", sourceName).Msg("Starting sweep for source")
+
+	// For sweeps, we only want the sweep results, not KV data
+	_, events, err := integration.Fetch(ctx)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("source", sourceName).Msg("Error fetching from source during sweep")
+		return nil
+	}
+
+	// Update the cache for this specific source with ONLY sweep results
 	s.resultsMu.Lock()
 	s.resultsCache[sourceName] = events
 	s.resultsMu.Unlock()
@@ -208,7 +263,7 @@ func (s *PollerService) syncSource(ctx context.Context, sourceName string) error
 		Str("source", sourceName).
 		Int("source_device_count", len(events)).
 		Int("total_cached_devices", totalDevices).
-		Msg("Updated discovery cache for source")
+		Msg("Completed sweep for source")
 
 	return nil
 }
