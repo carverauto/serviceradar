@@ -33,6 +33,7 @@ Here is a complete example demonstrating the configuration for both Armis (with 
       "type": "armis",
       "endpoint": "https://my-armis-instance.armis.com",
       "prefix": "devices/armis/",
+      "poll_interval": "15m",
       "insecure_skip_verify": false,
       "credentials": {
         "secret_key": "your-armis-api-secret-key",
@@ -86,8 +87,8 @@ Each entry in the `sources` map defines a connection to an external system.
 | `insecure_skip_verify` | `boolean` | If `true`, the HTTP client will skip TLS certificate verification. Use with caution.                                                                                                                              | No       |
 | `credentials`          | `object`  | A map of strings containing authentication tokens, keys, and other integration-specific settings.                                                                                                                | **Yes**  |
 | `queries`              | `array`   | (Armis only) An array of AQL queries to run against the Armis API to fetch devices.                                                                                                                               | **Yes**  |
-| `sweep_interval`       | `string`  | How often agents should sweep discovered networks. Uses Go duration format (e.g., "5m").
-        | No |
+| `poll_interval`        | `string`  | (Optional) Overrides the global `poll_interval` for this specific source. Uses Go's `time.ParseDuration` format.                                                                                                | No       |
+| `sweep_interval`       | `string`  | How often agents should sweep discovered networks. Uses Go duration format (e.g., "5m").                                                                                                                        | No       |
 
 ---
 

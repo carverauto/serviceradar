@@ -19,6 +19,10 @@ type SourceConfig struct {
 	// networks discovered by this source. If empty, a sensible default is
 	// used by each integration.
 	SweepInterval string `json:"sweep_interval,omitempty"`
+
+	// PollInterval allows configuring how often this specific source should be polled.
+	// If empty, uses the global PollInterval from the sync config.
+	PollInterval Duration `json:"poll_interval,omitempty"`
 }
 
 // QueryConfig represents a single labeled AQL/ASQ query.

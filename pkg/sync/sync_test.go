@@ -82,8 +82,12 @@ func TestNew_ValidConfig(t *testing.T) {
 	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
 	require.NoError(t, err)
 	assert.NotNil(t, syncer)
-	assert.NotNil(t, syncer.poller)
-	assert.NotNil(t, syncer.poller.PollFunc)
+	assert.NotEmpty(t, syncer.pollers)
+	// Check that at least one poller was created
+	for _, p := range syncer.pollers {
+		assert.NotNil(t, p.PollFunc)
+		break
+	}
 }
 
 func TestSync_Success(t *testing.T) {
@@ -127,7 +131,8 @@ func TestSync_Success(t *testing.T) {
 	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
 	require.NoError(t, err)
 
-	err = syncer.Sync(context.Background())
+	// Test the syncSource method for the armis source
+	err = syncer.syncSource(context.Background(), "armis")
 	assert.NoError(t, err)
 }
 
@@ -187,8 +192,16 @@ func TestStartAndStop(t *testing.T) {
 
 	var startErr error
 
-	originalPollFunc := syncer.poller.PollFunc
-	syncer.poller.PollFunc = func(ctx context.Context) error {
+	// Get the first poller (there should be one for 'armis')
+	var firstPoller *poller.Poller
+	for _, p := range syncer.pollers {
+		firstPoller = p
+		break
+	}
+	require.NotNil(t, firstPoller)
+
+	originalPollFunc := firstPoller.PollFunc
+	firstPoller.PollFunc = func(ctx context.Context) error {
 		err := originalPollFunc(ctx)
 		if err == nil {
 			select {
@@ -325,7 +338,8 @@ func TestSync_NetboxSuccess(t *testing.T) {
 	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
 	require.NoError(t, err)
 
-	err = syncer.Sync(context.Background())
+	// Test the syncSource method for the netbox source
+	err = syncer.syncSource(context.Background(), "netbox")
 	assert.NoError(t, err)
 }
 
