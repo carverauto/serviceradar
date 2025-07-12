@@ -45,16 +45,6 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			"DiscoverySource: %s, Partition: %s",
 			i+1, result.IP, result.DeviceID, result.DiscoverySource, result.Partition)
 
-		if result.Hostname != nil {
-			log.Printf("  - Hostname: %s", *result.Hostname)
-		}
-
-		if result.Metadata != nil {
-			if metaJSON, marshalErr := json.Marshal(result.Metadata); marshalErr == nil {
-				log.Printf("  - Metadata: %s", string(metaJSON))
-			}
-		}
-
 		// Validate required fields
 		if result.IP == "" {
 			log.Printf("Skipping sweep result with empty IP for poller %s", result.PollerID)

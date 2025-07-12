@@ -131,8 +131,8 @@ func TestSync_Success(t *testing.T) {
 	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
 	require.NoError(t, err)
 
-	// Test the syncSource method for the armis source
-	err = syncer.syncSource(context.Background(), "armis")
+	// Test the syncSourceDiscovery method for the armis source
+	err = syncer.syncSourceDiscovery(context.Background(), "armis")
 	assert.NoError(t, err)
 }
 
@@ -339,8 +339,8 @@ func TestSync_NetboxSuccess(t *testing.T) {
 	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
 	require.NoError(t, err)
 
-	// Test the syncSource method for the netbox source
-	err = syncer.syncSource(context.Background(), "netbox")
+	// Test the syncSourceDiscovery method for the netbox source
+	err = syncer.syncSourceDiscovery(context.Background(), "netbox")
 	assert.NoError(t, err)
 }
 
@@ -559,4 +559,99 @@ func TestCreateIntegrationSetsDefaultPartition(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "default", gotPartition)
+}
+
+func TestSeparateSyncAndSweepPollers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+	mockGRPC := NewMockGRPCClient(ctrl)
+	mockClock := poller.NewMockClock(ctrl)
+
+	// Expect GetConnection call for integration initialization
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
+
+	c := &Config{
+		Sources: map[string]*models.SourceConfig{
+			"armis": {
+				Type:          "armis",
+				Endpoint:      "http://example.com",
+				Prefix:        "armis/",
+				Credentials:   map[string]string{"api_key": "key"},
+				PollInterval:  models.Duration(15 * time.Minute), // Sync every 15 minutes
+				SweepInterval: "10m",                             // Sweep every 10 minutes
+			},
+		},
+		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50053",
+		PollInterval: models.Duration(5 * time.Minute), // Default poll interval
+		Security:     &models.SecurityConfig{},
+	}
+
+	registry := map[string]IntegrationFactory{
+		"armis": func(_ context.Context, _ *models.SourceConfig) Integration {
+			return NewMockIntegration(ctrl)
+		},
+	}
+
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
+	require.NoError(t, err)
+	assert.NotNil(t, syncer)
+
+	// Should have created two pollers: one for sync, one for sweep
+	assert.Len(t, syncer.pollers, 2)
+	
+	// Check that both pollers exist with correct names
+	_, hasSyncPoller := syncer.pollers["armis-sync"]
+	_, hasSweepPoller := syncer.pollers["armis-sweep"]
+	
+	assert.True(t, hasSyncPoller, "Should have created sync poller")
+	assert.True(t, hasSweepPoller, "Should have created sweep poller")
+}
+
+func TestSyncWithoutSweepInterval(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+	mockGRPC := NewMockGRPCClient(ctrl)
+	mockClock := poller.NewMockClock(ctrl)
+
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
+
+	c := &Config{
+		Sources: map[string]*models.SourceConfig{
+			"netbox": {
+				Type:         "netbox",
+				Endpoint:     "https://netbox.example.com",
+				Prefix:       "netbox/",
+				Credentials:  map[string]string{"api_token": "token"},
+				PollInterval: models.Duration(15 * time.Minute),
+				// No SweepInterval configured
+			},
+		},
+		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50055",
+		PollInterval: models.Duration(5 * time.Minute),
+	}
+
+	registry := map[string]IntegrationFactory{
+		"netbox": func(_ context.Context, _ *models.SourceConfig) Integration {
+			return NewMockIntegration(ctrl)
+		},
+	}
+
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
+	require.NoError(t, err)
+	assert.NotNil(t, syncer)
+
+	// Should have created only one poller for sync (no sweep interval configured)
+	assert.Len(t, syncer.pollers, 1)
+	
+	_, hasSyncPoller := syncer.pollers["netbox-sync"]
+	_, hasSweepPoller := syncer.pollers["netbox-sweep"]
+	
+	assert.True(t, hasSyncPoller, "Should have created sync poller")
+	assert.False(t, hasSweepPoller, "Should not have created sweep poller when sweep_interval not configured")
 }
