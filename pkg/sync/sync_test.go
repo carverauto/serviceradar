@@ -18,6 +18,7 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -601,11 +602,11 @@ func TestSeparateSyncAndSweepPollers(t *testing.T) {
 
 	// Should have created two pollers: one for sync, one for sweep
 	assert.Len(t, syncer.pollers, 2)
-	
+
 	// Check that both pollers exist with correct names
 	_, hasSyncPoller := syncer.pollers["armis-sync"]
 	_, hasSweepPoller := syncer.pollers["armis-sweep"]
-	
+
 	assert.True(t, hasSyncPoller, "Should have created sync poller")
 	assert.True(t, hasSweepPoller, "Should have created sweep poller")
 }
@@ -648,10 +649,89 @@ func TestSyncWithoutSweepInterval(t *testing.T) {
 
 	// Should have created only one poller for sync (no sweep interval configured)
 	assert.Len(t, syncer.pollers, 1)
-	
+
 	_, hasSyncPoller := syncer.pollers["netbox-sync"]
 	_, hasSweepPoller := syncer.pollers["netbox-sweep"]
-	
+
 	assert.True(t, hasSyncPoller, "Should have created sync poller")
 	assert.False(t, hasSweepPoller, "Should not have created sweep poller when sweep_interval not configured")
+}
+
+func TestGetResultsClearsCache(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+	mockGRPC := NewMockGRPCClient(ctrl)
+	mockClock := poller.NewMockClock(ctrl)
+
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
+
+	c := &Config{
+		Sources: map[string]*models.SourceConfig{
+			"armis": {
+				Type:          "armis",
+				Endpoint:      "http://example.com",
+				Prefix:        "armis/",
+				Credentials:   map[string]string{"api_key": "key"},
+				PollInterval:  models.Duration(15 * time.Minute),
+				SweepInterval: "10m",
+			},
+		},
+		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50053",
+		PollInterval: models.Duration(5 * time.Minute),
+		Security:     &models.SecurityConfig{},
+	}
+
+	registry := map[string]IntegrationFactory{
+		"armis": func(_ context.Context, _ *models.SourceConfig) Integration {
+			return NewMockIntegration(ctrl)
+		},
+	}
+
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock, testLogger())
+	require.NoError(t, err)
+
+	// Manually add some sweep results to the cache
+	sweepResult := &models.SweepResult{
+		IP:              "192.168.1.1",
+		AgentID:         "test-agent",
+		PollerID:        "test-poller",
+		DiscoverySource: "armis",
+		Available:       true,
+	}
+
+	syncer.resultsMu.Lock()
+	syncer.resultsCache["armis"] = []*models.SweepResult{sweepResult}
+	syncer.resultsMu.Unlock()
+
+	// First GetResults call should return the result
+	ctx := context.Background()
+	req := &proto.ResultsRequest{
+		ServiceName: "sync",
+		ServiceType: "grpc",
+		PollerId:    "test-poller",
+	}
+
+	resp1, err := syncer.GetResults(ctx, req)
+	require.NoError(t, err)
+	assert.True(t, resp1.Available)
+
+	var results1 []*models.SweepResult
+	err = json.Unmarshal(resp1.Data, &results1)
+	require.NoError(t, err)
+	assert.Len(t, results1, 1)
+	assert.Equal(t, "192.168.1.1", results1[0].IP)
+
+	// Second GetResults call should return empty results (cache cleared)
+	resp2, err := syncer.GetResults(ctx, req)
+	require.NoError(t, err)
+	assert.True(t, resp2.Available)
+
+	var results2 []*models.SweepResult
+
+	err = json.Unmarshal(resp2.Data, &results2)
+	require.NoError(t, err)
+	assert.Empty(t, results2, "Cache should be cleared after first GetResults call")
 }

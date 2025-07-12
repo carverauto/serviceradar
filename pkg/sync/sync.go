@@ -102,7 +102,11 @@ func New(
 		if sourceCfg.SweepInterval != "" {
 			sweepInterval, err := time.ParseDuration(sourceCfg.SweepInterval)
 			if err != nil {
-				log.Warn().Str("source", name).Str("sweep_interval", sourceCfg.SweepInterval).Err(err).Msg("Invalid sweep interval, skipping sweep poller")
+				log.Warn().Str("source", name).
+					Str("sweep_interval", sourceCfg.SweepInterval).
+					Err(err).
+					Msg("Invalid sweep interval, skipping sweep poller")
+
 				continue
 			}
 
@@ -214,6 +218,9 @@ func (s *PollerService) syncSourceDiscovery(ctx context.Context, sourceName stri
 
 	s.writeToKV(ctx, sourceName, data)
 
+	// DO NOT cache sweep results from discovery operations
+	// Results cache should only be updated during actual sweep operations
+
 	s.logger.Info().
 		Str("source", sourceName).
 		Int("kv_entries", len(data)).
@@ -238,7 +245,7 @@ func (s *PollerService) syncSourceSweep(ctx context.Context, sourceName string) 
 		return nil
 	}
 
-	// Update the cache for this specific source.
+	// Update the cache for this specific source with ONLY sweep results
 	s.resultsMu.Lock()
 	s.resultsCache[sourceName] = events
 	s.resultsMu.Unlock()
