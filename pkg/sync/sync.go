@@ -83,7 +83,7 @@ func New(
 		syncPollerConfig := &poller.Config{
 			PollInterval: models.Duration(syncInterval),
 			Security:     config.Security,
-			PollerID:     fmt.Sprintf("sync-%s", name),
+			PollerID:     config.PollerID,
 		}
 
 		syncPoller, err := poller.New(ctx, syncPollerConfig, clock, log)
