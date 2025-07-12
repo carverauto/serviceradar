@@ -18,6 +18,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -54,117 +55,155 @@ func New(
 		return nil, err
 	}
 
-	// Create a minimal poller config; no core or agents needed for the internal polling loop.
-	pollerConfig := &poller.Config{
-		PollInterval: config.PollInterval,
-		Security:     config.Security,
-	}
-
 	if clock == nil {
 		clock = poller.Clock(realClock{})
 	}
 
-	p, err := poller.New(ctx, pollerConfig, clock, log)
-	if err != nil {
-		return nil, err
-	}
-
 	s := &PollerService{
-		poller:       p,
+		pollers:      make(map[string]*poller.Poller),
 		config:       *config,
 		kvClient:     kvClient,
 		sources:      make(map[string]Integration),
 		registry:     registry,
 		grpcClient:   grpcClient,
-		resultsCache: make([]*models.SweepResult, 0),
+		resultsCache: make(map[string][]*models.SweepResult),
 		logger:       log,
 	}
 
 	s.initializeIntegrations(ctx)
 
-	// Set the internal poller's PollFunc to our Sync method.
-	s.poller.PollFunc = s.Sync
+	// Create a dedicated poller for each integration source.
+	for name, sourceCfg := range config.Sources {
+		// Use the source-specific interval if provided, otherwise fall back to the global one.
+		interval := time.Duration(config.PollInterval)
+		if sourceCfg.PollInterval > 0 {
+			interval = time.Duration(sourceCfg.PollInterval)
+		}
+
+		pollerConfig := &poller.Config{
+			PollInterval: models.Duration(interval),
+			Security:     config.Security,
+			PollerID:     fmt.Sprintf("sync-%s", name), // For clearer logging
+		}
+
+		// Create a new poller instance for this source.
+		p, err := poller.New(ctx, pollerConfig, clock, log)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create poller for source '%s': %w", name, err)
+		}
+
+		// The PollFunc needs to capture the source name for the closure.
+		sourceName := name
+		p.PollFunc = func(ctx context.Context) error {
+			return s.syncSource(ctx, sourceName)
+		}
+
+		s.pollers[sourceName] = p
+	}
 
 	return s, nil
 }
 
-// Start starts the integration polling loop and the gRPC server.
+// Start starts the integration polling loops and the gRPC server.
 func (s *PollerService) Start(ctx context.Context) error {
-	// Start the background polling of Armis/Netbox etc.
-	return s.poller.Start(ctx)
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(s.pollers))
+
+	for name, p := range s.pollers {
+		wg.Add(1)
+		go func(name string, p *poller.Poller) {
+			defer wg.Done()
+			s.logger.Info().Str("source", name).Msg("Starting poller for source")
+			if err := p.Start(ctx); err != nil {
+				if !errors.Is(err, context.Canceled) {
+					s.logger.Error().Err(err).Str("source", name).Msg("Poller for source stopped with error")
+				}
+				errChan <- err
+			}
+		}(name, p)
+	}
+
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errChan:
+		if err != nil {
+			return err
+		}
+		return nil
+	}
 }
 
-// Stop stops the internal poller, the gRPC server, and closes the gRPC client connection.
+// Stop stops the internal pollers, the gRPC server, and closes the gRPC client connection.
 func (s *PollerService) Stop(ctx context.Context) error {
 	if s.grpcServer != nil {
 		s.grpcServer.GracefulStop()
 		s.logger.Info().Msg("gRPC server stopped")
 	}
 
-	err := s.poller.Stop(ctx)
+	var lastErr error
+	for name, p := range s.pollers {
+		if err := p.Stop(ctx); err != nil {
+			s.logger.Error().Err(err).Str("source", name).Msg("Error stopping poller")
+			lastErr = err
+		}
+	}
 
 	if s.grpcClient != nil {
 		if errClose := s.grpcClient.Close(); errClose != nil {
 			s.logger.Error().Err(errClose).Msg("Error closing gRPC client")
+			if lastErr == nil {
+				lastErr = errClose
+			}
 		}
 	}
 
-	return err
+	return lastErr
 }
 
-// Sync performs the synchronization of data from sources to the KV store and caches the results.
-func (s *PollerService) Sync(ctx context.Context) error {
-	var wg sync.WaitGroup
-
-	errChan := make(chan error, len(s.sources))
-	resultsChan := make(chan []*models.SweepResult, len(s.sources))
-
-	for name, integration := range s.sources {
-		wg.Add(1)
-
-		go func(name string, integ Integration) {
-			defer wg.Done()
-
-			data, events, err := integ.Fetch(ctx)
-
-			if err != nil {
-				errChan <- fmt.Errorf("error fetching from source '%s': %w", name, err)
-				return
-			}
-
-			s.writeToKV(ctx, name, data)
-
-			if len(events) > 0 {
-				resultsChan <- events
-			}
-		}(name, integration)
+// syncSource performs the synchronization for a single data source.
+func (s *PollerService) syncSource(ctx context.Context, sourceName string) error {
+	integration, ok := s.sources[sourceName]
+	if !ok {
+		return fmt.Errorf("integration not found for source: %s", sourceName)
 	}
 
-	wg.Wait()
+	s.logger.Info().Str("source", sourceName).Msg("Starting sync for source")
 
-	close(errChan)
-	close(resultsChan)
-
-	var allEvents []*models.SweepResult
-
-	for events := range resultsChan {
-		allEvents = append(allEvents, events...)
+	data, events, err := integration.Fetch(ctx)
+	if err != nil {
+		// Log the error but return nil so the poller for this source continues.
+		s.logger.Warn().Err(err).Str("source", sourceName).Msg("Error fetching from source")
+		return nil
 	}
 
+	s.writeToKV(ctx, sourceName, data)
+
+	// Update the cache for this specific source.
 	s.resultsMu.Lock()
-	s.resultsCache = allEvents
+	s.resultsCache[sourceName] = events
 	s.resultsMu.Unlock()
 
-	s.logger.Info().Int("device_count", len(allEvents)).Msg("Updated discovery cache")
-
-	// Log any errors that occurred during the sync cycle
-	for err := range errChan {
-		if err != nil {
-			s.logger.Warn().Err(err).Msg("Error during sync cycle")
-		}
+	// Recalculate total devices for logging.
+	var totalDevices int
+	s.resultsMu.RLock()
+	for _, results := range s.resultsCache {
+		totalDevices += len(results)
 	}
+	s.resultsMu.RUnlock()
 
-	return nil // Return nil to allow the poller to continue running even if one source fails
+	s.logger.Info().
+		Str("source", sourceName).
+		Int("source_device_count", len(events)).
+		Int("total_cached_devices", totalDevices).
+		Msg("Updated discovery cache for source")
+
+	return nil
 }
 
 // NewDefault provides a production-ready constructor with default settings.
