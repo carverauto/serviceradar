@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -34,11 +35,18 @@ import (
 
 // DB represents the database connection for Timeplus Proton.
 type DB struct {
-	Conn proton.Conn
+	Conn          proton.Conn
+	writeBuffer   []*models.SweepResult
+	bufferMutex   sync.Mutex
+	flushTimer    *time.Timer
+	ctx           context.Context
+	cancel        context.CancelFunc
+	maxBufferSize int
+	flushInterval time.Duration
 }
 
-// New creates a new database connection and initializes the schema.
-func New(ctx context.Context, config *models.DBConfig) (Service, error) {
+// createTLSConfig builds TLS configuration from security settings
+func createTLSConfig(config *models.DBConfig) (*tls.Config, error) {
 	// Construct absolute paths for certificate files
 	certDir := config.Security.CertDir
 	certFile := config.Security.TLS.CertFile
@@ -78,12 +86,20 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 	}
 
 	// Configure TLS with mTLS settings
-	tlsConfig := &tls.Config{
+	return &tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		RootCAs:            caCertPool,
 		InsecureSkipVerify: false,
 		MinVersion:         tls.VersionTLS13,
 		ServerName:         config.Security.ServerName,
+	}, nil
+}
+
+// New creates a new database connection and initializes the schema.
+func New(ctx context.Context, config *models.DBConfig) (Service, error) {
+	tlsConfig, err := createTLSConfig(config)
+	if err != nil {
+		return nil, err
 	}
 
 	conn, err := proton.Open(&proton.Options{
@@ -118,13 +134,57 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 		return nil, fmt.Errorf("failed to run database migrations: %w", err)
 	}
 
-	db := &DB{Conn: conn}
+	return createDBWithBuffer(ctx, conn, config), nil
+}
 
-	return db, nil
+// createDBWithBuffer creates the DB struct with write buffering configured
+func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.DBConfig) *DB {
+	bufferCtx, cancel := context.WithCancel(ctx)
+
+	// Configure write buffer settings
+	maxBufferSize := 500
+	flushInterval := 30 * time.Second
+
+	if config.WriteBuffer.MaxSize > 0 {
+		maxBufferSize = config.WriteBuffer.MaxSize
+	}
+
+	if config.WriteBuffer.FlushInterval > 0 {
+		flushInterval = time.Duration(config.WriteBuffer.FlushInterval)
+	}
+
+	db := &DB{
+		Conn:          conn,
+		writeBuffer:   make([]*models.SweepResult, 0, maxBufferSize*2), // Pre-allocate with 2x capacity
+		ctx:           bufferCtx,
+		cancel:        cancel,
+		maxBufferSize: maxBufferSize,
+		flushInterval: flushInterval,
+	}
+
+	// Start the background flush routine only if buffering is enabled
+	if maxBufferSize > 0 {
+		go db.backgroundFlush()
+		log.Printf("DEBUG [database]: Started write buffer with max_size=%d, flush_interval=%v", maxBufferSize, flushInterval)
+	} else {
+		log.Printf("DEBUG [database]: Write buffering disabled, all writes will be direct")
+	}
+
+	return db
 }
 
 // Close closes the database connection.
 func (db *DB) Close() error {
+	// Stop the background flush routine
+	if db.cancel != nil {
+		db.cancel()
+	}
+
+	// Flush any remaining data
+	if err := db.flushBuffer(context.Background()); err != nil {
+		log.Printf("WARNING [database]: Failed to flush buffer during close: %v", err)
+	}
+
 	return db.Conn.Close()
 }
 
@@ -270,12 +330,117 @@ func isValidTimestamp(t time.Time) bool {
 
 // PublishBatchSweepResults publishes a batch of sweep results to the sweep_results stream.
 func (db *DB) PublishBatchSweepResults(ctx context.Context, results []*models.SweepResult) error {
-	return db.StoreSweepResults(ctx, results)
+	// If buffering is disabled (maxBufferSize = 0), write directly
+	if db.maxBufferSize == 0 {
+		log.Printf("DEBUG [database]: Buffering disabled, writing %d results directly", len(results))
+		return db.StoreSweepResults(ctx, results)
+	}
+
+	db.bufferMutex.Lock()
+	defer db.bufferMutex.Unlock()
+
+	// Add results to buffer
+	db.writeBuffer = append(db.writeBuffer, results...)
+
+	log.Printf("DEBUG [database]: Added %d results to buffer, buffer size now: %d", len(results), len(db.writeBuffer))
+
+	// Check if we need to flush immediately
+	if len(db.writeBuffer) >= db.maxBufferSize {
+		log.Printf("DEBUG [database]: Buffer size limit reached (%d), flushing immediately", len(db.writeBuffer))
+		return db.flushBufferUnsafe(ctx)
+	}
+
+	// Reset the flush timer
+	if db.flushTimer != nil {
+		db.flushTimer.Stop()
+	}
+
+	db.flushTimer = time.AfterFunc(db.flushInterval, func() {
+		db.bufferMutex.Lock()
+		defer db.bufferMutex.Unlock()
+
+		if len(db.writeBuffer) > 0 {
+			log.Printf("DEBUG [database]: Timer triggered flush for %d buffered results", len(db.writeBuffer))
+
+			if err := db.flushBufferUnsafe(context.Background()); err != nil {
+				log.Printf("ERROR [database]: Timer flush failed: %v", err)
+			}
+		}
+	})
+
+	return nil
 }
 
 // PublishSweepResult publishes a single sweep result to the sweep_results stream.
 func (db *DB) PublishSweepResult(ctx context.Context, result *models.SweepResult) error {
-	return db.StoreSweepResults(ctx, []*models.SweepResult{result})
+	return db.PublishBatchSweepResults(ctx, []*models.SweepResult{result})
+}
+
+// backgroundFlush runs a background goroutine to periodically flush the buffer
+func (db *DB) backgroundFlush() {
+	ticker := time.NewTicker(db.flushInterval / 2) // Check twice as often as flush interval
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-db.ctx.Done():
+			log.Printf("DEBUG [database]: Background flush routine stopping")
+			return
+		case <-ticker.C:
+			db.bufferMutex.Lock()
+			if len(db.writeBuffer) > 0 {
+				log.Printf("DEBUG [database]: Background flush triggered for %d buffered results", len(db.writeBuffer))
+
+				if err := db.flushBufferUnsafe(context.Background()); err != nil {
+					log.Printf("ERROR [database]: Background flush failed: %v", err)
+				}
+			}
+			db.bufferMutex.Unlock()
+		}
+	}
+}
+
+// flushBuffer safely flushes the write buffer to the database
+func (db *DB) flushBuffer(ctx context.Context) error {
+	db.bufferMutex.Lock()
+	defer db.bufferMutex.Unlock()
+
+	return db.flushBufferUnsafe(ctx)
+}
+
+// flushBufferUnsafe flushes the write buffer to the database (caller must hold bufferMutex)
+func (db *DB) flushBufferUnsafe(ctx context.Context) error {
+	if len(db.writeBuffer) == 0 {
+		return nil
+	}
+
+	// Make a copy of the buffer to minimize lock time
+	toFlush := make([]*models.SweepResult, len(db.writeBuffer))
+	copy(toFlush, db.writeBuffer)
+
+	// Clear the buffer
+	db.writeBuffer = db.writeBuffer[:0]
+
+	// Stop the timer since we're flushing now
+	if db.flushTimer != nil {
+		db.flushTimer.Stop()
+		db.flushTimer = nil
+	}
+
+	log.Printf("DEBUG [database]: Flushing %d buffered results to database", len(toFlush))
+
+	// Perform the actual database write
+	if err := db.StoreSweepResults(ctx, toFlush); err != nil {
+		// On error, add the data back to the buffer to retry later
+		log.Printf("ERROR [database]: Failed to flush buffer, re-adding %d results: %v", len(toFlush), err)
+		db.writeBuffer = append(db.writeBuffer, toFlush...)
+
+		return err
+	}
+
+	log.Printf("DEBUG [database]: Successfully flushed %d results to database", len(toFlush))
+
+	return nil
 }
 
 // CloseRows safely closes a Rows type and logs any error.
