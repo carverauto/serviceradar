@@ -113,7 +113,7 @@ func New(
 			sweepPollerConfig := &poller.Config{
 				PollInterval: models.Duration(sweepInterval),
 				Security:     config.Security,
-				PollerID:     fmt.Sprintf("sweep-%s", name),
+				PollerID:     config.PollerID,
 			}
 
 			sweepPoller, err := poller.New(ctx, sweepPollerConfig, clock, log)
