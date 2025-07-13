@@ -195,6 +195,45 @@ if err != nil {
 defer logger.Shutdown()
 ```
 
+### OTel with TLS Client Certificates
+
+```go
+config := logger.Config{
+    Level: "info",
+    OTel: logger.OTelConfig{
+        Enabled:      true,
+        Endpoint:     "otel-collector.example.com:4317",
+        ServiceName:  "serviceradar",
+        BatchTimeout: 10 * time.Second,
+        Insecure:     false,
+        TLS: &logger.TLSConfig{
+            CertFile: "/path/to/client.crt",
+            KeyFile:  "/path/to/client.key",
+            CAFile:   "/path/to/ca.crt", // Optional: custom CA certificate
+        },
+    },
+}
+
+err := logger.Init(config)
+if err != nil {
+    panic(err)
+}
+defer logger.Shutdown()
+```
+
+### OTel Environment Variables with TLS
+
+```bash
+# Enable OTel logging
+export OTEL_LOGS_ENABLED=true
+export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=otel-collector.example.com:4317
+export OTEL_SERVICE_NAME=serviceradar
+
+# TLS Configuration (configure in code as shown above)
+# Environment variables for TLS certificates are not currently supported
+# Use the TLS config struct in your logger.Config instead
+```
+
 ### OTel Features
 
 - **Dual Output**: Logs go to both console AND OTel collector
