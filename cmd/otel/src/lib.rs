@@ -66,7 +66,7 @@ impl ServiceRadarCollector {
                     Some(Arc::new(Mutex::new(output)))
                 },
                 Err(e) => {
-                    error!("Failed to initialize NATS output: {}", e);
+                    error!("Failed to initialize NATS output: {e}");
                     return Err(e.into());
                 }
             }
@@ -125,7 +125,7 @@ impl TraceService for ServiceRadarCollector {
             debug!("Forwarding traces to NATS");
             let nats_output = nats.lock().await;
             if let Err(e) = nats_output.publish_traces(&trace_data).await {
-                error!("Failed to publish traces to NATS: {}", e);
+                error!("Failed to publish traces to NATS: {e}");
                 // Don't fail the request, just log the error
             }
         } else {
@@ -176,7 +176,7 @@ impl LogsService for ServiceRadarCollector {
             debug!("Forwarding logs to NATS");
             let nats_output = nats.lock().await;
             if let Err(e) = nats_output.publish_logs(&logs_data).await {
-                error!("Failed to publish logs to NATS: {}", e);
+                error!("Failed to publish logs to NATS: {e}");
                 // Don't fail the request, just log the error
             }
         } else {
