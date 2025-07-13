@@ -62,7 +62,7 @@ type TLSConfig struct {
 //nolint:gochecknoglobals // needed for proper OTel shutdown handling
 var otelProvider *sdklog.LoggerProvider
 
-func NewOTELWriter(config OTelConfig) (*OTelWriter, error) {
+func NewOTELWriter(ctx context.Context, config OTelConfig) (*OTelWriter, error) {
 	if !config.Enabled {
 		return nil, fmt.Errorf("OTel logging is disabled")
 	}
@@ -70,8 +70,6 @@ func NewOTELWriter(config OTelConfig) (*OTelWriter, error) {
 	if config.Endpoint == "" {
 		return nil, fmt.Errorf("OTel endpoint is required when enabled")
 	}
-
-	ctx := context.Background()
 
 	opts := []otlploggrpc.Option{
 		otlploggrpc.WithEndpoint(config.Endpoint),

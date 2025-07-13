@@ -17,6 +17,7 @@
 package logger_test
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -55,7 +56,7 @@ func Example_otelEnvironmentVariables() {
 
 	config := logger.DefaultConfig()
 
-	err := logger.Init(config)
+	err := logger.Init(context.Background(), config)
 	if err != nil {
 		panic(err)
 	}
@@ -82,7 +83,7 @@ func Example_otelWithoutCollector() {
 		},
 	}
 
-	err := logger.Init(config)
+	err := logger.Init(context.Background(), config)
 	if err != nil {
 		panic(err)
 	}
@@ -108,7 +109,7 @@ func Example_otelGracefulShutdown() {
 		},
 	}
 
-	err := logger.Init(config)
+	err := logger.Init(context.Background(), config)
 	if err != nil {
 		panic(err)
 	}

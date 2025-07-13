@@ -17,6 +17,7 @@
 package logger_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -31,7 +32,7 @@ func ExampleInit() {
 		TimeFormat: "",
 	}
 
-	err := logger.Init(config)
+	err := logger.Init(context.Background(), config)
 	if err != nil {
 		panic(err)
 	}
@@ -40,7 +41,7 @@ func ExampleInit() {
 }
 
 func ExampleInitWithDefaults() {
-	err := logger.InitWithDefaults()
+	err := logger.InitWithDefaults(context.Background())
 	if err != nil {
 		panic(err)
 	}

@@ -67,7 +67,7 @@ func run() error {
 		}
 	}
 
-	pollerLogger, err := lifecycle.CreateComponentLogger("poller", logConfig)
+	pollerLogger, err := lifecycle.CreateComponentLogger(ctx, "poller", logConfig)
 	if err != nil {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}

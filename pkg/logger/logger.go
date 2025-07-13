@@ -18,6 +18,7 @@
 package logger
 
 import (
+	"context"
 	"io"
 	"os"
 	"time"
@@ -55,7 +56,7 @@ func initDefaults() {
 	}
 }
 
-func Init(config *Config) error {
+func Init(ctx context.Context, config *Config) error {
 	initDefaults()
 
 	var output io.Writer = os.Stdout
@@ -82,7 +83,7 @@ func Init(config *Config) error {
 	}
 
 	if config.OTel.Enabled && config.OTel.Endpoint != "" {
-		otelWriter, err := NewOTELWriter(config.OTel)
+		otelWriter, err := NewOTELWriter(ctx, config.OTel)
 		if err != nil {
 			return err
 		}

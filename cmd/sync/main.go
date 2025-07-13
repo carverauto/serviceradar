@@ -44,7 +44,7 @@ func main() {
 	}
 
 	// Step 2: Create logger from config
-	logger, err := lifecycle.CreateComponentLogger("sync", cfg.Logging)
+	logger, err := lifecycle.CreateComponentLogger(ctx, "sync", cfg.Logging)
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}

@@ -17,6 +17,7 @@
 package logger
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -42,7 +43,7 @@ func TestOTelWriter_Disabled(t *testing.T) {
 		Enabled: false,
 	}
 
-	writer, err := NewOTELWriter(config)
+	writer, err := NewOTELWriter(context.Background(), config)
 	if err == nil {
 		t.Error("Expected error when OTel is disabled")
 	}
@@ -58,7 +59,7 @@ func TestOTelWriter_NoEndpoint(t *testing.T) {
 		Endpoint: "",
 	}
 
-	writer, err := NewOTELWriter(config)
+	writer, err := NewOTELWriter(context.Background(), config)
 	if err == nil {
 		t.Error("Expected error when endpoint is empty")
 	}
@@ -78,7 +79,7 @@ func TestLoggerWithOTelDisabled(t *testing.T) {
 		},
 	}
 
-	err := Init(config)
+	err := Init(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Failed to initialize logger with OTel disabled: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestLoggerWithOTelEnabledButNoEndpoint(t *testing.T) {
 		},
 	}
 
-	err := Init(config)
+	err := Init(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Failed to initialize logger with OTel enabled but no endpoint: %v", err)
 	}

@@ -63,7 +63,7 @@ func run() error {
 		}
 	}
 
-	agentLogger, err := lifecycle.CreateComponentLogger("agent", logConfig)
+	agentLogger, err := lifecycle.CreateComponentLogger(ctx, "agent", logConfig)
 	if err != nil {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
