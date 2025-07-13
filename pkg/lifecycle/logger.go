@@ -74,7 +74,7 @@ func NewLoggerImpl(config *logger.Config) (*LoggerImpl, error) {
 	}
 
 	if config.OTel.Enabled && config.OTel.Endpoint != "" {
-		otelWriter, err := logger.NewOTelWriter(config.OTel)
+		otelWriter, err := logger.NewOTELWriter(config.OTel)
 		if err != nil {
 			return nil, err
 		}
