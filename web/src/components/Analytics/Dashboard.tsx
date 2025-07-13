@@ -29,6 +29,7 @@ import { Device } from "@/types/devices";
 import { RperfMetric } from "@/types/rperf";
 import HighUtilizationWidget from './HighUtilizationWidget';
 import CriticalEventsWidget from './CriticalEventsWidget';
+import { rperfCache } from '@/lib/rperf-cache';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
@@ -192,30 +193,14 @@ const Dashboard = () => {
                 poller.services?.some(s => s.type === 'grpc' && s.name === 'rperf-checker')
             );
             
-            // Get data for the last 24 hours
+            // Get data for the last hour - sufficient for dashboard bar chart
             const endTime = new Date();
-            const startTime = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
+            const startTime = new Date(endTime.getTime() - 1 * 60 * 60 * 1000);
             
+            console.log(`[Analytics Dashboard] Fetching rperf for ${rperfPollers.length} pollers:`, rperfPollers.map(p => p.poller_id));
             const rperfPromises = rperfPollers.map(poller => {
-                const url = `/api/pollers/${poller.poller_id}/rperf?start=${startTime.toISOString()}&end=${endTime.toISOString()}`;
-                
-                return fetch(url, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` }),
-                    },
-                })
-                .then(res => {
-                    if (!res.ok) {
-                        console.error(`RPerf API error for poller ${poller.poller_id}: ${res.status}`);
-                        return [];
-                    }
-                    return res.json() as Promise<RperfMetric[]>;
-                })
-                .catch((err) => {
-                    console.error(`Error fetching rperf for poller ${poller.poller_id}:`, err);
-                    return [];
-                });
+                console.log(`[Analytics Dashboard] Requesting rperf for ${poller.poller_id} from ${startTime.toISOString()} to ${endTime.toISOString()}`);
+                return rperfCache.getRperfData(poller.poller_id, startTime, endTime, token);
             });
             
             const rperfDataArrays = await Promise.all(rperfPromises);

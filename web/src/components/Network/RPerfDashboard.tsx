@@ -32,6 +32,7 @@ import { RefreshCw, AlertCircle, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { RperfMetric } from "@/types/rperf";
+import { rperfCache } from '@/lib/rperf-cache';
 
 interface RPerfDashboardProps {
     pollerId: string;
@@ -183,38 +184,23 @@ const RperfDashboard = ({
                 default: start.setHours(end.getHours() - 1);
             }
 
-            const url = `/api/pollers/${pollerId}/rperf?start=${start.toISOString()}&end=${end.toISOString()}`;
-            const headers: HeadersInit = {
-                "Content-Type": "application/json",
-            };
-
-            if (token) {
-                headers["Authorization"] = `Bearer ${token}`;
-            }
-
-            const response = await fetch(url, {
-                method: 'GET',
-                headers,
-                credentials: 'include',
-                cache: "no-store"
-            });
-
-            if (!response.ok) {
-                if (response.status === 401) {
-                    console.error("Authentication error fetching RPerfData - attempting token refresh");
-                    const refreshed = await refreshToken();
-                    if (refreshed) {
-                        return fetchData();
-                    } else {
-                        console.error("Token refresh failed");
-                        throw new Error("Authentication failed");
+            console.log(`[RPerfDashboard] Requesting rperf for ${pollerId} from ${start.toISOString()} to ${end.toISOString()}`);
+            const data: RperfMetric[] = await rperfCache.getRperfData(pollerId, start, end, token);
+            
+            // If empty data and we have a token, try refreshing auth
+            if (data.length === 0 && token) {
+                console.log("Empty rperf data - checking authentication");
+                const refreshed = await refreshToken();
+                if (refreshed) {
+                    // Retry with fresh token
+                    const retryData = await rperfCache.getRperfData(pollerId, start, end, token);
+                    if (retryData.length > 0) {
+                        console.log("Successfully fetched data after token refresh");
+                        // Continue processing with retry data
+                        data.splice(0, data.length, ...retryData);
                     }
-                } else {
-                    throw new Error(`Failed to fetch Rperf data: ${response.status}`);
                 }
             }
-
-            const data: RperfMetric[] = await response.json();
 
             if (data.length === 0) {
                 console.log("No rperf data received");
