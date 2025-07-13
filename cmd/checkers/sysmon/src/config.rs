@@ -48,6 +48,19 @@ pub struct FilesystemConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessConfig {
+    pub enabled: bool,
+    #[serde(default)]
+    pub filter_by_name: Vec<String>, // Optional process name filters
+    #[serde(default = "default_include_all")]
+    pub include_all: bool, // Collect all processes vs. filtered
+}
+
+fn default_include_all() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub listen_addr: String,
     pub security: Option<SecurityConfig>,
@@ -55,6 +68,7 @@ pub struct Config {
     pub zfs: Option<ZfsConfig>,
     pub filesystems: Vec<FilesystemConfig>,
     pub partition: Option<String>, // Partition identifier for device-centric model
+    pub process_monitoring: Option<ProcessConfig>,
 }
 
 impl Config {
