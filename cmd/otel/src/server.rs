@@ -7,7 +7,7 @@ use crate::opentelemetry::proto::collector::logs::v1::logs_service_server::LogsS
 use crate::ServiceRadarCollector;
 
 /// Creates a ServiceRadar collector with the given NATS configuration
-pub async fn create_collector(nats_config: Option<crate::nats_output::NatsConfig>) -> Result<ServiceRadarCollector, Box<dyn std::error::Error>> {
+pub async fn create_collector(nats_config: Option<crate::nats_output::NATSConfig>) -> Result<ServiceRadarCollector, Box<dyn std::error::Error>> {
     debug!("Creating ServiceRadar collector");
     
     match ServiceRadarCollector::new(nats_config).await {
