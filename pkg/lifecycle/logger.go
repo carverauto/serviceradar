@@ -17,6 +17,7 @@
 package lifecycle
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -28,12 +29,12 @@ import (
 
 // InitializeLogger initializes the logger with the provided configuration.
 // If config is nil, it uses the default configuration.
-func InitializeLogger(config *logger.Config) error {
+func InitializeLogger(ctx context.Context, config *logger.Config) error {
 	if config == nil {
 		config = logger.DefaultConfig()
 	}
 
-	if err := logger.Init(config); err != nil {
+	if err := logger.Init(ctx, config); err != nil {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
@@ -46,7 +47,7 @@ type LoggerImpl struct {
 }
 
 // NewLoggerImpl creates a new logger implementation
-func NewLoggerImpl(config *logger.Config) (*LoggerImpl, error) {
+func NewLoggerImpl(ctx context.Context, config *logger.Config) (*LoggerImpl, error) {
 	if config == nil {
 		config = logger.DefaultConfig()
 	}
@@ -74,7 +75,7 @@ func NewLoggerImpl(config *logger.Config) (*LoggerImpl, error) {
 	}
 
 	if config.OTel.Enabled && config.OTel.Endpoint != "" {
-		otelWriter, err := logger.NewOTELWriter(config.OTel)
+		otelWriter, err := logger.NewOTELWriter(ctx, config.OTel)
 		if err != nil {
 			return nil, err
 		}
@@ -149,13 +150,13 @@ func (l *LoggerImpl) SetDebug(debug bool) {
 
 // CreateLogger creates a new logger instance with the provided configuration.
 // This returns a logger that can be injected into services.
-func CreateLogger(config *logger.Config) (logger.Logger, error) {
-	return NewLoggerImpl(config)
+func CreateLogger(ctx context.Context, config *logger.Config) (logger.Logger, error) {
+	return NewLoggerImpl(ctx, config)
 }
 
 // CreateComponentLogger creates a logger for a specific component.
-func CreateComponentLogger(component string, config *logger.Config) (logger.Logger, error) {
-	loggerImpl, err := NewLoggerImpl(config)
+func CreateComponentLogger(ctx context.Context, component string, config *logger.Config) (logger.Logger, error) {
+	loggerImpl, err := NewLoggerImpl(ctx, config)
 	if err != nil {
 		return nil, err
 	}

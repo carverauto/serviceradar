@@ -17,6 +17,7 @@
 package logger
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -111,6 +112,6 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	}
 }
 
-func InitWithDefaults() error {
-	return Init(DefaultConfig())
+func InitWithDefaults(ctx context.Context) error {
+	return Init(ctx, DefaultConfig())
 }
