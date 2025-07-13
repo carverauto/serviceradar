@@ -43,7 +43,7 @@ pub struct NatsOutput {
 impl NatsOutput {
     pub async fn new(config: NatsConfig) -> Result<Self> {
         info!("Initializing NATS output");
-        debug!("NATS config: {:?}", config);
+        debug!("NATS config: {config:?}");
         
         let (_client, jetstream) = Self::connect(&config).await?;
         
@@ -62,7 +62,7 @@ impl NatsOutput {
                 debug!("JetStream stream created/verified successfully");
             },
             Err(e) => {
-                error!("Failed to create/verify JetStream stream: {}", e);
+                error!("Failed to create/verify JetStream stream: {e}");
                 return Err(e.into());
             }
         }
@@ -80,13 +80,13 @@ impl NatsOutput {
         
         // Apply CA file if provided
         if let Some(ca_file) = &config.tls_ca {
-            debug!("Using TLS CA file: {:?}", ca_file);
+            debug!("Using TLS CA file: {ca_file:?}");
             options = options.add_root_certificates(ca_file.clone());
         }
         
         // Apply client certificate and key for mTLS
         if let (Some(cert_file), Some(key_file)) = (&config.tls_cert, &config.tls_key) {
-            debug!("Using TLS client certificate: {:?}, key: {:?}", cert_file, key_file);
+            debug!("Using TLS client certificate: {cert_file:?}, key: {key_file:?}");
             options = options.add_client_certificate(cert_file.clone(), key_file.clone());
         }
         
@@ -96,7 +96,7 @@ impl NatsOutput {
                 c
             },
             Err(e) => {
-                error!("Failed to connect to NATS server: {}", e);
+                error!("Failed to connect to NATS server: {e}");
                 return Err(e.into());
             }
         };
@@ -128,7 +128,7 @@ impl NatsOutput {
             .publish(self.config.subject.clone(), payload.into())
             .await
             .map_err(|e| {
-                error!("Failed to publish to NATS: {}", e);
+                error!("Failed to publish to NATS: {e}");
                 e
             })?;
             
@@ -138,10 +138,10 @@ impl NatsOutput {
             Ok(Ok(ack_result)) => {
                 debug!("NATS publish acknowledged: stream={}, sequence={}", 
                        ack_result.stream, ack_result.sequence);
-                info!("Successfully published {} spans to NATS", span_count);
+                info!("Successfully published {span_count} spans to NATS");
             },
             Ok(Err(e)) => {
-                error!("NATS acknowledgment failed: {}", e);
+                error!("NATS acknowledgment failed: {e}");
                 return Err(anyhow::anyhow!("NATS acknowledgment failed: {}", e));
             },
             Err(_) => {
@@ -169,13 +169,13 @@ impl NatsOutput {
         
         // Publish with acknowledgment - use a different subject for logs
         let logs_subject = format!("{}.logs", self.config.subject);
-        debug!("Publishing to subject: {}", logs_subject);
+        debug!("Publishing to subject: {logs_subject}");
         let ack: PublishAckFuture = self
             .jetstream
             .publish(logs_subject, payload.into())
             .await
             .map_err(|e| {
-                error!("Failed to publish logs to NATS: {}", e);
+                error!("Failed to publish logs to NATS: {e}");
                 e
             })?;
             
@@ -185,10 +185,10 @@ impl NatsOutput {
             Ok(Ok(ack_result)) => {
                 debug!("NATS logs publish acknowledged: stream={}, sequence={}", 
                        ack_result.stream, ack_result.sequence);
-                info!("Successfully published {} log records to NATS", logs_count);
+                info!("Successfully published {logs_count} log records to NATS");
             },
             Ok(Err(e)) => {
-                error!("NATS logs acknowledgment failed: {}", e);
+                error!("NATS logs acknowledgment failed: {e}");
                 return Err(anyhow::anyhow!("NATS logs acknowledgment failed: {}", e));
             },
             Err(_) => {

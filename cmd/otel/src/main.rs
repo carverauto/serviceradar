@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cfg
         },
         Err(e) => {
-            error!("Failed to load configuration: {}", e);
+            error!("Failed to load configuration: {e}");
             if args.config.is_some() {
                 // If a specific config was requested and failed, exit
                 return Err(e.into());
@@ -78,12 +78,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             c
         },
         Err(e) => {
-            error!("Failed to create ServiceRadar collector: {}", e);
+            error!("Failed to create ServiceRadar collector: {e}");
             return Err(e);
         }
     };
 
-    info!("OTEL Collector listening on {}", addr);
+    info!("OTEL Collector listening on {addr}");
     
     debug!("Starting gRPC server");
     let result = Server::builder()
@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         },
         Err(e) => {
-            error!("Server error: {}", e);
+            error!("Server error: {e}");
             Err(e.into())
         }
     }
