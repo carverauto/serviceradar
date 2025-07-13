@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::nats_output::NatsConfig;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
@@ -44,14 +44,6 @@ impl Default for ServerConfig {
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            nats: None,
-        }
-    }
-}
 
 impl Config {
     /// Load configuration from a TOML file
@@ -70,7 +62,7 @@ impl Config {
     pub fn load(config_path: Option<&str>) -> Result<Self> {
         // If a specific path is provided, use it
         if let Some(path) = config_path {
-            println!("Loading config from specified path: {}", path);
+            println!("Loading config from specified path: {path}");
             return Self::from_file(path);
         }
         
@@ -87,18 +79,18 @@ impl Config {
         ];
         
         // Add home directory path if available
-        if let Some(home) = std::env::var("HOME").ok() {
-            all_paths.push(format!("{}/.config/serviceradar/otel.toml", home));
+        if let Ok(home) = std::env::var("HOME") {
+            all_paths.push(format!("{home}/.config/serviceradar/otel.toml"));
         }
         
         for path in &all_paths {
             if Path::new(path).exists() {
-                println!("Loading config from: {}", path);
+                println!("Loading config from: {path}");
                 return Self::from_file(path);
             }
         }
         
-        println!("No config file found, using defaults (searched: {:?})", all_paths);
+        println!("No config file found, using defaults (searched: {all_paths:?})");
         Ok(Self::default())
     }
     
