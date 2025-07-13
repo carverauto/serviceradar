@@ -204,13 +204,7 @@ defer logger.Shutdown()
 - **Error Handling**: Graceful fallback if collector is unavailable
 - **Resource Attribution**: Service name and version automatically included
 
-### Popular OTel Collectors
-
-- **Jaeger**: Set endpoint to `localhost:14250`
 - **OTLP**: Standard endpoint `localhost:4317` (gRPC) or `localhost:4318` (HTTP)
-- **Grafana**: Configure with Grafana Agent or Alloy
-- **Datadog**: Use Datadog Agent with OTLP receiver
-- **New Relic**: Use OTLP endpoint provided by New Relic
 
 ## Thread Safety
 
