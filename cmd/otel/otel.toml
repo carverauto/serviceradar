@@ -7,3 +7,17 @@ url = "nats://localhost:4222"
 subject = "events.otel"
 stream = "events"
 timeout_secs = 30
+
+# Optional NATS TLS configuration
+# Uncomment and set paths to enable TLS for NATS
+# [nats.tls]
+# cert_file = "/path/to/nats-client.crt"
+# key_file = "/path/to/nats-client.key"
+# ca_file = "/path/to/nats-ca.crt"
+
+# Optional gRPC TLS configuration
+# Uncomment and set paths to enable TLS for gRPC server
+# [grpc_tls]
+# cert_file = "/path/to/grpc-server.crt"
+# key_file = "/path/to/grpc-server.key"
+# ca_file = "/path/to/grpc-ca.crt"

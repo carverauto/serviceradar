@@ -18,9 +18,12 @@ package logger
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -30,6 +33,7 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.31.0"
+	"google.golang.org/grpc/credentials"
 )
 
 type OTelWriter struct {
@@ -44,6 +48,13 @@ type OTelConfig struct {
 	ServiceName  string            `json:"service_name" yaml:"service_name"`
 	BatchTimeout Duration          `json:"batch_timeout" yaml:"batch_timeout"`
 	Insecure     bool              `json:"insecure" yaml:"insecure"`
+	TLS          *TLSConfig        `json:"tls,omitempty" yaml:"tls,omitempty"`
+}
+
+type TLSConfig struct {
+	CertFile string `json:"cert_file" yaml:"cert_file"`
+	KeyFile  string `json:"key_file" yaml:"key_file"`
+	CAFile   string `json:"ca_file,omitempty" yaml:"ca_file,omitempty"`
 }
 
 // otelProvider is managed internally for shutdown
@@ -51,7 +62,7 @@ type OTelConfig struct {
 //nolint:gochecknoglobals // needed for proper OTel shutdown handling
 var otelProvider *sdklog.LoggerProvider
 
-func NewOTelWriter(config OTelConfig) (*OTelWriter, error) {
+func NewOTELWriter(config OTelConfig) (*OTelWriter, error) {
 	if !config.Enabled {
 		return nil, fmt.Errorf("OTel logging is disabled")
 	}
@@ -68,6 +79,14 @@ func NewOTelWriter(config OTelConfig) (*OTelWriter, error) {
 
 	if config.Insecure {
 		opts = append(opts, otlploggrpc.WithInsecure())
+	} else if config.TLS != nil {
+		tlsConfig, err := setupTLSConfig(config.TLS)
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup TLS configuration: %w", err)
+		}
+
+		creds := credentials.NewTLS(tlsConfig)
+		opts = append(opts, otlploggrpc.WithTLSCredentials(creds))
 	}
 
 	if len(config.Headers) > 0 {
@@ -142,7 +161,7 @@ func (w *OTelWriter) Write(p []byte) (n int, err error) {
 	}
 
 	if levelStr, ok := logEntry["level"].(string); ok {
-		record.SetSeverity(mapZerologLevelToOTel(levelStr))
+		record.SetSeverity(mapZerologLevelToOTEL(levelStr))
 		record.SetSeverityText(levelStr)
 	}
 
@@ -163,7 +182,8 @@ func (w *OTelWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func mapZerologLevelToOTel(level string) log.Severity {
+// func mapZerologLevelToOTEL(level string) log.Severity {
+func mapZerologLevelToOTEL(level string) log.Severity {
 	switch strings.ToLower(level) {
 	case "trace":
 		return log.SeverityTrace
@@ -184,7 +204,7 @@ func mapZerologLevelToOTel(level string) log.Severity {
 	}
 }
 
-func ShutdownOTel() error {
+func ShutdownOTEL() error {
 	if otelProvider != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -193,6 +213,37 @@ func ShutdownOTel() error {
 	}
 
 	return nil
+}
+
+func setupTLSConfig(tlsConfig *TLSConfig) (*tls.Config, error) {
+	config := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	if tlsConfig.CertFile != "" && tlsConfig.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(tlsConfig.CertFile, tlsConfig.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate: %w", err)
+		}
+
+		config.Certificates = []tls.Certificate{cert}
+	}
+
+	if tlsConfig.CAFile != "" {
+		caCert, err := os.ReadFile(tlsConfig.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+		}
+
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA certificate")
+		}
+
+		config.RootCAs = caCertPool
+	}
+
+	return config, nil
 }
 
 type MultiWriter struct {

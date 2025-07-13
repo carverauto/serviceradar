@@ -82,7 +82,7 @@ func Init(config *Config) error {
 	}
 
 	if config.OTel.Enabled && config.OTel.Endpoint != "" {
-		otelWriter, err := NewOTelWriter(config.OTel)
+		otelWriter, err := NewOTELWriter(config.OTel)
 		if err != nil {
 			return err
 		}
@@ -175,5 +175,5 @@ func WithFields(fields map[string]interface{}) zerolog.Logger {
 }
 
 func Shutdown() error {
-	return ShutdownOTel()
+	return ShutdownOTEL()
 }
