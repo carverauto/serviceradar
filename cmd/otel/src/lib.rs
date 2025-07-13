@@ -4,6 +4,9 @@ use log::{debug, info, error};
 pub mod cli;
 pub mod config;
 pub mod nats_output;
+pub mod tls;
+pub mod server;
+pub mod setup;
 
 pub mod opentelemetry {
     pub mod proto {
