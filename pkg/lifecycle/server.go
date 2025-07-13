@@ -70,7 +70,7 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 
 	if opts.Logger == nil {
 		// No logger was provided, create one
-		createdLogger, err := CreateComponentLogger(opts.ServiceName, opts.LoggerConfig)
+		createdLogger, err := CreateComponentLogger(ctx, opts.ServiceName, opts.LoggerConfig)
 		if err != nil {
 			return fmt.Errorf("failed to initialize logger: %w", err)
 		}
