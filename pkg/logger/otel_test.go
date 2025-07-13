@@ -42,7 +42,7 @@ func TestOTelWriter_Disabled(t *testing.T) {
 		Enabled: false,
 	}
 
-	writer, err := NewOTelWriter(config)
+	writer, err := NewOTELWriter(config)
 	if err == nil {
 		t.Error("Expected error when OTel is disabled")
 	}
@@ -58,7 +58,7 @@ func TestOTelWriter_NoEndpoint(t *testing.T) {
 		Endpoint: "",
 	}
 
-	writer, err := NewOTelWriter(config)
+	writer, err := NewOTELWriter(config)
 	if err == nil {
 		t.Error("Expected error when endpoint is empty")
 	}
@@ -122,9 +122,9 @@ func TestMapZerologLevelToOTel(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := mapZerologLevelToOTel(test.zerologLevel)
+		result := mapZerologLevelToOTEL(test.zerologLevel)
 		if result.String() != test.expected {
-			t.Errorf("mapZerologLevelToOTel(%s) = %s, expected %s",
+			t.Errorf("mapZerologLevelToOTEL(%s) = %s, expected %s",
 				test.zerologLevel, result.String(), test.expected)
 		}
 	}

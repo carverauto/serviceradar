@@ -4,7 +4,7 @@ use clap::Parser;
 #[command(name = "otel")]
 #[command(about = "ServiceRadar OpenTelemetry Collector")]
 #[command(version)]
-pub struct Cli {
+pub struct CLI {
     /// Path to configuration file
     #[arg(short = 'c', long = "config", value_name = "FILE")]
     pub config: Option<String>,
@@ -22,7 +22,7 @@ pub struct Cli {
     pub verbose: bool,
 }
 
-impl Cli {
+impl CLI {
     pub fn parse_args() -> Self {
         Self::parse()
     }

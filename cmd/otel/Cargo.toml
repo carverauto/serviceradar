@@ -13,7 +13,7 @@ name = "otel"
 path = "src/main.rs"
 
 [dependencies]
-tonic = "0.12"
+tonic = { version = "0.12", features = ["tls"] }
 prost = "0.13"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
