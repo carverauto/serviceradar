@@ -1,12 +1,12 @@
 use std::net::SocketAddr;
 use log::{info, debug, warn, error};
 
-use crate::cli::Cli;
+use crate::cli::CLI;
 use crate::config::Config;
 
 /// Sets up logging and parses command line arguments
-pub fn setup_logging_and_parse_args() -> Result<Cli, Box<dyn std::error::Error>> {
-    let args = Cli::parse_args();
+pub fn setup_logging_and_parse_args() -> Result<CLI, Box<dyn std::error::Error>> {
+    let args = CLI::parse_args();
     
     let log_level = if args.is_debug_enabled() {
         "debug"
@@ -31,7 +31,7 @@ pub fn handle_generate_config() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Loads configuration from the specified path or defaults
-pub fn load_configuration(args: &Cli) -> Result<Config, Box<dyn std::error::Error>> {
+pub fn load_configuration(args: &CLI) -> Result<Config, Box<dyn std::error::Error>> {
     debug!("Loading configuration from: {:?}", args.config);
     
     match Config::load(args.config.as_deref()) {
