@@ -1,8 +1,6 @@
-use std::future::Future;
 use std::sync::Arc;
 
 use async_nats::jetstream::kv::Store;
-use serde_json;
 use zen_engine::loader::{DecisionLoader, LoaderError, LoaderResponse};
 use zen_engine::model::DecisionContent;
 
@@ -19,9 +17,9 @@ impl KvLoader {
 
     async fn load_from_kv(&self, key: &str) -> LoaderResponse {
         let full_key = if self.prefix.is_empty() {
-            format!("{}.json", key)
+            format!("{key}.json")
         } else {
-            format!("{}/{}.json", self.prefix.trim_end_matches('/'), key)
+            format!("{}/{key}.json", self.prefix.trim_end_matches('/'))
         };
         match self.store.get(full_key).await {
             Ok(Some(bytes)) => {
@@ -43,7 +41,7 @@ impl KvLoader {
 }
 
 impl DecisionLoader for KvLoader {
-    fn load<'a>(&'a self, key: &'a str) -> impl Future<Output = LoaderResponse> + 'a {
-        async move { self.load_from_kv(key).await }
+    async fn load<'a>(&'a self, key: &'a str) -> LoaderResponse {
+        self.load_from_kv(key).await
     }
 }

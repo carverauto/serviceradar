@@ -14,9 +14,12 @@ use futures::StreamExt;
 mod config;
 mod engine;
 mod grpc_server;
+#[cfg(test)]
+mod integration_tests;
 mod kv_loader;
 mod message_processor;
 mod nats;
+mod otel_logs;
 mod rule_watcher;
 
 use config::Config;
@@ -126,10 +129,7 @@ async fn main() -> Result<()> {
             .expires(BATCH_TIMEOUT)
             .messages()
             .await?;
-        debug!(
-            "waiting for up to 10 messages or {:?} timeout",
-            BATCH_TIMEOUT
-        );
+        debug!("waiting for up to 10 messages or {BATCH_TIMEOUT:?} timeout");
         while let Some(message) = messages.next().await {
             let message = message.map_err(|e| anyhow::anyhow!(e.to_string()))?;
             if let Err(e) = process_message(&engine, &cfg, &js, &message).await {
