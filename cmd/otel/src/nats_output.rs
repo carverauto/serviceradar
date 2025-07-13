@@ -11,7 +11,7 @@ use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest
 use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
 
 #[derive(Clone, Debug)]
-pub struct NatsConfig {
+pub struct NATSConfig {
     pub url: String,
     pub subject: String,
     pub stream: String,
@@ -21,7 +21,7 @@ pub struct NatsConfig {
     pub tls_ca: Option<PathBuf>,
 }
 
-impl Default for NatsConfig {
+impl Default for NATSConfig {
     fn default() -> Self {
         Self {
             url: "nats://localhost:4222".to_string(),
@@ -35,13 +35,13 @@ impl Default for NatsConfig {
     }
 }
 
-pub struct NatsOutput {
-    config: NatsConfig,
+pub struct NATSOutput {
+    config: NATSConfig,
     jetstream: jetstream::Context,
 }
 
-impl NatsOutput {
-    pub async fn new(config: NatsConfig) -> Result<Self> {
+impl NATSOutput {
+    pub async fn new(config: NATSConfig) -> Result<Self> {
         info!("Initializing NATS output");
         debug!("NATS config: {config:?}");
         
@@ -74,7 +74,7 @@ impl NatsOutput {
         })
     }
     
-    async fn connect(config: &NatsConfig) -> Result<(Client, jetstream::Context)> {
+    async fn connect(config: &NATSConfig) -> Result<(Client, jetstream::Context)> {
         debug!("Connecting to NATS server: {}", config.url);
         let mut options = ConnectOptions::new();
         

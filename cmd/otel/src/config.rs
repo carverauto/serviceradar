@@ -4,14 +4,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::nats_output::NatsConfig;
+use crate::nats_output::NATSConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
-    pub nats: Option<NatsConfigToml>,
-    pub grpc_tls: Option<GrpcTlsConfig>,
+    pub nats: Option<NATSConfigTOML>,
+    pub grpc_tls: Option<GRPCTLSConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,21 +23,21 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GrpcTlsConfig {
+pub struct GRPCTLSConfig {
     pub cert_file: String,
     pub key_file: String,
     pub ca_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NatsTlsConfig {
+pub struct NATSTLSConfig {
     pub cert_file: String,
     pub key_file: String,
     pub ca_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NatsConfigToml {
+pub struct NATSConfigTOML {
     pub url: String,
     #[serde(default = "default_nats_subject")]
     pub subject: String,
@@ -45,7 +45,7 @@ pub struct NatsConfigToml {
     pub stream: String,
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
-    pub tls: Option<NatsTlsConfig>,
+    pub tls: Option<NATSTLSConfig>,
 }
 
 impl Default for ServerConfig {
@@ -113,7 +113,7 @@ impl Config {
     }
     
     /// Convert to NatsConfig if NATS is configured
-    pub fn nats_config(&self) -> Option<NatsConfig> {
+    pub fn nats_config(&self) -> Option<NATSConfig> {
         self.nats.as_ref().map(|nats| {
             let (tls_cert, tls_key, tls_ca) = if let Some(ref tls) = nats.tls {
                 (
@@ -125,7 +125,7 @@ impl Config {
                 (None, None, None)
             };
             
-            NatsConfig {
+            NATSConfig {
                 url: nats.url.clone(),
                 subject: nats.subject.clone(),
                 stream: nats.stream.clone(),
@@ -141,18 +141,18 @@ impl Config {
     pub fn example_toml() -> String {
         let example = Config {
             server: ServerConfig::default(),
-            nats: Some(NatsConfigToml {
+            nats: Some(NATSConfigTOML {
                 url: "nats://localhost:4222".to_string(),
                 subject: "events.otel".to_string(),
                 stream: "events".to_string(),
                 timeout_secs: 30,
-                tls: Some(NatsTlsConfig {
+                tls: Some(NATSTLSConfig {
                     cert_file: "/path/to/nats-client.crt".to_string(),
                     key_file: "/path/to/nats-client.key".to_string(),
                     ca_file: Some("/path/to/nats-ca.crt".to_string()),
                 }),
             }),
-            grpc_tls: Some(GrpcTlsConfig {
+            grpc_tls: Some(GRPCTLSConfig {
                 cert_file: "/path/to/grpc-server.crt".to_string(),
                 key_file: "/path/to/grpc-server.key".to_string(),
                 ca_file: Some("/path/to/grpc-ca.pem".to_string()),
@@ -295,7 +295,7 @@ url = "nats://test:4222"
         let config = Config {
             server: ServerConfig::default(),
             nats: None,
-            grpc_tls: Some(GrpcTlsConfig {
+            grpc_tls: Some(GRPCTLSConfig {
                 cert_file: "/server.crt".to_string(),
                 key_file: "/server.key".to_string(),
                 ca_file: None,
@@ -370,12 +370,12 @@ key_file = "/grpc.key"
     fn test_nats_config_conversion() {
         let config = Config {
             server: ServerConfig::default(),
-            nats: Some(NatsConfigToml {
+            nats: Some(NATSConfigTOML {
                 url: "nats://test:4222".to_string(),
                 subject: "test.subject".to_string(),
                 stream: "test_stream".to_string(),
                 timeout_secs: 45,
-                tls: Some(NatsTlsConfig {
+                tls: Some(NATSTLSConfig {
                     cert_file: "/cert.pem".to_string(),
                     key_file: "/key.pem".to_string(),
                     ca_file: Some("/ca.pem".to_string()),

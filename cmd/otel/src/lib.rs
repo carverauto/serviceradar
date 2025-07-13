@@ -54,16 +54,16 @@ use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct ServiceRadarCollector {
-    nats_output: Option<Arc<Mutex<nats_output::NatsOutput>>>,
+    nats_output: Option<Arc<Mutex<nats_output::NATSOutput>>>,
 }
 
 impl ServiceRadarCollector {
-    pub async fn new(nats_config: Option<nats_output::NatsConfig>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(nats_config: Option<nats_output::NATSConfig>) -> Result<Self, Box<dyn std::error::Error>> {
         debug!("Creating ServiceRadarCollector");
         
         let nats_output = if let Some(config) = nats_config {
             debug!("Initializing NATS output for collector");
-            match nats_output::NatsOutput::new(config).await {
+            match nats_output::NATSOutput::new(config).await {
                 Ok(output) => {
                     debug!("NATS output created successfully");
                     Some(Arc::new(Mutex::new(output)))

@@ -50,10 +50,7 @@ pub fn log_tls_info(config: &Config) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, ServerConfig, GrpcTlsConfig};
-    use std::io::Write;
-    use tempfile::NamedTempFile;
-
+    use crate::config::{Config, ServerConfig, GRPCTLSConfig};
 
     #[test]
     fn test_setup_grpc_tls_disabled() {
@@ -84,7 +81,7 @@ mod tests {
         let config = Config {
             server: ServerConfig::default(),
             nats: None,
-            grpc_tls: Some(GrpcTlsConfig {
+            grpc_tls: Some(GRPCTLSConfig {
                 cert_file: "/test.crt".to_string(),
                 key_file: "/test.key".to_string(),
                 ca_file: Some("/test-ca.pem".to_string()),
