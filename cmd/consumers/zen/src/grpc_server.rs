@@ -67,7 +67,7 @@ impl AgentService for ZenAgentService {
 
 pub async fn start_grpc_server(cfg: Config) -> Result<()> {
     let addr: std::net::SocketAddr = cfg.listen_addr.parse()?;
-    let service = ZenAgentService::default();
+    let service = ZenAgentService;
     let (mut health_reporter, health_service) = health_reporter();
     health_reporter
         .set_serving::<AgentServiceServer<ZenAgentService>>()

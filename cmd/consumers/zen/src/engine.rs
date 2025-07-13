@@ -16,6 +16,6 @@ pub async fn build_engine(cfg: &Config, js: &jetstream::Context) -> Result<Share
     info!("initialized decision engine with bucket {}", cfg.kv_bucket);
     Ok(std::sync::Arc::new(DecisionEngine::new(
         std::sync::Arc::new(loader),
-        std::sync::Arc::new(NoopCustomNode::default()),
+        std::sync::Arc::new(NoopCustomNode),
     )))
 }

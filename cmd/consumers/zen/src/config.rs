@@ -15,6 +15,14 @@ pub struct RuleEntry {
     pub key: String,
 }
 
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MessageFormat {
+    #[default]
+    Json,
+    Protobuf,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct DecisionGroupConfig {
     #[allow(dead_code)]
@@ -23,6 +31,8 @@ pub struct DecisionGroupConfig {
     pub subjects: Vec<String>,
     #[serde(default)]
     pub rules: Vec<RuleEntry>,
+    #[serde(default)]
+    pub format: MessageFormat,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -109,6 +119,19 @@ impl Config {
         }
         self.decision_keys.clone()
     }
+
+    pub fn message_format_for_subject(&self, subject: &str) -> MessageFormat {
+        if !self.decision_groups.is_empty() {
+            if let Some(group) = self
+                .decision_groups
+                .iter()
+                .find(|g| g.subjects.is_empty() || g.subjects.iter().any(|s| s == subject))
+            {
+                return group.format.clone();
+            }
+        }
+        MessageFormat::default()
+    }
 }
 
 #[cfg(test)]
@@ -158,5 +181,20 @@ mod tests {
             grpc_security: None,
         };
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_message_format_for_subject() {
+        let cfg = Config::from_file(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/zen-consumer-with-otel.json"
+        ))
+        .unwrap();
+        
+        assert_eq!(cfg.message_format_for_subject("events.syslog"), MessageFormat::Json);
+        assert_eq!(cfg.message_format_for_subject("events.snmp"), MessageFormat::Json);
+        assert_eq!(cfg.message_format_for_subject("events.otel.logs"), MessageFormat::Protobuf);
+        // Default to JSON for unknown subjects
+        assert_eq!(cfg.message_format_for_subject("events.unknown"), MessageFormat::Json);
     }
 }

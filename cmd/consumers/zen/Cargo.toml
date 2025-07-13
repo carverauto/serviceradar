@@ -9,6 +9,7 @@ license = "Apache-2.0"
 [dependencies]
 anyhow = "1.0"
 async-nats = "0.42"
+base64 = "0.21"
 clap = { version = "4.3", features = ["derive", "env"] }
 env_logger = "0.10"
 log = "0.4"
@@ -31,3 +32,7 @@ tonic-build = "0.9"
 [[bin]]
 name = "zen-put-rule"
 path = "src/bin/put_rule.rs"
+
+[lints.clippy]
+# Suppress warnings from generated protobuf code
+enum_variant_names = "allow"

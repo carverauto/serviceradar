@@ -3,7 +3,7 @@
   "domain": "edge",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
-  "subjects": ["events.syslog", "events.snmp"],
+  "subjects": ["events.syslog", "events.snmp", "events.otel.logs"],
   "decision_groups": [
     {
       "name": "syslog",
@@ -11,14 +11,24 @@
       "rules": [
         {"order": 1, "key": "strip_full_message"},
         {"order": 2, "key": "cef_severity"}
-      ]
+      ],
+      "format": "json"
     },
     {
       "name": "snmp",
       "subjects": ["events.snmp"],
       "rules": [
-        {"order": 1, "key": "cef_severity"}
-      ]
+        {"order": 1, "key": "snmp_severity"}
+      ],
+      "format": "json"
+    },
+    {
+      "name": "otel_logs",
+      "subjects": ["events.otel.logs"],
+      "rules": [
+        {"order": 1, "key": "passthrough"},
+      ],
+      "format": "protobuf"
     }
   ],
   "agent_id": "default-agent",
