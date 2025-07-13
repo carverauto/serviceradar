@@ -607,6 +607,7 @@ func (s *Server) processMetrics(
 			}
 			// Health check data from GetStatus doesn't need processing
 			log.Printf("Skipping sync service health check data from GetStatus for poller %s", contextPollerID)
+
 			return nil
 		default:
 			log.Printf("Unknown GRPC service type %s on poller %s", svc.ServiceType, pollerID)
