@@ -93,6 +93,7 @@ message ServiceStatus {
   string agent_id = 6;     // Agent ID for traceability
   string poller_id = 7;     // Poller ID for traceability
   string partition = 8; // Partition identifier
+  string source = 9;      // Source of the message: "status" or "results"
 }
 
 message SweepServiceStatus {

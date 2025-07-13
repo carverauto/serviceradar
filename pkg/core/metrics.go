@@ -601,7 +601,14 @@ func (s *Server) processMetrics(
 		case sysmonServiceType:
 			return s.processSysmonMetrics(ctx, contextPollerID, contextPartition, contextAgentID, serviceData, now)
 		case syncServiceType:
-			return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+			// Only process sync discovery results from GetResults calls, not from GetStatus health checks
+			if svc.Source == "results" {
+				return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+			}
+			// Health check data from GetStatus doesn't need processing
+			log.Printf("Skipping sync service health check data from GetStatus for poller %s", contextPollerID)
+
+			return nil
 		default:
 			log.Printf("Unknown GRPC service type %s on poller %s", svc.ServiceType, pollerID)
 		}

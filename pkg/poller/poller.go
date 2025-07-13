@@ -349,6 +349,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 			Message:     message,
 			ServiceType: sc.check.Type,
 			PollerId:    sc.pollerID,
+			Source:      "status",
 		}
 	}
 
@@ -367,6 +368,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		ResponseTime: status.ResponseTime,
 		AgentId:      status.AgentId,
 		PollerId:     sc.pollerID,
+		Source:       "status",
 	}
 }
 
@@ -734,6 +736,7 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 			ServiceType: rp.check.Type,
 			PollerId:    rp.pollerID,
 			AgentId:     rp.agentName,
+			Source:      "results",
 		}
 	}
 
@@ -753,5 +756,6 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 		ResponseTime: results.ResponseTime,
 		AgentId:      results.AgentId,
 		PollerId:     rp.pollerID,
+		Source:       "results",
 	}
 }
