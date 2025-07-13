@@ -51,6 +51,16 @@ pub struct MemoryMetric {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct ProcessMetric {
+    pub pid: u32,
+    pub name: String,
+    pub cpu_usage: f32,
+    pub memory_usage: u64,
+    pub status: String,
+    pub start_time: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct MetricSample {
     pub timestamp: String,
     pub host_id: String,
@@ -59,6 +69,7 @@ pub struct MetricSample {
     pub cpus: Vec<CpuMetric>,
     pub disks: Vec<DiskMetric>,
     pub memory: MemoryMetric,
+    pub processes: Vec<ProcessMetric>,
 }
 
 #[derive(Debug)]
@@ -172,6 +183,38 @@ impl MetricsCollector {
             }
         }).await.map_err(|e| anyhow::anyhow!("Failed to collect memory metrics: {}", e))?;
         debug!("Memory: used={} bytes, total={} bytes", memory.used_bytes, memory.total_bytes);
+
+        // Process metrics
+        debug!("Collecting process metrics");
+        let system = Arc::clone(&self.system);
+        let processes = tokio::task::spawn_blocking(move || {
+            let mut system = system.blocking_lock();
+            system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+            let mut processes = Vec::new();
+            
+            for (pid, process) in system.processes() {
+                let pid_u32 = pid.as_u32();
+                let name = process.name().to_string_lossy().to_string();
+                let cpu_usage = process.cpu_usage();
+                let memory_usage = process.memory();
+                let status = format!("{:?}", process.status());
+                let start_time = chrono::DateTime::from_timestamp(process.start_time() as i64, 0)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_else(|| "unknown".to_string());
+                
+                processes.push(ProcessMetric {
+                    pid: pid_u32,
+                    name,
+                    cpu_usage,
+                    memory_usage,
+                    status,
+                    start_time,
+                });
+            }
+            
+            debug!("Collected {} processes", processes.len());
+            processes
+        }).await.map_err(|e| anyhow::anyhow!("Failed to collect process metrics: {}", e))?;
 
         let timestamp = Utc::now().to_rfc3339();
         debug!("Timestamp: {timestamp}");
@@ -319,11 +362,13 @@ impl MetricsCollector {
             cpus,
             disks,
             memory,
+            processes,
         };
         debug!(
-            "Metrics collected: {} CPUs, {} disks, memory used={} bytes",
+            "Metrics collected: {} CPUs, {} disks, {} processes, memory used={} bytes",
             sample.cpus.len(),
             sample.disks.len(),
+            sample.processes.len(),
             sample.memory.used_bytes
         );
 
