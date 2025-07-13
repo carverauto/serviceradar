@@ -11,6 +11,7 @@ pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
     pub nats: Option<NatsConfigToml>,
+    pub grpc_tls: Option<GrpcTlsConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +23,20 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrpcTlsConfig {
+    pub cert_file: String,
+    pub key_file: String,
+    pub ca_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NatsTlsConfig {
+    pub cert_file: String,
+    pub key_file: String,
+    pub ca_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NatsConfigToml {
     pub url: String,
     #[serde(default = "default_nats_subject")]
@@ -30,9 +45,7 @@ pub struct NatsConfigToml {
     pub stream: String,
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
-    pub tls_cert: Option<String>,
-    pub tls_key: Option<String>,
-    pub tls_ca: Option<String>,
+    pub tls: Option<NatsTlsConfig>,
 }
 
 impl Default for ServerConfig {
@@ -101,14 +114,26 @@ impl Config {
     
     /// Convert to NatsConfig if NATS is configured
     pub fn nats_config(&self) -> Option<NatsConfig> {
-        self.nats.as_ref().map(|nats| NatsConfig {
-            url: nats.url.clone(),
-            subject: nats.subject.clone(),
-            stream: nats.stream.clone(),
-            timeout: Duration::from_secs(nats.timeout_secs),
-            tls_cert: nats.tls_cert.as_ref().map(PathBuf::from),
-            tls_key: nats.tls_key.as_ref().map(PathBuf::from),
-            tls_ca: nats.tls_ca.as_ref().map(PathBuf::from),
+        self.nats.as_ref().map(|nats| {
+            let (tls_cert, tls_key, tls_ca) = if let Some(ref tls) = nats.tls {
+                (
+                    Some(PathBuf::from(&tls.cert_file)),
+                    Some(PathBuf::from(&tls.key_file)),
+                    tls.ca_file.as_ref().map(PathBuf::from),
+                )
+            } else {
+                (None, None, None)
+            };
+            
+            NatsConfig {
+                url: nats.url.clone(),
+                subject: nats.subject.clone(),
+                stream: nats.stream.clone(),
+                timeout: Duration::from_secs(nats.timeout_secs),
+                tls_cert,
+                tls_key,
+                tls_ca,
+            }
         })
     }
     
@@ -121,9 +146,16 @@ impl Config {
                 subject: "events.otel".to_string(),
                 stream: "events".to_string(),
                 timeout_secs: 30,
-                tls_cert: Some("/path/to/client.crt".to_string()),
-                tls_key: Some("/path/to/client.key".to_string()),
-                tls_ca: Some("/path/to/ca.crt".to_string()),
+                tls: Some(NatsTlsConfig {
+                    cert_file: "/path/to/nats-client.crt".to_string(),
+                    key_file: "/path/to/nats-client.key".to_string(),
+                    ca_file: Some("/path/to/nats-ca.crt".to_string()),
+                }),
+            }),
+            grpc_tls: Some(GrpcTlsConfig {
+                cert_file: "/path/to/grpc-server.crt".to_string(),
+                key_file: "/path/to/grpc-server.key".to_string(),
+                ca_file: Some("/path/to/grpc-ca.pem".to_string()),
             }),
         };
         
@@ -164,6 +196,7 @@ mod tests {
         assert_eq!(config.server.bind_address, "0.0.0.0");
         assert_eq!(config.server.port, 4317);
         assert!(config.nats.is_none());
+        assert!(config.grpc_tls.is_none());
     }
 
     #[test]
@@ -251,9 +284,86 @@ url = "nats://test:4222"
                 port: 8080,
             },
             nats: None,
+            grpc_tls: None,
         };
         
         assert_eq!(config.bind_address(), "127.0.0.1:8080");
+    }
+
+    #[test]
+    fn test_grpc_tls_config_optional_ca() {
+        let config = Config {
+            server: ServerConfig::default(),
+            nats: None,
+            grpc_tls: Some(GrpcTlsConfig {
+                cert_file: "/server.crt".to_string(),
+                key_file: "/server.key".to_string(),
+                ca_file: None,
+            }),
+        };
+        
+        let tls = config.grpc_tls.unwrap();
+        assert_eq!(tls.cert_file, "/server.crt");
+        assert_eq!(tls.key_file, "/server.key");
+        assert!(tls.ca_file.is_none());
+    }
+
+    #[test]
+    fn test_nats_tls_config_from_toml() {
+        let toml_content = r#"
+[server]
+bind_address = "127.0.0.1"
+port = 8080
+
+[nats]
+url = "nats://test:4222"
+subject = "test.otel"
+
+[nats.tls]
+cert_file = "/path/to/nats-client.crt"
+key_file = "/path/to/nats-client.key"
+ca_file = "/path/to/nats-ca.crt"
+"#;
+        
+        let config: Config = toml::from_str(toml_content).unwrap();
+        let nats = config.nats.unwrap();
+        let nats_tls = nats.tls.unwrap();
+        assert_eq!(nats_tls.cert_file, "/path/to/nats-client.crt");
+        assert_eq!(nats_tls.key_file, "/path/to/nats-client.key");
+        assert_eq!(nats_tls.ca_file.unwrap(), "/path/to/nats-ca.crt");
+    }
+
+    #[test]
+    fn test_separate_tls_configs() {
+        let toml_content = r#"
+[server]
+bind_address = "127.0.0.1"
+port = 8080
+
+[nats]
+url = "nats://test:4222"
+
+[nats.tls]
+cert_file = "/nats.crt"
+key_file = "/nats.key"
+
+[grpc_tls]
+cert_file = "/grpc.crt"
+key_file = "/grpc.key"
+"#;
+        
+        let config: Config = toml::from_str(toml_content).unwrap();
+        
+        // Check NATS TLS
+        let nats = config.nats.unwrap();
+        let nats_tls = nats.tls.unwrap();
+        assert_eq!(nats_tls.cert_file, "/nats.crt");
+        assert_eq!(nats_tls.key_file, "/nats.key");
+        
+        // Check gRPC TLS
+        let grpc_tls = config.grpc_tls.unwrap();
+        assert_eq!(grpc_tls.cert_file, "/grpc.crt");
+        assert_eq!(grpc_tls.key_file, "/grpc.key");
     }
 
     #[test]
@@ -265,10 +375,13 @@ url = "nats://test:4222"
                 subject: "test.subject".to_string(),
                 stream: "test_stream".to_string(),
                 timeout_secs: 45,
-                tls_cert: Some("/cert.pem".to_string()),
-                tls_key: Some("/key.pem".to_string()),
-                tls_ca: Some("/ca.pem".to_string()),
+                tls: Some(NatsTlsConfig {
+                    cert_file: "/cert.pem".to_string(),
+                    key_file: "/key.pem".to_string(),
+                    ca_file: Some("/ca.pem".to_string()),
+                }),
             }),
+            grpc_tls: None,
         };
         
         let nats_config = config.nats_config().unwrap();
@@ -286,7 +399,33 @@ url = "nats://test:4222"
         let example = Config::example_toml();
         assert!(example.contains("[server]"));
         assert!(example.contains("[nats]"));
+        assert!(example.contains("[grpc_tls]"));
         assert!(example.contains("bind_address"));
         assert!(example.contains("url"));
+        assert!(example.contains("cert_file"));
+        assert!(example.contains("key_file"));
+    }
+
+    #[test]
+    fn test_grpc_tls_config_from_toml() {
+        let toml_content = r#"
+[server]
+bind_address = "127.0.0.1"
+port = 8080
+
+[grpc_tls]
+cert_file = "/path/to/server.crt"
+key_file = "/path/to/server.key"
+ca_file = "/path/to/ca.pem"
+"#;
+        
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.server.bind_address, "127.0.0.1");
+        assert_eq!(config.server.port, 8080);
+        
+        let tls = config.grpc_tls.unwrap();
+        assert_eq!(tls.cert_file, "/path/to/server.crt");
+        assert_eq!(tls.key_file, "/path/to/server.key");
+        assert_eq!(tls.ca_file.unwrap(), "/path/to/ca.pem");
     }
 }
