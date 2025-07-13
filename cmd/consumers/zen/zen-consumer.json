@@ -21,7 +21,7 @@
       ]
     }
   ],
-  "agent_id": "agent-01",
+  "agent_id": "default-agent",
   "kv_bucket": "serviceradar-kv",
   "listen_addr": "0.0.0.0:50055",
   "result_subject_suffix": ".processed",
