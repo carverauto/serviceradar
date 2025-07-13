@@ -17,6 +17,7 @@
 package logger
 
 import (
+	"context"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -29,7 +30,7 @@ func TestInit(t *testing.T) {
 		Output: "stdout",
 	}
 
-	err := Init(config)
+	err := Init(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Failed to initialize logger: %v", err)
 	}

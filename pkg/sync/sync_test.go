@@ -40,7 +40,7 @@ func testLogger() logger.Logger {
 		Output: "stderr",
 	}
 
-	log, err := lifecycle.CreateLogger(config)
+	log, err := lifecycle.CreateLogger(context.Background(), config)
 	if err != nil {
 		panic(err)
 	}
