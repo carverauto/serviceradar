@@ -44,7 +44,7 @@ class RperfCache {
         pollerId: string, 
         startTime: Date, 
         endTime: Date, 
-        token?: string
+        token?: string | null
     ): Promise<RperfMetric[]> {
         // Round timestamps to nearest minute for better cache hits
         const roundedStart = this.roundToMinute(startTime);

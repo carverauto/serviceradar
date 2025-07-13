@@ -26,7 +26,6 @@ import {
 import { useAuth } from '../AuthProvider';
 import {Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
-import { RperfMetric } from "@/types/rperf";
 import HighUtilizationWidget from './HighUtilizationWidget';
 import CriticalEventsWidget from './CriticalEventsWidget';
 import { rperfCache } from '@/lib/rperf-cache';
