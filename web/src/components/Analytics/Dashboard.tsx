@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip, Legend
 } from 'recharts';
@@ -28,7 +28,7 @@ import {Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
 import HighUtilizationWidget from './HighUtilizationWidget';
 import CriticalEventsWidget from './CriticalEventsWidget';
-import { rperfCache } from '@/lib/rperf-cache';
+import { useMultiPollerRperfData } from '@/hooks/useMultiPollerRperfData';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
@@ -124,6 +124,55 @@ const Dashboard = () => {
     });
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [pollersData, setPollersData] = useState<Poller[]>([]);
+
+    // Extract rperf poller IDs from pollersData
+    const rperfPollerIds = useMemo(() => {
+        console.log(`[Analytics Dashboard useMemo] Processing ${pollersData.length} pollers`);
+        console.log(`[Analytics Dashboard useMemo] All pollers:`, pollersData.map(p => ({
+            id: p.poller_id,
+            services: p.services?.map(s => ({ type: s.type, name: s.name }))
+        })));
+        
+        const rperfPollers = pollersData.filter(poller => {
+            const hasRperfService = poller.services?.some(s => s.type === 'grpc' && s.name === 'rperf-checker');
+            console.log(`[Analytics Dashboard useMemo] Poller ${poller.poller_id} has rperf service:`, hasRperfService);
+            return hasRperfService;
+        });
+        
+        const ids = rperfPollers.map(p => p.poller_id);
+        console.log(`[Analytics Dashboard useMemo] Found ${rperfPollers.length} rperf pollers with IDs:`, ids);
+        return ids;
+    }, [pollersData]);
+
+    // Memoize time range to prevent infinite re-renders
+    const { startTime, endTime } = useMemo(() => {
+        const end = new Date();
+        const start = new Date(end.getTime() - 60 * 60 * 1000); // 1 hour ago
+        return { startTime: start, endTime: end };
+    }, []); // Empty dependency - only calculate once per component mount
+
+    // Use React Query for rperf data
+    const { 
+        data: allRperfData = [],
+        isLoading: rperfIsLoading,
+        isError: rperfIsError
+    } = useMultiPollerRperfData({
+        pollerIds: rperfPollerIds,
+        startTime,
+        endTime,
+        enabled: !!token && rperfPollerIds.length > 0
+    });
+
+    console.log(`[Analytics Dashboard] RPerf Query Status:`, {
+        pollerIds: rperfPollerIds,
+        dataLength: allRperfData?.length,
+        isLoading: rperfIsLoading,
+        isError: rperfIsError,
+        token: !!token,
+        pollerIdsLength: rperfPollerIds.length,
+        enabled: !!token && rperfPollerIds.length > 0
+    });
 
     // Simple in-memory cache for 30 seconds
     const cacheRef = React.useRef<Map<string, { data: unknown; timestamp: number }>>(new Map());
@@ -170,7 +219,7 @@ const Dashboard = () => {
                 totalDevicesRes,
                 offlineDevicesRes,
                 allDevicesRes,
-                pollersData,
+                fetchedPollersData,
             ] = await Promise.all([
                 postQuery('COUNT DEVICES'),
                 postQuery('COUNT DEVICES WHERE is_available = false'),
@@ -187,23 +236,14 @@ const Dashboard = () => {
                 }),
             ]);
 
-            // Fetch rperf data from all pollers that have rperf services
-            const rperfPollers = pollersData.filter(poller => 
+            // Store pollers data for use in memoized rperfPollerIds
+            setPollersData(fetchedPollersData);
+            
+            // Log rperf pollers found
+            const rperfPollers = fetchedPollersData.filter(poller => 
                 poller.services?.some(s => s.type === 'grpc' && s.name === 'rperf-checker')
             );
-            
-            // Get data for the last hour - sufficient for dashboard bar chart
-            const endTime = new Date();
-            const startTime = new Date(endTime.getTime() - 1 * 60 * 60 * 1000);
-            
-            console.log(`[Analytics Dashboard] Fetching rperf for ${rperfPollers.length} pollers:`, rperfPollers.map(p => p.poller_id));
-            const rperfPromises = rperfPollers.map(poller => {
-                console.log(`[Analytics Dashboard] Requesting rperf for ${poller.poller_id} from ${startTime.toISOString()} to ${endTime.toISOString()}`);
-                return rperfCache.getRperfData(poller.poller_id, startTime, endTime, token);
-            });
-            
-            const rperfDataArrays = await Promise.all(rperfPromises);
-            const allRperfData = rperfDataArrays.flat();
+            console.log(`[Analytics Dashboard] Found ${rperfPollers.length} rperf pollers:`, rperfPollers.map(p => p.poller_id));
 
             // Calculate stats
             const totalDevices = totalDevicesRes.results[0]?.['count()'] || 0;
@@ -214,7 +254,7 @@ const Dashboard = () => {
             const latencyThreshold = 100 * 1000000; // 100ms in nanoseconds
             const latencyData: { name: string; value: number }[] = [];
 
-            pollersData.forEach(poller => {
+            fetchedPollersData.forEach(poller => {
                 poller.services?.forEach(service => {
                     if (!service.available) {
                         failingServices++;
@@ -258,55 +298,6 @@ const Dashboard = () => {
 
             setStats({ totalDevices, offlineDevices, highLatencyServices, failingServices });
 
-            // Prepare rperf bandwidth data for chart
-            const rperfBandwidthData: { name: string; value: number; color: string }[] = [];
-            if (allRperfData.length > 0) {
-                // Group by target and calculate average bandwidth for each
-                const successfulMetrics = allRperfData.filter(metric => metric.success);
-                
-                // Track which sources (pollers) are measuring each target
-                const targetBandwidths = successfulMetrics.reduce((acc, metric) => {
-                    if (!acc[metric.target]) {
-                        acc[metric.target] = { total: 0, count: 0, sources: new Set<string>() };
-                    }
-                    acc[metric.target].total += metric.bits_per_second / 1000000; // Convert to Mbps
-                    acc[metric.target].count += 1;
-                    
-                    // Track the source poller if available
-                    if (metric.agent_id) {
-                        acc[metric.target].sources.add(metric.agent_id);
-                    }
-                    
-                    return acc;
-                }, {} as Record<string, { total: number; count: number; sources: Set<string> }>);
-
-                // Convert to chart data format and sort by bandwidth
-                Object.entries(targetBandwidths)
-                    .map(([target, data]) => {
-                        let displayName = target;
-                        if (data.sources.size > 1) {
-                            // Multiple sources measuring this target
-                            displayName = `${target} (${data.sources.size} sources)`;
-                        } else if (data.sources.size === 1 && rperfPollers.length > 1) {
-                            // Single source but multiple pollers exist - show which one
-                            const sourceName = Array.from(data.sources)[0];
-                            displayName = `${target} (${sourceName})`;
-                        }
-                        return {
-                            name: displayName,
-                            value: Math.round(data.total / data.count),
-                        };
-                    })
-                    .sort((a, b) => b.value - a.value)
-                    .slice(0, 5) // Top 5 targets
-                    .forEach((item, i) => {
-                        rperfBandwidthData.push({
-                            ...item,
-                            color: ['#3b82f6', '#60a5fa', '#93c5fd', '#dbeafe', '#eff6ff'][i % 5]
-                        });
-                    });
-            }
-
             // Prepare chart data
             const topLatencyServices = latencyData
                 .sort((a, b) => b.value - a.value)
@@ -326,7 +317,7 @@ const Dashboard = () => {
                     });
                     return acc;
                 }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][i % 5] })),
-                rperfBandwidth: rperfBandwidthData,
+                rperfBandwidth: [], // Will be populated by React Query hook
             });
 
         } catch (e) {
@@ -335,6 +326,94 @@ const Dashboard = () => {
             setIsLoading(false);
         }
     }, [postQuery, token]);
+
+    // Process rperf data when available
+    useEffect(() => {
+        console.log(`[Analytics Dashboard useEffect] Processing rperf data:`, {
+            dataLength: allRperfData?.length,
+            hasData: !!allRperfData && allRperfData.length > 0
+        });
+        
+        if (!allRperfData || allRperfData.length === 0) {
+            console.log(`[Analytics Dashboard] No rperf data - clearing chart`);
+            // Update chart data to remove rperf bandwidth
+            setChartData(prev => {
+                if (prev.rperfBandwidth.length === 0) return prev; // No change needed
+                return {
+                    ...prev,
+                    rperfBandwidth: []
+                };
+            });
+            return;
+        }
+
+        console.log(`[Analytics Dashboard] Processing ${allRperfData.length} rperf metrics`);
+
+        // Prepare rperf bandwidth data for chart
+        const rperfBandwidthData: { name: string; value: number; color: string }[] = [];
+        
+        // Group by target and calculate average bandwidth for each
+        const successfulMetrics = allRperfData.filter(metric => metric.success);
+        
+        // Track which sources (pollers) are measuring each target
+        const targetBandwidths = successfulMetrics.reduce((acc, metric) => {
+            if (!acc[metric.target]) {
+                acc[metric.target] = { total: 0, count: 0, sources: new Set<string>() };
+            }
+            acc[metric.target].total += metric.bits_per_second / 1000000; // Convert to Mbps
+            acc[metric.target].count += 1;
+            
+            // Track the source poller if available
+            if (metric.agent_id) {
+                acc[metric.target].sources.add(metric.agent_id);
+            }
+            
+            return acc;
+        }, {} as Record<string, { total: number; count: number; sources: Set<string> }>);
+
+        // Convert to chart data format and sort by bandwidth
+        Object.entries(targetBandwidths)
+            .map(([target, data]) => {
+                let displayName = target;
+                if (data.sources.size > 1) {
+                    // Multiple sources measuring this target
+                    displayName = `${target} (${data.sources.size} sources)`;
+                } else if (data.sources.size === 1 && rperfPollerIds.length > 1) {
+                    // Single source but multiple pollers exist - show which one
+                    const sourceName = Array.from(data.sources)[0];
+                    displayName = `${target} (${sourceName})`;
+                }
+                return {
+                    name: displayName,
+                    value: Math.round(data.total / data.count),
+                };
+            })
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 5) // Top 5 targets
+            .forEach((item, i) => {
+                rperfBandwidthData.push({
+                    ...item,
+                    color: ['#3b82f6', '#60a5fa', '#93c5fd', '#dbeafe', '#eff6ff'][i % 5]
+                });
+            });
+
+        // Update chart data with rperf bandwidth (only if it changed)
+        setChartData(prev => {
+            // Check if the data actually changed
+            const hasChanged = prev.rperfBandwidth.length !== rperfBandwidthData.length ||
+                !prev.rperfBandwidth.every((item, index) => {
+                    const newItem = rperfBandwidthData[index];
+                    return item.name === newItem.name && 
+                           item.value === newItem.value && 
+                           item.color === newItem.color;
+                });
+            
+            return hasChanged ? {
+                ...prev,
+                rperfBandwidth: rperfBandwidthData
+            } : prev;
+        });
+    }, [allRperfData, rperfPollerIds]); // Add rperfPollerIds to dependencies
 
     useEffect(() => {
         fetchData();

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
     LineChart,
     BarChart,
@@ -31,8 +31,7 @@ import {
 import { RefreshCw, AlertCircle, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { RperfMetric } from "@/types/rperf";
-import { rperfCache } from '@/lib/rperf-cache';
+import { useRperfData } from '@/hooks/useRperfData';
 
 interface RPerfDashboardProps {
     pollerId: string;
@@ -64,12 +63,10 @@ const RperfDashboard = ({
                             initialTimeRange = "1h"
                         }: RPerfDashboardProps) => {
     const router = useRouter();
-    const { token, refreshToken } = useAuth();
+    const { token } = useAuth();
     const [rperfData, setRperfData] = useState<ChartDataPoint[]>([]);
     const [aggregatedPacketLossData, setAggregatedPacketLossData] = useState<AggregatedDataPoint[]>([]);
     const [timeRange, setTimeRange] = useState(initialTimeRange);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const [averages, setAverages] = useState({
         bandwidth: 0,
         jitter: 0,
@@ -77,6 +74,33 @@ const RperfDashboard = ({
     });
     const [lastRefreshed, setLastRefreshed] = useState(new Date());
     const [targetName, setTargetName] = useState("Unknown Target");
+
+    // Memoize time range to prevent infinite re-renders
+    const { start, end } = useMemo(() => {
+        const endTime = new Date();
+        const startTime = new Date();
+        switch (timeRange) {
+            case "6h": startTime.setHours(endTime.getHours() - 6); break;
+            case "24h": startTime.setHours(endTime.getHours() - 24); break;
+            default: startTime.setHours(endTime.getHours() - 1);
+        }
+        return { start: startTime, end: endTime };
+    }, [timeRange]); // Recalculate when timeRange changes
+
+    // Use React Query for data fetching
+    const { 
+        data: rawMetrics = [], 
+        isLoading, 
+        error: queryError,
+        refetch 
+    } = useRperfData({
+        pollerId,
+        startTime: start,
+        endTime: end,
+        enabled: !!token
+    });
+
+    const error = queryError ? queryError.message : null;
 
     // Filter outliers in packet loss data
     const filterOutliers = useCallback((data: ChartDataPoint[]): ChartDataPoint[] => {
@@ -173,102 +197,58 @@ const RperfDashboard = ({
         return aggregatedWithTrend;
     }, []);
 
-    const fetchData = useCallback(async () => {
-        setIsLoading(true);
-        try {
-            const end = new Date();
-            const start = new Date();
-            switch (timeRange) {
-                case "6h": start.setHours(end.getHours() - 6); break;
-                case "24h": start.setHours(end.getHours() - 24); break;
-                default: start.setHours(end.getHours() - 1);
-            }
 
-            console.log(`[RPerfDashboard] Requesting rperf for ${pollerId} from ${start.toISOString()} to ${end.toISOString()}`);
-            const data: RperfMetric[] = await rperfCache.getRperfData(pollerId, start, end, token);
-            
-            // If empty data and we have a token, try refreshing auth
-            if (data.length === 0 && token) {
-                console.log("Empty rperf data - checking authentication");
-                const refreshed = await refreshToken();
-                if (refreshed) {
-                    // Retry with fresh token
-                    const retryData = await rperfCache.getRperfData(pollerId, start, end, token);
-                    if (retryData.length > 0) {
-                        console.log("Successfully fetched data after token refresh");
-                        // Continue processing with retry data
-                        data.splice(0, data.length, ...retryData);
-                    }
-                }
-            }
-
-            if (data.length === 0) {
-                console.log("No rperf data received");
-                setRperfData([]);
-                setAggregatedPacketLossData([]);
-                setAverages({ bandwidth: 0, jitter: 0, loss: 0 });
-                setTargetName("No Data");
-                setLastRefreshed(new Date());
-                setIsLoading(false);
-                return;
-            }
-
-            // Process data
-            const processedData = data.map(point => ({
-                timestamp: new Date(point.timestamp).getTime(),
-                formattedTime: new Date(point.timestamp).toLocaleTimeString(),
-                bandwidth: point.bits_per_second / 1000000,
-                jitter: point.jitter_ms,
-                loss: point.loss_percent,
-                target: point.target,
-                success: point.success
-            }));
-
-            // Filter outliers, smooth data, and calculate trend
-            const filteredData = filterOutliers(processedData);
-            const smoothedData = smoothData(filteredData);
-            const smoothedDataWithTrend = calculateTrend(smoothedData);
-
-            // Aggregate packet loss data for bar chart
-            const aggregatedData = aggregatePacketLossData(smoothedData);
-
-            // Calculate averages
-            const totalBandwidth = smoothedDataWithTrend.reduce((sum, point) => sum + point.bandwidth, 0);
-            const totalJitter = smoothedDataWithTrend.reduce((sum, point) => sum + point.jitter, 0);
-            const totalLoss = smoothedDataWithTrend.reduce((sum, point) => sum + point.loss, 0);
-            const count = smoothedDataWithTrend.length || 1;
-
-            setAverages({
-                bandwidth: totalBandwidth / count,
-                jitter: totalJitter / count,
-                loss: totalLoss / count
-            });
-
-            if (smoothedDataWithTrend.length > 0) {
-                setTargetName(smoothedDataWithTrend[0].target || "Unknown Target");
-            }
-
-            setRperfData(smoothedDataWithTrend);
-            setAggregatedPacketLossData(aggregatedData);
-            setLastRefreshed(new Date());
-            setError(null);
-        } catch (err) {
-            console.error("Error fetching rperf data:", err);
-            setError("Failed to fetch Rperf data");
+    // Process raw metrics data when it changes
+    useEffect(() => {
+        if (!rawMetrics || rawMetrics.length === 0) {
             setRperfData([]);
             setAggregatedPacketLossData([]);
-        } finally {
-            setIsLoading(false);
+            setAverages({ bandwidth: 0, jitter: 0, loss: 0 });
+            setTargetName("No Data");
+            setLastRefreshed(new Date());
+            return;
         }
-    }, [timeRange, pollerId, token, refreshToken, filterOutliers, smoothData, calculateTrend, aggregatePacketLossData, ]);
 
-    useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 60000);
-        return () => clearInterval(interval);
-    }, [fetchData]);
+        // Process data
+        const processedData = rawMetrics.map(point => ({
+            timestamp: new Date(point.timestamp).getTime(),
+            formattedTime: new Date(point.timestamp).toLocaleTimeString(),
+            bandwidth: point.bits_per_second / 1000000,
+            jitter: point.jitter_ms,
+            loss: point.loss_percent,
+            target: point.target,
+            success: point.success
+        }));
 
-    const handleRefresh = () => fetchData();
+        // Filter outliers, smooth data, and calculate trend
+        const filteredData = filterOutliers(processedData);
+        const smoothedData = smoothData(filteredData);
+        const smoothedDataWithTrend = calculateTrend(smoothedData);
+
+        // Aggregate packet loss data for bar chart
+        const aggregatedLossData = aggregatePacketLossData(smoothedDataWithTrend);
+
+        // Calculate averages
+        const totalBandwidth = smoothedDataWithTrend.reduce((sum, d) => sum + d.bandwidth, 0);
+        const totalJitter = smoothedDataWithTrend.reduce((sum, d) => sum + d.jitter, 0);
+        const totalLoss = smoothedDataWithTrend.reduce((sum, d) => sum + d.loss, 0);
+
+        setRperfData(smoothedDataWithTrend);
+        setAggregatedPacketLossData(aggregatedLossData);
+        setAverages({
+            bandwidth: Math.round(totalBandwidth / smoothedDataWithTrend.length),
+            jitter: Math.round(totalJitter / smoothedDataWithTrend.length * 100) / 100,
+            loss: Math.round(totalLoss / smoothedDataWithTrend.length * 100) / 100
+        });
+
+        // Determine the target name
+        const targetNames = [...new Set(rawMetrics.map(d => d.target))];
+        setTargetName(targetNames.length === 1 ? targetNames[0] : `${targetNames.length} Targets`);
+
+        setLastRefreshed(new Date());
+    }, [rawMetrics, filterOutliers, smoothData, calculateTrend, aggregatePacketLossData]);
+
+    const handleRefresh = () => refetch();
 
     const handleTimeRangeChange = (range: string) => setTimeRange(range);
 
