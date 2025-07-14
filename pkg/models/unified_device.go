@@ -31,6 +31,7 @@ const (
 	DiscoverySourceManual       DiscoverySource = "manual"
 	DiscoverySourceSweep        DiscoverySource = "sweep"
 	DiscoverySourceSelfReported DiscoverySource = "self-reported"
+	DiscoverySourceArmis        DiscoverySource = "armis"
 )
 
 // DiscoveredField represents a field value with its discovery source and metadata
@@ -104,6 +105,8 @@ func GetSourceConfidence(source DiscoverySource) int {
 		return 8 // High confidence - network mapping
 	case DiscoverySourceIntegration:
 		return 7 // Good confidence - external system
+	case DiscoverySourceArmis:
+		return 7 // Good confidence - external security system
 	case DiscoverySourceNetFlow:
 		return 6 // Medium confidence - traffic analysis
 	case DiscoverySourceSweep:

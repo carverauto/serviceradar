@@ -19,6 +19,7 @@ package armis
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -155,6 +156,19 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 }
 
 func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.SweepResult {
+	// Check if devices have changed since last fetch
+	if !a.hasDevicesChanged(devices) {
+		logger.Info().
+			Int("total_devices", len(devices)).
+			Msg("No device changes detected, skipping sweep result generation")
+
+		return []*models.SweepResult{} // Return empty slice to avoid unnecessary processing
+	}
+
+	// Update stored devices and hash for next comparison
+	a.lastDevices = devices
+	a.lastDevicesHash = a.calculateDevicesHash(devices)
+
 	out := make([]*models.SweepResult, 0, len(devices))
 
 	for i := range devices {
@@ -178,7 +192,7 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 			AgentID:         a.Config.AgentID,
 			PollerID:        a.Config.PollerID,
 			Partition:       a.Config.Partition,
-			DiscoverySource: "armis",
+			DiscoverySource: string(models.DiscoverySourceArmis),
 			IP:              ip,
 			MAC:             &mac,
 			Hostname:        &hostname,
@@ -187,6 +201,11 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 			Metadata:        meta,
 		})
 	}
+
+	logger.Info().
+		Int("total_devices", len(devices)).
+		Int("sweep_results", len(out)).
+		Msg("Device changes detected, generating sweep results")
 
 	return out
 }
@@ -209,7 +228,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 	}
 
 	// Call the new dedicated function to get device states
-	deviceStates, err := a.SweepQuerier.GetDeviceStatesBySource(ctx, "armis")
+	deviceStates, err := a.SweepQuerier.GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis))
 	if err != nil {
 		logger.Error().
 			Err(err).
@@ -227,7 +246,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 	if len(retractionEvents) > 0 {
 		logger.Info().
 			Int("retraction_events_count", len(retractionEvents)).
-			Str("source", "armis").
+			Str("source", string(models.DiscoverySourceArmis)).
 			Msg("Generated retraction events")
 
 		modelEvents = append(modelEvents, retractionEvents...)
@@ -288,7 +307,7 @@ func (a *ArmisIntegration) generateRetractionEvents(
 
 			retractionEvent := &models.SweepResult{
 				DeviceID:        state.DeviceID,
-				DiscoverySource: "armis",
+				DiscoverySource: string(models.DiscoverySourceArmis),
 				IP:              state.IP,
 				Available:       false,
 				Timestamp:       now,
@@ -305,6 +324,45 @@ func (a *ArmisIntegration) generateRetractionEvents(
 	}
 
 	return retractionEvents
+}
+
+// hasDevicesChanged compares current devices with previously fetched devices
+func (a *ArmisIntegration) hasDevicesChanged(devices []Device) bool {
+	// If this is the first fetch, consider it changed
+	if a.lastDevicesHash == "" {
+		return true
+	}
+
+	// Calculate hash of current devices
+	currentHash := a.calculateDevicesHash(devices)
+
+	// Compare with previous hash
+	return currentHash != a.lastDevicesHash
+}
+
+// calculateDevicesHash creates a hash of the devices for change detection
+func (*ArmisIntegration) calculateDevicesHash(devices []Device) string {
+	// Create a string representation of all relevant device fields
+	hasher := sha256.New()
+
+	for i := range devices {
+		device := &devices[i]
+		// Include fields that matter for change detection
+		deviceStr := fmt.Sprintf("%d|%s|%s|%s|%s|%s|%v|%s|%s",
+			device.ID,
+			device.IPAddress,
+			device.MacAddress,
+			device.Name,
+			device.Type,
+			device.OperatingSystem,
+			device.Tags,
+			device.LastSeen.Format(time.RFC3339),
+			device.Boundaries,
+		)
+		hasher.Write([]byte(deviceStr))
+	}
+
+	return fmt.Sprintf("%x", hasher.Sum(nil))
 }
 
 func (*ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState) []ArmisDeviceStatus {
@@ -487,7 +545,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		modelDevice := &models.Device{
 			DeviceID:         deviceID,
 			PollerID:         pollerID,
-			DiscoverySources: []string{"armis"},
+			DiscoverySources: []string{string(models.DiscoverySourceArmis)},
 			IP:               ip,
 			MAC:              d.MacAddress,
 			Hostname:         d.Name,
