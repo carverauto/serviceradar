@@ -95,7 +95,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     // Fetch discovered devices using device_id centric queries
     const fetchDevices = useCallback(async () => {
         try {
-            const query = 'SHOW DEVICES WHERE discovery_sources IS NOT NULL LIMIT 100';
+            const query = 'SHOW DEVICES WHERE discovery_sources IS NOT NULL LIMIT 10000';
             const response = await cachedQuery<{ results: Device[] }>(
                 query,
                 token || undefined,
@@ -111,7 +111,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     // Fetch discovered interfaces using device_id centric queries
     const fetchInterfaces = useCallback(async () => {
         try {
-            const query = 'SHOW INTERFACES LIMIT 100';
+            const query = 'SHOW INTERFACES LIMIT 10000';
             const response = await cachedQuery<{ results: DiscoveredInterface[] }>(
                 query,
                 token || undefined,
