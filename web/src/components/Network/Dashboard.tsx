@@ -883,9 +883,9 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                         <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4">
                             <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Active Network Tasks</h3>
                             <div className="space-y-3">
-                                {[...discoveryServices, ...sweepServices, ...snmpServices].map(service => (
+                                {[...discoveryServices, ...sweepServices, ...snmpServices].map((service, index) => (
                                     <div
-                                        key={service.id || service.name}
+                                        key={`${service.poller_id}-${service.name}-${index}`}
                                         className="flex items-center justify-between p-3 bg-gray-100 dark:bg-gray-800/50 rounded-md"
                                     >
                                         <div className="flex items-center gap-3">
@@ -932,8 +932,8 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                     </h3>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {sweepServices.map(service => (
-                                        <div key={service.id || service.name} className="flex items-center gap-3 p-3 bg-gray-100 dark:bg-gray-800/50 rounded-md">
+                                    {sweepServices.map((service, index) => (
+                                        <div key={`sweep-${service.poller_id}-${service.name}-${index}`} className="flex items-center gap-3 p-3 bg-gray-100 dark:bg-gray-800/50 rounded-md">
                                             <div className="flex-1">
                                                 <p className="font-medium text-gray-900 dark:text-white">{service.name}</p>
                                                 <p className="text-sm text-gray-600 dark:text-gray-400">{service.poller_id}</p>
@@ -967,9 +967,9 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                 No application services found.
                             </p>
                         ) : (
-                            applicationServices.map(service => (
+                            applicationServices.map((service, index) => (
                                 <div
-                                    key={service.id || service.name}
+                                    key={`app-${service.poller_id}-${service.name}-${index}`}
                                     className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex justify-between items-center"
                                 >
                                     <div className="flex items-center gap-3">
