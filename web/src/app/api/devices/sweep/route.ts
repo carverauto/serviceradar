@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Query the sweep results using SRQL syntax - device-centric, not poller-centric  
-    const query = `show sweep_results order by timestamp desc limit 100`;
+    const query = `show sweep_results order by timestamp desc limit 10000`;
     
     // Forward request to Go API query endpoint
     const response = await fetch(
