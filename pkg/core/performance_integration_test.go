@@ -168,7 +168,6 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 		Return(nil).
 		Times(1)
 
-
 	// Execute first call
 	start := time.Now()
 	err := discoveryService.ProcessSyncResults(ctx, "test-poller", "test", serviceStatus, sightingsJSON, time.Now())
