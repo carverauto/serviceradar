@@ -192,9 +192,9 @@ const Dashboard = () => {
                 poller.services?.some(s => s.type === 'grpc' && s.name === 'rperf-checker')
             );
             
-            // Get data for the last 24 hours
+            // Get data for the last 1 hour
             const endTime = new Date();
-            const startTime = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
+            const startTime = new Date(endTime.getTime() - 1 * 60 * 60 * 1000);
             
             const rperfPromises = rperfPollers.map(poller => {
                 const url = `/api/pollers/${poller.poller_id}/rperf?start=${startTime.toISOString()}&end=${endTime.toISOString()}`;
