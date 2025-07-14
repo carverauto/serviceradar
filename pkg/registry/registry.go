@@ -23,6 +23,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -64,6 +65,134 @@ func (r *DeviceRegistry) ProcessBatchSightings(ctx context.Context, sightings []
 		return nil
 	}
 
+	processingStart := time.Now()
+	defer func() {
+		log.Printf("ProcessBatchSightings completed in %v for %d sightings", time.Since(processingStart), len(sightings))
+	}()
+
+	enrichedSightings := make([]*models.SweepResult, 0, len(sightings))
+
+	// When processing large batches, fetch all devices once to avoid N+1 queries
+	var devicesByIP map[string][]*models.UnifiedDevice
+
+	if len(sightings) > 10 { // Only use batch optimization for larger batches
+		var err error
+
+		devicesByIP, err = r.fetchAndIndexDevices(ctx, len(sightings))
+		if err != nil {
+			// Fall back to the original method if batch query fails
+			return r.processBatchSightingsIndividually(ctx, sightings)
+		}
+	}
+
+	// Process each sighting
+	for _, sighting := range sightings {
+		if enrichedSighting := r.processSingleSighting(ctx, sighting, devicesByIP); enrichedSighting != nil {
+			enrichedSightings = append(enrichedSightings, enrichedSighting)
+		}
+	}
+
+	// 4. Publish the enriched, authoritative results to the database.
+	// The materialized view in the DB will handle the final state construction.
+	if err := r.db.PublishBatchSweepResults(ctx, enrichedSightings); err != nil {
+		return fmt.Errorf("failed to publish enriched sightings: %w", err)
+	}
+
+	log.Printf("Successfully processed and published %d enriched device sightings.", len(enrichedSightings))
+
+	return nil
+}
+
+// fetchAndIndexDevices fetches all devices and creates an index by IP for batch processing
+func (r *DeviceRegistry) fetchAndIndexDevices(ctx context.Context, sightingCount int) (map[string][]*models.UnifiedDevice, error) {
+	log.Printf("Processing %d sightings - fetching all devices for batch lookup", sightingCount)
+
+	// Measure time for the batch query
+	startTime := time.Now()
+
+	// Fetch ALL devices from the database once
+	allDevices, err := r.db.ListUnifiedDevices(ctx, 0, 0) // 0, 0 means no limit
+	if err != nil {
+		log.Printf("Error fetching all devices for batch processing: %v. Falling back to individual queries.", err)
+		return nil, err
+	}
+
+	queryDuration := time.Since(startTime)
+	log.Printf("Fetched %d devices for batch processing in %v (avg: %v per device)",
+		len(allDevices), queryDuration, queryDuration/time.Duration(len(allDevices)+1))
+
+	// Create a map for O(1) lookups by IP
+	devicesByIP := make(map[string][]*models.UnifiedDevice)
+	for _, device := range allDevices {
+		// Index by primary IP
+		devicesByIP[device.IP] = append(devicesByIP[device.IP], device)
+
+		// Also index by alternate IPs
+		if device.Metadata != nil && device.Metadata.Value != nil {
+			alternateIPsJSON, exists := device.Metadata.Value["alternate_ips"]
+			if exists {
+				var alternateIPs []string
+				if err := json.Unmarshal([]byte(alternateIPsJSON), &alternateIPs); err == nil {
+					for _, altIP := range alternateIPs {
+						devicesByIP[altIP] = append(devicesByIP[altIP], device)
+					}
+				}
+			}
+		}
+	}
+
+	return devicesByIP, nil
+}
+
+// processSingleSighting processes a single sighting and returns the enriched result
+func (r *DeviceRegistry) processSingleSighting(
+	ctx context.Context,
+	sighting *models.SweepResult,
+	devicesByIP map[string][]*models.UnifiedDevice,
+) *models.SweepResult {
+	// 1. Validate and normalize the incoming sighting.
+	if err := r.normalizeSighting(sighting); err != nil {
+		log.Printf("Skipping invalid sighting: %v", err)
+		return nil
+	}
+
+	var (
+		canonicalDeviceID string
+		err               error
+	)
+
+	// 2. Check if this IP should be mapped to an existing device
+	if devicesByIP != nil {
+		// Use the cached device data for large batches
+		canonicalDeviceID, err = r.findCanonicalDeviceIDFromCache(sighting, devicesByIP)
+	} else {
+		// Use individual queries for small batches
+		canonicalDeviceID, err = r.findCanonicalDeviceID(ctx, sighting)
+	}
+
+	// Handle error case
+	if err != nil {
+		log.Printf("Error finding canonical device for IP %s: %v. Processing as-is.", sighting.IP, err)
+		return sighting
+	}
+
+	// Handle mapping case
+	if canonicalDeviceID != "" && canonicalDeviceID != sighting.DeviceID {
+		log.Printf("REGISTRY: Mapping device %s (IP: %s, hostname: %s) to canonical device %s",
+			sighting.DeviceID, sighting.IP, formatHostname(sighting.Hostname), canonicalDeviceID)
+
+		sighting.DeviceID = canonicalDeviceID
+	} else {
+		// No mapping needed
+		log.Printf("REGISTRY: No mapping needed for device %s (IP: %s, hostname: %s)",
+			sighting.DeviceID, sighting.IP, formatHostname(sighting.Hostname))
+	}
+
+	return sighting
+}
+
+// processBatchSightingsIndividually is a fallback method that processes sightings one by one
+func (r *DeviceRegistry) processBatchSightingsIndividually(ctx context.Context, sightings []*models.SweepResult) error {
 	enrichedSightings := make([]*models.SweepResult, 0, len(sightings))
 
 	for _, sighting := range sightings {
@@ -108,6 +237,82 @@ func (r *DeviceRegistry) ProcessBatchSightings(ctx context.Context, sightings []
 	log.Printf("Successfully processed and published %d enriched device sightings.", len(enrichedSightings))
 
 	return nil
+}
+
+// findCanonicalDeviceIDFromCache looks for an existing device using pre-fetched device data
+func (r *DeviceRegistry) findCanonicalDeviceIDFromCache(
+	sighting *models.SweepResult,
+	devicesByIP map[string][]*models.UnifiedDevice,
+) (string, error) {
+	// Strategy 1: Try to find existing devices with this IP (including alternate IPs)
+	devices := devicesByIP[sighting.IP]
+
+	// Check if we can find a match among devices with the same IP
+	deviceID, found := r.findDeviceWithMatchingIP(devices, sighting.IP)
+	if found {
+		return deviceID, nil
+	}
+
+	// Check if any of the sighting's alternate IPs match existing devices
+	deviceID, found = r.findDeviceByAlternateIPsFromCache(sighting, devicesByIP)
+	if found {
+		return deviceID, nil
+	}
+
+	// If no existing devices were found, use the simple approach as fallback
+	return r.findCanonicalDeviceIDSimple(context.Background(), sighting)
+}
+
+// findDeviceByAlternateIPsFromCache checks if any of the sighting's alternate IPs match existing devices using cached data
+func (*DeviceRegistry) findDeviceByAlternateIPsFromCache(
+	sighting *models.SweepResult,
+	devicesByIP map[string][]*models.UnifiedDevice,
+) (string, bool) {
+	sightingAlternateIPs := extractAlternateIPs(sighting.Metadata)
+
+	// Only proceed if we have alternate IPs and a hostname
+	if len(sightingAlternateIPs) == 0 || sighting.Hostname == nil || *sighting.Hostname == "" {
+		return "", false
+	}
+
+	// Query for devices that have any of the sighting's alternate IPs as primary
+	for _, altIP := range sightingAlternateIPs {
+		altDevices := devicesByIP[altIP]
+		if len(altDevices) == 0 {
+			continue
+		}
+
+		canonicalDevice := altDevices[0]
+
+		// Additional safety check: only correlate if hostnames match
+		if canonicalDevice.Hostname == nil || canonicalDevice.Hostname.Value != *sighting.Hostname {
+			log.Printf("Skipping correlation between %s and %s via IP %s - hostname mismatch (%s vs %s)",
+				sighting.DeviceID, canonicalDevice.DeviceID, altIP,
+				func() string {
+					if sighting.Hostname != nil {
+						return *sighting.Hostname
+					}
+
+					return defaultNilHostname
+				}(),
+				func() string {
+					if canonicalDevice.Hostname != nil {
+						return canonicalDevice.Hostname.Value
+					}
+
+					return defaultNilHostname
+				}())
+
+			continue
+		}
+
+		log.Printf("Found existing device %s for sighting %s via alternate IP %s (hostname match: %s)",
+			canonicalDevice.DeviceID, sighting.DeviceID, altIP, *sighting.Hostname)
+
+		return canonicalDevice.DeviceID, true
+	}
+
+	return "", false
 }
 
 // normalizeSighting ensures a sighting has the minimum required information.

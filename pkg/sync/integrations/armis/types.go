@@ -72,6 +72,10 @@ type ArmisIntegration struct {
 	// Interfaces for querying sweep results and updating Armis devices
 	SweepQuerier SRQLQuerier
 	Updater      ArmisUpdater
+
+	// Change detection fields to avoid sending unchanged devices
+	lastDevicesHash string   // Hash of last fetched devices
+	lastDevices     []Device // Last fetched devices for comparison
 }
 
 // AccessTokenResponse represents the Armis API access token response.
