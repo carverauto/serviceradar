@@ -146,7 +146,7 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 		TokenProvider: NewMockTokenProvider(ctrl),
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
 		KVWriter:      NewMockKVWriter(ctrl),
-		SweepQuerier:  NewMockSweepResultsQuerier(ctrl),
+		SweepQuerier:  NewMockSRQLQuerier(ctrl),
 		Updater:       NewMockArmisUpdater(ctrl),
 	}
 
@@ -177,7 +177,7 @@ type armisMocks struct {
 	TokenProvider *MockTokenProvider
 	DeviceFetcher *MockDeviceFetcher
 	KVWriter      *MockKVWriter
-	SweepQuerier  *MockSweepResultsQuerier
+	SweepQuerier  *MockSRQLQuerier
 	Updater       *MockArmisUpdater
 }
 

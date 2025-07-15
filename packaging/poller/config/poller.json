@@ -33,6 +33,12 @@
                     "service_type": "grpc",
                     "service_name": "sysmon",
                     "details": "127.0.0.1:50083"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "sync",
+                    "details": "127.0.0.1:50058",
+                    "results_interval": "10m"
                 }
 
             ]
