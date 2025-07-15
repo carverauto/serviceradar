@@ -37,6 +37,11 @@ type SweepService struct {
 	mu      sync.RWMutex
 	config  *models.Config
 	stats   *ScanStats
+	
+	// Caching fields for sequence tracking
+	cachedResults      *models.SweepSummary
+	lastSweepTimestamp int64
+	currentSequence    uint64
 }
 
 // NewSweepService creates a new SweepService.
@@ -51,9 +56,12 @@ func NewSweepService(config *models.Config, kvStore KVStore, configKey string) (
 	}
 
 	return &SweepService{
-		sweeper: sweeperInstance,
-		config:  config,
-		stats:   newScanStats(),
+		sweeper:            sweeperInstance,
+		config:             config,
+		stats:              newScanStats(),
+		cachedResults:      nil,
+		lastSweepTimestamp: 0,
+		currentSequence:    0,
 	}, nil
 }
 
@@ -94,7 +102,7 @@ func (s *SweepService) UpdateConfig(config *models.Config) error {
 	return s.sweeper.UpdateConfig(newConfig)
 }
 
-// GetStatus returns the current status of the sweep service.
+// GetStatus returns the current status of the sweep service (lightweight version without hosts).
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	log.Printf("Fetching sweep status")
 
@@ -106,23 +114,23 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 
 	s.mu.RLock()
 	data := struct {
-		Network        string              `json:"network"`
-		TotalHosts     int                 `json:"total_hosts"`
-		AvailableHosts int                 `json:"available_hosts"`
-		LastSweep      int64               `json:"last_sweep"`
-		Ports          []models.PortCount  `json:"ports"`
-		Hosts          []models.HostResult `json:"hosts"`
-		DefinedCIDRs   int                 `json:"defined_cidrs"`
-		UniqueIPs      int                 `json:"unique_ips"`
+		Network        string             `json:"network"`
+		TotalHosts     int                `json:"total_hosts"`
+		AvailableHosts int                `json:"available_hosts"`
+		LastSweep      int64              `json:"last_sweep"`
+		Ports          []models.PortCount `json:"ports"`
+		DefinedCIDRs   int                `json:"defined_cidrs"`
+		UniqueIPs      int                `json:"unique_ips"`
+		Sequence       uint64             `json:"sequence"`
 	}{
 		Network:        strings.Join(s.config.Networks, ","),
 		TotalHosts:     summary.TotalHosts,
 		AvailableHosts: summary.AvailableHosts,
 		LastSweep:      summary.LastSweep,
 		Ports:          summary.Ports,
-		Hosts:          summary.Hosts,
 		DefinedCIDRs:   len(s.config.Networks),
 		UniqueIPs:      s.stats.uniqueIPs,
+		Sequence:       s.currentSequence,
 	}
 	s.mu.RUnlock()
 
@@ -134,7 +142,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 
 	return &proto.StatusResponse{
 		Available:    true,
-		Message:      statusJSON, // Use bytes directly
+		Message:      statusJSON,
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		ResponseTime: time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds(),
@@ -226,4 +234,59 @@ func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Resu
 	}
 
 	return &result, nil
+}
+
+// GetSweepResults returns sweep results with sequence tracking for change detection.
+func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string) (*proto.ResultsResponse, error) {
+	log.Printf("GetSweepResults called with lastSequence: %s", lastSequence)
+
+	summary, err := s.sweeper.GetStatus(ctx)
+	if err != nil {
+		log.Printf("Failed to get sweep summary for results: %v", err)
+		return nil, fmt.Errorf("failed to get sweep results: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if sweep data has changed based on timestamp
+	if summary.LastSweep != s.lastSweepTimestamp {
+		// Update cached results and increment sequence
+		s.cachedResults = summary
+		s.lastSweepTimestamp = summary.LastSweep
+		s.currentSequence++
+		log.Printf("Sweep data changed, updated sequence to: %d", s.currentSequence)
+	}
+
+	currentSeqStr := fmt.Sprintf("%d", s.currentSequence)
+	
+	// If the caller's sequence is up to date, return no new data
+	if lastSequence != "" && lastSequence == currentSeqStr {
+		log.Printf("No new sweep data (caller sequence: %s, current: %s)", lastSequence, currentSeqStr)
+		return &proto.ResultsResponse{
+			HasNewData:      false,
+			CurrentSequence: currentSeqStr,
+			ServiceName:     "network_sweep",
+			ServiceType:     "sweep",
+		}, nil
+	}
+
+	// Marshal the full sweep results
+	resultData, err := json.Marshal(s.cachedResults)
+	if err != nil {
+		log.Printf("Failed to marshal sweep results: %v", err)
+		return nil, fmt.Errorf("failed to marshal sweep results: %w", err)
+	}
+
+	log.Printf("Returning new sweep data (sequence: %s, hosts: %d)", currentSeqStr, len(s.cachedResults.Hosts))
+
+	return &proto.ResultsResponse{
+		HasNewData:      true,
+		CurrentSequence: currentSeqStr,
+		Data:            resultData,
+		ServiceName:     "network_sweep",
+		ServiceType:     "sweep",
+		Available:       true,
+		Timestamp:       time.Now().Unix(),
+	}, nil
 }

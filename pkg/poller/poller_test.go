@@ -770,3 +770,243 @@ func TestResultsPoller_SequenceTracking_EmptySequenceResponse(t *testing.T) {
 
 	mockClient.AssertExpectations(t)
 }
+
+func TestResultsPoller_executeGetResults_HasNewDataTrue(t *testing.T) {
+	mockClient := &MockAgentServiceClient{}
+
+	check := Check{
+		Name:    "sweep",
+		Type:    "sweep",
+		Details: "192.168.1.0/24",
+	}
+
+	resultsPoller := &ResultsPoller{
+		check:        check,
+		agentName:    "test-agent",
+		pollerID:     "test-poller",
+		lastSequence: "1",
+		client:       mockClient,
+		logger:       logger.NewTestLogger(),
+	}
+
+	// Mock successful GetResults call with new data
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.ServiceName == "sweep" &&
+			req.ServiceType == "sweep" &&
+			req.LastSequence == "1"
+	})).Return(&proto.ResultsResponse{
+		Available:       true,
+		Data:            []byte(`{"total_hosts": 10, "available_hosts": 8, "hosts": [{"host": "192.168.1.1", "available": true}]}`),
+		ServiceName:     "sweep",
+		ServiceType:     "sweep",
+		AgentId:         "test-agent",
+		PollerId:        "test-poller",
+		Timestamp:       time.Now().Unix(),
+		CurrentSequence: "2",
+		HasNewData:      true, // NEW DATA AVAILABLE
+	}, nil)
+
+	ctx := context.Background()
+	result := resultsPoller.executeGetResults(ctx)
+
+	// Should return ServiceStatus since there's new data
+	require.NotNil(t, result)
+	assert.True(t, result.Available)
+	assert.Equal(t, "sweep", result.ServiceName)
+	assert.Equal(t, "sweep", result.ServiceType)
+	assert.Equal(t, "test-agent", result.AgentId)
+	assert.Equal(t, "test-poller", result.PollerId)
+	assert.Equal(t, "results", result.Source)
+	assert.NotEmpty(t, result.Message) // Should contain the actual data
+
+	// Verify sequence was updated
+	assert.Equal(t, "2", resultsPoller.lastSequence)
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestResultsPoller_executeGetResults_HasNewDataFalse(t *testing.T) {
+	mockClient := &MockAgentServiceClient{}
+
+	check := Check{
+		Name:    "sweep",
+		Type:    "sweep",
+		Details: "192.168.1.0/24",
+	}
+
+	resultsPoller := &ResultsPoller{
+		check:        check,
+		agentName:    "test-agent",
+		pollerID:     "test-poller",
+		lastSequence: "5",
+		client:       mockClient,
+		logger:       logger.NewTestLogger(),
+	}
+
+	// Mock GetResults call with no new data
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.ServiceName == "sweep" &&
+			req.ServiceType == "sweep" &&
+			req.LastSequence == "5"
+	})).Return(&proto.ResultsResponse{
+		Available:       true,
+		Data:            []byte{}, // Empty data when no new data
+		ServiceName:     "sweep",
+		ServiceType:     "sweep",
+		AgentId:         "test-agent",
+		PollerId:        "test-poller",
+		Timestamp:       time.Now().Unix(),
+		CurrentSequence: "5", // Same sequence
+		HasNewData:      false, // NO NEW DATA
+	}, nil)
+
+	ctx := context.Background()
+	result := resultsPoller.executeGetResults(ctx)
+
+	// Should return nil since there's no new data (skipped) for sweep services
+	assert.Nil(t, result, "executeGetResults should return nil when HasNewData is false for sweep services")
+
+	// Verify sequence was still updated (even when no new data)
+	assert.Equal(t, "5", resultsPoller.lastSequence)
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestResultsPoller_executeGetResults_SequenceProgression(t *testing.T) {
+	mockClient := &MockAgentServiceClient{}
+
+	check := Check{
+		Name:    "sweep",
+		Type:    "sweep",
+		Details: "192.168.1.0/24",
+	}
+
+	resultsPoller := &ResultsPoller{
+		check:        check,
+		agentName:    "test-agent",
+		pollerID:     "test-poller",
+		lastSequence: "",
+		client:       mockClient,
+		logger:       logger.NewTestLogger(),
+	}
+
+	ctx := context.Background()
+
+	// First call - should get new data (sequence goes from "" to "1")
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.LastSequence == ""
+	})).Return(&proto.ResultsResponse{
+		Available:       true,
+		Data:            []byte(`{"hosts": ["192.168.1.1"]}`),
+		ServiceName:     "sweep",
+		ServiceType:     "sweep",
+		CurrentSequence: "1",
+		HasNewData:      true,
+	}, nil).Once()
+
+	result1 := resultsPoller.executeGetResults(ctx)
+	require.NotNil(t, result1, "First call should return data")
+	assert.Equal(t, "1", resultsPoller.lastSequence)
+
+	// Second call - no new data (sequence stays at "1")
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.LastSequence == "1"
+	})).Return(&proto.ResultsResponse{
+		Available:       true,
+		Data:            []byte{},
+		ServiceName:     "sweep",
+		ServiceType:     "sweep",
+		CurrentSequence: "1",
+		HasNewData:      false,
+	}, nil).Once()
+
+	result2 := resultsPoller.executeGetResults(ctx)
+	assert.Nil(t, result2, "Second call should return nil (no new data)")
+	assert.Equal(t, "1", resultsPoller.lastSequence)
+
+	// Third call - new data available (sequence advances to "2")
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.LastSequence == "1"
+	})).Return(&proto.ResultsResponse{
+		Available:       true,
+		Data:            []byte(`{"hosts": ["192.168.1.1", "192.168.1.2"]}`),
+		ServiceName:     "sweep",
+		ServiceType:     "sweep",
+		CurrentSequence: "2",
+		HasNewData:      true,
+	}, nil).Once()
+
+	result3 := resultsPoller.executeGetResults(ctx)
+	require.NotNil(t, result3, "Third call should return new data")
+	assert.Equal(t, "2", resultsPoller.lastSequence)
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestResultsPoller_executeGetResults_SweepServiceIntegration(t *testing.T) {
+	mockClient := &MockAgentServiceClient{}
+
+	check := Check{
+		Name:    "network_sweep",
+		Type:    "sweep",
+		Details: "",
+	}
+
+	resultsPoller := &ResultsPoller{
+		check:        check,
+		agentName:    "test-agent",
+		pollerID:     "test-poller",
+		lastSequence: "",
+		client:       mockClient,
+		logger:       logger.NewTestLogger(),
+	}
+
+	sweepData := `{
+		"total_hosts": 6000,
+		"available_hosts": 5850,
+		"last_sweep": ` + string(rune(time.Now().Unix())) + `,
+		"ports": [{"port": 80, "available": 1200}, {"port": 443, "available": 800}],
+		"hosts": [
+			{"host": "192.168.1.1", "available": true, "ports": [{"port": 80, "available": true}]},
+			{"host": "192.168.1.2", "available": true, "ports": [{"port": 443, "available": true}]}
+		]
+	}`
+
+	// Mock call that simulates sweep service returning new data
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.ServiceName == "network_sweep" &&
+			req.ServiceType == "sweep"
+	})).Return(&proto.ResultsResponse{
+		Available:       true,
+		Data:            []byte(sweepData),
+		ServiceName:     "network_sweep",
+		ServiceType:     "sweep",
+		AgentId:         "test-agent",
+		PollerId:        "test-poller",
+		Timestamp:       time.Now().Unix(),
+		CurrentSequence: "1",
+		HasNewData:      true,
+	}, nil)
+
+	ctx := context.Background()
+	result := resultsPoller.executeGetResults(ctx)
+
+	// Verify the response is properly formatted for core processing
+	require.NotNil(t, result)
+	assert.True(t, result.Available)
+	assert.Equal(t, "network_sweep", result.ServiceName)
+	assert.Equal(t, "sweep", result.ServiceType)
+	assert.Equal(t, "test-agent", result.AgentId)
+	assert.Equal(t, "test-poller", result.PollerId)
+	assert.Equal(t, "results", result.Source)
+
+	// Verify the data contains the expected sweep information
+	assert.Contains(t, string(result.Message), "total_hosts")
+	assert.Contains(t, string(result.Message), "6000")
+	assert.Contains(t, string(result.Message), "hosts")
+
+	// Verify sequence tracking
+	assert.Equal(t, "1", resultsPoller.lastSequence)
+
+	mockClient.AssertExpectations(t)
+}

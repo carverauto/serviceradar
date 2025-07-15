@@ -24,7 +24,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_armis.go -package=armis github.com/carverauto/serviceradar/pkg/sync/integrations/armis HTTPClient,TokenProvider,DeviceFetcher,KVWriter,SweepResultsQuerier,ArmisUpdater
+//go:generate mockgen -destination=mock_armis.go -package=armis github.com/carverauto/serviceradar/pkg/sync/integrations/armis HTTPClient,TokenProvider,DeviceFetcher,KVWriter,SRQLQuerier,ArmisUpdater
 
 // ArmisUpdater defines the interface for updating device status in Armis
 type ArmisUpdater interface {

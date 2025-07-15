@@ -148,6 +148,264 @@ func TestNewServerBasic(t *testing.T) {
 	t.Logf("server.kvStore = %v", server.kvStore)
 }
 
+func TestServer_HandleSweepGetResults_Success(t *testing.T) {
+	// Setup mock sweep service
+	mockSweepService := &SweepService{
+		sweeper: &mockSweeper{
+			summary: &models.SweepSummary{
+				TotalHosts:     10,
+				AvailableHosts: 8,
+				LastSweep:      time.Now().Unix(),
+				Hosts: []models.HostResult{
+					{Host: "192.168.1.1", Available: true},
+					{Host: "192.168.1.2", Available: true},
+				},
+			},
+		},
+		config:             &models.Config{},
+		stats:              newScanStats(),
+		cachedResults:      nil,
+		lastSweepTimestamp: 0,
+		currentSequence:    0,
+	}
+
+	// Setup server with sweep service
+	server := &Server{
+		config: &ServerConfig{
+			AgentID: "test-agent",
+		},
+		services: []Service{mockSweepService},
+		logger:   createTestLogger(),
+	}
+
+	ctx := context.Background()
+	req := &proto.ResultsRequest{
+		ServiceName:  "network_sweep",
+		ServiceType:  "sweep",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		LastSequence: "",
+	}
+
+	// Test successful GetResults call
+	response, err := server.handleSweepGetResults(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+
+	// Verify response
+	assert.True(t, response.HasNewData)
+	assert.Equal(t, "1", response.CurrentSequence)
+	assert.Equal(t, "network_sweep", response.ServiceName)
+	assert.Equal(t, "sweep", response.ServiceType)
+	assert.Equal(t, "test-agent", response.AgentId)
+	assert.Equal(t, "test-poller", response.PollerId)
+	assert.True(t, response.Available)
+	assert.NotEmpty(t, response.Data)
+}
+
+func TestServer_HandleSweepGetResults_NoNewData(t *testing.T) {
+	// Setup mock sweep service with existing sequence
+	sweepTimestamp := time.Now().Unix()
+	mockSweepService := &SweepService{
+		sweeper: &mockSweeper{
+			summary: &models.SweepSummary{
+				TotalHosts:     5,
+				AvailableHosts: 4,
+				LastSweep:      sweepTimestamp,
+				Hosts: []models.HostResult{
+					{Host: "192.168.1.1", Available: true},
+				},
+			},
+		},
+		config: &models.Config{},
+		stats:  newScanStats(),
+		cachedResults: &models.SweepSummary{
+			TotalHosts:     5,
+			AvailableHosts: 4,
+			LastSweep:      sweepTimestamp,
+			Hosts: []models.HostResult{
+				{Host: "192.168.1.1", Available: true},
+			},
+		},
+		lastSweepTimestamp: sweepTimestamp,
+		currentSequence:    1,
+	}
+
+	server := &Server{
+		config: &ServerConfig{
+			AgentID: "test-agent",
+		},
+		services: []Service{mockSweepService},
+		logger:   createTestLogger(),
+	}
+
+	ctx := context.Background()
+	req := &proto.ResultsRequest{
+		ServiceName:  "network_sweep",
+		ServiceType:  "sweep",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		LastSequence: "1", // Current sequence
+	}
+
+	// Test call with current sequence
+	response, err := server.handleSweepGetResults(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+
+	// Should return no new data
+	assert.False(t, response.HasNewData)
+	assert.Equal(t, "1", response.CurrentSequence)
+	assert.Equal(t, "network_sweep", response.ServiceName)
+	assert.Equal(t, "sweep", response.ServiceType)
+	assert.Equal(t, "test-agent", response.AgentId)
+	assert.Equal(t, "test-poller", response.PollerId)
+}
+
+func TestServer_HandleSweepGetResults_NoSweepService(t *testing.T) {
+	// Setup server without sweep service
+	server := &Server{
+		config: &ServerConfig{
+			AgentID: "test-agent",
+		},
+		services: []Service{}, // No sweep service
+		logger:   createTestLogger(),
+	}
+
+	ctx := context.Background()
+	req := &proto.ResultsRequest{
+		ServiceName:  "network_sweep",
+		ServiceType:  "sweep",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		LastSequence: "",
+	}
+
+	// Test call with no sweep service
+	response, err := server.handleSweepGetResults(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+
+	// Should return error response
+	assert.False(t, response.Available)
+	assert.Equal(t, "network_sweep", response.ServiceName)
+	assert.Equal(t, "sweep", response.ServiceType)
+	assert.Equal(t, "test-agent", response.AgentId)
+	assert.Equal(t, "test-poller", response.PollerId)
+	assert.Contains(t, string(response.Data), "No sweep service configured")
+}
+
+func TestServer_GetResults_SweepService(t *testing.T) {
+	// Setup mock sweep service
+	mockSweepService := &SweepService{
+		sweeper: &mockSweeper{
+			summary: &models.SweepSummary{
+				TotalHosts:     3,
+				AvailableHosts: 2,
+				LastSweep:      time.Now().Unix(),
+				Hosts: []models.HostResult{
+					{Host: "192.168.1.1", Available: true},
+				},
+			},
+		},
+		config:             &models.Config{},
+		stats:              newScanStats(),
+		cachedResults:      nil,
+		lastSweepTimestamp: 0,
+		currentSequence:    0,
+	}
+
+	server := &Server{
+		config: &ServerConfig{
+			AgentID: "test-agent",
+		},
+		services: []Service{mockSweepService},
+		logger:   createTestLogger(),
+	}
+
+	ctx := context.Background()
+	req := &proto.ResultsRequest{
+		ServiceName:  "network_sweep",
+		ServiceType:  "sweep",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		LastSequence: "",
+	}
+
+	// Test GetResults routing to sweep service
+	response, err := server.GetResults(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+
+	// Verify it routes to sweep service correctly
+	assert.True(t, response.HasNewData)
+	assert.Equal(t, "1", response.CurrentSequence)
+	assert.Equal(t, "network_sweep", response.ServiceName)
+	assert.Equal(t, "sweep", response.ServiceType)
+	assert.True(t, response.Available)
+}
+
+func TestServer_GetResults_UnsupportedServiceType(t *testing.T) {
+	server := &Server{
+		config: &ServerConfig{
+			AgentID: "test-agent",
+		},
+		services: []Service{},
+		logger:   createTestLogger(),
+	}
+
+	ctx := context.Background()
+	req := &proto.ResultsRequest{
+		ServiceName:  "some_service",
+		ServiceType:  "unsupported",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		LastSequence: "",
+	}
+
+	// Test unsupported service type
+	response, err := server.GetResults(ctx, req)
+	require.Error(t, err)
+	require.Nil(t, response)
+
+	// Should return Unimplemented error
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+	assert.Contains(t, st.Message(), "GetResults not supported for service type 'unsupported'")
+}
+
+// mockSweeper for testing - implements sweeper.SweepService interface
+type mockSweeper struct {
+	summary     *models.SweepSummary
+	updateCount int
+}
+
+func (m *mockSweeper) Start(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockSweeper) Stop() error {
+	return nil
+}
+
+func (m *mockSweeper) UpdateConfig(config *models.Config) error {
+	return nil
+}
+
+func (m *mockSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, error) {
+	return m.summary, nil
+}
+
+func (m *mockSweeper) updateSummary(newSummary *models.SweepSummary) {
+	// Ensure LastSweep timestamp is different to trigger change detection
+	if newSummary.LastSweep == m.summary.LastSweep {
+		newSummary.LastSweep = time.Now().Unix()
+	}
+	m.summary = newSummary
+	m.updateCount++
+}
+
 func TestNewServerWithSweepConfig(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
@@ -385,7 +643,7 @@ func TestServerGetResults(t *testing.T) {
 			},
 		},
 		{
-			name: "sweep service GetResults - should return not supported",
+			name: "sweep service GetResults - should return proper response",
 			req: &proto.ResultsRequest{
 				ServiceName: "network_sweep",
 				ServiceType: "sweep",
@@ -393,11 +651,13 @@ func TestServerGetResults(t *testing.T) {
 				PollerId:    "test-poller",
 				Details:     "",
 			},
-			wantErr: true,
+			wantErr: false,
 			checkResponse: func(t *testing.T, resp *proto.ResultsResponse) {
 				t.Helper()
-				// Response should be nil for Unimplemented error
-				assert.Nil(t, resp)
+				// Should return response indicating no sweep service configured
+				assert.NotNil(t, resp)
+				assert.False(t, resp.Available)
+				assert.Contains(t, string(resp.Data), "No sweep service configured")
 			},
 		},
 	}
@@ -431,8 +691,7 @@ func TestServerGetResults(t *testing.T) {
 	}
 }
 
-// TestGetResultsConsistencyWithGetStatus tests that GetResults and GetStatus
-// handle grpc services consistently
+// TestGetResultsConsistencyWithGetStatus tests that GetResults handles different service types correctly
 func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
@@ -466,7 +725,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	require.Equal(t, codes.Unimplemented, status.Code(err))
 	assert.Contains(t, err.Error(), "GetResults not supported for service type 'icmp'")
 
-	// Test that sweep service also returns "not supported"
+	// Test that sweep service returns proper response (but no sweep service configured in this test)
 	sweepResultsReq := &proto.ResultsRequest{
 		ServiceName: "network_sweep",
 		ServiceType: "sweep",
@@ -476,10 +735,10 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	}
 
 	sweepResp, err := server.GetResults(ctx, sweepResultsReq)
-	require.Error(t, err)
-	require.Nil(t, sweepResp)
+	require.NoError(t, err) // Should not error since sweep services are supported
+	require.NotNil(t, sweepResp)
 
-	// Verify it's an Unimplemented error
-	require.Equal(t, codes.Unimplemented, status.Code(err))
-	assert.Contains(t, err.Error(), "GetResults not supported for service type 'sweep'")
+	// Should return response indicating no sweep service configured
+	assert.False(t, sweepResp.Available)
+	assert.Contains(t, string(sweepResp.Data), "No sweep service configured")
 }
