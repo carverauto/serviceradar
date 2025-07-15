@@ -28,7 +28,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 )
 
@@ -46,7 +45,7 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 
 	p := &Poller{
 		config: *config,
-		agents: make(map[string]*AgentConnection),
+		agents: make(map[string]*AgentPoller),
 		done:   make(chan struct{}),
 		clock:  clock,
 		logger: log,
@@ -59,12 +58,14 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 		}
 	}
 
-	// Initialize agent connections only if not using PollFunc exclusively
+	// Initialize agent pollers only if not using PollFunc exclusively
 	if p.PollFunc == nil {
-		if err := p.initializeAgentConnections(ctx); err != nil {
-			_ = p.grpcClient.Close()
+		if err := p.initializeAgentPollers(ctx); err != nil {
+			if p.grpcClient != nil {
+				_ = p.grpcClient.Close()
+			}
 
-			return nil, fmt.Errorf("failed to initialize agent connections: %w", err)
+			return nil, fmt.Errorf("failed to initialize agent pollers: %w", err)
 		}
 	}
 
@@ -134,16 +135,16 @@ func (p *Poller) Stop(ctx context.Context) error {
 	}
 
 	// Wait for any active agent connections to finish
-	for name, agent := range p.agents {
-		if agent.client != nil {
-			if err := agent.client.Close(); err != nil {
+	for name, agentPoller := range p.agents {
+		if agentPoller.clientConn != nil {
+			if err := agentPoller.clientConn.Close(); err != nil {
 				p.logger.Error().Err(err).Str("agent", name).Msg("Error closing agent connection")
 			}
 		}
 	}
 
 	// Clear the maps to prevent any lingering references
-	p.agents = make(map[string]*AgentConnection)
+	p.agents = make(map[string]*AgentPoller)
 	p.coreClient = nil
 
 	return nil
@@ -166,9 +167,9 @@ func (p *Poller) Close() error {
 	}
 
 	// Close all agent connections
-	for name, agent := range p.agents {
-		if agent.client != nil {
-			if err := agent.client.Close(); err != nil {
+	for name, agentPoller := range p.agents {
+		if agentPoller.clientConn != nil {
+			if err := agentPoller.clientConn.Close(); err != nil {
 				errs = append(errs, fmt.Errorf("%w: %s (%w)", errClosing, name, err))
 			}
 		}
@@ -373,71 +374,8 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 }
 
 // Connection management methods.
-func (p *Poller) getAgentConnection(agentName string) (*AgentConnection, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	agent, exists := p.agents[agentName]
-	if !exists {
-		return nil, fmt.Errorf("%w: %s", ErrNoConnectionForAgent, agentName)
-	}
-
-	return agent, nil
-}
-
-func (p *Poller) ensureAgentHealth(ctx context.Context, agentName string, config *AgentConfig, agent *AgentConnection) error {
-	healthy, err := agent.client.CheckHealth(ctx, "AgentService")
-	if err != nil || !healthy {
-		if err := p.reconnectAgent(ctx, agentName, config); err != nil {
-			return fmt.Errorf("%w: %s (%w)", ErrAgentUnhealthy, agentName, err)
-		}
-	}
-
-	return nil
-}
-
-func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config *AgentConfig) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Close existing connection if it exists
-	if agent, exists := p.agents[agentName]; exists {
-		if err := agent.client.Close(); err != nil {
-			p.logger.Error().Err(err).Str("agent", agentName).Msg("Error closing existing connection")
-		}
-	}
-
-	// Use ClientConfig instead of ConnectionConfig
-	clientCfg := grpc.ClientConfig{
-		Address:    config.Address,
-		MaxRetries: grpcRetries,
-		Logger:     p.logger,
-	}
-
-	if p.config.Security != nil {
-		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security, p.logger)
-		if err != nil {
-			return fmt.Errorf("failed to create security provider: %w", err)
-		}
-
-		clientCfg.SecurityProvider = provider
-	}
-
-	p.logger.Info().Str("agent", agentName).Str("address", config.Address).Msg("Reconnecting to agent")
-
-	client, err := grpc.NewClient(ctx, clientCfg)
-	if err != nil {
-		return fmt.Errorf("failed to reconnect to agent %s: %w", agentName, err)
-	}
-
-	p.agents[agentName] = &AgentConnection{
-		client:       client,
-		agentName:    agentName,
-		healthClient: healthpb.NewHealthClient(client.GetConnection()),
-	}
-
-	return nil
-}
+// Note: Agent connections are now managed by long-lived AgentPoller instances
+// created once at startup in initializeAgentPollers()
 
 func (p *Poller) connectToCore(ctx context.Context) error {
 	// Use ClientConfig instead of ConnectionConfig
@@ -469,10 +407,8 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 	return nil
 }
 
-func (p *Poller) initializeAgentConnections(ctx context.Context) error {
-	for agentName := range p.config.Agents {
-		agentConfig := p.config.Agents[agentName]
-
+func (p *Poller) initializeAgentPollers(ctx context.Context) error {
+	for agentName, agentConfig := range p.config.Agents {
 		// Use ClientConfig instead of ConnectionConfig
 		clientCfg := grpc.ClientConfig{
 			Address:    agentConfig.Address,
@@ -489,18 +425,21 @@ func (p *Poller) initializeAgentConnections(ctx context.Context) error {
 			clientCfg.SecurityProvider = provider
 		}
 
-		p.logger.Info().Str("agent", agentName).Str("address", agentConfig.Address).Msg("Connecting to agent")
+		p.logger.Info().Str("agent", agentName).Str("address", agentConfig.Address).Msg("Connecting to agent and creating poller")
 
 		client, err := grpc.NewClient(ctx, clientCfg)
 		if err != nil {
 			return fmt.Errorf("failed to connect to agent %s: %w", agentName, err)
 		}
 
-		p.agents[agentName] = &AgentConnection{
-			client:       client,
-			agentName:    agentName,
-			healthClient: healthpb.NewHealthClient(client.GetConnection()),
-		}
+		// Create the AgentServiceClient
+		agentServiceClient := proto.NewAgentServiceClient(client.GetConnection())
+
+		// Create the AgentPoller ONCE and store it.
+		// It will now persist across poll cycles.
+		agentPoller := newAgentPoller(agentName, &agentConfig, agentServiceClient, p)
+		agentPoller.clientConn = client // Store the grpc.Client for lifecycle management
+		p.agents[agentName] = agentPoller
 	}
 
 	return nil
@@ -513,69 +452,56 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	var allStatuses []*proto.ServiceStatus
+	var wg sync.WaitGroup
+	statusChan := make(chan *proto.ServiceStatus, 100) // Buffer channel
 
 	for agentName := range p.config.Agents {
-		agentConfig := p.config.Agents[agentName]
-
-		conn, err := p.getAgentConnection(agentName)
-		if err != nil {
-			if err = p.reconnectAgent(ctx, agentName, &agentConfig); err != nil {
-				p.logger.Error().Err(err).Str("agent", agentName).Msg("Failed to reconnect to agent")
-				continue
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			
+			// Retrieve the EXISTING, long-lived AgentPoller
+			agentPoller, exists := p.agents[name]
+			if !exists {
+				p.logger.Error().Str("agent", name).Msg("Poller for agent not found during poll cycle")
+				return
+			}
+			
+			// Optional health check - use the stored grpc.Client
+			if agentPoller.clientConn != nil {
+				healthy, err := agentPoller.clientConn.CheckHealth(ctx, "AgentService")
+				if err != nil || !healthy {
+					p.logger.Warn().Str("agent", name).Err(err).Bool("healthy", healthy).Msg("Agent health check failed")
+					// Could attempt reconnection here if needed
+				}
 			}
 
-			conn, _ = p.getAgentConnection(agentName)
-		}
-
-		// Check health before polling
-		healthy, err := conn.client.CheckHealth(ctx, "AgentService")
-		if err != nil || !healthy {
-			if err = p.reconnectAgent(ctx, agentName, &agentConfig); err != nil {
-				p.logger.Error().Err(err).Str("agent", agentName).Msg("Agent unhealthy")
-
-				continue
+			// Execute checks
+			statuses := agentPoller.ExecuteChecks(ctx)
+			for _, s := range statuses {
+				statusChan <- s
 			}
-		}
 
-		statuses, err := p.pollAgent(ctx, agentName, &agentConfig)
-		if err != nil {
-			p.logger.Error().Err(err).Str("agent", agentName).Msg("Error polling agent")
+			// Execute results
+			resultsStatuses := agentPoller.ExecuteResults(ctx)
+			for _, s := range resultsStatuses {
+				statusChan <- s
+			}
+		}(agentName)
+	}
 
-			continue
-		}
+	go func() {
+		wg.Wait()
+		close(statusChan)
+	}()
 
-		allStatuses = append(allStatuses, statuses...)
+	for status := range statusChan {
+		allStatuses = append(allStatuses, status)
 	}
 
 	return p.reportToCore(ctx, allStatuses)
 }
 
-func (p *Poller) pollAgent(
-	ctx context.Context,
-	agentName string,
-	agentConfig *AgentConfig) ([]*proto.ServiceStatus, error) {
-	agent, err := p.getAgentConnection(agentName)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := p.ensureAgentHealth(ctx, agentName, agentConfig, agent); err != nil {
-		return nil, err
-	}
-
-	client := proto.NewAgentServiceClient(agent.client.GetConnection())
-	poller := newAgentPoller(agentName, agentConfig, client, p)
-
-	statuses := poller.ExecuteChecks(ctx)
-
-	// Execute GetResults calls for services that need it
-	resultsStatuses := poller.ExecuteResults(ctx)
-
-	// Combine both regular status checks and results
-	statuses = append(statuses, resultsStatuses...)
-
-	return statuses, nil
-}
 
 func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
 	p.logger.Info().

@@ -3,6 +3,9 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,20 +92,23 @@ func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest)
 		Str("last_sequence", req.LastSequence).
 		Msg("GetResults called by poller")
 
-	// Generate current sequence from latest cache data
+	// Create a stable sequence based on the sequences of all cached sources
 	var currentSequence string
 	var allResults []*models.SweepResult
-	var latestTimestamp time.Time
 
-	for _, cached := range s.resultsCache {
-		if cached != nil {
+	// Create a stable sequence based on the sequences of all cached sources.
+	sourceSequences := make([]string, 0, len(s.resultsCache))
+	for sourceName, cached := range s.resultsCache {
+		if cached != nil && cached.Sequence != "" {
+			// Combine source name with sequence to avoid collisions
+			sourceSequences = append(sourceSequences, fmt.Sprintf("%s:%s", sourceName, cached.Sequence))
 			allResults = append(allResults, cached.Results...)
-			if cached.Timestamp.After(latestTimestamp) {
-				latestTimestamp = cached.Timestamp
-				currentSequence = cached.Sequence
-			}
 		}
 	}
+
+	// Sort the sequences to ensure the final combined sequence is deterministic
+	sort.Strings(sourceSequences)
+	currentSequence = strings.Join(sourceSequences, ";")
 
 	// If no data in cache, return empty with sequence "0"
 	if len(allResults) == 0 {
