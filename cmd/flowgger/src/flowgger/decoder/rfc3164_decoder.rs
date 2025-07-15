@@ -43,7 +43,7 @@ impl Decoder for RFC3164Decoder {
             return Ok(record);
         }
 
-        let _ = writeln!(stderr(), "Unable to parse the rfc3164 input: '{}'", line);
+        let _ = writeln!(stderr(), "Unable to parse the rfc3164 input: '{line}'");
         res
     }
 }

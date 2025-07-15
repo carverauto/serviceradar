@@ -14,8 +14,9 @@ const DEFAULT_TIMEOUT: u64 = 3600;
 
 #[derive(Clone)]
 pub struct TcpConfig {
-    framing: String,
-    threads: usize,
+    pub(crate) framing: String,
+    #[allow(dead_code)]
+    pub(crate) threads: usize,
 }
 
 #[cfg(feature = "coroutines")]
@@ -45,7 +46,7 @@ pub fn config_parse(config: &Config) -> (TcpConfig, String, u64) {
         x.as_integer()
             .expect("input.timeout must be an unsigned integer") as u64
     });
-    let framing = if config.lookup("input.framed").map_or(false, |x| {
+    let framing = if config.lookup("input.framed").is_some_and(|x| {
         x.as_bool().expect("input.framed must be a boolean")
     }) {
         "syslen"

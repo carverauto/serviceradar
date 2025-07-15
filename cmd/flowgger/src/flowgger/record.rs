@@ -29,10 +29,7 @@ pub struct StructuredData {
 impl StructuredData {
     pub fn new(sd_id: Option<&str>) -> StructuredData {
         StructuredData {
-            sd_id: match sd_id {
-                Some(sd_id) => Some(sd_id.to_owned()),
-                None => None,
-            },
+            sd_id: sd_id.map(|sd_id| sd_id.to_owned()),
             pairs: Vec::new(),
         }
     }
@@ -43,9 +40,9 @@ impl fmt::Display for StructuredData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("[")?;
         if let Some(sd_id) = &self.sd_id {
-            f.write_str(&sd_id)?;
+            f.write_str(sd_id)?;
         }
-        for &(ref name, ref value) in &self.pairs {
+        for (name, value) in &self.pairs {
             // Remove trailing '_' if exists
             let name = if (*name).starts_with('_') {
                 &name[1..] as &str
@@ -54,12 +51,12 @@ impl fmt::Display for StructuredData {
             };
 
             match *value {
-                SDValue::String(ref value) => write!(f, " {}=\"{}\"", name, value)?,
-                SDValue::Bool(ref value) => write!(f, " {}=\"{}\"", name, value)?,
-                SDValue::F64(ref value) => write!(f, " {}=\"{}\"", name, value)?,
-                SDValue::I64(ref value) => write!(f, " {}=\"{}\"", name, value)?,
-                SDValue::U64(ref value) => write!(f, " {}=\"{}\"", name, value)?,
-                SDValue::Null => write!(f, " {}", name)?,
+                SDValue::String(ref value) => write!(f, r#" {name}="{value}""#)?,
+                SDValue::Bool(ref value) => write!(f, r#" {name}="{value}""#)?,
+                SDValue::F64(ref value) => write!(f, r#" {name}="{value}""#)?,
+                SDValue::I64(ref value) => write!(f, r#" {name}="{value}""#)?,
+                SDValue::U64(ref value) => write!(f, r#" {name}="{value}""#)?,
+                SDValue::Null => write!(f, " {name}")?,
             }
         }
         f.write_str("]")?;

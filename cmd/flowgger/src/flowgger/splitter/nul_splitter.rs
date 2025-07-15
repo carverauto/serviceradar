@@ -38,7 +38,7 @@ impl<T: Read> Splitter<T> for NulSplitter {
                 }
                 Ok(line) => line,
             };
-            if let Err(e) = handle_line(line, &tx, &decoder, &encoder) {
+            if let Err(e) = handle_line(line, &tx, decoder.as_ref(), encoder.as_ref()) {
                 let line = line.trim();
                 if !line.is_empty() {
                     let _ = writeln!(stderr(), "{}: [{}]", e, line.trim());
@@ -51,8 +51,8 @@ impl<T: Read> Splitter<T> for NulSplitter {
 fn handle_line(
     line: &str,
     tx: &SyncSender<Vec<u8>>,
-    decoder: &Box<dyn Decoder>,
-    encoder: &Box<dyn Encoder>,
+    decoder: &dyn Decoder,
+    encoder: &dyn Encoder,
 ) -> Result<(), &'static str> {
     let decoded = decoder.decode(line)?;
     let reencoded = encoder.encode(decoded)?;

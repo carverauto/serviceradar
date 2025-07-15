@@ -32,7 +32,7 @@ impl Encoder for RFC5424Encoder {
         if record.facility.is_some() && record.severity.is_some() {
             let npri: u8 =
                 ((record.facility.unwrap() << 3) & 0xF8) + (record.severity.unwrap() & 0x7);
-            res.push_str(&format!("<{}>", npri));
+            res.push_str(&format!("<{npri}>"));
         } else {
             res.push_str(DEFAULT_PRIORITY);
         }
@@ -77,7 +77,7 @@ impl Encoder for RFC5424Encoder {
         res.push(' ');
 
         if let Some(sd_vec) = record.sd {
-            for &ref sd in &sd_vec {
+            for sd in &sd_vec {
                 res.push_str(&sd.to_string());
             }
             res.push(' ');
