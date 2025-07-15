@@ -36,16 +36,14 @@ impl Input for TlsInput {
         encoder: Box<dyn Encoder + Send>,
     ) {
         let listener = TcpListener::bind(&self.listen as &str).unwrap();
-        for client in listener.incoming() {
-            if let Ok(client) = client {
-                let _ = client.set_read_timeout(self.timeout);
-                let tx = tx.clone();
-                let (decoder, encoder) = (decoder.clone_boxed(), encoder.clone_boxed());
-                let tls_config = self.tls_config.clone();
-                thread::spawn(move || {
-                    handle_client(client, tx, decoder, encoder, tls_config);
-                });
-            }
+        for client in listener.incoming().flatten() {
+            let _ = client.set_read_timeout(self.timeout);
+            let tx = tx.clone();
+            let (decoder, encoder) = (decoder.clone_boxed(), encoder.clone_boxed());
+            let tls_config = self.tls_config.clone();
+            thread::spawn(move || {
+                handle_client(client, tx, decoder, encoder, tls_config);
+            });
         }
     }
 }
@@ -71,7 +69,7 @@ fn handle_client(
     tls_config: TlsConfig,
 ) {
     if let Ok(peer_addr) = client.peer_addr() {
-        println!("Connection over TLS from [{}]", peer_addr);
+        println!("Connection over TLS from [{peer_addr}]");
     }
     let sslclient = match tls_config.acceptor.accept(client) {
         Err(_) => {

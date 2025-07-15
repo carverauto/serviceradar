@@ -19,7 +19,7 @@ impl GelfEncoder {
     /// # Parameters
     ///
     /// - `config`: a configuration file that can contain an output.gelf_extra section of elements,
-    /// or be empty. if the gelf_extra section is present it needs to contain a list of `key =
+    ///   or be empty. if the gelf_extra section is present it needs to contain a list of `key =
     /// "value"` pairs that will be added to the resulting json or overwritten if already present
     ///
     /// # Panics
@@ -88,7 +88,7 @@ impl Encoder for GelfEncoder {
             map = map.insert("_remote_addr".to_owned(), Value::String(addr));
         }
         if let Some(sd_vec) = record.sd {
-            for &ref sd in &sd_vec {
+            for sd in &sd_vec {
                 // Warning: Gelf doesn't have a concept of structued data. In case there are
                 // several, all their attributes will be aded as fields. So if several structured
                 // data have the same key, only the last value will show as it will overwrite the

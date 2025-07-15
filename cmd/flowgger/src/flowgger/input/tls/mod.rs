@@ -33,9 +33,10 @@ const TLS_VERIFY_DEPTH: u32 = 6;
 
 #[derive(Clone)]
 pub struct TlsConfig {
-    framing: String,
-    threads: usize,
-    acceptor: SslAcceptor,
+    pub(crate) framing: String,
+    #[allow(dead_code)]
+    pub(crate) threads: usize,
+    pub(crate) acceptor: SslAcceptor,
 }
 
 fn set_fs(ctx: &mut SslContextBuilder) {
@@ -113,12 +114,10 @@ pub fn config_parse(config: &Config) -> (TlsConfig, String, u64) {
             x.as_bool()
                 .expect("input.tls_verify_peer must be a boolean")
         });
-    let ca_file: Option<PathBuf> = config.lookup("input.tls_ca_file").and_then(|x| {
-        Some(PathBuf::from(
+    let ca_file: Option<PathBuf> = config.lookup("input.tls_ca_file").map(|x| PathBuf::from(
             x.as_str()
                 .expect("input.tls_ca_file must be a path to a file"),
-        ))
-    });
+        ));
     let compression = config
         .lookup("input.tls_compression")
         .map_or(DEFAULT_COMPRESSION, |x| {
@@ -128,7 +127,7 @@ pub fn config_parse(config: &Config) -> (TlsConfig, String, u64) {
     let timeout = config.lookup("input.timeout").map_or(DEFAULT_TIMEOUT, |x| {
         x.as_integer().expect("input.timeout must be an integer") as u64
     });
-    let framing = if config.lookup("input.framed").map_or(false, |x| {
+    let framing = if config.lookup("input.framed").is_some_and(|x| {
         x.as_bool().expect("input.framed must be a boolean")
     }) {
         "syslen"
@@ -149,7 +148,7 @@ pub fn config_parse(config: &Config) -> (TlsConfig, String, u64) {
     })
     .unwrap();
     {
-        let mut ctx = &mut acceptor_builder;
+        let ctx = &mut acceptor_builder;
         if let Some(ca_file) = ca_file {
             ctx.set_ca_file(&ca_file)
                 .expect("Unable to read the trusted CA file");
@@ -166,10 +165,10 @@ pub fn config_parse(config: &Config) -> (TlsConfig, String, u64) {
             opts |= SslOptions::NO_COMPRESSION;
         }
         ctx.set_options(opts);
-        set_fs(&mut ctx);
-        ctx.set_certificate_chain_file(&Path::new(&cert))
+        set_fs(ctx);
+        ctx.set_certificate_chain_file(Path::new(&cert))
             .expect("Unable to read the TLS certificate chain");
-        ctx.set_private_key_file(&Path::new(&key), SslFiletype::PEM)
+        ctx.set_private_key_file(Path::new(&key), SslFiletype::PEM)
             .expect("Unable to read the TLS key");
         ctx.set_cipher_list(&ciphers)
             .expect("Unsupported cipher suite");

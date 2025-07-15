@@ -37,7 +37,7 @@ impl RotatingFile {
     /// Rotation occurs when a write is requested to an expired file. The file is then closed and a new one is created.
     /// # Notes:
     /// - the max_files has currently no impact on time trigger rotation, leading to an uncontrolled number of files being
-    /// generated if not externally purged.
+    ///   generated if not externally purged.
     /// - files are only being rotated on write operation. Empty files will not be created every x minutes if there was no write requests.
     ///
     /// A size trigger can be configured in addition to the time trigger (max_time >0 and max_size > 0).
@@ -51,7 +51,7 @@ impl RotatingFile {
     /// Rotation occurs when the data to write in the current file is going to reach the specified limit.
     /// During a rotation:
     /// - each existing file is renamed 'basename.{n}' -> 'basename.{n+1}', starting with n = maxfiles -2 up to 0.
-    ///     The oldest 'basename.{maxfiles -1}' is therefore overwritten and the old data are lost
+    ///   The oldest 'basename.{maxfiles -1}' is therefore overwritten and the old data are lost
     /// - the current file is renamed 'basename' -> 'basename.0'
     /// - A new file 'basename' is created
     ///
@@ -60,13 +60,13 @@ impl RotatingFile {
     /// - 'basename': Original file name and path.
     /// - 'max_size': Target size for rotating files. If a write will reach that limit, the file is rotated first.
     /// - 'max_time': Period in minutes for rotating files. If a write is done more than max_time after the file
-    ///             creation, the file is rotated.
+    ///   creation, the file is rotated.
     /// - 'max_files': Count of files that can be created in addition to the original file,
-    ///             named 'basename.N' where'basename' is always the file being currently written
-    ///             - 'basename.0' is always the most recent file that has been rotated
-    ///             - 'basename.N' is always the oldest file
+    ///   named 'basename.N' where'basename' is always the file being currently written
+    ///   - 'basename.0' is always the most recent file that has been rotated
+    ///   - 'basename.N' is always the oldest file
     /// - time_format: Format of the timestamp to use when time rotation is enabled. Must conform to
-    ///             https://docs.rs/time/0.3.7/time/format_description/index.html
+    ///   https://docs.rs/time/0.3.7/time/format_description/index.html
     ///
     /// # Example
     /// From parameters:
@@ -90,6 +90,7 @@ impl RotatingFile {
     ///     - Older file = 'logs/syslog-20180108T014543Z.log'
     ///     - Oldest file = 'logs/syslog-20180108T014743Z.log'
     ///
+    #[allow(dead_code)]
     pub fn new<P: AsRef<Path>>(
         basepath: P,
         max_size: usize,
@@ -132,7 +133,7 @@ impl RotatingFile {
             Err(_) => return Err("Failed to parse date"),
         };
         let mut new_file = self.basename.clone();
-        new_file.set_file_name(&format!(
+        new_file.set_file_name(format!(
             "{}-{}.{}",
             self.basename
                 .file_stem()
@@ -215,7 +216,7 @@ impl RotatingFile {
     /// Starting from the file n=(self.max_files -1):
     /// - each existing file is renamed 'basename.{n}' -> 'basename.{n+1}'
     /// - the current file is renamed 'basename' -> 'basename.0'
-    /// A new file 'basename' is created
+    ///   A new file 'basename' is created
     ///
     /// # Returns
     /// - 'Ok':   when the rotation has been done
@@ -281,6 +282,7 @@ impl RotatingFile {
     /// - true:     The rotation is triggered either on size or time
     /// - false:    The rotation is not configured to be triggered
     ///
+    #[allow(dead_code)]
     pub fn is_enabled(&self) -> bool {
         self.is_time_triggered() || self.is_size_triggered()
     }
