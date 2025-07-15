@@ -1,0 +1,49 @@
+{
+  "nats_url": "nats://127.0.0.1:4222",
+  "domain": "edge",
+  "stream_name": "events",
+  "consumer_name": "zen-consumer",
+  "subjects": ["events.syslog", "events.snmp", "events.otel.logs"],
+  "decision_groups": [
+    {
+      "name": "syslog",
+      "subjects": ["events.syslog"],
+      "rules": [
+        {"order": 1, "key": "strip_full_message"},
+        {"order": 2, "key": "cef_severity"}
+      ],
+      "format": "json"
+    },
+    {
+      "name": "snmp",
+      "subjects": ["events.snmp"],
+      "rules": [
+        {"order": 1, "key": "cef_severity"}
+      ],
+      "format": "json"
+    },
+    {
+      "name": "otel_logs",
+      "subjects": ["events.otel.logs"],
+      "rules": [
+        {"order": 1, "key": "severity_mapping"},
+        {"order": 2, "key": "enrichment"}
+      ],
+      "format": "protobuf"
+    }
+  ],
+  "agent_id": "default-agent",
+  "kv_bucket": "serviceradar-kv",
+  "listen_addr": "0.0.0.0:50055",
+  "result_subject_suffix": ".processed",
+  "security": {
+    "cert_file": "/Users/mfreeman/src/flowgger-tls-test/client-cert.pem",
+    "key_file": "/Users/mfreeman/src/flowgger-tls-test/client-key.pem",
+    "ca_file": "/Users/mfreeman/src/flowgger-tls-test/ca.pem"
+  },
+  "grpc_security": {
+    "cert_file": "/Users/mfreeman/src/flowgger-tls-test/server-cert.pem",
+    "key_file": "/Users/mfreeman/src/flowgger-tls-test/server-key.pem",
+    "ca_file": "/Users/mfreeman/src/flowgger-tls-test/ca.pem"
+  }
+}
