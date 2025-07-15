@@ -60,6 +60,9 @@ tidy: ## Tidy and format Go code
 	@cd cmd/checkers/rperf-client && $(RUSTFMT) src/*.rs
 	@cd cmd/checkers/sysmon && $(RUSTFMT) src/*.rs
 	@cd cmd/trapd && $(RUSTFMT) src/*.rs
+	@cd cmd/consumers/zen && $(RUSTFMT) src/*.rs
+	@cd cmd/otel && $(RUSTFMT) src/*.rs
+	@cd cmd/flowgger && $(RUSTFMT) src/*.rs src/flowgger/*.rs
 
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
@@ -74,6 +77,9 @@ lint: get-golangcilint ## Run linting checks
 	@cd cmd/checkers/rperf-client && $(CARGO) clippy -- -D warnings
 	@cd cmd/checkers/sysmon && $(CARGO) clippy -- -D warnings
 	@cd cmd/trapd && $(CARGO) clippy -- -D warnings
+	@cd cmd/consumers/zen && $(CARGO) clippy -- -D warnings
+	@cd cmd/otel && $(CARGO) clippy -- -D warnings
+	@cd cmd/flowgger && $(CARGO) clippy -- -D warnings
 
 .PHONY: test
 test: ## Run all tests with coverage
@@ -85,6 +91,9 @@ test: ## Run all tests with coverage
 	@cd cmd/checkers/rperf-client && $(CARGO) test
 	@cd cmd/checkers/sysmon && $(CARGO) test
 	@cd cmd/trapd && $(CARGO) test
+	@cd cmd/consumers/zen && $(CARGO) test
+	@cd cmd/otel && $(CARGO) test
+	@cd cmd/flowgger && $(CARGO) test
 	
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
@@ -123,6 +132,9 @@ clean: ## Clean up build artifacts
 	@cd cmd/checkers/rperf-client && $(CARGO) clean
 	@cd cmd/checkers/sysmon && $(CARGO) clean
 	@cd cmd/trapd && $(CARGO) clean
+	@cd cmd/consumers/zen && $(CARGO) clean
+	@cd cmd/otel && $(CARGO) clean
+	@cd cmd/flowgger && $(CARGO) clean
 
 .PHONY: generate-proto
 generate-proto: ## Generate Go and Rust code from protobuf definitions
@@ -164,10 +176,18 @@ build: generate-proto ## Build all binaries
 	@cd cmd/checkers/rperf-client && $(CARGO) build --release
 	@cd cmd/checkers/rperf-server && $(CARGO) build --release
 	@cd cmd/checkers/sysmon && $(CARGO) build --release
+	@cd cmd/trapd && $(CARGO) build --release
+	@cd cmd/consumers/zen && $(CARGO) build --release
+	@cd cmd/otel && $(CARGO) build --release
+	@cd cmd/flowgger && $(CARGO) build --release
 	@mkdir -p bin
 	@cp $(RPERF_CLIENT_BUILD_DIR)/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
 	@cp $(RPERF_SERVER_BUILD_DIR)/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
 	@cp $(SYSMON_BUILD_DIR)/$(SYSMON_BIN) bin/serviceradar-sysmon
+	@cp cmd/trapd/target/release/serviceradar-trapd bin/serviceradar-trapd
+	@cp cmd/consumers/zen/target/release/zen-consumer bin/serviceradar-zen-consumer
+	@cp cmd/otel/target/release/serviceradar-otel bin/serviceradar-otel
+	@cp cmd/flowgger/target/release/flowgger bin/serviceradar-flowgger
 
 .PHONY: kodata-prep
 kodata-prep: build-web ## Prepare kodata directories
