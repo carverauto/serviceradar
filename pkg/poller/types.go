@@ -25,24 +25,17 @@ import (
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 // AgentPoller manages polling operations for a single agent.
 type AgentPoller struct {
 	client         proto.AgentServiceClient
+	clientConn     *grpc.Client // Store grpc.Client for lifecycle management
 	name           string
 	config         *AgentConfig
 	timeout        time.Duration
 	poller         *Poller
 	resultsPollers []*ResultsPoller
-}
-
-// AgentConnection represents a connection to an agent.
-type AgentConnection struct {
-	client       *grpc.Client // Updated to use grpc.Client
-	agentName    string
-	healthClient healthpb.HealthClient
 }
 
 // Poller represents the monitoring poller.
@@ -52,7 +45,7 @@ type Poller struct {
 	coreClient proto.PollerServiceClient
 	grpcClient *grpc.Client
 	mu         sync.RWMutex
-	agents     map[string]*AgentConnection
+	agents     map[string]*AgentPoller // Store stateful AgentPoller instances
 	done       chan struct{}
 	closeOnce  sync.Once
 	PollFunc   func(ctx context.Context) error // Optional override
@@ -73,13 +66,14 @@ type ServiceCheck struct {
 
 // ResultsPoller manages GetResults polling for services that support it.
 type ResultsPoller struct {
-	client      proto.AgentServiceClient
-	check       Check
-	pollerID    string
-	agentName   string
-	lastResults time.Time
-	interval    time.Duration
-	logger      logger.Logger
+	client       proto.AgentServiceClient
+	check        Check
+	pollerID     string
+	agentName    string
+	lastResults  time.Time
+	interval     time.Duration
+	lastSequence string // Track last sequence received from service
+	logger       logger.Logger
 }
 
 // Duration is a wrapper around time.Duration for JSON unmarshaling.
