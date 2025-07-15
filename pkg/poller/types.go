@@ -31,6 +31,7 @@ import (
 // AgentPoller manages polling operations for a single agent.
 type AgentPoller struct {
 	client         proto.AgentServiceClient
+	clientConn     *grpc.Client // Store grpc.Client for lifecycle management
 	name           string
 	config         *AgentConfig
 	timeout        time.Duration
@@ -52,7 +53,7 @@ type Poller struct {
 	coreClient proto.PollerServiceClient
 	grpcClient *grpc.Client
 	mu         sync.RWMutex
-	agents     map[string]*AgentConnection
+	agents     map[string]*AgentPoller // Store stateful AgentPoller instances
 	done       chan struct{}
 	closeOnce  sync.Once
 	PollFunc   func(ctx context.Context) error // Optional override
