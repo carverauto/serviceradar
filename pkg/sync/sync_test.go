@@ -703,7 +703,11 @@ func TestGetResultsClearsCache(t *testing.T) {
 	}
 
 	syncer.resultsMu.Lock()
-	syncer.resultsCache["armis"] = []*models.SweepResult{sweepResult}
+	syncer.resultsCache["armis"] = &CachedResults{
+		Results:   []*models.SweepResult{sweepResult},
+		Sequence:  "test-sequence-123",
+		Timestamp: time.Now(),
+	}
 	syncer.resultsMu.Unlock()
 
 	// First GetResults call should return the result
@@ -724,14 +728,23 @@ func TestGetResultsClearsCache(t *testing.T) {
 	assert.Len(t, results1, 1)
 	assert.Equal(t, "192.168.1.1", results1[0].IP)
 
-	// Second GetResults call should return empty results (cache cleared)
-	resp2, err := syncer.GetResults(ctx, req)
+	// Second GetResults call with same sequence should return empty results
+	req2 := &proto.ResultsRequest{
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		PollerId:     "test-poller",
+		LastSequence: resp1.CurrentSequence, // Use sequence from first response
+	}
+
+	resp2, err := syncer.GetResults(ctx, req2)
 	require.NoError(t, err)
 	assert.True(t, resp2.Available)
+	assert.False(t, resp2.HasNewData)                             // No new data
+	assert.Equal(t, resp1.CurrentSequence, resp2.CurrentSequence) // Same sequence
 
 	var results2 []*models.SweepResult
 
 	err = json.Unmarshal(resp2.Data, &results2)
 	require.NoError(t, err)
-	assert.Empty(t, results2, "Cache should be cleared after first GetResults call")
+	assert.Empty(t, results2, "Should return empty results when sequence matches")
 }
