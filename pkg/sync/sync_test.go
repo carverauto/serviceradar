@@ -269,7 +269,6 @@ func TestStart_ContextCancellation(t *testing.T) {
 	tickChan := make(chan time.Time)
 
 	mockClock.EXPECT().Ticker(1 * time.Second).Return(mockTicker)
-
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
 
@@ -284,20 +283,52 @@ func TestStart_ContextCancellation(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startDone := make(chan struct{})
+	defer cancel() // Defer for safety, even with explicit calls
 
+	lifecycleDone := make(chan struct{})
+	initialPollDone := make(chan struct{})
+
+	// Wrap the poller's PollFunc to signal when the initial poll is done
+	var p *poller.Poller
+	for _, pollerInstance := range syncer.pollers {
+		p = pollerInstance
+		break
+	}
+
+	require.NotNil(t, p, "No poller was created")
+
+	originalPollFunc := p.PollFunc
+	p.PollFunc = func(ctx context.Context) error {
+		err := originalPollFunc(ctx)
+		select {
+		case initialPollDone <- struct{}{}:
+		default:
+		}
+
+		return err
+	}
+
+	// Run the full lifecycle (Start and Stop) in a goroutine
 	go func() {
-		err = syncer.Start(ctx)
-		assert.Equal(t, context.Canceled, err)
-		close(startDone)
+		defer close(lifecycleDone)
+
+		// Start returns when the context is canceled
+		startErr := syncer.Start(ctx)
+		assert.ErrorIs(t, startErr, context.Canceled)
+
+		// Immediately stop the syncer. This is where the ticker.Stop() is called.
+		stopErr := syncer.Stop(context.Background())
+		assert.NoError(t, stopErr)
 	}()
 
-	time.Sleep(100 * time.Millisecond) // Allow initial poll
-	cancel()                           // Cancel context
-	<-startDone                        // Wait for Start to exit
+	// 1. Wait for the poller to run its first poll.
+	<-initialPollDone
 
-	err = syncer.Stop(context.Background())
-	assert.NoError(t, err)
+	// 2. Cancel the context to stop the syncer's Start loop.
+	cancel()
+
+	// 3. Wait for the goroutine (including the Stop call) to complete.
+	<-lifecycleDone
 }
 
 func TestSync_NetboxSuccess(t *testing.T) {
