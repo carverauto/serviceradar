@@ -62,7 +62,7 @@ func TestSequenceTrackingIntegration_SimulatePollerBehavior(t *testing.T) {
 		// Simulate sweep populating cache with sequence
 		now := time.Now()
 		sequence := strconv.FormatInt(now.UnixNano(), 10)
-		
+
 		service.resultsCache["netbox"] = &CachedResults{
 			Results: []*models.SweepResult{
 				{
@@ -97,7 +97,7 @@ func TestSequenceTrackingIntegration_SimulatePollerBehavior(t *testing.T) {
 
 		// Should return data and sequence
 		assert.True(t, resp.HasNewData)
-		assert.Equal(t, sequence, resp.CurrentSequence)
+		assert.Equal(t, "netbox:"+sequence, resp.CurrentSequence)
 		assert.Contains(t, string(resp.Data), "192.168.1.1")
 		assert.Contains(t, string(resp.Data), "192.168.1.2")
 	})
@@ -107,14 +107,14 @@ func TestSequenceTrackingIntegration_SimulatePollerBehavior(t *testing.T) {
 		// Get current sequence from cache
 		cached := service.resultsCache["netbox"]
 		require.NotNil(t, cached)
-		
+
 		// Second GetResults call with same sequence
 		req := &proto.ResultsRequest{
 			ServiceName:  "sync",
 			ServiceType:  "grpc",
 			AgentId:      "test-agent",
 			PollerId:     "test-poller",
-			LastSequence: cached.Sequence, // Same sequence
+			LastSequence: "netbox:" + cached.Sequence, // Same sequence in new format
 		}
 
 		resp, err := service.GetResults(ctx, req)
@@ -123,7 +123,7 @@ func TestSequenceTrackingIntegration_SimulatePollerBehavior(t *testing.T) {
 
 		// Should NOT return data (has_new_data = false)
 		assert.False(t, resp.HasNewData)
-		assert.Equal(t, cached.Sequence, resp.CurrentSequence)
+		assert.Equal(t, "netbox:"+cached.Sequence, resp.CurrentSequence)
 		assert.Equal(t, "[]", string(resp.Data))
 	})
 
@@ -132,7 +132,7 @@ func TestSequenceTrackingIntegration_SimulatePollerBehavior(t *testing.T) {
 		// Simulate new sweep with additional device
 		now := time.Now()
 		newSequence := strconv.FormatInt(now.UnixNano(), 10)
-		
+
 		service.resultsCache["netbox"] = &CachedResults{
 			Results: []*models.SweepResult{
 				{
@@ -160,7 +160,7 @@ func TestSequenceTrackingIntegration_SimulatePollerBehavior(t *testing.T) {
 
 		// Get old sequence for comparison
 		oldSequence := "1720906448000000000" // Some old sequence
-		
+
 		// Third GetResults call with old sequence
 		req := &proto.ResultsRequest{
 			ServiceName:  "sync",
@@ -176,7 +176,7 @@ func TestSequenceTrackingIntegration_SimulatePollerBehavior(t *testing.T) {
 
 		// Should return new data
 		assert.True(t, resp.HasNewData)
-		assert.Equal(t, newSequence, resp.CurrentSequence)
+		assert.Equal(t, "netbox:"+newSequence, resp.CurrentSequence)
 		assert.Contains(t, string(resp.Data), "192.168.1.1")
 		assert.Contains(t, string(resp.Data), "192.168.1.2")
 		assert.Contains(t, string(resp.Data), "192.168.1.3")
@@ -187,14 +187,14 @@ func TestSequenceTrackingIntegration_SimulatePollerBehavior(t *testing.T) {
 		// Get current sequence from cache
 		cached := service.resultsCache["netbox"]
 		require.NotNil(t, cached)
-		
+
 		// Call from different poller with same sequence
 		req := &proto.ResultsRequest{
 			ServiceName:  "sync",
 			ServiceType:  "grpc",
 			AgentId:      "test-agent",
-			PollerId:     "different-poller", // Different poller
-			LastSequence: cached.Sequence,    // Same sequence
+			PollerId:     "different-poller",          // Different poller
+			LastSequence: "netbox:" + cached.Sequence, // Same sequence in new format
 		}
 
 		resp, err := service.GetResults(ctx, req)
@@ -203,7 +203,7 @@ func TestSequenceTrackingIntegration_SimulatePollerBehavior(t *testing.T) {
 
 		// Should NOT return data (sequence-based, not poller-based)
 		assert.False(t, resp.HasNewData)
-		assert.Equal(t, cached.Sequence, resp.CurrentSequence)
+		assert.Equal(t, "netbox:"+cached.Sequence, resp.CurrentSequence)
 		assert.Equal(t, "[]", string(resp.Data))
 	})
 }
@@ -253,8 +253,8 @@ func TestSequenceTrackingIntegration_MultiSourceBehavior(t *testing.T) {
 
 	// Should return data because armis has newer sequence
 	assert.True(t, resp.HasNewData)
-	assert.Equal(t, "1720906500000000000", resp.CurrentSequence) // Latest sequence
-	
+	assert.Equal(t, "armis:1720906500000000000;netbox:1720906400000000000", resp.CurrentSequence) // Combined sequence
+
 	// Should return data from both sources
 	assert.Contains(t, string(resp.Data), "192.168.1.1")  // netbox
 	assert.Contains(t, string(resp.Data), "192.168.1.10") // armis

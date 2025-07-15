@@ -193,7 +193,7 @@ func TestPollerService_GetStatusVsGetResults_Separation(t *testing.T) {
 				Timestamp: time.Now(),
 			},
 		},
-		logger:       testGRPCLogger(),
+		logger: testGRPCLogger(),
 	}
 
 	ctx := context.Background()
@@ -357,7 +357,7 @@ func TestPollerService_GetResults_SequenceTracking_FirstCall(t *testing.T) {
 
 	// Should return data since this is first call
 	assert.True(t, resp.HasNewData)
-	assert.Equal(t, "1720906448000000000", resp.CurrentSequence)
+	assert.Equal(t, "netbox:1720906448000000000", resp.CurrentSequence)
 
 	// Should return actual data
 	var results []*models.SweepResult
@@ -397,7 +397,7 @@ func TestPollerService_GetResults_SequenceTracking_SameSequence(t *testing.T) {
 		ServiceType:  "grpc",
 		AgentId:      "test-agent",
 		PollerId:     "test-poller",
-		LastSequence: "1720906448000000000", // Same as current sequence
+		LastSequence: "netbox:1720906448000000000", // Same as current sequence
 	}
 
 	ctx := context.Background()
@@ -408,13 +408,14 @@ func TestPollerService_GetResults_SequenceTracking_SameSequence(t *testing.T) {
 
 	// Should NOT return data since poller already has this sequence
 	assert.False(t, resp.HasNewData)
-	assert.Equal(t, "1720906448000000000", resp.CurrentSequence)
+	assert.Equal(t, "netbox:1720906448000000000", resp.CurrentSequence)
 
 	// Should return empty array
 	var results []*models.SweepResult
+
 	err = json.Unmarshal(resp.Data, &results)
 	require.NoError(t, err)
-	assert.Len(t, results, 0)
+	assert.Empty(t, results, "Expected empty results when sequence is the same")
 }
 
 func TestPollerService_GetResults_SequenceTracking_NewSequence(t *testing.T) {
@@ -453,7 +454,7 @@ func TestPollerService_GetResults_SequenceTracking_NewSequence(t *testing.T) {
 		ServiceType:  "grpc",
 		AgentId:      "test-agent",
 		PollerId:     "test-poller",
-		LastSequence: "1720906400000000000", // Old sequence
+		LastSequence: "netbox:1720906400000000000", // Old sequence
 	}
 
 	ctx := context.Background()
@@ -464,7 +465,7 @@ func TestPollerService_GetResults_SequenceTracking_NewSequence(t *testing.T) {
 
 	// Should return data since sequence is different
 	assert.True(t, resp.HasNewData)
-	assert.Equal(t, "1720906448000000000", resp.CurrentSequence)
+	assert.Equal(t, "netbox:1720906448000000000", resp.CurrentSequence)
 
 	// Should return actual data
 	var results []*models.SweepResult
@@ -508,13 +509,13 @@ func TestPollerService_GetResults_SequenceTracking_EmptyCache(t *testing.T) {
 	var results []*models.SweepResult
 	err = json.Unmarshal(resp.Data, &results)
 	require.NoError(t, err)
-	assert.Len(t, results, 0)
+	assert.Empty(t, results, "Expected empty results when cache is empty")
 }
 
 func TestPollerService_GetResults_SequenceTracking_MultiSource(t *testing.T) {
 	// Test multiple sources - should use latest sequence
 	now := time.Now()
-	
+
 	service := &PollerService{
 		config: Config{
 			AgentID: "test-agent",
@@ -552,9 +553,9 @@ func TestPollerService_GetResults_SequenceTracking_MultiSource(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
-	// Should use the latest sequence (armis)
+	// Should use the combined sequence (sorted alphabetically)
 	assert.True(t, resp.HasNewData)
-	assert.Equal(t, "1720906448000000000", resp.CurrentSequence)
+	assert.Equal(t, "armis:1720906448000000000;netbox:1720906400000000000", resp.CurrentSequence)
 
 	// Should return data from both sources
 	var results []*models.SweepResult

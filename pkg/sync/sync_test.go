@@ -735,11 +735,11 @@ func TestGetResultsClearsCache(t *testing.T) {
 		PollerId:     "test-poller",
 		LastSequence: resp1.CurrentSequence, // Use sequence from first response
 	}
-	
+
 	resp2, err := syncer.GetResults(ctx, req2)
 	require.NoError(t, err)
 	assert.True(t, resp2.Available)
-	assert.False(t, resp2.HasNewData) // No new data
+	assert.False(t, resp2.HasNewData)                             // No new data
 	assert.Equal(t, resp1.CurrentSequence, resp2.CurrentSequence) // Same sequence
 
 	var results2 []*models.SweepResult
