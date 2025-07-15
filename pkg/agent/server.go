@@ -501,9 +501,15 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 
 // GetResults implements the AgentService GetResults method.
 // For grpc services, this forwards the call to the actual service.
+// For sweep services, this calls the local sweep service.
 // For other services, this returns a "not supported" response.
 func (s *Server) GetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
 	s.logger.Info().Str("serviceName", req.ServiceName).Str("serviceType", req.ServiceType).Msg("GetResults called")
+
+	// Handle sweep services with local implementation
+	if req.ServiceType == "sweep" {
+		return s.handleSweepGetResults(ctx, req)
+	}
 
 	// Handle grpc services by forwarding the call
 	if req.ServiceType == "grpc" {
@@ -592,6 +598,47 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 	s.logger.Info().Str("checkerType", fmt.Sprintf("%T", getChecker)).Msg("GetResults not supported for getChecker type")
 
 	return nil, status.Errorf(codes.Unimplemented, "GetResults not supported by getChecker type %T", getChecker)
+}
+
+// handleSweepGetResults handles GetResults calls for sweep services.
+func (s *Server) handleSweepGetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
+	s.logger.Info().Str("serviceName", req.ServiceName).Str("lastSequence", req.LastSequence).Msg("Handling sweep GetResults")
+
+	// Find the sweep service
+	for _, svc := range s.services {
+		if sweepSvc, ok := svc.(*SweepService); ok {
+			response, err := sweepSvc.GetSweepResults(ctx, req.LastSequence)
+			if err != nil {
+				s.logger.Error().Err(err).Msg("Failed to get sweep results")
+				return &proto.ResultsResponse{
+					Available:   false,
+					Data:        []byte(fmt.Sprintf(`{"error": "Failed to get sweep results: %v"}`, err)),
+					ServiceName: req.ServiceName,
+					ServiceType: req.ServiceType,
+					AgentId:     s.config.AgentID,
+					PollerId:    req.PollerId,
+					Timestamp:   time.Now().Unix(),
+				}, nil
+			}
+
+			// Set AgentId and PollerId from the request
+			response.AgentId = s.config.AgentID
+			response.PollerId = req.PollerId
+
+			return response, nil
+		}
+	}
+
+	s.logger.Error().Msg("No sweep service found")
+	return &proto.ResultsResponse{
+		Available:   false,
+		Data:        []byte(`{"error": "No sweep service configured"}`),
+		ServiceName: req.ServiceName,
+		ServiceType: req.ServiceType,
+		AgentId:     s.config.AgentID,
+		PollerId:    req.PollerId,
+		Timestamp:   time.Now().Unix(),
+	}, nil
 }
 
 func isRperfCheckerRequest(req *proto.StatusRequest) bool {

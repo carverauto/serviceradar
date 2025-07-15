@@ -684,6 +684,18 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 		rp.lastSequence = results.CurrentSequence
 	}
 
+	// If there's no new data AND this is a sweep service, skip sending to core to prevent redundant database writes
+	// For other service types, we still send the response for compatibility
+	if !results.HasNewData && rp.check.Type == "sweep" {
+		rp.logger.Debug().
+			Str("service_name", rp.check.Name).
+			Str("service_type", rp.check.Type).
+			Str("sequence", results.CurrentSequence).
+			Msg("No new data from sweep service, skipping core submission")
+		
+		return nil // Skip this poll cycle for this service
+	}
+
 	// Convert ResultsResponse to ServiceStatus format for core processing
 	return &proto.ServiceStatus{
 		ServiceName:  rp.check.Name,
