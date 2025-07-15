@@ -37,7 +37,7 @@ impl Config {
     ///
     /// - `Ok`: Containing the Config object
     /// - `Err`: if the file doesn't exist, is not readable, cannot be parsed into a string or is
-    /// not valid [`TOML`][https://github.com/toml-lang/toml#user-content-array]
+    ///   not valid [`TOML`][https://github.com/toml-lang/toml#user-content-array]
     ///
     /// # Errors
     ///
@@ -68,7 +68,7 @@ impl Config {
     /// # Errors
     ///
     /// - `InvalidData: Syntax error - config file is not valid TOML`: will be returned if the toml
-    /// string is not valid toml and cannot be parsed
+    ///   string is not valid toml and cannot be parsed
     ///
     pub fn from_string(toml: &str) -> Result<Config, Error> {
         let config: Value = match toml.parse() {
@@ -98,13 +98,10 @@ impl Config {
         let mut current_value = &(self.config);
         for index in path_parts.iter() {
             if current_value.is_table() {
-                current_value = match current_value.get(index) {
-                    Some(value) => value,
-                    None => return None,
-                };
+                current_value = current_value.get(index)?;
             }
         }
-        Some(&current_value)
+        Some(current_value)
     }
 }
 

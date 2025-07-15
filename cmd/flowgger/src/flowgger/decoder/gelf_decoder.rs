@@ -30,7 +30,7 @@ impl Decoder for GelfDecoder {
     ///
     /// - `Ok`: A record containing all the line parsed as a Record data struct
     /// - `Err`: if there was any error parsing the line, that could be missing values, bad json or wrong
-    /// types associated with specific fields
+    ///   types associated with specific fields
     fn decode(&self, line: &str) -> Result<Record, &'static str> {
         let mut sd = StructuredData::new(None);
         let mut ts = None;
@@ -99,7 +99,7 @@ impl Decoder for GelfDecoder {
                     let name = if name.starts_with('_') {
                         name.to_owned()
                     } else {
-                        format!("_{}", name)
+                        format!("_{name}")
                     };
                     sd.pairs.push((name, sd_value));
                 }

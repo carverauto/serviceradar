@@ -49,6 +49,7 @@ struct Cluster {
 
 #[derive(Clone)]
 struct TlsConfig {
+    #[allow(dead_code)]
     timeout: Option<Duration>,
     mx_cluster: Arc<Mutex<Cluster>>,
     connector: SslConnector,
@@ -83,7 +84,7 @@ impl TlsWorker {
             .split(':')
             .next()
             .unwrap_or_else(|| panic!("Invalid connection string: {}", connect_chosen));
-        let _ = writeln!(stderr(), "Connected to {}", connect_chosen);
+        let _ = writeln!(stderr(), "Connected to {connect_chosen}");
         let sslclient = match self.tls_config.connector.connect(hostname, client) {
             Err(_) => {
                 return Err(io::Error::new(
@@ -93,15 +94,14 @@ impl TlsWorker {
             }
             Ok(sslclient) => sslclient,
         };
-        let _ = writeln!(stderr(), "Completed SSL handshake with {}", connect_chosen);
+        let _ = writeln!(stderr(), "Completed SSL handshake with {connect_chosen}");
         let mut writer = BufWriter::new(sslclient);
         let merger = &self.merger;
         loop {
-            let mut bytes = match { self.arx.lock().unwrap().recv() } {
+            let mut bytes = match self.arx.lock().unwrap().recv() {
                 Ok(line) => line,
                 Err(_) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
+                    return Err(io::Error::other(
                         "Cannot read the message queue any more",
                     ))
                 }
@@ -141,21 +141,18 @@ impl TlsWorker {
             if let Err(e) = self.handle_connection(&connect_chosen) {
                 match e.kind() {
                     ErrorKind::ConnectionRefused => {
-                        let _ = writeln!(stderr(), "Connection to {} refused", connect_chosen);
+                        let _ = writeln!(stderr(), "Connection to {connect_chosen} refused");
                     }
                     ErrorKind::ConnectionAborted | ErrorKind::ConnectionReset => {
                         let _ = writeln!(
                             stderr(),
-                            "Connection to {} aborted by the server",
-                            connect_chosen
+                            "Connection to {connect_chosen} aborted by the server"
                         );
                     }
                     _ => {
                         let _ = writeln!(
                             stderr(),
-                            "Error while communicating with {} - {}",
-                            connect_chosen,
-                            e
+                            "Error while communicating with {connect_chosen} - {e}"
                         );
                     }
                 }
@@ -176,10 +173,7 @@ impl TlsWorker {
 }
 
 fn new_tcp(connect_chosen: &str) -> Result<TcpStream, io::Error> {
-    match TcpStream::connect(connect_chosen) {
-        Ok(stream) => Ok(stream),
-        Err(e) => Err(e),
-    }
+    TcpStream::connect(connect_chosen)
 }
 
 impl TlsOutput {
@@ -239,18 +233,14 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
                 .to_owned()
         })
         .collect();
-    let cert: Option<PathBuf> = config.lookup("output.tls_cert").and_then(|x| {
-        Some(PathBuf::from(
+    let cert: Option<PathBuf> = config.lookup("output.tls_cert").map(|x| PathBuf::from(
             x.as_str()
                 .expect("output.tls_cert must be a path to a .pem file"),
-        ))
-    });
-    let key: Option<PathBuf> = config.lookup("output.tls_key").and_then(|x| {
-        Some(PathBuf::from(
+        ));
+    let key: Option<PathBuf> = config.lookup("output.tls_key").map(|x| PathBuf::from(
             x.as_str()
                 .expect("output.tls_key must be a path to a .pem file"),
-        ))
-    });
+        ));
     let ciphers = config
         .lookup("output.tls_ciphers")
         .map_or(DEFAULT_CIPHERS, |x| {
@@ -264,12 +254,10 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
             x.as_bool()
                 .expect("output.tls_verify_peer must be a boolean")
         });
-    let ca_file: Option<PathBuf> = config.lookup("output.tls_ca_file").and_then(|x| {
-        Some(PathBuf::from(
+    let ca_file: Option<PathBuf> = config.lookup("output.tls_ca_file").map(|x| PathBuf::from(
             x.as_str()
                 .expect("output.tls_ca_file must be a path to a file"),
-        ))
-    });
+        ));
     let compression = config
         .lookup("output.tls_compression")
         .map_or(DEFAULT_COMPRESSION, |x| {
@@ -315,7 +303,7 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
     }
     let mut connector_builder = SslConnector::builder(SslMethod::tls()).unwrap();
     {
-        let mut ctx = &mut connector_builder;
+        let ctx = &mut connector_builder;
         if !verify_peer {
             ctx.set_verify(SslVerifyMode::NONE);
         } else {
@@ -332,13 +320,13 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
             opts |= SslOptions::NO_COMPRESSION;
         }
         ctx.set_options(opts);
-        set_fs(&mut ctx);
+        set_fs(ctx);
         if let Some(cert) = cert {
-            ctx.set_certificate_file(&Path::new(&cert), SslFiletype::PEM)
+            ctx.set_certificate_file(Path::new(&cert), SslFiletype::PEM)
                 .expect("Unable to read the TLS certificate");
         }
         if let Some(key) = key {
-            ctx.set_private_key_file(&Path::new(&key), SslFiletype::PEM)
+            ctx.set_private_key_file(Path::new(&key), SslFiletype::PEM)
                 .expect("Unable to read the TLS key");
         }
         ctx.set_cipher_list(&ciphers)

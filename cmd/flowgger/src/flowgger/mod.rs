@@ -140,7 +140,7 @@ fn get_input_redis(_config: &Config) -> ! {
 
 #[cfg(feature = "tls")]
 fn get_input_tls(config: &Config) -> Box<dyn Input> {
-    Box::new(TlsInput::new(&config)) as Box<dyn Input>
+    Box::new(TlsInput::new(config)) as Box<dyn Input>
 }
 
 #[cfg(not(feature = "tls"))]
@@ -150,7 +150,7 @@ fn get_input_tls(_config: &Config) -> ! {
 
 #[cfg(feature = "syslog")]
 fn get_input_tcp(config: &Config) -> Box<dyn Input> {
-    Box::new(TcpInput::new(&config)) as Box<dyn Input>
+    Box::new(TcpInput::new(config)) as Box<dyn Input>
 }
 
 #[cfg(not(feature = "syslog"))]
@@ -160,7 +160,7 @@ fn get_input_tcp(_config: &Config) -> ! {
 
 #[cfg(feature = "syslog")]
 fn get_input_udp(config: &Config) -> Box<dyn Input> {
-    Box::new(UdpInput::new(&config)) as Box<dyn Input>
+    Box::new(UdpInput::new(config)) as Box<dyn Input>
 }
 
 #[cfg(not(feature = "syslog"))]
@@ -387,13 +387,10 @@ pub fn validate_time_format_input(
     if time_format.matches("%").count() != time_format.matches("\\%").count() {
         let _ = writeln!(
             stderr(),
-            "WARNING: Wrong {} value received: {}.\n\
+            "WARNING: Wrong {name} value received: {time_format}.\n\
             From version \"0.3.0\" forward the time format needs to be compliant with:\n\
             https://docs.rs/time/0.3.7/time/format_description/index.html \n\
-            Will use the default one: {}. If you want to use %, you need to escape it (\\\\%)\n",
-            name,
-            time_format,
-            time_format_default
+            Will use the default one: {time_format_default}. If you want to use %, you need to escape it (\\\\%)\n"
         );
         time_format_default
     } else {
@@ -408,7 +405,7 @@ pub fn start(config_file: &str) {
         Err(e) => panic!(
             "Unable to read the config file [{}]: {}",
             config_file,
-            e.to_string()
+            e
         ),
     };
     let input_format = config
