@@ -16,10 +16,7 @@ impl RFC5424Decoder {
 
 impl Decoder for RFC5424Decoder {
     fn decode(&self, line: &str) -> Result<Record, &'static str> {
-        let (_bom, line) = match BOM::parse(line, "<") {
-            Ok(bom_line) => bom_line,
-            Err(err) => return Err(err),
-        };
+        let (_bom, line) = BOM::parse(line, "<")?;
         let mut parts = line.splitn(7, ' ');
         let pri_version = parse_pri_version(parts.next().ok_or("Missing priority and version")?)?;
         let ts = parse_ts(parts.next().ok_or("Missing timestamp")?)?;
@@ -55,15 +52,17 @@ struct Pri {
     severity: u8,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 enum BOM {
+    #[allow(clippy::upper_case_acronyms)]
     NONE,
     UTF8,
 }
 
 impl BOM {
     fn parse<'a>(line: &'a str, sep: &str) -> Result<(BOM, &'a str), &'static str> {
-        if line.starts_with('\u{feff}') {
-            Ok((BOM::UTF8, &line[3..]))
+        if let Some(stripped) = line.strip_prefix('\u{feff}') {
+            Ok((BOM::UTF8, stripped))
         } else if line.starts_with(sep) {
             Ok((BOM::NONE, line))
         } else {
@@ -130,7 +129,7 @@ fn parse_data(line: &str) -> Result<(Vec<StructuredData>, Option<String>), &'sta
     match line.chars().next().ok_or("Missing log message")? {
         '-' => {
             // No SD, just a message
-            return Ok((sd_vec, parse_msg(line, 1)));
+            Ok((sd_vec, parse_msg(line, 1)))
         }
         '[' => {
             // At least one SD
@@ -155,10 +154,10 @@ fn parse_data(line: &str) -> Result<(Vec<StructuredData>, Option<String>), &'sta
                     _ => return Err("Malformated RFC5424 message"),
                 }
             }
-            return Ok((sd_vec, parse_msg(leftover, 1)));
+            Ok((sd_vec, parse_msg(leftover, 1)))
         }
-        _ => return Err("Malformated RFC5424 message"),
-    };
+        _ => Err("Malformated RFC5424 message"),
+    }
 }
 
 fn parse_msg(line: &str, offset: usize) -> Option<String> {

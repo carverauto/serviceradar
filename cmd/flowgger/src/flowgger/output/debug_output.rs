@@ -16,12 +16,9 @@ impl DebugOutput {
 
 impl Output for DebugOutput {
     fn start(&self, arx: Arc<Mutex<Receiver<Vec<u8>>>>, merger: Option<Box<dyn Merger>>) {
-        let merger = match merger {
-            Some(merger) => Some(merger.clone_boxed()),
-            None => None,
-        };
+        let merger = merger.map(|merger| merger.clone_boxed());
         thread::spawn(move || loop {
-            let mut bytes = match { arx.lock().unwrap().recv() } {
+            let mut bytes = match arx.lock().unwrap().recv() {
                 Ok(line) => line,
                 Err(_) => return,
             };
@@ -29,7 +26,7 @@ impl Output for DebugOutput {
                 merger.frame(&mut bytes);
             }
             let out = String::from_utf8_lossy(&bytes);
-            print!("{}", out);
+            print!("{out}");
             let _ = stdout().flush();
         });
     }

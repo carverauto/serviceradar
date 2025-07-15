@@ -43,7 +43,7 @@ impl Encoder for RFC3164Encoder {
         if record.facility.is_some() && record.severity.is_some() {
             let npri: u8 =
                 ((record.facility.unwrap() << 3) & 0xF8) + (record.severity.unwrap() & 0x7);
-            res.push_str(&format!("<{}>", npri));
+            res.push_str(&format!("<{npri}>"));
         }
 
         // Add timestamp + space
@@ -73,7 +73,7 @@ impl Encoder for RFC3164Encoder {
             res.push_str(&appname);
         }
         if let Some(procid) = record.procid {
-            res.push_str(&format!("[{}]:", procid));
+            res.push_str(&format!("[{procid}]:"));
             res.push(' ');
         }
         if let Some(msgid) = record.msgid {
@@ -83,7 +83,7 @@ impl Encoder for RFC3164Encoder {
 
         // Encode structured data is present, although not part of rfc3164
         if let Some(sd_vec) = record.sd {
-            for &ref sd in &sd_vec {
+            for sd in &sd_vec {
                 res.push_str(&sd.to_string());
             }
             res.push(' ');

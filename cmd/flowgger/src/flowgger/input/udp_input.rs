@@ -69,7 +69,7 @@ impl Input for UdpInput {
         decoder: Box<dyn Decoder + Send>,
         encoder: Box<dyn Encoder + Send>,
     ) {
-        let socket = UdpSocket::bind(&self.listen)
+        let socket = UdpSocket::bind(self.listen)
             .unwrap_or_else(|_| panic!("Unable to listen to {}", self.listen));
         let tx = tx.clone();
         let (decoder, encoder): (Box<dyn Decoder>, Box<dyn Encoder>) =
@@ -81,8 +81,8 @@ impl Input for UdpInput {
                 Err(_) => continue,
             };
             let line = &buf[..length];
-            if let Err(e) = handle_record_maybe_compressed(line, src, &tx, &decoder, &encoder) {
-                let _ = writeln!(stderr(), "{}", e);
+            if let Err(e) = handle_record_maybe_compressed(line, src, &tx, decoder.as_ref(), encoder.as_ref()) {
+                let _ = writeln!(stderr(), "{e}");
             }
         }
     }
@@ -101,8 +101,8 @@ pub fn handle_record_maybe_compressed(
     line: &[u8],
     src: SocketAddr,
     tx: &SyncSender<Vec<u8>>,
-    decoder: &Box<dyn Decoder>,
-    encoder: &Box<dyn Encoder>,
+    decoder: &dyn Decoder,
+    encoder: &dyn Encoder,
 ) -> Result<(), &'static str> {
     if line.len() >= 8
         && (line[0] == 0x78 && (line[1] == 0x01 || line[1] == 0x9c || line[1] == 0xda))
@@ -131,8 +131,8 @@ fn handle_record(
     line: &[u8],
     src: SocketAddr,
     tx: &SyncSender<Vec<u8>>,
-    decoder: &Box<dyn Decoder>,
-    encoder: &Box<dyn Encoder>,
+    decoder: &dyn Decoder,
+    encoder: &dyn Encoder,
 ) -> Result<(), &'static str> {
     let line = match str::from_utf8(line) {
         Err(_) => return Err("Invalid UTF-8 input"),

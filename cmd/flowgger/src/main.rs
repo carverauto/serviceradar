@@ -21,6 +21,6 @@ fn main() {
         .get_one::<String>("config_file")
         .map(|s| s.as_ref())
         .unwrap_or(DEFAULT_CONFIG_FILE);
-    let _ = writeln!(stderr(), "Flowgger {}", FLOWGGER_VERSION_STRING);
+    let _ = writeln!(stderr(), "Flowgger {FLOWGGER_VERSION_STRING}");
     flowgger::start(config_file)
 }

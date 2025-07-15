@@ -36,16 +36,14 @@ impl Input for TcpInput {
         encoder: Box<dyn Encoder + Send>,
     ) {
         let listener = TcpListener::bind(&self.listen as &str).unwrap();
-        for client in listener.incoming() {
-            if let Ok(client) = client {
-                let _ = client.set_read_timeout(self.timeout);
-                let tx = tx.clone();
-                let tcp_config = self.tcp_config.clone();
-                let (decoder, encoder) = (decoder.clone_boxed(), encoder.clone_boxed());
-                thread::spawn(move || {
-                    handle_client(client, tx, decoder, encoder, tcp_config);
-                });
-            }
+        for client in listener.incoming().flatten() {
+            let _ = client.set_read_timeout(self.timeout);
+            let tx = tx.clone();
+            let tcp_config = self.tcp_config.clone();
+            let (decoder, encoder) = (decoder.clone_boxed(), encoder.clone_boxed());
+            thread::spawn(move || {
+                handle_client(client, tx, decoder, encoder, tcp_config);
+            });
         }
     }
 }
@@ -71,7 +69,7 @@ fn handle_client(
     tcp_config: TcpConfig,
 ) {
     if let Ok(peer_addr) = client.peer_addr() {
-        println!("Connection over TCP from [{}]", peer_addr);
+        println!("Connection over TCP from [{peer_addr}]");
     }
     let reader = BufReader::new(client);
     let splitter = match &tcp_config.framing as &str {
