@@ -2,7 +2,14 @@ name: Rust Tests
 on:
   push:
     paths:
-      - 'cmd/checkers/rperf-client/**'  # Only trigger on changes in this directory
+      - 'cmd/checkers/rperf-client/**'
+      - 'cmd/checkers/rperf-server/**'
+      - 'cmd/checkers/sysmon/**'
+      - 'cmd/trapd/**'
+      - 'cmd/consumers/zen/**'
+      - 'cmd/otel/**'
+      - 'cmd/flowgger/**'
+      - '.github/workflows/tests-rust.yml'
 
 permissions:
   contents: write
@@ -10,6 +17,16 @@ permissions:
 jobs:
   test-rust:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project:
+          - cmd/checkers/rperf-client
+          - cmd/checkers/rperf-server
+          - cmd/checkers/sysmon
+          - cmd/trapd
+          - cmd/consumers/zen
+          - cmd/otel
+          - cmd/flowgger
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,6 +42,24 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Run Rust Tests
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo build
+        uses: actions/cache@v3
+        with:
+          path: ${{ matrix.project }}/target
+          key: ${{ runner.os }}-cargo-build-${{ matrix.project }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run Clippy
         run: |
-          cd cmd/checkers/rperf-client && cargo test
+          cd ${{ matrix.project }} && cargo clippy -- -D warnings
+
+      - name: Run Tests
+        run: |
+          cd ${{ matrix.project }} && cargo test
