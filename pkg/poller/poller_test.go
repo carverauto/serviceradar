@@ -444,17 +444,17 @@ func TestPoller_pollAgent(t *testing.T) {
 		config: Config{
 			PollerID: "test-poller",
 		},
-		agents: make(map[string]*AgentConnection),
+		agents: make(map[string]*AgentPoller),
 		logger: logger.NewTestLogger(),
 	}
 
-	// Create a mock agent connection
-	mockAgentConnection := &AgentConnection{
-		agentName: "test-agent",
+	// Create a mock agent poller
+	mockAgentPoller := &AgentPoller{
+		name: "test-agent",
 	}
 
-	// Add the mock connection to the poller
-	poller.agents["test-agent"] = mockAgentConnection
+	// Add the mock poller to the poller
+	poller.agents["test-agent"] = mockAgentPoller
 
 	// Test the actual pollAgent function would be complex due to gRPC dependencies
 	// Instead, let's test the core logic by creating an AgentPoller directly
@@ -560,13 +560,13 @@ func TestPoller_pollAgent(t *testing.T) {
 
 func TestResultsPoller_SequenceTracking_FirstCall(t *testing.T) {
 	mockClient := &MockAgentServiceClient{}
-	
+
 	check := Check{
 		Name:    "sync",
 		Type:    "grpc",
 		Details: "127.0.0.1:50058",
 	}
-	
+
 	resultsPoller := &ResultsPoller{
 		client:       mockClient,
 		check:        check,
@@ -603,22 +603,22 @@ func TestResultsPoller_SequenceTracking_FirstCall(t *testing.T) {
 	assert.True(t, result.Available)
 	assert.Equal(t, "sync", result.ServiceName)
 	assert.Equal(t, "results", result.Source)
-	
+
 	// Verify sequence was stored
 	assert.Equal(t, "1720906448000000000", resultsPoller.lastSequence)
-	
+
 	mockClient.AssertExpectations(t)
 }
 
 func TestResultsPoller_SequenceTracking_SubsequentCallSameSequence(t *testing.T) {
 	mockClient := &MockAgentServiceClient{}
-	
+
 	check := Check{
 		Name:    "sync",
 		Type:    "grpc",
 		Details: "127.0.0.1:50058",
 	}
-	
+
 	resultsPoller := &ResultsPoller{
 		client:       mockClient,
 		check:        check,
@@ -645,7 +645,7 @@ func TestResultsPoller_SequenceTracking_SubsequentCallSameSequence(t *testing.T)
 		PollerId:        "test-poller",
 		Timestamp:       time.Now().Unix(),
 		CurrentSequence: "1720906448000000000", // Same sequence
-		HasNewData:      false, // No new data
+		HasNewData:      false,                 // No new data
 	}, nil)
 
 	ctx := context.Background()
@@ -655,25 +655,25 @@ func TestResultsPoller_SequenceTracking_SubsequentCallSameSequence(t *testing.T)
 	assert.True(t, result.Available)
 	assert.Equal(t, "sync", result.ServiceName)
 	assert.Equal(t, "results", result.Source)
-	
+
 	// Verify sequence unchanged
 	assert.Equal(t, "1720906448000000000", resultsPoller.lastSequence)
-	
+
 	// Verify empty data received
 	assert.Equal(t, []byte(`[]`), result.Message)
-	
+
 	mockClient.AssertExpectations(t)
 }
 
 func TestResultsPoller_SequenceTracking_SubsequentCallNewSequence(t *testing.T) {
 	mockClient := &MockAgentServiceClient{}
-	
+
 	check := Check{
 		Name:    "sync",
 		Type:    "grpc",
 		Details: "127.0.0.1:50058",
 	}
-	
+
 	resultsPoller := &ResultsPoller{
 		client:       mockClient,
 		check:        check,
@@ -700,7 +700,7 @@ func TestResultsPoller_SequenceTracking_SubsequentCallNewSequence(t *testing.T) 
 		PollerId:        "test-poller",
 		Timestamp:       time.Now().Unix(),
 		CurrentSequence: "1720906500000000000", // New sequence
-		HasNewData:      true, // Has new data
+		HasNewData:      true,                  // Has new data
 	}, nil)
 
 	ctx := context.Background()
@@ -710,26 +710,26 @@ func TestResultsPoller_SequenceTracking_SubsequentCallNewSequence(t *testing.T) 
 	assert.True(t, result.Available)
 	assert.Equal(t, "sync", result.ServiceName)
 	assert.Equal(t, "results", result.Source)
-	
+
 	// Verify sequence was updated
 	assert.Equal(t, "1720906500000000000", resultsPoller.lastSequence)
-	
+
 	// Verify new data received
 	assert.Contains(t, string(result.Message), "192.168.1.1")
 	assert.Contains(t, string(result.Message), "192.168.1.2")
-	
+
 	mockClient.AssertExpectations(t)
 }
 
 func TestResultsPoller_SequenceTracking_EmptySequenceResponse(t *testing.T) {
 	mockClient := &MockAgentServiceClient{}
-	
+
 	check := Check{
 		Name:    "sync",
 		Type:    "grpc",
 		Details: "127.0.0.1:50058",
 	}
-	
+
 	resultsPoller := &ResultsPoller{
 		client:       mockClient,
 		check:        check,
@@ -764,9 +764,9 @@ func TestResultsPoller_SequenceTracking_EmptySequenceResponse(t *testing.T) {
 
 	require.NotNil(t, result)
 	assert.True(t, result.Available)
-	
+
 	// Verify sequence was NOT updated (empty sequence should be ignored)
 	assert.Equal(t, "old-sequence", resultsPoller.lastSequence)
-	
+
 	mockClient.AssertExpectations(t)
 }

@@ -408,7 +408,8 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 }
 
 func (p *Poller) initializeAgentPollers(ctx context.Context) error {
-	for agentName, agentConfig := range p.config.Agents {
+	for agentName := range p.config.Agents {
+		agentConfig := p.config.Agents[agentName]
 		// Use ClientConfig instead of ConnectionConfig
 		clientCfg := grpc.ClientConfig{
 			Address:    agentConfig.Address,
@@ -451,28 +452,31 @@ func (p *Poller) poll(ctx context.Context) error {
 		return p.PollFunc(ctx)
 	}
 
-	var allStatuses []*proto.ServiceStatus
+	// Pre-allocate slice for better performance
+	allStatuses := make([]*proto.ServiceStatus, 0, len(p.config.Agents)*10) // Estimate 10 statuses per agent
+
 	var wg sync.WaitGroup
+
 	statusChan := make(chan *proto.ServiceStatus, 100) // Buffer channel
 
 	for agentName := range p.config.Agents {
 		wg.Add(1)
+
 		go func(name string) {
 			defer wg.Done()
-			
+
 			// Retrieve the EXISTING, long-lived AgentPoller
 			agentPoller, exists := p.agents[name]
 			if !exists {
 				p.logger.Error().Str("agent", name).Msg("Poller for agent not found during poll cycle")
 				return
 			}
-			
+
 			// Optional health check - use the stored grpc.Client
 			if agentPoller.clientConn != nil {
 				healthy, err := agentPoller.clientConn.CheckHealth(ctx, "AgentService")
 				if err != nil || !healthy {
 					p.logger.Warn().Str("agent", name).Err(err).Bool("healthy", healthy).Msg("Agent health check failed")
-					// Could attempt reconnection here if needed
 				}
 			}
 
@@ -501,7 +505,6 @@ func (p *Poller) poll(ctx context.Context) error {
 
 	return p.reportToCore(ctx, allStatuses)
 }
-
 
 func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
 	p.logger.Info().

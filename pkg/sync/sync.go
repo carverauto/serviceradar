@@ -248,7 +248,7 @@ func (s *PollerService) syncSourceSweep(ctx context.Context, sourceName string) 
 	// Update the cache for this specific source with ONLY sweep results
 	now := time.Now()
 	sequence := strconv.FormatInt(now.UnixNano(), 10)
-	
+
 	s.resultsMu.Lock()
 	s.resultsCache[sourceName] = &CachedResults{
 		Results:   events,

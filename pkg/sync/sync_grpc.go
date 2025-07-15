@@ -51,6 +51,7 @@ func (s *PollerService) GetStatus(_ context.Context, req *proto.StatusRequest) (
 	s.logger.Debug().Str("service_name", req.ServiceName).Str("service_type", req.ServiceType).Msg("GetStatus called by poller")
 
 	var deviceCount int
+
 	for _, cached := range s.resultsCache {
 		if cached != nil {
 			deviceCount += len(cached.Results)
@@ -94,10 +95,12 @@ func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest)
 
 	// Create a stable sequence based on the sequences of all cached sources
 	var currentSequence string
+
 	var allResults []*models.SweepResult
 
 	// Create a stable sequence based on the sequences of all cached sources.
 	sourceSequences := make([]string, 0, len(s.resultsCache))
+
 	for sourceName, cached := range s.resultsCache {
 		if cached != nil && cached.Sequence != "" {
 			// Combine source name with sequence to avoid collisions
@@ -119,6 +122,7 @@ func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest)
 	hasNewData := req.LastSequence != currentSequence
 
 	var resultsJSON []byte
+
 	var err error
 
 	if hasNewData && len(allResults) > 0 {
