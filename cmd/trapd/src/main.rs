@@ -196,6 +196,8 @@ impl AgentService for TrapdAgentService {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as i64,
+            current_sequence: "1".to_string(),
+            has_new_data: false,
         }))
     }
 }
