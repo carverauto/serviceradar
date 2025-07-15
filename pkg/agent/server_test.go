@@ -381,19 +381,19 @@ type mockSweeper struct {
 	updateCount int
 }
 
-func (m *mockSweeper) Start(ctx context.Context) error {
+func (*mockSweeper) Start(_ context.Context) error {
 	return nil
 }
 
-func (m *mockSweeper) Stop() error {
+func (*mockSweeper) Stop() error {
 	return nil
 }
 
-func (m *mockSweeper) UpdateConfig(config *models.Config) error {
+func (*mockSweeper) UpdateConfig(_ *models.Config) error {
 	return nil
 }
 
-func (m *mockSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, error) {
+func (m *mockSweeper) GetStatus(_ context.Context) (*models.SweepSummary, error) {
 	return m.summary, nil
 }
 
@@ -402,6 +402,7 @@ func (m *mockSweeper) updateSummary(newSummary *models.SweepSummary) {
 	if newSummary.LastSweep == m.summary.LastSweep {
 		newSummary.LastSweep = time.Now().Unix()
 	}
+
 	m.summary = newSummary
 	m.updateCount++
 }

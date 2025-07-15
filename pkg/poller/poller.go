@@ -32,9 +32,10 @@ import (
 )
 
 const (
-	grpcRetries    = 3
-	defaultTimeout = 30 * time.Second
-	stopTimeout    = 10 * time.Second
+	grpcRetries      = 3
+	defaultTimeout   = 30 * time.Second
+	stopTimeout      = 10 * time.Second
+	serviceTypeSweep = "sweep"
 )
 
 // New creates a new poller instance.
@@ -686,13 +687,13 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 
 	// If there's no new data AND this is a sweep service, skip sending to core to prevent redundant database writes
 	// For other service types, we still send the response for compatibility
-	if !results.HasNewData && rp.check.Type == "sweep" {
+	if !results.HasNewData && rp.check.Type == serviceTypeSweep {
 		rp.logger.Debug().
 			Str("service_name", rp.check.Name).
 			Str("service_type", rp.check.Type).
 			Str("sequence", results.CurrentSequence).
 			Msg("No new data from sweep service, skipping core submission")
-		
+
 		return nil // Skip this poll cycle for this service
 	}
 

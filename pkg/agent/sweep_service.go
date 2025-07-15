@@ -37,7 +37,7 @@ type SweepService struct {
 	mu      sync.RWMutex
 	config  *models.Config
 	stats   *ScanStats
-	
+
 	// Caching fields for sequence tracking
 	cachedResults      *models.SweepSummary
 	lastSweepTimestamp int64
@@ -259,10 +259,11 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 	}
 
 	currentSeqStr := fmt.Sprintf("%d", s.currentSequence)
-	
+
 	// If the caller's sequence is up to date, return no new data
 	if lastSequence != "" && lastSequence == currentSeqStr {
 		log.Printf("No new sweep data (caller sequence: %s, current: %s)", lastSequence, currentSeqStr)
+
 		return &proto.ResultsResponse{
 			HasNewData:      false,
 			CurrentSequence: currentSeqStr,

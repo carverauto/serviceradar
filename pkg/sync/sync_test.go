@@ -294,6 +294,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 		p = pollerInstance
 		break
 	}
+
 	require.NotNil(t, p, "No poller was created")
 
 	originalPollFunc := p.PollFunc
@@ -303,6 +304,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 		case initialPollDone <- struct{}{}:
 		default:
 		}
+
 		return err
 	}
 
