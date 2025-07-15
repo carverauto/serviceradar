@@ -606,30 +606,35 @@ func (s *Server) handleSweepGetResults(ctx context.Context, req *proto.ResultsRe
 
 	// Find the sweep service
 	for _, svc := range s.services {
-		if sweepSvc, ok := svc.(*SweepService); ok {
-			response, err := sweepSvc.GetSweepResults(ctx, req.LastSequence)
-			if err != nil {
-				s.logger.Error().Err(err).Msg("Failed to get sweep results")
-				return &proto.ResultsResponse{
-					Available:   false,
-					Data:        []byte(fmt.Sprintf(`{"error": "Failed to get sweep results: %v"}`, err)),
-					ServiceName: req.ServiceName,
-					ServiceType: req.ServiceType,
-					AgentId:     s.config.AgentID,
-					PollerId:    req.PollerId,
-					Timestamp:   time.Now().Unix(),
-				}, nil
-			}
-
-			// Set AgentId and PollerId from the request
-			response.AgentId = s.config.AgentID
-			response.PollerId = req.PollerId
-
-			return response, nil
+		sweepSvc, ok := svc.(*SweepService)
+		if !ok {
+			continue
 		}
+
+		response, err := sweepSvc.GetSweepResults(ctx, req.LastSequence)
+		if err != nil {
+			s.logger.Error().Err(err).Msg("Failed to get sweep results")
+
+			return &proto.ResultsResponse{
+				Available:   false,
+				Data:        []byte(fmt.Sprintf(`{"error": "Failed to get sweep results: %v"}`, err)),
+				ServiceName: req.ServiceName,
+				ServiceType: req.ServiceType,
+				AgentId:     s.config.AgentID,
+				PollerId:    req.PollerId,
+				Timestamp:   time.Now().Unix(),
+			}, nil
+		}
+
+		// Set AgentId and PollerId from the request
+		response.AgentId = s.config.AgentID
+		response.PollerId = req.PollerId
+
+		return response, nil
 	}
 
 	s.logger.Error().Msg("No sweep service found")
+
 	return &proto.ResultsResponse{
 		Available:   false,
 		Data:        []byte(`{"error": "No sweep service configured"}`),

@@ -856,7 +856,7 @@ func TestResultsPoller_executeGetResults_HasNewDataFalse(t *testing.T) {
 		AgentId:         "test-agent",
 		PollerId:        "test-poller",
 		Timestamp:       time.Now().Unix(),
-		CurrentSequence: "5", // Same sequence
+		CurrentSequence: "5",   // Same sequence
 		HasNewData:      false, // NO NEW DATA
 	}, nil)
 
