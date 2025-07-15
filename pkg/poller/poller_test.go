@@ -96,36 +96,42 @@ func TestAgentPoller_ExecuteResults(t *testing.T) {
 
 	// Mock successful GetResults response for sync service
 	mockClient.On("GetResults", mock.AnythingOfType("*context.timerCtx"), &proto.ResultsRequest{
-		ServiceName: "sync",
-		ServiceType: "grpc",
-		AgentId:     "test-agent",
-		PollerId:    "test-poller",
-		Details:     "127.0.0.1:50058",
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		Details:      "127.0.0.1:50058",
+		LastSequence: "", // First call
 	}).Return(&proto.ResultsResponse{
-		Available:   true,
-		Data:        []byte(`{"devices": [{"ip": "192.168.1.1"}, {"ip": "192.168.1.2"}]}`),
-		ServiceName: "sync",
-		ServiceType: "grpc",
-		AgentId:     "test-agent",
-		PollerId:    "test-poller",
-		Timestamp:   time.Now().Unix(),
+		Available:       true,
+		Data:            []byte(`{"devices": [{"ip": "192.168.1.1"}, {"ip": "192.168.1.2"}]}`),
+		ServiceName:     "sync",
+		ServiceType:     "grpc",
+		AgentId:         "test-agent",
+		PollerId:        "test-poller",
+		Timestamp:       time.Now().Unix(),
+		CurrentSequence: "1720906448000000000",
+		HasNewData:      true,
 	}, nil)
 
 	// Mock successful GetResults response for web service
 	mockClient.On("GetResults", mock.AnythingOfType("*context.timerCtx"), &proto.ResultsRequest{
-		ServiceName: "web",
-		ServiceType: "http",
-		AgentId:     "test-agent",
-		PollerId:    "test-poller",
-		Details:     "http://example.com",
+		ServiceName:  "web",
+		ServiceType:  "http",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		Details:      "http://example.com",
+		LastSequence: "", // First call
 	}).Return(&proto.ResultsResponse{
-		Available:   true,
-		Data:        []byte(`{"status": "ok", "content_length": 1234}`),
-		ServiceName: "web",
-		ServiceType: "http",
-		AgentId:     "test-agent",
-		PollerId:    "test-poller",
-		Timestamp:   time.Now().Unix(),
+		Available:       true,
+		Data:            []byte(`{"status": "ok", "content_length": 1234}`),
+		ServiceName:     "web",
+		ServiceType:     "http",
+		AgentId:         "test-agent",
+		PollerId:        "test-poller",
+		Timestamp:       time.Now().Unix(),
+		CurrentSequence: "1720906450000000000",
+		HasNewData:      true,
 	}, nil)
 
 	// First call should execute both services (lastResults is zero time)
@@ -549,5 +555,218 @@ func TestPoller_pollAgent(t *testing.T) {
 	// (This tests that the append doesn't mutate the original slice)
 	assert.Len(t, checkStatuses, 2, "Original checkStatuses should still have 2 items")
 
+	mockClient.AssertExpectations(t)
+}
+
+func TestResultsPoller_SequenceTracking_FirstCall(t *testing.T) {
+	mockClient := &MockAgentServiceClient{}
+	
+	check := Check{
+		Name:    "sync",
+		Type:    "grpc",
+		Details: "127.0.0.1:50058",
+	}
+	
+	resultsPoller := &ResultsPoller{
+		client:       mockClient,
+		check:        check,
+		pollerID:     "test-poller",
+		agentName:    "test-agent",
+		lastSequence: "", // Empty sequence for first call
+		logger:       logger.NewTestLogger(),
+	}
+
+	// Mock first call - should return data and sequence
+	mockClient.On("GetResults", mock.Anything, &proto.ResultsRequest{
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		Details:      "127.0.0.1:50058",
+		LastSequence: "", // First call
+	}).Return(&proto.ResultsResponse{
+		Available:       true,
+		Data:            []byte(`[{"ip": "192.168.1.1", "discovery_source": "netbox"}]`),
+		ServiceName:     "sync",
+		ServiceType:     "grpc",
+		AgentId:         "test-agent",
+		PollerId:        "test-poller",
+		Timestamp:       time.Now().Unix(),
+		CurrentSequence: "1720906448000000000",
+		HasNewData:      true,
+	}, nil)
+
+	ctx := context.Background()
+	result := resultsPoller.executeGetResults(ctx)
+
+	require.NotNil(t, result)
+	assert.True(t, result.Available)
+	assert.Equal(t, "sync", result.ServiceName)
+	assert.Equal(t, "results", result.Source)
+	
+	// Verify sequence was stored
+	assert.Equal(t, "1720906448000000000", resultsPoller.lastSequence)
+	
+	mockClient.AssertExpectations(t)
+}
+
+func TestResultsPoller_SequenceTracking_SubsequentCallSameSequence(t *testing.T) {
+	mockClient := &MockAgentServiceClient{}
+	
+	check := Check{
+		Name:    "sync",
+		Type:    "grpc",
+		Details: "127.0.0.1:50058",
+	}
+	
+	resultsPoller := &ResultsPoller{
+		client:       mockClient,
+		check:        check,
+		pollerID:     "test-poller",
+		agentName:    "test-agent",
+		lastSequence: "1720906448000000000", // Already has sequence
+		logger:       logger.NewTestLogger(),
+	}
+
+	// Mock subsequent call - should return no new data
+	mockClient.On("GetResults", mock.Anything, &proto.ResultsRequest{
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		Details:      "127.0.0.1:50058",
+		LastSequence: "1720906448000000000", // Same sequence
+	}).Return(&proto.ResultsResponse{
+		Available:       true,
+		Data:            []byte(`[]`), // Empty array
+		ServiceName:     "sync",
+		ServiceType:     "grpc",
+		AgentId:         "test-agent",
+		PollerId:        "test-poller",
+		Timestamp:       time.Now().Unix(),
+		CurrentSequence: "1720906448000000000", // Same sequence
+		HasNewData:      false, // No new data
+	}, nil)
+
+	ctx := context.Background()
+	result := resultsPoller.executeGetResults(ctx)
+
+	require.NotNil(t, result)
+	assert.True(t, result.Available)
+	assert.Equal(t, "sync", result.ServiceName)
+	assert.Equal(t, "results", result.Source)
+	
+	// Verify sequence unchanged
+	assert.Equal(t, "1720906448000000000", resultsPoller.lastSequence)
+	
+	// Verify empty data received
+	assert.Equal(t, []byte(`[]`), result.Message)
+	
+	mockClient.AssertExpectations(t)
+}
+
+func TestResultsPoller_SequenceTracking_SubsequentCallNewSequence(t *testing.T) {
+	mockClient := &MockAgentServiceClient{}
+	
+	check := Check{
+		Name:    "sync",
+		Type:    "grpc",
+		Details: "127.0.0.1:50058",
+	}
+	
+	resultsPoller := &ResultsPoller{
+		client:       mockClient,
+		check:        check,
+		pollerID:     "test-poller",
+		agentName:    "test-agent",
+		lastSequence: "1720906448000000000", // Old sequence
+		logger:       logger.NewTestLogger(),
+	}
+
+	// Mock call with new sequence - should return new data
+	mockClient.On("GetResults", mock.Anything, &proto.ResultsRequest{
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		Details:      "127.0.0.1:50058",
+		LastSequence: "1720906448000000000", // Old sequence
+	}).Return(&proto.ResultsResponse{
+		Available:       true,
+		Data:            []byte(`[{"ip": "192.168.1.1", "discovery_source": "netbox"}, {"ip": "192.168.1.2", "discovery_source": "netbox"}]`),
+		ServiceName:     "sync",
+		ServiceType:     "grpc",
+		AgentId:         "test-agent",
+		PollerId:        "test-poller",
+		Timestamp:       time.Now().Unix(),
+		CurrentSequence: "1720906500000000000", // New sequence
+		HasNewData:      true, // Has new data
+	}, nil)
+
+	ctx := context.Background()
+	result := resultsPoller.executeGetResults(ctx)
+
+	require.NotNil(t, result)
+	assert.True(t, result.Available)
+	assert.Equal(t, "sync", result.ServiceName)
+	assert.Equal(t, "results", result.Source)
+	
+	// Verify sequence was updated
+	assert.Equal(t, "1720906500000000000", resultsPoller.lastSequence)
+	
+	// Verify new data received
+	assert.Contains(t, string(result.Message), "192.168.1.1")
+	assert.Contains(t, string(result.Message), "192.168.1.2")
+	
+	mockClient.AssertExpectations(t)
+}
+
+func TestResultsPoller_SequenceTracking_EmptySequenceResponse(t *testing.T) {
+	mockClient := &MockAgentServiceClient{}
+	
+	check := Check{
+		Name:    "sync",
+		Type:    "grpc",
+		Details: "127.0.0.1:50058",
+	}
+	
+	resultsPoller := &ResultsPoller{
+		client:       mockClient,
+		check:        check,
+		pollerID:     "test-poller",
+		agentName:    "test-agent",
+		lastSequence: "old-sequence",
+		logger:       logger.NewTestLogger(),
+	}
+
+	// Mock response with empty sequence - should not update lastSequence
+	mockClient.On("GetResults", mock.Anything, &proto.ResultsRequest{
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		Details:      "127.0.0.1:50058",
+		LastSequence: "old-sequence",
+	}).Return(&proto.ResultsResponse{
+		Available:       true,
+		Data:            []byte(`[]`),
+		ServiceName:     "sync",
+		ServiceType:     "grpc",
+		AgentId:         "test-agent",
+		PollerId:        "test-poller",
+		Timestamp:       time.Now().Unix(),
+		CurrentSequence: "", // Empty sequence
+		HasNewData:      false,
+	}, nil)
+
+	ctx := context.Background()
+	result := resultsPoller.executeGetResults(ctx)
+
+	require.NotNil(t, result)
+	assert.True(t, result.Available)
+	
+	// Verify sequence was NOT updated (empty sequence should be ignored)
+	assert.Equal(t, "old-sequence", resultsPoller.lastSequence)
+	
 	mockClient.AssertExpectations(t)
 }

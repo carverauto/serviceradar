@@ -52,20 +52,24 @@ func TestPollerService_GetStatus(t *testing.T) {
 		config: Config{
 			AgentID: "test-agent",
 		},
-		resultsCache: map[string][]*models.SweepResult{
+		resultsCache: map[string]*CachedResults{
 			"armis": {
-				{
-					IP:              "192.168.1.1",
-					DiscoverySource: "armis",
-					Available:       true,
-					Timestamp:       time.Now(),
+				Results: []*models.SweepResult{
+					{
+						IP:              "192.168.1.1",
+						DiscoverySource: "armis",
+						Available:       true,
+						Timestamp:       time.Now(),
+					},
+					{
+						IP:              "192.168.1.2",
+						DiscoverySource: "armis",
+						Available:       true,
+						Timestamp:       time.Now(),
+					},
 				},
-				{
-					IP:              "192.168.1.2",
-					DiscoverySource: "armis",
-					Available:       true,
-					Timestamp:       time.Now(),
-				},
+				Sequence:  "test-sequence-123",
+				Timestamp: time.Now(),
 			},
 		},
 		logger: testGRPCLogger(),
@@ -123,8 +127,14 @@ func TestPollerService_GetResults(t *testing.T) {
 		config: Config{
 			AgentID: "test-agent",
 		},
-		resultsCache: map[string][]*models.SweepResult{"armis": testResults},
-		logger:       testGRPCLogger(),
+		resultsCache: map[string]*CachedResults{
+			"armis": {
+				Results:   testResults,
+				Sequence:  "test-sequence-456",
+				Timestamp: time.Now(),
+			},
+		},
+		logger: testGRPCLogger(),
 	}
 
 	req := &proto.ResultsRequest{
@@ -176,7 +186,13 @@ func TestPollerService_GetStatusVsGetResults_Separation(t *testing.T) {
 		config: Config{
 			AgentID: "test-agent",
 		},
-		resultsCache: map[string][]*models.SweepResult{"armis": testResults},
+		resultsCache: map[string]*CachedResults{
+			"armis": {
+				Results:   testResults,
+				Sequence:  "test-sequence-789",
+				Timestamp: time.Now(),
+			},
+		},
 		logger:       testGRPCLogger(),
 	}
 
@@ -235,7 +251,7 @@ func TestPollerService_GetResults_EmptyCache(t *testing.T) {
 		config: Config{
 			AgentID: "test-agent",
 		},
-		resultsCache: map[string][]*models.SweepResult{}, // Empty cache
+		resultsCache: map[string]*CachedResults{}, // Empty cache
 		logger:       testGRPCLogger(),
 	}
 
@@ -269,7 +285,7 @@ func TestPollerService_GetStatus_EmptyCache(t *testing.T) {
 		config: Config{
 			AgentID: "test-agent",
 		},
-		resultsCache: map[string][]*models.SweepResult{}, // Empty cache
+		resultsCache: map[string]*CachedResults{}, // Empty cache
 		logger:       testGRPCLogger(),
 	}
 
@@ -298,4 +314,251 @@ func TestPollerService_GetStatus_EmptyCache(t *testing.T) {
 
 	assert.Equal(t, "healthy", healthData["status"])
 	assert.InDelta(t, float64(0), healthData["cached_devices"], 0.0001)
+}
+
+func TestPollerService_GetResults_SequenceTracking_FirstCall(t *testing.T) {
+	// Test first call (no last_sequence) should return data and sequence
+	testResults := []*models.SweepResult{
+		{
+			IP:              "192.168.1.1",
+			DiscoverySource: "netbox",
+			Available:       true,
+			Timestamp:       time.Now(),
+		},
+	}
+
+	service := &PollerService{
+		config: Config{
+			AgentID: "test-agent",
+		},
+		resultsCache: map[string]*CachedResults{
+			"netbox": {
+				Results:   testResults,
+				Sequence:  "1720906448000000000",
+				Timestamp: time.Now(),
+			},
+		},
+		logger: testGRPCLogger(),
+	}
+
+	req := &proto.ResultsRequest{
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		LastSequence: "", // First call - no previous sequence
+	}
+
+	ctx := context.Background()
+	resp, err := service.GetResults(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	// Should return data since this is first call
+	assert.True(t, resp.HasNewData)
+	assert.Equal(t, "1720906448000000000", resp.CurrentSequence)
+
+	// Should return actual data
+	var results []*models.SweepResult
+	err = json.Unmarshal(resp.Data, &results)
+	require.NoError(t, err)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "192.168.1.1", results[0].IP)
+}
+
+func TestPollerService_GetResults_SequenceTracking_SameSequence(t *testing.T) {
+	// Test subsequent call with same sequence should return no data
+	testResults := []*models.SweepResult{
+		{
+			IP:              "192.168.1.1",
+			DiscoverySource: "netbox",
+			Available:       true,
+			Timestamp:       time.Now(),
+		},
+	}
+
+	service := &PollerService{
+		config: Config{
+			AgentID: "test-agent",
+		},
+		resultsCache: map[string]*CachedResults{
+			"netbox": {
+				Results:   testResults,
+				Sequence:  "1720906448000000000",
+				Timestamp: time.Now(),
+			},
+		},
+		logger: testGRPCLogger(),
+	}
+
+	req := &proto.ResultsRequest{
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		LastSequence: "1720906448000000000", // Same as current sequence
+	}
+
+	ctx := context.Background()
+	resp, err := service.GetResults(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	// Should NOT return data since poller already has this sequence
+	assert.False(t, resp.HasNewData)
+	assert.Equal(t, "1720906448000000000", resp.CurrentSequence)
+
+	// Should return empty array
+	var results []*models.SweepResult
+	err = json.Unmarshal(resp.Data, &results)
+	require.NoError(t, err)
+	assert.Len(t, results, 0)
+}
+
+func TestPollerService_GetResults_SequenceTracking_NewSequence(t *testing.T) {
+	// Test call with old sequence should return new data
+	testResults := []*models.SweepResult{
+		{
+			IP:              "192.168.1.1",
+			DiscoverySource: "netbox",
+			Available:       true,
+			Timestamp:       time.Now(),
+		},
+		{
+			IP:              "192.168.1.2",
+			DiscoverySource: "netbox",
+			Available:       true,
+			Timestamp:       time.Now(),
+		},
+	}
+
+	service := &PollerService{
+		config: Config{
+			AgentID: "test-agent",
+		},
+		resultsCache: map[string]*CachedResults{
+			"netbox": {
+				Results:   testResults,
+				Sequence:  "1720906448000000000", // New sequence
+				Timestamp: time.Now(),
+			},
+		},
+		logger: testGRPCLogger(),
+	}
+
+	req := &proto.ResultsRequest{
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		LastSequence: "1720906400000000000", // Old sequence
+	}
+
+	ctx := context.Background()
+	resp, err := service.GetResults(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	// Should return data since sequence is different
+	assert.True(t, resp.HasNewData)
+	assert.Equal(t, "1720906448000000000", resp.CurrentSequence)
+
+	// Should return actual data
+	var results []*models.SweepResult
+	err = json.Unmarshal(resp.Data, &results)
+	require.NoError(t, err)
+	assert.Len(t, results, 2)
+	assert.Equal(t, "192.168.1.1", results[0].IP)
+	assert.Equal(t, "192.168.1.2", results[1].IP)
+}
+
+func TestPollerService_GetResults_SequenceTracking_EmptyCache(t *testing.T) {
+	// Test empty cache should return sequence "0"
+	service := &PollerService{
+		config: Config{
+			AgentID: "test-agent",
+		},
+		resultsCache: map[string]*CachedResults{}, // Empty cache
+		logger:       testGRPCLogger(),
+	}
+
+	req := &proto.ResultsRequest{
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		LastSequence: "1720906400000000000", // Some old sequence
+	}
+
+	ctx := context.Background()
+	resp, err := service.GetResults(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	// Should return sequence "0" for empty cache
+	// hasNewData should be true because sequence changed from old to "0"
+	assert.True(t, resp.HasNewData)
+	assert.Equal(t, "0", resp.CurrentSequence)
+
+	// Should return empty array
+	var results []*models.SweepResult
+	err = json.Unmarshal(resp.Data, &results)
+	require.NoError(t, err)
+	assert.Len(t, results, 0)
+}
+
+func TestPollerService_GetResults_SequenceTracking_MultiSource(t *testing.T) {
+	// Test multiple sources - should use latest sequence
+	now := time.Now()
+	
+	service := &PollerService{
+		config: Config{
+			AgentID: "test-agent",
+		},
+		resultsCache: map[string]*CachedResults{
+			"netbox": {
+				Results: []*models.SweepResult{
+					{IP: "192.168.1.1", DiscoverySource: "netbox", Available: true, Timestamp: now},
+				},
+				Sequence:  "1720906400000000000", // Older sequence
+				Timestamp: now.Add(-10 * time.Minute),
+			},
+			"armis": {
+				Results: []*models.SweepResult{
+					{IP: "192.168.1.2", DiscoverySource: "armis", Available: true, Timestamp: now},
+				},
+				Sequence:  "1720906448000000000", // Newer sequence
+				Timestamp: now,
+			},
+		},
+		logger: testGRPCLogger(),
+	}
+
+	req := &proto.ResultsRequest{
+		ServiceName:  "sync",
+		ServiceType:  "grpc",
+		AgentId:      "test-agent",
+		PollerId:     "test-poller",
+		LastSequence: "1720906400000000000", // Match older sequence
+	}
+
+	ctx := context.Background()
+	resp, err := service.GetResults(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	// Should use the latest sequence (armis)
+	assert.True(t, resp.HasNewData)
+	assert.Equal(t, "1720906448000000000", resp.CurrentSequence)
+
+	// Should return data from both sources
+	var results []*models.SweepResult
+	err = json.Unmarshal(resp.Data, &results)
+	require.NoError(t, err)
+	assert.Len(t, results, 2)
 }
