@@ -73,13 +73,14 @@ type ServiceCheck struct {
 
 // ResultsPoller manages GetResults polling for services that support it.
 type ResultsPoller struct {
-	client      proto.AgentServiceClient
-	check       Check
-	pollerID    string
-	agentName   string
-	lastResults time.Time
-	interval    time.Duration
-	logger      logger.Logger
+	client       proto.AgentServiceClient
+	check        Check
+	pollerID     string
+	agentName    string
+	lastResults  time.Time
+	interval     time.Duration
+	lastSequence string // Track last sequence received from service
+	logger       logger.Logger
 }
 
 // Duration is a wrapper around time.Duration for JSON unmarshaling.

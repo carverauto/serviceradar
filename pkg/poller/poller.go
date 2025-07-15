@@ -693,11 +693,12 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 // executeGetResults executes a GetResults call for a service.
 func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceStatus {
 	req := &proto.ResultsRequest{
-		ServiceName: rp.check.Name,
-		ServiceType: rp.check.Type,
-		AgentId:     rp.agentName,
-		PollerId:    rp.pollerID,
-		Details:     rp.check.Details,
+		ServiceName:  rp.check.Name,
+		ServiceType:  rp.check.Type,
+		AgentId:      rp.agentName,
+		PollerId:     rp.pollerID,
+		Details:      rp.check.Details,
+		LastSequence: rp.lastSequence,
 	}
 
 	rp.logger.Debug().
@@ -745,7 +746,14 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 		Str("service_type", rp.check.Type).
 		Str("agent_name", rp.agentName).
 		Bool("available", results.Available).
+		Str("current_sequence", results.CurrentSequence).
+		Bool("has_new_data", results.HasNewData).
 		Msg("GetResults call completed successfully")
+
+	// Update sequence tracking for next call
+	if results.CurrentSequence != "" {
+		rp.lastSequence = results.CurrentSequence
+	}
 
 	// Convert ResultsResponse to ServiceStatus format for core processing
 	return &proto.ServiceStatus{

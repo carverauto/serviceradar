@@ -66,7 +66,7 @@ func New(
 		sources:      make(map[string]Integration),
 		registry:     registry,
 		grpcClient:   grpcClient,
-		resultsCache: make(map[string][]*models.SweepResult),
+		resultsCache: make(map[string]*CachedResults),
 		logger:       log,
 	}
 
@@ -246,16 +246,25 @@ func (s *PollerService) syncSourceSweep(ctx context.Context, sourceName string) 
 	}
 
 	// Update the cache for this specific source with ONLY sweep results
+	now := time.Now()
+	sequence := strconv.FormatInt(now.UnixNano(), 10)
+	
 	s.resultsMu.Lock()
-	s.resultsCache[sourceName] = events
+	s.resultsCache[sourceName] = &CachedResults{
+		Results:   events,
+		Sequence:  sequence,
+		Timestamp: now,
+	}
 	s.resultsMu.Unlock()
 
 	// Recalculate total devices for logging.
 	var totalDevices int
 
 	s.resultsMu.RLock()
-	for _, results := range s.resultsCache {
-		totalDevices += len(results)
+	for _, cached := range s.resultsCache {
+		if cached != nil {
+			totalDevices += len(cached.Results)
+		}
 	}
 	s.resultsMu.RUnlock()
 

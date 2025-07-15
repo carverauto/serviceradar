@@ -15,6 +15,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// CachedResults holds sweep results with sequence tracking
+type CachedResults struct {
+	Results   []*models.SweepResult
+	Sequence  string
+	Timestamp time.Time
+}
+
 // PollerService manages synchronization and serves results via a standard agent gRPC interface.
 type PollerService struct {
 	proto.UnimplementedAgentServiceServer // Implements the AgentService interface
@@ -25,7 +32,7 @@ type PollerService struct {
 	registry                              map[string]IntegrationFactory
 	grpcClient                            GRPCClient
 	grpcServer                            *grpc.Server
-	resultsCache                          map[string][]*models.SweepResult
+	resultsCache                          map[string]*CachedResults
 	resultsMu                             sync.RWMutex
 	logger                                logger.Logger
 }
@@ -41,8 +48,10 @@ func (s *PollerService) GetStatus(_ context.Context, req *proto.StatusRequest) (
 	s.logger.Debug().Str("service_name", req.ServiceName).Str("service_type", req.ServiceType).Msg("GetStatus called by poller")
 
 	var deviceCount int
-	for _, results := range s.resultsCache {
-		deviceCount += len(results)
+	for _, cached := range s.resultsCache {
+		if cached != nil {
+			deviceCount += len(cached.Results)
+		}
 	}
 
 	// Return minimal health check data instead of full device list
@@ -69,38 +78,70 @@ func (s *PollerService) GetStatus(_ context.Context, req *proto.StatusRequest) (
 }
 
 // GetResults implements the AgentService GetResults method.
-// It returns the cached sweep results and clears the cache to prevent duplicates.
+// It returns sweep results only if they haven't been delivered to this poller yet.
 func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
-	s.resultsMu.Lock()
-	defer s.resultsMu.Unlock()
+	s.resultsMu.RLock()
+	defer s.resultsMu.RUnlock()
 
-	// The poller passes service_name, etc. We can log it for debugging.
-	s.logger.Debug().Str("service_name", req.ServiceName).Str("service_type", req.ServiceType).Msg("GetResults called by poller")
+	s.logger.Debug().
+		Str("service_name", req.ServiceName).
+		Str("service_type", req.ServiceType).
+		Str("last_sequence", req.LastSequence).
+		Msg("GetResults called by poller")
 
-	// Flatten the cache from map[string][]*SweepResult to []*SweepResult
+	// Generate current sequence from latest cache data
+	var currentSequence string
 	var allResults []*models.SweepResult
-	for _, results := range s.resultsCache {
-		allResults = append(allResults, results...)
+	var latestTimestamp time.Time
+
+	for _, cached := range s.resultsCache {
+		if cached != nil {
+			allResults = append(allResults, cached.Results...)
+			if cached.Timestamp.After(latestTimestamp) {
+				latestTimestamp = cached.Timestamp
+				currentSequence = cached.Sequence
+			}
+		}
 	}
 
-	// Clear the cache after collecting results to prevent sending duplicates
-	s.resultsCache = make(map[string][]*models.SweepResult)
-
-	resultsJSON, err := json.Marshal(allResults)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Error marshaling sweep results")
-		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
+	// If no data in cache, return empty with sequence "0"
+	if len(allResults) == 0 {
+		currentSequence = "0"
 	}
 
-	s.logger.Info().Int("sweep_results_returned", len(allResults)).Msg("Returned sweep results to poller and cleared cache")
+	// Check if poller already has this data
+	hasNewData := req.LastSequence != currentSequence
+
+	var resultsJSON []byte
+	var err error
+
+	if hasNewData && len(allResults) > 0 {
+		resultsJSON, err = json.Marshal(allResults)
+		if err != nil {
+			s.logger.Error().Err(err).Msg("Error marshaling sweep results")
+			return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
+		}
+	} else {
+		// Return empty data if no new results
+		resultsJSON = []byte("[]")
+	}
+
+	s.logger.Info().
+		Int("sweep_results_returned", len(allResults)).
+		Str("current_sequence", currentSequence).
+		Str("last_sequence", req.LastSequence).
+		Bool("has_new_data", hasNewData).
+		Msg("Returned sweep results to poller")
 
 	return &proto.ResultsResponse{
-		Available:   true,
-		Data:        resultsJSON,
-		ServiceName: req.ServiceName,
-		ServiceType: req.ServiceType,
-		AgentId:     s.config.AgentID,
-		PollerId:    req.PollerId,
-		Timestamp:   time.Now().Unix(),
+		Available:       true,
+		Data:            resultsJSON,
+		ServiceName:     req.ServiceName,
+		ServiceType:     req.ServiceType,
+		AgentId:         s.config.AgentID,
+		PollerId:        req.PollerId,
+		Timestamp:       time.Now().Unix(),
+		CurrentSequence: currentSequence,
+		HasNewData:      hasNewData,
 	}, nil
 }
