@@ -61,6 +61,8 @@ impl AgentService for ZenAgentService {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as i64,
+            current_sequence: String::new(),
+            has_new_data: false,
         }))
     }
 }
