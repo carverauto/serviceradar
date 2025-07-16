@@ -204,6 +204,7 @@ func testMemoryReleaseAfterCleanup(t *testing.T, config *models.Config) {
 	time.Sleep(10 * time.Millisecond)
 
 	var memBefore runtime.MemStats
+
 	runtime.ReadMemStats(&memBefore)
 
 	// Process a moderate amount of data
@@ -217,15 +218,17 @@ func testMemoryReleaseAfterCleanup(t *testing.T, config *models.Config) {
 
 	// Capture memory after processing but before cleanup
 	var memPeak runtime.MemStats
+
 	runtime.ReadMemStats(&memPeak)
 
 	processor.cleanup() // Call cleanup
-	
+
 	// Force GC after cleanup with minimal wait
 	runtime.GC()
 	time.Sleep(10 * time.Millisecond)
 
 	var memAfter runtime.MemStats
+
 	runtime.ReadMemStats(&memAfter)
 
 	memDiff := new(big.Int).Sub(
@@ -247,12 +250,13 @@ func testMemoryReleaseAfterCleanup(t *testing.T, config *models.Config) {
 	// Verify that cleanup actually happened by checking processor state
 	hostMap := processor.GetHostMap()
 	portCounts := processor.GetPortCounts()
+
 	assert.Empty(t, hostMap, "Host map should be empty after cleanup")
 	assert.Empty(t, portCounts, "Port counts should be empty after cleanup")
 
 	// Memory growth assertions - be more lenient due to GC timing variability
 	maxAllowedGrowth := big.NewInt(5 * 1024 * 1024) // Allow 5MB growth
-	
+
 	if memDiff.Cmp(big.NewInt(0)) <= 0 {
 		t.Logf("Memory was released successfully (negative or zero growth)")
 	} else if memDiff.Cmp(maxAllowedGrowth) <= 0 {
