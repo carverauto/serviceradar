@@ -198,6 +198,7 @@ impl AgentService for TrapdAgentService {
                 .as_secs() as i64,
             current_sequence: "1".to_string(),
             has_new_data: false,
+            sweep_completion: None,
         }))
     }
 }
