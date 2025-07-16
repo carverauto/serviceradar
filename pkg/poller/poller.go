@@ -19,6 +19,7 @@ package poller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -328,7 +329,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		Str("poller_id", sc.pollerID).
 		Msg("Executing service check")
 
-	status, err := sc.client.GetStatus(ctx, req)
+	getStatus, err := sc.client.GetStatus(ctx, req)
 	if err != nil {
 		sc.logger.Error().
 			Err(err).
@@ -356,7 +357,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 			Message:     message,
 			ServiceType: sc.check.Type,
 			PollerId:    sc.pollerID,
-			Source:      "status",
+			Source:      "getStatus",
 		}
 	}
 
@@ -364,18 +365,18 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		Str("service_name", sc.check.Name).
 		Str("service_type", sc.check.Type).
 		Str("agent_name", sc.agentName).
-		Bool("available", status.Available).
+		Bool("available", getStatus.Available).
 		Msg("Service check completed successfully")
 
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,
-		Available:    status.Available,
-		Message:      status.Message,
+		Available:    getStatus.Available,
+		Message:      getStatus.Message,
 		ServiceType:  sc.check.Type,
-		ResponseTime: status.ResponseTime,
-		AgentId:      status.AgentId,
+		ResponseTime: getStatus.ResponseTime,
+		AgentId:      getStatus.AgentId,
 		PollerId:     sc.pollerID,
-		Source:       "status",
+		Source:       "getStatus",
 	}
 }
 
@@ -446,6 +447,7 @@ func (p *Poller) initializeAgentPollers(ctx context.Context) error {
 		// It will now persist across poll cycles.
 		agentPoller := newAgentPoller(agentName, &agentConfig, agentServiceClient, p)
 		agentPoller.clientConn = client // Store the grpc.Client for lifecycle management
+
 		p.agents[agentName] = agentPoller
 	}
 
@@ -458,58 +460,233 @@ func (p *Poller) poll(ctx context.Context) error {
 		return p.PollFunc(ctx)
 	}
 
-	// Pre-allocate slice for better performance
-	allStatuses := make([]*proto.ServiceStatus, 0, len(p.config.Agents)*10) // Estimate 10 statuses per agent
+	// --- PHASE 1: SWEEP SERVICES ---
+	p.logger.Info().Msg("Starting Poll Phase 1: Sweep Services")
 
+	sweepStatuses := p.pollSweepServices(ctx)
+
+	// Wait for sweep completion before proceeding
+	maxWaitTime := 30 * time.Second
+	sweepComplete := p.waitForSweepCompletion(ctx, maxWaitTime)
+
+	if !sweepComplete {
+		p.logger.Warn().Dur("max_wait_time", maxWaitTime).Msg("Sweep completion timeout, proceeding with incomplete status")
+	}
+
+	// --- PHASE 2: SYNC AND OTHER SERVICES ---
+	p.logger.Info().Msg("Starting Poll Phase 2: Sync and Other Services")
+
+	syncAndOtherStatuses := p.pollSyncAndOtherServices(ctx)
+
+	// Combine all statuses
+	allStatuses := make([]*proto.ServiceStatus, 0, len(sweepStatuses)+len(syncAndOtherStatuses))
+	allStatuses = append(allStatuses, sweepStatuses...)
+	allStatuses = append(allStatuses, syncAndOtherStatuses...)
+
+	return p.reportToCore(ctx, allStatuses)
+}
+
+// hasAgentSweepServices checks if an agent has any sweep services configured
+func (*Poller) hasAgentSweepServices(agentPoller *AgentPoller) bool {
+	for _, check := range agentPoller.config.Checks {
+		if check.Type == serviceTypeSweep || (check.Type == checkTypeGRPC && check.Name == serviceTypeSweep) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// pollSingleSweepAgent polls a single agent for sweep services and sends results to the statusChan
+func (p *Poller) pollSingleSweepAgent(
+	ctx context.Context, agentName string, agentPoller *AgentPoller, statusChan chan<- *proto.ServiceStatus) {
+	// Optional health check
+	if agentPoller.clientConn != nil {
+		healthy, err := agentPoller.clientConn.CheckHealth(ctx, "AgentService")
+		if err != nil || !healthy {
+			p.logger.Warn().Str("agent", agentName).Err(err).Bool("healthy", healthy).Msg("Sweep agent health check failed")
+		}
+	}
+
+	// Execute checks for all services (including sweep)
+	statuses := agentPoller.ExecuteChecks(ctx)
+	for _, s := range statuses {
+		statusChan <- s
+	}
+
+	// Execute results specifically for sweep services to get completion status
+	resultsStatuses := agentPoller.ExecuteResults(ctx)
+	for _, s := range resultsStatuses {
+		// Only include sweep results in this phase
+		if s.ServiceType == serviceTypeSweep {
+			statusChan <- s
+		}
+	}
+}
+
+// collectStatusesFromChannel collects statuses from the channel and returns them as a slice
+func collectStatusesFromChannel(statusChan <-chan *proto.ServiceStatus) []*proto.ServiceStatus {
+	statuses := make([]*proto.ServiceStatus, 0, 100) // Adjust size based on expected number of statuses
+
+	for serviceStatus := range statusChan {
+		statuses = append(statuses, serviceStatus)
+	}
+
+	return statuses
+}
+
+// pollSweepServices polls only sweep services and collects their completion status
+func (p *Poller) pollSweepServices(ctx context.Context) []*proto.ServiceStatus {
 	var wg sync.WaitGroup
 
-	statusChan := make(chan *proto.ServiceStatus, 100) // Buffer channel
+	statusChan := make(chan *proto.ServiceStatus, 100)
 
+	// Launch goroutines for each agent with sweep services
 	for agentName := range p.config.Agents {
+		agentPoller, exists := p.agents[agentName]
+		if !exists || !p.hasAgentSweepServices(agentPoller) {
+			continue
+		}
+
 		wg.Add(1)
 
-		go func(name string) {
+		go func(name string, ap *AgentPoller) {
 			defer wg.Done()
 
-			// Retrieve the EXISTING, long-lived AgentPoller
-			agentPoller, exists := p.agents[name]
-			if !exists {
-				p.logger.Error().Str("agent", name).Msg("Poller for agent not found during poll cycle")
-				return
+			p.pollSingleSweepAgent(ctx, name, ap, statusChan)
+		}(agentName, agentPoller)
+	}
+
+	// Wait for all goroutines to complete and close the channel
+	go func() {
+		wg.Wait()
+
+		close(statusChan)
+	}()
+
+	// Collect and return the results
+	statuses := collectStatusesFromChannel(statusChan)
+	p.logger.Info().Int("sweep_statuses_collected", len(statuses)).Msg("Completed sweep services polling")
+
+	return statuses
+}
+
+// waitForSweepCompletion waits for all sweep services to complete using a robust ticker-based loop.
+func (p *Poller) waitForSweepCompletion(ctx context.Context, maxWaitTime time.Duration) bool {
+	startTime := time.Now()
+
+	// Use a Ticker for periodic checks, which is more efficient and idiomatic than time.After in a loop.
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	// Create a timeout context that respects both the parent context and maxWaitTime
+	// This ensures we always respect the shorter of the two timeouts
+	timeoutCtx, cancel := context.WithTimeout(ctx, maxWaitTime)
+	defer cancel()
+
+	for {
+		// First, check if context is already canceled
+		select {
+		case <-timeoutCtx.Done():
+			err := timeoutCtx.Err()
+			if errors.Is(err, context.DeadlineExceeded) {
+				p.logger.Warn().Dur("wait_time", time.Since(startTime)).Msg("Sweep completion timeout")
+			} else {
+				p.logger.Warn().Err(err).Msg("Sweep completion wait canceled by context")
 			}
 
-			// Optional health check - use the stored grpc.Client
-			if agentPoller.clientConn != nil {
-				healthy, err := agentPoller.clientConn.CheckHealth(ctx, "AgentService")
+			return false
+		default:
+		}
+
+		// Check the current completion status without waiting for a tick.
+		aggregatedStatus := p.getAggregatedCompletion()
+		if aggregatedStatus != nil && aggregatedStatus.Status == proto.SweepCompletionStatus_COMPLETED {
+			p.logger.Info().
+				Dur("wait_time", time.Since(startTime)).
+				Int32("completed_targets", aggregatedStatus.CompletedTargets).
+				Int32("total_targets", aggregatedStatus.TotalTargets).
+				Msg("Sweep completion confirmed")
+
+			return true
+		}
+
+		// Now, wait for the next event in a single, consolidated select block.
+		// This robustly handles all exit conditions without race conditions.
+		select {
+		case <-timeoutCtx.Done():
+			err := timeoutCtx.Err()
+			if errors.Is(err, context.DeadlineExceeded) {
+				p.logger.Warn().Dur("wait_time", time.Since(startTime)).Msg("Sweep completion timeout")
+			} else {
+				p.logger.Warn().Err(err).Msg("Sweep completion wait canceled by context")
+			}
+
+			return false
+		case <-ticker.C:
+			// The ticker ticked. The loop will continue and re-check the status at the top.
+			continue
+		}
+	}
+}
+
+// pollSyncAndOtherServices polls sync and other non-sweep services
+func (p *Poller) pollSyncAndOtherServices(ctx context.Context) []*proto.ServiceStatus {
+	var wg sync.WaitGroup
+
+	statusChan := make(chan *proto.ServiceStatus, 100)
+
+	for agentName := range p.config.Agents {
+		agentPoller, exists := p.agents[agentName]
+		if !exists {
+			continue
+		}
+
+		wg.Add(1)
+
+		go func(name string, ap *AgentPoller) {
+			defer wg.Done()
+
+			// Optional health check
+			if ap.clientConn != nil {
+				healthy, err := ap.clientConn.CheckHealth(ctx, "AgentService")
 				if err != nil || !healthy {
 					p.logger.Warn().Str("agent", name).Err(err).Bool("healthy", healthy).Msg("Agent health check failed")
 				}
 			}
 
-			// Execute checks
-			statuses := agentPoller.ExecuteChecks(ctx)
+			// Execute checks for non-sweep services
+			statuses := ap.ExecuteChecks(ctx)
 			for _, s := range statuses {
 				statusChan <- s
 			}
 
-			// Execute results
-			resultsStatuses := agentPoller.ExecuteResults(ctx)
+			// Execute results for non-sweep services (including sync)
+			resultsStatuses := ap.ExecuteResults(ctx)
 			for _, s := range resultsStatuses {
-				statusChan <- s
+				// Exclude sweep results (already collected in phase 1)
+				if s.ServiceType != serviceTypeSweep {
+					statusChan <- s
+				}
 			}
-		}(agentName)
+		}(agentName, agentPoller)
 	}
 
 	go func() {
 		wg.Wait()
+
 		close(statusChan)
 	}()
 
-	for status := range statusChan {
-		allStatuses = append(allStatuses, status)
+	statuses := make([]*proto.ServiceStatus, 0, 100) // Adjust size based on expected number of statuses
+
+	for serviceStatus := range statusChan {
+		statuses = append(statuses, serviceStatus)
 	}
 
-	return p.reportToCore(ctx, allStatuses)
+	p.logger.Info().Int("sync_and_other_statuses_collected", len(statuses)).Msg("Completed sync and other services polling")
+
+	return statuses
 }
 
 func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
@@ -520,37 +697,44 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		Msg("Reporting statuses")
 
 	// Add PollerID to each ServiceStatus if missing
-	for i, status := range statuses {
-		// Add the poller ID to each status
-		status.PollerId = p.config.PollerID
+	for i, serviceStatus := range statuses {
+		// Add the poller ID to each serviceStatus
+		serviceStatus.PollerId = p.config.PollerID
 
-		// add the partition to each status
-		status.Partition = p.config.Partition
+		// add the partition to each serviceStatus
+		serviceStatus.Partition = p.config.Partition
 
 		// Determine the correct AgentID to use - prefer response AgentId, fall back to configured agent name
-		agentID := status.AgentId
+		agentID := serviceStatus.AgentId
 		if agentID == "" {
-			p.logger.Warn().Str("serviceName", status.ServiceName).Msg("AgentID empty in response, using configured agent name as fallback")
+			p.logger.Warn().Str("serviceName", serviceStatus.ServiceName).
+				Msg("AgentID empty in response, using configured agent name as fallback")
 		}
 
 		// Enhance ALL service responses with infrastructure identity
-		enhancedMessage, err := p.enhanceServicePayload(string(status.Message), agentID, status.Partition, status.ServiceType, status.ServiceName)
+		enhancedMessage, err := p.enhanceServicePayload(
+			string(serviceStatus.Message),
+			agentID,
+			serviceStatus.Partition,
+			serviceStatus.ServiceType,
+			serviceStatus.ServiceName)
 		if err != nil {
-			p.logger.Warn().Err(err).Str("serviceName", status.ServiceName).Msg("Failed to enhance payload")
+			p.logger.Warn().Err(err).Str("serviceName", serviceStatus.ServiceName).
+				Msg("Failed to enhance payload")
 		} else {
-			status.Message = []byte(enhancedMessage)
+			serviceStatus.Message = []byte(enhancedMessage)
 		}
 
 		p.logger.Debug().
-			Str("partition", status.Partition).
-			Str("pollerID", status.PollerId).
-			Str("serviceName", status.ServiceName).
-			Str("agentID", status.AgentId).
-			Msg("Service status details")
+			Str("partition", serviceStatus.Partition).
+			Str("pollerID", serviceStatus.PollerId).
+			Str("serviceName", serviceStatus.ServiceName).
+			Str("agentID", serviceStatus.AgentId).
+			Msg("Service serviceStatus details")
 
 		// Log warning if AgentID is missing (debugging aid)
-		if status.AgentId == "" {
-			p.logger.Warn().Int("index", i).Str("serviceName", status.ServiceName).Msg("ServiceStatus has empty AgentID")
+		if serviceStatus.AgentId == "" {
+			p.logger.Warn().Int("index", i).Str("serviceName", serviceStatus.ServiceName).Msg("ServiceStatus has empty AgentID")
 		}
 	}
 
@@ -562,7 +746,7 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		SourceIp:  p.config.SourceIP,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to report status to core: %w", err)
+		return fmt.Errorf("failed to report serviceStatus to core: %w", err)
 	}
 
 	return nil
@@ -628,8 +812,17 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 // updateAgentCompletion stores completion status from an agent.
 func (p *Poller) updateAgentCompletion(agentName string, status *proto.SweepCompletionStatus) {
 	if status == nil {
+		p.logger.Debug().Str("agent", agentName).Msg("updateAgentCompletion called with nil status")
 		return
 	}
+
+	p.logger.Debug().
+		Str("agent", agentName).
+		Str("status", status.Status.String()).
+		Int32("completed", status.CompletedTargets).
+		Int32("total", status.TotalTargets).
+		Str("sequence", status.TargetSequence).
+		Msg("Storing completion status for agent")
 
 	p.completionMu.Lock()
 	defer p.completionMu.Unlock()
@@ -661,34 +854,34 @@ func (p *Poller) getAggregatedCompletion() *proto.SweepCompletionStatus {
 	)
 
 	// Aggregate data from all agents
-	for agentName, status := range p.agentCompletions {
-		if status == nil {
+	for agentName, completionStatus := range p.agentCompletions {
+		if completionStatus == nil {
 			continue
 		}
 
-		totalTargets += status.TotalTargets
-		completedTargets += status.CompletedTargets
+		totalTargets += completionStatus.TotalTargets
+		completedTargets += completionStatus.CompletedTargets
 
-		// Use the most advanced status (prefer COMPLETED over IN_PROGRESS, etc.)
-		if status.Status > latestStatus {
-			latestStatus = status.Status
+		// Use the most advanced completionStatus (prefer COMPLETED over IN_PROGRESS, etc.)
+		if completionStatus.Status > latestStatus {
+			latestStatus = completionStatus.Status
 		}
 
 		// Use the latest completion time
-		if status.CompletionTime > latestCompletionTime {
-			latestCompletionTime = status.CompletionTime
+		if completionStatus.CompletionTime > latestCompletionTime {
+			latestCompletionTime = completionStatus.CompletionTime
 		}
 
 		// Use the first non-empty target sequence (they should all be the same)
-		if targetSequence == "" && status.TargetSequence != "" {
-			targetSequence = status.TargetSequence
+		if targetSequence == "" && completionStatus.TargetSequence != "" {
+			targetSequence = completionStatus.TargetSequence
 		}
 
 		p.logger.Debug().
 			Str("agent", agentName).
-			Str("status", status.Status.String()).
-			Int32("agent_completed", status.CompletedTargets).
-			Int32("agent_total", status.TotalTargets).
+			Str("completionStatus", completionStatus.Status.String()).
+			Int32("agent_completed", completionStatus.CompletedTargets).
+			Int32("agent_total", completionStatus.TotalTargets).
 			Msg("Processing agent completion for aggregation")
 	}
 
@@ -710,7 +903,7 @@ func (p *Poller) getAggregatedCompletion() *proto.SweepCompletionStatus {
 		Int32("total_completed", aggregated.CompletedTargets).
 		Int32("total_targets", aggregated.TotalTargets).
 		Str("target_sequence", aggregated.TargetSequence).
-		Msg("Aggregated completion status for sync forwarding")
+		Msg("Aggregated completion completionStatus for sync forwarding")
 
 	return aggregated
 }
@@ -749,13 +942,17 @@ func (rp *ResultsPoller) buildResultsRequest() *proto.ResultsRequest {
 	if rp.check.Type == checkTypeGRPC && (rp.check.Name == serviceTypeSync || strings.Contains(rp.check.Name, serviceTypeSync)) {
 		if aggregatedStatus := rp.poller.getAggregatedCompletion(); aggregatedStatus != nil {
 			req.CompletionStatus = aggregatedStatus
-			rp.logger.Debug().
+			rp.logger.Info(). // Changed from Debug to Info for better visibility
+						Str("service_name", rp.check.Name).
+						Str("completion_status", aggregatedStatus.Status.String()).
+						Str("target_sequence", aggregatedStatus.TargetSequence).
+						Int32("total_completed", aggregatedStatus.CompletedTargets).
+						Int32("total_targets", aggregatedStatus.TotalTargets).
+						Msg("Forwarding aggregated completion status to sync service")
+		} else {
+			rp.logger.Info().
 				Str("service_name", rp.check.Name).
-				Str("completion_status", aggregatedStatus.Status.String()).
-				Str("target_sequence", aggregatedStatus.TargetSequence).
-				Int32("total_completed", aggregatedStatus.CompletedTargets).
-				Int32("total_targets", aggregatedStatus.TotalTargets).
-				Msg("Forwarding aggregated completion status to sync service")
+				Msg("No aggregated completion status available for sync service")
 		}
 	}
 
@@ -819,7 +1016,21 @@ func (rp *ResultsPoller) updateSequenceTracking(results *proto.ResultsResponse) 
 }
 
 func (rp *ResultsPoller) updateCompletionTracking(results *proto.ResultsResponse) {
+	rp.logger.Debug().
+		Str("service_name", rp.check.Name).
+		Bool("sweep_completion_present", results.SweepCompletion != nil).
+		Msg("updateCompletionTracking called")
+
 	if results.SweepCompletion != nil {
+		rp.logger.Debug().
+			Str("service_name", rp.check.Name).
+			Str("agent_name", rp.agentName).
+			Str("status", results.SweepCompletion.Status.String()).
+			Int32("completed", results.SweepCompletion.CompletedTargets).
+			Int32("total", results.SweepCompletion.TotalTargets).
+			Str("sequence", results.SweepCompletion.TargetSequence).
+			Msg("Received sweep completion from agent")
+
 		rp.lastCompletionStatus = results.SweepCompletion
 		// Update the poller's aggregated completion tracking
 		rp.poller.updateAgentCompletion(rp.agentName, results.SweepCompletion)
@@ -830,6 +1041,11 @@ func (rp *ResultsPoller) updateCompletionTracking(results *proto.ResultsResponse
 			Int32("completed_targets", results.SweepCompletion.CompletedTargets).
 			Int32("total_targets", results.SweepCompletion.TotalTargets).
 			Msg("Updated completion status from agent response")
+	} else {
+		rp.logger.Debug().
+			Str("service_name", rp.check.Name).
+			Str("agent_name", rp.agentName).
+			Msg("No sweep completion status in response from agent")
 	}
 }
 

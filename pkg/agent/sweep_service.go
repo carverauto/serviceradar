@@ -335,6 +335,8 @@ func (s *SweepService) updateCompletionStatus(summary *models.SweepSummary) {
 	s.completedTargets = completedHosts
 
 	// Update completion status based on progress
+	oldStatus := s.completionStatus
+
 	if totalHosts == 0 {
 		s.completionStatus = proto.SweepCompletionStatus_NOT_STARTED
 	} else if completedHosts >= totalHosts {
@@ -348,6 +350,9 @@ func (s *SweepService) updateCompletionStatus(summary *models.SweepSummary) {
 	} else {
 		s.completionStatus = proto.SweepCompletionStatus_IN_PROGRESS
 	}
+
+	log.Printf("DEBUG [AGENT]: Updated completion status - Old: %v, New: %v, Completed: %d/%d hosts",
+		oldStatus, s.completionStatus, completedHosts, totalHosts)
 }
 
 // getSweepCompletionStatus returns the current completion status.
@@ -358,11 +363,16 @@ func (s *SweepService) getSweepCompletionStatus() *proto.SweepCompletionStatus {
 		completionTime = s.sweepCompletionTime.Unix()
 	}
 
-	return &proto.SweepCompletionStatus{
+	status := &proto.SweepCompletionStatus{
 		Status:           s.completionStatus,
 		CompletionTime:   completionTime,
 		TargetSequence:   s.targetSequence,
 		TotalTargets:     s.totalTargets,
 		CompletedTargets: s.completedTargets,
 	}
+
+	log.Printf("DEBUG [AGENT]: Sweep completion status - Status: %v, Completed: %d/%d, Sequence: %s, CompletionTime: %d",
+		status.Status, status.CompletedTargets, status.TotalTargets, status.TargetSequence, status.CompletionTime)
+
+	return status
 }
