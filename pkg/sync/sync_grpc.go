@@ -235,8 +235,17 @@ func (s *PollerService) getSweepCompletionStatus(serviceName, agentID string) *p
 // processPollerCompletionStatus handles completion status updates from pollers.
 func (s *PollerService) processPollerCompletionStatus(pollerID string, status *proto.SweepCompletionStatus) {
 	if status == nil {
+		s.logger.Debug().Str("poller_id", pollerID).Msg("processPollerCompletionStatus called with nil status")
 		return
 	}
+
+	s.logger.Debug().
+		Str("poller_id", pollerID).
+		Str("status", status.Status.String()).
+		Int32("completed", status.CompletedTargets).
+		Int32("total", status.TotalTargets).
+		Str("sequence", status.TargetSequence).
+		Msg("Received completion status from poller")
 
 	s.completionMu.Lock()
 	defer s.completionMu.Unlock()
