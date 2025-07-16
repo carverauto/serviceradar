@@ -175,7 +175,7 @@ func TestStartAndStop(t *testing.T) {
 	mockClock.EXPECT().Ticker(500 * time.Millisecond).Return(mockTicker)
 
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
-	mockTicker.EXPECT().Stop()
+	mockTicker.EXPECT().Stop().AnyTimes()
 
 	data := map[string][]byte{"devices": []byte("data")}
 

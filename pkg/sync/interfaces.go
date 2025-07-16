@@ -43,9 +43,16 @@ type GRPCClient interface {
 	Close() error
 }
 
-// Integration defines the interface for fetching data from external sources.
+// Integration defines the interface for fetching data from external sources and reconciling state.
 type Integration interface {
+	// Fetch performs discovery operations, returning KV data for caching and sweep results for agents.
+	// This method should focus purely on data discovery and should not perform any state reconciliation.
 	Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error)
+
+	// Reconcile performs state reconciliation operations such as updating external systems
+	// with current device availability status and handling device retractions.
+	// This method should only be called after sweep operations have been completed.
+	Reconcile(ctx context.Context) error
 }
 
 // IntegrationFactory defines a function type for creating integrations.

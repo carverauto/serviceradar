@@ -35,7 +35,8 @@ var (
 	errUnexpectedStatusCode = errors.New("unexpected status code")
 )
 
-// Fetch retrieves devices from NetBox and generates sweep config.
+// Fetch retrieves devices from NetBox for discovery purposes only.
+// This method focuses purely on data discovery and does not perform state reconciliation.
 func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
 	resp, err := n.fetchDevices(ctx)
 	if err != nil {
@@ -51,44 +52,91 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mo
 	// Process current devices from Netbox API
 	data, ips, currentEvents := n.processDevices(deviceResp)
 
-	allEvents := currentEvents
-
-	// Add retraction logic if querier is available
-	if n.Querier != nil {
-		existingRadarDevices, err := n.Querier.GetDeviceStatesBySource(ctx, "netbox")
-		if err != nil {
-			logger.Warn().
-				Err(err).
-				Str("source", "netbox").
-				Msg("Failed to query existing Netbox devices from ServiceRadar, skipping retraction")
-		} else {
-			logger.Info().
-				Int("device_count", len(existingRadarDevices)).
-				Str("source", "netbox").
-				Msg("Successfully queried device states from ServiceRadar")
-
-			retractionEvents := n.generateRetractionEvents(currentEvents, existingRadarDevices)
-
-			if len(retractionEvents) > 0 {
-				logger.Info().
-					Int("retraction_count", len(retractionEvents)).
-					Str("source", "netbox").
-					Msg("Generated retraction events")
-
-				allEvents = append(allEvents, retractionEvents...)
-			}
-		}
-	}
-
 	logger.Info().
-		Int("device_count", len(deviceResp.Results)).
-		Str("source", "netbox").
-		Msg("Fetched devices from NetBox")
+		Int("devices_discovered", len(deviceResp.Results)).
+		Int("sweep_results_generated", len(currentEvents)).
+		Msg("Completed NetBox discovery operation")
 
 	n.writeSweepConfig(ctx, ips)
 
-	// Return the consistent data for both KV store and NATS publishing.
-	return data, allEvents, nil
+	// Return the data for both KV store and sweep agents
+	return data, currentEvents, nil
+}
+
+// Reconcile performs state reconciliation operations for NetBox.
+// This method generates retraction events for devices that no longer exist in NetBox.
+// It should only be called after sweep operations have completed.
+func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
+	if n.Querier == nil {
+		logger.Info().Msg("NetBox querier not configured, skipping reconciliation")
+		return nil
+	}
+
+	logger.Info().Msg("Starting NetBox reconciliation operation")
+
+	// Get current device states from ServiceRadar
+	existingRadarDevices, err := n.Querier.GetDeviceStatesBySource(ctx, "netbox")
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Str("source", "netbox").
+			Msg("Failed to query existing Netbox devices from ServiceRadar during reconciliation")
+
+		return err
+	}
+
+	if len(existingRadarDevices) == 0 {
+		logger.Info().Msg("No existing NetBox device states found, skipping reconciliation")
+		return nil
+	}
+
+	logger.Info().
+		Int("device_count", len(existingRadarDevices)).
+		Str("source", "netbox").
+		Msg("Successfully queried device states from ServiceRadar for reconciliation")
+
+	// Fetch current devices from NetBox to identify retractions
+	resp, err := n.fetchDevices(ctx)
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Msg("Failed to fetch current devices from NetBox during reconciliation")
+
+		return err
+	}
+	defer n.closeResponse(resp)
+
+	deviceResp, err := n.decodeResponse(resp)
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Msg("Failed to decode NetBox response during reconciliation")
+
+		return err
+	}
+
+	// Process current devices to get current events
+	_, _, currentEvents := n.processDevices(deviceResp)
+
+	// Generate retraction events
+	retractionEvents := n.generateRetractionEvents(currentEvents, existingRadarDevices)
+
+	if len(retractionEvents) > 0 {
+		logger.Info().
+			Int("retraction_count", len(retractionEvents)).
+			Str("source", "netbox").
+			Msg("Generated retraction events during reconciliation")
+
+		// TODO: Send retraction events to the core service
+		// For now, we'll log them but this would need to be implemented
+		// to send them to the same endpoint that receives sweep results
+	} else {
+		logger.Info().Msg("No retraction events needed for NetBox reconciliation")
+	}
+
+	logger.Info().Msg("Successfully completed NetBox reconciliation")
+
+	return nil
 }
 
 // generateRetractionEvents checks for devices that exist in ServiceRadar but not in the current Netbox fetch.

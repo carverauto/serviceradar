@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +43,14 @@ type SweepService struct {
 	cachedResults      *models.SweepSummary
 	lastSweepTimestamp int64
 	currentSequence    uint64
+
+	// Completion tracking
+	targetSequence      string                             // Sequence of targets being swept
+	totalTargets        int32                              // Total number of targets to sweep
+	completedTargets    int32                              // Number of targets completed
+	sweepStartTime      time.Time                          // When current sweep started
+	sweepCompletionTime time.Time                          // When current sweep completed
+	completionStatus    proto.SweepCompletionStatus_Status // Current completion status
 }
 
 // NewSweepService creates a new SweepService.
@@ -62,6 +71,7 @@ func NewSweepService(config *models.Config, kvStore KVStore, configKey string) (
 		cachedResults:      nil,
 		lastSweepTimestamp: 0,
 		currentSequence:    0,
+		completionStatus:   proto.SweepCompletionStatus_NOT_STARTED,
 	}, nil
 }
 
@@ -255,6 +265,10 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		s.cachedResults = summary
 		s.lastSweepTimestamp = summary.LastSweep
 		s.currentSequence++
+
+		// Update completion tracking
+		s.updateCompletionStatus(summary)
+
 		log.Printf("Sweep data changed, updated sequence to: %d", s.currentSequence)
 	}
 
@@ -269,6 +283,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 			CurrentSequence: currentSeqStr,
 			ServiceName:     "network_sweep",
 			ServiceType:     "sweep",
+			SweepCompletion: s.getSweepCompletionStatus(),
 		}, nil
 	}
 
@@ -289,5 +304,65 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		ServiceType:     "sweep",
 		Available:       true,
 		Timestamp:       time.Now().Unix(),
+		SweepCompletion: s.getSweepCompletionStatus(),
 	}, nil
+}
+
+// updateCompletionStatus updates the completion tracking based on sweep summary.
+func (s *SweepService) updateCompletionStatus(summary *models.SweepSummary) {
+	// Determine completion status based on sweep summary
+	numHosts := len(summary.Hosts)
+
+	var totalHosts int32
+
+	if numHosts > math.MaxInt32 {
+		totalHosts = math.MaxInt32 // Cap at max int32
+	} else {
+		totalHosts = int32(numHosts)
+	}
+
+	completedHosts := int32(0)
+
+	// Count completed hosts (those with scan results)
+	for _, host := range summary.Hosts {
+		if len(host.PortResults) > 0 || host.Available {
+			completedHosts++
+		}
+	}
+
+	// Update completion fields
+	s.totalTargets = totalHosts
+	s.completedTargets = completedHosts
+
+	// Update completion status based on progress
+	if totalHosts == 0 {
+		s.completionStatus = proto.SweepCompletionStatus_NOT_STARTED
+	} else if completedHosts >= totalHosts {
+		s.completionStatus = proto.SweepCompletionStatus_COMPLETED
+		s.sweepCompletionTime = time.Now()
+	} else if completedHosts > 0 {
+		s.completionStatus = proto.SweepCompletionStatus_IN_PROGRESS
+		if s.sweepStartTime.IsZero() {
+			s.sweepStartTime = time.Now()
+		}
+	} else {
+		s.completionStatus = proto.SweepCompletionStatus_IN_PROGRESS
+	}
+}
+
+// getSweepCompletionStatus returns the current completion status.
+func (s *SweepService) getSweepCompletionStatus() *proto.SweepCompletionStatus {
+	var completionTime int64
+
+	if !s.sweepCompletionTime.IsZero() {
+		completionTime = s.sweepCompletionTime.Unix()
+	}
+
+	return &proto.SweepCompletionStatus{
+		Status:           s.completionStatus,
+		CompletionTime:   completionTime,
+		TargetSequence:   s.targetSequence,
+		TotalTargets:     s.totalTargets,
+		CompletedTargets: s.completedTargets,
+	}
 }
