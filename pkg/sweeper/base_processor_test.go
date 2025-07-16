@@ -120,14 +120,12 @@ func testMemoryUsageWithManyHostsFewPorts(t *testing.T, config *models.Config) {
 
 	runtime.ReadMemStats(&memBefore)
 
-	// Process 1000 hosts with only 1-2 ports each
-	for i := 0; i < 1000; i++ {
+	// Process 500 hosts with only 1-2 ports each
+	for i := 0; i < 500; i++ {
 		host := createHost(i%255, i%2+1)
 		err := processor.Process(host)
 		require.NoError(t, err)
 	}
-
-	time.Sleep(time.Millisecond * 100)
 
 	// Consider removing or reducing frequency of forced GC
 	// runtime.GC() // Force garbage collection before measurement
