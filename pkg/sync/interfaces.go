@@ -88,6 +88,12 @@ type SRQLQuerier interface {
 	GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error)
 }
 
+// ResultSubmitter defines the interface for submitting sweep results and retraction events.
+type ResultSubmitter interface {
+	SubmitSweepResult(ctx context.Context, result *models.SweepResult) error
+	SubmitBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
+}
+
 // DeviceState represents the consolidated state of a device from the unified view.
 // It's used by integrations to check for retractions.
 type DeviceState struct {
