@@ -49,6 +49,7 @@ message ResultsRequest {
   string poller_id = 4;    // Poller ID for traceability
   string details = 5;      // Additional details
   string last_sequence = 6; // Last sequence received by poller
+  SweepCompletionStatus completion_status = 7; // Completion status reported by poller
 }
 
 message StatusResponse {
@@ -72,6 +73,7 @@ message ResultsResponse {
   int64 timestamp = 8;     // When results were generated
   string current_sequence = 9; // Current sequence of this response
   bool has_new_data = 10;     // Whether data changed since last_sequence
+  SweepCompletionStatus sweep_completion = 11; // Sweep completion status for coordination
 }
 
 message PollerStatusRequest {
@@ -110,4 +112,20 @@ message SweepServiceStatus {
 message PortStatus {
   int32 port = 1;
   int32 available = 2;        // Number of hosts with this port open
+}
+
+message SweepCompletionStatus {
+  enum Status {
+    UNKNOWN = 0;          // Status not available
+    NOT_STARTED = 1;      // Sweep has not been initiated
+    IN_PROGRESS = 2;      // Sweep is currently running
+    COMPLETED = 3;        // Sweep completed successfully
+    FAILED = 4;           // Sweep failed or was interrupted
+  }
+  Status status = 1;          // Current completion status
+  int64 completion_time = 2;  // Timestamp when sweep completed (if COMPLETED)
+  string target_sequence = 3; // Sequence ID of the targets being swept
+  int32 total_targets = 4;    // Total number of targets to sweep
+  int32 completed_targets = 5; // Number of targets completed so far
+  string error_message = 6;   // Error details if status is FAILED
 }

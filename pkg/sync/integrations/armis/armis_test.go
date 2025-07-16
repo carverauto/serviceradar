@@ -59,7 +59,8 @@ func TestArmisIntegration_Fetch_NoUpdater(t *testing.T) {
 	assert.False(t, exists)
 }
 
-// TestArmisIntegration_Fetch_WithUpdaterAndCorrelation tests the full fetch/correlation/update workflow.
+// TestArmisIntegration_Fetch_WithUpdaterAndCorrelation tests the discovery workflow (Fetch) and
+// reconciliation workflow (Reconcile) separately.
 func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	// 1. Setup
 	integration, mocks := setupArmisIntegration(t)
@@ -72,17 +73,32 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 		{IP: "192.168.1.2", IsAvailable: false, Metadata: map[string]interface{}{"armis_device_id": "2"}},
 	}
 
-	// 2. Define mock expectations
+	// 2. Test Fetch (Discovery) - should NOT perform reconciliation
 	testAccessToken := "test-access-token"
 	expectedQuery := "in:devices orderBy=id boundaries:\"Corporate\""
 
-	// Expectations for the initial device fetch
+	// Expectations for the initial device fetch only
 	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
 	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(firstPageResp, nil)
 	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 
-	// Expectations for the new correlation logic
+	// 3. Execute Fetch (Discovery only)
+	result, events, err := integration.Fetch(context.Background())
+
+	// 4. Assert Fetch results (Discovery only)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify devices and sweep results
+	verifyArmisResults(t, result, events, err, expectedDevices)
+
+	// 5. Test Reconcile (Updates) - should perform correlation and updates
+	// Expectations for the reconciliation logic
 	mocks.SweepQuerier.EXPECT().GetDeviceStatesBySource(gomock.Any(), "armis").Return(mockDeviceStates, nil)
+	// Reconcile also needs to fetch current devices from Armis, so it needs another access token call
+	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
+	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(firstPageResp, nil)
+	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 	mocks.Updater.EXPECT().UpdateDeviceStatus(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
 			// Verify the content of the updates being sent to Armis
@@ -104,39 +120,9 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 			return nil
 		}).Return(nil)
 
-	// 3. Execute the method under test
-	result, events, err := integration.Fetch(context.Background())
-
-	// 4. Assert the results
+	// 6. Execute Reconcile
+	err = integration.Reconcile(context.Background())
 	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	// Expect 6 items: 5 device entries + 1 for "_sweep_results"
-	expectedLen := len(expectedDevices)
-
-	for i := range expectedDevices {
-		ip := extractFirstIP(expectedDevices[i].IPAddress)
-		if ip != "" {
-			expectedLen++
-		}
-	}
-
-	if _, ok := result["_sweep_results"]; ok {
-		expectedLen++
-	}
-
-	assert.Len(t, result, expectedLen)
-
-	// Verify original devices are still present in the result map
-	_, device1Exists := result["1"]
-	assert.True(t, device1Exists)
-
-	_, device2Exists := result["2"]
-	assert.True(t, device2Exists)
-
-	// Verify sweep results were returned as events
-	require.Len(t, events, 2)
-	assert.Equal(t, "192.168.1.1", events[0].IP)
 }
 
 func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {

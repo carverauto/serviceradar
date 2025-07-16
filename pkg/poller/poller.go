@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +37,8 @@ const (
 	defaultTimeout   = 30 * time.Second
 	stopTimeout      = 10 * time.Second
 	serviceTypeSweep = "sweep"
+	serviceTypeSync  = "sync"
+	checkTypeGRPC    = "grpc"
 )
 
 // New creates a new poller instance.
@@ -45,11 +48,12 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 	}
 
 	p := &Poller{
-		config: *config,
-		agents: make(map[string]*AgentPoller),
-		done:   make(chan struct{}),
-		clock:  clock,
-		logger: log,
+		config:           *config,
+		agents:           make(map[string]*AgentPoller),
+		done:             make(chan struct{}),
+		clock:            clock,
+		logger:           log,
+		agentCompletions: make(map[string]*proto.SweepCompletionStatus),
 	}
 
 	// Only connect to core if CoreAddress is set and PollFunc isn’t overriding default behavior
@@ -205,6 +209,7 @@ func newAgentPoller(
 				pollerID:  poller.config.PollerID,
 				agentName: name,
 				interval:  time.Duration(*check.ResultsInterval),
+				poller:    poller,
 				logger:    poller.logger,
 			}
 			ap.resultsPollers = append(ap.resultsPollers, resultsPoller)
@@ -620,8 +625,117 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 	return string(enhancedJSON), nil
 }
 
+// updateAgentCompletion stores completion status from an agent.
+func (p *Poller) updateAgentCompletion(agentName string, status *proto.SweepCompletionStatus) {
+	if status == nil {
+		return
+	}
+
+	p.completionMu.Lock()
+	defer p.completionMu.Unlock()
+
+	p.agentCompletions[agentName] = status
+	p.logger.Debug().
+		Str("agent", agentName).
+		Str("status", status.Status.String()).
+		Int32("completed", status.CompletedTargets).
+		Int32("total", status.TotalTargets).
+		Msg("Updated agent completion status")
+}
+
+// getAggregatedCompletion aggregates completion status from all agents for forwarding to sync service.
+func (p *Poller) getAggregatedCompletion() *proto.SweepCompletionStatus {
+	p.completionMu.RLock()
+	defer p.completionMu.RUnlock()
+
+	if len(p.agentCompletions) == 0 {
+		return nil
+	}
+
+	var (
+		totalTargets         int32
+		completedTargets     int32
+		latestStatus         = proto.SweepCompletionStatus_UNKNOWN
+		latestCompletionTime int64
+		targetSequence       string
+	)
+
+	// Aggregate data from all agents
+	for agentName, status := range p.agentCompletions {
+		if status == nil {
+			continue
+		}
+
+		totalTargets += status.TotalTargets
+		completedTargets += status.CompletedTargets
+
+		// Use the most advanced status (prefer COMPLETED over IN_PROGRESS, etc.)
+		if status.Status > latestStatus {
+			latestStatus = status.Status
+		}
+
+		// Use the latest completion time
+		if status.CompletionTime > latestCompletionTime {
+			latestCompletionTime = status.CompletionTime
+		}
+
+		// Use the first non-empty target sequence (they should all be the same)
+		if targetSequence == "" && status.TargetSequence != "" {
+			targetSequence = status.TargetSequence
+		}
+
+		p.logger.Debug().
+			Str("agent", agentName).
+			Str("status", status.Status.String()).
+			Int32("agent_completed", status.CompletedTargets).
+			Int32("agent_total", status.TotalTargets).
+			Msg("Processing agent completion for aggregation")
+	}
+
+	// If we have completed targets from any agent, consider overall as IN_PROGRESS at minimum
+	if completedTargets > 0 && latestStatus == proto.SweepCompletionStatus_UNKNOWN {
+		latestStatus = proto.SweepCompletionStatus_IN_PROGRESS
+	}
+
+	aggregated := &proto.SweepCompletionStatus{
+		Status:           latestStatus,
+		CompletionTime:   latestCompletionTime,
+		TargetSequence:   targetSequence,
+		TotalTargets:     totalTargets,
+		CompletedTargets: completedTargets,
+	}
+
+	p.logger.Debug().
+		Str("aggregated_status", aggregated.Status.String()).
+		Int32("total_completed", aggregated.CompletedTargets).
+		Int32("total_targets", aggregated.TotalTargets).
+		Str("target_sequence", aggregated.TargetSequence).
+		Msg("Aggregated completion status for sync forwarding")
+
+	return aggregated
+}
+
 // executeGetResults executes a GetResults call for a service.
 func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceStatus {
+	req := rp.buildResultsRequest()
+
+	results, err := rp.client.GetResults(ctx, req)
+	if err != nil {
+		return rp.handleGetResultsError(err)
+	}
+
+	rp.logSuccessfulGetResults(results)
+	rp.updateSequenceTracking(results)
+	rp.updateCompletionTracking(results)
+
+	if rp.shouldSkipCoreSubmission(results) {
+		return nil
+	}
+
+	return rp.convertToServiceStatus(results)
+}
+
+func (rp *ResultsPoller) buildResultsRequest() *proto.ResultsRequest {
 	req := &proto.ResultsRequest{
 		ServiceName:  rp.check.Name,
 		ServiceType:  rp.check.Type,
@@ -631,6 +745,20 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 		LastSequence: rp.lastSequence,
 	}
 
+	// If this is a sync service, get aggregated completion status from all agents
+	if rp.check.Type == checkTypeGRPC && (rp.check.Name == serviceTypeSync || strings.Contains(rp.check.Name, serviceTypeSync)) {
+		if aggregatedStatus := rp.poller.getAggregatedCompletion(); aggregatedStatus != nil {
+			req.CompletionStatus = aggregatedStatus
+			rp.logger.Debug().
+				Str("service_name", rp.check.Name).
+				Str("completion_status", aggregatedStatus.Status.String()).
+				Str("target_sequence", aggregatedStatus.TargetSequence).
+				Int32("total_completed", aggregatedStatus.CompletedTargets).
+				Int32("total_targets", aggregatedStatus.TotalTargets).
+				Msg("Forwarding aggregated completion status to sync service")
+		}
+	}
+
 	rp.logger.Debug().
 		Str("service_name", rp.check.Name).
 		Str("service_type", rp.check.Type).
@@ -638,39 +766,42 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 		Str("poller_id", rp.pollerID).
 		Msg("Executing GetResults call")
 
-	results, err := rp.client.GetResults(ctx, req)
-	if err != nil {
-		// Check if this is an "unimplemented" error, which means the service doesn't support GetResults
-		if status.Code(err) == codes.Unimplemented {
-			rp.logger.Debug().
-				Str("service_name", rp.check.Name).
-				Str("service_type", rp.check.Type).
-				Str("agent_name", rp.agentName).
-				Msg("Service does not support GetResults - skipping")
+	return req
+}
 
-			return nil // Skip this service for GetResults
-		}
-
-		rp.logger.Error().
-			Err(err).
+func (rp *ResultsPoller) handleGetResultsError(err error) *proto.ServiceStatus {
+	// Check if this is an "unimplemented" error, which means the service doesn't support GetResults
+	if status.Code(err) == codes.Unimplemented {
+		rp.logger.Debug().
 			Str("service_name", rp.check.Name).
 			Str("service_type", rp.check.Type).
 			Str("agent_name", rp.agentName).
-			Str("poller_id", rp.pollerID).
-			Msg("GetResults call failed")
+			Msg("Service does not support GetResults - skipping")
 
-		// Convert GetResults failure to ServiceStatus format
-		return &proto.ServiceStatus{
-			ServiceName: rp.check.Name,
-			Available:   false,
-			Message:     []byte(fmt.Sprintf(`{"error": "GetResults failed: %v"}`, err)),
-			ServiceType: rp.check.Type,
-			PollerId:    rp.pollerID,
-			AgentId:     rp.agentName,
-			Source:      "results",
-		}
+		return nil // Skip this service for GetResults
 	}
 
+	rp.logger.Error().
+		Err(err).
+		Str("service_name", rp.check.Name).
+		Str("service_type", rp.check.Type).
+		Str("agent_name", rp.agentName).
+		Str("poller_id", rp.pollerID).
+		Msg("GetResults call failed")
+
+	// Convert GetResults failure to ServiceStatus format
+	return &proto.ServiceStatus{
+		ServiceName: rp.check.Name,
+		Available:   false,
+		Message:     []byte(fmt.Sprintf(`{"error": "GetResults failed: %v"}`, err)),
+		ServiceType: rp.check.Type,
+		PollerId:    rp.pollerID,
+		AgentId:     rp.agentName,
+		Source:      "results",
+	}
+}
+
+func (rp *ResultsPoller) logSuccessfulGetResults(results *proto.ResultsResponse) {
 	rp.logger.Debug().
 		Str("service_name", rp.check.Name).
 		Str("service_type", rp.check.Type).
@@ -679,12 +810,30 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 		Str("current_sequence", results.CurrentSequence).
 		Bool("has_new_data", results.HasNewData).
 		Msg("GetResults call completed successfully")
+}
 
-	// Update sequence tracking for next call
+func (rp *ResultsPoller) updateSequenceTracking(results *proto.ResultsResponse) {
 	if results.CurrentSequence != "" {
 		rp.lastSequence = results.CurrentSequence
 	}
+}
 
+func (rp *ResultsPoller) updateCompletionTracking(results *proto.ResultsResponse) {
+	if results.SweepCompletion != nil {
+		rp.lastCompletionStatus = results.SweepCompletion
+		// Update the poller's aggregated completion tracking
+		rp.poller.updateAgentCompletion(rp.agentName, results.SweepCompletion)
+		rp.logger.Debug().
+			Str("service_name", rp.check.Name).
+			Str("agent_name", rp.agentName).
+			Str("completion_status", results.SweepCompletion.Status.String()).
+			Int32("completed_targets", results.SweepCompletion.CompletedTargets).
+			Int32("total_targets", results.SweepCompletion.TotalTargets).
+			Msg("Updated completion status from agent response")
+	}
+}
+
+func (rp *ResultsPoller) shouldSkipCoreSubmission(results *proto.ResultsResponse) bool {
 	// If there's no new data AND this is a sweep service, skip sending to core to prevent redundant database writes
 	// For other service types, we still send the response for compatibility
 	if !results.HasNewData && rp.check.Type == serviceTypeSweep {
@@ -694,10 +843,13 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 			Str("sequence", results.CurrentSequence).
 			Msg("No new data from sweep service, skipping core submission")
 
-		return nil // Skip this poll cycle for this service
+		return true
 	}
 
-	// Convert ResultsResponse to ServiceStatus format for core processing
+	return false
+}
+
+func (rp *ResultsPoller) convertToServiceStatus(results *proto.ResultsResponse) *proto.ServiceStatus {
 	return &proto.ServiceStatus{
 		ServiceName:  rp.check.Name,
 		Available:    results.Available,

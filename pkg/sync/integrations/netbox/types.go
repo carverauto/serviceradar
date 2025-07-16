@@ -30,6 +30,13 @@ type SRQLQuerier interface {
 	GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error)
 }
 
+// ResultSubmitter defines the interface for submitting sweep results and retraction events.
+// This is a local interface to avoid importing pkg/sync and creating a cycle.
+type ResultSubmitter interface {
+	SubmitSweepResult(ctx context.Context, result *models.SweepResult) error
+	SubmitBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
+}
+
 // DeviceState represents the consolidated state of a device from the unified view.
 // It's used by integrations to check for retractions.
 type DeviceState struct {
@@ -41,12 +48,13 @@ type DeviceState struct {
 
 // NetboxIntegration manages the NetBox API integration.
 type NetboxIntegration struct {
-	Config        *models.SourceConfig
-	KvClient      proto.KVServiceClient // For writing sweep Config
-	GrpcConn      *grpc.ClientConn      // Connection to reuse
-	ServerName    string
-	ExpandSubnets bool
-	Querier       SRQLQuerier // Querier for sweep results
+	Config          *models.SourceConfig
+	KvClient        proto.KVServiceClient // For writing sweep Config
+	GrpcConn        *grpc.ClientConn      // Connection to reuse
+	ServerName      string
+	ExpandSubnets   bool
+	Querier         SRQLQuerier     // Querier for sweep results
+	ResultSubmitter ResultSubmitter // For submitting retraction events
 }
 
 // Device represents a NetBox device as returned by the API.

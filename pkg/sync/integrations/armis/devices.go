@@ -19,7 +19,6 @@ package armis
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -156,19 +155,6 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 }
 
 func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.SweepResult {
-	// Check if devices have changed since last fetch
-	if !a.hasDevicesChanged(devices) {
-		logger.Info().
-			Int("total_devices", len(devices)).
-			Msg("No device changes detected, skipping sweep result generation")
-
-		return []*models.SweepResult{} // Return empty slice to avoid unnecessary processing
-	}
-
-	// Update stored devices and hash for next comparison
-	a.lastDevices = devices
-	a.lastDevicesHash = a.calculateDevicesHash(devices)
-
 	out := make([]*models.SweepResult, 0, len(devices))
 
 	for i := range devices {
@@ -204,78 +190,128 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 
 	logger.Info().
 		Int("total_devices", len(devices)).
-		Int("sweep_results", len(out)).
-		Msg("Device changes detected, generating sweep results")
+		Int("sweep_results_generated", len(out)).
+		Msg("Generated sweep results from Armis devices")
 
 	return out
 }
 
-// Fetch retrieves devices from Armis. If the updater is configured, it also
-// correlates sweep results and sends status updates back to Armis.
+// Fetch retrieves devices from Armis for discovery purposes only.
+// This method focuses purely on data discovery and does not perform state reconciliation.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
-	// Part 1: Discovery (Armis -> ServiceRadar)
+	// Discovery: Fetch devices from Armis and create sweep configs
 	data, devices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	// Convert devices to sweep results for sweep agents to consume
 	modelEvents := a.convertToSweepResults(devices)
 
-	// Part 2: Update (ServiceRadar -> Armis)
+	logger.Info().
+		Int("devices_discovered", len(devices)).
+		Int("sweep_results_generated", len(modelEvents)).
+		Msg("Completed Armis discovery operation")
+
+	return data, modelEvents, nil
+}
+
+// Reconcile performs state reconciliation operations with Armis.
+// This method queries ServiceRadar for current device states and updates Armis accordingly.
+// It should only be called after sweep operations have completed and real availability data is available.
+func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 	if a.Updater == nil || a.SweepQuerier == nil {
-		logger.Info().Msg("Armis updater not configured, skipping status update")
-		return data, modelEvents, nil
+		logger.Info().Msg("Armis updater not configured, skipping reconciliation")
+		return nil
 	}
 
-	// Call the new dedicated function to get device states
+	logger.Info().Msg("Starting Armis reconciliation operation")
+
+	// Get current device states from ServiceRadar
 	deviceStates, err := a.SweepQuerier.GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis))
 	if err != nil {
 		logger.Error().
 			Err(err).
-			Msg("Failed to query device states from ServiceRadar, skipping update")
+			Msg("Failed to query device states from ServiceRadar during reconciliation")
 
-		return data, modelEvents, nil
+		return err
+	}
+
+	if len(deviceStates) == 0 {
+		logger.Info().Msg("No device states found for Armis source, skipping reconciliation")
+		return nil
 	}
 
 	logger.Info().
 		Int("device_states_count", len(deviceStates)).
-		Msg("Successfully queried device states from ServiceRadar")
+		Msg("Successfully queried device states from ServiceRadar for reconciliation")
 
-	// Generate and append retraction events for devices no longer found in Armis
-	retractionEvents := a.generateRetractionEvents(devices, deviceStates)
+	// Fetch current devices from Armis to check for retractions
+	// We need this to identify devices that no longer exist in Armis but are still in ServiceRadar
+	_, currentDevices, err := a.fetchAndProcessDevices(ctx)
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Msg("Failed to fetch current devices from Armis during reconciliation")
+
+		return err
+	}
+
+	// Generate retraction events for devices no longer found in Armis
+	retractionEvents := a.generateRetractionEvents(currentDevices, deviceStates)
 	if len(retractionEvents) > 0 {
 		logger.Info().
 			Int("retraction_events_count", len(retractionEvents)).
 			Str("source", string(models.DiscoverySourceArmis)).
-			Msg("Generated retraction events")
+			Msg("Generated retraction events during reconciliation")
 
-		modelEvents = append(modelEvents, retractionEvents...)
+		// Send retraction events to the core service
+		if a.ResultSubmitter != nil {
+			if err := a.ResultSubmitter.SubmitBatchSweepResults(ctx, retractionEvents); err != nil {
+				logger.Error().
+					Err(err).
+					Int("retraction_events_count", len(retractionEvents)).
+					Msg("Failed to submit retraction events to core service")
+
+				return err
+			}
+
+			logger.Info().
+				Int("retraction_events_count", len(retractionEvents)).
+				Msg("Successfully submitted retraction events to core service")
+		} else {
+			logger.Warn().
+				Int("retraction_events_count", len(retractionEvents)).
+				Msg("ResultSubmitter not configured, retraction events not sent")
+		}
 	}
 
-	// Prepare updates using the new typed slice
+	// Prepare status updates for Armis
 	updates := a.prepareArmisUpdateFromDeviceStates(deviceStates)
 
 	logger.Debug().
 		Interface("updates", updates).
-		Msg("Prepared updates for Armis")
+		Msg("Prepared updates for Armis reconciliation")
 
 	if len(updates) > 0 {
 		logger.Info().
 			Int("updates_count", len(updates)).
-			Msg("Prepared status updates to send to Armis")
+			Msg("Sending status updates to Armis")
 
 		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
 			logger.Error().
 				Err(err).
-				Msg("Failed to update device status in Armis")
-		} else {
-			logger.Info().Msg("Successfully invoked the Armis device status updater")
+				Msg("Failed to update device status in Armis during reconciliation")
+
+			return err
 		}
+
+		logger.Info().Msg("Successfully completed Armis reconciliation")
 	} else {
-		logger.Info().Msg("No device status updates to send to Armis")
+		logger.Info().Msg("No device status updates needed for Armis reconciliation")
 	}
 
-	return data, modelEvents, nil
+	return nil
 }
 
 // generateRetractionEvents checks for devices that exist in ServiceRadar but not in the current Armis fetch.
@@ -324,45 +360,6 @@ func (a *ArmisIntegration) generateRetractionEvents(
 	}
 
 	return retractionEvents
-}
-
-// hasDevicesChanged compares current devices with previously fetched devices
-func (a *ArmisIntegration) hasDevicesChanged(devices []Device) bool {
-	// If this is the first fetch, consider it changed
-	if a.lastDevicesHash == "" {
-		return true
-	}
-
-	// Calculate hash of current devices
-	currentHash := a.calculateDevicesHash(devices)
-
-	// Compare with previous hash
-	return currentHash != a.lastDevicesHash
-}
-
-// calculateDevicesHash creates a hash of the devices for change detection
-func (*ArmisIntegration) calculateDevicesHash(devices []Device) string {
-	// Create a string representation of all relevant device fields
-	hasher := sha256.New()
-
-	for i := range devices {
-		device := &devices[i]
-		// Include fields that matter for change detection
-		deviceStr := fmt.Sprintf("%d|%s|%s|%s|%s|%s|%v|%s|%s",
-			device.ID,
-			device.IPAddress,
-			device.MacAddress,
-			device.Name,
-			device.Type,
-			device.OperatingSystem,
-			device.Tags,
-			device.LastSeen.Format(time.RFC3339),
-			device.Boundaries,
-		)
-		hasher.Write([]byte(deviceStr))
-	}
-
-	return fmt.Sprintf("%x", hasher.Sum(nil))
 }
 
 func (*ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState) []ArmisDeviceStatus {

@@ -25,6 +25,17 @@ type CachedResults struct {
 	Timestamp time.Time
 }
 
+// SweepCompletionTracker tracks sweep completion status for a source.
+type SweepCompletionTracker struct {
+	TargetSequence   string                                  // Sequence ID of current targets
+	ExpectedAgents   map[string]bool                         // Agents that should report completion
+	CompletedAgents  map[string]*proto.SweepCompletionStatus // Agents that have completed
+	StartTime        time.Time                               // When sweep targets were distributed
+	LastUpdateTime   time.Time                               // Last time we received a completion update
+	TotalTargets     int32                                   // Total number of targets distributed
+	CompletionStatus proto.SweepCompletionStatus_Status      // Overall completion status
+}
+
 // PollerService manages synchronization and serves results via a standard agent gRPC interface.
 type PollerService struct {
 	proto.UnimplementedAgentServiceServer // Implements the AgentService interface
@@ -37,7 +48,12 @@ type PollerService struct {
 	grpcServer                            *grpc.Server
 	resultsCache                          map[string]*CachedResults
 	resultsMu                             sync.RWMutex
-	logger                                logger.Logger
+
+	// Sweep completion tracking
+	completionTracker map[string]*SweepCompletionTracker // Track completion by source
+	completionMu      sync.RWMutex
+
+	logger logger.Logger
 }
 
 // GetStatus implements the AgentService GetStatus method.
@@ -93,6 +109,11 @@ func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest)
 		Str("last_sequence", req.LastSequence).
 		Msg("GetResults called by poller")
 
+	// Process incoming completion status from poller
+	if req.CompletionStatus != nil {
+		s.processPollerCompletionStatus(req.PollerId, req.CompletionStatus)
+	}
+
 	// Create a stable sequence based on the sequences of all cached sources
 	var currentSequence string
 
@@ -143,6 +164,9 @@ func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest)
 		Bool("has_new_data", hasNewData).
 		Msg("Returned sweep results to poller")
 
+	// Get sweep completion status for this request
+	sweepCompletion := s.getSweepCompletionStatus(req.ServiceName, req.PollerId)
+
 	return &proto.ResultsResponse{
 		Available:       true,
 		Data:            resultsJSON,
@@ -153,5 +177,121 @@ func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest)
 		Timestamp:       time.Now().Unix(),
 		CurrentSequence: currentSequence,
 		HasNewData:      hasNewData,
+		SweepCompletion: sweepCompletion,
 	}, nil
+}
+
+// getSweepCompletionStatus returns the current sweep completion status for a specific agent and source.
+func (s *PollerService) getSweepCompletionStatus(serviceName, agentID string) *proto.SweepCompletionStatus {
+	s.completionMu.RLock()
+	defer s.completionMu.RUnlock()
+
+	// For sync service, serviceName typically represents the source
+	// In a more complex setup, you might need different mapping logic
+	sourceName := serviceName
+
+	tracker, exists := s.completionTracker[sourceName]
+	if !exists {
+		// No tracking data available
+		return &proto.SweepCompletionStatus{
+			Status: proto.SweepCompletionStatus_UNKNOWN,
+		}
+	}
+
+	// If this agent isn't being tracked yet, add it to expected agents
+	if _, exists := tracker.ExpectedAgents[agentID]; !exists {
+		// Dynamically add agent to tracking
+		s.completionMu.RUnlock()
+		s.completionMu.Lock()
+
+		// Re-check after lock upgrade
+		if updatedTracker, exists := s.completionTracker[sourceName]; exists {
+			updatedTracker.ExpectedAgents[agentID] = true
+
+			s.logger.Debug().
+				Str("source", sourceName).
+				Str("agent_id", agentID).
+				Msg("Added agent to completion tracking")
+		}
+
+		s.completionMu.Unlock()
+		s.completionMu.RLock()
+	}
+
+	// Return current completion status for this agent
+	if agentStatus, exists := tracker.CompletedAgents[agentID]; exists {
+		return agentStatus
+	}
+
+	// Agent hasn't completed yet, return in-progress status
+	return &proto.SweepCompletionStatus{
+		Status:           proto.SweepCompletionStatus_NOT_STARTED,
+		TargetSequence:   tracker.TargetSequence,
+		TotalTargets:     tracker.TotalTargets,
+		CompletedTargets: 0,
+	}
+}
+
+// processPollerCompletionStatus handles completion status updates from pollers.
+func (s *PollerService) processPollerCompletionStatus(pollerID string, status *proto.SweepCompletionStatus) {
+	if status == nil {
+		return
+	}
+
+	s.completionMu.Lock()
+	defer s.completionMu.Unlock()
+
+	s.logger.Debug().
+		Str("poller_id", pollerID).
+		Str("status", status.Status.String()).
+		Str("target_sequence", status.TargetSequence).
+		Int32("completed_targets", status.CompletedTargets).
+		Int32("total_targets", status.TotalTargets).
+		Msg("Received completion status from poller")
+
+	// Find the appropriate source tracker based on target sequence
+	// In a more sophisticated setup, you might need to map poller ID to source
+	for sourceName, tracker := range s.completionTracker {
+		if tracker.TargetSequence != status.TargetSequence {
+			continue
+		}
+		// Update the tracker with aggregated completion from this poller
+		tracker.CompletedAgents[pollerID] = status
+		tracker.LastUpdateTime = time.Now()
+
+		// Check if all expected agents (pollers) have completed
+		allCompleted := true
+
+		var totalCompleted int32
+
+		var totalTargets int32
+
+		for _, agentStatus := range tracker.CompletedAgents {
+			if agentStatus.Status != proto.SweepCompletionStatus_COMPLETED {
+				allCompleted = false
+			}
+
+			totalCompleted += agentStatus.CompletedTargets
+			totalTargets += agentStatus.TotalTargets
+		}
+
+		// Update overall completion status
+		if allCompleted && len(tracker.CompletedAgents) > 0 {
+			tracker.CompletionStatus = proto.SweepCompletionStatus_COMPLETED
+		} else if totalCompleted > 0 {
+			tracker.CompletionStatus = proto.SweepCompletionStatus_IN_PROGRESS
+		}
+
+		s.logger.Info().
+			Str("source", sourceName).
+			Str("poller_id", pollerID).
+			Str("overall_status", tracker.CompletionStatus.String()).
+			Bool("all_completed", allCompleted).
+			Int32("total_completed", totalCompleted).
+			Int32("total_targets", totalTargets).
+			Int("completed_pollers", len(tracker.CompletedAgents)).
+			Msg("Updated sweep completion tracking")
+
+		break
+	}
 }
