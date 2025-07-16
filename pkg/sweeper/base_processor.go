@@ -114,36 +114,23 @@ func (p *BaseProcessor) getShardIndex(host string) int {
 }
 
 func (p *BaseProcessor) UpdateConfig(config *models.Config) {
+	p.configMu.Lock()
+	defer p.configMu.Unlock()
+
+	oldPortCount := p.portCount
 	newPortCount := len(config.Ports)
 	if newPortCount == 0 {
 		newPortCount = 100
 	}
 
-	p.configMu.Lock()
-	oldPortCount := p.portCount
+	// Always update the internal config and port count
+	p.config = config
+	p.portCount = newPortCount
 
-	log.Printf("Updating port count from %d to %d", oldPortCount, newPortCount)
-
-	// Create new pool with updated capacity
-	newPool := &sync.Pool{
-		New: func() interface{} {
-			return &models.HostResult{
-				PortResults: make([]*models.PortResult, 0, expectedPortsPerHost),
-				PortMap:     make(map[int]*models.PortResult, expectedPortsPerHost),
-			}
-		},
-	}
-
-	if newPortCount != p.portCount {
-		p.portCount = newPortCount
-		p.config = config
-		p.hostResultPool = newPool
-	}
-
-	p.configMu.Unlock()
-
+	// The pool doesn't need to be recreated. The "grow on demand" logic
+	// will automatically use the new p.portCount when upgrading hosts.
 	if newPortCount != oldPortCount {
-		log.Printf("Port count updated from %d to %d (preserving existing host data)", oldPortCount, newPortCount)
+		log.Printf("Processor config updated. Port count changed from %d to %d.", oldPortCount, newPortCount)
 	}
 }
 
@@ -269,13 +256,12 @@ func (p *BaseProcessor) cleanupHostBatch(hosts []*models.HostResult) {
 
 		// Reset host and return to pool
 		host.Host = ""
-		host.PortResults = host.PortResults[:0]
-
-		if host.PortMap != nil {
-			for k := range host.PortMap {
-				delete(host.PortMap, k)
-			}
-		}
+		
+		// Explicitly nil out the slices and maps to allow the GC
+		// to reclaim the large backing arrays, even if the pool
+		// holds onto the HostResult struct itself
+		host.PortResults = nil
+		host.PortMap = nil
 
 		host.ICMPStatus = nil
 		host.ResponseTime = 0
@@ -330,6 +316,30 @@ func (p *BaseProcessor) updatePortStatus(shard *ProcessorShard, host *models.Hos
 		existingPort.RespTime = result.RespTime
 
 		return
+	}
+
+	// If the host's port list is at capacity, it's time to upgrade its storage
+	if len(host.PortResults) >= cap(host.PortResults) {
+		p.configMu.RLock()
+		newCapacity := p.portCount
+		p.configMu.RUnlock()
+
+		// Only perform the expensive upgrade if the new capacity is larger
+		if newCapacity > cap(host.PortResults) {
+			log.Printf("Upgrading port capacity for host %s from %d to %d", host.Host, cap(host.PortResults), newCapacity)
+			
+			// Re-allocate PortResults slice with the new, larger capacity
+			newPortResults := make([]*models.PortResult, len(host.PortResults), newCapacity)
+			copy(newPortResults, host.PortResults)
+			host.PortResults = newPortResults
+
+			// Re-create PortMap with the new capacity for better performance
+			newPortMap := make(map[int]*models.PortResult, newCapacity)
+			for k, v := range host.PortMap {
+				newPortMap[k] = v
+			}
+			host.PortMap = newPortMap
+		}
 	}
 
 	// Create new port result - use pool for allocation
@@ -603,9 +613,15 @@ func (p *BaseProcessor) getOrCreateHost(shard *ProcessorShard, hostAddr string, 
 		// Reset/initialize the host result
 		host.Host = hostAddr
 		host.Available = false
-		host.PortResults = host.PortResults[:0] // Clear slice but keep capacity
+		
+		// If we are reusing an object from the pool that was cleaned up,
+		// its slices/maps will be nil. We need to re-initialize them.
+		if host.PortResults == nil {
+			host.PortResults = make([]*models.PortResult, 0, expectedPortsPerHost)
+		} else {
+			host.PortResults = host.PortResults[:0] // Clear slice but keep capacity
+		}
 
-		// Initialize or clear the port map
 		if host.PortMap == nil {
 			host.PortMap = make(map[int]*models.PortResult, expectedPortsPerHost)
 		} else {
