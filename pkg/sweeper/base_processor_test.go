@@ -17,6 +17,7 @@
 package sweeper
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/big"
@@ -66,14 +67,16 @@ func TestBaseProcessor_Cleanup(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check the portCounts before cleanup
-	assert.Equal(t, 1, processor.portCounts[443], "Expected port 443 to have 1 count")
-	assert.Equal(t, 1, processor.portCounts[8080], "Expected port 8080 to have 1 count")
+	portCounts := processor.GetPortCounts()
+	assert.Equal(t, 1, portCounts[443], "Expected port 443 to have 1 count")
+	assert.Equal(t, 1, portCounts[8080], "Expected port 8080 to have 1 count")
 
 	// Call cleanup
 	processor.cleanup()
 
 	// Verify that portCounts are cleared after cleanup
-	assert.Empty(t, processor.portCounts, "Expected portCounts to be empty after cleanup")
+	portCountsAfter := processor.GetPortCounts()
+	assert.Empty(t, portCountsAfter, "Expected portCounts to be empty after cleanup")
 }
 
 func TestBaseProcessor_MemoryManagement(t *testing.T) {
@@ -96,6 +99,7 @@ func createLargePortConfig() *models.Config {
 	config := &models.Config{
 		Ports: make([]int, 2300),
 	}
+
 	for i := range config.Ports {
 		config.Ports[i] = i + 1
 	}
@@ -274,6 +278,7 @@ func TestBaseProcessor_ConcurrentAccess(t *testing.T) {
 						Available: true,
 						RespTime:  time.Millisecond * time.Duration(j+1),
 					}
+
 					if err := processor.Process(result); err != nil {
 						errorChan <- fmt.Errorf("host %s, iteration %d: %w", host, j, err)
 
@@ -285,10 +290,12 @@ func TestBaseProcessor_ConcurrentAccess(t *testing.T) {
 
 		// Wait for all goroutines to complete
 		wg.Wait()
+
 		close(errorChan)
 
 		// Check for any errors
 		var errors []error
+
 		for err := range errorChan {
 			errors = append(errors, err)
 		}
@@ -296,9 +303,10 @@ func TestBaseProcessor_ConcurrentAccess(t *testing.T) {
 		assert.Empty(t, errors, "No errors should occur during concurrent processing")
 
 		// Verify results
-		assert.Len(t, processor.hostMap, numHosts, "Should have expected number of hosts")
+		hostMap := processor.GetHostMap()
+		assert.Len(t, hostMap, numHosts, "Should have expected number of hosts")
 
-		for _, host := range processor.hostMap {
+		for _, host := range hostMap {
 			assert.NotNil(t, host)
 			assert.Len(t, host.PortResults, len(config.Ports), "Each host should have results for all configured ports")
 		}
@@ -309,6 +317,7 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 	config := &models.Config{
 		Ports: make([]int, 2300),
 	}
+
 	for i := range config.Ports {
 		config.Ports[i] = i + 1
 	}
@@ -327,22 +336,33 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 				Available: true,
 				RespTime:  time.Millisecond * 10,
 			}
+
 			err := processor.Process(result)
 			require.NoError(t, err) // Use require here, as we are in the main test goroutine
 		}
 
 		// Verify we have data
-		assert.NotEmpty(t, processor.hostMap)
-		assert.NotEmpty(t, processor.portCounts)
+		hostMap := processor.GetHostMap()
+		portCounts := processor.GetPortCounts()
+
+		assert.NotEmpty(t, hostMap)
+		assert.NotEmpty(t, portCounts)
 
 		// Cleanup
 		processor.cleanup()
 
 		// Verify everything is cleaned up
-		assert.Empty(t, processor.hostMap)
-		assert.Empty(t, processor.portCounts)
-		assert.Empty(t, processor.firstSeenTimes)
-		assert.True(t, processor.lastSweepTime.IsZero())
+		hostMapAfter := processor.GetHostMap()
+		portCountsAfter := processor.GetPortCounts()
+
+		assert.Empty(t, hostMapAfter)
+		assert.Empty(t, portCountsAfter)
+
+		firstSeenTimesAfter := processor.GetFirstSeenTimes()
+		lastSweepTimeAfter := processor.GetLatestSweepTime()
+
+		assert.Empty(t, firstSeenTimesAfter)
+		assert.True(t, lastSweepTimeAfter.IsZero())
 	})
 
 	t.Run("Pool Reuse", func(t *testing.T) {
@@ -362,11 +382,13 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 				},
 				Available: true,
 			}
+
 			err := processor.Process(result)
 			require.NoError(t, err)
 
 			// Track the allocated host
-			allocatedHosts[processor.hostMap[result.Target.Host]] = struct{}{}
+			hostMap := processor.GetHostMap()
+			allocatedHosts[hostMap[result.Target.Host]] = struct{}{}
 		}
 
 		// Cleanup and process again
@@ -384,11 +406,13 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 				},
 				Available: true,
 			}
+
 			err := processor.Process(result)
 			require.NoError(t, err)
 
 			// Check if the host was reused
-			if _, exists := allocatedHosts[processor.hostMap[result.Target.Host]]; exists {
+			hostMapAfter := processor.GetHostMap()
+			if _, exists := allocatedHosts[hostMapAfter[result.Target.Host]]; exists {
 				reusedCount++
 			}
 		}
@@ -423,21 +447,21 @@ func TestBaseProcessor_ConfigurationUpdates(t *testing.T) {
 				},
 				Available: true,
 			}
+
 			err := processor.Process(result)
 			require.NoError(t, err, "Processing with initial config should succeed")
 		}
 
 		// Verify initial state
-		processor.mu.RLock()
-		initialHosts := len(processor.hostMap)
+		hostMap := processor.GetHostMap()
+		initialHosts := len(hostMap)
 
 		var initialCapacity int
 
-		for _, host := range processor.hostMap {
+		for _, host := range hostMap {
 			initialCapacity = cap(host.PortResults)
 			break
 		}
-		processor.mu.RUnlock()
 
 		assert.Equal(t, 10, initialHosts, "Should have 10 hosts initially")
 		assert.LessOrEqual(t, initialCapacity, 100, "Initial capacity should not exceed port count")
@@ -448,6 +472,7 @@ func TestBaseProcessor_ConfigurationUpdates(t *testing.T) {
 		newConfig := &models.Config{
 			Ports: make([]int, 2300),
 		}
+
 		for i := range newConfig.Ports {
 			newConfig.Ports[i] = i + 1
 		}
@@ -467,20 +492,309 @@ func TestBaseProcessor_ConfigurationUpdates(t *testing.T) {
 				},
 				Available: true,
 			}
+
 			err := processor.Process(result)
 			require.NoError(t, err, "Processing with new config should succeed")
 		}
 
 		// Verify final state
-		processor.mu.RLock()
-		defer processor.mu.RUnlock()
-
-		assert.Len(t, processor.hostMap, 20, "Should have 20 hosts total")
+		hostMapFinal := processor.GetHostMap()
+		assert.Len(t, hostMapFinal, 20, "Should have 20 hosts total")
 
 		// Check port result capacities
-		for _, host := range processor.hostMap {
+		for _, host := range hostMapFinal {
 			assert.LessOrEqual(t, cap(host.PortResults), 2300,
 				"Host port results capacity should not exceed new config port count")
+		}
+	})
+}
+
+func TestBaseProcessor_GetSummaryStream(t *testing.T) {
+	config := &models.Config{
+		Ports: []int{22, 80, 443, 8080},
+	}
+
+	t.Run("Streaming Large Dataset", func(t *testing.T) {
+		processor := NewBaseProcessor(config)
+		defer processor.cleanup()
+
+		const numHosts = 100
+
+		portsPerHost := len(config.Ports)
+
+		// Process a dataset with multiple hosts and ports
+		for i := 0; i < numHosts; i++ {
+			hostIP := fmt.Sprintf("192.168.1.%d", i+1)
+
+			// Add ICMP result first to mark host as available
+			icmpResult := &models.Result{
+				Target: models.Target{
+					Host: hostIP,
+					Port: 0,
+					Mode: models.ModeICMP,
+				},
+				Available: true,
+				RespTime:  time.Millisecond * 5,
+			}
+
+			err := processor.Process(icmpResult)
+			require.NoError(t, err)
+
+			// Add TCP results for each port
+			for _, port := range config.Ports {
+				result := &models.Result{
+					Target: models.Target{
+						Host: hostIP,
+						Port: port,
+						Mode: models.ModeTCP,
+					},
+					Available: true,
+					RespTime:  time.Millisecond * 10,
+				}
+				err := processor.Process(result)
+				require.NoError(t, err)
+			}
+		}
+
+		// Test streaming summary
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		hostCh := make(chan models.HostResult, 50) // Buffered channel
+
+		var streamedHosts []models.HostResult
+
+		var hostCollectionDone sync.WaitGroup
+
+		// Collect streamed hosts in background
+		hostCollectionDone.Add(1)
+
+		go func() {
+			defer hostCollectionDone.Done()
+
+			for host := range hostCh {
+				streamedHosts = append(streamedHosts, host)
+			}
+		}()
+
+		// Get streaming summary
+		summary, err := processor.GetSummaryStream(ctx, hostCh)
+		require.NoError(t, err)
+		require.NotNil(t, summary)
+
+		// Wait for all hosts to be collected
+		hostCollectionDone.Wait()
+
+		// Verify summary metadata
+		assert.Equal(t, numHosts, summary.AvailableHosts, "Should have correct available hosts count")
+		assert.Equal(t, numHosts, summary.TotalHosts, "Should have correct total hosts count")
+		assert.Len(t, summary.Ports, len(config.Ports), "Should have correct number of ports")
+		assert.Nil(t, summary.Hosts, "Hosts slice should be nil in streaming mode")
+
+		// Verify all ports have correct counts
+		for _, portCount := range summary.Ports {
+			assert.Equal(t, numHosts, portCount.Available,
+				"Port %d should have %d available hosts", portCount.Port, numHosts)
+		}
+
+		// Verify streamed hosts
+		assert.Len(t, streamedHosts, numHosts, "Should stream all hosts")
+
+		// Verify each streamed host has expected structure
+		for _, host := range streamedHosts {
+			assert.True(t, host.Available, "Host should be available")
+			assert.NotNil(t, host.ICMPStatus, "Host should have ICMP status")
+			assert.True(t, host.ICMPStatus.Available, "ICMP should be available")
+			assert.Len(t, host.PortResults, portsPerHost, "Host should have all port results")
+
+			// Verify all ports are available
+			for _, portResult := range host.PortResults {
+				assert.True(t, portResult.Available, "Port %d should be available", portResult.Port)
+				assert.Contains(t, config.Ports, portResult.Port, "Port should be in config")
+			}
+		}
+	})
+
+	t.Run("Context Cancellation", func(t *testing.T) {
+		processor := NewBaseProcessor(config)
+		defer processor.cleanup()
+
+		// Add some test data
+		for i := 0; i < 10; i++ {
+			result := &models.Result{
+				Target: models.Target{
+					Host: fmt.Sprintf("192.168.1.%d", i+1),
+					Port: 80,
+					Mode: models.ModeTCP,
+				},
+				Available: true,
+				RespTime:  time.Millisecond * 10,
+			}
+			err := processor.Process(result)
+			require.NoError(t, err)
+		}
+
+		// Create canceled context
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		hostCh := make(chan models.HostResult, 10)
+
+		// Should return context error
+		summary, err := processor.GetSummaryStream(ctx, hostCh)
+		require.Error(t, err)
+		assert.Equal(t, context.Canceled, err)
+		assert.Nil(t, summary)
+	})
+
+	t.Run("Empty Dataset", func(t *testing.T) {
+		processor := NewBaseProcessor(config)
+		defer processor.cleanup()
+
+		ctx := context.Background()
+		hostCh := make(chan models.HostResult, 10)
+
+		var streamedHosts []models.HostResult
+
+		var hostCollectionDone sync.WaitGroup
+
+		// Collect streamed hosts
+		hostCollectionDone.Add(1)
+
+		go func() {
+			defer hostCollectionDone.Done()
+
+			for host := range hostCh {
+				streamedHosts = append(streamedHosts, host)
+			}
+		}()
+
+		summary, err := processor.GetSummaryStream(ctx, hostCh)
+		require.NoError(t, err)
+		require.NotNil(t, summary)
+
+		// Wait for all hosts to be collected
+		hostCollectionDone.Wait()
+
+		// Should have empty results
+		assert.Equal(t, 0, summary.AvailableHosts)
+		assert.Equal(t, 0, summary.TotalHosts)
+		assert.Empty(t, summary.Ports)
+		assert.Empty(t, streamedHosts)
+	})
+
+	t.Run("Compare with Regular GetSummary", func(t *testing.T) {
+		processor := NewBaseProcessor(config)
+		defer processor.cleanup()
+
+		const numHosts = 50
+
+		// Add identical test data
+		for i := 0; i < numHosts; i++ {
+			hostIP := fmt.Sprintf("192.168.1.%d", i+1)
+
+			// ICMP result
+			icmpResult := &models.Result{
+				Target: models.Target{
+					Host: hostIP,
+					Port: 0,
+					Mode: models.ModeICMP,
+				},
+				Available: true,
+				RespTime:  time.Millisecond * 5,
+			}
+
+			err := processor.Process(icmpResult)
+			require.NoError(t, err)
+
+			// TCP results
+			for _, port := range config.Ports {
+				result := &models.Result{
+					Target: models.Target{
+						Host: hostIP,
+						Port: port,
+						Mode: models.ModeTCP,
+					},
+					Available: true,
+					RespTime:  time.Millisecond * 10,
+				}
+
+				err := processor.Process(result)
+				require.NoError(t, err)
+			}
+		}
+
+		ctx := context.Background()
+
+		// Get regular summary
+		regularSummary, err := processor.GetSummary(ctx)
+		require.NoError(t, err)
+
+		// Get streaming summary
+		hostCh := make(chan models.HostResult, 100)
+
+		var streamedHosts []models.HostResult
+
+		var hostCollectionDone sync.WaitGroup
+
+		hostCollectionDone.Add(1)
+
+		go func() {
+			defer hostCollectionDone.Done()
+
+			for host := range hostCh {
+				streamedHosts = append(streamedHosts, host)
+			}
+		}()
+
+		streamingSummary, err := processor.GetSummaryStream(ctx, hostCh)
+		require.NoError(t, err)
+
+		// Wait for all hosts to be collected
+		hostCollectionDone.Wait()
+
+		// Compare summaries (excluding hosts slice)
+		assert.Equal(t, regularSummary.TotalHosts, streamingSummary.TotalHosts)
+		assert.Equal(t, regularSummary.AvailableHosts, streamingSummary.AvailableHosts)
+		assert.Equal(t, len(regularSummary.Ports), len(streamingSummary.Ports))
+
+		// Compare port counts
+		regularPortMap := make(map[int]int)
+		for _, pc := range regularSummary.Ports {
+			regularPortMap[pc.Port] = pc.Available
+		}
+
+		streamingPortMap := make(map[int]int)
+		for _, pc := range streamingSummary.Ports {
+			streamingPortMap[pc.Port] = pc.Available
+		}
+
+		assert.Equal(t, regularPortMap, streamingPortMap, "Port counts should match")
+
+		// Compare hosts (regular summary has hosts, streaming sends via channel)
+		assert.Len(t, regularSummary.Hosts, numHosts)
+		assert.Len(t, streamedHosts, numHosts)
+		assert.Nil(t, streamingSummary.Hosts)
+
+		// Compare host data structure
+		regularHostMap := make(map[string]models.HostResult)
+		for _, host := range regularSummary.Hosts {
+			regularHostMap[host.Host] = host
+		}
+
+		streamedHostMap := make(map[string]models.HostResult)
+		for _, host := range streamedHosts {
+			streamedHostMap[host.Host] = host
+		}
+
+		assert.Equal(t, len(regularHostMap), len(streamedHostMap))
+
+		// Verify each host matches
+		for hostIP, regularHost := range regularHostMap {
+			streamedHost, exists := streamedHostMap[hostIP]
+			assert.True(t, exists, "Host %s should exist in streamed results", hostIP)
+			assert.Equal(t, regularHost.Available, streamedHost.Available)
+			assert.Equal(t, len(regularHost.PortResults), len(streamedHost.PortResults))
 		}
 	})
 }
