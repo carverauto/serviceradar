@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -60,14 +61,15 @@ func New(
 	}
 
 	s := &PollerService{
-		pollers:      make(map[string]*poller.Poller),
-		config:       *config,
-		kvClient:     kvClient,
-		sources:      make(map[string]Integration),
-		registry:     registry,
-		grpcClient:   grpcClient,
-		resultsCache: make(map[string]*CachedResults),
-		logger:       log,
+		pollers:           make(map[string]*poller.Poller),
+		config:            *config,
+		kvClient:          kvClient,
+		sources:           make(map[string]Integration),
+		registry:          registry,
+		grpcClient:        grpcClient,
+		resultsCache:      make(map[string]*CachedResults),
+		completionTracker: make(map[string]*SweepCompletionTracker),
+		logger:            log,
 	}
 
 	s.initializeIntegrations(ctx)
@@ -209,43 +211,17 @@ func (s *PollerService) syncSourceDiscovery(ctx context.Context, sourceName stri
 
 	s.logger.Info().Str("source", sourceName).Msg("Starting discovery sync for source")
 
-	// For discovery, we only want the KV data, not sweep results
-	data, _, err := integration.Fetch(ctx)
+	// Fetch both KV data and sweep results for discovery
+	data, events, err := integration.Fetch(ctx)
 	if err != nil {
 		s.logger.Warn().Err(err).Str("source", sourceName).Msg("Error fetching from source during discovery")
 		return nil
 	}
 
+	// Write device data to KV store
 	s.writeToKV(ctx, sourceName, data)
 
-	// DO NOT cache sweep results from discovery operations
-	// Results cache should only be updated during actual sweep operations
-
-	s.logger.Info().
-		Str("source", sourceName).
-		Int("kv_entries", len(data)).
-		Msg("Completed discovery sync for source")
-
-	return nil
-}
-
-// syncSourceSweep performs sweep operations for a single data source.
-func (s *PollerService) syncSourceSweep(ctx context.Context, sourceName string) error {
-	integration, ok := s.sources[sourceName]
-	if !ok {
-		return fmt.Errorf("integration not found for source: %s", sourceName)
-	}
-
-	s.logger.Info().Str("source", sourceName).Msg("Starting sweep for source")
-
-	// For sweeps, we only want the sweep results, not KV data
-	_, events, err := integration.Fetch(ctx)
-	if err != nil {
-		s.logger.Warn().Err(err).Str("source", sourceName).Msg("Error fetching from source during sweep")
-		return nil
-	}
-
-	// Update the cache for this specific source with ONLY sweep results
+	// Cache sweep results for sweep agents to consume
 	now := time.Now()
 	sequence := strconv.FormatInt(now.UnixNano(), 10)
 
@@ -257,7 +233,15 @@ func (s *PollerService) syncSourceSweep(ctx context.Context, sourceName string) 
 	}
 	s.resultsMu.Unlock()
 
-	// Recalculate total devices for logging.
+	// Initialize completion tracking for new targets (this resets previous completion state)
+	numEvents := len(events)
+	if numEvents > math.MaxInt32 {
+		numEvents = math.MaxInt32 // Cap at max int32
+	}
+	// #nosec G115 -- numEvents is capped at MaxInt32 above
+	s.initializeCompletionTracking(sourceName, sequence, int32(numEvents), now)
+
+	// Recalculate total devices for logging
 	var totalDevices int
 
 	s.resultsMu.RLock()
@@ -270,11 +254,212 @@ func (s *PollerService) syncSourceSweep(ctx context.Context, sourceName string) 
 
 	s.logger.Info().
 		Str("source", sourceName).
-		Int("source_device_count", len(events)).
+		Int("kv_entries", len(data)).
+		Int("sweep_results_cached", len(events)).
 		Int("total_cached_devices", totalDevices).
-		Msg("Completed sweep for source")
+		Msg("Completed discovery sync for source")
 
 	return nil
+}
+
+// syncSourceSweep performs reconciliation operations for a single data source.
+// This function handles state synchronization with external systems after sweep operations have completed.
+func (s *PollerService) syncSourceSweep(ctx context.Context, sourceName string) error {
+	integration, ok := s.sources[sourceName]
+	if !ok {
+		return fmt.Errorf("integration not found for source: %s", sourceName)
+	}
+
+	s.logger.Info().Str("source", sourceName).Msg("Starting reconciliation check for source")
+
+	// Check if sweep operations are configured and complete before reconciliation
+	sourceCfg, exists := s.config.Sources[sourceName]
+	sweepConfigured := exists && sourceCfg.SweepInterval != ""
+
+	if sweepConfigured && !s.isSweepComplete(sourceName) {
+		// Check if we should force reconciliation due to timeout
+		if !s.shouldForceReconciliation(sourceName) {
+			s.logger.Debug().
+				Str("source", sourceName).
+				Msg("Sweep configured but not yet complete, skipping reconciliation")
+
+			return nil
+		}
+
+		s.logger.Warn().
+			Str("source", sourceName).
+			Msg("Forcing reconciliation due to sweep timeout")
+	}
+
+	if !sweepConfigured {
+		s.logger.Debug().
+			Str("source", sourceName).
+			Msg("No sweep configured for source, proceeding with reconciliation")
+	}
+
+	s.logger.Info().Str("source", sourceName).Msg("Sweep complete, performing reconciliation")
+
+	// Perform reconciliation (update external systems with current availability status)
+	err := integration.Reconcile(ctx)
+	if err != nil {
+		s.logger.Error().Err(err).Str("source", sourceName).Msg("Error during source reconciliation")
+		return err
+	}
+
+	s.logger.Info().
+		Str("source", sourceName).
+		Msg("Completed reconciliation for source")
+
+	return nil
+}
+
+// isSweepComplete checks if sweep operations are complete for a given source.
+func (s *PollerService) isSweepComplete(sourceName string) bool {
+	s.completionMu.RLock()
+	defer s.completionMu.RUnlock()
+
+	tracker, exists := s.completionTracker[sourceName]
+	if !exists {
+		s.logger.Debug().
+			Str("source", sourceName).
+			Msg("No completion tracker found, considering sweep incomplete")
+
+		return false
+	}
+
+	// Check overall completion status
+	isComplete := tracker.CompletionStatus == proto.SweepCompletionStatus_COMPLETED
+
+	// Additional validation: check if we have reasonable completion data
+	if isComplete {
+		// Ensure we have some completion data from agents/pollers
+		if len(tracker.CompletedAgents) == 0 {
+			s.logger.Warn().
+				Str("source", sourceName).
+				Msg("Marked as complete but no agent completion data, considering incomplete")
+
+			return false
+		}
+
+		// Check if completion is recent enough (within reasonable timeframe)
+		timeSinceLastUpdate := time.Since(tracker.LastUpdateTime)
+		if timeSinceLastUpdate > 10*time.Minute {
+			s.logger.Warn().
+				Str("source", sourceName).
+				Dur("time_since_update", timeSinceLastUpdate).
+				Msg("Completion status is stale, considering incomplete")
+
+			return false
+		}
+	}
+
+	s.logger.Debug().
+		Str("source", sourceName).
+		Str("completion_status", tracker.CompletionStatus.String()).
+		Int("completed_agents", len(tracker.CompletedAgents)).
+		Bool("is_complete", isComplete).
+		Dur("time_since_update", time.Since(tracker.LastUpdateTime)).
+		Msg("Sweep completion check result")
+
+	return isComplete
+}
+
+// shouldForceReconciliation determines if reconciliation should be forced despite incomplete sweeps.
+func (s *PollerService) shouldForceReconciliation(sourceName string) bool {
+	s.completionMu.RLock()
+	defer s.completionMu.RUnlock()
+
+	tracker, exists := s.completionTracker[sourceName]
+	if !exists {
+		// No tracking data means we should proceed (failsafe)
+		s.logger.Debug().
+			Str("source", sourceName).
+			Msg("No completion tracker, allowing reconciliation")
+
+		return true
+	}
+
+	// Force reconciliation if too much time has passed since targets were distributed
+	maxWaitTime := 30 * time.Minute // Configurable timeout
+	timeSinceStart := time.Since(tracker.StartTime)
+
+	if timeSinceStart > maxWaitTime {
+		s.logger.Warn().
+			Str("source", sourceName).
+			Dur("time_since_start", timeSinceStart).
+			Dur("max_wait_time", maxWaitTime).
+			Msg("Sweep timeout exceeded, forcing reconciliation")
+
+		return true
+	}
+
+	// Force reconciliation if we haven't received updates in a while but have some progress
+	timeSinceUpdate := time.Since(tracker.LastUpdateTime)
+	if timeSinceUpdate > 15*time.Minute && len(tracker.CompletedAgents) > 0 {
+		s.logger.Warn().
+			Str("source", sourceName).
+			Dur("time_since_update", timeSinceUpdate).
+			Int("completed_agents", len(tracker.CompletedAgents)).
+			Msg("No recent completion updates, forcing reconciliation")
+
+		return true
+	}
+
+	return false
+}
+
+// initializeCompletionTracking sets up tracking for a new set of sweep targets.
+func (s *PollerService) initializeCompletionTracking(sourceName, sequence string, totalTargets int32, startTime time.Time) {
+	s.completionMu.Lock()
+	defer s.completionMu.Unlock()
+
+	// Reset any existing completion tracking for this source
+	if existingTracker, exists := s.completionTracker[sourceName]; exists {
+		s.logger.Info().
+			Str("source", sourceName).
+			Str("old_sequence", existingTracker.TargetSequence).
+			Str("new_sequence", sequence).
+			Msg("Resetting completion tracking for new discovery cycle")
+	}
+
+	// For now, we'll track completion for all configured agents.
+	// In a more sophisticated implementation, we could determine which specific agents
+	// will receive these targets based on partitioning or other criteria.
+	expectedAgents := make(map[string]bool)
+
+	// Extract agent IDs from the source configuration
+	// This is a simplified approach - in practice, you might need more sophisticated
+	// agent discovery based on the actual distribution of targets
+	if sourceCfg, exists := s.config.Sources[sourceName]; exists {
+		if sourceCfg.AgentID != "" {
+			expectedAgents[sourceCfg.AgentID] = true
+		}
+	}
+
+	// If no specific agents configured, we'll expect any agent that polls for this source
+	// This will be updated dynamically as agents actually request the targets
+	if len(expectedAgents) == 0 {
+		s.logger.Debug().
+			Str("source", sourceName).
+			Msg("No specific agents configured for completion tracking, will track dynamically")
+	}
+
+	s.completionTracker[sourceName] = &SweepCompletionTracker{
+		TargetSequence:   sequence,
+		ExpectedAgents:   expectedAgents,
+		CompletedAgents:  make(map[string]*proto.SweepCompletionStatus),
+		StartTime:        startTime,
+		LastUpdateTime:   startTime,
+		TotalTargets:     totalTargets,
+		CompletionStatus: proto.SweepCompletionStatus_NOT_STARTED,
+	}
+
+	s.logger.Info().
+		Str("source", sourceName).
+		Str("sequence", sequence).
+		Int32("total_targets", totalTargets).
+		Int("expected_agents", len(expectedAgents)).
+		Msg("Initialized sweep completion tracking")
 }
 
 // NewDefault provides a production-ready constructor with default settings.

@@ -32,6 +32,13 @@ type SRQLQuerier interface {
 	GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error)
 }
 
+// ResultSubmitter defines the interface for submitting sweep results and retraction events.
+// This is a local interface to avoid importing pkg/sync and creating a cycle.
+type ResultSubmitter interface {
+	SubmitSweepResult(ctx context.Context, result *models.SweepResult) error
+	SubmitBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
+}
+
 // DeviceState represents the consolidated state of a device from the unified view.
 // It's used by integrations to check for retractions.
 type DeviceState struct {
@@ -70,12 +77,9 @@ type ArmisIntegration struct {
 	KVWriter      KVWriter
 
 	// Interfaces for querying sweep results and updating Armis devices
-	SweepQuerier SRQLQuerier
-	Updater      ArmisUpdater
-
-	// Change detection fields to avoid sending unchanged devices
-	lastDevicesHash string   // Hash of last fetched devices
-	lastDevices     []Device // Last fetched devices for comparison
+	SweepQuerier    SRQLQuerier
+	Updater         ArmisUpdater
+	ResultSubmitter ResultSubmitter
 }
 
 // AccessTokenResponse represents the Armis API access token response.
