@@ -900,3 +900,116 @@ func TestPrepareArmisUpdateFromDeviceQuery(t *testing.T) {
 	assert.Equal(t, "1.1.1.1", updates[0].IP)
 	assert.True(t, updates[0].Available)
 }
+
+func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Create mocks
+	mockTokenProvider := NewMockTokenProvider(ctrl)
+	mockDeviceFetcher := NewMockDeviceFetcher(ctrl)
+	mockKVWriter := NewMockKVWriter(ctrl)
+	mockUpdater := NewMockArmisUpdater(ctrl)
+
+	// Setup integration
+	integration := &ArmisIntegration{
+		Config: &models.SourceConfig{
+			Endpoint: "https://armis.example.com",
+		},
+		TokenProvider: mockTokenProvider,
+		DeviceFetcher: mockDeviceFetcher,
+		KVWriter:      mockKVWriter,
+		Updater:       mockUpdater,
+	}
+
+	// Create test data with 2500 devices (should be split into 3 batches of 1000, 1000, and 500)
+	const totalDevices = 2500
+	devices := make([]Device, totalDevices)
+	sweepResults := make([]SweepResult, totalDevices)
+
+	for i := 0; i < totalDevices; i++ {
+		devices[i] = Device{
+			ID:        i + 1,
+			IPAddress: fmt.Sprintf("192.168.%d.%d", (i/254)+1, (i%254)+1),
+			Name:      fmt.Sprintf("Device-%d", i+1),
+		}
+		sweepResults[i] = SweepResult{
+			IP:        fmt.Sprintf("192.168.%d.%d", (i/254)+1, (i%254)+1),
+			Available: i%2 == 0, // Alternate between available and unavailable
+			Timestamp: time.Now(),
+		}
+	}
+
+	// Expect exactly 3 calls to UpdateMultipleDeviceCustomAttributes
+	// Batch 1: 1000 devices
+	mockUpdater.EXPECT().
+		UpdateMultipleDeviceCustomAttributes(gomock.Any(), gomock.Len(1000)).
+		Return(nil).
+		Times(1)
+
+	// Batch 2: 1000 devices
+	mockUpdater.EXPECT().
+		UpdateMultipleDeviceCustomAttributes(gomock.Any(), gomock.Len(1000)).
+		Return(nil).
+		Times(1)
+
+	// Batch 3: 500 devices
+	mockUpdater.EXPECT().
+		UpdateMultipleDeviceCustomAttributes(gomock.Any(), gomock.Len(500)).
+		Return(nil).
+		Times(1)
+
+	// Execute the batch update
+	ctx := context.Background()
+	err := integration.BatchUpdateDeviceAttributes(ctx, devices, sweepResults)
+
+	// Verify no error occurred
+	assert.NoError(t, err)
+}
+
+func TestBatchUpdateDeviceAttributes_SingleBatch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Create mocks
+	mockUpdater := NewMockArmisUpdater(ctrl)
+
+	// Setup integration
+	integration := &ArmisIntegration{
+		Config: &models.SourceConfig{
+			Endpoint: "https://armis.example.com",
+		},
+		Updater: mockUpdater,
+	}
+
+	// Create test data with 100 devices (single batch)
+	const totalDevices = 100
+	devices := make([]Device, totalDevices)
+	sweepResults := make([]SweepResult, totalDevices)
+
+	for i := 0; i < totalDevices; i++ {
+		devices[i] = Device{
+			ID:        i + 1,
+			IPAddress: fmt.Sprintf("192.168.1.%d", i+1),
+			Name:      fmt.Sprintf("Device-%d", i+1),
+		}
+		sweepResults[i] = SweepResult{
+			IP:        fmt.Sprintf("192.168.1.%d", i+1),
+			Available: true,
+			Timestamp: time.Now(),
+		}
+	}
+
+	// Expect exactly 1 call to UpdateMultipleDeviceCustomAttributes with all devices
+	mockUpdater.EXPECT().
+		UpdateMultipleDeviceCustomAttributes(gomock.Any(), gomock.Len(100)).
+		Return(nil).
+		Times(1)
+
+	// Execute the batch update
+	ctx := context.Background()
+	err := integration.BatchUpdateDeviceAttributes(ctx, devices, sweepResults)
+
+	// Verify no error occurred
+	assert.NoError(t, err)
+}
