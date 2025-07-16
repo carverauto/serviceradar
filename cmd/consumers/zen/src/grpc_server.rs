@@ -63,6 +63,7 @@ impl AgentService for ZenAgentService {
                 .as_secs() as i64,
             current_sequence: String::new(),
             has_new_data: false,
+            sweep_completion: None,
         }))
     }
 }
