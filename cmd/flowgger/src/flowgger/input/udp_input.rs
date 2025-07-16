@@ -206,8 +206,8 @@ mod test {
             line.as_bytes(),
             "127.0.0.1:12345".parse().unwrap(),
             &tx,
-            &decoder,
-            &encoder,
+            decoder.as_ref(),
+            encoder.as_ref(),
         )
         .unwrap();
         let transmitted = rx.recv().unwrap();
@@ -227,8 +227,8 @@ mod test {
             &compressed_line,
             "127.0.0.1:12345".parse().unwrap(),
             &tx,
-            &decoder,
-            &encoder,
+            decoder.as_ref(),
+            encoder.as_ref(),
         )
         .unwrap();
         let transmitted = rx.recv().unwrap();
@@ -248,8 +248,8 @@ mod test {
             &compressed_line,
             "127.0.0.1:12345".parse().unwrap(),
             &tx,
-            &decoder,
-            &encoder,
+            decoder.as_ref(),
+            encoder.as_ref(),
         )
         .unwrap();
         let transmitted = rx.recv().unwrap();
@@ -271,8 +271,8 @@ mod test {
             &compressed_line,
             "127.0.0.1:12345".parse().unwrap(),
             &tx,
-            &decoder,
-            &encoder,
+            decoder.as_ref(),
+            encoder.as_ref(),
         )
         .unwrap();
     }
