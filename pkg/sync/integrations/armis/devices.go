@@ -265,9 +265,24 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 			Str("source", string(models.DiscoverySourceArmis)).
 			Msg("Generated retraction events during reconciliation")
 
-		// TODO: Send retraction events to the core service
-		// For now, we'll log them but this would need to be implemented
-		// to send them to the same endpoint that receives sweep results
+		// Send retraction events to the core service
+		if a.ResultSubmitter != nil {
+			if err := a.ResultSubmitter.SubmitBatchSweepResults(ctx, retractionEvents); err != nil {
+				logger.Error().
+					Err(err).
+					Int("retraction_events_count", len(retractionEvents)).
+					Msg("Failed to submit retraction events to core service")
+				return err
+			}
+
+			logger.Info().
+				Int("retraction_events_count", len(retractionEvents)).
+				Msg("Successfully submitted retraction events to core service")
+		} else {
+			logger.Warn().
+				Int("retraction_events_count", len(retractionEvents)).
+				Msg("ResultSubmitter not configured, retraction events not sent")
+		}
 	}
 
 	// Prepare status updates for Armis
