@@ -119,6 +119,7 @@ func (p *BaseProcessor) UpdateConfig(config *models.Config) {
 
 	oldPortCount := p.portCount
 	newPortCount := len(config.Ports)
+
 	if newPortCount == 0 {
 		newPortCount = 100
 	}
@@ -256,7 +257,7 @@ func (p *BaseProcessor) cleanupHostBatch(hosts []*models.HostResult) {
 
 		// Reset host and return to pool
 		host.Host = ""
-		
+
 		// Explicitly nil out the slices and maps to allow the GC
 		// to reclaim the large backing arrays, even if the pool
 		// holds onto the HostResult struct itself
@@ -327,7 +328,7 @@ func (p *BaseProcessor) updatePortStatus(shard *ProcessorShard, host *models.Hos
 		// Only perform the expensive upgrade if the new capacity is larger
 		if newCapacity > cap(host.PortResults) {
 			log.Printf("Upgrading port capacity for host %s from %d to %d", host.Host, cap(host.PortResults), newCapacity)
-			
+
 			// Re-allocate PortResults slice with the new, larger capacity
 			newPortResults := make([]*models.PortResult, len(host.PortResults), newCapacity)
 			copy(newPortResults, host.PortResults)
@@ -338,6 +339,7 @@ func (p *BaseProcessor) updatePortStatus(shard *ProcessorShard, host *models.Hos
 			for k, v := range host.PortMap {
 				newPortMap[k] = v
 			}
+
 			host.PortMap = newPortMap
 		}
 	}
@@ -605,44 +607,48 @@ func (p *BaseProcessor) updateNetworkTotal(result *models.Result, totalHosts int
 	p.totalHostsMu.Unlock()
 }
 
+// initializeHostResult prepares a host result object for use
+func (*BaseProcessor) initializeHostResult(host *models.HostResult, hostAddr string, shard *ProcessorShard, now time.Time) {
+	// Reset/initialize the host result
+	host.Host = hostAddr
+	host.Available = false
+	host.ICMPStatus = nil
+	host.ResponseTime = 0
+
+	// Initialize or clear PortResults
+	if host.PortResults == nil {
+		host.PortResults = make([]*models.PortResult, 0, expectedPortsPerHost)
+	} else {
+		host.PortResults = host.PortResults[:0] // Clear slice but keep capacity
+	}
+
+	// Initialize or clear PortMap
+	if host.PortMap == nil {
+		host.PortMap = make(map[int]*models.PortResult, expectedPortsPerHost)
+	} else {
+		for k := range host.PortMap {
+			delete(host.PortMap, k)
+		}
+	}
+
+	// Set timestamps
+	firstSeen := now
+	if seen, ok := shard.firstSeenTimes[hostAddr]; ok {
+		firstSeen = seen
+	} else {
+		shard.firstSeenTimes[hostAddr] = firstSeen
+	}
+
+	host.FirstSeen = firstSeen
+	host.LastSeen = now
+}
+
 func (p *BaseProcessor) getOrCreateHost(shard *ProcessorShard, hostAddr string, now time.Time) *models.HostResult {
 	host, exists := shard.hostMap[hostAddr]
 	if !exists {
+		// Get a host from the pool and initialize it
 		host = p.hostResultPool.Get().(*models.HostResult)
-
-		// Reset/initialize the host result
-		host.Host = hostAddr
-		host.Available = false
-		
-		// If we are reusing an object from the pool that was cleaned up,
-		// its slices/maps will be nil. We need to re-initialize them.
-		if host.PortResults == nil {
-			host.PortResults = make([]*models.PortResult, 0, expectedPortsPerHost)
-		} else {
-			host.PortResults = host.PortResults[:0] // Clear slice but keep capacity
-		}
-
-		if host.PortMap == nil {
-			host.PortMap = make(map[int]*models.PortResult, expectedPortsPerHost)
-		} else {
-			for k := range host.PortMap {
-				delete(host.PortMap, k)
-			}
-		}
-
-		host.ICMPStatus = nil
-		host.ResponseTime = 0
-
-		firstSeen := now
-		if seen, ok := shard.firstSeenTimes[hostAddr]; ok {
-			firstSeen = seen
-		} else {
-			shard.firstSeenTimes[hostAddr] = firstSeen
-		}
-
-		host.FirstSeen = firstSeen
-		host.LastSeen = now
-
+		p.initializeHostResult(host, hostAddr, shard, now)
 		shard.hostMap[hostAddr] = host
 	}
 
