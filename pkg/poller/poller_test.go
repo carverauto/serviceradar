@@ -81,7 +81,8 @@ func TestAgentPoller_ExecuteResults(t *testing.T) {
 		config: Config{
 			PollerID: "test-poller",
 		},
-		logger: logger.NewTestLogger(),
+		agentCompletions: make(map[string]*proto.SweepCompletionStatus),
+		logger:           logger.NewTestLogger(),
 	}
 
 	agentPoller := newAgentPoller("test-agent", agentConfig, mockClient, poller)
@@ -95,14 +96,15 @@ func TestAgentPoller_ExecuteResults(t *testing.T) {
 	ctx := context.Background()
 
 	// Mock successful GetResults response for sync service
-	mockClient.On("GetResults", mock.AnythingOfType("*context.timerCtx"), &proto.ResultsRequest{
-		ServiceName:  "sync",
-		ServiceType:  "grpc",
-		AgentId:      "test-agent",
-		PollerId:     "test-poller",
-		Details:      "127.0.0.1:50058",
-		LastSequence: "", // First call
-	}).Return(&proto.ResultsResponse{
+	mockClient.On("GetResults", mock.AnythingOfType("*context.timerCtx"), mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.ServiceName == "sync" &&
+			req.ServiceType == "grpc" &&
+			req.AgentId == "test-agent" &&
+			req.PollerId == "test-poller" &&
+			req.Details == "127.0.0.1:50058" &&
+			req.LastSequence == "" &&
+			req.CompletionStatus == nil // No completion status since poller has no agent data
+	})).Return(&proto.ResultsResponse{
 		Available:       true,
 		Data:            []byte(`{"devices": [{"ip": "192.168.1.1"}, {"ip": "192.168.1.2"}]}`),
 		ServiceName:     "sync",
@@ -268,25 +270,36 @@ func TestResultsPoller_executeGetResults(t *testing.T) {
 		ResultsInterval: func() *models.Duration { d := models.Duration(time.Second * 30); return &d }(),
 	}
 
+	// Create a mock poller for sync service testing
+	mockPoller := &Poller{
+		config: Config{
+			PollerID: "test-poller",
+		},
+		agentCompletions: make(map[string]*proto.SweepCompletionStatus),
+		logger:           logger.NewTestLogger(),
+	}
+
 	resultsPoller := &ResultsPoller{
 		client:    mockClient,
 		check:     check,
 		pollerID:  "test-poller",
 		agentName: "test-agent",
 		interval:  time.Second * 30,
+		poller:    mockPoller,
 		logger:    logger.NewTestLogger(),
 	}
 
 	ctx := context.Background()
 
 	// Test successful GetResults call
-	mockClient.On("GetResults", mock.Anything, &proto.ResultsRequest{
-		ServiceName: "sync",
-		ServiceType: "grpc",
-		AgentId:     "test-agent",
-		PollerId:    "test-poller",
-		Details:     "127.0.0.1:50058",
-	}).Return(&proto.ResultsResponse{
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.ServiceName == "sync" &&
+			req.ServiceType == "grpc" &&
+			req.AgentId == "test-agent" &&
+			req.PollerId == "test-poller" &&
+			req.Details == "127.0.0.1:50058" &&
+			req.CompletionStatus == nil // No completion status since poller has no agent data
+	})).Return(&proto.ResultsResponse{
 		Available:   true,
 		Data:        []byte(`{"devices": [{"ip": "192.168.1.1"}]}`),
 		ServiceName: "sync",
@@ -444,8 +457,9 @@ func TestPoller_pollAgent(t *testing.T) {
 		config: Config{
 			PollerID: "test-poller",
 		},
-		agents: make(map[string]*AgentPoller),
-		logger: logger.NewTestLogger(),
+		agents:           make(map[string]*AgentPoller),
+		agentCompletions: make(map[string]*proto.SweepCompletionStatus),
+		logger:           logger.NewTestLogger(),
 	}
 
 	// Create a mock agent poller
@@ -476,6 +490,7 @@ func TestPoller_pollAgent(t *testing.T) {
 					ResultsInterval: func() *models.Duration { d := models.Duration(time.Second * 30); return &d }(),
 				},
 				interval: time.Second * 30,
+				poller:   poller,
 				logger:   logger.NewTestLogger(),
 			},
 		},
@@ -506,7 +521,7 @@ func TestPoller_pollAgent(t *testing.T) {
 
 	// Mock GetResults calls for ExecuteResults
 	mockClient.On("GetResults", mock.AnythingOfType("*context.timerCtx"), mock.MatchedBy(func(req *proto.ResultsRequest) bool {
-		return req.ServiceName == "sync" && req.ServiceType == "grpc"
+		return req.ServiceName == "sync" && req.ServiceType == "grpc" && req.CompletionStatus == nil
 	})).Return(&proto.ResultsResponse{
 		Available:   true,
 		Data:        []byte(`{"devices": 5}`),
@@ -567,24 +582,35 @@ func TestResultsPoller_SequenceTracking_FirstCall(t *testing.T) {
 		Details: "127.0.0.1:50058",
 	}
 
+	// Create a mock poller for sync service testing
+	mockPoller := &Poller{
+		config: Config{
+			PollerID: "test-poller",
+		},
+		agentCompletions: make(map[string]*proto.SweepCompletionStatus),
+		logger:           logger.NewTestLogger(),
+	}
+
 	resultsPoller := &ResultsPoller{
 		client:       mockClient,
 		check:        check,
 		pollerID:     "test-poller",
 		agentName:    "test-agent",
 		lastSequence: "", // Empty sequence for first call
+		poller:       mockPoller,
 		logger:       logger.NewTestLogger(),
 	}
 
 	// Mock first call - should return data and sequence
-	mockClient.On("GetResults", mock.Anything, &proto.ResultsRequest{
-		ServiceName:  "sync",
-		ServiceType:  "grpc",
-		AgentId:      "test-agent",
-		PollerId:     "test-poller",
-		Details:      "127.0.0.1:50058",
-		LastSequence: "", // First call
-	}).Return(&proto.ResultsResponse{
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.ServiceName == "sync" &&
+			req.ServiceType == "grpc" &&
+			req.AgentId == "test-agent" &&
+			req.PollerId == "test-poller" &&
+			req.Details == "127.0.0.1:50058" &&
+			req.LastSequence == "" &&
+			req.CompletionStatus == nil // No completion status since poller has no agent data
+	})).Return(&proto.ResultsResponse{
 		Available:       true,
 		Data:            []byte(`[{"ip": "192.168.1.1", "discovery_source": "netbox"}]`),
 		ServiceName:     "sync",
@@ -619,24 +645,35 @@ func TestResultsPoller_SequenceTracking_SubsequentCallSameSequence(t *testing.T)
 		Details: "127.0.0.1:50058",
 	}
 
+	// Create a mock poller for sync service testing
+	mockPoller := &Poller{
+		config: Config{
+			PollerID: "test-poller",
+		},
+		agentCompletions: make(map[string]*proto.SweepCompletionStatus),
+		logger:           logger.NewTestLogger(),
+	}
+
 	resultsPoller := &ResultsPoller{
 		client:       mockClient,
 		check:        check,
 		pollerID:     "test-poller",
 		agentName:    "test-agent",
 		lastSequence: "1720906448000000000", // Already has sequence
+		poller:       mockPoller,
 		logger:       logger.NewTestLogger(),
 	}
 
 	// Mock subsequent call - should return no new data
-	mockClient.On("GetResults", mock.Anything, &proto.ResultsRequest{
-		ServiceName:  "sync",
-		ServiceType:  "grpc",
-		AgentId:      "test-agent",
-		PollerId:     "test-poller",
-		Details:      "127.0.0.1:50058",
-		LastSequence: "1720906448000000000", // Same sequence
-	}).Return(&proto.ResultsResponse{
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.ServiceName == "sync" &&
+			req.ServiceType == "grpc" &&
+			req.AgentId == "test-agent" &&
+			req.PollerId == "test-poller" &&
+			req.Details == "127.0.0.1:50058" &&
+			req.LastSequence == "1720906448000000000" &&
+			req.CompletionStatus == nil // No completion status since poller has no agent data
+	})).Return(&proto.ResultsResponse{
 		Available:       true,
 		Data:            []byte(`[]`), // Empty array
 		ServiceName:     "sync",
@@ -674,24 +711,35 @@ func TestResultsPoller_SequenceTracking_SubsequentCallNewSequence(t *testing.T) 
 		Details: "127.0.0.1:50058",
 	}
 
+	// Create a mock poller for sync service testing
+	mockPoller := &Poller{
+		config: Config{
+			PollerID: "test-poller",
+		},
+		agentCompletions: make(map[string]*proto.SweepCompletionStatus),
+		logger:           logger.NewTestLogger(),
+	}
+
 	resultsPoller := &ResultsPoller{
 		client:       mockClient,
 		check:        check,
 		pollerID:     "test-poller",
 		agentName:    "test-agent",
 		lastSequence: "1720906448000000000", // Old sequence
+		poller:       mockPoller,
 		logger:       logger.NewTestLogger(),
 	}
 
 	// Mock call with new sequence - should return new data
-	mockClient.On("GetResults", mock.Anything, &proto.ResultsRequest{
-		ServiceName:  "sync",
-		ServiceType:  "grpc",
-		AgentId:      "test-agent",
-		PollerId:     "test-poller",
-		Details:      "127.0.0.1:50058",
-		LastSequence: "1720906448000000000", // Old sequence
-	}).Return(&proto.ResultsResponse{
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.ServiceName == "sync" &&
+			req.ServiceType == "grpc" &&
+			req.AgentId == "test-agent" &&
+			req.PollerId == "test-poller" &&
+			req.Details == "127.0.0.1:50058" &&
+			req.LastSequence == "1720906448000000000" &&
+			req.CompletionStatus == nil // No completion status since poller has no agent data
+	})).Return(&proto.ResultsResponse{
 		Available:       true,
 		Data:            []byte(`[{"ip": "192.168.1.1", "discovery_source": "netbox"}, {"ip": "192.168.1.2", "discovery_source": "netbox"}]`),
 		ServiceName:     "sync",
@@ -730,24 +778,35 @@ func TestResultsPoller_SequenceTracking_EmptySequenceResponse(t *testing.T) {
 		Details: "127.0.0.1:50058",
 	}
 
+	// Create a mock poller for sync service testing
+	mockPoller := &Poller{
+		config: Config{
+			PollerID: "test-poller",
+		},
+		agentCompletions: make(map[string]*proto.SweepCompletionStatus),
+		logger:           logger.NewTestLogger(),
+	}
+
 	resultsPoller := &ResultsPoller{
 		client:       mockClient,
 		check:        check,
 		pollerID:     "test-poller",
 		agentName:    "test-agent",
 		lastSequence: "old-sequence",
+		poller:       mockPoller,
 		logger:       logger.NewTestLogger(),
 	}
 
 	// Mock response with empty sequence - should not update lastSequence
-	mockClient.On("GetResults", mock.Anything, &proto.ResultsRequest{
-		ServiceName:  "sync",
-		ServiceType:  "grpc",
-		AgentId:      "test-agent",
-		PollerId:     "test-poller",
-		Details:      "127.0.0.1:50058",
-		LastSequence: "old-sequence",
-	}).Return(&proto.ResultsResponse{
+	mockClient.On("GetResults", mock.Anything, mock.MatchedBy(func(req *proto.ResultsRequest) bool {
+		return req.ServiceName == "sync" &&
+			req.ServiceType == "grpc" &&
+			req.AgentId == "test-agent" &&
+			req.PollerId == "test-poller" &&
+			req.Details == "127.0.0.1:50058" &&
+			req.LastSequence == "old-sequence" &&
+			req.CompletionStatus == nil // No completion status since poller has no agent data
+	})).Return(&proto.ResultsResponse{
 		Available:       true,
 		Data:            []byte(`[]`),
 		ServiceName:     "sync",

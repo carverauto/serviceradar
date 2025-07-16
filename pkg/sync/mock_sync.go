@@ -236,6 +236,20 @@ func (mr *MockIntegrationMockRecorder) Fetch(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Fetch", reflect.TypeOf((*MockIntegration)(nil).Fetch), ctx)
 }
 
+// Reconcile mocks base method.
+func (m *MockIntegration) Reconcile(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Reconcile", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Reconcile indicates an expected call of Reconcile.
+func (mr *MockIntegrationMockRecorder) Reconcile(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reconcile", reflect.TypeOf((*MockIntegration)(nil).Reconcile), ctx)
+}
+
 // MockClock is a mock of Clock interface.
 type MockClock struct {
 	ctrl     *gomock.Controller
