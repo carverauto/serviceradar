@@ -24,7 +24,22 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_armis.go -package=armis github.com/carverauto/serviceradar/pkg/sync/integrations/armis HTTPClient,TokenProvider,DeviceFetcher,KVWriter,SRQLQuerier,ArmisUpdater
+//go:generate mockgen -destination=mock_armis.go -package=armis github.com/carverauto/serviceradar/pkg/sync/integrations/armis HTTPClient,TokenProvider,DeviceFetcher,KVWriter,SRQLQuerier,ArmisUpdater,ResultSubmitter
+
+// DeviceState represents the consolidated state of a device from the unified view.
+// It's used by integrations to check for retractions.
+type DeviceState struct {
+	DeviceID    string
+	IP          string
+	IsAvailable bool
+	Metadata    map[string]interface{}
+}
+
+// DeviceAttributeUpdate represents a device update operation
+type DeviceAttributeUpdate struct {
+	DeviceID   int
+	Attributes map[string]interface{}
+}
 
 // ArmisUpdater defines the interface for updating device status in Armis
 type ArmisUpdater interface {
@@ -33,11 +48,27 @@ type ArmisUpdater interface {
 
 	// UpdateDeviceCustomAttributes updates custom attributes on Armis devices
 	UpdateDeviceCustomAttributes(ctx context.Context, deviceID int, attributes map[string]interface{}) error
+
+	// UpdateMultipleDeviceCustomAttributes updates custom attributes for multiple devices in a single bulk operation
+	UpdateMultipleDeviceCustomAttributes(ctx context.Context, updates []DeviceAttributeUpdate) error
 }
 
 // HTTPClient defines the interface for making HTTP requests.
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
+}
+
+// SRQLQuerier defines the interface for querying the ServiceRadar QL service.
+// This is a local interface to avoid importing pkg/sync and creating a cycle.
+type SRQLQuerier interface {
+	GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error)
+}
+
+// ResultSubmitter defines the interface for submitting sweep results and retraction events.
+// This is a local interface to avoid importing pkg/sync and creating a cycle.
+type ResultSubmitter interface {
+	SubmitSweepResult(ctx context.Context, result *models.SweepResult) error
+	SubmitBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
 }
 
 // TokenProvider defines the interface for obtaining access tokens.

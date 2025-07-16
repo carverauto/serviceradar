@@ -18,35 +18,12 @@
 package armis
 
 import (
-	"context"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
 )
-
-// SRQLQuerier defines the interface for querying device states from ServiceRadar.
-// This is a local interface to avoid importing pkg/sync and creating a cycle.
-type SRQLQuerier interface {
-	GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error)
-}
-
-// ResultSubmitter defines the interface for submitting sweep results and retraction events.
-// This is a local interface to avoid importing pkg/sync and creating a cycle.
-type ResultSubmitter interface {
-	SubmitSweepResult(ctx context.Context, result *models.SweepResult) error
-	SubmitBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
-}
-
-// DeviceState represents the consolidated state of a device from the unified view.
-// It's used by integrations to check for retractions.
-type DeviceState struct {
-	DeviceID    string
-	IP          string
-	IsAvailable bool
-	Metadata    map[string]interface{}
-}
 
 // SweepResult represents a network sweep result
 type SweepResult struct {
