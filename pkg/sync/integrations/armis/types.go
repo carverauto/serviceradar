@@ -77,9 +77,9 @@ type ArmisIntegration struct {
 	KVWriter      KVWriter
 
 	// Interfaces for querying sweep results and updating Armis devices
-	SweepQuerier     SRQLQuerier
-	Updater          ArmisUpdater
-	ResultSubmitter  ResultSubmitter
+	SweepQuerier    SRQLQuerier
+	Updater         ArmisUpdater
+	ResultSubmitter ResultSubmitter
 }
 
 // AccessTokenResponse represents the Armis API access token response.

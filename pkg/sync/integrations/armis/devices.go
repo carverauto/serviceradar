@@ -272,6 +272,7 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 					Err(err).
 					Int("retraction_events_count", len(retractionEvents)).
 					Msg("Failed to submit retraction events to core service")
+
 				return err
 			}
 
