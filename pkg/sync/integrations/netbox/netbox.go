@@ -134,6 +134,7 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 					Err(err).
 					Int("retraction_count", len(retractionEvents)).
 					Msg("Failed to submit retraction events to core service")
+
 				return err
 			}
 
@@ -273,6 +274,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 	agentID := n.Config.AgentID
 	pollerID := n.Config.PollerID
 	partition := n.Config.Partition
+
 	now := time.Now()
 
 	for i := range deviceResp.Results {
