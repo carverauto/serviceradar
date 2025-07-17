@@ -43,6 +43,17 @@ const (
 	checkTypeGRPC    = "grpc"
 )
 
+// safeIntToInt32 safely converts an int to int32, capping at int32 max value
+func safeIntToInt32(val int) int32 {
+	if val > 2147483647 { // math.MaxInt32
+		return 2147483647
+	}
+	if val < -2147483648 { // math.MinInt32
+		return -2147483648
+	}
+	return int32(val)
+}
+
 // New creates a new poller instance.
 func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*Poller, error) {
 	if clock == nil {
@@ -521,8 +532,8 @@ func (p *Poller) reportToCoreStreaming(ctx context.Context, statuses []*proto.Se
 			Partition:   p.config.Partition,
 			SourceIp:    p.config.SourceIP,
 			IsFinal:     end == len(statuses),
-			ChunkIndex:  int32(chunkIndex),
-			TotalChunks: int32(totalChunks),
+			ChunkIndex:  safeIntToInt32(chunkIndex),
+			TotalChunks: safeIntToInt32(totalChunks),
 		}
 
 		p.logger.Debug().

@@ -45,6 +45,17 @@ const (
 	defaultErrChansize = 10
 )
 
+// safeIntToInt32 safely converts an int to int32, capping at int32 max value
+func safeIntToInt32(val int) int32 {
+	if val > 2147483647 { // math.MaxInt32
+		return 2147483647
+	}
+	if val < -2147483648 { // math.MinInt32
+		return -2147483648
+	}
+	return int32(val)
+}
+
 // NewServer initializes a new Server instance.
 func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log logger.Logger) (*Server, error) {
 	cfgLoader := config.NewConfig(log)
@@ -749,8 +760,8 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 			chunk := &proto.ResultsChunk{
 				Data:            chunkData,
 				IsFinal:         chunkIndex == totalChunks-1,
-				ChunkIndex:      int32(chunkIndex),
-				TotalChunks:     int32(totalChunks),
+				ChunkIndex:      safeIntToInt32(chunkIndex),
+				TotalChunks:     safeIntToInt32(totalChunks),
 				CurrentSequence: response.CurrentSequence,
 				Timestamp:       response.Timestamp,
 			}
