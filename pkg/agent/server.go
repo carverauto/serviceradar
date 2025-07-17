@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -42,16 +43,17 @@ const (
 	jsonSuffix         = ".json"
 	fallBackSuffix     = "fallback"
 	grpcType           = "grpc"
+	sweepType          = "sweep"
 	defaultErrChansize = 10
 )
 
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
 func safeIntToInt32(val int) int32 {
-	if val > 2147483647 { // math.MaxInt32
-		return 2147483647
+	if val > math.MaxInt32 {
+		return math.MaxInt32
 	}
-	if val < -2147483648 { // math.MinInt32
-		return -2147483648
+	if val < math.MinInt32 {
+		return math.MinInt32
 	}
 	return int32(val)
 }
@@ -251,7 +253,7 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 	}
 
 	// Define paths for sweep config
-	fileSweepConfigPath := filepath.Join(s.configDir, "sweep", "sweep.json")
+	fileSweepConfigPath := filepath.Join(s.configDir, sweepType, "sweep.json")
 
 	// Prioritize AgentID as the unique identifier for the KV path.
 	// Fall back to AgentName if AgentID is not set.
@@ -519,12 +521,12 @@ func (s *Server) GetResults(ctx context.Context, req *proto.ResultsRequest) (*pr
 	s.logger.Info().Str("serviceName", req.ServiceName).Str("serviceType", req.ServiceType).Msg("GetResults called")
 
 	// Handle sweep services with local implementation
-	if req.ServiceType == "sweep" {
+	if req.ServiceType == sweepType {
 		return s.handleSweepGetResults(ctx, req)
 	}
 
 	// Handle grpc services by forwarding the call
-	if req.ServiceType == "grpc" {
+	if req.ServiceType == grpcType {
 		return s.handleGrpcGetResults(ctx, req)
 	}
 
@@ -620,12 +622,12 @@ func (s *Server) StreamResults(req *proto.ResultsRequest, stream proto.AgentServ
 	s.logger.Info().Str("serviceName", req.ServiceName).Str("serviceType", req.ServiceType).Msg("StreamResults called")
 
 	// Handle sweep services with local implementation
-	if req.ServiceType == "sweep" {
+	if req.ServiceType == sweepType {
 		return s.handleSweepStreamResults(req, stream)
 	}
 
 	// Handle grpc services by forwarding the call
-	if req.ServiceType == "grpc" {
+	if req.ServiceType == grpcType {
 		return s.handleGrpcStreamResults(req, stream)
 	}
 
@@ -661,9 +663,9 @@ func (s *Server) handleGrpcStreamResults(req *proto.ResultsRequest, stream proto
 	}
 
 	// Ensure connection to the external service
-	if err := externalChecker.ensureConnected(ctx); err != nil {
-		s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Failed to connect to grpc service for StreamResults")
-		return status.Errorf(codes.Unavailable, "Failed to connect to service: %v", err)
+	if connectErr := externalChecker.ensureConnected(ctx); connectErr != nil {
+		s.logger.Error().Err(connectErr).Str("serviceName", req.ServiceName).Msg("Failed to connect to grpc service for StreamResults")
+		return status.Errorf(codes.Unavailable, "Failed to connect to service: %v", connectErr)
 	}
 
 	grpcClient := proto.NewAgentServiceClient(externalChecker.grpcClient.GetConnection())
@@ -678,7 +680,7 @@ func (s *Server) handleGrpcStreamResults(req *proto.ResultsRequest, stream proto
 	// Forward all chunks from upstream to downstream
 	for {
 		chunk, err := upstreamStream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -733,7 +735,7 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 		// Calculate chunk size to keep each chunk under ~1MB
 		const maxChunkSize = 1024 * 1024 // 1MB
 		totalBytes := len(response.Data)
-		
+
 		if totalBytes <= maxChunkSize {
 			// Single chunk case
 			return stream.Send(&proto.ResultsChunk{
@@ -748,7 +750,7 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 
 		// Multi-chunk case for large datasets (like 20k devices)
 		totalChunks := (totalBytes + maxChunkSize - 1) / maxChunkSize
-		
+
 		for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
 			start := chunkIndex * maxChunkSize
 			end := start + maxChunkSize
@@ -832,7 +834,7 @@ func (s *Server) handleSweepGetResults(ctx context.Context, req *proto.ResultsRe
 }
 
 func isRperfCheckerRequest(req *proto.StatusRequest) bool {
-	return req.ServiceName == "rperf-checker" && req.ServiceType == "grpc"
+	return req.ServiceName == "rperf-checker" && req.ServiceType == grpcType
 }
 
 func isICMPRequest(req *proto.StatusRequest) bool {
@@ -840,7 +842,7 @@ func isICMPRequest(req *proto.StatusRequest) bool {
 }
 
 func isSweepRequest(req *proto.StatusRequest) bool {
-	return req.ServiceType == "sweep"
+	return req.ServiceType == sweepType
 }
 
 var (
@@ -868,7 +870,7 @@ func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusReques
 
 	return agentClient.GetStatus(ctx, &proto.StatusRequest{
 		ServiceName: "",
-		ServiceType: "grpc",
+		ServiceType: grpcType,
 		Details:     "",
 		AgentId:     s.config.AgentID,
 	})
@@ -948,7 +950,7 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 		Available:   false,
 		Message:     message,
 		ServiceName: "network_sweep",
-		ServiceType: "sweep",
+		ServiceType: sweepType,
 		AgentId:     s.config.AgentID,
 	}, nil
 }

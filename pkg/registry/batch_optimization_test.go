@@ -118,7 +118,7 @@ func TestNormalizationBehavior(t *testing.T) {
 	sighting := &models.SweepResult{
 		IP:              "192.168.1.100",
 		DeviceID:        "", // Empty device ID
-		Partition:       "", // Empty partition 
+		Partition:       "", // Empty partition
 		DiscoverySource: "armis",
 		Available:       true,
 		Timestamp:       time.Now(),
@@ -132,11 +132,11 @@ func TestNormalizationBehavior(t *testing.T) {
 		DoAndReturn(func(_ context.Context, results []*models.SweepResult) error {
 			require.Len(t, results, 1)
 			result := results[0]
-			
+
 			// Verify normalization occurred
 			require.Equal(t, "default:192.168.1.100", result.DeviceID)
 			require.Equal(t, "default", result.Partition)
-			
+
 			return nil
 		}).
 		Times(1)

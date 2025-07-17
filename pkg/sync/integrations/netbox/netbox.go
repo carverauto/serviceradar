@@ -266,7 +266,11 @@ func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, e
 }
 
 // processDevices converts devices to KV data, extracts IPs, and returns the list of devices.
-func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string, events []*models.DeviceUpdate) {
+func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (
+	data map[string][]byte,
+	ips []string,
+	events []*models.DeviceUpdate,
+) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(deviceResp.Results))
 	events = make([]*models.DeviceUpdate, 0, len(deviceResp.Results))

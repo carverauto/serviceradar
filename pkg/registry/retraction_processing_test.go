@@ -247,7 +247,7 @@ func TestDeviceRegistry_RetractionVsDiscoveryEvents(t *testing.T) {
 				assert.False(t, results[0].Available, "First event should be retraction")
 				assert.Equal(t, "true", results[0].Metadata["_deleted"])
 
-				// Second event should be discovery (Available=true)  
+				// Second event should be discovery (Available=true)
 				assert.True(t, results[1].Available, "Second event should be discovery")
 
 				return nil

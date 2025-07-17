@@ -19,8 +19,10 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 	"time"
 
@@ -31,6 +33,17 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// safeIntToInt32 safely converts an int to int32, capping at int32 max value
+func safeIntToInt32(val int) int32 {
+	if val > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if val < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(val)
+}
 
 // StreamingResultsStore holds discovery results for streaming
 type StreamingResultsStore struct {
@@ -121,9 +134,7 @@ func (s *SimpleSyncService) Start(ctx context.Context) error {
 
 	// Run initial discovery immediately
 	go func() {
-		if err := s.runDiscovery(ctx); err != nil {
-			s.logger.Error().Err(err).Msg("Initial discovery failed")
-		}
+		s.runDiscovery(ctx)
 	}()
 
 	for {
@@ -134,15 +145,11 @@ func (s *SimpleSyncService) Start(ctx context.Context) error {
 			return s.ctx.Err()
 		case <-discoveryTicker.C:
 			go func() {
-				if err := s.runDiscovery(ctx); err != nil {
-					s.logger.Error().Err(err).Msg("Discovery failed")
-				}
+				s.runDiscovery(ctx)
 			}()
 		case <-armisUpdateTicker.C:
 			go func() {
-				if err := s.runArmisUpdates(ctx); err != nil {
-					s.logger.Error().Err(err).Msg("Armis updates failed")
-				}
+				s.runArmisUpdates(ctx)
 			}()
 		}
 	}
@@ -172,7 +179,7 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 }
 
 // runDiscovery executes discovery for all integrations and immediately writes to KV
-func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
+func (s *SimpleSyncService) runDiscovery(ctx context.Context) {
 	s.logger.Info().Msg("Starting discovery cycle")
 	s.markSweepStarted()
 
@@ -221,15 +228,14 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		Msg("Discovery cycle completed")
 
 	s.markSweepCompleted()
-	return nil
 }
 
 // runArmisUpdates queries SRQL and updates Armis with device availability
-func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
+func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) {
 	// Check if we should wait for sweep completion
 	if !s.shouldProceedWithUpdates() {
 		s.logger.Info().Msg("Waiting for sweep completion before running updates")
-		return nil
+		return
 	}
 
 	s.logger.Info().Msg("Starting Armis update cycle")
@@ -241,7 +247,6 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 	}
 
 	s.logger.Info().Msg("Armis update cycle completed")
-	return nil
 }
 
 // shouldProceedWithUpdates checks if enough time has passed since last sweep completion
@@ -294,6 +299,7 @@ func (s *SimpleSyncService) writeToKV(ctx context.Context, sourceName string, da
 	}
 
 	entries := make([]*proto.KeyValueEntry, 0, len(data))
+
 	for key, value := range data {
 		fullKey := fmt.Sprintf("%s/%s", prefix, key)
 		entries = append(entries, &proto.KeyValueEntry{
@@ -442,14 +448,14 @@ func (s *SimpleSyncService) StreamResults(_ *proto.ResultsRequest, stream proto.
 		chunk := &proto.ResultsChunk{
 			Data:            chunkData,
 			IsFinal:         chunkIndex == totalChunks-1,
-			ChunkIndex:      int32(chunkIndex),
-			TotalChunks:     int32(totalChunks),
+			ChunkIndex:      safeIntToInt32(chunkIndex),
+			TotalChunks:     safeIntToInt32(totalChunks),
 			CurrentSequence: sequence,
 			Timestamp:       time.Now().Unix(),
 		}
 
 		if err := stream.Send(chunk); err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				s.logger.Info().Msg("Client closed stream")
 				return nil
 			}

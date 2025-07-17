@@ -78,7 +78,7 @@ func run() error {
 	}
 
 	// No gRPC services to register - simplified architecture
-	registerServices := func(s *grpc.Server) error {
+	registerServices := func(_ *grpc.Server) error {
 		return nil
 	}
 

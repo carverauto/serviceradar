@@ -31,6 +31,7 @@ import (
 func TestDeviceRegistry_ProcessBatchSweepResults(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
+
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
@@ -63,6 +64,7 @@ func TestDeviceRegistry_ProcessBatchSweepResults(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+				t.Helper()
 				assert.Len(t, publishedResults, 1, "Should publish exactly one result")
 				result := publishedResults[0]
 				assert.Equal(t, "default:216.17.46.98", result.DeviceID)
@@ -90,6 +92,7 @@ func TestDeviceRegistry_ProcessBatchSweepResults(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+				t.Helper()
 				assert.Len(t, publishedResults, 1, "Should publish exactly one result")
 				result := publishedResults[0]
 				assert.Equal(t, "default:192.168.1.100", result.DeviceID, "Should generate DeviceID from IP")
@@ -115,6 +118,7 @@ func TestDeviceRegistry_ProcessBatchSweepResults(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+				t.Helper()
 				assert.Len(t, publishedResults, 1, "Should publish exactly one result")
 				result := publishedResults[0]
 				assert.Equal(t, "default", result.Partition, "Should extract partition from DeviceID")
@@ -147,8 +151,9 @@ func TestDeviceRegistry_ProcessBatchSweepResults(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+				t.Helper()
 				assert.Len(t, publishedResults, 2, "Should publish both results")
-				
+
 				// Check first device
 				result1 := publishedResults[0]
 				assert.Equal(t, "default:192.168.1.1", result1.DeviceID)
@@ -156,7 +161,7 @@ func TestDeviceRegistry_ProcessBatchSweepResults(t *testing.T) {
 				assert.Equal(t, "device1", *result1.Hostname)
 				assert.True(t, result1.Available)
 				assert.Equal(t, "router", result1.Metadata["type"])
-				
+
 				// Check second device
 				result2 := publishedResults[1]
 				assert.Equal(t, "default:192.168.1.2", result2.DeviceID)
@@ -170,7 +175,7 @@ func TestDeviceRegistry_ProcessBatchSweepResults(t *testing.T) {
 			name:        "Empty batch",
 			description: "Empty batch should not cause any database calls",
 			sightings:   []*models.SweepResult{},
-			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+			validate: func(t *testing.T, _ []*models.SweepResult) {
 				// This test should not reach the validation function
 				// since no PublishBatchSweepResults call should be made
 				t.Error("Empty batch should not trigger database call")
@@ -243,6 +248,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+				t.Helper()
 				assert.Len(t, publishedResults, 1, "Should publish exactly one result")
 				result := publishedResults[0]
 				assert.Equal(t, "default:192.168.1.1", result.DeviceID)
@@ -273,6 +279,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+				t.Helper()
 				assert.Len(t, publishedResults, 1, "Should publish exactly one result")
 				result := publishedResults[0]
 				assert.Equal(t, "default:192.168.1.2", result.DeviceID, "Should generate DeviceID from IP")
@@ -297,6 +304,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+				t.Helper()
 				assert.Len(t, publishedResults, 1, "Should publish exactly one result")
 				result := publishedResults[0]
 				assert.Equal(t, "default:192.168.1.3", result.DeviceID)

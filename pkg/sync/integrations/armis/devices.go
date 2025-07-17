@@ -175,7 +175,7 @@ func (a *ArmisIntegration) convertToDeviceUpdate(devices []Device) []*models.Dev
 		ip := extractFirstIP(dev.IPAddress)
 
 		out = append(out, &models.DeviceUpdate{
-			DeviceID:    fmt.Sprintf("%s:%s", a.Config.Partition, ip),
+			DeviceID:    fmt.Sprintf("%s/%s", a.Config.Partition, ip),
 			AgentID:     a.Config.AgentID,
 			PollerID:    a.Config.PollerID,
 			Partition:   a.Config.Partition,
@@ -343,11 +343,11 @@ func (a *ArmisIntegration) generateRetractionEvents(
 				Msg("Device no longer detected, generating retraction event")
 
 			retractionEvent := &models.DeviceUpdate{
-				DeviceID:        state.DeviceID,
-				Source:          models.DiscoverySourceArmis,
-				IP:              state.IP,
-				IsAvailable:       false,
-				Timestamp:       now,
+				DeviceID:    state.DeviceID,
+				Source:      models.DiscoverySourceArmis,
+				IP:          state.IP,
+				IsAvailable: false,
+				Timestamp:   now,
 				Metadata: map[string]string{
 					"_deleted": "true",
 				},
@@ -533,7 +533,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			continue
 		}
 
-		deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
+		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, ip)
 
 		metadata := map[string]interface{}{
 			"armis_id": fmt.Sprintf("%d", d.ID),
@@ -541,7 +541,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		}
 
 		modelDevice := &models.Device{
-			DeviceID:         deviceID,
+			DeviceID:         fmt.Sprintf("%s/%s", a.Config.Partition, ip),
 			PollerID:         pollerID,
 			DiscoverySources: []string{string(models.DiscoverySourceArmis)},
 			IP:               ip,
@@ -563,7 +563,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			continue
 		}
 
-		data[deviceID] = value
+		data[kvKey] = value
 
 		ips = append(ips, ip+"/32")
 	}
