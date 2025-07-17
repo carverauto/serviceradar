@@ -56,16 +56,18 @@ func TestNetboxIntegration_RetractionsWithSubmitter(t *testing.T) {
 	}
 
 	// Current events from NetBox API (device 1 is missing)
-	currentEvents := []*models.SweepResult{
+	currentEvents := []*models.DeviceUpdate{
 		{
 			AgentID:         "test-agent",
 			PollerID:        "test-poller",
 			Partition:       "test-partition",
 			DeviceID:        "test-partition:192.168.1.2",
-			DiscoverySource: "netbox",
+			Source: models.DiscoverySourceNetbox,
 			IP:              "192.168.1.2",
 			Hostname:        stringPtr("Device 2"),
 			Timestamp:       time.Now(),
+			IsAvailable:     true,
+			Confidence:      models.GetSourceConfidence(models.DiscoverySourceNetbox),
 			Metadata: map[string]string{
 				"integration_type": "netbox",
 				"integration_id":   "2",
@@ -88,15 +90,15 @@ func TestNetboxIntegration_RetractionsWithSubmitter(t *testing.T) {
 	// Mock the result submitter to capture retraction events
 	mockSubmitter.EXPECT().
 		SubmitBatchSweepResults(ctx, gomock.Any()).
-		DoAndReturn(func(_ context.Context, results []*models.SweepResult) error {
+		DoAndReturn(func(_ context.Context, results []*models.DeviceUpdate) error {
 			require.Len(t, results, 1)
 			result := results[0]
 
 			// Verify retraction event structure
 			assert.Equal(t, "test-partition:192.168.1.1", result.DeviceID)
-			assert.Equal(t, "netbox", result.DiscoverySource)
+			assert.Equal(t, models.DiscoverySourceNetbox, result.Source)
 			assert.Equal(t, "192.168.1.1", result.IP)
-			assert.False(t, result.Available)
+			assert.False(t, result.IsAvailable)
 			assert.Equal(t, "true", result.Metadata["_deleted"])
 			assert.Equal(t, "test-agent", result.AgentID)
 			assert.Equal(t, "test-poller", result.PollerID)
@@ -140,16 +142,18 @@ func TestNetboxIntegration_NoRetractionEvents(t *testing.T) {
 	}
 
 	// Current events from NetBox API (all devices still present)
-	currentEvents := []*models.SweepResult{
+	currentEvents := []*models.DeviceUpdate{
 		{
 			AgentID:         "test-agent",
 			PollerID:        "test-poller",
 			Partition:       "test-partition",
 			DeviceID:        "test-partition:192.168.1.1",
-			DiscoverySource: "netbox",
+			Source: models.DiscoverySourceNetbox,
 			IP:              "192.168.1.1",
 			Hostname:        stringPtr("Device 1"),
 			Timestamp:       time.Now(),
+			IsAvailable:     true,
+			Confidence:      models.GetSourceConfidence(models.DiscoverySourceNetbox),
 			Metadata: map[string]string{
 				"integration_type": "netbox",
 				"integration_id":   "1",
@@ -160,10 +164,12 @@ func TestNetboxIntegration_NoRetractionEvents(t *testing.T) {
 			PollerID:        "test-poller",
 			Partition:       "test-partition",
 			DeviceID:        "test-partition:192.168.1.2",
-			DiscoverySource: "netbox",
+			Source: models.DiscoverySourceNetbox,
 			IP:              "192.168.1.2",
 			Hostname:        stringPtr("Device 2"),
 			Timestamp:       time.Now(),
+			IsAvailable:     true,
+			Confidence:      models.GetSourceConfidence(models.DiscoverySourceNetbox),
 			Metadata: map[string]string{
 				"integration_type": "netbox",
 				"integration_id":   "2",
@@ -210,7 +216,7 @@ func TestNetboxIntegration_ResultSubmitterError(t *testing.T) {
 	}
 
 	// Current events from NetBox API (device 1 is missing)
-	currentEvents := []*models.SweepResult{}
+	currentEvents := []*models.DeviceUpdate{}
 
 	// Setup the integration
 	integration := &NetboxIntegration{
@@ -256,7 +262,7 @@ func TestNetboxIntegration_NoResultSubmitter(t *testing.T) {
 	}
 
 	// Current events from NetBox API (device 1 is missing)
-	currentEvents := []*models.SweepResult{}
+	currentEvents := []*models.DeviceUpdate{}
 
 	// Setup the integration WITHOUT ResultSubmitter
 	integration := &NetboxIntegration{
@@ -294,15 +300,31 @@ func TestNetboxIntegration_generateRetractionEvents(t *testing.T) {
 	}
 
 	// Current events from NetBox API
-	currentEvents := []*models.SweepResult{
+	currentEvents := []*models.DeviceUpdate{
 		{
-			DeviceID: "test-partition:192.168.1.2",
+			DeviceID:    "test-partition:192.168.1.2",
+			IP:          "192.168.1.2",
+			Source:      models.DiscoverySourceNetbox,
+			AgentID:     "test-agent",
+			PollerID:    "test-poller",
+			Partition:   "test-partition",
+			Timestamp:   time.Now(),
+			IsAvailable: true,
+			Confidence:  models.GetSourceConfidence(models.DiscoverySourceNetbox),
 			Metadata: map[string]string{
 				"integration_id": "2", // Device 2 is still present
 			},
 		},
 		{
-			DeviceID: "test-partition:192.168.1.3",
+			DeviceID:    "test-partition:192.168.1.3",
+			IP:          "192.168.1.3",
+			Source:      models.DiscoverySourceNetbox,
+			AgentID:     "test-agent",
+			PollerID:    "test-poller",
+			Partition:   "test-partition",
+			Timestamp:   time.Now(),
+			IsAvailable: true,
+			Confidence:  models.GetSourceConfidence(models.DiscoverySourceNetbox),
 			Metadata: map[string]string{
 				"integration_id": "3", // Device 3 is still present
 			},
@@ -354,9 +376,9 @@ func TestNetboxIntegration_generateRetractionEvents(t *testing.T) {
 	// Check first retraction event
 	event1 := retractionEvents[0]
 	assert.Equal(t, "test-partition:192.168.1.1", event1.DeviceID)
-	assert.Equal(t, "netbox", event1.DiscoverySource)
+	assert.Equal(t, models.DiscoverySourceNetbox, event1.Source)
 	assert.Equal(t, "192.168.1.1", event1.IP)
-	assert.False(t, event1.Available)
+	assert.False(t, event1.IsAvailable)
 	assert.Equal(t, "true", event1.Metadata["_deleted"])
 	assert.Equal(t, "test-agent", event1.AgentID)
 	assert.Equal(t, "test-poller", event1.PollerID)
@@ -365,9 +387,9 @@ func TestNetboxIntegration_generateRetractionEvents(t *testing.T) {
 	// Check second retraction event
 	event2 := retractionEvents[1]
 	assert.Equal(t, "test-partition:192.168.1.4", event2.DeviceID)
-	assert.Equal(t, "netbox", event2.DiscoverySource)
+	assert.Equal(t, models.DiscoverySourceNetbox, event2.Source)
 	assert.Equal(t, "192.168.1.4", event2.IP)
-	assert.False(t, event2.Available)
+	assert.False(t, event2.IsAvailable)
 	assert.Equal(t, "true", event2.Metadata["_deleted"])
 	assert.Equal(t, "test-agent", event2.AgentID)
 	assert.Equal(t, "test-poller", event2.PollerID)

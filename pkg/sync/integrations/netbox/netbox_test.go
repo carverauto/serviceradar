@@ -49,6 +49,6 @@ func TestProcessDevices_UsesIDs(t *testing.T) {
 	require.Len(t, events, 1)
 	require.Equal(t, "10.0.0.1", events[0].IP)
 	require.Equal(t, "poller", events[0].PollerID)
-	require.Equal(t, "netbox", events[0].DiscoverySource)
+	require.Equal(t, models.DiscoverySourceNetbox, events[0].Source)
 	require.Equal(t, "test-partition", events[0].Partition)
 }

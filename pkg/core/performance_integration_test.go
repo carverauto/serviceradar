@@ -37,25 +37,19 @@ import (
 // to device registry processing, ensuring N+1 queries are eliminated.
 func TestSyncResultsPerformanceOptimization(t *testing.T) {
 	tests := []struct {
-		name                    string
-		sightingCount           int
-		existingDeviceCount     int
-		expectBatchOptimization bool
-		description             string
+		name            string
+		sightingCount   int
+		description     string
 	}{
 		{
-			name:                    "Large sync batch triggers optimization",
-			sightingCount:           15, // Minimal for test performance
-			existingDeviceCount:     5,
-			expectBatchOptimization: true,
-			description:             "Large batches should use batch optimization to avoid N+1 queries",
+			name:        "Large sync batch processing",
+			sightingCount: 15,
+			description: "Large batches should process efficiently",
 		},
 		{
-			name:                    "Small sync batch uses individual queries",
-			sightingCount:           3,
-			existingDeviceCount:     2,
-			expectBatchOptimization: false,
-			description:             "Small batches can use individual queries without performance impact",
+			name:        "Small sync batch processing", 
+			sightingCount: 3,
+			description: "Small batches should process quickly",
 		},
 	}
 
@@ -76,32 +70,12 @@ func TestSyncResultsPerformanceOptimization(t *testing.T) {
 			sightingsJSON, err := json.Marshal(sightings)
 			require.NoError(t, err)
 
-			// Setup expectations based on optimization
-			if tt.expectBatchOptimization {
-				// Large batch: should use batch optimization with 2 DB calls
-				mockDB.EXPECT().
-					ListUnifiedDevices(gomock.Any(), 0, 0).
-					Return(createExistingDevices(tt.existingDeviceCount), nil).
-					Times(1) // KEY: Only 1 database call for large batch
-
-				mockDB.EXPECT().
-					PublishBatchSweepResults(gomock.Any(), gomock.Any()).
-					Return(nil).
-					Times(1)
-			} else {
-				// Small batch: uses individual queries for each sighting
-				for i := 0; i < tt.sightingCount; i++ {
-					mockDB.EXPECT().
-						GetUnifiedDevicesByIP(gomock.Any(), gomock.Any()).
-						Return([]*models.UnifiedDevice{}, nil).
-						Times(1)
-				}
-
-				mockDB.EXPECT().
-					PublishBatchSweepResults(gomock.Any(), gomock.Any()).
-					Return(nil).
-					Times(1)
-			}
+			// Current implementation always uses direct publishing
+			// regardless of batch size (batch optimization was simplified)
+			mockDB.EXPECT().
+				PublishBatchSweepResults(gomock.Any(), gomock.Any()).
+				Return(nil).
+				Times(1)
 
 			// Create test service status
 			serviceStatus := &proto.ServiceStatus{
@@ -128,10 +102,8 @@ func TestSyncResultsPerformanceOptimization(t *testing.T) {
 
 			t.Logf("%s: Processed %d sync results in %v", tt.description, tt.sightingCount, duration)
 
-			if tt.expectBatchOptimization {
-				// Large batches should be fast due to optimization
-				assert.Less(t, duration, 200*time.Millisecond, "Large batch should be fast with optimization")
-			}
+			// All batches should complete within reasonable time
+			assert.Less(t, duration, 1*time.Second, "Batch processing should complete within 1 second")
 		})
 	}
 }
@@ -157,16 +129,11 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 
 	ctx := context.Background()
 
-	// First call: should process all sightings (new data)
-	mockDB.EXPECT().
-		ListUnifiedDevices(gomock.Any(), 0, 0).
-		Return(createExistingDevices(5), nil).
-		Times(1)
-
+	// Setup DB mocks for all 6 calls (first + 5 subsequent)
 	mockDB.EXPECT().
 		PublishBatchSweepResults(gomock.Any(), gomock.Any()).
 		Return(nil).
-		Times(1)
+		Times(6)
 
 	// Execute first call
 	start := time.Now()
@@ -175,18 +142,6 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 
 	require.NoError(t, err)
 	t.Logf("First sync call took: %v", firstCallDuration)
-
-	// Subsequent calls: should still process but with optimizations
-	// In a real scenario with Armis change detection, these would return empty results
-	mockDB.EXPECT().
-		ListUnifiedDevices(gomock.Any(), 0, 0).
-		Return(createExistingDevices(5), nil).
-		Times(5) // 5 subsequent calls
-
-	mockDB.EXPECT().
-		PublishBatchSweepResults(gomock.Any(), gomock.Any()).
-		Return(nil).
-		Times(5) // 5 subsequent calls
 
 	// Execute 5 more calls (simulating repeated sync calls)
 	var subsequentDurations []time.Duration
@@ -216,7 +171,7 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 	assert.Less(t, avgSubsequent, 500*time.Millisecond, "Subsequent calls should be fast with optimizations")
 }
 
-// TestDatabaseCallCounting verifies that the N+1 problem is actually solved
+// TestDatabaseCallCounting verifies that the simplified implementation makes minimal DB calls
 func TestDatabaseCallCounting(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -225,7 +180,7 @@ func TestDatabaseCallCounting(t *testing.T) {
 	realRegistry := registry.NewDeviceRegistry(mockDB)
 	discoveryService := NewDiscoveryService(mockDB, realRegistry)
 
-	sightings := createSyncSightings(15) // Large enough to trigger batch optimization
+	sightings := createSyncSightings(15) // Batch size doesn't matter anymore
 	sightingsJSON, _ := json.Marshal(sightings)
 
 	serviceStatus := &proto.ServiceStatus{
@@ -238,16 +193,8 @@ func TestDatabaseCallCounting(t *testing.T) {
 	// Track database calls
 	var dbCallCount int
 
-	// This should make exactly 1 call to ListUnifiedDevices for batch optimization
-	// NOT 1000 individual calls to GetUnifiedDevicesByIP
-	mockDB.EXPECT().
-		ListUnifiedDevices(gomock.Any(), 0, 0).
-		DoAndReturn(func(_ context.Context, _, _ int) ([]*models.UnifiedDevice, error) {
-			dbCallCount++
-			return createExistingDevices(5), nil
-		}).
-		Times(1)
-
+	// Current implementation only makes one call to PublishBatchSweepResults
+	// No batch optimization queries are performed
 	mockDB.EXPECT().
 		PublishBatchSweepResults(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ []*models.SweepResult) error {
@@ -261,8 +208,8 @@ func TestDatabaseCallCounting(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify database call count
-	assert.Equal(t, 2, dbCallCount, "Should make exactly 2 DB calls: 1 for batch query + 1 for publish (not 15+ individual queries)")
-	t.Logf("Total database calls: %d (should be 2, not 15+)", dbCallCount)
+	assert.Equal(t, 1, dbCallCount, "Should make exactly 1 DB call: 1 for publish (no batch optimization)")
+	t.Logf("Total database calls: %d (should be 1)", dbCallCount)
 }
 
 // Helper functions

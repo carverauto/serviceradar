@@ -362,14 +362,14 @@ func TestProcessSweepData(t *testing.T) {
 
 			// Set up mock expectation for ProcessBatchSightings only when hosts are present
 			if !tt.expectError && tt.hasHosts {
-				mockDeviceRegistry.EXPECT().ProcessBatchSightings(gomock.Any(), gomock.Any()).DoAndReturn(
-					func(_ context.Context, results []*models.SweepResult) error {
+				mockDeviceRegistry.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, results []*models.DeviceUpdate) error {
 						if tt.name == "Valid timestamp with hosts" {
 							assert.Len(t, results, 1, "Expected one sweep result")
 							assert.Equal(t, "192.168.1.1", results[0].IP, "Expected correct IP")
 							assert.Nil(t, results[0].MAC, "MAC should be nil for HostResult-based sweep results")
 							assert.Nil(t, results[0].Hostname, "Hostname should be nil for HostResult-based sweep results")
-							assert.True(t, results[0].Available, "Expected host to be available")
+							assert.True(t, results[0].IsAvailable, "Expected host to be available")
 						}
 
 						return nil

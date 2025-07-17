@@ -220,7 +220,7 @@ func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, expe
 	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
 }
 
-func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models.SweepResult, err error, expectedDevices []Device) {
+func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models.DeviceUpdate, err error, expectedDevices []Device) {
 	t.Helper()
 
 	require.NoError(t, err)

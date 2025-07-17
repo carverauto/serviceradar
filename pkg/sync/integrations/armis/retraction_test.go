@@ -125,15 +125,15 @@ func TestArmisIntegration_Reconcile_WithRetractionEvents(t *testing.T) {
 	// Mock the result submitter to capture retraction events
 	mockSubmitter.EXPECT().
 		SubmitBatchSweepResults(ctx, gomock.Any()).
-		DoAndReturn(func(_ context.Context, results []*models.SweepResult) error {
+		DoAndReturn(func(_ context.Context, results []*models.DeviceUpdate) error {
 			require.Len(t, results, 1)
 			result := results[0]
 
 			// Verify retraction event structure
 			assert.Equal(t, "test-partition:192.168.1.1", result.DeviceID)
-			assert.Equal(t, string(models.DiscoverySourceArmis), result.DiscoverySource)
+			assert.Equal(t, models.DiscoverySourceArmis, result.Source)
 			assert.Equal(t, "192.168.1.1", result.IP)
-			assert.False(t, result.Available)
+			assert.False(t, result.IsAvailable)
 			assert.Equal(t, "true", result.Metadata["_deleted"])
 			assert.Equal(t, "test-agent", result.AgentID)
 			assert.Equal(t, "test-poller", result.PollerID)
@@ -549,9 +549,9 @@ func TestArmisIntegration_generateRetractionEvents(t *testing.T) {
 	// Check first retraction event
 	event1 := retractionEvents[0]
 	assert.Equal(t, "test-partition:192.168.1.1", event1.DeviceID)
-	assert.Equal(t, string(models.DiscoverySourceArmis), event1.DiscoverySource)
+	assert.Equal(t, models.DiscoverySourceArmis, event1.Source)
 	assert.Equal(t, "192.168.1.1", event1.IP)
-	assert.False(t, event1.Available)
+	assert.False(t, event1.IsAvailable)
 	assert.Equal(t, "true", event1.Metadata["_deleted"])
 	assert.Equal(t, "test-agent", event1.AgentID)
 	assert.Equal(t, "test-poller", event1.PollerID)
@@ -560,9 +560,9 @@ func TestArmisIntegration_generateRetractionEvents(t *testing.T) {
 	// Check second retraction event
 	event2 := retractionEvents[1]
 	assert.Equal(t, "test-partition:192.168.1.4", event2.DeviceID)
-	assert.Equal(t, string(models.DiscoverySourceArmis), event2.DiscoverySource)
+	assert.Equal(t, models.DiscoverySourceArmis, event2.Source)
 	assert.Equal(t, "192.168.1.4", event2.IP)
-	assert.False(t, event2.Available)
+	assert.False(t, event2.IsAvailable)
 	assert.Equal(t, "true", event2.Metadata["_deleted"])
 	assert.Equal(t, "test-agent", event2.AgentID)
 	assert.Equal(t, "test-poller", event2.PollerID)
