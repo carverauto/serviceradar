@@ -58,6 +58,11 @@ type SimpleSyncService struct {
 	discoveryInterval   time.Duration
 	armisUpdateInterval time.Duration
 
+	// Sweep completion tracking
+	lastSweepCompleted time.Time
+	sweepInProgress    bool
+	mu                 sync.RWMutex // Protects sweep completion state
+
 	// Context for managing service lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -90,8 +95,8 @@ func NewSimpleSyncService(
 			// FIX: Initialize the map to hold DeviceUpdate
 			results: make(map[string][]*models.DeviceUpdate),
 		},
-		discoveryInterval:   6 * time.Hour,
-		armisUpdateInterval: 24 * time.Hour,
+		discoveryInterval:   time.Duration(config.DiscoveryInterval),
+		armisUpdateInterval: time.Duration(config.UpdateInterval),
 		ctx:                 serviceCtx,
 		cancel:              cancel,
 		logger:              log,
@@ -169,6 +174,7 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 // runDiscovery executes discovery for all integrations and immediately writes to KV
 func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 	s.logger.Info().Msg("Starting discovery cycle")
+	s.markSweepStarted()
 
 	// FIX: This map now holds the correct, modern data model
 	allDeviceUpdates := make(map[string][]*models.DeviceUpdate)
@@ -214,11 +220,18 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		Int("sources", len(allDeviceUpdates)).
 		Msg("Discovery cycle completed")
 
+	s.markSweepCompleted()
 	return nil
 }
 
 // runArmisUpdates queries SRQL and updates Armis with device availability
 func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
+	// Check if we should wait for sweep completion
+	if !s.shouldProceedWithUpdates() {
+		s.logger.Info().Msg("Waiting for sweep completion before running updates")
+		return nil
+	}
+
 	s.logger.Info().Msg("Starting Armis update cycle")
 
 	for sourceName, integration := range s.sources {
@@ -229,6 +242,43 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 
 	s.logger.Info().Msg("Armis update cycle completed")
 	return nil
+}
+
+// shouldProceedWithUpdates checks if enough time has passed since last sweep completion
+func (s *SimpleSyncService) shouldProceedWithUpdates() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// If sweep is currently in progress, wait
+	if s.sweepInProgress {
+		return false
+	}
+
+	// If no sweep has completed yet, don't update
+	if s.lastSweepCompleted.IsZero() {
+		return false
+	}
+
+	// Wait at least 30 minutes after sweep completion to ensure data is settled
+	minWaitTime := 30 * time.Minute
+	return time.Since(s.lastSweepCompleted) >= minWaitTime
+}
+
+// markSweepStarted marks that a sweep operation has started
+func (s *SimpleSyncService) markSweepStarted() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepInProgress = true
+	s.logger.Info().Msg("Sweep operation started")
+}
+
+// markSweepCompleted marks that a sweep operation has completed
+func (s *SimpleSyncService) markSweepCompleted() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepInProgress = false
+	s.lastSweepCompleted = time.Now()
+	s.logger.Info().Time("completed_at", s.lastSweepCompleted).Msg("Sweep operation completed")
 }
 
 // writeToKV writes device data to the KV store

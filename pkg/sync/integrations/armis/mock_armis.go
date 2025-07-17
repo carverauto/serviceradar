@@ -303,7 +303,7 @@ func (m *MockResultSubmitter) EXPECT() *MockResultSubmitterMockRecorder {
 }
 
 // SubmitBatchSweepResults mocks base method.
-func (m *MockResultSubmitter) SubmitBatchSweepResults(ctx context.Context, results []*models.SweepResult) error {
+func (m *MockResultSubmitter) SubmitBatchSweepResults(ctx context.Context, results []*models.DeviceUpdate) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SubmitBatchSweepResults", ctx, results)
 	ret0, _ := ret[0].(error)
@@ -317,7 +317,7 @@ func (mr *MockResultSubmitterMockRecorder) SubmitBatchSweepResults(ctx, results 
 }
 
 // SubmitSweepResult mocks base method.
-func (m *MockResultSubmitter) SubmitSweepResult(ctx context.Context, result *models.SweepResult) error {
+func (m *MockResultSubmitter) SubmitSweepResult(ctx context.Context, result *models.DeviceUpdate) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SubmitSweepResult", ctx, result)
 	ret0, _ := ret[0].(error)
