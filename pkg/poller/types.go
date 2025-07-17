@@ -54,9 +54,6 @@ type Poller struct {
 	startWg    sync.WaitGroup
 	logger     logger.Logger
 
-	// Completion tracking for forwarding to sync service
-	completionMu     sync.RWMutex
-	agentCompletions map[string]*proto.SweepCompletionStatus // Track completion status by agent
 }
 
 // ServiceCheck manages a single service check operation.
@@ -77,7 +74,6 @@ type ResultsPoller struct {
 	lastResults          time.Time
 	interval             time.Duration
 	lastSequence         string                       // Track last sequence received from service
-	lastCompletionStatus *proto.SweepCompletionStatus // Track last completion status from agent
 	poller               *Poller                      // Reference to parent poller for completion aggregation
 	logger               logger.Logger
 }

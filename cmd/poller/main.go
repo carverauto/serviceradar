@@ -26,7 +26,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/poller"
-	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
 )
 
@@ -78,9 +77,8 @@ func run() error {
 		return err
 	}
 
-	// Register services function
+	// No gRPC services to register - simplified architecture
 	registerServices := func(s *grpc.Server) error {
-		proto.RegisterPollerServiceServer(s, p)
 		return nil
 	}
 
