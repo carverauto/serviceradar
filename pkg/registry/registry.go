@@ -27,6 +27,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const (
+	defaultPartition = "default"
+)
+
 // DeviceRegistry is the concrete implementation of the registry.Manager.
 type DeviceRegistry struct {
 	db db.Service
@@ -59,6 +63,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	// Convert the modern DeviceUpdate model to the legacy SweepResult model
 	// because the materialized view is powered by the `sweep_results` stream.
 	results := make([]*models.SweepResult, len(updates))
+
 	for i, u := range updates {
 		// Normalize first to ensure DeviceID is correct before creating the SweepResult
 		r.normalizeUpdate(u)
@@ -67,6 +72,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		if u.Hostname != nil {
 			hostname = *u.Hostname
 		}
+
 		mac := ""
 		if u.MAC != nil {
 			mac = *u.MAC
@@ -93,6 +99,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	}
 
 	log.Printf("Successfully processed and published %d device updates.", len(updates))
+
 	return nil
 }
 
@@ -118,7 +125,7 @@ func (r *DeviceRegistry) ProcessBatchSweepResults(ctx context.Context, results [
 }
 
 // normalizeUpdate ensures a DeviceUpdate has the minimum required information.
-func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
+func (*DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 	if update.IP == "" {
 		log.Printf("Skipping update with no IP address")
 		return // Or handle error
@@ -127,14 +134,14 @@ func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 	// If DeviceID is completely empty, generate one from Partition and IP
 	if update.DeviceID == "" {
 		if update.Partition == "" {
-			update.Partition = "default"
+			update.Partition = defaultPartition
 		}
 		update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
 		log.Printf("Generated DeviceID %s for update with empty DeviceID", update.DeviceID)
 	} else {
 		// Extract partition from DeviceID if possible, otherwise default it
 		partition := extractPartitionFromDeviceID(update.DeviceID)
-		if partition == "default" && update.IP != "" {
+		if partition == defaultPartition && update.IP != "" {
 			// If DeviceID was not properly formatted, fix it
 			update.DeviceID = fmt.Sprintf("%s:%s", partition, update.IP)
 		}
@@ -209,6 +216,7 @@ func (r *DeviceRegistry) FindRelatedDevices(ctx context.Context, deviceID string
 		return nil, fmt.Errorf("failed to get related devices by IP %s: %w", primaryDevice.IP, err)
 	}
 	finalList := make([]*models.UnifiedDevice, 0)
+
 	for _, dev := range relatedDevices {
 		if dev.DeviceID != deviceID {
 			finalList = append(finalList, dev)
@@ -222,5 +230,5 @@ func extractPartitionFromDeviceID(deviceID string) string {
 	if len(parts) >= 2 {
 		return parts[0]
 	}
-	return "default"
+	return defaultPartition
 }

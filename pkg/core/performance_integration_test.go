@@ -37,19 +37,19 @@ import (
 // to device registry processing, ensuring N+1 queries are eliminated.
 func TestSyncResultsPerformanceOptimization(t *testing.T) {
 	tests := []struct {
-		name            string
-		sightingCount   int
-		description     string
+		name          string
+		sightingCount int
+		description   string
 	}{
 		{
-			name:        "Large sync batch processing",
+			name:          "Large sync batch processing",
 			sightingCount: 15,
-			description: "Large batches should process efficiently",
+			description:   "Large batches should process efficiently",
 		},
 		{
-			name:        "Small sync batch processing", 
+			name:          "Small sync batch processing",
 			sightingCount: 3,
-			description: "Small batches should process quickly",
+			description:   "Small batches should process quickly",
 		},
 	}
 
@@ -235,27 +235,6 @@ func createSyncSightings(count int) []*models.SweepResult {
 	}
 
 	return sightings
-}
-
-func createExistingDevices(count int) []*models.UnifiedDevice {
-	devices := make([]*models.UnifiedDevice, count)
-	for i := 0; i < count; i++ {
-		devices[i] = &models.UnifiedDevice{
-			DeviceID:    fmt.Sprintf("test:10.0.%d.%d", (i/254)+1, (i%254)+1),
-			IP:          fmt.Sprintf("10.0.%d.%d", (i/254)+1, (i%254)+1),
-			IsAvailable: true,
-			Hostname:    &models.DiscoveredField[string]{Value: fmt.Sprintf("existing-device-%d", i+1)},
-			MAC:         &models.DiscoveredField[string]{Value: fmt.Sprintf("bb:cc:dd:ee:%02x:%02x", i/256, i%256)},
-			DiscoverySources: []models.DiscoverySourceInfo{
-				{
-					Source:     models.DiscoverySourceArmis,
-					Confidence: 7,
-				},
-			},
-		}
-	}
-
-	return devices
 }
 
 func stringPtr(s string) *string {

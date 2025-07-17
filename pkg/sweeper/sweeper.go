@@ -440,8 +440,8 @@ func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Resul
 		return err
 	}
 
-	// Process through unified device registry if available and result is available
-	if s.deviceRegistry != nil && result.Available {
+	// Process through unified device registry for all results (both available and unavailable)
+	if s.deviceRegistry != nil {
 		if err := s.processDeviceRegistry(result); err != nil {
 			// Log error but don't fail the entire operation
 			log.Printf("Failed to process sweep result through device registry for %s: %v", result.Target.Host, err)

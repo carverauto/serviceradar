@@ -42,6 +42,7 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 	}
 
 	var successfulAppends int
+
 	for i, result := range results {
 		log.Printf("DEBUG [database]: Storing SweepResult %d: IP: %s, DeviceID: %s, "+
 			"DiscoverySource: %s, Partition: %s",

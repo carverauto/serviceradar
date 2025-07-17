@@ -118,6 +118,10 @@ func GetSourceConfidence(source DiscoverySource) int {
 		return 8 // High confidence - device reported itself
 	case DiscoverySourceManual:
 		return 10 // Highest confidence - human input
+	case DiscoverySourceNetbox:
+		return 7 // Good confidence - network documentation system
+	case DiscoverySourceSysmon:
+		return 6 // Medium confidence - system monitoring
 	default:
 		return 1 // Low confidence - unknown source
 	}

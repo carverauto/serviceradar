@@ -53,7 +53,6 @@ type Poller struct {
 	wg         sync.WaitGroup
 	startWg    sync.WaitGroup
 	logger     logger.Logger
-
 }
 
 // ServiceCheck manages a single service check operation.
@@ -67,15 +66,15 @@ type ServiceCheck struct {
 
 // ResultsPoller manages GetResults polling for services that support it.
 type ResultsPoller struct {
-	client               proto.AgentServiceClient
-	check                Check
-	pollerID             string
-	agentName            string
-	lastResults          time.Time
-	interval             time.Duration
-	lastSequence         string                       // Track last sequence received from service
-	poller               *Poller                      // Reference to parent poller for completion aggregation
-	logger               logger.Logger
+	client       proto.AgentServiceClient
+	check        Check
+	pollerID     string
+	agentName    string
+	lastResults  time.Time
+	interval     time.Duration
+	lastSequence string  // Track last sequence received from service
+	poller       *Poller // Reference to parent poller for completion aggregation
+	logger       logger.Logger
 }
 
 // Duration is a wrapper around time.Duration for JSON unmarshaling.

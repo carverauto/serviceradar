@@ -28,7 +28,7 @@ import (
 
 const (
 	defaultCleanupInterval = 10 * time.Minute
-	defaultMaxResults      = 10000
+	defaultMaxResults      = 100000 // Increased to handle larger networks (was 10000)
 )
 
 // InMemoryStore implements Store interface for temporary storage.

@@ -703,7 +703,7 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 			timestamp = chunk.Timestamp
 		}
 
-		log.Printf("Received chunk %d/%d from poller %s with %d services", 
+		log.Printf("Received chunk %d/%d from poller %s with %d services",
 			chunk.ChunkIndex+1, chunk.TotalChunks, chunk.PollerId, len(chunk.Services))
 
 		// Collect services from this chunk

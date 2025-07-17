@@ -264,6 +264,7 @@ func (s *Server) processServices(
 			Partition:   devicePartition,
 			Timestamp:   now,
 		})
+
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
