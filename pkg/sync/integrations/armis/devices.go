@@ -175,8 +175,10 @@ func (a *ArmisIntegration) convertToDeviceUpdate(devices []Device) []*models.Dev
 		ip := extractFirstIP(dev.IPAddress)
 
 		out = append(out, &models.DeviceUpdate{
+			DeviceID:    fmt.Sprintf("%s:%s", a.Config.Partition, ip),
 			AgentID:     a.Config.AgentID,
 			PollerID:    a.Config.PollerID,
+			Partition:   a.Config.Partition,
 			Source:      models.DiscoverySourceArmis,
 			IP:          ip,
 			MAC:         &mac,

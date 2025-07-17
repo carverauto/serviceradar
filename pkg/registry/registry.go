@@ -124,11 +124,20 @@ func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 		return // Or handle error
 	}
 
-	// Extract partition from DeviceID if possible, otherwise default it
-	partition := extractPartitionFromDeviceID(update.DeviceID)
-	if partition == "default" && update.IP != "" {
-		// If DeviceID was not properly formatted, fix it
-		update.DeviceID = fmt.Sprintf("%s:%s", partition, update.IP)
+	// If DeviceID is completely empty, generate one from Partition and IP
+	if update.DeviceID == "" {
+		if update.Partition == "" {
+			update.Partition = "default"
+		}
+		update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
+		log.Printf("Generated DeviceID %s for update with empty DeviceID", update.DeviceID)
+	} else {
+		// Extract partition from DeviceID if possible, otherwise default it
+		partition := extractPartitionFromDeviceID(update.DeviceID)
+		if partition == "default" && update.IP != "" {
+			// If DeviceID was not properly formatted, fix it
+			update.DeviceID = fmt.Sprintf("%s:%s", partition, update.IP)
+		}
 	}
 
 	if update.Source == "" {
