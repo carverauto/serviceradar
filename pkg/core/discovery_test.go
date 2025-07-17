@@ -67,7 +67,7 @@ func TestProcessSyncResults(t *testing.T) {
 		{
 			name: "successful processing with sightings",
 			setupMocks: func(_ *db.MockService, mockReg *registry.MockManager) {
-				mockReg.EXPECT().ProcessBatchSightings(gomock.Any(), gomock.Any()).Return(nil)
+				mockReg.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).Return(nil)
 			},
 			sightings: []*models.SweepResult{
 				{
@@ -91,7 +91,7 @@ func TestProcessSyncResults(t *testing.T) {
 		{
 			name: "no sightings found",
 			setupMocks: func(_ *db.MockService, _ *registry.MockManager) {
-				// No expectations - ProcessBatchSightings should not be called
+				// No expectations - ProcessBatchDeviceUpdates should not be called
 			},
 			sightings: []*models.SweepResult{},
 			svc: &proto.ServiceStatus{
@@ -113,7 +113,7 @@ func TestProcessSyncResults(t *testing.T) {
 		{
 			name: "registry error",
 			setupMocks: func(_ *db.MockService, mockReg *registry.MockManager) {
-				mockReg.EXPECT().ProcessBatchSightings(gomock.Any(), gomock.Any()).
+				mockReg.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).
 					Return(errors.New("registry error"))
 			},
 			sightings: []*models.SweepResult{
@@ -214,11 +214,11 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 			name: "successful processing with devices and interfaces",
 			setupMocks: func(mockDB *db.MockService, mockReg *registry.MockManager) {
 				// Expect device processing
-				mockReg.EXPECT().ProcessBatchSightings(gomock.Any(), gomock.Len(1)).Return(nil)
+				mockReg.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Len(1)).Return(nil)
 				// Expect interface storage
 				mockDB.EXPECT().PublishBatchDiscoveredInterfaces(gomock.Any(), gomock.Len(2)).Return(nil)
 				// Expect interface correlation processing
-				mockReg.EXPECT().ProcessBatchSightings(gomock.Any(), gomock.Len(1)).Return(nil)
+				mockReg.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Len(1)).Return(nil)
 			},
 			payload: models.SNMPDiscoveryDataPayload{
 				AgentID:  "agent1",
@@ -261,7 +261,7 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 		{
 			name: "empty payload IDs use fallbacks",
 			setupMocks: func(_ *db.MockService, mockReg *registry.MockManager) {
-				mockReg.EXPECT().ProcessBatchSightings(gomock.Any(), gomock.Any()).Return(nil)
+				mockReg.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).Return(nil)
 			},
 			payload: models.SNMPDiscoveryDataPayload{
 				// AgentID and PollerID are empty - should fall back to svc values
