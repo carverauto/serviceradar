@@ -1,4 +1,6 @@
 use anyhow::Result;
+use futures::Stream;
+use std::pin::Pin;
 use tonic::{
     transport::{Certificate, Identity, Server, ServerTlsConfig},
     Request, Response, Status,
@@ -21,6 +23,7 @@ pub struct ZenAgentService;
 
 #[tonic::async_trait]
 impl AgentService for ZenAgentService {
+    type StreamResultsStream = Pin<Box<dyn Stream<Item = Result<monitoring::ResultsChunk, Status>> + Send + 'static>>;
     async fn get_status(
         &self,
         request: Request<monitoring::StatusRequest>,
@@ -65,6 +68,19 @@ impl AgentService for ZenAgentService {
             has_new_data: false,
             sweep_completion: None,
         }))
+    }
+
+    async fn stream_results(
+        &self,
+        request: Request<monitoring::ResultsRequest>,
+    ) -> Result<Response<Self::StreamResultsStream>, Status> {
+        let _req = request.into_inner();
+        
+        // Create an empty stream for now - in a real implementation this would
+        // stream actual results data in chunks
+        let stream = futures::stream::empty();
+        
+        Ok(Response::new(Box::pin(stream)))
     }
 }
 
