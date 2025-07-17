@@ -17,12 +17,12 @@
 package poller
 
 import (
-	"bytes" // NEW: Import bytes for buffer
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io" // NEW: Import io for EOF handling
+	"io"
 	"math"
 	"strings"
 	"sync"
@@ -54,6 +54,7 @@ func safeIntToInt32(val int) int32 {
 	if val < math.MinInt32 {
 		return math.MinInt32
 	}
+
 	return int32(val)
 }
 
@@ -82,6 +83,7 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 			if p.grpcClient != nil {
 				_ = p.grpcClient.Close()
 			}
+
 			return nil, fmt.Errorf("failed to initialize agent pollers: %w", err)
 		}
 	}
@@ -115,8 +117,10 @@ func (p *Poller) Start(ctx context.Context) error {
 			return nil
 		case <-ticker.Chan():
 			p.wg.Add(1)
+
 			go func() {
 				defer p.wg.Done()
+
 				if err := p.poll(ctx); err != nil {
 					p.logger.Error().Err(err).Msg("Error during poll")
 				}
@@ -156,6 +160,7 @@ func (p *Poller) Stop(ctx context.Context) error {
 
 	p.agents = make(map[string]*AgentPoller)
 	p.coreClient = nil
+
 	return nil
 }
 
@@ -184,6 +189,7 @@ func (p *Poller) Close() error {
 	if len(errs) > 0 {
 		return fmt.Errorf("%w: %v", errClosing, errs)
 	}
+
 	return nil
 }
 
@@ -233,7 +239,9 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 
 		go func(check Check) {
 			defer wg.Done()
+
 			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID, ap.name, ap.poller.logger)
+
 			results <- svcCheck.execute(checkCtx)
 		}(check)
 	}
@@ -254,9 +262,12 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 func (ap *AgentPoller) ExecuteResults(ctx context.Context) []*proto.ServiceStatus {
 	checkCtx, cancel := context.WithTimeout(ctx, ap.timeout)
 	defer cancel()
+
 	results := make(chan *proto.ServiceStatus, len(ap.resultsPollers))
 	statuses := make([]*proto.ServiceStatus, 0, len(ap.resultsPollers))
+
 	var wg sync.WaitGroup
+
 	now := time.Now()
 
 	for _, resultsPoller := range ap.resultsPollers {
@@ -265,11 +276,12 @@ func (ap *AgentPoller) ExecuteResults(ctx context.Context) []*proto.ServiceStatu
 
 			go func(rp *ResultsPoller) {
 				defer wg.Done()
-				// MODIFIED: executeGetResults now acts as a router
+
 				statusResult := rp.executeGetResults(checkCtx)
 				if statusResult != nil {
 					results <- statusResult
 				}
+
 				rp.lastResults = now
 			}(resultsPoller)
 		}
@@ -305,9 +317,11 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		PollerId:    sc.pollerID,
 		Details:     sc.check.Details,
 	}
+
 	if sc.check.Type == "port" {
 		req.Port = sc.check.Port
 	}
+
 	sc.logger.Debug().
 		Str("service_name", sc.check.Name).
 		Str("service_type", sc.check.Type).
@@ -323,12 +337,16 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 			Str("agent_name", sc.agentName).
 			Str("poller_id", sc.pollerID).
 			Msg("Service check failed")
+
 		msg := "Service check failed"
+
 		message, err := json.Marshal(map[string]string{"error": msg})
 		if err != nil {
 			sc.logger.Warn().Err(err).Str("service_name", sc.check.Name).Msg("Failed to marshal error message, using fallback")
+
 			message = []byte(msg)
 		}
+
 		return &proto.ServiceStatus{
 			ServiceName: sc.check.Name,
 			Available:   false,
@@ -338,6 +356,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 			Source:      "getStatus",
 		}
 	}
+
 	sc.logger.Debug().
 		Str("service_name", sc.check.Name).
 		Str("service_type", sc.check.Type).
@@ -363,50 +382,64 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 		MaxRetries: grpcRetries,
 		Logger:     p.logger,
 	}
+
 	if p.config.Security != nil {
 		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security, p.logger)
 		if err != nil {
 			return fmt.Errorf("failed to create security provider: %w", err)
 		}
+
 		clientCfg.SecurityProvider = provider
 	}
 
 	p.logger.Info().Str("address", p.config.CoreAddress).Msg("Connecting to core service")
-	client, err := grpc.NewClient(ctx, clientCfg)
 
+	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create core client: %w", err)
 	}
+
 	p.grpcClient = client
 	p.coreClient = proto.NewPollerServiceClient(client.GetConnection())
+
 	return nil
 }
 
 func (p *Poller) initializeAgentPollers(ctx context.Context) error {
 	for agentName := range p.config.Agents {
 		agentConfig := p.config.Agents[agentName]
+
 		clientCfg := grpc.ClientConfig{
 			Address:    agentConfig.Address,
 			MaxRetries: grpcRetries,
 			Logger:     p.logger,
 		}
+
 		if p.config.Security != nil {
 			provider, err := grpc.NewSecurityProvider(ctx, p.config.Security, p.logger)
 			if err != nil {
 				return fmt.Errorf("failed to create security provider for agent %s: %w", agentName, err)
 			}
+
 			clientCfg.SecurityProvider = provider
 		}
-		p.logger.Info().Str("agent", agentName).Str("address", agentConfig.Address).Msg("Connecting to agent and creating poller")
+
+		p.logger.Info().Str("agent", agentName).Str("address", agentConfig.Address).
+			Msg("Connecting to agent and creating poller")
+
 		client, err := grpc.NewClient(ctx, clientCfg)
 		if err != nil {
 			return fmt.Errorf("failed to connect to agent %s: %w", agentName, err)
 		}
+
 		agentServiceClient := proto.NewAgentServiceClient(client.GetConnection())
+
 		agentPoller := newAgentPoller(agentName, &agentConfig, agentServiceClient, p)
 		agentPoller.clientConn = client
+
 		p.agents[agentName] = agentPoller
 	}
+
 	return nil
 }
 
@@ -414,9 +447,11 @@ func (p *Poller) poll(ctx context.Context) error {
 	if p.PollFunc != nil {
 		return p.PollFunc(ctx)
 	}
+
 	p.logger.Info().Msg("Starting polling cycle")
 
 	var wg sync.WaitGroup
+
 	statusChan := make(chan *proto.ServiceStatus, 100)
 
 	for agentName := range p.config.Agents {
@@ -424,6 +459,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		if !exists {
 			continue
 		}
+
 		wg.Add(1)
 
 		go func(name string, ap *AgentPoller) {
@@ -435,11 +471,13 @@ func (p *Poller) poll(ctx context.Context) error {
 					p.logger.Warn().Str("agent", name).Err(err).Bool("healthy", healthy).Msg("Agent health check failed")
 				}
 			}
+
 			statuses := ap.ExecuteChecks(ctx)
 
 			for _, s := range statuses {
 				statusChan <- s
 			}
+
 			resultsStatuses := ap.ExecuteResults(ctx)
 
 			for _, s := range resultsStatuses {
@@ -474,12 +512,12 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 	for i, serviceStatus := range statuses {
 		serviceStatus.PollerId = p.config.PollerID
 		serviceStatus.Partition = p.config.Partition
+
 		agentID := serviceStatus.AgentId
 		if agentID == "" {
 			p.logger.Warn().Str("serviceName", serviceStatus.ServiceName).Msg("AgentID empty in response, using configured agent name as fallback")
 		}
 
-		// MODIFIED: This is the payload wrapping fix. It's correct.
 		if serviceStatus.ServiceType != "sync" {
 			enhancedMessage, err := p.enhanceServicePayload(
 				string(serviceStatus.Message),
@@ -525,6 +563,7 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 	if err != nil {
 		return fmt.Errorf("failed to report serviceStatus to core: %w", err)
 	}
+
 	return nil
 }
 
@@ -555,6 +594,7 @@ func (p *Poller) reportToCoreStreaming(ctx context.Context, statuses []*proto.Se
 	// Send data in chunks
 	for i := 0; i < len(statuses); i += chunkSize {
 		end := i + chunkSize
+
 		if end > len(statuses) {
 			end = len(statuses)
 		}
@@ -605,9 +645,12 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 	if serviceType == "snmp" {
 		p.logger.Debug().Str("agentID", agentID).Str("message", originalMessage).Msg("SNMP original message")
 	}
+
 	var serviceData json.RawMessage
+
 	if originalMessage == "" {
 		p.logger.Warn().Str("serviceType", serviceType).Str("serviceName", serviceName).Msg("Empty message for service")
+
 		serviceData = json.RawMessage("{}")
 	} else if json.Valid([]byte(originalMessage)) {
 		serviceData = json.RawMessage(originalMessage)
@@ -617,13 +660,18 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 			Str("serviceName", serviceName).
 			Str("message", originalMessage).
 			Msg("Invalid JSON for service, wrapping")
+
 		errorWrapper := map[string]string{"message": originalMessage}
+
 		wrappedJSON, err := json.Marshal(errorWrapper)
+
 		if err != nil {
 			return "", fmt.Errorf("failed to wrap non-JSON message: %w", err)
 		}
+
 		serviceData = wrappedJSON
 	}
+
 	enhancedPayload := models.ServiceMetricsPayload{
 		PollerID:    p.config.PollerID,
 		AgentID:     agentID,
@@ -638,11 +686,11 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal enhanced service payload: %w", err)
 	}
+
 	return string(enhancedJSON), nil
 }
 
 // executeGetResults now routes to the correct method based on service type.
-// MODIFIED
 func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceStatus {
 	req := rp.buildResultsRequest()
 
@@ -656,9 +704,11 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 			Str("service_name", rp.check.Name).
 			Str("service_type", rp.check.Type).
 			Msg("Using streaming method for large dataset service")
+
 		results, err = rp.executeStreamResults(ctx, req)
 	} else {
 		rp.logger.Debug().Str("service_name", rp.check.Name).Msg("Using unary method for service")
+
 		results, err = rp.client.GetResults(ctx, req)
 	}
 
@@ -677,11 +727,11 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 	if rp.shouldSkipCoreSubmission(results) {
 		return nil
 	}
+
 	return rp.convertToServiceStatus(results)
 }
 
 // executeStreamResults handles the gRPC streaming for large datasets.
-// NEW
 func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
 	rp.logger.Info().Str("service_name", req.ServiceName).Str("service_type", req.ServiceType).Msg("Starting StreamResults call")
 
@@ -694,6 +744,7 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 	var dataBuffer bytes.Buffer
 
 	var finalChunk *proto.ResultsChunk
+
 	startTime := time.Now()
 	chunksReceived := 0
 
@@ -703,11 +754,13 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 			rp.logger.Info().Str("service_name", req.ServiceName).Int("chunks_received", chunksReceived).Msg("Stream ended normally")
 			break // End of stream
 		}
+
 		if err != nil {
 			rp.logger.Error().Err(err).
 				Str("service_name", req.ServiceName).
 				Int("chunks_received", chunksReceived).
 				Msg("Error receiving chunk from stream")
+
 			return nil, fmt.Errorf("failed to receive chunk: %w", err)
 		}
 
@@ -739,6 +792,7 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 			Str("service_name", req.ServiceName).
 			Int("chunks_received", chunksReceived).
 			Msg("Stream completed without a final chunk")
+
 		return nil, fmt.Errorf("stream completed without a final chunk")
 	}
 
@@ -779,6 +833,7 @@ func (rp *ResultsPoller) buildResultsRequest() *proto.ResultsRequest {
 		Str("agent_name", rp.agentName).
 		Str("poller_id", rp.pollerID).
 		Msg("Executing GetResults call")
+
 	return req
 }
 
@@ -789,6 +844,7 @@ func (rp *ResultsPoller) handleGetResultsError(err error) *proto.ServiceStatus {
 			Str("service_type", rp.check.Type).
 			Str("agent_name", rp.agentName).
 			Msg("Service does not support GetResults - skipping")
+
 		return nil
 	}
 
@@ -836,6 +892,7 @@ func (rp *ResultsPoller) shouldSkipCoreSubmission(results *proto.ResultsResponse
 				Str("service_name", rp.check.Name).
 				Msg("Sync service has no new data, but submitting full list to core for state reconciliation.")
 		}
+
 		return false
 	}
 
@@ -845,8 +902,10 @@ func (rp *ResultsPoller) shouldSkipCoreSubmission(results *proto.ResultsResponse
 			Str("service_type", rp.check.Type).
 			Str("sequence", results.CurrentSequence).
 			Msg("No new data from sweep service, skipping core submission")
+
 		return true
 	}
+
 	return false
 }
 

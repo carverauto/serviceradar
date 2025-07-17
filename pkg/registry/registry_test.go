@@ -152,6 +152,7 @@ func TestDeviceRegistry_ProcessBatchSweepResults(t *testing.T) {
 			},
 			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
 				t.Helper()
+
 				assert.Len(t, publishedResults, 2, "Should publish both results")
 
 				// Check first device
@@ -176,6 +177,8 @@ func TestDeviceRegistry_ProcessBatchSweepResults(t *testing.T) {
 			description: "Empty batch should not cause any database calls",
 			sightings:   []*models.SweepResult{},
 			validate: func(t *testing.T, _ []*models.SweepResult) {
+				t.Helper()
+
 				// This test should not reach the validation function
 				// since no PublishBatchSweepResults call should be made
 				t.Error("Empty batch should not trigger database call")
@@ -213,6 +216,7 @@ func TestDeviceRegistry_ProcessBatchSweepResults(t *testing.T) {
 
 func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 	ctx := context.Background()
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -329,6 +333,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 				).DoAndReturn(func(_ context.Context, results []*models.SweepResult) error {
 					// Validate the results that would be published
 					tt.validate(t, results)
+
 					return nil
 				})
 
@@ -344,6 +349,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 
 func TestDeviceRegistry_ProcessDeviceUpdate(t *testing.T) {
 	ctx := context.Background()
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -373,6 +379,7 @@ func TestDeviceRegistry_ProcessDeviceUpdate(t *testing.T) {
 		assert.Equal(t, "192.168.1.1", result.IP)
 		assert.Equal(t, "single-device", *result.Hostname)
 		assert.Equal(t, "value", result.Metadata["test"])
+
 		return nil
 	})
 
@@ -383,6 +390,7 @@ func TestDeviceRegistry_ProcessDeviceUpdate(t *testing.T) {
 
 func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 	ctx := context.Background()
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -407,6 +415,8 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 				Available:       true,
 			},
 			validate: func(t *testing.T, normalized *models.SweepResult) {
+				t.Helper()
+
 				assert.Equal(t, "default:192.168.1.100", normalized.DeviceID)
 				assert.Equal(t, "default", normalized.Partition)
 			},
@@ -423,6 +433,8 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 				Available:       true,
 			},
 			validate: func(t *testing.T, normalized *models.SweepResult) {
+				t.Helper()
+
 				assert.Equal(t, "custom:192.168.1.101", normalized.DeviceID)
 				assert.Equal(t, "custom", normalized.Partition)
 			},
@@ -439,6 +451,8 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 				Available:       true,
 			},
 			validate: func(t *testing.T, normalized *models.SweepResult) {
+				t.Helper()
+
 				assert.Equal(t, "malformed-device-id", normalized.DeviceID)
 				assert.Equal(t, "default", normalized.Partition)
 			},
@@ -454,6 +468,7 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 			).DoAndReturn(func(_ context.Context, results []*models.SweepResult) error {
 				assert.Len(t, results, 1, "Should publish exactly one result")
 				tt.validate(t, results[0])
+
 				return nil
 			})
 

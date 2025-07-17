@@ -103,24 +103,25 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	return nil
 }
 
-// --- Legacy Compatibility Method ---
-
 // ProcessBatchSweepResults now directly calls the database method. It is the
 // responsibility of callers to ensure the SweepResult is properly formed.
 func (r *DeviceRegistry) ProcessBatchSweepResults(ctx context.Context, results []*models.SweepResult) error {
 	if len(results) == 0 {
 		return nil
 	}
+
 	// For legacy callers, we still normalize before publishing.
 	for _, res := range results {
 		// A simple normalization for SweepResult
 		if res.Partition == "" {
 			res.Partition = extractPartitionFromDeviceID(res.DeviceID)
 		}
+
 		if res.DeviceID == "" && res.IP != "" {
 			res.DeviceID = fmt.Sprintf("%s:%s", res.Partition, res.IP)
 		}
 	}
+
 	return r.db.PublishBatchSweepResults(ctx, results)
 }
 
@@ -136,7 +137,9 @@ func (*DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 		if update.Partition == "" {
 			update.Partition = defaultPartition
 		}
+
 		update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
+
 		log.Printf("Generated DeviceID %s for update with empty DeviceID", update.DeviceID)
 	} else {
 		// Extract partition from DeviceID if possible, otherwise default it
@@ -160,61 +163,61 @@ func (*DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 	}
 }
 
-// --- Query Methods ---
-// These methods query the final `unified_devices` view and do not need to change.
-
 func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
-	// ... implementation remains the same
 	devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, []string{deviceID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device %s: %w", deviceID, err)
 	}
+
 	if len(devices) == 0 {
 		return nil, fmt.Errorf("device %s not found", deviceID)
 	}
+
 	return devices[0], nil
 }
 
 func (r *DeviceRegistry) GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
-	// ... implementation remains the same
 	devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, []string{ip}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get devices by IP %s: %w", ip, err)
 	}
+
 	return devices, nil
 }
 
 func (r *DeviceRegistry) ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error) {
-	// ... implementation remains the same
 	return r.db.ListUnifiedDevices(ctx, limit, offset)
 }
 
 func (r *DeviceRegistry) GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error) {
-	// ... implementation remains the same
 	device, err := r.GetDevice(ctx, deviceIDOrIP)
 	if err == nil {
 		return device, nil
 	}
+
 	devices, err := r.GetDevicesByIP(ctx, deviceIDOrIP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device by ID or IP %s: %w", deviceIDOrIP, err)
 	}
+
 	if len(devices) == 0 {
 		return nil, fmt.Errorf("device %s not found", deviceIDOrIP)
 	}
+
 	return devices[0], nil
 }
 
 func (r *DeviceRegistry) FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error) {
-	// ... implementation remains the same
 	primaryDevice, err := r.GetDevice(ctx, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get primary device %s: %w", deviceID, err)
 	}
+
 	relatedDevices, err := r.GetDevicesByIP(ctx, primaryDevice.IP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get related devices by IP %s: %w", primaryDevice.IP, err)
 	}
+
 	finalList := make([]*models.UnifiedDevice, 0)
 
 	for _, dev := range relatedDevices {
@@ -222,6 +225,7 @@ func (r *DeviceRegistry) FindRelatedDevices(ctx context.Context, deviceID string
 			finalList = append(finalList, dev)
 		}
 	}
+
 	return finalList, nil
 }
 
@@ -230,5 +234,6 @@ func extractPartitionFromDeviceID(deviceID string) string {
 	if len(parts) >= 2 {
 		return parts[0]
 	}
+
 	return defaultPartition
 }

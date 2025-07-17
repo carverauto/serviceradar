@@ -114,7 +114,6 @@ func (s *Server) handlePoller(batchCtx context.Context, ps *models.PollerStatus,
 			ps.AlertSent = true
 		}
 	} else if !ps.IsHealthy && !ps.LastSeen.Before(threshold) && ps.AlertSent {
-		// Poller appears to have recovered
 		log.Printf("Poller %s has recovered", ps.PollerID)
 
 		apiStatus := &api.PollerStatus{
@@ -605,9 +604,13 @@ func (s *Server) monitorPollers(ctx context.Context) {
 	log.Printf("Starting poller monitoring...")
 
 	time.Sleep(pollerDiscoveryTimeout)
+
 	s.checkInitialStates(ctx)
+
 	time.Sleep(pollerNeverReportedTimeout)
+
 	s.CheckNeverReportedPollersStartup(ctx)
+
 	s.MonitorPollers(ctx)
 }
 
@@ -679,7 +682,9 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 // StreamStatus handles streaming status reports from pollers for large datasets
 func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) error {
 	var allServices []*proto.ServiceStatus
+
 	var pollerID, agentID, partition, sourceIP string
+
 	var timestamp int64
 
 	log.Printf("Starting streaming status reception")
@@ -691,6 +696,7 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 			if err.Error() == "EOF" {
 				break
 			}
+
 			return fmt.Errorf("error receiving stream chunk: %w", err)
 		}
 
@@ -744,7 +750,9 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 	}
 
 	ctx := stream.Context()
+
 	now := time.Unix(timestamp, 0)
+
 	apiStatus, err := s.processStatusReport(ctx, req, now)
 	if err != nil {
 		return fmt.Errorf("failed to process streaming status report: %w", err)

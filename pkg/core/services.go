@@ -64,8 +64,6 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	updatesToStore := s.processHostResults(sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
 
 	if len(updatesToStore) > 0 {
-		// FIX: Call the new primary method on the registry.
-		// The old `ProcessBatchSightings` is now `ProcessBatchDeviceUpdates`.
 		if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, updatesToStore); err != nil {
 			log.Printf("Error processing batch sweep updates: %v", err)
 			return err
@@ -180,6 +178,7 @@ func (*Server) extractDeviceContext(
 			if partition == "" {
 				partition = defaultPartition
 			}
+
 			return directMessage.DeviceID, partition
 		}
 	}
@@ -199,6 +198,7 @@ func (*Server) extractDeviceContext(
 		if payload.Partition != "" {
 			partition = payload.Partition
 		}
+
 		if payload.Data.HostIP != "" {
 			deviceID = fmt.Sprintf("%s:%s", partition, payload.Data.HostIP)
 			return deviceID, partition
@@ -294,11 +294,14 @@ func (s *Server) processServiceDetails(
 	if err != nil {
 		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details",
 			svc.ServiceName, pollerID)
+
 		if svc.ServiceType == snmpDiscoveryResultsServiceType {
 			return fmt.Errorf("failed to parse snmp-discovery-results payload: %w", err)
 		}
+
 		return s.handleService(ctx, apiService, partition, now)
 	}
+
 	apiService.Details = details
 
 	if err := s.processMetrics(ctx, pollerID, partition, sourceIP, svc, details, now); err != nil {
@@ -306,6 +309,7 @@ func (s *Server) processServiceDetails(
 			svc.ServiceName, pollerID, err)
 		return err
 	}
+
 	return s.handleService(ctx, apiService, partition, now)
 }
 
@@ -317,6 +321,7 @@ func (*Server) extractServicePayload(details json.RawMessage) (*models.ServiceMe
 			return &enhancedPayload, enhancedPayload.Data
 		}
 	}
+
 	return nil, details
 }
 
@@ -327,8 +332,11 @@ func (s *Server) registerServiceDevice(
 			"missing required location data (partition=%q, source_ip=%q)",
 			pollerID, partition, sourceIP)
 	}
+
 	deviceID := fmt.Sprintf("%s:%s", partition, sourceIP)
+
 	var serviceTypes []string
+
 	var primaryServiceID string
 
 	if agentID == "" {
@@ -398,5 +406,6 @@ func (*Server) getServiceHostname(serviceID, hostIP string) string {
 	if serviceID != "" && (len(serviceID) > 7) {
 		return serviceID
 	}
+
 	return hostIP
 }

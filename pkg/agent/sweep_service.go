@@ -42,7 +42,6 @@ type SweepService struct {
 	cachedResults      *models.SweepSummary
 	lastSweepTimestamp int64
 	currentSequence    uint64
-
 }
 
 // NewSweepService creates a new SweepService.
@@ -295,4 +294,3 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		Timestamp:       time.Now().Unix(),
 	}, nil
 }
-

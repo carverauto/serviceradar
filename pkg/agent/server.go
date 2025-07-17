@@ -52,9 +52,11 @@ func safeIntToInt32(val int) int32 {
 	if val > math.MaxInt32 {
 		return math.MaxInt32
 	}
+
 	if val < math.MinInt32 {
 		return math.MinInt32
 	}
+
 	return int32(val)
 }
 
@@ -633,6 +635,7 @@ func (s *Server) StreamResults(req *proto.ResultsRequest, stream proto.AgentServ
 
 	// For non-grpc services, return "not supported"
 	s.logger.Info().Str("serviceType", req.ServiceType).Msg("StreamResults not supported for service type")
+
 	return status.Errorf(codes.Unimplemented, "StreamResults not supported for service type '%s'", req.ServiceType)
 }
 
@@ -648,6 +651,7 @@ func (s *Server) handleGrpcStreamResults(req *proto.ResultsRequest, stream proto
 		PollerId:    req.PollerId,
 		Details:     req.Details,
 	}
+
 	statusReq.AgentId = s.config.AgentID
 
 	getChecker, err := s.getChecker(ctx, statusReq)
@@ -680,9 +684,11 @@ func (s *Server) handleGrpcStreamResults(req *proto.ResultsRequest, stream proto
 	// Forward all chunks from upstream to downstream
 	for {
 		chunk, err := upstreamStream.Recv()
+
 		if errors.Is(err, io.EOF) {
 			break
 		}
+
 		if err != nil {
 			s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Error receiving chunk from upstream")
 			return status.Errorf(codes.Internal, "Error receiving chunk: %v", err)
@@ -695,6 +701,7 @@ func (s *Server) handleGrpcStreamResults(req *proto.ResultsRequest, stream proto
 	}
 
 	s.logger.Info().Str("serviceName", req.ServiceName).Msg("StreamResults forwarding completed")
+
 	return nil
 }
 
@@ -710,6 +717,7 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 		}
 
 		ctx := stream.Context()
+
 		response, err := sweepSvc.GetSweepResults(ctx, req.LastSequence)
 		if err != nil {
 			s.logger.Error().Err(err).Msg("Failed to get sweep results for streaming")
@@ -734,6 +742,7 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 
 		// Calculate chunk size to keep each chunk under ~1MB
 		const maxChunkSize = 1024 * 1024 // 1MB
+
 		totalBytes := len(response.Data)
 
 		if totalBytes <= maxChunkSize {
@@ -753,6 +762,7 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 
 		for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
 			start := chunkIndex * maxChunkSize
+
 			end := start + maxChunkSize
 			if end > totalBytes {
 				end = totalBytes
@@ -784,6 +794,7 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 	}
 
 	s.logger.Error().Msg("No sweep service found for StreamResults")
+
 	return status.Errorf(codes.NotFound, "No sweep service configured")
 }
 
@@ -966,6 +977,7 @@ func (s *Server) loadCheckerConfig(ctx context.Context, cfgLoader *config.Config
 
 	// Try KV if available
 	var err error
+
 	if s.kvStore != nil {
 		if err = cfgLoader.LoadAndValidate(ctx, kvPath, &conf); err == nil {
 			s.logger.Info().Str("kvPath", kvPath).Msg("Loaded checker config from KV")
