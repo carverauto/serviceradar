@@ -220,11 +220,11 @@ func (m *MockIntegration) EXPECT() *MockIntegrationMockRecorder {
 }
 
 // Fetch mocks base method.
-func (m *MockIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
+func (m *MockIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.DeviceUpdate, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Fetch", ctx)
 	ret0, _ := ret[0].(map[string][]byte)
-	ret1, _ := ret[1].([]*models.SweepResult)
+	ret1, _ := ret[1].([]*models.DeviceUpdate)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }

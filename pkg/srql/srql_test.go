@@ -280,7 +280,7 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 
 				// Proton
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT COUNT(*) FROM table(sweep_results) WHERE to_date(timestamp) = today() AND discovery_source = 'sweep'", sqlP)
+				assert.Equal(t, "SELECT count() FROM table(sweep_results) WHERE to_date(timestamp) = today() AND discovery_source = 'sweep'", sqlP)
 			},
 		},
 		{

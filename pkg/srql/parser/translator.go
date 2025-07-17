@@ -197,7 +197,7 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 	case models.Show, models.Find:
 		sql.WriteString("SELECT * FROM ")
 	case models.Count:
-		sql.WriteString("SELECT COUNT(*) FROM ")
+		sql.WriteString("SELECT count() FROM ")
 	}
 
 	sql.WriteString(strings.ToLower(string(query.Entity)))
@@ -351,7 +351,7 @@ func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *model
 	case models.Show, models.Find:
 		sql.WriteString("SELECT * FROM table(") // Added table() here
 	case models.Count:
-		sql.WriteString("SELECT COUNT(*) FROM table(") // Added table() here
+		sql.WriteString("SELECT count() FROM table(") // Added table() here
 	}
 
 	sql.WriteString(baseTableName)
