@@ -477,6 +477,91 @@ For network performance monitoring, edit `/etc/serviceradar/checkers/rperf.json`
 
 For more information on the RPerf bandwidth checker, see the [rperf documentation](./rperf-monitoring.md).
 
+## Sync Service Configuration
+
+The sync service integrates with external systems like Armis and NetBox to discover devices and synchronize their status. It manages discovery cycles and updates external systems with ping sweep results.
+
+Edit `/etc/serviceradar/sync.json`:
+
+```json
+{
+  "kv_address": "localhost:50057",
+  "listen_addr": ":50058",
+  "poll_interval": "30m",
+  "discovery_interval": "18h",
+  "update_interval": "18h30m",
+  "agent_id": "default-agent",
+  "poller_id": "default-poller",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "localhost",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "sources": {
+    "armis": {
+      "type": "armis",
+      "endpoint": "https://api.armis.example.com",
+      "prefix": "armis/",
+      "poll_interval": "18h30m",
+      "sweep_interval": "18h",
+      "agent_id": "default-agent",
+      "poller_id": "default-poller",
+      "partition": "default",
+      "credentials": {
+        "secret_key": "your-armis-secret-key-here",
+        "api_key": "your-serviceradar-api-key",
+        "serviceradar_endpoint": "http://localhost:8080",
+        "enable_status_updates": "true",
+        "page_size": "500"
+      },
+      "queries": [
+        {
+          "label": "all_devices",
+          "query": "in:devices orderBy=id boundaries:\"Corporate\""
+        }
+      ]
+    }
+  },
+  "logging": {
+    "level": "info",
+    "debug": false,
+    "output": "stdout"
+  }
+}
+```
+
+### Configuration Options:
+
+- `discovery_interval`: How often to fetch devices from external systems (e.g., "18h")
+- `update_interval`: How often to update external systems with ping results (e.g., "18h30m")
+- `sources`: Map of external integrations to configure
+  - `type`: Integration type ("armis" or "netbox")
+  - `endpoint`: API endpoint for the external system
+  - `poll_interval`: How often this specific source should be polled for updates
+  - `sweep_interval`: How often ping sweeps should be performed for this source
+  - `credentials`: Authentication and configuration settings
+    - `enable_status_updates`: Whether to update the external system with ping results ("true"/"false")
+    - `api_key`: ServiceRadar API key for querying enriched device data
+    - `serviceradar_endpoint`: ServiceRadar API endpoint for queries
+    - `page_size`: Number of devices to fetch per API page (recommended: 500 for large deployments)
+
+### Timing Considerations:
+
+For production deployments with 20k+ devices, configure intervals to prevent race conditions:
+
+- Set `discovery_interval` to match your ping sweep requirements (e.g., "18h")
+- Set `update_interval` slightly higher (e.g., "18h30m") to ensure sweeps complete before updates
+- Configure poller `results_interval` to match these timings to avoid excessive streaming
+
+The sync service automatically waits 30 minutes after sweep completion before updating external systems to ensure data consistency.
+
 ## Web UI Configuration
 
 The Web UI configuration is stored in `/etc/serviceradar/web.json`:

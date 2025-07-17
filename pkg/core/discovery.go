@@ -55,7 +55,7 @@ func (s *discoveryService) ProcessSyncResults(
 ) error {
 	log.Println("Processing sync discovery results...")
 
-	var sightings []*models.SweepResult
+	var sightings []*models.DeviceUpdate
 
 	if err := json.Unmarshal(details, &sightings); err != nil {
 		log.Printf("Error unmarshaling sync discovery data for poller %s, service %s: %v. Payload: %s",
@@ -73,13 +73,13 @@ func (s *discoveryService) ProcessSyncResults(
 	if s.reg != nil {
 		source := "unknown"
 		if len(sightings) > 0 {
-			source = sightings[0].DiscoverySource // Use the source from the first sighting
+			source = string(sightings[0].Source) // Use the source from the first sighting
 		}
 
 		log.Printf("Processing %d device sightings from sync service (source: %s)",
 			len(sightings), source)
 
-		if err := s.reg.ProcessBatchSightings(ctx, sightings); err != nil {
+		if err := s.reg.ProcessBatchDeviceUpdates(ctx, sightings); err != nil {
 			log.Printf("Error processing sync discovery sightings for poller %s: %v", reportingPollerID, err)
 			return err
 		}
@@ -176,7 +176,7 @@ func (s *discoveryService) processDiscoveredDevices(
 	reportingPollerID string,
 	timestamp time.Time,
 ) {
-	resultsToStore := make([]*models.SweepResult, 0, len(devices))
+	resultsToStore := make([]*models.DeviceUpdate, 0, len(devices))
 
 	for _, protoDevice := range devices {
 		if protoDevice == nil || protoDevice.Ip == "" {
@@ -187,18 +187,18 @@ func (s *discoveryService) processDiscoveredDevices(
 		hostname := protoDevice.Hostname
 		mac := protoDevice.Mac
 
-		result := &models.SweepResult{
-			AgentID:         discoveryAgentID,
-			PollerID:        discoveryInitiatorPollerID,
-			DeviceID:        fmt.Sprintf("%s:%s", partition, protoDevice.Ip),
-			Partition:       partition,
-			DiscoverySource: "mapper", // Mapper discovery: devices found by the mapper component using SNMP
-			IP:              protoDevice.Ip,
-			MAC:             &mac,
-			Hostname:        &hostname,
-			Timestamp:       timestamp,
-			Available:       true, // Assumed true if discovered via mapper
-			Metadata:        deviceMetadata,
+		result := &models.DeviceUpdate{
+			AgentID:     discoveryAgentID,
+			PollerID:    discoveryInitiatorPollerID,
+			DeviceID:    fmt.Sprintf("%s:%s", partition, protoDevice.Ip),
+			Partition:   partition,
+			Source:      models.DiscoverySourceMapper, // Mapper discovery: devices found by the mapper component using SNMP
+			IP:          protoDevice.Ip,
+			MAC:         &mac,
+			Hostname:    &hostname,
+			Timestamp:   timestamp,
+			IsAvailable: true, // Assumed true if discovered via mapper
+			Metadata:    deviceMetadata,
 		}
 
 		resultsToStore = append(resultsToStore, result)
@@ -206,7 +206,7 @@ func (s *discoveryService) processDiscoveredDevices(
 
 	if s.reg != nil {
 		// Delegate to the new registry
-		if err := s.reg.ProcessBatchSightings(ctx, resultsToStore); err != nil {
+		if err := s.reg.ProcessBatchDeviceUpdates(ctx, resultsToStore); err != nil {
 			log.Printf("Error processing discovered device sightings for poller %s: %v", reportingPollerID, err)
 		}
 	}
@@ -482,7 +482,7 @@ func (s *discoveryService) createCorrelationSighting(
 	discoveryAgentID string,
 	discoveryInitiatorPollerID string,
 	timestamp time.Time,
-) *models.SweepResult {
+) *models.DeviceUpdate {
 	// Initialize metadata from the parent device, if it exists in the map.
 	var metadata map[string]string
 
@@ -504,16 +504,16 @@ func (s *discoveryService) createCorrelationSighting(
 	}
 
 	// Create the single, enriched sighting for this device.
-	return &models.SweepResult{
-		AgentID:         discoveryAgentID,
-		PollerID:        discoveryInitiatorPollerID,
-		DeviceID:        fmt.Sprintf("%s:%s", partition, deviceIP), // The registry will resolve the canonical ID.
-		Partition:       partition,
-		IP:              deviceIP, // The primary IP from this discovery event.
-		Available:       true,
-		Timestamp:       timestamp,
-		DiscoverySource: "mapper",
-		Metadata:        metadata,
+	return &models.DeviceUpdate{
+		AgentID:     discoveryAgentID,
+		PollerID:    discoveryInitiatorPollerID,
+		DeviceID:    fmt.Sprintf("%s:%s", partition, deviceIP), // The registry will resolve the canonical ID.
+		Partition:   partition,
+		IP:          deviceIP, // The primary IP from this discovery event.
+		IsAvailable: true,
+		Timestamp:   timestamp,
+		Source:      models.DiscoverySourceMapper,
+		Metadata:    metadata,
 	}
 }
 
@@ -548,7 +548,7 @@ func (s *discoveryService) processDiscoveredInterfaces(
 	}
 
 	// Path 2: Create Correlation Sightings for the Device Registry (CRITICAL PATH)
-	correlationSightings := make([]*models.SweepResult, 0, len(deviceToInterfacesMap))
+	correlationSightings := make([]*models.DeviceUpdate, 0, len(deviceToInterfacesMap))
 
 	for deviceIP, deviceInterfaces := range deviceToInterfacesMap {
 		// Collect all unique IPs associated with this device
@@ -570,7 +570,7 @@ func (s *discoveryService) processDiscoveredInterfaces(
 
 	// Process the batch of sightings through the authoritative registry
 	if len(correlationSightings) > 0 && s.reg != nil {
-		if err := s.reg.ProcessBatchSightings(ctx, correlationSightings); err != nil {
+		if err := s.reg.ProcessBatchDeviceUpdates(ctx, correlationSightings); err != nil {
 			log.Printf("Error processing mapper correlation sightings: %v", err)
 		}
 	}

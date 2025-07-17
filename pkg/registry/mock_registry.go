@@ -116,18 +116,18 @@ func (mr *MockManagerMockRecorder) ListDevices(ctx, limit, offset any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevices", reflect.TypeOf((*MockManager)(nil).ListDevices), ctx, limit, offset)
 }
 
-// ProcessBatchSightings mocks base method.
-func (m *MockManager) ProcessBatchSightings(ctx context.Context, sightings []*models.SweepResult) error {
+// ProcessBatchDeviceUpdates mocks base method.
+func (m *MockManager) ProcessBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ProcessBatchSightings", ctx, sightings)
+	ret := m.ctrl.Call(m, "ProcessBatchDeviceUpdates", ctx, updates)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// ProcessBatchSightings indicates an expected call of ProcessBatchSightings.
-func (mr *MockManagerMockRecorder) ProcessBatchSightings(ctx, sightings any) *gomock.Call {
+// ProcessBatchDeviceUpdates indicates an expected call of ProcessBatchDeviceUpdates.
+func (mr *MockManagerMockRecorder) ProcessBatchDeviceUpdates(ctx, updates any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessBatchSightings", reflect.TypeOf((*MockManager)(nil).ProcessBatchSightings), ctx, sightings)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessBatchDeviceUpdates", reflect.TypeOf((*MockManager)(nil).ProcessBatchDeviceUpdates), ctx, updates)
 }
 
 // ProcessBatchSweepResults mocks base method.
@@ -144,44 +144,16 @@ func (mr *MockManagerMockRecorder) ProcessBatchSweepResults(ctx, results any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessBatchSweepResults", reflect.TypeOf((*MockManager)(nil).ProcessBatchSweepResults), ctx, results)
 }
 
-// ProcessSighting mocks base method.
-func (m *MockManager) ProcessSighting(ctx context.Context, sighting *models.SweepResult) error {
+// ProcessDeviceUpdate mocks base method.
+func (m *MockManager) ProcessDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ProcessSighting", ctx, sighting)
+	ret := m.ctrl.Call(m, "ProcessDeviceUpdate", ctx, update)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// ProcessSighting indicates an expected call of ProcessSighting.
-func (mr *MockManagerMockRecorder) ProcessSighting(ctx, sighting any) *gomock.Call {
+// ProcessDeviceUpdate indicates an expected call of ProcessDeviceUpdate.
+func (mr *MockManagerMockRecorder) ProcessDeviceUpdate(ctx, update any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessSighting", reflect.TypeOf((*MockManager)(nil).ProcessSighting), ctx, sighting)
-}
-
-// ProcessSweepResult mocks base method.
-func (m *MockManager) ProcessSweepResult(ctx context.Context, result *models.SweepResult) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ProcessSweepResult", ctx, result)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ProcessSweepResult indicates an expected call of ProcessSweepResult.
-func (mr *MockManagerMockRecorder) ProcessSweepResult(ctx, result any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessSweepResult", reflect.TypeOf((*MockManager)(nil).ProcessSweepResult), ctx, result)
-}
-
-// UpdateDevice mocks base method.
-func (m *MockManager) UpdateDevice(ctx context.Context, update *models.DeviceUpdate) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateDevice", ctx, update)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateDevice indicates an expected call of UpdateDevice.
-func (mr *MockManagerMockRecorder) UpdateDevice(ctx, update any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDevice", reflect.TypeOf((*MockManager)(nil).UpdateDevice), ctx, update)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessDeviceUpdate", reflect.TypeOf((*MockManager)(nil).ProcessDeviceUpdate), ctx, update)
 }

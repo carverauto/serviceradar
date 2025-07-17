@@ -154,8 +154,8 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 	return data, allDevices, nil
 }
 
-func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.SweepResult {
-	out := make([]*models.SweepResult, 0, len(devices))
+func (a *ArmisIntegration) convertToDeviceUpdate(devices []Device) []*models.DeviceUpdate {
+	out := make([]*models.DeviceUpdate, 0, len(devices))
 
 	for i := range devices {
 		dev := &devices[i]
@@ -174,17 +174,18 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 
 		ip := extractFirstIP(dev.IPAddress)
 
-		out = append(out, &models.SweepResult{
-			AgentID:         a.Config.AgentID,
-			PollerID:        a.Config.PollerID,
-			Partition:       a.Config.Partition,
-			DiscoverySource: string(models.DiscoverySourceArmis),
-			IP:              ip,
-			MAC:             &mac,
-			Hostname:        &hostname,
-			Timestamp:       dev.FirstSeen,
-			Available:       true,
-			Metadata:        meta,
+		out = append(out, &models.DeviceUpdate{
+			DeviceID:    fmt.Sprintf("%s/%s", a.Config.Partition, ip),
+			AgentID:     a.Config.AgentID,
+			PollerID:    a.Config.PollerID,
+			Partition:   a.Config.Partition,
+			Source:      models.DiscoverySourceArmis,
+			IP:          ip,
+			MAC:         &mac,
+			Hostname:    &hostname,
+			Timestamp:   dev.FirstSeen,
+			IsAvailable: true,
+			Metadata:    meta,
 		})
 	}
 
@@ -198,7 +199,7 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 
 // Fetch retrieves devices from Armis for discovery purposes only.
 // This method focuses purely on data discovery and does not perform state reconciliation.
-func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
+func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.DeviceUpdate, error) {
 	// Discovery: Fetch devices from Armis and create sweep configs
 	data, devices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
@@ -206,7 +207,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 	}
 
 	// Convert devices to sweep results for sweep agents to consume
-	modelEvents := a.convertToSweepResults(devices)
+	modelEvents := a.convertToDeviceUpdate(devices)
 
 	logger.Info().
 		Int("devices_discovered", len(devices)).
@@ -316,14 +317,14 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 
 // generateRetractionEvents checks for devices that exist in ServiceRadar but not in the current Armis fetch.
 func (a *ArmisIntegration) generateRetractionEvents(
-	currentDevices []Device, existingDeviceStates []DeviceState) []*models.SweepResult {
+	currentDevices []Device, existingDeviceStates []DeviceState) []*models.DeviceUpdate {
 	// Create a map of current device IDs from the Armis API for efficient lookup.
 	currentDeviceIDs := make(map[string]struct{}, len(currentDevices))
 	for i := range currentDevices {
 		currentDeviceIDs[strconv.Itoa(currentDevices[i].ID)] = struct{}{}
 	}
 
-	var retractionEvents []*models.SweepResult
+	var retractionEvents []*models.DeviceUpdate
 
 	now := time.Now()
 
@@ -341,12 +342,12 @@ func (a *ArmisIntegration) generateRetractionEvents(
 				Str("ip", state.IP).
 				Msg("Device no longer detected, generating retraction event")
 
-			retractionEvent := &models.SweepResult{
-				DeviceID:        state.DeviceID,
-				DiscoverySource: string(models.DiscoverySourceArmis),
-				IP:              state.IP,
-				Available:       false,
-				Timestamp:       now,
+			retractionEvent := &models.DeviceUpdate{
+				DeviceID:    state.DeviceID,
+				Source:      models.DiscoverySourceArmis,
+				IP:          state.IP,
+				IsAvailable: false,
+				Timestamp:   now,
 				Metadata: map[string]string{
 					"_deleted": "true",
 				},
@@ -532,7 +533,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			continue
 		}
 
-		deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
+		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, ip)
 
 		metadata := map[string]interface{}{
 			"armis_id": fmt.Sprintf("%d", d.ID),
@@ -540,7 +541,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		}
 
 		modelDevice := &models.Device{
-			DeviceID:         deviceID,
+			DeviceID:         fmt.Sprintf("%s/%s", a.Config.Partition, ip),
 			PollerID:         pollerID,
 			DiscoverySources: []string{string(models.DiscoverySourceArmis)},
 			IP:               ip,
@@ -562,7 +563,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			continue
 		}
 
-		data[deviceID] = value
+		data[kvKey] = value
 
 		ips = append(ips, ip+"/32")
 	}

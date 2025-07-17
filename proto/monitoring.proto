@@ -23,10 +23,12 @@ option go_package = "github.com/carverauto/serviceradar/proto";
 service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}
   rpc GetResults(ResultsRequest) returns (ResultsResponse) {}
+  rpc StreamResults(ResultsRequest) returns (stream ResultsChunk) {}
 }
 
 service PollerService {
   rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse) {}
+  rpc StreamStatus(stream PollerStatusChunk) returns (PollerStatusResponse) {}
 }
 
 message DeviceStatusRequest {
@@ -114,6 +116,15 @@ message PortStatus {
   int32 available = 2;        // Number of hosts with this port open
 }
 
+message ResultsChunk {
+  bytes data = 1;              // Chunk of results data
+  bool is_final = 2;          // Whether this is the last chunk
+  int32 chunk_index = 3;      // Order of this chunk
+  int32 total_chunks = 4;     // Total number of chunks
+  string current_sequence = 5; // Current sequence of this chunk stream
+  int64 timestamp = 6;        // When chunk was generated
+}
+
 message SweepCompletionStatus {
   enum Status {
     UNKNOWN = 0;          // Status not available
@@ -128,4 +139,16 @@ message SweepCompletionStatus {
   int32 total_targets = 4;    // Total number of targets to sweep
   int32 completed_targets = 5; // Number of targets completed so far
   string error_message = 6;   // Error details if status is FAILED
+}
+
+message PollerStatusChunk {
+  repeated ServiceStatus services = 1; // Chunk of service statuses
+  string poller_id = 2;
+  string agent_id = 3;
+  int64 timestamp = 4;
+  string partition = 5;
+  string source_ip = 6;
+  bool is_final = 7;           // Whether this is the last chunk
+  int32 chunk_index = 8;       // Order of this chunk
+  int32 total_chunks = 9;      // Total number of chunks
 }

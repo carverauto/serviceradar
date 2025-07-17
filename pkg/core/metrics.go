@@ -601,12 +601,18 @@ func (s *Server) processMetrics(
 		case sysmonServiceType:
 			return s.processSysmonMetrics(ctx, contextPollerID, contextPartition, contextAgentID, serviceData, now)
 		case syncServiceType:
-			// Only process sync discovery results from GetResults calls, not from GetStatus health checks
-			if svc.Source == "results" {
+			// Attempt to unmarshal as a slice of DeviceUpdate, which is what the sync service returns
+			// Note: serviceData is already unwrapped from ServiceMetricsPayload by extractServicePayload
+			var deviceUpdates []*models.DeviceUpdate
+
+			if err := json.Unmarshal(serviceData, &deviceUpdates); err == nil && len(deviceUpdates) > 0 {
+				// Successfully parsed as device updates. Process them.
+				log.Printf("Processing %d sync device updates for poller %s", len(deviceUpdates), contextPollerID)
 				return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 			}
-			// Health check data from GetStatus doesn't need processing
-			log.Printf("Skipping sync service health check data from GetStatus for poller %s", contextPollerID)
+
+			// If it fails to unmarshal or is empty, it's likely a health check payload from GetStatus
+			log.Printf("Skipping sync service payload for poller %s (likely a health check)", contextPollerID)
 
 			return nil
 		default:
