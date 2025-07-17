@@ -613,7 +613,14 @@ func (s *APIServer) processDiscoverySources(result map[string]interface{}) {
 
 // postProcessDeviceResults processes device query results to parse JSON fields
 func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) []map[string]interface{} {
+	var validResults []map[string]interface{}
+	
 	for _, result := range results {
+		// Skip records with null device_id to prevent downstream issues
+		if result["device_id"] == nil {
+			log.Printf("DEBUG API: Skipping device record with null device_id")
+			continue
+		}
 		// Handle discovery_sources field
 		s.processDiscoverySources(result)
 
@@ -642,9 +649,12 @@ func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) [
 		delete(result, "hostname_field")
 		delete(result, "mac_field")
 		delete(result, "metadata_field")
+		
+		// Add the processed result to validResults
+		validResults = append(validResults, result)
 	}
 
-	return results
+	return validResults
 }
 
 // decodeCursor decodes a Base64-encoded cursor into a map

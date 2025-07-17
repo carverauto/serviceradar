@@ -34,8 +34,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_GetStatus_FullMethodName  = "/monitoring.AgentService/GetStatus"
-	AgentService_GetResults_FullMethodName = "/monitoring.AgentService/GetResults"
+	AgentService_GetStatus_FullMethodName     = "/monitoring.AgentService/GetStatus"
+	AgentService_GetResults_FullMethodName    = "/monitoring.AgentService/GetResults"
+	AgentService_StreamResults_FullMethodName = "/monitoring.AgentService/StreamResults"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -44,6 +45,7 @@ const (
 type AgentServiceClient interface {
 	GetStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
 	GetResults(ctx context.Context, in *ResultsRequest, opts ...grpc.CallOption) (*ResultsResponse, error)
+	StreamResults(ctx context.Context, in *ResultsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ResultsChunk], error)
 }
 
 type agentServiceClient struct {
@@ -74,12 +76,32 @@ func (c *agentServiceClient) GetResults(ctx context.Context, in *ResultsRequest,
 	return out, nil
 }
 
+func (c *agentServiceClient) StreamResults(ctx context.Context, in *ResultsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ResultsChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[0], AgentService_StreamResults_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ResultsRequest, ResultsChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_StreamResultsClient = grpc.ServerStreamingClient[ResultsChunk]
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
 type AgentServiceServer interface {
 	GetStatus(context.Context, *StatusRequest) (*StatusResponse, error)
 	GetResults(context.Context, *ResultsRequest) (*ResultsResponse, error)
+	StreamResults(*ResultsRequest, grpc.ServerStreamingServer[ResultsChunk]) error
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -95,6 +117,9 @@ func (UnimplementedAgentServiceServer) GetStatus(context.Context, *StatusRequest
 }
 func (UnimplementedAgentServiceServer) GetResults(context.Context, *ResultsRequest) (*ResultsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetResults not implemented")
+}
+func (UnimplementedAgentServiceServer) StreamResults(*ResultsRequest, grpc.ServerStreamingServer[ResultsChunk]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamResults not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -153,6 +178,17 @@ func _AgentService_GetResults_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_StreamResults_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ResultsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AgentServiceServer).StreamResults(m, &grpc.GenericServerStream[ResultsRequest, ResultsChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_StreamResultsServer = grpc.ServerStreamingServer[ResultsChunk]
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -169,12 +205,19 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AgentService_GetResults_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StreamResults",
+			Handler:       _AgentService_StreamResults_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "monitoring.proto",
 }
 
 const (
 	PollerService_ReportStatus_FullMethodName = "/monitoring.PollerService/ReportStatus"
+	PollerService_StreamStatus_FullMethodName = "/monitoring.PollerService/StreamStatus"
 )
 
 // PollerServiceClient is the client API for PollerService service.
@@ -182,6 +225,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PollerServiceClient interface {
 	ReportStatus(ctx context.Context, in *PollerStatusRequest, opts ...grpc.CallOption) (*PollerStatusResponse, error)
+	StreamStatus(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PollerStatusChunk, PollerStatusResponse], error)
 }
 
 type pollerServiceClient struct {
@@ -202,11 +246,25 @@ func (c *pollerServiceClient) ReportStatus(ctx context.Context, in *PollerStatus
 	return out, nil
 }
 
+func (c *pollerServiceClient) StreamStatus(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PollerStatusChunk, PollerStatusResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &PollerService_ServiceDesc.Streams[0], PollerService_StreamStatus_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[PollerStatusChunk, PollerStatusResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type PollerService_StreamStatusClient = grpc.ClientStreamingClient[PollerStatusChunk, PollerStatusResponse]
+
 // PollerServiceServer is the server API for PollerService service.
 // All implementations must embed UnimplementedPollerServiceServer
 // for forward compatibility.
 type PollerServiceServer interface {
 	ReportStatus(context.Context, *PollerStatusRequest) (*PollerStatusResponse, error)
+	StreamStatus(grpc.ClientStreamingServer[PollerStatusChunk, PollerStatusResponse]) error
 	mustEmbedUnimplementedPollerServiceServer()
 }
 
@@ -219,6 +277,9 @@ type UnimplementedPollerServiceServer struct{}
 
 func (UnimplementedPollerServiceServer) ReportStatus(context.Context, *PollerStatusRequest) (*PollerStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReportStatus not implemented")
+}
+func (UnimplementedPollerServiceServer) StreamStatus(grpc.ClientStreamingServer[PollerStatusChunk, PollerStatusResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamStatus not implemented")
 }
 func (UnimplementedPollerServiceServer) mustEmbedUnimplementedPollerServiceServer() {}
 func (UnimplementedPollerServiceServer) testEmbeddedByValue()                       {}
@@ -259,6 +320,13 @@ func _PollerService_ReportStatus_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PollerService_StreamStatus_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(PollerServiceServer).StreamStatus(&grpc.GenericServerStream[PollerStatusChunk, PollerStatusResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type PollerService_StreamStatusServer = grpc.ClientStreamingServer[PollerStatusChunk, PollerStatusResponse]
+
 // PollerService_ServiceDesc is the grpc.ServiceDesc for PollerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -271,6 +339,12 @@ var PollerService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _PollerService_ReportStatus_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StreamStatus",
+			Handler:       _PollerService_StreamStatus_Handler,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "monitoring.proto",
 }

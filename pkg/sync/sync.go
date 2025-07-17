@@ -103,20 +103,25 @@ func defaultIntegrationRegistry(
 	return map[string]IntegrationFactory{
 		integrationTypeArmis: func(ctx context.Context, config *models.SourceConfig) Integration {
 			var conn *grpc.ClientConn
+
 			if grpcClient != nil {
 				conn = grpcClient.GetConnection()
 			}
+
 			return NewArmisIntegration(ctx, config, kvClient, conn, serverName)
 		},
 		integrationTypeNetbox: func(ctx context.Context, config *models.SourceConfig) Integration {
 			var conn *grpc.ClientConn
+
 			if grpcClient != nil {
 				conn = grpcClient.GetConnection()
 			}
+
 			integ := NewNetboxIntegration(ctx, config, kvClient, conn, serverName)
 			if val, ok := config.Credentials["expand_subnets"]; ok && val == "true" {
 				integ.ExpandSubnets = true
 			}
+
 			return integ
 		},
 	}
@@ -139,6 +144,7 @@ func setupGRPCClient(ctx context.Context, config *Config, log logger.Logger) (pr
 		if errSec != nil {
 			return nil, nil, fmt.Errorf("failed to create security provider: %w", errSec)
 		}
+
 		clientCfg.SecurityProvider = provider
 	}
 
@@ -147,6 +153,7 @@ func setupGRPCClient(ctx context.Context, config *Config, log logger.Logger) (pr
 		if clientCfg.SecurityProvider != nil {
 			_ = clientCfg.SecurityProvider.Close()
 		}
+
 		return nil, nil, fmt.Errorf("failed to create KV gRPC client: %w", errCli)
 	}
 
@@ -161,6 +168,7 @@ func getServerName(config *Config) string {
 	if config.Security != nil {
 		return config.Security.ServerName
 	}
+
 	return ""
 }
 

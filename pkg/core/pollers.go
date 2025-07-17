@@ -676,6 +676,85 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	return &proto.PollerStatusResponse{Received: true}, nil
 }
 
+// StreamStatus handles streaming status reports from pollers for large datasets
+func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) error {
+	var allServices []*proto.ServiceStatus
+	var pollerID, agentID, partition, sourceIP string
+	var timestamp int64
+
+	log.Printf("Starting streaming status reception")
+
+	// Receive all chunks from the stream
+	for {
+		chunk, err := stream.Recv()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return fmt.Errorf("error receiving stream chunk: %w", err)
+		}
+
+		// Extract metadata from first chunk
+		if pollerID == "" {
+			pollerID = chunk.PollerId
+			agentID = chunk.AgentId
+			partition = chunk.Partition
+			sourceIP = chunk.SourceIp
+			timestamp = chunk.Timestamp
+		}
+
+		log.Printf("Received chunk %d/%d from poller %s with %d services", 
+			chunk.ChunkIndex+1, chunk.TotalChunks, chunk.PollerId, len(chunk.Services))
+
+		// Collect services from this chunk
+		allServices = append(allServices, chunk.Services...)
+
+		// If this is the final chunk, break
+		if chunk.IsFinal {
+			break
+		}
+	}
+
+	log.Printf("Completed streaming reception from %s with %d total services", pollerID, len(allServices))
+
+	if pollerID == "" {
+		return errEmptyPollerID
+	}
+
+	// Validate required location fields
+	if partition == "" || sourceIP == "" {
+		log.Printf("CRITICAL: Streaming status report from poller %s missing required "+
+			"location data (partition=%q, source_ip=%q). Device registration will be skipped.",
+			pollerID, partition, sourceIP)
+	}
+
+	if !s.isKnownPoller(pollerID) {
+		log.Printf("Ignoring streaming status report from unknown poller: %s", pollerID)
+		return stream.SendAndClose(&proto.PollerStatusResponse{Received: true})
+	}
+
+	// Convert to regular PollerStatusRequest for processing
+	req := &proto.PollerStatusRequest{
+		Services:  allServices,
+		PollerId:  pollerID,
+		AgentId:   agentID,
+		Timestamp: timestamp,
+		Partition: partition,
+		SourceIp:  sourceIP,
+	}
+
+	ctx := stream.Context()
+	now := time.Unix(timestamp, 0)
+	apiStatus, err := s.processStatusReport(ctx, req, now)
+	if err != nil {
+		return fmt.Errorf("failed to process streaming status report: %w", err)
+	}
+
+	s.updateAPIState(pollerID, apiStatus)
+
+	return stream.SendAndClose(&proto.PollerStatusResponse{Received: true})
+}
+
 func getHostname() string {
 	hostname, err := os.Hostname()
 	if err != nil {

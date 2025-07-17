@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -598,6 +599,179 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 	s.logger.Info().Str("checkerType", fmt.Sprintf("%T", getChecker)).Msg("GetResults not supported for getChecker type")
 
 	return nil, status.Errorf(codes.Unimplemented, "GetResults not supported by getChecker type %T", getChecker)
+}
+
+// StreamResults implements the AgentService StreamResults method for large datasets.
+// For sweep services, this calls the local sweep service and streams the results.
+// For grpc services, this forwards the streaming call to the actual service.
+// For other services, this returns a "not supported" response.
+func (s *Server) StreamResults(req *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
+	s.logger.Info().Str("serviceName", req.ServiceName).Str("serviceType", req.ServiceType).Msg("StreamResults called")
+
+	// Handle sweep services with local implementation
+	if req.ServiceType == "sweep" {
+		return s.handleSweepStreamResults(req, stream)
+	}
+
+	// Handle grpc services by forwarding the call
+	if req.ServiceType == "grpc" {
+		return s.handleGrpcStreamResults(req, stream)
+	}
+
+	// For non-grpc services, return "not supported"
+	s.logger.Info().Str("serviceType", req.ServiceType).Msg("StreamResults not supported for service type")
+	return status.Errorf(codes.Unimplemented, "StreamResults not supported for service type '%s'", req.ServiceType)
+}
+
+// handleGrpcStreamResults forwards StreamResults calls to grpc services.
+func (s *Server) handleGrpcStreamResults(req *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
+	ctx := stream.Context()
+
+	// Convert ResultsRequest to StatusRequest to reuse existing getChecker logic
+	statusReq := &proto.StatusRequest{
+		ServiceName: req.ServiceName,
+		ServiceType: req.ServiceType,
+		AgentId:     req.AgentId,
+		PollerId:    req.PollerId,
+		Details:     req.Details,
+	}
+	statusReq.AgentId = s.config.AgentID
+
+	getChecker, err := s.getChecker(ctx, statusReq)
+	if err != nil {
+		s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Failed to get checker for StreamResults")
+		return status.Errorf(codes.Internal, "Failed to get checker: %v", err)
+	}
+
+	externalChecker, ok := getChecker.(*ExternalChecker)
+	if !ok {
+		s.logger.Info().Str("checkerType", fmt.Sprintf("%T", getChecker)).Msg("StreamResults not supported for checker type")
+		return status.Errorf(codes.Unimplemented, "StreamResults not supported by checker type %T", getChecker)
+	}
+
+	// Ensure connection to the external service
+	if err := externalChecker.ensureConnected(ctx); err != nil {
+		s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Failed to connect to grpc service for StreamResults")
+		return status.Errorf(codes.Unavailable, "Failed to connect to service: %v", err)
+	}
+
+	grpcClient := proto.NewAgentServiceClient(externalChecker.grpcClient.GetConnection())
+
+	// Forward the StreamResults call
+	upstreamStream, err := grpcClient.StreamResults(ctx, req)
+	if err != nil {
+		s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("StreamResults call to service failed")
+		return status.Errorf(codes.Internal, "StreamResults call failed: %v", err)
+	}
+
+	// Forward all chunks from upstream to downstream
+	for {
+		chunk, err := upstreamStream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Error receiving chunk from upstream")
+			return status.Errorf(codes.Internal, "Error receiving chunk: %v", err)
+		}
+
+		if err := stream.Send(chunk); err != nil {
+			s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Error sending chunk downstream")
+			return status.Errorf(codes.Internal, "Error sending chunk: %v", err)
+		}
+	}
+
+	s.logger.Info().Str("serviceName", req.ServiceName).Msg("StreamResults forwarding completed")
+	return nil
+}
+
+// handleSweepStreamResults handles StreamResults calls for sweep services with chunking for large datasets.
+func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
+	s.logger.Info().Str("serviceName", req.ServiceName).Str("lastSequence", req.LastSequence).Msg("Handling sweep StreamResults")
+
+	// Find the sweep service
+	for _, svc := range s.services {
+		sweepSvc, ok := svc.(*SweepService)
+		if !ok {
+			continue
+		}
+
+		ctx := stream.Context()
+		response, err := sweepSvc.GetSweepResults(ctx, req.LastSequence)
+		if err != nil {
+			s.logger.Error().Err(err).Msg("Failed to get sweep results for streaming")
+			return status.Errorf(codes.Internal, "Failed to get sweep results: %v", err)
+		}
+
+		// Set AgentId and PollerId from the request
+		response.AgentId = s.config.AgentID
+		response.PollerId = req.PollerId
+
+		// If no new data, send empty final chunk
+		if !response.HasNewData || len(response.Data) == 0 {
+			return stream.Send(&proto.ResultsChunk{
+				Data:            []byte("{}"),
+				IsFinal:         true,
+				ChunkIndex:      0,
+				TotalChunks:     1,
+				CurrentSequence: response.CurrentSequence,
+				Timestamp:       response.Timestamp,
+			})
+		}
+
+		// Calculate chunk size to keep each chunk under ~1MB
+		const maxChunkSize = 1024 * 1024 // 1MB
+		totalBytes := len(response.Data)
+		
+		if totalBytes <= maxChunkSize {
+			// Single chunk case
+			return stream.Send(&proto.ResultsChunk{
+				Data:            response.Data,
+				IsFinal:         true,
+				ChunkIndex:      0,
+				TotalChunks:     1,
+				CurrentSequence: response.CurrentSequence,
+				Timestamp:       response.Timestamp,
+			})
+		}
+
+		// Multi-chunk case for large datasets (like 20k devices)
+		totalChunks := (totalBytes + maxChunkSize - 1) / maxChunkSize
+		
+		for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
+			start := chunkIndex * maxChunkSize
+			end := start + maxChunkSize
+			if end > totalBytes {
+				end = totalBytes
+			}
+
+			chunkData := response.Data[start:end]
+			chunk := &proto.ResultsChunk{
+				Data:            chunkData,
+				IsFinal:         chunkIndex == totalChunks-1,
+				ChunkIndex:      int32(chunkIndex),
+				TotalChunks:     int32(totalChunks),
+				CurrentSequence: response.CurrentSequence,
+				Timestamp:       response.Timestamp,
+			}
+
+			if err := stream.Send(chunk); err != nil {
+				s.logger.Error().Err(err).Int("chunk", chunkIndex).Msg("Error sending sweep results chunk")
+				return status.Errorf(codes.Internal, "Failed to send chunk: %v", err)
+			}
+		}
+
+		s.logger.Info().
+			Int("total_chunks", totalChunks).
+			Int("total_bytes", totalBytes).
+			Str("sequence", response.CurrentSequence).
+			Msg("Completed streaming sweep results")
+
+		return nil
+	}
+
+	s.logger.Error().Msg("No sweep service found for StreamResults")
+	return status.Errorf(codes.NotFound, "No sweep service configured")
 }
 
 // handleSweepGetResults handles GetResults calls for sweep services.

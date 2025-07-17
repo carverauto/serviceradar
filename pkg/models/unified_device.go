@@ -32,6 +32,8 @@ const (
 	DiscoverySourceSweep        DiscoverySource = "sweep"
 	DiscoverySourceSelfReported DiscoverySource = "self-reported"
 	DiscoverySourceArmis        DiscoverySource = "armis"
+	DiscoverySourceNetbox       DiscoverySource = "netbox"
+	DiscoverySourceSysmon       DiscoverySource = "sysmon"
 )
 
 // DiscoveredField represents a field value with its discovery source and metadata
@@ -88,6 +90,7 @@ type DeviceUpdate struct {
 	Source      DiscoverySource   `json:"source"`
 	AgentID     string            `json:"agent_id"`
 	PollerID    string            `json:"poller_id"`
+	Partition   string            `json:"partition,omitempty"` // Optional partition for multi-tenant systems
 	Timestamp   time.Time         `json:"timestamp"`
 	Hostname    *string           `json:"hostname,omitempty"`
 	MAC         *string           `json:"mac,omitempty"`

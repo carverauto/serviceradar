@@ -26,8 +26,9 @@ import (
 )
 
 // processHostResults processes host results and creates sweep results
-func (s *Server) processHostResults(hosts []models.HostResult, pollerID, partition, agentID string, now time.Time) []*models.SweepResult {
-	resultsToStore := make([]*models.SweepResult, 0, len(hosts))
+func (s *Server) processHostResults(
+	hosts []models.HostResult, pollerID, partition, agentID string, now time.Time) []*models.DeviceUpdate {
+	resultsToStore := make([]*models.DeviceUpdate, 0, len(hosts))
 
 	for _, host := range hosts {
 		if host.Host == "" {
@@ -37,19 +38,20 @@ func (s *Server) processHostResults(hosts []models.HostResult, pollerID, partiti
 
 		metadata := s.buildHostMetadata(&host)
 
-		result := &models.SweepResult{
-			AgentID:         agentID,
-			PollerID:        pollerID,
-			Partition:       partition,
-			DeviceID:        fmt.Sprintf("%s:%s", partition, host.Host),
-			DiscoverySource: "sweep",
-			IP:              host.Host,
-			MAC:             nil, // HostResult doesn't have MAC field
-			Hostname:        nil, // HostResult doesn't have Hostname field
-			Timestamp:       now,
-			Available:       host.Available,
-			Metadata:        metadata,
+		result := &models.DeviceUpdate{
+			AgentID:     agentID,
+			PollerID:    pollerID,
+			Partition:   partition,
+			DeviceID:    fmt.Sprintf("%s:%s", partition, host.Host),
+			Source:      models.DiscoverySourceSweep,
+			IP:          host.Host,
+			MAC:         nil, // HostResult doesn't have MAC field
+			Hostname:    nil, // HostResult doesn't have Hostname field
+			Timestamp:   now,
+			IsAvailable: host.Available,
+			Metadata:    metadata,
 		}
+
 		resultsToStore = append(resultsToStore, result)
 	}
 

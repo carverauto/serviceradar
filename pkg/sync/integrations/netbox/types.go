@@ -33,8 +33,8 @@ type SRQLQuerier interface {
 // ResultSubmitter defines the interface for submitting sweep results and retraction events.
 // This is a local interface to avoid importing pkg/sync and creating a cycle.
 type ResultSubmitter interface {
-	SubmitSweepResult(ctx context.Context, result *models.SweepResult) error
-	SubmitBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
+	SubmitSweepResult(ctx context.Context, result *models.DeviceUpdate) error
+	SubmitBatchSweepResults(ctx context.Context, results []*models.DeviceUpdate) error
 }
 
 // DeviceState represents the consolidated state of a device from the unified view.

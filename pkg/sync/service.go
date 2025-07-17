@@ -34,33 +34,34 @@ import (
 
 // StreamingResultsStore holds discovery results for streaming
 type StreamingResultsStore struct {
-	mu      sync.RWMutex
-	results map[string][]*models.Device
+	mu sync.RWMutex
+	// FIX: Store the modern DeviceUpdate model
+	results map[string][]*models.DeviceUpdate
 	updated time.Time
 }
 
 // SimpleSyncService manages discovery and serves results via streaming gRPC interface
 type SimpleSyncService struct {
 	proto.UnimplementedAgentServiceServer
-	
-	config       Config
-	kvClient     KVClient
-	sources      map[string]Integration
-	registry     map[string]IntegrationFactory
-	grpcClient   GRPCClient
-	grpcServer   *grpc.Server
-	
+
+	config     Config
+	kvClient   KVClient
+	sources    map[string]Integration
+	registry   map[string]IntegrationFactory
+	grpcClient GRPCClient
+	grpcServer *grpc.Server
+
 	// Simplified results storage
 	resultsStore *StreamingResultsStore
-	
+
 	// Simple interval timers
-	discoveryInterval time.Duration
+	discoveryInterval   time.Duration
 	armisUpdateInterval time.Duration
-	
+
 	// Context for managing service lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
-	
+
 	logger logger.Logger
 }
 
@@ -78,7 +79,7 @@ func NewSimpleSyncService(
 	}
 
 	serviceCtx, cancel := context.WithCancel(ctx)
-	
+
 	s := &SimpleSyncService{
 		config:     *config,
 		kvClient:   kvClient,
@@ -86,7 +87,8 @@ func NewSimpleSyncService(
 		registry:   registry,
 		grpcClient: grpcClient,
 		resultsStore: &StreamingResultsStore{
-			results: make(map[string][]*models.Device),
+			// FIX: Initialize the map to hold DeviceUpdate
+			results: make(map[string][]*models.DeviceUpdate),
 		},
 		discoveryInterval:   6 * time.Hour,
 		armisUpdateInterval: 24 * time.Hour,
@@ -96,29 +98,29 @@ func NewSimpleSyncService(
 	}
 
 	s.initializeIntegrations(ctx)
-	
+
 	return s, nil
 }
 
 // Start begins the simple interval-based discovery and Armis update cycles
 func (s *SimpleSyncService) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting simplified sync service")
-	
+
 	// Start discovery timer
 	discoveryTicker := time.NewTicker(s.discoveryInterval)
 	defer discoveryTicker.Stop()
-	
-	// Start Armis update timer  
+
+	// Start Armis update timer
 	armisUpdateTicker := time.NewTicker(s.armisUpdateInterval)
 	defer armisUpdateTicker.Stop()
-	
+
 	// Run initial discovery immediately
 	go func() {
 		if err := s.runDiscovery(ctx); err != nil {
 			s.logger.Error().Err(err).Msg("Initial discovery failed")
 		}
 	}()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -142,112 +144,89 @@ func (s *SimpleSyncService) Start(ctx context.Context) error {
 }
 
 // Stop gracefully stops the sync service
-func (s *SimpleSyncService) Stop(ctx context.Context) error {
+func (s *SimpleSyncService) Stop(_ context.Context) error {
 	s.logger.Info().Msg("Stopping simplified sync service")
-	
+
 	if s.cancel != nil {
 		s.cancel()
 	}
-	
+
 	if s.grpcServer != nil {
 		s.grpcServer.GracefulStop()
 		s.logger.Info().Msg("gRPC server stopped")
 	}
-	
+
 	if s.grpcClient != nil {
 		if err := s.grpcClient.Close(); err != nil {
 			s.logger.Error().Err(err).Msg("Error closing gRPC client")
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
 // runDiscovery executes discovery for all integrations and immediately writes to KV
 func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 	s.logger.Info().Msg("Starting discovery cycle")
-	
-	allDevices := make(map[string][]*models.Device)
-	
+
+	// FIX: This map now holds the correct, modern data model
+	allDeviceUpdates := make(map[string][]*models.DeviceUpdate)
+
 	for sourceName, integration := range s.sources {
 		s.logger.Info().Str("source", sourceName).Msg("Running discovery for source")
-		
-		// Fetch devices from integration (simplified - no sweep results)
+
+		// Fetch devices from integration. `devices` is now `[]*models.DeviceUpdate`.
 		kvData, devices, err := integration.Fetch(ctx)
 		if err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Discovery failed for source")
 			continue
 		}
-		
+
 		// Immediately write device data to KV store
 		if err := s.writeToKV(ctx, sourceName, kvData); err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Failed to write to KV")
 		}
-		
-		// Convert sweep results to devices for storage
-		discoveredDevices := make([]*models.Device, len(devices))
-		now := time.Now()
-		for i, result := range devices {
-			// Convert string metadata to interface{} metadata
-			metadata := make(map[string]interface{})
-			if result.Metadata != nil {
-				for k, v := range result.Metadata {
-					metadata[k] = v
-				}
-			}
-			
-			discoveredDevices[i] = &models.Device{
-				DeviceID:         fmt.Sprintf("%s-%s", sourceName, result.IP),
-				AgentID:          result.AgentID,
-				PollerID:         result.PollerID,
-				DiscoverySources: []string{sourceName},
-				IP:               result.IP,
-				FirstSeen:        now,
-				LastSeen:         now,
-				IsAvailable:      result.Available,
-				Metadata:         metadata,
-			}
-		}
-		
-		allDevices[sourceName] = discoveredDevices
-		
+
+		// FIX: No conversion is needed. Store the modern model directly.
+		allDeviceUpdates[sourceName] = devices
+
 		s.logger.Info().
 			Str("source", sourceName).
-			Int("devices_discovered", len(discoveredDevices)).
+			Int("devices_discovered", len(devices)).
 			Int("kv_entries_written", len(kvData)).
 			Msg("Discovery completed for source")
 	}
-	
+
 	// Store results for GetResults calls
 	s.resultsStore.mu.Lock()
-	s.resultsStore.results = allDevices
+	s.resultsStore.results = allDeviceUpdates
 	s.resultsStore.updated = time.Now()
 	s.resultsStore.mu.Unlock()
-	
+
 	var totalDevices int
-	for _, devices := range allDevices {
+	for _, devices := range allDeviceUpdates {
 		totalDevices += len(devices)
 	}
-	
+
 	s.logger.Info().
 		Int("total_devices", totalDevices).
-		Int("sources", len(allDevices)).
+		Int("sources", len(allDeviceUpdates)).
 		Msg("Discovery cycle completed")
-	
+
 	return nil
 }
 
 // runArmisUpdates queries SRQL and updates Armis with device availability
 func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 	s.logger.Info().Msg("Starting Armis update cycle")
-	
+
 	for sourceName, integration := range s.sources {
 		if err := integration.Reconcile(ctx); err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Armis update failed for source")
 		}
 	}
-	
+
 	s.logger.Info().Msg("Armis update cycle completed")
 	return nil
 }
@@ -279,7 +258,7 @@ func (s *SimpleSyncService) writeToKV(ctx context.Context, sourceName string, da
 		if end > len(entries) {
 			end = len(entries)
 		}
-		
+
 		batch := entries[i:end]
 		if _, err := s.kvClient.PutMany(ctx, &proto.PutManyRequest{Entries: batch}); err != nil {
 			s.logger.Error().Err(err).
@@ -289,12 +268,12 @@ func (s *SimpleSyncService) writeToKV(ctx context.Context, sourceName string, da
 			return err
 		}
 	}
-	
+
 	s.logger.Info().
 		Str("source", sourceName).
 		Int("entries_written", len(entries)).
 		Msg("Successfully wrote entries to KV")
-	
+
 	return nil
 }
 
@@ -309,11 +288,11 @@ func (s *SimpleSyncService) GetStatus(_ context.Context, req *proto.StatusReques
 	}
 
 	healthData := map[string]interface{}{
-		"status":          "healthy",
-		"sources":         len(s.resultsStore.results),
-		"devices":         deviceCount,
-		"last_discovery":  s.resultsStore.updated.Unix(),
-		"timestamp":       time.Now().Unix(),
+		"status":         "healthy",
+		"sources":        len(s.resultsStore.results),
+		"devices":        deviceCount,
+		"last_discovery": s.resultsStore.updated.Unix(),
+		"timestamp":      time.Now().Unix(),
 	}
 
 	healthJSON, err := json.Marshal(healthData)
@@ -335,12 +314,14 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 	s.resultsStore.mu.RLock()
 	defer s.resultsStore.mu.RUnlock()
 
-	var allDevices []*models.Device
+	// FIX: Collect the correct model type
+	var allDeviceUpdates []*models.DeviceUpdate
 	for _, devices := range s.resultsStore.results {
-		allDevices = append(allDevices, devices...)
+		allDeviceUpdates = append(allDeviceUpdates, devices...)
 	}
 
-	resultsJSON, err := json.Marshal(allDevices)
+	// FIX: Marshal the correct model
+	resultsJSON, err := json.Marshal(allDeviceUpdates)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
 	}
@@ -359,16 +340,17 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 }
 
 // StreamResults implements streaming interface for large datasets
-func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
+func (s *SimpleSyncService) StreamResults(_ *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
 	s.resultsStore.mu.RLock()
 	defer s.resultsStore.mu.RUnlock()
 
-	var allDevices []*models.Device
+	// FIX: Collect the correct model type
+	var allDeviceUpdates []*models.DeviceUpdate
 	for _, devices := range s.resultsStore.results {
-		allDevices = append(allDevices, devices...)
+		allDeviceUpdates = append(allDeviceUpdates, devices...)
 	}
 
-	if len(allDevices) == 0 {
+	if len(allDeviceUpdates) == 0 {
 		// Send empty final chunk
 		return stream.Send(&proto.ResultsChunk{
 			Data:            []byte("[]"),
@@ -382,24 +364,26 @@ func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream prot
 
 	// Calculate chunk size to keep each chunk under ~1MB
 	const maxChunkSize = 1024 * 1024 // 1MB
-	const avgDeviceSize = 512        // Estimated average device JSON size
+	// DeviceUpdate is a bit larger, adjust estimate
+	const avgDeviceSize = 768
 	chunkDeviceCount := maxChunkSize / avgDeviceSize
 
 	if chunkDeviceCount == 0 {
 		chunkDeviceCount = 1
 	}
 
-	totalChunks := (len(allDevices) + chunkDeviceCount - 1) / chunkDeviceCount
+	totalChunks := (len(allDeviceUpdates) + chunkDeviceCount - 1) / chunkDeviceCount
 	sequence := fmt.Sprintf("%d", s.resultsStore.updated.Unix())
 
 	for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
 		start := chunkIndex * chunkDeviceCount
 		end := start + chunkDeviceCount
-		if end > len(allDevices) {
-			end = len(allDevices)
+		if end > len(allDeviceUpdates) {
+			end = len(allDeviceUpdates)
 		}
 
-		chunkDevices := allDevices[start:end]
+		// FIX: Marshal a chunk of the correct model
+		chunkDevices := allDeviceUpdates[start:end]
 		chunkData, err := json.Marshal(chunkDevices)
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to marshal chunk: %v", err)
@@ -424,7 +408,7 @@ func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream prot
 	}
 
 	s.logger.Info().
-		Int("total_devices", len(allDevices)).
+		Int("total_devices", len(allDeviceUpdates)).
 		Int("total_chunks", totalChunks).
 		Str("sequence", sequence).
 		Msg("Completed streaming results")
