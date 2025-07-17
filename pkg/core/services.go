@@ -60,13 +60,14 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		return err
 	}
 
-	// Process host results and create sweep results
-	resultsToStore := s.processHostResults(sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
+	// processHostResults now correctly returns []*models.DeviceUpdate
+	updatesToStore := s.processHostResults(sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
 
-	if len(resultsToStore) > 0 {
-		// Delegate directly to the new registry
-		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, resultsToStore); err != nil {
-			log.Printf("Error processing batch sweep results: %v", err)
+	if len(updatesToStore) > 0 {
+		// FIX: Call the new primary method on the registry.
+		// The old `ProcessBatchSightings` is now `ProcessBatchDeviceUpdates`.
+		if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, updatesToStore); err != nil {
+			log.Printf("Error processing batch sweep updates: %v", err)
 			return err
 		}
 	}
@@ -130,22 +131,15 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 		PollerID:  svc.PollerId,
 	}
 
-	// Parse the message to populate Details field for dashboard consumption
-	// Handle enhanced payload wrapper for new architecture
 	if len(svc.Message) > 0 {
-		// Check if this is an enhanced payload by trying to parse it
 		var enhancedPayload models.ServiceMetricsPayload
 		if err := json.Unmarshal(svc.Message, &enhancedPayload); err == nil {
-			// Check if it has the enhanced payload structure
 			if enhancedPayload.PollerID != "" && enhancedPayload.AgentID != "" && len(enhancedPayload.Data) > 0 {
-				// This is an enhanced payload - use the inner data for Details
 				apiService.Details = enhancedPayload.Data
 			} else {
-				// Not an enhanced payload - use the entire message as details
 				apiService.Details = svc.Message
 			}
 		} else {
-			// Failed to parse as JSON - use as raw message
 			apiService.Details = svc.Message
 		}
 	}
@@ -173,13 +167,8 @@ const (
 	syncServiceType   = "sync"
 )
 
-// extractDeviceContext extracts device context for service correlation.
-// For services like ping/icmp, this correlates them to the source device (agent).
-// Returns the device_id and partition for the device that performed the service check.
 func (*Server) extractDeviceContext(
 	_ context.Context, agentID, defaultPartition, sourceIP, enhancedPayload string) (deviceID, partition string) {
-	// First, try to parse the service message to check for a direct device_id field.
-	// This handles ICMP and other service responses that now include device_id directly.
 	var directMessage struct {
 		DeviceID  string `json:"device_id,omitempty"`
 		Partition string `json:"partition,omitempty"`
@@ -191,12 +180,10 @@ func (*Server) extractDeviceContext(
 			if partition == "" {
 				partition = defaultPartition
 			}
-
 			return directMessage.DeviceID, partition
 		}
 	}
 
-	// Fallback to parsing the enhanced payload structure for backward compatibility or proxied checks.
 	var payload struct {
 		PollerID  string `json:"poller_id"`
 		AgentID   string `json:"agent_id"`
@@ -206,36 +193,29 @@ func (*Server) extractDeviceContext(
 		} `json:"data,omitempty"`
 	}
 
-	// Default to the partition from the gRPC request context.
 	partition = defaultPartition
 
 	if err := json.Unmarshal([]byte(enhancedPayload), &payload); err == nil {
-		// The payload's partition takes precedence if provided.
 		if payload.Partition != "" {
 			partition = payload.Partition
 		}
-		// The payload's HostIP (for proxied checks) is the most specific identifier.
 		if payload.Data.HostIP != "" {
 			deviceID = fmt.Sprintf("%s:%s", partition, payload.Data.HostIP)
 			return deviceID, partition
 		}
 	}
 
-	// If the payload doesn't specify a device, the service is related to the agent that sent the report.
-	// The sourceIP from the gRPC request is the most reliable identifier for this agent's device.
 	if sourceIP != "" {
 		deviceID = fmt.Sprintf("%s:%s", partition, sourceIP)
 		return deviceID, partition
 	}
 
-	// If we've reached this point, sourceIP was empty, which is a critical configuration issue.
 	log.Printf("CRITICAL: Unable to determine device_id for agent %s in partition %s because "+
 		"sourceIP was empty. Service records will not be associated with a device.", agentID, partition)
 
 	return "", partition
 }
 
-// processServices processes service statuses for a poller and updates the API status.
 func (s *Server) processServices(
 	ctx context.Context,
 	pollerID string,
@@ -250,7 +230,6 @@ func (s *Server) processServices(
 
 	for _, svc := range services {
 		log.Printf("Processing Service: %s", svc.ServiceName)
-
 		apiService := s.createAPIService(svc)
 
 		if !svc.Available {
@@ -262,7 +241,6 @@ func (s *Server) processServices(
 				svc.ServiceName, pollerID, err)
 		}
 
-		// Extract device context from enhanced payload for device correlation
 		deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, sourceIP, string(apiService.Message))
 
 		serviceStatuses = append(serviceStatuses, &models.ServiceStatus{
@@ -286,7 +264,6 @@ func (s *Server) processServices(
 			Partition:   devicePartition,
 			Timestamp:   now,
 		})
-
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
@@ -298,7 +275,6 @@ func (s *Server) processServices(
 	apiStatus.IsHealthy = allServicesAvailable
 }
 
-// processServiceDetails handles parsing and processing of service details and metrics.
 func (s *Server) processServiceDetails(
 	ctx context.Context,
 	pollerID string,
@@ -308,7 +284,6 @@ func (s *Server) processServiceDetails(
 	svc *proto.ServiceStatus,
 	now time.Time,
 ) error {
-	// Check if svc.Message is nil or empty
 	if len(svc.Message) == 0 {
 		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
 		return s.handleService(ctx, apiService, partition, now)
@@ -318,14 +293,11 @@ func (s *Server) processServiceDetails(
 	if err != nil {
 		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details",
 			svc.ServiceName, pollerID)
-
 		if svc.ServiceType == snmpDiscoveryResultsServiceType {
 			return fmt.Errorf("failed to parse snmp-discovery-results payload: %w", err)
 		}
-
 		return s.handleService(ctx, apiService, partition, now)
 	}
-
 	apiService.Details = details
 
 	if err := s.processMetrics(ctx, pollerID, partition, sourceIP, svc, details, now); err != nil {
@@ -333,102 +305,62 @@ func (s *Server) processServiceDetails(
 			svc.ServiceName, pollerID, err)
 		return err
 	}
-
 	return s.handleService(ctx, apiService, partition, now)
 }
 
-// extractServicePayload extracts the enhanced service payload or returns original details.
-// All service messages now include infrastructure context from the poller.
 func (*Server) extractServicePayload(details json.RawMessage) (*models.ServiceMetricsPayload, json.RawMessage) {
-	// Try to parse as enhanced payload first
 	var enhancedPayload models.ServiceMetricsPayload
 
 	if err := json.Unmarshal(details, &enhancedPayload); err == nil {
-		// Validate it's actually an enhanced payload by checking required fields
 		if enhancedPayload.PollerID != "" && enhancedPayload.AgentID != "" {
 			return &enhancedPayload, enhancedPayload.Data
 		}
 	}
-
-	// Fallback: treat as original non-enhanced payload
-	// This handles backwards compatibility during transition
 	return nil, details
 }
 
-// registerServiceDevice creates or updates a device entry for a poller and/or agent
-// This treats the agent/poller as a service running on a real host device within a specific partition
-//
-// Source of Truth Principle:
-// The agent/poller is the ONLY reliable source of truth for its location (partition and host IP).
-// This information MUST be provided by the client in the status report, not inferred by the server.
-//
-// Requirements:
-// - partition: MUST be provided in the PollerStatusRequest
-// - sourceIP: MUST be provided in the PollerStatusRequest
-// - If either is missing, the device registration is rejected to prevent orphaned records
-//
-// This approach ensures:
-// - No duplicate devices with placeholder IPs (e.g., 127.0.0.1)
-// - Stable device IDs from the first check-in
-// - Correct handling of NAT, proxies, and load balancers
-// - Simple, reliable logic with no "magic" convergence
 func (s *Server) registerServiceDevice(
 	ctx context.Context, pollerID, agentID, partition, sourceIP string, timestamp time.Time) error {
-	// Validate required fields - the client MUST provide its location
 	if partition == "" || sourceIP == "" {
 		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - "+
 			"missing required location data (partition=%q, source_ip=%q)",
 			pollerID, partition, sourceIP)
 	}
-
-	// Generate device ID following the partition:ip schema using the reported location
 	deviceID := fmt.Sprintf("%s:%s", partition, sourceIP)
-
-	// Determine service types based on the relationship between poller and agent
 	var serviceTypes []string
-
 	var primaryServiceID string
 
 	if agentID == "" {
-		// Pure poller
 		serviceTypes = []string{"poller"}
 		primaryServiceID = pollerID
 	} else if agentID == pollerID {
-		// Combined poller/agent
 		serviceTypes = []string{"poller", "agent"}
 		primaryServiceID = pollerID
 	} else {
-		// Separate agent
 		serviceTypes = []string{"agent"}
 		primaryServiceID = agentID
 	}
 
-	// Create the device metadata including service information
-	// Note: metadata must be map[string]string per DeviceUpdate schema
 	metadata := map[string]string{
 		"device_type":     "host",
-		"service_types":   strings.Join(serviceTypes, ","), // Convert array to comma-separated string
+		"service_types":   strings.Join(serviceTypes, ","),
 		"service_status":  "online",
 		"last_heartbeat":  timestamp.Format(time.RFC3339),
 		"primary_service": primaryServiceID,
 	}
 
-	// Add poller-specific metadata if this host runs a poller
 	if pollerID != "" {
 		metadata["poller_id"] = pollerID
 		metadata["poller_status"] = "active"
 	}
 
-	// Add agent-specific metadata if this host runs an agent
 	if agentID != "" && agentID != pollerID {
 		metadata["agent_id"] = agentID
 		metadata["agent_status"] = "active"
 	}
 
-	// Try to get hostname from the service ID or use IP as fallback
 	hostname := s.getServiceHostname(primaryServiceID, sourceIP)
 
-	// Create device update for the unified device registry
 	deviceUpdate := &models.DeviceUpdate{
 		DeviceID:    deviceID,
 		IP:          sourceIP,
@@ -438,15 +370,17 @@ func (s *Server) registerServiceDevice(
 		Timestamp:   timestamp,
 		IsAvailable: true,
 		Metadata:    metadata,
+		Confidence:  models.GetSourceConfidence(models.DiscoverySourceSelfReported),
 	}
 
 	if hostname != "" {
 		deviceUpdate.Hostname = &hostname
 	}
 
-	// Register through the unified device registry
 	if s.DeviceRegistry != nil {
-		if err := s.DeviceRegistry.UpdateDevice(ctx, deviceUpdate); err != nil {
+		// FIX: Call the new primary method for single updates.
+		// The old `UpdateDevice` is now `ProcessDeviceUpdate`.
+		if err := s.DeviceRegistry.ProcessDeviceUpdate(ctx, deviceUpdate); err != nil {
 			return fmt.Errorf("failed to register service device: %w", err)
 		}
 	} else {
@@ -459,17 +393,9 @@ func (s *Server) registerServiceDevice(
 	return nil
 }
 
-// getServiceHostname attempts to determine the hostname for a service
 func (*Server) getServiceHostname(serviceID, hostIP string) string {
-	// TODO: In a real implementation, this could:
-	// 1. Perform reverse DNS lookup on the IP
-	// 2. Query a hostname registry
-	// 3. Use the service ID as hostname if it's already a hostname
-	// For now, use the service ID as hostname if it looks like one,
-	// otherwise use the IP
-	if serviceID != "" && (len(serviceID) > 7) { // Simple heuristic
+	if serviceID != "" && (len(serviceID) > 7) {
 		return serviceID
 	}
-
 	return hostIP
 }

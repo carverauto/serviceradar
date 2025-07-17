@@ -37,7 +37,7 @@ var (
 
 // Fetch retrieves devices from NetBox for discovery purposes only.
 // This method focuses purely on data discovery and does not perform state reconciliation.
-func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
+func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.DeviceUpdate, error) {
 	resp, err := n.fetchDevices(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -157,7 +157,7 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 
 // generateRetractionEvents checks for devices that exist in ServiceRadar but not in the current Netbox fetch.
 func (n *NetboxIntegration) generateRetractionEvents(
-	currentEvents []*models.SweepResult, existingDeviceStates []DeviceState) []*models.SweepResult {
+	currentEvents []*models.DeviceUpdate, existingDeviceStates []DeviceState) []*models.DeviceUpdate {
 	// Create a map of current device IDs from the Netbox API for efficient lookup.
 	currentDeviceIDs := make(map[string]struct{}, len(currentEvents))
 
@@ -167,7 +167,7 @@ func (n *NetboxIntegration) generateRetractionEvents(
 		}
 	}
 
-	var retractionEvents []*models.SweepResult
+	var retractionEvents []*models.DeviceUpdate
 
 	now := time.Now()
 
@@ -185,12 +185,12 @@ func (n *NetboxIntegration) generateRetractionEvents(
 				Str("ip", state.IP).
 				Msg("Device no longer detected, generating retraction event")
 
-			retractionEvent := &models.SweepResult{
-				DeviceID:        state.DeviceID,
-				DiscoverySource: "netbox",
-				IP:              state.IP,
-				Available:       false,
-				Timestamp:       now,
+			retractionEvent := &models.DeviceUpdate{
+				DeviceID:    state.DeviceID,
+				Source:      models.DiscoverySourceNetbox,
+				IP:          state.IP,
+				IsAvailable: false,
+				Timestamp:   now,
 				Metadata: map[string]string{
 					"_deleted": "true",
 				},
@@ -266,10 +266,10 @@ func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, e
 }
 
 // processDevices converts devices to KV data, extracts IPs, and returns the list of devices.
-func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string, events []*models.SweepResult) {
+func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string, events []*models.DeviceUpdate) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(deviceResp.Results))
-	events = make([]*models.SweepResult, 0, len(deviceResp.Results))
+	events = make([]*models.DeviceUpdate, 0, len(deviceResp.Results))
 
 	agentID := n.Config.AgentID
 	pollerID := n.Config.PollerID
@@ -316,15 +316,15 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 		hostname := device.Name
 		deviceID := fmt.Sprintf("%s:%s", partition, ipStr)
 
-		event := &models.SweepResult{
-			AgentID:         agentID,
-			PollerID:        pollerID,
-			Partition:       partition,
-			DeviceID:        deviceID,
-			DiscoverySource: "netbox",
-			IP:              ipStr,
-			Hostname:        &hostname,
-			Timestamp:       now,
+		event := &models.DeviceUpdate{
+			AgentID:   agentID,
+			PollerID:  pollerID,
+			Source:    models.DiscoverySourceNetbox,
+			DeviceID:  deviceID,
+			Partition: partition,
+			IP:        ipStr,
+			Hostname:  &hostname,
+			Timestamp: now,
 			Metadata: map[string]string{
 				"integration_type": "netbox",
 				"integration_id":   fmt.Sprintf("%d", device.ID),
@@ -369,6 +369,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) {
 	if n.KvClient == nil {
 		logger.Warn().Msg("KV client not configured; skipping sweep config write")
+		return
 	}
 
 	// AgentID to be used for the sweep config key.

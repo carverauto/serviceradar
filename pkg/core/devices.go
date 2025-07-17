@@ -32,16 +32,16 @@ func (s *Server) createSysmonDeviceRecord(
 		return
 	}
 
-	sweepResult := &models.SweepResult{
-		AgentID:         agentID,
-		PollerID:        pollerID,
-		Partition:       partition,
-		DeviceID:        deviceID,
-		DiscoverySource: "sysmon",
-		IP:              payload.Status.HostIP,
-		Hostname:        &payload.Status.HostID,
-		Timestamp:       pollerTimestamp,
-		Available:       true,
+	deviceUpdate := &models.DeviceUpdate{
+		AgentID:     agentID,
+		PollerID:    pollerID,
+		Partition:   partition,
+		DeviceID:    deviceID,
+		Source:      models.DiscoverySourceSysmon,
+		IP:          payload.Status.HostIP,
+		Hostname:    &payload.Status.HostID,
+		Timestamp:   pollerTimestamp,
+		IsAvailable: true,
 		Metadata: map[string]string{
 			"source":      "sysmon",
 			"last_update": pollerTimestamp.Format(time.RFC3339),
@@ -53,7 +53,7 @@ func (s *Server) createSysmonDeviceRecord(
 
 	// Also process through device registry for unified device management
 	if s.DeviceRegistry != nil {
-		if err := s.DeviceRegistry.ProcessSweepResult(ctx, sweepResult); err != nil {
+		if err := s.DeviceRegistry.ProcessDeviceUpdate(ctx, deviceUpdate); err != nil {
 			log.Printf("Warning: Failed to process sysmon device through device registry for %s: %v", deviceID, err)
 		}
 	}
@@ -73,16 +73,16 @@ func (s *Server) createSNMPTargetDeviceRecord(
 	deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
 	log.Printf("Using device ID %s for SNMP target", deviceID)
 
-	sweepResult := &models.SweepResult{
-		AgentID:         agentID,
-		PollerID:        pollerID,
-		Partition:       partition,
-		DiscoverySource: "snmp", // Will merge with other discovery sources in unified_devices
-		IP:              targetIP,
-		DeviceID:        deviceID,
-		Hostname:        &hostname,
-		Timestamp:       timestamp,
-		Available:       available,
+	deviceUpdate := &models.DeviceUpdate{
+		AgentID:     agentID,
+		PollerID:    pollerID,
+		Partition:   partition,
+		Source:      models.DiscoverySourceSNMP,
+		IP:          targetIP,
+		DeviceID:    deviceID,
+		Hostname:    &hostname,
+		Timestamp:   timestamp,
+		IsAvailable: available,
 		Metadata: map[string]string{
 			"source":          "snmp-target",
 			"snmp_monitoring": "active",
@@ -97,7 +97,7 @@ func (s *Server) createSNMPTargetDeviceRecord(
 
 	// Process through the new device registry
 	if s.DeviceRegistry != nil {
-		if err := s.DeviceRegistry.ProcessSighting(ctx, sweepResult); err != nil {
+		if err := s.DeviceRegistry.ProcessDeviceUpdate(ctx, deviceUpdate); err != nil {
 			log.Printf("Warning: Failed to process SNMP target device sighting for %s: %v", targetIP, err)
 		}
 	}

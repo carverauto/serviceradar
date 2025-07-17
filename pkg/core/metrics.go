@@ -601,13 +601,16 @@ func (s *Server) processMetrics(
 		case sysmonServiceType:
 			return s.processSysmonMetrics(ctx, contextPollerID, contextPartition, contextAgentID, serviceData, now)
 		case syncServiceType:
-			// Only process sync discovery results from GetResults calls, not from GetStatus health checks
-			if svc.Source == "results" {
+			// Attempt to unmarshal as a slice of SweepResult, which is what GetResults returns
+			// Note: serviceData is already unwrapped from ServiceMetricsPayload by extractServicePayload
+			var sightings []*models.SweepResult
+			if err := json.Unmarshal(serviceData, &sightings); err == nil && len(sightings) > 0 {
+				// Successfully parsed as discovery results. Process them.
+				log.Printf("Processing %d sync discovery results for poller %s", len(sightings), contextPollerID)
 				return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 			}
-			// Health check data from GetStatus doesn't need processing
-			log.Printf("Skipping sync service health check data from GetStatus for poller %s", contextPollerID)
-
+			// If it fails to unmarshal or is empty, it's likely a health check payload from GetStatus
+			log.Printf("Skipping sync service payload for poller %s (likely a health check)", contextPollerID)
 			return nil
 		default:
 			log.Printf("Unknown GRPC service type %s on poller %s", svc.ServiceType, pollerID)
