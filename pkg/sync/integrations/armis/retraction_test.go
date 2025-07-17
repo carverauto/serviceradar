@@ -57,7 +57,7 @@ func TestArmisIntegration_Reconcile_WithRetractionEvents(t *testing.T) {
 	// Existing device states from ServiceRadar (includes both devices)
 	existingDeviceStates := []DeviceState{
 		{
-			DeviceID:    "test-partition:192.168.1.1",
+			DeviceID:    "test-partition/192.168.1.1",
 			IP:          "192.168.1.1",
 			IsAvailable: true,
 			Metadata: map[string]interface{}{
@@ -130,7 +130,7 @@ func TestArmisIntegration_Reconcile_WithRetractionEvents(t *testing.T) {
 			result := results[0]
 
 			// Verify retraction event structure
-			assert.Equal(t, "test-partition:192.168.1.1", result.DeviceID)
+			assert.Equal(t, "test-partition/192.168.1.1", result.DeviceID)
 			assert.Equal(t, models.DiscoverySourceArmis, result.Source)
 			assert.Equal(t, "192.168.1.1", result.IP)
 			assert.False(t, result.IsAvailable)
@@ -195,7 +195,7 @@ func TestArmisIntegration_Reconcile_NoRetractionEvents(t *testing.T) {
 	// Existing device states from ServiceRadar (same devices)
 	existingDeviceStates := []DeviceState{
 		{
-			DeviceID:    "test-partition:192.168.1.1",
+			DeviceID:    "test-partition/192.168.1.1",
 			IP:          "192.168.1.1",
 			IsAvailable: true,
 			Metadata: map[string]interface{}{
@@ -305,7 +305,7 @@ func TestArmisIntegration_Reconcile_ResultSubmitterError(t *testing.T) {
 	// Existing device states from ServiceRadar (includes both devices)
 	existingDeviceStates := []DeviceState{
 		{
-			DeviceID:    "test-partition:192.168.1.1",
+			DeviceID:    "test-partition/192.168.1.1",
 			IP:          "192.168.1.1",
 			IsAvailable: true,
 			Metadata: map[string]interface{}{
@@ -421,7 +421,7 @@ func TestArmisIntegration_Reconcile_NoResultSubmitter(t *testing.T) {
 	// Existing device states from ServiceRadar
 	existingDeviceStates := []DeviceState{
 		{
-			DeviceID:    "test-partition:192.168.1.1",
+			DeviceID:    "test-partition/192.168.1.1",
 			IP:          "192.168.1.1",
 			IsAvailable: true,
 			Metadata: map[string]interface{}{
@@ -507,7 +507,7 @@ func TestArmisIntegration_generateRetractionEvents(t *testing.T) {
 	// Existing device states from ServiceRadar
 	existingDeviceStates := []DeviceState{
 		{
-			DeviceID:    "test-partition:192.168.1.1",
+			DeviceID:    "test-partition/192.168.1.1",
 			IP:          "192.168.1.1",
 			IsAvailable: true,
 			Metadata: map[string]interface{}{
@@ -548,7 +548,7 @@ func TestArmisIntegration_generateRetractionEvents(t *testing.T) {
 
 	// Check first retraction event
 	event1 := retractionEvents[0]
-	assert.Equal(t, "test-partition:192.168.1.1", event1.DeviceID)
+	assert.Equal(t, "test-partition/192.168.1.1", event1.DeviceID)
 	assert.Equal(t, models.DiscoverySourceArmis, event1.Source)
 	assert.Equal(t, "192.168.1.1", event1.IP)
 	assert.False(t, event1.IsAvailable)
