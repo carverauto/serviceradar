@@ -387,8 +387,6 @@ func (s *Server) registerServiceDevice(
 	}
 
 	if s.DeviceRegistry != nil {
-		// FIX: Call the new primary method for single updates.
-		// The old `UpdateDevice` is now `ProcessDeviceUpdate`.
 		if err := s.DeviceRegistry.ProcessDeviceUpdate(ctx, deviceUpdate); err != nil {
 			return fmt.Errorf("failed to register service device: %w", err)
 		}
