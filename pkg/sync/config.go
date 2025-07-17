@@ -38,14 +38,16 @@ var (
 
 // Config defines the configuration for the sync service including sources, logging, and OTEL settings.
 type Config struct {
-	Sources      map[string]*models.SourceConfig `json:"sources"`       // e.g., "armis": {...}, "netbox": {...}
-	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address (optional)
-	ListenAddr   string                          `json:"listen_addr"`   // gRPC listen address for the discovery service
-	PollInterval models.Duration                 `json:"poll_interval"` // Polling interval
-	AgentID      string                          `json:"agent_id"`      // Default Agent ID for device records
-	PollerID     string                          `json:"poller_id"`     // Default Poller ID for device records
-	Security     *models.SecurityConfig          `json:"security"`      // mTLS config for gRPC
-	Logging      *logger.Config                  `json:"logging"`       // Logger configuration including OTEL settings
+	Sources           map[string]*models.SourceConfig `json:"sources"`            // e.g., "armis": {...}, "netbox": {...}
+	KVAddress         string                          `json:"kv_address"`         // KV gRPC server address (optional)
+	ListenAddr        string                          `json:"listen_addr"`        // gRPC listen address for the discovery service
+	PollInterval      models.Duration                 `json:"poll_interval"`      // Polling interval
+	DiscoveryInterval models.Duration                 `json:"discovery_interval"` // How often to fetch devices from integrations
+	UpdateInterval    models.Duration                 `json:"update_interval"`    // How often to update external systems (Armis/Netbox)
+	AgentID           string                          `json:"agent_id"`           // Default Agent ID for device records
+	PollerID          string                          `json:"poller_id"`          // Default Poller ID for device records
+	Security          *models.SecurityConfig          `json:"security"`           // mTLS config for gRPC
+	Logging           *logger.Config                  `json:"logging"`            // Logger configuration including OTEL settings
 }
 
 func (c *Config) Validate() error {
@@ -59,6 +61,14 @@ func (c *Config) Validate() error {
 
 	if time.Duration(c.PollInterval) == 0 {
 		c.PollInterval = models.Duration(defaultTimeout)
+	}
+
+	if time.Duration(c.DiscoveryInterval) == 0 {
+		c.DiscoveryInterval = models.Duration(18 * time.Hour) // Default 18h discovery
+	}
+
+	if time.Duration(c.UpdateInterval) == 0 {
+		c.UpdateInterval = models.Duration(20 * time.Hour) // Default 20h updates (2h after discovery)
 	}
 
 	for name, src := range c.Sources {

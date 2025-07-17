@@ -220,7 +220,7 @@ func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, expe
 	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
 }
 
-func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models.SweepResult, err error, expectedDevices []Device) {
+func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models.DeviceUpdate, err error, expectedDevices []Device) {
 	t.Helper()
 
 	require.NoError(t, err)
@@ -249,7 +249,7 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models
 			continue
 		}
 
-		key := fmt.Sprintf("test-partition:%s", ip)
+		key := fmt.Sprintf("test-agent/%s", ip)
 		deviceData, exists := result[key]
 
 		require.True(t, exists, "device with key %s should exist", key)
@@ -339,7 +339,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	assert.Len(t, result, 8)
 
 	for i := 1; i <= 4; i++ {
-		key := fmt.Sprintf("test-partition:192.168.1.%d", i)
+		key := fmt.Sprintf("test-agent/192.168.1.%d", i)
 		_, exists := result[key]
 		assert.True(t, exists, "Device with key %s should exist in results", key)
 	}
@@ -831,7 +831,7 @@ func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 // TestProcessDevices verifies that Armis devices are converted into KV entries and IP list
 func TestProcessDevices(t *testing.T) {
 	integ := &ArmisIntegration{
-		Config: &models.SourceConfig{PollerID: "poller", Partition: "part"},
+		Config: &models.SourceConfig{AgentID: "test-agent", PollerID: "poller", Partition: "part"},
 	}
 
 	devices := []Device{
@@ -842,7 +842,7 @@ func TestProcessDevices(t *testing.T) {
 	data, ips := integ.processDevices(devices)
 
 	require.Len(t, data, 4) // two device keys and two sweep device entries
-	assert.ElementsMatch(t, []string{"part:192.168.1.1", "part:192.168.1.2"}, keysWithPrefix(data, "part:"))
+	assert.ElementsMatch(t, []string{"test-agent/192.168.1.1", "test-agent/192.168.1.2"}, keysWithPrefix(data, "test-agent/"))
 	assert.ElementsMatch(t, []string{"192.168.1.1/32", "192.168.1.2/32"}, ips)
 
 	raw := data["1"]

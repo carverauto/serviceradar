@@ -18,19 +18,14 @@ package sync
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"strconv"
-	"strings"
-	"sync"
 	"time"
 
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
 	"github.com/carverauto/serviceradar/proto"
@@ -42,441 +37,33 @@ const (
 	integrationTypeNetbox = "netbox"
 )
 
-// New creates a new PollerService with explicit dependencies.
+// New creates a new simplified sync service with explicit dependencies
 func New(
 	ctx context.Context,
 	config *Config,
 	kvClient KVClient,
 	registry map[string]IntegrationFactory,
 	grpcClient GRPCClient,
-	clock poller.Clock,
 	log logger.Logger,
-) (*PollerService, error) {
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-
-	if clock == nil {
-		clock = poller.Clock(realClock{})
-	}
-
-	s := &PollerService{
-		pollers:           make(map[string]*poller.Poller),
-		config:            *config,
-		kvClient:          kvClient,
-		sources:           make(map[string]Integration),
-		registry:          registry,
-		grpcClient:        grpcClient,
-		resultsCache:      make(map[string]*CachedResults),
-		completionTracker: make(map[string]*SweepCompletionTracker),
-		logger:            log,
-	}
-
-	s.initializeIntegrations(ctx)
-
-	// Create dedicated pollers for each integration source.
-	for name, sourceCfg := range config.Sources {
-		// Create discovery poller (sync operations)
-		syncInterval := time.Duration(config.PollInterval)
-		if sourceCfg.PollInterval > 0 {
-			syncInterval = time.Duration(sourceCfg.PollInterval)
-		}
-
-		syncPollerConfig := &poller.Config{
-			PollInterval: models.Duration(syncInterval),
-			Security:     config.Security,
-			PollerID:     config.PollerID,
-		}
-
-		syncPoller, err := poller.New(ctx, syncPollerConfig, clock, log)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create sync poller for source '%s': %w", name, err)
-		}
-
-		sourceName := name
-		syncPoller.PollFunc = func(ctx context.Context) error {
-			return s.syncSourceDiscovery(ctx, sourceName)
-		}
-
-		s.pollers[sourceName+"-sync"] = syncPoller
-
-		// Create sweep poller if sweep interval is configured
-		if sourceCfg.SweepInterval != "" {
-			sweepInterval, err := time.ParseDuration(sourceCfg.SweepInterval)
-			if err != nil {
-				log.Warn().Str("source", name).
-					Str("sweep_interval", sourceCfg.SweepInterval).
-					Err(err).
-					Msg("Invalid sweep interval, skipping sweep poller")
-
-				continue
-			}
-
-			sweepPollerConfig := &poller.Config{
-				PollInterval: models.Duration(sweepInterval),
-				Security:     config.Security,
-				PollerID:     config.PollerID,
-			}
-
-			sweepPoller, err := poller.New(ctx, sweepPollerConfig, clock, log)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create sweep poller for source '%s': %w", name, err)
-			}
-
-			sweepPoller.PollFunc = func(ctx context.Context) error {
-				return s.syncSourceSweep(ctx, sourceName)
-			}
-
-			s.pollers[sourceName+"-sweep"] = sweepPoller
-		}
-	}
-
-	return s, nil
+) (*SimpleSyncService, error) {
+	return NewSimpleSyncService(ctx, config, kvClient, registry, grpcClient, log)
 }
 
-// Start starts the integration polling loops and the gRPC server.
-func (s *PollerService) Start(ctx context.Context) error {
-	var wg sync.WaitGroup
-
-	errChan := make(chan error, len(s.pollers))
-
-	for name, p := range s.pollers {
-		wg.Add(1)
-
-		go func(name string, p *poller.Poller) {
-			defer wg.Done()
-			s.logger.Info().Str("source", name).Msg("Starting poller for source")
-
-			if err := p.Start(ctx); err != nil {
-				if !errors.Is(err, context.Canceled) {
-					s.logger.Error().Err(err).Str("source", name).Msg("Poller for source stopped with error")
-				}
-				errChan <- err
-			}
-		}(name, p)
-	}
-
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err := <-errChan:
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-}
-
-// Stop stops the internal pollers, the gRPC server, and closes the gRPC client connection.
-func (s *PollerService) Stop(ctx context.Context) error {
-	if s.grpcServer != nil {
-		s.grpcServer.GracefulStop()
-		s.logger.Info().Msg("gRPC server stopped")
-	}
-
-	var lastErr error
-
-	for name, p := range s.pollers {
-		if err := p.Stop(ctx); err != nil {
-			s.logger.Error().Err(err).Str("source", name).Msg("Error stopping poller")
-			lastErr = err
-		}
-	}
-
-	if s.grpcClient != nil {
-		if errClose := s.grpcClient.Close(); errClose != nil {
-			s.logger.Error().Err(errClose).Msg("Error closing gRPC client")
-
-			if lastErr == nil {
-				lastErr = errClose
-			}
-		}
-	}
-
-	return lastErr
-}
-
-// syncSourceDiscovery performs discovery/sync operations for a single data source.
-func (s *PollerService) syncSourceDiscovery(ctx context.Context, sourceName string) error {
-	integration, ok := s.sources[sourceName]
-	if !ok {
-		return fmt.Errorf("integration not found for source: %s", sourceName)
-	}
-
-	s.logger.Info().Str("source", sourceName).Msg("Starting discovery sync for source")
-
-	// Fetch both KV data and sweep results for discovery
-	data, events, err := integration.Fetch(ctx)
-	if err != nil {
-		s.logger.Warn().Err(err).Str("source", sourceName).Msg("Error fetching from source during discovery")
-		return nil
-	}
-
-	// Write device data to KV store
-	s.writeToKV(ctx, sourceName, data)
-
-	// Cache sweep results for sweep agents to consume
-	now := time.Now()
-	sequence := strconv.FormatInt(now.UnixNano(), 10)
-
-	s.resultsMu.Lock()
-	s.resultsCache[sourceName] = &CachedResults{
-		Results:   events,
-		Sequence:  sequence,
-		Timestamp: now,
-	}
-	s.resultsMu.Unlock()
-
-	// Initialize completion tracking for new targets (this resets previous completion state)
-	numEvents := len(events)
-	if numEvents > math.MaxInt32 {
-		numEvents = math.MaxInt32 // Cap at max int32
-	}
-	// #nosec G115 -- numEvents is capped at MaxInt32 above
-	s.initializeCompletionTracking(sourceName, sequence, int32(numEvents), now)
-
-	// Recalculate total devices for logging
-	var totalDevices int
-
-	s.resultsMu.RLock()
-	for _, cached := range s.resultsCache {
-		if cached != nil {
-			totalDevices += len(cached.Results)
-		}
-	}
-	s.resultsMu.RUnlock()
-
-	s.logger.Info().
-		Str("source", sourceName).
-		Int("kv_entries", len(data)).
-		Int("sweep_results_cached", len(events)).
-		Int("total_cached_devices", totalDevices).
-		Msg("Completed discovery sync for source")
-
-	return nil
-}
-
-// syncSourceSweep performs reconciliation operations for a single data source.
-// This function handles state synchronization with external systems after sweep operations have completed.
-func (s *PollerService) syncSourceSweep(ctx context.Context, sourceName string) error {
-	integration, ok := s.sources[sourceName]
-	if !ok {
-		return fmt.Errorf("integration not found for source: %s", sourceName)
-	}
-
-	s.logger.Info().Str("source", sourceName).Msg("Starting reconciliation check for source")
-
-	// Check if sweep operations are configured and complete before reconciliation
-	sourceCfg, exists := s.config.Sources[sourceName]
-	sweepConfigured := exists && sourceCfg.SweepInterval != ""
-
-	if sweepConfigured && !s.isSweepComplete(sourceName) {
-		// Check if we should force reconciliation due to timeout
-		if !s.shouldForceReconciliation(sourceName) {
-			s.logger.Debug().
-				Str("source", sourceName).
-				Msg("Sweep configured but not yet complete, skipping reconciliation")
-
-			return nil
-		}
-
-		s.logger.Warn().
-			Str("source", sourceName).
-			Msg("Forcing reconciliation due to sweep timeout")
-	}
-
-	if !sweepConfigured {
-		s.logger.Debug().
-			Str("source", sourceName).
-			Msg("No sweep configured for source, proceeding with reconciliation")
-	}
-
-	s.logger.Info().Str("source", sourceName).Msg("Sweep complete, performing reconciliation")
-
-	// Perform reconciliation (update external systems with current availability status)
-	err := integration.Reconcile(ctx)
-	if err != nil {
-		s.logger.Error().Err(err).Str("source", sourceName).Msg("Error during source reconciliation")
-		return err
-	}
-
-	s.logger.Info().
-		Str("source", sourceName).
-		Msg("Completed reconciliation for source")
-
-	return nil
-}
-
-// isSweepComplete checks if sweep operations are complete for a given source.
-func (s *PollerService) isSweepComplete(sourceName string) bool {
-	s.completionMu.RLock()
-	defer s.completionMu.RUnlock()
-
-	tracker, exists := s.completionTracker[sourceName]
-	if !exists {
-		s.logger.Debug().
-			Str("source", sourceName).
-			Msg("No completion tracker found, considering sweep incomplete")
-
-		return false
-	}
-
-	// Check overall completion status
-	isComplete := tracker.CompletionStatus == proto.SweepCompletionStatus_COMPLETED
-
-	// Additional validation: check if we have reasonable completion data
-	if isComplete {
-		// Ensure we have some completion data from agents/pollers
-		if len(tracker.CompletedAgents) == 0 {
-			s.logger.Warn().
-				Str("source", sourceName).
-				Msg("Marked as complete but no agent completion data, considering incomplete")
-
-			return false
-		}
-
-		// Check if completion is recent enough (within reasonable timeframe)
-		timeSinceLastUpdate := time.Since(tracker.LastUpdateTime)
-		if timeSinceLastUpdate > 10*time.Minute {
-			s.logger.Warn().
-				Str("source", sourceName).
-				Dur("time_since_update", timeSinceLastUpdate).
-				Msg("Completion status is stale, considering incomplete")
-
-			return false
-		}
-	}
-
-	s.logger.Debug().
-		Str("source", sourceName).
-		Str("completion_status", tracker.CompletionStatus.String()).
-		Int("completed_agents", len(tracker.CompletedAgents)).
-		Bool("is_complete", isComplete).
-		Dur("time_since_update", time.Since(tracker.LastUpdateTime)).
-		Msg("Sweep completion check result")
-
-	return isComplete
-}
-
-// shouldForceReconciliation determines if reconciliation should be forced despite incomplete sweeps.
-func (s *PollerService) shouldForceReconciliation(sourceName string) bool {
-	s.completionMu.RLock()
-	defer s.completionMu.RUnlock()
-
-	tracker, exists := s.completionTracker[sourceName]
-	if !exists {
-		// No tracking data means we should proceed (failsafe)
-		s.logger.Debug().
-			Str("source", sourceName).
-			Msg("No completion tracker, allowing reconciliation")
-
-		return true
-	}
-
-	// Force reconciliation if too much time has passed since targets were distributed
-	maxWaitTime := 30 * time.Minute // Configurable timeout
-	timeSinceStart := time.Since(tracker.StartTime)
-
-	if timeSinceStart > maxWaitTime {
-		s.logger.Warn().
-			Str("source", sourceName).
-			Dur("time_since_start", timeSinceStart).
-			Dur("max_wait_time", maxWaitTime).
-			Msg("Sweep timeout exceeded, forcing reconciliation")
-
-		return true
-	}
-
-	// Force reconciliation if we haven't received updates in a while but have some progress
-	timeSinceUpdate := time.Since(tracker.LastUpdateTime)
-	if timeSinceUpdate > 15*time.Minute && len(tracker.CompletedAgents) > 0 {
-		s.logger.Warn().
-			Str("source", sourceName).
-			Dur("time_since_update", timeSinceUpdate).
-			Int("completed_agents", len(tracker.CompletedAgents)).
-			Msg("No recent completion updates, forcing reconciliation")
-
-		return true
-	}
-
-	return false
-}
-
-// initializeCompletionTracking sets up tracking for a new set of sweep targets.
-func (s *PollerService) initializeCompletionTracking(sourceName, sequence string, totalTargets int32, startTime time.Time) {
-	s.completionMu.Lock()
-	defer s.completionMu.Unlock()
-
-	// Reset any existing completion tracking for this source
-	if existingTracker, exists := s.completionTracker[sourceName]; exists {
-		s.logger.Info().
-			Str("source", sourceName).
-			Str("old_sequence", existingTracker.TargetSequence).
-			Str("new_sequence", sequence).
-			Msg("Resetting completion tracking for new discovery cycle")
-	}
-
-	// For now, we'll track completion for all configured agents.
-	// In a more sophisticated implementation, we could determine which specific agents
-	// will receive these targets based on partitioning or other criteria.
-	expectedAgents := make(map[string]bool)
-
-	// Extract agent IDs from the source configuration
-	// This is a simplified approach - in practice, you might need more sophisticated
-	// agent discovery based on the actual distribution of targets
-	if sourceCfg, exists := s.config.Sources[sourceName]; exists {
-		if sourceCfg.AgentID != "" {
-			expectedAgents[sourceCfg.AgentID] = true
-		}
-	}
-
-	// If no specific agents configured, we'll expect any agent that polls for this source
-	// This will be updated dynamically as agents actually request the targets
-	if len(expectedAgents) == 0 {
-		s.logger.Debug().
-			Str("source", sourceName).
-			Msg("No specific agents configured for completion tracking, will track dynamically")
-	}
-
-	s.completionTracker[sourceName] = &SweepCompletionTracker{
-		TargetSequence:   sequence,
-		ExpectedAgents:   expectedAgents,
-		CompletedAgents:  make(map[string]*proto.SweepCompletionStatus),
-		StartTime:        startTime,
-		LastUpdateTime:   startTime,
-		TotalTargets:     totalTargets,
-		CompletionStatus: proto.SweepCompletionStatus_NOT_STARTED,
-	}
-
-	s.logger.Info().
-		Str("source", sourceName).
-		Str("sequence", sequence).
-		Int32("total_targets", totalTargets).
-		Int("expected_agents", len(expectedAgents)).
-		Msg("Initialized sweep completion tracking")
-}
-
-// NewDefault provides a production-ready constructor with default settings.
-func NewDefault(ctx context.Context, config *Config, log logger.Logger) (*PollerService, error) {
+// NewDefault provides a production-ready constructor with default settings
+func NewDefault(ctx context.Context, config *Config, log logger.Logger) (*SimpleSyncService, error) {
 	return NewWithGRPC(ctx, config, log)
 }
 
-// NewWithGRPC sets up the gRPC client for production use with default integrations.
-func NewWithGRPC(ctx context.Context, config *Config, log logger.Logger) (*PollerService, error) {
+// NewWithGRPC sets up the gRPC client for production use with default integrations
+func NewWithGRPC(ctx context.Context, config *Config, log logger.Logger) (*SimpleSyncService, error) {
 	// Setup gRPC client for KV Store, if configured
 	kvClient, grpcClient, err := setupGRPCClient(ctx, config, log)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create syncer instance
-	syncer, err := createSyncer(ctx, config, kvClient, grpcClient, log)
+	// Create simplified sync service
+	service, err := createSimpleSyncService(ctx, config, kvClient, grpcClient, log)
 	if err != nil {
 		if grpcClient != nil {
 			_ = grpcClient.Close()
@@ -485,159 +72,30 @@ func NewWithGRPC(ctx context.Context, config *Config, log logger.Logger) (*Polle
 		return nil, err
 	}
 
-	return syncer, nil
+	return service, nil
 }
 
-// createSyncer creates a new PollerService instance with the provided dependencies.
-func createSyncer(
+// createSimpleSyncService creates a new SimpleSyncService instance with the provided dependencies
+func createSimpleSyncService(
 	ctx context.Context,
 	config *Config,
 	kvClient KVClient,
 	grpcClient GRPCClient,
 	log logger.Logger,
-) (*PollerService, error) {
+) (*SimpleSyncService, error) {
 	serverName := getServerName(config)
 
-	return New(
+	return NewSimpleSyncService(
 		ctx,
 		config,
 		kvClient,
 		defaultIntegrationRegistry(kvClient, grpcClient, serverName),
 		grpcClient,
-		nil,
 		log,
 	)
 }
 
-func (s *PollerService) initializeIntegrations(ctx context.Context) {
-	for name, src := range s.config.Sources {
-		factory, ok := s.registry[src.Type]
-		if !ok {
-			s.logger.Warn().Str("source_type", src.Type).Msg("Unknown source type")
-			continue
-		}
-
-		s.sources[name] = s.createIntegration(ctx, src, factory)
-	}
-}
-
-func (s *PollerService) createIntegration(ctx context.Context, src *models.SourceConfig, factory IntegrationFactory) Integration {
-	cfgCopy := *src
-	if cfgCopy.AgentID == "" {
-		cfgCopy.AgentID = s.config.AgentID
-	}
-
-	if cfgCopy.PollerID == "" {
-		cfgCopy.PollerID = s.config.PollerID
-	}
-
-	if cfgCopy.Partition == "" {
-		cfgCopy.Partition = "default"
-	}
-
-	return factory(ctx, &cfgCopy)
-}
-
-func (s *PollerService) writeToKV(ctx context.Context, sourceName string, data map[string][]byte) {
-	if s.kvClient == nil || len(data) == 0 {
-		return
-	}
-
-	prefix := strings.TrimSuffix(s.config.Sources[sourceName].Prefix, "/")
-	source := s.config.Sources[sourceName]
-	entries := make([]*proto.KeyValueEntry, 0, len(data))
-
-	for key, value := range data {
-		var fullKey string
-
-		// Check if key is in partition:ip format and transform it
-		if strings.Contains(key, ":") {
-			parts := strings.SplitN(key, ":", 2)
-			if len(parts) == 2 {
-				partition := parts[0]
-				ip := parts[1]
-				// Build key as prefix/agentID/pollerID/partition/ip
-				fullKey = fmt.Sprintf("%s/%s/%s/%s/%s", prefix, source.AgentID, source.PollerID, partition, ip)
-			} else {
-				fullKey = prefix + "/" + key
-			}
-		} else {
-			fullKey = prefix + "/" + key
-		}
-
-		entries = append(entries, &proto.KeyValueEntry{Key: fullKey, Value: value})
-	}
-
-	if len(entries) > 0 {
-		s.writeBatchedEntries(ctx, sourceName, entries)
-	}
-}
-
-// writeBatchedEntries writes entries to KV store in batches to avoid exceeding gRPC message size limits
-func (s *PollerService) writeBatchedEntries(ctx context.Context, sourceName string, entries []*proto.KeyValueEntry) {
-	// Batch entries to avoid exceeding gRPC message size limit
-	const maxBatchSize = 500 // Adjust based on average entry size
-
-	const maxBatchBytes = 3 * 1024 * 1024 // 3MB to stay under 4MB limit
-
-	currentBatch := make([]*proto.KeyValueEntry, 0, maxBatchSize)
-
-	var currentBatchSize int
-
-	var batchCount int
-
-	var successfulWrites int
-
-	for _, entry := range entries {
-		// Estimate size: key length + value length + some overhead for protobuf encoding
-		entrySize := len(entry.Key) + len(entry.Value) + 32
-
-		// If adding this entry would exceed size limits, flush current batch
-		if len(currentBatch) > 0 && (len(currentBatch) >= maxBatchSize || currentBatchSize+entrySize > maxBatchBytes) {
-			batchCount++
-			if _, err := s.kvClient.PutMany(ctx, &proto.PutManyRequest{Entries: currentBatch}); err != nil {
-				s.logger.Error().Err(err).
-					Int("batch_number", batchCount).
-					Str("source", sourceName).
-					Int("batch_size", len(currentBatch)).
-					Int("batch_bytes", currentBatchSize).
-					Msg("Failed to write batch to KV")
-			} else {
-				successfulWrites += len(currentBatch)
-			}
-
-			currentBatch = nil
-			currentBatchSize = 0
-		}
-
-		currentBatch = append(currentBatch, entry)
-		currentBatchSize += entrySize
-	}
-
-	// Flush remaining entries
-	if len(currentBatch) > 0 {
-		batchCount++
-
-		if _, err := s.kvClient.PutMany(ctx, &proto.PutManyRequest{Entries: currentBatch}); err != nil {
-			s.logger.Error().Err(err).
-				Int("batch_number", batchCount).
-				Str("source", sourceName).
-				Int("batch_size", len(currentBatch)).
-				Int("batch_bytes", currentBatchSize).
-				Msg("Failed to write batch to KV")
-		} else {
-			successfulWrites += len(currentBatch)
-		}
-	}
-
-	s.logger.Info().
-		Int("successful_writes", successfulWrites).
-		Int("total_entries", len(entries)).
-		Str("source", sourceName).
-		Int("batch_count", batchCount).
-		Msg("Wrote entries to KV")
-}
-
+// defaultIntegrationRegistry creates the default integration factory registry
 func defaultIntegrationRegistry(
 	kvClient proto.KVServiceClient,
 	grpcClient GRPCClient,
@@ -670,6 +128,7 @@ func defaultIntegrationRegistry(
 	}
 }
 
+// setupGRPCClient creates a gRPC client for the KV service
 func setupGRPCClient(ctx context.Context, config *Config, log logger.Logger) (proto.KVServiceClient, GRPCClient, error) {
 	if config.KVAddress == "" {
 		return nil, nil, nil
@@ -705,6 +164,7 @@ func setupGRPCClient(ctx context.Context, config *Config, log logger.Logger) (pr
 	return kvClient, grpcClient, nil
 }
 
+// getServerName extracts the server name from config
 func getServerName(config *Config) string {
 	if config.Security != nil {
 		return config.Security.ServerName
@@ -761,7 +221,7 @@ func (n *netboxDeviceStateAdapter) GetDeviceStatesBySource(ctx context.Context, 
 	return result, nil
 }
 
-// NewArmisIntegration creates a new ArmisIntegration with a gRPC client.
+// NewArmisIntegration creates a new ArmisIntegration with a gRPC client
 func NewArmisIntegration(
 	_ context.Context,
 	config *models.SourceConfig,
@@ -796,15 +256,11 @@ func NewArmisIntegration(
 		AgentID:    config.AgentID,
 	}
 
-	interval := config.SweepInterval
-	if interval == "" {
-		interval = "10m"
-	}
-
+	// Simplified sweep config - just for KV writing
 	defaultSweepCfg := &models.SweepConfig{
 		Ports:         []int{22, 80, 443, 3389, 445, 5985, 5986, 8080},
 		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      interval,
+		Interval:      config.SweepInterval,
 		Concurrency:   100,
 		Timeout:       "15s",
 		IcmpCount:     1,
@@ -820,7 +276,6 @@ func NewArmisIntegration(
 
 	// If no specific ServiceRadar endpoint is provided, assume it's on the same host
 	if serviceRadarEndpoint == "" && serviceRadarAPIKey != "" {
-		// Extract host from Armis endpoint if possible, otherwise use localhost
 		serviceRadarEndpoint = "http://localhost:8080"
 	}
 
@@ -833,9 +288,8 @@ func NewArmisIntegration(
 		sweepQuerier = &armisDeviceStateAdapter{querier: baseSweepQuerier}
 	}
 
-	// Initialize ArmisUpdater (placeholder - needs actual implementation based on Armis API)
+	// Initialize ArmisUpdater for status updates
 	var armisUpdater armis.ArmisUpdater
-
 	if config.Credentials["enable_status_updates"] == "true" {
 		armisUpdater = armis.NewArmisUpdater(
 			config,
@@ -860,7 +314,7 @@ func NewArmisIntegration(
 	}
 }
 
-// NewNetboxIntegration creates a new NetboxIntegration instance.
+// NewNetboxIntegration creates a new NetboxIntegration instance
 func NewNetboxIntegration(
 	_ context.Context,
 	config *models.SourceConfig,
@@ -880,11 +334,13 @@ func NewNetboxIntegration(
 
 	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
 		httpClient := &http.Client{Timeout: 30 * time.Second}
+
 		baseSweepQuerier := NewSweepResultsQuery(
 			serviceRadarEndpoint,
 			serviceRadarAPIKey,
 			httpClient,
 		)
+
 		sweepQuerier = &netboxDeviceStateAdapter{querier: baseSweepQuerier}
 	}
 
@@ -893,7 +349,7 @@ func NewNetboxIntegration(
 		KvClient:      kvClient,
 		GrpcConn:      grpcConn,
 		ServerName:    serverName,
-		ExpandSubnets: false, // Default: treat as /32 //TODO: make this configurable
+		ExpandSubnets: false, // Default: treat as /32
 		Querier:       sweepQuerier,
 	}
 }

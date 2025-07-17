@@ -31,7 +31,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestProcessMetrics_SyncService_SourceFieldHandling(t *testing.T) {
+func TestProcessMetrics_SyncService_PayloadDetection(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -55,14 +55,12 @@ func TestProcessMetrics_SyncService_SourceFieldHandling(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		source        string
 		message       json.RawMessage
 		expectProcess bool
 		expectedError error
 	}{
 		{
-			name:   "Health check from GetStatus should be skipped",
-			source: "status",
+			name: "Health check data should be skipped",
 			message: json.RawMessage(`{
 				"status": "healthy",
 				"cached_sources": 2,
@@ -73,8 +71,7 @@ func TestProcessMetrics_SyncService_SourceFieldHandling(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			name:   "Discovery results from GetResults should be processed",
-			source: "results",
+			name: "Valid SweepResult array should be processed",
 			message: json.RawMessage(`[
 				{
 					"agent_id": "agent-1",
@@ -83,7 +80,6 @@ func TestProcessMetrics_SyncService_SourceFieldHandling(t *testing.T) {
 					"device_id": "default:192.168.1.1",
 					"discovery_source": "armis",
 					"ip": "192.168.1.1",
-					"mac": "00:11:22:33:44:55",
 					"hostname": "device1",
 					"timestamp": "2025-01-13T12:00:00Z",
 					"available": true
@@ -93,16 +89,20 @@ func TestProcessMetrics_SyncService_SourceFieldHandling(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			name:          "Empty source field should skip processing",
-			source:        "",
-			message:       json.RawMessage(`{"status": "healthy"}`),
+			name:          "Empty SweepResult array should be skipped",
+			message:       json.RawMessage(`[]`),
 			expectProcess: false,
 			expectedError: nil,
 		},
 		{
-			name:          "Any non-results source should skip processing",
-			source:        "unknown",
-			message:       json.RawMessage(`[{"device_id": "test"}]`),
+			name:          "Invalid JSON should be skipped",
+			message:       json.RawMessage(`invalid json`),
+			expectProcess: false,
+			expectedError: nil,
+		},
+		{
+			name:          "Non-SweepResult array should be skipped",
+			message:       json.RawMessage(`["string1", "string2"]`),
 			expectProcess: false,
 			expectedError: nil,
 		},
@@ -117,11 +117,11 @@ func TestProcessMetrics_SyncService_SourceFieldHandling(t *testing.T) {
 				Message:     tt.message,
 				AgentId:     "test-agent",
 				PollerId:    pollerID,
-				Source:      tt.source,
+				Source:      "results", // Source field doesn't matter anymore
 			}
 
 			if tt.expectProcess {
-				// Expect ProcessSyncResults to be called only when source is "results"
+				// Expect ProcessSyncResults to be called when payload is valid SweepResult array
 				mockDiscovery.EXPECT().
 					ProcessSyncResults(ctx, pollerID, partition, svc, tt.message, timestamp).
 					Return(tt.expectedError)
@@ -231,28 +231,27 @@ func TestProcessMetrics_SyncService_HealthCheckNotProcessed(t *testing.T) {
 	sourceIP := "192.168.1.100"
 	timestamp := time.Now()
 
-	// Even if the message looks like discovery data, if source is "status" it should not be processed
-	discoveryLookingMessage := json.RawMessage(`[
-		{
-			"agent_id": "agent-1",
-			"device_id": "default:192.168.1.1",
-			"ip": "192.168.1.1"
-		}
-	]`)
+	// Health check payload should not be processed (doesn't unmarshal as SweepResult array)
+	healthCheckMessage := json.RawMessage(`{
+		"status": "healthy",
+		"cached_sources": 2,
+		"cached_devices": 10,
+		"timestamp": 1234567890
+	}`)
 
 	svc := &proto.ServiceStatus{
 		ServiceName: "sync",
 		ServiceType: "grpc",
 		Available:   true,
-		Message:     discoveryLookingMessage,
+		Message:     healthCheckMessage,
 		AgentId:     "test-agent",
 		PollerId:    pollerID,
-		Source:      "status", // Source is "status", so should not process
+		Source:      "status", // Source field is ignored with new payload detection
 	}
 
-	// Should NOT call ProcessSyncResults even though message looks like discovery data
+	// Should NOT call ProcessSyncResults because payload doesn't unmarshal as SweepResult array
 	// No mock expectation set = test will fail if ProcessSyncResults is called
 
-	err := server.processMetrics(ctx, pollerID, partition, sourceIP, svc, discoveryLookingMessage, timestamp)
+	err := server.processMetrics(ctx, pollerID, partition, sourceIP, svc, healthCheckMessage, timestamp)
 	require.NoError(t, err)
 }

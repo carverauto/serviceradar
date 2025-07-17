@@ -26,7 +26,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-//go:generate mockgen -destination=mock_sync.go -package=sync github.com/carverauto/serviceradar/pkg/sync KVClient,GRPCClient,Integration,Clock,SyncerInterface,Ticker
+//go:generate mockgen -destination=mock_sync.go -package=sync github.com/carverauto/serviceradar/pkg/sync KVClient,GRPCClient,Integration,SRQLQuerier
+//go:generate mockgen -destination=mock_proto.go -package=sync github.com/carverauto/serviceradar/proto AgentService_StreamResultsServer
 
 // KVClient defines the interface for interacting with the KV store.
 type KVClient interface {
@@ -47,7 +48,7 @@ type GRPCClient interface {
 type Integration interface {
 	// Fetch performs discovery operations, returning KV data for caching and sweep results for agents.
 	// This method should focus purely on data discovery and should not perform any state reconciliation.
-	Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error)
+	Fetch(ctx context.Context) (map[string][]byte, []*models.DeviceUpdate, error)
 
 	// Reconcile performs state reconciliation operations such as updating external systems
 	// with current device availability status and handling device retractions.
@@ -90,8 +91,8 @@ type SRQLQuerier interface {
 
 // ResultSubmitter defines the interface for submitting sweep results and retraction events.
 type ResultSubmitter interface {
-	SubmitSweepResult(ctx context.Context, result *models.SweepResult) error
-	SubmitBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
+	SubmitSweepResult(ctx context.Context, result *models.DeviceUpdate) error
+	SubmitBatchSweepResults(ctx context.Context, results []*models.DeviceUpdate) error
 }
 
 // DeviceState represents the consolidated state of a device from the unified view.

@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -39,6 +40,8 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
+
+	var successfulAppends int
 
 	for i, result := range results {
 		log.Printf("DEBUG [database]: Storing SweepResult %d: IP: %s, DeviceID: %s, "+
@@ -72,6 +75,13 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			metadata = make(map[string]string)
 		}
 
+		// Validate timestamp is within Proton's supported range (1925-2283)
+		timestamp := result.Timestamp
+		if timestamp.IsZero() || timestamp.Year() < 1925 || timestamp.Year() > 2283 {
+			log.Printf("Invalid timestamp for IP %s: %v, using current time", result.IP, timestamp)
+			timestamp = time.Now()
+		}
+
 		err = batch.Append(
 			result.AgentID,
 			result.PollerID,
@@ -81,7 +91,7 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			result.IP,
 			result.MAC,
 			result.Hostname,
-			result.Timestamp,
+			timestamp,
 			result.Available,
 			metadata, // Pass as map[string]string directly
 		)
@@ -89,13 +99,20 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			log.Printf("Failed to append sweep result for IP %s: %v", result.IP, err)
 			continue
 		}
+
+		successfulAppends++
 	}
 
-	if err := batch.Send(); err != nil {
-		return fmt.Errorf("failed to send batch: %w", err)
-	}
+	// Only send the batch if we have successful appends
+	if successfulAppends > 0 {
+		if err := batch.Send(); err != nil {
+			return fmt.Errorf("failed to send batch: %w", err)
+		}
 
-	log.Printf("Successfully stored %d sweep results", len(results))
+		log.Printf("Successfully stored %d sweep results", successfulAppends)
+	} else {
+		log.Printf("No valid sweep results to store, skipping batch send")
+	}
 
 	return nil
 }

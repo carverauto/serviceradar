@@ -1017,6 +1017,11 @@ func (s *APIServer) fallbackToSRQLQuery(ctx context.Context, w http.ResponseWrit
 		return
 	}
 
+	// Post-process device results (same as the /api/query endpoint)
+	if len(result) > 0 {
+		result = s.postProcessDeviceResults(result)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(result); err != nil {
