@@ -260,7 +260,7 @@ func NewArmisIntegration(
 	defaultSweepCfg := &models.SweepConfig{
 		Ports:         []int{22, 80, 443, 3389, 445, 5985, 5986, 8080},
 		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      "10m",
+		Interval:      config.SweepInterval,
 		Concurrency:   100,
 		Timeout:       "15s",
 		IcmpCount:     1,
@@ -334,11 +334,13 @@ func NewNetboxIntegration(
 
 	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
 		httpClient := &http.Client{Timeout: 30 * time.Second}
+
 		baseSweepQuerier := NewSweepResultsQuery(
 			serviceRadarEndpoint,
 			serviceRadarAPIKey,
 			httpClient,
 		)
+
 		sweepQuerier = &netboxDeviceStateAdapter{querier: baseSweepQuerier}
 	}
 
