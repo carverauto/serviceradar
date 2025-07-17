@@ -68,6 +68,7 @@ func NewWithGRPC(ctx context.Context, config *Config, log logger.Logger) (*Simpl
 		if grpcClient != nil {
 			_ = grpcClient.Close()
 		}
+
 		return nil, err
 	}
 
@@ -269,6 +270,7 @@ func NewArmisIntegration(
 
 	// Initialize SweepResultsQuerier if ServiceRadar API credentials are provided
 	var sweepQuerier armis.SRQLQuerier
+
 	serviceRadarAPIKey := config.Credentials["api_key"]
 	serviceRadarEndpoint := config.Credentials["serviceradar_endpoint"]
 

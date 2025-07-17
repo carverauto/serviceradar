@@ -99,6 +99,7 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			log.Printf("Failed to append sweep result for IP %s: %v", result.IP, err)
 			continue
 		}
+
 		successfulAppends++
 	}
 
@@ -107,6 +108,7 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 		if err := batch.Send(); err != nil {
 			return fmt.Errorf("failed to send batch: %w", err)
 		}
+
 		log.Printf("Successfully stored %d sweep results", successfulAppends)
 	} else {
 		log.Printf("No valid sweep results to store, skipping batch send")

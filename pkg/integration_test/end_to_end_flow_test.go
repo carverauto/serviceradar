@@ -121,12 +121,12 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 		DoAndReturn(func(_ context.Context, req *proto.PutManyRequest, _ ...interface{}) (*proto.PutManyResponse, error) {
 			t.Logf("Sync service wrote %d entries to KV", len(req.Entries))
 			assert.Len(t, req.Entries, 2)
-			
+
 			// Verify KV entries match expected format
 			for _, entry := range req.Entries {
 				assert.Contains(t, []string{"armis/test-agent/192.168.1.1", "armis/test-agent/192.168.1.2"}, entry.Key)
 			}
-			
+
 			return &proto.PutManyResponse{}, nil
 		})
 
@@ -138,12 +138,13 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 	t.Log("=== Step 2: Poller requests sync discovery results ===")
 
 	discoveryResultsJSON := mustMarshal(t, discoveredDevices)
-	
+
 	// Mock sync service returning cached discovery results
 	mockSync.EXPECT().
 		GetResults(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ *proto.ResultsRequest) (*proto.ResultsResponse, error) {
 			t.Logf("Sync service returning %d discovery results", len(discoveredDevices))
+
 			return &proto.ResultsResponse{
 				Available:       true,
 				Data:            discoveryResultsJSON,
@@ -160,7 +161,7 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 	t.Log("=== Step 3: Poller forwards discovery results to core ===")
 
 	var receivedDiscoveryResults []*models.SweepResult
-	
+
 	mockCore.EXPECT().
 		ReportStatus(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
@@ -170,15 +171,17 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 					err := json.Unmarshal(svc.Message, &receivedDiscoveryResults)
 					require.NoError(t, err)
 					t.Logf("Core received %d discovery results from sync service", len(receivedDiscoveryResults))
-					
+
 					// Verify discovery results
 					assert.Len(t, receivedDiscoveryResults, 2)
+
 					for _, result := range receivedDiscoveryResults {
 						assert.Equal(t, "armis", result.DiscoverySource)
 						assert.False(t, result.Available) // Not yet swept
 					}
 				}
 			}
+
 			return &proto.PollerStatusResponse{}, nil
 		})
 
@@ -191,16 +194,17 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 	// Mock agent detecting KV changes (in real code, this would be a KV watch)
 	// and then performing ping sweep
 	simulateAgentKVWatch(t, kvData)
-	
+
 	// Step 6: Poller calls agent GetResults for sweep data
 	t.Log("=== Step 5: Poller requests agent sweep results ===")
 
 	sweepResultsJSON := mustMarshal(t, sweptDevices)
-	
+
 	mockAgent.EXPECT().
 		GetResults(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ *proto.ResultsRequest) (*proto.ResultsResponse, error) {
 			t.Logf("Agent returning %d sweep results", len(sweptDevices))
+
 			return &proto.ResultsResponse{
 				Available:       true,
 				Data:            sweepResultsJSON,
@@ -217,7 +221,7 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 	t.Log("=== Step 6: Poller forwards sweep results to core ===")
 
 	var receivedSweepResults []*models.SweepResult
-	
+
 	mockCore.EXPECT().
 		ReportStatus(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
@@ -226,16 +230,19 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 				if svc.ServiceType == "sweep" {
 					err := json.Unmarshal(svc.Message, &receivedSweepResults)
 					require.NoError(t, err)
+
 					t.Logf("Core received %d sweep results from agent", len(receivedSweepResults))
-					
+
 					// Verify sweep results
 					assert.Len(t, receivedSweepResults, 2)
+
 					for _, result := range receivedSweepResults {
-						assert.Equal(t, "sweep", result.DiscoverySource)
 						// One device should be available, one not
+						assert.Equal(t, "sweep", result.DiscoverySource)
 					}
 				}
 			}
+
 			return &proto.PollerStatusResponse{}, nil
 		})
 
@@ -250,7 +257,7 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 		RunUpdate(gomock.Any()).
 		DoAndReturn(func(_ context.Context) error {
 			t.Log("Armis updater executed SRQL query to update devices in Armis")
-			// In real code, this would run SRQL to update Armis with sweep results
+
 			return nil
 		})
 
@@ -273,12 +280,15 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 
 	// Verify sweep results have availability data
 	availableCount := 0
+
 	for _, result := range receivedSweepResults {
 		assert.Equal(t, "sweep", result.DiscoverySource)
+
 		if result.Available {
 			availableCount++
 		}
 	}
+
 	assert.Equal(t, 1, availableCount, "Should have one available device after sweep")
 
 	t.Log("✅ End-to-end discovery flow completed successfully!")
@@ -292,11 +302,12 @@ func simulateSyncDiscovery(t *testing.T, mockKV *MockKVService, devices []*model
 	// 1. Calls integration.Fetch() which returns devices
 	// 2. Calls writeToKV() to store device data
 	// 3. Caches results for GetResults calls
-	
+
 	ctx := context.Background()
-	
+
 	// Convert devices to KV entries
 	entries := make([]*proto.KeyValueEntry, 0, len(kvData))
+
 	for key, value := range kvData {
 		entries = append(entries, &proto.KeyValueEntry{
 			Key:   key,
@@ -305,16 +316,18 @@ func simulateSyncDiscovery(t *testing.T, mockKV *MockKVService, devices []*model
 	}
 
 	req := &proto.PutManyRequest{Entries: entries}
+
 	_, err := mockKV.PutMany(ctx, req)
 	require.NoError(t, err)
-	
+
 	t.Logf("Sync service discovered %d devices and wrote to KV", len(devices))
 }
 
 func simulatePollerSyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *MockCoreService) {
 	t.Helper()
+
 	ctx := context.Background()
-	
+
 	// Poller calls sync GetResults
 	req := &proto.ResultsRequest{
 		ServiceName:  "sync",
@@ -323,11 +336,11 @@ func simulatePollerSyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *M
 		PollerId:     "test-poller",
 		LastSequence: "",
 	}
-	
+
 	resp, err := mockSync.GetResults(ctx, req)
 	require.NoError(t, err)
 	require.True(t, resp.HasNewData)
-	
+
 	// Poller forwards to core
 	statusReport := &proto.PollerStatusRequest{
 		AgentId:  "test-agent",
@@ -344,34 +357,38 @@ func simulatePollerSyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *M
 			},
 		},
 	}
-	
+
 	_, err = mockCore.ReportStatus(ctx, statusReport)
 	require.NoError(t, err)
 }
 
 func simulateAgentKVWatch(t *testing.T, kvData map[string][]byte) {
 	t.Helper()
+
 	// This simulates the agent watching KV for changes and triggering sweep
 	// In real code, this would be a KV watch mechanism
 	t.Logf("Agent detected %d KV entries changed, starting ping sweep", len(kvData))
-	
+
 	// Extract IPs from KV data to sweep
 	var ipsToSweep []string
+
 	for _, data := range kvData {
 		var device models.SweepResult
+
 		err := json.Unmarshal(data, &device)
 		if err == nil {
 			ipsToSweep = append(ipsToSweep, device.IP)
 		}
 	}
-	
+
 	t.Logf("Agent will sweep %d IPs: %v", len(ipsToSweep), ipsToSweep)
 }
 
 func simulatePollerAgentFlow(t *testing.T, mockAgent *MockAgentService, mockCore *MockCoreService) {
 	t.Helper()
+
 	ctx := context.Background()
-	
+
 	// Poller calls agent GetResults
 	req := &proto.ResultsRequest{
 		ServiceName:  "sweep",
@@ -380,11 +397,11 @@ func simulatePollerAgentFlow(t *testing.T, mockAgent *MockAgentService, mockCore
 		PollerId:     "test-poller",
 		LastSequence: "",
 	}
-	
+
 	resp, err := mockAgent.GetResults(ctx, req)
 	require.NoError(t, err)
 	require.True(t, resp.HasNewData)
-	
+
 	// Poller forwards to core
 	statusReport := &proto.PollerStatusRequest{
 		AgentId:  "test-agent",
@@ -401,7 +418,7 @@ func simulatePollerAgentFlow(t *testing.T, mockAgent *MockAgentService, mockCore
 			},
 		},
 	}
-	
+
 	_, err = mockCore.ReportStatus(ctx, statusReport)
 	require.NoError(t, err)
 }
@@ -410,10 +427,10 @@ func simulateUpdaterTrigger(t *testing.T, mockUpdater *MockArmisUpdater, discove
 	t.Helper()
 	// This simulates the poller logic that triggers the updater after both
 	// discovery and sweep results have been collected and forwarded to core
-	
+
 	if len(discoveryResults) > 0 && len(sweepResults) > 0 {
 		t.Log("Both discovery and sweep complete, triggering Armis updater")
-		
+
 		ctx := context.Background()
 		err := mockUpdater.RunUpdate(ctx)
 		require.NoError(t, err)
@@ -428,8 +445,9 @@ func stringPtr(s string) *string {
 
 func mustMarshal(t *testing.T, v interface{}) []byte {
 	t.Helper()
+
 	data, err := json.Marshal(v)
 	require.NoError(t, err)
+
 	return data
 }
-

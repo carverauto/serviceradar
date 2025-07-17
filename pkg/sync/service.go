@@ -39,16 +39,17 @@ func safeIntToInt32(val int) int32 {
 	if val > math.MaxInt32 {
 		return math.MaxInt32
 	}
+
 	if val < math.MinInt32 {
 		return math.MinInt32
 	}
+
 	return int32(val)
 }
 
 // StreamingResultsStore holds discovery results for streaming
 type StreamingResultsStore struct {
-	mu sync.RWMutex
-	// FIX: Store the modern DeviceUpdate model
+	mu      sync.RWMutex
 	results map[string][]*models.DeviceUpdate
 	updated time.Time
 }
@@ -183,7 +184,6 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) {
 	s.logger.Info().Msg("Starting discovery cycle")
 	s.markSweepStarted()
 
-	// FIX: This map now holds the correct, modern data model
 	allDeviceUpdates := make(map[string][]*models.DeviceUpdate)
 
 	for sourceName, integration := range s.sources {
@@ -218,6 +218,7 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) {
 	s.resultsStore.mu.Unlock()
 
 	var totalDevices int
+
 	for _, devices := range allDeviceUpdates {
 		totalDevices += len(devices)
 	}
@@ -266,6 +267,7 @@ func (s *SimpleSyncService) shouldProceedWithUpdates() bool {
 
 	// Wait at least 30 minutes after sweep completion to ensure data is settled
 	minWaitTime := 30 * time.Minute
+
 	return time.Since(s.lastSweepCompleted) >= minWaitTime
 }
 
@@ -293,6 +295,7 @@ func (s *SimpleSyncService) writeToKV(ctx context.Context, sourceName string, da
 	}
 
 	source := s.config.Sources[sourceName]
+
 	prefix := source.Prefix
 	if prefix == "" {
 		prefix = fmt.Sprintf("agents/%s/checkers/sweep", source.AgentID)
@@ -309,6 +312,7 @@ func (s *SimpleSyncService) writeToKV(ctx context.Context, sourceName string, da
 	}
 
 	const maxBatchSize = 500
+
 	for i := 0; i < len(entries); i += maxBatchSize {
 		end := i + maxBatchSize
 		if end > len(entries) {
@@ -321,6 +325,7 @@ func (s *SimpleSyncService) writeToKV(ctx context.Context, sourceName string, da
 				Str("source", sourceName).
 				Int("batch_size", len(batch)).
 				Msg("Failed to write batch to KV")
+
 			return err
 		}
 	}
@@ -339,6 +344,7 @@ func (s *SimpleSyncService) GetStatus(_ context.Context, req *proto.StatusReques
 	defer s.resultsStore.mu.RUnlock()
 
 	var deviceCount int
+
 	for _, devices := range s.resultsStore.results {
 		deviceCount += len(devices)
 	}
@@ -370,13 +376,12 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 	s.resultsStore.mu.RLock()
 	defer s.resultsStore.mu.RUnlock()
 
-	// FIX: Collect the correct model type
 	var allDeviceUpdates []*models.DeviceUpdate
+
 	for _, devices := range s.resultsStore.results {
 		allDeviceUpdates = append(allDeviceUpdates, devices...)
 	}
 
-	// FIX: Marshal the correct model
 	resultsJSON, err := json.Marshal(allDeviceUpdates)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
@@ -400,8 +405,8 @@ func (s *SimpleSyncService) StreamResults(_ *proto.ResultsRequest, stream proto.
 	s.resultsStore.mu.RLock()
 	defer s.resultsStore.mu.RUnlock()
 
-	// FIX: Collect the correct model type
 	var allDeviceUpdates []*models.DeviceUpdate
+
 	for _, devices := range s.resultsStore.results {
 		allDeviceUpdates = append(allDeviceUpdates, devices...)
 	}
@@ -420,13 +425,11 @@ func (s *SimpleSyncService) StreamResults(_ *proto.ResultsRequest, stream proto.
 
 	// Calculate chunk size to keep each chunk under ~1MB
 	const maxChunkSize = 1024 * 1024 // 1MB
+
 	// DeviceUpdate is a bit larger, adjust estimate
 	const avgDeviceSize = 768
-	chunkDeviceCount := maxChunkSize / avgDeviceSize
 
-	if chunkDeviceCount == 0 {
-		chunkDeviceCount = 1
-	}
+	chunkDeviceCount := maxChunkSize / avgDeviceSize
 
 	totalChunks := (len(allDeviceUpdates) + chunkDeviceCount - 1) / chunkDeviceCount
 	sequence := fmt.Sprintf("%d", s.resultsStore.updated.Unix())
@@ -434,12 +437,13 @@ func (s *SimpleSyncService) StreamResults(_ *proto.ResultsRequest, stream proto.
 	for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
 		start := chunkIndex * chunkDeviceCount
 		end := start + chunkDeviceCount
+
 		if end > len(allDeviceUpdates) {
 			end = len(allDeviceUpdates)
 		}
 
-		// FIX: Marshal a chunk of the correct model
 		chunkDevices := allDeviceUpdates[start:end]
+
 		chunkData, err := json.Marshal(chunkDevices)
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to marshal chunk: %v", err)
@@ -459,6 +463,7 @@ func (s *SimpleSyncService) StreamResults(_ *proto.ResultsRequest, stream proto.
 				s.logger.Info().Msg("Client closed stream")
 				return nil
 			}
+
 			return status.Errorf(codes.Internal, "failed to send chunk: %v", err)
 		}
 	}
@@ -491,9 +496,11 @@ func (s *SimpleSyncService) createIntegration(ctx context.Context, src *models.S
 	if cfgCopy.AgentID == "" {
 		cfgCopy.AgentID = s.config.AgentID
 	}
+
 	if cfgCopy.PollerID == "" {
 		cfgCopy.PollerID = s.config.PollerID
 	}
+
 	if cfgCopy.Partition == "" {
 		cfgCopy.Partition = "default"
 	}
