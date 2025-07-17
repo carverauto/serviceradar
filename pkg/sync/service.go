@@ -106,7 +106,6 @@ func NewSimpleSyncService(
 		registry:   registry,
 		grpcClient: grpcClient,
 		resultsStore: &StreamingResultsStore{
-			// FIX: Initialize the map to hold DeviceUpdate
 			results: make(map[string][]*models.DeviceUpdate),
 		},
 		discoveryInterval:   time.Duration(config.DiscoveryInterval),
@@ -201,7 +200,6 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Failed to write to KV")
 		}
 
-		// FIX: No conversion is needed. Store the modern model directly.
 		allDeviceUpdates[sourceName] = devices
 
 		s.logger.Info().
