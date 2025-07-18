@@ -32,7 +32,7 @@ const (
 
 var (
 	errMissingSources     = errors.New("at least one source must be defined")
-	errMissingFields      = errors.New("source missing required fields (type, endpoint, prefix)")
+	errMissingFields      = errors.New("source missing required fields (type, endpoint)")
 	errListenAddrRequired = errors.New("listen_addr is required for the gRPC server")
 )
 
@@ -72,7 +72,7 @@ func (c *Config) Validate() error {
 	}
 
 	for name, src := range c.Sources {
-		if src.Type == "" || src.Endpoint == "" || src.Prefix == "" {
+		if src.Type == "" || src.Endpoint == "" {
 			return fmt.Errorf("source %s: %w", name, errMissingFields)
 		}
 	}
