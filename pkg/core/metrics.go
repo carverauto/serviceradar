@@ -110,6 +110,9 @@ func (s *Server) processSNMPMetrics(
 	// Parse directly as SNMP target status map (works for both enhanced and legacy)
 	var targetStatusMap map[string]*snmp.TargetStatus
 
+	// print the details for debugging
+	log.Printf("Processing SNMP metrics for poller %s with details: %s", pollerID, string(details))
+
 	if err := json.Unmarshal(details, &targetStatusMap); err != nil {
 		log.Printf("Error unmarshaling SNMP targets for poller %s: %v. Details: %s",
 			pollerID, err, string(details))

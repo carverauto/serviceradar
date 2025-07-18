@@ -329,7 +329,13 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 			p.logger.Warn().Str("serviceName", serviceStatus.ServiceName).Msg("AgentID empty in response, using configured agent name as fallback")
 		}
 
-		if serviceStatus.ServiceType != "sync" {
+		// Skip enhancement for sync services (already enhanced) and SNMP services with valid target data
+		// SNMP services using monitoring.proto with Message []byte should not be enhanced when they contain actual target data
+		// Error responses and other service types should still be enhanced to maintain proper structure
+		shouldSkipEnhancement := serviceStatus.ServiceType == "sync" ||
+			(serviceStatus.ServiceType == "snmp" && isValidSNMPTargetData(serviceStatus.Message))
+
+		if !shouldSkipEnhancement {
 			enhancedMessage, err := p.enhanceServicePayload(
 				string(serviceStatus.Message),
 				agentID,
@@ -450,6 +456,48 @@ func (p *Poller) reportToCoreStreaming(ctx context.Context, statuses []*proto.Se
 		Msg("Successfully completed streaming status report to core")
 
 	return nil
+}
+
+// isValidSNMPTargetData checks if the JSON message contains valid SNMP target status data
+func isValidSNMPTargetData(message []byte) bool {
+	if len(message) == 0 {
+		return false
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(message, &data); err != nil {
+		return false
+	}
+
+	// Check for error responses first
+	if _, hasError := data["error"]; hasError {
+		return false
+	}
+
+	if _, hasMessage := data["message"]; hasMessage && len(data) <= 2 {
+		return false
+	}
+
+	// Check if it looks like SNMP target data structure
+	// Valid SNMP data should have target names as keys with nested objects
+	for _, value := range data {
+		if valueMap, ok := value.(map[string]interface{}); ok {
+			// Check for SNMP target fields like "available", "host_ip", "oid_status"
+			if _, hasAvailable := valueMap["available"]; hasAvailable {
+				return true
+			}
+
+			if _, hasHostIP := valueMap["host_ip"]; hasHostIP {
+				return true
+			}
+
+			if _, hasOIDStatus := valueMap["oid_status"]; hasOIDStatus {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serviceType, serviceName string) (string, error) {
