@@ -154,6 +154,11 @@ func (*DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 		update.Source = "unknown"
 	}
 
+	// Self-reported devices are always available by definition
+	if update.Source == models.DiscoverySourceSelfReported {
+		update.IsAvailable = true
+	}
+
 	if update.Timestamp.IsZero() {
 		update.Timestamp = time.Now()
 	}
