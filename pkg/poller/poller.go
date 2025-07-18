@@ -910,10 +910,15 @@ func (rp *ResultsPoller) shouldSkipCoreSubmission(results *proto.ResultsResponse
 }
 
 func (rp *ResultsPoller) convertToServiceStatus(results *proto.ResultsResponse) *proto.ServiceStatus {
+	// Determine the correct service type to send to core
+	serviceType := rp.check.Type
 	if rp.check.Name == serviceTypeSync || strings.Contains(rp.check.Name, serviceTypeSync) {
+		// For sync services, always use "sync" as the service type for core processing
+		serviceType = serviceTypeSync
 		rp.logger.Info().
 			Str("service_name", rp.check.Name).
-			Str("service_type", rp.check.Type).
+			Str("original_service_type", rp.check.Type).
+			Str("core_service_type", serviceType).
 			Bool("has_new_data", results.HasNewData).
 			Str("sequence", results.CurrentSequence).
 			Int("data_length", len(results.Data)).
@@ -924,7 +929,7 @@ func (rp *ResultsPoller) convertToServiceStatus(results *proto.ResultsResponse) 
 		ServiceName:  rp.check.Name,
 		Available:    results.Available,
 		Message:      results.Data,
-		ServiceType:  rp.check.Type,
+		ServiceType:  serviceType,
 		ResponseTime: results.ResponseTime,
 		AgentId:      results.AgentId,
 		PollerId:     rp.pollerID,
