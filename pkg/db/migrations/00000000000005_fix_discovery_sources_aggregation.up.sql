@@ -25,7 +25,7 @@ AS SELECT
     -- Otherwise, it follows the previous logic to determine availability based on the source type.
     CASE
         WHEN s.metadata['_deleted'] = 'true' THEN false
-        ELSE coalesce(if(s.discovery_source IN ('sweep', 'snmp', 'sysmon', 'mapper', 'armis'), s.available, u.is_available), s.available)
+        ELSE coalesce(if(s.discovery_source IN ('sweep', 'snmp', 'sysmon', 'mapper', 'armis', 'self-reported'), s.available, u.is_available), s.available)
         END AS is_available,
     -- END: UPDATED AVAILABILITY LOGIC
 
