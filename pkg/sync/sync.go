@@ -35,6 +35,12 @@ import (
 const (
 	integrationTypeArmis  = "armis"
 	integrationTypeNetbox = "netbox"
+
+	// Default ServiceRadar endpoint
+	defaultServiceRadarEndpoint = "http://localhost:8080"
+
+	// String constants
+	trueString = "true"
 )
 
 // New creates a new simplified sync service with explicit dependencies
@@ -119,7 +125,7 @@ func defaultIntegrationRegistry(
 			}
 
 			integ := NewNetboxIntegration(ctx, config, kvClient, conn, serverName)
-			if val, ok := config.Credentials["expand_subnets"]; ok && val == "true" {
+			if val, ok := config.Credentials["expand_subnets"]; ok && val == trueString {
 				integ.ExpandSubnets = true
 			}
 
@@ -276,7 +282,7 @@ func NewArmisIntegration(
 
 	// If no specific ServiceRadar endpoint is provided, assume it's on the same host
 	if serviceRadarEndpoint == "" && serviceRadarAPIKey != "" {
-		serviceRadarEndpoint = "http://localhost:8080"
+		serviceRadarEndpoint = defaultServiceRadarEndpoint
 	}
 
 	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
@@ -285,12 +291,14 @@ func NewArmisIntegration(
 			serviceRadarAPIKey,
 			httpClient,
 		)
+
 		sweepQuerier = &armisDeviceStateAdapter{querier: baseSweepQuerier}
 	}
 
 	// Initialize ArmisUpdater for status updates
 	var armisUpdater armis.ArmisUpdater
-	if config.Credentials["enable_status_updates"] == "true" {
+
+	if config.Credentials["enable_status_updates"] == trueString {
 		armisUpdater = armis.NewArmisUpdater(
 			config,
 			httpClient,
@@ -329,7 +337,7 @@ func NewNetboxIntegration(
 	serviceRadarEndpoint := config.Credentials["serviceradar_endpoint"]
 
 	if serviceRadarEndpoint == "" && serviceRadarAPIKey != "" {
-		serviceRadarEndpoint = "http://localhost:8080"
+		serviceRadarEndpoint = defaultServiceRadarEndpoint
 	}
 
 	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
