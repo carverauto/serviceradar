@@ -38,8 +38,9 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 
 	var err error
 
-	// Route based on service type - use streaming for services that handle large datasets
-	if rp.check.Type == serviceTypeSync || rp.check.Type == serviceTypeSweep {
+	// Route based on service type or service name - use streaming for services that handle large datasets
+	if rp.check.Type == serviceTypeSync || rp.check.Type == serviceTypeSweep ||
+		rp.check.Name == serviceTypeSync || strings.Contains(rp.check.Name, serviceTypeSync) {
 		rp.logger.Info().
 			Str("service_name", rp.check.Name).
 			Str("service_type", rp.check.Type).
