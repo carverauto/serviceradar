@@ -35,11 +35,11 @@ func TestResultsPoller_SyncServiceStreamingDecisionLogic(t *testing.T) {
 	// This test validates the core logic for deciding whether to use streaming or unary calls
 	// without complex mocking of the actual gRPC interfaces
 	tests := []struct {
-		name             string
-		serviceType      string
-		serviceName      string
-		shouldUseStream  bool
-		description      string
+		name            string
+		serviceType     string
+		serviceName     string
+		shouldUseStream bool
+		description     string
 	}{
 		{
 			name:            "sync_service_with_grpc_type",
@@ -138,7 +138,7 @@ func TestResultsPoller_ConvertToServiceStatus_SyncServiceTypeConversion(t *testi
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			
+
 			mockLogger := logger.NewMockLogger(ctrl)
 			mockLogger.EXPECT().Info().Return(nil).AnyTimes()
 
@@ -177,23 +177,23 @@ func TestResultsPoller_ConvertToServiceStatus_SyncServiceTypeConversion(t *testi
 func TestResultsPoller_SyncServiceStreamingDecision(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	
+
 	mockLogger := logger.NewMockLogger(ctrl)
 
 	testCases := []struct {
-		serviceType         string
-		serviceName         string
+		serviceType          string
+		serviceName          string
 		expectStreamDecision bool
-		description         string
+		description          string
 	}{
 		// Sync service configurations that should use streaming
 		{"grpc", "sync", true, "gRPC sync service should use streaming"},
 		{"sync", "sync", true, "sync type sync service should use streaming"},
 		{"grpc", "my-sync-service", true, "gRPC service with 'sync' in name should use streaming"},
-		
+
 		// Sweep service configurations that should use streaming
 		{"sweep", "network_sweep", true, "sweep service should use streaming"},
-		
+
 		// Other services that should NOT use streaming
 		{"grpc", "sysmon", false, "sysmon gRPC service should not use streaming"},
 		{"grpc", "rperf-checker", false, "rperf gRPC service should not use streaming"},
@@ -219,4 +219,3 @@ func TestResultsPoller_SyncServiceStreamingDecision(t *testing.T) {
 		})
 	}
 }
-
