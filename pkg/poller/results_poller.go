@@ -38,8 +38,9 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 
 	var err error
 
-	// Route based on service type - use streaming for services that handle large datasets
-	if rp.check.Type == serviceTypeSync || rp.check.Type == serviceTypeSweep {
+	// Route based on service type or service name - use streaming for services that handle large datasets
+	if rp.check.Type == serviceTypeSync || rp.check.Type == serviceTypeSweep ||
+		rp.check.Name == serviceTypeSync || strings.Contains(rp.check.Name, serviceTypeSync) {
 		rp.logger.Info().
 			Str("service_name", rp.check.Name).
 			Str("service_type", rp.check.Type).
@@ -250,10 +251,14 @@ func (rp *ResultsPoller) shouldSkipCoreSubmission(results *proto.ResultsResponse
 }
 
 func (rp *ResultsPoller) convertToServiceStatus(results *proto.ResultsResponse) *proto.ServiceStatus {
+	// Determine the correct service type for core processing
+	serviceType := rp.check.Type
 	if rp.check.Name == serviceTypeSync || strings.Contains(rp.check.Name, serviceTypeSync) {
+		serviceType = serviceTypeSync // Convert to "sync" for consistent core processing
 		rp.logger.Info().
 			Str("service_name", rp.check.Name).
-			Str("service_type", rp.check.Type).
+			Str("original_service_type", rp.check.Type).
+			Str("converted_service_type", serviceType).
 			Bool("has_new_data", results.HasNewData).
 			Str("sequence", results.CurrentSequence).
 			Int("data_length", len(results.Data)).
@@ -264,7 +269,7 @@ func (rp *ResultsPoller) convertToServiceStatus(results *proto.ResultsResponse) 
 		ServiceName:  rp.check.Name,
 		Available:    results.Available,
 		Message:      results.Data,
-		ServiceType:  rp.check.Type,
+		ServiceType:  serviceType,
 		ResponseTime: results.ResponseTime,
 		AgentId:      results.AgentId,
 		PollerId:     rp.pollerID,

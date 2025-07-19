@@ -365,7 +365,7 @@ func (s *SimpleSyncService) GetStatus(_ context.Context, req *proto.StatusReques
 		AgentId:     s.config.AgentID,
 		Message:     healthJSON,
 		ServiceName: req.ServiceName,
-		ServiceType: req.ServiceType,
+		ServiceType: "sync", // Always return "sync" as service type regardless of request
 	}, nil
 }
 
@@ -389,7 +389,7 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 		Available:       true,
 		Data:            resultsJSON,
 		ServiceName:     req.ServiceName,
-		ServiceType:     req.ServiceType,
+		ServiceType:     "sync", // Always return "sync" as service type regardless of request
 		AgentId:         s.config.AgentID,
 		PollerId:        req.PollerId,
 		Timestamp:       time.Now().Unix(),
