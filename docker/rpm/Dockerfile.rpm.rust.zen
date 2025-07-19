@@ -29,17 +29,21 @@ COPY proto ../../../proto/
 RUN mkdir -p ../../otel/proto
 COPY cmd/otel/proto ../../otel/proto/
 
-# Copy build script and build dependencies (cached layer if deps don't change)
+# Copy build script and source files
 COPY ${BINARY_PATH}/build.rs .
-RUN cargo fetch
-
-# Copy source files last (most likely to change)
 COPY ${BINARY_PATH}/src ./src/
 
-# Build the Rust binary
-RUN echo "Building Rust binary..." && \
-    cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
+# Build the Rust binary with cache mounts and copy artifacts out
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/tmp/target \
+    echo "Building Rust binary..." && \
+    CARGO_TARGET_DIR=/tmp/target cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
     echo "Build completed successfully" && \
+    ls -la /tmp/target/x86_64-unknown-linux-gnu/release/ && \
+    mkdir -p target/x86_64-unknown-linux-gnu/release && \
+    cp /tmp/target/x86_64-unknown-linux-gnu/release/serviceradar-zen /tmp/target/x86_64-unknown-linux-gnu/release/zen-put-rule target/x86_64-unknown-linux-gnu/release/ && \
+    echo "Copied binaries to persistent location:" && \
     ls -la target/x86_64-unknown-linux-gnu/release/
 
 # Set up RPM build environment
