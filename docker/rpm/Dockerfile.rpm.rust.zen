@@ -9,7 +9,7 @@ ARG BINARY_PATH=cmd/consumers/zen
 # Set working directory
 WORKDIR /src/${BINARY_PATH}
 
-RUN rustup update nightly && rustup default nightly
+RUN rustup update stable && rustup default stable
 
 # Print debug information
 RUN echo "BINARY_PATH=${BINARY_PATH}" && \
@@ -19,18 +19,22 @@ RUN echo "BINARY_PATH=${BINARY_PATH}" && \
     echo "Current directory: $(pwd)" && \
     ls -la /src || echo "No /src directory yet"
 
-# Copy source files - fail if not found
+# Copy dependency files first for better layer caching
 COPY ${BINARY_PATH}/Cargo.toml .
 COPY ${BINARY_PATH}/Cargo.lock .
-COPY ${BINARY_PATH}/src ./src/
-COPY ${BINARY_PATH}/build.rs .
 
-# Include shared protobuf definitions
+# Include shared protobuf definitions early for build.rs
 RUN mkdir -p ../../../proto
 COPY proto ../../../proto/
-# Include OTEL protobuf definitions  
 RUN mkdir -p ../../otel/proto
 COPY cmd/otel/proto ../../otel/proto/
+
+# Copy build script and build dependencies (cached layer if deps don't change)
+COPY ${BINARY_PATH}/build.rs .
+RUN cargo fetch
+
+# Copy source files last (most likely to change)
+COPY ${BINARY_PATH}/src ./src/
 
 # Build the Rust binary
 RUN echo "Building Rust binary..." && \
