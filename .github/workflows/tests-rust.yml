@@ -21,7 +21,6 @@ jobs:
       matrix:
         project:
           - cmd/checkers/rperf-client
-          - cmd/checkers/rperf-server
           - cmd/checkers/sysmon
           - cmd/trapd
           - cmd/consumers/zen
