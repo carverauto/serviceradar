@@ -61,5 +61,7 @@ jobs:
           cd ${{ matrix.project }} && cargo clippy -- -D warnings
 
       - name: Run Tests
+        env:
+          DOCKER_BUILDKIT: 1
         run: |
           cd ${{ matrix.project }} && cargo test

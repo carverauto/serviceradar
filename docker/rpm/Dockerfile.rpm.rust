@@ -17,20 +17,29 @@ RUN echo "BINARY_PATH=${BINARY_PATH}" && \
     echo "Current directory: $(pwd)" && \
     ls -la /src || echo "No /src directory yet"
 
-# Copy source files - fail if not found
+# Copy dependency files first for better layer caching
 COPY ${BINARY_PATH}/Cargo.toml .
 COPY ${BINARY_PATH}/Cargo.lock .
-COPY ${BINARY_PATH}/src ./src/
-COPY ${BINARY_PATH}/build.rs .
 
-# Create proto directory
+# Create proto directory early for build.rs
 RUN mkdir -p ../proto
 COPY proto ../proto/
 
-# Build the Rust binary
-RUN echo "Building Rust binary..." && \
-    cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
+# Copy build script and source files
+COPY ${BINARY_PATH}/build.rs .
+COPY ${BINARY_PATH}/src ./src/
+
+# Build the Rust binary with cache mounts and copy artifacts out
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/tmp/target \
+    echo "Building Rust binary..." && \
+    CARGO_TARGET_DIR=/tmp/target cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
     echo "Build completed successfully" && \
+    ls -la /tmp/target/x86_64-unknown-linux-gnu/release/ && \
+    mkdir -p target/x86_64-unknown-linux-gnu/release && \
+    find /tmp/target/x86_64-unknown-linux-gnu/release/ -maxdepth 1 -type f -executable -exec cp {} target/x86_64-unknown-linux-gnu/release/ \; && \
+    echo "Copied binaries to persistent location:" && \
     ls -la target/x86_64-unknown-linux-gnu/release/
 
 # Set up RPM build environment
