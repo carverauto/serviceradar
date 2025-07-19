@@ -182,12 +182,18 @@ func NewUnifiedDeviceFromUpdate(update *DeviceUpdate) *UnifiedDevice {
 		confidence = GetSourceConfidence(update.Source)
 	}
 
+	// Self-reported devices are always available by definition
+	isAvailable := update.IsAvailable
+	if update.Source == DiscoverySourceSelfReported {
+		isAvailable = true
+	}
+
 	device := &UnifiedDevice{
 		DeviceID:    update.DeviceID,
 		IP:          update.IP,
 		FirstSeen:   now,
 		LastSeen:    now,
-		IsAvailable: update.IsAvailable,
+		IsAvailable: isAvailable,
 		DeviceType:  "network_device", // Default
 		DiscoverySources: []DiscoverySourceInfo{
 			{

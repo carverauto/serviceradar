@@ -17,7 +17,9 @@
 use anyhow::Result;
 use clap::Parser;
 use env_logger::Env;
+use futures::Stream;
 use log::{info, warn};
+use std::pin::Pin;
 use serde::Serialize;
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::UdpSocket;
@@ -156,6 +158,7 @@ struct TrapdAgentService;
 
 #[tonic::async_trait]
 impl AgentService for TrapdAgentService {
+    type StreamResultsStream = Pin<Box<dyn Stream<Item = Result<monitoring::ResultsChunk, Status>> + Send + 'static>>;
     async fn get_status(
         &self,
         request: Request<monitoring::StatusRequest>,
@@ -200,6 +203,19 @@ impl AgentService for TrapdAgentService {
             has_new_data: false,
             sweep_completion: None,
         }))
+    }
+
+    async fn stream_results(
+        &self,
+        request: Request<monitoring::ResultsRequest>,
+    ) -> Result<Response<Self::StreamResultsStream>, Status> {
+        let _req = request.into_inner();
+        
+        // Create an empty stream for now - in a real implementation this would
+        // stream actual results data in chunks
+        let stream = futures::stream::empty();
+        
+        Ok(Response::new(Box::pin(stream)))
     }
 }
 
