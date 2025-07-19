@@ -1737,6 +1737,7 @@ dependencies = [
  "bytes",
  "clap",
  "env_logger",
+ "futures",
  "log",
  "prost",
  "serde",
