@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/gosnmp/gosnmp v1.41.0
+	github.com/gosnmp/gosnmp v1.42.0
 	github.com/markbates/goth v1.81.0
 	github.com/nats-io/nats.go v1.43.0
 	github.com/rs/zerolog v1.34.0
