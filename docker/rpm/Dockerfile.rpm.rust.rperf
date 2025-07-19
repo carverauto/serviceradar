@@ -5,8 +5,10 @@ ARG VERSION=1.0.32
 ARG RELEASE=1
 ARG COMPONENT=rperf
 
-# Install rperf directly from crates.io (without version constraint)
-RUN cargo install --target x86_64-unknown-linux-gnu --root /usr/local rperf && \
+# Install rperf directly from crates.io with cache mounts
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    cargo install --target x86_64-unknown-linux-gnu --root /usr/local rperf && \
     cp /usr/local/bin/rperf /usr/local/bin/serviceradar-${COMPONENT}
 
 # Set up RPM build environment

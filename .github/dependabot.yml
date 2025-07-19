@@ -1,6 +1,12 @@
 ---
 version: 2
 updates:
+  - package-ecosystem: "cargo"
+    open-pull-requests-limit: 10  # avoid spam, if no one reacts
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
   - package-ecosystem: "gomod"
     open-pull-requests-limit: 10  # avoid spam, if no one reacts
     directory: "/"

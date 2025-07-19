@@ -45,6 +45,8 @@
             go-version: '1.24'
         - name: Set up Docker Buildx
           uses: docker/setup-buildx-action@v3
+          with:
+            driver-opts: env.BUILDKIT_STEP_LOG_MAX_SIZE=50000000
         - name: Log in to GHCR
           uses: docker/login-action@v3
           with:
@@ -69,6 +71,8 @@
             # Pre-pull any required base images to ensure authentication works
             docker pull ghcr.io/carverauto/custom-rust-zfs:latest || echo "Failed to pull custom-rust-zfs, will try during build"
         - name: Build DEB packages
+          env:
+            DOCKER_BUILDKIT: 1
           run: |
             # Build all DEB packages using the unified script
             ./scripts/setup-package.sh --type=deb --all
@@ -102,6 +106,8 @@
             node-version: '20'
         - name: Set up Docker Buildx
           uses: docker/setup-buildx-action@v3
+          with:
+            driver-opts: env.BUILDKIT_STEP_LOG_MAX_SIZE=50000000
         - name: Log in to GHCR
           uses: docker/login-action@v3
           with:
@@ -130,6 +136,8 @@
             docker pull ghcr.io/carverauto/custom-rust-zfs:latest || echo "Failed to pull custom-rust-zfs, will try during build"
             docker pull ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest || echo "Failed to pull rockylinux9-rust-rpm-base, will try during build"
         - name: Build all RPM packages
+          env:
+            DOCKER_BUILDKIT: 1
           run: |
             # Build all RPM packages using the unified script
             ./scripts/setup-package.sh --type=rpm --all

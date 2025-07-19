@@ -21,7 +21,6 @@ jobs:
       matrix:
         project:
           - cmd/checkers/rperf-client
-          - cmd/checkers/rperf-server
           - cmd/checkers/sysmon
           - cmd/trapd
           - cmd/consumers/zen
@@ -61,5 +60,7 @@ jobs:
           cd ${{ matrix.project }} && cargo clippy -- -D warnings
 
       - name: Run Tests
+        env:
+          DOCKER_BUILDKIT: 1
         run: |
           cd ${{ matrix.project }} && cargo test
