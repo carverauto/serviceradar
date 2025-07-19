@@ -9,7 +9,7 @@ ARG BINARY_PATH=cmd/trapd
 # Set working directory
 WORKDIR /src/${BINARY_PATH}
 
-RUN rustup update nightly && rustup default nightly
+RUN rustup update stable && rustup default stable
 
 # Print debug information
 RUN echo "BINARY_PATH=${BINARY_PATH}" && \
