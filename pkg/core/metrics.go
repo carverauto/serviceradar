@@ -616,8 +616,23 @@ func (s *Server) processMetrics(
 
 			return nil
 		default:
-			log.Printf("Unknown GRPC service type %s on poller %s", svc.ServiceType, pollerID)
+			log.Printf("Unknown GRPC service name %s on poller %s", svc.ServiceName, pollerID)
 		}
+	case syncServiceType:
+		// Attempt to unmarshal as a slice of DeviceUpdate, which is what the sync service returns
+		// Note: serviceData is already unwrapped from ServiceMetricsPayload by extractServicePayload
+		var deviceUpdates []*models.DeviceUpdate
+
+		if err := json.Unmarshal(serviceData, &deviceUpdates); err == nil && len(deviceUpdates) > 0 {
+			// Successfully parsed as device updates. Process them.
+			log.Printf("Processing %d sync device updates for poller %s", len(deviceUpdates), contextPollerID)
+			return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+		}
+
+		// If it fails to unmarshal or is empty, it's likely a health check payload from GetStatus
+		log.Printf("Skipping sync service payload for poller %s (likely a health check)", contextPollerID)
+
+		return nil
 	case icmpServiceType:
 		return s.processICMPMetrics(contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
