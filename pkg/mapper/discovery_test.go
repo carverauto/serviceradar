@@ -464,11 +464,19 @@ func TestEnsureDeviceID(t *testing.T) {
 
 	discoveryEngine := engine.(*DiscoveryEngine)
 
+	// Create a mock job for testing
+	job := &DiscoveryJob{
+		Params: &DiscoveryParams{
+			AgentID:  "test-agent",
+			PollerID: "test-poller",
+		},
+	}
+
 	// Test with empty DeviceID
 	device := &DiscoveredDevice{
 		IP: "192.168.1.1",
 	}
-	discoveryEngine.ensureDeviceID(device)
+	discoveryEngine.ensureDeviceID(device, job)
 	assert.NotEmpty(t, device.DeviceID)
 
 	// Test with existing DeviceID
@@ -476,7 +484,7 @@ func TestEnsureDeviceID(t *testing.T) {
 		IP:       "192.168.1.1",
 		DeviceID: "existing-id",
 	}
-	discoveryEngine.ensureDeviceID(device)
+	discoveryEngine.ensureDeviceID(device, job)
 	assert.Equal(t, "existing-id", device.DeviceID) // DeviceID should not change
 }
 

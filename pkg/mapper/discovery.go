@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -641,7 +642,7 @@ func (e *DiscoveryEngine) startWorkers(
 						log.Printf("Job %s: Host %s ping failed: %v", job.ID, target, pingErr)
 						// Send result for failed ping
 						select {
-						case resultChan <- success:
+						case resultChan <- false:
 						default:
 						}
 
@@ -1022,11 +1023,13 @@ const (
 
 // addOrUpdateDeviceToResults adds or updates a device in the job's results.
 func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevice *DiscoveredDevice) {
-	e.ensureDeviceID(newDevice)
+	e.ensureDeviceID(newDevice, job)
 
 	// Look for an existing device to merge with
 	for i, existingDevice := range job.Results.Devices {
 		if e.isDeviceMatch(existingDevice, newDevice) {
+			log.Printf("Job %s: Found matching device - existing: %s (ID: %s), new: %s (ID: %s)",
+				job.ID, existingDevice.Hostname, existingDevice.DeviceID, newDevice.Hostname, newDevice.DeviceID)
 			e.updateExistingDevice(job, i, newDevice)
 
 			if existingDevice.IP != newDevice.IP {
@@ -1060,36 +1063,48 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 		}
 	}
 
-	log.Printf("Job %s: Adding new device %s (IP: %s, MAC: %s, DeviceID: %s, source: %s)",
+	log.Printf("Job %s: Adding new device %s (IP: %s, MAC: %s, DeviceID: %s, source: %s) - no existing device matched",
 		job.ID, newDevice.Hostname, newDevice.IP, newDevice.MAC, newDevice.DeviceID, newDevice.Metadata["source"])
 
 	e.addNewDevice(job, newDevice)
 }
 
 // ensureDeviceID ensures the DeviceID is populated if possible
-func (*DiscoveryEngine) ensureDeviceID(device *DiscoveredDevice) {
-	if device.DeviceID == "" && device.MAC != "" {
-		device.DeviceID = GenerateDeviceID(device.MAC)
-	} else if device.DeviceID == "" {
-		device.DeviceID = GenerateDeviceIDFromIP(device.IP)
+func (e *DiscoveryEngine) ensureDeviceID(device *DiscoveredDevice, job *DiscoveryJob) {
+	if device.DeviceID == "" {
+		device.DeviceID = GenerateDeviceIDWithPartition(job.Params.AgentID, job.Params.PollerID, device.IP)
 	}
 }
 
 func (*DiscoveryEngine) isDeviceMatch(existingDevice, newDevice *DiscoveredDevice) bool {
-	// First check by DeviceID if both have it
+	// Only match by DeviceID which includes partition information
+	// This prevents issues with overlapping IP spaces
 	if newDevice.DeviceID != "" && existingDevice.DeviceID != "" && newDevice.DeviceID == existingDevice.DeviceID {
 		return true
 	}
 
-	// Temporarily disable MAC-based matching until we build the interface-to-device map
+	// Don't match by IP alone due to potential overlapping IP spaces
+	// DeviceID format is "partition:ip_address" or MAC-based
 	return false
 }
 
 // updateExistingDevice updates an existing device with information from a new device
 func (e *DiscoveryEngine) updateExistingDevice(job *DiscoveryJob, index int, newDevice *DiscoveredDevice) {
 	// Update non-empty fields
+	// For hostname, only update if the existing one is empty or looks like a generic name
 	if newDevice.Hostname != "" {
-		job.Results.Devices[index].Hostname = newDevice.Hostname
+		existingHostname := job.Results.Devices[index].Hostname
+		// Don't overwrite specific device names (like "Nano HD", "U6 LR") with generic controller names
+		if existingHostname == "" || existingHostname == job.Results.Devices[index].IP {
+			job.Results.Devices[index].Hostname = newDevice.Hostname
+		} else if newDevice.Metadata["source"] == "snmp" && strings.Contains(existingHostname, " ") {
+			// If existing hostname has spaces (like "Nano HD"), it's probably a proper device name from UniFi
+			// Don't overwrite it with SNMP sysName
+			log.Printf("Job %s: Preserving hostname '%s' instead of SNMP sysName '%s' for device %s",
+				job.ID, existingHostname, newDevice.Hostname, job.Results.Devices[index].IP)
+		} else {
+			job.Results.Devices[index].Hostname = newDevice.Hostname
+		}
 	}
 
 	if newDevice.MAC != "" {
@@ -1220,25 +1235,18 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 	devicesFound := 0
 	interfacesFound := 0
 
-	for _, seedIP := range initialSeeds {
-		if seedIP == "" {
-			continue
-		}
-
-		if e.checkPhaseJobCancellation(job, seedIP, "UniFi discovery") {
+	// Phase 1: Query ALL controllers for ALL devices (once, not per seed)
+	if len(e.config.UniFiAPIs) > 0 {
+		if e.checkPhaseJobCancellation(job, "", "UniFi discovery") {
 			return nil
 		}
 
-		if len(e.config.UniFiAPIs) > 0 {
-			devices, interfaces, err := e.queryUniFiDevices(ctx, job, seedIP)
-			if err != nil {
-				log.Printf("Job %s: UniFi discovery for seed %s failed: %v", job.ID, seedIP, err)
-
-				continue
-			}
-
-			devicesFound += len(devices)
-			interfacesFound += len(interfaces)
+		devices, interfaces, err := e.queryUniFiDevicesForPhaseOne(ctx, job, fmt.Sprintf("seeds=%v", initialSeeds))
+		if err != nil {
+			log.Printf("Job %s: UniFi discovery failed: %v", job.ID, err)
+		} else {
+			devicesFound = len(devices)
+			interfacesFound = len(interfaces)
 
 			job.mu.Lock()
 			e.processDevicesForSNMPTargets(job, devices, allPotentialSNMPTargets, seenMACs)
@@ -1283,8 +1291,8 @@ func (e *DiscoveryEngine) processDevicesForSNMPTargets(
 					seenMACs[normalizedMAC] = device.IP
 					allPotentialSNMPTargets[device.IP] = true
 
-					log.Printf("Job %s: Adding device %s (MAC: %s) with IP %s to SNMP targets",
-						job.ID, device.Hostname, device.MAC, device.IP)
+					log.Printf("Job %s: Adding UniFi device %s (MAC: %s) with IP %s to SNMP targets from controller %s",
+						job.ID, device.Hostname, device.MAC, device.IP, device.Metadata["controller_name"])
 				} else {
 					log.Printf("Job %s: Device %s (MAC: %s) already in SNMP targets with IP %s, skipping IP %s",
 						job.ID, device.Hostname, device.MAC, primaryIP, device.IP)

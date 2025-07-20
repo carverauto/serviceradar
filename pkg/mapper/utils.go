@@ -333,11 +333,9 @@ func expandCIDR(cidr string, seen map[string]bool) []string {
 }
 
 func GenerateDeviceID(mac string) string {
-	if mac == "" {
-		return ""
-	}
-
-	return mac // Use raw MAC as DeviceID, no normalization for now
+	// Deprecated - MAC should not be used for DeviceID
+	// This function is kept for backward compatibility
+	return ""
 }
 
 func GenerateDeviceIDFromIP(ip string) string {
@@ -345,7 +343,21 @@ func GenerateDeviceIDFromIP(ip string) string {
 		return ""
 	}
 
-	return "ip-" + ip // Fallback for devices without MAC
+	return "ip-" + ip
+}
+
+func GenerateDeviceIDWithPartition(agentID, pollerID, ip string) string {
+	if ip == "" {
+		return ""
+	}
+	
+	if agentID != "" && pollerID != "" {
+		// Format: agentID:pollerID:ip
+		return fmt.Sprintf("%s:%s:%s", agentID, pollerID, ip)
+	}
+	
+	// Fallback to simple IP-based ID
+	return GenerateDeviceIDFromIP(ip)
 }
 
 // NormalizeMAC normalizes a MAC address for consistent formatting

@@ -45,8 +45,8 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 
 	for i, result := range results {
 		log.Printf("DEBUG [database]: Storing SweepResult %d: IP: %s, DeviceID: %s, "+
-			"DiscoverySource: %s, Partition: %s",
-			i+1, result.IP, result.DeviceID, result.DiscoverySource, result.Partition)
+			"DiscoverySource: %s, Partition: %s, Hostname: %v",
+			i+1, result.IP, result.DeviceID, result.DiscoverySource, result.Partition, *result.Hostname)
 
 		// Validate required fields
 		if result.IP == "" {

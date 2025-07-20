@@ -220,7 +220,19 @@ func (e *DiscoveryEngine) processSNMPVariable(device *DiscoveredDevice, v gosnmp
 	case oidSysContact:
 		e.setStringValue(&device.SysContact, v)
 	case oidSysName:
-		e.setStringValue(&device.Hostname, v)
+		// Only set hostname from SNMP if it's not already set from another source
+		var snmpSysName string
+		if v.Type == gosnmp.OctetString {
+			snmpSysName = string(v.Value.([]byte))
+		}
+		
+		if device.Hostname == "" {
+			e.setStringValue(&device.Hostname, v)
+			log.Printf("SNMP: Setting hostname to sysName '%s' for device %s (was empty)", snmpSysName, device.IP)
+		} else {
+			log.Printf("SNMP: Preserving existing hostname '%s' instead of sysName '%s' for device %s", 
+				device.Hostname, snmpSysName, device.IP)
+		}
 	case oidSysLocation:
 		e.setStringValue(&device.SysLocation, v)
 	}
@@ -279,13 +291,10 @@ func (*DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID strin
 	return mac
 }
 
-// generateDeviceID generates a device ID based on MAC or IP
-func (*DiscoveryEngine) generateDeviceID(device *DiscoveredDevice, target string) {
-	if device.MAC != "" && device.DeviceID == "" {
-		device.DeviceID = GenerateDeviceID(device.MAC)
-	} else if device.DeviceID == "" {
-		// Fallback to IP-based DeviceID as a last resort
-		device.DeviceID = GenerateDeviceIDFromIP(target)
+// generateDeviceID generates a device ID based on partition and IP
+func (e *DiscoveryEngine) generateDeviceID(device *DiscoveredDevice, target string, job *DiscoveryJob) {
+	if device.DeviceID == "" {
+		device.DeviceID = GenerateDeviceIDWithPartition(job.Params.AgentID, job.Params.PollerID, target)
 	}
 }
 
@@ -329,7 +338,7 @@ func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target string, job
 	}
 
 	// Generate device ID
-	e.generateDeviceID(device, target)
+	e.generateDeviceID(device, target, job)
 
 	return device, nil
 }

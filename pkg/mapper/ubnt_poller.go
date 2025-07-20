@@ -31,6 +31,41 @@ import (
 	"github.com/gosnmp/gosnmp"
 )
 
+// checkIfControllerManagesDevice checks if the controller actually manages/knows about the specified device
+func (e *DiscoveryEngine) checkIfControllerManagesDevice(
+	ctx context.Context,
+	job *DiscoveryJob,
+	targetIP string,
+	apiConfig UniFiAPIConfig) (bool, *UniFiDevice, *UniFiSite, error) {
+	
+	sites, err := e.fetchUniFiSites(ctx, job, apiConfig)
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("failed to fetch sites for %s: %w", apiConfig.Name, err)
+	}
+
+	for _, site := range sites {
+		unifiDevices, err := e.fetchUniFiDevices(ctx, job, apiConfig, site)
+		if err != nil {
+			log.Printf("Job %s: Failed to fetch devices from %s, site %s: %v", 
+				job.ID, apiConfig.Name, site.Name, err)
+			continue
+		}
+
+		// Look for the specific target device
+		for i := range unifiDevices {
+			device := unifiDevices[i]
+			if device.IPAddress == targetIP {
+				log.Printf("Job %s: Controller %s manages device %s (name: %s) in site %s", 
+					job.ID, apiConfig.Name, targetIP, device.Name, site.Name)
+				return true, device, &site, nil
+			}
+		}
+	}
+
+	log.Printf("Job %s: Controller %s does not manage device %s", job.ID, apiConfig.Name, targetIP)
+	return false, nil, nil, nil
+}
+
 // UniFiSite represents a site from the UniFi API
 type UniFiSite struct {
 	ID                string `json:"id"`
@@ -177,6 +212,20 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 	for _, apiConfig := range e.config.UniFiAPIs {
 		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
 			log.Printf("Job %s: Skipping incomplete UniFi API config: %s", job.ID, apiConfig.Name)
+			continue
+		}
+
+		// Check if this controller actually manages the target device for topology discovery
+		manages, _, _, err := e.checkIfControllerManagesDevice(ctx, job, targetIP, apiConfig)
+		if err != nil {
+			log.Printf("Job %s: Error checking if controller %s manages device %s: %v", 
+				job.ID, apiConfig.Name, targetIP, err)
+			continue
+		}
+		
+		if !manages {
+			log.Printf("Job %s: Skipping controller %s for topology - does not manage device %s", 
+				job.ID, apiConfig.Name, targetIP)
 			continue
 		}
 
@@ -491,12 +540,8 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 			continue
 		}
 
-		// generate DeviceID using IP+MAC
-		// deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
-		deviceID := ""
-		if device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
-			deviceID = GenerateDeviceID(device.MAC)
-		}
+		// Generate DeviceID using partition and IP
+		deviceID := GenerateDeviceIDWithPartition(job.Params.AgentID, job.Params.PollerID, device.IPAddress)
 
 		// Fetch device details
 		details, err := e.fetchDeviceDetails(ctx, job, client, headers, apiConfig, site, device.ID)
@@ -521,17 +566,17 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 	return links, nil
 }
 
-func (e *DiscoveryEngine) queryUniFiDevices(
+// queryUniFiDevicesForPhaseOne queries ALL devices from ALL controllers during Phase 1 discovery
+// This allows discovery of entire networks even when seed IPs aren't directly managed by controllers
+func (e *DiscoveryEngine) queryUniFiDevicesForPhaseOne(
 	ctx context.Context,
 	job *DiscoveryJob,
-	targetIP string,
+	contextualSeedIP string,
 ) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
-	log.Printf("Job %s: Querying UniFi devices for %s", job.ID, targetIP)
+	log.Printf("Job %s: Phase 1 - Querying ALL UniFi devices from ALL controllers (context: %s)", job.ID, contextualSeedIP)
 
 	var allDevices []*DiscoveredDevice
-
 	var allInterfaces []*DiscoveredInterface
-
 	seenMACs := make(map[string]string) // MAC -> primary IP
 	errorsEncountered := 0
 
@@ -541,48 +586,119 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 			continue
 		}
 
-		sites, err := e.fetchUniFiSites(job.ctx, job, apiConfig)
+		// Phase 1: Get ALL sites and ALL devices from this controller
+		sites, err := e.fetchUniFiSites(ctx, job, apiConfig)
 		if err != nil {
 			log.Printf("Job %s: Failed to fetch sites for %s: %v", job.ID, apiConfig.Name, err)
-
 			errorsEncountered++
-
 			continue
 		}
 
 		for _, site := range sites {
-			devices, interfaces, err := e.querySingleUniFiDevices(ctx, job, targetIP, apiConfig, site)
+			devices, interfaces, err := e.querySingleUniFiDevices(ctx, job, contextualSeedIP, apiConfig, site)
 			if err != nil {
-				log.Printf("Job %s: Failed to query UniFi devices from %s, site %s: %v",
+				log.Printf("Job %s: Failed to query devices from %s, site %s: %v",
 					job.ID, apiConfig.Name, site.Name, err)
-
-				errorsEncountered++
-
 				continue
 			}
 
+			// Process all devices from this site
 			for _, device := range devices {
-				if device.IP == "" {
+				if device.MAC == "" {
+					allDevices = append(allDevices, device)
+					log.Printf("Job %s: Found device %s (%s) from controller %s (no MAC)",
+						job.ID, device.Hostname, device.IP, apiConfig.Name)
 					continue
 				}
 
+				normalizedMAC := NormalizeMAC(device.MAC)
+				if primaryIP, seen := seenMACs[normalizedMAC]; seen {
+					log.Printf("Job %s: Device with MAC %s already seen with IP %s, skipping IP %s",
+						job.ID, device.MAC, primaryIP, device.IP)
+					device.Metadata = addAlternateIP(device.Metadata, device.IP)
+				} else {
+					seenMACs[normalizedMAC] = device.IP
+					allDevices = append(allDevices, device)
+					log.Printf("Job %s: Found device %s (%s) from controller %s",
+						job.ID, device.Hostname, device.IP, apiConfig.Name)
+				}
+			}
+
+			// Add all interfaces
+			allInterfaces = append(allInterfaces, interfaces...)
+		}
+	}
+
+	if len(allDevices) == 0 {
+		if errorsEncountered == len(e.config.UniFiAPIs) {
+			return nil, nil, fmt.Errorf("no UniFi devices found; all %d API attempts failed", errorsEncountered)
+		}
+
+		log.Printf("Job %s: No UniFi devices found during Phase 1, but some APIs succeeded", job.ID)
+	}
+
+	log.Printf("Job %s: Phase 1 completed - found %d devices, %d interfaces from %d controllers",
+		job.ID, len(allDevices), len(allInterfaces), len(e.config.UniFiAPIs))
+
+	return allDevices, allInterfaces, nil
+}
+
+// queryUniFiDevices is the original method - now used for Phase 2 SNMP filtering
+// This method applies controller management filtering for specific target devices
+func (e *DiscoveryEngine) queryUniFiDevices(
+	ctx context.Context,
+	job *DiscoveryJob,
+	targetIP string,
+) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
+	log.Printf("Job %s: Phase 2 - Querying UniFi devices for specific target %s", job.ID, targetIP)
+
+	var allDevices []*DiscoveredDevice
+	var allInterfaces []*DiscoveredInterface
+	seenMACs := make(map[string]string) // MAC -> primary IP
+	errorsEncountered := 0
+
+	for _, apiConfig := range e.config.UniFiAPIs {
+		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
+			log.Printf("Job %s: Skipping incomplete UniFi API config: %s", job.ID, apiConfig.Name)
+			continue
+		}
+
+		// Phase 2: Check if this controller actually manages the target device
+		manages, managedDevice, managedSite, err := e.checkIfControllerManagesDevice(ctx, job, targetIP, apiConfig)
+		if err != nil {
+			log.Printf("Job %s: Error checking if controller %s manages device %s: %v", 
+				job.ID, apiConfig.Name, targetIP, err)
+			errorsEncountered++
+			continue
+		}
+		
+		if !manages {
+			log.Printf("Job %s: Skipping controller %s - does not manage device %s", 
+				job.ID, apiConfig.Name, targetIP)
+			continue
+		}
+
+		// Create the discovered device directly from the managed device we already found
+		if managedDevice != nil && managedSite != nil {
+			device := e.createDiscoveredDevice(job, managedDevice, apiConfig, *managedSite)
+			if device != nil && device.IP == targetIP {
 				if primaryIP, seen := seenMACs[device.MAC]; seen {
 					log.Printf("Job %s: Device with MAC %s already seen with IP %s, skipping IP %s",
 						job.ID, device.MAC, primaryIP, device.IP)
 
 					device.Metadata = addAlternateIP(device.Metadata, device.IP)
+				} else {
+					seenMACs[device.MAC] = device.IP
+					allDevices = append(allDevices, device)
 
-					continue
+					// Also get interfaces for this specific device
+					interfaces := e.processDeviceInterfaces(job, managedDevice, device.DeviceID, apiConfig, *managedSite)
+					allInterfaces = append(allInterfaces, interfaces...)
+
+					log.Printf("Job %s: Found managed device %s (%s) from controller %s",
+						job.ID, device.Hostname, device.IP, apiConfig.Name)
 				}
-
-				seenMACs[device.MAC] = device.IP
-				allDevices = append(allDevices, device)
 			}
-
-			allInterfaces = append(allInterfaces, interfaces...)
-
-			log.Printf("Job %s: Fetched %d devices and %d interfaces from %s, site %s",
-				job.ID, len(devices), len(interfaces), apiConfig.Name, site.Name)
 		}
 	}
 
@@ -666,13 +782,10 @@ func (*DiscoveryEngine) createDiscoveredDevice(
 		return nil
 	}
 
-	// Generate standardized device ID
-	deviceID := ""
-	if device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
-		deviceID = GenerateDeviceID(device.MAC)
-	}
+	// Generate standardized device ID using partition and IP
+	deviceID := GenerateDeviceIDWithPartition(job.Params.AgentID, job.Params.PollerID, device.IPAddress)
 
-	return &DiscoveredDevice{
+	discoveredDevice := &DiscoveredDevice{
 		DeviceID: deviceID,
 		IP:       device.IPAddress,
 		MAC:      device.MAC,
@@ -687,6 +800,11 @@ func (*DiscoveryEngine) createDiscoveredDevice(
 			"unifi_device_id": device.ID, // Store the UniFi internal device ID
 		},
 	}
+	
+	log.Printf("UniFi: Created device with hostname '%s' for IP %s from controller %s", 
+		device.Name, device.IPAddress, apiConfig.Name)
+		
+	return discoveredDevice
 }
 
 func (e *DiscoveryEngine) processDeviceInterfaces(
@@ -740,8 +858,8 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 	site UniFiSite) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(switchInterfaces.Ports))
 	// Ensure we have a proper device ID
-	if deviceID == "" && device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
-		deviceID = GenerateDeviceID(device.MAC)
+	if deviceID == "" {
+		deviceID = GenerateDeviceIDWithPartition(job.Params.AgentID, job.Params.PollerID, device.IPAddress)
 	}
 
 	for i := range switchInterfaces.Ports {
