@@ -21,12 +21,36 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+// Helper functions for debugging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func truncateValue(v interface{}, maxLen int) interface{} {
+	if s, ok := v.(string); ok && len(s) > maxLen {
+		return s[:maxLen] + "..."
+	}
+	return v
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 // createSNMPMetric creates a new timeseries metric from SNMP data
 func createSNMPMetric(
@@ -575,7 +599,7 @@ func (s *Server) processMetrics(
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
-	log.Println("processMetrics - ServiceName: ", svc.ServiceName)
+	log.Printf("processMetrics - ServiceName: %s, ServiceType: %s, DataSize: %d bytes", svc.ServiceName, svc.ServiceType, len(details))
 
 	// Extract enhanced payload if present, or use original data
 	enhancedPayload, serviceData := s.extractServicePayload(details)
@@ -605,41 +629,201 @@ func (s *Server) processMetrics(
 			// Note: serviceData is already unwrapped from ServiceMetricsPayload by extractServicePayload
 			var deviceUpdates []*models.DeviceUpdate
 
-			if err := json.Unmarshal(serviceData, &deviceUpdates); err == nil && len(deviceUpdates) > 0 {
-				// Successfully parsed as device updates. Process them.
-				log.Printf("Processing %d sync device updates for poller %s", len(deviceUpdates), contextPollerID)
-				return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+			log.Printf("CORE DEBUG: Processing sync service data for poller %s, data size: %d bytes", contextPollerID, len(serviceData))
+			dataToShow := serviceData
+			/*
+				if len(serviceData) > 500 {
+					dataToShow = serviceData[:500]
+				}
+			*/
+
+			log.Printf("CORE DEBUG: Raw serviceData (first 500 chars): %s", string(dataToShow))
+
+			if err := json.Unmarshal(serviceData, &deviceUpdates); err != nil {
+				log.Printf("CORE DEBUG: Failed to unmarshal sync data as DeviceUpdate array for poller %s: %v", contextPollerID, err)
+				log.Printf("CORE DEBUG: Skipping sync service payload for poller %s (unmarshal failed)", contextPollerID)
+				return nil
 			}
 
-			// If it fails to unmarshal or is empty, it's likely a health check payload from GetStatus
-			log.Printf("Skipping sync service payload for poller %s (likely a health check)", contextPollerID)
+			if len(deviceUpdates) == 0 {
+				log.Printf("CORE DEBUG: Successfully unmarshaled but got 0 device updates for poller %s", contextPollerID)
+				log.Printf("CORE DEBUG: Skipping sync service payload for poller %s (empty array)", contextPollerID)
+				return nil
+			}
 
-			return nil
-		default:
-			log.Printf("Unknown GRPC service name %s on poller %s", svc.ServiceName, pollerID)
-		}
-	case syncServiceType:
-		// Attempt to unmarshal as a slice of DeviceUpdate, which is what the sync service returns
-		// Note: serviceData is already unwrapped from ServiceMetricsPayload by extractServicePayload
-		var deviceUpdates []*models.DeviceUpdate
+			log.Printf("CORE DEBUG: Successfully unmarshaled %d device updates for poller %s", len(deviceUpdates), contextPollerID)
 
-		if err := json.Unmarshal(serviceData, &deviceUpdates); err == nil && len(deviceUpdates) > 0 {
+			// Count by source
+			sourceCounts := make(map[string]int)
+			for _, update := range deviceUpdates {
+				sourceCounts[string(update.Source)]++
+			}
+			log.Printf("CORE DEBUG: Device breakdown by source: %+v", sourceCounts)
+
+			// Log samples from each source
+			samplesLogged := make(map[string]int)
+			for i, update := range deviceUpdates {
+				if samplesLogged[string(update.Source)] < 2 {
+					log.Printf("CORE DEBUG: %s DeviceUpdate[%d]: Source=%s, IP=%s, DeviceID=%s, IsAvailable=%v, Metadata=%+v",
+						update.Source, i, update.Source, update.IP, update.DeviceID, update.IsAvailable, update.Metadata)
+					samplesLogged[string(update.Source)]++
+				}
+			}
+
 			// Successfully parsed as device updates. Process them.
 			log.Printf("Processing %d sync device updates for poller %s", len(deviceUpdates), contextPollerID)
 			return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+		default:
+			log.Printf("Unknown GRPC service name %s on poller %s", svc.ServiceName, pollerID)
 		}
-
-		// If it fails to unmarshal or is empty, it's likely a health check payload from GetStatus
-		log.Printf("Skipping sync service payload for poller %s (likely a health check)", contextPollerID)
-
-		return nil
 	case icmpServiceType:
 		return s.processICMPMetrics(contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
 		return s.discoveryService.ProcessSNMPDiscoveryResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 	case sweepService:
-		log.Print("no-op for sweep service, handled in separate flow")
+		log.Printf("Processing sweep service data for poller %s, data size: %d bytes", contextPollerID, len(serviceData))
+		
+		// Sweep service data should contain sweep results
+		// First show a sample of the data to understand the structure
+		dataToShow := serviceData
+		if len(serviceData) > 500 {
+			dataToShow = serviceData[:500]
+		}
+		log.Printf("DEBUG: Sweep service raw data (first 500 chars): %s", string(dataToShow))
+		
+		// Try to process as sweep results - sweep data has different format than sync data
+		// Parse the sweep data structure first to understand its format
+		var sweepData map[string]interface{}
+		if err := json.Unmarshal(serviceData, &sweepData); err != nil {
+			log.Printf("DEBUG: Failed to unmarshal sweep data as JSON: %v", err)
+			return nil
+		}
+		
+		log.Printf("DEBUG: Sweep data structure keys: %v", getMapKeys(sweepData))
+		
+		// Try to extract hosts array first (newer format)
+		hosts, hasHostsArray := sweepData["hosts"].([]interface{})
+		if hasHostsArray {
+			log.Printf("Processing sweep data with %d hosts (array format) for poller %s", len(hosts), contextPollerID)
+		} else {
+			// Check if this is network format with comma-separated IPs
+			networkStr, hasNetwork := sweepData["network"].(string)
+			if hasNetwork && networkStr != "" {
+				log.Printf("DEBUG: Processing sweep data with network format for poller %s: %s", contextPollerID, networkStr[:min(100, len(networkStr))])
+				// For now, log this format but don't process - need to understand the structure better
+				log.Printf("DEBUG: Full sweep data keys and sample values:")
+				for k, v := range sweepData {
+					log.Printf("DEBUG: %s: %v (%T)", k, truncateValue(v, 100), v)
+				}
+				return nil
+			} else {
+				log.Printf("DEBUG: Sweep data missing both 'hosts' array and 'network' field")
+				return nil
+			}
+		}
+		
+		if !hasHostsArray {
+			return nil
+		}
+		
+		// Convert sweep hosts to device updates format
+		var deviceUpdates []*models.DeviceUpdate
+		for _, hostInterface := range hosts {
+			host, ok := hostInterface.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			
+			hostIP, ok := host["host"].(string)
+			if !ok || hostIP == "" {
+				continue
+			}
+			
+			available, _ := host["available"].(bool)
+			
+			deviceUpdate := &models.DeviceUpdate{
+				DeviceID:    fmt.Sprintf("%s:%s", contextPartition, hostIP),
+				IP:          hostIP,
+				Source:      models.DiscoverySourceSweep,
+				AgentID:     svc.AgentId,
+				PollerID:    contextPollerID,
+				Partition:   contextPartition,
+				Timestamp:   now,
+				IsAvailable: available,
+				Confidence:  models.GetSourceConfidence(models.DiscoverySourceSweep),
+			}
+			
+			deviceUpdates = append(deviceUpdates, deviceUpdate)
+		}
+		
+		log.Printf("Converted %d sweep hosts to device updates for poller %s", len(deviceUpdates), contextPollerID)
+		
+		// Convert device updates to JSON and process through sync results pipeline
+		if len(deviceUpdates) > 0 {
+			sweepJSON, err := json.Marshal(deviceUpdates)
+			if err != nil {
+				log.Printf("DEBUG: Failed to marshal sweep device updates: %v", err)
+				return nil
+			}
+			
+			return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, sweepJSON, now)
+		}
+		
+		return nil
+	case syncServiceType:
+		// For GetResults calls (status), try to detect if this is a status payload vs device data
+		// Status payloads typically have "devices", "status", "timestamp" fields
+		var statusCheck map[string]interface{}
+		if err := json.Unmarshal(serviceData, &statusCheck); err == nil {
+			if _, hasDevices := statusCheck["devices"]; hasDevices {
+				if _, hasStatus := statusCheck["status"]; hasStatus {
+					// This is a status payload from GetResults, skip it
+					log.Printf("DEBUG: Skipping status payload for sync service from poller %s", contextPollerID)
+					return nil
+				}
+			}
+		}
 
+		// Try to unmarshal as device updates (from StreamResults)
+		// Handle case where multiple JSON arrays are concatenated (from chunked streaming)
+		var allDeviceUpdates []*models.DeviceUpdate
+		
+		// First try to parse as a single JSON array
+		err := json.Unmarshal(serviceData, &allDeviceUpdates)
+		if err != nil {
+			// If that fails, try to parse as multiple concatenated JSON arrays
+			log.Printf("DEBUG: Single array parse failed, trying multiple arrays: %v", err)
+			
+			decoder := json.NewDecoder(strings.NewReader(string(serviceData)))
+			for decoder.More() {
+				var chunkDevices []*models.DeviceUpdate
+				if err := decoder.Decode(&chunkDevices); err != nil {
+					log.Printf("DEBUG: Failed to decode chunk in sync service data: %v", err)
+					return nil
+				}
+				allDeviceUpdates = append(allDeviceUpdates, chunkDevices...)
+			}
+		}
+		
+		deviceUpdates := allDeviceUpdates
+		
+		if len(deviceUpdates) > 0 {
+			// Count by source
+			sourceCounts := make(map[string]int)
+			for _, update := range deviceUpdates {
+				sourceCounts[string(update.Source)]++
+			}
+			log.Printf("Processing %d sync device updates for poller %s (sources: %v)", len(deviceUpdates), contextPollerID, sourceCounts)
+			return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+		}
+
+		// If unmarshal failed or empty, log for debugging
+		dataToShow := serviceData
+		if len(serviceData) > 500 {
+			dataToShow = serviceData[:500]
+		}
+		log.Printf("DEBUG: Failed to unmarshal as device updates for poller %s", contextPollerID)
+		log.Printf("DEBUG: Raw serviceData (first 500 chars): %s", string(dataToShow))
 		return nil
 	default:
 		log.Printf("Unknown service type %s on poller %s", svc.ServiceType, pollerID)

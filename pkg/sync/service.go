@@ -180,7 +180,9 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 
 // runDiscovery executes discovery for all integrations and immediately writes to KV
 func (s *SimpleSyncService) runDiscovery(ctx context.Context) {
-	s.logger.Info().Msg("Starting discovery cycle")
+	s.logger.Info().
+		Time("started_at", time.Now()).
+		Msg("Starting discovery cycle")
 	s.markSweepStarted()
 
 	allDeviceUpdates := make(map[string][]*models.DeviceUpdate)
@@ -207,6 +209,20 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) {
 			Int("devices_discovered", len(devices)).
 			Int("kv_entries_written", len(kvData)).
 			Msg("Discovery completed for source")
+	}
+
+	// iterate through allDeviceUpdates and print the device names
+	for sourceName, devices := range allDeviceUpdates {
+		s.logger.Info().
+			Str("source", sourceName).
+			Int("device_count", len(devices)).
+			Msg("Devices discovered in source")
+		for _, device := range devices {
+			s.logger.Info().
+				Str("source", sourceName).
+				Str("device_name", device.IP).
+				Msg("Discovered device")
+		}
 	}
 
 	// Store results for GetResults calls
@@ -376,14 +392,45 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 
 	var allDeviceUpdates []*models.DeviceUpdate
 
-	for _, devices := range s.resultsStore.results {
+	logger.Info().
+		Int("total_sources", len(s.resultsStore.results)).
+		Msg("SYNC DEBUG: GetResults called")
+
+	for sourceName, devices := range s.resultsStore.results {
+		logger.Info().
+			Str("source_name", sourceName).
+			Int("device_count", len(devices)).
+			Msg("SYNC DEBUG: Source devices")
+
+		if len(devices) > 0 {
+			if jsonBytes, err := json.Marshal(devices[0]); err == nil {
+				logger.Debug().
+					Str("source_name", sourceName).
+					Str("sample_device", string(jsonBytes)).
+					Msg("SYNC DEBUG: Sample device JSON")
+			}
+		}
+
 		allDeviceUpdates = append(allDeviceUpdates, devices...)
 	}
 
+	logger.Info().
+		Int("total_device_updates", len(allDeviceUpdates)).
+		Msg("SYNC DEBUG: About to marshal DeviceUpdate array")
+
 	resultsJSON, err := json.Marshal(allDeviceUpdates)
 	if err != nil {
+		logger.Error().
+			Err(err).
+			Int("device_count", len(allDeviceUpdates)).
+			Msg("SYNC DEBUG: Failed to marshal DeviceUpdate array")
 		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
 	}
+
+	logger.Info().
+		Int("json_bytes", len(resultsJSON)).
+		Int("device_count", len(allDeviceUpdates)).
+		Msg("SYNC DEBUG: Successfully marshaled DeviceUpdate array")
 
 	return &proto.ResultsResponse{
 		Available:       true,
@@ -399,17 +446,45 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 }
 
 // StreamResults implements streaming interface for large datasets
-func (s *SimpleSyncService) StreamResults(_ *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
+func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
+	s.logger.Info().
+		Str("service_name", req.ServiceName).
+		Str("service_type", req.ServiceType).
+		Str("agent_id", req.AgentId).
+		Str("poller_id", req.PollerId).
+		Msg("StreamResults called - sync service received request")
+
 	s.resultsStore.mu.RLock()
 	defer s.resultsStore.mu.RUnlock()
 
 	var allDeviceUpdates []*models.DeviceUpdate
 
-	for _, devices := range s.resultsStore.results {
+	for sourceName, devices := range s.resultsStore.results {
+		s.logger.Info().
+			Str("source_name", sourceName).
+			Int("device_count", len(devices)).
+			Msg("StreamResults - processing devices from source")
+
+		if len(devices) > 0 {
+			// Log sample device for debugging
+			sampleDevice := devices[0]
+			s.logger.Debug().
+				Str("source_name", sourceName).
+				Str("sample_device_ip", sampleDevice.IP).
+				Str("sample_device_source", string(sampleDevice.Source)).
+				Interface("sample_device_metadata", sampleDevice.Metadata).
+				Msg("StreamResults - sample device from source")
+		}
+
 		allDeviceUpdates = append(allDeviceUpdates, devices...)
 	}
 
+	s.logger.Info().
+		Int("total_device_updates", len(allDeviceUpdates)).
+		Msg("StreamResults - total devices to stream")
+
 	if len(allDeviceUpdates) == 0 {
+		s.logger.Warn().Msg("StreamResults - no device updates to send, sending empty array")
 		// Send empty final chunk
 		return stream.Send(&proto.ResultsChunk{
 			Data:            []byte("[]"),
@@ -444,7 +519,27 @@ func (s *SimpleSyncService) StreamResults(_ *proto.ResultsRequest, stream proto.
 
 		chunkData, err := json.Marshal(chunkDevices)
 		if err != nil {
+			s.logger.Error().
+				Err(err).
+				Int("chunk_index", chunkIndex).
+				Int("device_count", len(chunkDevices)).
+				Msg("SYNC DEBUG: Failed to marshal chunk")
 			return status.Errorf(codes.Internal, "failed to marshal chunk: %v", err)
+		}
+
+		s.logger.Info().
+			Int("chunk_index", chunkIndex).
+			Int("chunk_bytes", len(chunkData)).
+			Int("device_count", len(chunkDevices)).
+			Msg("SYNC DEBUG: Successfully marshaled chunk")
+
+		if len(chunkDevices) > 0 {
+			if sampleJSON, err := json.Marshal(chunkDevices[0]); err == nil {
+				s.logger.Debug().
+					Int("chunk_index", chunkIndex).
+					Str("sample_device", string(sampleJSON)).
+					Msg("SYNC DEBUG: Sample device in chunk")
+			}
 		}
 
 		chunk := &proto.ResultsChunk{
@@ -456,12 +551,19 @@ func (s *SimpleSyncService) StreamResults(_ *proto.ResultsRequest, stream proto.
 			Timestamp:       time.Now().Unix(),
 		}
 
+		s.logger.Info().
+			Int("chunk_index", chunkIndex).
+			Int("chunk_data_size", len(chunkData)).
+			Bool("is_final", chunk.IsFinal).
+			Msg("StreamResults - sending chunk to poller")
+
 		if err := stream.Send(chunk); err != nil {
 			if errors.Is(err, io.EOF) {
-				s.logger.Info().Msg("Client closed stream")
+				s.logger.Info().Msg("StreamResults - client closed stream")
 				return nil
 			}
 
+			s.logger.Error().Err(err).Msg("StreamResults - failed to send chunk")
 			return status.Errorf(codes.Internal, "failed to send chunk: %v", err)
 		}
 	}
