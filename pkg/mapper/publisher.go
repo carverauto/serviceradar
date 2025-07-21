@@ -200,6 +200,9 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 	results := make([]*models.SweepResult, len(devices))
 
 	for i, device := range devices {
+		if device == nil {
+			continue
+		}
 		// Create metadata
 		metadata := make(map[string]string)
 		metadata["sys_descr"] = device.SysDescr

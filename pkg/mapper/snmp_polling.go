@@ -220,7 +220,12 @@ func (e *DiscoveryEngine) processSNMPVariable(device *DiscoveredDevice, v gosnmp
 	case oidSysContact:
 		e.setStringValue(&device.SysContact, v)
 	case oidSysName:
-		e.setStringValue(&device.Hostname, v)
+		// Set the hostname from SNMP. The reconciliation logic in
+		// updateExistingDevice will decide whether to keep this or a
+		// name from another source (like the UniFi API).
+		if v.Type == gosnmp.OctetString {
+			e.setStringValue(&device.Hostname, v)
+		}
 	case oidSysLocation:
 		e.setStringValue(&device.SysLocation, v)
 	}
@@ -249,34 +254,88 @@ func (*DiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
 
 // getMACAddress tries to get the MAC address of a device using SNMP
 func (*DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID string) string {
-	// Try ifPhysAddress.1 (first interface)
-	macOID := ".1.3.6.1.2.1.2.2.1.6.1"
+	// Priority order for MAC discovery:
+	// 1. Bridge base address (most reliable for switches)
+	// 2. Management interface (ifIndex 1)
+	// 3. First valid unicast interface MAC
 
-	result, err := client.Get([]string{macOID})
+	// Try bridge base address first (best for switches)
+	bridgeOID := ".1.3.6.1.2.1.17.1.1.0" // dot1dBaseBridgeAddress
+	result, err := client.Get([]string{bridgeOID})
 	if err == nil && len(result.Variables) > 0 && result.Variables[0].Type == gosnmp.OctetString {
-		return formatMACAddress(result.Variables[0].Value.([]byte))
+		bridgeMAC := formatMACAddress(result.Variables[0].Value.([]byte))
+		if isValidUnicastMAC(bridgeMAC) {
+			log.Printf("Job %s: Found bridge MAC for %s: %s", jobID, target, bridgeMAC)
+			return bridgeMAC
+		}
 	}
 
-	// If still empty, try walking ifPhysAddress table to find any MAC
-	var mac string
+	// Try management interface (ifIndex 1)
+	mgmtOID := ".1.3.6.1.2.1.2.2.1.6.1"
+	result, err = client.Get([]string{mgmtOID})
+	if err == nil && len(result.Variables) > 0 && result.Variables[0].Type == gosnmp.OctetString {
+		mgmtMAC := formatMACAddress(result.Variables[0].Value.([]byte))
+		if isValidUnicastMAC(mgmtMAC) {
+			log.Printf("Job %s: Found management interface MAC for %s: %s", jobID, target, mgmtMAC)
+			return mgmtMAC
+		}
+	}
 
+	// Last resort: walk ifPhysAddress table for any valid unicast MAC
+	var mac string
 	err = client.BulkWalk(oidIfPhysAddress, func(pdu gosnmp.SnmpPDU) error {
 		if pdu.Type == gosnmp.OctetString {
 			formattedMAC := formatMACAddress(pdu.Value.([]byte))
-			if formattedMAC != "" {
+			if isValidUnicastMAC(formattedMAC) {
 				mac = formattedMAC
 				return fmt.Errorf("found MAC, stopping walk")
 			}
 		}
-
 		return nil
 	})
 
-	if err != nil && !strings.Contains(err.Error(), "found MAC, stopping walk") {
-		log.Printf("Job %s: Failed to walk ifPhysAddress for MAC on %s: %v", jobID, target, err)
+	if mac != "" {
+		log.Printf("Job %s: Found interface MAC for %s: %s", jobID, target, mac)
+	} else {
+		log.Printf("Job %s: No valid MAC found for %s", jobID, target)
 	}
 
 	return mac
+}
+
+// isValidUnicastMAC checks if a MAC address is valid and unicast (not multicast/broadcast)
+func isValidUnicastMAC(mac string) bool {
+	if mac == "" || mac == "00:00:00:00:00:00" {
+		return false
+	}
+	
+	// Parse MAC address to check if it's valid
+	if len(mac) != 17 { // xx:xx:xx:xx:xx:xx format
+		return false
+	}
+	
+	// Check if it's a valid MAC format
+	parts := strings.Split(mac, ":")
+	if len(parts) != 6 {
+		return false
+	}
+	
+	// Convert first octet to check unicast bit
+	if len(parts[0]) != 2 {
+		return false
+	}
+	
+	firstOctet := parts[0]
+	val, err := strconv.ParseInt(firstOctet, 16, 32)
+	if err != nil {
+		return false
+	}
+	
+	// Check if LSB of first octet is 0 (unicast) and it's not all zeros
+	isUnicast := (val&1) == 0
+	isNotAllZeros := mac != "00:00:00:00:00:00"
+	
+	return isUnicast && isNotAllZeros
 }
 
 // generateDeviceID generates a device ID based on MAC or IP

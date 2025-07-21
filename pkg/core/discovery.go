@@ -385,13 +385,8 @@ func classifyDeviceType(hostname, sysDescr, sysObjectID string) string {
 }
 
 // processDiscoveredInterfaces handles processing interface information from SNMP discovery.
-// Its responsibilities are:
-//  1. (Optional) Store the raw, detailed interface data for historical/diagnostic purposes.
-//  2. Create one "sighting" (SweepResult) for each device discovered in the report. This sighting
-//     is enriched with all IPs found on the device's interfaces, which is critical context for the registry.
-//  3. Pass these sightings to the authoritative DeviceRegistry for correlation and processing.
-//
-// This function NO LONGER performs any lookups or correlation itself.
+// It now performs correlation by looking up IPs in the existing device database
+// to prevent creating duplicate devices for alternate IPs.
 // groupInterfacesByDevice groups interfaces by the device they were discovered on.
 func (*discoveryService) groupInterfacesByDevice(
 	interfaces []*discoverypb.DiscoveredInterface) map[string][]*discoverypb.DiscoveredInterface {
@@ -408,44 +403,7 @@ func (*discoveryService) groupInterfacesByDevice(
 	return deviceToInterfacesMap
 }
 
-// createModelInterfaces creates model interfaces for storage from proto interfaces.
-func (s *discoveryService) createModelInterfaces(
-	deviceToInterfacesMap map[string][]*discoverypb.DiscoveredInterface,
-	partition string,
-	discoveryAgentID string,
-	discoveryInitiatorPollerID string,
-	timestamp time.Time,
-) []*models.DiscoveredInterface {
-	allModelInterfaces := make([]*models.DiscoveredInterface, 0)
 
-	for deviceIP, deviceInterfaces := range deviceToInterfacesMap {
-		provisionalDeviceID := fmt.Sprintf("%s:%s", partition, deviceIP)
-
-		for _, protoIface := range deviceInterfaces {
-			metadataJSON := s.prepareInterfaceMetadata(protoIface)
-			modelIface := &models.DiscoveredInterface{
-				Timestamp:     timestamp,
-				AgentID:       discoveryAgentID,
-				PollerID:      discoveryInitiatorPollerID,
-				DeviceIP:      protoIface.DeviceIp,
-				DeviceID:      provisionalDeviceID, // Use the provisional ID for this raw data.
-				IfIndex:       protoIface.IfIndex,
-				IfName:        protoIface.IfName,
-				IfDescr:       protoIface.IfDescr,
-				IfAlias:       protoIface.IfAlias,
-				IfSpeed:       protoIface.IfSpeed.GetValue(),
-				IfPhysAddress: protoIface.IfPhysAddress,
-				IPAddresses:   protoIface.IpAddresses,
-				IfAdminStatus: protoIface.IfAdminStatus,
-				IfOperStatus:  protoIface.IfOperStatus,
-				Metadata:      metadataJSON,
-			}
-			allModelInterfaces = append(allModelInterfaces, modelIface)
-		}
-	}
-
-	return allModelInterfaces
-}
 
 // collectDeviceIPs collects all unique IPs associated with a device from its interfaces.
 func (*discoveryService) collectDeviceIPs(deviceIP string, deviceInterfaces []*discoverypb.DiscoveredInterface) []string {
@@ -473,50 +431,9 @@ func (*discoveryService) collectDeviceIPs(deviceIP string, deviceInterfaces []*d
 	return alternateIPs
 }
 
-// createCorrelationSighting creates a correlation sighting for a device.
-func (s *discoveryService) createCorrelationSighting(
-	deviceIP string,
-	alternateIPs []string,
-	deviceMap map[string]*discoverypb.DiscoveredDevice,
-	partition string,
-	discoveryAgentID string,
-	discoveryInitiatorPollerID string,
-	timestamp time.Time,
-) *models.DeviceUpdate {
-	// Initialize metadata from the parent device, if it exists in the map.
-	var metadata map[string]string
 
-	if parentDevice, ok := deviceMap[deviceIP]; ok {
-		metadata = s.extractDeviceMetadata(parentDevice)
-	} else {
-		// Fallback if no corresponding device entry was found.
-		metadata = make(map[string]string)
-	}
 
-	// Add alternate IPs to metadata if available
-	if len(alternateIPs) > 0 {
-		alternateIPsJSON, err := json.Marshal(alternateIPs)
-		if err != nil {
-			log.Printf("Error marshaling alternate IPs for device %s: %v", deviceIP, err)
-		} else {
-			metadata["alternate_ips"] = string(alternateIPsJSON)
-		}
-	}
-
-	// Create the single, enriched sighting for this device.
-	return &models.DeviceUpdate{
-		AgentID:     discoveryAgentID,
-		PollerID:    discoveryInitiatorPollerID,
-		DeviceID:    fmt.Sprintf("%s:%s", partition, deviceIP), // The registry will resolve the canonical ID.
-		Partition:   partition,
-		IP:          deviceIP, // The primary IP from this discovery event.
-		IsAvailable: true,
-		Timestamp:   timestamp,
-		Source:      models.DiscoverySourceMapper,
-		Metadata:    metadata,
-	}
-}
-
+// processDiscoveredInterfaces handles processing and intelligent merging of interface information.
 func (s *discoveryService) processDiscoveredInterfaces(
 	ctx context.Context,
 	interfaces []*discoverypb.DiscoveredInterface,
@@ -531,48 +448,208 @@ func (s *discoveryService) processDiscoveredInterfaces(
 		return
 	}
 
-	// Group interfaces by the device they were discovered on
+	// Group interfaces by the primary IP they were discovered under in this job.
 	deviceToInterfacesMap := s.groupInterfacesByDevice(interfaces)
 
-	// Path 1: Persist Raw Interface Data (for historical/detailed views)
-	allModelInterfaces := s.createModelInterfaces(
-		deviceToInterfacesMap,
-		partition,
-		discoveryAgentID,
-		discoveryInitiatorPollerID,
-		timestamp,
-	)
-
-	if err := s.db.PublishBatchDiscoveredInterfaces(ctx, allModelInterfaces); err != nil {
-		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)
+	// 1. Collect all unique primary IPs from this discovery batch for a single lookup.
+	allPrimaryIPsInBatch := make([]string, 0, len(deviceToInterfacesMap))
+	for deviceIP := range deviceToInterfacesMap {
+		allPrimaryIPsInBatch = append(allPrimaryIPsInBatch, deviceIP)
 	}
 
-	// Path 2: Create Correlation Sightings for the Device Registry (CRITICAL PATH)
+	// 2. Perform a batch query to find any existing canonical devices matching these IPs.
+	existingDevices, err := s.db.GetUnifiedDevicesByIPsOrIDs(ctx, allPrimaryIPsInBatch, nil)
+	if err != nil {
+		log.Printf("Error looking up existing devices for correlation, proceeding with caution: %v", err)
+	}
+
+	// 3. Create a lookup map for quick access: ip -> canonical UnifiedDevice object
+	ipToCanonicalDevice := make(map[string]*models.UnifiedDevice)
+	for _, dev := range existingDevices {
+		// Map the primary IP
+		ipToCanonicalDevice[dev.IP] = dev
+
+		// Map all alternate IPs to the same canonical device
+		if dev.Metadata != nil && dev.Metadata.Value != nil {
+			if alternateIPsJSON, ok := dev.Metadata.Value["alternate_ips"]; ok {
+				var alternateIPs []string
+				if err := json.Unmarshal([]byte(alternateIPsJSON), &alternateIPs); err == nil {
+					for _, altIP := range alternateIPs {
+						ipToCanonicalDevice[altIP] = dev
+					}
+				}
+			}
+		}
+	}
+
+	// --- Sighting Generation and Merging Loop ---
 	correlationSightings := make([]*models.DeviceUpdate, 0, len(deviceToInterfacesMap))
+	for primarySightingIP, discoveredInterfaces := range deviceToInterfacesMap {
+		var sighting *models.DeviceUpdate
 
-	for deviceIP, deviceInterfaces := range deviceToInterfacesMap {
-		// Collect all unique IPs associated with this device
-		alternateIPs := s.collectDeviceIPs(deviceIP, deviceInterfaces)
+		canonicalDevice, exists := ipToCanonicalDevice[primarySightingIP]
 
-		// Create a correlation sighting for this device
-		sighting := s.createCorrelationSighting(
-			deviceIP,
-			alternateIPs,
-			deviceMap,
-			partition,
-			discoveryAgentID,
-			discoveryInitiatorPollerID,
-			timestamp,
-		)
+		// Collect all IPs found in this specific sighting.
+		allIPsInThisSighting := s.collectDeviceIPs(primarySightingIP, discoveredInterfaces)
+
+		if exists {
+			// **MERGE LOGIC: An existing device was found.**
+			// We will enrich the existing canonical device with new info.
+			log.Printf("Enriching existing device %s (IP: %s) based on new sighting of IP %s",
+				canonicalDevice.DeviceID, canonicalDevice.IP, primarySightingIP)
+
+			// Start with the existing device's data as the base.
+			hostname := ""
+			if canonicalDevice.Hostname != nil {
+				hostname = canonicalDevice.Hostname.Value
+			}
+			mac := ""
+			if canonicalDevice.MAC != nil {
+				mac = canonicalDevice.MAC.Value
+			}
+			metadata := make(map[string]string)
+			if canonicalDevice.Metadata != nil && canonicalDevice.Metadata.Value != nil {
+				for k, v := range canonicalDevice.Metadata.Value {
+					metadata[k] = v
+				}
+			}
+
+			sighting = &models.DeviceUpdate{
+				DeviceID:  canonicalDevice.DeviceID, // CRITICAL: Use the canonical ID
+				IP:        canonicalDevice.IP,       // CRITICAL: Use the canonical IP
+				Hostname:  &hostname,
+				MAC:       &mac,
+				Metadata:  metadata,
+				Partition: partition,
+			}
+
+			// Merge alternate IPs: add any new IPs from this sighting.
+			existingAltIPs := make(map[string]struct{})
+			if alternateIPsJSON, ok := sighting.Metadata["alternate_ips"]; ok {
+				var altIPs []string
+				if json.Unmarshal([]byte(alternateIPsJSON), &altIPs) == nil {
+					for _, ip := range altIPs {
+						existingAltIPs[ip] = struct{}{}
+					}
+				}
+			}
+			// Add all IPs from the new sighting (including its primary IP)
+			for _, ip := range allIPsInThisSighting {
+				// Don't add the canonical primary IP as an alternate of itself.
+				if ip != canonicalDevice.IP {
+					existingAltIPs[ip] = struct{}{}
+				}
+			}
+			
+			finalAltIPs := make([]string, 0, len(existingAltIPs))
+			for ip := range existingAltIPs {
+				finalAltIPs = append(finalAltIPs, ip)
+			}
+			
+			altIPsBytes, _ := json.Marshal(finalAltIPs)
+			if sighting.Metadata == nil {
+				sighting.Metadata = make(map[string]string)
+			}
+			sighting.Metadata["alternate_ips"] = string(altIPsBytes)
+
+		} else {
+			// **CREATE LOGIC: This is a new device.**
+			// Create a fresh sighting.
+			log.Printf("Creating new device based on sighting of IP %s", primarySightingIP)
+
+			var metadata map[string]string
+			if parentDevice, ok := deviceMap[primarySightingIP]; ok {
+				metadata = s.extractDeviceMetadata(parentDevice)
+			} else {
+				metadata = make(map[string]string)
+			}
+
+			alternateIPs := make([]string, 0)
+			for _, ip := range allIPsInThisSighting {
+				if ip != primarySightingIP {
+					alternateIPs = append(alternateIPs, ip)
+				}
+			}
+			
+			if len(alternateIPs) > 0 {
+				altIPsBytes, _ := json.Marshal(alternateIPs)
+				metadata["alternate_ips"] = string(altIPsBytes)
+			}
+			
+			hostname := ""
+			mac := ""
+			if parentDevice, ok := deviceMap[primarySightingIP]; ok {
+				hostname = parentDevice.Hostname
+				mac = parentDevice.Mac
+			}
+
+			sighting = &models.DeviceUpdate{
+				DeviceID:  fmt.Sprintf("%s:%s", partition, primarySightingIP),
+				IP:        primarySightingIP,
+				Hostname:  &hostname,
+				MAC:       &mac,
+				Metadata:  metadata,
+				Partition: partition,
+			}
+		}
+
+		// Common fields for both new and merged sightings
+		sighting.AgentID = discoveryAgentID
+		sighting.PollerID = discoveryInitiatorPollerID
+		sighting.IsAvailable = true
+		sighting.Timestamp = timestamp
+		sighting.Source = models.DiscoverySourceMapper
 
 		correlationSightings = append(correlationSightings, sighting)
 	}
 
-	// Process the batch of sightings through the authoritative registry
+	// Process the batch of well-formed sightings through the authoritative registry.
 	if len(correlationSightings) > 0 && s.reg != nil {
 		if err := s.reg.ProcessBatchDeviceUpdates(ctx, correlationSightings); err != nil {
 			log.Printf("Error processing mapper correlation sightings: %v", err)
 		}
+	}
+
+	// Publishing raw interface data can remain the same or be removed if not needed.
+	// For now, we'll keep it.
+	allModelInterfaces := make([]*models.DiscoveredInterface, 0, len(interfaces))
+	for _, iface := range interfaces {
+		if iface == nil || iface.DeviceIp == "" {
+			continue
+		}
+		
+		canonicalDeviceID := ""
+		// Find the correct canonical ID for the raw interface record
+		if canonicalDevice, ok := ipToCanonicalDevice[iface.DeviceIp]; ok {
+			canonicalDeviceID = canonicalDevice.DeviceID
+		} else {
+			// If not found, generate the provisional one, it will be created.
+			canonicalDeviceID = fmt.Sprintf("%s:%s", partition, iface.DeviceIp)
+		}
+
+		metadataJSON := s.prepareInterfaceMetadata(iface)
+		modelIface := &models.DiscoveredInterface{
+			Timestamp:     timestamp,
+			AgentID:       discoveryAgentID,
+			PollerID:      discoveryInitiatorPollerID,
+			DeviceIP:      iface.DeviceIp,
+			DeviceID:      canonicalDeviceID, // Use the resolved canonical ID
+			IfIndex:       iface.IfIndex,
+			IfName:        iface.IfName,
+			IfDescr:       iface.IfDescr,
+			IfAlias:       iface.IfAlias,
+			IfSpeed:       iface.IfSpeed.GetValue(),
+			IfPhysAddress: iface.IfPhysAddress,
+			IPAddresses:   iface.IpAddresses,
+			IfAdminStatus: iface.IfAdminStatus,
+			IfOperStatus:  iface.IfOperStatus,
+			Metadata:      metadataJSON,
+		}
+		allModelInterfaces = append(allModelInterfaces, modelIface)
+	}
+
+	if err := s.db.PublishBatchDiscoveredInterfaces(ctx, allModelInterfaces); err != nil {
+		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)
 	}
 }
 

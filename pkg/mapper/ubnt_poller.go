@@ -136,6 +136,9 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch sites from %s: %w", apiConfig.Name, err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("received nil response from %s", apiConfig.Name)
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -246,6 +249,9 @@ func (*DiscoveryEngine) fetchUniFiDevicesForSite(
 		return nil, nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w",
 			apiConfig.Name, site.Name, err)
 	}
+	if resp == nil {
+		return nil, nil, fmt.Errorf("received nil response from %s, site %s", apiConfig.Name, site.Name)
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -318,6 +324,9 @@ func (*DiscoveryEngine) fetchDeviceDetails(
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch details for device %s: %w", deviceID, err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("received nil response for device %s", deviceID)
 	}
 	defer resp.Body.Close()
 
@@ -562,7 +571,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 			}
 
 			for _, device := range devices {
-				if device.IP == "" {
+				if device == nil || device.IP == "" {
 					continue
 				}
 
@@ -624,6 +633,9 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w", apiConfig.Name, site.Name, err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("received nil response from %s, site %s", apiConfig.Name, site.Name)
 	}
 	defer resp.Body.Close()
 
@@ -701,25 +713,39 @@ func (e *DiscoveryEngine) processDeviceInterfaces(
 	}
 
 	var interfaces []*DiscoveredInterface
-
 	var uniFiSwitchInterfaces UniFiInterfaces
 
+	// Attempt to unmarshal into the switch interface structure
 	if err := json.Unmarshal(device.Interfaces, &uniFiSwitchInterfaces); err != nil {
+		// Check if this is just a metadata array like ["ports"] or ["radios"]
 		rawInterfacesStr := string(device.Interfaces)
-
-		if rawInterfacesStr == `["ports"]` || rawInterfacesStr == `[]` || rawInterfacesStr == `["radios"]` {
-			log.Printf("Job %s: Device %s (%s) has interfaces field %s, skipping interface discovery",
-				job.ID, device.Name, device.ID, rawInterfacesStr)
-
-			return nil
+		
+		// Try to unmarshal as a simple string array first
+		var interfaceTypes []string
+		if arrayErr := json.Unmarshal(device.Interfaces, &interfaceTypes); arrayErr == nil {
+			// Successfully unmarshaled as string array - this is metadata, not interface data
+			log.Printf("Job %s: Device %s (%s) has interface types %v, attempting to fetch detailed interface data",
+				job.ID, device.Name, device.ID, interfaceTypes)
+			
+			// For devices with "ports", try to fetch detailed interface data
+			if contains(interfaceTypes, "ports") {
+				return e.fetchDetailedSwitchInterfaces(job, device, deviceID, apiConfig, site)
+			}
+			
+			// For devices with only "radios" (APs), we might not have port data
+			if len(interfaceTypes) == 1 && interfaceTypes[0] == "radios" {
+				log.Printf("Job %s: Device %s (%s) is a wireless AP with only radios, no port interfaces to process",
+					job.ID, device.Name, device.ID)
+				return nil
+			}
 		}
-
-		log.Printf("Job %s: Device %s (%s) has non-standard UniFi interfaces structure: %s. Unmarshal error: %v",
+		
+		log.Printf("Job %s: Could not unmarshal UniFi interfaces for device %s (%s) into any known structure. Raw data: %s. Error: %v",
 			job.ID, device.Name, device.ID, rawInterfacesStr, err)
-
 		return nil
 	}
 
+	// If we successfully unmarshaled and there are ports, process them.
 	if len(uniFiSwitchInterfaces.Ports) > 0 {
 		interfaces = e.processSwitchInterfaces(job, device, deviceID, uniFiSwitchInterfaces, apiConfig, site)
 	}
@@ -874,6 +900,265 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	}
 
 	return devices, allInterfaces, nil
+}
+
+// fetchDetailedSwitchInterfaces attempts to fetch detailed interface data for switch devices
+func (e *DiscoveryEngine) fetchDetailedSwitchInterfaces(
+	job *DiscoveryJob,
+	device *UniFiDevice,
+	deviceID string,
+	apiConfig UniFiAPIConfig,
+	site UniFiSite,
+) []*DiscoveredInterface {
+	// Try to get detailed device information which might include port details
+	ctx := job.ctx
+	client := e.createUniFiClient(apiConfig)
+	headers := map[string]string{
+		"X-API-Key":    apiConfig.APIKey,
+		"Content-Type": "application/json",
+	}
+
+	// Validate device ID before making API request
+	if device.ID == "" {
+		log.Printf("Job %s: Device %s has an empty UniFi ID, cannot fetch detailed interfaces. Falling back to placeholder generation.", job.ID, device.Name)
+		return e.generatePlaceholderInterfaces(job, device, deviceID, apiConfig, site)
+	}
+
+	// Try the detailed device endpoint
+	detailsURL := fmt.Sprintf("%s/sites/%s/devices/%s", apiConfig.BaseURL, site.ID, device.ID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, detailsURL, http.NoBody)
+	if err != nil {
+		log.Printf("Job %s: Failed to create detailed interface request for device %s: %v", job.ID, device.Name, err)
+		return e.generatePlaceholderInterfaces(job, device, deviceID, apiConfig, site)
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Job %s: Failed to fetch detailed interface data for device %s: %v", job.ID, device.Name, err)
+		return e.generatePlaceholderInterfaces(job, device, deviceID, apiConfig, site)
+	}
+	if resp == nil {
+		log.Printf("Job %s: Received nil response for device %s detailed interfaces", job.ID, device.Name)
+		return e.generatePlaceholderInterfaces(job, device, deviceID, apiConfig, site)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Job %s: Detailed interface request failed for device %s with status: %d", job.ID, device.Name, resp.StatusCode)
+		return e.generatePlaceholderInterfaces(job, device, deviceID, apiConfig, site)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Job %s: Failed to read detailed interface response for device %s: %v", job.ID, device.Name, err)
+		return e.generatePlaceholderInterfaces(job, device, deviceID, apiConfig, site)
+	}
+
+	// Try to parse as detailed device response
+	var detailedDevice struct {
+		Data struct {
+			PortTable []struct {
+				PortIdx      int32  `json:"port_idx"`
+				Name         string `json:"name"`
+				Enable       bool   `json:"enable"`
+				Up           bool   `json:"up"`
+				Speed        int    `json:"speed"`
+				FullDuplex   bool   `json:"full_duplex"`
+				BytesR       int64  `json:"rx_bytes"`
+				BytesT       int64  `json:"tx_bytes"`
+				PoEEnable    bool   `json:"poe_enable"`
+				PoEMode      string `json:"poe_mode"`
+				PoEPower     int    `json:"poe_power"`
+				PoEVoltage   int    `json:"poe_voltage"`
+				PoECurrent   int    `json:"poe_current"`
+			} `json:"port_table"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &detailedDevice); err != nil {
+		log.Printf("Job %s: Could not parse detailed device response for %s: %v. Falling back to placeholder interfaces.", job.ID, device.Name, err)
+		return e.generatePlaceholderInterfaces(job, device, deviceID, apiConfig, site)
+	}
+
+	// Process the detailed port table if available
+	if len(detailedDevice.Data.PortTable) > 0 {
+		log.Printf("Job %s: Found %d detailed ports for device %s", job.ID, len(detailedDevice.Data.PortTable), device.Name)
+		return e.processDetailedPortTable(job, device, deviceID, detailedDevice.Data.PortTable, apiConfig, site)
+	}
+
+	log.Printf("Job %s: No detailed port table found for device %s, generating placeholder interfaces", job.ID, device.Name)
+	return e.generatePlaceholderInterfaces(job, device, deviceID, apiConfig, site)
+}
+
+// processDetailedPortTable processes detailed port information from the UniFi API
+func (e *DiscoveryEngine) processDetailedPortTable(
+	job *DiscoveryJob,
+	device *UniFiDevice,
+	deviceID string,
+	portTable []struct {
+		PortIdx      int32  `json:"port_idx"`
+		Name         string `json:"name"`
+		Enable       bool   `json:"enable"`
+		Up           bool   `json:"up"`
+		Speed        int    `json:"speed"`
+		FullDuplex   bool   `json:"full_duplex"`
+		BytesR       int64  `json:"rx_bytes"`
+		BytesT       int64  `json:"tx_bytes"`
+		PoEEnable    bool   `json:"poe_enable"`
+		PoEMode      string `json:"poe_mode"`
+		PoEPower     int    `json:"poe_power"`
+		PoEVoltage   int    `json:"poe_voltage"`
+		PoECurrent   int    `json:"poe_current"`
+	},
+	apiConfig UniFiAPIConfig,
+	site UniFiSite,
+) []*DiscoveredInterface {
+	interfaces := make([]*DiscoveredInterface, 0, len(portTable))
+
+	for _, port := range portTable {
+		adminStatus := int32(2) // Down
+		if port.Enable {
+			adminStatus = 1 // Up
+		}
+
+		operStatus := int32(2) // Down
+		if port.Up {
+			operStatus = 1 // Up
+		}
+
+		ifName := port.Name
+		if ifName == "" {
+			ifName = fmt.Sprintf("Port-%d", port.PortIdx)
+		}
+
+		ifDescr := fmt.Sprintf("%s %s", device.Name, ifName)
+
+		// Convert speed to bits per second (assuming speed is in Mbps)
+		var ifSpeed uint64
+		if port.Speed > 0 {
+			ifSpeed = uint64(port.Speed) * 1000000
+		}
+
+		metadata := map[string]string{
+			"source":          "unifi-api-detailed",
+			"controller_url":  apiConfig.BaseURL,
+			"site_id":         site.ID,
+			"site_name":       site.Name,
+			"controller_name": apiConfig.Name,
+			"port_enable":     fmt.Sprintf("%t", port.Enable),
+			"port_up":         fmt.Sprintf("%t", port.Up),
+			"full_duplex":     fmt.Sprintf("%t", port.FullDuplex),
+		}
+
+		// Add PoE information if available
+		if port.PoEEnable {
+			metadata["poe_enable"] = "true"
+			metadata["poe_mode"] = port.PoEMode
+			metadata["poe_power"] = fmt.Sprintf("%d", port.PoEPower)
+			metadata["poe_voltage"] = fmt.Sprintf("%d", port.PoEVoltage)
+			metadata["poe_current"] = fmt.Sprintf("%d", port.PoECurrent)
+		}
+
+		iface := &DiscoveredInterface{
+			DeviceIP:      device.IPAddress,
+			DeviceID:      deviceID,
+			IfIndex:       port.PortIdx,
+			IfName:        ifName,
+			IfDescr:       ifDescr,
+			IfSpeed:       ifSpeed,
+			IfAdminStatus: adminStatus,
+			IfOperStatus:  operStatus,
+			Metadata:      metadata,
+		}
+
+		interfaces = append(interfaces, iface)
+	}
+
+	return interfaces
+}
+
+// generatePlaceholderInterfaces creates basic interface records when detailed data isn't available
+func (e *DiscoveryEngine) generatePlaceholderInterfaces(
+	job *DiscoveryJob,
+	device *UniFiDevice,
+	deviceID string,
+	apiConfig UniFiAPIConfig,
+	site UniFiSite,
+) []*DiscoveredInterface {
+	// For UniFi switches, we can make educated guesses about common port counts
+	portCount := e.estimatePortCount(device.Name)
+	
+	if portCount == 0 {
+		log.Printf("Job %s: Could not estimate port count for device %s, skipping interface generation", job.ID, device.Name)
+		return nil
+	}
+
+	log.Printf("Job %s: Generating %d placeholder interfaces for device %s", job.ID, portCount, device.Name)
+
+	interfaces := make([]*DiscoveredInterface, 0, portCount)
+
+	for i := 1; i <= portCount; i++ {
+		ifName := fmt.Sprintf("Port-%d", i)
+		ifDescr := fmt.Sprintf("%s %s (estimated)", device.Name, ifName)
+
+		metadata := map[string]string{
+			"source":          "unifi-api-estimated",
+			"controller_url":  apiConfig.BaseURL,
+			"site_id":         site.ID,
+			"site_name":       site.Name,
+			"controller_name": apiConfig.Name,
+			"estimated":       "true",
+		}
+
+		iface := &DiscoveredInterface{
+			DeviceIP:      device.IPAddress,
+			DeviceID:      deviceID,
+			IfIndex:       int32(i),
+			IfName:        ifName,
+			IfDescr:       ifDescr,
+			IfSpeed:       1000000000, // Assume 1Gbps
+			IfAdminStatus: 1,          // Assume up
+			IfOperStatus:  1,          // Assume up
+			Metadata:      metadata,
+		}
+
+		interfaces = append(interfaces, iface)
+	}
+
+	return interfaces
+}
+
+// estimatePortCount estimates the number of ports based on device model name
+func (*DiscoveryEngine) estimatePortCount(deviceName string) int {
+	deviceNameLower := strings.ToLower(deviceName)
+
+	// UniFi switch port count estimation
+	switch {
+	case strings.Contains(deviceNameLower, "usw lite 8"):
+		return 8
+	case strings.Contains(deviceNameLower, "usw 16"):
+		return 16
+	case strings.Contains(deviceNameLower, "usw pro 24"):
+		return 24
+	case strings.Contains(deviceNameLower, "usw pro 48"):
+		return 48
+	case strings.Contains(deviceNameLower, "usw aggregation"):
+		return 28 // 24 regular + 4 SFP+
+	case strings.Contains(deviceNameLower, "usw enterprise 24"):
+		return 24
+	case strings.Contains(deviceNameLower, "usw enterprise 48"):
+		return 48
+	case strings.Contains(deviceNameLower, "usw flex"):
+		return 5
+	case strings.Contains(deviceNameLower, "switch"):
+		return 24 // Default for unknown switches
+	default:
+		return 0 // Unknown device type
+	}
 }
 
 func (e *DiscoveryEngine) querySysInfoWithTimeout(

@@ -255,3 +255,48 @@ func TestProcessMetrics_SyncService_HealthCheckNotProcessed(t *testing.T) {
 	err := server.processMetrics(ctx, pollerID, partition, sourceIP, svc, healthCheckMessage, timestamp)
 	require.NoError(t, err)
 }
+
+func TestProcessMetrics_MapperService_HealthCheckNotProcessed(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	mockRegistry := registry.NewMockManager(ctrl)
+	mockDiscovery := NewMockDiscoveryService(ctrl)
+
+	server := &Server{
+		DB:               mockDB,
+		DeviceRegistry:   mockRegistry,
+		discoveryService: mockDiscovery,
+		metricBuffers:    make(map[string][]*models.TimeseriesMetric),
+		sysmonBuffers:    make(map[string][]*sysmonMetricBuffer),
+	}
+
+	ctx := context.Background()
+	pollerID := "test-poller"
+	partition := "test-partition"
+	sourceIP := "192.168.1.100"
+	timestamp := time.Now()
+
+	// Mapper health check payload
+	healthCheckMessage := json.RawMessage(`{
+		"status": "healthy",
+		"service_name": "serviceradar-mapper",
+		"timestamp": 1234567890
+	}`)
+
+	svc := &proto.ServiceStatus{
+		ServiceName: "mapper",
+		ServiceType: "grpc",
+		Available:   true,
+		Message:     healthCheckMessage,
+		AgentId:     "test-agent",
+		PollerId:    pollerID,
+	}
+
+	// Should NOT call any discovery processing because mapper health checks should be skipped
+	// No mock expectation set = test will fail if any discovery method is called
+
+	err := server.processMetrics(ctx, pollerID, partition, sourceIP, svc, healthCheckMessage, timestamp)
+	require.NoError(t, err)
+}

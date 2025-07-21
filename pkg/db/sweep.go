@@ -44,9 +44,13 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 	var successfulAppends int
 
 	for i, result := range results {
+		hostname := ""
+		if result.Hostname != nil {
+			hostname = *result.Hostname
+		}
 		log.Printf("DEBUG [database]: Storing SweepResult %d: IP: %s, DeviceID: %s, "+
-			"DiscoverySource: %s, Partition: %s",
-			i+1, result.IP, result.DeviceID, result.DiscoverySource, result.Partition)
+			"DiscoverySource: %s, Partition: %s, Hostname: %s",
+			i+1, result.IP, result.DeviceID, result.DiscoverySource, result.Partition, hostname)
 
 		// Validate required fields
 		if result.IP == "" {

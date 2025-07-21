@@ -215,6 +215,8 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 			setupMocks: func(mockDB *db.MockService, mockReg *registry.MockManager) {
 				// Expect device processing
 				mockReg.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Len(1)).Return(nil)
+				// Expect correlation lookup for interfaces
+				mockDB.EXPECT().GetUnifiedDevicesByIPsOrIDs(gomock.Any(), []string{"192.168.1.1"}, []string(nil)).Return([]*models.UnifiedDevice{}, nil)
 				// Expect interface storage
 				mockDB.EXPECT().PublishBatchDiscoveredInterfaces(gomock.Any(), gomock.Len(2)).Return(nil)
 				// Expect interface correlation processing

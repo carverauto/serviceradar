@@ -856,6 +856,12 @@ func (*DiscoveryEngine) createNewDeviceGroup(deviceID string, deviceEntry *Devic
 
 // mergeIntoExistingGroup merges a device into an existing group
 func (*DiscoveryEngine) mergeIntoExistingGroup(group *deviceGroup, deviceID string, deviceEntry *DeviceInterfaceMap) {
+	// Add defensive check for nil group
+	if group == nil {
+		log.Printf("Warning: attempted to merge into nil device group for device %s", deviceID)
+		return
+	}
+	
 	group.DeviceIDs[deviceID] = struct{}{}
 
 	for mac := range deviceEntry.MACs {
@@ -917,6 +923,12 @@ func (*DiscoveryEngine) findGroupIDForDevice(deviceGroups map[string]*deviceGrou
 func (*DiscoveryEngine) mergeDeviceGroups(deviceGroups map[string]*deviceGroup, targetGroupID, sourceGroupID string) {
 	targetGroup := deviceGroups[targetGroupID]
 	sourceGroup := deviceGroups[sourceGroupID]
+
+	// Add defensive checks for nil groups
+	if targetGroup == nil || sourceGroup == nil {
+		log.Printf("Warning: attempted to merge nil device groups. Target: %v, Source: %v", targetGroup, sourceGroup)
+		return
+	}
 
 	for deviceID := range sourceGroup.DeviceIDs {
 		targetGroup.DeviceIDs[deviceID] = struct{}{}
@@ -1020,29 +1032,13 @@ const (
 	defaultConcurrencyMultiplier = 2 // Multiplier for target channel size
 )
 
-// addOrUpdateDeviceToResults adds or updates a device in the job's results.
+// addOrUpdateDeviceToResults adds a device to the job's results.
+// Devices with the same MAC address will get the same DeviceID, allowing the core service
+// to handle merging via the materialized view.
 func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevice *DiscoveredDevice) {
 	e.ensureDeviceID(newDevice)
 
-	// Look for an existing device to merge with
-	for i, existingDevice := range job.Results.Devices {
-		if e.isDeviceMatch(existingDevice, newDevice) {
-			e.updateExistingDevice(job, i, newDevice)
-
-			if existingDevice.IP != newDevice.IP {
-				existingDevice.Metadata = addAlternateIP(existingDevice.Metadata, newDevice.IP)
-
-				log.Printf("Job %s: Device %s (MAC: %s, DeviceID: %s) updated with alternate IP %s "+
-					"(primary: %s, source: %s)",
-					job.ID, existingDevice.Hostname, existingDevice.MAC,
-					existingDevice.DeviceID, newDevice.IP, existingDevice.IP, newDevice.Metadata["source"])
-			}
-
-			return
-		}
-	}
-
-	// Add to device map
+	// Add to device map for tracking
 	if deviceEntry, exists := job.deviceMap[newDevice.DeviceID]; exists {
 		deviceEntry.MACs[newDevice.MAC] = struct{}{}
 		deviceEntry.IPs[newDevice.IP] = struct{}{}
@@ -1060,9 +1056,10 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 		}
 	}
 
-	log.Printf("Job %s: Adding new device %s (IP: %s, MAC: %s, DeviceID: %s, source: %s)",
+	log.Printf("Job %s: Adding device %s (IP: %s, MAC: %s, DeviceID: %s, source: %s)",
 		job.ID, newDevice.Hostname, newDevice.IP, newDevice.MAC, newDevice.DeviceID, newDevice.Metadata["source"])
 
+	// Always add as a new device - let the core service handle deduplication
 	e.addNewDevice(job, newDevice)
 }
 
@@ -1075,66 +1072,9 @@ func (*DiscoveryEngine) ensureDeviceID(device *DiscoveredDevice) {
 	}
 }
 
-func (*DiscoveryEngine) isDeviceMatch(existingDevice, newDevice *DiscoveredDevice) bool {
-	// First check by DeviceID if both have it
-	if newDevice.DeviceID != "" && existingDevice.DeviceID != "" && newDevice.DeviceID == existingDevice.DeviceID {
-		return true
-	}
 
-	// Temporarily disable MAC-based matching until we build the interface-to-device map
-	return false
-}
 
-// updateExistingDevice updates an existing device with information from a new device
-func (e *DiscoveryEngine) updateExistingDevice(job *DiscoveryJob, index int, newDevice *DiscoveredDevice) {
-	// Update non-empty fields
-	if newDevice.Hostname != "" {
-		job.Results.Devices[index].Hostname = newDevice.Hostname
-	}
 
-	if newDevice.MAC != "" {
-		job.Results.Devices[index].MAC = newDevice.MAC
-	}
-
-	if newDevice.SysDescr != "" {
-		job.Results.Devices[index].SysDescr = newDevice.SysDescr
-	}
-
-	if newDevice.SysObjectID != "" {
-		job.Results.Devices[index].SysObjectID = newDevice.SysObjectID
-	}
-
-	if newDevice.SysContact != "" {
-		job.Results.Devices[index].SysContact = newDevice.SysContact
-	}
-
-	if newDevice.SysLocation != "" {
-		job.Results.Devices[index].SysLocation = newDevice.SysLocation
-	}
-
-	if newDevice.Uptime != 0 {
-		job.Results.Devices[index].Uptime = newDevice.Uptime
-	}
-
-	job.Results.Devices[index].LastSeen = time.Now()
-
-	// Update metadata
-	e.updateDeviceMetadata(job, index, newDevice)
-
-	// Publish updated device
-	e.publishDevice(job, job.Results.Devices[index])
-}
-
-// updateDeviceMetadata updates the metadata of an existing device
-func (*DiscoveryEngine) updateDeviceMetadata(job *DiscoveryJob, index int, newDevice *DiscoveredDevice) {
-	if job.Results.Devices[index].Metadata == nil {
-		job.Results.Devices[index].Metadata = make(map[string]string)
-	}
-
-	for k, v := range newDevice.Metadata {
-		job.Results.Devices[index].Metadata[k] = v
-	}
-}
 
 // addNewDevice adds a new device to the results
 func (e *DiscoveryEngine) addNewDevice(job *DiscoveryJob, newDevice *DiscoveredDevice) {
@@ -1203,7 +1143,6 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 	ctx context.Context, job *DiscoveryJob, initialSeeds []string,
 ) map[string]bool {
 	allPotentialSNMPTargets := make(map[string]bool)
-	seenMACs := make(map[string]string)
 
 	for _, seedIP := range initialSeeds {
 		if seedIP != "" {
@@ -1241,7 +1180,7 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 			interfacesFound += len(interfaces)
 
 			job.mu.Lock()
-			e.processDevicesForSNMPTargets(job, devices, allPotentialSNMPTargets, seenMACs)
+			e.processDevicesForSNMPTargets(job, devices, allPotentialSNMPTargets)
 
 			for _, iface := range interfaces {
 				if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
@@ -1269,29 +1208,19 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 	return allPotentialSNMPTargets
 }
 
-// processDevicesForSNMPTargets processes devices for SNMP targets with MAC-based deduplication
+// processDevicesForSNMPTargets processes devices for SNMP targets without deduplication
 func (e *DiscoveryEngine) processDevicesForSNMPTargets(
 	job *DiscoveryJob, devices []*DiscoveredDevice,
-	allPotentialSNMPTargets map[string]bool, seenMACs map[string]string) {
+	allPotentialSNMPTargets map[string]bool) {
 	for _, device := range devices {
-		if device.IP != "" {
+		if device != nil && device.IP != "" {
 			e.addOrUpdateDeviceToResults(job, device)
 
-			if device.MAC != "" {
-				normalizedMAC := NormalizeMAC(device.MAC)
-				if primaryIP, seen := seenMACs[normalizedMAC]; !seen {
-					seenMACs[normalizedMAC] = device.IP
-					allPotentialSNMPTargets[device.IP] = true
-
-					log.Printf("Job %s: Adding device %s (MAC: %s) with IP %s to SNMP targets",
-						job.ID, device.Hostname, device.MAC, device.IP)
-				} else {
-					log.Printf("Job %s: Device %s (MAC: %s) already in SNMP targets with IP %s, skipping IP %s",
-						job.ID, device.Hostname, device.MAC, primaryIP, device.IP)
-				}
-			} else {
-				allPotentialSNMPTargets[device.IP] = true
-			}
+			// Add all device IPs to SNMP targets - let core handle deduplication
+			allPotentialSNMPTargets[device.IP] = true
+			
+			log.Printf("Job %s: Adding device %s (MAC: %s) with IP %s to SNMP targets",
+				job.ID, device.Hostname, device.MAC, device.IP)
 		}
 	}
 }

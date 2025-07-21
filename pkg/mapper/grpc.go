@@ -126,6 +126,9 @@ func convertInterfaceToProto(iface *DiscoveredInterface) (*proto.DiscoveredInter
 
 // convertDeviceToProto converts a DiscoveredDevice to proto.DiscoveredDevice
 func convertDeviceToProto(device *DiscoveredDevice) *proto.DiscoveredDevice {
+	if device == nil {
+		return &proto.DiscoveredDevice{}
+	}
 	return &proto.DiscoveredDevice{
 		Ip:          device.IP,
 		Mac:         device.MAC,
@@ -221,7 +224,9 @@ func convertResultsToProto(results *DiscoveryResults, discoveryID string, includ
 	protoDevices := make([]*proto.DiscoveredDevice, len(results.Devices))
 
 	for i, device := range results.Devices {
-		protoDevices[i] = convertDeviceToProto(device)
+		if device != nil {
+			protoDevices[i] = convertDeviceToProto(device)
+		}
 	}
 
 	// Convert interfaces with bounds checking

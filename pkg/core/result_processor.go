@@ -46,7 +46,7 @@ func (s *Server) processHostResults(
 			Source:      models.DiscoverySourceSweep,
 			IP:          host.Host,
 			MAC:         nil, // HostResult doesn't have MAC field
-			Hostname:    nil, // HostResult doesn't have Hostname field
+			Hostname:    nil, // Don't override existing hostnames from discovery sources
 			Timestamp:   now,
 			IsAvailable: host.Available,
 			Metadata:    metadata,

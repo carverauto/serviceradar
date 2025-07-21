@@ -293,7 +293,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 		},
 		{
 			name:        "DeviceUpdate with nil hostname and MAC",
-			description: "DeviceUpdate with nil hostname and MAC should be handled correctly",
+			description: "DeviceUpdate with nil hostname and MAC should preserve nil values",
 			updates: []*models.DeviceUpdate{
 				{
 					DeviceID:    "default:192.168.1.3",
@@ -312,8 +312,8 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 				assert.Len(t, publishedResults, 1, "Should publish exactly one result")
 				result := publishedResults[0]
 				assert.Equal(t, "default:192.168.1.3", result.DeviceID)
-				assert.Equal(t, "", *result.Hostname, "Should convert nil hostname to empty string")
-				assert.Equal(t, "", *result.MAC, "Should convert nil MAC to empty string")
+				assert.Nil(t, result.Hostname, "Should keep nil hostname as nil")
+				assert.Nil(t, result.MAC, "Should keep nil MAC as nil")
 				assert.False(t, result.Available)
 			},
 		},

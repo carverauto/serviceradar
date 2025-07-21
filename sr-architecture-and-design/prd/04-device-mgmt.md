@@ -146,7 +146,7 @@ type Device struct {
 - Use batch insertion for raw stream writes to handle large volumes.
 
 ### Deduplication Strategy
-- Use `IP`, `agent_id`, and `poller_id` as a composite key for deduplication in the materialized view.
+- Use `IP`, and `partition` (partition:ip address) as a composite key for deduplication in the materialized view.
 - Consolidate multi-source data, preserving `first_seen` and updating `last_seen` and `is_available`.
 - Merge metadata using Proton's `MAP_AGG` function, prioritizing newer data for conflicts.
 
@@ -182,13 +182,13 @@ Combine information from:
 
 ## Success Metrics
 The device management system is successful if it:
-1. Accurately tracks all network devices with `agent_id` and `poller_id` in the `devices` stream.
+1. Accurately tracks all network devices with `device_id` and in the `devices` stream.
 2. Handles networks with 10,000+ devices efficiently.
 3. Updates device status within 5 minutes of changes.
 4. Maintains historical data (`first_seen`, `last_seen`).
 5. Correctly consolidates multi-source information in the materialized view.
 6. Resolves the `OpenPorts` reference issue.
-7. Ensures `agent_id` and `poller_id` are consistently propagated in raw data streams.
+7. Ensures `device_id` are consistently propagated in raw data streams.
 
 ## Future Considerations
 - Device filtering and search by `agent_id` or `poller_id`.

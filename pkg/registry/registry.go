@@ -68,14 +68,14 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		// Normalize first to ensure DeviceID is correct before creating the SweepResult
 		r.normalizeUpdate(u)
 
-		hostname := ""
+		var hostname *string
 		if u.Hostname != nil {
-			hostname = *u.Hostname
+			hostname = u.Hostname
 		}
 
-		mac := ""
+		var mac *string
 		if u.MAC != nil {
-			mac = *u.MAC
+			mac = u.MAC
 		}
 
 		results[i] = &models.SweepResult{
@@ -87,8 +87,8 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 			PollerID:        u.PollerID,
 			Timestamp:       u.Timestamp,
 			Available:       u.IsAvailable,
-			Hostname:        &hostname,
-			MAC:             &mac,
+			Hostname:        hostname,
+			MAC:             mac,
 			Metadata:        u.Metadata,
 		}
 	}

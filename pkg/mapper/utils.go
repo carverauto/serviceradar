@@ -224,7 +224,13 @@ func collectIPsFromRange(ip net.IP, ipNet *net.IPNet, hostBits int, seen map[str
 
 		copy(ipCopy, ip)
 
-		for i := ipCopy.Mask(ipNet.Mask); ipNet.Contains(ip) && count < defaultMaxIPRange; incrementIP(ip) {
+		startIP := ipCopy.Mask(ipNet.Mask)
+		if startIP == nil {
+			log.Printf("Failed to generate start IP for range %s, skipping", ipNet.String())
+			return targets
+		}
+
+		for i := startIP; ipNet.Contains(ip) && count < defaultMaxIPRange; incrementIP(ip) {
 			// changed from ip to i, to avoid modifying the original IP
 			ipStr := i.String()
 
@@ -239,7 +245,13 @@ func collectIPsFromRange(ip net.IP, ipNet *net.IPNet, hostBits int, seen map[str
 		ipCopy := make(net.IP, len(ip))
 		copy(ipCopy, ip)
 
-		for ip := ipCopy.Mask(ipNet.Mask); ipNet.Contains(ip); incrementIP(ip) {
+		startIP := ipCopy.Mask(ipNet.Mask)
+		if startIP == nil {
+			log.Printf("Failed to generate start IP for range %s, skipping", ipNet.String())
+			return targets
+		}
+
+		for ip := startIP; ipNet.Contains(ip); incrementIP(ip) {
 			ipStr := ip.String()
 
 			if !seen[ipStr] {
@@ -337,7 +349,13 @@ func GenerateDeviceID(mac string) string {
 		return ""
 	}
 
-	return mac // Use raw MAC as DeviceID, no normalization for now
+	// Normalize MAC for consistent DeviceID generation
+	normalizedMAC := NormalizeMAC(mac)
+	if normalizedMAC == "" {
+		return ""
+	}
+
+	return normalizedMAC // Use normalized MAC as DeviceID for consistency
 }
 
 func GenerateDeviceIDFromIP(ip string) string {

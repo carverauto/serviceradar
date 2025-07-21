@@ -399,14 +399,12 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 		assert.True(t, lastSweepTimeAfter.IsZero())
 	})
 
-	t.Run("Pool Reuse", func(t *testing.T) {
+	t.Run("Pool Functionality", func(t *testing.T) {
 		processor := NewBaseProcessor(config)
 		defer processor.cleanup()
 
-		// Process results and track allocated hosts
-		allocatedHosts := make(map[*models.HostResult]struct{})
-
-		// First batch
+		// First, verify that cleanup properly returns objects to the pool
+		// Process some results
 		for i := 0; i < 10; i++ {
 			result := &models.Result{
 				Target: models.Target{
@@ -419,40 +417,36 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 
 			err := processor.Process(result)
 			require.NoError(t, err)
-
-			// Track the allocated host
-			hostMap := processor.GetHostMap()
-			allocatedHosts[hostMap[result.Target.Host]] = struct{}{}
 		}
 
-		// Cleanup and process again
+		// Verify we have hosts
+		hostMapBefore := processor.GetHostMap()
+		assert.Len(t, hostMapBefore, 10, "Should have 10 hosts before cleanup")
+
+		// Track a sample of host pointers to verify they're returned to pool
+		var sampleHost *models.HostResult
+		for _, host := range hostMapBefore {
+			sampleHost = host
+			break
+		}
+
+		// Cleanup
 		processor.cleanup()
 
-		// Second batch
-		reusedCount := 0
+		// Verify cleanup worked
+		hostMapAfter := processor.GetHostMap()
+		assert.Empty(t, hostMapAfter, "Host map should be empty after cleanup")
 
-		for i := 0; i < 10; i++ {
-			result := &models.Result{
-				Target: models.Target{
-					Host: fmt.Sprintf("192.168.1.%d", i),
-					Port: 80,
-					Mode: models.ModeTCP,
-				},
-				Available: true,
-			}
+		// Verify the sample host was reset properly
+		assert.Empty(t, sampleHost.Host, "Host field should be cleared")
+		assert.Nil(t, sampleHost.PortResults, "PortResults should be nil")
+		assert.Nil(t, sampleHost.PortMap, "PortMap should be nil")
 
-			err := processor.Process(result)
-			require.NoError(t, err)
-
-			// Check if the host was reused
-			hostMapAfter := processor.GetHostMap()
-			if _, exists := allocatedHosts[hostMapAfter[result.Target.Host]]; exists {
-				reusedCount++
-			}
-		}
-
-		// We should see some reuse of objects from the pool
-		assert.Positive(t, reusedCount, "Should reuse some objects from the pool")
+		// The pool implementation is working correctly:
+		// - Objects are properly cleaned before being returned to the pool
+		// - The cleanup process resets all data structures
+		// Note: sync.Pool doesn't guarantee reuse due to GC, so we don't test for specific reuse counts
+		t.Log("Pool cleanup and reset functionality verified")
 	})
 }
 

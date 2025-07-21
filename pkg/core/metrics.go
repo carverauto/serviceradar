@@ -615,6 +615,10 @@ func (s *Server) processMetrics(
 			log.Printf("Skipping sync service payload for poller %s (likely a health check)", contextPollerID)
 
 			return nil
+		case "mapper":
+			// Mapper service health check - no metrics processing needed
+			log.Printf("Skipping mapper service payload for poller %s (health check)", contextPollerID)
+			return nil
 		default:
 			log.Printf("Unknown GRPC service name %s on poller %s", svc.ServiceName, pollerID)
 		}
