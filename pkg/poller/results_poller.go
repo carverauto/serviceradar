@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -39,8 +40,20 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 	var err error
 
 	// Route based on service type or service name - use streaming for services that handle large datasets
-	if rp.check.Type == serviceTypeSync || rp.check.Type == serviceTypeSweep ||
-		rp.check.Name == serviceTypeSync || strings.Contains(rp.check.Name, serviceTypeSync) {
+	shouldUseStreaming := rp.check.Type == serviceTypeSync || rp.check.Type == serviceTypeSweep ||
+		rp.check.Name == serviceTypeSync || strings.Contains(rp.check.Name, serviceTypeSync)
+
+	rp.logger.Info().
+		Str("service_name", rp.check.Name).
+		Str("service_type", rp.check.Type).
+		Str("serviceTypeSync", serviceTypeSync).
+		Bool("should_use_streaming", shouldUseStreaming).
+		Bool("type_equals_sync", rp.check.Type == serviceTypeSync).
+		Bool("name_equals_sync", rp.check.Name == serviceTypeSync).
+		Bool("name_contains_sync", strings.Contains(rp.check.Name, serviceTypeSync)).
+		Msg("Routing decision for service")
+
+	if shouldUseStreaming {
 		rp.logger.Info().
 			Str("service_name", rp.check.Name).
 			Str("service_type", rp.check.Type).
@@ -66,6 +79,7 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 	rp.updateSequenceTracking(results)
 
 	if rp.shouldSkipCoreSubmission(results) {
+		log.Println("Skipping core submission for service:", rp.check.Name)
 		return nil
 	}
 
@@ -251,6 +265,11 @@ func (rp *ResultsPoller) shouldSkipCoreSubmission(results *proto.ResultsResponse
 }
 
 func (rp *ResultsPoller) convertToServiceStatus(results *proto.ResultsResponse) *proto.ServiceStatus {
+	rp.logger.Info().
+		Str("service_name", rp.check.Name).
+		Str("service_type", rp.check.Type).
+		Msg("convertToServiceStatus called")
+
 	// Determine the correct service type for core processing
 	serviceType := rp.check.Type
 	if rp.check.Name == serviceTypeSync || strings.Contains(rp.check.Name, serviceTypeSync) {

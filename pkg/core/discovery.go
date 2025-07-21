@@ -57,12 +57,45 @@ func (s *discoveryService) ProcessSyncResults(
 
 	var sightings []*models.DeviceUpdate
 
-	if err := json.Unmarshal(details, &sightings); err != nil {
-		log.Printf("Error unmarshaling sync discovery data for poller %s, service %s: %v. Payload: %s",
-			reportingPollerID, svc.ServiceName, err, string(details))
-
-		return fmt.Errorf("failed to parse sync discovery data: %w", err)
+	// Debug logging for Armis data processing
+	rawDataSize := len(details)
+	log.Printf("DEBUG: Received JSON data size: %d bytes for poller %s, service %s", 
+		rawDataSize, reportingPollerID, svc.ServiceName)
+	
+	// Show sample of raw JSON (first 500 chars) to understand structure
+	sampleSize := 500
+	if rawDataSize < sampleSize {
+		sampleSize = rawDataSize
 	}
+	log.Printf("DEBUG: Raw JSON sample (first %d chars): %s", 
+		sampleSize, string(details[:sampleSize]))
+
+	// First try to parse as a single JSON array
+	err := json.Unmarshal(details, &sightings)
+	if err != nil {
+		// If that fails, try to parse as multiple concatenated JSON arrays from chunked streaming
+		log.Printf("DEBUG: Single array parse failed, trying multiple arrays: %v", err)
+		
+		decoder := json.NewDecoder(strings.NewReader(string(details)))
+		var allSightings []*models.DeviceUpdate
+		
+		for decoder.More() {
+			var chunkSightings []*models.DeviceUpdate
+			if chunkErr := decoder.Decode(&chunkSightings); chunkErr != nil {
+				log.Printf("DEBUG: Failed to decode chunk in sync discovery data: %v", chunkErr)
+				log.Printf("DEBUG: Full raw JSON payload causing unmarshal failure: %s", string(details))
+				return fmt.Errorf("failed to parse sync discovery data: %w", err)
+			}
+			allSightings = append(allSightings, chunkSightings...)
+		}
+		
+		sightings = allSightings
+		log.Printf("DEBUG: Successfully parsed %d device updates from multiple JSON chunks", len(sightings))
+	}
+
+	// Debug logging for successful unmarshal
+	log.Printf("DEBUG: json.Unmarshal SUCCESS - parsed %d DeviceUpdate objects for poller %s, service %s", 
+		len(sightings), reportingPollerID, svc.ServiceName)
 
 	if len(sightings) == 0 {
 		log.Printf("No sightings found in sync discovery data for poller %s, service %s",

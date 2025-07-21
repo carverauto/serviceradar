@@ -290,16 +290,26 @@ func (s *Server) processServiceDetails(
 		return s.handleService(ctx, apiService, partition, now)
 	}
 
-	details, err := s.parseServiceDetails(svc)
-	if err != nil {
-		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details",
-			svc.ServiceName, pollerID)
+	var details json.RawMessage
+	var err error
 
-		if svc.ServiceType == snmpDiscoveryResultsServiceType {
-			return fmt.Errorf("failed to parse snmp-discovery-results payload: %w", err)
+	// Special handling for the sync service, which sends a top-level JSON array.
+	// We pass its payload directly without trying to parse it as a single JSON object.
+	if svc.ServiceType == syncServiceType {
+		details = svc.Message
+	} else {
+		// For all other services, use the standard parsing logic.
+		details, err = s.parseServiceDetails(svc)
+		if err != nil {
+			log.Printf("Failed to parse details for service %s on poller %s, proceeding without details",
+				svc.ServiceName, pollerID)
+
+			if svc.ServiceType == snmpDiscoveryResultsServiceType {
+				return fmt.Errorf("failed to parse snmp-discovery-results payload: %w", err)
+			}
+
+			return s.handleService(ctx, apiService, partition, now)
 		}
-
-		return s.handleService(ctx, apiService, partition, now)
 	}
 
 	apiService.Details = details
