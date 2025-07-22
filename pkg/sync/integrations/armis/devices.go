@@ -114,15 +114,15 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 }
 
 // fetchAndProcessDevices is an unexported method that handles the core logic of fetching devices from Armis,
-// processing them, and writing a sweep config. It returns the processed data map and the raw device slice.
-func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[string][]byte, []Device, error) {
+// processing them, and writing a sweep config. It returns the processed data map, events, and the raw device slice.
+func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[string][]byte, []*models.DeviceUpdate, []Device, error) {
 	accessToken, err := a.TokenProvider.GetAccessToken(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get access token: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to get access token: %w", err)
 	}
 
 	if len(a.Config.Queries) == 0 {
-		return nil, nil, errNoQueriesConfigured
+		return nil, nil, nil, errNoQueriesConfigured
 	}
 
 	if a.PageSize <= 0 {
@@ -135,14 +135,14 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 	for _, q := range a.Config.Queries {
 		devices, queryErr := a.fetchDevicesForQuery(ctx, accessToken, q)
 		if queryErr != nil {
-			return nil, nil, queryErr
+			return nil, nil, nil, queryErr
 		}
 
 		allDevices = append(allDevices, devices...)
 	}
 
 	// Process devices
-	data, ips := a.processDevices(allDevices)
+	data, ips, events := a.processDevices(allDevices)
 
 	logger.Info().
 		Int("total_devices", len(allDevices)).
@@ -151,70 +151,24 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 	// Create and write sweep config
 	_ = a.createAndWriteSweepConfig(ctx, ips)
 
-	return data, allDevices, nil
-}
-
-func (a *ArmisIntegration) convertToDeviceUpdate(devices []Device) []*models.DeviceUpdate {
-	out := make([]*models.DeviceUpdate, 0, len(devices))
-
-	for i := range devices {
-		dev := &devices[i]
-		hostname := dev.Name
-		mac := dev.MacAddress
-		tag := ""
-
-		if len(dev.Tags) > 0 {
-			tag = strings.Join(dev.Tags, ",")
-		}
-
-		meta := map[string]string{
-			"armis_device_id": fmt.Sprintf("%d", dev.ID),
-			"tag":             tag,
-		}
-
-		ip := extractFirstIP(dev.IPAddress)
-
-		out = append(out, &models.DeviceUpdate{
-			DeviceID:    fmt.Sprintf("%s/%s", a.Config.Partition, ip),
-			AgentID:     a.Config.AgentID,
-			PollerID:    a.Config.PollerID,
-			Partition:   a.Config.Partition,
-			Source:      models.DiscoverySourceArmis,
-			IP:          ip,
-			MAC:         &mac,
-			Hostname:    &hostname,
-			Timestamp:   dev.FirstSeen,
-			IsAvailable: true,
-			Metadata:    meta,
-		})
-	}
-
-	logger.Info().
-		Int("total_devices", len(devices)).
-		Int("sweep_results_generated", len(out)).
-		Msg("Generated sweep results from Armis devices")
-
-	return out
+	return data, events, allDevices, nil
 }
 
 // Fetch retrieves devices from Armis for discovery purposes only.
 // This method focuses purely on data discovery and does not perform state reconciliation.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.DeviceUpdate, error) {
 	// Discovery: Fetch devices from Armis and create sweep configs
-	data, devices, err := a.fetchAndProcessDevices(ctx)
+	data, events, devices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Convert devices to sweep results for sweep agents to consume
-	modelEvents := a.convertToDeviceUpdate(devices)
-
 	logger.Info().
 		Int("devices_discovered", len(devices)).
-		Int("sweep_results_generated", len(modelEvents)).
+		Int("sweep_results_generated", len(events)).
 		Msg("Completed Armis discovery operation")
 
-	return data, modelEvents, nil
+	return data, events, nil
 }
 
 // Reconcile performs state reconciliation operations with Armis.
@@ -249,7 +203,7 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 
 	// Fetch current devices from Armis to check for retractions
 	// We need this to identify devices that no longer exist in Armis but are still in ServiceRadar
-	_, currentDevices, err := a.fetchAndProcessDevices(ctx)
+	_, _, currentDevices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
 		logger.Error().
 			Err(err).
@@ -494,13 +448,20 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string) {
+func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string, events []*models.DeviceUpdate) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices))
+	events = make([]*models.DeviceUpdate, 0, len(devices))
 
+	agentID := a.Config.AgentID
 	pollerID := a.Config.PollerID
+	partition := a.Config.Partition
+
+	now := time.Now()
 
 	for i := range devices {
+		var err error
+
 		d := &devices[i] // Use a pointer to avoid copying the struct
 
 		tag := ""
@@ -535,38 +496,56 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 
 		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, ip)
 
+		// create discovery event (sweep result style)
 		metadata := map[string]interface{}{
-			"armis_id": fmt.Sprintf("%d", d.ID),
-			"tag":      tag,
+			"armis_device_id": fmt.Sprintf("%d", d.ID),
+			"tag":             tag,
 		}
 
-		modelDevice := &models.Device{
-			DeviceID:         fmt.Sprintf("%s/%s", a.Config.Partition, ip),
-			PollerID:         pollerID,
-			DiscoverySources: []string{string(models.DiscoverySourceArmis)},
-			IP:               ip,
-			MAC:              d.MacAddress,
-			Hostname:         d.Name,
-			FirstSeen:        d.FirstSeen,
-			LastSeen:         d.LastSeen,
-			IsAvailable:      true,
-			Metadata:         metadata,
+		hostname := d.Name
+		mac := d.MacAddress
+		deviceID := fmt.Sprintf("%s:%s", partition, ip)
+
+		event := &models.DeviceUpdate{
+			AgentID:   agentID,
+			PollerID:  pollerID,
+			Source:    models.DiscoverySourceArmis,
+			DeviceID:  deviceID,
+			Partition: partition,
+			IP:        ip,
+			MAC:       &mac,
+			Hostname:  &hostname,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"integration_type": "armis",
+				"integration_id":   fmt.Sprintf("%d", d.ID),
+			},
 		}
 
-		value, err = json.Marshal(modelDevice)
+		for k, v := range metadata {
+			if str, ok := v.(string); ok {
+				event.Metadata[k] = str
+			} else {
+				event.Metadata[k] = fmt.Sprintf("%v", v)
+			}
+		}
+
+		value, err = json.Marshal(event)
 		if err != nil {
 			logger.Error().
 				Err(err).
 				Int("device_id", d.ID).
-				Msg("Failed to marshal model device")
+				Msg("Failed to marshal device event")
 
 			continue
 		}
 
 		data[kvKey] = value
 
+		events = append(events, event)
+
 		ips = append(ips, ip+"/32")
 	}
 
-	return data, ips
+	return data, ips, events
 }
