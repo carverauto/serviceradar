@@ -505,16 +505,15 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		deviceID := fmt.Sprintf("%s:%s", partition, ip)
 
 		event := &models.DeviceUpdate{
-			AgentID:     agentID,
-			PollerID:    pollerID,
-			Source:      models.DiscoverySourceArmis,
-			DeviceID:    deviceID,
-			Partition:   partition,
-			IP:          ip,
-			MAC:         &mac,
-			Hostname:    &hostname,
-			Timestamp:   now,
-			IsAvailable: true,
+			AgentID:   agentID,
+			PollerID:  pollerID,
+			Source:    models.DiscoverySourceArmis,
+			DeviceID:  deviceID,
+			Partition: partition,
+			IP:        ip,
+			MAC:       &mac,
+			Hostname:  &hostname,
+			Timestamp: now,
 			Metadata: map[string]string{
 				"integration_type": "armis",
 				"integration_id":   fmt.Sprintf("%d", d.ID),

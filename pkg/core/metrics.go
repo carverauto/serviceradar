@@ -691,74 +691,19 @@ func (s *Server) processMetrics(
 		}
 		log.Printf("DEBUG: Sweep service raw data (first 500 chars): %s", string(dataToShow))
 		
-		// Try to process as sweep results - sweep data has different format than sync data
-		// Parse the sweep data structure first to understand its format
-		var sweepData map[string]interface{}
-		if err := json.Unmarshal(serviceData, &sweepData); err != nil {
-			log.Printf("DEBUG: Failed to unmarshal sweep data as JSON: %v", err)
+		// Unmarshal as SweepSummary which contains HostResults
+		var sweepSummary models.SweepSummary
+		if err := json.Unmarshal(serviceData, &sweepSummary); err != nil {
+			log.Printf("DEBUG: Failed to unmarshal sweep data as SweepSummary: %v", err)
 			return nil
 		}
 		
-		log.Printf("DEBUG: Sweep data structure keys: %v", getMapKeys(sweepData))
+		log.Printf("Processing sweep summary with %d hosts for poller %s", len(sweepSummary.Hosts), contextPollerID)
 		
-		// Try to extract hosts array first (newer format)
-		hosts, hasHostsArray := sweepData["hosts"].([]interface{})
-		if hasHostsArray {
-			log.Printf("Processing sweep data with %d hosts (array format) for poller %s", len(hosts), contextPollerID)
-		} else {
-			// Check if this is network format with comma-separated IPs
-			networkStr, hasNetwork := sweepData["network"].(string)
-			if hasNetwork && networkStr != "" {
-				log.Printf("DEBUG: Processing sweep data with network format for poller %s: %s", contextPollerID, networkStr[:min(100, len(networkStr))])
-				// For now, log this format but don't process - need to understand the structure better
-				log.Printf("DEBUG: Full sweep data keys and sample values:")
-				for k, v := range sweepData {
-					log.Printf("DEBUG: %s: %v (%T)", k, truncateValue(v, 100), v)
-				}
-				return nil
-			} else {
-				log.Printf("DEBUG: Sweep data missing both 'hosts' array and 'network' field")
-				return nil
-			}
-		}
+		// Use the result processor to convert HostResults to DeviceUpdates
+		// This ensures ICMP metadata is properly extracted and availability is correctly set
+		deviceUpdates := s.processHostResults(sweepSummary.Hosts, contextPollerID, contextPartition, svc.AgentId, now)
 		
-		if !hasHostsArray {
-			return nil
-		}
-		
-		// Convert sweep hosts to device updates format
-		var deviceUpdates []*models.DeviceUpdate
-		for _, hostInterface := range hosts {
-			host, ok := hostInterface.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			
-			hostIP, ok := host["host"].(string)
-			if !ok || hostIP == "" {
-				continue
-			}
-			
-			available, _ := host["available"].(bool)
-			
-			deviceUpdate := &models.DeviceUpdate{
-				DeviceID:    fmt.Sprintf("%s:%s", contextPartition, hostIP),
-				IP:          hostIP,
-				Source:      models.DiscoverySourceSweep,
-				AgentID:     svc.AgentId,
-				PollerID:    contextPollerID,
-				Partition:   contextPartition,
-				Timestamp:   now,
-				IsAvailable: available,
-				Confidence:  models.GetSourceConfidence(models.DiscoverySourceSweep),
-			}
-			
-			deviceUpdates = append(deviceUpdates, deviceUpdate)
-		}
-		
-		log.Printf("Converted %d sweep hosts to device updates for poller %s", len(deviceUpdates), contextPollerID)
-		
-		// Convert device updates to JSON and process through sync results pipeline
 		if len(deviceUpdates) > 0 {
 			sweepJSON, err := json.Marshal(deviceUpdates)
 			if err != nil {

@@ -24,7 +24,7 @@ AS SELECT
     -- FIXED: Added 'self-reported' to the list so self-reported devices use s.available (true)
     CASE
         WHEN s.metadata['_deleted'] = 'true' THEN false
-        ELSE coalesce(if(s.discovery_source IN ('sweep', 'snmp', 'sysmon', 'mapper', 'armis', 'self-reported'), s.available, u.is_available), s.available)
+        ELSE coalesce(if(s.discovery_source IN ('sweep', 'snmp', 'sysmon', 'mapper', 'self-reported'), s.available, u.is_available), s.available)
         END AS is_available,
     -- END: UPDATED AVAILABILITY LOGIC
 
