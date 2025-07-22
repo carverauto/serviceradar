@@ -53,7 +53,8 @@
           "label": "all_devices",
           "query": "in:devices orderBy=id boundaries:\"Corporate\""
         }
-      ]
+      ],
+      "custom_field": "IT_Isolation_Compliant"
     }
   },
   "logging": {

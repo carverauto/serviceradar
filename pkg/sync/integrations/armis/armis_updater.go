@@ -15,11 +15,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-const (
-	// armisUpdaterCompliantField is the custom field used to indicate compliance
-	armisUpdaterCompliantField = "OT_Isolation_Non_Compliant"
-)
-
 // ArmisDeviceStatus represents the status of a device to be sent to Armis
 type ArmisDeviceStatus struct {
 	DeviceID        int       `json:"device_id"`
@@ -110,10 +105,10 @@ func NewArmisUpdater(config *models.SourceConfig, httpClient HTTPClient, tokenPr
 	}
 }
 
-// setServiceRadarCompliant sets the "OT_Isolation_Non_Compliant" attribute based on sweep results
-func setServiceRadarCompliant(ip string, resultMap map[string]SweepResult, attributes map[string]interface{}) {
+// setServiceRadarCompliant sets the custom field attribute based on sweep results
+func (a *ArmisIntegration) setServiceRadarCompliant(ip string, resultMap map[string]SweepResult, attributes map[string]interface{}) {
 	if result, exists := resultMap[ip]; exists {
-		attributes[armisUpdaterCompliantField] = strconv.FormatBool(!result.Available)
+		attributes[a.Config.CustomField] = strconv.FormatBool(!result.Available)
 	}
 }
 
@@ -150,7 +145,7 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 		}
 
 		attributes := make(map[string]interface{})
-		setServiceRadarCompliant(ip, resultMap, attributes)
+		a.setServiceRadarCompliant(ip, resultMap, attributes)
 
 		if len(attributes) > 0 {
 			updates = append(updates, DeviceAttributeUpdate{
@@ -248,10 +243,10 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 	operations := make([]upsertBody, 0, len(updates))
 
 	for _, upd := range updates {
-		// Only update the SERVICERADAR_COMPLIANT custom field
+		// Only update the custom field
 		op := upsertBody{}
 		op.Upsert.DeviceID = upd.DeviceID
-		op.Upsert.Key = armisUpdaterCompliantField
+		op.Upsert.Key = u.Config.CustomField
 		op.Upsert.Value = upd.Available
 		operations = append(operations, op)
 	}
