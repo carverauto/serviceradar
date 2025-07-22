@@ -460,6 +460,8 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 	now := time.Now()
 
 	for i := range devices {
+		var err error
+
 		d := &devices[i] // Use a pointer to avoid copying the struct
 
 		tag := ""
@@ -528,12 +530,6 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			}
 		}
 
-		if metaJSON, err := json.Marshal(event.Metadata); err == nil {
-			logger.Debug().
-				Str("metadata", string(metaJSON)).
-				Msg("SweepResult metadata")
-		}
-
 		value, err = json.Marshal(event)
 		if err != nil {
 			logger.Error().
@@ -545,6 +541,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		}
 
 		data[kvKey] = value
+
 		events = append(events, event)
 
 		ips = append(ips, ip+"/32")

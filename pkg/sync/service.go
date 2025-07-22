@@ -217,6 +217,7 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) {
 			Str("source", sourceName).
 			Int("device_count", len(devices)).
 			Msg("Devices discovered in source")
+
 		for _, device := range devices {
 			s.logger.Info().
 				Str("source", sourceName).
@@ -424,6 +425,7 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 			Err(err).
 			Int("device_count", len(allDeviceUpdates)).
 			Msg("SYNC DEBUG: Failed to marshal DeviceUpdate array")
+
 		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
 	}
 
@@ -445,18 +447,8 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 	}, nil
 }
 
-// StreamResults implements streaming interface for large datasets
-func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
-	s.logger.Info().
-		Str("service_name", req.ServiceName).
-		Str("service_type", req.ServiceType).
-		Str("agent_id", req.AgentId).
-		Str("poller_id", req.PollerId).
-		Msg("StreamResults called - sync service received request")
-
-	s.resultsStore.mu.RLock()
-	defer s.resultsStore.mu.RUnlock()
-
+// collectDeviceUpdates gathers all device updates from the results store
+func (s *SimpleSyncService) collectDeviceUpdates() []*models.DeviceUpdate {
 	var allDeviceUpdates []*models.DeviceUpdate
 
 	for sourceName, devices := range s.resultsStore.results {
@@ -483,88 +475,40 @@ func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream prot
 		Int("total_device_updates", len(allDeviceUpdates)).
 		Msg("StreamResults - total devices to stream")
 
-	if len(allDeviceUpdates) == 0 {
-		s.logger.Warn().Msg("StreamResults - no device updates to send, sending empty array")
-		// Send empty final chunk
-		return stream.Send(&proto.ResultsChunk{
-			Data:            []byte("[]"),
-			IsFinal:         true,
-			ChunkIndex:      0,
-			TotalChunks:     1,
-			CurrentSequence: fmt.Sprintf("%d", s.resultsStore.updated.Unix()),
-			Timestamp:       time.Now().Unix(),
-		})
-	}
+	return allDeviceUpdates
+}
 
+// sendEmptyResultsChunk sends an empty chunk when there are no device updates
+func (s *SimpleSyncService) sendEmptyResultsChunk(stream proto.AgentService_StreamResultsServer) error {
+	s.logger.Warn().Msg("StreamResults - no device updates to send, sending empty array")
+	// Send empty final chunk
+	return stream.Send(&proto.ResultsChunk{
+		Data:            []byte("[]"),
+		IsFinal:         true,
+		ChunkIndex:      0,
+		TotalChunks:     1,
+		CurrentSequence: fmt.Sprintf("%d", s.resultsStore.updated.Unix()),
+		Timestamp:       time.Now().Unix(),
+	})
+}
+
+// sendDeviceChunks splits device updates into chunks and sends them to the client
+func (s *SimpleSyncService) sendDeviceChunks(
+	allDeviceUpdates []*models.DeviceUpdate,
+	stream proto.AgentService_StreamResultsServer,
+) error {
 	// Calculate chunk size to keep each chunk under ~1MB
 	const maxChunkSize = 1024 * 1024 // 1MB
 
-	// DeviceUpdate is a bit larger, adjust estimate
-	const avgDeviceSize = 768
+	const avgDeviceSize = 768 // DeviceUpdate is a bit larger, adjust estimate
 
 	chunkDeviceCount := maxChunkSize / avgDeviceSize
-
 	totalChunks := (len(allDeviceUpdates) + chunkDeviceCount - 1) / chunkDeviceCount
 	sequence := fmt.Sprintf("%d", s.resultsStore.updated.Unix())
 
 	for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
-		start := chunkIndex * chunkDeviceCount
-		end := start + chunkDeviceCount
-
-		if end > len(allDeviceUpdates) {
-			end = len(allDeviceUpdates)
-		}
-
-		chunkDevices := allDeviceUpdates[start:end]
-
-		chunkData, err := json.Marshal(chunkDevices)
-		if err != nil {
-			s.logger.Error().
-				Err(err).
-				Int("chunk_index", chunkIndex).
-				Int("device_count", len(chunkDevices)).
-				Msg("SYNC DEBUG: Failed to marshal chunk")
-			return status.Errorf(codes.Internal, "failed to marshal chunk: %v", err)
-		}
-
-		s.logger.Info().
-			Int("chunk_index", chunkIndex).
-			Int("chunk_bytes", len(chunkData)).
-			Int("device_count", len(chunkDevices)).
-			Msg("SYNC DEBUG: Successfully marshaled chunk")
-
-		if len(chunkDevices) > 0 {
-			if sampleJSON, err := json.Marshal(chunkDevices[0]); err == nil {
-				s.logger.Debug().
-					Int("chunk_index", chunkIndex).
-					Str("sample_device", string(sampleJSON)).
-					Msg("SYNC DEBUG: Sample device in chunk")
-			}
-		}
-
-		chunk := &proto.ResultsChunk{
-			Data:            chunkData,
-			IsFinal:         chunkIndex == totalChunks-1,
-			ChunkIndex:      safeIntToInt32(chunkIndex),
-			TotalChunks:     safeIntToInt32(totalChunks),
-			CurrentSequence: sequence,
-			Timestamp:       time.Now().Unix(),
-		}
-
-		s.logger.Info().
-			Int("chunk_index", chunkIndex).
-			Int("chunk_data_size", len(chunkData)).
-			Bool("is_final", chunk.IsFinal).
-			Msg("StreamResults - sending chunk to poller")
-
-		if err := stream.Send(chunk); err != nil {
-			if errors.Is(err, io.EOF) {
-				s.logger.Info().Msg("StreamResults - client closed stream")
-				return nil
-			}
-
-			s.logger.Error().Err(err).Msg("StreamResults - failed to send chunk")
-			return status.Errorf(codes.Internal, "failed to send chunk: %v", err)
+		if err := s.sendSingleChunk(allDeviceUpdates, chunkIndex, chunkDeviceCount, totalChunks, sequence, stream); err != nil {
+			return err
 		}
 	}
 
@@ -575,6 +519,98 @@ func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream prot
 		Msg("Completed streaming results")
 
 	return nil
+}
+
+// sendSingleChunk prepares and sends a single chunk of device updates
+func (s *SimpleSyncService) sendSingleChunk(
+	allDeviceUpdates []*models.DeviceUpdate,
+	chunkIndex, chunkDeviceCount, totalChunks int,
+	sequence string,
+	stream proto.AgentService_StreamResultsServer,
+) error {
+	start := chunkIndex * chunkDeviceCount
+	end := start + chunkDeviceCount
+
+	if end > len(allDeviceUpdates) {
+		end = len(allDeviceUpdates)
+	}
+
+	chunkDevices := allDeviceUpdates[start:end]
+
+	chunkData, err := json.Marshal(chunkDevices)
+	if err != nil {
+		s.logger.Error().
+			Err(err).
+			Int("chunk_index", chunkIndex).
+			Int("device_count", len(chunkDevices)).
+			Msg("SYNC DEBUG: Failed to marshal chunk")
+
+		return status.Errorf(codes.Internal, "failed to marshal chunk: %v", err)
+	}
+
+	s.logger.Info().
+		Int("chunk_index", chunkIndex).
+		Int("chunk_bytes", len(chunkData)).
+		Int("device_count", len(chunkDevices)).
+		Msg("SYNC DEBUG: Successfully marshaled chunk")
+
+	if len(chunkDevices) > 0 {
+		if sampleJSON, err := json.Marshal(chunkDevices[0]); err == nil {
+			s.logger.Debug().
+				Int("chunk_index", chunkIndex).
+				Str("sample_device", string(sampleJSON)).
+				Msg("SYNC DEBUG: Sample device in chunk")
+		}
+	}
+
+	chunk := &proto.ResultsChunk{
+		Data:            chunkData,
+		IsFinal:         chunkIndex == totalChunks-1,
+		ChunkIndex:      safeIntToInt32(chunkIndex),
+		TotalChunks:     safeIntToInt32(totalChunks),
+		CurrentSequence: sequence,
+		Timestamp:       time.Now().Unix(),
+	}
+
+	s.logger.Info().
+		Int("chunk_index", chunkIndex).
+		Int("chunk_data_size", len(chunkData)).
+		Bool("is_final", chunk.IsFinal).
+		Msg("StreamResults - sending chunk to poller")
+
+	if err := stream.Send(chunk); err != nil {
+		if errors.Is(err, io.EOF) {
+			s.logger.Info().Msg("StreamResults - client closed stream")
+			return nil
+		}
+
+		s.logger.Error().Err(err).Msg("StreamResults - failed to send chunk")
+
+		return status.Errorf(codes.Internal, "failed to send chunk: %v", err)
+	}
+
+	return nil
+}
+
+// StreamResults implements streaming interface for large datasets
+func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
+	s.logger.Info().
+		Str("service_name", req.ServiceName).
+		Str("service_type", req.ServiceType).
+		Str("agent_id", req.AgentId).
+		Str("poller_id", req.PollerId).
+		Msg("StreamResults called - sync service received request")
+
+	s.resultsStore.mu.RLock()
+	defer s.resultsStore.mu.RUnlock()
+
+	allDeviceUpdates := s.collectDeviceUpdates()
+
+	if len(allDeviceUpdates) == 0 {
+		return s.sendEmptyResultsChunk(stream)
+	}
+
+	return s.sendDeviceChunks(allDeviceUpdates, stream)
 }
 
 // initializeIntegrations creates integrations for all configured sources

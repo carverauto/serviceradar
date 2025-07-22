@@ -291,6 +291,7 @@ func (s *Server) processServiceDetails(
 	}
 
 	var details json.RawMessage
+
 	var err error
 
 	// Special handling for the sync service, which sends a top-level JSON array.

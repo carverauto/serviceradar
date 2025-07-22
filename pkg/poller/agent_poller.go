@@ -111,7 +111,7 @@ func (ap *AgentPoller) ExecuteResults(ctx context.Context) []*proto.ServiceStatu
 	for _, resultsPoller := range ap.resultsPollers {
 		timeSinceLastResults := now.Sub(resultsPoller.lastResults)
 		shouldExecute := timeSinceLastResults >= resultsPoller.interval
-		
+
 		ap.poller.logger.Debug().
 			Str("agent", ap.name).
 			Str("service_name", resultsPoller.check.Name).
@@ -119,13 +119,13 @@ func (ap *AgentPoller) ExecuteResults(ctx context.Context) []*proto.ServiceStatu
 			Dur("interval", resultsPoller.interval).
 			Bool("should_execute", shouldExecute).
 			Msg("Results poller timing check")
-		
+
 		if shouldExecute {
 			ap.poller.logger.Info().
 				Str("agent", ap.name).
 				Str("service_name", resultsPoller.check.Name).
 				Msg("Executing results poller")
-			
+
 			wg.Add(1)
 
 			go func(rp *ResultsPoller) {

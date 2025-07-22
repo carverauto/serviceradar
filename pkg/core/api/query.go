@@ -256,7 +256,7 @@ func (s *APIServer) executeQueryAndBuildResponse(
 	// Store original limit for cursor generation
 	originalLimit := query.Limit
 	hasMore := false
-	
+
 	// For pagination queries, fetch one extra result to detect if there are more pages
 	if query.HasLimit && len(query.OrderBy) > 0 && query.Type != models.Count {
 		query.Limit = originalLimit + 1

@@ -29,7 +29,6 @@ func TestCorrelationLogicFlow(t *testing.T) {
 	// Test scenario:
 	// 1. We have an existing device with ID "partition1:192.168.2.1" that has alternate IP "192.168.4.1"
 	// 2. When we discover interfaces on IP "192.168.4.1", it should correlate to the existing device
-	
 	// Create a map that simulates what ipToCanonicalDevice would contain after database lookup
 	canonicalDevice := &models.UnifiedDevice{
 		DeviceID: "partition1:192.168.2.1",
@@ -55,9 +54,11 @@ func TestCorrelationLogicFlow(t *testing.T) {
 		if device.DeviceID != "partition1:192.168.2.1" {
 			t.Errorf("Expected canonical ID 'partition1:192.168.2.1', got '%s'", device.DeviceID)
 		}
+
 		if device.IP != "192.168.2.1" {
 			t.Errorf("Expected canonical IP '192.168.2.1', got '%s'", device.IP)
 		}
+
 		if device.Hostname.Value != "UDM Pro" {
 			t.Errorf("Expected hostname 'UDM Pro', got '%s'", device.Hostname.Value)
 		}
@@ -67,6 +68,7 @@ func TestCorrelationLogicFlow(t *testing.T) {
 
 	// Test 2: IP that doesn't exist should be treated as new device
 	newIP := "192.168.5.1"
+
 	if _, ok := ipToCanonicalDevice[newIP]; ok {
 		t.Error("Did not expect to find new IP in correlation map")
 	} else {
@@ -81,7 +83,6 @@ func TestCorrelationLogicFlow(t *testing.T) {
 // TestSmartMerging tests the smart merging behavior when correlating devices
 func TestSmartMerging(t *testing.T) {
 	// Test scenario: Existing device should preserve its identity when enriched with new data
-	
 	// Existing canonical device
 	existingDevice := &models.UnifiedDevice{
 		DeviceID: "default:152.117.116.178",
@@ -101,32 +102,37 @@ func TestSmartMerging(t *testing.T) {
 	newAlternateIPs := []string{"192.168.2.2", "192.168.2.3"} // New IPs found in this sighting
 
 	// Test the merging logic
-	
+
 	// Start with existing device data
 	hostname := existingDevice.Hostname.Value
 	mac := existingDevice.MAC.Value
+
 	metadata := make(map[string]string)
+
 	for k, v := range existingDevice.Metadata.Value {
 		metadata[k] = v
 	}
 
 	// Merge alternate IPs
 	existingAltIPs := make(map[string]struct{})
+
 	if alternateIPsJSON, ok := metadata["alternate_ips"]; ok {
 		var altIPs []string
+
 		if json.Unmarshal([]byte(alternateIPsJSON), &altIPs) == nil {
 			for _, ip := range altIPs {
 				existingAltIPs[ip] = struct{}{}
 			}
 		}
 	}
-	
+
 	// Add new alternate IPs (excluding the canonical primary IP)
 	for _, ip := range newAlternateIPs {
 		if ip != existingDevice.IP {
 			existingAltIPs[ip] = struct{}{}
 		}
 	}
+
 	// Also add the sighting IP if it's not the canonical primary
 	if newSightingIP != existingDevice.IP {
 		existingAltIPs[newSightingIP] = struct{}{}
@@ -141,21 +147,22 @@ func TestSmartMerging(t *testing.T) {
 	if hostname != "UDM Pro" {
 		t.Errorf("Expected hostname to be preserved as 'UDM Pro', got '%s'", hostname)
 	}
+
 	if mac != "24:5e:be:89:5e:78" {
 		t.Errorf("Expected MAC to be preserved as '24:5e:be:89:5e:78', got '%s'", mac)
 	}
-	
+
 	// Verify alternate IPs were merged correctly
 	expectedAltIPs := map[string]bool{
 		"192.168.2.1": true, // Original alternate IP
 		"192.168.2.2": true, // New alternate IP
 		"192.168.2.3": true, // New alternate IP
 	}
-	
+
 	if len(finalAltIPs) != len(expectedAltIPs) {
 		t.Errorf("Expected %d alternate IPs, got %d", len(expectedAltIPs), len(finalAltIPs))
 	}
-	
+
 	for _, ip := range finalAltIPs {
 		if !expectedAltIPs[ip] {
 			t.Errorf("Unexpected alternate IP: %s", ip)
