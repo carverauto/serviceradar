@@ -120,13 +120,10 @@ func TestProcessMetrics_SyncService_PayloadDetection(t *testing.T) {
 				Source:      "results", // Source field doesn't matter anymore
 			}
 
-			if tt.expectProcess {
-				// Expect ProcessSyncResults to be called when payload is valid SweepResult array
-				mockDiscovery.EXPECT().
-					ProcessSyncResults(ctx, pollerID, partition, svc, tt.message, timestamp).
-					Return(tt.expectedError)
-			}
-			// If !expectProcess, we expect NO call to ProcessSyncResults
+			// ProcessSyncResults is now always called - it internally handles status checks
+			mockDiscovery.EXPECT().
+				ProcessSyncResults(ctx, pollerID, partition, svc, tt.message, timestamp).
+				Return(tt.expectedError)
 
 			err := server.processMetrics(ctx, pollerID, partition, sourceIP, svc, tt.message, timestamp)
 
@@ -249,8 +246,10 @@ func TestProcessMetrics_SyncService_HealthCheckNotProcessed(t *testing.T) {
 		Source:      "status", // Source field is ignored with new payload detection
 	}
 
-	// Should NOT call ProcessSyncResults because payload doesn't unmarshal as SweepResult array
-	// No mock expectation set = test will fail if ProcessSyncResults is called
+	// ProcessSyncResults is now always called - it internally checks and skips status payloads
+	mockDiscovery.EXPECT().
+		ProcessSyncResults(ctx, pollerID, partition, svc, healthCheckMessage, timestamp).
+		Return(nil)
 
 	err := server.processMetrics(ctx, pollerID, partition, sourceIP, svc, healthCheckMessage, timestamp)
 	require.NoError(t, err)

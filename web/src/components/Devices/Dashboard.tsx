@@ -106,6 +106,11 @@ const Dashboard = () => {
                     }]
                 }>('COUNT DEVICES WHERE is_available = false'),
             ]);
+            console.log('Device stats response:', {
+                total: totalRes.results[0]?.['count()'],
+                online: onlineRes.results[0]?.['count()'],
+                offline: offlineRes.results[0]?.['count()']
+            });
             setStats({
                 total: totalRes.results[0]?.['count()'] || 0,
                 online: onlineRes.results[0]?.['count()'] || 0,
@@ -136,7 +141,12 @@ const Dashboard = () => {
                 query += ` WHERE ${whereClauses.join(' AND ')}`;
             }
 
-            query += ` ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
+            // Use IP ordering for pagination reliability when devices have same timestamp
+            if (sortBy === 'last_seen') {
+                query += ` ORDER BY ip ${sortOrder.toUpperCase()}`;
+            } else {
+                query += ` ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
+            }
 
             const data = await postQuery<DevicesApiResponse>(query, cursor, direction);
             setDevices(data.results || []);

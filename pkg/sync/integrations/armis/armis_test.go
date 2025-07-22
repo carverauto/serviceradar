@@ -839,11 +839,48 @@ func TestProcessDevices(t *testing.T) {
 		{ID: 2, IPAddress: "192.168.1.2,10.0.0.1", MacAddress: "cc:dd", Name: "dev2"},
 	}
 
-	data, ips := integ.processDevices(devices)
+	data, ips, events := integ.processDevices(devices)
 
 	require.Len(t, data, 4) // two device keys and two sweep device entries
 	assert.ElementsMatch(t, []string{"test-agent/192.168.1.1", "test-agent/192.168.1.2"}, keysWithPrefix(data, "test-agent/"))
 	assert.ElementsMatch(t, []string{"192.168.1.1/32", "192.168.1.2/32"}, ips)
+
+	// Verify events were created correctly
+	require.Len(t, events, 2, "should have one event per device")
+
+	// Check first event
+	assert.Equal(t, "test-agent", events[0].AgentID)
+	assert.Equal(t, "poller", events[0].PollerID)
+	assert.Equal(t, "192.168.1.1", events[0].IP)
+	assert.Equal(t, "part:192.168.1.1", events[0].DeviceID)
+	assert.Equal(t, "part", events[0].Partition)
+	assert.Equal(t, models.DiscoverySourceArmis, events[0].Source)
+	assert.False(t, events[0].IsAvailable) // Defaults to false in discovery, actual availability comes from sweep
+	assert.NotNil(t, events[0].Hostname)
+	assert.Equal(t, "dev1", *events[0].Hostname)
+	assert.NotNil(t, events[0].MAC)
+	assert.Equal(t, "aa:bb", *events[0].MAC)
+	assert.NotNil(t, events[0].Metadata)
+	assert.Equal(t, "armis", events[0].Metadata["integration_type"])
+	assert.Equal(t, "1", events[0].Metadata["integration_id"])
+	assert.Equal(t, "1", events[0].Metadata["armis_device_id"])
+
+	// Check second event
+	assert.Equal(t, "test-agent", events[1].AgentID)
+	assert.Equal(t, "poller", events[1].PollerID)
+	assert.Equal(t, "192.168.1.2", events[1].IP)
+	assert.Equal(t, "part:192.168.1.2", events[1].DeviceID)
+	assert.Equal(t, "part", events[1].Partition)
+	assert.Equal(t, models.DiscoverySourceArmis, events[1].Source)
+	assert.False(t, events[1].IsAvailable) // Defaults to false in discovery, actual availability comes from sweep
+	assert.NotNil(t, events[1].Hostname)
+	assert.Equal(t, "dev2", *events[1].Hostname)
+	assert.NotNil(t, events[1].MAC)
+	assert.Equal(t, "cc:dd", *events[1].MAC)
+	assert.NotNil(t, events[1].Metadata)
+	assert.Equal(t, "armis", events[1].Metadata["integration_type"])
+	assert.Equal(t, "2", events[1].Metadata["integration_id"])
+	assert.Equal(t, "2", events[1].Metadata["armis_device_id"])
 
 	raw := data["1"]
 

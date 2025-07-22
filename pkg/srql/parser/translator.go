@@ -946,6 +946,9 @@ func (*Translator) formatProtonValue(value interface{}) string {
 		}
 
 		return defaultBoolValueFalse
+	case time.Time:
+		// Format time as RFC3339 string with quotes for SQL
+		return fmt.Sprintf("'%s'", v.Format(time.RFC3339))
 	default:
 		return fmt.Sprintf("%v", v)
 	}
@@ -962,6 +965,9 @@ func (*Translator) formatClickHouseValue(value interface{}) string {
 		}
 
 		return defaultBoolValueFalse
+	case time.Time:
+		// Format time as RFC3339 string with quotes for SQL
+		return fmt.Sprintf("'%s'", v.Format(time.RFC3339))
 	default:
 		return fmt.Sprintf("%v", v)
 	}
