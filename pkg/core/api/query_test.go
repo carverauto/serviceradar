@@ -433,6 +433,7 @@ func TestExecuteQueryAndBuildResponse(t *testing.T) {
 					Return([]map[string]interface{}{
 						{"ip": "192.168.1.1", "last_seen": time.Now()},
 						{"ip": "192.168.1.2", "last_seen": time.Now().Add(-1 * time.Hour)},
+						{"ip": "192.168.1.3", "last_seen": time.Now().Add(-2 * time.Hour)},
 					}, nil)
 			},
 			validateResp: func(t *testing.T, resp *QueryResponse) {
@@ -701,7 +702,12 @@ func TestCursorFunctions(t *testing.T) {
 		firstGroupCond := firstGroup.Complex[0]
 		assert.Equal(t, "last_seen", firstGroupCond.Field)
 		assert.Equal(t, models.LessThan, firstGroupCond.Operator)
-		assert.Equal(t, "2025-05-30T12:00:00Z", firstGroupCond.Value)
+		// Check if the value is a time.Time (since it gets converted from string)
+		if timeVal, isTime := firstGroupCond.Value.(time.Time); isTime {
+			assert.Equal(t, "2025-05-30T12:00:00Z", timeVal.Format(time.RFC3339))
+		} else {
+			assert.Equal(t, "2025-05-30T12:00:00Z", firstGroupCond.Value)
+		}
 
 		// -- Check the second OR group: (last_seen = 'value' AND ip < 'value') --
 		secondGroup := outerOrConditions[1]
@@ -713,7 +719,13 @@ func TestCursorFunctions(t *testing.T) {
 		secondGroupCond1 := secondGroup.Complex[0]
 		assert.Equal(t, "last_seen", secondGroupCond1.Field)
 		assert.Equal(t, models.Equals, secondGroupCond1.Operator)
-		assert.Equal(t, "2025-05-30T12:00:00Z", secondGroupCond1.Value)
+		// Check if the value is a time.Time (since it gets converted from string)
+		if timeVal, isTime := secondGroupCond1.Value.(time.Time); isTime {
+			assert.Equal(t, "2025-05-30T12:00:00Z", timeVal.Format(time.RFC3339))
+		} else {
+			assert.Equal(t, "2025-05-30T12:00:00Z", secondGroupCond1.Value)
+		}
+
 		assert.Equal(t, models.And, secondGroupCond1.LogicalOp)
 
 		// ip < 'value'

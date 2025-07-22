@@ -839,7 +839,7 @@ func TestProcessDevices(t *testing.T) {
 		{ID: 2, IPAddress: "192.168.1.2,10.0.0.1", MacAddress: "cc:dd", Name: "dev2"},
 	}
 
-	data, ips := integ.processDevices(devices)
+	data, ips, _ := integ.processDevices(devices)
 
 	require.Len(t, data, 4) // two device keys and two sweep device entries
 	assert.ElementsMatch(t, []string{"test-agent/192.168.1.1", "test-agent/192.168.1.2"}, keysWithPrefix(data, "test-agent/"))
