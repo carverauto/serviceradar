@@ -916,8 +916,7 @@ func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {
 	require.Len(t, updates, 1)
 	assert.Equal(t, 10, updates[0].DeviceID)
 	assert.Equal(t, "1.1.1.1", updates[0].IP)
-	// We're marking devices as SERVICERADAR_COMPLIANT (OT_Isolation_Non_Compliant) in Armis if we CANT reach them
-	// TODO: this is a bit confusing, we should probably rename this field
+	// We're marking devices as OT_Isolation_Compliant in Armis if we CANT reach them
 	assert.False(t, updates[0].Available)
 }
 
