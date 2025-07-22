@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
@@ -575,54 +574,9 @@ func (s *Server) processGRPCSyncService(
 	svc *proto.ServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
-	// Attempt to unmarshal as a slice of DeviceUpdate, which is what the sync service returns
-	var deviceUpdates []*models.DeviceUpdate
-
-	log.Printf("CORE DEBUG: Processing sync service data for poller %s, data size: %d bytes", pollerID, len(serviceData))
-
-	dataToShow := serviceData
-
-	log.Printf("CORE DEBUG: Raw serviceData (first 500 chars): %s", string(dataToShow))
-
-	if err := json.Unmarshal(serviceData, &deviceUpdates); err != nil {
-		log.Printf("CORE DEBUG: Failed to unmarshal sync data as DeviceUpdate array for poller %s: %v", pollerID, err)
-		log.Printf("CORE DEBUG: Skipping sync service payload for poller %s (unmarshal failed)", pollerID)
-
-		return nil
-	}
-
-	if len(deviceUpdates) == 0 {
-		log.Printf("CORE DEBUG: Successfully unmarshaled but got 0 device updates for poller %s", pollerID)
-		log.Printf("CORE DEBUG: Skipping sync service payload for poller %s (empty array)", pollerID)
-
-		return nil
-	}
-
-	log.Printf("CORE DEBUG: Successfully unmarshaled %d device updates for poller %s", len(deviceUpdates), pollerID)
-
-	// Count by source
-	sourceCounts := make(map[string]int)
-	for _, update := range deviceUpdates {
-		sourceCounts[string(update.Source)]++
-	}
-
-	log.Printf("CORE DEBUG: Device breakdown by source: %+v", sourceCounts)
-
-	// Log samples from each source
-	samplesLogged := make(map[string]int)
-
-	for i, update := range deviceUpdates {
-		if samplesLogged[string(update.Source)] < 2 {
-			log.Printf("CORE DEBUG: %s DeviceUpdate[%d]: Source=%s, IP=%s, DeviceID=%s, IsAvailable=%v, Metadata=%+v",
-				update.Source, i, update.Source, update.IP, update.DeviceID, update.IsAvailable, update.Metadata)
-
-			samplesLogged[string(update.Source)]++
-		}
-	}
-
-	// Successfully parsed as device updates. Process them.
-	log.Printf("Processing %d sync device updates for poller %s", len(deviceUpdates), pollerID)
-
+	// Simply forward the raw data to the discovery service for processing
+	// All parsing and validation logic is now centralized in ProcessSyncResults
+	log.Printf("CORE DEBUG: Processing GRPC sync service data for poller %s, data size: %d bytes", pollerID, len(serviceData))
 	return s.discoveryService.ProcessSyncResults(ctx, pollerID, partition, svc, serviceData, now)
 }
 
@@ -674,60 +628,9 @@ func (s *Server) processSyncService(
 	svc *proto.ServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
-	// For GetResults calls (status), try to detect if this is a status payload vs device data
-	// Status payloads typically have "devices", "status", "timestamp" fields
-	var statusCheck map[string]interface{}
-	if err := json.Unmarshal(serviceData, &statusCheck); err == nil {
-		if _, hasDevices := statusCheck["devices"]; hasDevices {
-			if _, hasStatus := statusCheck["status"]; hasStatus {
-				// This is a status payload from GetResults, skip it
-				log.Printf("DEBUG: Skipping status payload for sync service from poller %s", pollerID)
-				return nil
-			}
-		}
-	}
-
-	// Try to unmarshal as device updates (from StreamResults)
-	// Handle case where multiple JSON arrays are concatenated (from chunked streaming)
-	var allDeviceUpdates []*models.DeviceUpdate
-
-	// First try to parse as a single JSON array
-	err := json.Unmarshal(serviceData, &allDeviceUpdates)
-	if err != nil {
-		// If that fails, try to parse as multiple concatenated JSON arrays
-		log.Printf("DEBUG: Single array parse failed, trying multiple arrays: %v", err)
-
-		decoder := json.NewDecoder(strings.NewReader(string(serviceData)))
-		for decoder.More() {
-			var chunkDevices []*models.DeviceUpdate
-
-			if err := decoder.Decode(&chunkDevices); err != nil {
-				log.Printf("DEBUG: Failed to decode chunk in sync service data: %v", err)
-				return nil
-			}
-
-			allDeviceUpdates = append(allDeviceUpdates, chunkDevices...)
-		}
-	}
-
-	deviceUpdates := allDeviceUpdates
-
-	if len(deviceUpdates) > 0 {
-		// Count by source
-		sourceCounts := make(map[string]int)
-
-		for _, update := range deviceUpdates {
-			sourceCounts[string(update.Source)]++
-		}
-
-		log.Printf("Processing %d sync device updates for poller %s (sources: %v)", len(deviceUpdates), pollerID, sourceCounts)
-
-		return s.discoveryService.ProcessSyncResults(ctx, pollerID, partition, svc, serviceData, now)
-	}
-
-	log.Printf("DEBUG: Failed to unmarshal as device updates for poller %s", pollerID)
-
-	return nil
+	// Simply forward the raw data to the discovery service for processing
+	// All parsing and validation logic is now centralized in ProcessSyncResults
+	return s.discoveryService.ProcessSyncResults(ctx, pollerID, partition, svc, serviceData, now)
 }
 
 // processGRPCService handles processing for GRPC service.

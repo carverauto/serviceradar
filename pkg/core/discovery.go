@@ -55,7 +55,69 @@ func (s *discoveryService) ProcessSyncResults(
 ) error {
 	log.Println("Processing sync discovery results...")
 
+	// First, check if this is a status payload that should be skipped
+	if s.isStatusPayload(details) {
+		log.Printf("DEBUG: Skipping status payload for sync service from poller %s", reportingPollerID)
+		return nil
+	}
+
+	// Parse the device updates
+	sightings, err := s.parseSyncDeviceUpdates(details, reportingPollerID, svc.ServiceName)
+	if err != nil {
+		return err
+	}
+
+	if len(sightings) == 0 {
+		log.Printf("No sightings found in sync discovery data for poller %s, service %s",
+			reportingPollerID, svc.ServiceName)
+		return nil // Nothing to process
+	}
+
+	// Process the sightings through the registry
+	if s.reg != nil {
+		source := "unknown"
+		if len(sightings) > 0 {
+			source = string(sightings[0].Source) // Use the source from the first sighting
+		}
+
+		log.Printf("Processing %d device sightings from sync service (source: %s)",
+			len(sightings), source)
+
+		if err := s.reg.ProcessBatchDeviceUpdates(ctx, sightings); err != nil {
+			log.Printf("Error processing sync discovery sightings for poller %s: %v", reportingPollerID, err)
+			return err
+		}
+	} else {
+		log.Printf("Warning: DeviceRegistry not available. Skipping Processing of %d sync discovery sightings",
+			len(sightings))
+	}
+
+	return nil
+}
+
+// isStatusPayload checks if the payload is a status response that should be skipped
+func (*discoveryService) isStatusPayload(details json.RawMessage) bool {
+	var statusCheck map[string]interface{}
+
+	if err := json.Unmarshal(details, &statusCheck); err == nil {
+		if _, hasDevices := statusCheck["devices"]; hasDevices {
+			if _, hasStatus := statusCheck["status"]; hasStatus {
+				// This is a status payload from GetResults, skip it
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// parseSyncDeviceUpdates parses device updates from sync service data
+// It handles both single JSON arrays and multiple concatenated JSON arrays from chunked streaming
+func (*discoveryService) parseSyncDeviceUpdates(details json.RawMessage, pollerID, serviceName string) ([]*models.DeviceUpdate, error) {
 	var sightings []*models.DeviceUpdate
+
+	// Log data size for debugging
+	log.Printf("CORE DEBUG: Parsing sync service data for poller %s, data size: %d bytes", pollerID, len(details))
 
 	// First try to parse as a single JSON array
 	err := json.Unmarshal(details, &sightings)
@@ -74,47 +136,43 @@ func (s *discoveryService) ProcessSyncResults(
 				log.Printf("DEBUG: Failed to decode chunk in sync discovery data: %v", chunkErr)
 				log.Printf("DEBUG: Full raw JSON payload causing unmarshal failure: %s", string(details))
 
-				return fmt.Errorf("failed to parse sync discovery data: %w", err)
+				return nil, fmt.Errorf("failed to parse sync discovery data: %w", err)
 			}
 
 			allSightings = append(allSightings, chunkSightings...)
 		}
 
 		sightings = allSightings
-
 		log.Printf("DEBUG: Successfully parsed %d device updates from multiple JSON chunks", len(sightings))
 	}
 
 	// Debug logging for successful unmarshal
-	log.Printf("DEBUG: json.Unmarshal SUCCESS - parsed %d DeviceUpdate objects for poller %s, service %s",
-		len(sightings), reportingPollerID, svc.ServiceName)
+	log.Printf("CORE DEBUG: json.Unmarshal SUCCESS - parsed %d DeviceUpdate objects for poller %s, service %s",
+		len(sightings), pollerID, serviceName)
 
-	if len(sightings) == 0 {
-		log.Printf("No sightings found in sync discovery data for poller %s, service %s",
-			reportingPollerID, svc.ServiceName)
-		return nil // Nothing to process
-	}
+	// Log source breakdown if we have sightings
+	if len(sightings) > 0 {
+		sourceCounts := make(map[string]int)
 
-	if s.reg != nil {
-		source := "unknown"
-
-		if len(sightings) > 0 {
-			source = string(sightings[0].Source) // Use the source from the first sighting
+		for _, update := range sightings {
+			sourceCounts[string(update.Source)]++
 		}
 
-		log.Printf("Processing %d device sightings from sync service (source: %s)",
-			len(sightings), source)
+		log.Printf("CORE DEBUG: Device breakdown by source: %+v", sourceCounts)
 
-		if err := s.reg.ProcessBatchDeviceUpdates(ctx, sightings); err != nil {
-			log.Printf("Error processing sync discovery sightings for poller %s: %v", reportingPollerID, err)
-			return err
+		// Log samples from each source
+		samplesLogged := make(map[string]int)
+		for i, update := range sightings {
+			if samplesLogged[string(update.Source)] < 2 {
+				log.Printf("CORE DEBUG: %s DeviceUpdate[%d]: Source=%s, IP=%s, DeviceID=%s, IsAvailable=%v, Metadata=%+v",
+					update.Source, i, update.Source, update.IP, update.DeviceID, update.IsAvailable, update.Metadata)
+
+				samplesLogged[string(update.Source)]++
+			}
 		}
-	} else {
-		log.Printf("Warning: DeviceRegistry not available. Skipping Processing of %d sync discovery sightings",
-			len(sightings))
 	}
 
-	return nil
+	return sightings, nil
 }
 
 // isLoopbackIP checks if an IP address is a loopback address
