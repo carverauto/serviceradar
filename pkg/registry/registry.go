@@ -75,28 +75,6 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	return nil
 }
 
-// ProcessBatchSweepResults now directly calls the database method. It is the
-// responsibility of callers to ensure the SweepResult is properly formed.
-func (r *DeviceRegistry) ProcessBatchSweepResults(ctx context.Context, results []*models.SweepResult) error {
-	if len(results) == 0 {
-		return nil
-	}
-
-	// For legacy callers, we still normalize before publishing.
-	for _, res := range results {
-		// A simple normalization for SweepResult
-		if res.Partition == "" {
-			res.Partition = extractPartitionFromDeviceID(res.DeviceID)
-		}
-
-		if res.DeviceID == "" && res.IP != "" {
-			res.DeviceID = fmt.Sprintf("%s:%s", res.Partition, res.IP)
-		}
-	}
-
-	return r.db.PublishBatchSweepResults(ctx, results)
-}
-
 // normalizeUpdate ensures a DeviceUpdate has the minimum required information.
 func (*DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 	if update.IP == "" {
@@ -114,11 +92,17 @@ func (*DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 
 		log.Printf("Generated DeviceID %s for update with empty DeviceID", update.DeviceID)
 	} else {
-		// Extract partition from DeviceID if possible, otherwise default it
+		// Extract partition from DeviceID if possible
 		partition := extractPartitionFromDeviceID(update.DeviceID)
-		if partition == defaultPartition && update.IP != "" {
-			// If DeviceID was not properly formatted, fix it
-			update.DeviceID = fmt.Sprintf("%s:%s", partition, update.IP)
+
+		// If partition is empty, set it from extracted partition or default
+		if update.Partition == "" {
+			update.Partition = partition
+		}
+
+		// If DeviceID was malformed (no colon) but we have an IP, fix it
+		if !strings.Contains(update.DeviceID, ":") && update.IP != "" {
+			update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
 		}
 	}
 

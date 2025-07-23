@@ -62,26 +62,25 @@ func TestSimplifiedRegistryBehavior(t *testing.T) {
 			mockDB := db.NewMockService(ctrl)
 			registry := NewDeviceRegistry(mockDB)
 
-			// Create test sightings
-			sightings := createTestSightings(tt.sightingCount)
+			// Create test device updates
+			updates := createTestDeviceUpdates(tt.sightingCount)
 
 			ctx := context.Background()
 
-			// The simplified registry only calls PublishBatchSweepResults
-			// No batch optimization queries are performed
+			// The registry calls ProcessBatchDeviceUpdates which then calls the database
 			mockDB.EXPECT().
-				PublishBatchSweepResults(ctx, gomock.Len(tt.sightingCount)).
+				PublishBatchDeviceUpdates(ctx, gomock.Len(tt.sightingCount)).
 				Return(nil).
 				Times(1)
 
 			// Execute
 			start := time.Now()
-			err := registry.ProcessBatchSweepResults(ctx, sightings)
+			err := registry.ProcessBatchDeviceUpdates(ctx, updates)
 			duration := time.Since(start)
 
 			// Verify
 			require.NoError(t, err)
-			t.Logf("%s: Processed %d sightings in %v", tt.description, tt.sightingCount, duration)
+			t.Logf("%s: Processed %d device updates in %v", tt.description, tt.sightingCount, duration)
 		})
 	}
 }
@@ -100,7 +99,7 @@ func TestEmptyBatchHandling(t *testing.T) {
 	// No expectations set means no calls should be made
 
 	// Execute with empty slice
-	err := registry.ProcessBatchSweepResults(ctx, []*models.SweepResult{})
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{})
 
 	// Verify
 	require.NoError(t, err)
@@ -114,24 +113,25 @@ func TestNormalizationBehavior(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	registry := NewDeviceRegistry(mockDB)
 
-	// Create a sighting with missing partition
-	sighting := &models.SweepResult{
-		IP:              "192.168.1.100",
-		DeviceID:        "", // Empty device ID
-		Partition:       "", // Empty partition
-		DiscoverySource: "armis",
-		Available:       true,
-		Timestamp:       time.Now(),
+	// Create a device update with missing partition and device ID
+	update := &models.DeviceUpdate{
+		IP:          "192.168.1.100",
+		DeviceID:    "", // Empty device ID
+		Partition:   "", // Empty partition
+		Source:      models.DiscoverySourceIntegration,
+		IsAvailable: true,
+		Timestamp:   time.Now(),
+		Confidence:  models.GetSourceConfidence(models.DiscoverySourceIntegration),
 	}
 
 	ctx := context.Background()
 
 	// Verify normalization occurs by checking the published results
 	mockDB.EXPECT().
-		PublishBatchSweepResults(ctx, gomock.Any()).
-		DoAndReturn(func(_ context.Context, results []*models.SweepResult) error {
-			require.Len(t, results, 1)
-			result := results[0]
+		PublishBatchDeviceUpdates(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			require.Len(t, updates, 1)
+			result := updates[0]
 
 			// Verify normalization occurred
 			require.Equal(t, "default:192.168.1.100", result.DeviceID)
@@ -142,7 +142,7 @@ func TestNormalizationBehavior(t *testing.T) {
 		Times(1)
 
 	// Execute
-	err := registry.ProcessBatchSweepResults(ctx, []*models.SweepResult{sighting})
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
 
 	// Verify
 	require.NoError(t, err)
@@ -150,21 +150,22 @@ func TestNormalizationBehavior(t *testing.T) {
 
 // Helper functions
 
-func createTestSightings(count int) []*models.SweepResult {
-	sightings := make([]*models.SweepResult, count)
+func createTestDeviceUpdates(count int) []*models.DeviceUpdate {
+	updates := make([]*models.DeviceUpdate, count)
 
 	for i := 0; i < count; i++ {
 		hostname := fmt.Sprintf("device-%d", i+1)
-		sightings[i] = &models.SweepResult{
-			IP:              fmt.Sprintf("192.168.1.%d", i+1),
-			DeviceID:        fmt.Sprintf("default:192.168.1.%d", i+1),
-			Partition:       "default",
-			DiscoverySource: "armis",
-			Available:       true,
-			Hostname:        &hostname,
-			Timestamp:       time.Now(),
+		updates[i] = &models.DeviceUpdate{
+			IP:          fmt.Sprintf("192.168.1.%d", i+1),
+			DeviceID:    fmt.Sprintf("default:192.168.1.%d", i+1),
+			Partition:   "default",
+			Source:      models.DiscoverySourceIntegration,
+			IsAvailable: true,
+			Hostname:    &hostname,
+			Timestamp:   time.Now(),
+			Confidence:  models.GetSourceConfidence(models.DiscoverySourceIntegration),
 		}
 	}
 
-	return sightings
+	return updates
 }

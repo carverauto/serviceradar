@@ -24,32 +24,38 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
 )
 
-// ProtonPublisher implements the Publisher interface using Proton streams
+// ProtonPublisher implements the Publisher interface using the device registry for devices
+// and direct database access for interfaces and topology (until registry supports them)
 type ProtonPublisher struct {
-	dbService db.Service
-	config    *StreamConfig
+	deviceRegistry registry.Manager
+	dbService      db.Service // TODO: Remove when registry handles interfaces/topology
+	config         *StreamConfig
 }
 
 // NewProtonPublisher creates a new Proton publisher
-func NewProtonPublisher(dbService db.Service, config *StreamConfig) (Publisher, error) {
+func NewProtonPublisher(deviceRegistry registry.Manager, dbService db.Service, config *StreamConfig) (Publisher, error) {
+	if deviceRegistry == nil {
+		return nil, fmt.Errorf("device registry is required")
+	}
+
 	if dbService == nil {
-		return nil, ErrDatabaseServiceRequired
+		return nil, fmt.Errorf("database service is required for interfaces/topology")
 	}
 
 	return &ProtonPublisher{
-		dbService: dbService,
-		config:    config,
+		deviceRegistry: deviceRegistry,
+		dbService:      dbService,
+		config:         config,
 	}, nil
 }
 
-// PublishDevice publishes a discovered device to the sweep_results stream
-func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredDevice) error {
-	// Convert to SweepResult model
+// convertDiscoveredDeviceToUpdate converts a DiscoveredDevice to a DeviceUpdate
+func (p *ProtonPublisher) convertDiscoveredDeviceToUpdate(device *DiscoveredDevice) *models.DeviceUpdate {
+	// Build metadata from device fields
 	metadata := make(map[string]string)
-
-	// Add base device metadata
 	metadata["sys_descr"] = device.SysDescr
 	metadata["sys_object_id"] = device.SysObjectID
 	metadata["sys_contact"] = device.SysContact
@@ -57,40 +63,66 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	metadata["uptime"] = fmt.Sprintf("%d", device.Uptime)
 	metadata["device_id"] = device.DeviceID
 
-	// Add any additional metadata
+	// Add custom metadata
 	for k, v := range device.Metadata {
 		metadata[k] = v
 	}
 
-	// Determine discovery source from device metadata, default to SNMP
-	discoverySource := string(models.DiscoverySourceSNMP)
+	// Determine discovery source from device metadata, default to Mapper
+	discoverySource := models.DiscoverySourceMapper
+
 	if source, exists := device.Metadata["source"]; exists {
-		discoverySource = source
+		switch source {
+		case "snmp":
+			discoverySource = models.DiscoverySourceSNMP
+		case "mapper":
+			discoverySource = models.DiscoverySourceMapper
+		case "integration":
+			discoverySource = models.DiscoverySourceIntegration
+		case "netflow":
+			discoverySource = models.DiscoverySourceNetFlow
+		default:
+			discoverySource = models.DiscoverySourceMapper
+		}
 	}
 
-	// Map legacy "mapper" to proper SNMP source for backward compatibility
-	if discoverySource == "mapper" {
-		discoverySource = string(models.DiscoverySourceSNMP)
+	// Ensure partition is set
+	partition := p.config.Partition
+	if partition == "" {
+		partition = "default"
 	}
 
-	// Create sweep result
-	result := &models.SweepResult{
-		AgentID:         p.config.AgentID,
-		PollerID:        p.config.PollerID,
-		Partition:       p.config.Partition,
-		DiscoverySource: discoverySource,
-		IP:              device.IP,
-		MAC:             &device.MAC,
-		Hostname:        &device.Hostname,
-		Timestamp:       time.Now(),
-		Available:       true,
-		Metadata:        metadata,
-	}
+	// Generate device ID with partition
+	deviceID := fmt.Sprintf("%s:%s", partition, device.IP)
 
-	// Publish to Proton using the existing db.Service method
-	results := []*models.SweepResult{result}
-	if err := p.dbService.StoreSweepResults(ctx, results); err != nil {
-		return fmt.Errorf("failed to publish device to sweep_results: %w", err)
+	// Create local copies for pointer fields to ensure consistency
+	hostname := device.Hostname
+	mac := device.MAC
+
+	// Create and return device update
+	return &models.DeviceUpdate{
+		DeviceID:    deviceID,
+		IP:          device.IP,
+		Source:      discoverySource,
+		AgentID:     p.config.AgentID,
+		PollerID:    p.config.PollerID,
+		Partition:   partition,
+		Timestamp:   time.Now(),
+		Hostname:    &hostname,
+		MAC:         &mac,
+		Metadata:    metadata,
+		IsAvailable: true,
+		Confidence:  models.GetSourceConfidence(discoverySource),
+	}
+}
+
+// PublishDevice publishes a discovered device via the device registry
+func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredDevice) error {
+	update := p.convertDiscoveredDeviceToUpdate(device)
+
+	// Publish via the device registry
+	if err := p.deviceRegistry.ProcessDeviceUpdate(ctx, update); err != nil {
+		return fmt.Errorf("failed to publish device via registry: %w", err)
 	}
 
 	return nil
@@ -190,64 +222,21 @@ func (p *ProtonPublisher) PublishTopologyLink(ctx context.Context, link *Topolog
 	return nil
 }
 
-// PublishBatchDevices publishes multiple devices in a batch
+// PublishBatchDevices publishes multiple devices in a batch via the device registry
 func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*DiscoveredDevice) error {
 	if len(devices) == 0 {
 		return nil
 	}
 
-	// Convert all devices to sweep results
-	results := make([]*models.SweepResult, len(devices))
-
+	// Convert all devices to device updates using the shared helper
+	updates := make([]*models.DeviceUpdate, len(devices))
 	for i, device := range devices {
-		// Create metadata
-		metadata := make(map[string]string)
-		metadata["sys_descr"] = device.SysDescr
-		metadata["sys_object_id"] = device.SysObjectID
-		metadata["sys_contact"] = device.SysContact
-		metadata["sys_location"] = device.SysLocation
-		metadata["uptime"] = fmt.Sprintf("%d", device.Uptime)
-
-		// Add custom metadata
-		for k, v := range device.Metadata {
-			metadata[k] = v
-		}
-
-		// Determine discovery source from device metadata, default to "mapper"
-		discoverySource := "mapper"
-		if source, exists := device.Metadata["source"]; exists {
-			discoverySource = source
-		}
-
-		// Create sweep result
-		hostname := device.Hostname
-		mac := device.MAC
-		partition := p.config.Partition
-
-		if partition == "" {
-			partition = "default"
-		}
-
-		deviceID := fmt.Sprintf("%s:%s", partition, device.IP)
-
-		results[i] = &models.SweepResult{
-			AgentID:         p.config.AgentID,
-			PollerID:        p.config.PollerID,
-			Partition:       partition,
-			DeviceID:        deviceID,
-			DiscoverySource: discoverySource,
-			IP:              device.IP,
-			MAC:             &mac,
-			Hostname:        &hostname,
-			Timestamp:       time.Now(),
-			Available:       true,
-			Metadata:        metadata,
-		}
+		updates[i] = p.convertDiscoveredDeviceToUpdate(device)
 	}
 
-	// Use the existing DB service method to store the batch
-	if err := p.dbService.StoreSweepResults(ctx, results); err != nil {
-		return fmt.Errorf("failed to publish batch devices: %w", err)
+	// Use the device registry batch method
+	if err := p.deviceRegistry.ProcessBatchDeviceUpdates(ctx, updates); err != nil {
+		return fmt.Errorf("failed to publish batch devices via registry: %w", err)
 	}
 
 	return nil
