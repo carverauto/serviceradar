@@ -34,10 +34,4 @@ type Manager interface {
 
 	// FindRelatedDevices finds all devices that are related to the given device ID.
 	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
-
-	// --- Legacy compatibility methods for transition period ---
-
-	// ProcessBatchSweepResults converts legacy SweepResult sightings into the new
-	// DeviceUpdate format before processing. This should be phased out.
-	ProcessBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
 }
