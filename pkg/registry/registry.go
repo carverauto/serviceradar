@@ -49,7 +49,7 @@ func (r *DeviceRegistry) ProcessDeviceUpdate(ctx context.Context, update *models
 }
 
 // ProcessBatchDeviceUpdates processes a batch of discovery events (DeviceUpdates).
-// It converts them to the SweepResult format required by the database's materialized view.
+// It publishes them directly to the device_updates stream for the materialized view.
 func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
 	if len(updates) == 0 {
 		return nil
@@ -60,42 +60,14 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		log.Printf("ProcessBatchDeviceUpdates completed in %v for %d updates", time.Since(processingStart), len(updates))
 	}()
 
-	// Convert the modern DeviceUpdate model to the legacy SweepResult model
-	// because the materialized view is powered by the `sweep_results` stream.
-	results := make([]*models.SweepResult, len(updates))
-
-	for i, u := range updates {
-		// Normalize first to ensure DeviceID is correct before creating the SweepResult
+	// Normalize updates to ensure required fields are populated
+	for _, u := range updates {
 		r.normalizeUpdate(u)
-
-		hostname := ""
-		if u.Hostname != nil {
-			hostname = *u.Hostname
-		}
-
-		mac := ""
-		if u.MAC != nil {
-			mac = *u.MAC
-		}
-
-		results[i] = &models.SweepResult{
-			DeviceID:        u.DeviceID,
-			IP:              u.IP,
-			Partition:       extractPartitionFromDeviceID(u.DeviceID),
-			DiscoverySource: string(u.Source),
-			AgentID:         u.AgentID,
-			PollerID:        u.PollerID,
-			Timestamp:       u.Timestamp,
-			Available:       u.IsAvailable,
-			Hostname:        &hostname,
-			MAC:             &mac,
-			Metadata:        u.Metadata,
-		}
 	}
 
-	// Publish the results to the `sweep_results` stream, which the MV consumes.
-	if err := r.db.PublishBatchSweepResults(ctx, results); err != nil {
-		return fmt.Errorf("failed to publish device updates as sweep results: %w", err)
+	// Publish directly to the device_updates stream
+	if err := r.db.PublishBatchDeviceUpdates(ctx, updates); err != nil {
+		return fmt.Errorf("failed to publish device updates: %w", err)
 	}
 
 	log.Printf("Successfully processed and published %d device updates.", len(updates))

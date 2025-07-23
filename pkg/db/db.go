@@ -35,14 +35,15 @@ import (
 
 // DB represents the database connection for Timeplus Proton.
 type DB struct {
-	Conn          proton.Conn
-	writeBuffer   []*models.SweepResult
-	bufferMutex   sync.Mutex
-	flushTimer    *time.Timer
-	ctx           context.Context
-	cancel        context.CancelFunc
-	maxBufferSize int
-	flushInterval time.Duration
+	Conn               proton.Conn
+	writeBuffer        []*models.SweepResult
+	deviceUpdateBuffer []*models.DeviceUpdate
+	mu                 sync.Mutex // Renamed for clarity - used by both buffers
+	flushTimer         *time.Timer
+	ctx                context.Context
+	cancel             context.CancelFunc
+	maxBufferSize      int
+	flushInterval      time.Duration
 }
 
 // createTLSConfig builds TLS configuration from security settings
@@ -336,8 +337,8 @@ func (db *DB) PublishBatchSweepResults(ctx context.Context, results []*models.Sw
 		return db.StoreSweepResults(ctx, results)
 	}
 
-	db.bufferMutex.Lock()
-	defer db.bufferMutex.Unlock()
+	db.mu.Lock()
+	defer db.mu.Unlock()
 
 	// Add results to buffer
 	db.writeBuffer = append(db.writeBuffer, results...)
@@ -356,8 +357,8 @@ func (db *DB) PublishBatchSweepResults(ctx context.Context, results []*models.Sw
 	}
 
 	db.flushTimer = time.AfterFunc(db.flushInterval, func() {
-		db.bufferMutex.Lock()
-		defer db.bufferMutex.Unlock()
+		db.mu.Lock()
+		defer db.mu.Unlock()
 
 		if len(db.writeBuffer) > 0 {
 			log.Printf("DEBUG [database]: Timer triggered flush for %d buffered results", len(db.writeBuffer))
@@ -387,7 +388,7 @@ func (db *DB) backgroundFlush() {
 			log.Printf("DEBUG [database]: Background flush routine stopping")
 			return
 		case <-ticker.C:
-			db.bufferMutex.Lock()
+			db.mu.Lock()
 			if len(db.writeBuffer) > 0 {
 				log.Printf("DEBUG [database]: Background flush triggered for %d buffered results", len(db.writeBuffer))
 
@@ -395,20 +396,20 @@ func (db *DB) backgroundFlush() {
 					log.Printf("ERROR [database]: Background flush failed: %v", err)
 				}
 			}
-			db.bufferMutex.Unlock()
+			db.mu.Unlock()
 		}
 	}
 }
 
 // flushBuffer safely flushes the write buffer to the database
 func (db *DB) flushBuffer(ctx context.Context) error {
-	db.bufferMutex.Lock()
-	defer db.bufferMutex.Unlock()
+	db.mu.Lock()
+	defer db.mu.Unlock()
 
 	return db.flushBufferUnsafe(ctx)
 }
 
-// flushBufferUnsafe flushes the write buffer to the database (caller must hold bufferMutex)
+// flushBufferUnsafe flushes the write buffer to the database (caller must hold mu)
 func (db *DB) flushBufferUnsafe(ctx context.Context) error {
 	if len(db.writeBuffer) == 0 {
 		return nil
