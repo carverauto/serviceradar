@@ -268,10 +268,13 @@ func (s *Server) processServices(
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
-	s.bufferMu.Lock()
+	s.serviceBufferMu.Lock()
 	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], serviceStatuses...)
+	s.serviceBufferMu.Unlock()
+
+	s.serviceListBufferMu.Lock()
 	s.serviceListBuffers[pollerID] = append(s.serviceListBuffers[pollerID], serviceList...)
-	s.bufferMu.Unlock()
+	s.serviceListBufferMu.Unlock()
 
 	apiStatus.IsHealthy = allServicesAvailable
 }
