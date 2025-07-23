@@ -52,12 +52,10 @@ func NewProtonPublisher(deviceRegistry registry.Manager, dbService db.Service, c
 	}, nil
 }
 
-// PublishDevice publishes a discovered device via the device registry
-func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredDevice) error {
-	// Convert to DeviceUpdate model
+// convertDiscoveredDeviceToUpdate converts a DiscoveredDevice to a DeviceUpdate
+func (p *ProtonPublisher) convertDiscoveredDeviceToUpdate(device *DiscoveredDevice) *models.DeviceUpdate {
+	// Build metadata from device fields
 	metadata := make(map[string]string)
-
-	// Add base device metadata
 	metadata["sys_descr"] = device.SysDescr
 	metadata["sys_object_id"] = device.SysObjectID
 	metadata["sys_contact"] = device.SysContact
@@ -65,13 +63,13 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	metadata["uptime"] = fmt.Sprintf("%d", device.Uptime)
 	metadata["device_id"] = device.DeviceID
 
-	// Add any additional metadata
+	// Add custom metadata
 	for k, v := range device.Metadata {
 		metadata[k] = v
 	}
 
 	// Determine discovery source from device metadata, default to Mapper
-	var discoverySource = models.DiscoverySourceMapper
+	discoverySource := models.DiscoverySourceMapper
 
 	if source, exists := device.Metadata["source"]; exists {
 		switch source {
@@ -88,24 +86,39 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 		}
 	}
 
-	// Generate device ID with partition
-	deviceID := fmt.Sprintf("%s:%s", p.config.Partition, device.IP)
+	// Ensure partition is set
+	partition := p.config.Partition
+	if partition == "" {
+		partition = "default"
+	}
 
-	// Create device update
-	update := &models.DeviceUpdate{
+	// Generate device ID with partition
+	deviceID := fmt.Sprintf("%s:%s", partition, device.IP)
+
+	// Create local copies for pointer fields to ensure consistency
+	hostname := device.Hostname
+	mac := device.MAC
+
+	// Create and return device update
+	return &models.DeviceUpdate{
 		DeviceID:    deviceID,
 		IP:          device.IP,
 		Source:      discoverySource,
 		AgentID:     p.config.AgentID,
 		PollerID:    p.config.PollerID,
-		Partition:   p.config.Partition,
+		Partition:   partition,
 		Timestamp:   time.Now(),
-		Hostname:    &device.Hostname,
-		MAC:         &device.MAC,
+		Hostname:    &hostname,
+		MAC:         &mac,
 		Metadata:    metadata,
 		IsAvailable: true,
 		Confidence:  models.GetSourceConfidence(discoverySource),
 	}
+}
+
+// PublishDevice publishes a discovered device via the device registry
+func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredDevice) error {
+	update := p.convertDiscoveredDeviceToUpdate(device)
 
 	// Publish via the device registry
 	if err := p.deviceRegistry.ProcessDeviceUpdate(ctx, update); err != nil {
@@ -215,67 +228,10 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 		return nil
 	}
 
-	// Convert all devices to device updates
+	// Convert all devices to device updates using the shared helper
 	updates := make([]*models.DeviceUpdate, len(devices))
-
 	for i, device := range devices {
-		// Create metadata
-		metadata := make(map[string]string)
-		metadata["sys_descr"] = device.SysDescr
-		metadata["sys_object_id"] = device.SysObjectID
-		metadata["sys_contact"] = device.SysContact
-		metadata["sys_location"] = device.SysLocation
-		metadata["uptime"] = fmt.Sprintf("%d", device.Uptime)
-		metadata["device_id"] = device.DeviceID
-
-		// Add custom metadata
-		for k, v := range device.Metadata {
-			metadata[k] = v
-		}
-
-		// Determine discovery source from device metadata, default to Mapper
-		var discoverySource = models.DiscoverySourceMapper
-
-		if source, exists := device.Metadata["source"]; exists {
-			switch source {
-			case "snmp":
-				discoverySource = models.DiscoverySourceSNMP
-			case "mapper":
-				discoverySource = models.DiscoverySourceMapper
-			case "integration":
-				discoverySource = models.DiscoverySourceIntegration
-			case "netflow":
-				discoverySource = models.DiscoverySourceNetFlow
-			default:
-				discoverySource = models.DiscoverySourceMapper
-			}
-		}
-
-		// Create device update
-		hostname := device.Hostname
-		mac := device.MAC
-		partition := p.config.Partition
-
-		if partition == "" {
-			partition = "default"
-		}
-
-		deviceID := fmt.Sprintf("%s:%s", partition, device.IP)
-
-		updates[i] = &models.DeviceUpdate{
-			DeviceID:    deviceID,
-			IP:          device.IP,
-			Source:      discoverySource,
-			AgentID:     p.config.AgentID,
-			PollerID:    p.config.PollerID,
-			Partition:   partition,
-			Timestamp:   time.Now(),
-			Hostname:    &hostname,
-			MAC:         &mac,
-			Metadata:    metadata,
-			IsAvailable: true,
-			Confidence:  models.GetSourceConfidence(discoverySource),
-		}
+		updates[i] = p.convertDiscoveredDeviceToUpdate(device)
 	}
 
 	// Use the device registry batch method
