@@ -227,7 +227,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 		name        string
 		updates     []*models.DeviceUpdate
 		description string
-		validate    func(t *testing.T, publishedResults []*models.SweepResult)
+		validate    func(t *testing.T, publishedUpdates []*models.DeviceUpdate)
 	}{
 		{
 			name:        "DeviceUpdate with complete data",
@@ -251,21 +251,21 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 					Confidence: 95,
 				},
 			},
-			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+			validate: func(t *testing.T, publishedUpdates []*models.DeviceUpdate) {
 				t.Helper()
-				assert.Len(t, publishedResults, 1, "Should publish exactly one result")
-				result := publishedResults[0]
-				assert.Equal(t, "default:192.168.1.1", result.DeviceID)
-				assert.Equal(t, "192.168.1.1", result.IP)
-				assert.Equal(t, "default", result.Partition)
-				assert.Equal(t, "snmp", result.DiscoverySource)
-				assert.Equal(t, "agent1", result.AgentID)
-				assert.Equal(t, "poller1", result.PollerID)
-				assert.True(t, result.Available)
-				assert.Equal(t, "test-device", *result.Hostname)
-				assert.Equal(t, "00:11:22:33:44:55", *result.MAC)
-				assert.Equal(t, "Cisco", result.Metadata["vendor"])
-				assert.Equal(t, "2960", result.Metadata["model"])
+				assert.Len(t, publishedUpdates, 1, "Should publish exactly one update")
+				update := publishedUpdates[0]
+				assert.Equal(t, "default:192.168.1.1", update.DeviceID)
+				assert.Equal(t, "192.168.1.1", update.IP)
+				assert.Equal(t, "default", update.Partition)
+				assert.Equal(t, models.DiscoverySourceSNMP, update.Source)
+				assert.Equal(t, "agent1", update.AgentID)
+				assert.Equal(t, "poller1", update.PollerID)
+				assert.True(t, update.IsAvailable)
+				assert.Equal(t, "test-device", *update.Hostname)
+				assert.Equal(t, "00:11:22:33:44:55", *update.MAC)
+				assert.Equal(t, "Cisco", update.Metadata["vendor"])
+				assert.Equal(t, "2960", update.Metadata["model"])
 			},
 		},
 		{
@@ -282,13 +282,13 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 					Hostname:    stringPtr("normalized-device"),
 				},
 			},
-			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+			validate: func(t *testing.T, publishedUpdates []*models.DeviceUpdate) {
 				t.Helper()
-				assert.Len(t, publishedResults, 1, "Should publish exactly one result")
-				result := publishedResults[0]
-				assert.Equal(t, "default:192.168.1.2", result.DeviceID, "Should generate DeviceID from IP")
-				assert.Equal(t, "192.168.1.2", result.IP)
-				assert.Equal(t, "default", result.Partition)
+				assert.Len(t, publishedUpdates, 1, "Should publish exactly one update")
+				update := publishedUpdates[0]
+				assert.Equal(t, "default:192.168.1.2", update.DeviceID, "Should generate DeviceID from IP")
+				assert.Equal(t, "192.168.1.2", update.IP)
+				assert.Equal(t, "default", update.Partition)
 			},
 		},
 		{
@@ -307,14 +307,14 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 					Metadata:    map[string]string{},
 				},
 			},
-			validate: func(t *testing.T, publishedResults []*models.SweepResult) {
+			validate: func(t *testing.T, publishedUpdates []*models.DeviceUpdate) {
 				t.Helper()
-				assert.Len(t, publishedResults, 1, "Should publish exactly one result")
-				result := publishedResults[0]
-				assert.Equal(t, "default:192.168.1.3", result.DeviceID)
-				assert.Equal(t, "", *result.Hostname, "Should convert nil hostname to empty string")
-				assert.Equal(t, "", *result.MAC, "Should convert nil MAC to empty string")
-				assert.False(t, result.Available)
+				assert.Len(t, publishedUpdates, 1, "Should publish exactly one update")
+				update := publishedUpdates[0]
+				assert.Equal(t, "default:192.168.1.3", update.DeviceID)
+				assert.Nil(t, update.Hostname, "Should keep nil hostname as nil")
+				assert.Nil(t, update.MAC, "Should keep nil MAC as nil")
+				assert.False(t, update.IsAvailable)
 			},
 		},
 	}
@@ -326,13 +326,13 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 				err := registry.ProcessBatchDeviceUpdates(ctx, tt.updates)
 				require.NoError(t, err, "ProcessBatchDeviceUpdates should handle empty batches")
 			} else {
-				// Mock: Expect PublishBatchSweepResults to be called
-				mockDB.EXPECT().PublishBatchSweepResults(
+				// Mock: Expect PublishBatchDeviceUpdates to be called
+				mockDB.EXPECT().PublishBatchDeviceUpdates(
 					gomock.Any(),
-					gomock.AssignableToTypeOf([]*models.SweepResult{}),
-				).DoAndReturn(func(_ context.Context, results []*models.SweepResult) error {
-					// Validate the results that would be published
-					tt.validate(t, results)
+					gomock.AssignableToTypeOf([]*models.DeviceUpdate{}),
+				).DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+					// Validate the updates that would be published
+					tt.validate(t, updates)
 
 					return nil
 				})
@@ -368,17 +368,17 @@ func TestDeviceRegistry_ProcessDeviceUpdate(t *testing.T) {
 		Metadata:    map[string]string{"test": "value"},
 	}
 
-	// Mock: Expect PublishBatchSweepResults to be called with single item
-	mockDB.EXPECT().PublishBatchSweepResults(
+	// Mock: Expect PublishBatchDeviceUpdates to be called with single item
+	mockDB.EXPECT().PublishBatchDeviceUpdates(
 		gomock.Any(),
-		gomock.AssignableToTypeOf([]*models.SweepResult{}),
-	).DoAndReturn(func(_ context.Context, results []*models.SweepResult) error {
-		assert.Len(t, results, 1, "Should publish exactly one result")
-		result := results[0]
-		assert.Equal(t, "default:192.168.1.1", result.DeviceID)
-		assert.Equal(t, "192.168.1.1", result.IP)
-		assert.Equal(t, "single-device", *result.Hostname)
-		assert.Equal(t, "value", result.Metadata["test"])
+		gomock.AssignableToTypeOf([]*models.DeviceUpdate{}),
+	).DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+		assert.Len(t, updates, 1, "Should publish exactly one update")
+		update = updates[0]
+		assert.Equal(t, "default:192.168.1.1", update.DeviceID)
+		assert.Equal(t, "192.168.1.1", update.IP)
+		assert.Equal(t, "single-device", *update.Hostname)
+		assert.Equal(t, "value", update.Metadata["test"])
 
 		return nil
 	})

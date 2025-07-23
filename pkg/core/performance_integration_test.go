@@ -73,7 +73,7 @@ func TestSyncResultsPerformanceOptimization(t *testing.T) {
 			// Current implementation always uses direct publishing
 			// regardless of batch size (batch optimization was simplified)
 			mockDB.EXPECT().
-				PublishBatchSweepResults(gomock.Any(), gomock.Any()).
+				PublishBatchDeviceUpdates(gomock.Any(), gomock.Any()).
 				Return(nil).
 				Times(1)
 
@@ -131,7 +131,7 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 
 	// Setup DB mocks for all 6 calls (first + 5 subsequent)
 	mockDB.EXPECT().
-		PublishBatchSweepResults(gomock.Any(), gomock.Any()).
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.Any()).
 		Return(nil).
 		Times(6)
 
@@ -193,11 +193,11 @@ func TestDatabaseCallCounting(t *testing.T) {
 	// Track database calls
 	var dbCallCount int
 
-	// Current implementation only makes one call to PublishBatchSweepResults
+	// Current implementation only makes one call to PublishBatchDeviceUpdates
 	// No batch optimization queries are performed
 	mockDB.EXPECT().
-		PublishBatchSweepResults(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ []*models.SweepResult) error {
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ []*models.DeviceUpdate) error {
 			dbCallCount++
 			return nil
 		}).

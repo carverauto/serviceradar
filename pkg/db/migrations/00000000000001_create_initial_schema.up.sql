@@ -1,8 +1,8 @@
 -- =================================================================
--- == ServiceRadar Unified Device Registry Schema
+-- == ServiceRadar Unified Device Registry Schema (Consolidated & Fixed)
 -- =================================================================
--- This schema eliminates race conditions by using application-level 
--- device management instead of materialized views.
+-- This schema represents the final, consolidated state after all migrations.
+-- It uses the device_updates stream instead of the legacy sweep_results.
 
 -- =================================================================
 -- == Core Data Streams
@@ -29,8 +29,8 @@ CREATE STREAM IF NOT EXISTS sweep_host_states (
 ) PRIMARY KEY (host_ip, poller_id, partition)
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Raw sweep results from discovery sources
-CREATE STREAM IF NOT EXISTS sweep_results (
+-- Raw device updates from discovery sources
+CREATE STREAM IF NOT EXISTS device_updates (
     agent_id string,
     poller_id string, 
     partition string,
@@ -44,11 +44,12 @@ CREATE STREAM IF NOT EXISTS sweep_results (
     metadata map(string, string)
 );
 
--- Current device inventory - only latest state via materialized view
+-- Current device inventory - aggregated device state
 CREATE STREAM IF NOT EXISTS unified_devices (
     device_id string,
     ip string,
     poller_id string,
+    agent_id string,
     hostname nullable(string),
     mac nullable(string),
     discovery_sources array(string),
@@ -56,7 +57,6 @@ CREATE STREAM IF NOT EXISTS unified_devices (
     first_seen DateTime64(3),
     last_seen DateTime64(3),
     metadata map(string, string),
-    agent_id string,
     device_type string DEFAULT 'network_device',
     service_type nullable(string),
     service_status nullable(string),
@@ -71,6 +71,7 @@ CREATE STREAM IF NOT EXISTS unified_devices_registry (
     device_id string,
     ip string,
     poller_id string,
+    agent_id string,
     hostname nullable(string),
     mac nullable(string),
     discovery_sources array(string),
@@ -78,7 +79,6 @@ CREATE STREAM IF NOT EXISTS unified_devices_registry (
     first_seen DateTime64(3),
     last_seen DateTime64(3),
     metadata map(string, string),
-    agent_id string,
     device_type string DEFAULT 'network_device',
     service_type nullable(string),
     service_status nullable(string),
@@ -88,42 +88,39 @@ CREATE STREAM IF NOT EXISTS unified_devices_registry (
 ) PRIMARY KEY (device_id)
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Materialized view that maintains only current device state
--- Uses the provided device_id to prevent duplicates when devices have multiple IPs
+-- Materialized view with proper discovery source aggregation (WORKING VERSION)
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
 INTO unified_devices
 AS SELECT
-                                          s.device_id AS device_id,  -- Use provided device_id instead of constructing it
-                                          s.ip,
-                                          s.poller_id,
-                                          if(s.hostname IS NOT NULL AND s.hostname != '', s.hostname, u.hostname) AS hostname,
-                                          if(s.mac IS NOT NULL AND s.mac != '', s.mac, u.mac) AS mac,
-                                          if(index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0,
-                                             u.discovery_sources,
-                                             array_push_back(if_null(u.discovery_sources, []), s.discovery_source)) AS discovery_sources,
-
-                                          -- START: CORRECTED AVAILABILITY LOGIC
-                                          -- If the new event's source is a passive one (e.g., netbox), we keep the EXISTING
-                                          -- availability status (u.is_available). For any other source (sweep, snmp, mapper, etc.),
-                                          -- we trust the new event's availability status (s.available).
-                                          -- The coalesce handles the initial creation of the device.
-                                          coalesce(if(s.discovery_source = 'netbox', u.is_available, s.available), s.available) AS is_available,
-                                          -- END: CORRECTED AVAILABILITY LOGIC
-
-                                          coalesce(u.first_seen, s.timestamp) AS first_seen,
-                                          s.timestamp AS last_seen,
-                                          if(s.metadata IS NOT NULL,
-                                             if(u.metadata IS NULL, s.metadata, map_update(u.metadata, s.metadata)),
-                                             u.metadata) AS metadata,
-                                          s.agent_id,
-                                          if(u.device_id IS NULL, 'network_device', u.device_type) AS device_type,
-                                          u.service_type,
-                                          u.service_status,
-                                          u.last_heartbeat,
-                                          u.os_info,
-                                          u.version_info
-   FROM sweep_results AS s
-            LEFT JOIN unified_devices AS u ON s.device_id = u.device_id;
+    s.device_id AS device_id,
+    s.ip,
+    s.poller_id,
+    if(s.hostname IS NOT NULL AND s.hostname != '', s.hostname, u.hostname) AS hostname,
+    if(s.mac IS NOT NULL AND s.mac != '', s.mac, u.mac) AS mac,
+    if(index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0,
+       u.discovery_sources,
+       array_push_back(if_null(u.discovery_sources, []), s.discovery_source)) AS discovery_sources,
+    -- For passive sources (netbox, armis) that don't perform availability checks,
+    -- preserve the existing availability status. For active sources (sweep, snmp, etc),
+    -- use their availability status.
+    coalesce(
+        if(s.discovery_source IN ('netbox', 'armis'), u.is_available, s.available), 
+        s.available
+    ) AS is_available,
+    coalesce(u.first_seen, s.timestamp) AS first_seen,
+    s.timestamp AS last_seen,
+    if(s.metadata IS NOT NULL,
+       if(u.metadata IS NULL, s.metadata, map_update(u.metadata, s.metadata)),
+       u.metadata) AS metadata,
+    s.agent_id,
+    if(u.device_id IS NULL, 'network_device', u.device_type) AS device_type,
+    u.service_type,
+    u.service_status,
+    u.last_heartbeat,
+    u.os_info,
+    u.version_info
+FROM device_updates AS s
+LEFT JOIN unified_devices AS u ON s.device_id = u.device_id;
 
 -- =================================================================
 -- == Network Discovery Streams
@@ -307,22 +304,27 @@ CREATE STREAM IF NOT EXISTS poller_statuses (
 -- == Events and Alerting Streams
 -- =================================================================
 
--- System and network events
+-- Recreate events stream with CloudEvents schema
 CREATE STREAM IF NOT EXISTS events (
+    -- CloudEvents standard fields
+    specversion       string,
     id                string,
-    event_timestamp   DateTime64(3),
-    severity          string,
-    event_type        string,
     source            string,
-    device_id         nullable(string),
-    poller_id         nullable(string),
-    agent_id          nullable(string),
-    title             string,
-    description       string,
-    metadata          string,
-    acknowledged      bool,
-    acknowledged_by   nullable(string),
-    acknowledged_at   nullable(DateTime64(3))
+    type              string,
+    datacontenttype   string,
+    subject           string,
+
+    -- Event data fields
+    remote_addr       string,
+    host              string,
+    level             int32,
+    severity          string,
+    short_message     string,
+    event_timestamp   DateTime64(3),
+    version           string,
+
+    -- Raw data for debugging
+    raw_data          string
 ) PRIMARY KEY (id)
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
@@ -408,12 +410,12 @@ SELECT
     any(m.used_bytes)               AS used_memory_bytes,
     count(*)                        AS metric_count
 FROM hop(cpu_metrics, timestamp, 10s, 60s) AS c
-LEFT JOIN hop(disk_metrics, timestamp, 10s, 60s) AS d
-    ON c.window_start = d.window_start 
-    AND c.device_id = d.device_id
-    AND c.poller_id = d.poller_id
-LEFT JOIN hop(memory_metrics, timestamp, 10s, 60s) AS m
-    ON c.window_start = m.window_start
-    AND c.device_id = m.device_id  
-    AND c.poller_id = m.poller_id
+         LEFT JOIN hop(disk_metrics, timestamp, 10s, 60s) AS d
+                   ON c.window_start = d.window_start
+                       AND c.device_id = d.device_id
+                       AND c.poller_id = d.poller_id
+         LEFT JOIN hop(memory_metrics, timestamp, 10s, 60s) AS m
+                   ON c.window_start = m.window_start
+                       AND c.device_id = m.device_id
+                       AND c.poller_id = m.poller_id
 GROUP BY c.window_start, c.device_id, c.poller_id, c.agent_id, c.partition;
