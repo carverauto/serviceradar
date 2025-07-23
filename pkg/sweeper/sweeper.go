@@ -507,67 +507,68 @@ func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (agentID, polle
 	return agentID, pollerID, partition
 }
 
-// createSweepResult creates a SweepResult from a Result.
-func (*NetworkSweeper) createSweepResult(result *models.Result, agentID, pollerID, partition string) *models.SweepResult {
+// createDeviceUpdate creates a DeviceUpdate from a Result.
+func (*NetworkSweeper) createDeviceUpdate(result *models.Result, agentID, pollerID, partition string) *models.DeviceUpdate {
 	// Always generate a valid device ID with partition
 	deviceID := fmt.Sprintf("%s:%s", partition, result.Target.Host)
 
-	return &models.SweepResult{
-		AgentID:         agentID,
-		PollerID:        pollerID,
-		Partition:       partition,
-		DeviceID:        deviceID,
-		DiscoverySource: string(models.DiscoverySourceSweep),
-		IP:              result.Target.Host,
-		Timestamp:       result.LastSeen,
-		Available:       result.Available,
-		Metadata:        make(map[string]string),
+	return &models.DeviceUpdate{
+		AgentID:     agentID,
+		PollerID:    pollerID,
+		Partition:   partition,
+		DeviceID:    deviceID,
+		Source:      models.DiscoverySourceSweep,
+		IP:          result.Target.Host,
+		Timestamp:   result.LastSeen,
+		IsAvailable: result.Available,
+		Metadata:    make(map[string]string),
+		Confidence:  models.GetSourceConfidence(models.DiscoverySourceSweep),
 	}
 }
 
 // convertMetadataToStringMap converts metadata to a string map.
-func convertMetadataToStringMap(sweepResult *models.SweepResult, metadata map[string]interface{}) {
+func convertMetadataToStringMap(deviceUpdate *models.DeviceUpdate, metadata map[string]interface{}) {
 	if metadata == nil {
 		return
 	}
 
 	for key, value := range metadata {
 		if strVal, ok := value.(string); ok {
-			sweepResult.Metadata[key] = strVal
+			deviceUpdate.Metadata[key] = strVal
 		} else {
-			sweepResult.Metadata[key] = fmt.Sprintf("%v", value)
+			deviceUpdate.Metadata[key] = fmt.Sprintf("%v", value)
 		}
 	}
 }
 
-// addAdditionalMetadata adds additional metadata to the SweepResult.
-func addAdditionalMetadata(sweepResult *models.SweepResult, result *models.Result) {
+// addAdditionalMetadata adds additional metadata to the DeviceUpdate.
+func addAdditionalMetadata(deviceUpdate *models.DeviceUpdate, result *models.Result) {
 	// Add sweep mode to metadata
-	sweepResult.Metadata["sweep_mode"] = string(result.Target.Mode)
+	deviceUpdate.Metadata["sweep_mode"] = string(result.Target.Mode)
 	if result.Target.Port > 0 {
-		sweepResult.Metadata["port"] = fmt.Sprintf("%d", result.Target.Port)
+		deviceUpdate.Metadata["port"] = fmt.Sprintf("%d", result.Target.Port)
 	}
 
 	// Add timing metadata
-	sweepResult.Metadata["response_time"] = result.RespTime.String()
-	sweepResult.Metadata["packet_loss"] = fmt.Sprintf("%.2f", result.PacketLoss)
+	deviceUpdate.Metadata["response_time"] = result.RespTime.String()
+	deviceUpdate.Metadata["packet_loss"] = fmt.Sprintf("%.2f", result.PacketLoss)
 }
 
 // processDeviceRegistry processes the sweep result through the device registry.
 func (s *NetworkSweeper) processDeviceRegistry(result *models.Result) error {
 	agentID, pollerID, partition := s.extractAgentInfo(result)
-	sweepResult := s.createSweepResult(result, agentID, pollerID, partition)
+	deviceUpdate := s.createDeviceUpdate(result, agentID, pollerID, partition)
 
 	// Convert metadata to string map
-	convertMetadataToStringMap(sweepResult, result.Target.Metadata)
+	convertMetadataToStringMap(deviceUpdate, result.Target.Metadata)
 
 	// Add additional metadata
-	addAdditionalMetadata(sweepResult, result)
+	addAdditionalMetadata(deviceUpdate, result)
 
 	// Use background context to avoid cancellation
 	bgCtx := context.Background()
 
-	return s.deviceRegistry.ProcessSweepResult(bgCtx, sweepResult)
+	return s.deviceRegistry.UpdateDevice(bgCtx, deviceUpdate)
 }
 
 // generateTargets creates scan targets from the configuration.
