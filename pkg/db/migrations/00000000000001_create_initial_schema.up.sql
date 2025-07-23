@@ -100,8 +100,13 @@ AS SELECT
     if(index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0,
        u.discovery_sources,
        array_push_back(if_null(u.discovery_sources, []), s.discovery_source)) AS discovery_sources,
-    -- Use existing availability for passive sources like netbox, new availability for active sources
-    coalesce(if(s.discovery_source = 'netbox', u.is_available, s.available), s.available) AS is_available,
+    -- For passive sources (netbox, armis) that don't perform availability checks,
+    -- preserve the existing availability status. For active sources (sweep, snmp, etc),
+    -- use their availability status.
+    coalesce(
+        if(s.discovery_source IN ('netbox', 'armis'), u.is_available, s.available), 
+        s.available
+    ) AS is_available,
     coalesce(u.first_seen, s.timestamp) AS first_seen,
     s.timestamp AS last_seen,
     if(s.metadata IS NOT NULL,
