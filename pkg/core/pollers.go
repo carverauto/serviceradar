@@ -463,7 +463,7 @@ func (s *Server) processStatusReport(
 				return
 			}
 
-			timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 
 			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services),
@@ -494,7 +494,7 @@ func (s *Server) processStatusReport(
 			return
 		}
 
-		timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
 		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services),
