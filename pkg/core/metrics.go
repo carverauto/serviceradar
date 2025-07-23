@@ -377,6 +377,44 @@ func (s *Server) processRperfMetrics(pollerID, partition string, details json.Ra
 	return nil
 }
 
+// processSweepService handles processing for sweep service.
+func (s *Server) processSweepService(
+	ctx context.Context,
+	pollerID string,
+	partition string,
+	agentID string,
+	svc *proto.ServiceStatus,
+	serviceData json.RawMessage,
+	now time.Time) error {
+	log.Printf("Processing sweep service data for poller %s, data size: %d bytes", pollerID, len(serviceData))
+	log.Printf("Svc.ServiceName: %s, ServiceType: %s", svc.ServiceName, svc.ServiceType)
+
+	// Unmarshal as SweepSummary which contains HostResults
+	var sweepSummary models.SweepSummary
+
+	if err := json.Unmarshal(serviceData, &sweepSummary); err != nil {
+		log.Printf("DEBUG: Failed to unmarshal sweep data as SweepSummary: %v", err)
+
+		return nil
+	}
+
+	log.Printf("Processing sweep summary with %d hosts for poller %s", len(sweepSummary.Hosts), pollerID)
+
+	// Use the result processor to convert HostResults to DeviceUpdates
+	// This ensures ICMP metadata is properly extracted and availability is correctly set
+	deviceUpdates := s.processHostResults(sweepSummary.Hosts, pollerID, partition, agentID, now)
+
+	// Directly process the device updates without redundant JSON marshaling
+	if len(deviceUpdates) > 0 {
+		if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, deviceUpdates); err != nil {
+			log.Printf("Error processing batch sweep updates: %v", err)
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (s *Server) processICMPMetrics(
 	pollerID string, partition string, sourceIP string, agentID string,
 	svc *proto.ServiceStatus,
@@ -566,73 +604,6 @@ func (s *Server) bufferSysmonMetrics(pollerID, partition string, metrics *models
 	s.bufferMu.Unlock()
 }
 
-// processGRPCSyncService handles processing for GRPC sync service.
-func (s *Server) processGRPCSyncService(
-	ctx context.Context,
-	pollerID string,
-	partition string,
-	svc *proto.ServiceStatus,
-	serviceData json.RawMessage,
-	now time.Time) error {
-	// Simply forward the raw data to the discovery service for processing
-	// All parsing and validation logic is now centralized in ProcessSyncResults
-	log.Printf("CORE DEBUG: Processing GRPC sync service data for poller %s, data size: %d bytes", pollerID, len(serviceData))
-	return s.discoveryService.ProcessSyncResults(ctx, pollerID, partition, svc, serviceData, now)
-}
-
-// processSweepService handles processing for sweep service.
-func (s *Server) processSweepService(
-	ctx context.Context,
-	pollerID string,
-	partition string,
-	agentID string,
-	svc *proto.ServiceStatus,
-	serviceData json.RawMessage,
-	now time.Time) error {
-	log.Printf("Processing sweep service data for poller %s, data size: %d bytes", pollerID, len(serviceData))
-
-	// Unmarshal as SweepSummary which contains HostResults
-	var sweepSummary models.SweepSummary
-
-	if err := json.Unmarshal(serviceData, &sweepSummary); err != nil {
-		log.Printf("DEBUG: Failed to unmarshal sweep data as SweepSummary: %v", err)
-
-		return nil
-	}
-
-	log.Printf("Processing sweep summary with %d hosts for poller %s", len(sweepSummary.Hosts), pollerID)
-
-	// Use the result processor to convert HostResults to DeviceUpdates
-	// This ensures ICMP metadata is properly extracted and availability is correctly set
-	deviceUpdates := s.processHostResults(sweepSummary.Hosts, pollerID, partition, agentID, now)
-
-	if len(deviceUpdates) > 0 {
-		sweepJSON, err := json.Marshal(deviceUpdates)
-		if err != nil {
-			log.Printf("DEBUG: Failed to marshal sweep device updates: %v", err)
-
-			return nil
-		}
-
-		return s.discoveryService.ProcessSyncResults(ctx, pollerID, partition, svc, sweepJSON, now)
-	}
-
-	return nil
-}
-
-// processSyncService handles processing for sync service.
-func (s *Server) processSyncService(
-	ctx context.Context,
-	pollerID string,
-	partition string,
-	svc *proto.ServiceStatus,
-	serviceData json.RawMessage,
-	now time.Time) error {
-	// Simply forward the raw data to the discovery service for processing
-	// All parsing and validation logic is now centralized in ProcessSyncResults
-	return s.discoveryService.ProcessSyncResults(ctx, pollerID, partition, svc, serviceData, now)
-}
-
 // processGRPCService handles processing for GRPC service.
 func (s *Server) processGRPCService(
 	ctx context.Context,
@@ -649,7 +620,8 @@ func (s *Server) processGRPCService(
 	case sysmonServiceType:
 		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
 	case syncServiceType:
-		return s.processGRPCSyncService(ctx, pollerID, partition, svc, serviceData, now)
+		log.Printf("CORE DEBUG: Processing GRPC sync service data for poller %s, data size: %d bytes", pollerID, len(serviceData))
+		return s.discoveryService.ProcessSyncResults(ctx, pollerID, partition, svc, serviceData, now)
 	default:
 		log.Printf("Unknown GRPC service name %s on poller %s", svc.ServiceName, pollerID)
 	}
@@ -657,8 +629,8 @@ func (s *Server) processGRPCService(
 	return nil
 }
 
-// processMetrics handles metrics processing for all service types.
-func (s *Server) processMetrics(
+// processServicePayload handles service payload processing for all service types including metrics, discovery results, and sync data.
+func (s *Server) processServicePayload(
 	ctx context.Context,
 	pollerID string,
 	partition string,
@@ -666,7 +638,7 @@ func (s *Server) processMetrics(
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
-	log.Printf("processMetrics - ServiceName: %s, ServiceType: %s, DataSize: %d bytes", svc.ServiceName, svc.ServiceType, len(details))
+	log.Printf("processServicePayload - ServiceName: %s, ServiceType: %s, DataSize: %d bytes", svc.ServiceName, svc.ServiceType, len(details))
 
 	// Extract enhanced payload if present, or use original data
 	enhancedPayload, serviceData := s.extractServicePayload(details)
@@ -694,7 +666,7 @@ func (s *Server) processMetrics(
 	case sweepService:
 		return s.processSweepService(ctx, contextPollerID, contextPartition, contextAgentID, svc, serviceData, now)
 	case syncServiceType:
-		return s.processSyncService(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+		return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 	default:
 		log.Printf("Unknown service type %s on poller %s", svc.ServiceType, pollerID)
 	}
