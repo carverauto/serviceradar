@@ -24,6 +24,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -38,30 +39,41 @@ func TestNewProtonPublisher(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockRegistry := registry.NewMockManager(ctrl)
 
 	tests := []struct {
-		name        string
-		dbService   db.Service
-		config      *StreamConfig
-		expectError bool
+		name           string
+		deviceRegistry registry.Manager
+		dbService      db.Service
+		config         *StreamConfig
+		expectError    bool
 	}{
 		{
-			name:        "nil db service",
-			dbService:   nil,
-			config:      &StreamConfig{},
-			expectError: true,
+			name:           "nil device registry",
+			deviceRegistry: nil,
+			dbService:      mockDB,
+			config:         &StreamConfig{},
+			expectError:    true,
 		},
 		{
-			name:        "valid db service",
-			dbService:   mockDB,
-			config:      &StreamConfig{},
-			expectError: false,
+			name:           "nil db service",
+			deviceRegistry: mockRegistry,
+			dbService:      nil,
+			config:         &StreamConfig{},
+			expectError:    true,
+		},
+		{
+			name:           "valid services",
+			deviceRegistry: mockRegistry,
+			dbService:      mockDB,
+			config:         &StreamConfig{},
+			expectError:    false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			publisher, err := NewProtonPublisher(tt.dbService, tt.config)
+			publisher, err := NewProtonPublisher(tt.deviceRegistry, tt.dbService, tt.config)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -79,12 +91,13 @@ func TestPublishDevice(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(mockDB, config)
+	publisher, err := NewProtonPublisher(mockRegistry, mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -104,26 +117,26 @@ func TestPublishDevice(t *testing.T) {
 		},
 	}
 
-	// Test successful publish
-	mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, results []*models.SweepResult) error {
-			assert.Len(t, results, 1)
-			assert.Equal(t, config.AgentID, results[0].AgentID)
-			assert.Equal(t, config.PollerID, results[0].PollerID)
-			assert.Equal(t, device.IP, results[0].IP)
-			assert.Equal(t, device.MAC, *results[0].MAC)
-			assert.Equal(t, device.Hostname, *results[0].Hostname)
-			assert.Equal(t, "snmp", results[0].DiscoverySource)
-			assert.True(t, results[0].Available)
+	// Test successful publish via registry
+	mockRegistry.EXPECT().ProcessDeviceUpdate(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, update *models.DeviceUpdate) error {
+			assert.Equal(t, config.AgentID, update.AgentID)
+			assert.Equal(t, config.PollerID, update.PollerID)
+			assert.Equal(t, device.IP, update.IP)
+			assert.Equal(t, device.MAC, *update.MAC)
+			assert.Equal(t, device.Hostname, *update.Hostname)
+			assert.Equal(t, models.DiscoverySourceSNMP, update.Source)
+			assert.True(t, update.IsAvailable)
+			assert.Positive(t, update.Confidence)
 
 			// Check metadata
-			assert.Equal(t, device.SysDescr, results[0].Metadata["sys_descr"])
-			assert.Equal(t, device.SysObjectID, results[0].Metadata["sys_object_id"])
-			assert.Equal(t, device.SysContact, results[0].Metadata["sys_contact"])
-			assert.Equal(t, device.SysLocation, results[0].Metadata["sys_location"])
-			assert.Equal(t, "12345", results[0].Metadata["uptime"])
-			assert.Equal(t, device.DeviceID, results[0].Metadata["device_id"])
-			assert.Equal(t, "custom_value", results[0].Metadata["custom_key"])
+			assert.Equal(t, device.SysDescr, update.Metadata["sys_descr"])
+			assert.Equal(t, device.SysObjectID, update.Metadata["sys_object_id"])
+			assert.Equal(t, device.SysContact, update.Metadata["sys_contact"])
+			assert.Equal(t, device.SysLocation, update.Metadata["sys_location"])
+			assert.Equal(t, "12345", update.Metadata["uptime"])
+			assert.Equal(t, device.DeviceID, update.Metadata["device_id"])
+			assert.Equal(t, "custom_value", update.Metadata["custom_key"])
 
 			return nil
 		},
@@ -133,12 +146,12 @@ func TestPublishDevice(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test error case
-	mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).Return(errMockDB)
+	mockRegistry.EXPECT().ProcessDeviceUpdate(gomock.Any(), gomock.Any()).Return(errMockDB)
 
 	err = publisher.PublishDevice(ctx, device)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to publish device")
+	assert.Contains(t, err.Error(), "failed to publish device via registry")
 }
 
 func TestPublishInterface(t *testing.T) {
@@ -146,12 +159,13 @@ func TestPublishInterface(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(mockDB, config)
+	publisher, err := NewProtonPublisher(mockRegistry, mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -219,12 +233,13 @@ func TestPublishTopologyLink(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(mockDB, config)
+	publisher, err := NewProtonPublisher(mockRegistry, mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -288,12 +303,13 @@ func TestPublishBatchDevices(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(mockDB, config)
+	publisher, err := NewProtonPublisher(mockRegistry, mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -327,25 +343,25 @@ func TestPublishBatchDevices(t *testing.T) {
 	}
 
 	// Test successful publish
-	mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, results []*models.SweepResult) error {
-			assert.Len(t, results, 2)
+	mockRegistry.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, updates []*models.DeviceUpdate) error {
+			assert.Len(t, updates, 2)
 
 			// Check first device
-			assert.Equal(t, config.AgentID, results[0].AgentID)
-			assert.Equal(t, config.PollerID, results[0].PollerID)
-			assert.Equal(t, devices[0].IP, results[0].IP)
-			assert.Equal(t, devices[0].MAC, *results[0].MAC)
-			assert.Equal(t, devices[0].Hostname, *results[0].Hostname)
-			assert.Equal(t, "value1", results[0].Metadata["key1"])
+			assert.Equal(t, config.AgentID, updates[0].AgentID)
+			assert.Equal(t, config.PollerID, updates[0].PollerID)
+			assert.Equal(t, devices[0].IP, updates[0].IP)
+			assert.Equal(t, devices[0].MAC, *updates[0].MAC)
+			assert.Equal(t, devices[0].Hostname, *updates[0].Hostname)
+			assert.Equal(t, "value1", updates[0].Metadata["key1"])
 
 			// Check second device
-			assert.Equal(t, config.AgentID, results[1].AgentID)
-			assert.Equal(t, config.PollerID, results[1].PollerID)
-			assert.Equal(t, devices[1].IP, results[1].IP)
-			assert.Equal(t, devices[1].MAC, *results[1].MAC)
-			assert.Equal(t, devices[1].Hostname, *results[1].Hostname)
-			assert.Equal(t, "value2", results[1].Metadata["key2"])
+			assert.Equal(t, config.AgentID, updates[1].AgentID)
+			assert.Equal(t, config.PollerID, updates[1].PollerID)
+			assert.Equal(t, devices[1].IP, updates[1].IP)
+			assert.Equal(t, devices[1].MAC, *updates[1].MAC)
+			assert.Equal(t, devices[1].Hostname, *updates[1].Hostname)
+			assert.Equal(t, "value2", updates[1].Metadata["key2"])
 
 			return nil
 		},
@@ -355,12 +371,12 @@ func TestPublishBatchDevices(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test error case
-	mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).Return(errMockDB)
+	mockRegistry.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).Return(errMockDB)
 
 	err = protonPublisher.PublishBatchDevices(ctx, devices)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to publish batch devices")
+	assert.Contains(t, err.Error(), "failed to publish batch devices via registry")
 }
 
 func TestPublishBatchInterfaces(t *testing.T) {
@@ -373,7 +389,7 @@ func TestPublishBatchInterfaces(t *testing.T) {
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(mockDB, config)
+	publisher, err := NewProtonPublisher(registry.NewMockManager(ctrl), mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -445,7 +461,7 @@ func TestPublishBatchTopologyLinks(t *testing.T) {
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(mockDB, config)
+	publisher, err := NewProtonPublisher(registry.NewMockManager(ctrl), mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
