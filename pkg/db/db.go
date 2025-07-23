@@ -35,15 +35,14 @@ import (
 
 // DB represents the database connection for Timeplus Proton.
 type DB struct {
-	Conn               proton.Conn
-	writeBuffer        []*models.SweepResult
-	deviceUpdateBuffer []*models.DeviceUpdate
-	mu                 sync.Mutex // Renamed for clarity - used by both buffers
-	flushTimer         *time.Timer
-	ctx                context.Context
-	cancel             context.CancelFunc
-	maxBufferSize      int
-	flushInterval      time.Duration
+	Conn          proton.Conn
+	writeBuffer   []*models.SweepResult
+	mu            sync.Mutex
+	flushTimer    *time.Timer
+	ctx           context.Context
+	cancel        context.CancelFunc
+	maxBufferSize int
+	flushInterval time.Duration
 }
 
 // createTLSConfig builds TLS configuration from security settings
@@ -181,10 +180,12 @@ func (db *DB) Close() error {
 		db.cancel()
 	}
 
-	// Flush any remaining data
-	if err := db.flushBuffer(context.Background()); err != nil {
-		log.Printf("WARNING [database]: Failed to flush buffer during close: %v", err)
+	// Flush any remaining data from sweep results buffer
+	db.mu.Lock()
+	if err := db.flushBufferUnsafe(context.Background()); err != nil {
+		log.Printf("WARNING [database]: Failed to flush sweep results buffer during close: %v", err)
 	}
+	db.mu.Unlock()
 
 	return db.Conn.Close()
 }
@@ -377,6 +378,67 @@ func (db *DB) PublishSweepResult(ctx context.Context, result *models.SweepResult
 	return db.PublishBatchSweepResults(ctx, []*models.SweepResult{result})
 }
 
+// PublishDeviceUpdate publishes a single device update to the device_updates stream.
+func (db *DB) PublishDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error {
+	return db.PublishBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
+}
+
+// PublishBatchDeviceUpdates publishes device updates directly to the device_updates stream.
+func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	log.Printf("DEBUG [database]: Publishing %d device updates directly to device_updates stream", len(updates))
+
+	batch, err := db.Conn.PrepareBatch(ctx,
+		"INSERT INTO device_updates (agent_id, poller_id, partition, device_id, discovery_source, "+
+			"ip, mac, hostname, timestamp, available, metadata)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare device updates batch: %w", err)
+	}
+
+	for _, update := range updates {
+		// Ensure required fields
+		if update.DeviceID == "" {
+			if update.Partition == "" {
+				update.Partition = "default"
+			}
+
+			update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
+		}
+
+		if update.Metadata == nil {
+			update.Metadata = make(map[string]string)
+		}
+
+		err := batch.Append(
+			update.AgentID,
+			update.PollerID,
+			update.Partition,
+			update.DeviceID,
+			string(update.Source),
+			update.IP,
+			update.MAC,
+			update.Hostname,
+			update.Timestamp,
+			update.IsAvailable,
+			update.Metadata,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to append device update: %w", err)
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to send device updates batch: %w", err)
+	}
+
+	log.Printf("Successfully published %d device updates to device_updates stream", len(updates))
+
+	return nil
+}
+
 // backgroundFlush runs a background goroutine to periodically flush the buffer
 func (db *DB) backgroundFlush() {
 	ticker := time.NewTicker(db.flushInterval / 2) // Check twice as often as flush interval
@@ -389,24 +451,18 @@ func (db *DB) backgroundFlush() {
 			return
 		case <-ticker.C:
 			db.mu.Lock()
+			// Flush sweep results buffer
 			if len(db.writeBuffer) > 0 {
-				log.Printf("DEBUG [database]: Background flush triggered for %d buffered results", len(db.writeBuffer))
+				log.Printf("DEBUG [database]: Background flush triggered for %d buffered sweep results", len(db.writeBuffer))
 
 				if err := db.flushBufferUnsafe(context.Background()); err != nil {
-					log.Printf("ERROR [database]: Background flush failed: %v", err)
+					log.Printf("ERROR [database]: Background flush failed for sweep results: %v", err)
 				}
 			}
+			// Device updates are published directly, no buffering needed
 			db.mu.Unlock()
 		}
 	}
-}
-
-// flushBuffer safely flushes the write buffer to the database
-func (db *DB) flushBuffer(ctx context.Context) error {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
-	return db.flushBufferUnsafe(ctx)
 }
 
 // flushBufferUnsafe flushes the write buffer to the database (caller must hold mu)
