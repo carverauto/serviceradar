@@ -132,6 +132,11 @@ type Service interface {
 	PublishSweepResult(ctx context.Context, result *models.SweepResult) error
 	PublishBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
 
+	// DeviceUpdate operations (modern materialized view approach).
+
+	PublishDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error
+	PublishBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error
+
 	// Device-centric metric operations.
 
 	GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error)

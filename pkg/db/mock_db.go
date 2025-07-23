@@ -555,6 +555,20 @@ func (mr *MockServiceMockRecorder) ListUnifiedDevices(ctx, limit, offset any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnifiedDevices", reflect.TypeOf((*MockService)(nil).ListUnifiedDevices), ctx, limit, offset)
 }
 
+// PublishBatchDeviceUpdates mocks base method.
+func (m *MockService) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishBatchDeviceUpdates", ctx, updates)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishBatchDeviceUpdates indicates an expected call of PublishBatchDeviceUpdates.
+func (mr *MockServiceMockRecorder) PublishBatchDeviceUpdates(ctx, updates any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishBatchDeviceUpdates", reflect.TypeOf((*MockService)(nil).PublishBatchDeviceUpdates), ctx, updates)
+}
+
 // PublishBatchDiscoveredInterfaces mocks base method.
 func (m *MockService) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
 	m.ctrl.T.Helper()
@@ -595,6 +609,20 @@ func (m *MockService) PublishBatchTopologyDiscoveryEvents(ctx context.Context, e
 func (mr *MockServiceMockRecorder) PublishBatchTopologyDiscoveryEvents(ctx, events any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishBatchTopologyDiscoveryEvents", reflect.TypeOf((*MockService)(nil).PublishBatchTopologyDiscoveryEvents), ctx, events)
+}
+
+// PublishDeviceUpdate mocks base method.
+func (m *MockService) PublishDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishDeviceUpdate", ctx, update)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishDeviceUpdate indicates an expected call of PublishDeviceUpdate.
+func (mr *MockServiceMockRecorder) PublishDeviceUpdate(ctx, update any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishDeviceUpdate", reflect.TypeOf((*MockService)(nil).PublishDeviceUpdate), ctx, update)
 }
 
 // PublishDiscoveredInterface mocks base method.
