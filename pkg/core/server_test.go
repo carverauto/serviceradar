@@ -141,7 +141,6 @@ func newServerWithDB(_ context.Context, config *models.DBConfig, database db.Ser
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		serviceListBuffers:  make(map[string][]*models.Service),
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
-		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 	}
@@ -215,15 +214,16 @@ func TestReportStatus(t *testing.T) {
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
-		bufferMu:            sync.RWMutex{},
 	}
 
 	// Test unknown poller
-	server.bufferMu.Lock()
+	server.serviceBufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
+	server.serviceBufferMu.Unlock()
+	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
+	server.serviceListBufferMu.Unlock()
 	t.Logf("TestReportStatus: serviceBuffers before unknown-poller: %+v", server.serviceBuffers)
-	server.bufferMu.Unlock()
 
 	resp, err := server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
 		PollerId:  "unknown-poller",
@@ -235,18 +235,22 @@ func TestReportStatus(t *testing.T) {
 	assert.True(t, resp.Received)
 
 	server.flushAllBuffers(context.Background())
-	server.bufferMu.Lock()
+	server.serviceBufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
+	server.serviceBufferMu.Unlock()
+	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
+	server.serviceListBufferMu.Unlock()
 	t.Logf("TestReportStatus: serviceBuffers after unknown-poller: %+v", server.serviceBuffers)
-	server.bufferMu.Unlock()
 
 	// Test valid poller with ICMP service
-	server.bufferMu.Lock()
+	server.serviceBufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
+	server.serviceBufferMu.Unlock()
+	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
+	server.serviceListBufferMu.Unlock()
 	t.Logf("TestReportStatus: serviceBuffers before test-poller: %+v", server.serviceBuffers)
-	server.bufferMu.Unlock()
 
 	icmpMessage := `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`
 	resp, err = server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
@@ -269,11 +273,13 @@ func TestReportStatus(t *testing.T) {
 	assert.True(t, resp.Received)
 
 	server.flushAllBuffers(context.Background())
-	server.bufferMu.Lock()
+	server.serviceBufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
+	server.serviceBufferMu.Unlock()
+	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
+	server.serviceListBufferMu.Unlock()
 	t.Logf("TestReportStatus: serviceBuffers after test-poller: %+v", server.serviceBuffers)
-	server.bufferMu.Unlock()
 }
 
 // getSweepTestCases returns test cases for TestProcessSweepData
@@ -428,7 +434,6 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	server := &Server{
 		DB:            mockDB,
 		metricBuffers: make(map[string][]*models.TimeseriesMetric),
-		bufferMu:      sync.RWMutex{},
 	}
 
 	pollerID := "test-poller"
@@ -703,7 +708,6 @@ func setupTestServer(
 		webhooks:                []alerts.AlertService{mockAlerter},
 		apiServer:               mockAPIServer,
 		serviceBuffers:          make(map[string][]*models.ServiceStatus),
-		bufferMu:                sync.RWMutex{},
 		pollerStatusUpdateMutex: sync.Mutex{},
 		pollerStatusUpdates:     make(map[string]*models.PollerStatus),
 		pollerStatusCache:       make(map[string]*models.PollerStatus),
@@ -712,13 +716,19 @@ func setupTestServer(
 	}
 
 	// Clear all buffers and caches for isolation
-	server.bufferMu.Lock()
+	server.serviceBufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
+	server.serviceBufferMu.Unlock()
+	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
+	server.serviceListBufferMu.Unlock()
+	server.metricBufferMu.Lock()
 	server.metricBuffers = make(map[string][]*models.TimeseriesMetric)
+	server.metricBufferMu.Unlock()
+	server.sysmonBufferMu.Lock()
 	server.sysmonBuffers = make(map[string][]*sysmonMetricBuffer)
+	server.sysmonBufferMu.Unlock()
 	t.Logf("Initial serviceBuffers: %+v", server.serviceBuffers)
-	server.bufferMu.Unlock()
 
 	server.cacheMutex.Lock()
 	server.pollerStatusCache = make(map[string]*models.PollerStatus)
@@ -801,11 +811,13 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	ctx := context.Background()
 
 	// Clear buffers before ReportStatus
-	server.bufferMu.Lock()
+	server.serviceBufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
+	server.serviceBufferMu.Unlock()
+	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
+	server.serviceListBufferMu.Unlock()
 	t.Logf("serviceBuffers before ReportStatus: %+v", server.serviceBuffers)
-	server.bufferMu.Unlock()
 
 	// Test the ReportStatus function
 	reportStatusCount := 0
@@ -825,9 +837,11 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	// Cleanup
 	server.flushAllBuffers(ctx)
 	time.Sleep(100 * time.Millisecond) // Wait for flush
-	server.bufferMu.Lock()
+	server.serviceBufferMu.Lock()
 	t.Logf("serviceBuffers after flush: %+v", server.serviceBuffers)
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
+	server.serviceBufferMu.Unlock()
+	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
-	server.bufferMu.Unlock()
+	server.serviceListBufferMu.Unlock()
 }
