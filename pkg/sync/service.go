@@ -81,6 +81,10 @@ type SimpleSyncService struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// Error handling
+	errorChan chan error
+	wg        sync.WaitGroup
+
 	logger logger.Logger
 }
 
@@ -112,12 +116,44 @@ func NewSimpleSyncService(
 		armisUpdateInterval: time.Duration(config.UpdateInterval),
 		ctx:                 serviceCtx,
 		cancel:              cancel,
+		errorChan:           make(chan error, 10), // Buffered channel for error collection
 		logger:              log,
 	}
 
 	s.initializeIntegrations(ctx)
 
 	return s, nil
+}
+
+// safelyRunTask executes a task function with proper error handling and panic recovery
+func (s *SimpleSyncService) safelyRunTask(ctx context.Context, taskName string, task func(context.Context) error) {
+	defer s.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			err := fmt.Errorf("panic in %s: %v", taskName, r)
+			s.logger.Error().Err(err).Msg("Recovered from panic")
+			s.sendError(err)
+		}
+	}()
+
+	if err := task(ctx); err != nil {
+		s.sendError(fmt.Errorf("%s error: %w", taskName, err))
+	}
+}
+
+// sendError safely sends an error to the error channel, logging if the channel is full
+func (s *SimpleSyncService) sendError(err error) {
+	select {
+	case s.errorChan <- err:
+	default:
+		s.logger.Error().Err(err).Msg("Error channel full, dropping error")
+	}
+}
+
+// launchTask adds to the wait group and launches a goroutine to execute the given task
+func (s *SimpleSyncService) launchTask(ctx context.Context, taskName string, task func(context.Context) error) {
+	s.wg.Add(1)
+	go s.safelyRunTask(ctx, taskName, task)
 }
 
 // Start begins the simple interval-based discovery and Armis update cycles
@@ -133,9 +169,7 @@ func (s *SimpleSyncService) Start(ctx context.Context) error {
 	defer armisUpdateTicker.Stop()
 
 	// Run initial discovery immediately
-	go func() {
-		s.runDiscovery(ctx)
-	}()
+	s.launchTask(ctx, "discovery", s.runDiscovery)
 
 	for {
 		select {
@@ -143,14 +177,15 @@ func (s *SimpleSyncService) Start(ctx context.Context) error {
 			return ctx.Err()
 		case <-s.ctx.Done():
 			return s.ctx.Err()
+		case err := <-s.errorChan:
+			// Log critical errors but continue running
+			s.logger.Error().Err(err).Msg("Critical error in sync service")
+			// Optionally, you can return the error to stop the service on critical errors
+			// return fmt.Errorf("critical error in sync service: %w", err)
 		case <-discoveryTicker.C:
-			go func() {
-				s.runDiscovery(ctx)
-			}()
+			s.launchTask(ctx, "discovery", s.runDiscovery)
 		case <-armisUpdateTicker.C:
-			go func() {
-				s.runArmisUpdates(ctx)
-			}()
+			s.launchTask(ctx, "armis updates", s.runArmisUpdates)
 		}
 	}
 }
@@ -162,6 +197,12 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 	if s.cancel != nil {
 		s.cancel()
 	}
+
+	// Wait for all goroutines to finish
+	s.wg.Wait()
+
+	// Close error channel
+	close(s.errorChan)
 
 	if s.grpcServer != nil {
 		s.grpcServer.GracefulStop()
@@ -179,13 +220,15 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 }
 
 // runDiscovery executes discovery for all integrations and immediately writes to KV
-func (s *SimpleSyncService) runDiscovery(ctx context.Context) {
+func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 	s.logger.Info().
 		Time("started_at", time.Now()).
 		Msg("Starting discovery cycle")
 	s.markSweepStarted()
 
 	allDeviceUpdates := make(map[string][]*models.DeviceUpdate)
+
+	var discoveryErrors []error
 
 	for sourceName, integration := range s.sources {
 		s.logger.Info().Str("source", sourceName).Msg("Running discovery for source")
@@ -194,12 +237,15 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) {
 		kvData, devices, err := integration.Fetch(ctx)
 		if err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Discovery failed for source")
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("source %s: %w", sourceName, err))
+
 			continue
 		}
 
 		// Immediately write device data to KV store
 		if err := s.writeToKV(ctx, sourceName, kvData); err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Failed to write to KV")
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("KV write for source %s: %w", sourceName, err))
 		}
 
 		allDeviceUpdates[sourceName] = devices
@@ -244,25 +290,42 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) {
 		Msg("Discovery cycle completed")
 
 	s.markSweepCompleted()
+
+	// Return aggregated errors if any occurred
+	if len(discoveryErrors) > 0 {
+		return fmt.Errorf("discovery completed with %d errors: %w", len(discoveryErrors), errors.Join(discoveryErrors...))
+	}
+
+	return nil
 }
 
 // runArmisUpdates queries SRQL and updates Armis with device availability
-func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) {
+func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 	// Check if we should wait for sweep completion
 	if !s.shouldProceedWithUpdates() {
 		s.logger.Info().Msg("Waiting for sweep completion before running updates")
-		return
+		return nil
 	}
 
 	s.logger.Info().Msg("Starting Armis update cycle")
 
+	var updateErrors []error
+
 	for sourceName, integration := range s.sources {
 		if err := integration.Reconcile(ctx); err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Armis update failed for source")
+			updateErrors = append(updateErrors, fmt.Errorf("reconcile source %s: %w", sourceName, err))
 		}
 	}
 
 	s.logger.Info().Msg("Armis update cycle completed")
+
+	// Return aggregated errors if any occurred
+	if len(updateErrors) > 0 {
+		return fmt.Errorf("armis updates completed with %d errors: %w", len(updateErrors), errors.Join(updateErrors...))
+	}
+
+	return nil
 }
 
 // shouldProceedWithUpdates checks if enough time has passed since last sweep completion
