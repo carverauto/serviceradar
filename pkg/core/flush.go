@@ -48,7 +48,6 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 	s.flushServiceStatuses(ctx)
 	s.flushServices(ctx)
 	s.flushSysmonMetrics(ctx)
-	s.flushSweepResults(ctx)
 }
 
 // flushMetrics flushes metric buffers to the database.
@@ -146,24 +145,5 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 		}
 
 		s.sysmonBuffers[pollerID] = nil
-	}
-}
-
-// flushSweepResults flushes sweep result buffers to the database.
-func (s *Server) flushSweepResults(ctx context.Context) {
-	for pollerID, results := range s.sweepResultBuffers {
-		if len(results) == 0 {
-			continue
-		}
-
-		if s.DeviceRegistry != nil {
-			if err := s.DeviceRegistry.ProcessBatchSweepResults(ctx, results); err != nil {
-				log.Printf("Error processing batch sweep results for poller %s: %v", pollerID, err)
-			} else {
-				log.Printf("Successfully flushed %d sweep results for poller %s", len(results), pollerID)
-			}
-		}
-
-		s.sweepResultBuffers[pollerID] = nil
 	}
 }
