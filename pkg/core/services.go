@@ -315,7 +315,7 @@ func (s *Server) processServiceDetails(
 
 	apiService.Details = details
 
-	if err := s.processMetrics(ctx, pollerID, partition, sourceIP, svc, details, now); err != nil {
+	if err := s.processServicePayload(ctx, pollerID, partition, sourceIP, svc, details, now); err != nil {
 		log.Printf("Error processing metrics for service %s on poller %s: %v",
 			svc.ServiceName, pollerID, err)
 		return err

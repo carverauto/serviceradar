@@ -31,7 +31,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestProcessMetrics_SyncService_PayloadDetection(t *testing.T) {
+func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -125,7 +125,7 @@ func TestProcessMetrics_SyncService_PayloadDetection(t *testing.T) {
 				ProcessSyncResults(ctx, pollerID, partition, svc, tt.message, timestamp).
 				Return(tt.expectedError)
 
-			err := server.processMetrics(ctx, pollerID, partition, sourceIP, svc, tt.message, timestamp)
+			err := server.processServicePayload(ctx, pollerID, partition, sourceIP, svc, tt.message, timestamp)
 
 			if tt.expectedError != nil {
 				require.Error(t, err)
@@ -137,7 +137,7 @@ func TestProcessMetrics_SyncService_PayloadDetection(t *testing.T) {
 	}
 }
 
-func TestProcessMetrics_SyncService_WithEnhancedPayload(t *testing.T) {
+func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -202,11 +202,11 @@ func TestProcessMetrics_SyncService_WithEnhancedPayload(t *testing.T) {
 		).
 		Return(nil)
 
-	err = server.processMetrics(ctx, "original-poller", "original-partition", "192.168.1.100", svc, enhancedMessage, timestamp)
+	err = server.processServicePayload(ctx, "original-poller", "original-partition", "192.168.1.100", svc, enhancedMessage, timestamp)
 	require.NoError(t, err)
 }
 
-func TestProcessMetrics_SyncService_HealthCheckNotProcessed(t *testing.T) {
+func TestProcessServicePayload_SyncService_HealthCheckNotProcessed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -251,6 +251,6 @@ func TestProcessMetrics_SyncService_HealthCheckNotProcessed(t *testing.T) {
 		ProcessSyncResults(ctx, pollerID, partition, svc, healthCheckMessage, timestamp).
 		Return(nil)
 
-	err := server.processMetrics(ctx, pollerID, partition, sourceIP, svc, healthCheckMessage, timestamp)
+	err := server.processServicePayload(ctx, pollerID, partition, sourceIP, svc, healthCheckMessage, timestamp)
 	require.NoError(t, err)
 }
