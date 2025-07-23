@@ -70,21 +70,21 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 		metadata[k] = v
 	}
 
-	// Determine discovery source from device metadata, default to SNMP
-	var discoverySource = models.DiscoverySourceSNMP
+	// Determine discovery source from device metadata, default to Mapper
+	var discoverySource = models.DiscoverySourceMapper
 
 	if source, exists := device.Metadata["source"]; exists {
 		switch source {
 		case "snmp":
 			discoverySource = models.DiscoverySourceSNMP
 		case "mapper":
-			discoverySource = models.DiscoverySourceSNMP // Map legacy "mapper" to SNMP
+			discoverySource = models.DiscoverySourceMapper
 		case "integration":
 			discoverySource = models.DiscoverySourceIntegration
 		case "netflow":
 			discoverySource = models.DiscoverySourceNetFlow
 		default:
-			discoverySource = models.DiscoverySourceSNMP
+			discoverySource = models.DiscoverySourceMapper
 		}
 	}
 
@@ -233,21 +233,21 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 			metadata[k] = v
 		}
 
-		// Determine discovery source from device metadata, default to SNMP
-		var discoverySource = models.DiscoverySourceSNMP
+		// Determine discovery source from device metadata, default to Mapper
+		var discoverySource = models.DiscoverySourceMapper
 
 		if source, exists := device.Metadata["source"]; exists {
 			switch source {
 			case "snmp":
 				discoverySource = models.DiscoverySourceSNMP
 			case "mapper":
-				discoverySource = models.DiscoverySourceSNMP // Map legacy "mapper" to SNMP
+				discoverySource = models.DiscoverySourceMapper
 			case "integration":
 				discoverySource = models.DiscoverySourceIntegration
 			case "netflow":
 				discoverySource = models.DiscoverySourceNetFlow
 			default:
-				discoverySource = models.DiscoverySourceSNMP
+				discoverySource = models.DiscoverySourceMapper
 			}
 		}
 

@@ -125,7 +125,7 @@ func TestPublishDevice(t *testing.T) {
 			assert.Equal(t, device.IP, update.IP)
 			assert.Equal(t, device.MAC, *update.MAC)
 			assert.Equal(t, device.Hostname, *update.Hostname)
-			assert.Equal(t, models.DiscoverySourceSNMP, update.Source)
+			assert.Equal(t, models.DiscoverySourceMapper, update.Source)
 			assert.True(t, update.IsAvailable)
 			assert.Positive(t, update.Confidence)
 
