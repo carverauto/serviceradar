@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -40,18 +41,41 @@ func (s *Server) flushBuffers(ctx context.Context) {
 }
 
 // flushAllBuffers flushes all buffer types to the database.
+// Uses separate goroutines with individual mutexes for each buffer type
+// to reduce contention and improve throughput.
 func (s *Server) flushAllBuffers(ctx context.Context) {
-	s.bufferMu.Lock()
-	defer s.bufferMu.Unlock()
+	var wg sync.WaitGroup
 
-	s.flushMetrics(ctx)
-	s.flushServiceStatuses(ctx)
-	s.flushServices(ctx)
-	s.flushSysmonMetrics(ctx)
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		s.flushMetrics(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
+		s.flushServiceStatuses(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
+		s.flushServices(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
+		s.flushSysmonMetrics(ctx)
+	}()
+
+	wg.Wait()
 }
 
 // flushMetrics flushes metric buffers to the database.
 func (s *Server) flushMetrics(ctx context.Context) {
+	s.metricBufferMu.Lock()
+	defer s.metricBufferMu.Unlock()
+
 	for pollerID, timeseriesMetrics := range s.metricBuffers {
 		if len(timeseriesMetrics) == 0 {
 			continue
@@ -76,6 +100,9 @@ func (s *Server) flushMetrics(ctx context.Context) {
 
 // flushServiceStatuses flushes service status buffers to the database.
 func (s *Server) flushServiceStatuses(ctx context.Context) {
+	s.serviceBufferMu.Lock()
+	defer s.serviceBufferMu.Unlock()
+
 	for pollerID, statuses := range s.serviceBuffers {
 		if len(statuses) == 0 {
 			continue
@@ -91,6 +118,9 @@ func (s *Server) flushServiceStatuses(ctx context.Context) {
 
 // flushServices flushes service inventory data to the database.
 func (s *Server) flushServices(ctx context.Context) {
+	s.serviceListBufferMu.Lock()
+	defer s.serviceListBufferMu.Unlock()
+
 	for pollerID, services := range s.serviceListBuffers {
 		if len(services) == 0 {
 			continue
@@ -106,6 +136,9 @@ func (s *Server) flushServices(ctx context.Context) {
 
 // flushSysmonMetrics flushes system monitor metrics to the database.
 func (s *Server) flushSysmonMetrics(ctx context.Context) {
+	s.sysmonBufferMu.Lock()
+	defer s.sysmonBufferMu.Unlock()
+
 	for pollerID, sysmonMetrics := range s.sysmonBuffers {
 		if len(sysmonMetrics) == 0 {
 			continue

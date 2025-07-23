@@ -60,7 +60,10 @@ type Server struct {
 	serviceBuffers          map[string][]*models.ServiceStatus
 	serviceListBuffers      map[string][]*models.Service
 	sysmonBuffers           map[string][]*sysmonMetricBuffer
-	bufferMu                sync.RWMutex
+	metricBufferMu          sync.RWMutex
+	serviceBufferMu         sync.RWMutex
+	serviceListBufferMu     sync.RWMutex
+	sysmonBufferMu          sync.RWMutex
 	pollerStatusCache       map[string]*models.PollerStatus
 	pollerStatusUpdates     map[string]*models.PollerStatus
 	pollerStatusUpdateMutex sync.Mutex

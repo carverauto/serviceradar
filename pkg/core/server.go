@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
@@ -101,7 +100,6 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		serviceListBuffers:  make(map[string][]*models.Service),
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
-		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 	}

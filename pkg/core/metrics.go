@@ -90,8 +90,8 @@ func (s *Server) bufferMetrics(pollerID string, metrics []*models.TimeseriesMetr
 		return
 	}
 
-	s.bufferMu.Lock()
-	defer s.bufferMu.Unlock()
+	s.metricBufferMu.Lock()
+	defer s.metricBufferMu.Unlock()
 
 	// Ensure the buffer for this pollerID exists
 	if _, ok := s.metricBuffers[pollerID]; !ok {
@@ -344,9 +344,9 @@ func (*Server) processRperfResult(result *struct {
 
 // bufferRperfMetrics adds the metrics to the buffer for the given poller
 func (s *Server) bufferRperfMetrics(pollerID string, metrics []*models.TimeseriesMetric) {
-	s.bufferMu.Lock()
+	s.metricBufferMu.Lock()
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metrics...)
-	s.bufferMu.Unlock()
+	s.metricBufferMu.Unlock()
 }
 
 func (s *Server) processRperfMetrics(pollerID, partition string, details json.RawMessage, timestamp time.Time) error {
@@ -469,9 +469,9 @@ func (s *Server) processICMPMetrics(
 	}
 
 	// Buffer ICMP metric
-	s.bufferMu.Lock()
+	s.metricBufferMu.Lock()
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metric)
-	s.bufferMu.Unlock()
+	s.metricBufferMu.Unlock()
 
 	if s.metrics != nil {
 		err := s.metrics.AddMetric(
@@ -596,12 +596,12 @@ func (*Server) buildSysmonMetrics(payload *sysmonPayload, pollerTimestamp time.T
 }
 
 func (s *Server) bufferSysmonMetrics(pollerID, partition string, metrics *models.SysmonMetrics) {
-	s.bufferMu.Lock()
+	s.sysmonBufferMu.Lock()
 	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], &sysmonMetricBuffer{
 		Metrics:   metrics,
 		Partition: partition,
 	})
-	s.bufferMu.Unlock()
+	s.sysmonBufferMu.Unlock()
 }
 
 // processGRPCService handles processing for GRPC service.
