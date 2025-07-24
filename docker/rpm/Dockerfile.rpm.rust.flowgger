@@ -40,8 +40,8 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     echo "Build completed successfully" && \
     ls -la /tmp/target/x86_64-unknown-linux-gnu/release/ && \
     mkdir -p target/x86_64-unknown-linux-gnu/release && \
-    find /tmp/target/x86_64-unknown-linux-gnu/release/ -maxdepth 1 -type f -executable -exec cp {} target/x86_64-unknown-linux-gnu/release/ \; && \
-    echo "Copied binaries to persistent location:" && \
+    # find /tmp/target/x86_64-unknown-linux-gnu/release/ -maxdepth 1 -type f -executable -exec cp {} target/x86_64-unknown-linux-gnu/release/ \; && \ echo "Copied binaries to persistent location:" && \
+    cp /tmp/target/x86_64-unknown-linux-gnu/release/serviceradar-flowgger target/x86_64-unknown-linux-gnu/release/ && \
     ls -la target/x86_64-unknown-linux-gnu/release/
 
 # Set up RPM build environment
