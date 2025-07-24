@@ -808,7 +808,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         router.push('/query?q=' + encodeURIComponent('show devices'));
     };
 
-    const handleSnmpDevicesClick = () => {
+    const handleSNMPDevicesClick = () => {
         router.push('/query?q=' + encodeURIComponent('show devices where device_id IS NOT NULL'));
     };
 
@@ -945,7 +945,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                 value={deviceStats.total.toLocaleString()}
                                 icon={<Rss size={24} />}
                                 isLoading={loadingStats}
-                                onClick={handleSnmpDevicesClick}
+                                onClick={handleSNMPDevicesClick}
                             />
                         </div>
 
