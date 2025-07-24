@@ -33,7 +33,6 @@ jwks.json
 *.crt
 .env
 # Logs
-logs
 *.log
 npm-debug.log*
 yarn-debug.log*
