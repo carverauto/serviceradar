@@ -34,12 +34,12 @@ func (s *Server) initializeEventPublisher(ctx context.Context, config *models.DB
 	}
 
 	// Skip if NATS is not configured
-	if config.Nats == nil {
+	if config.NATS == nil {
 		log.Printf("NATS not configured, event publishing disabled")
 		return nil
 	}
 
-	if err := config.Nats.Validate(); err != nil {
+	if err := config.NATS.Validate(); err != nil {
 		return fmt.Errorf("invalid NATS configuration: %w", err)
 	}
 
@@ -48,7 +48,7 @@ func (s *Server) initializeEventPublisher(ctx context.Context, config *models.DB
 	}
 
 	// Use natsutil to create the connection with NATS-specific security config
-	nc, err := natsutil.ConnectWithSecurity(ctx, config.Nats.URL, config.Nats.Security)
+	nc, err := natsutil.ConnectWithSecurity(ctx, config.NATS.URL, config.NATS.Security)
 	if err != nil {
 		return fmt.Errorf("failed to connect to NATS: %w", err)
 	}
@@ -56,8 +56,8 @@ func (s *Server) initializeEventPublisher(ctx context.Context, config *models.DB
 	// Create the event publisher - use domain-specific function only if domain is configured
 	var publisher *natsutil.EventPublisher
 
-	if config.Nats.Domain != "" {
-		publisher, err = natsutil.CreateEventPublisherWithDomain(ctx, nc, config.Nats.Domain, config.Events.StreamName, config.Events.Subjects)
+	if config.NATS.Domain != "" {
+		publisher, err = natsutil.CreateEventPublisherWithDomain(ctx, nc, config.NATS.Domain, config.Events.StreamName, config.Events.Subjects)
 	} else {
 		publisher, err = natsutil.CreateEventPublisher(ctx, nc, config.Events.StreamName, config.Events.Subjects)
 	}

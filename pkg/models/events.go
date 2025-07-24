@@ -21,15 +21,15 @@ import (
 	"time"
 )
 
-// NatsConfig configures NATS connectivity
-type NatsConfig struct {
+// NATSConfig configures NATS connectivity
+type NATSConfig struct {
 	URL      string          `json:"url"`
 	Domain   string          `json:"domain,omitempty"`
 	Security *SecurityConfig `json:"security,omitempty"`
 }
 
 // Validate ensures the NATS configuration is valid
-func (c *NatsConfig) Validate() error {
+func (c *NATSConfig) Validate() error {
 	if c.URL == "" {
 		return fmt.Errorf("nats url is required")
 	}

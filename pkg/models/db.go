@@ -59,7 +59,7 @@ type DBConfig struct {
 	CORS           CORSConfig             `json:"cors,omitempty"`
 	Database       ProtonDatabase         `json:"database"`
 	WriteBuffer    WriteBufferConfig      `json:"write_buffer,omitempty"`
-	Nats           *NatsConfig            `json:"nats,omitempty"`
+	NATS           *NATSConfig            `json:"nats,omitempty"`
 	Events         *EventsConfig          `json:"events,omitempty"`
 }
 
