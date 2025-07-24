@@ -106,7 +106,7 @@ func validateQueryRequest(req *QueryRequest) (errMsg string, statusCode int, ok 
 // getSecondaryOrderField returns the appropriate secondary order field for a given entity type
 func (*APIServer) getSecondaryOrderField(entityType models.EntityType) (string, bool) {
 	switch entityType {
-	case models.Devices, models.ICMPResults, models.SNMPResults:
+	case models.Devices, models.DeviceUpdates, models.ICMPResults, models.SNMPResults:
 		return "ip", true
 	case models.Services:
 		return "service_name", true
@@ -811,14 +811,14 @@ func createCursorData(result map[string]interface{}, orderField string) map[stri
 func addEntityFields(cursorData, result map[string]interface{}, entity models.EntityType) {
 	// Map entity types to the fields that should be copied from result to cursor data
 	entityFieldMap := map[models.EntityType][]string{
-		models.Devices:       {"ip"},
-		models.Interfaces:    {"device_ip", "ifIndex"},
+		models.Devices:    {"ip"},
+		models.Interfaces: {"device_ip", "ifIndex"},
 
-		models.Services:      {"service_name"},
-		models.Events:        {"id"},
-		models.Pollers:       {"poller_id"},
-		models.CPUMetrics:    {"core_id"},
-		models.DiskMetrics:   {"mount_point"},
+		models.Services:    {"service_name"},
+		models.Events:      {"id"},
+		models.Pollers:     {"poller_id"},
+		models.CPUMetrics:  {"core_id"},
+		models.DiskMetrics: {"mount_point"},
 		// The following entities don't need additional fields:
 		// models.Flows, models.Traps, models.Connections, models.Logs,
 		// models.ICMPResults, models.SNMPResults, models.MemoryMetrics

@@ -103,10 +103,9 @@ func (s *Server) bufferMetrics(pollerID string, metrics []*models.TimeseriesMetr
 
 func (s *Server) processSNMPMetrics(
 	ctx context.Context,
-	pollerID, partition, sourceIP, agentID string,
+	pollerID, partition, _, agentID string,
 	details json.RawMessage,
 	timestamp time.Time) error {
-	
 	targetStatusMap, err := s.parseSNMPTargetStatus(details, pollerID)
 	if err != nil {
 		return err
@@ -141,11 +140,13 @@ func (*Server) parseSNMPTargetStatus(details json.RawMessage, pollerID string) (
 
 		// Check if it's an error message wrapped in JSON
 		var errorWrapper map[string]string
+
 		if errParseErr := json.Unmarshal(details, &errorWrapper); errParseErr == nil {
 			if msg, exists := errorWrapper["message"]; exists {
 				log.Printf("SNMP service returned error for poller %s: %s", pollerID, msg)
 				return nil, nil // Don't fail processing for service errors
 			}
+
 			if errMsg, exists := errorWrapper["error"]; exists {
 				log.Printf("SNMP service returned error for poller %s: %s", pollerID, errMsg)
 				return nil, nil // Don't fail processing for service errors
@@ -179,8 +180,8 @@ func (s *Server) processSNMPDeviceUpdates(
 	targetStatusMap map[string]*snmp.TargetStatus,
 	agentID, pollerID, partition string,
 	timestamp time.Time) error {
-	
 	var deviceUpdates []*models.DeviceUpdate
+
 	for targetName, targetData := range targetStatusMap {
 		deviceIP := targetData.HostIP
 		if deviceIP == "" {
@@ -204,6 +205,7 @@ func (s *Server) processSNMPDeviceUpdates(
 		if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, deviceUpdates); err != nil {
 			return fmt.Errorf("failed to process batch SNMP target devices: %w", err)
 		}
+
 		log.Printf("Successfully processed %d SNMP target device updates in batch", len(deviceUpdates))
 	}
 
@@ -215,7 +217,6 @@ func (*Server) createSNMPTimeseriesMetrics(
 	targetStatusMap map[string]*snmp.TargetStatus,
 	pollerID, partition string,
 	timestamp time.Time) []*models.TimeseriesMetric {
-	
 	var metrics []*models.TimeseriesMetric
 
 	for targetName, targetData := range targetStatusMap {
