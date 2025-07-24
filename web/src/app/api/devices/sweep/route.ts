@@ -46,7 +46,12 @@ export async function GET(req: NextRequest) {
     const query = `show devices order by last_seen desc`;
     
     // Build request body with pagination
-    const requestBody: any = { 
+    const requestBody: {
+      query: string;
+      limit: number;
+      cursor?: string;
+      direction?: string;
+    } = { 
       query,
       limit
     };

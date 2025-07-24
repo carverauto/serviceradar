@@ -52,7 +52,7 @@ interface DeviceUpdates {
     discovery_sources?: string[];
     first_seen: string;
     last_seen: string;
-    metadata?: any;           // Can be object or string
+    metadata?: Record<string, unknown> | string;           // Can be object or string
 }
 
 
@@ -360,7 +360,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
         fetchDeviceUpdates();
     }, [fetchDeviceUpdates]);
 
-    const parseMetadata = (metadata: any) => {
+    const parseMetadata = (metadata: Record<string, unknown> | string | undefined): Record<string, unknown> => {
         if (!metadata) return {};
         if (typeof metadata === 'string') {
             try {
@@ -402,15 +402,20 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
             if (hostsWithMetadata.length > 0) {
                 hostsWithMetadata.forEach(result => {
                     const metadata = parseMetadata(result.metadata);
-                    let openPorts = metadata.open_ports || [];
+                    let openPorts: unknown[] = [];
+                    const rawOpenPorts = metadata.open_ports;
                     
                     // Parse open_ports if it's a JSON string
-                    if (typeof openPorts === 'string') {
+                    if (typeof rawOpenPorts === 'string') {
                         try {
-                            openPorts = JSON.parse(openPorts);
+                            openPorts = JSON.parse(rawOpenPorts);
                         } catch {
                             openPorts = [];
                         }
+                    } else if (Array.isArray(rawOpenPorts)) {
+                        openPorts = rawOpenPorts;
+                    } else {
+                        openPorts = [];
                     }
                     
                     totalOpenPorts += Array.isArray(openPorts) ? openPorts.length : 0;
@@ -419,7 +424,8 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                 const responseTimes = hostsWithMetadata
                     .map(result => {
                         const metadata = parseMetadata(result.metadata);
-                        return metadata.response_time_ns || 0;
+                        const responseTime = metadata.response_time_ns;
+                        return typeof responseTime === 'number' ? responseTime : 0;
                     })
                     .filter(time => time > 0);
                 
@@ -558,15 +564,21 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                         <div className="space-y-4">
                             {uniqueHosts.slice(0, 10).map((result, index) => {
                                 const metadata = parseMetadata(result.metadata);
-                                const responseTime = metadata.response_time_ns ? metadata.response_time_ns / 1000000 : null;
-                                let openPorts = metadata.open_ports || [];
+                                const responseTime = typeof metadata.response_time_ns === 'number' ? metadata.response_time_ns / 1000000 : null;
+                                let openPorts: unknown[] = [];
+                                const rawOpenPorts = metadata.open_ports;
+                                
                                 // Parse open_ports if it's a JSON string  
-                                if (typeof openPorts === 'string') {
+                                if (typeof rawOpenPorts === 'string') {
                                     try {
-                                        openPorts = JSON.parse(openPorts);
+                                        openPorts = JSON.parse(rawOpenPorts);
                                     } catch {
                                         openPorts = [];
                                     }
+                                } else if (Array.isArray(rawOpenPorts)) {
+                                    openPorts = rawOpenPorts;
+                                } else {
+                                    openPorts = [];
                                 }
                                 
                                 return (
@@ -629,21 +641,27 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {filteredResults.map((result, index) => {
                                     const metadata = parseMetadata(typeof result.metadata === 'string' ? result.metadata : JSON.stringify(result.metadata) || '{}');
-                                    const responseTime = metadata.response_time_ns ? metadata.response_time_ns / 1000000 : null;
+                                    const responseTime = typeof metadata.response_time_ns === 'number' ? metadata.response_time_ns / 1000000 : null;
                                     // Parse port_results if it's a JSON string
-                                    let portResults = metadata.port_results || [];
-                                    if (typeof portResults === 'string') {
+                                    let portResults: unknown[] = [];
+                                    const rawPortResults = metadata.port_results;
+                                    
+                                    if (typeof rawPortResults === 'string') {
                                         try {
-                                            portResults = JSON.parse(portResults);
+                                            portResults = JSON.parse(rawPortResults);
                                         } catch {
                                             portResults = [];
                                         }
+                                    } else if (Array.isArray(rawPortResults)) {
+                                        portResults = rawPortResults;
+                                    } else {
+                                        portResults = [];
                                     }
-                                    // Ensure it's an array
+                                    // Ensure it's still an array after parsing
                                     if (!Array.isArray(portResults)) {
                                         portResults = [];
                                     }
-                                    const packetLoss = metadata.packet_loss || 0;
+                                    const packetLoss = typeof metadata.packet_loss === 'number' ? metadata.packet_loss : 0;
                                     
                                     return (
                                         <div 
@@ -703,15 +721,18 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                                                         Open Ports ({portResults.length})
                                                     </h5>
                                                     <div className="flex flex-wrap gap-1">
-                                                        {portResults.slice(0, 8).map((portResult: PortResult, portIndex: number) => (
+                                                        {portResults.slice(0, 8).map((portResult: unknown, portIndex: number) => {
+                                                            const port = portResult as PortResult;
+                                                            return (
                                                             <span 
                                                                 key={portIndex}
                                                                 className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-xs rounded"
                                                             >
-                                                                {portResult.port}
-                                                                {portResult.service && ` (${portResult.service})`}
+                                                                {port.port}
+                                                                {port.service && ` (${port.service})`}
                                                             </span>
-                                                        ))}
+                                                            );
+                                                        })}
                                                         {portResults.length > 8 && (
                                                             <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded">
                                                                 +{portResults.length - 8}
