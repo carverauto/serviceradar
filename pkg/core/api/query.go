@@ -122,8 +122,10 @@ func (*APIServer) getSecondaryOrderField(entityType models.EntityType) (string, 
 		return "mount_point", true
 	case models.SNMPMetrics:
 		return "metric_name", true
+	case models.Logs:
+		return "trace_id", true
 	// These entities don't need additional sort fields
-	case models.Flows, models.Traps, models.Connections, models.Logs, models.MemoryMetrics:
+	case models.Flows, models.Traps, models.Connections, models.MemoryMetrics:
 		return "", false
 	default:
 		return "", false
@@ -200,6 +202,7 @@ func isValidPaginationEntity(entity models.EntityType) bool {
 		models.Interfaces,
 		models.SweepResults,
 		models.Events,
+		models.Logs,
 		models.Pollers,
 		models.CPUMetrics,
 		models.DiskMetrics,
@@ -229,7 +232,7 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 	// Validate entity for pagination. COUNT queries don't need pagination support.
 	if query.Type != models.Count && !isValidPaginationEntity(query.Entity) {
 		return nil, nil, errors.New("pagination is only supported for devices, services, interfaces, " +
-			"sweep_results, events, pollers, and metric types")
+			"sweep_results, events, logs, pollers, and metric types")
 	}
 
 	// For COUNT queries, pagination ordering is unnecessary and may generate
