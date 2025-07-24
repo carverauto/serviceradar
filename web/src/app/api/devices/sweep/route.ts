@@ -22,6 +22,12 @@ export async function GET(req: NextRequest) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
 
   try {
+    // Get pagination parameters from query string
+    const searchParams = req.nextUrl.searchParams;
+    const limit = parseInt(searchParams.get("limit") || "100");
+    const cursor = searchParams.get("cursor") || "";
+    const direction = searchParams.get("direction") || "next";
+
     // Get authorization header
     const authHeader = req.headers.get("authorization");
 
@@ -36,8 +42,24 @@ export async function GET(req: NextRequest) {
       headers["Authorization"] = authHeader;
     }
 
-    // Query the sweep results using SRQL syntax - device-centric, not poller-centric  
-    const query = `show sweep_results order by timestamp desc limit 10000`;
+    // Query the devices using SRQL syntax with proper pagination
+    const query = `show devices order by last_seen desc`;
+    
+    // Build request body with pagination
+    const requestBody: {
+      query: string;
+      limit: number;
+      cursor?: string;
+      direction?: string;
+    } = { 
+      query,
+      limit
+    };
+    
+    if (cursor) {
+      requestBody.cursor = cursor;
+      requestBody.direction = direction;
+    }
     
     // Forward request to Go API query endpoint
     const response = await fetch(
@@ -45,7 +67,7 @@ export async function GET(req: NextRequest) {
         {
           method: "POST",
           headers,
-          body: JSON.stringify({ query }),
+          body: JSON.stringify(requestBody),
           cache: "no-store",
         },
     );

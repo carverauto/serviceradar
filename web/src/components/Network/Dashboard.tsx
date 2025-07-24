@@ -39,18 +39,20 @@ import { cachedQuery } from '@/lib/cached-query';
 import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
 import DeviceTable from '@/components/Devices/DeviceTable';
 
-// Current sweep results format from SRQL sweep_results
-interface SweepResult {
+// Current device updates format from SRQL devices
+interface DeviceUpdates {
+    device_id: string;
     ip: string;
     poller_id: string;
     agent_id: string;
-    partition: string;
+    partition?: string;
     hostname?: string | null;
     mac?: string | null;
-    available: boolean;
-    discovery_source: string;
-    timestamp: string;
-    metadata: string;           // JSON string
+    is_available: boolean;
+    discovery_sources?: string[];
+    first_seen: string;
+    last_seen: string;
+    metadata?: Record<string, unknown> | string;           // Can be object or string
 }
 
 
@@ -302,20 +304,30 @@ const SNMPDevicesView: React.FC = React.memo(() => {
 SNMPDevicesView.displayName = 'SNMPDevicesView';
 
 // Sweep Results View with detailed sweep information
-const SweepResultsView: React.FC = React.memo(() => {
+const DeviceUpdatesView: React.FC = React.memo(() => {
     const { token } = useAuth();
-    const [sweepResults, setSweepResults] = useState<SweepResult[]>([]);
+    const [deviceUpdates, setDeviceUpdates] = useState<DeviceUpdates[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'summary' | 'hosts'>('summary');
     const [searchTerm, setSearchTerm] = useState('');
+    const [pagination, setPagination] = useState<{
+        nextCursor: string | null;
+        prevCursor: string | null;
+        hasMore: boolean;
+    }>({ nextCursor: null, prevCursor: null, hasMore: false });
 
-    const fetchSweepResults = useCallback(async () => {
+    const fetchDeviceUpdates = useCallback(async (cursor?: string, direction: 'next' | 'prev' = 'next', limit = 1000) => {
         setLoading(true);
         setError(null);
 
         try {
-            const response = await fetch('/api/devices/sweep', {
+            const params = new URLSearchParams({
+                limit: limit.toString(),
+                ...(cursor && { cursor, direction })
+            });
+
+            const response = await fetch(`/api/devices/sweep?${params}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -329,7 +341,14 @@ const SweepResultsView: React.FC = React.memo(() => {
             }
 
             const data = await response.json();
-            setSweepResults(data.results || []);
+            setDeviceUpdates(data.results || []);
+            
+            // Update pagination info
+            setPagination({
+                nextCursor: data.pagination?.next_cursor || null,
+                prevCursor: data.pagination?.prev_cursor || null,
+                hasMore: !!(data.pagination?.next_cursor)
+            });
         } catch (e) {
             setError(e instanceof Error ? e.message : "Failed to fetch sweep results.");
         } finally {
@@ -338,37 +357,41 @@ const SweepResultsView: React.FC = React.memo(() => {
     }, [token]);
 
     useEffect(() => {
-        fetchSweepResults();
-    }, [fetchSweepResults]);
+        fetchDeviceUpdates();
+    }, [fetchDeviceUpdates]);
 
-    const parseMetadata = (metadataString: string) => {
-        try {
-            return JSON.parse(metadataString);
-        } catch {
-            return {};
+    const parseMetadata = (metadata: Record<string, unknown> | string | undefined): Record<string, unknown> => {
+        if (!metadata) return {};
+        if (typeof metadata === 'string') {
+            try {
+                return JSON.parse(metadata);
+            } catch {
+                return {};
+            }
         }
+        return metadata;
     };
 
 
     // Create unique hosts from sweep results (deduplicate by IP)
     const uniqueHosts = useMemo(() => {
-        const hostMap = new Map<string, SweepResult>();
-        sweepResults.forEach(result => {
+        const hostMap = new Map<string, DeviceUpdates>();
+        deviceUpdates.forEach(result => {
             const existing = hostMap.get(result.ip);
-            if (!existing || new Date(result.timestamp) > new Date(existing.timestamp)) {
+            if (!existing || new Date(result.last_seen) > new Date(existing.last_seen)) {
                 hostMap.set(result.ip, result);
             }
         });
         return Array.from(hostMap.values()).sort((a, b) => 
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()
         );
-    }, [sweepResults]);
+    }, [deviceUpdates]);
 
     const aggregatedStats = useMemo(() => {
         if (!uniqueHosts.length) return null;
 
         const totalHosts = uniqueHosts.length;
-        const respondingHosts = uniqueHosts.filter(result => result.available).length;
+        const respondingHosts = uniqueHosts.filter(result => result.is_available).length;
         
         // Try to parse metadata for detailed stats (if available)
         let totalOpenPorts = 0;
@@ -379,15 +402,20 @@ const SweepResultsView: React.FC = React.memo(() => {
             if (hostsWithMetadata.length > 0) {
                 hostsWithMetadata.forEach(result => {
                     const metadata = parseMetadata(result.metadata);
-                    let openPorts = metadata.open_ports || [];
+                    let openPorts: unknown[] = [];
+                    const rawOpenPorts = metadata.open_ports;
                     
                     // Parse open_ports if it's a JSON string
-                    if (typeof openPorts === 'string') {
+                    if (typeof rawOpenPorts === 'string') {
                         try {
-                            openPorts = JSON.parse(openPorts);
+                            openPorts = JSON.parse(rawOpenPorts);
                         } catch {
                             openPorts = [];
                         }
+                    } else if (Array.isArray(rawOpenPorts)) {
+                        openPorts = rawOpenPorts;
+                    } else {
+                        openPorts = [];
                     }
                     
                     totalOpenPorts += Array.isArray(openPorts) ? openPorts.length : 0;
@@ -396,7 +424,8 @@ const SweepResultsView: React.FC = React.memo(() => {
                 const responseTimes = hostsWithMetadata
                     .map(result => {
                         const metadata = parseMetadata(result.metadata);
-                        return metadata.response_time_ns || 0;
+                        const responseTime = metadata.response_time_ns;
+                        return typeof responseTime === 'number' ? responseTime : 0;
                     })
                     .filter(time => time > 0);
                 
@@ -524,7 +553,7 @@ const SweepResultsView: React.FC = React.memo(() => {
             {viewMode === 'summary' ? (
                 <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-6">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Recent Sweep Results ({uniqueHosts.length} unique hosts, {sweepResults.length} total records)
+                        Recent Sweep Results ({uniqueHosts.length} unique hosts, {deviceUpdates.length} total records)
                     </h3>
                     
                     {uniqueHosts.length === 0 ? (
@@ -535,15 +564,21 @@ const SweepResultsView: React.FC = React.memo(() => {
                         <div className="space-y-4">
                             {uniqueHosts.slice(0, 10).map((result, index) => {
                                 const metadata = parseMetadata(result.metadata);
-                                const responseTime = metadata.response_time_ns ? metadata.response_time_ns / 1000000 : null;
-                                let openPorts = metadata.open_ports || [];
+                                const responseTime = typeof metadata.response_time_ns === 'number' ? metadata.response_time_ns / 1000000 : null;
+                                let openPorts: unknown[] = [];
+                                const rawOpenPorts = metadata.open_ports;
+                                
                                 // Parse open_ports if it's a JSON string  
-                                if (typeof openPorts === 'string') {
+                                if (typeof rawOpenPorts === 'string') {
                                     try {
-                                        openPorts = JSON.parse(openPorts);
+                                        openPorts = JSON.parse(rawOpenPorts);
                                     } catch {
                                         openPorts = [];
                                     }
+                                } else if (Array.isArray(rawOpenPorts)) {
+                                    openPorts = rawOpenPorts;
+                                } else {
+                                    openPorts = [];
                                 }
                                 
                                 return (
@@ -554,16 +589,16 @@ const SweepResultsView: React.FC = React.memo(() => {
                                                     {result.hostname || result.ip}
                                                 </h4>
                                                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                                                    {result.ip} • {new Date(result.timestamp).toLocaleString()}
+                                                    {result.ip} • {new Date(result.last_seen).toLocaleString()}
                                                 </p>
                                             </div>
                                             <div className="text-right">
                                                 <span className={`px-2 py-1 text-xs rounded ${
-                                                    result.available
+                                                    result.is_available
                                                         ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
                                                         : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
                                                 }`}>
-                                                    {result.available ? 'Available' : 'Unavailable'}
+                                                    {result.is_available ? 'Available' : 'Unavailable'}
                                                 </span>
                                             </div>
                                         </div>
@@ -606,21 +641,27 @@ const SweepResultsView: React.FC = React.memo(() => {
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {filteredResults.map((result, index) => {
                                     const metadata = parseMetadata(typeof result.metadata === 'string' ? result.metadata : JSON.stringify(result.metadata) || '{}');
-                                    const responseTime = metadata.response_time_ns ? metadata.response_time_ns / 1000000 : null;
+                                    const responseTime = typeof metadata.response_time_ns === 'number' ? metadata.response_time_ns / 1000000 : null;
                                     // Parse port_results if it's a JSON string
-                                    let portResults = metadata.port_results || [];
-                                    if (typeof portResults === 'string') {
+                                    let portResults: unknown[] = [];
+                                    const rawPortResults = metadata.port_results;
+                                    
+                                    if (typeof rawPortResults === 'string') {
                                         try {
-                                            portResults = JSON.parse(portResults);
+                                            portResults = JSON.parse(rawPortResults);
                                         } catch {
                                             portResults = [];
                                         }
+                                    } else if (Array.isArray(rawPortResults)) {
+                                        portResults = rawPortResults;
+                                    } else {
+                                        portResults = [];
                                     }
-                                    // Ensure it's an array
+                                    // Ensure it's still an array after parsing
                                     if (!Array.isArray(portResults)) {
                                         portResults = [];
                                     }
-                                    const packetLoss = metadata.packet_loss || 0;
+                                    const packetLoss = typeof metadata.packet_loss === 'number' ? metadata.packet_loss : 0;
                                     
                                     return (
                                         <div 
@@ -632,11 +673,11 @@ const SweepResultsView: React.FC = React.memo(() => {
                                                     {result.hostname || result.ip}
                                                 </h4>
                                                 <span className={`px-2 py-1 text-xs rounded ${
-                                                    result.available
+                                                    result.is_available
                                                         ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
                                                         : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
                                                 }`}>
-                                                    {result.available ? 'Available' : 'Unavailable'}
+                                                    {result.is_available ? 'Available' : 'Unavailable'}
                                                 </span>
                                             </div>
 
@@ -647,7 +688,7 @@ const SweepResultsView: React.FC = React.memo(() => {
                                             )}
 
                                             {/* ICMP Status */}
-                                            {result.available && (responseTime !== null || packetLoss > 0) && (
+                                            {result.is_available && (responseTime !== null || packetLoss > 0) && (
                                                 <div className="mb-3 bg-gray-50 dark:bg-gray-700 p-3 rounded">
                                                     <h5 className="font-medium mb-2 text-gray-800 dark:text-gray-200 text-sm">
                                                         ICMP Status
@@ -680,15 +721,18 @@ const SweepResultsView: React.FC = React.memo(() => {
                                                         Open Ports ({portResults.length})
                                                     </h5>
                                                     <div className="flex flex-wrap gap-1">
-                                                        {portResults.slice(0, 8).map((portResult: PortResult, portIndex: number) => (
+                                                        {portResults.slice(0, 8).map((portResult: unknown, portIndex: number) => {
+                                                            const port = portResult as PortResult;
+                                                            return (
                                                             <span 
                                                                 key={portIndex}
                                                                 className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-xs rounded"
                                                             >
-                                                                {portResult.port}
-                                                                {portResult.service && ` (${portResult.service})`}
+                                                                {port.port}
+                                                                {port.service && ` (${port.service})`}
                                                             </span>
-                                                        ))}
+                                                            );
+                                                        })}
                                                         {portResults.length > 8 && (
                                                             <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded">
                                                                 +{portResults.length - 8}
@@ -700,7 +744,7 @@ const SweepResultsView: React.FC = React.memo(() => {
 
                                             <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
                                                 <div>Agent: {result.agent_id}</div>
-                                                <div>Scanned: {new Date(result.timestamp).toLocaleString()}</div>
+                                                <div>Scanned: {new Date(result.last_seen).toLocaleString()}</div>
                                                 {result.mac && <div>MAC: {result.mac}</div>}
                                             </div>
                                         </div>
@@ -709,13 +753,38 @@ const SweepResultsView: React.FC = React.memo(() => {
                             </div>
                         )}
                     </div>
+                    
+                    {/* Pagination Controls */}
+                    {(pagination.nextCursor || pagination.prevCursor) && (
+                        <div className="mt-6 flex justify-between items-center">
+                            <button
+                                onClick={() => pagination.prevCursor && fetchDeviceUpdates(pagination.prevCursor, 'prev')}
+                                disabled={!pagination.prevCursor || loading}
+                                className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
+                            >
+                                Previous
+                            </button>
+                            
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                                Showing {deviceUpdates.length} results
+                            </span>
+                            
+                            <button
+                                onClick={() => pagination.nextCursor && fetchDeviceUpdates(pagination.nextCursor, 'next')}
+                                disabled={!pagination.nextCursor || loading}
+                                className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
     );
 });
 
-SweepResultsView.displayName = 'SweepResultsView';
+DeviceUpdatesView.displayName = 'SweepResultsView';
 
 
 // Main Network Dashboard Component
@@ -736,10 +805,10 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     };
 
     const handleActiveSweepsClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show sweep_results'));
+        router.push('/query?q=' + encodeURIComponent('show devices'));
     };
 
-    const handleSnmpDevicesClick = () => {
+    const handleSNMPDevicesClick = () => {
         router.push('/query?q=' + encodeURIComponent('show devices where device_id IS NOT NULL'));
     };
 
@@ -876,7 +945,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                 value={deviceStats.total.toLocaleString()}
                                 icon={<Rss size={24} />}
                                 isLoading={loadingStats}
-                                onClick={handleSnmpDevicesClick}
+                                onClick={handleSNMPDevicesClick}
                             />
                         </div>
 
@@ -945,7 +1014,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                             </div>
                         )}
                         {/* Use detailed sweep results view */}
-                        <SweepResultsView />
+                        <DeviceUpdatesView />
                     </div>
                 );
 

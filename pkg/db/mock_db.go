@@ -583,20 +583,6 @@ func (mr *MockServiceMockRecorder) PublishBatchDiscoveredInterfaces(ctx, interfa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishBatchDiscoveredInterfaces", reflect.TypeOf((*MockService)(nil).PublishBatchDiscoveredInterfaces), ctx, interfaces)
 }
 
-// PublishBatchSweepResults mocks base method.
-func (m *MockService) PublishBatchSweepResults(ctx context.Context, results []*models.SweepResult) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PublishBatchSweepResults", ctx, results)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// PublishBatchSweepResults indicates an expected call of PublishBatchSweepResults.
-func (mr *MockServiceMockRecorder) PublishBatchSweepResults(ctx, results any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishBatchSweepResults", reflect.TypeOf((*MockService)(nil).PublishBatchSweepResults), ctx, results)
-}
-
 // PublishBatchTopologyDiscoveryEvents mocks base method.
 func (m *MockService) PublishBatchTopologyDiscoveryEvents(ctx context.Context, events []*models.TopologyDiscoveryEvent) error {
 	m.ctrl.T.Helper()
@@ -637,20 +623,6 @@ func (m *MockService) PublishDiscoveredInterface(ctx context.Context, iface *mod
 func (mr *MockServiceMockRecorder) PublishDiscoveredInterface(ctx, iface any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishDiscoveredInterface", reflect.TypeOf((*MockService)(nil).PublishDiscoveredInterface), ctx, iface)
-}
-
-// PublishSweepResult mocks base method.
-func (m *MockService) PublishSweepResult(ctx context.Context, result *models.SweepResult) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PublishSweepResult", ctx, result)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// PublishSweepResult indicates an expected call of PublishSweepResult.
-func (mr *MockServiceMockRecorder) PublishSweepResult(ctx, result any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishSweepResult", reflect.TypeOf((*MockService)(nil).PublishSweepResult), ctx, result)
 }
 
 // PublishTopologyDiscoveryEvent mocks base method.
@@ -749,20 +721,6 @@ func (m *MockService) StoreSweepHostStates(ctx context.Context, states []*models
 func (mr *MockServiceMockRecorder) StoreSweepHostStates(ctx, states any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSweepHostStates", reflect.TypeOf((*MockService)(nil).StoreSweepHostStates), ctx, states)
-}
-
-// StoreSweepResults mocks base method.
-func (m *MockService) StoreSweepResults(ctx context.Context, results []*models.SweepResult) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreSweepResults", ctx, results)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// StoreSweepResults indicates an expected call of StoreSweepResults.
-func (mr *MockServiceMockRecorder) StoreSweepResults(ctx, results any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSweepResults", reflect.TypeOf((*MockService)(nil).StoreSweepResults), ctx, results)
 }
 
 // StoreSysmonMetrics mocks base method.

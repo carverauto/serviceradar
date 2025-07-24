@@ -428,8 +428,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	// Expect StoreMetrics to be called once with two metrics
 	mockDB.EXPECT().StoreMetrics(gomock.Any(), gomock.Eq("test-poller"), gomock.Len(2)).Return(nil)
-	// Mock StoreSweepResults for sweep results storage
-	mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDB.EXPECT().PublishDeviceUpdate(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	server := &Server{
 		DB:            mockDB,
