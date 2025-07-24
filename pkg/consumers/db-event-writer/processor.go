@@ -142,6 +142,29 @@ func parseOTELLogs(b []byte, subject string) ([]LogRow, error) {
 				// Convert timestamp
 				timestamp := time.Unix(0, int64(logRecord.TimeUnixNano))
 				
+				// Create a structured representation for raw_data instead of binary protobuf
+				rawDataMap := map[string]interface{}{
+					"resource_logs": map[string]interface{}{
+						"resource_attributes": resourceAttribs,
+						"scope_logs": map[string]interface{}{
+							"scope": map[string]interface{}{
+								"name":    scopeName,
+								"version": scopeVersion,
+							},
+							"log_record": map[string]interface{}{
+								"timestamp":        logRecord.TimeUnixNano,
+								"severity_text":    logRecord.SeverityText,
+								"severity_number":  logRecord.SeverityNumber,
+								"body":            body,
+								"attributes":      logAttribs,
+								"trace_id":        fmt.Sprintf("%x", logRecord.TraceId),
+								"span_id":         fmt.Sprintf("%x", logRecord.SpanId),
+							},
+						},
+					},
+				}
+				rawDataJson, _ := json.Marshal(rawDataMap)
+
 				rows = append(rows, LogRow{
 					Timestamp:          timestamp,
 					TraceID:            fmt.Sprintf("%x", logRecord.TraceId),
@@ -156,7 +179,7 @@ func parseOTELLogs(b []byte, subject string) ([]LogRow, error) {
 					ScopeVersion:       scopeVersion,
 					Attributes:         strings.Join(logAttribs, ","),
 					ResourceAttributes: strings.Join(resourceAttribs, ","),
-					RawData:            string(b),
+					RawData:            string(rawDataJson),
 				})
 			}
 		}
