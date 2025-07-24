@@ -129,19 +129,45 @@ const LogsDashboard = () => {
 
     const fetchServices = useCallback(async () => {
         try {
-            // Fetch a sample of logs to extract unique service names
-            const query = 'SHOW LOGS LIMIT 1000';
-            const data = await postQuery<{ results: Log[] }>(query);
             const uniqueServices = new Set<string>();
-            data.results.forEach(log => {
-                if (log.service_name && log.service_name.trim() !== '') {
-                    uniqueServices.add(log.service_name);
+            let cursor: string | undefined;
+            let hasMore = true;
+            let attempts = 0;
+            const maxAttempts = 50; // Prevent infinite loops, ~1000 logs sampled
+            
+            // Paginate through logs to collect unique service names
+            while (hasMore && attempts < maxAttempts) {
+                const query = 'SHOW LOGS ORDER BY timestamp DESC';
+                const data = await postQuery<LogsApiResponse>(query, cursor, 'next');
+                
+                if (!data.results || data.results.length === 0) {
+                    break;
                 }
-            });
+                
+                // Extract service names from this page
+                data.results.forEach(log => {
+                    if (log.service_name && log.service_name.trim() !== '') {
+                        uniqueServices.add(log.service_name);
+                    }
+                });
+                
+                // Check if we have enough services or if there are more pages
+                cursor = data.pagination?.next_cursor;
+                hasMore = !!cursor;
+                attempts++;
+                
+                // If we have a good number of services, we can stop early
+                if (uniqueServices.size >= 20) {
+                    break;
+                }
+            }
+            
             const serviceNames = Array.from(uniqueServices).sort();
             setServices(serviceNames);
         } catch (e) {
             console.error("Failed to fetch services:", e);
+            // If the service fetch fails, users can still use the logs view without service filtering
+            setServices([]);
         }
     }, [postQuery]);
 
