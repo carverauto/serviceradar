@@ -311,13 +311,23 @@ const SweepResultsView: React.FC = React.memo(() => {
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'summary' | 'hosts'>('summary');
     const [searchTerm, setSearchTerm] = useState('');
+    const [pagination, setPagination] = useState<{
+        nextCursor: string | null;
+        prevCursor: string | null;
+        hasMore: boolean;
+    }>({ nextCursor: null, prevCursor: null, hasMore: false });
 
-    const fetchSweepResults = useCallback(async () => {
+    const fetchSweepResults = useCallback(async (cursor?: string, direction: 'next' | 'prev' = 'next', limit = 1000) => {
         setLoading(true);
         setError(null);
 
         try {
-            const response = await fetch('/api/devices/sweep', {
+            const params = new URLSearchParams({
+                limit: limit.toString(),
+                ...(cursor && { cursor, direction })
+            });
+
+            const response = await fetch(`/api/devices/sweep?${params}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -332,6 +342,13 @@ const SweepResultsView: React.FC = React.memo(() => {
 
             const data = await response.json();
             setSweepResults(data.results || []);
+            
+            // Update pagination info
+            setPagination({
+                nextCursor: data.pagination?.next_cursor || null,
+                prevCursor: data.pagination?.prev_cursor || null,
+                hasMore: !!(data.pagination?.next_cursor)
+            });
         } catch (e) {
             setError(e instanceof Error ? e.message : "Failed to fetch sweep results.");
         } finally {
@@ -715,6 +732,31 @@ const SweepResultsView: React.FC = React.memo(() => {
                             </div>
                         )}
                     </div>
+                    
+                    {/* Pagination Controls */}
+                    {(pagination.nextCursor || pagination.prevCursor) && (
+                        <div className="mt-6 flex justify-between items-center">
+                            <button
+                                onClick={() => pagination.prevCursor && fetchSweepResults(pagination.prevCursor, 'prev')}
+                                disabled={!pagination.prevCursor || loading}
+                                className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
+                            >
+                                Previous
+                            </button>
+                            
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                                Showing {sweepResults.length} results
+                            </span>
+                            
+                            <button
+                                onClick={() => pagination.nextCursor && fetchSweepResults(pagination.nextCursor, 'next')}
+                                disabled={!pagination.nextCursor || loading}
+                                className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
