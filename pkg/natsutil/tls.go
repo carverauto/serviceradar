@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -14,6 +15,9 @@ func TLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
 	if sec == nil || sec.Mode != "mtls" {
 		return nil, fmt.Errorf("mtls security required")
 	}
+
+	// Use the existing config package to normalize TLS paths
+	config.NormalizeTLSPaths(&sec.TLS, sec.CertDir)
 
 	cert, err := tls.LoadX509KeyPair(sec.TLS.CertFile, sec.TLS.KeyFile)
 	if err != nil {

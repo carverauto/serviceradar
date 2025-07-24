@@ -29,8 +29,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/nats-io/nats.go"
 )
 
 // sysmonMetricBuffer holds sysmon metrics with their associated partition
@@ -55,6 +57,8 @@ type Server struct {
 	config                  *models.DBConfig
 	authService             *auth.Auth
 	DeviceRegistry          registry.Manager
+	eventPublisher          *natsutil.EventPublisher
+	natsConn                *nats.Conn
 	discoveryService        DiscoveryService
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus

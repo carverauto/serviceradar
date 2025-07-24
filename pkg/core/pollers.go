@@ -114,16 +114,13 @@ func (s *Server) handlePoller(batchCtx context.Context, ps *models.PollerStatus,
 			ps.AlertSent = true
 		}
 	} else if !ps.IsHealthy && !ps.LastSeen.Before(threshold) && ps.AlertSent {
-		log.Printf("Poller %s has recovered", ps.PollerID)
+		// Backup recovery mechanism: poller is marked unhealthy but has reported recently
+		// Primary recovery now happens in ReportStatus, but this serves as a safety net
+		log.Printf("Poller %s detected as recovered via periodic check (backup mechanism)", ps.PollerID)
 
-		apiStatus := &api.PollerStatus{
-			PollerID:   ps.PollerID,
-			LastUpdate: ps.LastSeen,
-			Services:   make([]api.ServiceStatus, 0),
-		}
-
-		s.handlePollerRecovery(batchCtx, ps.PollerID, apiStatus, ps.LastSeen)
+		// Simply clear the alert flag and mark as healthy - ReportStatus handles proper recovery events
 		ps.AlertSent = false
+		ps.IsHealthy = true
 	}
 
 	return nil
@@ -207,7 +204,7 @@ func (s *Server) handlePotentialRecovery(ctx context.Context, pollerID string, l
 		Services:   make([]api.ServiceStatus, 0),
 	}
 
-	s.handlePollerRecovery(ctx, pollerID, apiStatus, lastSeen)
+	s.handlePollerRecovery(ctx, pollerID, apiStatus, lastSeen, nil)
 
 	return nil
 }
@@ -224,6 +221,19 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 	s.cacheMutex.RUnlock()
 
 	s.queuePollerStatusUpdate(pollerID, false, lastSeen, firstSeen)
+
+	// Emit offline event to NATS if event publisher is available
+	if s.eventPublisher != nil {
+		// TODO: Extract source IP and partition from poller cache if available
+		sourceIP := ""
+		partition := ""
+
+		if err := s.eventPublisher.PublishPollerOfflineEvent(ctx, pollerID, sourceIP, partition, lastSeen); err != nil {
+			log.Printf("Failed to publish poller offline event for %s: %v", pollerID, err)
+		} else {
+			log.Printf("Published poller offline event for %s", pollerID)
+		}
+	}
 
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Error,
@@ -252,7 +262,33 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 	return nil
 }
 
-func (s *Server) handlePollerRecovery(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, timestamp time.Time) {
+func (s *Server) handlePollerRecovery(
+	ctx context.Context,
+	pollerID string,
+	apiStatus *api.PollerStatus,
+	timestamp time.Time,
+	req *proto.PollerStatusRequest) {
+	// Emit recovery event to NATS if event publisher is available
+	if s.eventPublisher != nil {
+		sourceIP := ""
+		partition := ""
+
+		if req != nil {
+			sourceIP = req.SourceIp
+			partition = req.Partition
+		}
+
+		// TODO: Extract remote address from gRPC context if needed
+		remoteAddr := ""
+
+		if err := s.eventPublisher.PublishPollerRecoveryEvent(
+			ctx, pollerID, sourceIP, partition, remoteAddr, timestamp); err != nil {
+			log.Printf("Failed to publish poller recovery event for %s: %v", pollerID, err)
+		} else {
+			log.Printf("Published poller recovery event for %s", pollerID)
+		}
+	}
+
 	for _, webhook := range s.webhooks {
 		alerter, ok := webhook.(*alerts.WebhookAlerter)
 		if !ok {
@@ -332,13 +368,13 @@ func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHeal
 }
 
 func (s *Server) updatePollerState(
-	ctx context.Context, pollerID string, apiStatus *api.PollerStatus, wasHealthy bool, now time.Time) error {
+	ctx context.Context, pollerID string, apiStatus *api.PollerStatus, wasHealthy bool, now time.Time, req *proto.PollerStatusRequest) error {
 	if err := s.storePollerStatus(ctx, pollerID, apiStatus.IsHealthy, now); err != nil {
 		return err
 	}
 
 	if !wasHealthy && apiStatus.IsHealthy {
-		s.handlePollerRecovery(ctx, pollerID, apiStatus, now)
+		s.handlePollerRecovery(ctx, pollerID, apiStatus, now, req)
 	}
 
 	return nil
@@ -449,7 +485,7 @@ func (s *Server) processStatusReport(
 		apiStatus := s.createPollerStatus(req, now)
 		s.processServices(ctx, req.PollerId, req.Partition, req.SourceIp, apiStatus, req.Services, now)
 
-		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
+		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now, req); err != nil {
 			log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
 
 			return nil, err
@@ -481,6 +517,18 @@ func (s *Server) processStatusReport(
 		log.Printf("Failed to create new poller status for %s: %v", req.PollerId, err)
 
 		return nil, fmt.Errorf("failed to create poller status: %w", err)
+	}
+
+	// Emit first seen event to NATS if event publisher is available
+	if s.eventPublisher != nil {
+		// TODO: Extract remote address from gRPC context if needed
+		remoteAddr := ""
+
+		if err := s.eventPublisher.PublishPollerFirstSeenEvent(ctx, req.PollerId, req.SourceIp, req.Partition, remoteAddr, now); err != nil {
+			log.Printf("Failed to publish poller first seen event for %s: %v", req.PollerId, err)
+		} else {
+			log.Printf("Published poller first seen event for %s", req.PollerId)
+		}
 	}
 
 	apiStatus := s.createPollerStatus(req, now)

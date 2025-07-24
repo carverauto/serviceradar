@@ -18,8 +18,8 @@ type Consumer struct {
 }
 
 // NewConsumer creates or retrieves a pull consumer for the given stream.
-func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consumerName, subject string) (*Consumer, error) {
-	log.Printf("Creating/getting pull consumer: stream=%s, consumer=%s", streamName, consumerName)
+func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consumerName string, subjects []string) (*Consumer, error) {
+	log.Printf("Creating/getting pull consumer: stream=%s, consumer=%s, subjects=%v", streamName, consumerName, subjects)
 
 	consumer, err := js.Consumer(ctx, streamName, consumerName)
 	if err != nil {
@@ -31,8 +31,10 @@ func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consum
 			MaxAckPending: 1000,
 		}
 
-		if subject != "" {
-			cfg.FilterSubject = subject
+		if len(subjects) == 1 {
+			cfg.FilterSubject = subjects[0]
+		} else if len(subjects) > 1 {
+			cfg.FilterSubjects = subjects
 		}
 
 		consumer, err = js.CreateConsumer(ctx, streamName, cfg)
