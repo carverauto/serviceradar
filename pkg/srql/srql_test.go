@@ -137,34 +137,34 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 			},
 		},
 		{
-			name:  "Show sweep_results defaults to sweep discovery source",
-			query: "show sweep_results",
+			name:  "Show device_updates defaults to sweep discovery source",
+			query: "show device_updates",
 			validate: func(t *testing.T, query *models.Query, err error) {
 				t.Helper()
 
 				require.NoError(t, err)
-				assert.Equal(t, models.SweepResults, query.Entity)
+				assert.Equal(t, models.DeviceUpdates, query.Entity)
 				assert.Empty(t, query.Conditions)
 
 				sqlP, errP := protonTranslator.Translate(query)
 				require.NoError(t, errP)
-				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE discovery_source = 'sweep'", sqlP)
+				assert.Equal(t, "SELECT * FROM table(device_updates) WHERE discovery_source = 'sweep'", sqlP)
 
 				sqlCH, errCH := clickhouseTranslator.Translate(query)
 				require.NoError(t, errCH)
-				assert.Equal(t, "SELECT * FROM sweep_results WHERE discovery_source = 'sweep'", sqlCH)
+				assert.Equal(t, "SELECT * FROM device_updates WHERE discovery_source = 'sweep'", sqlCH)
 			},
 		},
-		// --- New Test Cases for sweep_results and date functions ---
+		// --- New Test Cases for device_updates and date functions ---
 		{
-			name:  "Show sweep_results for TODAY and available",
-			query: "show sweep_results where date(timestamp) = TODAY and available = true",
+			name:  "Show device_updates for TODAY and available",
+			query: "show device_updates where date(timestamp) = TODAY and available = true",
 			validate: func(t *testing.T, query *models.Query, err error) {
 				t.Helper()
 
 				require.NoError(t, err)
 				assert.Equal(t, models.Show, query.Type)
-				assert.Equal(t, models.SweepResults, query.Entity) // Make sure this entity type is correct
+				assert.Equal(t, models.DeviceUpdates, query.Entity) // Make sure this entity type is correct
 				require.Len(t, query.Conditions, 2)
 
 				// Condition 1: date(timestamp) = TODAY
@@ -183,13 +183,13 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				// Test Proton translation
 				sqlP, errP := protonTranslator.Translate(query)
 				require.NoError(t, errP)
-				assert.Equal(t, "SELECT * FROM table(sweep_results) "+
+				assert.Equal(t, "SELECT * FROM table(device_updates) "+
 					"WHERE to_date(timestamp) = today() AND available = true AND discovery_source = 'sweep'", sqlP)
 
 				// Test ClickHouse translation
 				sqlCH, errCH := clickhouseTranslator.Translate(query)
 				require.NoError(t, errCH)
-				assert.Equal(t, "SELECT * FROM sweep_results WHERE "+
+				assert.Equal(t, "SELECT * FROM device_updates WHERE "+
 					"toDate(timestamp) = today() AND available = true AND discovery_source = 'sweep'", sqlCH) // Assuming toDate for CH
 
 				// Test ArangoDB translation
@@ -197,20 +197,20 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				require.NoError(t, errA)
 				todayDateStr := time.Now().Format("2006-01-02")
 				// Assuming SUBSTRING for Arango if timestamp is string, or DATE_TRUNC if native date
-				expectedAQL := fmt.Sprintf("FOR doc IN sweep_results\n  "+
+				expectedAQL := fmt.Sprintf("FOR doc IN device_updates\n  "+
 					"FILTER SUBSTRING(doc.timestamp, 0, 10) == '%s' AND doc.available == true AND doc.discovery_source == 'sweep'\n  "+
 					"RETURN doc", todayDateStr)
 				assert.Equal(t, expectedAQL, aql)
 			},
 		},
 		{
-			name:  "Show sweep_results for YESTERDAY and not available",
-			query: "show sweep_results where date(timestamp) = YESTERDAY and available = false",
+			name:  "Show device_updates for YESTERDAY and not available",
+			query: "show device_updates where date(timestamp) = YESTERDAY and available = false",
 			validate: func(t *testing.T, query *models.Query, err error) {
 				t.Helper()
 
 				require.NoError(t, err)
-				assert.Equal(t, models.SweepResults, query.Entity)
+				assert.Equal(t, models.DeviceUpdates, query.Entity)
 				require.Len(t, query.Conditions, 2)
 
 				assert.Equal(t, "date(timestamp)", query.Conditions[0].Field)
@@ -219,73 +219,73 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 
 				// Proton
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(sweep_results) "+
+				assert.Equal(t, "SELECT * FROM table(device_updates) "+
 					"WHERE to_date(timestamp) = yesterday() AND available = false AND discovery_source = 'sweep'", sqlP)
 
 				// ClickHouse
 				sqlCH, _ := clickhouseTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM sweep_results WHERE toDate(timestamp) = yesterday() "+
+				assert.Equal(t, "SELECT * FROM device_updates WHERE toDate(timestamp) = yesterday() "+
 					"AND available = false AND discovery_source = 'sweep'", sqlCH)
 
 				// ArangoDB
 				aql, _ := arangoTranslator.Translate(query)
 				yesterdayDateStr := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 				expectedAQL := fmt.Sprintf(
-					"FOR doc IN sweep_results\n  FILTER SUBSTRING(doc.timestamp, 0, 10) == '%s' "+
+					"FOR doc IN device_updates\n  FILTER SUBSTRING(doc.timestamp, 0, 10) == '%s' "+
 						"AND doc.available == false AND doc.discovery_source == 'sweep'\n  RETURN doc", yesterdayDateStr)
 				assert.Equal(t, expectedAQL, aql)
 			},
 		},
 		{
-			name:  "Show sweep_results for a specific date string",
-			query: "show sweep_results where date(timestamp) = '2023-10-20'",
+			name:  "Show device_updates for a specific date string",
+			query: "show device_updates where date(timestamp) = '2023-10-20'",
 			validate: func(t *testing.T, query *models.Query, err error) {
 				t.Helper()
 
 				require.NoError(t, err)
-				assert.Equal(t, models.SweepResults, query.Entity)
+				assert.Equal(t, models.DeviceUpdates, query.Entity)
 				require.Len(t, query.Conditions, 1)
 				assert.Equal(t, "date(timestamp)", query.Conditions[0].Field)
 				assert.Equal(t, "2023-10-20", query.Conditions[0].Value)
 
 				// Proton
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = "+
+				assert.Equal(t, "SELECT * FROM table(device_updates) WHERE to_date(timestamp) = "+
 					"'2023-10-20' AND discovery_source = 'sweep'", sqlP)
 
 				// ClickHouse
 				sqlCH, _ := clickhouseTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM sweep_results WHERE toDate(timestamp) = "+
+				assert.Equal(t, "SELECT * FROM device_updates WHERE toDate(timestamp) = "+
 					"'2023-10-20' AND discovery_source = 'sweep'", sqlCH)
 
 				// ArangoDB
 				aql, _ := arangoTranslator.Translate(query)
-				expectedAQL := "FOR doc IN sweep_results\n  FILTER SUBSTRING(doc.timestamp, 0, 10) " +
+				expectedAQL := "FOR doc IN device_updates\n  FILTER SUBSTRING(doc.timestamp, 0, 10) " +
 					"== '2023-10-20' AND doc.discovery_source == 'sweep'\n  RETURN doc"
 				assert.Equal(t, expectedAQL, aql)
 			},
 		},
 		{
-			name:  "Count sweep_results for TODAY",
-			query: "count sweep_results where date(timestamp) = TODAY",
+			name:  "Count device_updates for TODAY",
+			query: "count device_updates where date(timestamp) = TODAY",
 			validate: func(t *testing.T, query *models.Query, err error) {
 				t.Helper()
 
 				require.NoError(t, err)
 				assert.Equal(t, models.Count, query.Type)
-				assert.Equal(t, models.SweepResults, query.Entity)
+				assert.Equal(t, models.DeviceUpdates, query.Entity)
 				require.Len(t, query.Conditions, 1)
 				assert.Equal(t, "date(timestamp)", query.Conditions[0].Field)
 				assert.Equal(t, "TODAY", query.Conditions[0].Value)
 
 				// Proton
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT count() FROM table(sweep_results) WHERE to_date(timestamp) = today() AND discovery_source = 'sweep'", sqlP)
+				assert.Equal(t, "SELECT count() FROM table(device_updates) WHERE to_date(timestamp) = today() AND discovery_source = 'sweep'", sqlP)
 			},
 		},
 		{
-			name:  "Show sweep_results with case-insensitive DATE function and TODAY keyword",
-			query: "show sweep_results where DATE(timestamp) = today", // DATE and today are mixed case
+			name:  "Show device_updates with case-insensitive DATE function and TODAY keyword",
+			query: "show device_updates where DATE(timestamp) = today", // DATE and today are mixed case
 			validate: func(t *testing.T, query *models.Query, err error) {
 				t.Helper()
 
@@ -294,7 +294,7 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				assert.Equal(t, "TODAY", query.Conditions[0].Value)           // Visitor should normalize keyword
 
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = today() AND discovery_source = 'sweep'", sqlP)
+				assert.Equal(t, "SELECT * FROM table(device_updates) WHERE to_date(timestamp) = today() AND discovery_source = 'sweep'", sqlP)
 			},
 		},
 		{
@@ -315,7 +315,7 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 		// Add more tests:
 		// - Multiple conditions with date(timestamp) and other fields
 		// - date(timestamp) with LATEST keyword (clarify expected behavior for LATEST with date filters)
-		// - Ensure entity `sweep_results` is correctly recognized (may need grammar update for entity rule)
+		// - Ensure entity `device_updates` is correctly recognized (may need grammar update for entity rule)
 	}
 
 	for _, tc := range testCases {

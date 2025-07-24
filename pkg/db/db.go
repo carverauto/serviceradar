@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -37,8 +36,6 @@ import (
 type DB struct {
 	Conn          proton.Conn
 	writeBuffer   []*models.SweepResult
-	mu            sync.Mutex
-	flushTimer    *time.Timer
 	ctx           context.Context
 	cancel        context.CancelFunc
 	maxBufferSize int
@@ -162,14 +159,6 @@ func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.DB
 		flushInterval: flushInterval,
 	}
 
-	// Start the background flush routine only if buffering is enabled
-	if maxBufferSize > 0 {
-		go db.backgroundFlush()
-		log.Printf("DEBUG [database]: Started write buffer with max_size=%d, flush_interval=%v", maxBufferSize, flushInterval)
-	} else {
-		log.Printf("DEBUG [database]: Write buffering disabled, all writes will be direct")
-	}
-
 	return db
 }
 
@@ -179,13 +168,6 @@ func (db *DB) Close() error {
 	if db.cancel != nil {
 		db.cancel()
 	}
-
-	// Flush any remaining data from sweep results buffer
-	db.mu.Lock()
-	if err := db.flushBufferUnsafe(context.Background()); err != nil {
-		log.Printf("WARNING [database]: Failed to flush sweep results buffer during close: %v", err)
-	}
-	db.mu.Unlock()
 
 	return db.Conn.Close()
 }
@@ -330,54 +312,6 @@ func isValidTimestamp(t time.Time) bool {
 	return t.After(minTime) && t.Before(maxTime)
 }
 
-// PublishBatchSweepResults publishes a batch of sweep results to the sweep_results stream.
-func (db *DB) PublishBatchSweepResults(ctx context.Context, results []*models.SweepResult) error {
-	// If buffering is disabled (maxBufferSize = 0), write directly
-	if db.maxBufferSize == 0 {
-		log.Printf("DEBUG [database]: Buffering disabled, writing %d results directly", len(results))
-		return db.StoreSweepResults(ctx, results)
-	}
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
-	// Add results to buffer
-	db.writeBuffer = append(db.writeBuffer, results...)
-
-	log.Printf("DEBUG [database]: Added %d results to buffer, buffer size now: %d", len(results), len(db.writeBuffer))
-
-	// Check if we need to flush immediately
-	if len(db.writeBuffer) >= db.maxBufferSize {
-		log.Printf("DEBUG [database]: Buffer size limit reached (%d), flushing immediately", len(db.writeBuffer))
-		return db.flushBufferUnsafe(ctx)
-	}
-
-	// Reset the flush timer
-	if db.flushTimer != nil {
-		db.flushTimer.Stop()
-	}
-
-	db.flushTimer = time.AfterFunc(db.flushInterval, func() {
-		db.mu.Lock()
-		defer db.mu.Unlock()
-
-		if len(db.writeBuffer) > 0 {
-			log.Printf("DEBUG [database]: Timer triggered flush for %d buffered results", len(db.writeBuffer))
-
-			if err := db.flushBufferUnsafe(context.Background()); err != nil {
-				log.Printf("ERROR [database]: Timer flush failed: %v", err)
-			}
-		}
-	})
-
-	return nil
-}
-
-// PublishSweepResult publishes a single sweep result to the sweep_results stream.
-func (db *DB) PublishSweepResult(ctx context.Context, result *models.SweepResult) error {
-	return db.PublishBatchSweepResults(ctx, []*models.SweepResult{result})
-}
-
 // PublishDeviceUpdate publishes a single device update to the device_updates stream.
 func (db *DB) PublishDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error {
 	return db.PublishBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
@@ -435,67 +369,6 @@ func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.D
 	}
 
 	log.Printf("Successfully published %d device updates to device_updates stream", len(updates))
-
-	return nil
-}
-
-// backgroundFlush runs a background goroutine to periodically flush the buffer
-func (db *DB) backgroundFlush() {
-	ticker := time.NewTicker(db.flushInterval / 2) // Check twice as often as flush interval
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-db.ctx.Done():
-			log.Printf("DEBUG [database]: Background flush routine stopping")
-			return
-		case <-ticker.C:
-			db.mu.Lock()
-			// Flush sweep results buffer
-			if len(db.writeBuffer) > 0 {
-				log.Printf("DEBUG [database]: Background flush triggered for %d buffered sweep results", len(db.writeBuffer))
-
-				if err := db.flushBufferUnsafe(context.Background()); err != nil {
-					log.Printf("ERROR [database]: Background flush failed for sweep results: %v", err)
-				}
-			}
-			// Device updates are published directly, no buffering needed
-			db.mu.Unlock()
-		}
-	}
-}
-
-// flushBufferUnsafe flushes the write buffer to the database (caller must hold mu)
-func (db *DB) flushBufferUnsafe(ctx context.Context) error {
-	if len(db.writeBuffer) == 0 {
-		return nil
-	}
-
-	// Make a copy of the buffer to minimize lock time
-	toFlush := make([]*models.SweepResult, len(db.writeBuffer))
-	copy(toFlush, db.writeBuffer)
-
-	// Clear the buffer
-	db.writeBuffer = db.writeBuffer[:0]
-
-	// Stop the timer since we're flushing now
-	if db.flushTimer != nil {
-		db.flushTimer.Stop()
-		db.flushTimer = nil
-	}
-
-	log.Printf("DEBUG [database]: Flushing %d buffered results to database", len(toFlush))
-
-	// Perform the actual database write
-	if err := db.StoreSweepResults(ctx, toFlush); err != nil {
-		// On error, add the data back to the buffer to retry later
-		log.Printf("ERROR [database]: Failed to flush buffer, re-adding %d results: %v", len(toFlush), err)
-		db.writeBuffer = append(db.writeBuffer, toFlush...)
-
-		return err
-	}
-
-	log.Printf("DEBUG [database]: Successfully flushed %d results to database", len(toFlush))
 
 	return nil
 }

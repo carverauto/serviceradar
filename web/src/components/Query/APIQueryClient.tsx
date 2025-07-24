@@ -375,8 +375,8 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             query: 'find flows where bytes > 1000000 order by bytes desc limit 10',
         },
         {
-            name: 'Latest Sweep Results',
-            query: 'show sweep_results',
+            name: 'Latest Device Updates',
+            query: 'show device_updates',
         },
     ];
 

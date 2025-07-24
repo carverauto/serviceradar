@@ -736,7 +736,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     };
 
     const handleActiveSweepsClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show sweep_results'));
+        router.push('/query?q=' + encodeURIComponent('show device_updates'));
     };
 
     const handleSnmpDevicesClick = () => {
