@@ -32,7 +32,18 @@ func NewService(cfg *DBEventWriterConfig, dbService db.Service) (*Service, error
 		return nil, err
 	}
 
-	proc, err := NewProcessor(dbService, cfg.Table)
+	var proc *Processor
+	var err error
+	
+	streams := cfg.GetStreams()
+	if len(streams) > 0 {
+		// Use new multi-stream configuration
+		proc, err = NewProcessorWithStreams(dbService, streams)
+	} else {
+		// Legacy single stream configuration
+		proc, err = NewProcessor(dbService, cfg.Table)
+	}
+	
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +117,18 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to get stream info: %w", err)
 	}
 
-	s.consumer, err = NewConsumer(ctx, js, s.cfg.StreamName, s.cfg.ConsumerName, s.cfg.Subject)
+	// Collect all subjects from streams configuration
+	var subjects []string
+	streams := s.cfg.GetStreams()
+	if len(streams) > 0 {
+		for _, stream := range streams {
+			subjects = append(subjects, stream.Subject)
+		}
+	} else if s.cfg.Subject != "" {
+		subjects = []string{s.cfg.Subject}
+	}
+
+	s.consumer, err = NewConsumer(ctx, js, s.cfg.StreamName, s.cfg.ConsumerName, subjects)
 	if err != nil {
 		nc.Close()
 		return err
