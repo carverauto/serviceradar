@@ -13,7 +13,6 @@ import {
     Loader2,
     ArrowUp,
     ArrowDown,
-    Activity,
     Info,
     AlertOctagon
 } from 'lucide-react';
@@ -349,7 +348,7 @@ const LogsDashboard = () => {
                             <select
                                 id="severityFilter"
                                 value={filterSeverity}
-                                onChange={(e) => setFilterSeverity(e.target.value as any)}
+                                onChange={(e) => setFilterSeverity(e.target.value as 'all' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG')}
                                 className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
                             >
                                 <option value="all">All</option>
