@@ -60,7 +60,7 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		srqlmodels.Logs:          "logs",
 		srqlmodels.Services:      "services",
 		srqlmodels.Interfaces:    "discovered_interfaces",
-		srqlmodels.SweepResults:  "sweep_results",
+		srqlmodels.DeviceUpdates: "device_updates",
 		srqlmodels.ICMPResults:   "icmp_results",
 		srqlmodels.SNMPResults:   "timeseries_metrics",
 		srqlmodels.Events:        "events",

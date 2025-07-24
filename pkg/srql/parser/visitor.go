@@ -513,7 +513,7 @@ func getEntityTypeMapData() map[string]models.EntityType {
 		"logs":           models.Logs,
 		"services":       models.Services,
 		"interfaces":     models.Interfaces,
-		"sweep_results":  models.SweepResults,
+		"device_updates": models.DeviceUpdates,
 		"icmp_results":   models.ICMPResults,
 		"snmp_results":   models.SNMPResults,
 		"events":         models.Events,
