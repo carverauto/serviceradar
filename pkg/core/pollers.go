@@ -227,7 +227,7 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 		// TODO: Extract source IP and partition from poller cache if available
 		sourceIP := ""
 		partition := ""
-		
+
 		if err := s.eventPublisher.PublishPollerOfflineEvent(ctx, pollerID, sourceIP, partition, lastSeen); err != nil {
 			log.Printf("Failed to publish poller offline event for %s: %v", pollerID, err)
 		} else {
@@ -262,24 +262,33 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 	return nil
 }
 
-func (s *Server) handlePollerRecovery(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, timestamp time.Time, req *proto.PollerStatusRequest) {
+func (s *Server) handlePollerRecovery(
+	ctx context.Context,
+	pollerID string,
+	apiStatus *api.PollerStatus,
+	timestamp time.Time,
+	req *proto.PollerStatusRequest) {
 	// Emit recovery event to NATS if event publisher is available
 	if s.eventPublisher != nil {
 		sourceIP := ""
 		partition := ""
+
 		if req != nil {
 			sourceIP = req.SourceIp
 			partition = req.Partition
 		}
+
 		// TODO: Extract remote address from gRPC context if needed
 		remoteAddr := ""
 
-		if err := s.eventPublisher.PublishPollerRecoveryEvent(ctx, pollerID, sourceIP, partition, remoteAddr, timestamp); err != nil {
+		if err := s.eventPublisher.PublishPollerRecoveryEvent(
+			ctx, pollerID, sourceIP, partition, remoteAddr, timestamp); err != nil {
 			log.Printf("Failed to publish poller recovery event for %s: %v", pollerID, err)
 		} else {
 			log.Printf("Published poller recovery event for %s", pollerID)
 		}
 	}
+
 	for _, webhook := range s.webhooks {
 		alerter, ok := webhook.(*alerts.WebhookAlerter)
 		if !ok {
@@ -514,7 +523,7 @@ func (s *Server) processStatusReport(
 	if s.eventPublisher != nil {
 		// TODO: Extract remote address from gRPC context if needed
 		remoteAddr := ""
-		
+
 		if err := s.eventPublisher.PublishPollerFirstSeenEvent(ctx, req.PollerId, req.SourceIp, req.Partition, remoteAddr, now); err != nil {
 			log.Printf("Failed to publish poller first seen event for %s: %v", req.PollerId, err)
 		} else {

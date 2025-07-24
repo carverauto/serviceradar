@@ -33,6 +33,7 @@ func (c *NatsConfig) Validate() error {
 	if c.URL == "" {
 		return fmt.Errorf("nats url is required")
 	}
+
 	return nil
 }
 

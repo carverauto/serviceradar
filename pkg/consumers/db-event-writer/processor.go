@@ -19,30 +19,31 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const maxInt64 = 9223372036854775807
+
 // Processor writes JetStream messages to Proton tables.
 type Processor struct {
 	conn    proton.Conn
-	table   string              // Legacy single table
-	streams []StreamConfig      // Multi-stream configuration
+	table   string         // Legacy single table
+	streams []StreamConfig // Multi-stream configuration
 }
-
 
 // LogRow represents a row in the logs table
 type LogRow struct {
-	Timestamp         time.Time `db:"timestamp"`
-	TraceID           string    `db:"trace_id"`
-	SpanID            string    `db:"span_id"`
-	SeverityText      string    `db:"severity_text"`
-	SeverityNumber    int32     `db:"severity_number"`
-	Body              string    `db:"body"`
-	ServiceName       string    `db:"service_name"`
-	ServiceVersion    string    `db:"service_version"`
-	ServiceInstance   string    `db:"service_instance"`
-	ScopeName         string    `db:"scope_name"`
-	ScopeVersion      string    `db:"scope_version"`
-	Attributes        string    `db:"attributes"`
-	ResourceAttributes string   `db:"resource_attributes"`
-	RawData           string    `db:"raw_data"`
+	Timestamp          time.Time `db:"timestamp"`
+	TraceID            string    `db:"trace_id"`
+	SpanID             string    `db:"span_id"`
+	SeverityText       string    `db:"severity_text"`
+	SeverityNumber     int32     `db:"severity_number"`
+	Body               string    `db:"body"`
+	ServiceName        string    `db:"service_name"`
+	ServiceVersion     string    `db:"service_version"`
+	ServiceInstance    string    `db:"service_instance"`
+	ScopeName          string    `db:"scope_name"`
+	ScopeVersion       string    `db:"scope_version"`
+	Attributes         string    `db:"attributes"`
+	ResourceAttributes string    `db:"resource_attributes"`
+	RawData            string    `db:"raw_data"`
 }
 
 // parseCloudEvent attempts to extract the `data` field from a CloudEvent.
@@ -75,24 +76,25 @@ func extractAttributeValue(attr *commonv1.KeyValue) string {
 	} else if attr.Value.GetDoubleValue() != 0 {
 		return fmt.Sprintf("%f", attr.Value.GetDoubleValue())
 	}
+
 	return ""
 }
 
 // processResourceAttributes processes resource attributes and extracts service information
-func processResourceAttributes(resource *resourcev1.Resource) (string, string, string, []string) {
-	var serviceName, serviceVersion, serviceInstance string
-	var resourceAttribs []string
-	
+func processResourceAttributes(
+	resource *resourcev1.Resource) (serviceName, serviceVersion, serviceInstance string, resourceAttribs []string) {
 	if resource == nil {
 		return "", "", "", nil
 	}
-	
+
+	resourceAttribs = make([]string, 0, len(resource.Attributes))
+
 	for _, attr := range resource.Attributes {
 		value := extractAttributeValue(attr)
 		if value == "" {
 			continue
 		}
-		
+
 		// Extract service information
 		switch attr.Key {
 		case "service.name":
@@ -102,27 +104,27 @@ func processResourceAttributes(resource *resourcev1.Resource) (string, string, s
 		case "service.instance.id":
 			serviceInstance = value
 		}
-		
+
 		// Add to resource attributes
 		resourceAttribs = append(resourceAttribs, fmt.Sprintf("%s=%s", attr.Key, value))
 	}
-	
+
 	return serviceName, serviceVersion, serviceInstance, resourceAttribs
 }
 
 // processLogAttributes processes log record attributes
 func processLogAttributes(attributes []*commonv1.KeyValue) []string {
-	var logAttribs []string
-	
+	logAttribs := make([]string, 0, len(attributes))
+
 	for _, attr := range attributes {
 		value := extractAttributeValue(attr)
 		if value == "" {
 			continue
 		}
-		
+
 		logAttribs = append(logAttribs, fmt.Sprintf("%s=%s", attr.Key, value))
 	}
-	
+
 	return logAttribs
 }
 
@@ -139,10 +141,44 @@ func createLogRow(
 	if logRecord.Body != nil && logRecord.Body.GetStringValue() != "" {
 		body = logRecord.Body.GetStringValue()
 	}
-	
-	// Convert timestamp
-	timestamp := time.Unix(0, int64(logRecord.TimeUnixNano))
-	
+
+	// Convert timestamp safely to prevent uint64 -> int64 overflow
+	var timestamp time.Time
+
+	if logRecord.TimeUnixNano <= uint64(maxInt64) {
+		timestamp = time.Unix(0, int64(logRecord.TimeUnixNano))
+	} else {
+		// Handle overflow case - split into seconds and remaining nanoseconds
+		// For extremely large values, use a safe approach that avoids overflow
+		seconds := logRecord.TimeUnixNano / 1000000000
+		nanos := logRecord.TimeUnixNano % 1000000000
+
+		// Ensure seconds is within int64 range
+		var secInt64 int64
+
+		if seconds > uint64(maxInt64) {
+			// If seconds would overflow int64, use max int64 value
+			// This is an extreme edge case (timestamp far in the future)
+			secInt64 = maxInt64
+		} else {
+			secInt64 = int64(seconds)
+		}
+
+		// Explicitly check that nanos is within int64 range
+		// This check is redundant since nanos is always < 1000000000 after modulo operation,
+		// but it satisfies the linter
+		var nanosInt64 int64
+
+		if nanos > uint64(maxInt64) {
+			// This condition should never be true after modulo 1000000000
+			nanosInt64 = 0
+		} else {
+			nanosInt64 = int64(nanos)
+		}
+
+		timestamp = time.Unix(secInt64, nanosInt64)
+	}
+
 	// Create raw data JSON
 	rawDataMap := map[string]interface{}{
 		"resource_logs": map[string]interface{}{
@@ -164,10 +200,10 @@ func createLogRow(
 			},
 		},
 	}
-	
+
 	// Marshal to JSON
-	rawDataJson, _ := json.Marshal(rawDataMap)
-	
+	rawDataJSON, _ := json.Marshal(rawDataMap)
+
 	return LogRow{
 		Timestamp:          timestamp,
 		TraceID:            fmt.Sprintf("%x", logRecord.TraceId),
@@ -182,50 +218,52 @@ func createLogRow(
 		ScopeVersion:       scopeVersion,
 		Attributes:         strings.Join(logAttribs, ","),
 		ResourceAttributes: strings.Join(resourceAttribs, ","),
-		RawData:            string(rawDataJson),
+		RawData:            string(rawDataJSON),
 	}
 }
 
 // getScopeInfo extracts scope name and version
-func getScopeInfo(scope *commonv1.InstrumentationScope) (string, string) {
+func getScopeInfo(scope *commonv1.InstrumentationScope) (name, version string) {
 	if scope == nil {
 		return "", ""
 	}
+
 	return scope.Name, scope.Version
 }
 
 // parseOTELLogs parses OTEL protobuf logs data and returns LogRow entries
-func parseOTELLogs(b []byte, subject string) ([]LogRow, error) {
+func parseOTELLogs(b []byte, _ string) ([]LogRow, error) {
 	// Unmarshal the protobuf data
 	var req v1.ExportLogsServiceRequest
+
 	if err := proto.Unmarshal(b, &req); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal OTEL logs: %w", err)
 	}
 
 	// Pre-allocate result slice
 	var rows []LogRow
-	
+
 	// Process all logs in a single loop
 	for _, resourceLog := range req.ResourceLogs {
 		// Skip invalid resource logs
 		if resourceLog.Resource == nil {
 			continue
 		}
-		
+
 		// Get service info once per resource
-		serviceName, serviceVersion, serviceInstance, resourceAttribs := 
+		serviceName, serviceVersion, serviceInstance, resourceAttribs :=
 			processResourceAttributes(resourceLog.Resource)
-		
+
 		// Process all scope logs for this resource
 		for _, scopeLog := range resourceLog.ScopeLogs {
 			// Get scope info once per scope
 			scopeName, scopeVersion := getScopeInfo(scopeLog.Scope)
-			
+
 			// Process all log records for this scope
 			for _, logRecord := range scopeLog.LogRecords {
 				// Get log attributes
 				logAttribs := processLogAttributes(logRecord.Attributes)
-				
+
 				// Build and add the log row
 				row := createLogRow(
 					logRecord,
@@ -234,13 +272,98 @@ func parseOTELLogs(b []byte, subject string) ([]LogRow, error) {
 					resourceAttribs,
 					logAttribs,
 				)
-				
+
 				rows = append(rows, row)
 			}
 		}
 	}
-	
+
 	return rows, nil
+}
+
+// processEventData handles the parsing of CloudEvent data into an EventRow
+func processEventData(row *models.EventRow, ce *models.CloudEvent) {
+	dataBytes, err := json.Marshal(ce.Data)
+	if err != nil {
+		return
+	}
+
+	// Try to handle as poller health event first
+	if tryPollerHealthEvent(row, ce, dataBytes) {
+		return
+	}
+
+	// Fall back to GELF format (for syslog and other events)
+	tryGELFFormat(row, dataBytes)
+}
+
+// tryPollerHealthEvent attempts to parse data as a poller health event
+func tryPollerHealthEvent(row *models.EventRow, ce *models.CloudEvent, dataBytes []byte) bool {
+	if ce.Type != "com.carverauto.serviceradar.poller.health" &&
+		ce.Subject != "events.poller.health" {
+		return false
+	}
+
+	var pollerData models.PollerHealthEventData
+
+	if err := json.Unmarshal(dataBytes, &pollerData); err != nil {
+		return false
+	}
+
+	row.Host = pollerData.Host
+	row.RemoteAddr = pollerData.RemoteAddr
+	row.ShortMessage = fmt.Sprintf("Poller %s state changed from %s to %s",
+		pollerData.PollerID, pollerData.PreviousState, pollerData.CurrentState)
+	row.Level = getLogLevelForState(pollerData.CurrentState)
+	row.Severity = getSeverityForState(pollerData.CurrentState)
+	row.EventTimestamp = pollerData.Timestamp
+	row.Version = "1.1"
+
+	return true
+}
+
+// tryGELFFormat attempts to parse data as GELF format
+func tryGELFFormat(row *models.EventRow, dataBytes []byte) {
+	var gelfPayload struct {
+		RemoteAddr   string  `json:"_remote_addr"`
+		Host         string  `json:"host"`
+		Level        int32   `json:"level"`
+		Severity     string  `json:"severity"`
+		ShortMessage string  `json:"short_message"`
+		Timestamp    float64 `json:"timestamp"`
+		Version      string  `json:"version"`
+	}
+
+	if err := json.Unmarshal(dataBytes, &gelfPayload); err != nil {
+		return
+	}
+
+	row.RemoteAddr = gelfPayload.RemoteAddr
+	row.Host = gelfPayload.Host
+	row.Level = gelfPayload.Level
+	row.Severity = gelfPayload.Severity
+	row.ShortMessage = gelfPayload.ShortMessage
+	row.Version = gelfPayload.Version
+
+	// Handle GELF timestamp if present and valid
+	if gelfPayload.Timestamp > 0 {
+		processGELFTimestamp(row, gelfPayload.Timestamp)
+	}
+}
+
+// processGELFTimestamp handles GELF timestamp conversion and validation
+func processGELFTimestamp(row *models.EventRow, timestamp float64) {
+	sec := int64(timestamp)
+	nsec := int64((timestamp - float64(sec)) * float64(time.Second))
+	ts := time.Unix(sec, nsec)
+
+	// Validate timestamp is within ClickHouse DateTime64 range
+	minTimestamp := time.Date(1925, 1, 1, 0, 0, 0, 0, time.UTC)
+	maxTimestamp := time.Date(2283, 11, 11, 0, 0, 0, 0, time.UTC)
+
+	if !ts.Before(minTimestamp) && !ts.After(maxTimestamp) {
+		row.EventTimestamp = ts
+	}
 }
 
 // buildEventRow parses a CloudEvent payload and returns a models.EventRow.
@@ -275,62 +398,7 @@ func buildEventRow(b []byte, subject string) models.EventRow {
 
 	// Handle different data payload formats based on event type or subject
 	if ce.Data != nil {
-		dataBytes, err := json.Marshal(ce.Data)
-		if err != nil {
-			return row
-		}
-
-		// Try to handle as poller health event first
-		if ce.Type == "com.carverauto.serviceradar.poller.health" || 
-		   ce.Subject == "events.poller.health" {
-			var pollerData models.PollerHealthEventData
-			if err := json.Unmarshal(dataBytes, &pollerData); err == nil {
-				row.Host = pollerData.Host
-				row.RemoteAddr = pollerData.RemoteAddr
-				row.ShortMessage = fmt.Sprintf("Poller %s state changed from %s to %s", 
-					pollerData.PollerID, pollerData.PreviousState, pollerData.CurrentState)
-				row.Level = getLogLevelForState(pollerData.CurrentState)
-				row.Severity = getSeverityForState(pollerData.CurrentState)
-				row.EventTimestamp = pollerData.Timestamp
-				row.Version = "1.1"
-				return row
-			}
-		}
-
-		// Fall back to GELF format (for syslog and other events)
-		var gelfPayload struct {
-			RemoteAddr   string  `json:"_remote_addr"`
-			Host         string  `json:"host"`
-			Level        int32   `json:"level"`
-			Severity     string  `json:"severity"`
-			ShortMessage string  `json:"short_message"`
-			Timestamp    float64 `json:"timestamp"`
-			Version      string  `json:"version"`
-		}
-
-		if err := json.Unmarshal(dataBytes, &gelfPayload); err == nil {
-			row.RemoteAddr = gelfPayload.RemoteAddr
-			row.Host = gelfPayload.Host
-			row.Level = gelfPayload.Level
-			row.Severity = gelfPayload.Severity
-			row.ShortMessage = gelfPayload.ShortMessage
-			row.Version = gelfPayload.Version
-
-			// Handle GELF timestamp if present and valid
-			if gelfPayload.Timestamp > 0 {
-				sec := int64(gelfPayload.Timestamp)
-				nsec := int64((gelfPayload.Timestamp - float64(sec)) * float64(time.Second))
-				ts := time.Unix(sec, nsec)
-
-				// Validate timestamp is within ClickHouse DateTime64 range
-				minTimestamp := time.Date(1925, 1, 1, 0, 0, 0, 0, time.UTC)
-				maxTimestamp := time.Date(2283, 11, 11, 0, 0, 0, 0, time.UTC)
-
-				if !ts.Before(minTimestamp) && !ts.After(maxTimestamp) {
-					row.EventTimestamp = ts
-				}
-			}
-		}
+		processEventData(&row, &ce)
 	}
 
 	// Use current time as fallback if no valid timestamp was found
@@ -398,6 +466,7 @@ func (p *Processor) getTableForSubject(subject string) string {
 			}
 		}
 	}
+
 	return p.table // fallback to legacy table
 }
 
@@ -409,6 +478,7 @@ func (p *Processor) ProcessBatch(ctx context.Context, msgs []jetstream.Msg) ([]j
 
 	// Group messages by table
 	messagesByTable := make(map[string][]jetstream.Msg)
+
 	for _, msg := range msgs {
 		table := p.getTableForSubject(msg.Subject())
 		messagesByTable[table] = append(messagesByTable[table], msg)
@@ -424,6 +494,7 @@ func (p *Processor) ProcessBatch(ctx context.Context, msgs []jetstream.Msg) ([]j
 			if err != nil {
 				return processed, err
 			}
+
 			processed = append(processed, processedMsgs...)
 		} else {
 			// Handle events table
@@ -431,6 +502,7 @@ func (p *Processor) ProcessBatch(ctx context.Context, msgs []jetstream.Msg) ([]j
 			if err != nil {
 				return processed, err
 			}
+
 			processed = append(processed, processedMsgs...)
 		}
 	}
@@ -500,22 +572,22 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 		// Handle OTEL logs
 		if strings.Contains(msg.Subject(), "otel") {
 			if logRows, ok := parseOTELMessage(msg); ok {
-				for _, row := range logRows {
+				for i := range logRows {
 					if err := batch.Append(
-						row.Timestamp,
-						row.TraceID,
-						row.SpanID,
-						row.SeverityText,
-						row.SeverityNumber,
-						row.Body,
-						row.ServiceName,
-						row.ServiceVersion,
-						row.ServiceInstance,
-						row.ScopeName,
-						row.ScopeVersion,
-						row.Attributes,
-						row.ResourceAttributes,
-						row.RawData,
+						logRows[i].Timestamp,
+						logRows[i].TraceID,
+						logRows[i].SpanID,
+						logRows[i].SeverityText,
+						logRows[i].SeverityNumber,
+						logRows[i].Body,
+						logRows[i].ServiceName,
+						logRows[i].ServiceVersion,
+						logRows[i].ServiceInstance,
+						logRows[i].ScopeName,
+						logRows[i].ScopeVersion,
+						logRows[i].Attributes,
+						logRows[i].ResourceAttributes,
+						logRows[i].RawData,
 					); err != nil {
 						return processed, err
 					}
@@ -539,30 +611,32 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 // It returns the parsed log rows and a boolean indicating success
 func parseOTELMessage(msg jetstream.Msg) ([]LogRow, bool) {
 	log.Printf("Processing OTEL message from subject: %s, data length: %d", msg.Subject(), len(msg.Data()))
-	
+
 	// First try to parse as direct protobuf
 	logRows, err := parseOTELLogs(msg.Data(), msg.Subject())
 	if err == nil {
 		log.Printf("Successfully parsed %d log rows from OTEL message", len(logRows))
 		return logRows, true
 	}
-	
+
 	log.Printf("Failed to parse as direct protobuf: %v", err)
-	
+
 	// Try to parse as CloudEvent wrapper
 	data, ok := parseCloudEvent(msg.Data())
 	if !ok {
 		log.Printf("Failed to parse as CloudEvent wrapper")
 		return nil, false
 	}
-	
+
 	log.Printf("Trying to parse as CloudEvent wrapper, data length: %d", len(data))
+
 	logRows, err = parseOTELLogs([]byte(data), msg.Subject())
 	if err != nil {
 		log.Printf("Failed to parse OTEL logs completely: %v", err)
 		return nil, false
 	}
-	
+
 	log.Printf("Successfully parsed %d log rows from OTEL message", len(logRows))
+
 	return logRows, true
 }
