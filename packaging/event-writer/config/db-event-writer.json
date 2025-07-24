@@ -4,11 +4,27 @@
   "domain": "edge",
   "partition": "default",
   "stream_name": "events",
-  "table": "events",
-  "subject": "events.syslog.processed",
   "consumer_name": "db-event-writer",
   "agent_id": "agent-default",
   "poller_id": "poller-default",
+  "streams": [
+    {
+      "subject": "events.poller.health",
+      "table": "events"
+    },
+    {
+      "subject": "events.syslog.processed", 
+      "table": "events"
+    },
+    {
+      "subject": "events.snmp.processed",
+      "table": "events" 
+    },
+    {
+      "subject": "events.otel.logs",
+      "table": "logs"
+    }
+  ],
   "database": {
     "addresses": [
       "127.0.0.1:9440"

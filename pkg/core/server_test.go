@@ -515,7 +515,7 @@ func TestHandlePollerRecovery(t *testing.T) {
 		LastUpdate: time.Now(),
 	}
 
-	server.handlePollerRecovery(context.Background(), pollerID, apiStatus, time.Now())
+	server.handlePollerRecovery(context.Background(), pollerID, apiStatus, time.Now(), nil)
 }
 
 func TestHandlePollerDown(t *testing.T) {

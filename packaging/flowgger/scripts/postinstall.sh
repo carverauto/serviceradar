@@ -40,6 +40,10 @@ if [ -x /usr/local/bin/serviceradar-flowgger ]; then
         echo "Warning: Failed to set cap_net_raw capability on /usr/local/bin/serviceradar-flowgger"
         echo "  sudo setcap cap_net_raw=+ep /usr/local/bin/serviceradar-flowgger"
     }
+    setcap cap_net_bind_service=+ep /usr/local/bin/serviceradar-flowgger || {
+        echo "Warning: Failed to set cap_net_raw capability on /usr/local/bin/serviceradar-flowgger"
+        echo "  sudo setcap cap_net_bind_service=+ep /usr/local/bin/serviceradar-flowgger"
+    }
 fi
 
 # Enable and start the service

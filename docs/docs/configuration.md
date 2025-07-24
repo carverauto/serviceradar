@@ -213,7 +213,31 @@ Edit `/etc/serviceradar/core.json`:
       "cooldown": "15m",
       "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
     }
-  ]
+  ],
+  "nats": {
+    "url": "nats://127.0.0.1:4222",
+    "domain": "",
+    "security": {
+      "mode": "mtls",
+      "cert_dir": "/etc/serviceradar/certs",
+      "server_name": "172.236.111.20",
+      "role": "core",
+      "tls": {
+        "cert_file": "core.pem",
+        "key_file": "core-key.pem",
+        "ca_file": "root.pem"
+      }
+    }
+  },
+  "events": {
+    "enabled": false,
+    "stream_name": "events",
+    "subjects": [
+      "events.poller.*",
+      "events.syslog.*",
+      "events.snmp.*"
+    ]
+  }
 }
 ```
 
@@ -236,6 +260,64 @@ Edit `/etc/serviceradar/core.json`:
   - `cooldown`: Minimum time between repeat notifications (e.g., "15m" for 15 minutes)
   - `headers`: Custom HTTP headers to include in webhook requests
   - `template`: Custom JSON template for formatting webhook notifications
+- `nats`: NATS JetStream configuration for event publishing (optional)
+  - `url`: NATS server URL (e.g., "nats://127.0.0.1:4222")
+  - `domain`: NATS domain for leaf/cloud mode (optional, leave empty for core/hub deployments)
+  - `security`: NATS-specific security settings (can differ from gRPC security)
+- `events`: Event publishing configuration (optional)
+  - `enabled`: Whether to publish events to NATS JetStream (true/false)
+  - `stream_name`: Name of the JetStream stream for events
+  - `subjects`: List of NATS subjects for different event types
+
+### Event Publishing Configuration
+
+ServiceRadar can publish health and status events to NATS JetStream for real-time event processing. This feature is optional and disabled by default.
+
+#### When to Enable Event Publishing
+
+Event publishing is useful when you want to:
+- Process poller health changes in real-time  
+- Build custom alerting or monitoring dashboards
+- Integrate with external event processing systems
+- Create audit trails of system health changes
+
+#### Event Types and Subjects
+
+ServiceRadar publishes events to the following NATS subjects:
+- `events.poller.health` - Poller state changes (online/offline/recovery)
+- `events.syslog.*` - System log events from syslog forwarders
+- `events.snmp.*` - SNMP monitoring events
+
+All events follow the CloudEvents v1.0 specification with GELF-compatible data payloads for consistent processing.
+
+#### NATS Domain Configuration
+
+The `domain` field in the NATS configuration is optional and only necessary when using NATS in leaf/cloud mode. This is typically used in multi-region deployments:
+
+- **Core/Hub deployments**: Leave `domain` empty or set to `""`
+- **Edge/Leaf deployments**: Set `domain` to your edge identifier (e.g., `"edge"`, `"us-west"`, `"eu-central"`)
+
+Example configurations:
+
+**Core deployment (no domain):**
+```json
+"nats": {
+  "url": "nats://127.0.0.1:4222",
+  "domain": "",
+  ...
+}
+```
+
+**Edge deployment (with domain):**
+```json
+"nats": {
+  "url": "nats://127.0.0.1:4222",
+  "domain": "edge",
+  ...
+}
+```
+
+When domains are configured, events published in one domain are isolated from other domains, providing security and performance boundaries in multi-region deployments.
 
 ## NATS JetStream and KV Store Configuration
 
