@@ -376,7 +376,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
         },
         {
             name: 'Latest Device Updates',
-            query: 'show device_updates',
+            query: 'show devices',
         },
     ];
 

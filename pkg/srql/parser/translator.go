@@ -162,7 +162,7 @@ func getEntityPrimaryKeyMapData() map[models.EntityType]struct {
 		models.Logs: {"", false},
 		// Services stream is versioned_kv, latest handled automatically
 		models.Services:      {"", false},
-		models.DeviceUpdates: {"", false}, // SweepResults is a versioned_kv stream
+		models.DeviceUpdates: {"", false}, // DeviceUpdates is a versioned_kv stream
 		models.ICMPResults:   {"", false}, // ICMPResults is a versioned_kv stream
 		models.SNMPResults:   {"", false}, // SNMPResults is a versioned_kv stream
 		models.Events:        {"", false}, // Events stream is append-only

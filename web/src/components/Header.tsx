@@ -90,7 +90,7 @@ export default function Header() {
         const fetchPartitions = async () => {
             try {
                 const data = await cachedQuery<{ results: { partition: string }[] }>(
-                    'SHOW SWEEP_RESULTS',
+                    'SHOW DEVICES',
                     token || undefined
                 );
                 

@@ -36,8 +36,8 @@ export async function GET(req: NextRequest) {
       headers["Authorization"] = authHeader;
     }
 
-    // Query the device_updates using SRQL syntax - device-centric, not poller-centric
-    const query = `show device_updates order by timestamp desc limit 10000`;
+    // Query the devices using SRQL syntax - device-centric, not poller-centric
+    const query = `show devices order by last_seen desc limit 10000`;
     
     // Forward request to Go API query endpoint
     const response = await fetch(
