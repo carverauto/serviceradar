@@ -1,6 +1,6 @@
-// Code generated from antlr/ServiceRadarQueryLanguage.g4 by ANTLR 4.13.2. DO NOT EDIT.
+// Code generated from ServiceRadarQueryLanguage.g4 by ANTLR 4.13.2. DO NOT EDIT.
 
-package gen // ServiceRadarQueryLanguage
+package antlr // ServiceRadarQueryLanguage
 import (
 	"fmt"
 	"strconv"
@@ -35,22 +35,23 @@ func serviceradarquerylanguageParserInit() {
 		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
 		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
 		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-		"", "", "", "", "", "", "", "", "", "'>'", "'>='", "'<'", "'<='", "",
-		"", "'.'", "','", "'('", "')'", "'''", "'\"'", "'*'",
+		"", "", "", "", "", "", "", "", "", "", "'>'", "'>='", "'<'", "'<='",
+		"", "", "'.'", "','", "'('", "')'", "'''", "'\"'", "'*'",
 	}
 	staticData.SymbolicNames = []string{
 		"", "LATEST_MODIFIER", "SHOW", "FIND", "COUNT", "WHERE", "ORDER", "BY",
 		"LIMIT", "LATEST", "ASC", "DESC", "AND", "OR", "IN", "BETWEEN", "CONTAINS",
 		"IS", "NOT", "NULL", "TODAY", "YESTERDAY", "DEVICES", "FLOWS", "TRAPS",
-		"CONNECTIONS", "LOGS", "SERVICES", "INTERFACES", "SWEEP_RESULTS", "ICMP_RESULTS",
-		"SNMP_RESULTS", "EVENTS", "POLLERS", "CPU_METRICS", "DISK_METRICS",
-		"MEMORY_METRICS", "SNMP_METRICS", "STREAM_KW", "FROM", "TABLE_KW", "TUMBLE",
-		"HOP", "GROUP_KW", "HAVING", "EMIT", "AFTER", "WINDOW_KW", "CLOSE",
-		"WITH_KW", "DELAY", "PERIODIC", "JOIN", "ON", "AS", "LEFT", "RIGHT",
-		"INNER", "EQ", "NEQ", "GT", "GTE", "LT", "LTE", "LIKE", "BOOLEAN", "DOT",
-		"COMMA", "LPAREN", "RPAREN", "APOSTROPHE", "QUOTE", "STAR", "SECONDS_UNIT",
-		"MINUTES_UNIT", "HOURS_UNIT", "DAYS_UNIT", "ID", "INTEGER", "FLOAT",
-		"STRING", "TIMESTAMP", "IPADDRESS", "MACADDRESS", "WS",
+		"CONNECTIONS", "LOGS", "SERVICES", "INTERFACES", "SWEEP_RESULTS", "DEVICE_UPDATES",
+		"ICMP_RESULTS", "SNMP_RESULTS", "EVENTS", "POLLERS", "CPU_METRICS",
+		"DISK_METRICS", "MEMORY_METRICS", "SNMP_METRICS", "STREAM_KW", "FROM",
+		"TABLE_KW", "TUMBLE", "HOP", "GROUP_KW", "HAVING", "EMIT", "AFTER",
+		"WINDOW_KW", "CLOSE", "WITH_KW", "DELAY", "PERIODIC", "JOIN", "ON",
+		"AS", "LEFT", "RIGHT", "INNER", "EQ", "NEQ", "GT", "GTE", "LT", "LTE",
+		"LIKE", "BOOLEAN", "DOT", "COMMA", "LPAREN", "RPAREN", "APOSTROPHE",
+		"QUOTE", "STAR", "SECONDS_UNIT", "MINUTES_UNIT", "HOURS_UNIT", "DAYS_UNIT",
+		"ID", "INTEGER", "FLOAT", "STRING", "TIMESTAMP", "IPADDRESS", "MACADDRESS",
+		"WS",
 	}
 	staticData.RuleNames = []string{
 		"query", "showStatement", "findStatement", "countStatement", "streamStatement",
@@ -64,7 +65,7 @@ func serviceradarquerylanguageParserInit() {
 	}
 	staticData.PredictionContextCache = antlr.NewPredictionContextCache()
 	staticData.serializedATN = []int32{
-		4, 1, 84, 374, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
+		4, 1, 85, 374, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
 		4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 10, 7,
 		10, 2, 11, 7, 11, 2, 12, 7, 12, 2, 13, 7, 13, 2, 14, 7, 14, 2, 15, 7, 15,
 		2, 16, 7, 16, 2, 17, 7, 17, 2, 18, 7, 18, 2, 19, 7, 19, 2, 20, 7, 20, 2,
@@ -104,9 +105,9 @@ func serviceradarquerylanguageParserInit() {
 		8, 33, 10, 33, 12, 33, 366, 9, 33, 1, 34, 1, 34, 3, 34, 370, 8, 34, 1,
 		35, 1, 35, 1, 35, 0, 0, 36, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22,
 		24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58,
-		60, 62, 64, 66, 68, 70, 0, 8, 1, 0, 41, 42, 1, 0, 73, 76, 1, 0, 55, 57,
-		1, 0, 22, 37, 1, 0, 12, 13, 1, 0, 58, 64, 1, 0, 10, 11, 3, 0, 20, 21, 65,
-		65, 78, 83, 391, 0, 76, 1, 0, 0, 0, 2, 78, 1, 0, 0, 0, 4, 96, 1, 0, 0,
+		60, 62, 64, 66, 68, 70, 0, 8, 1, 0, 42, 43, 1, 0, 74, 77, 1, 0, 56, 58,
+		1, 0, 22, 38, 1, 0, 12, 13, 1, 0, 59, 65, 1, 0, 10, 11, 3, 0, 20, 21, 66,
+		66, 79, 84, 391, 0, 76, 1, 0, 0, 0, 2, 78, 1, 0, 0, 0, 4, 96, 1, 0, 0,
 		0, 6, 114, 1, 0, 0, 0, 8, 120, 1, 0, 0, 0, 10, 159, 1, 0, 0, 0, 12, 161,
 		1, 0, 0, 0, 14, 169, 1, 0, 0, 0, 16, 171, 1, 0, 0, 0, 18, 179, 1, 0, 0,
 		0, 20, 187, 1, 0, 0, 0, 22, 219, 1, 0, 0, 0, 24, 221, 1, 0, 0, 0, 26, 225,
@@ -123,19 +124,19 @@ func serviceradarquerylanguageParserInit() {
 		25, 0, 82, 80, 1, 0, 0, 0, 82, 83, 1, 0, 0, 0, 83, 87, 1, 0, 0, 0, 84,
 		85, 5, 6, 0, 0, 85, 86, 5, 7, 0, 0, 86, 88, 3, 66, 33, 0, 87, 84, 1, 0,
 		0, 0, 87, 88, 1, 0, 0, 0, 88, 91, 1, 0, 0, 0, 89, 90, 5, 8, 0, 0, 90, 92,
-		5, 78, 0, 0, 91, 89, 1, 0, 0, 0, 91, 92, 1, 0, 0, 0, 92, 94, 1, 0, 0, 0,
+		5, 79, 0, 0, 91, 89, 1, 0, 0, 0, 91, 92, 1, 0, 0, 0, 92, 94, 1, 0, 0, 0,
 		93, 95, 5, 1, 0, 0, 94, 93, 1, 0, 0, 0, 94, 95, 1, 0, 0, 0, 95, 3, 1, 0,
 		0, 0, 96, 97, 5, 3, 0, 0, 97, 100, 3, 48, 24, 0, 98, 99, 5, 5, 0, 0, 99,
 		101, 3, 50, 25, 0, 100, 98, 1, 0, 0, 0, 100, 101, 1, 0, 0, 0, 101, 105,
 		1, 0, 0, 0, 102, 103, 5, 6, 0, 0, 103, 104, 5, 7, 0, 0, 104, 106, 3, 66,
 		33, 0, 105, 102, 1, 0, 0, 0, 105, 106, 1, 0, 0, 0, 106, 109, 1, 0, 0, 0,
-		107, 108, 5, 8, 0, 0, 108, 110, 5, 78, 0, 0, 109, 107, 1, 0, 0, 0, 109,
+		107, 108, 5, 8, 0, 0, 108, 110, 5, 79, 0, 0, 109, 107, 1, 0, 0, 0, 109,
 		110, 1, 0, 0, 0, 110, 112, 1, 0, 0, 0, 111, 113, 5, 1, 0, 0, 112, 111,
 		1, 0, 0, 0, 112, 113, 1, 0, 0, 0, 113, 5, 1, 0, 0, 0, 114, 115, 5, 4, 0,
 		0, 115, 118, 3, 48, 24, 0, 116, 117, 5, 5, 0, 0, 117, 119, 3, 50, 25, 0,
 		118, 116, 1, 0, 0, 0, 118, 119, 1, 0, 0, 0, 119, 7, 1, 0, 0, 0, 120, 122,
-		5, 38, 0, 0, 121, 123, 3, 10, 5, 0, 122, 121, 1, 0, 0, 0, 122, 123, 1,
-		0, 0, 0, 123, 124, 1, 0, 0, 0, 124, 125, 5, 39, 0, 0, 125, 129, 3, 20,
+		5, 39, 0, 0, 121, 123, 3, 10, 5, 0, 122, 121, 1, 0, 0, 0, 122, 123, 1,
+		0, 0, 0, 123, 124, 1, 0, 0, 0, 124, 125, 5, 40, 0, 0, 125, 129, 3, 20,
 		10, 0, 126, 128, 3, 30, 15, 0, 127, 126, 1, 0, 0, 0, 128, 131, 1, 0, 0,
 		0, 129, 127, 1, 0, 0, 0, 129, 130, 1, 0, 0, 0, 130, 133, 1, 0, 0, 0, 131,
 		129, 1, 0, 0, 0, 132, 134, 3, 34, 17, 0, 133, 132, 1, 0, 0, 0, 133, 134,
@@ -146,63 +147,63 @@ func serviceradarquerylanguageParserInit() {
 		1, 0, 0, 0, 144, 146, 3, 44, 22, 0, 145, 144, 1, 0, 0, 0, 145, 146, 1,
 		0, 0, 0, 146, 148, 1, 0, 0, 0, 147, 149, 3, 46, 23, 0, 148, 147, 1, 0,
 		0, 0, 148, 149, 1, 0, 0, 0, 149, 9, 1, 0, 0, 0, 150, 155, 3, 12, 6, 0,
-		151, 152, 5, 67, 0, 0, 152, 154, 3, 12, 6, 0, 153, 151, 1, 0, 0, 0, 154,
+		151, 152, 5, 68, 0, 0, 152, 154, 3, 12, 6, 0, 153, 151, 1, 0, 0, 0, 154,
 		157, 1, 0, 0, 0, 155, 153, 1, 0, 0, 0, 155, 156, 1, 0, 0, 0, 156, 160,
-		1, 0, 0, 0, 157, 155, 1, 0, 0, 0, 158, 160, 5, 72, 0, 0, 159, 150, 1, 0,
+		1, 0, 0, 0, 157, 155, 1, 0, 0, 0, 158, 160, 5, 73, 0, 0, 159, 150, 1, 0,
 		0, 0, 159, 158, 1, 0, 0, 0, 160, 11, 1, 0, 0, 0, 161, 164, 3, 14, 7, 0,
-		162, 163, 5, 54, 0, 0, 163, 165, 5, 77, 0, 0, 164, 162, 1, 0, 0, 0, 164,
+		162, 163, 5, 55, 0, 0, 163, 165, 5, 78, 0, 0, 164, 162, 1, 0, 0, 0, 164,
 		165, 1, 0, 0, 0, 165, 13, 1, 0, 0, 0, 166, 170, 3, 64, 32, 0, 167, 170,
 		3, 16, 8, 0, 168, 170, 3, 70, 35, 0, 169, 166, 1, 0, 0, 0, 169, 167, 1,
-		0, 0, 0, 169, 168, 1, 0, 0, 0, 170, 15, 1, 0, 0, 0, 171, 172, 5, 77, 0,
-		0, 172, 175, 5, 68, 0, 0, 173, 176, 3, 18, 9, 0, 174, 176, 5, 72, 0, 0,
+		0, 0, 0, 169, 168, 1, 0, 0, 0, 170, 15, 1, 0, 0, 0, 171, 172, 5, 78, 0,
+		0, 172, 175, 5, 69, 0, 0, 173, 176, 3, 18, 9, 0, 174, 176, 5, 73, 0, 0,
 		175, 173, 1, 0, 0, 0, 175, 174, 1, 0, 0, 0, 175, 176, 1, 0, 0, 0, 176,
-		177, 1, 0, 0, 0, 177, 178, 5, 69, 0, 0, 178, 17, 1, 0, 0, 0, 179, 184,
-		3, 14, 7, 0, 180, 181, 5, 67, 0, 0, 181, 183, 3, 14, 7, 0, 182, 180, 1,
+		177, 1, 0, 0, 0, 177, 178, 5, 70, 0, 0, 178, 17, 1, 0, 0, 0, 179, 184,
+		3, 14, 7, 0, 180, 181, 5, 68, 0, 0, 181, 183, 3, 14, 7, 0, 182, 180, 1,
 		0, 0, 0, 183, 186, 1, 0, 0, 0, 184, 182, 1, 0, 0, 0, 184, 185, 1, 0, 0,
 		0, 185, 19, 1, 0, 0, 0, 186, 184, 1, 0, 0, 0, 187, 190, 3, 22, 11, 0, 188,
-		189, 5, 54, 0, 0, 189, 191, 5, 77, 0, 0, 190, 188, 1, 0, 0, 0, 190, 191,
-		1, 0, 0, 0, 191, 21, 1, 0, 0, 0, 192, 195, 3, 48, 24, 0, 193, 195, 5, 77,
+		189, 5, 55, 0, 0, 189, 191, 5, 78, 0, 0, 190, 188, 1, 0, 0, 0, 190, 191,
+		1, 0, 0, 0, 191, 21, 1, 0, 0, 0, 192, 195, 3, 48, 24, 0, 193, 195, 5, 78,
 		0, 0, 194, 192, 1, 0, 0, 0, 194, 193, 1, 0, 0, 0, 195, 220, 1, 0, 0, 0,
-		196, 197, 5, 40, 0, 0, 197, 200, 5, 68, 0, 0, 198, 201, 3, 48, 24, 0, 199,
-		201, 5, 77, 0, 0, 200, 198, 1, 0, 0, 0, 200, 199, 1, 0, 0, 0, 201, 202,
-		1, 0, 0, 0, 202, 220, 5, 69, 0, 0, 203, 204, 3, 24, 12, 0, 204, 207, 5,
-		68, 0, 0, 205, 208, 3, 48, 24, 0, 206, 208, 5, 77, 0, 0, 207, 205, 1, 0,
-		0, 0, 207, 206, 1, 0, 0, 0, 208, 209, 1, 0, 0, 0, 209, 210, 5, 67, 0, 0,
-		210, 211, 3, 64, 32, 0, 211, 212, 5, 67, 0, 0, 212, 215, 3, 26, 13, 0,
-		213, 214, 5, 67, 0, 0, 214, 216, 3, 26, 13, 0, 215, 213, 1, 0, 0, 0, 215,
-		216, 1, 0, 0, 0, 216, 217, 1, 0, 0, 0, 217, 218, 5, 69, 0, 0, 218, 220,
+		196, 197, 5, 41, 0, 0, 197, 200, 5, 69, 0, 0, 198, 201, 3, 48, 24, 0, 199,
+		201, 5, 78, 0, 0, 200, 198, 1, 0, 0, 0, 200, 199, 1, 0, 0, 0, 201, 202,
+		1, 0, 0, 0, 202, 220, 5, 70, 0, 0, 203, 204, 3, 24, 12, 0, 204, 207, 5,
+		69, 0, 0, 205, 208, 3, 48, 24, 0, 206, 208, 5, 78, 0, 0, 207, 205, 1, 0,
+		0, 0, 207, 206, 1, 0, 0, 0, 208, 209, 1, 0, 0, 0, 209, 210, 5, 68, 0, 0,
+		210, 211, 3, 64, 32, 0, 211, 212, 5, 68, 0, 0, 212, 215, 3, 26, 13, 0,
+		213, 214, 5, 68, 0, 0, 214, 216, 3, 26, 13, 0, 215, 213, 1, 0, 0, 0, 215,
+		216, 1, 0, 0, 0, 216, 217, 1, 0, 0, 0, 217, 218, 5, 70, 0, 0, 218, 220,
 		1, 0, 0, 0, 219, 194, 1, 0, 0, 0, 219, 196, 1, 0, 0, 0, 219, 203, 1, 0,
 		0, 0, 220, 23, 1, 0, 0, 0, 221, 222, 7, 0, 0, 0, 222, 25, 1, 0, 0, 0, 223,
 		226, 3, 28, 14, 0, 224, 226, 3, 64, 32, 0, 225, 223, 1, 0, 0, 0, 225, 224,
-		1, 0, 0, 0, 226, 27, 1, 0, 0, 0, 227, 228, 5, 78, 0, 0, 228, 229, 7, 1,
+		1, 0, 0, 0, 226, 27, 1, 0, 0, 0, 227, 228, 5, 79, 0, 0, 228, 229, 7, 1,
 		0, 0, 229, 29, 1, 0, 0, 0, 230, 232, 3, 32, 16, 0, 231, 230, 1, 0, 0, 0,
-		231, 232, 1, 0, 0, 0, 232, 233, 1, 0, 0, 0, 233, 234, 5, 52, 0, 0, 234,
-		235, 3, 20, 10, 0, 235, 236, 5, 53, 0, 0, 236, 237, 3, 50, 25, 0, 237,
+		231, 232, 1, 0, 0, 0, 232, 233, 1, 0, 0, 0, 233, 234, 5, 53, 0, 0, 234,
+		235, 3, 20, 10, 0, 235, 236, 5, 54, 0, 0, 236, 237, 3, 50, 25, 0, 237,
 		31, 1, 0, 0, 0, 238, 239, 7, 2, 0, 0, 239, 33, 1, 0, 0, 0, 240, 241, 5,
-		5, 0, 0, 241, 242, 3, 50, 25, 0, 242, 35, 1, 0, 0, 0, 243, 244, 5, 43,
+		5, 0, 0, 241, 242, 3, 50, 25, 0, 242, 35, 1, 0, 0, 0, 243, 244, 5, 44,
 		0, 0, 244, 245, 5, 7, 0, 0, 245, 246, 3, 38, 19, 0, 246, 37, 1, 0, 0, 0,
-		247, 252, 3, 64, 32, 0, 248, 249, 5, 67, 0, 0, 249, 251, 3, 64, 32, 0,
+		247, 252, 3, 64, 32, 0, 248, 249, 5, 68, 0, 0, 249, 251, 3, 64, 32, 0,
 		250, 248, 1, 0, 0, 0, 251, 254, 1, 0, 0, 0, 252, 250, 1, 0, 0, 0, 252,
 		253, 1, 0, 0, 0, 253, 39, 1, 0, 0, 0, 254, 252, 1, 0, 0, 0, 255, 256, 5,
-		44, 0, 0, 256, 257, 3, 50, 25, 0, 257, 41, 1, 0, 0, 0, 258, 259, 5, 6,
-		0, 0, 259, 260, 5, 7, 0, 0, 260, 265, 3, 68, 34, 0, 261, 262, 5, 67, 0,
+		45, 0, 0, 256, 257, 3, 50, 25, 0, 257, 41, 1, 0, 0, 0, 258, 259, 5, 6,
+		0, 0, 259, 260, 5, 7, 0, 0, 260, 265, 3, 68, 34, 0, 261, 262, 5, 68, 0,
 		0, 262, 264, 3, 68, 34, 0, 263, 261, 1, 0, 0, 0, 264, 267, 1, 0, 0, 0,
 		265, 263, 1, 0, 0, 0, 265, 266, 1, 0, 0, 0, 266, 43, 1, 0, 0, 0, 267, 265,
-		1, 0, 0, 0, 268, 269, 5, 8, 0, 0, 269, 270, 5, 78, 0, 0, 270, 45, 1, 0,
-		0, 0, 271, 282, 5, 45, 0, 0, 272, 273, 5, 46, 0, 0, 273, 274, 5, 47, 0,
-		0, 274, 278, 5, 48, 0, 0, 275, 276, 5, 49, 0, 0, 276, 277, 5, 50, 0, 0,
+		1, 0, 0, 0, 268, 269, 5, 8, 0, 0, 269, 270, 5, 79, 0, 0, 270, 45, 1, 0,
+		0, 0, 271, 282, 5, 46, 0, 0, 272, 273, 5, 47, 0, 0, 273, 274, 5, 48, 0,
+		0, 274, 278, 5, 49, 0, 0, 275, 276, 5, 50, 0, 0, 276, 277, 5, 51, 0, 0,
 		277, 279, 3, 28, 14, 0, 278, 275, 1, 0, 0, 0, 278, 279, 1, 0, 0, 0, 279,
-		283, 1, 0, 0, 0, 280, 281, 5, 51, 0, 0, 281, 283, 3, 28, 14, 0, 282, 272,
+		283, 1, 0, 0, 0, 280, 281, 5, 52, 0, 0, 281, 283, 3, 28, 14, 0, 282, 272,
 		1, 0, 0, 0, 282, 280, 1, 0, 0, 0, 283, 47, 1, 0, 0, 0, 284, 285, 7, 3,
 		0, 0, 285, 49, 1, 0, 0, 0, 286, 292, 3, 52, 26, 0, 287, 288, 3, 58, 29,
 		0, 288, 289, 3, 52, 26, 0, 289, 291, 1, 0, 0, 0, 290, 287, 1, 0, 0, 0,
 		291, 294, 1, 0, 0, 0, 292, 290, 1, 0, 0, 0, 292, 293, 1, 0, 0, 0, 293,
 		51, 1, 0, 0, 0, 294, 292, 1, 0, 0, 0, 295, 296, 3, 54, 27, 0, 296, 297,
 		3, 60, 30, 0, 297, 298, 3, 70, 35, 0, 298, 324, 1, 0, 0, 0, 299, 300, 3,
-		54, 27, 0, 300, 301, 5, 14, 0, 0, 301, 302, 5, 68, 0, 0, 302, 303, 3, 56,
-		28, 0, 303, 304, 5, 69, 0, 0, 304, 324, 1, 0, 0, 0, 305, 306, 3, 54, 27,
-		0, 306, 307, 5, 16, 0, 0, 307, 308, 5, 80, 0, 0, 308, 324, 1, 0, 0, 0,
-		309, 310, 5, 68, 0, 0, 310, 311, 3, 50, 25, 0, 311, 312, 5, 69, 0, 0, 312,
+		54, 27, 0, 300, 301, 5, 14, 0, 0, 301, 302, 5, 69, 0, 0, 302, 303, 3, 56,
+		28, 0, 303, 304, 5, 70, 0, 0, 304, 324, 1, 0, 0, 0, 305, 306, 3, 54, 27,
+		0, 306, 307, 5, 16, 0, 0, 307, 308, 5, 81, 0, 0, 308, 324, 1, 0, 0, 0,
+		309, 310, 5, 69, 0, 0, 310, 311, 3, 50, 25, 0, 311, 312, 5, 70, 0, 0, 312,
 		324, 1, 0, 0, 0, 313, 314, 3, 54, 27, 0, 314, 315, 5, 15, 0, 0, 315, 316,
 		3, 70, 35, 0, 316, 317, 5, 12, 0, 0, 317, 318, 3, 70, 35, 0, 318, 324,
 		1, 0, 0, 0, 319, 320, 3, 54, 27, 0, 320, 321, 5, 17, 0, 0, 321, 322, 3,
@@ -210,18 +211,18 @@ func serviceradarquerylanguageParserInit() {
 		0, 0, 323, 305, 1, 0, 0, 0, 323, 309, 1, 0, 0, 0, 323, 313, 1, 0, 0, 0,
 		323, 319, 1, 0, 0, 0, 324, 53, 1, 0, 0, 0, 325, 328, 3, 64, 32, 0, 326,
 		328, 3, 16, 8, 0, 327, 325, 1, 0, 0, 0, 327, 326, 1, 0, 0, 0, 328, 55,
-		1, 0, 0, 0, 329, 334, 3, 70, 35, 0, 330, 331, 5, 67, 0, 0, 331, 333, 3,
+		1, 0, 0, 0, 329, 334, 3, 70, 35, 0, 330, 331, 5, 68, 0, 0, 331, 333, 3,
 		70, 35, 0, 332, 330, 1, 0, 0, 0, 333, 336, 1, 0, 0, 0, 334, 332, 1, 0,
 		0, 0, 334, 335, 1, 0, 0, 0, 335, 57, 1, 0, 0, 0, 336, 334, 1, 0, 0, 0,
 		337, 338, 7, 4, 0, 0, 338, 59, 1, 0, 0, 0, 339, 340, 7, 5, 0, 0, 340, 61,
 		1, 0, 0, 0, 341, 345, 5, 19, 0, 0, 342, 343, 5, 18, 0, 0, 343, 345, 5,
 		19, 0, 0, 344, 341, 1, 0, 0, 0, 344, 342, 1, 0, 0, 0, 345, 63, 1, 0, 0,
-		0, 346, 358, 5, 77, 0, 0, 347, 348, 3, 48, 24, 0, 348, 349, 5, 66, 0, 0,
-		349, 350, 5, 77, 0, 0, 350, 358, 1, 0, 0, 0, 351, 352, 3, 48, 24, 0, 352,
-		353, 5, 66, 0, 0, 353, 354, 5, 77, 0, 0, 354, 355, 5, 66, 0, 0, 355, 356,
-		5, 77, 0, 0, 356, 358, 1, 0, 0, 0, 357, 346, 1, 0, 0, 0, 357, 347, 1, 0,
+		0, 346, 358, 5, 78, 0, 0, 347, 348, 3, 48, 24, 0, 348, 349, 5, 67, 0, 0,
+		349, 350, 5, 78, 0, 0, 350, 358, 1, 0, 0, 0, 351, 352, 3, 48, 24, 0, 352,
+		353, 5, 67, 0, 0, 353, 354, 5, 78, 0, 0, 354, 355, 5, 67, 0, 0, 355, 356,
+		5, 78, 0, 0, 356, 358, 1, 0, 0, 0, 357, 346, 1, 0, 0, 0, 357, 347, 1, 0,
 		0, 0, 357, 351, 1, 0, 0, 0, 358, 65, 1, 0, 0, 0, 359, 364, 3, 68, 34, 0,
-		360, 361, 5, 67, 0, 0, 361, 363, 3, 68, 34, 0, 362, 360, 1, 0, 0, 0, 363,
+		360, 361, 5, 68, 0, 0, 361, 363, 3, 68, 34, 0, 362, 360, 1, 0, 0, 0, 363,
 		366, 1, 0, 0, 0, 364, 362, 1, 0, 0, 0, 364, 365, 1, 0, 0, 0, 365, 67, 1,
 		0, 0, 0, 366, 364, 1, 0, 0, 0, 367, 369, 3, 64, 32, 0, 368, 370, 7, 6,
 		0, 0, 369, 368, 1, 0, 0, 0, 369, 370, 1, 0, 0, 0, 370, 69, 1, 0, 0, 0,
@@ -296,61 +297,62 @@ const (
 	ServiceRadarQueryLanguageParserSERVICES        = 27
 	ServiceRadarQueryLanguageParserINTERFACES      = 28
 	ServiceRadarQueryLanguageParserSWEEP_RESULTS   = 29
-	ServiceRadarQueryLanguageParserICMP_RESULTS    = 30
-	ServiceRadarQueryLanguageParserSNMP_RESULTS    = 31
-	ServiceRadarQueryLanguageParserEVENTS          = 32
-	ServiceRadarQueryLanguageParserPOLLERS         = 33
-	ServiceRadarQueryLanguageParserCPU_METRICS     = 34
-	ServiceRadarQueryLanguageParserDISK_METRICS    = 35
-	ServiceRadarQueryLanguageParserMEMORY_METRICS  = 36
-	ServiceRadarQueryLanguageParserSNMP_METRICS    = 37
-	ServiceRadarQueryLanguageParserSTREAM_KW       = 38
-	ServiceRadarQueryLanguageParserFROM            = 39
-	ServiceRadarQueryLanguageParserTABLE_KW        = 40
-	ServiceRadarQueryLanguageParserTUMBLE          = 41
-	ServiceRadarQueryLanguageParserHOP             = 42
-	ServiceRadarQueryLanguageParserGROUP_KW        = 43
-	ServiceRadarQueryLanguageParserHAVING          = 44
-	ServiceRadarQueryLanguageParserEMIT            = 45
-	ServiceRadarQueryLanguageParserAFTER           = 46
-	ServiceRadarQueryLanguageParserWINDOW_KW       = 47
-	ServiceRadarQueryLanguageParserCLOSE           = 48
-	ServiceRadarQueryLanguageParserWITH_KW         = 49
-	ServiceRadarQueryLanguageParserDELAY           = 50
-	ServiceRadarQueryLanguageParserPERIODIC        = 51
-	ServiceRadarQueryLanguageParserJOIN            = 52
-	ServiceRadarQueryLanguageParserON              = 53
-	ServiceRadarQueryLanguageParserAS              = 54
-	ServiceRadarQueryLanguageParserLEFT            = 55
-	ServiceRadarQueryLanguageParserRIGHT           = 56
-	ServiceRadarQueryLanguageParserINNER           = 57
-	ServiceRadarQueryLanguageParserEQ              = 58
-	ServiceRadarQueryLanguageParserNEQ             = 59
-	ServiceRadarQueryLanguageParserGT              = 60
-	ServiceRadarQueryLanguageParserGTE             = 61
-	ServiceRadarQueryLanguageParserLT              = 62
-	ServiceRadarQueryLanguageParserLTE             = 63
-	ServiceRadarQueryLanguageParserLIKE            = 64
-	ServiceRadarQueryLanguageParserBOOLEAN         = 65
-	ServiceRadarQueryLanguageParserDOT             = 66
-	ServiceRadarQueryLanguageParserCOMMA           = 67
-	ServiceRadarQueryLanguageParserLPAREN          = 68
-	ServiceRadarQueryLanguageParserRPAREN          = 69
-	ServiceRadarQueryLanguageParserAPOSTROPHE      = 70
-	ServiceRadarQueryLanguageParserQUOTE           = 71
-	ServiceRadarQueryLanguageParserSTAR            = 72
-	ServiceRadarQueryLanguageParserSECONDS_UNIT    = 73
-	ServiceRadarQueryLanguageParserMINUTES_UNIT    = 74
-	ServiceRadarQueryLanguageParserHOURS_UNIT      = 75
-	ServiceRadarQueryLanguageParserDAYS_UNIT       = 76
-	ServiceRadarQueryLanguageParserID              = 77
-	ServiceRadarQueryLanguageParserINTEGER         = 78
-	ServiceRadarQueryLanguageParserFLOAT           = 79
-	ServiceRadarQueryLanguageParserSTRING          = 80
-	ServiceRadarQueryLanguageParserTIMESTAMP       = 81
-	ServiceRadarQueryLanguageParserIPADDRESS       = 82
-	ServiceRadarQueryLanguageParserMACADDRESS      = 83
-	ServiceRadarQueryLanguageParserWS              = 84
+	ServiceRadarQueryLanguageParserDEVICE_UPDATES  = 30
+	ServiceRadarQueryLanguageParserICMP_RESULTS    = 31
+	ServiceRadarQueryLanguageParserSNMP_RESULTS    = 32
+	ServiceRadarQueryLanguageParserEVENTS          = 33
+	ServiceRadarQueryLanguageParserPOLLERS         = 34
+	ServiceRadarQueryLanguageParserCPU_METRICS     = 35
+	ServiceRadarQueryLanguageParserDISK_METRICS    = 36
+	ServiceRadarQueryLanguageParserMEMORY_METRICS  = 37
+	ServiceRadarQueryLanguageParserSNMP_METRICS    = 38
+	ServiceRadarQueryLanguageParserSTREAM_KW       = 39
+	ServiceRadarQueryLanguageParserFROM            = 40
+	ServiceRadarQueryLanguageParserTABLE_KW        = 41
+	ServiceRadarQueryLanguageParserTUMBLE          = 42
+	ServiceRadarQueryLanguageParserHOP             = 43
+	ServiceRadarQueryLanguageParserGROUP_KW        = 44
+	ServiceRadarQueryLanguageParserHAVING          = 45
+	ServiceRadarQueryLanguageParserEMIT            = 46
+	ServiceRadarQueryLanguageParserAFTER           = 47
+	ServiceRadarQueryLanguageParserWINDOW_KW       = 48
+	ServiceRadarQueryLanguageParserCLOSE           = 49
+	ServiceRadarQueryLanguageParserWITH_KW         = 50
+	ServiceRadarQueryLanguageParserDELAY           = 51
+	ServiceRadarQueryLanguageParserPERIODIC        = 52
+	ServiceRadarQueryLanguageParserJOIN            = 53
+	ServiceRadarQueryLanguageParserON              = 54
+	ServiceRadarQueryLanguageParserAS              = 55
+	ServiceRadarQueryLanguageParserLEFT            = 56
+	ServiceRadarQueryLanguageParserRIGHT           = 57
+	ServiceRadarQueryLanguageParserINNER           = 58
+	ServiceRadarQueryLanguageParserEQ              = 59
+	ServiceRadarQueryLanguageParserNEQ             = 60
+	ServiceRadarQueryLanguageParserGT              = 61
+	ServiceRadarQueryLanguageParserGTE             = 62
+	ServiceRadarQueryLanguageParserLT              = 63
+	ServiceRadarQueryLanguageParserLTE             = 64
+	ServiceRadarQueryLanguageParserLIKE            = 65
+	ServiceRadarQueryLanguageParserBOOLEAN         = 66
+	ServiceRadarQueryLanguageParserDOT             = 67
+	ServiceRadarQueryLanguageParserCOMMA           = 68
+	ServiceRadarQueryLanguageParserLPAREN          = 69
+	ServiceRadarQueryLanguageParserRPAREN          = 70
+	ServiceRadarQueryLanguageParserAPOSTROPHE      = 71
+	ServiceRadarQueryLanguageParserQUOTE           = 72
+	ServiceRadarQueryLanguageParserSTAR            = 73
+	ServiceRadarQueryLanguageParserSECONDS_UNIT    = 74
+	ServiceRadarQueryLanguageParserMINUTES_UNIT    = 75
+	ServiceRadarQueryLanguageParserHOURS_UNIT      = 76
+	ServiceRadarQueryLanguageParserDAYS_UNIT       = 77
+	ServiceRadarQueryLanguageParserID              = 78
+	ServiceRadarQueryLanguageParserINTEGER         = 79
+	ServiceRadarQueryLanguageParserFLOAT           = 80
+	ServiceRadarQueryLanguageParserSTRING          = 81
+	ServiceRadarQueryLanguageParserTIMESTAMP       = 82
+	ServiceRadarQueryLanguageParserIPADDRESS       = 83
+	ServiceRadarQueryLanguageParserMACADDRESS      = 84
+	ServiceRadarQueryLanguageParserWS              = 85
 )
 
 // ServiceRadarQueryLanguageParser rules.
@@ -1578,7 +1580,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamStatement() (localctx IStreamSta
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	if (int64((_la-20)) & ^0x3f) == 0 && ((int64(1)<<(_la-20))&-139576404076134401) != 0 {
+	if ((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&549754765312) != 0) || ((int64((_la-66)) & ^0x3f) == 0 && ((int64(1)<<(_la-66))&520321) != 0) {
 		{
 			p.SetState(121)
 			p.SelectList()
@@ -1604,7 +1606,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamStatement() (localctx IStreamSta
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&256705178760118272) != 0 {
+	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&513410357520236544) != 0 {
 		{
 			p.SetState(126)
 			p.JoinPart()
@@ -1850,7 +1852,7 @@ func (p *ServiceRadarQueryLanguageParser) SelectList() (localctx ISelectListCont
 	}
 
 	switch p.GetTokenStream().LA(1) {
-	case ServiceRadarQueryLanguageParserTODAY, ServiceRadarQueryLanguageParserYESTERDAY, ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS, ServiceRadarQueryLanguageParserBOOLEAN, ServiceRadarQueryLanguageParserID, ServiceRadarQueryLanguageParserINTEGER, ServiceRadarQueryLanguageParserFLOAT, ServiceRadarQueryLanguageParserSTRING, ServiceRadarQueryLanguageParserTIMESTAMP, ServiceRadarQueryLanguageParserIPADDRESS, ServiceRadarQueryLanguageParserMACADDRESS:
+	case ServiceRadarQueryLanguageParserTODAY, ServiceRadarQueryLanguageParserYESTERDAY, ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserDEVICE_UPDATES, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS, ServiceRadarQueryLanguageParserBOOLEAN, ServiceRadarQueryLanguageParserID, ServiceRadarQueryLanguageParserINTEGER, ServiceRadarQueryLanguageParserFLOAT, ServiceRadarQueryLanguageParserSTRING, ServiceRadarQueryLanguageParserTIMESTAMP, ServiceRadarQueryLanguageParserIPADDRESS, ServiceRadarQueryLanguageParserMACADDRESS:
 		p.EnterOuterAlt(localctx, 1)
 		{
 			p.SetState(150)
@@ -2348,7 +2350,7 @@ func (p *ServiceRadarQueryLanguageParser) FunctionCall() (localctx IFunctionCall
 		goto errorExit
 	}
 	switch p.GetTokenStream().LA(1) {
-	case ServiceRadarQueryLanguageParserTODAY, ServiceRadarQueryLanguageParserYESTERDAY, ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS, ServiceRadarQueryLanguageParserBOOLEAN, ServiceRadarQueryLanguageParserID, ServiceRadarQueryLanguageParserINTEGER, ServiceRadarQueryLanguageParserFLOAT, ServiceRadarQueryLanguageParserSTRING, ServiceRadarQueryLanguageParserTIMESTAMP, ServiceRadarQueryLanguageParserIPADDRESS, ServiceRadarQueryLanguageParserMACADDRESS:
+	case ServiceRadarQueryLanguageParserTODAY, ServiceRadarQueryLanguageParserYESTERDAY, ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserDEVICE_UPDATES, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS, ServiceRadarQueryLanguageParserBOOLEAN, ServiceRadarQueryLanguageParserID, ServiceRadarQueryLanguageParserINTEGER, ServiceRadarQueryLanguageParserFLOAT, ServiceRadarQueryLanguageParserSTRING, ServiceRadarQueryLanguageParserTIMESTAMP, ServiceRadarQueryLanguageParserIPADDRESS, ServiceRadarQueryLanguageParserMACADDRESS:
 		{
 			p.SetState(173)
 			p.ArgumentList()
@@ -2903,7 +2905,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 	}
 
 	switch p.GetTokenStream().LA(1) {
-	case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS, ServiceRadarQueryLanguageParserID:
+	case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserDEVICE_UPDATES, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS, ServiceRadarQueryLanguageParserID:
 		p.EnterOuterAlt(localctx, 1)
 		p.SetState(194)
 		p.GetErrorHandler().Sync(p)
@@ -2912,7 +2914,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 		}
 
 		switch p.GetTokenStream().LA(1) {
-		case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS:
+		case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserDEVICE_UPDATES, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS:
 			{
 				p.SetState(192)
 				p.Entity()
@@ -2958,7 +2960,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 		}
 
 		switch p.GetTokenStream().LA(1) {
-		case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS:
+		case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserDEVICE_UPDATES, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS:
 			{
 				p.SetState(198)
 				p.Entity()
@@ -3008,7 +3010,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 		}
 
 		switch p.GetTokenStream().LA(1) {
-		case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS:
+		case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserDEVICE_UPDATES, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS:
 			{
 				p.SetState(205)
 				p.Entity()
@@ -3323,7 +3325,7 @@ func (p *ServiceRadarQueryLanguageParser) DurationOrField() (localctx IDurationO
 			p.Duration()
 		}
 
-	case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS, ServiceRadarQueryLanguageParserID:
+	case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserSERVICES, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserSWEEP_RESULTS, ServiceRadarQueryLanguageParserDEVICE_UPDATES, ServiceRadarQueryLanguageParserICMP_RESULTS, ServiceRadarQueryLanguageParserSNMP_RESULTS, ServiceRadarQueryLanguageParserEVENTS, ServiceRadarQueryLanguageParserPOLLERS, ServiceRadarQueryLanguageParserCPU_METRICS, ServiceRadarQueryLanguageParserDISK_METRICS, ServiceRadarQueryLanguageParserMEMORY_METRICS, ServiceRadarQueryLanguageParserSNMP_METRICS, ServiceRadarQueryLanguageParserID:
 		p.EnterOuterAlt(localctx, 2)
 		{
 			p.SetState(224)
@@ -3456,7 +3458,7 @@ func (p *ServiceRadarQueryLanguageParser) Duration() (localctx IDurationContext)
 		p.SetState(228)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64((_la-73)) & ^0x3f) == 0 && ((int64(1)<<(_la-73))&15) != 0) {
+		if !((int64((_la-74)) & ^0x3f) == 0 && ((int64(1)<<(_la-74))&15) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)
@@ -3616,7 +3618,7 @@ func (p *ServiceRadarQueryLanguageParser) JoinPart() (localctx IJoinPartContext)
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&252201579132747776) != 0 {
+	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&504403158265495552) != 0 {
 		{
 			p.SetState(230)
 			p.JoinType()
@@ -3751,7 +3753,7 @@ func (p *ServiceRadarQueryLanguageParser) JoinType() (localctx IJoinTypeContext)
 		p.SetState(238)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&252201579132747776) != 0) {
+		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&504403158265495552) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)
@@ -4853,6 +4855,7 @@ type IEntityContext interface {
 	SERVICES() antlr.TerminalNode
 	INTERFACES() antlr.TerminalNode
 	SWEEP_RESULTS() antlr.TerminalNode
+	DEVICE_UPDATES() antlr.TerminalNode
 	ICMP_RESULTS() antlr.TerminalNode
 	SNMP_RESULTS() antlr.TerminalNode
 	EVENTS() antlr.TerminalNode
@@ -4930,6 +4933,10 @@ func (s *EntityContext) SWEEP_RESULTS() antlr.TerminalNode {
 	return s.GetToken(ServiceRadarQueryLanguageParserSWEEP_RESULTS, 0)
 }
 
+func (s *EntityContext) DEVICE_UPDATES() antlr.TerminalNode {
+	return s.GetToken(ServiceRadarQueryLanguageParserDEVICE_UPDATES, 0)
+}
+
 func (s *EntityContext) ICMP_RESULTS() antlr.TerminalNode {
 	return s.GetToken(ServiceRadarQueryLanguageParserICMP_RESULTS, 0)
 }
@@ -4992,7 +4999,7 @@ func (p *ServiceRadarQueryLanguageParser) Entity() (localctx IEntityContext) {
 		p.SetState(284)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&274873712640) != 0) {
+		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&549751619584) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)
@@ -6144,7 +6151,7 @@ func (p *ServiceRadarQueryLanguageParser) ComparisonOperator() (localctx ICompar
 		p.SetState(339)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64((_la-58)) & ^0x3f) == 0 && ((int64(1)<<(_la-58))&127) != 0) {
+		if !((int64((_la-59)) & ^0x3f) == 0 && ((int64(1)<<(_la-59))&127) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)
@@ -6927,7 +6934,7 @@ func (p *ServiceRadarQueryLanguageParser) Value() (localctx IValueContext) {
 		p.SetState(371)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64((_la-20)) & ^0x3f) == 0 && ((int64(1)<<(_la-20))&-288195191779622909) != 0) {
+		if !(_la == ServiceRadarQueryLanguageParserTODAY || _la == ServiceRadarQueryLanguageParserYESTERDAY || ((int64((_la-66)) & ^0x3f) == 0 && ((int64(1)<<(_la-66))&516097) != 0)) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)

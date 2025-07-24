@@ -33,7 +33,7 @@ func (*Translator) applyDefaultFilters(q *models.Query) {
 	}
 
 	// Apply default filters for entities that need them
-	if q.Entity == models.SweepResults {
+	if q.Entity == models.DeviceUpdates {
 		applySweepResultsDefaultFilter(q)
 	}
 
@@ -162,7 +162,7 @@ func getEntityPrimaryKeyMapData() map[models.EntityType]struct {
 		models.Logs: {"", false},
 		// Services stream is versioned_kv, latest handled automatically
 		models.Services:      {"", false},
-		models.SweepResults:  {"", false}, // SweepResults is a versioned_kv stream
+		models.DeviceUpdates: {"", false}, // DeviceUpdates is a versioned_kv stream
 		models.ICMPResults:   {"", false}, // ICMPResults is a versioned_kv stream
 		models.SNMPResults:   {"", false}, // SNMPResults is a versioned_kv stream
 		models.Events:        {"", false}, // Events stream is append-only
@@ -242,7 +242,7 @@ func getEntityToTableMapData() map[models.EntityType]string {
 		models.Connections:   "connections",
 		models.Logs:          "logs",
 		models.Services:      "services",
-		models.SweepResults:  "sweep_results",
+		models.DeviceUpdates: "device_updates",
 		models.ICMPResults:   "icmp_results",
 		models.SNMPResults:   "timeseries_metrics",
 		models.Events:        "events",
