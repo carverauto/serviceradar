@@ -306,7 +306,7 @@ SNMPDevicesView.displayName = 'SNMPDevicesView';
 // Sweep Results View with detailed sweep information
 const DeviceUpdatesView: React.FC = React.memo(() => {
     const { token } = useAuth();
-    const [sweepResults, setDeviceUpdates] = useState<DeviceUpdates[]>([]);
+    const [deviceUpdates, setDeviceUpdates] = useState<DeviceUpdates[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'summary' | 'hosts'>('summary');
@@ -376,7 +376,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
     // Create unique hosts from sweep results (deduplicate by IP)
     const uniqueHosts = useMemo(() => {
         const hostMap = new Map<string, DeviceUpdates>();
-        sweepResults.forEach(result => {
+        deviceUpdates.forEach(result => {
             const existing = hostMap.get(result.ip);
             if (!existing || new Date(result.last_seen) > new Date(existing.last_seen)) {
                 hostMap.set(result.ip, result);
@@ -385,7 +385,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
         return Array.from(hostMap.values()).sort((a, b) => 
             new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()
         );
-    }, [sweepResults]);
+    }, [deviceUpdates]);
 
     const aggregatedStats = useMemo(() => {
         if (!uniqueHosts.length) return null;
@@ -553,7 +553,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
             {viewMode === 'summary' ? (
                 <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-6">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Recent Sweep Results ({uniqueHosts.length} unique hosts, {sweepResults.length} total records)
+                        Recent Sweep Results ({uniqueHosts.length} unique hosts, {deviceUpdates.length} total records)
                     </h3>
                     
                     {uniqueHosts.length === 0 ? (
@@ -766,7 +766,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                             </button>
                             
                             <span className="text-sm text-gray-600 dark:text-gray-400">
-                                Showing {sweepResults.length} results
+                                Showing {deviceUpdates.length} results
                             </span>
                             
                             <button
