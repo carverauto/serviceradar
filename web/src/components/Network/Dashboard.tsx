@@ -304,9 +304,9 @@ const SNMPDevicesView: React.FC = React.memo(() => {
 SNMPDevicesView.displayName = 'SNMPDevicesView';
 
 // Sweep Results View with detailed sweep information
-const SweepResultsView: React.FC = React.memo(() => {
+const DeviceUpdatesView: React.FC = React.memo(() => {
     const { token } = useAuth();
-    const [sweepResults, setSweepResults] = useState<DeviceUpdates[]>([]);
+    const [sweepResults, setDeviceUpdates] = useState<DeviceUpdates[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'summary' | 'hosts'>('summary');
@@ -317,7 +317,7 @@ const SweepResultsView: React.FC = React.memo(() => {
         hasMore: boolean;
     }>({ nextCursor: null, prevCursor: null, hasMore: false });
 
-    const fetchSweepResults = useCallback(async (cursor?: string, direction: 'next' | 'prev' = 'next', limit = 1000) => {
+    const fetchDeviceUpdates = useCallback(async (cursor?: string, direction: 'next' | 'prev' = 'next', limit = 1000) => {
         setLoading(true);
         setError(null);
 
@@ -341,7 +341,7 @@ const SweepResultsView: React.FC = React.memo(() => {
             }
 
             const data = await response.json();
-            setSweepResults(data.results || []);
+            setDeviceUpdates(data.results || []);
             
             // Update pagination info
             setPagination({
@@ -357,8 +357,8 @@ const SweepResultsView: React.FC = React.memo(() => {
     }, [token]);
 
     useEffect(() => {
-        fetchSweepResults();
-    }, [fetchSweepResults]);
+        fetchDeviceUpdates();
+    }, [fetchDeviceUpdates]);
 
     const parseMetadata = (metadata: any) => {
         if (!metadata) return {};
@@ -737,7 +737,7 @@ const SweepResultsView: React.FC = React.memo(() => {
                     {(pagination.nextCursor || pagination.prevCursor) && (
                         <div className="mt-6 flex justify-between items-center">
                             <button
-                                onClick={() => pagination.prevCursor && fetchSweepResults(pagination.prevCursor, 'prev')}
+                                onClick={() => pagination.prevCursor && fetchDeviceUpdates(pagination.prevCursor, 'prev')}
                                 disabled={!pagination.prevCursor || loading}
                                 className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
                             >
@@ -749,7 +749,7 @@ const SweepResultsView: React.FC = React.memo(() => {
                             </span>
                             
                             <button
-                                onClick={() => pagination.nextCursor && fetchSweepResults(pagination.nextCursor, 'next')}
+                                onClick={() => pagination.nextCursor && fetchDeviceUpdates(pagination.nextCursor, 'next')}
                                 disabled={!pagination.nextCursor || loading}
                                 className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
                             >
@@ -763,7 +763,7 @@ const SweepResultsView: React.FC = React.memo(() => {
     );
 });
 
-SweepResultsView.displayName = 'SweepResultsView';
+DeviceUpdatesView.displayName = 'SweepResultsView';
 
 
 // Main Network Dashboard Component
@@ -993,7 +993,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                             </div>
                         )}
                         {/* Use detailed sweep results view */}
-                        <SweepResultsView />
+                        <DeviceUpdatesView />
                     </div>
                 );
 
