@@ -47,6 +47,26 @@
         ],
         "allow_credentials": true
     },
+    "nats": {
+        "url": "nats://127.0.0.1:4222",
+        "security": {
+            "mode": "mtls",
+            "cert_dir": "/etc/serviceradar/certs",
+            "server_name": "changeme",
+            "role": "kv",
+            "tls": {
+                "cert_file": "nats.pem",
+                "key_file": "nats-key.pem",
+                "ca_file": "root.pem",
+                "client_ca_file": "root.pem"
+            }
+        }
+    },
+    "events": {
+        "enabled": true,
+        "stream_name": "events",
+        "subjects": ["poller.health.*", "poller.status.*"]
+    },
     "auth": {
         "jwt_secret": "changeme",
         "jwt_expiration": "24h",

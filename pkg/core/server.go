@@ -109,6 +109,11 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		log.Printf("Warning: Failed to initialize poller status cache: %v", err)
 	}
 
+	// Initialize NATS event publisher if configured
+	if err := server.initializeEventPublisher(ctx, normalizedConfig); err != nil {
+		log.Printf("Warning: Failed to initialize event publisher: %v", err)
+	}
+
 	go server.flushBuffers(ctx)
 	go server.flushPollerStatusUpdates(ctx)
 
@@ -162,6 +167,12 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	if err := s.DB.Close(); err != nil {
 		log.Printf("Error closing database: %v", err)
+	}
+
+	// Close NATS connection if it exists
+	if s.natsConn != nil {
+		s.natsConn.Close()
+		log.Printf("NATS connection closed")
 	}
 
 	close(s.ShutdownChan)
