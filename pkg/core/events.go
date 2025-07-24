@@ -55,13 +55,13 @@ func (s *Server) initializeEventPublisher(ctx context.Context, config *models.DB
 
 	// Create the event publisher - use domain-specific function only if domain is configured
 	var publisher *natsutil.EventPublisher
-	
+
 	if config.Nats.Domain != "" {
 		publisher, err = natsutil.CreateEventPublisherWithDomain(ctx, nc, config.Nats.Domain, config.Events.StreamName, config.Events.Subjects)
 	} else {
 		publisher, err = natsutil.CreateEventPublisher(ctx, nc, config.Events.StreamName, config.Events.Subjects)
 	}
-	
+
 	if err != nil {
 		nc.Close()
 		return fmt.Errorf("failed to create event publisher: %w", err)
@@ -71,5 +71,6 @@ func (s *Server) initializeEventPublisher(ctx context.Context, config *models.DB
 	s.natsConn = nc
 
 	log.Printf("NATS event publisher initialized for stream: %s", config.Events.StreamName)
+
 	return nil
 }

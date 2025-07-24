@@ -26,12 +26,12 @@ type StreamConfig struct {
 type DBEventWriterConfig struct {
 	ListenAddr   string                 `json:"listen_addr"`
 	NATSURL      string                 `json:"nats_url"`
-	Subject      string                 `json:"subject"`      // Legacy field for backward compatibility
+	Subject      string                 `json:"subject"` // Legacy field for backward compatibility
 	StreamName   string                 `json:"stream_name"`
 	ConsumerName string                 `json:"consumer_name"`
 	Domain       string                 `json:"domain"`
-	Table        string                 `json:"table"`        // Legacy field for backward compatibility
-	Streams      []StreamConfig         `json:"streams"`      // New multi-stream configuration
+	Table        string                 `json:"table"`   // Legacy field for backward compatibility
+	Streams      []StreamConfig         `json:"streams"` // New multi-stream configuration
 	Security     *models.SecurityConfig `json:"security"`
 	DBSecurity   *models.SecurityConfig `json:"db_security"`
 	Database     models.ProtonDatabase  `json:"database"`
@@ -64,15 +64,14 @@ func (c *DBEventWriterConfig) Validate() error {
 			if stream.Subject == "" {
 				errs = append(errs, errors.New("stream "+string(rune(i))+" subject is required"))
 			}
+
 			if stream.Table == "" {
 				errs = append(errs, errors.New("stream "+string(rune(i))+" table is required"))
 			}
 		}
-	} else {
+	} else if c.Table == "" {
 		// Legacy single stream configuration
-		if c.Table == "" {
-			errs = append(errs, ErrMissingTableName)
-		}
+		errs = append(errs, ErrMissingTableName)
 	}
 
 	if c.Database.Name == "" || len(c.Database.Addresses) == 0 {
@@ -91,7 +90,7 @@ func (c *DBEventWriterConfig) GetStreams() []StreamConfig {
 	if len(c.Streams) > 0 {
 		return c.Streams
 	}
-	
+
 	// Legacy configuration - create single stream from legacy fields
 	if c.Subject != "" && c.Table != "" {
 		return []StreamConfig{{
@@ -99,6 +98,6 @@ func (c *DBEventWriterConfig) GetStreams() []StreamConfig {
 			Table:   c.Table,
 		}}
 	}
-	
+
 	return nil
 }

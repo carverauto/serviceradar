@@ -12,35 +12,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// getLogLevelForState maps poller states to GELF log levels
-func getLogLevelForState(state string) int32 {
-	switch state {
-	case "unhealthy":
-		return 3 // Error
-	case "healthy":
-		return 6 // Info
-	case "unknown":
-		return 5 // Notice
-	default:
-		return 6 // Info
-	}
-}
-
-// getSeverityForState maps poller states to severity strings
-func getSeverityForState(state string) string {
-	switch state {
-	case "unhealthy":
-		return "error"
-	case "healthy":
-		return "info"
-	case "unknown":
-		return "notice"
-	default:
-		return "info"
-	}
-}
-
-
 // EventPublisher provides methods for publishing CloudEvents to NATS JetStream.
 type EventPublisher struct {
 	js     jetstream.JetStream
@@ -56,7 +27,8 @@ func NewEventPublisher(js jetstream.JetStream, streamName string) *EventPublishe
 }
 
 // PublishPollerHealthEvent publishes a poller health event to the events stream.
-func (p *EventPublisher) PublishPollerHealthEvent(ctx context.Context, pollerID, previousState, currentState string, data models.PollerHealthEventData) error {
+func (p *EventPublisher) PublishPollerHealthEvent(
+	ctx context.Context, _, _, _ string, data *models.PollerHealthEventData) error {
 	event := models.CloudEvent{
 		SpecVersion:     "1.0",
 		ID:              uuid.New().String(),
@@ -86,8 +58,9 @@ func (p *EventPublisher) PublishPollerHealthEvent(ctx context.Context, pollerID,
 }
 
 // PublishPollerRecoveryEvent publishes a poller recovery event.
-func (p *EventPublisher) PublishPollerRecoveryEvent(ctx context.Context, pollerID, sourceIP, partition, remoteAddr string, lastSeen time.Time) error {
-	data := models.PollerHealthEventData{
+func (p *EventPublisher) PublishPollerRecoveryEvent(
+	ctx context.Context, pollerID, sourceIP, partition, remoteAddr string, lastSeen time.Time) error {
+	data := &models.PollerHealthEventData{
 		PollerID:       pollerID,
 		PreviousState:  "unhealthy",
 		CurrentState:   "healthy",
@@ -103,8 +76,9 @@ func (p *EventPublisher) PublishPollerRecoveryEvent(ctx context.Context, pollerI
 }
 
 // PublishPollerOfflineEvent publishes a poller offline event.
-func (p *EventPublisher) PublishPollerOfflineEvent(ctx context.Context, pollerID, sourceIP, partition string, lastSeen time.Time) error {
-	data := models.PollerHealthEventData{
+func (p *EventPublisher) PublishPollerOfflineEvent(
+	ctx context.Context, pollerID, sourceIP, partition string, lastSeen time.Time) error {
+	data := &models.PollerHealthEventData{
 		PollerID:      pollerID,
 		PreviousState: "healthy",
 		CurrentState:  "unhealthy",
@@ -119,8 +93,9 @@ func (p *EventPublisher) PublishPollerOfflineEvent(ctx context.Context, pollerID
 }
 
 // PublishPollerFirstSeenEvent publishes an event when a poller reports for the first time.
-func (p *EventPublisher) PublishPollerFirstSeenEvent(ctx context.Context, pollerID, sourceIP, partition, remoteAddr string, timestamp time.Time) error {
-	data := models.PollerHealthEventData{
+func (p *EventPublisher) PublishPollerFirstSeenEvent(
+	ctx context.Context, pollerID, sourceIP, partition, remoteAddr string, timestamp time.Time) error {
+	data := &models.PollerHealthEventData{
 		PollerID:      pollerID,
 		PreviousState: "unknown",
 		CurrentState:  "healthy",
@@ -135,7 +110,8 @@ func (p *EventPublisher) PublishPollerFirstSeenEvent(ctx context.Context, poller
 }
 
 // ConnectWithEventPublisher creates a NATS connection with JetStream and returns an EventPublisher.
-func ConnectWithEventPublisher(ctx context.Context, natsURL, streamName string, opts ...nats.Option) (*EventPublisher, *nats.Conn, error) {
+func ConnectWithEventPublisher(
+	ctx context.Context, natsURL, streamName string, opts ...nats.Option) (*EventPublisher, *nats.Conn, error) {
 	nc, err := nats.Connect(natsURL, opts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to NATS: %w", err)
@@ -153,7 +129,7 @@ func ConnectWithEventPublisher(ctx context.Context, natsURL, streamName string, 
 		// Try to create the stream if it doesn't exist
 		streamConfig := jetstream.StreamConfig{
 			Name:     streamName,
-			Subjects: []string{fmt.Sprintf("poller.health.*")},
+			Subjects: []string{"events.poller.health", "events.syslog.health", "events.snmp.health"},
 		}
 
 		_, err = js.CreateOrUpdateStream(ctx, streamConfig)
@@ -169,7 +145,8 @@ func ConnectWithEventPublisher(ctx context.Context, natsURL, streamName string, 
 }
 
 // ConnectWithSecurity creates a NATS connection with security configuration.
-func ConnectWithSecurity(ctx context.Context, natsURL string, security *models.SecurityConfig, extraOpts ...nats.Option) (*nats.Conn, error) {
+func ConnectWithSecurity(
+	_ context.Context, natsURL string, security *models.SecurityConfig, extraOpts ...nats.Option) (*nats.Conn, error) {
 	var opts []nats.Option
 
 	// Add TLS configuration if security is configured
@@ -194,7 +171,7 @@ func ConnectWithSecurity(ctx context.Context, natsURL string, security *models.S
 		nats.ConnectHandler(func(nc *nats.Conn) {
 			fmt.Printf("Connected to NATS: %s\n", nc.ConnectedUrl())
 		}),
-		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			fmt.Printf("NATS disconnected: %v\n", err)
 		}),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
@@ -215,12 +192,14 @@ func ConnectWithSecurity(ctx context.Context, natsURL string, security *models.S
 }
 
 // CreateEventPublisher creates an EventPublisher for an existing NATS connection.
-func CreateEventPublisher(ctx context.Context, nc *nats.Conn, streamName string, subjects []string) (*EventPublisher, error) {
+func CreateEventPublisher(
+	ctx context.Context, nc *nats.Conn, streamName string, subjects []string) (*EventPublisher, error) {
 	return CreateEventPublisherWithDomain(ctx, nc, "", streamName, subjects)
 }
 
 // CreateEventPublisherWithDomain creates an EventPublisher with optional NATS domain support.
-func CreateEventPublisherWithDomain(ctx context.Context, nc *nats.Conn, domain, streamName string, subjects []string) (*EventPublisher, error) {
+func CreateEventPublisherWithDomain(
+	ctx context.Context, nc *nats.Conn, domain, streamName string, subjects []string) (*EventPublisher, error) {
 	var js jetstream.JetStream
 
 	var err error
