@@ -37,11 +37,11 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     echo "Building Rust binary..." && \
     CARGO_TARGET_DIR=/tmp/target cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
     echo "Build completed successfully" && \
-    ls -la /tmp/target/x86_64-unknown-linux-gnu/release/ && \
+    ls -la /tmp/target/x86_64-unknown-linux-gnu/release/otel && \
     mkdir -p target/x86_64-unknown-linux-gnu/release && \
-    find /tmp/target/x86_64-unknown-linux-gnu/release/ -maxdepth 1 -type f -executable -exec cp {} target/x86_64-unknown-linux-gnu/release/ \; && \
+    cp /tmp/target/x86_64-unknown-linux-gnu/release/otel target/x86_64-unknown-linux-gnu/release/ && \
     echo "Copied binaries to persistent location:" && \
-    ls -la target/x86_64-unknown-linux-gnu/release/
+    ls -la target/x86_64-unknown-linux-gnu/release/otel
 
 # Set up RPM build environment
 WORKDIR /root/rpmbuild
@@ -55,11 +55,10 @@ RUN sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
     sed -i "s/%{release}/${RELEASE}/g" SPECS/serviceradar-${COMPONENT}.spec && \
     mkdir -p BUILD && \
     echo "Listing binary directory contents:" && \
-    ls -la /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/ && \
-    # Determine the correct binary name based on actual files
-    export BINARY_FILE=$(find /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/ -type f -executable -not -name "*.d" | grep -v "\.so" | head -1) && \
-    echo "Found binary: ${BINARY_FILE}" && \
-    cp "${BINARY_FILE}" BUILD/serviceradar-${COMPONENT} && \
+    ls -la /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/otel && \
+    # Copy the otel binary
+    cp /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/otel BUILD/serviceradar-${COMPONENT} && \
+    echo "Copied otel binary to BUILD/serviceradar-${COMPONENT}" && \
     rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec && \
     echo "Checking RPM build output:" && \
     find RPMS -type f -name "*.rpm" && \
