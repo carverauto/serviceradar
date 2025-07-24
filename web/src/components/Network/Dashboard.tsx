@@ -39,8 +39,8 @@ import { cachedQuery } from '@/lib/cached-query';
 import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
 import DeviceTable from '@/components/Devices/DeviceTable';
 
-// Current sweep results format from SRQL devices
-interface SweepResult {
+// Current device updates format from SRQL devices
+interface DeviceUpdates {
     device_id: string;
     ip: string;
     poller_id: string;
@@ -306,7 +306,7 @@ SNMPDevicesView.displayName = 'SNMPDevicesView';
 // Sweep Results View with detailed sweep information
 const SweepResultsView: React.FC = React.memo(() => {
     const { token } = useAuth();
-    const [sweepResults, setSweepResults] = useState<SweepResult[]>([]);
+    const [sweepResults, setSweepResults] = useState<DeviceUpdates[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'summary' | 'hosts'>('summary');
@@ -375,7 +375,7 @@ const SweepResultsView: React.FC = React.memo(() => {
 
     // Create unique hosts from sweep results (deduplicate by IP)
     const uniqueHosts = useMemo(() => {
-        const hostMap = new Map<string, SweepResult>();
+        const hostMap = new Map<string, DeviceUpdates>();
         sweepResults.forEach(result => {
             const existing = hostMap.get(result.ip);
             if (!existing || new Date(result.last_seen) > new Date(existing.last_seen)) {
