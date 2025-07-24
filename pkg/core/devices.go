@@ -59,21 +59,19 @@ func (s *Server) createSysmonDeviceRecord(
 	}
 }
 
-// createSNMPTargetDeviceRecord creates a device record for an SNMP target device.
+// createSNMPTargetDeviceUpdate creates a DeviceUpdate for an SNMP target device.
 // This ensures SNMP targets appear in the unified devices view and can be merged with other discovery sources.
-func (s *Server) createSNMPTargetDeviceRecord(
-	ctx context.Context,
-	agentID, pollerID, partition, targetIP, hostname, sourceIP string, timestamp time.Time, available bool) {
+func (s *Server) createSNMPTargetDeviceUpdate(
+	agentID, pollerID, partition, targetIP, hostname string, timestamp time.Time, available bool) *models.DeviceUpdate {
 	if targetIP == "" {
 		log.Printf("Warning: Cannot create SNMP target device record; target IP is missing.")
-		return
+		return nil
 	}
 
-	log.Printf("Creating SNMP target device record for IP %s (hostname: %s, source IP: %s)", targetIP, hostname, sourceIP)
 	deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
-	log.Printf("Using device ID %s for SNMP target", deviceID)
+	log.Printf("Creating SNMP target device update for IP %s (hostname: %s, device_id: %s)", targetIP, hostname, deviceID)
 
-	deviceUpdate := &models.DeviceUpdate{
+	return &models.DeviceUpdate{
 		AgentID:     agentID,
 		PollerID:    pollerID,
 		Partition:   partition,
@@ -89,10 +87,17 @@ func (s *Server) createSNMPTargetDeviceRecord(
 			"last_poll":       timestamp.Format(time.RFC3339),
 		},
 	}
-	{
-		deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
-		log.Printf("Created/updated device record for SNMP target %s (hostname: %s, ip: %s)",
-			deviceID, hostname, targetIP)
+}
+
+// createSNMPTargetDeviceRecord creates a device record for an SNMP target device.
+// This ensures SNMP targets appear in the unified devices view and can be merged with other discovery sources.
+// Deprecated: Use createSNMPTargetDeviceUpdate and batch processing instead.
+func (s *Server) createSNMPTargetDeviceRecord(
+	ctx context.Context,
+	agentID, pollerID, partition, targetIP, hostname, sourceIP string, timestamp time.Time, available bool) {
+	deviceUpdate := s.createSNMPTargetDeviceUpdate(agentID, pollerID, partition, targetIP, hostname, timestamp, available)
+	if deviceUpdate == nil {
+		return
 	}
 
 	// Process through the new device registry

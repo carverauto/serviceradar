@@ -106,8 +106,33 @@ func (s *Server) processSNMPMetrics(
 	pollerID, partition, sourceIP, agentID string,
 	details json.RawMessage,
 	timestamp time.Time) error {
-	// 'details' may be either enhanced ServiceMetricsPayload data or raw SNMP data
-	// Parse directly as SNMP target status map (works for both enhanced and legacy)
+	
+	targetStatusMap, err := s.parseSNMPTargetStatus(details, pollerID)
+	if err != nil {
+		return err
+	}
+
+	if len(targetStatusMap) == 0 {
+		log.Printf("SNMP service for poller %s returned no targets", pollerID)
+		return nil
+	}
+
+	s.logSNMPTargetStatus(targetStatusMap)
+
+	// Process device updates in batch
+	if err := s.processSNMPDeviceUpdates(ctx, targetStatusMap, agentID, pollerID, partition, timestamp); err != nil {
+		log.Printf("Warning: Failed to process SNMP device updates: %v", err)
+	}
+
+	// Process and buffer metrics
+	metrics := s.createSNMPTimeseriesMetrics(targetStatusMap, pollerID, partition, timestamp)
+	s.bufferMetrics(pollerID, metrics)
+
+	return nil
+}
+
+// parseSNMPTargetStatus parses SNMP target status from JSON details
+func (*Server) parseSNMPTargetStatus(details json.RawMessage, pollerID string) (map[string]*snmp.TargetStatus, error) {
 	var targetStatusMap map[string]*snmp.TargetStatus
 
 	if err := json.Unmarshal(details, &targetStatusMap); err != nil {
@@ -116,23 +141,25 @@ func (s *Server) processSNMPMetrics(
 
 		// Check if it's an error message wrapped in JSON
 		var errorWrapper map[string]string
-
 		if errParseErr := json.Unmarshal(details, &errorWrapper); errParseErr == nil {
 			if msg, exists := errorWrapper["message"]; exists {
 				log.Printf("SNMP service returned error for poller %s: %s", pollerID, msg)
-				return nil // Don't fail processing for service errors
+				return nil, nil // Don't fail processing for service errors
 			}
-
 			if errMsg, exists := errorWrapper["error"]; exists {
 				log.Printf("SNMP service returned error for poller %s: %s", pollerID, errMsg)
-				return nil // Don't fail processing for service errors
+				return nil, nil // Don't fail processing for service errors
 			}
 		}
 
-		return fmt.Errorf("failed to parse SNMP targets: %w", err)
+		return nil, fmt.Errorf("failed to parse SNMP targets: %w", err)
 	}
 
-	// iterate through the targetStatusMap to log each target's status
+	return targetStatusMap, nil
+}
+
+// logSNMPTargetStatus logs the status of SNMP targets and their OIDs
+func (*Server) logSNMPTargetStatus(targetStatusMap map[string]*snmp.TargetStatus) {
 	for targetName, targetData := range targetStatusMap {
 		log.Printf("SNMP Target: %s, Available: %t, HostIP: %s, HostName: %s",
 			targetName, targetData.Available, targetData.HostIP, targetData.HostName)
@@ -144,76 +171,75 @@ func (s *Server) processSNMPMetrics(
 				oidStatus.LastUpdate.Format(time.RFC3339Nano), oidStatus.ErrorCount)
 		}
 	}
+}
 
-	// Skip processing if no targets (empty map)
-	if len(targetStatusMap) == 0 {
-		log.Printf("SNMP service for poller %s returned no targets", pollerID)
-		return nil
-	}
-
-	// Register each SNMP target as a device (for unified devices view integration)
+// processSNMPDeviceUpdates processes SNMP target device updates in batch
+func (s *Server) processSNMPDeviceUpdates(
+	ctx context.Context,
+	targetStatusMap map[string]*snmp.TargetStatus,
+	agentID, pollerID, partition string,
+	timestamp time.Time) error {
+	
+	var deviceUpdates []*models.DeviceUpdate
 	for targetName, targetData := range targetStatusMap {
-		// Use HostIP for device registration, fall back to target name if not available
 		deviceIP := targetData.HostIP
 		if deviceIP == "" {
 			log.Printf("Warning: HostIP missing for target %s, using target name as fallback", targetName)
 			deviceIP = targetName
 		}
 
-		// Use HostName for display, fall back to target name if not available
 		deviceHostname := targetData.HostName
 		if deviceHostname == "" {
 			deviceHostname = targetName
 		}
 
-		s.createSNMPTargetDeviceRecord(
-			ctx,
-			agentID,        // Use context agentID (enhanced or fallback)
-			pollerID,       // Use context pollerID (enhanced or fallback)
-			partition,      // Use context partition (enhanced or fallback)
-			deviceIP,       // Actual IP address (e.g., "192.168.2.1")
-			deviceHostname, // Display name (e.g., "farm01")
-			sourceIP,       // Use source IP for logging consistency
-			timestamp,
-			targetData.Available,
-		)
+		deviceUpdate := s.createSNMPTargetDeviceUpdate(
+			agentID, pollerID, partition, deviceIP, deviceHostname, timestamp, targetData.Available)
+		if deviceUpdate != nil {
+			deviceUpdates = append(deviceUpdates, deviceUpdate)
+		}
 	}
 
-	var newTimeseriesMetrics []*models.TimeseriesMetric
+	if len(deviceUpdates) > 0 && s.DeviceRegistry != nil {
+		if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, deviceUpdates); err != nil {
+			return fmt.Errorf("failed to process batch SNMP target devices: %w", err)
+		}
+		log.Printf("Successfully processed %d SNMP target device updates in batch", len(deviceUpdates))
+	}
 
-	for targetName, targetData := range targetStatusMap { // targetName is target config name
+	return nil
+}
+
+// createSNMPTimeseriesMetrics creates timeseries metrics from SNMP target data
+func (*Server) createSNMPTimeseriesMetrics(
+	targetStatusMap map[string]*snmp.TargetStatus,
+	pollerID, partition string,
+	timestamp time.Time) []*models.TimeseriesMetric {
+	
+	var metrics []*models.TimeseriesMetric
+
+	for targetName, targetData := range targetStatusMap {
 		if !targetData.Available {
 			continue
 		}
 
-		// Use HostIP for device ID consistency, fall back to target name if not available
 		deviceIP := targetData.HostIP
 		if deviceIP == "" {
 			deviceIP = targetName
 		}
 
-		for oidConfigName, oidStatus := range targetData.OIDStatus { // oidConfigName is like "ifInOctets_4" or "sysUpTimeInstance"
+		for oidConfigName, oidStatus := range targetData.OIDStatus {
 			baseMetricName, parsedIfIndex := parseOIDConfigName(oidConfigName)
 
 			metric := createSNMPMetric(
-				pollerID,  // Use context pollerID
-				partition, // Use context partition
-				deviceIP,  // Use actual IP address for device ID consistency
-				oidConfigName,
-				oidStatus,
-				targetData,
-				baseMetricName,
-				parsedIfIndex,
-				timestamp,
-			)
+				pollerID, partition, deviceIP, oidConfigName, oidStatus,
+				targetData, baseMetricName, parsedIfIndex, timestamp)
 
-			newTimeseriesMetrics = append(newTimeseriesMetrics, metric)
+			metrics = append(metrics, metric)
 		}
 	}
 
-	s.bufferMetrics(pollerID, newTimeseriesMetrics)
-
-	return nil
+	return metrics
 }
 
 // parseRperfPayload unmarshals the rperf payload and extracts the timestamp

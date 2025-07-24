@@ -106,7 +106,7 @@ func validateQueryRequest(req *QueryRequest) (errMsg string, statusCode int, ok 
 // getSecondaryOrderField returns the appropriate secondary order field for a given entity type
 func (*APIServer) getSecondaryOrderField(entityType models.EntityType) (string, bool) {
 	switch entityType {
-	case models.DeviceUpdates, models.Devices, models.ICMPResults, models.SNMPResults:
+	case models.Devices, models.ICMPResults, models.SNMPResults:
 		return "ip", true
 	case models.Services:
 		return "service_name", true
@@ -200,7 +200,7 @@ func isValidPaginationEntity(entity models.EntityType) bool {
 		models.Devices,
 		models.Services,
 		models.Interfaces,
-		models.DeviceUpdates,
+
 		models.Events,
 		models.Logs,
 		models.Pollers,
@@ -813,7 +813,7 @@ func addEntityFields(cursorData, result map[string]interface{}, entity models.En
 	entityFieldMap := map[models.EntityType][]string{
 		models.Devices:       {"ip"},
 		models.Interfaces:    {"device_ip", "ifIndex"},
-		models.DeviceUpdates: {"ip"},
+
 		models.Services:      {"service_name"},
 		models.Events:        {"id"},
 		models.Pollers:       {"poller_id"},

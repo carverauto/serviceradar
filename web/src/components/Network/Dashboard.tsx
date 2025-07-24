@@ -39,18 +39,20 @@ import { cachedQuery } from '@/lib/cached-query';
 import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
 import DeviceTable from '@/components/Devices/DeviceTable';
 
-// Current sweep results format from SRQL sweep_results
+// Current sweep results format from SRQL devices
 interface SweepResult {
+    device_id: string;
     ip: string;
     poller_id: string;
     agent_id: string;
-    partition: string;
+    partition?: string;
     hostname?: string | null;
     mac?: string | null;
-    available: boolean;
-    discovery_source: string;
-    timestamp: string;
-    metadata: string;           // JSON string
+    is_available: boolean;
+    discovery_sources?: string[];
+    first_seen: string;
+    last_seen: string;
+    metadata?: any;           // Can be object or string
 }
 
 
@@ -341,12 +343,16 @@ const SweepResultsView: React.FC = React.memo(() => {
         fetchSweepResults();
     }, [fetchSweepResults]);
 
-    const parseMetadata = (metadataString: string) => {
-        try {
-            return JSON.parse(metadataString);
-        } catch {
-            return {};
+    const parseMetadata = (metadata: any) => {
+        if (!metadata) return {};
+        if (typeof metadata === 'string') {
+            try {
+                return JSON.parse(metadata);
+            } catch {
+                return {};
+            }
         }
+        return metadata;
     };
 
 
@@ -355,12 +361,12 @@ const SweepResultsView: React.FC = React.memo(() => {
         const hostMap = new Map<string, SweepResult>();
         sweepResults.forEach(result => {
             const existing = hostMap.get(result.ip);
-            if (!existing || new Date(result.timestamp) > new Date(existing.timestamp)) {
+            if (!existing || new Date(result.last_seen) > new Date(existing.last_seen)) {
                 hostMap.set(result.ip, result);
             }
         });
         return Array.from(hostMap.values()).sort((a, b) => 
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()
         );
     }, [sweepResults]);
 
@@ -368,7 +374,7 @@ const SweepResultsView: React.FC = React.memo(() => {
         if (!uniqueHosts.length) return null;
 
         const totalHosts = uniqueHosts.length;
-        const respondingHosts = uniqueHosts.filter(result => result.available).length;
+        const respondingHosts = uniqueHosts.filter(result => result.is_available).length;
         
         // Try to parse metadata for detailed stats (if available)
         let totalOpenPorts = 0;
@@ -554,16 +560,16 @@ const SweepResultsView: React.FC = React.memo(() => {
                                                     {result.hostname || result.ip}
                                                 </h4>
                                                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                                                    {result.ip} • {new Date(result.timestamp).toLocaleString()}
+                                                    {result.ip} • {new Date(result.last_seen).toLocaleString()}
                                                 </p>
                                             </div>
                                             <div className="text-right">
                                                 <span className={`px-2 py-1 text-xs rounded ${
-                                                    result.available
+                                                    result.is_available
                                                         ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
                                                         : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
                                                 }`}>
-                                                    {result.available ? 'Available' : 'Unavailable'}
+                                                    {result.is_available ? 'Available' : 'Unavailable'}
                                                 </span>
                                             </div>
                                         </div>
@@ -632,11 +638,11 @@ const SweepResultsView: React.FC = React.memo(() => {
                                                     {result.hostname || result.ip}
                                                 </h4>
                                                 <span className={`px-2 py-1 text-xs rounded ${
-                                                    result.available
+                                                    result.is_available
                                                         ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
                                                         : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
                                                 }`}>
-                                                    {result.available ? 'Available' : 'Unavailable'}
+                                                    {result.is_available ? 'Available' : 'Unavailable'}
                                                 </span>
                                             </div>
 
@@ -647,7 +653,7 @@ const SweepResultsView: React.FC = React.memo(() => {
                                             )}
 
                                             {/* ICMP Status */}
-                                            {result.available && (responseTime !== null || packetLoss > 0) && (
+                                            {result.is_available && (responseTime !== null || packetLoss > 0) && (
                                                 <div className="mb-3 bg-gray-50 dark:bg-gray-700 p-3 rounded">
                                                     <h5 className="font-medium mb-2 text-gray-800 dark:text-gray-200 text-sm">
                                                         ICMP Status
@@ -700,7 +706,7 @@ const SweepResultsView: React.FC = React.memo(() => {
 
                                             <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
                                                 <div>Agent: {result.agent_id}</div>
-                                                <div>Scanned: {new Date(result.timestamp).toLocaleString()}</div>
+                                                <div>Scanned: {new Date(result.last_seen).toLocaleString()}</div>
                                                 {result.mac && <div>MAC: {result.mac}</div>}
                                             </div>
                                         </div>
@@ -736,7 +742,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     };
 
     const handleActiveSweepsClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show device_updates'));
+        router.push('/query?q=' + encodeURIComponent('show devices'));
     };
 
     const handleSnmpDevicesClick = () => {

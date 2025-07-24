@@ -50,10 +50,10 @@ func (a *ArmisIntegration) PrepareArmisUpdate(_ context.Context, devices []Devic
 			DeviceID:        devices[i].ID,
 			IP:              ip,
 			Available:       false, // Default to unavailable
-			ServiceRadarURL: fmt.Sprintf("%s/api/query?q=show+sweep_results+where+ip='%s'", a.Config.Endpoint, ip),
+			ServiceRadarURL: fmt.Sprintf("%s/api/query?q=show+devices+where+ip='%s'", a.Config.Endpoint, ip),
 		}
 
-		// Check if we have sweep results for this IP
+		// Check if we have a device update for this IP
 		if result, exists := resultMap[ip]; exists {
 			status.Available = result.Available
 			status.LastChecked = result.Timestamp
