@@ -13,6 +13,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	v1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -61,126 +64,178 @@ func parseCloudEvent(b []byte) (string, bool) {
 	return string(tmp.Data), true
 }
 
+// extractAttributeValue extracts a string value from an attribute based on its type
+func extractAttributeValue(attr *commonv1.KeyValue) string {
+	if attr.Value.GetStringValue() != "" {
+		return attr.Value.GetStringValue()
+	} else if attr.Value.GetBoolValue() {
+		return "true"
+	} else if attr.Value.GetIntValue() != 0 {
+		return fmt.Sprintf("%d", attr.Value.GetIntValue())
+	} else if attr.Value.GetDoubleValue() != 0 {
+		return fmt.Sprintf("%f", attr.Value.GetDoubleValue())
+	}
+	return ""
+}
+
+// processResourceAttributes processes resource attributes and extracts service information
+func processResourceAttributes(resource *resourcev1.Resource) (string, string, string, []string) {
+	var serviceName, serviceVersion, serviceInstance string
+	var resourceAttribs []string
+	
+	if resource == nil {
+		return "", "", "", nil
+	}
+	
+	for _, attr := range resource.Attributes {
+		value := extractAttributeValue(attr)
+		if value == "" {
+			continue
+		}
+		
+		// Extract service information
+		switch attr.Key {
+		case "service.name":
+			serviceName = value
+		case "service.version":
+			serviceVersion = value
+		case "service.instance.id":
+			serviceInstance = value
+		}
+		
+		// Add to resource attributes
+		resourceAttribs = append(resourceAttribs, fmt.Sprintf("%s=%s", attr.Key, value))
+	}
+	
+	return serviceName, serviceVersion, serviceInstance, resourceAttribs
+}
+
+// processLogAttributes processes log record attributes
+func processLogAttributes(attributes []*commonv1.KeyValue) []string {
+	var logAttribs []string
+	
+	for _, attr := range attributes {
+		value := extractAttributeValue(attr)
+		if value == "" {
+			continue
+		}
+		
+		logAttribs = append(logAttribs, fmt.Sprintf("%s=%s", attr.Key, value))
+	}
+	
+	return logAttribs
+}
+
+// createLogRow creates a LogRow from a log record and its context
+func createLogRow(
+	logRecord *logsv1.LogRecord,
+	serviceName, serviceVersion, serviceInstance string,
+	scopeName, scopeVersion string,
+	resourceAttribs []string,
+	logAttribs []string,
+) LogRow {
+	// Extract body text
+	body := ""
+	if logRecord.Body != nil && logRecord.Body.GetStringValue() != "" {
+		body = logRecord.Body.GetStringValue()
+	}
+	
+	// Convert timestamp
+	timestamp := time.Unix(0, int64(logRecord.TimeUnixNano))
+	
+	// Create raw data JSON
+	rawDataMap := map[string]interface{}{
+		"resource_logs": map[string]interface{}{
+			"resource_attributes": resourceAttribs,
+			"scope_logs": map[string]interface{}{
+				"scope": map[string]interface{}{
+					"name":    scopeName,
+					"version": scopeVersion,
+				},
+				"log_record": map[string]interface{}{
+					"timestamp":       logRecord.TimeUnixNano,
+					"severity_text":   logRecord.SeverityText,
+					"severity_number": logRecord.SeverityNumber,
+					"body":            body,
+					"attributes":      logAttribs,
+					"trace_id":        fmt.Sprintf("%x", logRecord.TraceId),
+					"span_id":         fmt.Sprintf("%x", logRecord.SpanId),
+				},
+			},
+		},
+	}
+	
+	// Marshal to JSON
+	rawDataJson, _ := json.Marshal(rawDataMap)
+	
+	return LogRow{
+		Timestamp:          timestamp,
+		TraceID:            fmt.Sprintf("%x", logRecord.TraceId),
+		SpanID:             fmt.Sprintf("%x", logRecord.SpanId),
+		SeverityText:       logRecord.SeverityText,
+		SeverityNumber:     int32(logRecord.SeverityNumber),
+		Body:               body,
+		ServiceName:        serviceName,
+		ServiceVersion:     serviceVersion,
+		ServiceInstance:    serviceInstance,
+		ScopeName:          scopeName,
+		ScopeVersion:       scopeVersion,
+		Attributes:         strings.Join(logAttribs, ","),
+		ResourceAttributes: strings.Join(resourceAttribs, ","),
+		RawData:            string(rawDataJson),
+	}
+}
+
+// getScopeInfo extracts scope name and version
+func getScopeInfo(scope *commonv1.InstrumentationScope) (string, string) {
+	if scope == nil {
+		return "", ""
+	}
+	return scope.Name, scope.Version
+}
+
 // parseOTELLogs parses OTEL protobuf logs data and returns LogRow entries
 func parseOTELLogs(b []byte, subject string) ([]LogRow, error) {
+	// Unmarshal the protobuf data
 	var req v1.ExportLogsServiceRequest
 	if err := proto.Unmarshal(b, &req); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal OTEL logs: %w", err)
 	}
 
+	// Pre-allocate result slice
 	var rows []LogRow
 	
+	// Process all logs in a single loop
 	for _, resourceLog := range req.ResourceLogs {
-		// Extract service information from resource attributes
-		var serviceName, serviceVersion, serviceInstance string
-		var resourceAttribs []string
-		
-		if resourceLog.Resource != nil {
-			for _, attr := range resourceLog.Resource.Attributes {
-				value := ""
-				if attr.Value.GetStringValue() != "" {
-					value = attr.Value.GetStringValue()
-				} else if attr.Value.GetBoolValue() {
-					value = "true"
-				} else if attr.Value.GetIntValue() != 0 {
-					value = fmt.Sprintf("%d", attr.Value.GetIntValue())
-				} else if attr.Value.GetDoubleValue() != 0 {
-					value = fmt.Sprintf("%f", attr.Value.GetDoubleValue())
-				}
-				
-				switch attr.Key {
-				case "service.name":
-					serviceName = value
-				case "service.version":
-					serviceVersion = value
-				case "service.instance.id":
-					serviceInstance = value
-				}
-				
-				if value != "" {
-					resourceAttribs = append(resourceAttribs, fmt.Sprintf("%s=%s", attr.Key, value))
-				}
-			}
+		// Skip invalid resource logs
+		if resourceLog.Resource == nil {
+			continue
 		}
 		
+		// Get service info once per resource
+		serviceName, serviceVersion, serviceInstance, resourceAttribs := 
+			processResourceAttributes(resourceLog.Resource)
+		
+		// Process all scope logs for this resource
 		for _, scopeLog := range resourceLog.ScopeLogs {
-			scopeName := ""
-			scopeVersion := ""
-			if scopeLog.Scope != nil {
-				scopeName = scopeLog.Scope.Name
-				scopeVersion = scopeLog.Scope.Version
-			}
+			// Get scope info once per scope
+			scopeName, scopeVersion := getScopeInfo(scopeLog.Scope)
 			
+			// Process all log records for this scope
 			for _, logRecord := range scopeLog.LogRecords {
-				// Extract log attributes
-				var logAttribs []string
-				for _, attr := range logRecord.Attributes {
-					value := ""
-					if attr.Value.GetStringValue() != "" {
-						value = attr.Value.GetStringValue()
-					} else if attr.Value.GetBoolValue() {
-						value = "true"
-					} else if attr.Value.GetIntValue() != 0 {
-						value = fmt.Sprintf("%d", attr.Value.GetIntValue())
-					} else if attr.Value.GetDoubleValue() != 0 {
-						value = fmt.Sprintf("%f", attr.Value.GetDoubleValue())
-					}
-					
-					if value != "" {
-						logAttribs = append(logAttribs, fmt.Sprintf("%s=%s", attr.Key, value))
-					}
-				}
+				// Get log attributes
+				logAttribs := processLogAttributes(logRecord.Attributes)
 				
-				// Extract body text
-				body := ""
-				if logRecord.Body != nil {
-					if logRecord.Body.GetStringValue() != "" {
-						body = logRecord.Body.GetStringValue()
-					}
-				}
+				// Build and add the log row
+				row := createLogRow(
+					logRecord,
+					serviceName, serviceVersion, serviceInstance,
+					scopeName, scopeVersion,
+					resourceAttribs,
+					logAttribs,
+				)
 				
-				// Convert timestamp
-				timestamp := time.Unix(0, int64(logRecord.TimeUnixNano))
-				
-				// Create a structured representation for raw_data instead of binary protobuf
-				rawDataMap := map[string]interface{}{
-					"resource_logs": map[string]interface{}{
-						"resource_attributes": resourceAttribs,
-						"scope_logs": map[string]interface{}{
-							"scope": map[string]interface{}{
-								"name":    scopeName,
-								"version": scopeVersion,
-							},
-							"log_record": map[string]interface{}{
-								"timestamp":        logRecord.TimeUnixNano,
-								"severity_text":    logRecord.SeverityText,
-								"severity_number":  logRecord.SeverityNumber,
-								"body":            body,
-								"attributes":      logAttribs,
-								"trace_id":        fmt.Sprintf("%x", logRecord.TraceId),
-								"span_id":         fmt.Sprintf("%x", logRecord.SpanId),
-							},
-						},
-					},
-				}
-				rawDataJson, _ := json.Marshal(rawDataMap)
-
-				rows = append(rows, LogRow{
-					Timestamp:          timestamp,
-					TraceID:            fmt.Sprintf("%x", logRecord.TraceId),
-					SpanID:             fmt.Sprintf("%x", logRecord.SpanId),
-					SeverityText:       logRecord.SeverityText,
-					SeverityNumber:     int32(logRecord.SeverityNumber),
-					Body:               body,
-					ServiceName:        serviceName,
-					ServiceVersion:     serviceVersion,
-					ServiceInstance:    serviceInstance,
-					ScopeName:          scopeName,
-					ScopeVersion:       scopeVersion,
-					Attributes:         strings.Join(logAttribs, ","),
-					ResourceAttributes: strings.Join(resourceAttribs, ","),
-					RawData:            string(rawDataJson),
-				})
+				rows = append(rows, row)
 			}
 		}
 	}
@@ -442,44 +497,31 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 	processed := make([]jetstream.Msg, 0, len(msgs))
 
 	for _, msg := range msgs {
-		// Handle OTEL logs - parse protobuf directly
+		// Handle OTEL logs
 		if strings.Contains(msg.Subject(), "otel") {
-			log.Printf("Processing OTEL message from subject: %s, data length: %d", msg.Subject(), len(msg.Data()))
-			logRows, err := parseOTELLogs(msg.Data(), msg.Subject())
-			if err != nil {
-				log.Printf("Failed to parse as direct protobuf: %v", err)
-				// Try to parse as CloudEvent wrapper
-				if data, ok := parseCloudEvent(msg.Data()); ok {
-					log.Printf("Trying to parse as CloudEvent wrapper, data length: %d", len(data))
-					logRows, err = parseOTELLogs([]byte(data), msg.Subject())
+			if logRows, ok := parseOTELMessage(msg); ok {
+				for _, row := range logRows {
+					if err := batch.Append(
+						row.Timestamp,
+						row.TraceID,
+						row.SpanID,
+						row.SeverityText,
+						row.SeverityNumber,
+						row.Body,
+						row.ServiceName,
+						row.ServiceVersion,
+						row.ServiceInstance,
+						row.ScopeName,
+						row.ScopeVersion,
+						row.Attributes,
+						row.ResourceAttributes,
+						row.RawData,
+					); err != nil {
+						return processed, err
+					}
 				}
-				if err != nil {
-					log.Printf("Failed to parse OTEL logs completely: %v", err)
-					continue // Skip malformed OTEL logs
-				}
-			}
-			
-			log.Printf("Successfully parsed %d log rows from OTEL message", len(logRows))
-
-			for _, row := range logRows {
-				if err := batch.Append(
-					row.Timestamp,
-					row.TraceID,
-					row.SpanID,
-					row.SeverityText,
-					row.SeverityNumber,
-					row.Body,
-					row.ServiceName,
-					row.ServiceVersion,
-					row.ServiceInstance,
-					row.ScopeName,
-					row.ScopeVersion,
-					row.Attributes,
-					row.ResourceAttributes,
-					row.RawData,
-				); err != nil {
-					return processed, err
-				}
+			} else {
+				log.Printf("Skipping malformed OTEL message")
 			}
 		}
 
@@ -491,4 +533,36 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 	}
 
 	return processed, nil
+}
+
+// parseOTELMessage attempts to parse an OTEL message and returns log rows
+// It returns the parsed log rows and a boolean indicating success
+func parseOTELMessage(msg jetstream.Msg) ([]LogRow, bool) {
+	log.Printf("Processing OTEL message from subject: %s, data length: %d", msg.Subject(), len(msg.Data()))
+	
+	// First try to parse as direct protobuf
+	logRows, err := parseOTELLogs(msg.Data(), msg.Subject())
+	if err == nil {
+		log.Printf("Successfully parsed %d log rows from OTEL message", len(logRows))
+		return logRows, true
+	}
+	
+	log.Printf("Failed to parse as direct protobuf: %v", err)
+	
+	// Try to parse as CloudEvent wrapper
+	data, ok := parseCloudEvent(msg.Data())
+	if !ok {
+		log.Printf("Failed to parse as CloudEvent wrapper")
+		return nil, false
+	}
+	
+	log.Printf("Trying to parse as CloudEvent wrapper, data length: %d", len(data))
+	logRows, err = parseOTELLogs([]byte(data), msg.Subject())
+	if err != nil {
+		log.Printf("Failed to parse OTEL logs completely: %v", err)
+		return nil, false
+	}
+	
+	log.Printf("Successfully parsed %d log rows from OTEL message", len(logRows))
+	return logRows, true
 }
