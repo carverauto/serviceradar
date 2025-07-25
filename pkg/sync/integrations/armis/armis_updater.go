@@ -25,47 +25,6 @@ type ArmisDeviceStatus struct {
 	ServiceRadarURL string    `json:"serviceradar_url,omitempty"`
 }
 
-// PrepareArmisUpdate prepares device status updates for Armis based on sweep results
-func (a *ArmisIntegration) PrepareArmisUpdate(_ context.Context, devices []Device, sweepResults []SweepResult) []ArmisDeviceStatus {
-	// Create a map of IP to most recent sweep result
-	resultMap := make(map[string]SweepResult)
-
-	for _, result := range sweepResults {
-		if existing, exists := resultMap[result.IP]; !exists || result.Timestamp.After(existing.Timestamp) {
-			resultMap[result.IP] = result
-		}
-	}
-
-	// Prepare status updates
-	updates := make([]ArmisDeviceStatus, 0, len(devices))
-
-	for i := range devices {
-		// Extract the first IP from the device (Armis can have comma-separated IPs)
-		ip := extractFirstIP(devices[i].IPAddress)
-		if ip == "" {
-			continue
-		}
-
-		status := ArmisDeviceStatus{
-			DeviceID:        devices[i].ID,
-			IP:              ip,
-			Available:       false, // Default to unavailable
-			ServiceRadarURL: fmt.Sprintf("%s/api/query?q=show+devices+where+ip='%s'", a.Config.Endpoint, ip),
-		}
-
-		// Check if we have a device update for this IP
-		if result, exists := resultMap[ip]; exists {
-			status.Available = result.Available
-			status.LastChecked = result.Timestamp
-			status.RTT = result.RTT
-		}
-
-		updates = append(updates, status)
-	}
-
-	return updates
-}
-
 // extractFirstIP extracts the first IP from a potentially comma-separated list
 func extractFirstIP(ipList string) string {
 	ips := strings.Split(ipList, ",")
