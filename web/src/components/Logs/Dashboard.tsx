@@ -128,38 +128,22 @@ const LogsDashboard = () => {
 
     const fetchServices = useCallback(async () => {
         try {
-            const uniqueServices = new Set<string>();
-            let cursor: string | undefined;
-            let hasMore = true;
-            let attempts = 0;
-            const maxAttempts = 50; // Prevent infinite loops, ~1000 logs sampled
+            // Use a simple SRQL query to get logs with distinct service names
+            const query = 'SHOW LOGS WHERE service_name IS NOT NULL ORDER BY timestamp DESC LIMIT 1000';
+            const data = await postQuery<LogsApiResponse>(query);
             
-            // Paginate through logs to collect unique service names
-            while (hasMore && attempts < maxAttempts) {
-                const query = 'SHOW LOGS ORDER BY timestamp DESC';
-                const data = await postQuery<LogsApiResponse>(query, cursor, 'next');
-                
-                if (!data.results || data.results.length === 0) {
-                    break;
-                }
-                
-                // Extract service names from this page
-                data.results.forEach(log => {
-                    if (log.service_name && log.service_name.trim() !== '') {
-                        uniqueServices.add(log.service_name);
-                    }
-                });
-                
-                // Check if we have enough services or if there are more pages
-                cursor = data.pagination?.next_cursor;
-                hasMore = !!cursor;
-                attempts++;
-                
-                // If we have a good number of services, we can stop early
-                if (uniqueServices.size >= 20) {
-                    break;
-                }
+            if (!data.results || data.results.length === 0) {
+                setServices([]);
+                return;
             }
+            
+            // Extract unique service names from the results
+            const uniqueServices = new Set<string>();
+            data.results.forEach(log => {
+                if (log.service_name && log.service_name.trim() !== '') {
+                    uniqueServices.add(log.service_name);
+                }
+            });
             
             const serviceNames = Array.from(uniqueServices).sort();
             setServices(serviceNames);
