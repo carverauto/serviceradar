@@ -129,7 +129,7 @@ const LogsDashboard = () => {
     const fetchServices = useCallback(async () => {
         try {
             // Use a simple SRQL query to get logs with distinct service names
-            const query = 'SHOW LOGS WHERE service_name IS NOT NULL ORDER BY timestamp DESC LIMIT 1000';
+            const query = 'SHOW LOGS WHERE service_name IS NOT NULL ORDER BY timestamp DESC';
             const data = await postQuery<LogsApiResponse>(query);
             
             if (!data.results || data.results.length === 0) {
