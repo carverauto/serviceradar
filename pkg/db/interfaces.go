@@ -84,6 +84,8 @@ type Service interface {
 	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error)
 	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
 	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
+	GetAllProcessMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error)
+	GetAllProcessMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error)
 
 	// SNMP metric operations.
 
@@ -148,6 +150,8 @@ type SysmonMetricsProvider interface {
 	GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error)
 	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
 	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllProcessMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error)
+	GetAllProcessMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error)
 }
 
 // Rows represents multiple database rows.

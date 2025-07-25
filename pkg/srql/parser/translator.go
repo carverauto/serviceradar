@@ -161,15 +161,16 @@ func getEntityPrimaryKeyMapData() map[models.EntityType]struct {
 		// Assuming log_id or similar is the primary key for logs
 		models.Logs: {"", false},
 		// Services stream is versioned_kv, latest handled automatically
-		models.Services:      {"", false},
-		models.DeviceUpdates: {"", false}, // DeviceUpdates is a versioned_kv stream
-		models.ICMPResults:   {"", false}, // ICMPResults is a versioned_kv stream
-		models.SNMPResults:   {"", false}, // SNMPResults is a versioned_kv stream
-		models.Events:        {"", false}, // Events stream is append-only
-		models.Pollers:       {"poller_id", true},
-		models.CPUMetrics:    {"device_id, core_id", true},
-		models.DiskMetrics:   {"device_id, mount_point", true},
-		models.MemoryMetrics: {"device_id", true},
+		models.Services:       {"", false},
+		models.DeviceUpdates:  {"", false}, // DeviceUpdates is a versioned_kv stream
+		models.ICMPResults:    {"", false}, // ICMPResults is a versioned_kv stream
+		models.SNMPResults:    {"", false}, // SNMPResults is a versioned_kv stream
+		models.Events:         {"", false}, // Events stream is append-only
+		models.Pollers:        {"poller_id", true},
+		models.CPUMetrics:     {"device_id, core_id", true},
+		models.DiskMetrics:    {"device_id, mount_point", true},
+		models.MemoryMetrics:  {"device_id", true},
+		models.ProcessMetrics: {"device_id, pid", true},
 	}
 }
 
@@ -235,22 +236,23 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 // getEntityToTableMapData returns a map of entity types to their base table names
 func getEntityToTableMapData() map[models.EntityType]string {
 	return map[models.EntityType]string{
-		models.Devices:       "unified_devices", // Materialized view approach uses unified_devices stream
-		models.Flows:         "netflow_metrics",
-		models.Interfaces:    "discovered_interfaces",
-		models.Traps:         "traps",
-		models.Connections:   "connections",
-		models.Logs:          "logs",
-		models.Services:      "services",
-		models.DeviceUpdates: "device_updates",
-		models.ICMPResults:   "icmp_results",
-		models.SNMPResults:   "timeseries_metrics",
-		models.Events:        "events",
-		models.Pollers:       "pollers",
-		models.CPUMetrics:    "cpu_metrics",
-		models.DiskMetrics:   "disk_metrics",
-		models.MemoryMetrics: "memory_metrics",
-		models.SNMPMetrics:   "timeseries_metrics",
+		models.Devices:        "unified_devices", // Materialized view approach uses unified_devices stream
+		models.Flows:          "netflow_metrics",
+		models.Interfaces:     "discovered_interfaces",
+		models.Traps:          "traps",
+		models.Connections:    "connections",
+		models.Logs:           "logs",
+		models.Services:       "services",
+		models.DeviceUpdates:  "device_updates",
+		models.ICMPResults:    "icmp_results",
+		models.SNMPResults:    "timeseries_metrics",
+		models.Events:         "events",
+		models.Pollers:        "pollers",
+		models.CPUMetrics:     "cpu_metrics",
+		models.DiskMetrics:    "disk_metrics",
+		models.MemoryMetrics:  "memory_metrics",
+		models.ProcessMetrics: "process_metrics",
+		models.SNMPMetrics:    "timeseries_metrics",
 	}
 }
 

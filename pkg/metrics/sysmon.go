@@ -11,9 +11,10 @@ import (
 func (m *Manager) StoreSysmonMetrics(
 	ctx context.Context, pollerID, agentID, hostID, partition, hostIP string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	dbMetrics := &models.SysmonMetrics{
-		CPUs:   make([]models.CPUMetric, len(metrics.CPUs)),
-		Disks:  make([]models.DiskMetric, len(metrics.Disks)),
-		Memory: &models.MemoryMetric{},
+		CPUs:      make([]models.CPUMetric, len(metrics.CPUs)),
+		Disks:     make([]models.DiskMetric, len(metrics.Disks)),
+		Memory:    &models.MemoryMetric{},
+		Processes: make([]models.ProcessMetric, len(metrics.Processes)),
 	}
 
 	for i, cpu := range metrics.CPUs {
@@ -46,6 +47,22 @@ func (m *Manager) StoreSysmonMetrics(
 		HostID:     hostID,
 		HostIP:     hostIP,
 		AgentID:    agentID,
+	}
+
+	for i := range metrics.Processes {
+		process := &metrics.Processes[i]
+		dbMetrics.Processes[i] = models.ProcessMetric{
+			PID:         process.PID,
+			Name:        process.Name,
+			CPUUsage:    process.CPUUsage,
+			MemoryUsage: process.MemoryUsage,
+			Status:      process.Status,
+			StartTime:   process.StartTime,
+			Timestamp:   timestamp,
+			HostID:      hostID,
+			HostIP:      hostIP,
+			AgentID:     agentID,
+		}
 	}
 
 	if err := m.db.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, dbMetrics, timestamp); err != nil {
@@ -167,4 +184,16 @@ func (m *Manager) GetAllDiskMetricsGrouped(
 func (m *Manager) GetMemoryMetricsGrouped(
 	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
 	return m.db.GetMemoryMetricsGrouped(ctx, pollerID, start, end)
+}
+
+// GetAllProcessMetrics retrieves all process metrics for a poller.
+func (m *Manager) GetAllProcessMetrics(
+	ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error) {
+	return m.db.GetAllProcessMetrics(ctx, pollerID, start, end)
+}
+
+// GetAllProcessMetricsGrouped retrieves all process metrics for a poller, grouped by timestamp.
+func (m *Manager) GetAllProcessMetricsGrouped(
+	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error) {
+	return m.db.GetAllProcessMetricsGrouped(ctx, pollerID, start, end)
 }

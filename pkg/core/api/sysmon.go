@@ -113,6 +113,9 @@ func (s *APIServer) getSysmonMetrics(
 	case "disk":
 		log.Printf("Fetched %d disk metrics for poller %s", len(metrics.([]models.SysmonDiskResponse)),
 			pollerID)
+	case "process":
+		log.Printf("Fetched %d process metrics for poller %s", len(metrics.([]models.SysmonProcessResponse)),
+			pollerID)
 	default:
 		log.Printf("Fetched %d unknown metrics for poller %s", len(metrics.([]models.SysmonDiskResponse)),
 			pollerID)
@@ -235,6 +238,32 @@ func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request)
 	s.getSysmonMetrics(w, r, fetch, "disk")
 }
 
+// @Summary Get process metrics
+// @Description Retrieves process metrics for a specific poller within a time range
+// @Tags Sysmon
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
+// @Param end query string false "End time in RFC3339 format (default: now)"
+// @Success 200 {array} models.SysmonProcessResponse "Process metrics data grouped by timestamp"
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 404 {object} models.ErrorResponse "No metrics found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Failure 501 {object} models.ErrorResponse "System metrics not supported"
+// @Router /pollers/{id}/sysmon/processes [get]
+// @Security ApiKeyAuth
+func (s *APIServer) getSysmonProcessMetrics(w http.ResponseWriter, r *http.Request) {
+	fetch := func(
+		ctx context.Context,
+		provider db.SysmonMetricsProvider,
+		pollerID string,
+		startTime, endTime time.Time) (interface{}, error) {
+		return fetchMetrics[models.SysmonProcessResponse](ctx, pollerID, startTime, endTime, provider.GetAllProcessMetricsGrouped)
+	}
+	s.getSysmonMetrics(w, r, fetch, "process")
+}
+
 // groupDiskMetricsByTimestamp groups a slice of DiskMetric by timestamp into SysmonDiskResponse.
 // @ignore This is an internal helper function, not directly exposed as an API endpoint
 func groupDiskMetricsByTimestamp(metrics []models.DiskMetric) []models.SysmonDiskResponse {
@@ -280,6 +309,11 @@ func (s *APIServer) getDeviceSysmonMemoryMetrics(w http.ResponseWriter, r *http.
 // getDeviceSysmonDiskMetrics retrieves disk metrics for a specific device.
 func (s *APIServer) getDeviceSysmonDiskMetrics(w http.ResponseWriter, r *http.Request) {
 	s.handleDeviceSysmonMetrics(w, r, "disk", s.getDiskMetricsForDevice)
+}
+
+// getDeviceSysmonProcessMetrics retrieves process metrics for a specific device.
+func (s *APIServer) getDeviceSysmonProcessMetrics(w http.ResponseWriter, r *http.Request) {
+	s.handleDeviceSysmonMetrics(w, r, "process", s.getProcessMetricsForDevice)
 }
 
 // handleDeviceSysmonMetrics is a generic handler for device-centric sysmon metrics
@@ -500,6 +534,74 @@ func (s *APIServer) getDiskMetricsForDevice(
 	for ts, disks := range data {
 		result = append(result, models.SysmonDiskResponse{
 			Disks:     disks,
+			Timestamp: ts,
+		})
+	}
+
+	// Sort by timestamp descending
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.After(result[j].Timestamp)
+	})
+
+	return result, nil
+}
+
+// getProcessMetricsForDevice queries process metrics by device_id from process_metrics table
+func (s *APIServer) getProcessMetricsForDevice(
+	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
+	query := fmt.Sprintf(`
+		SELECT timestamp, agent_id, host_id, pid, name, cpu_usage, memory_usage, status, start_time
+		FROM table(process_metrics)
+		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
+		ORDER BY timestamp DESC, pid ASC`,
+		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query process metrics for device %s: %w", deviceID, err)
+	}
+	defer rows.Close()
+
+	data := make(map[time.Time][]models.ProcessMetric)
+
+	for rows.Next() {
+		var timestamp time.Time
+
+		var agentID, hostID, name, status, startTime string
+
+		var pid uint32
+
+		var cpuUsage float32
+
+		var memoryUsage uint64
+
+		if err := rows.Scan(&timestamp, &agentID, &hostID, &pid, &name, &cpuUsage, &memoryUsage, &status, &startTime); err != nil {
+			log.Printf("Error scanning process metric row for device %s: %v", deviceID, err)
+			continue
+		}
+
+		process := models.ProcessMetric{
+			Timestamp:   timestamp,
+			AgentID:     agentID,
+			HostID:      hostID,
+			PID:         pid,
+			Name:        name,
+			CPUUsage:    cpuUsage,
+			MemoryUsage: memoryUsage,
+			Status:      status,
+			StartTime:   startTime,
+		}
+		data[timestamp] = append(data[timestamp], process)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating process metrics rows for device %s: %w", deviceID, err)
+	}
+
+	result := make([]models.SysmonProcessResponse, 0, len(data))
+	for ts, processes := range data {
+		result = append(result, models.SysmonProcessResponse{
+			Processes: processes,
 			Timestamp: ts,
 		})
 	}

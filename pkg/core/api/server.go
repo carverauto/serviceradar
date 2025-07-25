@@ -400,11 +400,13 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/pollers/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
+	protected.HandleFunc("/pollers/{id}/sysmon/processes", s.getSysmonProcessMetrics).Methods("GET")
 
 	// Device-centric sysmon endpoints
 	protected.HandleFunc("/devices/{id}/sysmon/cpu", s.getDeviceSysmonCPUMetrics).Methods("GET")
 	protected.HandleFunc("/devices/{id}/sysmon/disk", s.getDeviceSysmonDiskMetrics).Methods("GET")
 	protected.HandleFunc("/devices/{id}/sysmon/memory", s.getDeviceSysmonMemoryMetrics).Methods("GET")
+	protected.HandleFunc("/devices/{id}/sysmon/processes", s.getDeviceSysmonProcessMetrics).Methods("GET")
 
 	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
 
