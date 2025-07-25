@@ -150,6 +150,36 @@ func (mr *MockServiceMockRecorder) GetAllMountPoints(ctx, pollerID any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllMountPoints", reflect.TypeOf((*MockService)(nil).GetAllMountPoints), ctx, pollerID)
 }
 
+// GetAllProcessMetrics mocks base method.
+func (m *MockService) GetAllProcessMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllProcessMetrics", ctx, pollerID, start, end)
+	ret0, _ := ret[0].([]models.ProcessMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllProcessMetrics indicates an expected call of GetAllProcessMetrics.
+func (mr *MockServiceMockRecorder) GetAllProcessMetrics(ctx, pollerID, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllProcessMetrics", reflect.TypeOf((*MockService)(nil).GetAllProcessMetrics), ctx, pollerID, start, end)
+}
+
+// GetAllProcessMetricsGrouped mocks base method.
+func (m *MockService) GetAllProcessMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllProcessMetricsGrouped", ctx, pollerID, start, end)
+	ret0, _ := ret[0].([]models.SysmonProcessResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllProcessMetricsGrouped indicates an expected call of GetAllProcessMetricsGrouped.
+func (mr *MockServiceMockRecorder) GetAllProcessMetricsGrouped(ctx, pollerID, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllProcessMetricsGrouped", reflect.TypeOf((*MockService)(nil).GetAllProcessMetricsGrouped), ctx, pollerID, start, end)
+}
+
 // GetCPUMetrics mocks base method.
 func (m *MockService) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
 	m.ctrl.T.Helper()
@@ -875,6 +905,36 @@ func (m *MockSysmonMetricsProvider) GetAllMountPoints(ctx context.Context, polle
 func (mr *MockSysmonMetricsProviderMockRecorder) GetAllMountPoints(ctx, pollerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllMountPoints", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetAllMountPoints), ctx, pollerID)
+}
+
+// GetAllProcessMetrics mocks base method.
+func (m *MockSysmonMetricsProvider) GetAllProcessMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllProcessMetrics", ctx, pollerID, start, end)
+	ret0, _ := ret[0].([]models.ProcessMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllProcessMetrics indicates an expected call of GetAllProcessMetrics.
+func (mr *MockSysmonMetricsProviderMockRecorder) GetAllProcessMetrics(ctx, pollerID, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllProcessMetrics", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetAllProcessMetrics), ctx, pollerID, start, end)
+}
+
+// GetAllProcessMetricsGrouped mocks base method.
+func (m *MockSysmonMetricsProvider) GetAllProcessMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllProcessMetricsGrouped", ctx, pollerID, start, end)
+	ret0, _ := ret[0].([]models.SysmonProcessResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllProcessMetricsGrouped indicates an expected call of GetAllProcessMetricsGrouped.
+func (mr *MockSysmonMetricsProviderMockRecorder) GetAllProcessMetricsGrouped(ctx, pollerID, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllProcessMetricsGrouped", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetAllProcessMetricsGrouped), ctx, pollerID, start, end)
 }
 
 // GetCPUMetrics mocks base method.
