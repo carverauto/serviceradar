@@ -639,7 +639,8 @@ func (db *DB) storeProcessMetrics(
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO process_metrics (* except _tp_time)", func(batch driver.Batch) error {
-		for _, process := range processes {
+		for i := range processes {
+			process := &processes[i]
 			if err := batch.Append(
 				timestamp,           // timestamp
 				pollerID,            // poller_id

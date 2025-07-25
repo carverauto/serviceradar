@@ -541,9 +541,12 @@ func (s *Server) processSysmonMetrics(
 	if sysmonPayload.Status.Memory.TotalBytes > 0 || sysmonPayload.Status.Memory.UsedBytes > 0 {
 		memoryCount = 1
 	}
-	log.Printf("Parsed %d CPU, %d disk, %d memory, %d process metrics for poller %s (device_id: %s, host_ip: %s, partition: %s) with timestamp %s",
+
+	log.Printf("Parsed %d CPU, %d disk, %d memory, %d process metrics for poller %s "+
+		"(device_id: %s, host_ip: %s, partition: %s) with timestamp %s",
 		len(sysmonPayload.Status.CPUs), len(sysmonPayload.Status.Disks), memoryCount,
-		len(sysmonPayload.Status.Processes), pollerID, deviceID, sysmonPayload.Status.HostIP, partition, sysmonPayload.Status.Timestamp)
+		len(sysmonPayload.Status.Processes), pollerID, deviceID,
+		sysmonPayload.Status.HostIP, partition, sysmonPayload.Status.Timestamp)
 
 	s.createSysmonDeviceRecord(ctx, agentID, pollerID, partition, deviceID, sysmonPayload, pollerTimestamp)
 
@@ -554,12 +557,12 @@ type sysmonPayload struct {
 	Available    bool  `json:"available"`
 	ResponseTime int64 `json:"response_time"`
 	Status       struct {
-		Timestamp string                `json:"timestamp"`
-		HostID    string                `json:"host_id"`
-		HostIP    string                `json:"host_ip"`
-		CPUs      []models.CPUMetric    `json:"cpus"`
-		Disks     []models.DiskMetric   `json:"disks"`
-		Memory    models.MemoryMetric   `json:"memory"`
+		Timestamp string                 `json:"timestamp"`
+		HostID    string                 `json:"host_id"`
+		HostIP    string                 `json:"host_ip"`
+		CPUs      []models.CPUMetric     `json:"cpus"`
+		Disks     []models.DiskMetric    `json:"disks"`
+		Memory    models.MemoryMetric    `json:"memory"`
 		Processes []models.ProcessMetric `json:"processes"`
 	} `json:"status"`
 }
@@ -626,7 +629,8 @@ func (*Server) buildSysmonMetrics(payload *sysmonPayload, pollerTimestamp time.T
 		}
 	}
 
-	for i, process := range payload.Status.Processes {
+	for i := range payload.Status.Processes {
+		process := &payload.Status.Processes[i]
 		m.Processes[i] = models.ProcessMetric{
 			PID:         process.PID,
 			Name:        process.Name,
