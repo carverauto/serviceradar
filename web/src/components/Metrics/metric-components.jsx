@@ -264,8 +264,8 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
 
         try {
             // Build SRQL query based on ID type  
-            // Escape the device ID properly for SRQL
-            const escapedId = actualId.replace(/'/g, "\\'");
+            // Escape the device ID properly for SRQL - escape backslashes first, then single quotes
+            const escapedId = actualId.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
             const whereCondition = actualIdType === 'device' 
                 ? `device_id = '${escapedId}'`
                 : `poller_id = '${escapedId}'`;
