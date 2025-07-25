@@ -270,7 +270,7 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
                 ? `device_id = '${escapedId}'`
                 : `poller_id = '${escapedId}'`;
             
-            const query = `SHOW process_metrics WHERE ${whereCondition} ORDER BY cpu_usage DESC, pid ASC LATEST`;
+            const query = `SHOW process_metrics WHERE ${whereCondition} ORDER BY cpu_usage DESC, memory_usage DESC, pid ASC LATEST`;
 
             const body = { query, limit };
             if (cursor) {
@@ -302,9 +302,13 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
             setProcesses(processData);
             setPagination(data.pagination || null);
 
-            // Identify top 10 processes by CPU usage for highlighting
-            const sortedByCpu = [...processData].sort((a, b) => (b.cpu_usage || 0) - (a.cpu_usage || 0));
-            const topPids = new Set(sortedByCpu.slice(0, 10).map(p => p.pid));
+            // Identify top 10 processes by CPU usage (primary) and memory usage (secondary) for highlighting
+            const sortedByUsage = [...processData].sort((a, b) => {
+                const cpuDiff = (b.cpu_usage || 0) - (a.cpu_usage || 0);
+                if (cpuDiff !== 0) return cpuDiff;
+                return (b.memory_usage || 0) - (a.memory_usage || 0);
+            });
+            const topPids = new Set(sortedByUsage.slice(0, 10).map(p => p.pid));
             setTopProcessPids(topPids);
 
         } catch (err) {
@@ -380,7 +384,7 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
                                 >
                                     <td className="py-2 text-gray-800 dark:text-gray-200">
                                         {isTopProcess && (
-                                            <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2" title="Top 10 by CPU"></span>
+                                            <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2" title="Top 10 by CPU & Memory"></span>
                                         )}
                                         {process.pid}
                                     </td>
@@ -443,7 +447,7 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
             {/* Legend for highlighting */}
             <div className="mt-3 text-xs text-gray-500 dark:text-gray-400 text-center">
                 <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-1"></span>
-                Highlighted rows are top 10 processes by CPU usage
+                Highlighted rows are top 10 processes by CPU & memory usage
             </div>
         </div>
     );
