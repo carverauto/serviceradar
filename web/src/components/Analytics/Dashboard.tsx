@@ -29,6 +29,7 @@ import { Device } from "@/types/devices";
 import { RperfMetric } from "@/types/rperf";
 import HighUtilizationWidget from './HighUtilizationWidget';
 import CriticalEventsWidget from './CriticalEventsWidget';
+import CriticalLogsWidget from './CriticalLogsWidget';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
@@ -405,14 +406,12 @@ const Dashboard = () => {
                     <ChartWidget title="Device Availability">
                         {chartData.deviceAvailability.length > 0 ? <SimpleBarChart data={chartData.deviceAvailability} /> : <NoData />}
                     </ChartWidget>
-                    <ChartWidget title="Top 5 High Latency Services (ms)">
-                        {chartData.topLatencyServices.length > 0 ? <SimpleBarChart data={chartData.topLatencyServices} /> : <NoData />}
-                    </ChartWidget>
-                    <HighUtilizationWidget />
-                    <CriticalEventsWidget />
                     <ChartWidget title="Device Discovery Sources">
                         {chartData.discoveryBySource.length > 0 ? <SimpleBarChart data={chartData.discoveryBySource} /> : <NoData />}
                     </ChartWidget>
+                    <HighUtilizationWidget />
+                    <CriticalEventsWidget />
+                    <CriticalLogsWidget />
                     <ChartWidget title="RPerf Bandwidth by Target (Mbps)">
                         {chartData.rperfBandwidth.length > 0 ? <SimpleBarChart data={chartData.rperfBandwidth} /> : <NoData />}
                     </ChartWidget>
