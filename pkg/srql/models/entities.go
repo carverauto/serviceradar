@@ -22,10 +22,11 @@ const (
 
 	// Sysmon metrics streams
 
-	CPUMetrics    EntityType = "cpu_metrics"    // Maps to 'cpu_metrics' stream
-	DiskMetrics   EntityType = "disk_metrics"   // Maps to 'disk_metrics' stream
-	MemoryMetrics EntityType = "memory_metrics" // Maps to 'memory_metrics' stream
-	SNMPMetrics   EntityType = "snmp_metrics"   // Maps to 'snmp_metrics' stream
+	CPUMetrics     EntityType = "cpu_metrics"     // Maps to 'cpu_metrics' stream
+	DiskMetrics    EntityType = "disk_metrics"    // Maps to 'disk_metrics' stream
+	MemoryMetrics  EntityType = "memory_metrics"  // Maps to 'memory_metrics' stream
+	ProcessMetrics EntityType = "process_metrics" // Maps to 'process_metrics' stream
+	SNMPMetrics    EntityType = "snmp_metrics"    // Maps to 'snmp_metrics' stream
 )
 
 // OperatorType represents a comparison operator

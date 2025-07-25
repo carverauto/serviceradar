@@ -15,7 +15,7 @@
  */
 
 import React from 'react';
-import { Cpu, HardDrive, BarChart3 } from 'lucide-react';
+import { Cpu, HardDrive, BarChart3, Activity } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { MetricCard, CustomTooltip, ProgressBar } from './shared-components';
 
@@ -206,6 +206,248 @@ export const FilesystemDetails = ({ drives = [] }) => {
                         </div>
                     </div>
                 ))}
+            </div>
+        </div>
+    );
+};
+
+export const ProcessCard = ({ data }) => {
+    return (
+        <MetricCard
+            title="Running Processes"
+            current={data.count}
+            unit={data.unit}
+            warning={200}
+            critical={500}
+            change={data.change}
+            icon={<Activity size={16} className="mr-2 text-blue-500 dark:text-blue-400" />}
+        />
+    );
+};
+
+export const ProcessChart = ({ data }) => {
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Process Count Trend</h3>
+            <div style={{ height: '180px' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={data.data} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#D1D5DB dark:#374151" />
+                        <XAxis dataKey="formattedTime" stroke="#6B7280" tick={{ fontSize: 12 }} />
+                        <YAxis stroke="#6B7280" tick={{ fontSize: 12 }} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Area type="monotone" dataKey="value" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.2} name="Process Count" />
+                    </AreaChart>
+                </ResponsiveContainer>
+            </div>
+        </div>
+    );
+};
+
+export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
+    const [processes, setProcesses] = React.useState([]);
+    const [pagination, setPagination] = React.useState(null);
+    const [isLoading, setIsLoading] = React.useState(false);
+    const [error, setError] = React.useState(null);
+    const [limit] = React.useState(50); // Show 50 processes per page
+    const [topProcessPids, setTopProcessPids] = React.useState(new Set());
+
+    // Determine the actual ID to use
+    const actualId = targetId || deviceId;
+    const actualIdType = targetId ? idType : 'device';
+
+    const fetchProcesses = React.useCallback(async (cursor = null, direction = 'next') => {
+        if (!actualId) return;
+
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            // Build SRQL query based on ID type  
+            // Escape the device ID properly for SRQL - escape backslashes first, then single quotes
+            const escapedId = actualId.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+            const whereCondition = actualIdType === 'device' 
+                ? `device_id = '${escapedId}'`
+                : `poller_id = '${escapedId}'`;
+            
+            const query = `SHOW process_metrics WHERE ${whereCondition} ORDER BY cpu_usage DESC, memory_usage DESC, pid ASC LATEST`;
+
+            const body = { query, limit };
+            if (cursor) {
+                body.cursor = cursor;
+                body.direction = direction;
+            }
+
+            const response = await fetch('/api/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+                cache: 'no-store',
+                credentials: 'include',
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch processes: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            const processData = data.results || [];
+            setProcesses(processData);
+            setPagination(data.pagination || null);
+
+            // Identify top 10 processes by CPU usage (primary) and memory usage (secondary) for highlighting
+            const sortedByUsage = [...processData].sort((a, b) => {
+                const cpuDiff = (b.cpu_usage || 0) - (a.cpu_usage || 0);
+                if (cpuDiff !== 0) return cpuDiff;
+                return (b.memory_usage || 0) - (a.memory_usage || 0);
+            });
+            const topPids = new Set(sortedByUsage.slice(0, 10).map(p => p.pid));
+            setTopProcessPids(topPids);
+
+        } catch (err) {
+            console.error('Error fetching processes:', err);
+            setError(err.message);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [actualId, actualIdType, limit]);
+
+    React.useEffect(() => {
+        fetchProcesses();
+    }, [fetchProcesses]);
+
+    if (isLoading && processes.length === 0) {
+        return (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+                <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Process Details</h3>
+                <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                    Loading processes...
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+                <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Process Details</h3>
+                <div className="text-center py-4 text-red-500 dark:text-red-400">
+                    Error: {error}
+                </div>
+            </div>
+        );
+    }
+
+    if (!processes || processes.length === 0) {
+        return (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+                <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Process Details</h3>
+                <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                    No process data available
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">
+                All Processes (Top 10 highlighted)
+            </h3>
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                    <thead>
+                        <tr className="border-b border-gray-200 dark:border-gray-700">
+                            <th className="text-left py-2 text-gray-600 dark:text-gray-300">PID</th>
+                            <th className="text-left py-2 text-gray-600 dark:text-gray-300 min-w-48">Name</th>
+                            <th className="text-right py-2 text-gray-600 dark:text-gray-300">CPU %</th>
+                            <th className="text-right py-2 text-gray-600 dark:text-gray-300">Memory</th>
+                            <th className="text-left py-2 text-gray-600 dark:text-gray-300">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {processes.map((process, index) => {
+                            const isTopProcess = topProcessPids.has(process.pid);
+                            return (
+                                <tr 
+                                    key={`${process.pid}-${index}`} 
+                                    className={`border-b border-gray-100 dark:border-gray-700 ${
+                                        isTopProcess ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                                    }`}
+                                >
+                                    <td className="py-2 text-gray-800 dark:text-gray-200">
+                                        {isTopProcess && (
+                                            <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2" title="Top 10 by CPU & Memory"></span>
+                                        )}
+                                        {process.pid}
+                                    </td>
+                                    <td className="py-2 text-gray-800 dark:text-gray-200 max-w-0">
+                                        <div className="truncate pr-2" title={process.name}>
+                                            {process.name}
+                                        </div>
+                                    </td>
+                                    <td className="py-2 text-right">
+                                        <span className={`${
+                                            (process.cpu_usage || 0) > 50 ? 'text-red-600 dark:text-red-400' :
+                                            (process.cpu_usage || 0) > 20 ? 'text-yellow-600 dark:text-yellow-400' :
+                                            'text-gray-800 dark:text-gray-200'
+                                        }`}>
+                                            {(process.cpu_usage || 0).toFixed(1)}%
+                                        </span>
+                                    </td>
+                                    <td className="py-2 text-right text-gray-800 dark:text-gray-200">
+                                        {((process.memory_usage || 0) / 1024 / 1024 / 1024).toFixed(2)} GB
+                                    </td>
+                                    <td className="py-2">
+                                        <span className={`px-2 py-1 rounded text-xs ${
+                                            process.status === 'Running' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                                            process.status === 'Sleeping' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                                            'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                                        }`}>
+                                            {process.status || 'Unknown'}
+                                        </span>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+            
+            {/* Pagination Controls */}
+            {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
+                <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button
+                        onClick={() => fetchProcesses(pagination.prev_cursor, 'prev')}
+                        disabled={!pagination.prev_cursor || isLoading}
+                        className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 dark:hover:bg-gray-600"
+                    >
+                        Previous
+                    </button>
+                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                        Showing {processes.length} processes
+                    </span>
+                    <button
+                        onClick={() => fetchProcesses(pagination.next_cursor, 'next')}
+                        disabled={!pagination.next_cursor || isLoading}
+                        className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 dark:hover:bg-gray-600"
+                    >
+                        Next
+                    </button>
+                </div>
+            )}
+            
+            {/* Legend for highlighting */}
+            <div className="mt-3 text-xs text-gray-500 dark:text-gray-400 text-center">
+                <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-1"></span>
+                Highlighted rows are top 10 processes by CPU & memory usage
             </div>
         </div>
     );

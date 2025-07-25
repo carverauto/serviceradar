@@ -54,7 +54,7 @@ type MetricsConfig struct {
 const MetricPointSize = 32 // 8 bytes timestamp + 8 bytes response + 16 bytes name
 
 // SysmonMetrics represents system monitoring metrics.
-// @Description System monitoring metrics including CPU, disk, and memory usage.
+// @Description System monitoring metrics including CPU, disk, memory, and process usage.
 type SysmonMetrics struct {
 	// CPU usage metrics for individual cores
 	CPUs []CPUMetric `json:"cpus"`
@@ -62,6 +62,8 @@ type SysmonMetrics struct {
 	Disks []DiskMetric `json:"disks"`
 	// Memory usage metrics
 	Memory *MemoryMetric `json:"memory"`
+	// Process usage metrics for running processes
+	Processes []ProcessMetric `json:"processes"`
 }
 
 // CPUMetric represents CPU utilization for a single core.
@@ -117,6 +119,31 @@ type MemoryMetric struct {
 	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }
 
+// ProcessMetric represents system process metrics.
+// @Description Process utilization metrics for running processes.
+type ProcessMetric struct {
+	// Process ID
+	PID uint32 `json:"pid" example:"1234"`
+	// Process name
+	Name string `json:"name" example:"nginx"`
+	// CPU usage percentage
+	CPUUsage float32 `json:"cpu_usage" example:"2.5"`
+	// Memory usage in bytes
+	MemoryUsage uint64 `json:"memory_usage" example:"104857600"`
+	// Process status
+	Status string `json:"status" example:"Running"`
+	// Process start time
+	StartTime string `json:"start_time" example:"2025-04-24T14:15:22Z"`
+	// When this metric was collected
+	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
+	// Host identifier for the agent that collected this metric
+	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// Host IP address for the agent that collected this metric
+	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
+	// ServiceRadar agent identifier
+	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
+}
+
 // SysmonMetricData represents the raw data received from the sysmon service.
 // @Description Raw system monitoring data received from the monitoring agent.
 type SysmonMetricData struct {
@@ -151,6 +178,21 @@ type SysmonMetricData struct {
 		// Total memory capacity in bytes
 		TotalBytes uint64 `json:"total_bytes" example:"17179869184"`
 	} `json:"memory"`
+	// Process usage metrics for running processes
+	Processes []struct {
+		// Process ID
+		PID uint32 `json:"pid" example:"1234"`
+		// Process name
+		Name string `json:"name" example:"nginx"`
+		// CPU usage percentage
+		CPUUsage float32 `json:"cpu_usage" example:"2.5"`
+		// Memory usage in bytes
+		MemoryUsage uint64 `json:"memory_usage" example:"104857600"`
+		// Process status
+		Status string `json:"status" example:"Running"`
+		// Process start time
+		StartTime string `json:"start_time" example:"2025-04-24T14:15:22Z"`
+	} `json:"processes"`
 }
 
 // TimeseriesMetric represents a generic timeseries datapoint.
@@ -226,4 +268,10 @@ type SysmonMemoryResponse struct {
 type SysmonCPUResponse struct {
 	Cpus      []CPUMetric `json:"cpus"`
 	Timestamp time.Time   `json:"timestamp"`
+}
+
+// SysmonProcessResponse represents a process metrics response grouped by timestamp.
+type SysmonProcessResponse struct {
+	Processes []ProcessMetric `json:"processes"`
+	Timestamp time.Time       `json:"timestamp"`
 }

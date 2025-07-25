@@ -82,7 +82,13 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
                 return null;
             });
 
-        const results = await Promise.all([cpuPromise, diskPromise, memoryPromise]);
+        const processPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/processes${queryParams}`, 5000)
+            .catch(err => {
+                console.warn(`Process metrics failed: ${err.message}`);
+                return null;
+            });
+
+        const results = await Promise.all([cpuPromise, diskPromise, memoryPromise, processPromise]);
 
         console.log('API request results:', results.map(r => r ?
             { status: 'success', dataSize: JSON.stringify(r).length } :
@@ -91,6 +97,7 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
         const cpuResponse = results[0];
         const diskResponse = results[1];
         const memoryResponse = results[2];
+        const processResponse = results[3];
 
         // Process CPU metrics with proper null checks
         let cpuDataPoints = [];
@@ -219,6 +226,54 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
             }
         }
 
+        // Process process metrics with proper null checks
+        let processDataPoints = [];
+        let processes = [];
+        let processCount = 0;
+        let avgCpuUsage = 0;
+        let totalMemoryUsage = 0;
+
+        if (processResponse) {
+            try {
+                if (Array.isArray(processResponse)) {
+                    processDataPoints = processResponse.map(point => {
+                        const processesInPoint = safeGet(point, 'processes', []);
+                        const count = processesInPoint.length;
+                        const avgCpu = processesInPoint.length > 0
+                            ? processesInPoint.reduce((sum, proc) => sum + safeGet(proc, 'cpu_usage', 0), 0) / processesInPoint.length
+                            : 0;
+                        return {
+                            timestamp: safeGet(point, 'timestamp', new Date().toISOString()),
+                            formattedTime: new Date(safeGet(point, 'timestamp', new Date())).toLocaleTimeString(),
+                            value: count,
+                            avgCpu: parseFloat(avgCpu.toFixed(1)),
+                        };
+                    });
+                    processes = safeGet(processResponse[0], 'processes', []);
+                    processCount = processes.length;
+                    avgCpuUsage = processes.length > 0
+                        ? processes.reduce((sum, proc) => sum + safeGet(proc, 'cpu_usage', 0), 0) / processes.length
+                        : 0;
+                    totalMemoryUsage = processes.reduce((sum, proc) => sum + parseInt(safeGet(proc, 'memory_usage', '0')), 0);
+                } else {
+                    processes = safeGet(processResponse, 'processes', []);
+                    processCount = processes.length;
+                    avgCpuUsage = processes.length > 0
+                        ? processes.reduce((sum, proc) => sum + safeGet(proc, 'cpu_usage', 0), 0) / processes.length
+                        : 0;
+                    totalMemoryUsage = processes.reduce((sum, proc) => sum + parseInt(safeGet(proc, 'memory_usage', '0')), 0);
+                    processDataPoints = [{
+                        timestamp: safeGet(processResponse, 'timestamp', new Date().toISOString()),
+                        formattedTime: new Date(safeGet(processResponse, 'timestamp', new Date())).toLocaleTimeString(),
+                        value: processCount,
+                        avgCpu: parseFloat(avgCpuUsage.toFixed(1)),
+                    }];
+                }
+            } catch (err) {
+                console.error('Error processing process data:', err);
+            }
+        }
+
         // Build result with default values if data is missing
         const cpu = {
             current: parseFloat(currentCpuValue.toFixed(1)),
@@ -271,11 +326,29 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
             change: 0,
         };
 
-        const result = { cpu, memory, disk };
+        const process = {
+            count: processCount,
+            avgCpuUsage: parseFloat(avgCpuUsage.toFixed(1)),
+            totalMemoryUsage: parseFloat(bytesToGB(totalMemoryUsage)),
+            data: processDataPoints.length > 0 ? processDataPoints : generateDefaultDataPoints(),
+            processes: processes.map(proc => ({
+                pid: safeGet(proc, 'pid', 0),
+                name: safeGet(proc, 'name', 'Unknown'),
+                cpuUsage: parseFloat(safeGet(proc, 'cpu_usage', 0).toFixed(1)),
+                memoryUsage: parseFloat(bytesToGB(safeGet(proc, 'memory_usage', '0'))),
+                status: safeGet(proc, 'status', 'Unknown'),
+                startTime: safeGet(proc, 'start_time', ''),
+            })).sort((a, b) => b.cpuUsage - a.cpuUsage), // Sort by CPU usage desc
+            unit: 'processes',
+            change: 0,
+        };
+
+        const result = { cpu, memory, disk, process };
         console.log('Processed data points:', {
             cpuPoints: cpuDataPoints.length,
             memoryPoints: memoryDataPoints.length,
             diskPoints: diskDataPoints.length,
+            processPoints: processDataPoints.length,
         });
 
         return result;
@@ -411,7 +484,7 @@ export const getCombinedChartData = (data) => {
     let baseData = [];
     let baseKey = '';
 
-    for (const key of ['cpu', 'memory', 'disk']) {
+    for (const key of ['cpu', 'memory', 'disk', 'process']) {
         if (data[key] && Array.isArray(data[key].data) && data[key].data.length > baseData.length) {
             baseData = data[key].data;
             baseKey = key;
@@ -430,8 +503,8 @@ export const getCombinedChartData = (data) => {
             formattedTime: basePoint.formattedTime,
         };
 
-        // Add data points for each metric type (cpu, memory, disk)
-        for (const key of ['cpu', 'memory', 'disk']) {
+        // Add data points for each metric type (cpu, memory, disk, process)
+        for (const key of ['cpu', 'memory', 'disk', 'process']) {
             if (key === baseKey) {
                 // For the base dataset, use values directly
                 result[key] = basePoint.value;
