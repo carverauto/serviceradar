@@ -114,6 +114,7 @@ entity
     | CPU_METRICS
     | DISK_METRICS
     | MEMORY_METRICS
+    | PROCESS_METRICS
     | SNMP_METRICS
     ;
 
@@ -232,6 +233,7 @@ POLLERS       : P O L L E R S ;
 CPU_METRICS   : C P U '_' M E T R I C S ;
 DISK_METRICS  : D I S K '_' M E T R I C S ;
 MEMORY_METRICS : M E M O R Y '_' M E T R I C S ;
+PROCESS_METRICS : P R O C E S S '_' M E T R I C S ;
 SNMP_METRICS  : S N M P '_' M E T R I C S ;
 
 // --- New Keywords for Streaming and Joins ---
