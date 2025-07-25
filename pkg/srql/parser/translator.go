@@ -167,9 +167,10 @@ func getEntityPrimaryKeyMapData() map[models.EntityType]struct {
 		models.SNMPResults:   {"", false}, // SNMPResults is a versioned_kv stream
 		models.Events:        {"", false}, // Events stream is append-only
 		models.Pollers:       {"poller_id", true},
-		models.CPUMetrics:    {"device_id, core_id", true},
-		models.DiskMetrics:   {"device_id, mount_point", true},
-		models.MemoryMetrics: {"device_id", true},
+		models.CPUMetrics:     {"device_id, core_id", true},
+		models.DiskMetrics:    {"device_id, mount_point", true},
+		models.MemoryMetrics:  {"device_id", true},
+		models.ProcessMetrics: {"device_id, pid", true},
 	}
 }
 
@@ -247,10 +248,11 @@ func getEntityToTableMapData() map[models.EntityType]string {
 		models.SNMPResults:   "timeseries_metrics",
 		models.Events:        "events",
 		models.Pollers:       "pollers",
-		models.CPUMetrics:    "cpu_metrics",
-		models.DiskMetrics:   "disk_metrics",
-		models.MemoryMetrics: "memory_metrics",
-		models.SNMPMetrics:   "timeseries_metrics",
+		models.CPUMetrics:     "cpu_metrics",
+		models.DiskMetrics:    "disk_metrics",
+		models.MemoryMetrics:  "memory_metrics",
+		models.ProcessMetrics: "process_metrics",
+		models.SNMPMetrics:    "timeseries_metrics",
 	}
 }
 

@@ -512,6 +512,11 @@ func (db *DB) StoreSysmonMetrics(
 		return fmt.Errorf("failed to store memory metrics: %w", err)
 	}
 
+	if err := db.storeProcessMetrics(ctx, pollerID, agentID, hostID, deviceID,
+		partition, metrics.Processes, timestamp); err != nil {
+		return fmt.Errorf("failed to store process metrics: %w", err)
+	}
+
 	return nil
 }
 
@@ -620,6 +625,41 @@ func (db *DB) storeMemoryMetrics(
 			deviceID,          // device_id
 			partition,         // partition
 		)
+	})
+}
+
+// storeProcessMetrics stores process metrics in a batch.
+func (db *DB) storeProcessMetrics(
+	ctx context.Context,
+	pollerID, agentID, hostID, deviceID, partition string,
+	processes []models.ProcessMetric,
+	timestamp time.Time) error {
+	if len(processes) == 0 {
+		return nil
+	}
+
+	return db.executeBatch(ctx, "INSERT INTO process_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		for _, process := range processes {
+			if err := batch.Append(
+				timestamp,           // timestamp
+				pollerID,            // poller_id
+				agentID,             // agent_id
+				hostID,              // host_id
+				process.PID,         // pid
+				process.Name,        // name
+				process.CPUUsage,    // cpu_usage
+				process.MemoryUsage, // memory_usage
+				process.Status,      // status
+				process.StartTime,   // start_time
+				deviceID,            // device_id
+				partition,           // partition
+			); err != nil {
+				log.Printf("Failed to append process metric for PID %d (%s): %v", process.PID, process.Name, err)
+				continue
+			}
+		}
+
+		return nil
 	})
 }
 
@@ -973,4 +1013,89 @@ func (db *DB) getTimeseriesMetricsByFilters(
 	}
 
 	return metrics, nil
+}
+
+// GetAllProcessMetrics retrieves all process metrics for a poller within a time range.
+func (db *DB) GetAllProcessMetrics(
+	ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error) {
+	rows, err := db.Conn.Query(ctx, `
+		SELECT timestamp, agent_id, host_id, pid, name, cpu_usage, memory_usage, status, start_time
+		FROM table(process_metrics)
+		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, pid ASC`,
+		pollerID, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query process metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	var metrics []models.ProcessMetric
+
+	for rows.Next() {
+		var m models.ProcessMetric
+
+		if err = rows.Scan(&m.Timestamp, &m.AgentID, &m.HostID, &m.PID, &m.Name,
+			&m.CPUUsage, &m.MemoryUsage, &m.Status, &m.StartTime); err != nil {
+			log.Printf("Error scanning process metric row: %v", err)
+
+			continue
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
+}
+
+// GetAllProcessMetricsGrouped retrieves process metrics grouped by timestamp.
+func (db *DB) GetAllProcessMetricsGrouped(
+	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error) {
+	rows, err := db.Conn.Query(ctx, `
+		SELECT timestamp, agent_id, host_id, pid, name, cpu_usage, memory_usage, status, start_time
+		FROM table(process_metrics)
+		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, pid ASC`,
+		pollerID, start, end)
+	if err != nil {
+		log.Printf("Error querying all process metrics: %s", err)
+		return nil, fmt.Errorf("failed to query all process metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	data := make(map[time.Time][]models.ProcessMetric)
+
+	for rows.Next() {
+		var m models.ProcessMetric
+
+		var timestamp time.Time
+
+		if err = rows.Scan(&timestamp, &m.AgentID, &m.HostID, &m.PID, &m.Name,
+			&m.CPUUsage, &m.MemoryUsage, &m.Status, &m.StartTime); err != nil {
+			log.Printf("Error scanning process metric row: %v", err)
+
+			continue
+		}
+
+		m.Timestamp = timestamp
+		data[timestamp] = append(data[timestamp], m)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating process metrics rows: %v", err)
+		return nil, err
+	}
+
+	result := make([]models.SysmonProcessResponse, 0, len(data))
+	for ts, processes := range data {
+		result = append(result, models.SysmonProcessResponse{
+			Processes: processes,
+			Timestamp: ts,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.After(result[j].Timestamp)
+	})
+
+	return result, nil
 }

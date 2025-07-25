@@ -30,6 +30,9 @@ import {
     FilesystemCard,
     FilesystemChart,
     FilesystemDetails,
+    ProcessCard,
+    ProcessChart,
+    ProcessDetails,
 } from './metric-components';
 
 const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = null }) => {
@@ -207,8 +210,7 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
                                         <YAxis
                                             stroke="#6B7280"
                                             tick={{ fontSize: 12 }}
-                                            tickFormatter={(value) => `${value}%`}
-                                            domain={[0, 100]}
+                                            tickFormatter={(value) => `${value}`}
                                         />
                                         <Tooltip content={(props) => <CustomTooltip {...props} metricData={data} />} />
                                         <Legend />
@@ -239,15 +241,25 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
                                             activeDot={{ r: 5 }}
                                             isAnimationActive={false}
                                         />
+                                        <Line
+                                            name="Processes"
+                                            type="monotone"
+                                            dataKey="process"
+                                            stroke="#3B82F6"
+                                            dot={false}
+                                            activeDot={{ r: 5 }}
+                                            isAnimationActive={false}
+                                        />
                                     </LineChart>
                                 </ResponsiveContainer>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <CpuCard data={data.cpu} />
                             <MemoryCard data={data.memory} />
                             <FilesystemCard data={data.disk} />
+                            {data.process && <ProcessCard data={data.process} />}
                         </div>
                     </>
                 )}
@@ -257,6 +269,7 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
                         <CpuChart data={data.cpu} />
                         <MemoryChart data={data.memory} />
                         <FilesystemChart data={data.disk} />
+                        {data.process && <ProcessChart data={data.process} />}
                     </div>
                 )}
 
@@ -265,6 +278,7 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
                         <CpuCoresChart cores={data.cpu.cores} />
                         <FilesystemDetails drives={data.disk.drives} />
                         <MemoryDetails data={data.memory} />
+                        {data.process && <ProcessDetails targetId={actualId} idType={actualIdType} />}
                     </div>
                 )}
             </div>

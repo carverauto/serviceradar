@@ -16,7 +16,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
     const end = searchParams.get('end');
 
     // Validate metric type
-    const validMetrics = ['cpu', 'disk', 'memory'];
+    const validMetrics = ['cpu', 'disk', 'memory', 'processes'];
     if (!validMetrics.includes(metric)) {
         console.error(`Invalid metric requested: ${metric}`);
         return NextResponse.json(
@@ -77,6 +77,11 @@ export async function GET(req: NextRequest, props: RouteProps) {
         } else if (metric === 'disk') {
             transformedData = Array.isArray(data) ? data : {
                 disks: data.disks || [],
+                timestamp: data.timestamp || new Date().toISOString(),
+            };
+        } else if (metric === 'processes') {
+            transformedData = Array.isArray(data) ? data : {
+                processes: data.processes || [],
                 timestamp: data.timestamp || new Date().toISOString(),
             };
         }
