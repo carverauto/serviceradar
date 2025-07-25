@@ -15,4 +15,4 @@ CN = core.serviceradar
 basicConstraints = CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth,clientAuth
-subjectAltName = IP:192.168.2.22,IP:192.168.2.10,IP:192.168.2.11,IP:192.168.2.12,IP:192.168.2.13,IP:192.168.2.14,IP:192.168.2.18,IP:192.168.2.19,IP:172.233.208.210
+subjectAltName = IP:192.168.2.22,IP:192.168.2.10,IP:192.168.2.11,IP:192.168.2.12,IP:192.168.2.13,IP:192.168.2.14,IP:192.168.2.18,IP:192.168.2.19,IP:192.168.2.23
