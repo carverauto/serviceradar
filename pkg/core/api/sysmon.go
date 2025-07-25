@@ -566,9 +566,13 @@ func (s *APIServer) getProcessMetricsForDevice(
 
 	for rows.Next() {
 		var timestamp time.Time
+
 		var agentID, hostID, name, status, startTime string
+
 		var pid uint32
+
 		var cpuUsage float32
+
 		var memoryUsage uint64
 
 		if err := rows.Scan(&timestamp, &agentID, &hostID, &pid, &name, &cpuUsage, &memoryUsage, &status, &startTime); err != nil {

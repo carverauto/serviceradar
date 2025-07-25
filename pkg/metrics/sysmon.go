@@ -49,7 +49,8 @@ func (m *Manager) StoreSysmonMetrics(
 		AgentID:    agentID,
 	}
 
-	for i, process := range metrics.Processes {
+	for i := range metrics.Processes {
+		process := &metrics.Processes[i]
 		dbMetrics.Processes[i] = models.ProcessMetric{
 			PID:         process.PID,
 			Name:        process.Name,
