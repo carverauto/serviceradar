@@ -87,7 +87,7 @@ Certificates are stored in:
 
 - **Root or sudo access**: Required for creating directories and deploying certificates.
 - **Network information**: IP addresses for each component:
-    - ServiceRadar-core and Proton: 172.233.208.210 (plus internal IPs like 192.168.2.x).
+    - ServiceRadar-core and Proton: 192.168.2.23 (plus internal IPs like 192.168.2.x).
     - Poller: \<poller-ip\> (e.g., 192.168.2.100 for dusk01, replace with actual IP).
     - Agent, NATS, KV: Respective IPs.
 
@@ -161,11 +161,11 @@ CN = core.serviceradar
 basicConstraints = CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth,clientAuth
-subjectAltName = IP:192.168.2.22,IP:192.168.2.10,IP:192.168.2.11,IP:192.168.2.12,IP:192.168.2.13,IP:192.168.2.14,IP:192.168.2.18,IP:192.168.2.19,IP:172.233.208.210
+subjectAltName = IP:192.168.2.22,IP:192.168.2.10,IP:192.168.2.11,IP:192.168.2.12,IP:192.168.2.13,IP:192.168.2.14,IP:192.168.2.18,IP:192.168.2.19,IP:192.168.2.23
 EOF
 ```
 
-Ensure IP:172.233.208.210 is included. Adjust other IPs based on your network.
+Ensure IP:192.168.2.23 is included. Adjust other IPs based on your network.
 
 Generate Certificate:
 
@@ -186,7 +186,7 @@ Expected:
 Subject: C=US, ST=Your State, L=Your Location, O=ServiceRadar, OU=Operations, CN=core.serviceradar
 Issuer: C=US, ST=Your State, L=Your Location, O=ServiceRadar, OU=Operations, CN=ServiceRadar CA
 X509v3 Subject Alternative Name: 
-    IP Address:192.168.2.22, ..., IP Address:172.233.208.210
+    IP Address:192.168.2.22, ..., IP Address:192.168.2.23
 ```
 
 ```bash
@@ -302,7 +302,7 @@ openssl verify -CAfile root.pem agent.pem
 
 #### NATS JetStream Certificate (nats-server.pem)
 
-NATS JetStream acts as a server for the KV store, typically co-located with ServiceRadar-core on 172.233.208.210.
+NATS JetStream acts as a server for the KV store, typically co-located with ServiceRadar-core on 192.168.2.23.
 
 Create SAN Configuration:
 
@@ -325,7 +325,7 @@ CN = nats-serviceradar
 basicConstraints = CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
-subjectAltName = IP:127.0.0.1,IP:172.233.208.210
+subjectAltName = IP:127.0.0.1,IP:192.168.2.23
 EOF
 ```
 
@@ -346,7 +346,7 @@ openssl verify -CAfile root.pem nats-server.pem
 
 #### serviceradar-kv Certificate (kv.pem)
 
-The KV service acts as a client to NATS and a server for Agents, co-located on 172.233.208.210.
+The KV service acts as a client to NATS and a server for Agents, co-located on 192.168.2.23.
 
 Create SAN Configuration:
 
@@ -369,7 +369,7 @@ CN = kv.serviceradar
 basicConstraints = CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
 extendedKeyUsage = clientAuth,serverAuth
-subjectAltName = IP:172.233.208.210
+subjectAltName = IP:192.168.2.23
 EOF
 ```
 
@@ -528,7 +528,7 @@ users:
   default:
     password: ''
     networks:
-      - ip: '172.233.208.210/32'
+      - ip: '192.168.2.23/32'
     profile: default
     quota: default
     allow_databases:
@@ -582,7 +582,7 @@ Update `/etc/serviceradar/core.json`:
     "max_pollers": 10000
   },
   "database": {
-    "addresses": ["172.233.208.210:9440"],
+    "addresses": ["192.168.2.23:9440"],
     "name": "default",
     "username": "default",
     "password": "",
@@ -632,7 +632,7 @@ Update `/etc/serviceradar/poller.json`:
       "checks": []
     }
   },
-  "core_address": "172.233.208.210:50052",
+  "core_address": "192.168.2.23:50052",
   "listen_addr": ":50053",
   "poll_interval": "30s",
   "poller_id": "my-poller",
@@ -782,14 +782,14 @@ sudo systemctl restart serviceradar-agent
 
 #### Poller to Core (from dusk01):
 ```bash
-openssl s_client -connect 172.233.208.210:50052 -cert /etc/serviceradar/certs/poller.pem -key /etc/serviceradar/certs/poller-key.pem -CAfile /etc/serviceradar/certs/root.pem
+openssl s_client -connect 192.168.2.23:50052 -cert /etc/serviceradar/certs/poller.pem -key /etc/serviceradar/certs/poller-key.pem -CAfile /etc/serviceradar/certs/root.pem
 ```
 
-Verify: CN=core.serviceradar, IP:172.233.208.210 in SANs, Verify return code: 0 (ok).
+Verify: CN=core.serviceradar, IP:192.168.2.23 in SANs, Verify return code: 0 (ok).
 
 #### Core to Proton (on serviceradar-cloud):
 ```bash
-proton-client --host 172.233.208.210 --port 9440 --secure --certificate-file /etc/serviceradar/certs/core.pem --private-key-file /etc/serviceradar/certs/core-key.pem -q "SELECT currentUser()"
+proton-client --host 192.168.2.23 --port 9440 --secure --certificate-file /etc/serviceradar/certs/core.pem --private-key-file /etc/serviceradar/certs/core-key.pem -q "SELECT currentUser()"
 ```
 
 Expected: default.
@@ -823,7 +823,7 @@ Test from the Agent host if applicable.
   openssl x509 -in /etc/serviceradar/certs/<component>.pem -text -noout | grep -A 1 "X509v3 Subject Alternative Name"
   ```
 
-- Ensure IPs match the address fields in configuration files (e.g., 172.233.208.210 for core).
+- Ensure IPs match the address fields in configuration files (e.g., 192.168.2.23 for core).
 
 ### Connection Errors:
 
@@ -846,8 +846,8 @@ Test from the Agent host if applicable.
 
 - Verify network connectivity:
   ```bash
-  nc -zv 172.233.208.210 50052
-  nc -zv 172.233.208.210 9440
+  nc -zv 192.168.2.23 50052
+  nc -zv 192.168.2.23 9440
   ```
 
 ### Proton Configuration:
