@@ -8,6 +8,20 @@
         "cert_dir": "/etc/serviceradar/certs"
     },
     "timeout": "30s",
+    "logger": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+            "enabled": false,
+            "endpoint": "",
+            "headers": {},
+            "service_name": "serviceradar-snmp-checker",
+            "batch_timeout": "5s",
+            "insecure": false
+        }
+    },
     "targets": [
         {
             "name": "test-router",

@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
+	logger "github.com/carverauto/serviceradar/pkg/logger"
 	models "github.com/carverauto/serviceradar/pkg/models"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -281,18 +282,18 @@ func (m *MockCollectorFactory) EXPECT() *MockCollectorFactoryMockRecorder {
 }
 
 // CreateCollector mocks base method.
-func (m *MockCollectorFactory) CreateCollector(target *Target) (Collector, error) {
+func (m *MockCollectorFactory) CreateCollector(target *Target, logger logger.Logger) (Collector, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateCollector", target)
+	ret := m.ctrl.Call(m, "CreateCollector", target, logger)
 	ret0, _ := ret[0].(Collector)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateCollector indicates an expected call of CreateCollector.
-func (mr *MockCollectorFactoryMockRecorder) CreateCollector(target any) *gomock.Call {
+func (mr *MockCollectorFactoryMockRecorder) CreateCollector(target, logger any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCollector", reflect.TypeOf((*MockCollectorFactory)(nil).CreateCollector), target)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCollector", reflect.TypeOf((*MockCollectorFactory)(nil).CreateCollector), target, logger)
 }
 
 // MockAggregatorFactory is a mock of AggregatorFactory interface.
