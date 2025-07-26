@@ -22,6 +22,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -65,7 +66,7 @@ type Service interface {
 // CollectorFactory creates SNMP collectors.
 type CollectorFactory interface {
 	// CreateCollector creates a new collector for a target
-	CreateCollector(target *Target) (Collector, error)
+	CreateCollector(target *Target, logger logger.Logger) (Collector, error)
 }
 
 // AggregatorFactory creates data aggregators.

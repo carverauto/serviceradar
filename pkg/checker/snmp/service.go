@@ -21,9 +21,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -58,7 +58,7 @@ func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
 }
 
 // NewSNMPService creates a new SNMP monitoring service.
-func NewSNMPService(config *SNMPConfig) (*SNMPService, error) {
+func NewSNMPService(config *SNMPConfig, log logger.Logger) (*SNMPService, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidConfig, err)
 	}
@@ -69,6 +69,7 @@ func NewSNMPService(config *SNMPConfig) (*SNMPService, error) {
 		config:      config,
 		done:        make(chan struct{}),
 		status:      make(map[string]TargetStatus),
+		logger:      log,
 	}
 
 	// Create collector factory with database service
@@ -83,20 +84,23 @@ func (s *SNMPService) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	log.Printf("Starting SNMP Service with %d targets", len(s.config.Targets))
+	s.logger.Info().Int("target_count", len(s.config.Targets)).Msg("Starting SNMP Service")
 
 	// Initialize collectors for each target using indexing to avoid copying
 	for i := range s.config.Targets {
 		target := &s.config.Targets[i] // Get pointer to target
-		log.Printf("Initializing target %s (%s) with %d OIDs",
-			target.Name, target.Host, len(target.OIDs))
+		s.logger.Info().
+			Str("target_name", target.Name).
+			Str("target_host", target.Host).
+			Int("oid_count", len(target.OIDs)).
+			Msg("Initializing target")
 
 		if err := s.initializeTarget(ctx, target); err != nil {
 			return fmt.Errorf("failed to initialize target %s: %w", target.Name, err)
 		}
 	}
 
-	log.Printf("SNMP Service started with %d targets", len(s.collectors))
+	s.logger.Info().Int("collector_count", len(s.collectors)).Msg("SNMP Service started")
 
 	return nil
 }
@@ -172,20 +176,24 @@ func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, err
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	log.Printf("SNMP GetStatus called with %d collectors", len(s.collectors))
+	s.logger.Debug().Int("collector_count", len(s.collectors)).Msg("SNMP GetStatus called")
 
 	status := make(map[string]TargetStatus)
 
 	// Check each collector's status
 	for name, collector := range s.collectors {
-		log.Printf("Getting status for collector: %s", name)
+		s.logger.Debug().Str("collector_name", name).Msg("Getting status for collector")
 
 		collectorStatus := collector.GetStatus()
-		log.Printf("Collector %s status: %+v", name, collectorStatus)
+		s.logger.Debug().Str("collector_name", name).Interface("status", collectorStatus).Msg("Collector status")
 
 		// Merge collector status with service status to preserve HostIP and HostName
 		if serviceStatus, exists := s.status[name]; exists {
-			log.Printf("Merging status for %s: service HostIP=%s, HostName=%s", name, serviceStatus.HostIP, serviceStatus.HostName)
+			s.logger.Debug().
+				Str("target_name", name).
+				Str("host_ip", serviceStatus.HostIP).
+				Str("host_name", serviceStatus.HostName).
+				Msg("Merging status")
 			// Use service status as base and update with collector data
 			mergedStatus := serviceStatus
 			mergedStatus.Available = collectorStatus.Available
@@ -195,17 +203,21 @@ func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, err
 			// HostIP and HostName are preserved from serviceStatus
 
 			status[name] = mergedStatus
-			log.Printf("Merged status for %s: HostIP=%s, HostName=%s", name, mergedStatus.HostIP, mergedStatus.HostName)
+			s.logger.Debug().
+				Str("target_name", name).
+				Str("host_ip", mergedStatus.HostIP).
+				Str("host_name", mergedStatus.HostName).
+				Msg("Merged status")
 		} else {
-			log.Printf("Warning: No service status found for %s, using collector status only", name)
+			s.logger.Warn().Str("target_name", name).Msg("No service status found, using collector status only")
 			// Fallback to collector status if service status doesn't exist
 			status[name] = collectorStatus
 		}
 	}
 
 	if len(status) == 0 {
-		log.Printf("No SNMP status found, checking configuration...")
-		log.Printf("SNMPConfig: %+v", s.config)
+		s.logger.Warn().Msg("No SNMP status found, checking configuration")
+		s.logger.Debug().Interface("config", s.config).Msg("SNMPConfig")
 	}
 
 	return status, nil
@@ -261,16 +273,18 @@ func jsonError(msg string) []byte {
 
 // initializeTarget sets up collector and aggregator for a target.
 func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) error {
-	log.Printf("Creating collector for target %s", target.Name)
+	s.logger.Info().Str("target_name", target.Name).Msg("Creating collector for target")
 
 	// Create collector
-	collector, err := s.collectorFactory.CreateCollector(target)
+	collector, err := s.collectorFactory.CreateCollector(target, s.logger)
 	if err != nil {
 		return fmt.Errorf("%w: %s", errFailedToCreateCollector, target.Name)
 	}
 
-	log.Printf("Creating aggregator for target %s with interval %v",
-		target.Name, time.Duration(target.Interval))
+	s.logger.Info().
+		Str("target_name", target.Name).
+		Dur("interval", time.Duration(target.Interval)).
+		Msg("Creating aggregator for target")
 
 	// Create aggregator
 	aggregator, err := s.aggregatorFactory.CreateAggregator(time.Duration(target.Interval), target.MaxPoints)
@@ -283,7 +297,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		return fmt.Errorf("%w: %s", errFailedToStartCollector, target.Name)
 	}
 
-	log.Printf("Started collector for target %s", target.Name)
+	s.logger.Info().Str("target_name", target.Name).Msg("Started collector for target")
 
 	// Store components
 	s.collectors[target.Name] = collector
@@ -299,12 +313,16 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		Target:    target,      // Include target configuration for internal use
 	}
 
-	log.Printf("Initialized service status for %s: HostIP=%s, HostName=%s", target.Name, target.Host, target.Name)
+	s.logger.Info().
+		Str("target_name", target.Name).
+		Str("host_ip", target.Host).
+		Str("host_name", target.Name).
+		Msg("Initialized service status")
 
 	// Start processing results
 	go s.processResults(ctx, target.Name, collector, aggregator)
 
-	log.Printf("Successfully initialized target %s", target.Name)
+	s.logger.Info().Str("target_name", target.Name).Msg("Successfully initialized target")
 
 	return nil
 }
@@ -351,7 +369,12 @@ func (s *SNMPService) handleDataPoint(targetName string, point *DataPoint, aggre
 		// Update hostname if this is the sysName OID
 		if point.OIDName == ".1.3.6.1.2.1.1.5.0" || point.OIDName == "sysName" {
 			if stringValue, ok := point.Value.(string); ok && stringValue != "" {
-				log.Printf("SNMP: Updating hostname for %s from %s to %s", targetName, status.HostName, stringValue)
+				s.logger.Info().
+					Str("target_name", targetName).
+					Str("old_hostname", status.HostName).
+					Str("new_hostname", stringValue).
+					Msg("Updating hostname")
+
 				status.HostName = stringValue
 			}
 		}
@@ -371,20 +394,23 @@ func (s *SNMPService) handleDataPoint(targetName string, point *DataPoint, aggre
 
 		messageJSON, err := json.Marshal(message)
 		if err != nil {
-			log.Printf("Error marshaling data point: %v", err)
+			s.logger.Error().Err(err).Msg("Error marshaling data point")
 			return
 		}
 
-		log.Printf("Updated status for target %s, OID %s: %s",
-			targetName, point.OIDName, string(messageJSON))
+		s.logger.Debug().
+			Str("target_name", targetName).
+			Str("oid_name", point.OIDName).
+			RawJSON("message", messageJSON).
+			Msg("Updated status for target")
 	}
 }
 
 // defaultCollectorFactory implements CollectorFactory.
 type defaultCollectorFactory struct{}
 
-func (*defaultCollectorFactory) CreateCollector(target *Target) (Collector, error) {
-	return NewCollector(target)
+func (*defaultCollectorFactory) CreateCollector(target *Target, logger logger.Logger) (Collector, error) {
+	return NewCollector(target, logger)
 }
 
 // defaultAggregatorFactory implements AggregatorFactory.
