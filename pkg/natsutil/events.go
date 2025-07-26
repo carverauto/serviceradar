@@ -6,16 +6,19 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/rs/zerolog"
 )
 
 // EventPublisher provides methods for publishing CloudEvents to NATS JetStream.
 type EventPublisher struct {
 	js     jetstream.JetStream
 	stream string
+	logger zerolog.Logger
 }
 
 // NewEventPublisher creates a new EventPublisher for the specified stream.
@@ -23,6 +26,7 @@ func NewEventPublisher(js jetstream.JetStream, streamName string) *EventPublishe
 	return &EventPublisher{
 		js:     js,
 		stream: streamName,
+		logger: logger.WithComponent("natsutil.events"),
 	}
 }
 
@@ -52,7 +56,11 @@ func (p *EventPublisher) PublishPollerHealthEvent(
 	}
 
 	// Log the sequence number for debugging
-	fmt.Printf("Published event %s to subject %s (seq: %d)\n", event.ID, event.Subject, ack.Sequence)
+	p.logger.Debug().
+		Str("event_id", event.ID).
+		Str("subject", event.Subject).
+		Uint64("sequence", ack.Sequence).
+		Msg("Published event")
 
 	return nil
 }
@@ -166,16 +174,16 @@ func ConnectWithSecurity(
 	// Add connection handlers
 	opts = append(opts,
 		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
-			fmt.Printf("NATS error: %v\n", err)
+			logger.Error().Err(err).Msg("NATS error")
 		}),
 		nats.ConnectHandler(func(nc *nats.Conn) {
-			fmt.Printf("Connected to NATS: %s\n", nc.ConnectedUrl())
+			logger.Info().Str("url", nc.ConnectedUrl()).Msg("Connected to NATS")
 		}),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
-			fmt.Printf("NATS disconnected: %v\n", err)
+			logger.Warn().Err(err).Msg("NATS disconnected")
 		}),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
-			fmt.Printf("NATS reconnected: %s\n", nc.ConnectedUrl())
+			logger.Info().Str("url", nc.ConnectedUrl()).Msg("NATS reconnected")
 		}),
 	)
 
@@ -210,7 +218,7 @@ func CreateEventPublisherWithDomain(
 			return nil, fmt.Errorf("failed to create JetStream context with domain %s: %w", domain, err)
 		}
 
-		fmt.Printf("Created JetStream context with domain: %s\n", domain)
+		logger.Info().Str("domain", domain).Msg("Created JetStream context with domain")
 	} else {
 		js, err = jetstream.New(nc)
 		if err != nil {
@@ -236,7 +244,7 @@ func CreateEventPublisherWithDomain(
 			return nil, fmt.Errorf("failed to create or get stream %s: %w", streamName, err)
 		}
 
-		fmt.Printf("Created NATS JetStream stream: %s\n", streamName)
+		logger.Info().Str("stream", streamName).Msg("Created NATS JetStream stream")
 	}
 
 	return NewEventPublisher(js, streamName), nil
