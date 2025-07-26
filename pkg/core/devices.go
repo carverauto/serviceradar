@@ -66,15 +66,29 @@ func (s *Server) createSysmonDeviceRecord(
 
 // createSNMPTargetDeviceUpdate creates a DeviceUpdate for an SNMP target device.
 // This ensures SNMP targets appear in the unified devices view and can be merged with other discovery sources.
-func (*Server) createSNMPTargetDeviceUpdate(
+func (s *Server) createSNMPTargetDeviceUpdate(
 	agentID, pollerID, partition, targetIP, hostname string, timestamp time.Time, available bool) *models.DeviceUpdate {
 	if targetIP == "" {
-		// Note: This function doesn't have access to logger, would need to be passed as parameter
+		s.logger.Debug().
+			Str("agent_id", agentID).
+			Str("poller_id", pollerID).
+			Str("partition", partition).
+			Str("target_ip", targetIP).
+			Msg("Skipping SNMP target device update due to empty target IP")
+
 		return nil
 	}
 
 	deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
-	// Note: This function doesn't have access to logger, would need to be passed as parameter
+
+	s.logger.Debug().
+		Str("agent_id", agentID).
+		Str("poller_id", pollerID).
+		Str("partition", partition).
+		Str("target_ip", targetIP).
+		Str("device_id", deviceID).
+		Str("hostname", hostname).
+		Msg("Creating SNMP target device update")
 
 	return &models.DeviceUpdate{
 		AgentID:     agentID,
