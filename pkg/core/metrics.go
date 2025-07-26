@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
@@ -55,8 +54,7 @@ func createSNMPMetric(
 	// Marshal metadata to JSON string
 	metadataBytes, err := json.Marshal(remainingMetadata)
 	if err != nil {
-		log.Printf("Failed to marshal SNMP metadata for poller %s, OID %s: %v", pollerID, oidConfigName, err)
-
+		// Note: This function doesn't have access to logger, would need to be passed as parameter
 		// Return a metric with empty metadata to avoid skipping valid data
 		remainingMetadata = map[string]string{}
 		metadataBytes, _ = json.Marshal(remainingMetadata)
@@ -112,7 +110,10 @@ func (s *Server) processSNMPMetrics(
 	}
 
 	if len(targetStatusMap) == 0 {
-		log.Printf("SNMP service for poller %s returned no targets", pollerID)
+		s.logger.Info().
+			Str("poller_id", pollerID).
+			Msg("SNMP service returned no targets")
+
 		return nil
 	}
 
@@ -120,7 +121,9 @@ func (s *Server) processSNMPMetrics(
 
 	// Process device updates in batch
 	if err := s.processSNMPDeviceUpdates(ctx, targetStatusMap, agentID, pollerID, partition, timestamp); err != nil {
-		log.Printf("Warning: Failed to process SNMP device updates: %v", err)
+		s.logger.Warn().
+			Err(err).
+			Msg("Failed to process SNMP device updates")
 	}
 
 	// Process and buffer metrics
@@ -131,24 +134,35 @@ func (s *Server) processSNMPMetrics(
 }
 
 // parseSNMPTargetStatus parses SNMP target status from JSON details
-func (*Server) parseSNMPTargetStatus(details json.RawMessage, pollerID string) (map[string]*snmp.TargetStatus, error) {
+func (s *Server) parseSNMPTargetStatus(details json.RawMessage, pollerID string) (map[string]*snmp.TargetStatus, error) {
 	var targetStatusMap map[string]*snmp.TargetStatus
 
 	if err := json.Unmarshal(details, &targetStatusMap); err != nil {
-		log.Printf("Error unmarshaling SNMP targets for poller %s: %v. Details: %s",
-			pollerID, err, string(details))
+		s.logger.Error().
+			Err(err).
+			Str("poller_id", pollerID).
+			Str("details", string(details)).
+			Msg("Error unmarshaling SNMP targets")
 
 		// Check if it's an error message wrapped in JSON
 		var errorWrapper map[string]string
 
 		if errParseErr := json.Unmarshal(details, &errorWrapper); errParseErr == nil {
 			if msg, exists := errorWrapper["message"]; exists {
-				log.Printf("SNMP service returned error for poller %s: %s", pollerID, msg)
+				s.logger.Error().
+					Str("poller_id", pollerID).
+					Str("message", msg).
+					Msg("SNMP service returned error")
+
 				return nil, nil // Don't fail processing for service errors
 			}
 
 			if errMsg, exists := errorWrapper["error"]; exists {
-				log.Printf("SNMP service returned error for poller %s: %s", pollerID, errMsg)
+				s.logger.Error().
+					Str("poller_id", pollerID).
+					Str("error", errMsg).
+					Msg("SNMP service returned error")
+
 				return nil, nil // Don't fail processing for service errors
 			}
 		}
@@ -160,16 +174,23 @@ func (*Server) parseSNMPTargetStatus(details json.RawMessage, pollerID string) (
 }
 
 // logSNMPTargetStatus logs the status of SNMP targets and their OIDs
-func (*Server) logSNMPTargetStatus(targetStatusMap map[string]*snmp.TargetStatus) {
+func (s *Server) logSNMPTargetStatus(targetStatusMap map[string]*snmp.TargetStatus) {
 	for targetName, targetData := range targetStatusMap {
-		log.Printf("SNMP Target: %s, Available: %t, HostIP: %s, HostName: %s",
-			targetName, targetData.Available, targetData.HostIP, targetData.HostName)
+		s.logger.Debug().
+			Str("target_name", targetName).
+			Bool("available", targetData.Available).
+			Str("host_ip", targetData.HostIP).
+			Str("host_name", targetData.HostName).
+			Msg("SNMP Target status")
 
 		// Log OID statuses for each target
 		for oidConfigName, oidStatus := range targetData.OIDStatus {
-			log.Printf("  OID: %s, LastValue: %v, LastUpdate: %s, ErrorCount: %d",
-				oidConfigName, oidStatus.LastValue,
-				oidStatus.LastUpdate.Format(time.RFC3339Nano), oidStatus.ErrorCount)
+			s.logger.Debug().
+				Str("oid_config_name", oidConfigName).
+				Interface("last_value", oidStatus.LastValue).
+				Str("last_update", oidStatus.LastUpdate.Format(time.RFC3339Nano)).
+				Int("error_count", oidStatus.ErrorCount).
+				Msg("  OID status")
 		}
 	}
 }
@@ -185,7 +206,10 @@ func (s *Server) processSNMPDeviceUpdates(
 	for targetName, targetData := range targetStatusMap {
 		deviceIP := targetData.HostIP
 		if deviceIP == "" {
-			log.Printf("Warning: HostIP missing for target %s, using target name as fallback", targetName)
+			s.logger.Warn().
+				Str("target_name", targetName).
+				Msg("HostIP missing for target, using target name as fallback")
+
 			deviceIP = targetName
 		}
 
@@ -206,7 +230,9 @@ func (s *Server) processSNMPDeviceUpdates(
 			return fmt.Errorf("failed to process batch SNMP target devices: %w", err)
 		}
 
-		log.Printf("Successfully processed %d SNMP target device updates in batch", len(deviceUpdates))
+		s.logger.Info().
+			Int("device_count", len(deviceUpdates)).
+			Msg("Successfully processed SNMP target device updates in batch")
 	}
 
 	return nil
@@ -379,7 +405,11 @@ func (s *Server) bufferRperfMetrics(pollerID string, metrics []*models.Timeserie
 func (s *Server) processRperfMetrics(pollerID, partition string, details json.RawMessage, timestamp time.Time) error {
 	rperfPayload, pollerTimestamp, err := s.parseRperfPayload(details, timestamp)
 	if err != nil {
-		log.Printf("Error unmarshaling rperf data for poller %s: %v", pollerID, err)
+		s.logger.Error().
+			Err(err).
+			Str("poller_id", pollerID).
+			Msg("Error unmarshaling rperf data")
+
 		return err
 	}
 
@@ -388,7 +418,10 @@ func (s *Server) processRperfMetrics(pollerID, partition string, details json.Ra
 	for i := range rperfPayload.Status.Results {
 		rperfResult, err := s.processRperfResult(rperfPayload.Status.Results[i], pollerID, partition, rperfPayload.ResponseTime, pollerTimestamp)
 		if err != nil {
-			log.Printf("%v", err)
+			s.logger.Warn().
+				Err(err).
+				Msg("Failed to process rperf result")
+
 			continue
 		}
 
@@ -398,8 +431,11 @@ func (s *Server) processRperfMetrics(pollerID, partition string, details json.Ra
 	// Buffer rperf timeseriesMetrics
 	s.bufferRperfMetrics(pollerID, allMetrics)
 
-	log.Printf("Parsed %d rperf metrics for poller %s with timestamp %s",
-		len(allMetrics), pollerID, pollerTimestamp.Format(time.RFC3339))
+	s.logger.Info().
+		Int("metric_count", len(allMetrics)).
+		Str("poller_id", pollerID).
+		Str("timestamp", pollerTimestamp.Format(time.RFC3339)).
+		Msg("Parsed rperf metrics")
 
 	return nil
 }
@@ -413,19 +449,30 @@ func (s *Server) processSweepService(
 	svc *proto.ServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
-	log.Printf("Processing sweep service data for poller %s, data size: %d bytes", pollerID, len(serviceData))
-	log.Printf("Svc.ServiceName: %s, ServiceType: %s", svc.ServiceName, svc.ServiceType)
+	s.logger.Info().
+		Str("poller_id", pollerID).
+		Int("data_size", len(serviceData)).
+		Msg("Processing sweep service data")
+	s.logger.Debug().
+		Str("service_name", svc.ServiceName).
+		Str("service_type", svc.ServiceType).
+		Msg("Service details")
 
 	// Unmarshal as SweepSummary which contains HostResults
 	var sweepSummary models.SweepSummary
 
 	if err := json.Unmarshal(serviceData, &sweepSummary); err != nil {
-		log.Printf("DEBUG: Failed to unmarshal sweep data as SweepSummary: %v", err)
+		s.logger.Debug().
+			Err(err).
+			Msg("Failed to unmarshal sweep data as SweepSummary")
 
 		return nil
 	}
 
-	log.Printf("Processing sweep summary with %d hosts for poller %s", len(sweepSummary.Hosts), pollerID)
+	s.logger.Info().
+		Int("host_count", len(sweepSummary.Hosts)).
+		Str("poller_id", pollerID).
+		Msg("Processing sweep summary")
 
 	// Use the result processor to convert HostResults to DeviceUpdates
 	// This ensures ICMP metadata is properly extracted and availability is correctly set
@@ -434,7 +481,10 @@ func (s *Server) processSweepService(
 	// Directly process the device updates without redundant JSON marshaling
 	if len(deviceUpdates) > 0 {
 		if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, deviceUpdates); err != nil {
-			log.Printf("Error processing batch sweep updates: %v", err)
+			s.logger.Error().
+				Err(err).
+				Msg("Error processing batch sweep updates")
+
 			return err
 		}
 	}
@@ -456,7 +506,11 @@ func (s *Server) processICMPMetrics(
 	}
 
 	if err := json.Unmarshal(details, &pingResult); err != nil {
-		log.Printf("Failed to parse ICMP response JSON for service %s: %v", svc.ServiceName, err)
+		s.logger.Error().
+			Err(err).
+			Str("service_name", svc.ServiceName).
+			Msg("Failed to parse ICMP response JSON")
+
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
 	}
 
@@ -475,8 +529,12 @@ func (s *Server) processICMPMetrics(
 	// Marshal metadata to JSON string
 	metadataBytes, err := json.Marshal(metadata)
 	if err != nil {
-		log.Printf("Failed to marshal ICMP metadata for service %s, poller %s: %v",
-			svc.ServiceName, pollerID, err)
+		s.logger.Error().
+			Err(err).
+			Str("service_name", svc.ServiceName).
+			Str("poller_id", pollerID).
+			Msg("Failed to marshal ICMP metadata")
+
 		return fmt.Errorf("failed to marshal ICMP metadata: %w", err)
 	}
 
@@ -511,10 +569,15 @@ func (s *Server) processICMPMetrics(
 			agentID,
 		)
 		if err != nil {
-			log.Printf("ERROR: Failed to add ICMP metric to in-memory buffer for %s: %v", svc.ServiceName, err)
+			s.logger.Error().
+				Err(err).
+				Str("service_name", svc.ServiceName).
+				Msg("Failed to add ICMP metric to in-memory buffer")
 		}
 	} else {
-		log.Printf("ERROR: Metrics manager is nil in processICMPMetrics for poller %s", pollerID)
+		s.logger.Error().
+			Str("poller_id", pollerID).
+			Msg("Metrics manager is nil in processICMPMetrics")
 	}
 
 	return nil
@@ -542,11 +605,17 @@ func (s *Server) processSysmonMetrics(
 		memoryCount = 1
 	}
 
-	log.Printf("Parsed %d CPU, %d disk, %d memory, %d process metrics for poller %s "+
-		"(device_id: %s, host_ip: %s, partition: %s) with timestamp %s",
-		len(sysmonPayload.Status.CPUs), len(sysmonPayload.Status.Disks), memoryCount,
-		len(sysmonPayload.Status.Processes), pollerID, deviceID,
-		sysmonPayload.Status.HostIP, partition, sysmonPayload.Status.Timestamp)
+	s.logger.Info().
+		Int("cpu_count", len(sysmonPayload.Status.CPUs)).
+		Int("disk_count", len(sysmonPayload.Status.Disks)).
+		Int("memory_count", memoryCount).
+		Int("process_count", len(sysmonPayload.Status.Processes)).
+		Str("poller_id", pollerID).
+		Str("device_id", deviceID).
+		Str("host_ip", sysmonPayload.Status.HostIP).
+		Str("partition", partition).
+		Str("timestamp", sysmonPayload.Status.Timestamp).
+		Msg("Parsed sysmon metrics")
 
 	s.createSysmonDeviceRecord(ctx, agentID, pollerID, partition, deviceID, sysmonPayload, pollerTimestamp)
 
@@ -567,17 +636,24 @@ type sysmonPayload struct {
 	} `json:"status"`
 }
 
-func (*Server) parseSysmonPayload(details json.RawMessage, pollerID string, timestamp time.Time) (*sysmonPayload, time.Time, error) {
+func (s *Server) parseSysmonPayload(details json.RawMessage, pollerID string, timestamp time.Time) (*sysmonPayload, time.Time, error) {
 	var payload sysmonPayload
 
 	if err := json.Unmarshal(details, &payload); err != nil {
-		log.Printf("Error unmarshaling sysmon data for poller %s: %v", pollerID, err)
+		s.logger.Error().
+			Err(err).
+			Str("poller_id", pollerID).
+			Msg("Error unmarshaling sysmon data")
+
 		return nil, time.Time{}, fmt.Errorf("failed to parse sysmon data: %w", err)
 	}
 
 	pollerTimestamp, err := time.Parse(time.RFC3339Nano, payload.Status.Timestamp)
 	if err != nil {
-		log.Printf("Invalid timestamp in sysmon data for poller %s: %v, using server timestamp", pollerID, err)
+		s.logger.Warn().
+			Err(err).
+			Str("poller_id", pollerID).
+			Msg("Invalid timestamp in sysmon data, using server timestamp")
 
 		pollerTimestamp = timestamp
 	}
@@ -585,7 +661,8 @@ func (*Server) parseSysmonPayload(details json.RawMessage, pollerID string, time
 	return &payload, pollerTimestamp, nil
 }
 
-func (*Server) buildSysmonMetrics(payload *sysmonPayload, pollerTimestamp time.Time, agentID string) *models.SysmonMetrics {
+func (*Server) buildSysmonMetrics(
+	payload *sysmonPayload, pollerTimestamp time.Time, agentID string) *models.SysmonMetrics {
 	hasMemoryData := payload.Status.Memory.TotalBytes > 0 || payload.Status.Memory.UsedBytes > 0
 
 	m := &models.SysmonMetrics{
@@ -673,10 +750,17 @@ func (s *Server) processGRPCService(
 	case sysmonServiceType:
 		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
 	case syncServiceType:
-		log.Printf("CORE DEBUG: Processing GRPC sync service data for poller %s, data size: %d bytes", pollerID, len(serviceData))
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Int("data_size", len(serviceData)).
+			Msg("CORE DEBUG: Processing GRPC sync service data")
+
 		return s.discoveryService.ProcessSyncResults(ctx, pollerID, partition, svc, serviceData, now)
 	default:
-		log.Printf("Unknown GRPC service name %s on poller %s", svc.ServiceName, pollerID)
+		s.logger.Warn().
+			Str("service_name", svc.ServiceName).
+			Str("poller_id", pollerID).
+			Msg("Unknown GRPC service name")
 	}
 
 	return nil
@@ -691,7 +775,11 @@ func (s *Server) processServicePayload(
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
-	log.Printf("processServicePayload - ServiceName: %s, ServiceType: %s, DataSize: %d bytes", svc.ServiceName, svc.ServiceType, len(details))
+	s.logger.Debug().
+		Str("service_name", svc.ServiceName).
+		Str("service_type", svc.ServiceType).
+		Int("data_size", len(details)).
+		Msg("processServicePayload")
 
 	// Extract enhanced payload if present, or use original data
 	enhancedPayload, serviceData := s.extractServicePayload(details)
@@ -721,7 +809,10 @@ func (s *Server) processServicePayload(
 	case syncServiceType:
 		return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 	default:
-		log.Printf("Unknown service type %s on poller %s", svc.ServiceType, pollerID)
+		s.logger.Warn().
+			Str("service_type", svc.ServiceType).
+			Str("poller_id", pollerID).
+			Msg("Unknown service type")
 	}
 
 	return nil

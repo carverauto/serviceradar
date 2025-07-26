@@ -19,7 +19,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
@@ -28,7 +27,9 @@ import (
 func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) error {
 	var errs []error
 
-	log.Printf("Sending alert: %s", alert.Message)
+	s.logger.Info().
+		Str("alert_message", alert.Message).
+		Msg("Sending alert")
 
 	for _, webhook := range s.webhooks {
 		if err := webhook.Alert(ctx, alert); err != nil {

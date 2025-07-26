@@ -59,8 +59,11 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Querying rperf metrics for poller %s from %s to %s",
-		pollerID, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+	s.logger.Debug().
+		Str("poller_id", pollerID).
+		Str("start_time", startTime.Format(time.RFC3339)).
+		Str("end_time", endTime.Format(time.RFC3339)).
+		Msg("Querying rperf metrics")
 
 	resp := s.processRperfMetrics(ctx, pollerID, startTime, endTime)
 	if resp.Err != nil {
@@ -73,7 +76,7 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONResponse(w, resp.Metrics, pollerID)
+	s.writeJSONResponse(w, resp.Metrics, pollerID)
 }
 
 // processRperfMetrics fetches and processes rperf metrics for a poller.

@@ -26,6 +26,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -54,7 +55,7 @@ type Server struct {
 	metrics                 *metrics.Manager
 	snmpManager             metricstore.SNMPManager
 	rperfManager            metricstore.RperfManager
-	config                  *models.DBConfig
+	config                  *models.CoreServiceConfig
 	authService             *auth.Auth
 	DeviceRegistry          registry.Manager
 	eventPublisher          *natsutil.EventPublisher
@@ -73,6 +74,7 @@ type Server struct {
 	pollerStatusUpdateMutex sync.Mutex
 	cacheLastUpdated        time.Time
 	cacheMutex              sync.RWMutex
+	logger                  logger.Logger
 }
 
 // OIDStatusData represents the structure of OID status data.

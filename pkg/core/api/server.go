@@ -33,6 +33,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -134,6 +135,12 @@ func WithDBService(db db.Service) func(server *APIServer) {
 func WithDeviceRegistry(dr DeviceRegistryService) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.deviceRegistry = dr
+	}
+}
+
+func WithLogger(log logger.Logger) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.logger = log
 	}
 }
 
@@ -804,15 +811,20 @@ func (s *APIServer) Start(addr string) error {
 }
 
 // writeJSONResponse writes a JSON response to the HTTP writer
-func writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string) {
+func (s *APIServer) writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Error encoding response for poller %s: %v", pollerID, err)
+		s.logger.Error().
+			Err(err).
+			Str("poller_id", pollerID).
+			Msg("Error encoding response")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	} else {
 		// Log without trying to determine the length of a specific type
-		log.Printf("Successfully wrote metrics response for poller %s", pollerID)
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Msg("Successfully wrote metrics response")
 	}
 }
 
@@ -1181,7 +1193,7 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 
 	// For ICMP timeseriesMetrics, use the in-memory ring buffer instead of database
 	if metricType == "icmp" && s.metricsManager != nil {
-		log.Printf("Fetching ICMP timeseriesMetrics from ring buffer for device %s", deviceID)
+		s.logger.Debug().Str("device_id", deviceID).Msg("Fetching ICMP metrics from ring buffer")
 
 		// Get timeseriesMetrics from ring buffer
 		ringBufferMetrics := s.metricsManager.GetMetricsByDevice(deviceID)
@@ -1204,7 +1216,10 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		log.Printf("Found %d ICMP timeseriesMetrics in ring buffer for device %s", len(timeseriesMetrics), deviceID)
+		s.logger.Debug().
+			Int("metric_count", len(timeseriesMetrics)).
+			Str("device_id", deviceID).
+			Msg("Found ICMP metrics in ring buffer")
 	} else {
 		// Use database for non-ICMP timeseriesMetrics or when ring buffer not available
 		if metricType != "" {

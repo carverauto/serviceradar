@@ -17,7 +17,7 @@ type NetflowConfig struct {
 	EnabledFields  []ColumnKey        `json:"enabled_fields"`
 	DisabledFields []ColumnKey        `json:"disabled_fields"`
 	Dictionaries   []DictionaryConfig `json:"dictionaries"`
-	DBConfig       DBConfig           `json:"database"`
+	DBConfig       CoreServiceConfig  `json:"database"`
 }
 
 // UnmarshalJSON customizes JSON unmarshalling to handle DBConfig fields.
@@ -49,7 +49,7 @@ func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
 	c.EnabledFields = alias.EnabledFields
 	c.DisabledFields = alias.DisabledFields
 	c.Dictionaries = alias.Dictionaries
-	c.DBConfig = DBConfig{
+	c.DBConfig = CoreServiceConfig{
 		Database: alias.Database,
 	}
 

@@ -24,6 +24,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/consumers/netflow"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -47,13 +48,12 @@ func main() {
 		log.Fatalf("NetflowConfig validation failed: %v", err)
 	}
 
-	// Use DBConfig from netflowCfg, override ServerName for Proton
-	dbConfig := &models.DBConfig{
-		DBAddr:   netflowCfg.DBConfig.DBAddr,
-		DBName:   netflowCfg.DBConfig.DBName,
-		DBUser:   netflowCfg.DBConfig.DBUser,
-		DBPass:   netflowCfg.DBConfig.DBPass,
-		Database: netflowCfg.DBConfig.Database,
+	// Use CoreServiceConfig from netflowCfg, override ServerName for Proton
+	dbConfig := &models.CoreServiceConfig{
+		DBAddr: netflowCfg.DBConfig.DBAddr,
+		DBName: netflowCfg.DBConfig.DBName,
+		DBUser: netflowCfg.DBConfig.DBUser,
+		DBPass: netflowCfg.DBConfig.DBPass,
 		Security: &models.SecurityConfig{
 			TLS: models.TLSConfig{
 				CertFile:     netflowCfg.Security.TLS.CertFile,
@@ -68,8 +68,16 @@ func main() {
 		},
 	}
 
+	// Initialize logger for database
+	dbLogger, err := lifecycle.CreateComponentLogger(ctx, "netflow-db", &logger.Config{
+		Level: "info",
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+
 	// Initialize database service
-	dbService, err := db.New(ctx, dbConfig)
+	dbService, err := db.New(ctx, dbConfig, dbLogger)
 	if err != nil {
 		log.Fatalf("Failed to initialize database service: %v", err)
 	}

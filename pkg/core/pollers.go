@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -39,11 +38,15 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 	defer cleanupTicker.Stop()
 
 	if err := s.checkPollerStatus(ctx); err != nil {
-		log.Printf("Initial state check failed: %v", err)
+		s.logger.Error().
+			Err(err).
+			Msg("Initial state check failed")
 	}
 
 	if err := s.checkNeverReportedPollers(ctx); err != nil {
-		log.Printf("Initial never-reported check failed: %v", err)
+		s.logger.Error().
+			Err(err).
+			Msg("Initial never-reported check failed")
 	}
 
 	for {
@@ -60,11 +63,15 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 
 func (s *Server) handleMonitorTick(ctx context.Context) {
 	if err := s.checkPollerStatus(ctx); err != nil {
-		log.Printf("Poller state check failed: %v", err)
+		s.logger.Error().
+			Err(err).
+			Msg("Poller state check failed")
 	}
 
 	if err := s.checkNeverReportedPollers(ctx); err != nil {
-		log.Printf("Never-reported check failed: %v", err)
+		s.logger.Error().
+			Err(err).
+			Msg("Never-reported check failed")
 	}
 }
 
@@ -92,7 +99,10 @@ func (s *Server) checkPollerStatus(ctx context.Context) error {
 
 		// Handle poller status
 		if err := s.handlePoller(batchCtx, ps, threshold); err != nil {
-			log.Printf("Error handling poller %s: %v", ps.PollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", ps.PollerID).
+				Msg("Error handling poller")
 		}
 	}
 
@@ -105,7 +115,10 @@ func (s *Server) handlePoller(batchCtx context.Context, ps *models.PollerStatus,
 		// Poller appears to be offline
 		if !ps.AlertSent {
 			duration := time.Since(ps.LastSeen).Round(time.Second)
-			log.Printf("Poller %s appears to be offline (last seen: %v ago)", ps.PollerID, duration)
+			s.logger.Warn().
+				Str("poller_id", ps.PollerID).
+				Dur("duration", duration).
+				Msg("Poller appears to be offline")
 
 			if err := s.handlePollerDown(batchCtx, ps.PollerID, ps.LastSeen); err != nil {
 				return err
@@ -116,7 +129,9 @@ func (s *Server) handlePoller(batchCtx context.Context, ps *models.PollerStatus,
 	} else if !ps.IsHealthy && !ps.LastSeen.Before(threshold) && ps.AlertSent {
 		// Backup recovery mechanism: poller is marked unhealthy but has reported recently
 		// Primary recovery now happens in ReportStatus, but this serves as a safety net
-		log.Printf("Poller %s detected as recovered via periodic check (backup mechanism)", ps.PollerID)
+		s.logger.Info().
+			Str("poller_id", ps.PollerID).
+			Msg("Poller detected as recovered via periodic check (backup mechanism)")
 
 		// Simply clear the alert flag and mark as healthy - ReportStatus handles proper recovery events
 		ps.AlertSent = false
@@ -145,7 +160,9 @@ func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
 				continue
 			}
 
-			log.Printf("Flushing %d poller status updates", len(updates))
+			s.logger.Debug().
+				Int("update_count", len(updates)).
+				Msg("Flushing poller status updates")
 
 			// Convert to a slice for batch processing
 			statuses := make([]*models.PollerStatus, 0, len(updates))
@@ -158,7 +175,10 @@ func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
 			// Otherwise, loop and update individually
 			for _, status := range statuses {
 				if err := s.DB.UpdatePollerStatus(ctx, status); err != nil {
-					log.Printf("Error updating poller status for %s: %v", status.PollerID, err)
+					s.logger.Error().
+						Err(err).
+						Str("poller_id", status.PollerID).
+						Msg("Error updating poller status")
 				}
 			}
 		}
@@ -167,12 +187,19 @@ func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
 
 func (s *Server) evaluatePollerHealth(
 	ctx context.Context, pollerID string, lastSeen time.Time, isHealthy bool, threshold time.Time) error {
-	log.Printf("Evaluating poller health: id=%s lastSeen=%v isHealthy=%v threshold=%v",
-		pollerID, lastSeen.Format(time.RFC3339), isHealthy, threshold.Format(time.RFC3339))
+	s.logger.Debug().
+		Str("poller_id", pollerID).
+		Time("last_seen", lastSeen).
+		Bool("is_healthy", isHealthy).
+		Time("threshold", threshold).
+		Msg("Evaluating poller health")
 
 	if isHealthy && lastSeen.Before(threshold) {
 		duration := time.Since(lastSeen).Round(time.Second)
-		log.Printf("Poller %s appears to be offline (last seen: %v ago)", pollerID, duration)
+		s.logger.Warn().
+			Str("poller_id", pollerID).
+			Dur("duration", duration).
+			Msg("Poller appears to be offline")
 
 		return s.handlePollerDown(ctx, pollerID, lastSeen)
 	}
@@ -184,7 +211,10 @@ func (s *Server) evaluatePollerHealth(
 	if !lastSeen.Before(threshold) {
 		currentHealth, err := s.getPollerHealthState(ctx, pollerID)
 		if err != nil {
-			log.Printf("Error getting current health state for poller %s: %v", pollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", pollerID).
+				Msg("Error getting current health state for poller")
 
 			return fmt.Errorf("failed to get current health state: %w", err)
 		}
@@ -229,9 +259,14 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 		partition := ""
 
 		if err := s.eventPublisher.PublishPollerOfflineEvent(ctx, pollerID, sourceIP, partition, lastSeen); err != nil {
-			log.Printf("Failed to publish poller offline event for %s: %v", pollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", pollerID).
+				Msg("Failed to publish poller offline event")
 		} else {
-			log.Printf("Published poller offline event for %s", pollerID)
+			s.logger.Info().
+				Str("poller_id", pollerID).
+				Msg("Published poller offline event")
 		}
 	}
 
@@ -248,7 +283,9 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 	}
 
 	if err := s.sendAlert(ctx, alert); err != nil {
-		log.Printf("Failed to send down alert: %v", err)
+		s.logger.Error().
+			Err(err).
+			Msg("Failed to send down alert")
 	}
 
 	if s.apiServer != nil {
@@ -283,9 +320,14 @@ func (s *Server) handlePollerRecovery(
 
 		if err := s.eventPublisher.PublishPollerRecoveryEvent(
 			ctx, pollerID, sourceIP, partition, remoteAddr, timestamp); err != nil {
-			log.Printf("Failed to publish poller recovery event for %s: %v", pollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", pollerID).
+				Msg("Failed to publish poller recovery event")
 		} else {
-			log.Printf("Published poller recovery event for %s", pollerID)
+			s.logger.Info().
+				Str("poller_id", pollerID).
+				Msg("Published poller recovery event")
 		}
 	}
 
@@ -301,7 +343,10 @@ func (s *Server) handlePollerRecovery(
 		alerter.Mu.RUnlock()
 
 		if !wasDown {
-			log.Printf("Skipping recovery alert for %s: poller was not marked as down", pollerID)
+			s.logger.Debug().
+				Str("poller_id", pollerID).
+				Msg("Skipping recovery alert: poller was not marked as down")
+
 			continue
 		}
 
@@ -324,7 +369,9 @@ func (s *Server) handlePollerRecovery(
 	}
 
 	if err := s.sendAlert(ctx, alert); err != nil {
-		log.Printf("Failed to send recovery alert: %v", err)
+		s.logger.Error().
+			Err(err).
+			Msg("Failed to send recovery alert")
 	}
 }
 
@@ -368,7 +415,12 @@ func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHeal
 }
 
 func (s *Server) updatePollerState(
-	ctx context.Context, pollerID string, apiStatus *api.PollerStatus, wasHealthy bool, now time.Time, req *proto.PollerStatusRequest) error {
+	ctx context.Context,
+	pollerID string,
+	apiStatus *api.PollerStatus,
+	wasHealthy bool,
+	now time.Time,
+	req *proto.PollerStatusRequest) error {
 	if err := s.storePollerStatus(ctx, pollerID, apiStatus.IsHealthy, now); err != nil {
 		return err
 	}
@@ -401,7 +453,10 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context) error {
 		}
 
 		if err := s.sendAlert(ctx, alert); err != nil {
-			log.Printf("Error sending unreported pollers alert: %v", err)
+			s.logger.Error().
+				Err(err).
+				Msg("Error sending unreported pollers alert")
+
 			return err
 		}
 	}
@@ -410,10 +465,12 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context) error {
 }
 
 func (s *Server) CheckNeverReportedPollersStartup(ctx context.Context) {
-	log.Printf("Checking for unreported pollers matching patterns: %v", s.pollerPatterns)
+	s.logger.Debug().
+		Interface("poller_patterns", s.pollerPatterns).
+		Msg("Checking for unreported pollers matching patterns")
 
 	if len(s.pollerPatterns) == 0 {
-		log.Println("No poller patterns configured, skipping unreported poller check")
+		s.logger.Debug().Msg("No poller patterns configured, skipping unreported poller check")
 
 		return
 	}
@@ -424,21 +481,26 @@ func (s *Server) CheckNeverReportedPollersStartup(ctx context.Context) {
 	s.cacheLastUpdated = time.Time{}
 	s.cacheMutex.Unlock()
 
-	log.Println("Cleared poller status cache for startup check")
+	s.logger.Debug().Msg("Cleared poller status cache for startup check")
 
 	pollerIDs, err := s.DB.ListNeverReportedPollers(ctx, s.pollerPatterns)
 	if err != nil {
-		log.Printf("Error querying unreported pollers: %v", err)
+		s.logger.Error().
+			Err(err).
+			Msg("Error querying unreported pollers")
 
 		return
 	}
 
-	log.Printf("Found %d unreported pollers: %v", len(pollerIDs), pollerIDs)
+	s.logger.Info().
+		Int("poller_count", len(pollerIDs)).
+		Interface("poller_ids", pollerIDs).
+		Msg("Found unreported pollers")
 
 	if len(pollerIDs) > 0 {
 		s.sendUnreportedPollersAlert(ctx, pollerIDs)
 	} else {
-		log.Println("No unreported pollers found")
+		s.logger.Debug().Msg("No unreported pollers found")
 	}
 }
 
@@ -457,9 +519,13 @@ func (s *Server) sendUnreportedPollersAlert(ctx context.Context, pollerIDs []str
 	}
 
 	if err := s.sendAlert(ctx, alert); err != nil {
-		log.Printf("Error sending unreported pollers alert: %v", err)
+		s.logger.Error().
+			Err(err).
+			Msg("Error sending unreported pollers alert")
 	} else {
-		log.Printf("Sent alert for %d unreported pollers", len(pollerIDs))
+		s.logger.Info().
+			Int("poller_count", len(pollerIDs)).
+			Msg("Sent alert for unreported pollers")
 	}
 }
 
@@ -477,7 +543,10 @@ func (s *Server) processStatusReport(
 		currentState := existingStatus.IsHealthy
 
 		if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
-			log.Printf("Failed to store poller status for %s: %v", req.PollerId, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", req.PollerId).
+				Msg("Failed to store poller status")
 
 			return nil, fmt.Errorf("failed to store poller status: %w", err)
 		}
@@ -486,7 +555,10 @@ func (s *Server) processStatusReport(
 		s.processServices(ctx, req.PollerId, req.Partition, req.SourceIp, apiStatus, req.Services, now)
 
 		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now, req); err != nil {
-			log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", req.PollerId).
+				Msg("Failed to update poller state")
 
 			return nil, err
 		}
@@ -504,7 +576,10 @@ func (s *Server) processStatusReport(
 
 			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services),
 				req.Partition, req.SourceIp, now); err != nil {
-				log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
+				s.logger.Warn().
+					Err(err).
+					Str("poller_id", req.PollerId).
+					Msg("Failed to register service device for poller")
 			}
 		}()
 
@@ -514,7 +589,10 @@ func (s *Server) processStatusReport(
 	pollerStatus.FirstSeen = now
 
 	if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
-		log.Printf("Failed to create new poller status for %s: %v", req.PollerId, err)
+		s.logger.Error().
+			Err(err).
+			Str("poller_id", req.PollerId).
+			Msg("Failed to create new poller status")
 
 		return nil, fmt.Errorf("failed to create poller status: %w", err)
 	}
@@ -525,9 +603,14 @@ func (s *Server) processStatusReport(
 		remoteAddr := ""
 
 		if err := s.eventPublisher.PublishPollerFirstSeenEvent(ctx, req.PollerId, req.SourceIp, req.Partition, remoteAddr, now); err != nil {
-			log.Printf("Failed to publish poller first seen event for %s: %v", req.PollerId, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", req.PollerId).
+				Msg("Failed to publish poller first seen event")
 		} else {
-			log.Printf("Published poller first seen event for %s", req.PollerId)
+			s.logger.Info().
+				Str("poller_id", req.PollerId).
+				Msg("Published poller first seen event")
 		}
 	}
 
@@ -547,7 +630,10 @@ func (s *Server) processStatusReport(
 
 		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services),
 			req.Partition, req.SourceIp, now); err != nil {
-			log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
+			s.logger.Warn().
+				Err(err).
+				Str("poller_id", req.PollerId).
+				Msg("Failed to register service device for poller")
 		}
 	}()
 
@@ -577,7 +663,9 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 
 	statuses, err := s.DB.ListPollerStatuses(ctx, s.pollerPatterns)
 	if err != nil {
-		log.Printf("Error querying pollers: %v", err)
+		s.logger.Error().
+			Err(err).
+			Msg("Error querying pollers")
 
 		return
 	}
@@ -590,8 +678,10 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 
 		// Only log each offline poller once
 		if duration > s.alertThreshold && !reportedOffline[statuses[i].PollerID] {
-			log.Printf("Poller %s found offline during initial check (last seen: %v ago)",
-				statuses[i].PollerID, duration.Round(time.Second))
+			s.logger.Warn().
+				Str("poller_id", statuses[i].PollerID).
+				Dur("duration", duration.Round(time.Second)).
+				Msg("Poller found offline during initial check")
 
 			reportedOffline[statuses[i].PollerID] = true
 		}
@@ -637,19 +727,27 @@ func (s *Server) cleanupUnknownPollers(ctx context.Context) error {
 
 	for _, pollerID := range pollersToDelete {
 		if err := s.DB.DeletePoller(ctx, pollerID); err != nil {
-			log.Printf("Error deleting unknown poller %s: %v", pollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", pollerID).
+				Msg("Error deleting unknown poller")
 		} else {
-			log.Printf("Deleted unknown poller: %s", pollerID)
+			s.logger.Info().
+				Str("poller_id", pollerID).
+				Msg("Deleted unknown poller")
 		}
 	}
 
-	log.Printf("Cleaned up %d unknown poller(s) from database", len(pollersToDelete))
+	s.logger.Info().
+		Int("poller_count", len(pollersToDelete)).
+		Msg("Cleaned up unknown poller(s) from database")
 
 	return nil
 }
 
 func (s *Server) monitorPollers(ctx context.Context) {
-	log.Printf("Starting poller monitoring...")
+	s.logger.Info().
+		Msg("Starting poller monitoring")
 
 	time.Sleep(pollerDiscoveryTimeout)
 
@@ -695,8 +793,11 @@ func (*Server) findAgentID(services []*proto.ServiceStatus) string {
 }
 
 func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
-	log.Printf("Received status report from %s with %d services at %s",
-		req.PollerId, len(req.Services), time.Now().Format(time.RFC3339Nano))
+	s.logger.Debug().
+		Str("poller_id", req.PollerId).
+		Int("service_count", len(req.Services)).
+		Time("timestamp", time.Now()).
+		Msg("Received status report")
 
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
@@ -704,13 +805,17 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 	// Validate required location fields - critical for device registration
 	if req.Partition == "" || req.SourceIp == "" {
-		log.Printf("CRITICAL: Status report from poller %s missing required "+
-			"location data (partition=%q, source_ip=%q). Device registration will be skipped.",
-			req.PollerId, req.Partition, req.SourceIp)
+		s.logger.Error().
+			Str("poller_id", req.PollerId).
+			Str("partition", req.Partition).
+			Str("source_ip", req.SourceIp).
+			Msg("CRITICAL: Status report missing required location data, device registration will be skipped")
 	}
 
 	if !s.isKnownPoller(req.PollerId) {
-		log.Printf("Ignoring status report from unknown poller: %s", req.PollerId)
+		s.logger.Warn().
+			Str("poller_id", req.PollerId).
+			Msg("Ignoring status report from unknown poller")
 
 		return &proto.PollerStatusResponse{Received: true}, nil
 	}
@@ -735,7 +840,8 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 
 	var timestamp int64
 
-	log.Printf("Starting streaming status reception")
+	s.logger.Debug().
+		Msg("Starting streaming status reception")
 
 	// Receive all chunks from the stream
 	for {
@@ -757,8 +863,12 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 			timestamp = chunk.Timestamp
 		}
 
-		log.Printf("Received chunk %d/%d from poller %s with %d services",
-			chunk.ChunkIndex+1, chunk.TotalChunks, chunk.PollerId, len(chunk.Services))
+		s.logger.Debug().
+			Int32("chunk_index", chunk.ChunkIndex+1).
+			Int32("total_chunks", chunk.TotalChunks).
+			Str("poller_id", chunk.PollerId).
+			Int("service_count", len(chunk.Services)).
+			Msg("Received chunk")
 
 		// Collect services from this chunk
 		allServices = append(allServices, chunk.Services...)
@@ -769,7 +879,10 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 		}
 	}
 
-	log.Printf("Completed streaming reception from %s with %d total services", pollerID, len(allServices))
+	s.logger.Debug().
+		Str("poller_id", pollerID).
+		Int("total_service_count", len(allServices)).
+		Msg("Completed streaming reception")
 
 	if pollerID == "" {
 		return errEmptyPollerID
@@ -777,13 +890,18 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 
 	// Validate required location fields
 	if partition == "" || sourceIP == "" {
-		log.Printf("CRITICAL: Streaming status report from poller %s missing required "+
-			"location data (partition=%q, source_ip=%q). Device registration will be skipped.",
-			pollerID, partition, sourceIP)
+		s.logger.Error().
+			Str("poller_id", pollerID).
+			Str("partition", partition).
+			Str("source_ip", sourceIP).
+			Msg("CRITICAL: Streaming status report missing required location data, device registration will be skipped")
 	}
 
 	if !s.isKnownPoller(pollerID) {
-		log.Printf("Ignoring streaming status report from unknown poller: %s", pollerID)
+		s.logger.Warn().
+			Str("poller_id", pollerID).
+			Msg("Ignoring streaming status report from unknown poller")
+
 		return stream.SendAndClose(&proto.PollerStatusResponse{Received: true})
 	}
 

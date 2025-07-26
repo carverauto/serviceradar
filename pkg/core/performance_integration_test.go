@@ -28,6 +28,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
@@ -60,10 +61,11 @@ func TestSyncResultsPerformanceOptimization(t *testing.T) {
 
 			// Setup mocks
 			mockDB := db.NewMockService(ctrl)
-			realRegistry := registry.NewDeviceRegistry(mockDB)
+			testLogger := logger.NewTestLogger()
+			realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
 
 			// Create discovery service
-			discoveryService := NewDiscoveryService(mockDB, realRegistry)
+			discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger)
 
 			// Create test sync results (simulating Armis data)
 			sightings := createSyncSightings(tt.sightingCount)
@@ -115,8 +117,9 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	realRegistry := registry.NewDeviceRegistry(mockDB)
-	discoveryService := NewDiscoveryService(mockDB, realRegistry)
+	testLogger := logger.NewTestLogger()
+	realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
+	discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger)
 
 	// Create consistent sync data (same as what would come every 30 seconds)
 	sightings := createSyncSightings(15) // Reduced for test performance
@@ -177,8 +180,9 @@ func TestDatabaseCallCounting(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	realRegistry := registry.NewDeviceRegistry(mockDB)
-	discoveryService := NewDiscoveryService(mockDB, realRegistry)
+	testLogger := logger.NewTestLogger()
+	realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
+	discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger)
 
 	sightings := createSyncSightings(15) // Batch size doesn't matter anymore
 	sightingsJSON, _ := json.Marshal(sightings)

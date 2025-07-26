@@ -19,7 +19,6 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -32,7 +31,15 @@ func (s *Server) processHostResults(
 
 	for _, host := range hosts {
 		if host.Host == "" {
-			log.Printf("Skipping host with empty IP for poller %s", pollerID)
+			s.logger.Debug().
+				Str("poller_id", pollerID).
+				Str("partition", partition).
+				Str("agent_id", agentID).
+				Str("host", host.Host).
+				Bool("ip", host.Available).
+				Str("source", string(models.DiscoverySourceSweep)).
+				Msg("Skipping host with empty host field")
+
 			continue
 		}
 
