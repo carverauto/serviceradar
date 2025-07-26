@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -31,7 +30,7 @@ func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metric
 			"packets_sent":     result.PacketsSent,
 		})
 		if err != nil {
-			log.Printf("Failed to marshal rperf metadata for %s, poller %s: %v", metricName, pollerID, err)
+			m.logger.Error().Str("metricName", metricName).Str("pollerID", pollerID).Err(err).Msg("Failed to marshal rperf metadata")
 			continue
 		}
 
@@ -44,11 +43,11 @@ func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metric
 		}
 
 		if err := m.db.StoreMetric(ctx, pollerID, metric); err != nil {
-			log.Printf("Error storing rperf metric %s for poller %s: %v", metricName, pollerID, err)
+			m.logger.Error().Str("metricName", metricName).Str("pollerID", pollerID).Err(err).Msg("Error storing rperf metric")
 			return fmt.Errorf("failed to store rperf metric: %w", err)
 		}
 
-		log.Printf("Stored rperf metric %s for poller %s: bits_per_second=%.2f", metricName, pollerID, result.BitsPerSec)
+		m.logger.Info().Str("metricName", metricName).Str("pollerID", pollerID).Float64("bits_per_second", result.BitsPerSec).Msg("Stored rperf metric")
 	}
 
 	return nil
@@ -68,14 +67,14 @@ func (m *Manager) GetRperfMetrics(ctx context.Context, pollerID, target string, 
 		dm := &dbMetrics[i] // Access the element by reference
 
 		if dm.Metadata == "" {
-			log.Printf("Warning: empty metadata for rperf metric %s, poller %s", dm.Name, pollerID)
+			m.logger.Warn().Str("metricName", dm.Name).Str("pollerID", pollerID).Msg("Empty metadata for rperf metric")
 			continue
 		}
 
 		var metaMap map[string]interface{}
 
 		if err := json.Unmarshal([]byte(dm.Metadata), &metaMap); err != nil {
-			log.Printf("Failed to unmarshal metadata for rperf metric %s, poller %s: %v", dm.Name, pollerID, err)
+			m.logger.Error().Str("metricName", dm.Name).Str("pollerID", pollerID).Err(err).Msg("Failed to unmarshal metadata for rperf metric")
 			continue
 		}
 

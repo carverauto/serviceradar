@@ -90,7 +90,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 		MaxPollers: normalizedConfig.Metrics.MaxPollers,
 	}
 
-	metricsManager := metrics.NewManager(metricsConfig, database)
+	metricsManager := metrics.NewManager(metricsConfig, database, log)
 
 	// Initialize the NEW authoritative device registry
 	deviceRegistry := registry.NewDeviceRegistry(database, log)

@@ -116,7 +116,7 @@ func newServerWithDB(_ context.Context, config *models.CoreServiceConfig, databa
 		Enabled:    normalizedConfig.Metrics.Enabled,
 		Retention:  normalizedConfig.Metrics.Retention,
 		MaxPollers: normalizedConfig.Metrics.MaxPollers,
-	}, database)
+	}, database, logger.NewTestLogger())
 
 	dbPath := getDBPath(normalizedConfig.DBPath)
 	if err := ensureDataDirectory(dbPath); err != nil {
@@ -163,7 +163,7 @@ func TestReportStatus(t *testing.T) {
 		Enabled:    true,
 		Retention:  100,
 		MaxPollers: 1000,
-	}, mockDB)
+	}, mockDB, logger.NewTestLogger())
 
 	mockDB.EXPECT().GetPollerStatus(gomock.Any(), "test-poller").Return(&models.PollerStatus{
 		PollerID:  "test-poller",
