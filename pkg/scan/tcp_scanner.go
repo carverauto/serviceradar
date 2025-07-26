@@ -19,11 +19,11 @@ package scan
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -31,11 +31,12 @@ type TCPSweeper struct {
 	timeout     time.Duration
 	concurrency int
 	cancel      context.CancelFunc
+	logger      logger.Logger
 }
 
 var _ Scanner = (*TCPSweeper)(nil)
 
-func NewTCPSweeper(timeout time.Duration, concurrency int) *TCPSweeper {
+func NewTCPSweeper(timeout time.Duration, concurrency int, log logger.Logger) *TCPSweeper {
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
@@ -47,6 +48,7 @@ func NewTCPSweeper(timeout time.Duration, concurrency int) *TCPSweeper {
 	return &TCPSweeper{
 		timeout:     timeout,
 		concurrency: concurrency,
+		logger:      log,
 	}
 }
 
@@ -140,7 +142,7 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 		err := conn.Close()
 
 		if err != nil {
-			log.Printf("failed to close connection: %v", err)
+			s.logger.Error().Err(err).Msg("failed to close connection")
 		}
 	}(conn)
 

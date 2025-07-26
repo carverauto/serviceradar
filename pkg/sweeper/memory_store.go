@@ -19,10 +19,10 @@ package sweeper
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -39,15 +39,17 @@ type InMemoryStore struct {
 	maxResults  int
 	cleanupDone chan struct{}
 	lastCleanup time.Time
+	logger      logger.Logger
 }
 
 // NewInMemoryStore creates a new in-memory store for sweep results.
-func NewInMemoryStore(processor ResultProcessor) Store {
+func NewInMemoryStore(processor ResultProcessor, log logger.Logger) Store {
 	store := &InMemoryStore{
 		results:     make([]models.Result, 0),
 		processor:   processor,
 		maxResults:  defaultMaxResults,
 		cleanupDone: make(chan struct{}),
+		logger:      log,
 	}
 
 	// Start cleanup goroutine
@@ -81,8 +83,11 @@ func (s *InMemoryStore) cleanOldResults() {
 		targetCount := s.maxResults * 3 / 4
 		removeCount := resultCount - targetCount
 
-		log.Printf("Cleaning old results: current=%d, target=%d, removing=%d",
-			resultCount, targetCount, removeCount)
+		s.logger.Debug().
+			Int("currentCount", resultCount).
+			Int("targetCount", targetCount).
+			Int("removingCount", removeCount).
+			Msg("Cleaning old results")
 
 		// Keep the most recent results (which are at the end)
 		s.results = s.results[removeCount:]
