@@ -83,7 +83,11 @@ func (s *InMemoryStore) cleanOldResults() {
 		targetCount := s.maxResults * 3 / 4
 		removeCount := resultCount - targetCount
 
-		s.logger.Debug().Int("currentCount", resultCount).Int("targetCount", targetCount).Int("removingCount", removeCount).Msg("Cleaning old results")
+		s.logger.Debug().
+			Int("currentCount", resultCount).
+			Int("targetCount", targetCount).
+			Int("removingCount", removeCount).
+			Msg("Cleaning old results")
 
 		// Keep the most recent results (which are at the end)
 		s.results = s.results[removeCount:]

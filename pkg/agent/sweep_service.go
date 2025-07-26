@@ -209,7 +209,7 @@ func newScanStats() *ScanStats {
 
 // CheckICMP performs a standalone ICMP check on the specified host.
 func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Result, error) {
-	icmpScanner, err := scan.NewICMPSweeper(s.config.Timeout, s.config.ICMPRateLimit)
+	icmpScanner, err := scan.NewICMPSweeper(s.config.Timeout, s.config.ICMPRateLimit, s.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}

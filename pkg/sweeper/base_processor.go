@@ -329,7 +329,11 @@ func (p *BaseProcessor) updatePortStatus(shard *ProcessorShard, host *models.Hos
 
 		// Only perform the expensive upgrade if the new capacity is larger
 		if newCapacity > cap(host.PortResults) {
-			p.logger.Debug().Str("host", host.Host).Int("oldCapacity", cap(host.PortResults)).Int("newCapacity", newCapacity).Msg("Upgrading port capacity for host")
+			p.logger.Debug().
+				Str("host", host.Host).
+				Int("oldCapacity", cap(host.PortResults)).
+				Int("newCapacity", newCapacity).
+				Msg("Upgrading port capacity for host")
 
 			// Re-allocate PortResults slice with the new, larger capacity
 			newPortResults := make([]*models.PortResult, len(host.PortResults), newCapacity)
@@ -527,7 +531,12 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 		actualTotalHosts = aggregated.totalHosts
 	}
 
-	p.logger.Info().Int("totalHosts", aggregated.totalHosts).Int("availableHosts", aggregated.availableHosts).Int("icmpRespondingHosts", aggregated.icmpHosts).Int("actualTotalDefinedInConfig", actualTotalHosts).Msg("Summary stats")
+	p.logger.Info().
+		Int("totalHosts", aggregated.totalHosts).
+		Int("availableHosts", aggregated.availableHosts).
+		Int("icmpRespondingHosts", aggregated.icmpHosts).
+		Int("actualTotalDefinedInConfig", actualTotalHosts).
+		Msg("Summary stats")
 
 	return &models.SweepSummary{
 		TotalHosts:     actualTotalHosts,
@@ -874,7 +883,11 @@ func (p *BaseProcessor) GetSummaryStream(ctx context.Context, hostCh chan<- mode
 		actualTotalHosts = totalHostCount
 	}
 
-	p.logger.Debug().Int("totalHosts", totalHostCount).Int("availableHosts", totalAvailableHosts).Int("icmpRespondingHosts", totalIcmpHosts).Msg("Streaming summary stats")
+	p.logger.Debug().
+		Int("totalHosts", totalHostCount).
+		Int("availableHosts", totalAvailableHosts).
+		Int("icmpRespondingHosts", totalIcmpHosts).
+		Msg("Streaming summary stats")
 
 	// Return summary without the hosts slice to save memory
 	return &models.SweepSummary{

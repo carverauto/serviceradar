@@ -22,12 +22,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
@@ -48,6 +48,7 @@ type ICMPSweeper struct {
 	mu          sync.Mutex
 	results     map[string]models.Result
 	cancel      context.CancelFunc
+	logger      logger.Logger
 }
 
 var _ Scanner = (*ICMPSweeper)(nil)
@@ -57,7 +58,7 @@ const (
 )
 
 // NewICMPSweeper creates a new scanner for ICMP sweeping.
-func NewICMPSweeper(timeout time.Duration, rateLimit int) (*ICMPSweeper, error) {
+func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger) (*ICMPSweeper, error) {
 	if timeout == 0 {
 		timeout = defaultICMPTimeout
 	}
@@ -80,7 +81,7 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int) (*ICMPSweeper, error) 
 	if err != nil {
 		err := syscall.Close(fd)
 		if err != nil {
-			log.Printf("Failed to close ICMP listener: %v", err)
+			log.Error().Err(err).Msg("Failed to close ICMP listener")
 			return nil, err
 		}
 
@@ -94,6 +95,7 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int) (*ICMPSweeper, error) 
 		rawSocketFD: fd,
 		conn:        conn,
 		results:     make(map[string]models.Result),
+		logger:      log,
 	}
 
 	return s, nil
@@ -170,12 +172,15 @@ func (s *ICMPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan
 func (s *ICMPSweeper) sendPings(ctx context.Context, targets []models.Target) {
 	packetsPerInterval := s.calculatePacketsPerInterval()
 
-	log.Printf("Sending ICMP pings to %d targets (rate: %d/sec, batch: %d)",
-		len(targets), s.rateLimit, packetsPerInterval)
+	s.logger.Info().
+		Int("targetCount", len(targets)).
+		Int("rateLimit", s.rateLimit).
+		Int("packetsPerInterval", packetsPerInterval).
+		Msg("Sending ICMP pings")
 
 	data, err := s.prepareEchoRequest()
 	if err != nil {
-		log.Printf("Error marshaling ICMP message: %v", err)
+		s.logger.Error().Err(err).Msg("Error marshaling ICMP message")
 
 		return
 	}
@@ -255,7 +260,7 @@ func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, 
 				maxBatchSize = defaultBatchSize
 			}
 
-			log.Printf("Reduced batch size to %d due to buffer pressure", maxBatchSize)
+			s.logger.Debug().Int("newBatchSize", maxBatchSize).Msg("Reduced batch size due to buffer pressure")
 		}
 	}
 }
@@ -288,7 +293,7 @@ func (s *ICMPSweeper) processBatch(targets []models.Target, data []byte) {
 func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte) {
 	ipAddr := net.ParseIP(target.Host)
 	if ipAddr == nil || ipAddr.To4() == nil {
-		log.Printf("Invalid IPv4 address: %s", target.Host)
+		s.logger.Warn().Str("host", target.Host).Msg("Invalid IPv4 address")
 
 		return
 	}
@@ -298,7 +303,7 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte) {
 	sockaddr := &syscall.SockaddrInet4{Addr: addr}
 
 	if err := syscall.Sendto(s.rawSocketFD, data, 0, sockaddr); err != nil {
-		log.Printf("Error sending ICMP to %s: %v", target.Host, err)
+		s.logger.Error().Err(err).Str("host", target.Host).Msg("Error sending ICMP")
 	}
 
 	s.recordInitialResult(target)
@@ -341,7 +346,7 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 			return
 		default:
 			if err := s.conn.SetReadDeadline(time.Now().Add(defaultReadDeadline)); err != nil {
-				log.Printf("Error setting read deadline: %v", err)
+				s.logger.Error().Err(err).Msg("Error setting read deadline")
 				continue
 			}
 
@@ -371,7 +376,7 @@ func (s *ICMPSweeper) readReply(buf []byte) (reply struct {
 			return reply, nil // Timeout is not an error in this context
 		}
 
-		log.Printf("Error reading ICMP reply: %v", err)
+		s.logger.Error().Err(err).Msg("Error reading ICMP reply")
 
 		return reply, err
 	}
@@ -404,7 +409,7 @@ func (s *ICMPSweeper) processReply(reply struct {
 	// Parse the ICMP message
 	msg, err := icmp.ParseMessage(1, reply.data)
 	if err != nil {
-		log.Printf("Error parsing ICMP message from %s: %v", ip, err)
+		s.logger.Error().Err(err).Str("ip", ip).Msg("Error parsing ICMP message")
 		return err
 	}
 
@@ -461,7 +466,7 @@ func (s *ICMPSweeper) Stop(_ context.Context) error {
 	if s.conn != nil {
 		err := s.conn.Close()
 		if err != nil {
-			log.Printf("Error closing ICMP connection: %v", err)
+			s.logger.Error().Err(err).Msg("Error closing ICMP connection")
 
 			return err
 		}
@@ -470,7 +475,7 @@ func (s *ICMPSweeper) Stop(_ context.Context) error {
 	if s.rawSocketFD != 0 {
 		err := syscall.Close(s.rawSocketFD)
 		if err != nil {
-			log.Printf("Error closing raw socket: %v", err)
+			s.logger.Error().Err(err).Msg("Error closing raw socket")
 
 			return err
 		}
