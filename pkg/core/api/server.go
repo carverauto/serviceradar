@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -240,7 +239,7 @@ func (s *APIServer) setupSwaggerRoutes() {
 }
 
 // serveSwaggerJSON serves the embedded Swagger JSON file.
-func (*APIServer) serveSwaggerJSON(w http.ResponseWriter, _ *http.Request) {
+func (s *APIServer) serveSwaggerJSON(w http.ResponseWriter, _ *http.Request) {
 	data, err := swagger.GetSwaggerJSON()
 	if err != nil {
 		http.Error(w, "Swagger JSON not found", http.StatusInternalServerError)
@@ -252,7 +251,7 @@ func (*APIServer) serveSwaggerJSON(w http.ResponseWriter, _ *http.Request) {
 
 	_, err = w.Write(data)
 	if err != nil {
-		log.Printf("Error writing Swagger JSON response: %v", err)
+		s.logger.Error().Err(err).Msg("Error writing Swagger JSON response")
 		http.Error(w, "Failed to write Swagger JSON response", http.StatusInternalServerError)
 
 		return
@@ -260,7 +259,7 @@ func (*APIServer) serveSwaggerJSON(w http.ResponseWriter, _ *http.Request) {
 }
 
 // serveSwaggerYAML serves the embedded Swagger YAML file.
-func (*APIServer) serveSwaggerYAML(w http.ResponseWriter, _ *http.Request) {
+func (s *APIServer) serveSwaggerYAML(w http.ResponseWriter, _ *http.Request) {
 	data, err := swagger.GetSwaggerYAML()
 	if err != nil {
 		http.Error(w, "Swagger YAML not found", http.StatusInternalServerError)
@@ -272,7 +271,7 @@ func (*APIServer) serveSwaggerYAML(w http.ResponseWriter, _ *http.Request) {
 
 	_, err = w.Write(data)
 	if err != nil {
-		log.Printf("Error writing Swagger YAML response: %v", err)
+		s.logger.Error().Err(err).Msg("Error writing Swagger YAML response")
 
 		return
 	}
@@ -303,7 +302,7 @@ func (s *APIServer) serveSwaggerHost(w http.ResponseWriter, r *http.Request) {
 	err = json.NewEncoder(w).Encode(spec)
 	if err != nil {
 		http.Error(w, "Failed to encode Swagger spec", http.StatusInternalServerError)
-		log.Printf("Error encoding Swagger spec: %v", err)
+		s.logger.Error().Err(err).Msg("Error encoding Swagger spec")
 
 		return
 	}
@@ -473,7 +472,7 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	// Use the injected snmpManager to fetch SNMP metrics
 	snmpMetrics, err := s.snmpManager.GetSNMPMetrics(ctx, pollerID, startTime, endTime)
 	if err != nil {
-		log.Printf("Error fetching SNMP data for poller %s: %v", pollerID, err)
+		s.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Error fetching SNMP data")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 
 		return
@@ -482,7 +481,7 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(snmpMetrics); err != nil {
-		log.Printf("Error encoding SNMP data response for poller %s: %v", pollerID, err)
+		s.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Error encoding SNMP data response")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
@@ -503,7 +502,7 @@ func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 	pollerID := vars["id"]
 
 	if s.metricsManager == nil {
-		log.Printf("Metrics not configured for poller %s", pollerID)
+		s.logger.Warn().Str("poller_id", pollerID).Msg("Metrics not configured")
 		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
 
 		return
@@ -511,7 +510,7 @@ func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 
 	m := s.metricsManager.GetMetrics(pollerID)
 	if m == nil {
-		log.Printf("No metrics found for poller %s", pollerID)
+		s.logger.Debug().Str("poller_id", pollerID).Msg("No metrics found")
 		http.Error(w, "No metrics found", http.StatusNotFound)
 
 		return
@@ -520,7 +519,7 @@ func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(m); err != nil {
-		log.Printf("Error encoding metrics response for poller %s: %v", pollerID, err)
+		s.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Error encoding metrics response")
 
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
@@ -561,14 +560,14 @@ func (s *APIServer) getPollerHistory(w http.ResponseWriter, r *http.Request) {
 
 	points, err := s.pollerHistoryHandler(pollerID)
 	if err != nil {
-		log.Printf("Error fetching poller history: %v", err)
+		s.logger.Error().Err(err).Msg("Error fetching poller history")
 		http.Error(w, "Failed to fetch history", http.StatusInternalServerError)
 
 		return
 	}
 
 	if err := s.encodeJSONResponse(w, points); err != nil {
-		log.Printf("Error encoding history response: %v", err)
+		s.logger.Error().Err(err).Msg("Error encoding history response")
 		http.Error(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
@@ -598,8 +597,10 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 
 	s.mu.RUnlock()
 
-	log.Printf("System status: total=%d healthy=%d last_update=%s",
-		status.TotalPollers, status.HealthyPollers, status.LastUpdate.Format(time.RFC3339))
+	s.logger.Info().Int("total", status.TotalPollers).
+		Int("healthy", status.HealthyPollers).
+		Str("last_update", status.LastUpdate.Format(time.RFC3339)).
+		Msg("System status")
 
 	if err := s.encodeJSONResponse(w, status); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -710,7 +711,7 @@ func (s *APIServer) getPoller(w http.ResponseWriter, r *http.Request) {
 		m := s.metricsManager.GetMetrics(pollerID)
 		if m != nil {
 			poller.Metrics = m
-			log.Printf("Attached %d metrics points to poller %s response", len(m), pollerID)
+			s.logger.Debug().Int("count", len(m)).Str("poller_id", pollerID).Msg("Attached metrics points to response")
 		}
 	}
 
@@ -972,16 +973,16 @@ func parseDeviceQueryParams(r *http.Request) map[string]interface{} {
 func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) bool {
 	devices, err := s.deviceRegistry.ListDevices(ctx, params["limit"].(int), params["offset"].(int))
 	if err != nil {
-		log.Printf("Device registry listing failed, falling back to SRQL: %v", err)
+		s.logger.Warn().Err(err).Msg("Device registry listing failed, falling back to SRQL")
 		return false
 	}
 
 	// Filter devices based on search and status parameters
-	filteredDevices := filterDevices(devices, params["searchTerm"].(string), params["status"].(string))
+	filteredDevices := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
 
 	// Apply device merging if requested
 	if params["mergedStr"].(string) == "true" {
-		filteredDevices = mergeRelatedDevices(ctx, s.deviceRegistry, filteredDevices)
+		filteredDevices = mergeRelatedDevices(ctx, s.deviceRegistry, filteredDevices, s.logger)
 	}
 
 	// Format and send the response
@@ -991,7 +992,7 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 }
 
 // sendDeviceRegistryResponse formats and sends the response for device registry path
-func (*APIServer) sendDeviceRegistryResponse(w http.ResponseWriter, devices []*models.UnifiedDevice) {
+func (s *APIServer) sendDeviceRegistryResponse(w http.ResponseWriter, devices []*models.UnifiedDevice) {
 	// Convert to response format with discovery information
 	response := make([]map[string]interface{}, len(devices))
 
@@ -1013,7 +1014,7 @@ func (*APIServer) sendDeviceRegistryResponse(w http.ResponseWriter, devices []*m
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding enhanced devices response: %v", err)
+		s.logger.Error().Err(err).Msg("Error encoding enhanced devices response")
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
@@ -1025,7 +1026,7 @@ func (s *APIServer) fallbackToSRQLQuery(ctx context.Context, w http.ResponseWrit
 	// Execute the SRQL query
 	result, err := s.queryExecutor.ExecuteQuery(ctx, query)
 	if err != nil {
-		log.Printf("Error executing devices query: %v", err)
+		s.logger.Error().Err(err).Msg("Error executing devices query")
 		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
 
 		return
@@ -1039,7 +1040,7 @@ func (s *APIServer) fallbackToSRQLQuery(ctx context.Context, w http.ResponseWrit
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(result); err != nil {
-		log.Printf("Error encoding devices response: %v", err)
+		s.logger.Error().Err(err).Msg("Error encoding devices response")
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
@@ -1117,7 +1118,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 
 			if err = json.NewEncoder(w).Encode(response); err != nil {
-				log.Printf("Error encoding enhanced device response: %v", err)
+				s.logger.Error().Err(err).Msg("Error encoding enhanced device response")
 
 				writeError(w, "Failed to encode response", http.StatusInternalServerError)
 			}
@@ -1125,7 +1126,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("Device registry lookup failed for %s, falling back to legacy: %v", deviceID, err)
+		s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Device registry lookup failed, falling back to legacy")
 	}
 
 	// Fallback to legacy database service
@@ -1136,7 +1137,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 
 	device, err := s.dbService.GetDeviceByID(ctx, deviceID)
 	if err != nil {
-		log.Printf("Error fetching device %s: %v", deviceID, err)
+		s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error fetching device")
 		writeError(w, "Device not found", http.StatusNotFound)
 
 		return
@@ -1145,7 +1146,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(device); err != nil {
-		log.Printf("Error encoding device response: %v", err)
+		s.logger.Error().Err(err).Msg("Error encoding device response")
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
@@ -1231,7 +1232,7 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err != nil {
-			log.Printf("Error fetching timeseriesMetrics for device %s: %v", deviceID, err)
+			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error fetching timeseries metrics")
 			writeError(w, "Failed to fetch device timeseriesMetrics", http.StatusInternalServerError)
 
 			return
@@ -1241,7 +1242,7 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(timeseriesMetrics); err != nil {
-		log.Printf("Error encoding device timeseriesMetrics response: %v", err)
+		s.logger.Error().Err(err).Msg("Error encoding device timeseries metrics response")
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
@@ -1271,7 +1272,7 @@ func (s *APIServer) getDeviceMetricsStatus(w http.ResponseWriter, _ *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding device metrics status response: %v", err)
+		s.logger.Error().Err(err).Msg("Error encoding device metrics status response")
 
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
@@ -1289,14 +1290,14 @@ func getFieldValue[T any](field *models.DiscoveredField[T]) interface{} {
 }
 
 // filterDevices filters unified devices based on search term and status
-func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string) []*models.UnifiedDevice {
+func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string, logger logger.Logger) []*models.UnifiedDevice {
 	filtered := make([]*models.UnifiedDevice, 0, len(devices))
 
 	for _, device := range devices {
 		// Filter out merged devices (safety net) - ALWAYS apply this filter
 		if device.Metadata != nil && device.Metadata.Value != nil {
 			if mergedInto, hasMerged := device.Metadata.Value["_merged_into"]; hasMerged {
-				log.Printf("API: Filtering out merged device %s (merged into %s)", device.DeviceID, mergedInto)
+				logger.Debug().Str("device_id", device.DeviceID).Str("merged_into", mergedInto).Msg("Filtering out merged device")
 
 				continue // Skip merged devices
 			}
@@ -1331,7 +1332,11 @@ func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string) [
 
 // mergeRelatedDevices merges devices that share IPs into unified views
 // This provides application-level device unification for the device listing API
-func mergeRelatedDevices(ctx context.Context, registry DeviceRegistryService, devices []*models.UnifiedDevice) []*models.UnifiedDevice {
+func mergeRelatedDevices(
+	ctx context.Context,
+	registry DeviceRegistryService,
+	devices []*models.UnifiedDevice,
+	logger logger.Logger) []*models.UnifiedDevice {
 	if registry == nil || len(devices) == 0 {
 		return devices
 	}
@@ -1349,7 +1354,7 @@ func mergeRelatedDevices(ctx context.Context, registry DeviceRegistryService, de
 		// Try to get the merged view of this device
 		mergedDevice, err := registry.GetMergedDevice(ctx, device.DeviceID)
 		if err != nil {
-			log.Printf("Warning: Failed to get merged device for %s: %v", device.DeviceID, err)
+			logger.Warn().Err(err).Str("device_id", device.DeviceID).Msg("Failed to get merged device")
 			// Fallback to original device if merging fails
 			mergedDevices = append(mergedDevices, device)
 			processed[device.DeviceID] = true
@@ -1360,7 +1365,7 @@ func mergeRelatedDevices(ctx context.Context, registry DeviceRegistryService, de
 		// Find all related devices in the original list and mark them as processed
 		relatedDevices, err := registry.FindRelatedDevices(ctx, device.DeviceID)
 		if err != nil {
-			log.Printf("Warning: Failed to find related devices for %s: %v", device.DeviceID, err)
+			logger.Warn().Err(err).Str("device_id", device.DeviceID).Msg("Failed to find related devices")
 		} else {
 			for _, related := range relatedDevices {
 				processed[related.DeviceID] = true
@@ -1370,7 +1375,7 @@ func mergeRelatedDevices(ctx context.Context, registry DeviceRegistryService, de
 		mergedDevices = append(mergedDevices, mergedDevice)
 	}
 
-	log.Printf("Device merging: %d original devices merged into %d unified devices", len(devices), len(mergedDevices))
+	logger.Info().Int("original_count", len(devices)).Int("merged_count", len(mergedDevices)).Msg("Device merging complete")
 
 	return mergedDevices
 }

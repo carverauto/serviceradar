@@ -18,7 +18,6 @@ package api
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -59,13 +58,13 @@ func (s *APIServer) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.encodeJSONResponse(w, token); err != nil {
-		log.Printf("Error encoding login response: %v", err)
+		s.logger.Error().Err(err).Msg("Error encoding login response")
 		http.Error(w, "login failed", http.StatusInternalServerError)
 
 		return
 	}
 
-	log.Printf("Login response sent for %s", creds.Username)
+	s.logger.Info().Str("username", creds.Username).Msg("Login response sent")
 }
 
 // LoginCredentials represents the credentials needed for local authentication.
@@ -120,7 +119,7 @@ func (s *APIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 	// Complete the OAuth flow using gothic
 	gothUser, err := gothic.CompleteUserAuth(w, r)
 	if err != nil {
-		log.Printf("OAuth callback failed for provider %s: %v", provider, err)
+		s.logger.Error().Err(err).Str("provider", provider).Msg("OAuth callback failed")
 		http.Error(w, "OAuth callback failed: "+err.Error(), http.StatusInternalServerError)
 
 		return
@@ -129,14 +128,14 @@ func (s *APIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 	// Generate JWT token using your auth service
 	token, err := s.authService.CompleteOAuth(r.Context(), provider, &gothUser)
 	if err != nil {
-		log.Printf("Token generation failed for provider %s: %v", provider, err)
+		s.logger.Error().Err(err).Str("provider", provider).Msg("Token generation failed")
 		http.Error(w, "Token generation failed", http.StatusInternalServerError)
 
 		return
 	}
 
 	if err := s.encodeJSONResponse(w, token); err != nil {
-		log.Printf("Error encoding token response: %v", err)
+		s.logger.Error().Err(err).Msg("Error encoding token response")
 		http.Error(w, "Token generation failed", http.StatusInternalServerError)
 
 		return
@@ -178,7 +177,7 @@ func (s *APIServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	err = s.encodeJSONResponse(w, token)
 	if err != nil {
-		log.Println(err)
+		s.logger.Error().Err(err).Msg("Error encoding refresh token response")
 		http.Error(w, "token refresh failed", http.StatusInternalServerError)
 
 		return
