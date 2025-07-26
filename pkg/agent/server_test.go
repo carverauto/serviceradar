@@ -164,6 +164,7 @@ func TestServer_HandleSweepGetResults_Success(t *testing.T) {
 		},
 		config:             &models.Config{},
 		stats:              newScanStats(),
+		logger:             createTestLogger(),
 		cachedResults:      nil,
 		lastSweepTimestamp: 0,
 		currentSequence:    0,
@@ -219,6 +220,7 @@ func TestServer_HandleSweepGetResults_NoNewData(t *testing.T) {
 		},
 		config: &models.Config{},
 		stats:  newScanStats(),
+		logger: createTestLogger(),
 		cachedResults: &models.SweepSummary{
 			TotalHosts:     5,
 			AvailableHosts: 4,
@@ -310,6 +312,7 @@ func TestServer_GetResults_SweepService(t *testing.T) {
 		},
 		config:             &models.Config{},
 		stats:              newScanStats(),
+		logger:             createTestLogger(),
 		cachedResults:      nil,
 		lastSweepTimestamp: 0,
 		currentSequence:    0,
