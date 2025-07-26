@@ -80,7 +80,7 @@ func (s *APIServer) getSysmonMetrics(
 	// Validate metrics provider
 	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
 	if !ok {
-		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for poller %s", pollerID)
+		s.logger.Warn().Str("poller_id", pollerID).Msg("Metrics manager does not implement SysmonMetricsProvider")
 		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
 
 		return
@@ -92,10 +92,18 @@ func (s *APIServer) getSysmonMetrics(
 		var httpErr *httpError
 
 		if errors.As(err, &httpErr) {
-			log.Printf("Error fetching %s metrics for poller %s: %v", metricType, pollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("metric_type", metricType).
+				Str("poller_id", pollerID).
+				Msg("Error fetching metrics")
 			writeError(w, httpErr.Message, httpErr.Status)
 		} else {
-			log.Printf("Unexpected error fetching %s metrics for poller %s: %v", metricType, pollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("metric_type", metricType).
+				Str("poller_id", pollerID).
+				Msg("Unexpected error fetching metrics")
 			writeError(w, "Internal server error", http.StatusInternalServerError)
 		}
 
@@ -105,20 +113,31 @@ func (s *APIServer) getSysmonMetrics(
 	// log metrics based on type
 	switch metricType {
 	case "CPU":
-		log.Printf("Fetched %d CPU metrics for poller %s", len(metrics.([]models.SysmonCPUResponse)),
-			pollerID)
+		s.logger.Debug().
+			Int("metric_count", len(metrics.([]models.SysmonCPUResponse))).
+			Str("poller_id", pollerID).
+			Msg("Fetched CPU metrics")
 	case "memory":
-		log.Printf("Fetched %d memory metrics for poller %s", len(metrics.([]models.SysmonMemoryResponse)),
-			pollerID)
+		s.logger.Debug().
+			Int("metric_count", len(metrics.([]models.SysmonMemoryResponse))).
+			Str("poller_id", pollerID).
+			Msg("Fetched memory metrics")
 	case "disk":
-		log.Printf("Fetched %d disk metrics for poller %s", len(metrics.([]models.SysmonDiskResponse)),
-			pollerID)
+		s.logger.Debug().
+			Int("metric_count", len(metrics.([]models.SysmonDiskResponse))).
+			Str("poller_id", pollerID).
+			Msg("Fetched disk metrics")
 	case "process":
-		log.Printf("Fetched %d process metrics for poller %s", len(metrics.([]models.SysmonProcessResponse)),
-			pollerID)
+		s.logger.Debug().
+			Int("metric_count", len(metrics.([]models.SysmonProcessResponse))).
+			Str("poller_id", pollerID).
+			Msg("Fetched process metrics")
 	default:
-		log.Printf("Fetched %d unknown metrics for poller %s", len(metrics.([]models.SysmonDiskResponse)),
-			pollerID)
+		s.logger.Debug().
+			Int("metric_count", len(metrics.([]models.SysmonDiskResponse))).
+			Str("poller_id", pollerID).
+			Msg("Fetched unknown metrics")
+
 		return
 	}
 

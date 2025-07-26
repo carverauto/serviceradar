@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/stretchr/testify/assert"
@@ -505,6 +506,7 @@ func TestExecuteQueryAndBuildResponse(t *testing.T) {
 			s := &APIServer{
 				dbType:        tt.dbType,
 				queryExecutor: mockQueryExecutor,
+				logger:        logger.NewTestLogger(),
 			}
 
 			tt.setupMock()
@@ -630,6 +632,7 @@ func TestHandleSRQLQuery(t *testing.T) {
 			s := &APIServer{
 				dbType:        tt.dbType,
 				queryExecutor: mockQueryExecutor,
+				logger:        logger.NewTestLogger(),
 			}
 
 			tt.setupMock()
@@ -829,7 +832,9 @@ func TestCursorFunctions(t *testing.T) {
 
 // TestPostProcessDeviceResults tests the postProcessDeviceResults function
 func TestPostProcessDeviceResults(t *testing.T) {
-	server := &APIServer{}
+	server := &APIServer{
+		logger: logger.NewTestLogger(),
+	}
 
 	tests := []struct {
 		name     string

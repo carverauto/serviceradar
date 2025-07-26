@@ -18,7 +18,6 @@ package core
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
@@ -89,11 +88,16 @@ func (s *Server) flushMetrics(ctx context.Context) {
 		s.metricBuffers[pollerID] = nil
 
 		if err := s.DB.StoreMetrics(ctx, pollerID, metricsToFlush); err != nil {
-			log.Printf("CRITICAL DB WRITE ERROR: Failed to flush/StoreMetrics for poller %s: %v. "+
-				"Number of metrics attempted: %d", pollerID, err, len(metricsToFlush))
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", pollerID).
+				Int("metric_count", len(metricsToFlush)).
+				Msg("CRITICAL DB WRITE ERROR: Failed to flush/StoreMetrics")
 		} else {
-			log.Printf("Successfully flushed %d timeseries metrics for poller %s",
-				len(metricsToFlush), pollerID)
+			s.logger.Debug().
+				Int("metric_count", len(metricsToFlush)).
+				Str("poller_id", pollerID).
+				Msg("Successfully flushed timeseries metrics")
 		}
 	}
 }
@@ -109,7 +113,10 @@ func (s *Server) flushServiceStatuses(ctx context.Context) {
 		}
 
 		if err := s.DB.UpdateServiceStatuses(ctx, statuses); err != nil {
-			log.Printf("Failed to flush service statuses for poller %s: %v", pollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", pollerID).
+				Msg("Failed to flush service statuses")
 		}
 
 		s.serviceBuffers[pollerID] = nil
@@ -127,7 +134,10 @@ func (s *Server) flushServices(ctx context.Context) {
 		}
 
 		if err := s.DB.StoreServices(ctx, services); err != nil {
-			log.Printf("Failed to flush services for poller %s: %v", pollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", pollerID).
+				Msg("Failed to flush services")
 		}
 
 		s.serviceListBuffers[pollerID] = nil
@@ -173,7 +183,10 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 
 			if err := s.DB.StoreSysmonMetrics(
 				ctx, pollerID, agentID, hostID, partition, hostIP, metric, ts); err != nil {
-				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
+				s.logger.Error().
+					Err(err).
+					Str("poller_id", pollerID).
+					Msg("Failed to flush sysmon metrics")
 			}
 		}
 

@@ -83,7 +83,7 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 	if err != nil {
 		return nil, fmt.Errorf("%w service history: %w", ErrFailedToQuery, err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var history []models.ServiceStatus
 

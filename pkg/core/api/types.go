@@ -24,6 +24,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -90,6 +91,7 @@ type APIServer struct {
 	corsConfig           models.CORSConfig
 	dbType               parser.DatabaseType
 	entityTableMap       map[srqlmodels.EntityType]string
+	logger               logger.Logger
 }
 
 // DeviceRegistryService interface for accessing the device registry

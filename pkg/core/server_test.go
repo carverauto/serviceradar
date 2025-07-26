@@ -29,6 +29,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -42,13 +43,13 @@ import (
 func TestNewServer(t *testing.T) {
 	tests := []struct {
 		name          string
-		config        *models.DBConfig
+		config        *models.CoreServiceConfig
 		expectedError bool
 		setupMock     func(*gomock.Controller) db.Service
 	}{
 		{
 			name: "minimal_config",
-			config: &models.DBConfig{
+			config: &models.CoreServiceConfig{
 				AlertThreshold: 5 * time.Minute,
 				Metrics: models.Metrics{
 					Enabled:    true,
@@ -63,7 +64,7 @@ func TestNewServer(t *testing.T) {
 		},
 		{
 			name: "with_webhooks",
-			config: &models.DBConfig{
+			config: &models.CoreServiceConfig{
 				AlertThreshold: 5 * time.Minute,
 				Webhooks: []alerts.WebhookConfig{
 					{Enabled: true, URL: "https://example.com/webhook"},
@@ -109,7 +110,7 @@ func TestNewServer(t *testing.T) {
 	}
 }
 
-func newServerWithDB(_ context.Context, config *models.DBConfig, database db.Service) (*Server, error) {
+func newServerWithDB(_ context.Context, config *models.CoreServiceConfig, database db.Service) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 	metricsManager := metrics.NewManager(models.MetricsConfig{
 		Enabled:    normalizedConfig.Metrics.Enabled,
@@ -143,6 +144,7 @@ func newServerWithDB(_ context.Context, config *models.DBConfig, database db.Ser
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		logger:              logger.NewTestLogger(),
 	}
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
@@ -205,7 +207,7 @@ func TestReportStatus(t *testing.T) {
 
 	server := &Server{
 		DB:                  mockDB,
-		config:              &models.DBConfig{KnownPollers: []string{"test-poller"}},
+		config:              &models.CoreServiceConfig{KnownPollers: []string{"test-poller"}},
 		metrics:             metricsManager,
 		apiServer:           mockAPI,
 		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
@@ -214,6 +216,7 @@ func TestReportStatus(t *testing.T) {
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		logger:              logger.NewTestLogger(),
 	}
 
 	// Test unknown poller
@@ -354,6 +357,7 @@ func TestProcessSweepData(t *testing.T) {
 	server := &Server{
 		DB:             mockDB,
 		DeviceRegistry: mockDeviceRegistry,
+		logger:         logger.NewTestLogger(),
 	}
 	now := time.Now()
 	ctx := context.Background()
@@ -433,6 +437,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	server := &Server{
 		DB:            mockDB,
 		metricBuffers: make(map[string][]*models.TimeseriesMetric),
+		logger:        logger.NewTestLogger(),
 	}
 
 	pollerID := "test-poller"
@@ -490,6 +495,7 @@ func TestUpdatePollerStatus(t *testing.T) {
 	server := &Server{
 		DB:                  mockDB,
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		logger:              logger.NewTestLogger(),
 	}
 
 	err := server.updatePollerStatus(context.Background(), "test-poller", true, time.Now())
@@ -505,6 +511,7 @@ func TestHandlePollerRecovery(t *testing.T) {
 
 	server := &Server{
 		webhooks: []alerts.AlertService{mockWebhook},
+		logger:   logger.NewTestLogger(),
 	}
 
 	pollerID := "test-poller"
@@ -536,6 +543,7 @@ func TestHandlePollerDown(t *testing.T) {
 		ShutdownChan:            make(chan struct{}),
 		cacheMutex:              sync.RWMutex{},
 		pollerStatusUpdateMutex: sync.Mutex{},
+		logger:                  logger.NewTestLogger(),
 	}
 
 	pollerID := "test-poller"
@@ -600,6 +608,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		alertThreshold:      5 * time.Minute, // Set threshold to match test
+		logger:              logger.NewTestLogger(),
 	}
 
 	now := time.Now()
@@ -711,7 +720,8 @@ func setupTestServer(
 		pollerStatusUpdates:     make(map[string]*models.PollerStatus),
 		pollerStatusCache:       make(map[string]*models.PollerStatus),
 		ShutdownChan:            make(chan struct{}),
-		config:                  &models.DBConfig{KnownPollers: []string{"test-poller"}},
+		config:                  &models.CoreServiceConfig{KnownPollers: []string{"test-poller"}},
+		logger:                  logger.NewTestLogger(),
 	}
 
 	// Clear all buffers and caches for isolation

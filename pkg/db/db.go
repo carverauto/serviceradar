@@ -21,12 +21,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"reflect"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
@@ -40,10 +40,11 @@ type DB struct {
 	cancel        context.CancelFunc
 	maxBufferSize int
 	flushInterval time.Duration
+	logger        logger.Logger
 }
 
 // createTLSConfig builds TLS configuration from security settings
-func createTLSConfig(config *models.DBConfig) (*tls.Config, error) {
+func createTLSConfig(config *models.CoreServiceConfig) (*tls.Config, error) {
 	// Construct absolute paths for certificate files
 	certDir := config.Security.CertDir
 	certFile := config.Security.TLS.CertFile
@@ -93,7 +94,7 @@ func createTLSConfig(config *models.DBConfig) (*tls.Config, error) {
 }
 
 // New creates a new database connection and initializes the schema.
-func New(ctx context.Context, config *models.DBConfig) (Service, error) {
+func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logger) (Service, error) {
 	tlsConfig, err := createTLSConfig(config)
 	if err != nil {
 		return nil, err
@@ -131,11 +132,11 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 		return nil, fmt.Errorf("failed to run database migrations: %w", err)
 	}
 
-	return createDBWithBuffer(ctx, conn, config), nil
+	return createDBWithBuffer(ctx, conn, config, log), nil
 }
 
 // createDBWithBuffer creates the DB struct with write buffering configured
-func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.DBConfig) *DB {
+func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.CoreServiceConfig, log logger.Logger) *DB {
 	bufferCtx, cancel := context.WithCancel(ctx)
 
 	// Configure write buffer settings
@@ -157,6 +158,7 @@ func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.DB
 		cancel:        cancel,
 		maxBufferSize: maxBufferSize,
 		flushInterval: flushInterval,
+		logger:        log,
 	}
 
 	return db
@@ -281,10 +283,10 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 		ORDER BY mount_point`,
 		pollerID)
 	if err != nil {
-		log.Printf("Error querying mount points: %v", err)
+		db.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Error querying mount points")
 		return nil, fmt.Errorf("failed to query mount points: %w", err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var mountPoints []string
 
@@ -292,7 +294,7 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 		var mountPoint string
 
 		if err := rows.Scan(&mountPoint); err != nil {
-			log.Printf("Error scanning mount point: %v", err)
+			db.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Error scanning mount point")
 
 			continue
 		}
@@ -300,7 +302,10 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 		mountPoints = append(mountPoints, mountPoint)
 	}
 
-	log.Printf("Found %d unique mount points for poller %s", len(mountPoints), pollerID)
+	db.logger.Debug().
+		Int("mount_point_count", len(mountPoints)).
+		Str("poller_id", pollerID).
+		Msg("Found unique mount points")
 
 	return mountPoints, nil
 }
@@ -323,7 +328,9 @@ func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.D
 		return nil
 	}
 
-	log.Printf("DEBUG [database]: Publishing %d device updates directly to device_updates stream", len(updates))
+	db.logger.Debug().
+		Int("update_count", len(updates)).
+		Msg("Publishing device updates directly to device_updates stream")
 
 	batch, err := db.Conn.PrepareBatch(ctx,
 		"INSERT INTO device_updates (agent_id, poller_id, partition, device_id, discovery_source, "+
@@ -368,14 +375,17 @@ func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.D
 		return fmt.Errorf("failed to send device updates batch: %w", err)
 	}
 
-	log.Printf("Successfully published %d device updates to device_updates stream", len(updates))
+	db.logger.Info().
+		Int("update_count", len(updates)).
+		Msg("Successfully published device updates to device_updates stream")
 
 	return nil
 }
 
 // CloseRows safely closes a Rows type and logs any error.
-func CloseRows(rows Rows) {
+func (db *DB) CloseRows(rows Rows) {
 	if err := rows.Close(); err != nil {
-		log.Printf("failed to close rows: %v", err)
+		db.logger.Error().Err(err).
+			Msg("Error closing rows")
 	}
 }

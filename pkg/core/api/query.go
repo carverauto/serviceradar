@@ -353,7 +353,7 @@ var (
 
 // executeProtonQuery executes a query specifically for Proton database type
 func (s *APIServer) executeProtonQuery(ctx context.Context, query string) ([]map[string]interface{}, error) {
-	log.Println("Executing Proton query:", query)
+	s.logger.Debug().Str("query", query).Msg("Executing Proton query")
 
 	results, err := s.queryExecutor.ExecuteQuery(ctx, query)
 	if err != nil {
@@ -513,12 +513,14 @@ func (*APIServer) processMAC(result map[string]interface{}) {
 }
 
 // processHostname handles the hostname field in different formats
-func (*APIServer) processHostname(result map[string]interface{}) {
+func (s *APIServer) processHostname(result map[string]interface{}) {
 	// Handle hostname field - in new schema it's nullable(string), in old schema it might be JSON
 	if hostnameStr, ok := result["hostname"].(string); ok && hostnameStr != "" {
 		// New schema: hostname is direct string from unified_devices
-		log.Printf("DEBUG API: Device %v has hostname from direct string field: %s",
-			result["device_id"], hostnameStr)
+		s.logger.Debug().
+			Interface("device_id", result["device_id"]).
+			Str("hostname", hostnameStr).
+			Msg("Device has hostname from direct string field")
 
 		result["hostname"] = hostnameStr
 
@@ -527,7 +529,11 @@ func (*APIServer) processHostname(result map[string]interface{}) {
 
 	if hostnamePtr, ok := result["hostname"].(*string); ok && hostnamePtr != nil && *hostnamePtr != "" {
 		// New schema: hostname is nullable string (*string) from unified_devices
-		log.Printf("DEBUG API: Device %v has hostname from pointer field: %s", result["device_id"], *hostnamePtr)
+		s.logger.Debug().
+			Interface("device_id", result["device_id"]).
+			Str("hostname", *hostnamePtr).
+			Msg("Device has hostname from pointer field")
+
 		result["hostname"] = *hostnamePtr
 
 		return
@@ -543,8 +549,10 @@ func (*APIServer) processHostname(result map[string]interface{}) {
 
 			result["hostname"] = nil
 		} else {
-			log.Printf("DEBUG API: Device %v has hostname from JSON field: %s",
-				result["device_id"], hostnameField.Value)
+			s.logger.Debug().
+				Interface("device_id", result["device_id"]).
+				Str("hostname", hostnameField.Value).
+				Msg("Device has hostname from JSON field")
 
 			result["hostname"] = hostnameField.Value
 		}
@@ -553,8 +561,11 @@ func (*APIServer) processHostname(result map[string]interface{}) {
 	}
 
 	// Default case
-	log.Printf("DEBUG API: Device %v has NO hostname (hostname: %v, hostname_field: %v)",
-		result["device_id"], result["hostname"], result["hostname_field"])
+	s.logger.Debug().
+		Interface("device_id", result["device_id"]).
+		Interface("hostname", result["hostname"]).
+		Interface("hostname_field", result["hostname_field"]).
+		Msg("Device has NO hostname")
 
 	result["hostname"] = nil
 }
@@ -598,8 +609,10 @@ func (s *APIServer) processDiscoverySources(result map[string]interface{}) {
 	// Handle discovery_sources field - in new schema it's array(string), in old schema it might be JSON
 	if discoverySourcesArray, ok := result["discovery_sources"].([]string); ok && len(discoverySourcesArray) > 0 {
 		// New schema: discovery_sources is already []string from unified_devices
-		log.Printf("DEBUG API: Device %v has discovery_sources from string array: %v",
-			result["device_id"], discoverySourcesArray)
+		s.logger.Debug().
+			Interface("device_id", result["device_id"]).
+			Interface("discovery_sources", discoverySourcesArray).
+			Msg("Device has discovery_sources from string array")
 
 		result["discovery_sources"] = discoverySourcesArray
 
@@ -608,8 +621,10 @@ func (s *APIServer) processDiscoverySources(result map[string]interface{}) {
 
 	if discoverySourcesArray, ok := result["discovery_sources"].([]interface{}); ok {
 		// Fallback: discovery_sources as []interface{}
-		log.Printf("DEBUG API: Device %v has discovery_sources from interface array: %v", result["device_id"],
-			discoverySourcesArray)
+		s.logger.Debug().
+			Interface("device_id", result["device_id"]).
+			Interface("discovery_sources", discoverySourcesArray).
+			Msg("Device has discovery_sources from interface array")
 
 		sources := make([]string, len(discoverySourcesArray))
 
@@ -630,8 +645,11 @@ func (s *APIServer) processDiscoverySources(result map[string]interface{}) {
 	}
 
 	// Default case
-	log.Printf("DEBUG API: Device %v has NO discovery_sources (type: %T, value: %v)",
-		result["device_id"], result["discovery_sources"], result["discovery_sources"])
+	s.logger.Debug().
+		Interface("device_id", result["device_id"]).
+		Str("type", fmt.Sprintf("%T", result["discovery_sources"])).
+		Interface("value", result["discovery_sources"]).
+		Msg("Device has NO discovery_sources")
 
 	result["discovery_sources"] = []string{}
 }

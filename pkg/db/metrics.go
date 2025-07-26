@@ -678,7 +678,7 @@ func (db *DB) GetAllCPUMetrics(
 
 		return nil, fmt.Errorf("failed to query all CPU metrics: %w", err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	data := make(map[time.Time][]models.CPUMetric)
 
@@ -737,7 +737,7 @@ func (db *DB) GetAllDiskMetrics(
 
 		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var metrics []models.DiskMetric
 
@@ -774,7 +774,7 @@ func (db *DB) GetDiskMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("failed to query disk metrics: %w", err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var metrics []models.DiskMetric
 
@@ -804,7 +804,7 @@ func (db *DB) GetMemoryMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("failed to query memory metrics: %w", err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var metrics []models.MemoryMetric
 
@@ -837,7 +837,7 @@ func (db *DB) GetAllDiskMetricsGrouped(
 
 		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	data := make(map[time.Time][]models.DiskMetric)
 
@@ -893,7 +893,7 @@ func (db *DB) GetMemoryMetricsGrouped(
 
 		return nil, fmt.Errorf("failed to query memory metrics: %w", err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var result []models.SysmonMemoryResponse
 
@@ -1028,7 +1028,7 @@ func (db *DB) GetAllProcessMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("failed to query process metrics: %w", err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var metrics []models.ProcessMetric
 
@@ -1061,7 +1061,7 @@ func (db *DB) GetAllProcessMetricsGrouped(
 		log.Printf("Error querying all process metrics: %s", err)
 		return nil, fmt.Errorf("failed to query all process metrics: %w", err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	data := make(map[time.Time][]models.ProcessMetric)
 
