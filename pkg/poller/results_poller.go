@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"time"
 
@@ -79,7 +78,7 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 	rp.updateSequenceTracking(results)
 
 	if rp.shouldSkipCoreSubmission(results) {
-		log.Println("Skipping core submission for service:", rp.check.Name)
+		rp.logger.Info().Str("service_name", rp.check.Name).Msg("Skipping core submission for service")
 		return nil
 	}
 
