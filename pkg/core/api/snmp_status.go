@@ -19,7 +19,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"time"
 )
@@ -69,7 +68,7 @@ func (s *APIServer) getDeviceSNMPStatus(w http.ResponseWriter, r *http.Request) 
 	// Delegate the database check to a new method
 	devicesWithMetrics, err := s.dbService.GetDevicesWithRecentSNMPMetrics(ctx, req.DeviceIDs)
 	if err != nil {
-		log.Printf("Error checking for recent SNMP metrics: %v", err)
+		s.logger.Error().Err(err).Msg("Error checking for recent SNMP metrics")
 		writeError(w, "Failed to check SNMP status", http.StatusInternalServerError)
 
 		return
@@ -93,7 +92,7 @@ func (s *APIServer) getDeviceSNMPStatus(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding SNMP status response: %v", err)
+		s.logger.Error().Err(err).Msg("Error encoding SNMP status response")
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }

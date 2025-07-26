@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -435,7 +434,7 @@ func replaceIntegrationSource(result map[string]interface{}) {
 }
 
 // processMetadata handles the metadata field in different formats
-func (*APIServer) processMetadata(result map[string]interface{}) {
+func (s *APIServer) processMetadata(result map[string]interface{}) {
 	// Handle metadata from materialized view (new schema) or metadata_field (old schema)
 	if metadataMap, ok := result["metadata"].(map[string]string); ok && len(metadataMap) > 0 {
 		// New materialized view schema: metadata is directly a map[string]string
@@ -455,7 +454,7 @@ func (*APIServer) processMetadata(result map[string]interface{}) {
 		var metadataField devicemodels.DiscoveredField[map[string]string]
 
 		if err := json.Unmarshal([]byte(metadataFieldStr), &metadataField); err != nil {
-			log.Printf("Warning: failed to unmarshal metadata_field for device: %v", err)
+			s.logger.Warn().Err(err).Msg("Failed to unmarshal metadata_field for device")
 
 			result["metadata"] = map[string]interface{}{}
 		} else {
@@ -477,7 +476,7 @@ func (*APIServer) processMetadata(result map[string]interface{}) {
 }
 
 // processMAC handles the mac field in different formats
-func (*APIServer) processMAC(result map[string]interface{}) {
+func (s *APIServer) processMAC(result map[string]interface{}) {
 	// Handle mac field - in new schema it's nullable(string), in old schema it might be JSON
 	if macStr, ok := result["mac"].(string); ok && macStr != "" {
 		// New schema: mac is direct string from unified_devices
@@ -498,7 +497,7 @@ func (*APIServer) processMAC(result map[string]interface{}) {
 		var macField devicemodels.DiscoveredField[string]
 
 		if err := json.Unmarshal([]byte(macFieldStr), &macField); err != nil {
-			log.Printf("Warning: failed to unmarshal mac_field for device: %v", err)
+			s.logger.Warn().Err(err).Msg("Failed to unmarshal mac_field for device")
 
 			result["mac"] = nil
 		} else {
@@ -545,7 +544,7 @@ func (s *APIServer) processHostname(result map[string]interface{}) {
 		var hostnameField devicemodels.DiscoveredField[string]
 
 		if err := json.Unmarshal([]byte(hostnameFieldStr), &hostnameField); err != nil {
-			log.Printf("Warning: failed to unmarshal hostname_field for device: %v", err)
+			s.logger.Warn().Err(err).Msg("Failed to unmarshal hostname_field for device")
 
 			result["hostname"] = nil
 		} else {
@@ -571,12 +570,12 @@ func (s *APIServer) processHostname(result map[string]interface{}) {
 }
 
 // processStringDiscoverySources handles the case where discovery_sources is a string
-func (*APIServer) processStringDiscoverySources(result map[string]interface{}, discoverySourcesStr string) {
+func (s *APIServer) processStringDiscoverySources(result map[string]interface{}, discoverySourcesStr string) {
 	// Old schema: discovery_sources is JSON string - parse it
 	var discoverySourcesInfo []devicemodels.DiscoverySourceInfo
 
 	if err := json.Unmarshal([]byte(discoverySourcesStr), &discoverySourcesInfo); err != nil {
-		log.Printf("Warning: failed to unmarshal discovery_sources for device: %v", err)
+		s.logger.Warn().Err(err).Msg("Failed to unmarshal discovery_sources for device")
 
 		result["discovery_sources"] = []string{}
 

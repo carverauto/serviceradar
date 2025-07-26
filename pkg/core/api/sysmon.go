@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"reflect"
 	"sort"
@@ -145,7 +144,7 @@ func (s *APIServer) getSysmonMetrics(
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(metrics); err != nil {
-		log.Printf("Error encoding %s metrics response: %v", metricType, pollerID)
+		s.logger.Error().Err(err).Str("metric_type", metricType).Str("poller_id", pollerID).Msg("Error encoding metrics response")
 		writeError(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
@@ -355,7 +354,7 @@ func (s *APIServer) handleDeviceSysmonMetrics(
 
 	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
 	if !ok {
-		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for device %s", deviceID)
+		s.logger.Warn().Str("device_id", deviceID).Msg("Metrics manager does not implement SysmonMetricsProvider")
 		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
 
 		return
@@ -363,7 +362,7 @@ func (s *APIServer) handleDeviceSysmonMetrics(
 
 	metrics, err := fetcher(ctx, metricsProvider, deviceID, startTime, endTime)
 	if err != nil {
-		log.Printf("Error fetching %s metrics for device %s: %v", metricType, deviceID, err)
+		s.logger.Error().Err(err).Str("metric_type", metricType).Str("device_id", deviceID).Msg("Error fetching metrics")
 		writeError(w, "Internal server error", http.StatusInternalServerError)
 
 		return
@@ -377,12 +376,12 @@ func (s *APIServer) handleDeviceSysmonMetrics(
 		return
 	}
 
-	log.Printf("Fetched %d %s metrics for device %s", metricsValue.Len(), metricType, deviceID)
+	s.logger.Debug().Int("count", metricsValue.Len()).Str("metric_type", metricType).Str("device_id", deviceID).Msg("Fetched metrics")
 
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(metrics); err != nil {
-		log.Printf("Error encoding %s metrics response for device %s: %v", metricType, deviceID, err)
+		s.logger.Error().Err(err).Str("metric_type", metricType).Str("device_id", deviceID).Msg("Error encoding metrics response")
 		writeError(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
@@ -418,7 +417,7 @@ func (s *APIServer) getCPUMetricsForDevice(
 		var usagePercent float64
 
 		if err := rows.Scan(&timestamp, &agentID, &hostID, &coreID, &usagePercent); err != nil {
-			log.Printf("Error scanning CPU metric row for device %s: %v", deviceID, err)
+			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error scanning CPU metric row")
 			continue
 		}
 
@@ -479,7 +478,7 @@ func (s *APIServer) getMemoryMetricsForDevice(
 		var usedBytes, totalBytes uint64
 
 		if err := rows.Scan(&timestamp, &agentID, &hostID, &usedBytes, &totalBytes); err != nil {
-			log.Printf("Error scanning memory metric row for device %s: %v", deviceID, err)
+			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error scanning memory metric row")
 			continue
 		}
 
@@ -530,7 +529,7 @@ func (s *APIServer) getDiskMetricsForDevice(
 		var usedBytes, totalBytes uint64
 
 		if err := rows.Scan(&timestamp, &agentID, &hostID, &mountPoint, &usedBytes, &totalBytes); err != nil {
-			log.Printf("Error scanning disk metric row for device %s: %v", deviceID, err)
+			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error scanning disk metric row")
 			continue
 		}
 
@@ -595,7 +594,7 @@ func (s *APIServer) getProcessMetricsForDevice(
 		var memoryUsage uint64
 
 		if err := rows.Scan(&timestamp, &agentID, &hostID, &pid, &name, &cpuUsage, &memoryUsage, &status, &startTime); err != nil {
-			log.Printf("Error scanning process metric row for device %s: %v", deviceID, err)
+			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error scanning process metric row")
 			continue
 		}
 
