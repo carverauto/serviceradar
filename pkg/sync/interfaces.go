@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
@@ -57,7 +58,7 @@ type Integration interface {
 }
 
 // IntegrationFactory defines a function type for creating integrations.
-type IntegrationFactory func(ctx context.Context, config *models.SourceConfig) Integration
+type IntegrationFactory func(ctx context.Context, config *models.SourceConfig, log logger.Logger) Integration
 
 // SyncerInterface defines the interface for the Syncer itself (for completeness).
 type SyncerInterface interface {

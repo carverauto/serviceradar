@@ -17,6 +17,7 @@ type SweepResultsQuery struct {
 	APIEndpoint string // ServiceRadar API endpoint
 	APIKey      string // API key for authentication
 	HTTPClient  HTTPClient
+	Logger      logger.Logger
 }
 
 // QueryRequest represents the SRQL query request
@@ -39,7 +40,7 @@ type QueryResponse struct {
 }
 
 // NewSweepResultsQuery creates a new sweep results query handler
-func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient) *SweepResultsQuery {
+func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient, log logger.Logger) *SweepResultsQuery {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Timeout: 30 * time.Second,
@@ -50,6 +51,7 @@ func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient) *Sw
 		APIEndpoint: apiEndpoint,
 		APIKey:      apiKey,
 		HTTPClient:  httpClient,
+		Logger:      log,
 	}
 }
 
@@ -130,7 +132,7 @@ func (s *SweepResultsQuery) executeQuery(ctx context.Context, queryReq QueryRequ
 	}
 
 	// log the request for debugging
-	logger.Debug().Str("query", queryReq.Query).Str("request_body", string(reqBody)).Msg("Executing SRQL query")
+	s.Logger.Debug().Str("query", queryReq.Query).Str("request_body", string(reqBody)).Msg("Executing SRQL query")
 
 	// Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
