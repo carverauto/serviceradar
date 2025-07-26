@@ -21,10 +21,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -40,15 +40,17 @@ type PollerService struct {
 	proto.UnimplementedAgentServiceServer
 	checker *Poller
 	service *SNMPService
+	logger  logger.Logger
 }
 
-func NewSNMPPollerService(checker *Poller, service *SNMPService) *PollerService {
-	return &PollerService{checker: checker, service: service}
+func NewSNMPPollerService(checker *Poller, service *SNMPService, log logger.Logger) *PollerService {
+	return &PollerService{checker: checker, service: service, logger: log}
 }
 
 type HealthServer struct {
 	grpc_health_v1.UnimplementedHealthServer
 	checker *Poller
+	logger  logger.Logger
 }
 
 // GetStatus implements the AgentService GetStatus method.
@@ -63,7 +65,7 @@ func (s *PollerService) GetStatus(ctx context.Context, req *proto.StatusRequest)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	log.Printf("SNMP GetStatus called")
+	s.logger.Debug().Msg("SNMP GetStatus called")
 
 	// Get status from the SNMP service
 	statusMap, err := s.service.GetStatus(ctx)
@@ -109,7 +111,7 @@ func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckR
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 
-	log.Printf("SNMP HealthServer Check called")
+	s.logger.Debug().Msg("SNMP HealthServer Check called")
 
 	_, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -124,7 +126,7 @@ func (s *HealthServer) Watch(_ *grpc_health_v1.HealthCheckRequest, _ grpc_health
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 
-	log.Printf("SNMP HealthServer Watch called")
+	s.logger.Debug().Msg("SNMP HealthServer Watch called")
 
 	return status.Error(codes.Unimplemented, "Watch is not implemented")
 }

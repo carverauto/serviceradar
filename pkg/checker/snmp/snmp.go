@@ -21,10 +21,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -43,14 +43,23 @@ func NewSNMPManager(d db.Service) SNMPManager {
 // parseMetadata extracts a map from a JSON string metadata
 func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interface{}, bool) {
 	if metadataStr == "" {
-		log.Printf("Warning: empty metadata for metric %s on poller %s", metricName, pollerID)
+		logger.Warn().
+			Str("metric_name", metricName).
+			Str("poller_id", pollerID).
+			Msg("Empty metadata for metric")
+
 		return nil, false
 	}
 
 	var metadata map[string]interface{}
 
 	if err := json.Unmarshal([]byte(metadataStr), &metadata); err != nil {
-		log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", metricName, pollerID, err)
+		logger.Error().
+			Err(err).
+			Str("metric_name", metricName).
+			Str("poller_id", pollerID).
+			Msg("Failed to unmarshal metadata for metric")
+
 		return nil, false
 	}
 
@@ -60,7 +69,11 @@ func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interfa
 // GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
 func (s *MetricsManager) GetSNMPMetrics(
 	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
-	log.Printf("Fetching SNMP metrics for poller %s from %v to %v", pollerID, startTime, endTime)
+	logger.Info().
+		Str("poller_id", pollerID).
+		Time("start_time", startTime).
+		Time("end_time", endTime).
+		Msg("Fetching SNMP metrics")
 
 	metrics, err := s.db.GetMetricsByType(ctx, pollerID, "snmp", startTime, endTime)
 	if err != nil {
