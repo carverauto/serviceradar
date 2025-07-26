@@ -47,10 +47,11 @@ type DefaultArmisUpdater struct {
 	Config        *models.SourceConfig
 	HTTPClient    HTTPClient
 	TokenProvider TokenProvider
+	Logger        logger.Logger
 }
 
 // NewArmisUpdater creates a new Armis updater
-func NewArmisUpdater(config *models.SourceConfig, httpClient HTTPClient, tokenProvider TokenProvider) ArmisUpdater {
+func NewArmisUpdater(config *models.SourceConfig, httpClient HTTPClient, tokenProvider TokenProvider, log logger.Logger) ArmisUpdater {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Timeout: 30 * time.Second,
@@ -61,6 +62,7 @@ func NewArmisUpdater(config *models.SourceConfig, httpClient HTTPClient, tokenPr
 		Config:        config,
 		HTTPClient:    httpClient,
 		TokenProvider: tokenProvider,
+		Logger:        log,
 	}
 }
 
@@ -78,13 +80,13 @@ const (
 
 // BatchUpdateDeviceAttributes updates multiple devices with sweep result attributes in batches
 func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devices []Device, sweepResults []SweepResult) error {
-	logger.Info().
+	a.Logger.Info().
 		Int("devices_count", len(devices)).
 		Int("sweep_results_count", len(sweepResults)).
 		Msg("Batch updating device attributes for Armis")
 
 	if a.Updater == nil {
-		logger.Warn().Msg("Armis updater not configured, skipping device attribute updates")
+		a.Logger.Warn().Msg("Armis updater not configured, skipping device attribute updates")
 		return nil
 	}
 
@@ -115,7 +117,7 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 	}
 
 	if len(updates) == 0 {
-		logger.Info().Msg("No device updates required")
+		a.Logger.Info().Msg("No device updates required")
 		return nil
 	}
 
@@ -126,7 +128,7 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 // processDeviceUpdatesInBatches processes device updates in configurable batch sizes
 func (a *ArmisIntegration) processDeviceUpdatesInBatches(ctx context.Context, updates []DeviceAttributeUpdate, batchSize int) error {
 	totalUpdates := len(updates)
-	logger.Info().
+	a.Logger.Info().
 		Int("total_updates", totalUpdates).
 		Int("batch_size", batchSize).
 		Msg("Processing device updates in batches")
@@ -141,14 +143,14 @@ func (a *ArmisIntegration) processDeviceUpdatesInBatches(ctx context.Context, up
 		batchNum := (i / batchSize) + 1
 		totalBatches := (totalUpdates + batchSize - 1) / batchSize
 
-		logger.Info().
+		a.Logger.Info().
 			Int("batch_number", batchNum).
 			Int("total_batches", totalBatches).
 			Int("batch_size", len(batch)).
 			Msg("Processing device update batch")
 
 		if err := a.processSingleBatch(ctx, batch); err != nil {
-			logger.Error().
+			a.Logger.Error().
 				Err(err).
 				Int("batch_number", batchNum).
 				Int("batch_size", len(batch)).
@@ -157,13 +159,13 @@ func (a *ArmisIntegration) processDeviceUpdatesInBatches(ctx context.Context, up
 			return fmt.Errorf("failed to process batch %d: %w", batchNum, err)
 		}
 
-		logger.Info().
+		a.Logger.Info().
 			Int("batch_number", batchNum).
 			Int("total_batches", totalBatches).
 			Msg("Successfully processed device update batch")
 	}
 
-	logger.Info().
+	a.Logger.Info().
 		Int("total_updates_processed", totalUpdates).
 		Msg("Completed all device attribute updates")
 
@@ -239,7 +241,7 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 		return fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode, resp.StatusCode, string(respBody))
 	}
 
-	logger.Debug().
+	u.Logger.Debug().
 		Str("response_body", string(respBody)).
 		Msg("Armis bulk update response")
 
@@ -311,7 +313,7 @@ func (u *DefaultArmisUpdater) UpdateMultipleDeviceCustomAttributes(ctx context.C
 		return fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode, resp.StatusCode, string(respBody))
 	}
 
-	logger.Info().
+	u.Logger.Info().
 		Int("devices_updated", len(updates)).
 		Int("total_operations", len(operations)).
 		Str("response_body", string(respBody)).
@@ -378,7 +380,7 @@ func (u *DefaultArmisUpdater) UpdateDeviceCustomAttributes(ctx context.Context, 
 		return fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode, resp.StatusCode, string(respBody))
 	}
 
-	logger.Debug().
+	u.Logger.Debug().
 		Str("response_body", string(respBody)).
 		Msg("Armis custom attribute update response")
 

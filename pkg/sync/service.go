@@ -456,19 +456,19 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 
 	var allDeviceUpdates []*models.DeviceUpdate
 
-	logger.Info().
+	s.logger.Info().
 		Int("total_sources", len(s.resultsStore.results)).
 		Msg("SYNC DEBUG: GetResults called")
 
 	for sourceName, devices := range s.resultsStore.results {
-		logger.Info().
+		s.logger.Info().
 			Str("source_name", sourceName).
 			Int("device_count", len(devices)).
 			Msg("SYNC DEBUG: Source devices")
 
 		if len(devices) > 0 {
 			if jsonBytes, err := json.Marshal(devices[0]); err == nil {
-				logger.Debug().
+				s.logger.Debug().
 					Str("source_name", sourceName).
 					Str("sample_device", string(jsonBytes)).
 					Msg("SYNC DEBUG: Sample device JSON")
@@ -478,13 +478,13 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 		allDeviceUpdates = append(allDeviceUpdates, devices...)
 	}
 
-	logger.Info().
+	s.logger.Info().
 		Int("total_device_updates", len(allDeviceUpdates)).
 		Msg("SYNC DEBUG: About to marshal DeviceUpdate array")
 
 	resultsJSON, err := json.Marshal(allDeviceUpdates)
 	if err != nil {
-		logger.Error().
+		s.logger.Error().
 			Err(err).
 			Int("device_count", len(allDeviceUpdates)).
 			Msg("SYNC DEBUG: Failed to marshal DeviceUpdate array")
@@ -492,7 +492,7 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
 	}
 
-	logger.Info().
+	s.logger.Info().
 		Int("json_bytes", len(resultsJSON)).
 		Int("device_count", len(allDeviceUpdates)).
 		Msg("SYNC DEBUG: Successfully marshaled DeviceUpdate array")
@@ -704,5 +704,5 @@ func (s *SimpleSyncService) createIntegration(ctx context.Context, src *models.S
 		cfgCopy.Partition = "default"
 	}
 
-	return factory(ctx, &cfgCopy)
+	return factory(ctx, &cfgCopy, s.logger)
 }

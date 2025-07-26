@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -90,6 +91,7 @@ func TestArmisIntegration_Reconcile_WithRetractionEvents(t *testing.T) {
 		SweepQuerier:    mockQuerier,
 		Updater:         mockUpdater,
 		ResultSubmitter: mockSubmitter,
+		Logger:          logger.NewTestLogger(),
 	}
 
 	// Setup expectations
@@ -228,6 +230,7 @@ func TestArmisIntegration_Reconcile_NoRetractionEvents(t *testing.T) {
 		SweepQuerier:    mockQuerier,
 		Updater:         mockUpdater,
 		ResultSubmitter: mockSubmitter,
+		Logger:          logger.NewTestLogger(),
 	}
 
 	// Setup expectations
@@ -341,6 +344,7 @@ func TestArmisIntegration_Reconcile_ResultSubmitterError(t *testing.T) {
 		SweepQuerier:    mockQuerier,
 		Updater:         mockUpdater,
 		ResultSubmitter: mockSubmitter,
+		Logger:          logger.NewTestLogger(),
 	}
 
 	// Setup expectations
@@ -446,6 +450,7 @@ func TestArmisIntegration_Reconcile_NoResultSubmitter(t *testing.T) {
 		SweepQuerier:    mockQuerier,
 		Updater:         mockUpdater,
 		ResultSubmitter: nil, // No result submitter configured
+		Logger:          logger.NewTestLogger(),
 	}
 
 	// Setup expectations
@@ -496,6 +501,7 @@ func TestArmisIntegration_generateRetractionEvents(t *testing.T) {
 			PollerID:  "test-poller",
 			Partition: "test-partition",
 		},
+		Logger: logger.NewTestLogger(),
 	}
 
 	// Current devices from API

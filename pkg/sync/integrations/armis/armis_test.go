@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
@@ -156,6 +157,7 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 		KVWriter:      mocks.KVWriter,
 		SweepQuerier:  mocks.SweepQuerier,
 		Updater:       mocks.Updater,
+		Logger:        logger.NewTestLogger(),
 	}, mocks
 }
 
@@ -298,6 +300,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 		// Explicitly nil for this test's scope
 		Updater:      nil,
 		SweepQuerier: nil,
+		Logger:       logger.NewTestLogger(),
 	}
 
 	testAccessToken := "test-access-token"
@@ -367,6 +370,7 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 		// Explicitly nil for this test's scope
 		Updater:      nil,
 		SweepQuerier: nil,
+		Logger:       logger.NewTestLogger(),
 	}
 
 	testCases := []struct {
@@ -546,7 +550,11 @@ func setupDefaultArmisIntegration(t *testing.T, resp *http.Response, mockErr err
 	mockHTTPClient := NewMockHTTPClient(ctrl)
 	mockHTTPClient.EXPECT().Do(gomock.Any()).Return(resp, mockErr)
 
-	return &DefaultArmisIntegration{Config: &models.SourceConfig{Endpoint: "https://armis.example.com"}, HTTPClient: mockHTTPClient}
+	return &DefaultArmisIntegration{
+		Config:     &models.SourceConfig{Endpoint: "https://armis.example.com"},
+		HTTPClient: mockHTTPClient,
+		Logger:     logger.NewTestLogger(),
+	}
 }
 
 func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
@@ -561,6 +569,7 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 			},
 		},
 		HTTPClient: NewMockHTTPClient(ctrl),
+		Logger:     logger.NewTestLogger(),
 	}
 
 	testCases := []struct {
@@ -712,6 +721,7 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 		KVClient:   mockKV,
 		ServerName: "test-server",
 		AgentID:    "test-server",
+		Logger:     logger.NewTestLogger(),
 	}
 
 	testSweepConfig := &models.SweepConfig{
@@ -786,6 +796,7 @@ func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 		Config:        &models.SourceConfig{Endpoint: "https://armis.example.com"},
 		HTTPClient:    mockHTTP,
 		TokenProvider: mockToken,
+		Logger:        logger.NewTestLogger(),
 	}
 
 	updates := []ArmisDeviceStatus{
@@ -832,6 +843,7 @@ func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 func TestProcessDevices(t *testing.T) {
 	integ := &ArmisIntegration{
 		Config: &models.SourceConfig{AgentID: "test-agent", PollerID: "poller", Partition: "part"},
+		Logger: logger.NewTestLogger(),
 	}
 
 	devices := []Device{
@@ -905,7 +917,7 @@ func keysWithPrefix(m map[string][]byte, prefix string) []string {
 }
 
 func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {
-	integ := &ArmisIntegration{}
+	integ := &ArmisIntegration{Logger: logger.NewTestLogger()}
 	states := []DeviceState{
 		{IP: "1.1.1.1", IsAvailable: true, Metadata: map[string]interface{}{"armis_device_id": "10"}},
 		{IP: "", IsAvailable: true, Metadata: map[string]interface{}{"armis_device_id": "11"}},
@@ -921,7 +933,7 @@ func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {
 }
 
 func TestPrepareArmisUpdateFromDeviceQuery(t *testing.T) {
-	integ := &ArmisIntegration{}
+	integ := &ArmisIntegration{Logger: logger.NewTestLogger()}
 	results := []map[string]interface{}{
 		{"ip": "1.1.1.1", "is_available": true, "metadata": map[string]interface{}{"armis_device_id": "5"}},
 		{"ip": "", "is_available": true, "metadata": map[string]interface{}{"armis_device_id": "6"}},
@@ -956,6 +968,7 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 		DeviceFetcher: mockDeviceFetcher,
 		KVWriter:      mockKVWriter,
 		Updater:       mockUpdater,
+		Logger:        logger.NewTestLogger(),
 	}
 
 	// Create test data with 2500 devices (should be split into 3 batches of 1000, 1000, and 500)
@@ -1016,6 +1029,7 @@ func TestBatchUpdateDeviceAttributes_SingleBatch(t *testing.T) {
 			Endpoint: "https://armis.example.com",
 		},
 		Updater: mockUpdater,
+		Logger:  logger.NewTestLogger(),
 	}
 
 	// Create test data with 100 devices (single batch)

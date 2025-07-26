@@ -20,6 +20,7 @@ package armis
 import (
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
@@ -57,6 +58,9 @@ type ArmisIntegration struct {
 	SweepQuerier    SRQLQuerier
 	Updater         ArmisUpdater
 	ResultSubmitter ResultSubmitter
+
+	// Logger
+	Logger logger.Logger
 }
 
 // AccessTokenResponse represents the Armis API access token response.
@@ -114,6 +118,7 @@ type DeviceWithMetadata struct {
 type DefaultArmisIntegration struct {
 	Config     *models.SourceConfig
 	HTTPClient HTTPClient
+	Logger     logger.Logger
 }
 
 // DefaultKVWriter provides the default implementation for KVWriter.
@@ -121,4 +126,5 @@ type DefaultKVWriter struct {
 	KVClient   proto.KVServiceClient
 	ServerName string
 	AgentID    string
+	Logger     logger.Logger
 }

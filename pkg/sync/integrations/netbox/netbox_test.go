@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/require"
 )
 
 func TestProcessDevices_UsesIDs(t *testing.T) {
-	integ := &NetboxIntegration{Config: &models.SourceConfig{AgentID: "agent", PollerID: "poller", Partition: "test-partition"}}
+	integ := &NetboxIntegration{
+		Config: &models.SourceConfig{AgentID: "agent", PollerID: "poller", Partition: "test-partition"},
+		Logger: logger.NewTestLogger(),
+	}
 
 	resp := DeviceResponse{Results: []Device{
 		{

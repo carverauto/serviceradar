@@ -19,6 +19,7 @@ package netbox
 import (
 	"context"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
@@ -55,6 +56,7 @@ type NetboxIntegration struct {
 	ExpandSubnets   bool
 	Querier         SRQLQuerier     // Querier for sweep results
 	ResultSubmitter ResultSubmitter // For submitting retraction events
+	Logger          logger.Logger   // Logger instance
 }
 
 // Device represents a NetBox device as returned by the API.
