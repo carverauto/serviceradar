@@ -20,11 +20,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/pkg/sweeper"
@@ -37,6 +37,7 @@ type SweepService struct {
 	mu      sync.RWMutex
 	config  *models.Config
 	stats   *ScanStats
+	logger  logger.Logger
 
 	// Caching fields for sequence tracking
 	cachedResults      *models.SweepSummary
@@ -45,12 +46,12 @@ type SweepService struct {
 }
 
 // NewSweepService creates a new SweepService.
-func NewSweepService(config *models.Config, kvStore KVStore, configKey string) (Service, error) {
+func NewSweepService(config *models.Config, kvStore KVStore, configKey string, log logger.Logger) (Service, error) {
 	config = applyDefaultConfig(config)
-	processor := sweeper.NewBaseProcessor(config)
-	store := sweeper.NewInMemoryStore(processor)
+	processor := sweeper.NewBaseProcessor(config, log)
+	store := sweeper.NewInMemoryStore(processor, log)
 
-	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, kvStore, nil, configKey)
+	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, kvStore, nil, configKey, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create network sweeper: %w", err)
 	}
@@ -59,6 +60,7 @@ func NewSweepService(config *models.Config, kvStore KVStore, configKey string) (
 		sweeper:            sweeperInstance,
 		config:             config,
 		stats:              newScanStats(),
+		logger:             log,
 		cachedResults:      nil,
 		lastSweepTimestamp: 0,
 		currentSequence:    0,
@@ -67,14 +69,14 @@ func NewSweepService(config *models.Config, kvStore KVStore, configKey string) (
 
 // Start begins the sweep service.
 func (s *SweepService) Start(ctx context.Context) error {
-	log.Printf("Starting sweep service with interval %v", s.config.Interval)
+	s.logger.Info().Msgf("Starting sweep service with interval %v", s.config.Interval)
 
 	return s.sweeper.Start(ctx) // KV watching is handled by NetworkSweeper
 }
 
 // Stop gracefully stops the sweep service.
 func (s *SweepService) Stop(_ context.Context) error {
-	log.Printf("Stopping sweep service")
+	s.logger.Info().Msg("Stopping sweep service")
 
 	err := s.sweeper.Stop() // NetworkSweeper handles closing channels
 	if err != nil {
@@ -97,18 +99,18 @@ func (s *SweepService) UpdateConfig(config *models.Config) error {
 	newConfig := applyDefaultConfig(config)
 
 	s.config = newConfig
-	log.Printf("Updated sweep config: %+v", newConfig)
+	s.logger.Info().Msgf("Updated sweep config: %+v", newConfig)
 
 	return s.sweeper.UpdateConfig(newConfig)
 }
 
 // GetStatus returns the current status of the sweep service (lightweight version without hosts).
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
-	log.Printf("Fetching sweep status")
+	s.logger.Info().Msg("Fetching sweep status")
 
 	summary, err := s.sweeper.GetStatus(ctx)
 	if err != nil {
-		log.Printf("Failed to get sweep summary: %v", err)
+		s.logger.Error().Err(err).Msg("Failed to get sweep summary")
 		return nil, fmt.Errorf("failed to get sweep status: %w", err)
 	}
 
@@ -136,7 +138,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 
 	statusJSON, err := json.Marshal(data)
 	if err != nil {
-		log.Printf("Failed to marshal status: %v", err)
+		s.logger.Error().Err(err).Msg("Failed to marshal status")
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
@@ -207,14 +209,14 @@ func newScanStats() *ScanStats {
 
 // CheckICMP performs a standalone ICMP check on the specified host.
 func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Result, error) {
-	icmpScanner, err := scan.NewICMPSweeper(s.config.Timeout, s.config.ICMPRateLimit)
+	icmpScanner, err := scan.NewICMPSweeper(s.config.Timeout, s.config.ICMPRateLimit, s.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
 
 	defer func() {
 		if stopErr := icmpScanner.Stop(ctx); stopErr != nil {
-			log.Printf("Failed to stop ICMP scanner: %v", stopErr)
+			s.logger.Error().Err(stopErr).Msg("Failed to stop ICMP scanner")
 		}
 	}()
 
@@ -238,11 +240,11 @@ func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Resu
 
 // GetSweepResults returns sweep results with sequence tracking for change detection.
 func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string) (*proto.ResultsResponse, error) {
-	log.Printf("GetSweepResults called with lastSequence: %s", lastSequence)
+	s.logger.Info().Str("lastSequence", lastSequence).Msg("GetSweepResults called")
 
 	summary, err := s.sweeper.GetStatus(ctx)
 	if err != nil {
-		log.Printf("Failed to get sweep summary for results: %v", err)
+		s.logger.Error().Err(err).Msg("Failed to get sweep summary for results")
 		return nil, fmt.Errorf("failed to get sweep results: %w", err)
 	}
 
@@ -258,14 +260,14 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 
 		// Sequence updated
 
-		log.Printf("Sweep data changed, updated sequence to: %d", s.currentSequence)
+		s.logger.Info().Uint64("newSequence", s.currentSequence).Msg("Sweep data changed, updated sequence")
 	}
 
 	currentSeqStr := fmt.Sprintf("%d", s.currentSequence)
 
 	// If the caller's sequence is up to date, return no new data
 	if lastSequence != "" && lastSequence == currentSeqStr {
-		log.Printf("No new sweep data (caller sequence: %s, current: %s)", lastSequence, currentSeqStr)
+		s.logger.Debug().Str("callerSequence", lastSequence).Str("currentSequence", currentSeqStr).Msg("No new sweep data")
 
 		return &proto.ResultsResponse{
 			HasNewData:      false,
@@ -278,11 +280,11 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 	// Marshal the full sweep results
 	resultData, err := json.Marshal(s.cachedResults)
 	if err != nil {
-		log.Printf("Failed to marshal sweep results: %v", err)
+		s.logger.Error().Err(err).Msg("Failed to marshal sweep results")
 		return nil, fmt.Errorf("failed to marshal sweep results: %w", err)
 	}
 
-	log.Printf("Returning new sweep data (sequence: %s, hosts: %d)", currentSeqStr, len(s.cachedResults.Hosts))
+	s.logger.Info().Str("sequence", currentSeqStr).Int("hostCount", len(s.cachedResults.Hosts)).Msg("Returning new sweep data")
 
 	return &proto.ResultsResponse{
 		HasNewData:      true,

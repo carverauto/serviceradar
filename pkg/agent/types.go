@@ -110,6 +110,7 @@ type ICMPChecker struct {
 	Host     string
 	DeviceID string
 	scanner  scan.Scanner
+	logger   logger.Logger
 }
 
 // ICMPResponse defines the structure of the ICMP check result.

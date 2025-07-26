@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -53,7 +54,7 @@ func TestNewTCPSweeper(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := NewTCPSweeper(tt.timeout, tt.concurrency)
+			s := NewTCPSweeper(tt.timeout, tt.concurrency, logger.NewTestLogger())
 
 			if s.timeout != tt.wantTimeout {
 				t.Errorf("timeout = %v, want %v", s.timeout, tt.wantTimeout)
@@ -67,7 +68,7 @@ func TestNewTCPSweeper(t *testing.T) {
 }
 
 func TestTCPSweeper_Scan(t *testing.T) {
-	s := NewTCPSweeper(1*time.Second, 2)
+	s := NewTCPSweeper(1*time.Second, 2, logger.NewTestLogger())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -101,7 +102,7 @@ func TestTCPSweeper_Scan(t *testing.T) {
 }
 
 func TestTCPSweeper_checkPort(t *testing.T) {
-	s := NewTCPSweeper(1*time.Second, 2)
+	s := NewTCPSweeper(1*time.Second, 2, logger.NewTestLogger())
 	ctx := context.Background()
 
 	tests := []struct {
@@ -139,7 +140,7 @@ func TestTCPSweeper_checkPort(t *testing.T) {
 }
 
 func TestTCPSweeper_worker(t *testing.T) {
-	s := NewTCPSweeper(1*time.Second, 2)
+	s := NewTCPSweeper(1*time.Second, 2, logger.NewTestLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -180,7 +181,7 @@ func TestTCPSweeper_worker(t *testing.T) {
 }
 
 func TestTCPSweeper_Stop(t *testing.T) {
-	s := NewTCPSweeper(1*time.Second, 2)
+	s := NewTCPSweeper(1*time.Second, 2, logger.NewTestLogger())
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 
@@ -232,7 +233,7 @@ func (*mockConn) SetReadDeadline(time.Time) error  { return nil }
 func (*mockConn) SetWriteDeadline(time.Time) error { return nil }
 
 func TestTCPSweeper_checkPort_Mocked(t *testing.T) {
-	s := NewTCPSweeper(1*time.Second, 2)
+	s := NewTCPSweeper(1*time.Second, 2, logger.NewTestLogger())
 	ctx := context.Background()
 
 	tests := []struct {

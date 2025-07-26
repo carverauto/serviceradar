@@ -19,10 +19,10 @@ package sweeper
 import (
 	"context"
 	"hash/fnv"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -54,9 +54,10 @@ type BaseProcessor struct {
 	configMu            sync.RWMutex
 	processedNetworks   map[string]bool // Track which networks we've already processed
 	processedNetworksMu sync.RWMutex
+	logger              logger.Logger
 }
 
-func NewBaseProcessor(config *models.Config) *BaseProcessor {
+func NewBaseProcessor(config *models.Config, log logger.Logger) *BaseProcessor {
 	portCount := len(config.Ports)
 	if portCount == 0 {
 		portCount = 100
@@ -96,6 +97,7 @@ func NewBaseProcessor(config *models.Config) *BaseProcessor {
 		hostResultPool:    hostPool,
 		portResultPool:    portPool,
 		processedNetworks: make(map[string]bool),
+		logger:            log,
 	}
 
 	return p
@@ -131,7 +133,7 @@ func (p *BaseProcessor) UpdateConfig(config *models.Config) {
 	// The pool doesn't need to be recreated. The "grow on demand" logic
 	// will automatically use the new p.portCount when upgrading hosts.
 	if newPortCount != oldPortCount {
-		log.Printf("Processor config updated. Port count changed from %d to %d.", oldPortCount, newPortCount)
+		p.logger.Info().Int("oldPortCount", oldPortCount).Int("newPortCount", newPortCount).Msg("Processor config updated - port count changed")
 	}
 }
 
@@ -222,7 +224,7 @@ func (p *BaseProcessor) resetGlobalCounters() {
 // performCleanupAndRecycling handles the cleanup and recycling of resources
 func (p *BaseProcessor) performCleanupAndRecycling(allHostsToClean [][]*models.HostResult, totalHosts, totalPorts int) {
 	if totalPorts > fastModeThreshold {
-		log.Printf("Cleanup complete (fast mode: %d hosts, %d ports)", totalHosts, totalPorts)
+		p.logger.Debug().Int("totalHosts", totalHosts).Int("totalPorts", totalPorts).Msg("Cleanup complete (fast mode)")
 		return
 	}
 
@@ -240,7 +242,7 @@ func (p *BaseProcessor) performCleanupAndRecycling(allHostsToClean [][]*models.H
 
 	wg.Wait()
 
-	log.Printf("Cleanup complete (%d hosts, %d ports)", totalHosts, totalPorts)
+	p.logger.Debug().Int("totalHosts", totalHosts).Int("totalPorts", totalPorts).Msg("Cleanup complete")
 }
 
 // cleanupHostBatch cleans up a batch of hosts and returns them to the pool
@@ -327,7 +329,11 @@ func (p *BaseProcessor) updatePortStatus(shard *ProcessorShard, host *models.Hos
 
 		// Only perform the expensive upgrade if the new capacity is larger
 		if newCapacity > cap(host.PortResults) {
-			log.Printf("Upgrading port capacity for host %s from %d to %d", host.Host, cap(host.PortResults), newCapacity)
+			p.logger.Debug().
+				Str("host", host.Host).
+				Int("oldCapacity", cap(host.PortResults)).
+				Int("newCapacity", newCapacity).
+				Msg("Upgrading port capacity for host")
 
 			// Re-allocate PortResults slice with the new, larger capacity
 			newPortResults := make([]*models.PortResult, len(host.PortResults), newCapacity)
@@ -525,8 +531,12 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 		actualTotalHosts = aggregated.totalHosts
 	}
 
-	log.Printf("Summary stats - Total hosts: %d, Available: %d, ICMP responding: %d, Actual total defined in config: %d",
-		aggregated.totalHosts, aggregated.availableHosts, aggregated.icmpHosts, actualTotalHosts)
+	p.logger.Info().
+		Int("totalHosts", aggregated.totalHosts).
+		Int("availableHosts", aggregated.availableHosts).
+		Int("icmpRespondingHosts", aggregated.icmpHosts).
+		Int("actualTotalDefinedInConfig", actualTotalHosts).
+		Msg("Summary stats")
 
 	return &models.SweepSummary{
 		TotalHosts:     actualTotalHosts,
@@ -873,8 +883,11 @@ func (p *BaseProcessor) GetSummaryStream(ctx context.Context, hostCh chan<- mode
 		actualTotalHosts = totalHostCount
 	}
 
-	log.Printf("Streaming summary stats - Total hosts: %d, Available: %d, ICMP responding: %d",
-		totalHostCount, totalAvailableHosts, totalIcmpHosts)
+	p.logger.Debug().
+		Int("totalHosts", totalHostCount).
+		Int("availableHosts", totalAvailableHosts).
+		Int("icmpRespondingHosts", totalIcmpHosts).
+		Msg("Streaming summary stats")
 
 	// Return summary without the hosts slice to save memory
 	return &models.SweepSummary{
