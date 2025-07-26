@@ -3,6 +3,7 @@ package dbeventwriter
 import (
 	"errors"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -35,6 +36,7 @@ type DBEventWriterConfig struct {
 	Security     *models.SecurityConfig `json:"security"`
 	DBSecurity   *models.SecurityConfig `json:"db_security"`
 	Database     models.ProtonDatabase  `json:"database"`
+	Logging      *logger.Config         `json:"logging"` // Logger configuration including OTEL settings
 }
 
 // Validate checks the configuration for required fields.

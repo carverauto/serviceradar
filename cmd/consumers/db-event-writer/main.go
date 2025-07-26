@@ -52,12 +52,24 @@ func main() {
 		Security: dbSecurity,
 	}
 
+	// Initialize logger configuration
+	var loggerConfig *logger.Config
+	if cfg.Logging != nil {
+		loggerConfig = cfg.Logging
+	} else {
+		loggerConfig = logger.DefaultConfig()
+	}
+
 	// Initialize logger for database
-	dbLogger, err := lifecycle.CreateComponentLogger(ctx, "db-writer-db", &logger.Config{
-		Level: "info",
-	})
+	dbLogger, err := lifecycle.CreateComponentLogger(ctx, "db-writer-db", loggerConfig)
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+
+	// Initialize logger for service
+	serviceLogger, err := lifecycle.CreateComponentLogger(ctx, "db-writer-service", loggerConfig)
+	if err != nil {
+		log.Fatalf("Failed to initialize service logger: %v", err)
 	}
 
 	dbService, err := db.New(ctx, dbConfig, dbLogger)
@@ -65,7 +77,7 @@ func main() {
 		log.Fatalf("Failed to initialize database service: %v", err)
 	}
 
-	svc, err := dbeventwriter.NewService(&cfg, dbService)
+	svc, err := dbeventwriter.NewService(&cfg, dbService, serviceLogger)
 	if err != nil {
 		log.Fatalf("Failed to initialize event writer service: %v", err)
 	}

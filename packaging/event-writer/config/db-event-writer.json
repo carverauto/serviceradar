@@ -54,5 +54,19 @@
       "key_file": "/etc/serviceradar/certs/core-key.pem",
       "ca_file": "/etc/serviceradar/certs/root.pem"
     }
+  },
+  "logging": {
+    "level": "info",
+    "debug": false,
+    "output": "stdout",
+    "time_format": "",
+    "otel": {
+      "enabled": false,
+      "endpoint": "",
+      "headers": {},
+      "service_name": "db-event-writer",
+      "batch_timeout": "5s",
+      "insecure": false
+    }
   }
 }
