@@ -19,7 +19,6 @@ package api
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"time"
 
@@ -85,8 +84,7 @@ func (s *APIServer) processRperfMetrics(
 	ctx context.Context, pollerID string, startTime, endTime time.Time) models.RperfMetricResponse {
 	rperfMetrics, err := s.rperfManager.GetRperfMetrics(ctx, pollerID, startTime, endTime)
 	if err != nil {
-		log.Printf("Error fetching rperf metrics for poller %s: %v", pollerID, err)
-
+		s.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Error fetching rperf metrics")
 		return models.RperfMetricResponse{Err: err}
 	}
 
