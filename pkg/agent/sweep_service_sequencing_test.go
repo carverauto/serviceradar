@@ -51,6 +51,7 @@ func TestSweepService_GetSweepResults_InitialCall(t *testing.T) {
 		sweeper:            mockSweeperInstance,
 		config:             &models.Config{},
 		stats:              newScanStats(),
+		logger:             createTestLogger(),
 		cachedResults:      nil,
 		lastSweepTimestamp: 0,
 		currentSequence:    0,
@@ -97,6 +98,7 @@ func TestSweepService_GetSweepResults_NoNewData(t *testing.T) {
 		sweeper:            mockSweeperInstance,
 		config:             &models.Config{},
 		stats:              newScanStats(),
+		logger:             createTestLogger(),
 		cachedResults:      mockSweeperInstance.summary,
 		lastSweepTimestamp: sweepTimestamp,
 		currentSequence:    1,
@@ -139,6 +141,7 @@ func TestSweepService_GetSweepResults_NewDataAvailable(t *testing.T) {
 		sweeper: mockSweeperInstance,
 		config:  &models.Config{},
 		stats:   newScanStats(),
+		logger:  createTestLogger(),
 		cachedResults: &models.SweepSummary{
 			TotalHosts:     10,
 			AvailableHosts: 8,
@@ -191,6 +194,7 @@ func TestSweepService_GetSweepResults_SequenceIncrementsCorrectly(t *testing.T) 
 		sweeper:            mockSweeperInstance,
 		config:             &models.Config{},
 		stats:              newScanStats(),
+		logger:             createTestLogger(),
 		cachedResults:      nil,
 		lastSweepTimestamp: 0,
 		currentSequence:    0,
@@ -248,6 +252,7 @@ func TestSweepService_GetStatus_LightweightResponse(t *testing.T) {
 			Networks: []string{"192.168.1.0/24"},
 		},
 		stats:           newScanStats(),
+		logger:          createTestLogger(),
 		currentSequence: 5,
 	}
 
