@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -35,6 +36,7 @@ type SNMPConfig struct {
 	Security    *models.SecurityConfig `json:"security"`
 	Targets     []Target               `json:"targets"`
 	Partition   string                 `json:"partition"`
+	Logger      *logger.Config         `json:"logger,omitempty"`
 }
 
 const (
