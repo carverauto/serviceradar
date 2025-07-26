@@ -30,7 +30,8 @@ func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metric
 			"packets_sent":     result.PacketsSent,
 		})
 		if err != nil {
-			m.logger.Error().Str("metricName", metricName).Str("pollerID", pollerID).Err(err).Msg("Failed to marshal rperf metadata")
+			m.logger.Error().Str("metricName", metricName).Str("pollerID", pollerID).
+				Err(err).Msg("Failed to marshal rperf metadata")
 			continue
 		}
 
@@ -43,11 +44,14 @@ func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metric
 		}
 
 		if err := m.db.StoreMetric(ctx, pollerID, metric); err != nil {
-			m.logger.Error().Str("metricName", metricName).Str("pollerID", pollerID).Err(err).Msg("Error storing rperf metric")
+			m.logger.Error().Str("metricName", metricName).Str("pollerID", pollerID).
+				Err(err).Msg("Error storing rperf metric")
+
 			return fmt.Errorf("failed to store rperf metric: %w", err)
 		}
 
-		m.logger.Info().Str("metricName", metricName).Str("pollerID", pollerID).Float64("bits_per_second", result.BitsPerSec).Msg("Stored rperf metric")
+		m.logger.Info().Str("metricName", metricName).Str("pollerID", pollerID).
+			Float64("bits_per_second", result.BitsPerSec).Msg("Stored rperf metric")
 	}
 
 	return nil
