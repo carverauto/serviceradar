@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -66,7 +65,7 @@ func (m *Manager) StoreSysmonMetrics(
 	}
 
 	if err := m.db.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, dbMetrics, timestamp); err != nil {
-		log.Printf("Failed to store sysmon metrics for poller %s: %v", pollerID, err)
+		m.logger.Error().Str("pollerID", pollerID).Err(err).Msg("Failed to store sysmon metrics")
 		return err
 	}
 
@@ -122,12 +121,12 @@ func (m *Manager) GetAllDiskMetrics(
 	// Use the DB service's GetAllDiskMetrics method
 	dbMetrics, err := m.db.GetAllDiskMetrics(ctx, pollerID, start, end)
 	if err != nil {
-		log.Printf("Error getting all disk metrics from database: %v", err)
+		m.logger.Error().Err(err).Msg("Error getting all disk metrics from database")
 		return nil, err
 	}
 
 	if len(dbMetrics) == 0 {
-		log.Printf("No disk metrics found for poller %s", pollerID)
+		m.logger.Info().Str("pollerID", pollerID).Msg("No disk metrics found for poller")
 		return []models.DiskMetric{}, nil
 	}
 
