@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -270,7 +269,7 @@ func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []
 	for rows.Next() {
 		device, err := db.scanUnifiedDeviceSimple(rows)
 		if err != nil {
-			log.Printf("Warning: failed to scan unified device in batch fetch: %v", err)
+			db.logger.Warn().Err(err).Msg("Failed to scan unified device in batch fetch")
 			continue
 		}
 

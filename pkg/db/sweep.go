@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -40,42 +39,42 @@ func (db *DB) StoreSweepHostStates(ctx context.Context, states []*models.SweepHo
 	for _, state := range states {
 		// Validate required fields
 		if state.HostIP == "" {
-			log.Printf("Skipping sweep host state with empty IP for poller %s", state.PollerID)
+			db.logger.Warn().Str("poller_id", state.PollerID).Msg("Skipping sweep host state with empty IP")
 			continue
 		}
 
 		if state.AgentID == "" {
-			log.Printf("Skipping sweep host state with empty AgentID for IP %s", state.HostIP)
+			db.logger.Warn().Str("host_ip", state.HostIP).Msg("Skipping sweep host state with empty AgentID")
 			continue
 		}
 
 		if state.PollerID == "" {
-			log.Printf("Skipping sweep host state with empty PollerID for IP %s", state.HostIP)
+			db.logger.Warn().Str("host_ip", state.HostIP).Msg("Skipping sweep host state with empty PollerID")
 			continue
 		}
 
 		// Convert arrays to JSON strings
 		portsScannedBytes, err := json.Marshal(state.TCPPortsScanned)
 		if err != nil {
-			log.Printf("Failed to marshal TCP ports scanned for IP %s: %v", state.HostIP, err)
+			db.logger.Error().Err(err).Str("host_ip", state.HostIP).Msg("Failed to marshal TCP ports scanned")
 			continue
 		}
 
 		portsOpenBytes, err := json.Marshal(state.TCPPortsOpen)
 		if err != nil {
-			log.Printf("Failed to marshal TCP ports open for IP %s: %v", state.HostIP, err)
+			db.logger.Error().Err(err).Str("host_ip", state.HostIP).Msg("Failed to marshal TCP ports open")
 			continue
 		}
 
 		portResultsBytes, err := json.Marshal(state.PortScanResults)
 		if err != nil {
-			log.Printf("Failed to marshal port scan results for IP %s: %v", state.HostIP, err)
+			db.logger.Error().Err(err).Str("host_ip", state.HostIP).Msg("Failed to marshal port scan results")
 			continue
 		}
 
 		metadataBytes, err := json.Marshal(state.Metadata)
 		if err != nil {
-			log.Printf("Failed to marshal metadata for IP %s: %v", state.HostIP, err)
+			db.logger.Error().Err(err).Str("host_ip", state.HostIP).Msg("Failed to marshal metadata")
 			continue
 		}
 
@@ -98,7 +97,7 @@ func (db *DB) StoreSweepHostStates(ctx context.Context, states []*models.SweepHo
 			string(metadataBytes),
 		)
 		if err != nil {
-			log.Printf("Failed to append sweep host state for IP %s: %v", state.HostIP, err)
+			db.logger.Error().Err(err).Str("host_ip", state.HostIP).Msg("Failed to append sweep host state")
 			continue
 		}
 	}
@@ -107,7 +106,7 @@ func (db *DB) StoreSweepHostStates(ctx context.Context, states []*models.SweepHo
 		return fmt.Errorf("failed to send batch: %w", err)
 	}
 
-	log.Printf("Successfully stored %d sweep host states", len(states))
+	db.logger.Info().Int("count", len(states)).Msg("Successfully stored sweep host states")
 
 	return nil
 }
@@ -147,32 +146,32 @@ func (db *DB) GetSweepHostStates(ctx context.Context, pollerID string, limit int
 			&state.LastSweepTime, &state.FirstSeen, &metadataStr,
 		)
 		if err != nil {
-			log.Printf("Failed to scan sweep host state row: %v", err)
+			db.logger.Error().Err(err).Msg("Failed to scan sweep host state row")
 			continue
 		}
 
 		// Unmarshal JSON strings back to Go types
 		if portsScannedStr != "" {
 			if err := json.Unmarshal([]byte(portsScannedStr), &state.TCPPortsScanned); err != nil {
-				log.Printf("Failed to unmarshal TCP ports scanned for IP %s: %v", state.HostIP, err)
+				db.logger.Warn().Err(err).Str("host_ip", state.HostIP).Msg("Failed to unmarshal TCP ports scanned")
 			}
 		}
 
 		if portsOpenStr != "" {
 			if err := json.Unmarshal([]byte(portsOpenStr), &state.TCPPortsOpen); err != nil {
-				log.Printf("Failed to unmarshal TCP ports open for IP %s: %v", state.HostIP, err)
+				db.logger.Warn().Err(err).Str("host_ip", state.HostIP).Msg("Failed to unmarshal TCP ports open")
 			}
 		}
 
 		if portResultsStr != "" {
 			if err := json.Unmarshal([]byte(portResultsStr), &state.PortScanResults); err != nil {
-				log.Printf("Failed to unmarshal port scan results for IP %s: %v", state.HostIP, err)
+				db.logger.Warn().Err(err).Str("host_ip", state.HostIP).Msg("Failed to unmarshal port scan results")
 			}
 		}
 
 		if metadataStr != "" {
 			if err := json.Unmarshal([]byte(metadataStr), &state.Metadata); err != nil {
-				log.Printf("Failed to unmarshal metadata for IP %s: %v", state.HostIP, err)
+				db.logger.Warn().Err(err).Str("host_ip", state.HostIP).Msg("Failed to unmarshal metadata")
 			}
 		}
 

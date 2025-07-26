@@ -128,7 +128,7 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 	}
 
 	// Run database migrations to ensure schema is up-to-date.
-	if err := RunMigrations(ctx, conn); err != nil {
+	if err := RunMigrations(ctx, conn, log); err != nil {
 		return nil, fmt.Errorf("failed to run database migrations: %w", err)
 	}
 

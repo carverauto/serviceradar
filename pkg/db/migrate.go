@@ -20,11 +20,11 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/timeplus-io/proton-go-driver/v2"
 )
 
@@ -34,8 +34,8 @@ var migrationsFS embed.FS
 const migrationsTable = "schema_migrations"
 
 // RunMigrations checks for and applies all pending database migrations.
-func RunMigrations(ctx context.Context, conn proton.Conn) error {
-	log.Println("=== Running Database Migrations ===")
+func RunMigrations(ctx context.Context, conn proton.Conn, log logger.Logger) error {
+	log.Info().Msg("Running database migrations")
 
 	// 1. Ensure the migrations tracking table exists.
 	if err := createMigrationsTable(ctx, conn); err != nil {
@@ -48,7 +48,7 @@ func RunMigrations(ctx context.Context, conn proton.Conn) error {
 		return fmt.Errorf("failed to get applied migrations: %w", err)
 	}
 
-	log.Printf("Found %d applied migrations.", len(appliedMigrations))
+	log.Info().Int("applied_count", len(appliedMigrations)).Msg("Found applied migrations")
 
 	// 3. Get all available migrations from the filesystem.
 	availableMigrations, err := getAvailableMigrations()
@@ -56,7 +56,7 @@ func RunMigrations(ctx context.Context, conn proton.Conn) error {
 		return fmt.Errorf("failed to get available migrations: %w", err)
 	}
 
-	log.Printf("Found %d available migrations.", len(availableMigrations))
+	log.Info().Int("available_count", len(availableMigrations)).Msg("Found available migrations")
 
 	// 4. Apply any migrations that have not yet been run.
 	for _, migrationFile := range availableMigrations {
@@ -65,7 +65,7 @@ func RunMigrations(ctx context.Context, conn proton.Conn) error {
 			continue // Skip already applied migration
 		}
 
-		log.Printf("Applying migration: %s", migrationFile)
+		log.Info().Str("migration_file", migrationFile).Msg("Applying migration")
 
 		// Read the migration content
 		content, err := migrationsFS.ReadFile("migrations/" + migrationFile)
@@ -74,7 +74,7 @@ func RunMigrations(ctx context.Context, conn proton.Conn) error {
 		}
 
 		// Split the migration into individual statements and execute them
-		if err := executeMultiStatementMigration(ctx, conn, string(content), migrationFile); err != nil {
+		if err := executeMultiStatementMigration(ctx, conn, string(content), migrationFile, log); err != nil {
 			return fmt.Errorf("failed to apply migration %s: %w", migrationFile, err)
 		}
 
@@ -83,17 +83,17 @@ func RunMigrations(ctx context.Context, conn proton.Conn) error {
 			return fmt.Errorf("failed to record migration %s: %w", migrationFile, err)
 		}
 
-		log.Printf("Successfully applied and recorded migration: %s", migrationFile)
+		log.Info().Str("migration_file", migrationFile).Msg("Successfully applied and recorded migration")
 	}
 
-	log.Println("=== Database Migrations Finished ===")
+	log.Info().Msg("Database migrations finished")
 
 	return nil
 }
 
 // executeMultiStatementMigration splits a migration file into individual SQL statements
 // and executes them one by one, handling both single and multi-statement migrations.
-func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, content, filename string) error {
+func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, content, filename string, log logger.Logger) error {
 	// Split the content into individual statements
 	statements := splitSQLStatements(content)
 
@@ -103,18 +103,18 @@ func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, conte
 			continue
 		}
 
-		log.Printf("Executing statement %d/%d from %s", i+1, len(statements), filename)
+		log.Debug().Int("statement_num", i+1).Int("total_statements", len(statements)).Str("filename", filename).Msg("Executing statement")
 
 		// Check if this is a long-running INSERT...SELECT statement
 		if strings.Contains(strings.ToUpper(stmt), "INSERT INTO") &&
 			strings.Contains(strings.ToUpper(stmt), "SELECT") &&
 			strings.Contains(stmt, "timeseries_metrics") {
 			// Use extended timeout for data migration
-			log.Printf("Detected data migration statement, using extended timeout...")
+			log.Info().Msg("Detected data migration statement, using extended timeout")
 
 			// First, set max_execution_time
 			if err := conn.Exec(ctx, "SET max_execution_time = 3600"); err != nil {
-				log.Printf("Warning: couldn't set max_execution_time: %v", err)
+				log.Warn().Err(err).Msg("Couldn't set max_execution_time")
 			}
 
 			// Execute with extended context timeout
@@ -130,7 +130,7 @@ func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, conte
 
 			// Reset max_execution_time
 			if err := conn.Exec(ctx, "SET max_execution_time = 60"); err != nil {
-				log.Printf("Warning: couldn't reset max_execution_time: %v", err)
+				log.Warn().Err(err).Msg("Couldn't reset max_execution_time")
 			}
 		} else {
 			// Normal execution for other statements

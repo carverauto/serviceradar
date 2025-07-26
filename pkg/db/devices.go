@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -57,7 +56,7 @@ func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, 
 
 		if metadataStr != "" {
 			if err := json.Unmarshal([]byte(metadataStr), &d.Metadata); err != nil {
-				log.Printf("Warning: failed to unmarshal metadata for device %s: %v", d.DeviceID, err)
+				db.logger.Warn().Err(err).Str("device_id", d.DeviceID).Msg("Failed to unmarshal metadata for device")
 			}
 		}
 
@@ -113,7 +112,7 @@ func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Devic
 
 	if metadataStr != "" {
 		if err := json.Unmarshal([]byte(metadataStr), &d.Metadata); err != nil {
-			log.Printf("Warning: failed to unmarshal metadata for device %s: %v", d.DeviceID, err)
+			db.logger.Warn().Err(err).Str("device_id", d.DeviceID).Msg("Failed to unmarshal metadata for device")
 		}
 	}
 
