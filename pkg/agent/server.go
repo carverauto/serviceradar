@@ -192,7 +192,7 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
 
-	return NewSweepService(c, kvStore, configKey)
+	return NewSweepService(c, kvStore, configKey, log)
 }
 
 func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
@@ -1091,7 +1091,7 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 			s.logger.Info().Str("partition", s.config.Partition).Msg("Creating ICMP checker without device ID - missing partition")
 		}
 
-		check, err = NewICMPCheckerWithDeviceID(host, deviceID)
+		check, err = NewICMPCheckerWithDeviceID(host, deviceID, s.logger)
 	} else {
 		// Use registry for other service types
 		check, err = s.registry.Get(ctx, req.ServiceType, req.ServiceName, req.Details, s.config.Security)

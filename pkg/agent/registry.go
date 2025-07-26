@@ -37,13 +37,13 @@ func initRegistry(log logger.Logger) checker.Registry {
 				details = serviceName // Fallback to service name if details empty
 			}
 
-			return &ProcessChecker{ProcessName: details}, nil
+			return &ProcessChecker{ProcessName: details, logger: log}, nil
 		})
 
 	// Register the port checker
 	registry.Register("port",
 		func(_ context.Context, _, details string, _ *models.SecurityConfig) (checker.Checker, error) {
-			return NewPortChecker(details)
+			return NewPortChecker(details, log)
 		})
 
 	// Register the ICMP checker
@@ -54,7 +54,7 @@ func initRegistry(log logger.Logger) checker.Registry {
 				host = "127.0.0.1"
 			}
 
-			return NewICMPChecker(host)
+			return NewICMPChecker(host, log)
 		})
 
 	// Register the gRPC checker with logger support

@@ -20,9 +20,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/proto"
@@ -33,22 +33,22 @@ const (
 	defaultICMPSweeperRateLimit = 1000
 )
 
-func NewICMPChecker(host string) (*ICMPChecker, error) {
+func NewICMPChecker(host string, log logger.Logger) (*ICMPChecker, error) {
 	scanner, err := scan.NewICMPSweeper(defaultICMPSweeperTimeout, defaultICMPSweeperRateLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
 
-	return &ICMPChecker{Host: host, scanner: scanner}, nil
+	return &ICMPChecker{Host: host, scanner: scanner, logger: log}, nil
 }
 
-func NewICMPCheckerWithDeviceID(host, deviceID string) (*ICMPChecker, error) {
+func NewICMPCheckerWithDeviceID(host, deviceID string, log logger.Logger) (*ICMPChecker, error) {
 	scanner, err := scan.NewICMPSweeper(defaultICMPSweeperTimeout, defaultICMPSweeperRateLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
 
-	return &ICMPChecker{Host: host, DeviceID: deviceID, scanner: scanner}, nil
+	return &ICMPChecker{Host: host, DeviceID: deviceID, scanner: scanner, logger: log}, nil
 }
 
 func (p *ICMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAccessible bool, statusMsg json.RawMessage) {
@@ -78,7 +78,7 @@ func (p *ICMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAc
 
 	data, err := json.Marshal(resp)
 	if err != nil {
-		log.Printf("failed to marshal ICMP response: %v", err)
+		p.logger.Error().Err(err).Msg("failed to marshal ICMP response")
 		return false, jsonError(fmt.Sprintf("Failed to marshal response: %v", err))
 	}
 

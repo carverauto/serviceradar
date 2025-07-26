@@ -20,10 +20,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 )
@@ -53,6 +53,7 @@ type NetworkSweeper struct {
 	kvStore        KVStore
 	deviceRegistry DeviceRegistryService
 	configKey      string
+	logger         logger.Logger
 	mu             sync.RWMutex
 	done           chan struct{}
 	watchDone      chan struct{}
@@ -75,7 +76,8 @@ func NewNetworkSweeper(
 	processor ResultProcessor,
 	kvStore KVStore,
 	deviceRegistry DeviceRegistryService,
-	configKey string) (*NetworkSweeper, error) {
+	configKey string,
+	log logger.Logger) (*NetworkSweeper, error) {
 	if config == nil {
 		return nil, errNilConfig
 	}
@@ -95,7 +97,7 @@ func NewNetworkSweeper(
 			effectiveConcurrency = defaultEffectiveConcurrency // Minimum concurrency
 		}
 
-		log.Printf("Adjusted concurrency to %d for %d targets", effectiveConcurrency, totalTargets)
+		log.Debug().Int("adjustedConcurrency", effectiveConcurrency).Int("totalTargets", totalTargets).Msg("Adjusted concurrency for targets")
 	}
 
 	tcpScanner := scan.NewTCPSweeper(config.Timeout, effectiveConcurrency)
@@ -105,7 +107,7 @@ func NewNetworkSweeper(
 		config.Interval = defaultInterval
 	}
 
-	log.Printf("Creating NetworkSweeper with interval: %v", config.Interval)
+	log.Info().Dur("interval", config.Interval).Msg("Creating NetworkSweeper")
 
 	return &NetworkSweeper{
 		config:         config,
@@ -116,6 +118,7 @@ func NewNetworkSweeper(
 		kvStore:        kvStore,
 		deviceRegistry: deviceRegistry,
 		configKey:      configKey,
+		logger:         log,
 		done:           make(chan struct{}),
 		watchDone:      make(chan struct{}),
 	}, nil
@@ -123,7 +126,7 @@ func NewNetworkSweeper(
 
 // Start begins periodic sweeping and KV watching.
 func (s *NetworkSweeper) Start(ctx context.Context) error {
-	log.Printf("Starting network sweeper with interval %v", s.config.Interval)
+	s.logger.Info().Dur("interval", s.config.Interval).Msg("Starting network sweeper")
 
 	// Start KV config watching in a goroutine
 	go s.watchConfig(ctx)
@@ -132,9 +135,9 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	if err := s.runSweep(initialCtx); err != nil {
 		initialCancel()
 
-		log.Printf("Initial sweep failed: %v", err)
+		s.logger.Error().Err(err).Msg("Initial sweep failed")
 	} else {
-		log.Printf("Initial sweep completed successfully")
+		s.logger.Info().Msg("Initial sweep completed successfully")
 	}
 
 	initialCancel()
@@ -146,26 +149,26 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	ticker := time.NewTicker(s.config.Interval)
 	defer ticker.Stop()
 
-	log.Printf("Entering sweep loop with interval %v", s.config.Interval)
+	s.logger.Debug().Dur("interval", s.config.Interval).Msg("Entering sweep loop")
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("Context canceled, stopping sweeper")
+			s.logger.Info().Msg("Context canceled, stopping sweeper")
 
 			return ctx.Err()
 		case <-s.done:
-			log.Printf("Received done signal, stopping sweeper")
+			s.logger.Info().Msg("Received done signal, stopping sweeper")
 
 			return nil
 		case t := <-ticker.C:
-			log.Printf("Ticker fired at %v, starting periodic sweep", t.Format(time.RFC3339))
+			s.logger.Debug().Time("tickTime", t).Msg("Ticker fired, starting periodic sweep")
 
 			sweepCtx, sweepCancel := context.WithTimeout(ctx, scanTimeout)
 			if err := s.runSweep(sweepCtx); err != nil {
-				log.Printf("Periodic sweep failed: %v", err)
+				s.logger.Error().Err(err).Msg("Periodic sweep failed")
 			} else {
-				log.Printf("Periodic sweep completed successfully")
+				s.logger.Debug().Msg("Periodic sweep completed successfully")
 			}
 
 			sweepCancel()
@@ -179,17 +182,17 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 
 // Stop gracefully stops sweeping and KV watching.
 func (s *NetworkSweeper) Stop() error {
-	log.Printf("Stopping network sweeper")
+	s.logger.Info().Msg("Stopping network sweeper")
 
 	close(s.done)
 	<-s.watchDone // Wait for KV watching to stop
 
 	if err := s.icmpScanner.Stop(context.Background()); err != nil {
-		log.Printf("Failed to stop ICMP scanner: %v", err)
+		s.logger.Error().Err(err).Msg("Failed to stop ICMP scanner")
 	}
 
 	if err := s.tcpScanner.Stop(context.Background()); err != nil {
-		log.Printf("Failed to stop TCP scanner: %v", err)
+		s.logger.Error().Err(err).Msg("Failed to stop TCP scanner")
 	}
 
 	return nil
@@ -202,7 +205,7 @@ func (s *NetworkSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, e
 
 // GetResults retrieves sweep results based on filter.
 func (s *NetworkSweeper) GetResults(ctx context.Context, filter *models.ResultFilter) ([]models.Result, error) {
-	log.Printf("Getting results with filter: %+v", filter)
+	s.logger.Debug().Interface("filter", filter).Msg("Getting results with filter")
 
 	return s.store.GetResults(ctx, filter)
 }
@@ -220,7 +223,7 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	log.Printf("Updating sweeper config: %+v", config)
+	s.logger.Info().Interface("config", config).Msg("Updating sweeper config")
 	s.config = config
 
 	return nil
@@ -231,33 +234,33 @@ func (s *NetworkSweeper) watchConfig(ctx context.Context) {
 	defer close(s.watchDone)
 
 	if s.kvStore == nil {
-		log.Printf("No KV store configured, skipping config watch")
+		s.logger.Debug().Msg("No KV store configured, skipping config watch")
 
 		return
 	}
 
 	ch, err := s.kvStore.Watch(ctx, s.configKey)
 	if err != nil {
-		log.Printf("Failed to watch KV key %s: %v", s.configKey, err)
+		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to watch KV key")
 
 		return
 	}
 
-	log.Printf("Watching KV key %s for config updates", s.configKey)
+	s.logger.Info().Str("configKey", s.configKey).Msg("Watching KV key for config updates")
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("Context canceled, stopping config watch")
+			s.logger.Debug().Msg("Context canceled, stopping config watch")
 
 			return
 		case <-s.done:
-			log.Printf("Sweep service closed, stopping config watch")
+			s.logger.Debug().Msg("Sweep service closed, stopping config watch")
 
 			return
 		case value, ok := <-ch:
 			if !ok {
-				log.Printf("Watch channel closed for key %s", s.configKey)
+				s.logger.Debug().Str("configKey", s.configKey).Msg("Watch channel closed for key")
 
 				return
 			}
@@ -271,7 +274,7 @@ func (s *NetworkSweeper) watchConfig(ctx context.Context) {
 func (s *NetworkSweeper) processConfigUpdate(value []byte) {
 	var temp unmarshalConfig
 	if err := json.Unmarshal(value, &temp); err != nil {
-		log.Printf("Failed to unmarshal config for %s: %v", s.configKey, err)
+		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to unmarshal config")
 		return
 	}
 
@@ -311,9 +314,9 @@ func (s *NetworkSweeper) processConfigUpdate(value []byte) {
 	// Apply defaults if applyDefaultConfig exists, otherwise skip for now
 	// newConfig = *applyDefaultConfig(&newConfig)
 	if err := s.UpdateConfig(&newConfig); err != nil {
-		log.Printf("Failed to apply config update: %v", err)
+		s.logger.Error().Err(err).Msg("Failed to apply config update")
 	} else {
-		log.Printf("Successfully updated sweep config from KV: %+v", newConfig)
+		s.logger.Info().Interface("newConfig", newConfig).Msg("Successfully updated sweep config from KV")
 	}
 }
 
@@ -344,11 +347,11 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 	scanner scan.Scanner, targets []models.Target, scanType string) error {
 	defer wg.Done()
 
-	log.Printf("Running %s scan...", scanType)
+	s.logger.Debug().Str("scanType", scanType).Msg("Running scan")
 
 	results, err := scanner.Scan(ctx, targets)
 	if err != nil {
-		log.Printf("%s scan failed: %v", scanType, err)
+		s.logger.Error().Err(err).Str("scanType", scanType).Msg("Scan failed")
 
 		return err
 	}
@@ -360,7 +363,7 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 		count++
 
 		if err := s.processResult(ctx, &result); err != nil {
-			log.Printf("Failed to process %s result: %v", scanType, err)
+			s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process result")
 
 			continue
 		}
@@ -370,7 +373,7 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 		}
 	}
 
-	log.Printf("%s scan complete: %d results, %d successful", scanType, count, success)
+	s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete")
 
 	return nil
 }
@@ -392,8 +395,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		}
 	}
 
-	log.Printf("Starting sweep with %d ICMP targets and %d TCP targets",
-		len(icmpTargets), len(tcpTargets))
+	s.logger.Info().Int("icmpTargets", len(icmpTargets)).Int("tcpTargets", len(tcpTargets)).Msg("Starting sweep")
 
 	var wg sync.WaitGroup
 
@@ -425,7 +427,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		return tcpErr
 	}
 
-	log.Printf("Sweep completed successfully")
+	s.logger.Info().Msg("Sweep completed successfully")
 
 	return nil
 }
@@ -444,7 +446,7 @@ func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Resul
 	if s.deviceRegistry != nil {
 		if err := s.processDeviceRegistry(result); err != nil {
 			// Log error but don't fail the entire operation
-			log.Printf("Failed to process sweep result through device registry for %s: %v", result.Target.Host, err)
+			s.logger.Error().Err(err).Str("host", result.Target.Host).Msg("Failed to process sweep result through device registry")
 		}
 	}
 
@@ -607,8 +609,7 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 		}
 	}
 
-	log.Printf("Generated %d targets from %d networks (total hosts: %d)",
-		len(targets), len(s.config.Networks), totalHostCount)
+	s.logger.Info().Int("targetsGenerated", len(targets)).Int("networkCount", len(s.config.Networks)).Int("totalHosts", totalHostCount).Msg("Generated targets from networks")
 
 	return targets, nil
 }

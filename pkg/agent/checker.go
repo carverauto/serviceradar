@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"os/exec"
 	"regexp"
@@ -30,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -50,6 +50,7 @@ var (
 
 type ProcessChecker struct {
 	ProcessName string
+	logger      logger.Logger
 }
 
 func (p *ProcessChecker) validateProcessName() error {
@@ -67,10 +68,10 @@ func (p *ProcessChecker) validateProcessName() error {
 
 // Check validates if a process is running.
 func (p *ProcessChecker) Check(ctx context.Context, req *proto.StatusRequest) (isActive bool, statusMsg json.RawMessage) {
-	log.Printf("Checking process %q", p.ProcessName)
+	p.logger.Debug().Str("process", p.ProcessName).Msg("Checking process")
 
 	if err := p.validateProcessName(); err != nil {
-		log.Printf("Failed to validate process name: %v", err)
+		p.logger.Error().Err(err).Msg("Failed to validate process name")
 		return false, jsonError(fmt.Sprintf("Invalid process name: %v", err))
 	}
 
@@ -78,14 +79,14 @@ func (p *ProcessChecker) Check(ctx context.Context, req *proto.StatusRequest) (i
 	// as it only contains alphanumeric chars, hyphens, underscores, and periods
 	validatedProcessName := p.ProcessName
 	cmd := exec.CommandContext(ctx, "systemctl", "is-active", validatedProcessName)
-	log.Printf("Running command: %v", cmd)
+	p.logger.Debug().Strs("cmd", cmd.Args).Msg("Running command")
 
 	output, err := cmd.Output()
 	if err != nil {
 		return false, jsonError(fmt.Sprintf("Process %s is not running: %v", p.ProcessName, err))
 	}
 
-	log.Printf("Process %s is running", p.ProcessName)
+	p.logger.Debug().Str("process", p.ProcessName).Msg("Process is running")
 
 	isActive = true
 	status := strings.TrimSpace(string(output))
@@ -107,15 +108,16 @@ func (p *ProcessChecker) Check(ctx context.Context, req *proto.StatusRequest) (i
 }
 
 type PortChecker struct {
-	Host string
-	Port int
+	Host   string
+	Port   int
+	logger logger.Logger
 }
 
-func NewPortChecker(details string) (*PortChecker, error) {
-	log.Printf("Creating new port checker with details: %s", details)
+func NewPortChecker(details string, log logger.Logger) (*PortChecker, error) {
+	log.Debug().Str("details", details).Msg("Creating new port checker")
 
 	if details == "" {
-		log.Printf("NewPortChecker: %v", errDetailsRequiredPorts)
+		log.Error().Err(errDetailsRequiredPorts).Msg("NewPortChecker failed")
 		return nil, errDetailsRequiredPorts
 	}
 
@@ -136,11 +138,12 @@ func NewPortChecker(details string) (*PortChecker, error) {
 		return nil, fmt.Errorf("%w: %d", errInvalidPort, port)
 	}
 
-	log.Printf("Successfully created port checker for %s:%d", host, port)
+	log.Debug().Str("host", host).Int("port", port).Msg("Successfully created port checker")
 
 	return &PortChecker{
-		Host: host,
-		Port: port,
+		Host:   host,
+		Port:   port,
+		logger: log,
 	}, nil
 }
 
@@ -160,7 +163,7 @@ func (p *PortChecker) Check(ctx context.Context, _ *proto.StatusRequest) (isAcce
 	responseTime := time.Since(start).Nanoseconds()
 
 	if err = conn.Close(); err != nil {
-		log.Printf("Error closing connection: %v", err)
+		p.logger.Error().Err(err).Msg("Error closing connection")
 		return false, jsonError("Error closing connection")
 	}
 
