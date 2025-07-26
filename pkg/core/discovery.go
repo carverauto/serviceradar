@@ -20,12 +20,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
@@ -34,13 +34,14 @@ import (
 
 // discoveryService implements the DiscoveryService interface.
 type discoveryService struct {
-	db  db.Service
-	reg registry.Manager
+	db     db.Service
+	reg    registry.Manager
+	logger logger.Logger
 }
 
 // NewDiscoveryService creates a new DiscoveryService instance.
-func NewDiscoveryService(db db.Service, reg registry.Manager) DiscoveryService {
-	return &discoveryService{db: db, reg: reg}
+func NewDiscoveryService(db db.Service, reg registry.Manager, log logger.Logger) DiscoveryService {
+	return &discoveryService{db: db, reg: reg, logger: log}
 }
 
 // ProcessSyncResults processes the results of a sync discovery operation.
@@ -53,11 +54,14 @@ func (s *discoveryService) ProcessSyncResults(
 	details json.RawMessage,
 	_ time.Time,
 ) error {
-	log.Println("Processing sync discovery results...")
+	s.logger.Info().Msg("Processing sync discovery results")
 
 	// First, check if this is a status payload that should be skipped
 	if s.isStatusPayload(details) {
-		log.Printf("DEBUG: Skipping status payload for sync service from poller %s", reportingPollerID)
+		s.logger.Debug().
+			Str("poller_id", reportingPollerID).
+			Msg("Skipping status payload for sync service")
+
 		return nil
 	}
 
@@ -68,8 +72,11 @@ func (s *discoveryService) ProcessSyncResults(
 	}
 
 	if len(sightings) == 0 {
-		log.Printf("No sightings found in sync discovery data for poller %s, service %s",
-			reportingPollerID, svc.ServiceName)
+		s.logger.Debug().
+			Str("poller_id", reportingPollerID).
+			Str("service_name", svc.ServiceName).
+			Msg("No sightings found in sync discovery data")
+
 		return nil // Nothing to process
 	}
 
@@ -80,16 +87,23 @@ func (s *discoveryService) ProcessSyncResults(
 			source = string(sightings[0].Source) // Use the source from the first sighting
 		}
 
-		log.Printf("Processing %d device sightings from sync service (source: %s)",
-			len(sightings), source)
+		s.logger.Info().
+			Int("sighting_count", len(sightings)).
+			Str("source", source).
+			Msg("Processing device sightings from sync service")
 
 		if err := s.reg.ProcessBatchDeviceUpdates(ctx, sightings); err != nil {
-			log.Printf("Error processing sync discovery sightings for poller %s: %v", reportingPollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", reportingPollerID).
+				Msg("Error processing sync discovery sightings")
+
 			return err
 		}
 	} else {
-		log.Printf("Warning: DeviceRegistry not available. Skipping Processing of %d sync discovery sightings",
-			len(sightings))
+		s.logger.Warn().
+			Int("sighting_count", len(sightings)).
+			Msg("DeviceRegistry not available. Skipping Processing of sync discovery sightings")
 	}
 
 	return nil
@@ -113,17 +127,22 @@ func (*discoveryService) isStatusPayload(details json.RawMessage) bool {
 
 // parseSyncDeviceUpdates parses device updates from sync service data
 // It handles both single JSON arrays and multiple concatenated JSON arrays from chunked streaming
-func (*discoveryService) parseSyncDeviceUpdates(details json.RawMessage, pollerID, serviceName string) ([]*models.DeviceUpdate, error) {
+func (s *discoveryService) parseSyncDeviceUpdates(details json.RawMessage, pollerID, serviceName string) ([]*models.DeviceUpdate, error) {
 	var sightings []*models.DeviceUpdate
 
 	// Log data size for debugging
-	log.Printf("CORE DEBUG: Parsing sync service data for poller %s, data size: %d bytes", pollerID, len(details))
+	s.logger.Debug().
+		Str("poller_id", pollerID).
+		Int("data_size", len(details)).
+		Msg("CORE DEBUG: Parsing sync service data")
 
 	// First try to parse as a single JSON array
 	err := json.Unmarshal(details, &sightings)
 	if err != nil {
 		// If that fails, try to parse as multiple concatenated JSON arrays from chunked streaming
-		log.Printf("DEBUG: Single array parse failed, trying multiple arrays: %v", err)
+		s.logger.Debug().
+			Err(err).
+			Msg("Single array parse failed, trying multiple arrays")
 
 		decoder := json.NewDecoder(strings.NewReader(string(details)))
 
@@ -133,8 +152,12 @@ func (*discoveryService) parseSyncDeviceUpdates(details json.RawMessage, pollerI
 			var chunkSightings []*models.DeviceUpdate
 
 			if chunkErr := decoder.Decode(&chunkSightings); chunkErr != nil {
-				log.Printf("DEBUG: Failed to decode chunk in sync discovery data: %v", chunkErr)
-				log.Printf("DEBUG: Full raw JSON payload causing unmarshal failure: %s", string(details))
+				s.logger.Debug().
+					Err(chunkErr).
+					Msg("Failed to decode chunk in sync discovery data")
+				s.logger.Debug().
+					Str("payload", string(details)).
+					Msg("Full raw JSON payload causing unmarshal failure")
 
 				return nil, fmt.Errorf("failed to parse sync discovery data: %w", err)
 			}
@@ -143,12 +166,17 @@ func (*discoveryService) parseSyncDeviceUpdates(details json.RawMessage, pollerI
 		}
 
 		sightings = allSightings
-		log.Printf("DEBUG: Successfully parsed %d device updates from multiple JSON chunks", len(sightings))
+		s.logger.Debug().
+			Int("device_count", len(sightings)).
+			Msg("Successfully parsed device updates from multiple JSON chunks")
 	}
 
 	// Debug logging for successful unmarshal
-	log.Printf("CORE DEBUG: json.Unmarshal SUCCESS - parsed %d DeviceUpdate objects for poller %s, service %s",
-		len(sightings), pollerID, serviceName)
+	s.logger.Debug().
+		Int("device_count", len(sightings)).
+		Str("poller_id", pollerID).
+		Str("service_name", serviceName).
+		Msg("CORE DEBUG: json.Unmarshal SUCCESS - parsed DeviceUpdate objects")
 
 	// Log source breakdown if we have sightings
 	if len(sightings) > 0 {
@@ -158,14 +186,22 @@ func (*discoveryService) parseSyncDeviceUpdates(details json.RawMessage, pollerI
 			sourceCounts[string(update.Source)]++
 		}
 
-		log.Printf("CORE DEBUG: Device breakdown by source: %+v", sourceCounts)
+		s.logger.Debug().
+			Interface("source_counts", sourceCounts).
+			Msg("CORE DEBUG: Device breakdown by source")
 
 		// Log samples from each source
 		samplesLogged := make(map[string]int)
 		for i, update := range sightings {
 			if samplesLogged[string(update.Source)] < 2 {
-				log.Printf("CORE DEBUG: %s DeviceUpdate[%d]: Source=%s, IP=%s, DeviceID=%s, IsAvailable=%v, Metadata=%+v",
-					update.Source, i, update.Source, update.IP, update.DeviceID, update.IsAvailable, update.Metadata)
+				s.logger.Debug().
+					Str("source", string(update.Source)).
+					Int("index", i).
+					Str("ip", update.IP).
+					Str("device_id", update.DeviceID).
+					Bool("is_available", update.IsAvailable).
+					Interface("metadata", update.Metadata).
+					Msgf("CORE DEBUG: %s DeviceUpdate[%d]", update.Source, i)
 
 				samplesLogged[string(update.Source)]++
 			}
@@ -197,8 +233,13 @@ func (s *discoveryService) ProcessSNMPDiscoveryResults(
 	var payload models.SNMPDiscoveryDataPayload
 
 	if err := json.Unmarshal(details, &payload); err != nil {
-		log.Printf("Error unmarshaling SNMP discovery data for poller %s, service %s: %v. Payload: %s",
-			reportingPollerID, svc.ServiceName, err, string(details))
+		s.logger.Error().
+			Err(err).
+			Str("poller_id", reportingPollerID).
+			Str("service_name", svc.ServiceName).
+			Str("payload", string(details)).
+			Msg("Error unmarshaling SNMP discovery data")
+
 		return fmt.Errorf("failed to parse SNMP discovery data: %w", err)
 	}
 
@@ -207,15 +248,18 @@ func (s *discoveryService) ProcessSNMPDiscoveryResults(
 
 	// Fallback for discovery-specific IDs if not provided in payload
 	if discoveryAgentID == "" {
-		log.Printf("Warning: SNMPDiscoveryDataPayload.AgentID is empty for reportingPollerID %s. "+
-			"Falling back to svc.AgentID %s.", reportingPollerID, svc.AgentId)
+		s.logger.Warn().
+			Str("reporting_poller_id", reportingPollerID).
+			Str("fallback_agent_id", svc.AgentId).
+			Msg("SNMPDiscoveryDataPayload.AgentID is empty, falling back to svc.AgentID")
 
 		discoveryAgentID = svc.AgentId
 	}
 
 	if discoveryInitiatorPollerID == "" {
-		log.Printf("Warning: SNMPDiscoveryDataPayload.PollerID is empty for reportingPollerID %s. "+
-			"Falling back to reportingPollerID %s.", reportingPollerID, reportingPollerID)
+		s.logger.Warn().
+			Str("reporting_poller_id", reportingPollerID).
+			Msg("SNMPDiscoveryDataPayload.PollerID is empty, falling back to reportingPollerID")
 
 		discoveryInitiatorPollerID = reportingPollerID
 	}
@@ -291,7 +335,10 @@ func (s *discoveryService) processDiscoveredDevices(
 	if s.reg != nil {
 		// Delegate to the new registry
 		if err := s.reg.ProcessBatchDeviceUpdates(ctx, resultsToStore); err != nil {
-			log.Printf("Error processing discovered device sightings for poller %s: %v", reportingPollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("poller_id", reportingPollerID).
+				Msg("Error processing discovered device sightings")
 		}
 	}
 }
@@ -581,7 +628,10 @@ func (s *discoveryService) createCorrelationSighting(
 	if len(alternateIPs) > 0 {
 		alternateIPsJSON, err := json.Marshal(alternateIPs)
 		if err != nil {
-			log.Printf("Error marshaling alternate IPs for device %s: %v", deviceIP, err)
+			s.logger.Error().
+				Err(err).
+				Str("device_ip", deviceIP).
+				Msg("Error marshaling alternate IPs for device")
 		} else {
 			metadata["alternate_ips"] = string(alternateIPsJSON)
 		}
@@ -628,7 +678,10 @@ func (s *discoveryService) processDiscoveredInterfaces(
 	)
 
 	if err := s.db.PublishBatchDiscoveredInterfaces(ctx, allModelInterfaces); err != nil {
-		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)
+		s.logger.Error().
+			Err(err).
+			Str("poller_id", reportingPollerID).
+			Msg("Error publishing batch discovered interfaces")
 	}
 
 	// Path 2: Create Correlation Sightings for the Device Registry (CRITICAL PATH)
@@ -655,13 +708,15 @@ func (s *discoveryService) processDiscoveredInterfaces(
 	// Process the batch of sightings through the authoritative registry
 	if len(correlationSightings) > 0 && s.reg != nil {
 		if err := s.reg.ProcessBatchDeviceUpdates(ctx, correlationSightings); err != nil {
-			log.Printf("Error processing mapper correlation sightings: %v", err)
+			s.logger.Error().
+				Err(err).
+				Msg("Error processing mapper correlation sightings")
 		}
 	}
 }
 
 // prepareInterfaceMetadata prepares the metadata JSON for an interface. (Helper function, remains unchanged)
-func (*discoveryService) prepareInterfaceMetadata(protoIface *discoverypb.DiscoveredInterface) json.RawMessage {
+func (s *discoveryService) prepareInterfaceMetadata(protoIface *discoverypb.DiscoveredInterface) json.RawMessage {
 	finalMetadataMap := make(map[string]string)
 
 	if protoIface.Metadata != nil {
@@ -676,8 +731,11 @@ func (*discoveryService) prepareInterfaceMetadata(protoIface *discoverypb.Discov
 
 	metadataJSON, err := json.Marshal(finalMetadataMap)
 	if err != nil {
-		log.Printf("Error marshaling interface metadata for device %s, ifIndex %d: %v",
-			protoIface.DeviceIp, protoIface.IfIndex, err)
+		s.logger.Error().
+			Err(err).
+			Str("device_ip", protoIface.DeviceIp).
+			Int32("if_index", protoIface.IfIndex).
+			Msg("Error marshaling interface metadata")
 
 		metadataJSON = []byte("{}")
 	}
@@ -732,27 +790,36 @@ func (s *discoveryService) processDiscoveredTopology(
 	}
 
 	if err := s.db.PublishBatchTopologyDiscoveryEvents(ctx, modelTopologyEvents); err != nil {
-		log.Printf("Error publishing batch topology discovery events for poller %s: %v", reportingPollerID, err)
+		s.logger.Error().
+			Err(err).
+			Str("poller_id", reportingPollerID).
+			Msg("Error publishing batch topology discovery events")
 	}
 }
 
 // getOrGenerateLocalDeviceID returns the local device ID from the topology link or generates one if not present.
-func (*discoveryService) getOrGenerateLocalDeviceID(protoLink *discoverypb.TopologyLink, partition string) string {
+func (s *discoveryService) getOrGenerateLocalDeviceID(protoLink *discoverypb.TopologyLink, partition string) string {
 	localDeviceID := protoLink.LocalDeviceId
 	if localDeviceID == "" && protoLink.LocalDeviceIp != "" {
 		localDeviceID = fmt.Sprintf("%s:%s", partition, protoLink.LocalDeviceIp)
-		log.Printf("Generated LocalDeviceID for link from %s: %s", protoLink.LocalDeviceIp, localDeviceID)
+		s.logger.Debug().
+			Str("local_device_ip", protoLink.LocalDeviceIp).
+			Str("local_device_id", localDeviceID).
+			Msg("Generated LocalDeviceID for link")
 	}
 
 	return localDeviceID
 }
 
 // prepareTopologyMetadata prepares the metadata JSON for a topology link.
-func (*discoveryService) prepareTopologyMetadata(protoLink *discoverypb.TopologyLink) json.RawMessage {
+func (s *discoveryService) prepareTopologyMetadata(protoLink *discoverypb.TopologyLink) json.RawMessage {
 	metadataJSON, err := json.Marshal(protoLink.Metadata) // protoLink.Metadata is map[string]string
 	if err != nil {
-		log.Printf("Error marshaling topology metadata for local device %s, ifIndex %d: %v",
-			protoLink.LocalDeviceIp, protoLink.LocalIfIndex, err)
+		s.logger.Error().
+			Err(err).
+			Str("local_device_ip", protoLink.LocalDeviceIp).
+			Int32("local_if_index", protoLink.LocalIfIndex).
+			Msg("Error marshaling topology metadata")
 
 		metadataJSON = []byte("{}")
 	}

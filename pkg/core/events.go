@@ -19,23 +19,22 @@ package core
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
 )
 
 // initializeEventPublisher sets up the NATS connection and event publisher using natsutil
-func (s *Server) initializeEventPublisher(ctx context.Context, config *models.DBConfig) error {
+func (s *Server) initializeEventPublisher(ctx context.Context, config *models.CoreServiceConfig) error {
 	// Skip if events are not configured or disabled
 	if config.Events == nil || !config.Events.Enabled {
-		log.Printf("Events not configured or disabled, event publishing disabled")
+		s.logger.Info().Msg("Events not configured or disabled, event publishing disabled")
 		return nil
 	}
 
 	// Skip if NATS is not configured
 	if config.NATS == nil {
-		log.Printf("NATS not configured, event publishing disabled")
+		s.logger.Info().Msg("NATS not configured, event publishing disabled")
 		return nil
 	}
 
@@ -70,7 +69,9 @@ func (s *Server) initializeEventPublisher(ctx context.Context, config *models.DB
 	s.eventPublisher = publisher
 	s.natsConn = nc
 
-	log.Printf("NATS event publisher initialized for stream: %s", config.Events.StreamName)
+	s.logger.Info().
+		Str("stream_name", config.Events.StreamName).
+		Msg("NATS event publisher initialized")
 
 	return nil
 }

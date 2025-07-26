@@ -25,7 +25,7 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 	if err != nil {
 		return nil, fmt.Errorf("%w poller status: %w", ErrFailedToQuery, err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("%w: poller not found", ErrFailedToQuery)
@@ -55,7 +55,7 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]models.
 	if err != nil {
 		return nil, fmt.Errorf("%w poller services: %w", ErrFailedToQuery, err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var services []models.ServiceStatus
 
@@ -84,7 +84,7 @@ func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit
 	if err != nil {
 		return nil, fmt.Errorf("%w poller history points: %w", ErrFailedToQuery, err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var points []models.PollerHistoryPoint
 
@@ -115,7 +115,7 @@ func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]models.P
 	if err != nil {
 		return nil, fmt.Errorf("%w poller history: %w", ErrFailedToQuery, err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var history []models.PollerStatus
 
@@ -146,7 +146,7 @@ func (db *DB) IsPollerOffline(ctx context.Context, pollerID string, threshold ti
 	if err != nil {
 		return false, fmt.Errorf("%w poller status: %w", ErrFailedToQuery, err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var count int
 
@@ -167,7 +167,7 @@ func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var pollerIDs []string
 
@@ -231,7 +231,7 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]mode
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var statuses []models.PollerStatus
 
@@ -286,7 +286,7 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query never reported pollers: %w", ErrFailedToQuery, err)
 	}
-	defer CloseRows(rows)
+	defer db.CloseRows(rows)
 
 	var pollerIDs []string
 
@@ -305,7 +305,10 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
 	}
 
-	log.Printf("Found %d never reported pollers: %v", len(pollerIDs), pollerIDs)
+	db.logger.Debug().
+		Int("poller_count", len(pollerIDs)).
+		Interface("poller_ids", pollerIDs).
+		Msg("Found never reported pollers")
 
 	return pollerIDs, nil
 }
@@ -323,7 +326,11 @@ func (db *DB) UpdatePollerStatus(ctx context.Context, status *models.PollerStatu
 
 	// Update pollers table
 	if err := db.insertPollerStatus(ctx, status); err != nil {
-		log.Printf("Failed to update poller status for %s: %v", status.PollerID, err)
+		db.logger.Error().
+			Err(err).
+			Str("poller_id", status.PollerID).
+			Msg("Failed to update poller status")
+
 		return fmt.Errorf("failed to update poller status: %w", err)
 	}
 
@@ -335,12 +342,18 @@ func (db *DB) UpdatePollerStatus(ctx context.Context, status *models.PollerStatu
 
 	if existing == nil || existing.IsHealthy != status.IsHealthy || existing.LastSeen != status.LastSeen {
 		if err := db.insertPollerHistory(ctx, status); err != nil {
-			log.Printf("Failed to add poller history for %s: %v", status.PollerID, err)
+			db.logger.Error().
+				Err(err).
+				Str("poller_id", status.PollerID).
+				Msg("Failed to add poller history")
+
 			return fmt.Errorf("failed to add poller history: %w", err)
 		}
 	}
 
-	log.Printf("Successfully updated poller status for %s", status.PollerID)
+	db.logger.Debug().
+		Str("poller_id", status.PollerID).
+		Msg("Successfully updated poller status")
 
 	return nil
 }

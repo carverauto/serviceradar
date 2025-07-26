@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,8 @@ func TestDeviceRegistry_ProcessRetractionEvents(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	registry := NewDeviceRegistry(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
 
 	t.Run("Armis retraction event preserves Available=false", func(t *testing.T) {
 		// Test that a retraction event with IsAvailable=false is preserved through the registry processing
@@ -161,7 +163,8 @@ func TestDeviceRegistry_RetractionEventFieldPreservation(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	registry := NewDeviceRegistry(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
 
 	t.Run("All retraction event fields are preserved", func(t *testing.T) {
 		originalEvent := &models.DeviceUpdate{
@@ -218,7 +221,8 @@ func TestDeviceRegistry_RetractionVsDiscoveryEvents(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	registry := NewDeviceRegistry(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
 
 	t.Run("Retraction and discovery events processed together", func(t *testing.T) {
 		mixedEvents := []*models.DeviceUpdate{

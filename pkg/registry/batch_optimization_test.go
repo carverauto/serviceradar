@@ -26,6 +26,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -60,7 +61,8 @@ func TestSimplifiedRegistryBehavior(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockDB := db.NewMockService(ctrl)
-			registry := NewDeviceRegistry(mockDB)
+			testLogger := logger.NewTestLogger()
+			registry := NewDeviceRegistry(mockDB, testLogger)
 
 			// Create test device updates
 			updates := createTestDeviceUpdates(tt.sightingCount)
@@ -91,7 +93,8 @@ func TestEmptyBatchHandling(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	registry := NewDeviceRegistry(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
 
 	ctx := context.Background()
 
@@ -111,7 +114,8 @@ func TestNormalizationBehavior(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	registry := NewDeviceRegistry(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
 
 	// Create a device update with missing partition and device ID
 	update := &models.DeviceUpdate{

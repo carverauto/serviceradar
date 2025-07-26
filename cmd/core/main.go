@@ -79,6 +79,12 @@ func run() error {
 	// Create root context for lifecycle management
 	ctx := context.Background()
 
+	// Initialize logger for main process
+	mainLogger, err := lifecycle.CreateComponentLogger(ctx, "core-main", cfg.Logging)
+	if err != nil {
+		return err
+	}
+
 	// Create core server
 	server, err := core.NewServer(ctx, &cfg)
 	if err != nil {
@@ -96,24 +102,29 @@ func run() error {
 		api.WithDBService(server.DB),
 		api.WithDeviceRegistry(server.DeviceRegistry),
 		api.WithDatabaseType(parser.Proton),
+		api.WithLogger(mainLogger),
 	)
 
 	server.SetAPIServer(ctx, apiServer)
 
 	// Log message about Swagger documentation
-	log.Printf("API server will include Swagger documentation at http://%s/swagger/index.html", cfg.ListenAddr)
+	mainLogger.Info().
+		Str("swagger_url", "http://"+cfg.ListenAddr+"/swagger/index.html").
+		Msg("API server will include Swagger documentation")
 
 	// Start HTTP API server in background
 	errCh := make(chan error, 1)
 
 	go func() {
-		log.Printf("Starting HTTP API server on %s", cfg.ListenAddr)
+		mainLogger.Info().
+			Str("listen_addr", cfg.ListenAddr).
+			Msg("Starting HTTP API server")
 
 		if err := apiServer.Start(cfg.ListenAddr); err != nil {
 			select {
 			case errCh <- err:
 			default:
-				log.Printf("HTTP API server error: %v", err)
+				mainLogger.Error().Err(err).Msg("HTTP API server error")
 			}
 		}
 	}()

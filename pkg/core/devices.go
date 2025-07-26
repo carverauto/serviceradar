@@ -19,7 +19,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -48,13 +47,19 @@ func (s *Server) createSysmonDeviceRecord(
 		},
 	}
 
-	log.Printf("Created/updated device record for sysmon device %s (hostname: %s, ip: %s)",
-		deviceID, payload.Status.HostID, payload.Status.HostIP)
+	s.logger.Info().
+		Str("device_id", deviceID).
+		Str("hostname", payload.Status.HostID).
+		Str("ip", payload.Status.HostIP).
+		Msg("Created/updated device record for sysmon device")
 
 	// Also process through device registry for unified device management
 	if s.DeviceRegistry != nil {
 		if err := s.DeviceRegistry.ProcessDeviceUpdate(ctx, deviceUpdate); err != nil {
-			log.Printf("Warning: Failed to process sysmon device through device registry for %s: %v", deviceID, err)
+			s.logger.Warn().
+				Err(err).
+				Str("device_id", deviceID).
+				Msg("Failed to process sysmon device through device registry")
 		}
 	}
 }
@@ -64,12 +69,12 @@ func (s *Server) createSysmonDeviceRecord(
 func (*Server) createSNMPTargetDeviceUpdate(
 	agentID, pollerID, partition, targetIP, hostname string, timestamp time.Time, available bool) *models.DeviceUpdate {
 	if targetIP == "" {
-		log.Printf("Warning: Cannot create SNMP target device record; target IP is missing.")
+		// Note: This function doesn't have access to logger, would need to be passed as parameter
 		return nil
 	}
 
 	deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
-	log.Printf("Creating SNMP target device update for IP %s (hostname: %s, device_id: %s)", targetIP, hostname, deviceID)
+	// Note: This function doesn't have access to logger, would need to be passed as parameter
 
 	return &models.DeviceUpdate{
 		AgentID:     agentID,

@@ -19,11 +19,11 @@ package registry
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -33,13 +33,15 @@ const (
 
 // DeviceRegistry is the concrete implementation of the registry.Manager.
 type DeviceRegistry struct {
-	db db.Service
+	db     db.Service
+	logger logger.Logger
 }
 
 // NewDeviceRegistry creates a new, authoritative device registry.
-func NewDeviceRegistry(database db.Service) *DeviceRegistry {
+func NewDeviceRegistry(database db.Service, log logger.Logger) *DeviceRegistry {
 	return &DeviceRegistry{
-		db: database,
+		db:     database,
+		logger: log,
 	}
 }
 
@@ -57,7 +59,10 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 
 	processingStart := time.Now()
 	defer func() {
-		log.Printf("ProcessBatchDeviceUpdates completed in %v for %d updates", time.Since(processingStart), len(updates))
+		r.logger.Debug().
+			Dur("duration", time.Since(processingStart)).
+			Int("update_count", len(updates)).
+			Msg("ProcessBatchDeviceUpdates completed")
 	}()
 
 	// Normalize updates to ensure required fields are populated
@@ -70,15 +75,17 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		return fmt.Errorf("failed to publish device updates: %w", err)
 	}
 
-	log.Printf("Successfully processed and published %d device updates.", len(updates))
+	r.logger.Info().
+		Int("update_count", len(updates)).
+		Msg("Successfully processed and published device updates")
 
 	return nil
 }
 
 // normalizeUpdate ensures a DeviceUpdate has the minimum required information.
-func (*DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
+func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 	if update.IP == "" {
-		log.Printf("Skipping update with no IP address")
+		r.logger.Debug().Msg("Skipping update with no IP address")
 		return // Or handle error
 	}
 
@@ -90,7 +97,9 @@ func (*DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 
 		update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
 
-		log.Printf("Generated DeviceID %s for update with empty DeviceID", update.DeviceID)
+		r.logger.Debug().
+			Str("device_id", update.DeviceID).
+			Msg("Generated DeviceID for update with empty DeviceID")
 	} else {
 		// Extract partition from DeviceID if possible
 		partition := extractPartitionFromDeviceID(update.DeviceID)

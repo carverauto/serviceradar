@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
@@ -45,6 +46,7 @@ func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
 		discoveryService: mockDiscovery,
 		metricBuffers:    make(map[string][]*models.TimeseriesMetric),
 		sysmonBuffers:    make(map[string][]*sysmonMetricBuffer),
+		logger:           logger.NewTestLogger(),
 	}
 
 	ctx := context.Background()
@@ -151,6 +153,7 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 		discoveryService: mockDiscovery,
 		metricBuffers:    make(map[string][]*models.TimeseriesMetric),
 		sysmonBuffers:    make(map[string][]*sysmonMetricBuffer),
+		logger:           logger.NewTestLogger(),
 	}
 
 	ctx := context.Background()
@@ -220,6 +223,7 @@ func TestProcessServicePayload_SyncService_HealthCheckNotProcessed(t *testing.T)
 		discoveryService: mockDiscovery,
 		metricBuffers:    make(map[string][]*models.TimeseriesMetric),
 		sysmonBuffers:    make(map[string][]*sysmonMetricBuffer),
+		logger:           logger.NewTestLogger(),
 	}
 
 	ctx := context.Background()

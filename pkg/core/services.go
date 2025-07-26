@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -65,7 +64,10 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 	if len(updatesToStore) > 0 {
 		if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, updatesToStore); err != nil {
-			log.Printf("Error processing batch sweep updates: %v", err)
+			s.logger.Error().
+				Err(err).
+				Msg("Error processing batch sweep updates")
+
 			return err
 		}
 	}
@@ -92,12 +94,14 @@ func (*Server) extractContextInfo(
 }
 
 // validateAndCorrectTimestamp validates the sweep timestamp and corrects it if necessary
-func (*Server) validateAndCorrectTimestamp(sweepData *struct {
+func (s *Server) validateAndCorrectTimestamp(sweepData *struct {
 	proto.SweepServiceStatus
 	Hosts []models.HostResult `json:"hosts"`
 }, svc *api.ServiceStatus, now time.Time) error {
 	if sweepData.LastSweep > now.Add(oneDay).Unix() {
-		log.Printf("Invalid or missing LastSweep timestamp (%d), using current time", sweepData.LastSweep)
+		s.logger.Warn().
+			Int64("last_sweep", sweepData.LastSweep).
+			Msg("Invalid or missing LastSweep timestamp, using current time")
 
 		sweepData.LastSweep = now.Unix()
 
@@ -145,11 +149,15 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 	return apiService
 }
 
-func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
+func (s *Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
 	var details json.RawMessage
 
 	if err := json.Unmarshal(svc.Message, &details); err != nil {
-		log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
+		s.logger.Error().
+			Err(err).
+			Str("service_name", svc.ServiceName).
+			Msg("Error unmarshaling service details")
+
 		return nil, err
 	}
 
@@ -165,7 +173,7 @@ const (
 	syncServiceType   = "sync"
 )
 
-func (*Server) extractDeviceContext(
+func (s *Server) extractDeviceContext(
 	_ context.Context, agentID, defaultPartition, sourceIP, enhancedPayload string) (deviceID, partition string) {
 	var directMessage struct {
 		DeviceID  string `json:"device_id,omitempty"`
@@ -199,6 +207,10 @@ func (*Server) extractDeviceContext(
 			partition = payload.Partition
 		}
 
+		if payload.AgentID == "" {
+			payload.AgentID = agentID
+		}
+
 		if payload.Data.HostIP != "" {
 			deviceID = fmt.Sprintf("%s:%s", partition, payload.Data.HostIP)
 			return deviceID, partition
@@ -210,8 +222,12 @@ func (*Server) extractDeviceContext(
 		return deviceID, partition
 	}
 
-	log.Printf("CRITICAL: Unable to determine device_id for agent %s in partition %s because "+
-		"sourceIP was empty. Service records will not be associated with a device.", agentID, partition)
+	s.logger.Warn().
+		Str("agent_id", agentID).
+		Str("partition", partition).
+		Str("source_ip", sourceIP).
+		Msg("CRITICAL: Unable to determine device_id for agent in partition because sourceIP was empty. " +
+			"Service records will not be associated with a device.")
 
 	return "", partition
 }
@@ -229,7 +245,7 @@ func (s *Server) processServices(
 	serviceList := make([]*models.Service, 0, len(services))
 
 	for _, svc := range services {
-		log.Printf("Processing Service: %s", svc.ServiceName)
+		s.logger.Debug().Str("service_name", svc.ServiceName).Msg("Processing Service")
 		apiService := s.createAPIService(svc)
 
 		if !svc.Available {
@@ -237,8 +253,11 @@ func (s *Server) processServices(
 		}
 
 		if err := s.processServiceDetails(ctx, pollerID, partition, sourceIP, &apiService, svc, now); err != nil {
-			log.Printf("Error processing details for service %s on poller %s: %v",
-				svc.ServiceName, pollerID, err)
+			s.logger.Error().
+				Err(err).
+				Str("service_name", svc.ServiceName).
+				Str("poller_id", pollerID).
+				Msg("Error processing details for service")
 		}
 
 		deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, sourceIP, string(apiService.Message))
@@ -289,7 +308,11 @@ func (s *Server) processServiceDetails(
 	now time.Time,
 ) error {
 	if len(svc.Message) == 0 {
-		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
+		s.logger.Debug().
+			Str("service_name", svc.ServiceName).
+			Str("poller_id", pollerID).
+			Msg("No message content for service")
+
 		return s.handleService(ctx, apiService, partition, now)
 	}
 
@@ -305,8 +328,10 @@ func (s *Server) processServiceDetails(
 		// For all other services, use the standard parsing logic.
 		details, err = s.parseServiceDetails(svc)
 		if err != nil {
-			log.Printf("Failed to parse details for service %s on poller %s, proceeding without details",
-				svc.ServiceName, pollerID)
+			s.logger.Warn().
+				Str("service_name", svc.ServiceName).
+				Str("poller_id", pollerID).
+				Msg("Failed to parse details for service, proceeding without details")
 
 			if svc.ServiceType == snmpDiscoveryResultsServiceType {
 				return fmt.Errorf("failed to parse snmp-discovery-results payload: %w", err)
@@ -319,8 +344,12 @@ func (s *Server) processServiceDetails(
 	apiService.Details = details
 
 	if err := s.processServicePayload(ctx, pollerID, partition, sourceIP, svc, details, now); err != nil {
-		log.Printf("Error processing metrics for service %s on poller %s: %v",
-			svc.ServiceName, pollerID, err)
+		s.logger.Error().
+			Err(err).
+			Str("service_name", svc.ServiceName).
+			Str("poller_id", pollerID).
+			Msg("Error processing metrics for service")
+
 		return err
 	}
 
@@ -405,11 +434,15 @@ func (s *Server) registerServiceDevice(
 			return fmt.Errorf("failed to register service device: %w", err)
 		}
 	} else {
-		log.Printf("Warning: DeviceRegistry not available for device registration")
+		s.logger.Warn().
+			Msg("DeviceRegistry not available for device registration")
 	}
 
-	log.Printf("Successfully registered host device %s (services: %v) for poller %s",
-		deviceID, serviceTypes, pollerID)
+	s.logger.Info().
+		Str("device_id", deviceID).
+		Interface("service_types", serviceTypes).
+		Str("poller_id", pollerID).
+		Msg("Successfully registered host device")
 
 	return nil
 }

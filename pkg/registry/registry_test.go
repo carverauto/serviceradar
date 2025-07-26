@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,8 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	registry := NewDeviceRegistry(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
 
 	tests := []struct {
 		name        string
@@ -226,7 +228,8 @@ func TestDeviceRegistry_ProcessDeviceUpdate(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	registry := NewDeviceRegistry(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
 
 	// Test single device update (should call ProcessBatchDeviceUpdates internally)
 	update := &models.DeviceUpdate{
@@ -267,7 +270,8 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	registry := NewDeviceRegistry(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
 
 	tests := []struct {
 		name        string

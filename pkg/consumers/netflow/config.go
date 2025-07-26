@@ -78,7 +78,7 @@ func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
 	c.EnabledFields = alias.EnabledFields
 	c.DisabledFields = alias.DisabledFields
 	c.Dictionaries = alias.Dictionaries
-	c.DBConfig = models.DBConfig{
+	c.DBConfig = models.CoreServiceConfig{
 		Database: alias.Database,
 	}
 
