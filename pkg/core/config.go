@@ -19,7 +19,6 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -33,27 +32,24 @@ const (
 	defaultMetricsMaxPollers = 10000
 )
 
-func LoadConfig(path string) (models.DBConfig, error) {
+func LoadConfig(path string) (models.CoreServiceConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return models.DBConfig{}, fmt.Errorf("failed to read config: %w", err)
+		return models.CoreServiceConfig{}, fmt.Errorf("failed to read config: %w", err)
 	}
 
-	var config models.DBConfig
+	var config models.CoreServiceConfig
 
 	if err := json.Unmarshal(data, &config); err != nil {
-		return models.DBConfig{}, fmt.Errorf("failed to parse config: %w", err)
+		return models.CoreServiceConfig{}, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	if config.Security != nil {
-		log.Printf("Security config: Mode=%s, CertDir=%s, Role=%s",
-			config.Security.Mode, config.Security.CertDir, config.Security.Role)
-	}
+	// Security config logging removed - will be handled by the logger instance in server
 
 	return config, nil
 }
 
-func normalizeConfig(config *models.DBConfig) *models.DBConfig {
+func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig {
 	normalized := *config
 
 	// Set the DB parameters from the Database struct
@@ -92,7 +88,7 @@ func ensureDataDirectory(dbPath string) error {
 	return os.MkdirAll(dir, serviceradarDirPerms)
 }
 
-func initializeAuthConfig(config *models.DBConfig) (*models.AuthConfig, error) {
+func initializeAuthConfig(config *models.CoreServiceConfig) (*models.AuthConfig, error) {
 	authConfig := &models.AuthConfig{
 		JWTSecret:     os.Getenv("JWT_SECRET"),
 		JWTExpiration: 24 * time.Hour,
@@ -135,13 +131,18 @@ func applyDefaultAdminUser(authConfig *models.AuthConfig) {
 
 func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 	for i, config := range configs {
-		log.Printf("Processing webhook config %d: enabled=%v", i, config.Enabled)
+		s.logger.Debug().
+			Int("index", i).
+			Bool("enabled", config.Enabled).
+			Msg("Processing webhook config")
 
 		if config.Enabled {
 			alerter := alerts.NewWebhookAlerter(config)
 			s.webhooks = append(s.webhooks, alerter)
 
-			log.Printf("Added webhook alerter: %+v", config.URL)
+			s.logger.Info().
+				Str("url", config.URL).
+				Msg("Added webhook alerter")
 		}
 	}
 }

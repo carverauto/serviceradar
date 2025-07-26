@@ -29,6 +29,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
@@ -41,8 +42,9 @@ func TestNewDiscoveryService(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 	mockRegistry := registry.NewMockManager(ctrl)
+	testLogger := logger.NewTestLogger()
 
-	svc := NewDiscoveryService(mockDB, mockRegistry)
+	svc := NewDiscoveryService(mockDB, mockRegistry, testLogger)
 	assert.NotNil(t, svc)
 
 	// Verify it implements the interface
@@ -132,14 +134,16 @@ func TestProcessSyncResults(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockDB := db.NewMockService(ctrl)
 			mockRegistry := registry.NewMockManager(ctrl)
+			testLogger := logger.NewTestLogger()
 
 			if tt.setupMocks != nil {
 				tt.setupMocks(mockDB, mockRegistry)
 			}
 
 			svc := &discoveryService{
-				db:  mockDB,
-				reg: mockRegistry,
+				db:     mockDB,
+				reg:    mockRegistry,
+				logger: testLogger,
 			}
 
 			var details json.RawMessage
@@ -173,10 +177,12 @@ func TestProcessSyncResults_NilRegistry(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	testLogger := logger.NewTestLogger()
 
 	svc := &discoveryService{
-		db:  mockDB,
-		reg: nil, // Nil registry
+		db:     mockDB,
+		reg:    nil, // Nil registry
+		logger: testLogger,
 	}
 
 	sightings := []*models.SweepResult{
@@ -318,14 +324,16 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockDB := db.NewMockService(ctrl)
 			mockRegistry := registry.NewMockManager(ctrl)
+			testLogger := logger.NewTestLogger()
 
 			if tt.setupMocks != nil {
 				tt.setupMocks(mockDB, mockRegistry)
 			}
 
 			svc := &discoveryService{
-				db:  mockDB,
-				reg: mockRegistry,
+				db:     mockDB,
+				reg:    mockRegistry,
+				logger: testLogger,
 			}
 
 			var details json.RawMessage
@@ -354,7 +362,9 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 }
 
 func TestExtractDeviceMetadata(t *testing.T) {
-	svc := &discoveryService{}
+	svc := &discoveryService{
+		logger: logger.NewTestLogger(),
+	}
 
 	tests := []struct {
 		name     string
@@ -485,7 +495,9 @@ func TestIsLoopbackIP(t *testing.T) {
 }
 
 func TestGroupInterfacesByDevice(t *testing.T) {
-	svc := &discoveryService{}
+	svc := &discoveryService{
+		logger: logger.NewTestLogger(),
+	}
 
 	interfaces := []*discoverypb.DiscoveredInterface{
 		{DeviceIp: "192.168.1.1", IfIndex: 1},
@@ -503,7 +515,9 @@ func TestGroupInterfacesByDevice(t *testing.T) {
 }
 
 func TestCollectDeviceIPs(t *testing.T) {
-	svc := &discoveryService{}
+	svc := &discoveryService{
+		logger: logger.NewTestLogger(),
+	}
 
 	interfaces := []*discoverypb.DiscoveredInterface{
 		{IpAddresses: []string{"192.168.1.1", "10.0.0.1"}},
@@ -522,7 +536,9 @@ func TestCollectDeviceIPs(t *testing.T) {
 }
 
 func TestPrepareInterfaceMetadata(t *testing.T) {
-	svc := &discoveryService{}
+	svc := &discoveryService{
+		logger: logger.NewTestLogger(),
+	}
 
 	tests := []struct {
 		name      string
@@ -572,7 +588,9 @@ func TestPrepareInterfaceMetadata(t *testing.T) {
 }
 
 func TestGetOrGenerateLocalDeviceID(t *testing.T) {
-	svc := &discoveryService{}
+	svc := &discoveryService{
+		logger: logger.NewTestLogger(),
+	}
 
 	tests := []struct {
 		name      string

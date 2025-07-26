@@ -19,7 +19,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -48,28 +47,48 @@ func (s *Server) createSysmonDeviceRecord(
 		},
 	}
 
-	log.Printf("Created/updated device record for sysmon device %s (hostname: %s, ip: %s)",
-		deviceID, payload.Status.HostID, payload.Status.HostIP)
+	s.logger.Info().
+		Str("device_id", deviceID).
+		Str("hostname", payload.Status.HostID).
+		Str("ip", payload.Status.HostIP).
+		Msg("Created/updated device record for sysmon device")
 
 	// Also process through device registry for unified device management
 	if s.DeviceRegistry != nil {
 		if err := s.DeviceRegistry.ProcessDeviceUpdate(ctx, deviceUpdate); err != nil {
-			log.Printf("Warning: Failed to process sysmon device through device registry for %s: %v", deviceID, err)
+			s.logger.Warn().
+				Err(err).
+				Str("device_id", deviceID).
+				Msg("Failed to process sysmon device through device registry")
 		}
 	}
 }
 
 // createSNMPTargetDeviceUpdate creates a DeviceUpdate for an SNMP target device.
 // This ensures SNMP targets appear in the unified devices view and can be merged with other discovery sources.
-func (*Server) createSNMPTargetDeviceUpdate(
+func (s *Server) createSNMPTargetDeviceUpdate(
 	agentID, pollerID, partition, targetIP, hostname string, timestamp time.Time, available bool) *models.DeviceUpdate {
 	if targetIP == "" {
-		log.Printf("Warning: Cannot create SNMP target device record; target IP is missing.")
+		s.logger.Debug().
+			Str("agent_id", agentID).
+			Str("poller_id", pollerID).
+			Str("partition", partition).
+			Str("target_ip", targetIP).
+			Msg("Skipping SNMP target device update due to empty target IP")
+
 		return nil
 	}
 
 	deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
-	log.Printf("Creating SNMP target device update for IP %s (hostname: %s, device_id: %s)", targetIP, hostname, deviceID)
+
+	s.logger.Debug().
+		Str("agent_id", agentID).
+		Str("poller_id", pollerID).
+		Str("partition", partition).
+		Str("target_ip", targetIP).
+		Str("device_id", deviceID).
+		Str("hostname", hostname).
+		Msg("Creating SNMP target device update")
 
 	return &models.DeviceUpdate{
 		AgentID:     agentID,

@@ -20,7 +20,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -28,6 +27,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -56,10 +56,25 @@ const (
 	mapperDiscoveryServiceType      = "mapper_discovery"
 )
 
-func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
+func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 
-	database, err := db.New(ctx, normalizedConfig)
+	// Initialize logger
+	log, err := lifecycle.CreateComponentLogger(ctx, "core", normalizedConfig.Logging)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize logger: %w", err)
+	}
+
+	// Log security configuration
+	if normalizedConfig.Security != nil {
+		log.Info().
+			Str("mode", string(normalizedConfig.Security.Mode)).
+			Str("cert_dir", normalizedConfig.Security.CertDir).
+			Str("role", string(normalizedConfig.Security.Role)).
+			Msg("Security configuration loaded")
+	}
+
+	database, err := db.New(ctx, normalizedConfig, log)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
@@ -78,10 +93,10 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	metricsManager := metrics.NewManager(metricsConfig, database)
 
 	// Initialize the NEW authoritative device registry
-	deviceRegistry := registry.NewDeviceRegistry(database)
+	deviceRegistry := registry.NewDeviceRegistry(database, log)
 
 	// Initialize the DiscoveryService
-	discoveryService := NewDiscoveryService(database, deviceRegistry)
+	discoveryService := NewDiscoveryService(database, deviceRegistry, log)
 
 	server := &Server{
 		DB:                  database,
@@ -102,16 +117,17 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		logger:              log,
 	}
 
 	// Initialize the cache on startup
 	if _, err := server.getPollerStatuses(ctx, true); err != nil {
-		log.Printf("Warning: Failed to initialize poller status cache: %v", err)
+		server.logger.Warn().Err(err).Msg("Failed to initialize poller status cache")
 	}
 
 	// Initialize NATS event publisher if configured
 	if err := server.initializeEventPublisher(ctx, normalizedConfig); err != nil {
-		log.Printf("Warning: Failed to initialize event publisher: %v", err)
+		server.logger.Warn().Err(err).Msg("Failed to initialize event publisher")
 	}
 
 	go server.flushBuffers(ctx)
@@ -123,10 +139,10 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 }
 
 func (s *Server) Start(ctx context.Context) error {
-	log.Printf("Starting core service...")
+	s.logger.Info().Msg("Starting core service...")
 
 	if err := s.cleanupUnknownPollers(ctx); err != nil {
-		log.Printf("Warning: Failed to clean up unknown pollers: %v", err)
+		s.logger.Warn().Err(err).Msg("Failed to clean up unknown pollers")
 	}
 
 	if s.grpcServer != nil {
@@ -137,14 +153,14 @@ func (s *Server) Start(ctx context.Context) error {
 				select {
 				case errCh <- err:
 				default:
-					log.Printf("gRPC server error: %v", err)
+					s.logger.Error().Err(err).Msg("gRPC server error")
 				}
 			}
 		}()
 	}
 
 	if err := s.sendStartupNotification(ctx); err != nil {
-		log.Printf("Failed to send startup notification: %v", err)
+		s.logger.Error().Err(err).Msg("Failed to send startup notification")
 	}
 
 	go s.runMetricsCleanup(ctx)
@@ -158,7 +174,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	defer cancel()
 
 	if err := s.sendShutdownNotification(ctx); err != nil {
-		log.Printf("Failed to send shutdown notification: %v", err)
+		s.logger.Error().Err(err).Msg("Failed to send shutdown notification")
 	}
 
 	if s.grpcServer != nil {
@@ -166,13 +182,13 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 
 	if err := s.DB.Close(); err != nil {
-		log.Printf("Error closing database: %v", err)
+		s.logger.Error().Err(err).Msg("Error closing database")
 	}
 
 	// Close NATS connection if it exists
 	if s.natsConn != nil {
 		s.natsConn.Close()
-		log.Printf("NATS connection closed")
+		s.logger.Info().Msg("NATS connection closed")
 	}
 
 	close(s.ShutdownChan)
@@ -204,7 +220,7 @@ func (s *Server) runMetricsCleanup(ctx context.Context) {
 			if s.metrics != nil {
 				s.metrics.CleanupStalePollers(oneWeek)
 			} else {
-				log.Printf("Error: metrics manager is nil")
+				s.logger.Error().Msg("Metrics manager is nil")
 			}
 		}
 	}
@@ -215,7 +231,7 @@ func (s *Server) Shutdown(ctx context.Context) {
 	defer cancel()
 
 	if err := s.DB.Close(); err != nil {
-		log.Printf("Error closing database: %v", err)
+		s.logger.Error().Err(err).Msg("Error closing database")
 	}
 
 	if len(s.webhooks) > 0 {
@@ -234,7 +250,7 @@ func (s *Server) Shutdown(ctx context.Context) {
 
 		err := s.sendAlert(ctx, &alert)
 		if err != nil {
-			log.Printf("Error sending shutdown alert: %v", err)
+			s.logger.Error().Err(err).Msg("Error sending shutdown alert")
 
 			return
 		}
@@ -277,14 +293,14 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 
 func (s *Server) updateAPIState(pollerID string, apiStatus *api.PollerStatus) {
 	if s.apiServer == nil {
-		log.Printf("Warning: API server not initialized, state not updated")
+		s.logger.Warn().Msg("API server not initialized, state not updated")
 
 		return
 	}
 
 	s.apiServer.UpdatePollerStatus(pollerID, apiStatus)
 
-	log.Printf("Updated API server state for poller: %s", pollerID)
+	s.logger.Debug().Str("poller_id", pollerID).Msg("Updated API server state for poller")
 }
 
 func (s *Server) GetRperfManager() metricstore.RperfManager {

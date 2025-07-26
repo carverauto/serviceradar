@@ -8,6 +8,7 @@ import (
 	dbeventwriter "github.com/carverauto/serviceradar/pkg/consumers/db-event-writer"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	monitoringpb "github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
@@ -43,16 +44,23 @@ func main() {
 		dbSecurity = cfg.DBSecurity
 	}
 
-	dbConfig := &models.DBConfig{
+	dbConfig := &models.CoreServiceConfig{
 		DBAddr:   cfg.Database.Addresses[0],
 		DBName:   cfg.Database.Name,
 		DBUser:   cfg.Database.Username,
 		DBPass:   cfg.Database.Password,
-		Database: cfg.Database,
 		Security: dbSecurity,
 	}
 
-	dbService, err := db.New(ctx, dbConfig)
+	// Initialize logger for database
+	dbLogger, err := lifecycle.CreateComponentLogger(ctx, "db-writer-db", &logger.Config{
+		Level: "info",
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+
+	dbService, err := db.New(ctx, dbConfig, dbLogger)
 	if err != nil {
 		log.Fatalf("Failed to initialize database service: %v", err)
 	}
