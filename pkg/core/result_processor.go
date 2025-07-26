@@ -33,7 +33,12 @@ func (s *Server) processHostResults(
 		if host.Host == "" {
 			s.logger.Debug().
 				Str("poller_id", pollerID).
-				Msg("Skipping host with empty IP")
+				Str("partition", partition).
+				Str("agent_id", agentID).
+				Str("host", host.Host).
+				Bool("ip", host.Available).
+				Str("source", string(models.DiscoverySourceSweep)).
+				Msg("Skipping host with empty host field")
 
 			continue
 		}
