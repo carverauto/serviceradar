@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -175,7 +174,7 @@ func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
 		var pollerID string
 
 		if err := rows.Scan(&pollerID); err != nil {
-			log.Printf("Error scanning poller ID: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning poller ID")
 
 			continue
 		}
@@ -239,7 +238,7 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]mode
 		var status models.PollerStatus
 
 		if err := rows.Scan(&status.PollerID, &status.IsHealthy, &status.LastSeen); err != nil {
-			log.Printf("Error scanning poller status: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning poller status")
 
 			continue
 		}
@@ -294,7 +293,7 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 		var pollerID string
 
 		if err := rows.Scan(&pollerID); err != nil {
-			log.Printf("Error scanning poller ID: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning poller ID")
 			continue
 		}
 

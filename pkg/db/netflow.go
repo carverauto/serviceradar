@@ -19,7 +19,6 @@ package db
 import (
 	"context"
 	"errors"
-	"log"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -68,13 +67,13 @@ func (db *DB) StoreNetflowMetrics(ctx context.Context, metrics []*models.Netflow
 			metric.Metadata,
 		)
 		if err != nil {
-			log.Printf("Failed to append NetFlow metric: %v", err)
+			db.logger.Error().Err(err).Msg("Failed to append NetFlow metric")
 			return errors.Join(ErrAppendMetric, err)
 		}
 	}
 
 	if err := batch.Send(); err != nil {
-		log.Printf("Failed to send batch: %v", err)
+		db.logger.Error().Err(err).Msg("Failed to send batch")
 		return errors.Join(ErrSendBatch, err)
 	}
 

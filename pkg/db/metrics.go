@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,15 +34,14 @@ const (
 )
 
 // convertValueToFloat64 converts a string value to float64, logging errors but not failing the operation
-func convertValueToFloat64(value, metricName string) float64 {
+func convertValueToFloat64(value, _ string) float64 {
 	if value == "" {
 		return 0.0
 	}
 
 	floatVal, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		log.Printf("Warning: failed to convert metric value '%s' to float64 for metric %s: %v. Using 0.0",
-			value, metricName, err)
+		// Failed to convert metric value to float64, using 0.0 as fallback
 		return 0.0
 	}
 
@@ -135,8 +133,17 @@ func (db *DB) storeRperfMetricsToBatch(
 	for i := 0; i < len(metrics); i++ {
 		result := &metrics[i]
 		if !result.Success {
-			log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
-				result.Target, pollerID, result.Error)
+			errorMsg := ""
+			if result.Error != nil {
+				errorMsg = *result.Error
+			}
+
+			db.logger.Warn().
+				Str("target", result.Target).
+				Str("poller_id", pollerID).
+				Str("error", errorMsg).
+				Msg("Skipping metrics storage for failed rperf test")
+
 			continue
 		}
 
@@ -160,8 +167,7 @@ func (db *DB) storeRperfMetricsToBatch(
 
 		metadataBytes, err := json.Marshal(result)
 		if err != nil {
-			log.Printf("Failed to marshal rperf result metadata for poller %s, "+
-				"target %s: %v", pollerID, result.Target, err)
+			db.logger.Error().Err(err).Str("poller_id", pollerID).Str("target", result.Target).Msg("Failed to marshal rperf result metadata")
 			continue
 		}
 
@@ -186,7 +192,7 @@ func (db *DB) storeRperfMetricsToBatch(
 				metadataStr,                            // metadata
 			)
 			if err != nil {
-				log.Printf("Failed to append rperf metric %s for poller %s: %v", m.Name, pollerID, err)
+				db.logger.Error().Err(err).Str("metric_name", m.Name).Str("poller_id", pollerID).Msg("Failed to append rperf metric")
 			} else {
 				storedCount++
 			}
@@ -205,12 +211,12 @@ func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string
 	var wrapper rperfWrapper
 
 	if err := json.Unmarshal([]byte(message), &wrapper); err != nil {
-		log.Printf("Failed to unmarshal outer rperf wrapper for poller %s: %v", pollerID, err)
+		db.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Failed to unmarshal outer rperf wrapper")
 		return fmt.Errorf("failed to unmarshal rperf wrapper message: %w", err)
 	}
 
 	if wrapper.Status == "" {
-		log.Printf("No nested status found in rperf message for poller %s", pollerID)
+		db.logger.Warn().Str("poller_id", pollerID).Msg("No nested status found in rperf message")
 		return nil
 	}
 
@@ -220,12 +226,12 @@ func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string
 	}
 
 	if err := json.Unmarshal([]byte(wrapper.Status), &rperfData); err != nil {
-		log.Printf("Failed to unmarshal nested rperf data for poller %s: %v", pollerID, err)
+		db.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Failed to unmarshal nested rperf data")
 		return fmt.Errorf("failed to unmarshal nested rperf data: %w", err)
 	}
 
 	if len(rperfData.Results) == 0 {
-		log.Printf("No rperf results found for poller %s", pollerID)
+		db.logger.Warn().Str("poller_id", pollerID).Msg("No rperf results found")
 		return nil
 	}
 
@@ -234,7 +240,7 @@ func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string
 		return fmt.Errorf("failed to store rperf metrics: %w", err)
 	}
 
-	log.Printf("Stored %d rperf metrics for poller %s", storedCount, pollerID)
+	db.logger.Info().Int("stored_count", storedCount).Str("poller_id", pollerID).Msg("Stored rperf metrics")
 
 	return nil
 }
@@ -243,7 +249,7 @@ func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string
 func (db *DB) StoreRperfMetricsBatch(
 	ctx context.Context, pollerID string, metrics []*models.RperfMetric, timestamp time.Time) error {
 	if len(metrics) == 0 {
-		log.Printf("No rperf metrics to store for poller %s", pollerID)
+		db.logger.Debug().Str("poller_id", pollerID).Msg("No rperf metrics to store")
 		return nil
 	}
 
@@ -259,11 +265,11 @@ func (db *DB) StoreRperfMetricsBatch(
 	}
 
 	if storedCount == 0 {
-		log.Printf("No valid rperf metrics to send for poller %s", pollerID)
+		db.logger.Debug().Str("poller_id", pollerID).Msg("No valid rperf metrics to send")
 		return nil
 	}
 
-	log.Printf("Stored %d rperf metrics for poller %s", storedCount, pollerID)
+	db.logger.Info().Int("stored_count", storedCount).Str("poller_id", pollerID).Msg("Stored rperf metrics batch")
 
 	return nil
 }
@@ -328,8 +334,12 @@ func (db *DB) GetCPUMetrics(
 // This is optimized to use batch operations internally, making a single metric
 // store functionally similar to the batch operation but with a simpler API.
 func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error {
-	log.Printf("Storing single metric: PollerID=%s, Name=%s, TargetIP=%s, IfIndex=%d",
-		pollerID, metric.Name, metric.TargetDeviceIP, metric.IfIndex)
+	db.logger.Debug().
+		Str("poller_id", pollerID).
+		Str("metric_name", metric.Name).
+		Str("target_ip", metric.TargetDeviceIP).
+		Int("if_index", int(metric.IfIndex)).
+		Msg("Storing single metric")
 
 	// Validate metadata as a JSON string
 	metadataStr := metric.Metadata
@@ -337,7 +347,7 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.T
 		// Ensure metadata is valid JSON
 		var temp interface{}
 		if err := json.Unmarshal([]byte(metadataStr), &temp); err != nil {
-			log.Printf("Invalid JSON metadata for metric %s: %v", metric.Name, err)
+			db.logger.Error().Err(err).Str("metric_name", metric.Name).Msg("Invalid JSON metadata for metric")
 			return fmt.Errorf("invalid JSON metadata: %w", err)
 		}
 	}
@@ -365,8 +375,14 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.T
 		metadataStr,           // metadata
 	)
 	if err != nil {
-		log.Printf("Failed to append single metric %s (poller: %s, target: %s) to batch: %v. Metadata: %s",
-			metric.Name, pollerID, metric.TargetDeviceIP, err, metadataStr)
+		db.logger.Error().
+			Err(err).
+			Str("metric_name", metric.Name).
+			Str("poller_id", pollerID).
+			Str("target_ip", metric.TargetDeviceIP).
+			Str("metadata", metadataStr).
+			Msg("Failed to append single metric to batch")
+
 		return fmt.Errorf("failed to append metric: %w", err)
 	}
 
@@ -398,8 +414,13 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 			var temp interface{}
 
 			if err = json.Unmarshal([]byte(metadataStr), &temp); err != nil {
-				log.Printf("Invalid JSON metadata for metric %s (poller: %s, target: %s): %v",
-					metric.Name, pollerID, metric.TargetDeviceIP, err)
+				db.logger.Error().
+					Err(err).
+					Str("metric_name", metric.Name).
+					Str("poller_id", pollerID).
+					Str("target_ip", metric.TargetDeviceIP).
+					Msg("Invalid JSON metadata for metric")
+
 				continue
 			}
 		}
@@ -422,7 +443,7 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 			metadataStr,           // metadata
 		)
 		if err != nil {
-			log.Printf("Failed to append metric %s to batch: %v", metric.Name, err)
+			db.logger.Error().Err(err).Str("metric_name", metric.Name).Msg("Failed to append metric to batch")
 		}
 	}
 
@@ -453,8 +474,13 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 			var temp interface{}
 
 			if err = json.Unmarshal([]byte(metadataStr), &temp); err != nil {
-				log.Printf("Invalid JSON metadata for metric %s (poller: %s, target: %s): %v",
-					metric.Name, pollerID, metric.TargetDeviceIP, err)
+				db.logger.Error().
+					Err(err).
+					Str("metric_name", metric.Name).
+					Str("poller_id", pollerID).
+					Str("target_ip", metric.TargetDeviceIP).
+					Msg("Invalid JSON metadata for metric")
+
 				continue
 			}
 		}
@@ -477,8 +503,14 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 			metadataStr,           // metadata
 		)
 		if err != nil {
-			log.Printf("Failed to append metric %s (poller: %s, target: %s) to batch: %v. Metadata: %s",
-				metric.Name, pollerID, metric.TargetDeviceIP, err, metadataStr)
+			db.logger.Error().
+				Err(err).
+				Str("metric_name", metric.Name).
+				Str("poller_id", pollerID).
+				Str("target_ip", metric.TargetDeviceIP).
+				Str("metadata", metadataStr).
+				Msg("Failed to append metric to batch")
+
 			return fmt.Errorf("failed to append metric %s to batch: %w", metric.Name, err)
 		}
 	}
@@ -534,7 +566,7 @@ func (db *DB) storeCPUMetrics(
 		for _, cpu := range cpus {
 			if err := batch.Append(timestamp, pollerID, agentID, hostID,
 				cpu.CoreID, cpu.UsagePercent, deviceID, partition); err != nil {
-				log.Printf("Failed to append CPU metric for core %d: %v", cpu.CoreID, err)
+				db.logger.Error().Err(err).Int("core_id", int(cpu.CoreID)).Msg("Failed to append CPU metric")
 				continue
 			}
 		}
@@ -582,7 +614,7 @@ func (db *DB) storeDiskMetrics(
 				deviceID,        // device_id
 				partition,       // partition
 			); err != nil {
-				log.Printf("Failed to append disk metric for %s: %v", disk.MountPoint, err)
+				db.logger.Error().Err(err).Str("mount_point", disk.MountPoint).Msg("Failed to append disk metric")
 				continue
 			}
 		}
@@ -655,7 +687,7 @@ func (db *DB) storeProcessMetrics(
 				deviceID,            // device_id
 				partition,           // partition
 			); err != nil {
-				log.Printf("Failed to append process metric for PID %d (%s): %v", process.PID, process.Name, err)
+				db.logger.Error().Err(err).Int("pid", int(process.PID)).Str("process_name", process.Name).Msg("Failed to append process metric")
 				continue
 			}
 		}
@@ -674,7 +706,7 @@ func (db *DB) GetAllCPUMetrics(
 		ORDER BY timestamp DESC, core_id ASC`,
 		pollerID, start, end)
 	if err != nil {
-		log.Printf("Error querying all CPU metrics: %v", err)
+		db.logger.Error().Err(err).Msg("Error querying all CPU metrics")
 
 		return nil, fmt.Errorf("failed to query all CPU metrics: %w", err)
 	}
@@ -690,7 +722,7 @@ func (db *DB) GetAllCPUMetrics(
 		var timestamp time.Time
 
 		if err := rows.Scan(&timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent); err != nil {
-			log.Printf("Error scanning CPU metric row: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning CPU metric row")
 			continue
 		}
 
@@ -701,7 +733,7 @@ func (db *DB) GetAllCPUMetrics(
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("Error iterating CPU metrics rows: %v", err)
+		db.logger.Error().Err(err).Msg("Error iterating CPU metrics rows")
 
 		return nil, err
 	}
@@ -733,7 +765,7 @@ func (db *DB) GetAllDiskMetrics(
 		ORDER BY timestamp DESC, mount_point ASC`,
 		pollerID, start, end)
 	if err != nil {
-		log.Printf("Error querying all disk metrics: %v", err)
+		db.logger.Error().Err(err).Msg("Error querying all disk metrics")
 
 		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
 	}
@@ -745,7 +777,7 @@ func (db *DB) GetAllDiskMetrics(
 		var m models.DiskMetric
 
 		if err = rows.Scan(&m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.Timestamp, &m.AgentID, &m.HostID); err != nil {
-			log.Printf("Error scanning disk metric row: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning disk metric row")
 
 			continue
 		}
@@ -754,7 +786,7 @@ func (db *DB) GetAllDiskMetrics(
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("Error iterating disk metrics rows: %v", err)
+		db.logger.Error().Err(err).Msg("Error iterating disk metrics rows")
 
 		return metrics, err
 	}
@@ -782,7 +814,7 @@ func (db *DB) GetDiskMetrics(
 		var m models.DiskMetric
 
 		if err = rows.Scan(&m.Timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID); err != nil {
-			log.Printf("Error scanning disk metric row: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning disk metric row")
 			continue
 		}
 
@@ -812,7 +844,7 @@ func (db *DB) GetMemoryMetrics(
 		var m models.MemoryMetric
 
 		if err = rows.Scan(&m.Timestamp, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID); err != nil {
-			log.Printf("Error scanning memory metric row: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning memory metric row")
 
 			continue
 		}
@@ -833,7 +865,7 @@ func (db *DB) GetAllDiskMetricsGrouped(
 		ORDER BY timestamp DESC, mount_point ASC`,
 		pollerID, start, end)
 	if err != nil {
-		log.Printf("Error querying all disk metrics: %s", err)
+		db.logger.Error().Err(err).Msg("Error querying all disk metrics")
 
 		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
 	}
@@ -847,7 +879,7 @@ func (db *DB) GetAllDiskMetricsGrouped(
 		var timestamp time.Time
 
 		if err = rows.Scan(&timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID); err != nil {
-			log.Printf("Error scanning disk metric row: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning disk metric row")
 
 			continue
 		}
@@ -857,7 +889,7 @@ func (db *DB) GetAllDiskMetricsGrouped(
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("Error iterating disk metrics rows: %v", err)
+		db.logger.Error().Err(err).Msg("Error iterating disk metrics rows")
 
 		return nil, err
 	}
@@ -889,7 +921,7 @@ func (db *DB) GetMemoryMetricsGrouped(
 		ORDER BY timestamp DESC`,
 		pollerID, start, end)
 	if err != nil {
-		log.Printf("Error querying memory metrics: %v", err)
+		db.logger.Error().Err(err).Msg("Error querying memory metrics")
 
 		return nil, fmt.Errorf("failed to query memory metrics: %w", err)
 	}
@@ -903,7 +935,7 @@ func (db *DB) GetMemoryMetricsGrouped(
 		var timestamp time.Time
 
 		if err = rows.Scan(&timestamp, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID); err != nil {
-			log.Printf("Error scanning memory metric row: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning memory metric row")
 
 			continue
 		}
@@ -916,7 +948,7 @@ func (db *DB) GetMemoryMetricsGrouped(
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("Error iterating memory metrics rows: %v", err)
+		db.logger.Error().Err(err).Msg("Error iterating memory metrics rows")
 
 		return nil, err
 	}
@@ -1037,7 +1069,7 @@ func (db *DB) GetAllProcessMetrics(
 
 		if err = rows.Scan(&m.Timestamp, &m.AgentID, &m.HostID, &m.PID, &m.Name,
 			&m.CPUUsage, &m.MemoryUsage, &m.Status, &m.StartTime); err != nil {
-			log.Printf("Error scanning process metric row: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning process metric row")
 
 			continue
 		}
@@ -1058,7 +1090,7 @@ func (db *DB) GetAllProcessMetricsGrouped(
 		ORDER BY timestamp DESC, pid ASC`,
 		pollerID, start, end)
 	if err != nil {
-		log.Printf("Error querying all process metrics: %s", err)
+		db.logger.Error().Err(err).Msg("Error querying all process metrics")
 		return nil, fmt.Errorf("failed to query all process metrics: %w", err)
 	}
 	defer db.CloseRows(rows)
@@ -1072,7 +1104,7 @@ func (db *DB) GetAllProcessMetricsGrouped(
 
 		if err = rows.Scan(&timestamp, &m.AgentID, &m.HostID, &m.PID, &m.Name,
 			&m.CPUUsage, &m.MemoryUsage, &m.Status, &m.StartTime); err != nil {
-			log.Printf("Error scanning process metric row: %v", err)
+			db.logger.Error().Err(err).Msg("Error scanning process metric row")
 
 			continue
 		}
@@ -1082,7 +1114,7 @@ func (db *DB) GetAllProcessMetricsGrouped(
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("Error iterating process metrics rows: %v", err)
+		db.logger.Error().Err(err).Msg("Error iterating process metrics rows")
 		return nil, err
 	}
 
