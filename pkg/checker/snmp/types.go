@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -45,6 +46,7 @@ type SNMPCollector struct {
 	mu         sync.RWMutex
 	status     TargetStatus
 	bufferPool *sync.Pool
+	logger     logger.Logger
 }
 
 // SNMPVersion represents supported SNMP versions.
@@ -141,6 +143,7 @@ type SNMPService struct {
 	collectorFactory  CollectorFactory
 	aggregatorFactory AggregatorFactory
 	status            map[string]TargetStatus
+	logger            logger.Logger
 }
 
 // OIDStatus represents the current status of an OID.

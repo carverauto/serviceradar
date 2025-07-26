@@ -21,9 +21,10 @@ package snmp
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 const (
@@ -33,7 +34,7 @@ const (
 )
 
 // NewCollector creates a new SNMP collector for a target.
-func NewCollector(target *Target) (Collector, error) {
+func NewCollector(target *Target, log logger.Logger) (Collector, error) {
 	if err := validateTarget(target); err != nil {
 		return nil, fmt.Errorf("%w %w", ErrInvalidTargetConfig, err)
 	}
@@ -57,6 +58,7 @@ func NewCollector(target *Target) (Collector, error) {
 				return make([]byte, 0, defaultByteBuffer)
 			},
 		},
+		logger: log,
 	}
 
 	return collector, nil
@@ -84,7 +86,10 @@ func (c *SNMPCollector) Stop() error {
 		close(c.done)
 
 		if err := c.client.Close(); err != nil {
-			log.Printf("Error closing SNMP client for target %s: %v", c.target.Name, err)
+			c.logger.Error().
+				Err(err).
+				Str("target_name", c.target.Name).
+				Msg("Error closing SNMP client")
 		}
 	})
 
@@ -112,7 +117,7 @@ func (c *SNMPCollector) collect(ctx context.Context) {
 				select {
 				case c.errorChan <- err:
 				default:
-					log.Printf("Error channel full, dropping error: %v", err)
+					c.logger.Warn().Err(err).Msg("Error channel full, dropping error")
 				}
 			}
 		}
@@ -121,7 +126,11 @@ func (c *SNMPCollector) collect(ctx context.Context) {
 
 // pollTarget performs a single poll of all OIDs for the target.
 func (c *SNMPCollector) pollTarget(ctx context.Context) error {
-	log.Printf("Polling target %s (%s) for %d OIDs", c.target.Name, c.target.Host, len(c.target.OIDs))
+	c.logger.Debug().
+		Str("target_name", c.target.Name).
+		Str("target_host", c.target.Host).
+		Int("oid_count", len(c.target.OIDs)).
+		Msg("Polling target")
 
 	oids := make([]string, len(c.target.OIDs))
 	for i, oid := range c.target.OIDs {
@@ -135,13 +144,19 @@ func (c *SNMPCollector) pollTarget(ctx context.Context) error {
 		return fmt.Errorf("%w - %w", ErrSNMPGet, err)
 	}
 
-	log.Printf("Successfully polled target %s, processing %d results", c.target.Name, len(results))
+	c.logger.Debug().
+		Str("target_name", c.target.Name).
+		Int("result_count", len(results)).
+		Msg("Successfully polled target, processing results")
 	c.updateStatus(true, "")
 
 	// Process each result
 	for oid, value := range results {
 		if err := c.processResult(ctx, oid, value); err != nil {
-			log.Printf("Error processing result for OID %s: %v", oid, err)
+			c.logger.Error().
+				Err(err).
+				Str("oid", oid).
+				Msg("Error processing result for OID")
 		}
 	}
 
@@ -212,7 +227,10 @@ func (c *SNMPCollector) handleErrors(ctx context.Context) {
 		case <-c.done:
 			return
 		case err := <-c.errorChan:
-			log.Printf("Error collecting from target %s: %v", c.target.Name, err)
+			c.logger.Error().
+				Err(err).
+				Str("target_name", c.target.Name).
+				Msg("Error collecting from target")
 		}
 	}
 }

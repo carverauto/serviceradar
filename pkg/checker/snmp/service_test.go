@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -64,7 +65,8 @@ func TestSNMPService(t *testing.T) {
 
 func testNewSNMPService(config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
-		service, err := NewSNMPService(config)
+		testLogger := logger.NewTestLogger()
+		service, err := NewSNMPService(config, testLogger)
 		require.NoError(t, err)
 		require.NotNil(t, service)
 		assert.NotNil(t, service.collectors)
@@ -83,7 +85,8 @@ func testStartStopService(ctrl *gomock.Controller, config *SNMPConfig) func(t *t
 		mockAggregator := NewMockAggregator(ctrl)
 
 		// Create service with mocks
-		service, err := NewSNMPService(config)
+		testLogger := logger.NewTestLogger()
+		service, err := NewSNMPService(config, testLogger)
 		require.NoError(t, err)
 
 		service.collectorFactory = mockCollectorFactory
@@ -93,7 +96,7 @@ func testStartStopService(ctrl *gomock.Controller, config *SNMPConfig) func(t *t
 
 		// Set up expectations
 		mockCollectorFactory.EXPECT().
-			CreateCollector(gomock.Any()).
+			CreateCollector(gomock.Any(), gomock.Any()).
 			Return(mockCollector, nil)
 
 		mockAggregatorFactory.EXPECT().
@@ -129,7 +132,8 @@ func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 		mockAggregator := NewMockAggregator(ctrl)
 
 		// Create service with mocks
-		service, err := NewSNMPService(config)
+		testLogger := logger.NewTestLogger()
+		service, err := NewSNMPService(config, testLogger)
 		require.NoError(t, err)
 
 		service.collectorFactory = mockCollectorFactory
@@ -158,7 +162,7 @@ func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 
 		// Set up expectations
 		mockCollectorFactory.EXPECT().
-			CreateCollector(newTarget).
+			CreateCollector(newTarget, gomock.Any()).
 			Return(mockCollector, nil)
 
 		mockAggregatorFactory.EXPECT().
@@ -199,11 +203,13 @@ func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 func testRemoveTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		mockCollector := NewMockCollector(ctrl)
+		testLogger := logger.NewTestLogger()
 		service := &SNMPService{
 			collectors:  make(map[string]Collector),
 			aggregators: make(map[string]Aggregator),
 			config:      config,
 			status:      make(map[string]TargetStatus),
+			logger:      testLogger,
 		}
 
 		targetName := "test-target"
@@ -235,11 +241,13 @@ func testGetStatus(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 		}).AnyTimes()
 
 		// Create service with mock collector
+		testLogger := logger.NewTestLogger()
 		service := &SNMPService{
 			collectors:  map[string]Collector{"test-target": mockCollector},
 			aggregators: make(map[string]Aggregator),
 			config:      config,
 			status:      make(map[string]TargetStatus),
+			logger:      testLogger,
 		}
 
 		// Test GetStatus
