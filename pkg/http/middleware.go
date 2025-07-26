@@ -18,15 +18,15 @@
 package http
 
 import (
-	"log"
 	"net/http"
 	"strings"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // CommonMiddleware handles CORS and other common HTTP concerns.
-func CommonMiddleware(next http.Handler, corsConfig models.CORSConfig) http.Handler {
+func CommonMiddleware(next http.Handler, corsConfig models.CORSConfig, log logger.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
@@ -51,8 +51,10 @@ func CommonMiddleware(next http.Handler, corsConfig models.CORSConfig) http.Hand
 		}
 
 		if !allowed {
-			// Log the rejected origin
-			log.Printf("CORS: Origin %s not allowed. Allowed origins: %v", origin, corsConfig.AllowedOrigins)
+			log.Warn().
+				Str("origin", origin).
+				Interface("allowed_origins", corsConfig.AllowedOrigins).
+				Msg("CORS: Origin not allowed")
 			http.Error(w, "Origin not allowed", http.StatusForbidden)
 
 			return
@@ -87,21 +89,24 @@ type APIKeyOptions struct {
 	ExcludePaths []string
 	// Whether to log unauthorized attempts
 	LogUnauthorized bool
+	// Logger instance
+	Logger logger.Logger
 }
 
 // NewAPIKeyOptions creates a new options struct with defaults.
-func NewAPIKeyOptions(apiKey string) APIKeyOptions {
+func NewAPIKeyOptions(apiKey string, log logger.Logger) APIKeyOptions {
 	return APIKeyOptions{
 		APIKey:          apiKey,
 		ExcludePaths:    []string{"/swagger/", "/api-docs"},
 		LogUnauthorized: true,
+		Logger:          log,
 	}
 }
 
 // APIKeyMiddleware checks for a valid API key on requests
 // excludes specified paths from authentication.
-func APIKeyMiddleware(apiKey string) func(next http.Handler) http.Handler {
-	opts := NewAPIKeyOptions(apiKey)
+func APIKeyMiddleware(apiKey string, log logger.Logger) func(next http.Handler) http.Handler {
+	opts := NewAPIKeyOptions(apiKey, log)
 
 	return APIKeyMiddlewareWithOptions(opts)
 }
@@ -130,8 +135,12 @@ func APIKeyMiddlewareWithOptions(opts APIKeyOptions) func(next http.Handler) htt
 			}
 
 			if requestKey == "" || (opts.APIKey != "" && requestKey != opts.APIKey) {
-				if opts.LogUnauthorized {
-					log.Printf("Unauthorized API access attempt: %s %s", r.Method, r.URL.Path)
+				if opts.LogUnauthorized && opts.Logger != nil {
+					opts.Logger.Warn().
+						Str("method", r.Method).
+						Str("path", r.URL.Path).
+						Str("remote_addr", r.RemoteAddr).
+						Msg("Unauthorized API access attempt")
 				}
 
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
