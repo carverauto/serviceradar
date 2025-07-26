@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -24,10 +24,11 @@ type Service struct {
 	processor *Processor
 	wg        sync.WaitGroup
 	db        db.Service
+	logger    logger.Logger
 }
 
 // NewService initializes the service.
-func NewService(cfg *DBEventWriterConfig, dbService db.Service) (*Service, error) {
+func NewService(cfg *DBEventWriterConfig, dbService db.Service, log logger.Logger) (*Service, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -39,17 +40,17 @@ func NewService(cfg *DBEventWriterConfig, dbService db.Service) (*Service, error
 	streams := cfg.GetStreams()
 	if len(streams) > 0 {
 		// Use new multi-stream configuration
-		proc, err = NewProcessorWithStreams(dbService, streams)
+		proc, err = NewProcessorWithStreams(dbService, streams, log)
 	} else {
 		// Legacy single stream configuration
-		proc, err = NewProcessor(dbService, cfg.Table)
+		proc, err = NewProcessor(dbService, cfg.Table, log)
 	}
 
 	if err != nil {
 		return nil, err
 	}
 
-	svc := &Service{cfg: cfg, processor: proc, db: dbService}
+	svc := &Service{cfg: cfg, processor: proc, db: dbService, logger: log}
 
 	return svc, nil
 }
@@ -131,7 +132,7 @@ func (s *Service) Start(ctx context.Context) error {
 		subjects = []string{s.cfg.Subject}
 	}
 
-	s.consumer, err = NewConsumer(ctx, js, s.cfg.StreamName, s.cfg.ConsumerName, subjects)
+	s.consumer, err = NewConsumer(ctx, js, s.cfg.StreamName, s.cfg.ConsumerName, subjects, s.logger)
 	if err != nil {
 		nc.Close()
 		return err
@@ -144,7 +145,10 @@ func (s *Service) Start(ctx context.Context) error {
 		s.consumer.ProcessMessages(ctx, s.processor)
 	}()
 
-	log.Printf("DB event writer started for stream %s, consumer %s", s.cfg.StreamName, s.cfg.ConsumerName)
+	s.logger.Info().
+		Str("stream_name", s.cfg.StreamName).
+		Str("consumer_name", s.cfg.ConsumerName).
+		Msg("DB event writer started")
 
 	return nil
 }
@@ -166,7 +170,7 @@ func (s *Service) Stop(ctx context.Context) error {
 
 	s.wg.Wait()
 
-	log.Println("DB event writer stopped")
+	s.logger.Info().Msg("DB event writer stopped")
 
 	return nil
 }
