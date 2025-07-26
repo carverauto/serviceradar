@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/timeplus-io/proton-go-driver/v2"
@@ -26,6 +26,7 @@ type Processor struct {
 	conn    proton.Conn
 	table   string         // Legacy single table
 	streams []StreamConfig // Multi-stream configuration
+	logger  logger.Logger
 }
 
 // LogRow represents a row in the logs table
@@ -438,23 +439,23 @@ func getSeverityForState(state string) string {
 }
 
 // NewProcessor creates a Processor using the provided db.Service.
-func NewProcessor(dbService db.Service, table string) (*Processor, error) {
+func NewProcessor(dbService db.Service, table string, log logger.Logger) (*Processor, error) {
 	dbImpl, ok := dbService.(*db.DB)
 	if !ok {
 		return nil, errDBServiceNotDB
 	}
 
-	return &Processor{conn: dbImpl.Conn, table: table}, nil
+	return &Processor{conn: dbImpl.Conn, table: table, logger: log}, nil
 }
 
 // NewProcessorWithStreams creates a Processor with multi-stream configuration.
-func NewProcessorWithStreams(dbService db.Service, streams []StreamConfig) (*Processor, error) {
+func NewProcessorWithStreams(dbService db.Service, streams []StreamConfig, log logger.Logger) (*Processor, error) {
 	dbImpl, ok := dbService.(*db.DB)
 	if !ok {
 		return nil, errDBServiceNotDB
 	}
 
-	return &Processor{conn: dbImpl.Conn, streams: streams}, nil
+	return &Processor{conn: dbImpl.Conn, streams: streams, logger: log}, nil
 }
 
 // getTableForSubject returns the table name for a given subject
@@ -571,7 +572,7 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 	for _, msg := range msgs {
 		// Handle OTEL logs
 		if strings.Contains(msg.Subject(), "otel") {
-			if logRows, ok := parseOTELMessage(msg); ok {
+			if logRows, ok := p.parseOTELMessage(msg); ok {
 				for i := range logRows {
 					if err := batch.Append(
 						logRows[i].Timestamp,
@@ -593,7 +594,7 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 					}
 				}
 			} else {
-				log.Printf("Skipping malformed OTEL message")
+				p.logger.Warn().Msg("Skipping malformed OTEL message")
 			}
 		}
 
@@ -609,34 +610,46 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 
 // parseOTELMessage attempts to parse an OTEL message and returns log rows
 // It returns the parsed log rows and a boolean indicating success
-func parseOTELMessage(msg jetstream.Msg) ([]LogRow, bool) {
-	log.Printf("Processing OTEL message from subject: %s, data length: %d", msg.Subject(), len(msg.Data()))
+func (p *Processor) parseOTELMessage(msg jetstream.Msg) ([]LogRow, bool) {
+	p.logger.Debug().
+		Str("subject", msg.Subject()).
+		Int("data_length", len(msg.Data())).
+		Msg("Processing OTEL message")
 
 	// First try to parse as direct protobuf
 	logRows, err := parseOTELLogs(msg.Data(), msg.Subject())
 	if err == nil {
-		log.Printf("Successfully parsed %d log rows from OTEL message", len(logRows))
+		p.logger.Debug().
+			Int("log_rows", len(logRows)).
+			Msg("Successfully parsed log rows from OTEL message")
+
 		return logRows, true
 	}
 
-	log.Printf("Failed to parse as direct protobuf: %v", err)
+	p.logger.Debug().Err(err).Msg("Failed to parse as direct protobuf")
 
 	// Try to parse as CloudEvent wrapper
 	data, ok := parseCloudEvent(msg.Data())
 	if !ok {
-		log.Printf("Failed to parse as CloudEvent wrapper")
+		p.logger.Debug().Msg("Failed to parse as CloudEvent wrapper")
+
 		return nil, false
 	}
 
-	log.Printf("Trying to parse as CloudEvent wrapper, data length: %d", len(data))
+	p.logger.Debug().
+		Int("data_length", len(data)).
+		Msg("Trying to parse as CloudEvent wrapper")
 
 	logRows, err = parseOTELLogs([]byte(data), msg.Subject())
 	if err != nil {
-		log.Printf("Failed to parse OTEL logs completely: %v", err)
+		p.logger.Debug().Err(err).Msg("Failed to parse OTEL logs completely")
+
 		return nil, false
 	}
 
-	log.Printf("Successfully parsed %d log rows from OTEL message", len(logRows))
+	p.logger.Debug().
+		Int("log_rows", len(logRows)).
+		Msg("Successfully parsed log rows from OTEL message")
 
 	return logRows, true
 }
