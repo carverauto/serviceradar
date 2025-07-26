@@ -309,7 +309,7 @@ func TestNewArmisIntegration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logger.NewTestLogger()
-		integration := NewArmisIntegration(ctx, tt.config, kvClient, conn, serverName, log)
+			integration := NewArmisIntegration(ctx, tt.config, kvClient, conn, serverName, log)
 
 			assert.NotNil(t, integration)
 			assert.Equal(t, tt.expected, integration.PageSize)
@@ -389,7 +389,7 @@ func TestNewNetboxIntegration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logger.NewTestLogger()
-		integration := NewNetboxIntegration(ctx, tt.config, kvClient, conn, serverName, log)
+			integration := NewNetboxIntegration(ctx, tt.config, kvClient, conn, serverName, log)
 
 			assert.NotNil(t, integration)
 			assert.Equal(t, tt.config, integration.Config)
