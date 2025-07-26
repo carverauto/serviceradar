@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"go.uber.org/mock/gomock"
 )
@@ -38,7 +39,7 @@ func TestManager(t *testing.T) {
 	}
 
 	t.Run("adds metrics and tracks active nodes", func(t *testing.T) {
-		manager := NewManager(cfg, mockDB)
+		manager := NewManager(cfg, mockDB, logger.NewTestLogger())
 		now := time.Now()
 
 		// Add metrics for two nodes
@@ -66,7 +67,7 @@ func TestManager(t *testing.T) {
 
 	t.Run("disabled metrics", func(t *testing.T) {
 		disabledCfg := models.MetricsConfig{Enabled: false}
-		manager := NewManager(disabledCfg, mockDB)
+		manager := NewManager(disabledCfg, mockDB, logger.NewTestLogger())
 
 		err := manager.AddMetric("node1", time.Now(), 100, "service", "device1", "partition1", "agent1")
 		if err != nil {
@@ -80,7 +81,7 @@ func TestManager(t *testing.T) {
 	})
 
 	t.Run("concurrent access", func(_ *testing.T) {
-		manager := NewManager(cfg, mockDB)
+		manager := NewManager(cfg, mockDB, logger.NewTestLogger())
 		done := make(chan bool)
 
 		const goroutines = 10
