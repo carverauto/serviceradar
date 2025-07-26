@@ -134,7 +134,7 @@ func TestNewPortChecker(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			checker, err := NewPortChecker(tt.details)
+			checker, err := NewPortChecker(tt.details, createTestLogger())
 			if tt.wantError {
 				require.Error(t, err)
 				assert.Nil(t, checker)

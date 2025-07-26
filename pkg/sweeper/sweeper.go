@@ -83,7 +83,7 @@ func NewNetworkSweeper(
 	}
 
 	// Initialize scanners
-	icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit)
+	icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
@@ -100,7 +100,7 @@ func NewNetworkSweeper(
 		log.Debug().Int("adjustedConcurrency", effectiveConcurrency).Int("totalTargets", totalTargets).Msg("Adjusted concurrency for targets")
 	}
 
-	tcpScanner := scan.NewTCPSweeper(config.Timeout, effectiveConcurrency)
+	tcpScanner := scan.NewTCPSweeper(config.Timeout, effectiveConcurrency, log)
 
 	// Default interval if not set
 	if config.Interval == 0 {
@@ -609,7 +609,11 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 		}
 	}
 
-	s.logger.Info().Int("targetsGenerated", len(targets)).Int("networkCount", len(s.config.Networks)).Int("totalHosts", totalHostCount).Msg("Generated targets from networks")
+	s.logger.Info().
+		Int("targetsGenerated", len(targets)).
+		Int("networkCount", len(s.config.Networks)).
+		Int("totalHosts", totalHostCount).
+		Msg("Generated targets from networks")
 
 	return targets, nil
 }

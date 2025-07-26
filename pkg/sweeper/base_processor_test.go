@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,7 @@ func TestBaseProcessor_Cleanup(t *testing.T) {
 	config := &models.Config{
 		Ports: []int{443, 8080, 80}, // Using some ports, including 443 and 8080
 	}
-	processor := NewBaseProcessor(config)
+	processor := NewBaseProcessor(config, logger.NewTestLogger())
 
 	// Simulate processing of results for ports 443 and 8080
 	result1 := &models.Result{
@@ -110,7 +111,7 @@ func createLargePortConfig() *models.Config {
 func testMemoryUsageWithManyHostsFewPorts(t *testing.T, config *models.Config) {
 	t.Helper()
 
-	processor := NewBaseProcessor(config)
+	processor := NewBaseProcessor(config, logger.NewTestLogger())
 	defer processor.cleanup()
 
 	// Consider removing or reducing frequency of forced GC
@@ -151,7 +152,7 @@ func testMemoryUsageWithManyHostsFewPorts(t *testing.T, config *models.Config) {
 func testMemoryUsageWithFewHostsManyPorts(t *testing.T, config *models.Config) {
 	t.Helper()
 
-	processor := NewBaseProcessor(config)
+	processor := NewBaseProcessor(config, logger.NewTestLogger())
 	defer processor.cleanup()
 
 	var memBefore runtime.MemStats
@@ -195,7 +196,7 @@ func testMemoryUsageWithFewHostsManyPorts(t *testing.T, config *models.Config) {
 func testMemoryReleaseAfterCleanup(t *testing.T, config *models.Config) {
 	t.Helper()
 
-	processor := NewBaseProcessor(config)
+	processor := NewBaseProcessor(config, logger.NewTestLogger())
 
 	// Force GC and minimal wait
 	runtime.GC()
@@ -281,7 +282,7 @@ func TestBaseProcessor_ConcurrentAccess(t *testing.T) {
 		Ports: []int{80, 443, 8080}, // Reduced number of ports for testing
 	}
 
-	processor := NewBaseProcessor(config)
+	processor := NewBaseProcessor(config, logger.NewTestLogger())
 	defer processor.cleanup()
 
 	t.Run("Concurrent Processing", func(t *testing.T) {
@@ -357,7 +358,7 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 	}
 
 	t.Run("Cleanup After Processing", func(t *testing.T) {
-		processor := NewBaseProcessor(config)
+		processor := NewBaseProcessor(config, logger.NewTestLogger())
 
 		// Process some results
 		for i := 0; i < 100; i++ {
@@ -400,7 +401,7 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 	})
 
 	t.Run("Pool Reuse", func(t *testing.T) {
-		processor := NewBaseProcessor(config)
+		processor := NewBaseProcessor(config, logger.NewTestLogger())
 		defer processor.cleanup()
 
 		// Process results and track allocated hosts
@@ -465,7 +466,7 @@ func TestBaseProcessor_ConfigurationUpdates(t *testing.T) {
 	}
 
 	t.Run("Handle Config Updates", func(t *testing.T) {
-		processor := NewBaseProcessor(initialConfig)
+		processor := NewBaseProcessor(initialConfig, logger.NewTestLogger())
 		defer processor.cleanup()
 
 		// Test initial configuration
@@ -549,7 +550,7 @@ func TestBaseProcessor_GetSummaryStream(t *testing.T) {
 	}
 
 	t.Run("Streaming Large Dataset", func(t *testing.T) {
-		processor := NewBaseProcessor(config)
+		processor := NewBaseProcessor(config, logger.NewTestLogger())
 		defer processor.cleanup()
 
 		const numHosts = 100
@@ -650,7 +651,7 @@ func TestBaseProcessor_GetSummaryStream(t *testing.T) {
 	})
 
 	t.Run("Context Cancellation", func(t *testing.T) {
-		processor := NewBaseProcessor(config)
+		processor := NewBaseProcessor(config, logger.NewTestLogger())
 		defer processor.cleanup()
 
 		// Add some test data
@@ -682,7 +683,7 @@ func TestBaseProcessor_GetSummaryStream(t *testing.T) {
 	})
 
 	t.Run("Empty Dataset", func(t *testing.T) {
-		processor := NewBaseProcessor(config)
+		processor := NewBaseProcessor(config, logger.NewTestLogger())
 		defer processor.cleanup()
 
 		ctx := context.Background()
@@ -718,7 +719,7 @@ func TestBaseProcessor_GetSummaryStream(t *testing.T) {
 	})
 
 	t.Run("Compare with Regular GetSummary", func(t *testing.T) {
-		processor := NewBaseProcessor(config)
+		processor := NewBaseProcessor(config, logger.NewTestLogger())
 		defer processor.cleanup()
 
 		const numHosts = 50

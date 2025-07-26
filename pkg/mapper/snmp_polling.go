@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/gosnmp/gosnmp"
@@ -1520,15 +1521,17 @@ const (
 )
 
 func pingHost(ctx context.Context, host string) error {
+	// Create a simple logger for this utility function
+	log := logger.NewTestLogger()
 	// Use the existing ICMPSweeper from your scan package
-	sweeper, err := scan.NewICMPSweeper(defaultRateLimitDuration, defaultRateLimit)
+	sweeper, err := scan.NewICMPSweeper(defaultRateLimitDuration, defaultRateLimit, log)
 	if err != nil {
 		return err
 	}
 	defer func(sweeper *scan.ICMPSweeper, ctx context.Context) {
 		err = sweeper.Stop(ctx)
 		if err != nil {
-			log.Printf("Error stopping sweeper: %v", err)
+			log.Error().Err(err).Msg("Error stopping sweeper")
 		}
 	}(sweeper, ctx)
 

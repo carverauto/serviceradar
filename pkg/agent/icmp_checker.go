@@ -34,7 +34,7 @@ const (
 )
 
 func NewICMPChecker(host string, log logger.Logger) (*ICMPChecker, error) {
-	scanner, err := scan.NewICMPSweeper(defaultICMPSweeperTimeout, defaultICMPSweeperRateLimit)
+	scanner, err := scan.NewICMPSweeper(defaultICMPSweeperTimeout, defaultICMPSweeperRateLimit, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
@@ -43,7 +43,7 @@ func NewICMPChecker(host string, log logger.Logger) (*ICMPChecker, error) {
 }
 
 func NewICMPCheckerWithDeviceID(host, deviceID string, log logger.Logger) (*ICMPChecker, error) {
-	scanner, err := scan.NewICMPSweeper(defaultICMPSweeperTimeout, defaultICMPSweeperRateLimit)
+	scanner, err := scan.NewICMPSweeper(defaultICMPSweeperTimeout, defaultICMPSweeperRateLimit, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
