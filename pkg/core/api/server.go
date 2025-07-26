@@ -160,7 +160,7 @@ func (s *APIServer) setupMiddleware() {
 
 	middlewareChain := func(next http.Handler) http.Handler {
 		// The authentication middleware is now applied selectively in setupProtectedRoutes
-		return srHttp.CommonMiddleware(next, corsConfig)
+		return srHttp.CommonMiddleware(next, corsConfig, s.logger)
 	}
 
 	s.router.Use(middlewareChain)
