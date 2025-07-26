@@ -27,7 +27,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
-	"github.com/rs/zerolog"
 	"google.golang.org/grpc" // For the underlying gRPC server type
 )
 
@@ -39,32 +38,6 @@ var (
 	errFailedToLoadConfig = fmt.Errorf("failed to load config")
 )
 
-// loggerWrapper wraps zerolog.Logger to implement logger.Logger interface
-type loggerWrapper struct {
-	logger zerolog.Logger
-}
-
-func (l *loggerWrapper) Debug() *zerolog.Event { return l.logger.Debug() }
-func (l *loggerWrapper) Info() *zerolog.Event  { return l.logger.Info() }
-func (l *loggerWrapper) Warn() *zerolog.Event  { return l.logger.Warn() }
-func (l *loggerWrapper) Error() *zerolog.Event { return l.logger.Error() }
-func (l *loggerWrapper) Fatal() *zerolog.Event { return l.logger.Fatal() }
-func (l *loggerWrapper) Panic() *zerolog.Event { return l.logger.Panic() }
-func (l *loggerWrapper) With() zerolog.Context { return l.logger.With() }
-func (l *loggerWrapper) WithComponent(component string) zerolog.Logger {
-	return l.logger.With().Str("component", component).Logger()
-}
-func (l *loggerWrapper) WithFields(fields map[string]interface{}) zerolog.Logger {
-	return l.logger.With().Fields(fields).Logger()
-}
-func (l *loggerWrapper) SetLevel(level zerolog.Level) { l.logger = l.logger.Level(level) }
-func (l *loggerWrapper) SetDebug(debug bool) {
-	if debug {
-		l.SetLevel(zerolog.DebugLevel)
-	} else {
-		l.SetLevel(zerolog.InfoLevel)
-	}
-}
 
 func main() {
 	if err := run(); err != nil {
@@ -92,8 +65,8 @@ func run() error {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
 
-	// Create logger wrapper
-	log := &loggerWrapper{logger: logger.GetLogger()}
+	// Get logger instance
+	log := logger.GetLoggerInstance()
 
 	// Create SNMP service
 	service, err := snmp.NewSNMPService(&cfg, log)
