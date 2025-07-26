@@ -3,9 +3,9 @@ package dbeventwriter
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -15,11 +15,21 @@ type Consumer struct {
 	streamName   string
 	consumerName string
 	consumer     jetstream.Consumer
+	logger       logger.Logger
 }
 
 // NewConsumer creates or retrieves a pull consumer for the given stream.
-func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consumerName string, subjects []string) (*Consumer, error) {
-	log.Printf("Creating/getting pull consumer: stream=%s, consumer=%s, subjects=%v", streamName, consumerName, subjects)
+func NewConsumer(
+	ctx context.Context,
+	js jetstream.JetStream,
+	streamName, consumerName string,
+	subjects []string,
+	log logger.Logger) (*Consumer, error) {
+	log.Debug().
+		Str("stream_name", streamName).
+		Str("consumer_name", consumerName).
+		Strs("subjects", subjects).
+		Msg("Creating/getting pull consumer")
 
 	consumer, err := js.Consumer(ctx, streamName, consumerName)
 	if err != nil {
@@ -39,14 +49,19 @@ func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consum
 
 		consumer, err = js.CreateConsumer(ctx, streamName, cfg)
 		if err != nil {
-			log.Printf("Failed to create consumer: stream=%s, consumer=%s, err=%v", streamName, consumerName, err)
+			log.Error().
+				Err(err).
+				Str("stream_name", streamName).
+				Str("consumer_name", consumerName).
+				Msg("Failed to create consumer")
+
 			return nil, fmt.Errorf("failed to create consumer: %w", err)
 		}
 	}
 
-	log.Println("Pull consumer created or retrieved successfully")
+	log.Debug().Msg("Pull consumer created or retrieved successfully")
 
-	return &Consumer{js: js, streamName: streamName, consumerName: consumerName, consumer: consumer}, nil
+	return &Consumer{js: js, streamName: streamName, consumerName: consumerName, consumer: consumer, logger: log}, nil
 }
 
 const (
@@ -55,10 +70,10 @@ const (
 	defaultMaxRetries      = 3
 )
 
-func (*Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, processor *Processor) {
+func (c *Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, processor *Processor) {
 	processed, err := processor.ProcessBatch(ctx, msgs)
 	if err != nil {
-		log.Printf("Failed to process message batch: %v", err)
+		c.logger.Error().Err(err).Msg("Failed to process message batch")
 
 		for _, msg := range processed {
 			metadata, _ := msg.Metadata()
@@ -74,7 +89,9 @@ func (*Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, processo
 	}
 
 	for _, msg := range processed {
-		log.Println("Message processed successfully:", msg.Subject())
+		c.logger.Debug().
+			Str("subject", msg.Subject()).
+			Msg("Message processed successfully")
 
 		_ = msg.Ack()
 	}
@@ -82,24 +99,30 @@ func (*Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, processo
 
 // ProcessMessages continuously fetches and processes messages.
 func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
-	log.Printf("Starting pull consumer for stream %s, consumer %s", c.streamName, c.consumerName)
+	c.logger.Info().
+		Str("stream_name", c.streamName).
+		Str("consumer_name", c.consumerName).
+		Msg("Starting pull consumer")
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Stopping message processing due to context cancellation")
+			c.logger.Info().Msg("Stopping message processing due to context cancellation")
 			return
 		default:
 			msgs, err := c.consumer.Fetch(defaultMaxPullMessages, jetstream.FetchMaxWait(defaultPullExpiry))
 			if err != nil {
-				log.Printf("Failed to fetch messages: %v", err)
+				c.logger.Error().Err(err).Msg("Failed to fetch messages")
 				time.Sleep(time.Second)
 
 				continue
 			}
 
-			log.Printf("Fetched %d messages from stream %s, consumer %s",
-				len(msgs.Messages()), c.streamName, c.consumerName)
+			c.logger.Debug().
+				Int("message_count", len(msgs.Messages())).
+				Str("stream_name", c.streamName).
+				Str("consumer_name", c.consumerName).
+				Msg("Fetched messages")
 
 			batch := make([]jetstream.Msg, 0, defaultMaxPullMessages)
 			for msg := range msgs.Messages() {
@@ -107,13 +130,15 @@ func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 			}
 
 			if len(batch) > 0 {
-				log.Printf("Processing batch of %d messages", len(batch))
+				c.logger.Debug().
+					Int("batch_size", len(batch)).
+					Msg("Processing batch of messages")
 
 				c.handleBatch(ctx, batch, processor)
 			}
 
 			if fetchErr := msgs.Error(); fetchErr != nil {
-				log.Printf("Fetch error: %v", fetchErr)
+				c.logger.Error().Err(fetchErr).Msg("Fetch error")
 			}
 		}
 	}
