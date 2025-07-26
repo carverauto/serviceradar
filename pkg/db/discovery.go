@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -60,7 +59,7 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 	if len(iface.Metadata) > 0 {
 		// Try to unmarshal the RawMessage
 		if err = json.Unmarshal(iface.Metadata, &metadata); err != nil {
-			log.Printf("Warning: unable to parse interface metadata: %v", err)
+			db.logger.Warn().Err(err).Msg("Unable to parse interface metadata")
 
 			metadata = make(map[string]string)
 		}
@@ -71,7 +70,7 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 	// Convert metadata map to JSON string
 	metadataBytes, err := json.Marshal(metadata)
 	if err != nil {
-		log.Printf("Failed to marshal interface metadata: %v", err)
+		db.logger.Error().Err(err).Msg("Failed to marshal interface metadata")
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
@@ -141,7 +140,7 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 
 	if len(event.Metadata) > 0 {
 		if err = json.Unmarshal(event.Metadata, &metadata); err != nil {
-			log.Printf("Warning: unable to parse topology event metadata: %v. Storing as raw string or empty map.", err)
+			db.logger.Warn().Err(err).Msg("Unable to parse topology event metadata, storing as raw string or empty map")
 
 			// Fallback: try to store raw string if it's a valid JSON string, or empty map
 			rawMetaStr := string(event.Metadata)
@@ -158,7 +157,7 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 	// Convert metadata map to JSON string
 	metadataBytes, err := json.Marshal(metadata)
 	if err != nil {
-		log.Printf("Failed to marshal topology event metadata: %v", err)
+		db.logger.Error().Err(err).Msg("Failed to marshal topology event metadata")
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
@@ -229,7 +228,12 @@ func (db *DB) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces [
 		batch := interfaces[i:end]
 		for _, iface := range batch {
 			if err := db.PublishDiscoveredInterface(batchCtx, iface); err != nil {
-				log.Printf("Error publishing interface %s (%d): %v", iface.IfName, iface.IfIndex, err)
+				db.logger.Error().
+					Err(err).
+					Str("interface_name", iface.IfName).
+					Int("interface_index", int(iface.IfIndex)).
+					Msg("Error publishing interface")
+
 				lastErr = err
 			}
 		}
@@ -264,7 +268,7 @@ func (db *DB) PublishBatchTopologyDiscoveryEvents(ctx context.Context, events []
 
 		for _, event := range batch {
 			if err := db.PublishTopologyDiscoveryEvent(batchCtx, event); err != nil {
-				log.Printf("Error publishing topology event: %v", err)
+				db.logger.Error().Err(err).Msg("Error publishing topology event")
 
 				lastErr = err
 			}
