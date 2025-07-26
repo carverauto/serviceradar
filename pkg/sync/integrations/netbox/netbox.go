@@ -26,7 +26,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -52,7 +51,7 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mo
 	// Process current devices from Netbox API
 	data, ips, currentEvents := n.processDevices(deviceResp)
 
-	logger.Info().
+	n.Logger.Info().
 		Int("devices_discovered", len(deviceResp.Results)).
 		Int("sweep_results_generated", len(currentEvents)).
 		Msg("Completed NetBox discovery operation")
@@ -68,16 +67,16 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mo
 // It should only be called after sweep operations have completed.
 func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 	if n.Querier == nil {
-		logger.Info().Msg("NetBox querier not configured, skipping reconciliation")
+		n.Logger.Info().Msg("NetBox querier not configured, skipping reconciliation")
 		return nil
 	}
 
-	logger.Info().Msg("Starting NetBox reconciliation operation")
+	n.Logger.Info().Msg("Starting NetBox reconciliation operation")
 
 	// Get current device states from ServiceRadar
 	existingRadarDevices, err := n.Querier.GetDeviceStatesBySource(ctx, "netbox")
 	if err != nil {
-		logger.Error().
+		n.Logger.Error().
 			Err(err).
 			Str("source", "netbox").
 			Msg("Failed to query existing Netbox devices from ServiceRadar during reconciliation")
@@ -86,11 +85,11 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 	}
 
 	if len(existingRadarDevices) == 0 {
-		logger.Info().Msg("No existing NetBox device states found, skipping reconciliation")
+		n.Logger.Info().Msg("No existing NetBox device states found, skipping reconciliation")
 		return nil
 	}
 
-	logger.Info().
+	n.Logger.Info().
 		Int("device_count", len(existingRadarDevices)).
 		Str("source", "netbox").
 		Msg("Successfully queried device states from ServiceRadar for reconciliation")
@@ -98,7 +97,7 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 	// Fetch current devices from NetBox to identify retractions
 	resp, err := n.fetchDevices(ctx)
 	if err != nil {
-		logger.Error().
+		n.Logger.Error().
 			Err(err).
 			Msg("Failed to fetch current devices from NetBox during reconciliation")
 
@@ -108,7 +107,7 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 
 	deviceResp, err := n.decodeResponse(resp)
 	if err != nil {
-		logger.Error().
+		n.Logger.Error().
 			Err(err).
 			Msg("Failed to decode NetBox response during reconciliation")
 
@@ -122,7 +121,7 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 	retractionEvents := n.generateRetractionEvents(currentEvents, existingRadarDevices)
 
 	if len(retractionEvents) > 0 {
-		logger.Info().
+		n.Logger.Info().
 			Int("retraction_count", len(retractionEvents)).
 			Str("source", "netbox").
 			Msg("Generated retraction events during reconciliation")
@@ -130,7 +129,7 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 		// Send retraction events to the core service
 		if n.ResultSubmitter != nil {
 			if err := n.ResultSubmitter.SubmitBatchSweepResults(ctx, retractionEvents); err != nil {
-				logger.Error().
+				n.Logger.Error().
 					Err(err).
 					Int("retraction_count", len(retractionEvents)).
 					Msg("Failed to submit retraction events to core service")
@@ -138,19 +137,19 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 				return err
 			}
 
-			logger.Info().
+			n.Logger.Info().
 				Int("retraction_count", len(retractionEvents)).
 				Msg("Successfully submitted retraction events to core service")
 		} else {
-			logger.Warn().
+			n.Logger.Warn().
 				Int("retraction_count", len(retractionEvents)).
 				Msg("ResultSubmitter not configured, retraction events not sent")
 		}
 	} else {
-		logger.Info().Msg("No retraction events needed for NetBox reconciliation")
+		n.Logger.Info().Msg("No retraction events needed for NetBox reconciliation")
 	}
 
-	logger.Info().Msg("Successfully completed NetBox reconciliation")
+	n.Logger.Info().Msg("Successfully completed NetBox reconciliation")
 
 	return nil
 }
@@ -180,7 +179,7 @@ func (n *NetboxIntegration) generateRetractionEvents(
 
 		// If a device that was previously discovered is not in the current list, it's considered retracted.
 		if _, found := currentDeviceIDs[netboxID]; !found {
-			logger.Info().
+			n.Logger.Info().
 				Str("netbox_id", netboxID).
 				Str("ip", state.IP).
 				Msg("Device no longer detected, generating retraction event")
@@ -246,9 +245,9 @@ func (n *NetboxIntegration) fetchDevices(ctx context.Context) (*http.Response, e
 }
 
 // closeResponse closes the HTTP response body, logging any errors.
-func (*NetboxIntegration) closeResponse(resp *http.Response) {
+func (n *NetboxIntegration) closeResponse(resp *http.Response) {
 	if err := resp.Body.Close(); err != nil {
-		logger.Warn().
+		n.Logger.Warn().
 			Err(err).
 			Msg("Failed to close response body")
 	}
@@ -292,7 +291,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (
 
 		ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
 		if err != nil {
-			logger.Warn().
+			n.Logger.Warn().
 				Err(err).
 				Str("ip_address", device.PrimaryIP4.Address).
 				Msg("Failed to parse IP address")
@@ -346,14 +345,14 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (
 		var metaJSON []byte
 
 		if metaJSON, err = json.Marshal(event.Metadata); err == nil {
-			logger.Debug().
+			n.Logger.Debug().
 				Str("metadata", string(metaJSON)).
 				Msg("SweepResult metadata")
 		}
 
 		value, err := json.Marshal(event)
 		if err != nil {
-			logger.Error().
+			n.Logger.Error().
 				Err(err).
 				Int("device_id", device.ID).
 				Msg("Failed to marshal device")
@@ -372,7 +371,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (
 // writeSweepConfig generates and writes the sweep Config to KV.
 func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) {
 	if n.KvClient == nil {
-		logger.Warn().Msg("KV client not configured; skipping sweep config write")
+		n.Logger.Warn().Msg("KV client not configured; skipping sweep config write")
 		return
 	}
 
@@ -382,7 +381,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 	if agentIDForConfig == "" {
 		// As a fallback, we could use ServerName, but logging a warning is better
 		// to encourage explicit configuration.
-		logger.Warn().
+		n.Logger.Warn().
 			Str("source", "netbox").
 			Msg("agent_id not set for Netbox source. Sweep config key may be incorrect")
 		// If you need a fallback, you can use: agentIDForConfig = n.ServerName
@@ -409,7 +408,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
-		logger.Error().
+		n.Logger.Error().
 			Err(err).
 			Msg("Failed to marshal sweep config")
 
@@ -422,13 +421,13 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		Value: configJSON,
 	})
 
-	logger.Info().
+	n.Logger.Info().
 		Str("config_key", configKey).
 		Str("config", string(configJSON)).
 		Msg("Writing sweep config")
 
 	if err != nil {
-		logger.Error().
+		n.Logger.Error().
 			Err(err).
 			Str("config_key", configKey).
 			Msg("Failed to write sweep config")
@@ -436,7 +435,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
-	logger.Info().
+	n.Logger.Info().
 		Str("config_key", configKey).
 		Msg("Successfully wrote sweep config")
 }

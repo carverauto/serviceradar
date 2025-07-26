@@ -28,7 +28,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -38,7 +37,7 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 	accessToken string,
 	query models.QueryConfig,
 ) ([]Device, error) {
-	logger.Info().
+	a.Logger.Info().
 		Str("query_label", query.Label).
 		Str("query", query.Query).
 		Msg("Fetching devices for query")
@@ -50,7 +49,7 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 	for nextPage >= 0 {
 		page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, query.Query, nextPage, a.PageSize)
 		if err != nil {
-			logger.Error().
+			a.Logger.Error().
 				Err(err).
 				Str("query_label", query.Label).
 				Msg("Failed to fetch devices page")
@@ -67,7 +66,7 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 			nextPage = -1
 		}
 
-		logger.Info().
+		a.Logger.Info().
 			Int("page_device_count", page.Data.Count).
 			Str("query_label", query.Label).
 			Int("total_devices", len(devices)).
@@ -93,19 +92,19 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		}
 	}
 
-	logger.Info().
+	a.Logger.Info().
 		Interface("sweep_config", finalSweepConfig).
 		Msg("Sweep config to be written")
 
 	if a.KVWriter == nil {
-		logger.Warn().Msg("KVWriter not configured, skipping sweep config write")
+		a.Logger.Warn().Msg("KVWriter not configured, skipping sweep config write")
 		return nil
 	}
 
 	err := a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
 	if err != nil {
 		// Log as warning, as per existing behavior for KV write errors during sweep config.
-		logger.Warn().
+		a.Logger.Warn().
 			Err(err).
 			Msg("Failed to write full sweep config")
 	}
@@ -144,7 +143,7 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 	// Process devices
 	data, ips, events := a.processDevices(allDevices)
 
-	logger.Info().
+	a.Logger.Info().
 		Int("total_devices", len(allDevices)).
 		Msg("Fetched total devices from Armis")
 
@@ -163,7 +162,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 		return nil, nil, err
 	}
 
-	logger.Info().
+	a.Logger.Info().
 		Int("devices_discovered", len(devices)).
 		Int("sweep_results_generated", len(events)).
 		Msg("Completed Armis discovery operation")
@@ -176,16 +175,16 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 // It should only be called after sweep operations have completed and real availability data is available.
 func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 	if a.Updater == nil || a.SweepQuerier == nil {
-		logger.Info().Msg("Armis updater not configured, skipping reconciliation")
+		a.Logger.Info().Msg("Armis updater not configured, skipping reconciliation")
 		return nil
 	}
 
-	logger.Info().Msg("Starting Armis reconciliation operation")
+	a.Logger.Info().Msg("Starting Armis reconciliation operation")
 
 	// Get current device states from ServiceRadar
 	deviceStates, err := a.SweepQuerier.GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis))
 	if err != nil {
-		logger.Error().
+		a.Logger.Error().
 			Err(err).
 			Msg("Failed to query device states from ServiceRadar during reconciliation")
 
@@ -193,11 +192,11 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 	}
 
 	if len(deviceStates) == 0 {
-		logger.Info().Msg("No device states found for Armis source, skipping reconciliation")
+		a.Logger.Info().Msg("No device states found for Armis source, skipping reconciliation")
 		return nil
 	}
 
-	logger.Info().
+	a.Logger.Info().
 		Int("device_states_count", len(deviceStates)).
 		Msg("Successfully queried device states from ServiceRadar for reconciliation")
 
@@ -205,7 +204,7 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 	// We need this to identify devices that no longer exist in Armis but are still in ServiceRadar
 	_, _, currentDevices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
-		logger.Error().
+		a.Logger.Error().
 			Err(err).
 			Msg("Failed to fetch current devices from Armis during reconciliation")
 
@@ -215,7 +214,7 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 	// Generate retraction events for devices no longer found in Armis
 	retractionEvents := a.generateRetractionEvents(currentDevices, deviceStates)
 	if len(retractionEvents) > 0 {
-		logger.Info().
+		a.Logger.Info().
 			Int("retraction_events_count", len(retractionEvents)).
 			Str("source", string(models.DiscoverySourceArmis)).
 			Msg("Generated retraction events during reconciliation")
@@ -223,7 +222,7 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 		// Send retraction events to the core service
 		if a.ResultSubmitter != nil {
 			if err := a.ResultSubmitter.SubmitBatchSweepResults(ctx, retractionEvents); err != nil {
-				logger.Error().
+				a.Logger.Error().
 					Err(err).
 					Int("retraction_events_count", len(retractionEvents)).
 					Msg("Failed to submit retraction events to core service")
@@ -231,11 +230,11 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 				return err
 			}
 
-			logger.Info().
+			a.Logger.Info().
 				Int("retraction_events_count", len(retractionEvents)).
 				Msg("Successfully submitted retraction events to core service")
 		} else {
-			logger.Warn().
+			a.Logger.Warn().
 				Int("retraction_events_count", len(retractionEvents)).
 				Msg("ResultSubmitter not configured, retraction events not sent")
 		}
@@ -244,26 +243,26 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 	// Prepare status updates for Armis
 	updates := a.prepareArmisUpdateFromDeviceStates(deviceStates)
 
-	logger.Debug().
+	a.Logger.Debug().
 		Interface("updates", updates).
 		Msg("Prepared updates for Armis reconciliation")
 
 	if len(updates) > 0 {
-		logger.Info().
+		a.Logger.Info().
 			Int("updates_count", len(updates)).
 			Msg("Sending status updates to Armis")
 
 		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
-			logger.Error().
+			a.Logger.Error().
 				Err(err).
 				Msg("Failed to update device status in Armis during reconciliation")
 
 			return err
 		}
 
-		logger.Info().Msg("Successfully completed Armis reconciliation")
+		a.Logger.Info().Msg("Successfully completed Armis reconciliation")
 	} else {
-		logger.Info().Msg("No device status updates needed for Armis reconciliation")
+		a.Logger.Info().Msg("No device status updates needed for Armis reconciliation")
 	}
 
 	return nil
@@ -291,7 +290,7 @@ func (a *ArmisIntegration) generateRetractionEvents(
 
 		// If a device that was previously discovered is not in the current list, it's considered retracted.
 		if _, found := currentDeviceIDs[armisID]; !found {
-			logger.Info().
+			a.Logger.Info().
 				Str("armis_id", armisID).
 				Str("ip", state.IP).
 				Msg("Device no longer detected, generating retraction event")
@@ -393,7 +392,7 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 		reqURL += fmt.Sprintf("&from=%d", from)
 	}
 
-	logger.Debug().
+	d.Logger.Debug().
 		Str("request_url", reqURL).
 		Msg("Sending request to Armis API")
 
@@ -417,7 +416,7 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	logger.Debug().
+	d.Logger.Debug().
 		Str("query", query).
 		Str("response_body", string(bodyBytes)).
 		Msg("API response from Armis")
@@ -439,7 +438,7 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 
 	// Handle empty results gracefully
 	if searchResp.Data.Count == 0 {
-		logger.Info().
+		d.Logger.Info().
 			Str("query", query).
 			Msg("No devices found for query")
 	}
@@ -477,7 +476,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		// Marshal the device with metadata to JSON
 		value, err := json.Marshal(enriched)
 		if err != nil {
-			logger.Error().
+			a.Logger.Error().
 				Err(err).
 				Int("device_id", d.ID).
 				Msg("Failed to marshal enriched device")
@@ -532,7 +531,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 
 		value, err = json.Marshal(event)
 		if err != nil {
-			logger.Error().
+			a.Logger.Error().
 				Err(err).
 				Int("device_id", d.ID).
 				Msg("Failed to marshal device event")

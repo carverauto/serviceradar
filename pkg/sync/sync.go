@@ -108,23 +108,23 @@ func defaultIntegrationRegistry(
 	serverName string,
 ) map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
-		integrationTypeArmis: func(ctx context.Context, config *models.SourceConfig) Integration {
+		integrationTypeArmis: func(ctx context.Context, config *models.SourceConfig, log logger.Logger) Integration {
 			var conn *grpc.ClientConn
 
 			if grpcClient != nil {
 				conn = grpcClient.GetConnection()
 			}
 
-			return NewArmisIntegration(ctx, config, kvClient, conn, serverName)
+			return NewArmisIntegration(ctx, config, kvClient, conn, serverName, log)
 		},
-		integrationTypeNetbox: func(ctx context.Context, config *models.SourceConfig) Integration {
+		integrationTypeNetbox: func(ctx context.Context, config *models.SourceConfig, log logger.Logger) Integration {
 			var conn *grpc.ClientConn
 
 			if grpcClient != nil {
 				conn = grpcClient.GetConnection()
 			}
 
-			integ := NewNetboxIntegration(ctx, config, kvClient, conn, serverName)
+			integ := NewNetboxIntegration(ctx, config, kvClient, conn, serverName, log)
 			if val, ok := config.Credentials["expand_subnets"]; ok && val == trueString {
 				integ.ExpandSubnets = true
 			}
@@ -234,6 +234,7 @@ func NewArmisIntegration(
 	kvClient proto.KVServiceClient,
 	grpcConn *grpc.ClientConn,
 	serverName string,
+	log logger.Logger,
 ) *armis.ArmisIntegration {
 	// Extract page size if specified
 	pageSize := 100 // default
@@ -253,6 +254,7 @@ func NewArmisIntegration(
 	defaultImpl := &armis.DefaultArmisIntegration{
 		Config:     config,
 		HTTPClient: httpClient,
+		Logger:     log,
 	}
 
 	// Create the default KV writer
@@ -260,6 +262,7 @@ func NewArmisIntegration(
 		KVClient:   kvClient,
 		ServerName: serverName,
 		AgentID:    config.AgentID,
+		Logger:     log,
 	}
 
 	// Simplified sweep config - just for KV writing
@@ -290,6 +293,7 @@ func NewArmisIntegration(
 			serviceRadarEndpoint,
 			serviceRadarAPIKey,
 			httpClient,
+			log,
 		)
 
 		sweepQuerier = &armisDeviceStateAdapter{querier: baseSweepQuerier}
@@ -303,6 +307,7 @@ func NewArmisIntegration(
 			config,
 			httpClient,
 			defaultImpl, // Using defaultImpl as TokenProvider
+			log,
 		)
 	}
 
@@ -319,6 +324,7 @@ func NewArmisIntegration(
 		SweeperConfig: defaultSweepCfg,
 		SweepQuerier:  sweepQuerier,
 		Updater:       armisUpdater,
+		Logger:        log,
 	}
 }
 
@@ -329,6 +335,7 @@ func NewNetboxIntegration(
 	kvClient proto.KVServiceClient,
 	grpcConn *grpc.ClientConn,
 	serverName string,
+	log logger.Logger,
 ) *netbox.NetboxIntegration {
 	// Add SRQL Querier for retraction logic, if configured
 	var sweepQuerier netbox.SRQLQuerier
@@ -347,6 +354,7 @@ func NewNetboxIntegration(
 			serviceRadarEndpoint,
 			serviceRadarAPIKey,
 			httpClient,
+			log,
 		)
 
 		sweepQuerier = &netboxDeviceStateAdapter{querier: baseSweepQuerier}
@@ -359,5 +367,6 @@ func NewNetboxIntegration(
 		ServerName:    serverName,
 		ExpandSubnets: false, // Default: treat as /32
 		Querier:       sweepQuerier,
+		Logger:        log,
 	}
 }

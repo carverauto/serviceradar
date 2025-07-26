@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -31,7 +30,7 @@ import (
 func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *models.SweepConfig) error {
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
-		logger.Error().
+		kw.Logger.Error().
 			Err(err).
 			Msg("Failed to marshal sweep config")
 
@@ -51,7 +50,7 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 		return fmt.Errorf("failed to write sweep config to %s: %w", configKey, err)
 	}
 
-	logger.Info().
+	kw.Logger.Info().
 		Str("config_key", configKey).
 		Msg("Wrote sweep config to KV store")
 
