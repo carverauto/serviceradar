@@ -38,7 +38,6 @@ var (
 	errFailedToLoadConfig = fmt.Errorf("failed to load config")
 )
 
-
 func main() {
 	if err := run(); err != nil {
 		logger.Fatal().Err(err).Msg("Fatal error")
@@ -65,8 +64,18 @@ func run() error {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
 
-	// Get logger instance
-	log := logger.GetLoggerInstance()
+	// Create logger instance for the service
+	var loggerConfig *logger.Config
+	if cfg.Logger != nil {
+		loggerConfig = cfg.Logger
+	} else {
+		loggerConfig = logger.DefaultConfig()
+	}
+
+	log, err := lifecycle.CreateComponentLogger(ctx, "snmp-checker", loggerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Create SNMP service
 	service, err := snmp.NewSNMPService(&cfg, log)

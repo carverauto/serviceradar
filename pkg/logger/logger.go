@@ -123,12 +123,6 @@ func GetLogger() zerolog.Logger {
 	return instance.logger
 }
 
-// GetLoggerInstance returns a Logger interface implementation
-func GetLoggerInstance() Logger {
-	initDefaults()
-	return instance
-}
-
 func Debug() *zerolog.Event {
 	initDefaults()
 	return instance.logger.Debug()
@@ -183,57 +177,4 @@ func WithFields(fields map[string]interface{}) zerolog.Logger {
 
 func Shutdown() error {
 	return ShutdownOTEL()
-}
-
-// LoggerInstance methods to implement Logger interface
-func (l *LoggerInstance) Debug() *zerolog.Event {
-	return l.logger.Debug()
-}
-
-func (l *LoggerInstance) Info() *zerolog.Event {
-	return l.logger.Info()
-}
-
-func (l *LoggerInstance) Warn() *zerolog.Event {
-	return l.logger.Warn()
-}
-
-func (l *LoggerInstance) Error() *zerolog.Event {
-	return l.logger.Error()
-}
-
-func (l *LoggerInstance) Fatal() *zerolog.Event {
-	return l.logger.Fatal()
-}
-
-func (l *LoggerInstance) Panic() *zerolog.Event {
-	return l.logger.Panic()
-}
-
-func (l *LoggerInstance) With() zerolog.Context {
-	return l.logger.With()
-}
-
-func (l *LoggerInstance) WithComponent(component string) zerolog.Logger {
-	return l.logger.With().Str("component", component).Logger()
-}
-
-func (l *LoggerInstance) WithFields(fields map[string]interface{}) zerolog.Logger {
-	ctx := l.logger.With()
-	for key, value := range fields {
-		ctx = ctx.Interface(key, value)
-	}
-	return ctx.Logger()
-}
-
-func (l *LoggerInstance) SetLevel(level zerolog.Level) {
-	l.logger = l.logger.Level(level)
-}
-
-func (l *LoggerInstance) SetDebug(debug bool) {
-	if debug {
-		l.SetLevel(zerolog.DebugLevel)
-	} else {
-		l.SetLevel(zerolog.InfoLevel)
-	}
 }
