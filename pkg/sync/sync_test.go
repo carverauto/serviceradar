@@ -218,7 +218,8 @@ func TestDefaultIntegrationRegistry(t *testing.T) {
 		},
 	}
 
-	armisIntegration := registry[integrationTypeArmis](ctx, armisConfig)
+	log := logger.NewTestLogger()
+	armisIntegration := registry[integrationTypeArmis](ctx, armisConfig, log)
 	assert.NotNil(t, armisIntegration)
 
 	// Test Netbox factory
@@ -230,7 +231,7 @@ func TestDefaultIntegrationRegistry(t *testing.T) {
 		},
 	}
 
-	netboxIntegration := registry[integrationTypeNetbox](ctx, netboxConfig)
+	netboxIntegration := registry[integrationTypeNetbox](ctx, netboxConfig, log)
 	assert.NotNil(t, netboxIntegration)
 }
 
@@ -307,7 +308,8 @@ func TestNewArmisIntegration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			integration := NewArmisIntegration(ctx, tt.config, kvClient, conn, serverName)
+			log := logger.NewTestLogger()
+		integration := NewArmisIntegration(ctx, tt.config, kvClient, conn, serverName, log)
 
 			assert.NotNil(t, integration)
 			assert.Equal(t, tt.expected, integration.PageSize)
@@ -386,7 +388,8 @@ func TestNewNetboxIntegration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			integration := NewNetboxIntegration(ctx, tt.config, kvClient, conn, serverName)
+			log := logger.NewTestLogger()
+		integration := NewNetboxIntegration(ctx, tt.config, kvClient, conn, serverName, log)
 
 			assert.NotNil(t, integration)
 			assert.Equal(t, tt.config, integration.Config)
@@ -428,7 +431,8 @@ func TestNetboxIntegrationFactory(t *testing.T) {
 			},
 		}
 
-		integration := registry[integrationTypeNetbox](ctx, config)
+		log := logger.NewTestLogger()
+		integration := registry[integrationTypeNetbox](ctx, config, log)
 		netboxIntegration := integration.(*netbox.NetboxIntegration)
 
 		assert.True(t, netboxIntegration.ExpandSubnets)
@@ -443,7 +447,8 @@ func TestNetboxIntegrationFactory(t *testing.T) {
 			},
 		}
 
-		integration := registry[integrationTypeNetbox](ctx, config)
+		log := logger.NewTestLogger()
+		integration := registry[integrationTypeNetbox](ctx, config, log)
 		netboxIntegration := integration.(*netbox.NetboxIntegration)
 
 		assert.False(t, netboxIntegration.ExpandSubnets)
@@ -714,7 +719,8 @@ func BenchmarkNewArmisIntegration(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_ = NewArmisIntegration(ctx, config, kvClient, conn, "test-server")
+		log := logger.NewTestLogger()
+		_ = NewArmisIntegration(ctx, config, kvClient, conn, "test-server", log)
 	}
 }
 

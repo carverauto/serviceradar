@@ -611,7 +611,7 @@ func TestSimpleSyncService_createIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	mockIntegration := NewMockIntegration(ctrl)
-	factory := func(_ context.Context, cfg *models.SourceConfig) Integration {
+	factory := func(_ context.Context, cfg *models.SourceConfig, _ logger.Logger) Integration {
 		assert.Equal(t, "test-agent", cfg.AgentID)
 		assert.Equal(t, "test-poller", cfg.PollerID)
 		assert.Equal(t, "default", cfg.Partition)
@@ -657,7 +657,7 @@ func TestSimpleSyncService_createIntegration_WithExistingValues(t *testing.T) {
 	require.NoError(t, err)
 
 	mockIntegration := NewMockIntegration(ctrl)
-	factory := func(_ context.Context, cfg *models.SourceConfig) Integration {
+	factory := func(_ context.Context, cfg *models.SourceConfig, _ logger.Logger) Integration {
 		assert.Equal(t, "existing-agent", cfg.AgentID)
 		assert.Equal(t, "existing-poller", cfg.PollerID)
 		assert.Equal(t, "existing-partition", cfg.Partition)

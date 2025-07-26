@@ -134,10 +134,10 @@ func TestRunDiscoveryErrorAggregation(t *testing.T) {
 				},
 				mockKVClient,
 				map[string]IntegrationFactory{
-					"test1": func(_ context.Context, _ *models.SourceConfig) Integration {
+					"test1": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
 						return mockInt1
 					},
-					"test2": func(_ context.Context, _ *models.SourceConfig) Integration {
+					"test2": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
 						return mockInt2
 					},
 				},
@@ -232,10 +232,10 @@ func TestRunArmisUpdatesErrorAggregation(t *testing.T) {
 				},
 				mockKVClient,
 				map[string]IntegrationFactory{
-					"test1": func(_ context.Context, _ *models.SourceConfig) Integration {
+					"test1": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
 						return mockInt1
 					},
-					"test2": func(_ context.Context, _ *models.SourceConfig) Integration {
+					"test2": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
 						return mockInt2
 					},
 				},
@@ -325,7 +325,7 @@ func TestSafelyRunTask(t *testing.T) {
 				},
 				mockKVClient,
 				map[string]IntegrationFactory{
-					"dummy": func(_ context.Context, _ *models.SourceConfig) Integration {
+					"dummy": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
 						return &dummyIntegration{}
 					},
 				},
@@ -400,7 +400,7 @@ func TestErrorChannelOverflow(t *testing.T) {
 		},
 		mockKVClient,
 		map[string]IntegrationFactory{
-			"dummy": func(_ context.Context, _ *models.SourceConfig) Integration {
+			"dummy": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
 				return &dummyIntegration{}
 			},
 		},
@@ -461,7 +461,7 @@ func TestGracefulShutdown(t *testing.T) {
 		},
 		mockKVClient,
 		map[string]IntegrationFactory{
-			"test": func(_ context.Context, _ *models.SourceConfig) Integration {
+			"test": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
 				return mockIntegration
 			},
 		},
