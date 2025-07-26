@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,6 +86,7 @@ func TestNetboxIntegration_RetractionsWithSubmitter(t *testing.T) {
 			Credentials: map[string]string{"api_token": "test-token"},
 		},
 		ResultSubmitter: mockSubmitter,
+		Logger:          logger.NewTestLogger(),
 	}
 
 	// Mock the result submitter to capture retraction events
@@ -228,6 +230,7 @@ func TestNetboxIntegration_ResultSubmitterError(t *testing.T) {
 			Credentials: map[string]string{"api_token": "test-token"},
 		},
 		ResultSubmitter: mockSubmitter,
+		Logger:          logger.NewTestLogger(),
 	}
 
 	// Mock the result submitter to return an error
@@ -274,6 +277,7 @@ func TestNetboxIntegration_NoResultSubmitter(t *testing.T) {
 			Credentials: map[string]string{"api_token": "test-token"},
 		},
 		ResultSubmitter: nil, // No result submitter configured
+		Logger:          logger.NewTestLogger(),
 	}
 
 	// Generate retraction events
@@ -297,6 +301,7 @@ func TestNetboxIntegration_generateRetractionEvents(t *testing.T) {
 			PollerID:  "test-poller",
 			Partition: "test-partition",
 		},
+		Logger: logger.NewTestLogger(),
 	}
 
 	// Current events from NetBox API
