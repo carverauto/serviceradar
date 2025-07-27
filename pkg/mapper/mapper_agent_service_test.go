@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,9 @@ func TestNewAgentService(t *testing.T) {
 	assert.Nil(t, service.engine)
 
 	// Test with non-nil engine
-	mockEngine := &DiscoveryEngine{}
+	mockEngine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
 	service = NewAgentService(mockEngine)
 	assert.NotNil(t, service)
 	assert.Equal(t, mockEngine, service.engine)
@@ -68,6 +71,7 @@ func TestGetStatusWithDifferentEngineStates(t *testing.T) {
 				return &DiscoveryEngine{
 					done:       nil,
 					schedulers: make(map[string]*time.Ticker),
+					logger:     logger.NewTestLogger(),
 				}
 			},
 			expectedStatus: false,
@@ -82,6 +86,7 @@ func TestGetStatusWithDifferentEngineStates(t *testing.T) {
 				return &DiscoveryEngine{
 					done:       make(chan struct{}),
 					schedulers: make(map[string]*time.Ticker),
+					logger:     logger.NewTestLogger(),
 				}
 			},
 			expectedStatus: false,
@@ -96,6 +101,7 @@ func TestGetStatusWithDifferentEngineStates(t *testing.T) {
 				return &DiscoveryEngine{
 					done:       make(chan struct{}),
 					schedulers: map[string]*time.Ticker{"test": {}},
+					logger:     logger.NewTestLogger(),
 				}
 			},
 			expectedStatus: true,
@@ -142,6 +148,7 @@ func TestGetStatusWithMockEngine(t *testing.T) {
 	engine := &DiscoveryEngine{
 		done:       make(chan struct{}),
 		schedulers: map[string]*time.Ticker{"test": {}},
+		logger:     logger.NewTestLogger(),
 	}
 
 	// Create the service with the real engine
@@ -185,6 +192,7 @@ func TestGetStatusJsonError(_ *testing.T) {
 			schedulers: map[string]*time.Ticker{
 				"test": &time.Ticker{},
 			},
+			logger: logger.NewTestLogger(),
 		}
 
 		service := NewAgentService(engine)

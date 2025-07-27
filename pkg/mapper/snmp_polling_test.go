@@ -20,6 +20,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/gosnmp/gosnmp"
 	"github.com/stretchr/testify/assert"
 )
@@ -155,9 +156,13 @@ func TestGetInt32FromPDU(t *testing.T) {
 		},
 	}
 
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, ok := getInt32FromPDU(tt.pdu, tt.fieldName)
+			result, ok := engine.getInt32FromPDU(tt.pdu, tt.fieldName)
 			assert.Equal(t, tt.ok, ok)
 
 			if ok {
@@ -318,9 +323,13 @@ func TestExtractSpeedFromGauge32(t *testing.T) {
 		},
 	}
 
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractSpeedFromGauge32(tt.input)
+			result := engine.extractSpeedFromGauge32(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -430,10 +439,14 @@ func TestUpdateIfType(t *testing.T) {
 		},
 	}
 
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			iface := &DiscoveredInterface{}
-			updateIfType(iface, tt.pdu)
+			engine.updateIfType(iface, tt.pdu)
 			assert.Equal(t, tt.expected, iface.IfType)
 		})
 	}
@@ -645,7 +658,9 @@ func TestProcessSNMPVariables(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			engine := &DiscoveryEngine{}
+			engine := &DiscoveryEngine{
+				logger: logger.NewTestLogger(),
+			}
 			device := &DiscoveredDevice{
 				Metadata: map[string]string{},
 			}
@@ -697,7 +712,9 @@ func TestSetStringValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			engine := &DiscoveryEngine{}
+			engine := &DiscoveryEngine{
+				logger: logger.NewTestLogger(),
+			}
 
 			var target string
 
@@ -745,7 +762,9 @@ func TestSetObjectIDValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			engine := &DiscoveryEngine{}
+			engine := &DiscoveryEngine{
+				logger: logger.NewTestLogger(),
+			}
 
 			var target string
 
@@ -793,7 +812,9 @@ func TestSetUptimeValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			engine := &DiscoveryEngine{}
+			engine := &DiscoveryEngine{
+				logger: logger.NewTestLogger(),
+			}
 
 			var target int64
 
@@ -900,11 +921,15 @@ func TestUpdateIfAdminStatus(t *testing.T) {
 		},
 	}
 
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			iface := &DiscoveredInterface{}
 
-			updateIfAdminStatus(iface, tt.pdu)
+			engine.updateIfAdminStatus(iface, tt.pdu)
 			assert.Equal(t, tt.expected, iface.IfAdminStatus)
 		})
 	}
@@ -950,11 +975,15 @@ func TestUpdateIfOperStatus(t *testing.T) {
 		},
 	}
 
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			iface := &DiscoveredInterface{}
 
-			updateIfOperStatus(iface, tt.pdu)
+			engine.updateIfOperStatus(iface, tt.pdu)
 			assert.Equal(t, tt.expected, iface.IfOperStatus)
 		})
 	}
@@ -1082,15 +1111,20 @@ func TestUpdateIfSpeed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			iface := &DiscoveredInterface{}
+			engine := &DiscoveryEngine{
+				logger: logger.NewTestLogger(),
+			}
 
-			updateIfSpeed(iface, tt.pdu)
+			engine.updateIfSpeed(iface, tt.pdu)
 			assert.Equal(t, tt.expected, iface.IfSpeed)
 		})
 	}
 }
 
 func TestUpdateInterfaceFromOID(t *testing.T) {
-	engine := &DiscoveryEngine{}
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
 
 	tests := []struct {
 		name      string

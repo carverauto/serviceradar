@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,7 +76,8 @@ func TestNewDiscoveryEngine(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockPublisher := new(MockPublisher)
-			engine, err := NewDiscoveryEngine(tt.config, mockPublisher)
+			mockLogger := logger.NewTestLogger()
+			engine, err := NewDiscoveryEngine(tt.config, mockPublisher, mockLogger)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -99,13 +101,14 @@ func TestNewDiscoveryEngine(t *testing.T) {
 
 func TestStartDiscovery(t *testing.T) {
 	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
 	config := &Config{
 		Workers:       2,
 		MaxActiveJobs: 5,
 		Timeout:       30 * time.Second,
 	}
 
-	engine, err := NewDiscoveryEngine(config, mockPublisher)
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
 	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
@@ -132,13 +135,14 @@ func TestStartDiscovery(t *testing.T) {
 
 func TestGetDiscoveryStatus(t *testing.T) {
 	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
 	config := &Config{
 		Workers:       2,
 		MaxActiveJobs: 5,
 		Timeout:       30 * time.Second,
 	}
 
-	engine, err := NewDiscoveryEngine(config, mockPublisher)
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
 	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
@@ -166,13 +170,14 @@ func TestGetDiscoveryStatus(t *testing.T) {
 
 func TestGetDiscoveryResults(t *testing.T) {
 	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
 	config := &Config{
 		Workers:       2,
 		MaxActiveJobs: 5,
 		Timeout:       30 * time.Second,
 	}
 
-	engine, err := NewDiscoveryEngine(config, mockPublisher)
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
 	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
@@ -208,13 +213,14 @@ func TestGetDiscoveryResults(t *testing.T) {
 
 func TestCancelDiscovery(t *testing.T) {
 	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
 	config := &Config{
 		Workers:       2,
 		MaxActiveJobs: 5,
 		Timeout:       30 * time.Second,
 	}
 
-	engine, err := NewDiscoveryEngine(config, mockPublisher)
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
 	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
@@ -392,13 +398,14 @@ func TestValidateScheduledJob(t *testing.T) {
 
 func TestInitializeDevice(t *testing.T) {
 	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
 	config := &Config{
 		Workers:       2,
 		MaxActiveJobs: 5,
 		Timeout:       30 * time.Second,
 	}
 
-	engine, err := NewDiscoveryEngine(config, mockPublisher)
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
 	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
@@ -417,13 +424,14 @@ func TestInitializeDevice(t *testing.T) {
 
 func TestDetermineConcurrency(t *testing.T) {
 	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
 	config := &Config{
 		Workers:       2,
 		MaxActiveJobs: 5,
 		Timeout:       30 * time.Second,
 	}
 
-	engine, err := NewDiscoveryEngine(config, mockPublisher)
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
 	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
@@ -452,13 +460,14 @@ func TestDetermineConcurrency(t *testing.T) {
 
 func TestEnsureDeviceID(t *testing.T) {
 	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
 	config := &Config{
 		Workers:       2,
 		MaxActiveJobs: 5,
 		Timeout:       30 * time.Second,
 	}
 
-	engine, err := NewDiscoveryEngine(config, mockPublisher)
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
 	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
@@ -482,13 +491,14 @@ func TestEnsureDeviceID(t *testing.T) {
 
 func TestHandleEmptyTargetList(t *testing.T) {
 	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
 	config := &Config{
 		Workers:       2,
 		MaxActiveJobs: 5,
 		Timeout:       30 * time.Second,
 	}
 
-	engine, err := NewDiscoveryEngine(config, mockPublisher)
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
 	require.NoError(t, err)
 	assert.NotNil(t, engine)
 

@@ -20,15 +20,15 @@ package mapper
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/google/uuid"
 )
 
 // NewDiscoveryEngine creates a new discovery engine with the given configuration
-func NewDiscoveryEngine(config *Config, publisher Publisher) (Mapper, error) {
+func NewDiscoveryEngine(config *Config, publisher Publisher, log logger.Logger) (Mapper, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, fmt.Errorf("invalid discovery engine configuration: %w", err)
 	}
@@ -42,6 +42,7 @@ func NewDiscoveryEngine(config *Config, publisher Publisher) (Mapper, error) {
 		publisher:     publisher,
 		done:          make(chan struct{}),
 		schedulers:    make(map[string]*time.Ticker),
+		logger:        log,
 	}
 
 	return engine, nil
@@ -49,8 +50,10 @@ func NewDiscoveryEngine(config *Config, publisher Publisher) (Mapper, error) {
 
 // Start initializes and starts the discovery engine
 func (e *DiscoveryEngine) Start(ctx context.Context) error {
-	log.Printf("Starting DiscoveryEngine with %d workers and %d max active jobs...",
-		e.workers, e.config.MaxActiveJobs)
+	e.logger.Info().
+		Int("workers", e.workers).
+		Int("max_active_jobs", e.config.MaxActiveJobs).
+		Msg("Starting DiscoveryEngine")
 
 	e.wg.Add(e.workers) // Add worker count to WaitGroup
 
@@ -74,7 +77,7 @@ func (e *DiscoveryEngine) Start(ctx context.Context) error {
 		e.scheduleJobs(ctx)
 	}()
 
-	log.Println("DiscoveryEngine started.")
+	e.logger.Info().Msg("DiscoveryEngine started")
 
 	return nil
 }
@@ -85,13 +88,13 @@ const (
 
 // Stop gracefully shuts down the discovery engine
 func (e *DiscoveryEngine) Stop(ctx context.Context) error {
-	log.Println("Stopping DiscoveryEngine...")
+	e.logger.Info().Msg("Stopping DiscoveryEngine")
 
 	// Stop all schedulers
 	e.mu.Lock()
 	for name, ticker := range e.schedulers {
 		ticker.Stop()
-		log.Printf("Stopped scheduler for job %s", name)
+		e.logger.Info().Str("job", name).Msg("Stopped scheduler for job")
 	}
 
 	e.schedulers = make(map[string]*time.Ticker) // Reset schedulers
@@ -110,48 +113,51 @@ func (e *DiscoveryEngine) Stop(ctx context.Context) error {
 
 	select {
 	case <-waitChan:
-		log.Println("All DiscoveryEngine goroutines stopped.")
+		e.logger.Info().Msg("All DiscoveryEngine goroutines stopped")
 	case <-ctx.Done():
-		log.Printf("DiscoveryEngine stop timed out or context canceled: %v", ctx.Err())
+		e.logger.Error().Err(ctx.Err()).Msg("DiscoveryEngine stop timed out or context canceled")
 		return ctx.Err()
 	case <-time.After(defaultFallbackTimeout):
-		log.Println("DiscoveryEngine stop timed out after 10s.")
+		e.logger.Error().Msg("DiscoveryEngine stop timed out after 10s")
 		return ErrDiscoveryStopTimeout
 	}
 
 	// Close jobChan after workers have stopped
 	close(e.jobChan)
 
-	log.Println("DiscoveryEngine stopped.")
+	e.logger.Info().Msg("DiscoveryEngine stopped")
 
 	return nil
 }
 
 // scheduleJobs starts tickers for each enabled scheduled job
 func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
-	log.Println("Starting scheduled jobs...")
+	e.logger.Info().Msg("Starting scheduled jobs")
 
 	for i := range e.config.ScheduledJobs {
 		jobConfig := e.config.ScheduledJobs[i]
 		if !jobConfig.Enabled {
-			log.Printf("Scheduled job %s is disabled, skipping", jobConfig.Name)
+			e.logger.Info().Str("job", jobConfig.Name).Msg("Scheduled job is disabled, skipping")
 			continue
 		}
 
 		interval, err := time.ParseDuration(jobConfig.Interval)
 		if err != nil {
-			log.Printf("Invalid interval for job %s: %v, skipping", jobConfig.Name, err)
+			e.logger.Error().Str("job", jobConfig.Name).Err(err).
+				Msg("Invalid interval for job, skipping")
 			continue
 		}
 
 		if interval <= 0 {
-			log.Printf("Invalid interval for job %s: must be positive, skipping", jobConfig.Name)
+			e.logger.Error().Str("job", jobConfig.Name).
+				Msg("Invalid interval for job: must be positive, skipping")
 			continue
 		}
 
 		timeout, err := time.ParseDuration(jobConfig.Timeout)
 		if err != nil {
-			log.Printf("Invalid timeout for job %s: %v, using default config timeout", jobConfig.Name, err)
+			e.logger.Warn().Str("job", jobConfig.Name).Err(err).
+				Msg("Invalid timeout for job, using default config timeout")
 
 			timeout = e.config.Timeout
 		}
@@ -169,7 +175,8 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 		case "topology":
 			discoveryType = DiscoveryTypeTopology
 		default:
-			log.Printf("Invalid type for job %s: %s, skipping", jobConfig.Name, jobConfig.Type)
+			e.logger.Error().Str("job", jobConfig.Name).Str("type", jobConfig.Type).
+				Msg("Invalid type for job, skipping")
 			continue
 		}
 
@@ -200,17 +207,17 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 		go func(name string, params *DiscoveryParams) {
 			defer e.wg.Done()
 
-			log.Printf("Scheduler started for job %s with interval %v", name, interval)
+			e.logger.Info().Str("job", name).Dur("interval", interval).Msg("Scheduler started for job")
 
 			for {
 				select {
 				case <-ctx.Done():
-					log.Printf("Scheduler for job %s stopping due to context cancellation", name)
+					e.logger.Info().Str("job", name).Msg("Scheduler stopping due to context cancellation")
 					ticker.Stop()
 
 					return
 				case <-e.done:
-					log.Printf("Scheduler for job %s stopping due to engine shutdown", name)
+					e.logger.Info().Str("job", name).Msg("Scheduler stopping due to engine shutdown")
 					ticker.Stop()
 
 					return
@@ -221,16 +228,16 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 		}(jobConfig.Name, params)
 	}
 
-	log.Println("All scheduled jobs initialized.")
+	e.logger.Info().Msg("All scheduled jobs initialized")
 }
 
 // startScheduledJob initiates a discovery job
 func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, params *DiscoveryParams) {
-	log.Printf("Starting scheduled job %s", name)
+	e.logger.Info().Str("job", name).Msg("Starting scheduled job")
 
 	discoveryID, err := e.StartDiscovery(ctx, params)
 	if err != nil {
-		log.Printf("Failed to start scheduled job %s: %v", name, err)
+		e.logger.Error().Str("job", name).Err(err).Msg("Failed to start scheduled job")
 		return
 	}
 
@@ -243,7 +250,8 @@ func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, pa
 	}
 	e.mu.RUnlock()
 
-	log.Printf("Scheduled job %s started with discovery ID %s", name, discoveryID)
+	e.logger.Info().Str("job", name).Str("discovery_id", discoveryID).
+		Msg("Scheduled job started with discovery ID")
 }
 
 // StartDiscovery initiates a discovery operation with the given parameters.
@@ -295,7 +303,7 @@ func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryP
 	// Enqueue the job
 	select {
 	case e.jobChan <- job:
-		log.Printf("Discovery job %s enqueued", discoveryID)
+		e.logger.Info().Str("discovery_id", discoveryID).Msg("Discovery job enqueued")
 	default:
 		cancel() // Clean up context
 		delete(e.activeJobs, discoveryID)
@@ -389,7 +397,7 @@ func (e *DiscoveryEngine) CancelDiscovery(_ context.Context, discoveryID string)
 	delete(e.activeJobs, discoveryID)
 	e.mu.Unlock()
 
-	log.Printf("Discovery job %s canceled.", discoveryID)
+	e.logger.Info().Str("discovery_id", discoveryID).Msg("Discovery job canceled")
 
 	return nil
 }
@@ -398,19 +406,22 @@ func (e *DiscoveryEngine) CancelDiscovery(_ context.Context, discoveryID string)
 func (e *DiscoveryEngine) worker(ctx context.Context, workerID int) {
 	defer e.wg.Done()
 
-	log.Printf("Discovery worker %d started.", workerID)
+	e.logger.Info().Int("worker_id", workerID).Msg("Discovery worker started")
 
 	for {
 		select {
 		case <-ctx.Done(): // Main context canceled
-			log.Printf("Discovery worker %d stopping due to main context cancellation.", workerID)
+			e.logger.Info().Int("worker_id", workerID).
+				Msg("Discovery worker stopping due to main context cancellation")
 			return
 		case <-e.done: // Engine stopping
-			log.Printf("Discovery worker %d stopping due to engine shutdown.", workerID)
+			e.logger.Info().Int("worker_id", workerID).
+				Msg("Discovery worker stopping due to engine shutdown")
 			return
 		case job, ok := <-e.jobChan:
 			if !ok { // jobChan was closed
-				log.Printf("Discovery worker %d stopping as job channel was closed.", workerID)
+				e.logger.Info().Int("worker_id", workerID).
+					Msg("Discovery worker stopping as job channel was closed")
 
 				return
 			}
@@ -419,7 +430,8 @@ func (e *DiscoveryEngine) worker(ctx context.Context, workerID int) {
 			jobSpecificCtx := job.cancelFunc // This is actually the context.Context for the job
 			_ = jobSpecificCtx               // Avoid unused variable if not directly used here
 
-			log.Printf("Worker %d picked up job %s.", workerID, job.ID)
+			e.logger.Info().Int("worker_id", workerID).Str("job_id", job.ID).
+				Msg("Worker picked up job")
 
 			job.Status.Status = DiscoveryStatusRunning
 			job.Status.Progress = 5 // Indicate it's started
@@ -446,7 +458,8 @@ func (e *DiscoveryEngine) worker(ctx context.Context, workerID int) {
 			}
 
 			e.mu.Unlock()
-			log.Printf("Worker %d finished job %s with status %s.", workerID, job.ID, job.Status.Status)
+			e.logger.Info().Int("worker_id", workerID).Str("job_id", job.ID).
+				Str("status", string(job.Status.Status)).Msg("Worker finished job")
 		}
 	}
 }
@@ -472,12 +485,10 @@ func validateConfig(config *Config) error {
 
 	if config.Timeout <= 0 {
 		config.Timeout = defaultTimeout
-		log.Printf("Discovery config: Timeout not set or invalid, defaulting to %v", config.Timeout)
 	}
 
 	if config.ResultRetention <= 0 {
 		config.ResultRetention = defaultResultRetention
-		log.Printf("Discovery config: ResultRetention not set or invalid, defaulting to %v", config.ResultRetention)
 	}
 
 	// Validate scheduled jobs
@@ -564,22 +575,23 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 	if e.publisher != nil {
 		for _, link := range links {
 			if err := e.publisher.PublishTopologyLink(job.ctx, link); err != nil {
-				log.Printf("Job %s: Failed to publish %s link %s/%d: %v",
-					job.ID, protocol, target, link.LocalIfIndex, err)
+				e.logger.Error().Str("job_id", job.ID).Str("protocol", protocol).
+					Str("target", target).Int32("if_index", link.LocalIfIndex).
+					Err(err).Msg("Failed to publish link")
 			}
 		}
 	}
 }
 
 // handleEmptyTargetList updates job status when no valid targets are found
-func (*DiscoveryEngine) handleEmptyTargetList(job *DiscoveryJob) {
+func (e *DiscoveryEngine) handleEmptyTargetList(job *DiscoveryJob) {
 	job.mu.Lock()
 	job.Status.Status = DiscoveryStatusFailed
 	job.Status.Error = "No valid targets to scan after processing seeds"
 	job.Status.Progress = 100
 	job.mu.Unlock()
 
-	log.Printf("Job %s: Failed - no valid targets to scan", job.ID)
+	e.logger.Error().Str("job_id", job.ID).Msg("Failed - no valid targets to scan")
 }
 
 // determineConcurrency calculates the appropriate concurrency level.
@@ -625,10 +637,12 @@ func (e *DiscoveryEngine) startWorkers(
 
 				select {
 				case <-job.ctx.Done():
-					log.Printf("Job %s: Worker %d stopping (target: %s)", job.ID, workerID, target)
+					e.logger.Info().Str("job_id", job.ID).Int("worker_id", workerID).
+						Str("target", target).Msg("Worker stopping")
 					return
 				case <-e.done:
-					log.Printf("Job %s: Worker %d stopping - engine shutdown", job.ID, workerID)
+					e.logger.Info().Str("job_id", job.ID).Int("worker_id", workerID).
+						Msg("Worker stopping - engine shutdown")
 					return
 				default:
 					// Ping with timeout
@@ -638,7 +652,10 @@ func (e *DiscoveryEngine) startWorkers(
 					pingCancel()
 
 					if pingErr != nil {
-						log.Printf("Job %s: Host %s ping failed: %v", job.ID, target, pingErr)
+						e.logger.Debug().Str("job_id", job.ID).
+							Str("target", target).
+							Err(pingErr).
+							Msg("Host ping failed")
 						// Send result for failed ping
 						select {
 						case resultChan <- success:
@@ -661,7 +678,10 @@ func (e *DiscoveryEngine) startWorkers(
 					case <-targetDone:
 						success = true
 					case <-targetCtx.Done():
-						log.Printf("Job %s: Worker %d timeout for %s", job.ID, workerID, target)
+						e.logger.Warn().Str("job_id", job.ID).
+							Int("worker_id", workerID).
+							Str("target", target).
+							Msg("Worker timeout")
 
 						success = false
 					}
@@ -676,7 +696,7 @@ func (e *DiscoveryEngine) startWorkers(
 				}
 			}
 
-			log.Printf("Job %s: Worker %d finished", job.ID, workerID)
+			e.logger.Debug().Str("job_id", job.ID).Int("worker_id", workerID).Msg("Worker finished")
 		}(i)
 	}
 }
@@ -689,12 +709,12 @@ func (e *DiscoveryEngine) feedTargetsToWorkers(job *DiscoveryJob, targetChan cha
 		case targetChan <- target:
 			// Target sent to worker
 		case <-job.ctx.Done():
-			log.Printf("Job %s: Stopping target feed due to cancellation", job.ID)
+			e.logger.Info().Str("job_id", job.ID).Msg("Stopping target feed due to cancellation")
 			close(targetChan)
 
 			return true
 		case <-e.done:
-			log.Printf("Job %s: Stopping target feed due to engine shutdown", job.ID)
+			e.logger.Info().Str("job_id", job.ID).Msg("Stopping target feed due to engine shutdown")
 			close(targetChan)
 
 			return true
@@ -711,7 +731,11 @@ func (e *DiscoveryEngine) feedTargetsToWorkers(job *DiscoveryJob, targetChan cha
 func (e *DiscoveryEngine) checkPhaseJobCancellation(job *DiscoveryJob, seedIP, phaseName string) bool {
 	select {
 	case <-job.ctx.Done():
-		log.Printf("Job %s: %s phase canceled for seed %s: %v", job.ID, phaseName, seedIP, job.ctx.Err())
+		e.logger.Info().Str("job_id", job.ID).
+			Str("phase", phaseName).
+			Str("seed_ip", seedIP).
+			Err(job.ctx.Err()).
+			Msg("Phase canceled for seed")
 		job.mu.Lock()
 
 		if job.Status.Status != DiscoverStatusCanceled && job.Status.Status != DiscoveryStatusFailed {
@@ -724,7 +748,10 @@ func (e *DiscoveryEngine) checkPhaseJobCancellation(job *DiscoveryJob, seedIP, p
 
 		return true
 	case <-e.done:
-		log.Printf("Job %s: %s phase stopped due to engine shutdown for seed %s", job.ID, phaseName, seedIP)
+		e.logger.Info().Str("job_id", job.ID).
+			Str("phase", phaseName).
+			Str("seed_ip", seedIP).
+			Msg("Phase stopped due to engine shutdown for seed")
 		job.mu.Lock()
 
 		if job.Status.Status != DiscoverStatusCanceled && job.Status.Status != DiscoveryStatusFailed {
@@ -756,10 +783,13 @@ func (e *DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 
 		if len(job.Results.Devices) == 0 {
 			job.Status.Error = "No SNMP devices found"
-			log.Printf("Job %s: Completed - no SNMP devices found", job.ID)
+			e.logger.Info().Str("job_id", job.ID).Msg("Completed - no SNMP devices found")
 		} else {
-			log.Printf("Job %s: Completed successfully. Found %d devices, %d interfaces, %d topology links",
-				job.ID, len(job.Results.Devices), len(job.Results.Interfaces), len(job.Results.TopologyLinks))
+			e.logger.Info().Str("job_id", job.ID).
+				Int("devices", len(job.Results.Devices)).
+				Int("interfaces", len(job.Results.Interfaces)).
+				Int("topology_links", len(job.Results.TopologyLinks)).
+				Msg("Completed successfully")
 		}
 	}
 }
@@ -1032,10 +1062,14 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 			if existingDevice.IP != newDevice.IP {
 				existingDevice.Metadata = addAlternateIP(existingDevice.Metadata, newDevice.IP)
 
-				log.Printf("Job %s: Device %s (MAC: %s, DeviceID: %s) updated with alternate IP %s "+
-					"(primary: %s, source: %s)",
-					job.ID, existingDevice.Hostname, existingDevice.MAC,
-					existingDevice.DeviceID, newDevice.IP, existingDevice.IP, newDevice.Metadata["source"])
+				e.logger.Info().Str("job_id", job.ID).
+					Str("hostname", existingDevice.Hostname).
+					Str("mac", existingDevice.MAC).
+					Str("device_id", existingDevice.DeviceID).
+					Str("alternate_ip", newDevice.IP).
+					Str("primary_ip", existingDevice.IP).
+					Str("source", newDevice.Metadata["source"]).
+					Msg("Device updated with alternate IP")
 			}
 
 			return
@@ -1060,8 +1094,11 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 		}
 	}
 
-	log.Printf("Job %s: Adding new device %s (IP: %s, MAC: %s, DeviceID: %s, source: %s)",
-		job.ID, newDevice.Hostname, newDevice.IP, newDevice.MAC, newDevice.DeviceID, newDevice.Metadata["source"])
+	e.logger.Info().Str("job_id", job.ID).Str("hostname", newDevice.Hostname).
+		Str("ip", newDevice.IP).Str("mac", newDevice.MAC).
+		Str("device_id", newDevice.DeviceID).
+		Str("source", newDevice.Metadata["source"]).
+		Msg("Adding new device")
 
 	e.addNewDevice(job, newDevice)
 }
@@ -1150,16 +1187,18 @@ func (e *DiscoveryEngine) addNewDevice(job *DiscoveryJob, newDevice *DiscoveredD
 func (e *DiscoveryEngine) publishDevice(job *DiscoveryJob, device *DiscoveredDevice) {
 	if e.publisher != nil {
 		if err := e.publisher.PublishDevice(job.ctx, device); err != nil {
-			log.Printf("Job %s: Failed to publish device %s: %v", job.ID, device.IP, err)
+			e.logger.Error().Str("job_id", job.ID).Str("device_ip", device.IP).
+				Err(err).Msg("Failed to publish device")
 		}
 	}
 }
 
 // runDiscoveryJob performs the actual discovery for a job, now in two phases.
 func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob) {
-	log.Printf("Running discovery for job %s. Seeds: %v, Type: %s", job.ID, job.Params.Seeds, job.Params.Type)
+	e.logger.Info().Str("job_id", job.ID).Strs("seeds", job.Params.Seeds).
+		Str("type", string(job.Params.Type)).Msg("Running discovery for job")
 
-	initialSeeds := expandSeeds(job.Params.Seeds)
+	initialSeeds := e.expandSeeds(job.Params.Seeds)
 
 	if len(initialSeeds) == 0 {
 		e.handleEmptyTargetList(job)
@@ -1170,14 +1209,14 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 	allPotentialSNMPTargets := e.handleUniFiDiscoveryPhase(ctx, job, initialSeeds)
 
 	if e.checkPhaseJobCancellation(job, "", "UniFi discovery") {
-		log.Printf("Job %s: UniFi Discovery phase was canceled", job.ID)
+		e.logger.Info().Str("job_id", job.ID).Msg("UniFi Discovery phase was canceled")
 
 		e.finalizeJobStatus(job)
 
 		return
 	}
 
-	log.Printf("Job %s: Transitioning to SNMP Polling phase", job.ID)
+	e.logger.Info().Str("job_id", job.ID).Msg("Transitioning to SNMP Polling phase")
 
 	// Phase 2: SNMP Polling
 	if allPotentialSNMPTargets == nil {
@@ -1186,14 +1225,15 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 			allPotentialSNMPTargets[seed] = true
 		}
 
-		log.Printf("Job %s: No UniFi targets found, falling back to initial seeds: %v", job.ID, initialSeeds)
+		e.logger.Info().Str("job_id", job.ID).Strs("initial_seeds", initialSeeds).
+			Msg("No UniFi targets found, falling back to initial seeds")
 	}
 
 	if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds) {
-		log.Printf("Job %s: SNMP Polling phase failed or was canceled", job.ID)
+		e.logger.Warn().Str("job_id", job.ID).Msg("SNMP Polling phase failed or was canceled")
 	}
 
-	log.Printf("Job %s: Finalizing job status", job.ID)
+	e.logger.Debug().Str("job_id", job.ID).Msg("Finalizing job status")
 
 	e.finalizeJobStatus(job)
 }
@@ -1215,7 +1255,8 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 	job.Status.Progress = progressInitial / 3
 	job.mu.Unlock()
 
-	log.Printf("Job %s: Phase 1 - UniFi Discovery starting with %d initial seeds.", job.ID, len(initialSeeds))
+	e.logger.Info().Str("job_id", job.ID).Int("initial_seeds_count", len(initialSeeds)).
+		Msg("Phase 1 - UniFi Discovery starting")
 
 	devicesFound := 0
 	interfacesFound := 0
@@ -1232,7 +1273,8 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 		if len(e.config.UniFiAPIs) > 0 {
 			devices, interfaces, err := e.queryUniFiDevices(ctx, job, seedIP)
 			if err != nil {
-				log.Printf("Job %s: UniFi discovery for seed %s failed: %v", job.ID, seedIP, err)
+				e.logger.Error().Str("job_id", job.ID).
+					Str("seed_ip", seedIP).Err(err).Msg("UniFi discovery for seed failed")
 
 				continue
 			}
@@ -1256,15 +1298,18 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 
 			for _, iface := range interfaces {
 				if pubErr := e.publisher.PublishInterface(job.ctx, iface); pubErr != nil {
-					log.Printf("Job %s: Failed to publish UniFi interface for %s: %v",
-						job.ID, iface.DeviceIP, pubErr)
+					e.logger.Error().Str("job_id", job.ID).
+						Str("device_ip", iface.DeviceIP).
+						Err(pubErr).
+						Msg("Failed to publish UniFi interface")
 				}
 			}
 		}
 	}
 
-	log.Printf("Job %s: Phase 1 - UniFi Discovery completed. Found %d devices, %d interfaces, %d potential SNMP targets.",
-		job.ID, devicesFound, interfacesFound, len(allPotentialSNMPTargets))
+	e.logger.Info().Str("job_id", job.ID).Int("devices_found", devicesFound).
+		Int("interfaces_found", interfacesFound).Int("snmp_targets", len(allPotentialSNMPTargets)).
+		Msg("Phase 1 - UniFi Discovery completed")
 
 	return allPotentialSNMPTargets
 }
@@ -1283,11 +1328,14 @@ func (e *DiscoveryEngine) processDevicesForSNMPTargets(
 					seenMACs[normalizedMAC] = device.IP
 					allPotentialSNMPTargets[device.IP] = true
 
-					log.Printf("Job %s: Adding device %s (MAC: %s) with IP %s to SNMP targets",
-						job.ID, device.Hostname, device.MAC, device.IP)
+					e.logger.Debug().Str("job_id", job.ID).Str("hostname", device.Hostname).
+						Str("mac", device.MAC).Str("ip", device.IP).
+						Msg("Adding device to SNMP targets")
 				} else {
-					log.Printf("Job %s: Device %s (MAC: %s) already in SNMP targets with IP %s, skipping IP %s",
-						job.ID, device.Hostname, device.MAC, primaryIP, device.IP)
+					e.logger.Debug().Str("job_id", job.ID).Str("hostname", device.Hostname).
+						Str("mac", device.MAC).Str("primary_ip", primaryIP).
+						Str("skipped_ip", device.IP).
+						Msg("Device already in SNMP targets, skipping IP")
 				}
 			} else {
 				allPotentialSNMPTargets[device.IP] = true
@@ -1309,13 +1357,14 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(
 
 	totalSNMPTargets := len(job.scanQueue)
 	if totalSNMPTargets == 0 {
-		log.Printf("Job %s: No SNMP targets to poll (seeds: %v, UniFiAPIs count: %d).",
-			job.ID, initialSeeds, len(e.config.UniFiAPIs))
+		e.logger.Info().Str("job_id", job.ID).Strs("seeds", initialSeeds).
+			Int("unifi_apis_count", len(e.config.UniFiAPIs)).Msg("No SNMP targets to poll")
 
 		return true
 	}
 
-	log.Printf("Job %s: Phase 2 - SNMP Polling %d unique target IPs.", job.ID, totalSNMPTargets)
+	e.logger.Info().Str("job_id", job.ID).Int("snmp_targets_count", totalSNMPTargets).
+		Msg("Phase 2 - SNMP Polling unique target IPs")
 
 	// Setup for SNMP polling
 	concurrency := e.determineConcurrency(job, totalSNMPTargets)
@@ -1342,7 +1391,7 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(
 	job.Status.Progress = baseSNMPProgress
 	job.mu.Unlock()
 
-	log.Printf("Job %s: Scan queue for SNMP: %v", job.ID, job.scanQueue)
+	e.logger.Debug().Str("job_id", job.ID).Strs("scan_queue", job.scanQueue).Msg("Scan queue for SNMP")
 
 	// Execute SNMP polling
 	return e.executeSNMPPolling(job, targetChanSNMP, resultChanSNMP, &wgSNMP)
@@ -1365,7 +1414,7 @@ func (e *DiscoveryEngine) executeSNMPPolling(
 		}
 
 		job.mu.Unlock()
-		log.Printf("Job %s: SNMP target feeding/processing was canceled.", job.ID)
+		e.logger.Info().Str("job_id", job.ID).Msg("SNMP target feeding/processing was canceled")
 
 		return false
 	}
@@ -1404,24 +1453,27 @@ func (e *DiscoveryEngine) trackJobProgress(
 		job.Status.InterfacesFound = len(job.Results.Interfaces)
 		job.Status.TopologyLinks = len(job.Results.TopologyLinks)
 
-		log.Printf("Job %s: Progress %.2f%% (%d/%d processed, %d successful). Devices: %d, Interfaces: %d, Links: %d",
-			job.ID, job.Status.Progress, processed, totalTargets, successful,
-			job.Status.DevicesFound, job.Status.InterfacesFound, job.Status.TopologyLinks)
+		e.logger.Debug().Str("job_id", job.ID).Float64("progress", job.Status.Progress).
+			Int("processed", processed).Int("total_targets", totalTargets).
+			Int("successful", successful).Int("devices", job.Status.DevicesFound).
+			Int("interfaces", job.Status.InterfacesFound).Int("links", job.Status.TopologyLinks).
+			Msg("Job progress update")
 
 		job.mu.Unlock()
 
 		select {
 		case <-job.ctx.Done():
-			log.Printf("Job %s: Progress tracking stopping due to cancellation", job.ID)
+			e.logger.Debug().Str("job_id", job.ID).Msg("Progress tracking stopping due to cancellation")
 			return
 		case <-e.done:
-			log.Printf("Job %s: Progress tracking stopping due to engine shutdown", job.ID)
+			e.logger.Debug().Str("job_id", job.ID).Msg("Progress tracking stopping due to engine shutdown")
 			return
 		default:
 		}
 	}
 
-	log.Printf("Job %s: Progress tracking finished for this phase. %d/%d targets successfully processed.", job.ID, successful, totalTargets)
+	e.logger.Debug().Str("job_id", job.ID).Int("successful", successful).
+		Int("total_targets", totalTargets).Msg("Progress tracking finished for this phase")
 }
 
 // finalizeDevice performs final setup on the device before returning it

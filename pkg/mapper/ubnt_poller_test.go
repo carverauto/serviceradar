@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,6 +67,7 @@ func TestCreateUniFiClient(t *testing.T) {
 				config: &Config{
 					Timeout: tt.timeout,
 				},
+				logger: logger.NewTestLogger(),
 			}
 
 			client := engine.createUniFiClient(tt.config)
@@ -152,6 +154,7 @@ func TestFetchUniFiSites(t *testing.T) {
 				config: &Config{
 					Timeout: 30 * time.Second,
 				},
+				logger: logger.NewTestLogger(),
 			}
 
 			job := &DiscoveryJob{
@@ -258,7 +261,9 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 			defer server.Close()
 
 			// Create engine and job
-			engine := &DiscoveryEngine{}
+			engine := &DiscoveryEngine{
+				logger: logger.NewTestLogger(),
+			}
 
 			job := &DiscoveryJob{
 				ID: "test-job",
@@ -370,7 +375,9 @@ func TestProcessLLDPTable(t *testing.T) {
 		ID: "test-job",
 	}
 
-	engine := &DiscoveryEngine{}
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
 
 	// Call the function
 	links := engine.processLLDPTable(job, device, deviceID, details, apiConfig, site)
@@ -463,7 +470,9 @@ func TestProcessPortTable(t *testing.T) {
 		ID: "test-job",
 	}
 
-	engine := &DiscoveryEngine{}
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
 
 	// Call the function
 	links := engine.processPortTable(job, device, deviceID, details, apiConfig, site)
@@ -534,7 +543,9 @@ func TestProcessUplinkInfo(t *testing.T) {
 		ID: "test-job",
 	}
 
-	engine := &DiscoveryEngine{}
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
 
 	// Call the function
 	links := engine.processUplinkInfo(job, device, deviceCache, apiConfig, site)
@@ -591,7 +602,9 @@ func TestCreateDiscoveredDevice(t *testing.T) {
 		},
 	}
 
-	engine := &DiscoveryEngine{}
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
 
 	// Call the function
 	result := engine.createDiscoveredDevice(job, device, apiConfig, site)
@@ -746,7 +759,9 @@ func TestAddPoEMetadata(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			metadata := make(map[string]string)
-			engine := &DiscoveryEngine{}
+			engine := &DiscoveryEngine{
+				logger: logger.NewTestLogger(),
+			}
 
 			engine.addPoEMetadata(metadata, tt.port)
 
