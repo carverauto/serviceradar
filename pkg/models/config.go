@@ -111,6 +111,14 @@ var (
 	errInvalidDuration = fmt.Errorf("invalid duration")
 )
 
+// MCPConfigRef represents MCP configuration to avoid circular imports
+type MCPConfigRef struct {
+	Enabled bool   `json:"enabled"`
+	Port    string `json:"port"`
+	Host    string `json:"host"`
+	APIKey  string `json:"api_key"`
+}
+
 // CoreServiceConfig represents the configuration for the core service.
 // This was previously named DBConfig but contains much more than database configuration.
 type CoreServiceConfig struct {
@@ -135,6 +143,7 @@ type CoreServiceConfig struct {
 	NATS           *NATSConfig            `json:"nats,omitempty"`
 	Events         *EventsConfig          `json:"events,omitempty"`
 	Logging        *logger.Config         `json:"logging,omitempty"`
+	MCP            *MCPConfigRef          `json:"mcp,omitempty"`
 }
 
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {

@@ -28,6 +28,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/mcp"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -135,6 +137,11 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
 
+	// Initialize MCP server if configured
+	if err := server.initializeMCPServer(ctx, database, log, normalizedConfig); err != nil {
+		server.logger.Warn().Err(err).Msg("Failed to initialize MCP server")
+	}
+
 	return server, nil
 }
 
@@ -166,6 +173,15 @@ func (s *Server) Start(ctx context.Context) error {
 	go s.runMetricsCleanup(ctx)
 	go s.monitorPollers(ctx)
 
+	// Start MCP server if configured
+	if s.mcpServer != nil {
+		go func() {
+			if err := s.mcpServer.Start(); err != nil {
+				s.logger.Error().Err(err).Msg("Failed to start MCP server")
+			}
+		}()
+	}
+
 	return nil
 }
 
@@ -179,6 +195,13 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	if s.grpcServer != nil {
 		s.grpcServer.Stop(ctx)
+	}
+
+	// Stop MCP server if running
+	if s.mcpServer != nil {
+		if err := s.mcpServer.Stop(); err != nil {
+			s.logger.Error().Err(err).Msg("Error stopping MCP server")
+		}
 	}
 
 	if err := s.DB.Close(); err != nil {
@@ -309,4 +332,37 @@ func (s *Server) GetRperfManager() metricstore.RperfManager {
 
 func (s *Server) GetAuth() *auth.Auth {
 	return s.authService
+}
+
+// initializeMCPServer initializes the MCP server if configured  
+func (s *Server) initializeMCPServer(ctx context.Context, database db.Service, log logger.Logger, config *models.CoreServiceConfig) error {
+	// Use MCP config from CoreServiceConfig if available, otherwise use defaults
+	mcpConfig := mcp.GetDefaultConfig()
+	
+	if config.MCP != nil {
+		mcpConfig.Enabled = config.MCP.Enabled
+		if config.MCP.Host != "" {
+			mcpConfig.Host = config.MCP.Host
+		}
+		if config.MCP.Port != "" {
+			mcpConfig.Port = config.MCP.Port
+		}
+		mcpConfig.APIKey = config.MCP.APIKey
+	}
+	
+	if !mcpConfig.Enabled {
+		s.logger.Info().Msg("MCP server disabled in configuration")
+		return nil
+	}
+
+	s.logger.Info().
+		Str("host", mcpConfig.Host).
+		Str("port", mcpConfig.Port).
+		Bool("auth_configured", mcpConfig.APIKey != "").
+		Msg("Initializing MCP server")
+
+	mcpServer := mcp.NewMCPServer(ctx, database, log, mcpConfig, s.authService)
+	s.mcpServer = mcpServer
+
+	return nil
 }
