@@ -168,6 +168,14 @@ func (s *APIServer) setupMiddleware() {
 // authenticationMiddleware provides flexible authentication, allowing either a Bearer token or an API key.
 func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.logger != nil {
+			s.logger.Info().
+				Str("method", r.Method).
+				Str("path", r.URL.Path).
+				Str("auth_header", r.Header.Get("Authorization")).
+				Msg("Authentication middleware called")
+		}
+
 		// Option 1: Authenticate with a Bearer token
 		authHeader := r.Header.Get("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer ") {
@@ -176,11 +184,24 @@ func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
 				user, err := s.authService.VerifyToken(r.Context(), token)
 				if err == nil {
 					// Bearer token is valid - add user to context and proceed
+					if s.logger != nil {
+						s.logger.Info().
+							Str("user_id", user.ID).
+							Str("user_email", user.Email).
+							Msg("Bearer token authentication successful")
+					}
 					ctx := context.WithValue(r.Context(), auth.UserKey, user)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
-				// Bearer token invalid - continue to API key check
+				// Bearer token invalid - reject immediately
+				if s.logger != nil {
+					s.logger.Warn().
+						Err(err).
+						Msg("Bearer token authentication failed")
+				}
+				writeError(w, "Invalid bearer token", http.StatusUnauthorized)
+				return
 			}
 		}
 
@@ -195,11 +216,23 @@ func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
 		isAuthEnabled := os.Getenv("AUTH_ENABLED") == "true"
 		apiKeyConfigured := apiKey != ""
 		if isAuthEnabled || apiKeyConfigured {
+			if s.logger != nil {
+				s.logger.Warn().
+					Bool("auth_enabled", isAuthEnabled).
+					Bool("api_key_configured", apiKeyConfigured).
+					Msg("Authentication required but not provided")
+			}
 			writeError(w, "Authentication required", http.StatusUnauthorized)
 			return
 		}
 
 		// Fallback for development: if no auth is configured, allow the request
+		if s.logger != nil {
+			s.logger.Warn().
+				Bool("auth_enabled", isAuthEnabled).
+				Bool("api_key_configured", apiKeyConfigured).
+				Msg("No authentication configured - allowing request (development mode)")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -1370,13 +1403,22 @@ func mergeRelatedDevices(
 // RegisterMCPRoutes registers MCP routes with the API server
 func (s *APIServer) RegisterMCPRoutes(mcpServer MCPRouteRegistrar) {
 	if s.logger != nil {
-		s.logger.Info().Msg("Registering MCP routes with API server")
+		s.logger.Info().
+			Bool("has_protected_router", s.protectedRouter != nil).
+			Msg("Registering MCP routes with API server")
 	}
 
-	// Create a separate subrouter for MCP under /api to match client expectations
-	// but without authentication middleware since MCP handles its own auth
-	apiRouter := s.router.PathPrefix("/api").Subrouter()
-	mcpServer.RegisterRoutes(apiRouter)
+	// Use the protected router which already has authentication middleware
+	if s.protectedRouter != nil {
+		s.logger.Info().Msg("Using existing protected router with auth middleware")
+		mcpServer.RegisterRoutes(s.protectedRouter)
+	} else {
+		// Fallback to creating a new protected subrouter if protectedRouter isn't set yet
+		s.logger.Warn().Msg("Protected router not initialized, creating new subrouter")
+		apiRouter := s.router.PathPrefix("/api").Subrouter()
+		apiRouter.Use(s.authenticationMiddleware)
+		mcpServer.RegisterRoutes(apiRouter)
+	}
 }
 
 // ExecuteSRQLQuery executes an SRQL query and returns the results

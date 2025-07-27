@@ -22,10 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/core/api"
-	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/gorilla/mux"
 )
@@ -35,7 +33,6 @@ type SimpleMCPServer struct {
 	queryExecutor api.SRQLQueryExecutor
 	logger        logger.Logger
 	config        *MCPConfig
-	authService   auth.AuthService
 	ctx           context.Context
 	cancel        context.CancelFunc
 }
@@ -90,7 +87,6 @@ func NewSimpleMCPServer(
 	queryExecutor api.SRQLQueryExecutor,
 	log logger.Logger,
 	config *MCPConfig,
-	authService auth.AuthService,
 ) *SimpleMCPServer {
 	ctx, cancel := context.WithCancel(parentCtx)
 
@@ -98,7 +94,6 @@ func NewSimpleMCPServer(
 		queryExecutor: queryExecutor,
 		logger:        log,
 		config:        config,
-		authService:   authService,
 		ctx:           ctx,
 		cancel:        cancel,
 	}
@@ -163,11 +158,7 @@ func (s *SimpleMCPServer) handleMCPRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Check authentication
-	if !s.checkAuth(r) {
-		s.writeError(w, nil, -32002, "Authentication failed", "Invalid or missing API key")
-		return
-	}
+	// Authentication is now handled by the API server middleware
 
 	var req JSONRPCRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -476,69 +467,6 @@ func (s *SimpleMCPServer) executeExecuteSRQL(ctx context.Context, args json.RawM
 	return s.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
 }
 
-// checkAuth validates the request using ServiceRadar's authentication system
-func (s *SimpleMCPServer) checkAuth(r *http.Request) bool {
-	if s.logger == nil {
-		return false
-	}
-
-	// First check if we should use ServiceRadar's auth system
-	if s.authService != nil {
-		authHeader := r.Header.Get("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-			s.logger.Info().
-				Str("method", r.Method).
-				Str("path", r.URL.Path).
-				Msg("Checking Bearer token with ServiceRadar auth service")
-			
-			user, err := s.authService.VerifyToken(r.Context(), token)
-			if err == nil {
-				s.logger.Info().
-					Str("user_id", user.ID).
-					Str("user_email", user.Email).
-					Msg("Authentication successful via ServiceRadar Bearer token")
-				return true
-			}
-			
-			s.logger.Warn().
-				Err(err).
-				Msg("Bearer token validation failed")
-		}
-	}
-
-	// Fall back to API key if configured
-	if s.config != nil && s.config.APIKey != "" {
-		s.logger.Info().
-			Str("method", r.Method).
-			Str("path", r.URL.Path).
-			Msg("Checking API key authentication")
-
-		// Check X-API-Key header
-		apiKey := r.Header.Get("X-API-Key")
-		if apiKey != "" && apiKey == s.config.APIKey {
-			s.logger.Info().Msg("Authentication successful via X-API-Key header")
-			return true
-		}
-
-		// Check api_key query parameter
-		apiKey = r.URL.Query().Get("api_key")
-		if apiKey != "" && apiKey == s.config.APIKey {
-			s.logger.Info().Msg("Authentication successful via query parameter")
-			return true
-		}
-
-		s.logger.Warn().
-			Str("method", r.Method).
-			Str("path", r.URL.Path).
-			Msg("API key authentication failed")
-		return false
-	}
-
-	// If no auth service and no API key configured, deny access
-	s.logger.Warn().Msg("No authentication method configured, denying access")
-	return false
-}
 
 // Utility methods
 func (s *SimpleMCPServer) writeSuccess(w http.ResponseWriter, id interface{}, result interface{}) {

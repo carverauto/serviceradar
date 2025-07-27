@@ -289,7 +289,7 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 			Msg("Initializing MCP server with API server")
 
 		// Create simple MCP server with API server as query executor
-		s.mcpServer = mcp.NewSimpleMCPServer(ctx, apiServer, s.mcpLogger, s.mcpConfig, s.authService)
+		s.mcpServer = mcp.NewSimpleMCPServer(ctx, apiServer, s.mcpLogger, s.mcpConfig)
 
 		// Register MCP routes with API server
 		apiServer.RegisterMCPRoutes(s.mcpServer)
