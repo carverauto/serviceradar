@@ -24,14 +24,21 @@ const StatCard = ({
     title,
     value,
     icon,
-    isLoading
+    isLoading,
+    onClick
 }: {
     title: string;
     value: string | number;
     icon: React.ReactNode;
-    isLoading: boolean
+    isLoading: boolean;
+    onClick?: () => void;
 }) => (
-    <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
+    <div 
+        className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg transition-all ${
+            onClick ? 'cursor-pointer hover:shadow-lg hover:border-orange-400 dark:hover:border-orange-600' : ''
+        }`}
+        onClick={onClick}
+    >
         <div className="flex items-center">
             <div className="p-2 bg-orange-100 dark:bg-gray-700/50 rounded-md mr-4 text-orange-600 dark:text-orange-400">
                 {icon}
@@ -106,11 +113,13 @@ const LogsDashboard = () => {
 
         try {
             // Use cached queries to prevent duplicates
+            // Handle various severity text formats that might come from OTEL
+            // Using case-insensitive queries to handle variations
             const [totalRes, errorRes, warnRes, infoRes] = await Promise.all([
                 cachedQuery<{ results: [{ 'count()': number }] }>('COUNT LOGS', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'ERROR'", token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'WARN'", token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'INFO'", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) IN ('error', 'fatal', 'critical')", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) IN ('warn', 'warning')", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) = 'info'", token || undefined, 30000),
             ]);
 
             setStats({
@@ -167,7 +176,24 @@ const LogsDashboard = () => {
             }
 
             if (filterSeverity !== 'all') {
-                whereClauses.push(`severity_text = '${filterSeverity}'`);
+                // Map filter values to actual severity texts in the database
+                // Using case-insensitive queries to handle variations
+                let severityFilter = '';
+                switch (filterSeverity) {
+                    case 'ERROR':
+                        severityFilter = "lower(severity_text) IN ('error', 'fatal', 'critical')";
+                        break;
+                    case 'WARN':
+                        severityFilter = "lower(severity_text) IN ('warn', 'warning')";
+                        break;
+                    case 'INFO':
+                        severityFilter = "lower(severity_text) = 'info'";
+                        break;
+                    case 'DEBUG':
+                        severityFilter = "lower(severity_text) IN ('debug', 'trace')";
+                        break;
+                }
+                whereClauses.push(severityFilter);
             }
 
             if (filterService !== 'all') {
@@ -218,6 +244,7 @@ const LogsDashboard = () => {
         switch (upperSeverity) {
             case 'ERROR':
             case 'FATAL':
+            case 'CRITICAL':
                 return 'bg-red-100 dark:bg-red-600/50 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-500/60';
             case 'WARN':
             case 'WARNING':
@@ -290,24 +317,28 @@ const LogsDashboard = () => {
                     value={stats.total.toLocaleString()}
                     icon={<FileText className="h-6 w-6 text-orange-600 dark:text-gray-300" />}
                     isLoading={statsLoading}
+                    onClick={() => setFilterSeverity('all')}
                 />
                 <StatCard
                     title="Errors"
                     value={stats.error.toLocaleString()}
                     icon={<AlertOctagon className="h-6 w-6 text-red-400" />}
                     isLoading={statsLoading}
+                    onClick={() => setFilterSeverity('ERROR')}
                 />
                 <StatCard
                     title="Warnings"
                     value={stats.warning.toLocaleString()}
                     icon={<AlertTriangleIcon className="h-6 w-6 text-orange-400" />}
                     isLoading={statsLoading}
+                    onClick={() => setFilterSeverity('WARN')}
                 />
                 <StatCard
                     title="Info"
                     value={stats.info.toLocaleString()}
                     icon={<Info className="h-6 w-6 text-sky-400" />}
                     isLoading={statsLoading}
+                    onClick={() => setFilterSeverity('INFO')}
                 />
             </div>
 
