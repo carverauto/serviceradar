@@ -137,8 +137,9 @@ const LogsDashboard = () => {
 
     const fetchServices = useCallback(async () => {
         try {
-            // Use a simple SRQL query to get logs with distinct service names
-            const query = 'SHOW LOGS WHERE service_name IS NOT NULL ORDER BY timestamp DESC';
+            // Use SRQL SHOW query with DISTINCT function to get unique service names efficiently
+            // This should translate to: SELECT DISTINCT service_name FROM table(logs) WHERE service_name IS NOT NULL
+            const query = 'SHOW DISTINCT(service_name) FROM logs WHERE service_name IS NOT NULL';
             const data = await postQuery<LogsApiResponse>(query);
             
             if (!data.results || data.results.length === 0) {
@@ -146,19 +147,15 @@ const LogsDashboard = () => {
                 return;
             }
             
-            // Extract unique service names from the results
-            const uniqueServices = new Set<string>();
-            data.results.forEach(log => {
-                if (log.service_name && log.service_name.trim() !== '') {
-                    uniqueServices.add(log.service_name);
-                }
-            });
-            
-            const serviceNames = Array.from(uniqueServices).sort();
+            // Extract service names from the distinct results
+            const serviceNames = data.results
+                .map(row => row.service_name)
+                .filter(name => name && name.trim() !== '')
+                .sort();
+                
             setServices(serviceNames);
         } catch (e) {
-            console.error("Failed to fetch services:", e);
-            // If the service fetch fails, users can still use the logs view without service filtering
+            console.error("Failed to fetch services with DISTINCT query:", e);
             setServices([]);
         }
     }, [postQuery]);
