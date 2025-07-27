@@ -218,8 +218,8 @@ const CriticalLogsWidget = () => {
     }
 
     return (
-        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px]">
-            <div className="flex justify-between items-start mb-4">
+        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px] overflow-hidden">
+            <div className="flex justify-between items-start mb-4 flex-shrink-0">
                 <h3 className="font-semibold text-gray-900 dark:text-white">Critical Logs</h3>
                 <Link 
                     href="/logs"
@@ -230,9 +230,9 @@ const CriticalLogsWidget = () => {
                 </Link>
             </div>
             
-            <div className="flex-1">
+            <div className="flex-1 flex flex-col min-h-0">
                 {/* Stats Summary Table */}
-                <div className="mb-4">
+                <div className="mb-4 flex-shrink-0">
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="border-b border-gray-200 dark:border-gray-700">
@@ -276,28 +276,28 @@ const CriticalLogsWidget = () => {
 
                 {/* Recent Logs List */}
                 {recentLogs.length > 0 ? (
-                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                    <div className="space-y-2 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
                         {recentLogs.map((log, index) => (
-                            <div key={index} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700/50 rounded">
-                                <div className="flex items-center space-x-2 flex-1 min-w-0">
+                            <div key={index} className="flex items-center justify-between gap-2 p-2 bg-gray-50 dark:bg-gray-700/50 rounded">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
                                     <div className="flex-shrink-0">
                                         {getLevelIcon(log.severity_text)}
                                     </div>
-                                    <div className="flex-1 min-w-0">
+                                    <div className="min-w-0 flex-1">
                                         <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
                                             {log.service_name || 'Unknown Service'}
                                         </div>
                                         <div className="text-xs text-gray-600 dark:text-gray-400 truncate">
                                             {truncateMessage(log.body)}
                                         </div>
-                                        <div className={`text-xs ${getLevelColor(log.severity_text)}`}>
+                                        <div className={`text-xs ${getLevelColor(log.severity_text)} truncate`}>
                                             {formatSeverityForDisplay(log.severity_text)} • {formatTimestamp(log.timestamp)}
                                         </div>
                                     </div>
                                 </div>
                                 <Link 
                                     href={`/logs?filterSeverity=${encodeURIComponent(log.severity_text.toUpperCase())}`}
-                                    className="flex-shrink-0 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 ml-2"
+                                    className="flex-shrink-0 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
                                     title={`View ${formatSeverityForDisplay(log.severity_text)} logs`}
                                 >
                                     <ExternalLink size={14} />
