@@ -19,10 +19,10 @@ package mcp
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	_ "embed"
 
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
@@ -243,6 +243,10 @@ func (m *MCPServer) handlePromptList(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+const (
+	defaultSRQLGuide = "srql-guide"
+)
+
 // handlePromptGet returns a specific prompt
 func (m *MCPServer) handlePromptGet(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -255,7 +259,7 @@ func (m *MCPServer) handlePromptGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name != "srql-guide" {
+	if req.Name != defaultSRQLGuide {
 		m.writeError(w, statusNotFound, fmt.Sprintf("Prompt not found: %s", req.Name))
 		return
 	}
@@ -511,7 +515,7 @@ func handleJSONRPCPromptsList(w http.ResponseWriter, id interface{}) {
 	result := map[string]interface{}{
 		"prompts": []map[string]interface{}{
 			{
-				"name":        "srql-guide",
+				"name":        defaultSRQLGuide,
 				"description": "ServiceRadar Query Language (SRQL) syntax guide and best practices for constructing network monitoring queries",
 				"arguments":   []map[string]interface{}{}, // No arguments required for this prompt
 			},
@@ -531,7 +535,7 @@ func handleJSONRPCPromptsGet(w http.ResponseWriter, id interface{}, params json.
 		return
 	}
 
-	if req.Name != "srql-guide" {
+	if req.Name != defaultSRQLGuide {
 		writeJSONRPCError(w, id, -32602, "Unknown prompt", fmt.Sprintf("Prompt not found: %s", req.Name))
 		return
 	}
