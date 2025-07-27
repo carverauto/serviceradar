@@ -196,9 +196,18 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 	// Note: LATEST is not applied to ClickHouse here.
 	switch query.Type {
 	case models.Show, models.Find:
-		sql.WriteString("SELECT * FROM ")
+		if query.Function != "" {
+			// Handle function calls like DISTINCT(field)
+			sql.WriteString("SELECT ")
+			sql.WriteString(t.buildFunctionCall(query))
+			sql.WriteString(" FROM ")
+		} else {
+			sql.WriteString("SELECT * FROM ")
+		}
 	case models.Count:
 		sql.WriteString("SELECT count() FROM ")
+	case models.Stream:
+		return t.buildClickHouseStreamQuery(query)
 	}
 
 	sql.WriteString(strings.ToLower(string(query.Entity)))
@@ -226,6 +235,60 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 		sql.WriteString(strings.Join(orderByParts, ", "))
 	}
 
+	if query.HasLimit {
+		fmt.Fprintf(&sql, " LIMIT %d", query.Limit)
+	}
+
+	return sql.String(), nil
+}
+
+// buildClickHouseStreamQuery builds a STREAM query for ClickHouse
+func (t *Translator) buildClickHouseStreamQuery(query *models.Query) (string, error) {
+	var sql strings.Builder
+
+	// Build SELECT clause with specified fields
+	sql.WriteString("SELECT ")
+
+	if len(query.SelectFields) > 0 {
+		sql.WriteString(strings.Join(query.SelectFields, ", "))
+	} else {
+		sql.WriteString("*")
+	}
+
+	sql.WriteString(" FROM ")
+	sql.WriteString(strings.ToLower(string(query.Entity)))
+
+	// Build WHERE clause
+	if len(query.Conditions) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(t.buildClickHouseWhere(query.Conditions))
+	}
+
+	// Build GROUP BY clause
+	if len(query.GroupBy) > 0 {
+		sql.WriteString(" GROUP BY ")
+		sql.WriteString(strings.Join(query.GroupBy, ", "))
+	}
+
+	// Build ORDER BY clause
+	if len(query.OrderBy) > 0 {
+		sql.WriteString(" ORDER BY ")
+
+		var orderByParts []string
+
+		for _, item := range query.OrderBy {
+			direction := defaultAscending
+			if item.Direction == models.Descending {
+				direction = defaultDescending
+			}
+
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
+		}
+
+		sql.WriteString(strings.Join(orderByParts, ", "))
+	}
+
+	// Build LIMIT clause
 	if query.HasLimit {
 		fmt.Fprintf(&sql, " LIMIT %d", query.Limit)
 	}
@@ -351,9 +414,19 @@ func (t *Translator) buildProtonQuery(query *models.Query) (string, error) {
 func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *models.Query, baseTableName string) {
 	switch query.Type {
 	case models.Show, models.Find:
-		sql.WriteString("SELECT * FROM table(") // Added table() here
+		if query.Function != "" {
+			// Handle function calls like DISTINCT(field)
+			sql.WriteString("SELECT ")
+			sql.WriteString(t.buildFunctionCall(query))
+			sql.WriteString(" FROM table(")
+		} else {
+			sql.WriteString("SELECT * FROM table(") // Added table() here
+		}
 	case models.Count:
 		sql.WriteString("SELECT count() FROM table(") // Added table() here
+	case models.Stream:
+		t.buildStreamQuery(sql, query, baseTableName)
+		return
 	}
 
 	sql.WriteString(baseTableName)
@@ -404,6 +477,87 @@ func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *model
 	if query.HasLimit {
 		fmt.Fprintf(sql, " LIMIT %d", query.Limit)
 	}
+}
+
+// buildStreamQuery builds a STREAM query for Proton that supports GROUP BY aggregations
+func (t *Translator) buildStreamQuery(sql *strings.Builder, query *models.Query, baseTableName string) {
+	// Build SELECT clause with specified fields
+	sql.WriteString("SELECT ")
+
+	if len(query.SelectFields) > 0 {
+		sql.WriteString(strings.Join(query.SelectFields, ", "))
+	} else {
+		sql.WriteString("*")
+	}
+
+	sql.WriteString(" FROM table(")
+	sql.WriteString(baseTableName)
+	sql.WriteString(")")
+
+	// Build WHERE clause
+	var whereClauses []string
+
+	if len(query.Conditions) > 0 {
+		conditionsStr := t.buildProtonWhere(query.Conditions)
+		whereClauses = append(whereClauses, conditionsStr)
+	}
+
+	// Add implicit filter for non-deleted devices, only for 'devices' entity
+	if query.Entity == models.Devices {
+		deletedFilter := "coalesce(metadata['_deleted'], '') != 'true'"
+		whereClauses = append(whereClauses, deletedFilter)
+	}
+
+	if len(whereClauses) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(strings.Join(whereClauses, " AND "))
+	}
+
+	// Build GROUP BY clause
+	if len(query.GroupBy) > 0 {
+		sql.WriteString(" GROUP BY ")
+		sql.WriteString(strings.Join(query.GroupBy, ", "))
+	}
+
+	// Build ORDER BY clause
+	if len(query.OrderBy) > 0 {
+		sql.WriteString(" ORDER BY ")
+
+		var orderByParts []string
+
+		for _, item := range query.OrderBy {
+			direction := defaultAscending
+			if item.Direction == models.Descending {
+				direction = defaultDescending
+			}
+
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
+		}
+
+		sql.WriteString(strings.Join(orderByParts, ", "))
+	}
+
+	// Build LIMIT clause
+	if query.HasLimit {
+		fmt.Fprintf(sql, " LIMIT %d", query.Limit)
+	}
+}
+
+// buildFunctionCall builds a function call like DISTINCT(field) for SQL
+func (*Translator) buildFunctionCall(query *models.Query) string {
+	funcName := strings.ToUpper(query.Function)
+
+	if len(query.FunctionArgs) == 0 {
+		return funcName + "()"
+	}
+
+	// For DISTINCT, we want to generate: DISTINCT field_name
+	if funcName == "DISTINCT" {
+		return fmt.Sprintf("DISTINCT %s", strings.Join(query.FunctionArgs, ", "))
+	}
+
+	// For other functions, use standard function call syntax
+	return fmt.Sprintf("%s(%s)", funcName, strings.Join(query.FunctionArgs, ", "))
 }
 
 // conditionFormatter defines a function to format a condition for a specific operator.
@@ -750,6 +904,9 @@ func (t *Translator) toArangoDB(query *models.Query) (string, error) {
 	case models.Count:
 		countAQL := fmt.Sprintf("RETURN LENGTH(\n%s\n)", aql.String())
 		return countAQL, nil
+	case models.Stream:
+		// Stream queries are not supported for ArangoDB
+		return "", fmt.Errorf("STREAM queries are not supported for ArangoDB")
 	}
 
 	return aql.String(), nil
