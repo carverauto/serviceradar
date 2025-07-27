@@ -19,10 +19,10 @@ package mapper
 
 import (
 	"context"
-	"log"
 	"math"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	proto "github.com/carverauto/serviceradar/proto/discovery"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -33,18 +33,20 @@ import (
 type GRPCDiscoveryService struct {
 	proto.UnimplementedDiscoveryServiceServer
 	engine Mapper
+	logger logger.Logger
 }
 
 // NewGRPCDiscoveryService creates a new gRPC discovery service
-func NewGRPCDiscoveryService(engine Mapper) *GRPCDiscoveryService {
+func NewGRPCDiscoveryService(engine Mapper, log logger.Logger) *GRPCDiscoveryService {
 	return &GRPCDiscoveryService{
 		engine: engine,
+		logger: log,
 	}
 }
 
 // GetStatus implements the DiscoveryService interface
 func (s *GRPCDiscoveryService) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
-	log.Printf("Received GetStatus request: %v", req)
+	s.logger.Debug().Interface("request", req).Msg("Received GetStatus request")
 
 	// If a discovery ID is provided, get status for that job
 	if req.DiscoveryId != "" {
@@ -75,7 +77,7 @@ func (s *GRPCDiscoveryService) GetStatus(ctx context.Context, req *proto.StatusR
 
 // StartDiscovery implements the DiscoveryService interface
 func (s *GRPCDiscoveryService) StartDiscovery(ctx context.Context, req *proto.DiscoveryRequest) (*proto.DiscoveryResponse, error) {
-	log.Printf("Received StartDiscovery request: %v", req)
+	s.logger.Info().Interface("request", req).Msg("Received StartDiscovery request")
 
 	// Convert proto request to internal params
 	params := &DiscoveryParams{
@@ -158,7 +160,7 @@ func convertTopologyLinkToProto(link *TopologyLink) *proto.TopologyLink {
 
 // GetDiscoveryResults implements the DiscoveryService interface
 func (s *GRPCDiscoveryService) GetDiscoveryResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
-	log.Printf("Received GetDiscoveryResults request: %v", req)
+	s.logger.Debug().Interface("request", req).Msg("Received GetDiscoveryResults request")
 
 	// Get results from engine
 	results, err := s.engine.GetDiscoveryResults(ctx, req.DiscoveryId, req.IncludeRawData)
@@ -173,7 +175,7 @@ func (s *GRPCDiscoveryService) GetDiscoveryResults(ctx context.Context, req *pro
 // GetLatestCachedResults implements the DiscoveryService interface
 func (s *GRPCDiscoveryService) GetLatestCachedResults(
 	_ context.Context, req *proto.GetLatestCachedResultsRequest) (*proto.ResultsResponse, error) {
-	log.Printf("Received GetLatestCachedResults request: %v", req)
+	s.logger.Debug().Interface("request", req).Msg("Received GetLatestCachedResults request")
 
 	// Cast engine to DiscoveryEngine to access completedJobs
 	engine, ok := s.engine.(*DiscoveryEngine)
@@ -384,10 +386,12 @@ func estimateDuration(params *DiscoveryParams) int32 {
 
 	// Check if totalTime is within int32 range
 	if totalTime > math.MaxInt32 {
-		log.Printf("Warning: Estimated duration %d exceeds maximum int32 value, capping at %d", totalTime, math.MaxInt32)
+		// Use a standalone logger function since this is a package-level function
+		// TODO: Pass logger to this function or make it a method
 		return math.MaxInt32
 	} else if totalTime < math.MinInt32 {
-		log.Printf("Warning: Estimated duration %d is below minimum int32 value, setting to %d", totalTime, math.MinInt32)
+		// Use a standalone logger function since this is a package-level function
+		// TODO: Pass logger to this function or make it a method
 		return math.MinInt32
 	}
 

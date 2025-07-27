@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -38,6 +39,7 @@ type DiscoveryEngine struct {
 	done          chan struct{}
 	wg            sync.WaitGroup
 	schedulers    map[string]*time.Ticker
+	logger        logger.Logger
 }
 
 // DiscoveryType identifies the type of discovery to perform.
@@ -222,6 +224,7 @@ type Config struct {
 	Security           *models.SecurityConfig     `json:"security"`
 	UniFiAPIs          []UniFiAPIConfig           `json:"unifi_apis"`
 	ScheduledJobs      []*ScheduledJob            `json:"scheduled_jobs"`
+	Logging            *logger.Config             `json:"logging"`
 }
 
 type UniFiAPIConfig struct {

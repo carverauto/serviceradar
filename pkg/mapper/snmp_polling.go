@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"math"
 	"net"
 	"strconv"
@@ -101,7 +100,8 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 ) {
 	interfaces, err := e.queryInterfaces(job, client, target, job.ID)
 	if err != nil {
-		log.Printf("Job %s: Failed to query interfaces for %s: %v", job.ID, target, err)
+		e.logger.Error().Str("job_id", job.ID).Str("target", target).Err(err).
+			Msg("Failed to query interfaces")
 		return
 	}
 
@@ -137,8 +137,8 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 	if e.publisher != nil {
 		for _, iface := range interfaces {
 			if err := e.publisher.PublishInterface(job.ctx, iface); err != nil {
-				log.Printf("Job %s: Failed to publish interface %s/%d: %v",
-					job.ID, target, iface.IfIndex, err)
+				e.logger.Error().Str("job_id", job.ID).Str("target", target).
+					Int32("if_index", iface.IfIndex).Err(err).Msg("Failed to publish interface")
 			}
 		}
 	}
@@ -154,7 +154,8 @@ func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 		return
 	}
 
-	log.Printf("Job %s: LLDP not supported or no neighbors on %s: %v", job.ID, targetIP, lldpErr)
+	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(lldpErr).
+		Msg("LLDP not supported or no neighbors")
 
 	// Try CDP if LLDP failed
 	cdpLinks, cdpErr := e.queryCDP(client, targetIP, job)
@@ -163,7 +164,8 @@ func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 		return
 	}
 
-	log.Printf("Job %s: CDP not supported or no neighbors on %s: %v", job.ID, targetIP, cdpErr)
+	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(cdpErr).
+		Msg("CDP not supported or no neighbors")
 }
 
 // setupSNMPClient creates and configures an SNMP client
@@ -249,7 +251,7 @@ func (*DiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
 }
 
 // getMACAddress tries to get the MAC address of a device using SNMP
-func (*DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID string) string {
+func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID string) string {
 	// Try ifPhysAddress.1 (first interface)
 	macOID := ".1.3.6.1.2.1.2.2.1.6.1"
 
@@ -274,7 +276,8 @@ func (*DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID strin
 	})
 
 	if err != nil && !strings.Contains(err.Error(), "found MAC, stopping walk") {
-		log.Printf("Job %s: Failed to walk ifPhysAddress for MAC on %s: %v", jobID, target, err)
+		e.logger.Warn().Str("job_id", jobID).Str("target", target).Err(err).
+			Msg("Failed to walk ifPhysAddress for MAC")
 	}
 
 	return mac
@@ -291,7 +294,8 @@ func (*DiscoveryEngine) generateDeviceID(device *DiscoveredDevice, target string
 }
 
 // querySysInfo queries basic system information via SNMP
-func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target string, job *DiscoveryJob) (*DiscoveredDevice, error) {
+func (e *DiscoveryEngine) querySysInfo(
+	client *gosnmp.GoSNMP, target string, job *DiscoveryJob) (*DiscoveredDevice, error) {
 	// System OIDs to query
 	oids := []string{
 		oidSysDescr,
@@ -361,7 +365,8 @@ func (e *DiscoveryEngine) queryInterfaces(
 
 	// Try to get additional interface info from ifXTable (if available)
 	if err := e.walkIfXTable(client, ifMap); err != nil {
-		log.Printf("Warning: Failed to walk ifXTable for %s (this is normal for some devices): %v", target, err)
+		e.logger.Debug().Str("target", target).Err(err).
+			Msg("Failed to walk ifXTable (normal for some devices)")
 	}
 
 	// Specifically try to get ifHighSpeed for interfaces that need it
@@ -370,7 +375,7 @@ func (e *DiscoveryEngine) queryInterfaces(
 	// Get IP addresses from ipAddrTable
 	ipToIfIndex, err := e.walkIPAddrTable(client)
 	if err != nil {
-		log.Printf("Warning: Failed to walk ipAddrTable for %s: %v", target, err)
+		e.logger.Debug().Str("target", target).Err(err).Msg("Failed to walk ipAddrTable")
 	}
 
 	// Associate IPs with interfaces
@@ -395,8 +400,9 @@ func (e *DiscoveryEngine) queryInterfaces(
 		}
 	}
 
-	log.Printf("Interface discovery for %s: Total=%d, WithSpeed=%d, ZeroSpeed=%d, MaxSpeed=%d",
-		target, len(interfaces), speedCount, zeroSpeedCount, maxSpeedCount)
+	e.logger.Debug().Str("target", target).Int("total", len(interfaces)).
+		Int("speed_count", speedCount).Int("zero_speed_count", zeroSpeedCount).
+		Int("max_speed_count", maxSpeedCount).Msg("Interface discovery summary")
 
 	return interfaces, nil
 }
@@ -427,7 +433,7 @@ func updateIfAlias(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 }
 
 // getInt32FromPDU safely converts an SNMP Integer PDU value to int32.
-func getInt32FromPDU(pdu gosnmp.SnmpPDU, fieldName string) (int32, bool) {
+func (e *DiscoveryEngine) getInt32FromPDU(pdu gosnmp.SnmpPDU, fieldName string) (int32, bool) {
 	if pdu.Type != gosnmp.Integer {
 		return 0, false
 	}
@@ -438,7 +444,8 @@ func getInt32FromPDU(pdu gosnmp.SnmpPDU, fieldName string) (int32, bool) {
 	}
 
 	if val > math.MaxInt32 || val < math.MinInt32 {
-		log.Printf("Warning: %s %d exceeds int32 range, using closest valid value", fieldName, val)
+		e.logger.Warn().Str("field_name", fieldName).Int("value", val).
+			Msg("Value exceeds int32 range, using closest valid value")
 
 		if val > math.MaxInt32 {
 			return math.MaxInt32, true
@@ -451,8 +458,8 @@ func getInt32FromPDU(pdu gosnmp.SnmpPDU, fieldName string) (int32, bool) {
 }
 
 // updateIfType updates the interface type.
-func updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if val, ok := getInt32FromPDU(pdu, "ifType"); ok {
+func (e *DiscoveryEngine) updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
+	if val, ok := e.getInt32FromPDU(pdu, "ifType"); ok {
 		iface.IfType = val
 	}
 }
@@ -489,10 +496,11 @@ func isMaxUint32(value uint64) bool {
 }
 
 // extractSpeedFromGauge32 extracts speed from Gauge32 type.
-func extractSpeedFromGauge32(value interface{}) uint64 {
+func (e *DiscoveryEngine) extractSpeedFromGauge32(value interface{}) uint64 {
 	speed, ok := convertToUint64(value)
 	if !ok {
-		log.Printf("Unexpected Gauge32 value type %T for ifSpeed: %v", value, value)
+		e.logger.Warn().Interface("value_type", value).Interface("value", value).Msg("Unexpected Gauge32 value type for ifSpeed")
+
 		return 0
 	}
 
@@ -564,13 +572,13 @@ func extractSpeedFromOctetString(value interface{}) uint64 {
 }
 
 // updateIfSpeed updates the interface speed.
-func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
+func (e *DiscoveryEngine) updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	var speed uint64
 
 	//nolint:exhaustive // Default case handles all unlisted types
 	switch pdu.Type {
 	case gosnmp.Gauge32:
-		speed = extractSpeedFromGauge32(pdu.Value)
+		speed = e.extractSpeedFromGauge32(pdu.Value)
 	case gosnmp.Counter32:
 		speed = extractSpeedFromCounter32(pdu.Value)
 	case gosnmp.Counter64:
@@ -583,11 +591,14 @@ func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 		speed = extractSpeedFromOctetString(pdu.Value)
 	case gosnmp.NoSuchObject, gosnmp.NoSuchInstance:
 		// Interface doesn't support speed reporting
-		log.Printf("Interface %d: ifSpeed not supported (NoSuchObject/Instance)", iface.IfIndex)
+		e.logger.Debug().Int("if_index", int(iface.IfIndex)).
+			Msg("ifSpeed not supported (NoSuchObject/Instance)")
 
 		speed = 0
 	default:
-		log.Printf("Interface %d: Unexpected PDU type %v for ifSpeed, value: %v", iface.IfIndex, pdu.Type, pdu.Value)
+		e.logger.Warn().Int("if_index", int(iface.IfIndex)).
+			Interface("pdu_type", pdu.Type).Interface("value", pdu.Value).
+			Msg("Unexpected PDU type for ifSpeed")
 
 		speed = 0
 	}
@@ -602,14 +613,14 @@ func updateIfPhysAddress(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	}
 }
 
-func updateIfAdminStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if val, ok := getInt32FromPDU(pdu, "ifAdminStatus"); ok {
+func (e *DiscoveryEngine) updateIfAdminStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
+	if val, ok := e.getInt32FromPDU(pdu, "ifAdminStatus"); ok {
 		iface.IfAdminStatus = val
 	}
 }
 
-func updateIfOperStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if val, ok := getInt32FromPDU(pdu, "ifOperStatus"); ok {
+func (e *DiscoveryEngine) updateIfOperStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
+	if val, ok := e.getInt32FromPDU(pdu, "ifOperStatus"); ok {
 		iface.IfOperStatus = val
 	}
 }
@@ -637,7 +648,7 @@ func matchesOIDPrefix(fullOID, prefixOID string) bool {
 }
 
 // updateInterfaceFromOID updates interface properties based on the OID and PDU
-func (*DiscoveryEngine) updateInterfaceFromOID(
+func (e *DiscoveryEngine) updateInterfaceFromOID(
 	iface *DiscoveredInterface, oidPrefix string, pdu gosnmp.SnmpPDU) {
 	// Normalize the OID prefix
 	oidPrefix = strings.TrimPrefix(oidPrefix, ".")
@@ -647,19 +658,19 @@ func (*DiscoveryEngine) updateInterfaceFromOID(
 		updateIfDescr(iface, pdu)
 
 	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfType, ".")):
-		updateIfType(iface, pdu)
+		e.updateIfType(iface, pdu)
 
 	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfSpeed, ".")):
-		updateIfSpeed(iface, pdu)
+		e.updateIfSpeed(iface, pdu)
 
 	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfPhysAddress, ".")):
 		updateIfPhysAddress(iface, pdu)
 
 	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfAdminStatus, ".")):
-		updateIfAdminStatus(iface, pdu)
+		e.updateIfAdminStatus(iface, pdu)
 
 	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfOperStatus, ".")):
-		updateIfOperStatus(iface, pdu)
+		e.updateIfOperStatus(iface, pdu)
 
 	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfName, ".")):
 		updateIfName(iface, pdu)
@@ -707,7 +718,7 @@ func (e *DiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[int]*
 	})
 
 	if err != nil {
-		log.Printf("Failed to walk ifHighSpeed: %v", err)
+		e.logger.Debug().Err(err).Msg("Failed to walk ifHighSpeed")
 	}
 }
 
@@ -721,7 +732,7 @@ func (e *DiscoveryEngine) walkIfTable(
 	// First, let's walk the entire ifTable
 	processedOIDs := make(map[string]int)
 
-	log.Printf("Starting SNMP walk of ifTable for target %s", target)
+	e.logger.Debug().Str("target", target).Msg("Starting SNMP walk of ifTable")
 
 	err := client.BulkWalk(oidIfTable, func(pdu gosnmp.SnmpPDU) error {
 		// Track what OIDs we're getting
@@ -749,14 +760,14 @@ func (e *DiscoveryEngine) walkIfTable(
 		})
 
 		if err != nil {
-			log.Printf("Specific ifSpeed walk failed: %v", err)
+			e.logger.Debug().Err(err).Msg("Specific ifSpeed walk failed")
 		}
 	}
 
 	return nil
 }
 
-func (*DiscoveryEngine) processIfSpeedPDU(
+func (e *DiscoveryEngine) processIfSpeedPDU(
 	pdu gosnmp.SnmpPDU, target string, ifMap map[int]*DiscoveredInterface) error {
 	// Extract ifIndex from OID (e.g., .1.3.6.1.2.1.2.2.1.5.1 -> 1)
 	parts := strings.Split(pdu.Name, ".")
@@ -768,14 +779,16 @@ func (*DiscoveryEngine) processIfSpeedPDU(
 	ifIndexInt, err := strconv.Atoi(ifIndexStr)
 
 	if err != nil {
-		log.Printf("Failed to parse ifIndex from OID %s: %v", pdu.Name, err)
+		e.logger.Warn().Str("oid", pdu.Name).Err(err).Msg("Failed to parse ifIndex from OID")
+
 		return nil
 	}
 
 	// FIXED: Safe conversion with error handling
 	ifIndex, err := safeIntToInt32(ifIndexInt, "ifIndex")
 	if err != nil {
-		log.Printf("Warning: %v, skipping interface", err)
+		e.logger.Warn().Err(err).Msg("Skipping interface")
+
 		return nil
 	}
 
@@ -793,7 +806,7 @@ func (*DiscoveryEngine) processIfSpeedPDU(
 	iface := ifMap[int(ifIndex)]
 
 	// Process the speed value
-	updateIfSpeed(iface, pdu)
+	e.updateIfSpeed(iface, pdu)
 
 	return nil
 }
@@ -985,7 +998,8 @@ func (e *DiscoveryEngine) checkUniFiAPI(ctx context.Context, job *DiscoveryJob, 
 }
 
 // connectSNMPClient attempts to connect to the SNMP client with a timeout
-func (*DiscoveryEngine) connectSNMPClient(ctx context.Context, client *gosnmp.GoSNMP, job *DiscoveryJob, snmpTargetIP string) error {
+func (e *DiscoveryEngine) connectSNMPClient(
+	ctx context.Context, client *gosnmp.GoSNMP, job *DiscoveryJob, snmpTargetIP string) error {
 	connectCtx, connectCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer connectCancel()
 
@@ -997,11 +1011,13 @@ func (*DiscoveryEngine) connectSNMPClient(ctx context.Context, client *gosnmp.Go
 	select {
 	case err := <-connectDone:
 		if err != nil {
-			log.Printf("Job %s: Failed to connect SNMP for %s: %v", job.ID, snmpTargetIP, err)
+			e.logger.Error().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
+				Msg("Failed to connect SNMP")
 			return err
 		}
 	case <-connectCtx.Done():
-		log.Printf("Job %s: SNMP connect timeout for %s, skipping", job.ID, snmpTargetIP)
+		e.logger.Warn().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).
+			Msg("SNMP connect timeout, skipping")
 		return fmt.Errorf("connection timeout")
 	}
 
@@ -1009,7 +1025,7 @@ func (*DiscoveryEngine) connectSNMPClient(ctx context.Context, client *gosnmp.Go
 }
 
 // performDiscoveryWithTimeout is a helper function to perform discovery operations with timeout
-func (*DiscoveryEngine) performDiscoveryWithTimeout(
+func (e *DiscoveryEngine) performDiscoveryWithTimeout(
 	ctx context.Context,
 	job *DiscoveryJob,
 	client *gosnmp.GoSNMP,
@@ -1028,15 +1044,18 @@ func (*DiscoveryEngine) performDiscoveryWithTimeout(
 		select {
 		case <-done:
 		case <-time.After(30 * time.Second):
-			log.Printf("Job %s: %s discovery timeout for %s", job.ID, discoveryTypeName, snmpTargetIP)
+			e.logger.Warn().Str("job_id", job.ID).Str("discovery_type", discoveryTypeName).
+				Str("target_ip", snmpTargetIP).Msg("Discovery timeout")
 		case <-ctx.Done():
-			log.Printf("Job %s: %s discovery canceled for %s", job.ID, discoveryTypeName, snmpTargetIP)
+			e.logger.Info().Str("job_id", job.ID).Str("discovery_type", discoveryTypeName).
+				Str("target_ip", snmpTargetIP).Msg("Discovery canceled")
 		}
 	}
 }
 
 // performInterfaceDiscovery performs interface discovery with timeout
-func (e *DiscoveryEngine) performInterfaceDiscovery(ctx context.Context, job *DiscoveryJob, client *gosnmp.GoSNMP, snmpTargetIP string) {
+func (e *DiscoveryEngine) performInterfaceDiscovery(
+	ctx context.Context, job *DiscoveryJob, client *gosnmp.GoSNMP, snmpTargetIP string) {
 	e.performDiscoveryWithTimeout(
 		ctx,
 		job,
@@ -1049,7 +1068,8 @@ func (e *DiscoveryEngine) performInterfaceDiscovery(ctx context.Context, job *Di
 }
 
 // performTopologyDiscovery performs topology discovery with timeout
-func (e *DiscoveryEngine) performTopologyDiscovery(ctx context.Context, job *DiscoveryJob, client *gosnmp.GoSNMP, snmpTargetIP string) {
+func (e *DiscoveryEngine) performTopologyDiscovery(
+	ctx context.Context, job *DiscoveryJob, client *gosnmp.GoSNMP, snmpTargetIP string) {
 	e.performDiscoveryWithTimeout(
 		ctx,
 		job,
@@ -1064,7 +1084,7 @@ func (e *DiscoveryEngine) performTopologyDiscovery(ctx context.Context, job *Dis
 func (e *DiscoveryEngine) scanTargetForSNMP(
 	ctx context.Context, job *DiscoveryJob, snmpTargetIP string,
 ) {
-	log.Printf("Job %s: SNMP Scanning target %s", job.ID, snmpTargetIP)
+	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Msg("SNMP Scanning target")
 
 	// Check UniFi API if configured
 	e.checkUniFiAPI(ctx, job, snmpTargetIP)
@@ -1072,7 +1092,8 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	// Setup SNMP client
 	client, err := e.setupSNMPClient(job, snmpTargetIP)
 	if err != nil {
-		log.Printf("Job %s: Failed to setup SNMP client for %s: %v", job.ID, snmpTargetIP, err)
+		e.logger.Error().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
+			Msg("Failed to setup SNMP client")
 		return
 	}
 
@@ -1084,7 +1105,8 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	defer func() {
 		go func() {
 			if cErr := client.Conn.Close(); cErr != nil {
-				log.Printf("Job %s: Error closing SNMP connection for %s: %v", job.ID, snmpTargetIP, cErr)
+				e.logger.Warn().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(cErr).
+					Msg("Error closing SNMP connection")
 			}
 		}()
 	}()
@@ -1092,7 +1114,8 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	// Query system information
 	deviceSNMP, err := e.querySysInfoWithTimeout(client, job, snmpTargetIP, 15*time.Second)
 	if err != nil {
-		log.Printf("Job %s: Failed to query system info via SNMP for %s: %v, skipping", job.ID, snmpTargetIP, err)
+		e.logger.Warn().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
+			Msg("Failed to query system info via SNMP, skipping")
 		return
 	}
 
@@ -1590,7 +1613,8 @@ func (e *DiscoveryEngine) processIfTablePDU(
 
 	ifIndex, err := safeIntToInt32(ifIndexInt, "ifIndex")
 	if err != nil {
-		log.Printf("Warning: %v, skipping interface", err)
+		e.logger.Warn().Err(err).Msg("Skipping interface")
+
 		return nil
 	}
 
