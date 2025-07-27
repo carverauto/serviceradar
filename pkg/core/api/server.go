@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"strconv"
@@ -169,53 +168,38 @@ func (s *APIServer) setupMiddleware() {
 // authenticationMiddleware provides flexible authentication, allowing either a Bearer token or an API key.
 func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Option 1: Authenticate with a Bearer token.
+		// Option 1: Authenticate with a Bearer token
 		authHeader := r.Header.Get("Authorization")
-		if s.authService != nil && strings.HasPrefix(authHeader, "Bearer ") {
-			// Use the existing auth.AuthMiddleware to validate the token and enrich the context.
-			// We use a test recorder to "catch" the result of the middleware without it writing
-			// a premature response. This allows us to fall back to the API key check.
-			var isAuthenticated bool
-
-			var enrichedRequest *http.Request
-
-			recorder := httptest.NewRecorder()
-
-			// This handler will only be called by the authMiddleware if the token is valid.
-			dummyHandler := http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
-				isAuthenticated = true
-				enrichedRequest = req // Capture the request with the new context
-			})
-
-			authMiddleware := auth.AuthMiddleware(s.authService)
-			authMiddleware(dummyHandler).ServeHTTP(recorder, r)
-
-			if isAuthenticated {
-				// Token was valid, proceed with the original flow using the enriched request.
-				next.ServeHTTP(w, enrichedRequest)
-
-				return
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			if s.authService != nil {
+				user, err := s.authService.VerifyToken(r.Context(), token)
+				if err == nil {
+					// Bearer token is valid - add user to context and proceed
+					ctx := context.WithValue(r.Context(), auth.UserKey, user)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+				// Bearer token invalid - continue to API key check
 			}
 		}
 
-		// Option 2: Authenticate with an API Key.
+		// Option 2: Authenticate with an API Key
 		apiKey := os.Getenv("API_KEY")
 		if apiKey != "" && r.Header.Get("X-API-Key") == apiKey {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// If neither method is successful, and auth is configured, deny access.
+		// Check if auth is required
 		isAuthEnabled := os.Getenv("AUTH_ENABLED") == "true"
-
 		apiKeyConfigured := apiKey != ""
 		if isAuthEnabled || apiKeyConfigured {
-			writeError(w, "Unauthorized", http.StatusUnauthorized)
-
+			writeError(w, "Authentication required", http.StatusUnauthorized)
 			return
 		}
 
-		// Fallback for development: if no auth is configured, allow the request.
+		// Fallback for development: if no auth is configured, allow the request
 		next.ServeHTTP(w, r)
 	})
 }
@@ -422,6 +406,9 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 	protected.HandleFunc("/devices/snmp/status", s.getDeviceSNMPStatus).Methods("POST")
+
+	// Store reference to protected router for MCP routes
+	s.protectedRouter = protected
 }
 
 // @Summary Get SNMP data
@@ -1386,9 +1373,14 @@ func (s *APIServer) RegisterMCPRoutes(mcpServer MCPRouteRegistrar) {
 		s.logger.Info().Msg("Registering MCP routes with API server")
 	}
 
-	// Register MCP routes with the router, and they'll automatically
-	// get the authentication middleware applied via setupProtectedRoutes
-	mcpServer.RegisterRoutes(s.router)
+	// Register MCP routes with the protected router that has authentication middleware
+	// This ensures MCP routes get the same auth protection as other /api routes
+	if s.protectedRouter != nil {
+		mcpServer.RegisterRoutes(s.protectedRouter)
+	} else {
+		// Fallback to root router if protected router isn't set up yet
+		mcpServer.RegisterRoutes(s.router)
+	}
 }
 
 // ExecuteSRQLQuery executes an SRQL query and returns the results

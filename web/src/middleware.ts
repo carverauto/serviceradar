@@ -59,9 +59,13 @@ export async function middleware(request: NextRequest) {
 
   // For API routes, we allow either a bearer token or a valid API key
   if (request.nextUrl.pathname.startsWith("/api/")) {
-    // Option 1: Valid Bearer Token (for UI-driven requests)
-    if (accessToken) {
-      requestHeaders.set("Authorization", `Bearer ${accessToken}`);
+    // Get bearer token from Authorization header or cookie
+    const authHeader = request.headers.get("authorization");
+    const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : accessToken;
+    
+    // Option 1: Valid Bearer Token (from header or cookie)
+    if (bearerToken) {
+      requestHeaders.set("Authorization", `Bearer ${bearerToken}`);
       // Also forward the API key for services that might need it internally
       if (apiKey) {
         requestHeaders.set("X-API-Key", apiKey);
