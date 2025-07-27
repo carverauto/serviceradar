@@ -79,6 +79,7 @@ type APIServer struct {
 	mu                   sync.RWMutex
 	pollers              map[string]*PollerStatus
 	router               *mux.Router
+	protectedRouter      *mux.Router
 	pollerHistoryHandler func(pollerID string) ([]PollerHistoryPoint, error)
 	metricsManager       metrics.MetricCollector
 	snmpManager          metricstore.SNMPManager

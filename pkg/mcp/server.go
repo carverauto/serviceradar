@@ -125,8 +125,8 @@ func (m *MCPServer) RegisterRoutes(router *mux.Router) {
 		m.logger.Info().Msg("Registering MCP routes")
 	}
 
-	// Add MCP endpoints under /api/mcp
-	mcpRouter := router.PathPrefix("/api/mcp").Subrouter()
+	// Add MCP endpoints under /mcp (relative to the router's base path)
+	mcpRouter := router.PathPrefix("/mcp").Subrouter()
 	mcpRouter.HandleFunc("/tools/call", m.handleToolCall).Methods("POST")
 	mcpRouter.HandleFunc("/tools/list", m.handleToolList).Methods("GET")
 }
