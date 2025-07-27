@@ -38,17 +38,18 @@ type SimpleMCPServer struct {
 }
 
 // JSON-RPC 2.0 structures
+
 type JSONRPCRequest struct {
-	JsonRPC string          `json:"jsonrpc"`
+	JSONRPC string          `json:"jsonrpc"`
 	ID      interface{}     `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 type JSONRPCResponse struct {
-	JsonRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id"`
-	Result  interface{} `json:"result,omitempty"`
+	JSONRPC string        `json:"jsonrpc"`
+	ID      interface{}   `json:"id"`
+	Result  interface{}   `json:"result,omitempty"`
 	Error   *JSONRPCError `json:"error,omitempty"`
 }
 
@@ -105,6 +106,7 @@ func (s *SimpleMCPServer) RegisterRoutes(router *mux.Router) {
 		if s.logger != nil {
 			s.logger.Error().Msg("MCP config is nil - cannot register routes")
 		}
+
 		return
 	}
 
@@ -112,37 +114,18 @@ func (s *SimpleMCPServer) RegisterRoutes(router *mux.Router) {
 		if s.logger != nil {
 			s.logger.Info().Msg("MCP server disabled - skipping route registration")
 		}
-		return
-	}
 
-	if s.logger != nil {
-		s.logger.Info().
-			Bool("enabled", s.config.Enabled).
-			Bool("has_api_key", s.config.APIKey != "").
-			Msg("Registering simple MCP routes")
+		return
 	}
 
 	// Add the single MCP endpoint that handles all JSON-RPC requests
 	mcpRouter := router.PathPrefix("/mcp").Subrouter()
 	mcpRouter.HandleFunc("", s.handleMCPRequest).Methods("POST", "OPTIONS")
 	mcpRouter.HandleFunc("/", s.handleMCPRequest).Methods("POST", "OPTIONS")
-	
-	if s.logger != nil {
-		s.logger.Info().Msg("MCP routes registered successfully")
-	}
 }
 
 // handleMCPRequest handles all MCP JSON-RPC requests
 func (s *SimpleMCPServer) handleMCPRequest(w http.ResponseWriter, r *http.Request) {
-	// Log incoming request
-	if s.logger != nil {
-		s.logger.Info().
-			Str("method", r.Method).
-			Str("path", r.URL.Path).
-			Str("remote_addr", r.RemoteAddr).
-			Msg("MCP request received")
-	}
-
 	// Set CORS headers for browser-based MCP clients
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -150,19 +133,19 @@ func (s *SimpleMCPServer) handleMCPRequest(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 
 	// Handle preflight requests
-	if r.Method == "OPTIONS" {
-		if s.logger != nil {
-			s.logger.Info().Msg("Handling OPTIONS preflight request")
-		}
-		w.WriteHeader(200)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
 	// Authentication is now handled by the API server middleware
 
 	var req JSONRPCRequest
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, req.ID, -32700, "Parse error", err.Error())
+
 		return
 	}
 
@@ -288,6 +271,7 @@ func (s *SimpleMCPServer) handleToolsList(w http.ResponseWriter, req JSONRPCRequ
 // handleToolCall handles the tools/call request
 func (s *SimpleMCPServer) handleToolCall(w http.ResponseWriter, req JSONRPCRequest, r *http.Request) {
 	var params ToolCallParams
+
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		s.writeError(w, req.ID, -32602, "Invalid params", err.Error())
 		return
@@ -295,6 +279,7 @@ func (s *SimpleMCPServer) handleToolCall(w http.ResponseWriter, req JSONRPCReque
 
 	// Execute the tool based on its name
 	var result interface{}
+
 	var err error
 
 	switch params.Name {
@@ -318,7 +303,7 @@ func (s *SimpleMCPServer) handleToolCall(w http.ResponseWriter, req JSONRPCReque
 
 	// Format result according to MCP specification
 	var content []map[string]interface{}
-	
+
 	// Convert result to JSON for proper formatting
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
@@ -357,6 +342,7 @@ func (s *SimpleMCPServer) executeListDevices(ctx context.Context, args json.RawM
 	if params.Type != "" {
 		conditions = append(conditions, fmt.Sprintf("device_type = '%s'", params.Type))
 	}
+
 	if params.Status != "" {
 		conditions = append(conditions, fmt.Sprintf("status = '%s'", params.Status))
 	}
@@ -374,8 +360,6 @@ func (s *SimpleMCPServer) executeListDevices(ctx context.Context, args json.RawM
 
 	query += fmt.Sprintf(" LIMIT %d", params.Limit)
 
-	s.logger.Debug().Str("query", query).Msg("Executing list_devices query")
-	
 	return s.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
 }
 
@@ -393,8 +377,7 @@ func (s *SimpleMCPServer) executeGetDevice(ctx context.Context, args json.RawMes
 	}
 
 	query := fmt.Sprintf("SHOW devices WHERE device_id = '%s' LIMIT 1", params.DeviceID)
-	s.logger.Debug().Str("query", query).Str("device_id", params.DeviceID).Msg("Executing get_device query")
-	
+
 	return s.queryExecutor.ExecuteSRQLQuery(ctx, query, 1)
 }
 
@@ -420,6 +403,7 @@ func (s *SimpleMCPServer) executeQueryEvents(ctx context.Context, args json.RawM
 		if params.StartTime != "" {
 			conditions = append(conditions, fmt.Sprintf("timestamp >= '%s'", params.StartTime))
 		}
+
 		if params.EndTime != "" {
 			conditions = append(conditions, fmt.Sprintf("timestamp <= '%s'", params.EndTime))
 		}
@@ -438,8 +422,6 @@ func (s *SimpleMCPServer) executeQueryEvents(ctx context.Context, args json.RawM
 		query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d", params.Limit)
 		params.Query = query
 	}
-
-	s.logger.Debug().Str("query", params.Query).Msg("Executing query_events query")
 
 	return s.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
 }
@@ -462,16 +444,13 @@ func (s *SimpleMCPServer) executeExecuteSRQL(ctx context.Context, args json.RawM
 		params.Limit = 100
 	}
 
-	s.logger.Debug().Str("query", params.Query).Int("limit", params.Limit).Msg("Executing execute_srql query")
-
 	return s.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
 }
 
-
 // Utility methods
-func (s *SimpleMCPServer) writeSuccess(w http.ResponseWriter, id interface{}, result interface{}) {
+func (s *SimpleMCPServer) writeSuccess(w http.ResponseWriter, id, result interface{}) {
 	response := JSONRPCResponse{
-		JsonRPC: "2.0",
+		JSONRPC: "2.0",
 		ID:      id,
 		Result:  result,
 	}
@@ -485,7 +464,7 @@ func (s *SimpleMCPServer) writeSuccess(w http.ResponseWriter, id interface{}, re
 
 func (s *SimpleMCPServer) writeError(w http.ResponseWriter, id interface{}, code int, message string, data interface{}) {
 	response := JSONRPCResponse{
-		JsonRPC: "2.0",
+		JSONRPC: "2.0",
 		ID:      id,
 		Error: &JSONRPCError{
 			Code:    code,
