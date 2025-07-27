@@ -22,12 +22,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	_ "embed"
 
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/gorilla/mux"
 )
+
+//go:embed srql-mcp-prompt.md
+var srqlPrompt string
 
 // HTTP status codes
 const (
@@ -131,6 +135,8 @@ func (m *MCPServer) RegisterRoutes(router *mux.Router) {
 	// REST endpoints
 	mcpRouter.HandleFunc("/tools/call", m.handleToolCall).Methods("POST")
 	mcpRouter.HandleFunc("/tools/list", m.handleToolList).Methods("GET")
+	mcpRouter.HandleFunc("/prompts/list", m.handlePromptList).Methods("GET")
+	mcpRouter.HandleFunc("/prompts/get", m.handlePromptGet).Methods("POST")
 
 	// JSON-RPC endpoints for backward compatibility
 	mcpRouter.HandleFunc("", m.handleJSONRPC).Methods("POST", "OPTIONS")
@@ -216,6 +222,64 @@ func (m *MCPServer) handleToolList(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+// handlePromptList returns the list of available prompts
+func (m *MCPServer) handlePromptList(w http.ResponseWriter, _ *http.Request) {
+	prompts := []map[string]interface{}{
+		{
+			"name":        "srql-guide",
+			"description": "ServiceRadar Query Language (SRQL) syntax guide and best practices for constructing network monitoring queries",
+			"arguments":   []map[string]interface{}{}, // No arguments required for this prompt
+		},
+	}
+
+	response := map[string]interface{}{
+		"prompts": prompts,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		m.logger.Error().Err(err).Msg("Failed to encode prompt list response")
+	}
+}
+
+// handlePromptGet returns a specific prompt
+func (m *MCPServer) handlePromptGet(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeError(w, statusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Name != "srql-guide" {
+		m.writeError(w, statusNotFound, fmt.Sprintf("Prompt not found: %s", req.Name))
+		return
+	}
+
+	response := map[string]interface{}{
+		"description": "ServiceRadar Query Language (SRQL) syntax guide for LLM assistants",
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": map[string]interface{}{
+					"type": "text",
+					"text": srqlPrompt,
+				},
+			},
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		m.logger.Error().Err(err).Msg("Failed to encode prompt response")
+	}
+}
+
 // writeError writes an error response
 func (m *MCPServer) writeError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -266,6 +330,10 @@ func (m *MCPServer) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		handleJSONRPCToolsList(w, req.ID)
 	case "tools/call":
 		m.handleJSONRPCToolCall(w, req.ID, req.Params, r)
+	case "prompts/list":
+		handleJSONRPCPromptsList(w, req.ID)
+	case "prompts/get":
+		handleJSONRPCPromptsGet(w, req.ID, req.Params)
 	default:
 		writeJSONRPCError(w, req.ID, -32601, "Method not found", fmt.Sprintf("Unknown method: %s", req.Method))
 	}
@@ -273,9 +341,12 @@ func (m *MCPServer) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 
 func handleJSONRPCInitialize(w http.ResponseWriter, id interface{}) {
 	result := map[string]interface{}{
-		"protocolVersion": "2025-03-26",
+		"protocolVersion": "2024-11-05",
 		"capabilities": map[string]interface{}{
 			"tools": map[string]interface{}{},
+			"prompts": map[string]interface{}{
+				"listChanged": true,
+			},
 		},
 		"serverInfo": map[string]interface{}{
 			"name":    "serviceradar-mcp",
@@ -433,6 +504,51 @@ func handleJSONRPCToolsList(w http.ResponseWriter, id interface{}) {
 	result := map[string]interface{}{
 		"tools": getMCPToolsDefinition(),
 	}
+	writeJSONRPCSuccess(w, id, result)
+}
+
+func handleJSONRPCPromptsList(w http.ResponseWriter, id interface{}) {
+	result := map[string]interface{}{
+		"prompts": []map[string]interface{}{
+			{
+				"name":        "srql-guide",
+				"description": "ServiceRadar Query Language (SRQL) syntax guide and best practices for constructing network monitoring queries",
+				"arguments":   []map[string]interface{}{}, // No arguments required for this prompt
+			},
+		},
+	}
+	writeJSONRPCSuccess(w, id, result)
+}
+
+func handleJSONRPCPromptsGet(w http.ResponseWriter, id interface{}, params json.RawMessage) {
+	var req struct {
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments,omitempty"`
+	}
+
+	if err := json.Unmarshal(params, &req); err != nil {
+		writeJSONRPCError(w, id, -32602, "Invalid params", err.Error())
+		return
+	}
+
+	if req.Name != "srql-guide" {
+		writeJSONRPCError(w, id, -32602, "Unknown prompt", fmt.Sprintf("Prompt not found: %s", req.Name))
+		return
+	}
+
+	result := map[string]interface{}{
+		"description": "ServiceRadar Query Language (SRQL) syntax guide for LLM assistants",
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": map[string]interface{}{
+					"type": "text",
+					"text": srqlPrompt,
+				},
+			},
+		},
+	}
+
 	writeJSONRPCSuccess(w, id, result)
 }
 
