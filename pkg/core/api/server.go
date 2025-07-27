@@ -1379,3 +1379,42 @@ func mergeRelatedDevices(
 
 	return mergedDevices
 }
+
+// RegisterMCPRoutes registers MCP routes with the API server
+func (s *APIServer) RegisterMCPRoutes(mcpServer MCPRouteRegistrar) {
+	if s.logger != nil {
+		s.logger.Info().Msg("Registering MCP routes with API server")
+	}
+
+	// Register MCP routes with the router, and they'll automatically
+	// get the authentication middleware applied via setupProtectedRoutes
+	mcpServer.RegisterRoutes(s.router)
+}
+
+// ExecuteSRQLQuery executes an SRQL query and returns the results
+func (s *APIServer) ExecuteSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error) {
+	// Create a QueryRequest similar to the HTTP API
+	req := &QueryRequest{
+		Query: query,
+		Limit: limit,
+	}
+
+	// Validate the request
+	if errMsg, _, ok := validateQueryRequest(req); !ok {
+		return nil, fmt.Errorf("invalid query request: %s", errMsg)
+	}
+
+	// Prepare the query
+	parsedQuery, _, err := s.prepareQuery(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare query: %w", err)
+	}
+
+	// Execute the query and build response
+	response, err := s.executeQueryAndBuildResponse(ctx, parsedQuery, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	return response.Results, nil
+}

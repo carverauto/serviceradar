@@ -40,6 +40,33 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
 }
 
+// ExecuteSRQLQuery mocks base method.
+func (m *MockService) ExecuteSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExecuteSRQLQuery", ctx, query, limit)
+	ret0, _ := ret[0].([]map[string]any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExecuteSRQLQuery indicates an expected call of ExecuteSRQLQuery.
+func (mr *MockServiceMockRecorder) ExecuteSRQLQuery(ctx, query, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteSRQLQuery", reflect.TypeOf((*MockService)(nil).ExecuteSRQLQuery), ctx, query, limit)
+}
+
+// RegisterMCPRoutes mocks base method.
+func (m *MockService) RegisterMCPRoutes(mcpServer MCPRouteRegistrar) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RegisterMCPRoutes", mcpServer)
+}
+
+// RegisterMCPRoutes indicates an expected call of RegisterMCPRoutes.
+func (mr *MockServiceMockRecorder) RegisterMCPRoutes(mcpServer any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterMCPRoutes", reflect.TypeOf((*MockService)(nil).RegisterMCPRoutes), mcpServer)
+}
+
 // SetKnownPollers mocks base method.
 func (m *MockService) SetKnownPollers(knownPollers []string) {
 	m.ctrl.T.Helper()

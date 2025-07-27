@@ -17,11 +17,10 @@
 package mcp
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"time"
-
-	"github.com/carverauto/serviceradar/pkg/srql"
-	"github.com/localrivet/gomcp/server"
 )
 
 // LogFilterArgs represents arguments for log filtering
@@ -37,109 +36,97 @@ type LogFilterArgs struct {
 // registerLogTools registers all log-related MCP tools
 func (m *MCPServer) registerLogTools() {
 	// Tool: logs.getLogs - Searches log entries with optional time filtering
-	m.server.Tool("logs.getLogs", "Searches log entries with optional time filtering",
-		func(ctx *server.Context, args LogFilterArgs) (interface{}, error) {
+	m.tools["logs.getLogs"] = MCPTool{
+		Name:        "logs.getLogs",
+		Description: "Searches log entries with optional time filtering",
+		Handler: func(ctx context.Context, args json.RawMessage) (interface{}, error) {
+			var logArgs LogFilterArgs
+			if err := json.Unmarshal(args, &logArgs); err != nil {
+				return nil, fmt.Errorf("invalid log filter arguments: %w", err)
+			}
+
 			// Build time range filter if start/end times are provided
-			timeFilter := BuildTimeRangeFilter(args.StartTime, args.EndTime, "timestamp")
-			
+			timeFilter := BuildTimeRangeFilter(logArgs.StartTime, logArgs.EndTime, "timestamp")
+
 			// Combine user filter with time filter
-			combinedFilter := CombineFilters(args.Filter, timeFilter)
-			
+			combinedFilter := CombineFilters(logArgs.Filter, timeFilter)
+
 			// Default ordering by timestamp descending if not specified
-			orderBy := args.OrderBy
-			sortDesc := args.SortDesc
+			orderBy := logArgs.OrderBy
+			sortDesc := logArgs.SortDesc
 			if orderBy == "" {
 				orderBy = "timestamp"
 				sortDesc = true
 			}
-			
-			// Build SRQL query for logs
-			query := BuildSRQL("logs", combinedFilter, orderBy, args.Limit, sortDesc)
-			
-			m.logger.Debug().
-				Str("query", query).
-				Str("time_filter", timeFilter).
-				Msg("Executing log query")
-			
-			// Parse and execute SRQL
-			parsedQuery, err := srql.Parse(query)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse log query: %w", err)
-			}
-			
-			sqlQuery, err := m.convertSRQLToSQL(parsedQuery)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert log query to SQL: %w", err)
-			}
-			
-			results, err := m.db.ExecuteQuery(m.ctx, sqlQuery)
-			if err != nil {
-				return nil, fmt.Errorf("failed to execute log query: %w", err)
-			}
-			
-			return map[string]interface{}{
-				"logs":    results,
-				"count":   len(results),
-				"query":   query,
-				"filters": map[string]interface{}{
-					"user_filter": args.Filter,
-					"time_filter": timeFilter,
-					"combined":    combinedFilter,
-					"start_time":  args.StartTime,
-					"end_time":    args.EndTime,
-				},
-			}, nil
-		})
 
-	// Tool: logs.getRecentLogs - Get recent logs with simple limit
-	m.server.Tool("logs.getRecentLogs", "Get recent logs with simple limit",
-		func(ctx *server.Context, args struct {
-			Limit   int    `json:"limit,omitempty"`   // Max results (default 100)
-			PollerID string `json:"poller_id,omitempty"` // Optional poller filter
-		}) (interface{}, error) {
-			limit := args.Limit
-			if limit <= 0 {
-				limit = 100
-			}
-			
-			var filter string
-			if args.PollerID != "" {
-				filter = fmt.Sprintf("poller_id = '%s'", args.PollerID)
-			}
-			
-			// Build SRQL query for recent logs
-			query := BuildSRQL("logs", filter, "timestamp", limit, true)
-			
-			m.logger.Debug().
-				Str("query", query).
-				Int("limit", limit).
-				Str("poller_id", args.PollerID).
-				Msg("Executing recent logs query")
-			
-			// Parse and execute SRQL
-			parsedQuery, err := srql.Parse(query)
+			// Build SRQL query for logs
+			query := BuildSRQL("logs", combinedFilter, orderBy, logArgs.Limit, sortDesc)
+
+			m.logger.Debug().Str("query", query).Msg("Executing logs query")
+
+			// Execute SRQL query via API
+			results, err := m.executeSRQLQuery(ctx, query, logArgs.Limit)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse recent logs query: %w", err)
+				return nil, fmt.Errorf("failed to execute logs query: %w", err)
 			}
-			
-			sqlQuery, err := m.convertSRQLToSQL(parsedQuery)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert recent logs query to SQL: %w", err)
-			}
-			
-			results, err := m.db.ExecuteQuery(m.ctx, sqlQuery)
-			if err != nil {
-				return nil, fmt.Errorf("failed to execute recent logs query: %w", err)
-			}
-			
+
 			return map[string]interface{}{
 				"logs":  results,
 				"count": len(results),
 				"query": query,
-				"parameters": map[string]interface{}{
-					"limit":     limit,
-					"poller_id": args.PollerID,
+				"filters": map[string]interface{}{
+					"start_time": logArgs.StartTime,
+					"end_time":   logArgs.EndTime,
 				},
 			}, nil
-		})
+		},
+	}
+
+	// Tool: logs.getRecentLogs - Get recent logs with simple limit
+	m.tools["logs.getRecentLogs"] = MCPTool{
+		Name:        "logs.getRecentLogs",
+		Description: "Get recent logs with simple limit",
+		Handler: func(ctx context.Context, args json.RawMessage) (interface{}, error) {
+			var recentArgs struct {
+				Limit    int    `json:"limit,omitempty"`     // Max results (default 100)
+				PollerID string `json:"poller_id,omitempty"` // Optional poller filter
+			}
+			if err := json.Unmarshal(args, &recentArgs); err != nil {
+				return nil, fmt.Errorf("invalid recent logs arguments: %w", err)
+			}
+
+			limit := recentArgs.Limit
+			if limit <= 0 {
+				limit = 100
+			}
+
+			var filter string
+			if recentArgs.PollerID != "" {
+				filter = fmt.Sprintf("poller_id = '%s'", recentArgs.PollerID)
+			}
+
+			// Build SRQL query for recent logs
+			query := BuildSRQL("logs", filter, "timestamp", limit, true)
+
+			m.logger.Debug().
+				Str("query", query).
+				Str("poller_id", recentArgs.PollerID).
+				Int("limit", limit).
+				Msg("Executing recent logs query")
+
+			// Execute SRQL query via API
+			results, err := m.executeSRQLQuery(ctx, query, limit)
+			if err != nil {
+				return nil, fmt.Errorf("failed to execute recent logs query: %w", err)
+			}
+
+			return map[string]interface{}{
+				"logs":      results,
+				"count":     len(results),
+				"query":     query,
+				"limit":     limit,
+				"poller_id": recentArgs.PollerID,
+			}, nil
+		},
+	}
 }

@@ -17,17 +17,16 @@
 package mcp
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
-
-	"github.com/carverauto/serviceradar/pkg/srql"
-	"github.com/localrivet/gomcp/server"
 )
 
 // DeviceFilterArgs represents arguments for device filtering
 type DeviceFilterArgs struct {
-	Filter   string `json:"filter,omitempty"`   // SRQL WHERE clause
-	Limit    int    `json:"limit,omitempty"`    // Max results
-	OrderBy  string `json:"order_by,omitempty"` // Field to sort by
+	Filter   string `json:"filter,omitempty"`    // SRQL WHERE clause
+	Limit    int    `json:"limit,omitempty"`     // Max results
+	OrderBy  string `json:"order_by,omitempty"`  // Field to sort by
 	SortDesc bool   `json:"sort_desc,omitempty"` // Sort descending
 }
 
@@ -39,82 +38,68 @@ type DeviceIDArgs struct {
 // registerDeviceTools registers all device-related MCP tools
 func (m *MCPServer) registerDeviceTools() {
 	// Tool: devices.getDevices - Retrieves device list with filtering, sorting, and pagination
-	m.server.Tool("devices.getDevices", "Retrieves device list with filtering, sorting, and pagination",
-		m.requireAuth(func(ctx *server.Context, args interface{}) (interface{}, error) {
-			deviceArgs := args.(DeviceFilterArgs)
+	m.tools["devices.getDevices"] = MCPTool{
+		Name:        "devices.getDevices",
+		Description: "Retrieves device list with filtering, sorting, and pagination",
+		Handler: func(ctx context.Context, args json.RawMessage) (interface{}, error) {
+			var deviceArgs DeviceFilterArgs
+			if err := json.Unmarshal(args, &deviceArgs); err != nil {
+				return nil, fmt.Errorf("invalid device filter arguments: %w", err)
+			}
+
 			// Build SRQL query for devices
 			query := BuildSRQL("devices", deviceArgs.Filter, deviceArgs.OrderBy, deviceArgs.Limit, deviceArgs.SortDesc)
-			
+
 			m.logger.Debug().Str("query", query).Msg("Executing device query")
-			
-			// Parse and execute SRQL
-			parsedQuery, err := srql.Parse(query)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse device query: %w", err)
-			}
-			
-			// Convert to SQL and execute
-			// Note: This assumes there's a method to convert SRQL to SQL
-			// You may need to adapt this based on your actual SRQL implementation
-			sqlQuery, err := m.convertSRQLToSQL(parsedQuery)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert device query to SQL: %w", err)
-			}
-			
-			results, err := m.db.ExecuteQuery(m.ctx, sqlQuery)
+
+			// Execute SRQL query via API
+			results, err := m.executeSRQLQuery(ctx, query, deviceArgs.Limit)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute device query: %w", err)
 			}
-			
+
 			return map[string]interface{}{
 				"devices": results,
 				"count":   len(results),
 				"query":   query,
 			}, nil
-		}))
+		},
+	}
 
 	// Tool: devices.getDevice - Retrieves single device by ID
-	m.server.Tool("devices.getDevice", "Retrieves single device by ID",
-		m.requireAuth(func(ctx *server.Context, args interface{}) (interface{}, error) {
-			deviceIDArgs := args.(DeviceIDArgs)
+	m.tools["devices.getDevice"] = MCPTool{
+		Name:        "devices.getDevice",
+		Description: "Retrieves single device by ID",
+		Handler: func(ctx context.Context, args json.RawMessage) (interface{}, error) {
+			var deviceIDArgs DeviceIDArgs
+			if err := json.Unmarshal(args, &deviceIDArgs); err != nil {
+				return nil, fmt.Errorf("invalid device ID arguments: %w", err)
+			}
+
 			if deviceIDArgs.DeviceID == "" {
 				return nil, fmt.Errorf("device_id is required")
 			}
-			
+
 			// Build SRQL query for specific device
 			filter := fmt.Sprintf("device_id = '%s'", deviceIDArgs.DeviceID)
 			query := BuildSRQL("devices", filter, "", 1, false)
-			
+
 			m.logger.Debug().Str("device_id", deviceIDArgs.DeviceID).Str("query", query).Msg("Retrieving device")
-			
-			// Parse and execute SRQL
-			parsedQuery, err := srql.Parse(query)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse device query: %w", err)
-			}
-			
-			sqlQuery, err := m.convertSRQLToSQL(parsedQuery)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert device query to SQL: %w", err)
-			}
-			
-			results, err := m.db.ExecuteQuery(m.ctx, sqlQuery)
+
+			// Execute SRQL query via API
+			results, err := m.executeSRQLQuery(ctx, query, 1)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute device query: %w", err)
 			}
-			
+
 			if len(results) == 0 {
 				return nil, fmt.Errorf("device not found: %s", deviceIDArgs.DeviceID)
 			}
-			
+
 			return map[string]interface{}{
 				"device": results[0],
 				"query":  query,
 			}, nil
-		}))
-}
-
-// convertSRQLToSQL converts a parsed SRQL query to SQL
-func (m *MCPServer) convertSRQLToSQL(query interface{}) (string, error) {
-	return ConvertSRQLToSQL(query)
+		},
+	}
 }
