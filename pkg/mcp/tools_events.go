@@ -17,192 +17,148 @@
 package mcp
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"time"
-
-	"github.com/carverauto/serviceradar/pkg/srql"
-	"github.com/localrivet/gomcp/server"
 )
 
 // EventFilterArgs represents arguments for event filtering
 type EventFilterArgs struct {
-	Filter     string     `json:"filter,omitempty"`      // SRQL WHERE clause
-	StartTime  *time.Time `json:"start_time,omitempty"`  // Start time for event filtering
-	EndTime    *time.Time `json:"end_time,omitempty"`    // End time for event filtering
-	Limit      int        `json:"limit,omitempty"`       // Max results
-	OrderBy    string     `json:"order_by,omitempty"`    // Field to sort by
-	SortDesc   bool       `json:"sort_desc,omitempty"`   // Sort descending
-	EventType  string     `json:"event_type,omitempty"`  // Filter by event type
-	Severity   string     `json:"severity,omitempty"`    // Filter by severity level
+	Filter    string     `json:"filter,omitempty"`     // SRQL WHERE clause
+	StartTime *time.Time `json:"start_time,omitempty"` // Start time for event filtering
+	EndTime   *time.Time `json:"end_time,omitempty"`   // End time for event filtering
+	Limit     int        `json:"limit,omitempty"`      // Max results
+	OrderBy   string     `json:"order_by,omitempty"`   // Field to sort by
+	SortDesc  bool       `json:"sort_desc,omitempty"`  // Sort descending
+	EventType string     `json:"event_type,omitempty"` // Filter by event type
+	Severity  string     `json:"severity,omitempty"`   // Filter by severity level
 }
 
 // registerEventTools registers all event-related MCP tools
 func (m *MCPServer) registerEventTools() {
-	// Tool: events.getEvents - Searches system/network events with comprehensive filtering
-	m.server.Tool("events.getEvents", "Searches system/network events with comprehensive filtering",
-		func(ctx *server.Context, args EventFilterArgs) (interface{}, error) {
-			// Build time range filter if start/end times are provided
-			timeFilter := BuildTimeRangeFilter(args.StartTime, args.EndTime, "timestamp")
-			
-			// Build additional filters
-			var filters []string
-			if args.Filter != "" {
-				filters = append(filters, args.Filter)
-			}
-			if timeFilter != "" {
-				filters = append(filters, timeFilter)
-			}
-			if args.EventType != "" {
-				filters = append(filters, fmt.Sprintf("event_type = '%s'", args.EventType))
-			}
-			if args.Severity != "" {
-				filters = append(filters, fmt.Sprintf("severity = '%s'", args.Severity))
-			}
-			
-			// Combine all filters
-			combinedFilter := CombineFilters(filters...)
-			
-			// Default ordering by timestamp descending if not specified
-			orderBy := args.OrderBy
-			sortDesc := args.SortDesc
-			if orderBy == "" {
-				orderBy = "timestamp"
-				sortDesc = true
-			}
-			
-			// Build SRQL query for events
-			query := BuildSRQL("events", combinedFilter, orderBy, args.Limit, sortDesc)
-			
-			m.logger.Debug().
-				Str("query", query).
-				Str("event_type", args.EventType).
-				Str("severity", args.Severity).
-				Msg("Executing events query")
-			
-			// Parse and execute SRQL
-			parsedQuery, err := srql.Parse(query)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse events query: %w", err)
-			}
-			
-			sqlQuery, err := m.convertSRQLToSQL(parsedQuery)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert events query to SQL: %w", err)
-			}
-			
-			results, err := m.db.ExecuteQuery(m.ctx, sqlQuery)
-			if err != nil {
-				return nil, fmt.Errorf("failed to execute events query: %w", err)
-			}
-			
-			return map[string]interface{}{
-				"events": results,
-				"count":  len(results),
-				"query":  query,
-				"filters": map[string]interface{}{
-					"user_filter": args.Filter,
-					"time_filter": timeFilter,
-					"combined":    combinedFilter,
-					"event_type":  args.EventType,
-					"severity":    args.Severity,
-					"start_time":  args.StartTime,
-					"end_time":    args.EndTime,
-				},
-			}, nil
-		})
+	m.registerGetEventsTool()
+	m.registerGetAlertsTool()
+	m.registerGetEventTypesTool()
+}
 
-	// Tool: events.getAlerts - Get alert-level events
-	m.server.Tool("events.getAlerts", "Get alert-level events (high severity events)",
-		func(ctx *server.Context, args struct {
-			Limit     int        `json:"limit,omitempty"`      // Max results (default 50)
-			StartTime *time.Time `json:"start_time,omitempty"` // Start time filter
-			PollerID  string     `json:"poller_id,omitempty"`  // Optional poller filter
-		}) (interface{}, error) {
-			limit := args.Limit
+// registerGetEventsTool registers the events.getEvents tool
+func (m *MCPServer) registerGetEventsTool() {
+	eventFilterBuilder := &GenericFilterBuilder{
+		FieldMappings: map[string]string{
+			"event_type": "event_type",
+			"severity":   "severity",
+		},
+		ResponseFields: []string{"event_type", "severity", "start_time", "end_time"},
+	}
+
+	m.tools["events.getEvents"] = m.BuildGenericFilterToolWithBuilder(
+		"events.getEvents",
+		"Searches system/network events with comprehensive filtering",
+		"events",
+		"events",
+		eventFilterBuilder,
+	)
+}
+
+// registerGetAlertsTool registers the events.getAlerts tool
+func (m *MCPServer) registerGetAlertsTool() {
+	m.tools["events.getAlerts"] = MCPTool{
+		Name:        "events.getAlerts",
+		Description: "Get alert-level events (high severity events)",
+		Handler: func(ctx context.Context, args json.RawMessage) (interface{}, error) {
+			var alertArgs struct {
+				Limit     int        `json:"limit,omitempty"`      // Max results (default 50)
+				StartTime *time.Time `json:"start_time,omitempty"` // Start time filter
+				PollerID  string     `json:"poller_id,omitempty"`  // Optional poller filter
+			}
+			if err := json.Unmarshal(args, &alertArgs); err != nil {
+				return nil, fmt.Errorf("invalid alert arguments: %w", err)
+			}
+
+			limit := alertArgs.Limit
 			if limit <= 0 {
 				limit = 50
 			}
-			
-			// Build filters for alert-level events
+
+			// Build filters for high-severity events
 			var filters []string
-			filters = append(filters, "severity IN ('critical', 'error', 'warning')")
-			
-			if args.PollerID != "" {
-				filters = append(filters, fmt.Sprintf("poller_id = '%s'", args.PollerID))
+			filters = append(filters, "severity IN ('critical', 'high', 'alert')")
+
+			if alertArgs.PollerID != "" {
+				filters = append(filters, fmt.Sprintf("poller_id = '%s'", alertArgs.PollerID))
 			}
-			
-			if args.StartTime != nil {
-				timeFilter := BuildTimeRangeFilter(args.StartTime, nil, "timestamp")
+
+			if alertArgs.StartTime != nil {
+				timeFilter := BuildTimeRangeFilter(alertArgs.StartTime, nil, "timestamp")
 				if timeFilter != "" {
 					filters = append(filters, timeFilter)
 				}
 			}
-			
+
 			combinedFilter := CombineFilters(filters...)
-			
-			// Build SRQL query for alerts
+
+			// Build SRQL query for alert events
 			query := BuildSRQL("events", combinedFilter, "timestamp", limit, true)
-			
-			m.logger.Debug().
-				Str("query", query).
-				Int("limit", limit).
-				Str("poller_id", args.PollerID).
-				Msg("Executing alerts query")
-			
-			// Parse and execute SRQL
-			parsedQuery, err := srql.Parse(query)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse alerts query: %w", err)
-			}
-			
-			sqlQuery, err := m.convertSRQLToSQL(parsedQuery)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert alerts query to SQL: %w", err)
-			}
-			
-			results, err := m.db.ExecuteQuery(m.ctx, sqlQuery)
+
+			m.logger.Debug().Str("query", query).Msg("Executing alerts query")
+
+			// Execute SRQL query via API
+			results, err := m.executeSRQLQuery(ctx, query, limit)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute alerts query: %w", err)
 			}
-			
+
 			return map[string]interface{}{
 				"alerts": results,
 				"count":  len(results),
 				"query":  query,
-				"parameters": map[string]interface{}{
-					"limit":      limit,
-					"poller_id":  args.PollerID,
-					"start_time": args.StartTime,
+				"filters": map[string]interface{}{
+					"poller_id":  alertArgs.PollerID,
+					"start_time": alertArgs.StartTime,
 					"filter":     combinedFilter,
 				},
 			}, nil
-		})
+		},
+	}
+}
 
-	// Tool: events.getEventTypes - Get available event types
-	m.server.Tool("events.getEventTypes", "Get available event types in the system",
-		func(ctx *server.Context, args struct{}) (interface{}, error) {
-			// Query for distinct event types
-			query := "SELECT DISTINCT event_type FROM events ORDER BY event_type"
-			
+// registerGetEventTypesTool registers the events.getEventTypes tool
+func (m *MCPServer) registerGetEventTypesTool() {
+	m.tools["events.getEventTypes"] = MCPTool{
+		Name:        "events.getEventTypes",
+		Description: "Get available event types in the system using SRQL",
+		Handler: func(ctx context.Context, _ json.RawMessage) (interface{}, error) {
+			// Use SRQL SHOW command to get distinct event types
+			query := "SHOW events"
+
 			m.logger.Debug().Str("query", query).Msg("Executing event types query")
-			
-			results, err := m.db.ExecuteQuery(m.ctx, query)
+
+			// Execute SRQL query via API
+			results, err := m.executeSRQLQuery(ctx, query, 0)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute event types query: %w", err)
 			}
-			
-			// Extract event types from results
-			var eventTypes []string
+
+			// Extract unique event types from results
+			eventTypesMap := make(map[string]bool)
 			for _, result := range results {
-				if eventType, ok := result["event_type"].(string); ok {
-					eventTypes = append(eventTypes, eventType)
+				if eventType, ok := result["event_type"].(string); ok && eventType != "" {
+					eventTypesMap[eventType] = true
 				}
 			}
-			
+
+			// Convert to sorted slice
+			var eventTypes []string
+			for eventType := range eventTypesMap {
+				eventTypes = append(eventTypes, eventType)
+			}
+
 			return map[string]interface{}{
 				"event_types": eventTypes,
 				"count":       len(eventTypes),
 				"query":       query,
 			}, nil
-		})
+		},
+	}
 }

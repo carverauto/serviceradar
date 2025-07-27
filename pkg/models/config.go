@@ -114,8 +114,6 @@ var (
 // MCPConfigRef represents MCP configuration to avoid circular imports
 type MCPConfigRef struct {
 	Enabled bool   `json:"enabled"`
-	Port    string `json:"port"`
-	Host    string `json:"host"`
 	APIKey  string `json:"api_key"`
 }
 

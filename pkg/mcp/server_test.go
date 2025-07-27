@@ -17,28 +17,40 @@
 package mcp
 
 import (
+	"context"
 	"testing"
 
+	"github.com/carverauto/serviceradar/pkg/core/api"
+	"github.com/carverauto/serviceradar/pkg/core/auth"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/stretchr/testify/assert"
 )
 
+// mockQueryExecutor implements api.SRQLQueryExecutor for testing
+type mockQueryExecutor struct{}
+
+func (*mockQueryExecutor) ExecuteSRQLQuery(_ context.Context, _ string, _ int) ([]map[string]interface{}, error) {
+	return []map[string]interface{}{}, nil
+}
+
+// Ensure mockQueryExecutor implements the interface
+var _ api.SRQLQueryExecutor = &mockQueryExecutor{}
+
 func TestNewMCPServer(t *testing.T) {
-	// Test that NewMCPServer doesn't panic with nil inputs
-	// Full integration testing should be done at higher levels
-	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("NewMCPServer panicked: %v", r)
-		}
-	}()
-	
+	// Test that NewMCPServer doesn't panic with valid inputs
 	config := &MCPConfig{
 		Enabled: true,
-		Host:    "localhost",
-		Port:    "8081",
+		APIKey:  "test-key",
 	}
 
-	// This will panic if there are major issues, but that's OK for this test
-	server := NewMCPServer(nil, nil, config, nil)
+	ctx := context.Background()
+
+	mockExecutor := &mockQueryExecutor{}
+	mockLogger := logger.NewTestLogger()
+
+	var mockAuth auth.AuthService
+
+	server := NewMCPServer(ctx, mockExecutor, mockLogger, config, mockAuth)
 	assert.NotNil(t, server)
 	assert.Equal(t, config, server.config)
 }
@@ -48,21 +60,26 @@ func TestGetDefaultConfig(t *testing.T) {
 
 	assert.NotNil(t, config)
 	assert.False(t, config.Enabled)
-	assert.Equal(t, "8081", config.Port)
-	assert.Equal(t, "localhost", config.Host)
+	assert.Equal(t, "", config.APIKey)
 }
 
-func TestMCPServerStart_Disabled(t *testing.T) {
+func TestMCPServerStop(t *testing.T) {
 	config := &MCPConfig{
-		Enabled: false,
-		Host:    "localhost",
-		Port:    "8081",
+		Enabled: true,
+		APIKey:  "test-key",
 	}
 
-	server := NewMCPServer(nil, nil, config, nil)
-	
-	// Should return nil (no error) when disabled
-	err := server.Start()
+	ctx := context.Background()
+
+	mockExecutor := &mockQueryExecutor{}
+	mockLogger := logger.NewTestLogger()
+
+	var mockAuth auth.AuthService
+
+	server := NewMCPServer(ctx, mockExecutor, mockLogger, config, mockAuth)
+
+	// Should return nil (no error) when stopping
+	err := server.Stop()
 	assert.NoError(t, err)
 }
 
@@ -83,7 +100,7 @@ func TestBuildSRQL(t *testing.T) {
 			orderBy:  "",
 			limit:    0,
 			sortDesc: false,
-			expected: "SELECT * FROM devices",
+			expected: "SHOW devices",
 		},
 		{
 			name:     "query with filter",
@@ -92,7 +109,7 @@ func TestBuildSRQL(t *testing.T) {
 			orderBy:  "",
 			limit:    0,
 			sortDesc: false,
-			expected: "SELECT * FROM devices WHERE poller_id = 'test'",
+			expected: "SHOW devices WHERE poller_id = 'test'",
 		},
 		{
 			name:     "query with order and limit",
@@ -101,7 +118,7 @@ func TestBuildSRQL(t *testing.T) {
 			orderBy:  "timestamp",
 			limit:    10,
 			sortDesc: true,
-			expected: "SELECT * FROM devices ORDER BY timestamp DESC LIMIT 10",
+			expected: "SHOW devices ORDER BY timestamp DESC LIMIT 10",
 		},
 		{
 			name:     "complete query",
@@ -110,7 +127,7 @@ func TestBuildSRQL(t *testing.T) {
 			orderBy:  "timestamp",
 			limit:    50,
 			sortDesc: true,
-			expected: "SELECT * FROM logs WHERE level = 'error' ORDER BY timestamp DESC LIMIT 50",
+			expected: "SHOW logs WHERE level = 'error' ORDER BY timestamp DESC LIMIT 50",
 		},
 	}
 

@@ -63,6 +63,8 @@ type Server struct {
 	natsConn                *nats.Conn
 	discoveryService        DiscoveryService
 	mcpServer               *mcp.MCPServer
+	mcpConfig               *mcp.MCPConfig // Temporary storage for MCP config until API server is available
+	mcpLogger               logger.Logger  // Temporary storage for MCP logger until API server is available
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus
 	serviceListBuffers      map[string][]*models.Service

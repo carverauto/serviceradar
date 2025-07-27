@@ -138,9 +138,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
 
 	// Initialize MCP server if configured
-	if err := server.initializeMCPServer(ctx, database, log, normalizedConfig); err != nil {
-		server.logger.Warn().Err(err).Msg("Failed to initialize MCP server")
-	}
+	server.initializeMCPServer(ctx, database, log, normalizedConfig)
 
 	return server, nil
 }
@@ -172,15 +170,6 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go s.runMetricsCleanup(ctx)
 	go s.monitorPollers(ctx)
-
-	// Start MCP server if configured
-	if s.mcpServer != nil {
-		go func() {
-			if err := s.mcpServer.Start(); err != nil {
-				s.logger.Error().Err(err).Msg("Failed to start MCP server")
-			}
-		}()
-	}
 
 	return nil
 }
@@ -293,6 +282,26 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 	s.apiServer = apiServer
 	apiServer.SetKnownPollers(s.config.KnownPollers)
 
+	// Initialize MCP server now that API server is available
+	if s.mcpConfig != nil && s.mcpConfig.Enabled {
+		s.logger.Info().
+			Bool("auth_configured", s.mcpConfig.APIKey != "").
+			Msg("Initializing MCP server with API server")
+
+		// Create MCP server with API server as query executor
+		s.mcpServer = mcp.NewMCPServer(ctx, apiServer, s.mcpLogger, s.mcpConfig, s.authService)
+
+		// Register MCP routes with API server
+		apiServer.RegisterMCPRoutes(s.mcpServer)
+
+		// Clear temporary config storage
+		s.mcpConfig = nil
+		s.mcpLogger = nil
+	} else if s.mcpServer != nil {
+		// Fallback for existing MCP server (should not happen with new approach)
+		apiServer.RegisterMCPRoutes(s.mcpServer)
+	}
+
 	apiServer.SetPollerHistoryHandler(ctx, func(pollerID string) ([]api.PollerHistoryPoint, error) {
 		ctxWithTimeout, cancel := context.WithTimeout(ctx, defaultShortTimeout)
 		defer cancel()
@@ -334,35 +343,26 @@ func (s *Server) GetAuth() *auth.Auth {
 	return s.authService
 }
 
-// initializeMCPServer initializes the MCP server if configured  
-func (s *Server) initializeMCPServer(ctx context.Context, database db.Service, log logger.Logger, config *models.CoreServiceConfig) error {
+// initializeMCPServer stores the MCP configuration for later initialization when API server is available
+func (s *Server) initializeMCPServer(_ context.Context, _ db.Service, log logger.Logger, config *models.CoreServiceConfig) {
 	// Use MCP config from CoreServiceConfig if available, otherwise use defaults
 	mcpConfig := mcp.GetDefaultConfig()
-	
+
 	if config.MCP != nil {
 		mcpConfig.Enabled = config.MCP.Enabled
-		if config.MCP.Host != "" {
-			mcpConfig.Host = config.MCP.Host
-		}
-		if config.MCP.Port != "" {
-			mcpConfig.Port = config.MCP.Port
-		}
 		mcpConfig.APIKey = config.MCP.APIKey
 	}
-	
+
 	if !mcpConfig.Enabled {
 		s.logger.Info().Msg("MCP server disabled in configuration")
-		return nil
+		return
 	}
 
 	s.logger.Info().
-		Str("host", mcpConfig.Host).
-		Str("port", mcpConfig.Port).
 		Bool("auth_configured", mcpConfig.APIKey != "").
-		Msg("Initializing MCP server")
+		Msg("MCP server configured - will initialize when API server is available")
 
-	mcpServer := mcp.NewMCPServer(ctx, database, log, mcpConfig, s.authService)
-	s.mcpServer = mcpServer
-
-	return nil
+	// Store MCP config for later initialization in SetAPIServer
+	s.mcpConfig = mcpConfig
+	s.mcpLogger = log
 }
