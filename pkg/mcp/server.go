@@ -127,11 +127,11 @@ func (m *MCPServer) RegisterRoutes(router *mux.Router) {
 
 	// Add MCP endpoints under /mcp (relative to the router's base path)
 	mcpRouter := router.PathPrefix("/mcp").Subrouter()
-	
+
 	// REST endpoints
 	mcpRouter.HandleFunc("/tools/call", m.handleToolCall).Methods("POST")
 	mcpRouter.HandleFunc("/tools/list", m.handleToolList).Methods("GET")
-	
+
 	// JSON-RPC endpoints for backward compatibility
 	mcpRouter.HandleFunc("", m.handleJSONRPC).Methods("POST", "OPTIONS")
 	mcpRouter.HandleFunc("/", m.handleJSONRPC).Methods("POST", "OPTIONS")
@@ -255,23 +255,23 @@ func (m *MCPServer) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		m.writeJSONRPCError(w, req.ID, -32700, "Parse error", err.Error())
+		writeJSONRPCError(w, req.ID, -32700, "Parse error", err.Error())
 		return
 	}
 
 	switch req.Method {
 	case "initialize":
-		m.handleJSONRPCInitialize(w, req.ID)
+		handleJSONRPCInitialize(w, req.ID)
 	case "tools/list":
-		m.handleJSONRPCToolsList(w, req.ID)
+		handleJSONRPCToolsList(w, req.ID)
 	case "tools/call":
 		m.handleJSONRPCToolCall(w, req.ID, req.Params, r)
 	default:
-		m.writeJSONRPCError(w, req.ID, -32601, "Method not found", fmt.Sprintf("Unknown method: %s", req.Method))
+		writeJSONRPCError(w, req.ID, -32601, "Method not found", fmt.Sprintf("Unknown method: %s", req.Method))
 	}
 }
 
-func (m *MCPServer) handleJSONRPCInitialize(w http.ResponseWriter, id interface{}) {
+func handleJSONRPCInitialize(w http.ResponseWriter, id interface{}) {
 	result := map[string]interface{}{
 		"protocolVersion": "2025-03-26",
 		"capabilities": map[string]interface{}{
@@ -282,11 +282,11 @@ func (m *MCPServer) handleJSONRPCInitialize(w http.ResponseWriter, id interface{
 			"version": "1.0.0",
 		},
 	}
-	m.writeJSONRPCSuccess(w, id, result)
+	writeJSONRPCSuccess(w, id, result)
 }
 
-func (m *MCPServer) handleJSONRPCToolsList(w http.ResponseWriter, id interface{}) {
-	tools := []map[string]interface{}{
+func getDeviceTools() []map[string]interface{} {
+	return []map[string]interface{}{
 		{
 			"name":        "list_devices",
 			"description": "List all devices in the system",
@@ -322,6 +322,11 @@ func (m *MCPServer) handleJSONRPCToolsList(w http.ResponseWriter, id interface{}
 				"required": []string{"device_id"},
 			},
 		},
+	}
+}
+
+func getQueryTools() []map[string]interface{} {
+	return []map[string]interface{}{
 		{
 			"name":        "query_events",
 			"description": "Query system events with filters",
@@ -365,6 +370,11 @@ func (m *MCPServer) handleJSONRPCToolsList(w http.ResponseWriter, id interface{}
 				"required": []string{"query"},
 			},
 		},
+	}
+}
+
+func getLogTools() []map[string]interface{} {
+	return []map[string]interface{}{
 		{
 			"name":        "query_logs",
 			"description": "Query system logs with filters",
@@ -408,11 +418,22 @@ func (m *MCPServer) handleJSONRPCToolsList(w http.ResponseWriter, id interface{}
 			},
 		},
 	}
+}
 
+func getMCPToolsDefinition() []map[string]interface{} {
+	var tools []map[string]interface{}
+	tools = append(tools, getDeviceTools()...)
+	tools = append(tools, getQueryTools()...)
+	tools = append(tools, getLogTools()...)
+
+	return tools
+}
+
+func handleJSONRPCToolsList(w http.ResponseWriter, id interface{}) {
 	result := map[string]interface{}{
-		"tools": tools,
+		"tools": getMCPToolsDefinition(),
 	}
-	m.writeJSONRPCSuccess(w, id, result)
+	writeJSONRPCSuccess(w, id, result)
 }
 
 func (m *MCPServer) handleJSONRPCToolCall(w http.ResponseWriter, id interface{}, params json.RawMessage, r *http.Request) {
@@ -422,12 +443,13 @@ func (m *MCPServer) handleJSONRPCToolCall(w http.ResponseWriter, id interface{},
 	}
 
 	if err := json.Unmarshal(params, &toolParams); err != nil {
-		m.writeJSONRPCError(w, id, -32602, "Invalid params", err.Error())
+		writeJSONRPCError(w, id, -32602, "Invalid params", err.Error())
 		return
 	}
 
 	// Execute the tool based on its name with SimpleMCPServer-style handlers
 	var result interface{}
+
 	var err error
 
 	switch toolParams.Name {
@@ -447,22 +469,24 @@ func (m *MCPServer) handleJSONRPCToolCall(w http.ResponseWriter, id interface{},
 		// Fallback to tool registry
 		tool, exists := m.tools[toolParams.Name]
 		if !exists {
-			m.writeJSONRPCError(w, id, -32602, "Unknown tool", fmt.Sprintf("Tool not found: %s", toolParams.Name))
+			writeJSONRPCError(w, id, -32602, "Unknown tool", fmt.Sprintf("Tool not found: %s", toolParams.Name))
 			return
 		}
+
 		result, err = tool.Handler(r.Context(), toolParams.Arguments)
 	}
 
 	if err != nil {
-		m.writeJSONRPCError(w, id, -32603, "Internal error", err.Error())
+		writeJSONRPCError(w, id, -32603, "Internal error", err.Error())
 		return
 	}
 
 	// Format result for MCP
 	var content []map[string]interface{}
+
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
-		m.writeJSONRPCError(w, id, -32603, "Internal error", "Failed to marshal result")
+		writeJSONRPCError(w, id, -32603, "Internal error", "Failed to marshal result")
 		return
 	}
 
@@ -471,21 +495,24 @@ func (m *MCPServer) handleJSONRPCToolCall(w http.ResponseWriter, id interface{},
 		"text": string(resultJSON),
 	})
 
-	m.writeJSONRPCSuccess(w, id, map[string]interface{}{
+	writeJSONRPCSuccess(w, id, map[string]interface{}{
 		"content": content,
 	})
 }
 
-func (m *MCPServer) writeJSONRPCSuccess(w http.ResponseWriter, id, result interface{}) {
+func writeJSONRPCSuccess(w http.ResponseWriter, id, result interface{}) {
 	response := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      id,
 		"result":  result,
 	}
-	json.NewEncoder(w).Encode(response)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }
 
-func (m *MCPServer) writeJSONRPCError(w http.ResponseWriter, id interface{}, code int, message string, data interface{}) {
+func writeJSONRPCError(w http.ResponseWriter, id interface{}, code int, message string, data interface{}) {
 	response := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      id,
@@ -495,49 +522,15 @@ func (m *MCPServer) writeJSONRPCError(w http.ResponseWriter, id interface{}, cod
 			"data":    data,
 		},
 	}
-	json.NewEncoder(w).Encode(response)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode error response", http.StatusInternalServerError)
+	}
 }
 
 // Tool execution methods (SimpleMCPServer-style)
 func (m *MCPServer) executeListDevices(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	var params struct {
-		Limit  int    `json:"limit,omitempty"`
-		Type   string `json:"type,omitempty"`
-		Status string `json:"status,omitempty"`
-	}
-
-	if len(args) > 0 {
-		if err := json.Unmarshal(args, &params); err != nil {
-			return nil, err
-		}
-	}
-
-	// Build SRQL query
-	query := "SHOW devices"
-	conditions := []string{}
-
-	if params.Type != "" {
-		conditions = append(conditions, fmt.Sprintf("device_type = '%s'", params.Type))
-	}
-
-	if params.Status != "" {
-		conditions = append(conditions, fmt.Sprintf("status = '%s'", params.Status))
-	}
-
-	if len(conditions) > 0 {
-		query += " WHERE " + conditions[0]
-		for _, condition := range conditions[1:] {
-			query += " AND " + condition
-		}
-	}
-
-	if params.Limit <= 0 {
-		params.Limit = 100
-	}
-
-	query += fmt.Sprintf(" LIMIT %d", params.Limit)
-
-	return m.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
+	return executeListDevices(ctx, args, m.queryExecutor)
 }
 
 func (m *MCPServer) executeGetDevice(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -574,7 +567,7 @@ func (m *MCPServer) executeQueryEvents(ctx context.Context, args json.RawMessage
 
 	// Build SRQL query if none provided
 	if params.Query == "" {
-		query := "SHOW events"
+		query := showEventsQuery
 		conditions := []string{}
 
 		if params.StartTime != "" {
@@ -593,7 +586,7 @@ func (m *MCPServer) executeQueryEvents(ctx context.Context, args json.RawMessage
 		}
 
 		if params.Limit <= 0 {
-			params.Limit = 100
+			params.Limit = defaultLimit
 		}
 
 		query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d", params.Limit)
@@ -618,94 +611,32 @@ func (m *MCPServer) executeExecuteSRQL(ctx context.Context, args json.RawMessage
 	}
 
 	if params.Limit <= 0 {
-		params.Limit = 100
+		params.Limit = defaultLimit
 	}
 
 	return m.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
 }
 
 func (m *MCPServer) executeQueryLogs(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	var params struct {
-		Filter    string `json:"filter,omitempty"`
-		StartTime string `json:"start_time,omitempty"`
-		EndTime   string `json:"end_time,omitempty"`
-		Limit     int    `json:"limit,omitempty"`
+	result, err := executeQueryLogs(ctx, args, m.queryExecutor)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(args) > 0 {
-		if err := json.Unmarshal(args, &params); err != nil {
-			return nil, err
-		}
-	}
+	m.logger.Debug().Msg("Executing logs query")
 
-	// Build SRQL query for logs
-	query := "SHOW logs"
-	conditions := []string{}
-
-	if params.Filter != "" {
-		conditions = append(conditions, params.Filter)
-	}
-
-	if params.StartTime != "" {
-		conditions = append(conditions, fmt.Sprintf("timestamp >= '%s'", params.StartTime))
-	}
-
-	if params.EndTime != "" {
-		conditions = append(conditions, fmt.Sprintf("timestamp <= '%s'", params.EndTime))
-	}
-
-	if len(conditions) > 0 {
-		query += " WHERE " + conditions[0]
-		for _, condition := range conditions[1:] {
-			query += " AND " + condition
-		}
-	}
-
-	query += " ORDER BY timestamp DESC"
-
-	if params.Limit <= 0 {
-		params.Limit = 100
-	}
-
-	query += fmt.Sprintf(" LIMIT %d", params.Limit)
-
-	m.logger.Debug().Str("query", query).Msg("Executing logs query")
-
-	return m.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
+	return result, nil
 }
 
 func (m *MCPServer) executeGetRecentLogs(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	var params struct {
-		Limit    int    `json:"limit,omitempty"`
-		PollerID string `json:"poller_id,omitempty"`
+	result, err := executeGetRecentLogs(ctx, args, m.queryExecutor)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(args) > 0 {
-		if err := json.Unmarshal(args, &params); err != nil {
-			return nil, err
-		}
-	}
+	m.logger.Debug().Msg("Executing recent logs query")
 
-	if params.Limit <= 0 {
-		params.Limit = 100
-	}
-
-	// Build SRQL query
-	query := "SHOW logs"
-	
-	if params.PollerID != "" {
-		query += fmt.Sprintf(" WHERE poller_id = '%s'", params.PollerID)
-	}
-
-	query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d", params.Limit)
-
-	m.logger.Debug().
-		Str("query", query).
-		Str("poller_id", params.PollerID).
-		Int("limit", params.Limit).
-		Msg("Executing recent logs query")
-
-	return m.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
+	return result, nil
 }
 
 // executeSRQLQuery executes an SRQL query directly via the query executor
