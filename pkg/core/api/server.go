@@ -1373,14 +1373,10 @@ func (s *APIServer) RegisterMCPRoutes(mcpServer MCPRouteRegistrar) {
 		s.logger.Info().Msg("Registering MCP routes with API server")
 	}
 
-	// Register MCP routes with the protected router that has authentication middleware
-	// This ensures MCP routes get the same auth protection as other /api routes
-	if s.protectedRouter != nil {
-		mcpServer.RegisterRoutes(s.protectedRouter)
-	} else {
-		// Fallback to root router if protected router isn't set up yet
-		mcpServer.RegisterRoutes(s.router)
-	}
+	// Create a separate subrouter for MCP under /api to match client expectations
+	// but without authentication middleware since MCP handles its own auth
+	apiRouter := s.router.PathPrefix("/api").Subrouter()
+	mcpServer.RegisterRoutes(apiRouter)
 }
 
 // ExecuteSRQLQuery executes an SRQL query and returns the results
