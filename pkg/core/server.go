@@ -28,6 +28,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/mcp"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -135,6 +137,9 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
 
+	// Initialize MCP server if configured
+	server.initializeMCPServer(ctx, database, log, normalizedConfig)
+
 	return server, nil
 }
 
@@ -179,6 +184,13 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	if s.grpcServer != nil {
 		s.grpcServer.Stop(ctx)
+	}
+
+	// Stop MCP server if running
+	if s.mcpServer != nil {
+		if err := s.mcpServer.Stop(); err != nil {
+			s.logger.Error().Err(err).Msg("Error stopping MCP server")
+		}
 	}
 
 	if err := s.DB.Close(); err != nil {
@@ -270,6 +282,26 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 	s.apiServer = apiServer
 	apiServer.SetKnownPollers(s.config.KnownPollers)
 
+	// Initialize MCP server now that API server is available
+	if s.mcpConfig != nil && s.mcpConfig.Enabled {
+		s.logger.Info().
+			Bool("auth_configured", s.mcpConfig.APIKey != "").
+			Msg("Initializing MCP server with API server")
+
+		// Create simple MCP server with API server as query executor
+		s.mcpServer = mcp.NewSimpleMCPServer(ctx, apiServer, s.mcpLogger, s.mcpConfig)
+
+		// Register MCP routes with API server
+		apiServer.RegisterMCPRoutes(s.mcpServer)
+
+		// Clear temporary config storage
+		s.mcpConfig = nil
+		s.mcpLogger = nil
+	} else if s.mcpServer != nil {
+		// Fallback for existing MCP server (should not happen with new approach)
+		apiServer.RegisterMCPRoutes(s.mcpServer)
+	}
+
 	apiServer.SetPollerHistoryHandler(ctx, func(pollerID string) ([]api.PollerHistoryPoint, error) {
 		ctxWithTimeout, cancel := context.WithTimeout(ctx, defaultShortTimeout)
 		defer cancel()
@@ -309,4 +341,28 @@ func (s *Server) GetRperfManager() metricstore.RperfManager {
 
 func (s *Server) GetAuth() *auth.Auth {
 	return s.authService
+}
+
+// initializeMCPServer stores the MCP configuration for later initialization when API server is available
+func (s *Server) initializeMCPServer(_ context.Context, _ db.Service, log logger.Logger, config *models.CoreServiceConfig) {
+	// Use MCP config from CoreServiceConfig if available, otherwise use defaults
+	mcpConfig := mcp.GetDefaultConfig()
+
+	if config.MCP != nil {
+		mcpConfig.Enabled = config.MCP.Enabled
+		mcpConfig.APIKey = config.MCP.APIKey
+	}
+
+	if !mcpConfig.Enabled {
+		s.logger.Info().Msg("MCP server disabled in configuration")
+		return
+	}
+
+	s.logger.Info().
+		Bool("auth_configured", mcpConfig.APIKey != "").
+		Msg("MCP server configured - will initialize when API server is available")
+
+	// Store MCP config for later initialization in SetAPIServer
+	s.mcpConfig = mcpConfig
+	s.mcpLogger = log
 }
