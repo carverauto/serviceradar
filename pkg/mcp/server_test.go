@@ -59,7 +59,7 @@ func TestGetDefaultConfig(t *testing.T) {
 	config := GetDefaultConfig()
 
 	assert.NotNil(t, config)
-	assert.False(t, config.Enabled)
+	assert.True(t, config.Enabled)
 	assert.Equal(t, "", config.APIKey)
 }
 
