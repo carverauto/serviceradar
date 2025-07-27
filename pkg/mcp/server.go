@@ -40,6 +40,10 @@ const (
 	statusInternalServerError = 500
 )
 
+const (
+	defaultSRQLGuide = "srql-guide"
+)
+
 // MCPServer represents the ServiceRadar MCP server
 type MCPServer struct {
 	queryExecutor api.SRQLQueryExecutor
@@ -226,7 +230,7 @@ func (m *MCPServer) handleToolList(w http.ResponseWriter, _ *http.Request) {
 func (m *MCPServer) handlePromptList(w http.ResponseWriter, _ *http.Request) {
 	prompts := []map[string]interface{}{
 		{
-			"name":        "srql-guide",
+			"name":        defaultSRQLGuide,
 			"description": "ServiceRadar Query Language (SRQL) syntax guide and best practices for constructing network monitoring queries",
 			"arguments":   []map[string]interface{}{}, // No arguments required for this prompt
 		},
@@ -242,10 +246,6 @@ func (m *MCPServer) handlePromptList(w http.ResponseWriter, _ *http.Request) {
 		m.logger.Error().Err(err).Msg("Failed to encode prompt list response")
 	}
 }
-
-const (
-	defaultSRQLGuide = "srql-guide"
-)
 
 // handlePromptGet returns a specific prompt
 func (m *MCPServer) handlePromptGet(w http.ResponseWriter, r *http.Request) {
