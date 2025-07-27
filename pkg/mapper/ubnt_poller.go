@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -102,13 +101,13 @@ func (e *DiscoveryEngine) createUniFiClient(apiConfig UniFiAPIConfig) *http.Clie
 }
 
 func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob, apiConfig UniFiAPIConfig) ([]UniFiSite, error) {
-	log.Printf("Job %s: Fetching sites for UniFi API: %s", job.ID, apiConfig.Name)
+	e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).Msg("Fetching sites for UniFi API")
 
 	// Check cache
 	job.mu.RLock()
 	if sites, exists := job.uniFiSiteCache[apiConfig.BaseURL]; exists {
 		job.mu.RUnlock()
-		log.Printf("Job %s: Using cached sites for %s", job.ID, apiConfig.Name)
+		e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).Msg("Using cached sites")
 
 		return sites, nil
 	}
@@ -168,7 +167,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 
 func (e *DiscoveryEngine) queryUniFiAPI(
 	ctx context.Context, job *DiscoveryJob, targetIP string) ([]*TopologyLink, error) {
-	log.Printf("Job %s: Querying UniFi APIs for %s", job.ID, targetIP)
+	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Msg("Querying UniFi APIs")
 
 	var allLinks []*TopologyLink
 
@@ -176,21 +175,23 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 
 	for _, apiConfig := range e.config.UniFiAPIs {
 		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
-			log.Printf("Job %s: Skipping incomplete UniFi API config: %s", job.ID, apiConfig.Name)
+			e.logger.Warn().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
+				Msg("Skipping incomplete UniFi API config")
 			continue
 		}
 
 		sites, err := e.fetchUniFiSites(ctx, job, apiConfig)
 		if err != nil {
-			log.Printf("Job %s: Failed to fetch sites for %s: %v", job.ID, apiConfig.Name, err)
+			e.logger.Error().Str("job_id", job.ID).Str("api_name", apiConfig.Name).Err(err).
+				Msg("Failed to fetch sites")
 			continue
 		}
 
 		for _, site := range sites {
 			links, err := e.querySingleUniFiAPI(ctx, job, targetIP, apiConfig, site)
 			if err != nil {
-				log.Printf("Job %s: Failed to query UniFi API %s, site %s: %v",
-					job.ID, apiConfig.Name, site.Name, err)
+				e.logger.Error().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
+					Str("site_name", site.Name).Err(err).Msg("Failed to query UniFi API")
 				continue
 			}
 
@@ -218,7 +219,7 @@ var (
 )
 
 // fetchUniFiDevicesForSite fetches devices from a UniFi site and creates a device cache
-func (*DiscoveryEngine) fetchUniFiDevicesForSite(
+func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	ctx context.Context,
 	job *DiscoveryJob,
 	client *http.Client,
@@ -234,7 +235,8 @@ func (*DiscoveryEngine) fetchUniFiDevicesForSite(
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devicesURL, http.NoBody)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create devices request for %s, site %s: %w", apiConfig.Name, site.Name, err)
+		return nil, nil, fmt.Errorf("failed to create devices request for %s, site %s: %w",
+			apiConfig.Name, site.Name, err)
 	}
 
 	for k, v := range headers {
@@ -259,8 +261,9 @@ func (*DiscoveryEngine) fetchUniFiDevicesForSite(
 			apiConfig.Name, site.Name, err)
 	}
 
-	log.Printf("Job %s: Devices response from %s, site %s: %s",
-		job.ID, apiConfig.Name, site.Name, string(body))
+	e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
+		Str("site_name", site.Name).Str("response", string(body)).
+		Msg("Devices response from UniFi API")
 
 	var deviceResp struct {
 		Data []UniFiDevice `json:"data"`
@@ -501,7 +504,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		// Fetch device details
 		details, err := e.fetchDeviceDetails(ctx, job, client, headers, apiConfig, site, device.ID)
 		if err != nil {
-			log.Printf("Job %s: %v", job.ID, err)
+			e.logger.Error().Str("job_id", job.ID).Err(err).Msg("UniFi device processing error")
 			continue
 		}
 
@@ -526,7 +529,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 	job *DiscoveryJob,
 	targetIP string,
 ) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
-	log.Printf("Job %s: Querying UniFi devices for %s", job.ID, targetIP)
+	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Msg("Querying UniFi devices")
 
 	var allDevices []*DiscoveredDevice
 
@@ -537,13 +540,16 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 
 	for _, apiConfig := range e.config.UniFiAPIs {
 		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
-			log.Printf("Job %s: Skipping incomplete UniFi API config: %s", job.ID, apiConfig.Name)
+			e.logger.Warn().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
+				Msg("Skipping incomplete UniFi API config")
+
 			continue
 		}
 
 		sites, err := e.fetchUniFiSites(job.ctx, job, apiConfig)
 		if err != nil {
-			log.Printf("Job %s: Failed to fetch sites for %s: %v", job.ID, apiConfig.Name, err)
+			e.logger.Error().Str("job_id", job.ID).Str("api_name", apiConfig.Name).Err(err).
+				Msg("Failed to fetch sites")
 
 			errorsEncountered++
 
@@ -553,8 +559,8 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 		for _, site := range sites {
 			devices, interfaces, err := e.querySingleUniFiDevices(ctx, job, targetIP, apiConfig, site)
 			if err != nil {
-				log.Printf("Job %s: Failed to query UniFi devices from %s, site %s: %v",
-					job.ID, apiConfig.Name, site.Name, err)
+				e.logger.Error().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
+					Str("site_name", site.Name).Err(err).Msg("Failed to query UniFi devices")
 
 				errorsEncountered++
 
@@ -567,8 +573,9 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 				}
 
 				if primaryIP, seen := seenMACs[device.MAC]; seen {
-					log.Printf("Job %s: Device with MAC %s already seen with IP %s, skipping IP %s",
-						job.ID, device.MAC, primaryIP, device.IP)
+					e.logger.Debug().Str("job_id", job.ID).Str("mac", device.MAC).
+						Str("primary_ip", primaryIP).Str("skipped_ip", device.IP).
+						Msg("Device with MAC already seen, skipping IP")
 
 					device.Metadata = addAlternateIP(device.Metadata, device.IP)
 
@@ -581,8 +588,9 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 
 			allInterfaces = append(allInterfaces, interfaces...)
 
-			log.Printf("Job %s: Fetched %d devices and %d interfaces from %s, site %s",
-				job.ID, len(devices), len(interfaces), apiConfig.Name, site.Name)
+			e.logger.Debug().Str("job_id", job.ID).Int("devices_count", len(devices)).
+				Int("interfaces_count", len(interfaces)).Str("api_name", apiConfig.Name).
+				Str("site_name", site.Name).Msg("Fetched devices and interfaces")
 		}
 	}
 
@@ -591,7 +599,8 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 			return nil, nil, fmt.Errorf("no UniFi devices found; all %d API attempts failed", errorsEncountered)
 		}
 
-		log.Printf("Job %s: No UniFi devices found for %s, but some APIs succeeded", job.ID, targetIP)
+		e.logger.Info().Str("job_id", job.ID).Str("target_ip", targetIP).
+			Msg("No UniFi devices found, but some APIs succeeded")
 	}
 
 	return allDevices, allInterfaces, nil
@@ -623,7 +632,8 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w", apiConfig.Name, site.Name, err)
+		return nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w",
+			apiConfig.Name, site.Name, err)
 	}
 	defer resp.Body.Close()
 
@@ -639,8 +649,9 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 			apiConfig.Name, site.Name, err)
 	}
 
-	log.Printf("Job %s: Devices response from %s, site %s (first 500 chars): %.500s",
-		job.ID, apiConfig.Name, site.Name, string(body))
+	e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
+		Str("site_name", site.Name).Str("response_preview", fmt.Sprintf("%.500s", string(body))).
+		Msg("Devices response from UniFi API (first 500 chars)")
 
 	var deviceResp struct {
 		Data []*UniFiDevice `json:"data"`
@@ -654,14 +665,15 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 	return deviceResp.Data, nil
 }
 
-func (*DiscoveryEngine) createDiscoveredDevice(
+func (e *DiscoveryEngine) createDiscoveredDevice(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) *DiscoveredDevice {
 	if device.IPAddress == "" {
-		log.Printf("Job %s: UniFi device %s (ID: %s, MAC: %s) has no IP address, skipping.",
-			job.ID, device.Name, device.ID, device.MAC)
+		e.logger.Debug().Str("job_id", job.ID).Str("device_name", device.Name).
+			Str("device_id", device.ID).Str("mac", device.MAC).
+			Msg("UniFi device has no IP address, skipping")
 
 		return nil
 	}
@@ -708,14 +720,16 @@ func (e *DiscoveryEngine) processDeviceInterfaces(
 		rawInterfacesStr := string(device.Interfaces)
 
 		if rawInterfacesStr == `["ports"]` || rawInterfacesStr == `[]` || rawInterfacesStr == `["radios"]` {
-			log.Printf("Job %s: Device %s (%s) has interfaces field %s, skipping interface discovery",
-				job.ID, device.Name, device.ID, rawInterfacesStr)
+			e.logger.Debug().Str("job_id", job.ID).Str("device_name", device.Name).
+				Str("device_id", device.ID).Str("interfaces_field", rawInterfacesStr).
+				Msg("Device has interfaces field, skipping interface discovery")
 
 			return nil
 		}
 
-		log.Printf("Job %s: Device %s (%s) has non-standard UniFi interfaces structure: %s. Unmarshal error: %v",
-			job.ID, device.Name, device.ID, rawInterfacesStr, err)
+		e.logger.Warn().Str("job_id", job.ID).Str("device_name", device.Name).
+			Str("device_id", device.ID).Str("interfaces_structure", rawInterfacesStr).
+			Err(err).Msg("Device has non-standard UniFi interfaces structure")
 
 		return nil
 	}
@@ -843,8 +857,8 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	targetIP string, // Contextual IP, not used for filtering devices from controller here
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
-	log.Printf("Job %s: Querying UniFi devices from %s, site %s (context: %s)",
-		job.ID, apiConfig.Name, site.Name, targetIP)
+	e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
+		Str("site_name", site.Name).Str("context", targetIP).Msg("Querying UniFi devices")
 
 	unifiDevices, err := e.fetchUniFiDevices(ctx, job, apiConfig, site)
 	if err != nil {
