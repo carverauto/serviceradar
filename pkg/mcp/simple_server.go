@@ -178,9 +178,8 @@ func (s *SimpleMCPServer) handleInitialize(w http.ResponseWriter, req JSONRPCReq
 	s.writeSuccess(w, req.ID, result)
 }
 
-// handleToolsList handles the tools/list request
-func (s *SimpleMCPServer) handleToolsList(w http.ResponseWriter, req JSONRPCRequest) {
-	tools := []Tool{
+func getSimpleDeviceTools() []Tool {
+	return []Tool{
 		{
 			Name:        "list_devices",
 			Description: "List all devices in the system",
@@ -216,6 +215,11 @@ func (s *SimpleMCPServer) handleToolsList(w http.ResponseWriter, req JSONRPCRequ
 				"required": []string{"device_id"},
 			},
 		},
+	}
+}
+
+func getSimpleQueryTools() []Tool {
+	return []Tool{
 		{
 			Name:        "query_events",
 			Description: "Query system events with filters",
@@ -259,6 +263,11 @@ func (s *SimpleMCPServer) handleToolsList(w http.ResponseWriter, req JSONRPCRequ
 				"required": []string{"query"},
 			},
 		},
+	}
+}
+
+func getSimpleLogTools() []Tool {
+	return []Tool{
 		{
 			Name:        "logs.getLogs",
 			Description: "Searches log entries with optional time filtering",
@@ -302,9 +311,21 @@ func (s *SimpleMCPServer) handleToolsList(w http.ResponseWriter, req JSONRPCRequ
 			},
 		},
 	}
+}
 
+func getSimpleMCPToolsDefinition() []Tool {
+	var tools []Tool
+	tools = append(tools, getSimpleDeviceTools()...)
+	tools = append(tools, getSimpleQueryTools()...)
+	tools = append(tools, getSimpleLogTools()...)
+
+	return tools
+}
+
+// handleToolsList handles the tools/list request
+func (s *SimpleMCPServer) handleToolsList(w http.ResponseWriter, req JSONRPCRequest) {
 	result := map[string]interface{}{
-		"tools": tools,
+		"tools": getSimpleMCPToolsDefinition(),
 	}
 
 	s.writeSuccess(w, req.ID, result)
@@ -369,44 +390,7 @@ func (s *SimpleMCPServer) handleToolCall(w http.ResponseWriter, req JSONRPCReque
 
 // Tool execution methods
 func (s *SimpleMCPServer) executeListDevices(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	var params struct {
-		Limit  int    `json:"limit,omitempty"`
-		Type   string `json:"type,omitempty"`
-		Status string `json:"status,omitempty"`
-	}
-
-	if len(args) > 0 {
-		if err := json.Unmarshal(args, &params); err != nil {
-			return nil, err
-		}
-	}
-
-	// Build SRQL query
-	query := "SHOW devices"
-	conditions := []string{}
-
-	if params.Type != "" {
-		conditions = append(conditions, fmt.Sprintf("device_type = '%s'", params.Type))
-	}
-
-	if params.Status != "" {
-		conditions = append(conditions, fmt.Sprintf("status = '%s'", params.Status))
-	}
-
-	if len(conditions) > 0 {
-		query += " WHERE " + conditions[0]
-		for _, condition := range conditions[1:] {
-			query += " AND " + condition
-		}
-	}
-
-	if params.Limit <= 0 {
-		params.Limit = 100
-	}
-
-	query += fmt.Sprintf(" LIMIT %d", params.Limit)
-
-	return s.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
+	return executeListDevices(ctx, args, s.queryExecutor)
 }
 
 func (s *SimpleMCPServer) executeGetDevice(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -462,7 +446,7 @@ func (s *SimpleMCPServer) executeQueryEvents(ctx context.Context, args json.RawM
 		}
 
 		if params.Limit <= 0 {
-			params.Limit = 100
+			params.Limit = defaultLimit
 		}
 
 		query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d", params.Limit)
@@ -487,94 +471,32 @@ func (s *SimpleMCPServer) executeExecuteSRQL(ctx context.Context, args json.RawM
 	}
 
 	if params.Limit <= 0 {
-		params.Limit = 100
+		params.Limit = defaultLimit
 	}
 
 	return s.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
 }
 
 func (s *SimpleMCPServer) executeQueryLogs(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	var params struct {
-		Filter    string `json:"filter,omitempty"`
-		StartTime string `json:"start_time,omitempty"`
-		EndTime   string `json:"end_time,omitempty"`
-		Limit     int    `json:"limit,omitempty"`
+	result, err := executeQueryLogs(ctx, args, s.queryExecutor)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(args) > 0 {
-		if err := json.Unmarshal(args, &params); err != nil {
-			return nil, err
-		}
-	}
+	s.logger.Debug().Msg("Executing logs query")
 
-	// Build SRQL query for logs
-	query := "SHOW logs"
-	conditions := []string{}
-
-	if params.Filter != "" {
-		conditions = append(conditions, params.Filter)
-	}
-
-	if params.StartTime != "" {
-		conditions = append(conditions, fmt.Sprintf("timestamp >= '%s'", params.StartTime))
-	}
-
-	if params.EndTime != "" {
-		conditions = append(conditions, fmt.Sprintf("timestamp <= '%s'", params.EndTime))
-	}
-
-	if len(conditions) > 0 {
-		query += " WHERE " + conditions[0]
-		for _, condition := range conditions[1:] {
-			query += " AND " + condition
-		}
-	}
-
-	query += " ORDER BY timestamp DESC"
-
-	if params.Limit <= 0 {
-		params.Limit = 100
-	}
-
-	query += fmt.Sprintf(" LIMIT %d", params.Limit)
-
-	s.logger.Debug().Str("query", query).Msg("Executing logs query")
-
-	return s.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
+	return result, nil
 }
 
 func (s *SimpleMCPServer) executeGetRecentLogs(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	var params struct {
-		Limit    int    `json:"limit,omitempty"`
-		PollerID string `json:"poller_id,omitempty"`
+	result, err := executeGetRecentLogs(ctx, args, s.queryExecutor)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(args) > 0 {
-		if err := json.Unmarshal(args, &params); err != nil {
-			return nil, err
-		}
-	}
+	s.logger.Debug().Msg("Executing recent logs query")
 
-	if params.Limit <= 0 {
-		params.Limit = 100
-	}
-
-	// Build SRQL query
-	query := "SHOW logs"
-	
-	if params.PollerID != "" {
-		query += fmt.Sprintf(" WHERE poller_id = '%s'", params.PollerID)
-	}
-
-	query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d", params.Limit)
-
-	s.logger.Debug().
-		Str("query", query).
-		Str("poller_id", params.PollerID).
-		Int("limit", params.Limit).
-		Msg("Executing recent logs query")
-
-	return s.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
+	return result, nil
 }
 
 // Utility methods
