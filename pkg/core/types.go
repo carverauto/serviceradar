@@ -62,7 +62,7 @@ type Server struct {
 	eventPublisher          *natsutil.EventPublisher
 	natsConn                *nats.Conn
 	discoveryService        DiscoveryService
-	mcpServer               *mcp.MCPServer
+	mcpServer               api.MCPRouteRegistrar
 	mcpConfig               *mcp.MCPConfig // Temporary storage for MCP config until API server is available
 	mcpLogger               logger.Logger  // Temporary storage for MCP logger until API server is available
 	metricBuffers           map[string][]*models.TimeseriesMetric

@@ -147,7 +147,7 @@ func (m *MCPServer) Stop() error {
 // GetDefaultConfig returns the default MCP configuration
 func GetDefaultConfig() *MCPConfig {
 	return &MCPConfig{
-		Enabled: false,
+		Enabled: true,  // Enable for testing
 		APIKey:  "", // Must be configured
 	}
 }
