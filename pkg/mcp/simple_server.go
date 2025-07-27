@@ -19,6 +19,7 @@ package mcp
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,6 +28,9 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/gorilla/mux"
 )
+
+//go:embed srql-mcp-prompt.md
+var simpleSrqlPrompt string
 
 // SimpleMCPServer implements MCP protocol directly
 type SimpleMCPServer struct {
@@ -157,6 +161,10 @@ func (s *SimpleMCPServer) handleMCPRequest(w http.ResponseWriter, r *http.Reques
 		s.handleToolsList(w, req)
 	case "tools/call":
 		s.handleToolCall(w, req, r)
+	case "prompts/list":
+		s.handlePromptsList(w, req)
+	case "prompts/get":
+		s.handlePromptsGet(w, req)
 	default:
 		s.writeError(w, req.ID, -32601, "Method not found", fmt.Sprintf("Unknown method: %s", req.Method))
 	}
@@ -165,9 +173,12 @@ func (s *SimpleMCPServer) handleMCPRequest(w http.ResponseWriter, r *http.Reques
 // handleInitialize handles the MCP initialize request
 func (s *SimpleMCPServer) handleInitialize(w http.ResponseWriter, req JSONRPCRequest) {
 	result := map[string]interface{}{
-		"protocolVersion": "2025-03-26",
+		"protocolVersion": "2024-11-05",
 		"capabilities": map[string]interface{}{
 			"tools": map[string]interface{}{},
+			"prompts": map[string]interface{}{
+				"listChanged": true,
+			},
 		},
 		"serverInfo": map[string]interface{}{
 			"name":    "serviceradar-mcp",
@@ -326,6 +337,54 @@ func getSimpleMCPToolsDefinition() []Tool {
 func (s *SimpleMCPServer) handleToolsList(w http.ResponseWriter, req JSONRPCRequest) {
 	result := map[string]interface{}{
 		"tools": getSimpleMCPToolsDefinition(),
+	}
+
+	s.writeSuccess(w, req.ID, result)
+}
+
+// handlePromptsList handles the prompts/list request
+func (s *SimpleMCPServer) handlePromptsList(w http.ResponseWriter, req JSONRPCRequest) {
+	result := map[string]interface{}{
+		"prompts": []map[string]interface{}{
+			{
+				"name":        "srql-guide",
+				"description": "ServiceRadar Query Language (SRQL) syntax guide and best practices for constructing network monitoring queries",
+				"arguments":   []map[string]interface{}{}, // No arguments required for this prompt
+			},
+		},
+	}
+
+	s.writeSuccess(w, req.ID, result)
+}
+
+// handlePromptsGet handles the prompts/get request
+func (s *SimpleMCPServer) handlePromptsGet(w http.ResponseWriter, req JSONRPCRequest) {
+	var params struct {
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments,omitempty"`
+	}
+
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		s.writeError(w, req.ID, -32602, "Invalid params", err.Error())
+		return
+	}
+
+	if params.Name != "srql-guide" {
+		s.writeError(w, req.ID, -32602, "Unknown prompt", fmt.Sprintf("Prompt not found: %s", params.Name))
+		return
+	}
+
+	result := map[string]interface{}{
+		"description": "ServiceRadar Query Language (SRQL) syntax guide for LLM assistants",
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": map[string]interface{}{
+					"type": "text",
+					"text": simpleSrqlPrompt,
+				},
+			},
+		},
 	}
 
 	s.writeSuccess(w, req.ID, result)
