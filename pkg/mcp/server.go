@@ -127,8 +127,14 @@ func (m *MCPServer) RegisterRoutes(router *mux.Router) {
 
 	// Add MCP endpoints under /mcp (relative to the router's base path)
 	mcpRouter := router.PathPrefix("/mcp").Subrouter()
+	
+	// REST endpoints
 	mcpRouter.HandleFunc("/tools/call", m.handleToolCall).Methods("POST")
 	mcpRouter.HandleFunc("/tools/list", m.handleToolList).Methods("GET")
+	
+	// JSON-RPC endpoints for backward compatibility
+	mcpRouter.HandleFunc("", m.handleJSONRPC).Methods("POST", "OPTIONS")
+	mcpRouter.HandleFunc("/", m.handleJSONRPC).Methods("POST", "OPTIONS")
 }
 
 // Stop stops the MCP server
@@ -226,6 +232,480 @@ func (m *MCPServer) writeError(w http.ResponseWriter, code int, message string) 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		m.logger.Error().Err(err).Msg("Failed to encode error response")
 	}
+}
+
+// handleJSONRPC handles JSON-RPC requests for backward compatibility
+func (m *MCPServer) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      interface{}     `json:"id"`
+		Method  string          `json:"method"`
+		Params  json.RawMessage `json:"params,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSONRPCError(w, req.ID, -32700, "Parse error", err.Error())
+		return
+	}
+
+	switch req.Method {
+	case "initialize":
+		m.handleJSONRPCInitialize(w, req.ID)
+	case "tools/list":
+		m.handleJSONRPCToolsList(w, req.ID)
+	case "tools/call":
+		m.handleJSONRPCToolCall(w, req.ID, req.Params, r)
+	default:
+		m.writeJSONRPCError(w, req.ID, -32601, "Method not found", fmt.Sprintf("Unknown method: %s", req.Method))
+	}
+}
+
+func (m *MCPServer) handleJSONRPCInitialize(w http.ResponseWriter, id interface{}) {
+	result := map[string]interface{}{
+		"protocolVersion": "2025-03-26",
+		"capabilities": map[string]interface{}{
+			"tools": map[string]interface{}{},
+		},
+		"serverInfo": map[string]interface{}{
+			"name":    "serviceradar-mcp",
+			"version": "1.0.0",
+		},
+	}
+	m.writeJSONRPCSuccess(w, id, result)
+}
+
+func (m *MCPServer) handleJSONRPCToolsList(w http.ResponseWriter, id interface{}) {
+	tools := []map[string]interface{}{
+		{
+			"name":        "list_devices",
+			"description": "List all devices in the system",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of devices to return",
+					},
+					"type": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by device type",
+					},
+					"status": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by device status",
+					},
+				},
+			},
+		},
+		{
+			"name":        "get_device",
+			"description": "Get detailed information about a specific device",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"device_id": map[string]interface{}{
+						"type":        "string",
+						"description": "The ID of the device to retrieve",
+					},
+				},
+				"required": []string{"device_id"},
+			},
+		},
+		{
+			"name":        "query_events",
+			"description": "Query system events with filters",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "SRQL query for events",
+					},
+					"start_time": map[string]interface{}{
+						"type":        "string",
+						"description": "Start time for event filter",
+					},
+					"end_time": map[string]interface{}{
+						"type":        "string",
+						"description": "End time for event filter",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of events to return",
+					},
+				},
+			},
+		},
+		{
+			"name":        "execute_srql",
+			"description": "Execute SRQL queries directly",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "The SRQL query to execute",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of results to return",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
+		{
+			"name":        "query_logs",
+			"description": "Query system logs with filters",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"filter": map[string]interface{}{
+						"type":        "string",
+						"description": "SRQL WHERE clause for filtering logs",
+					},
+					"start_time": map[string]interface{}{
+						"type":        "string",
+						"description": "Start time for log filtering (ISO format)",
+					},
+					"end_time": map[string]interface{}{
+						"type":        "string",
+						"description": "End time for log filtering (ISO format)",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of logs to return",
+					},
+				},
+			},
+		},
+		{
+			"name":        "get_recent_logs",
+			"description": "Get recent logs with simple limit",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of logs to return (default: 100)",
+					},
+					"poller_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional poller ID filter",
+					},
+				},
+			},
+		},
+	}
+
+	result := map[string]interface{}{
+		"tools": tools,
+	}
+	m.writeJSONRPCSuccess(w, id, result)
+}
+
+func (m *MCPServer) handleJSONRPCToolCall(w http.ResponseWriter, id interface{}, params json.RawMessage, r *http.Request) {
+	var toolParams struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments,omitempty"`
+	}
+
+	if err := json.Unmarshal(params, &toolParams); err != nil {
+		m.writeJSONRPCError(w, id, -32602, "Invalid params", err.Error())
+		return
+	}
+
+	// Execute the tool based on its name with SimpleMCPServer-style handlers
+	var result interface{}
+	var err error
+
+	switch toolParams.Name {
+	case "list_devices":
+		result, err = m.executeListDevices(r.Context(), toolParams.Arguments)
+	case "get_device":
+		result, err = m.executeGetDevice(r.Context(), toolParams.Arguments)
+	case "query_events":
+		result, err = m.executeQueryEvents(r.Context(), toolParams.Arguments)
+	case "execute_srql":
+		result, err = m.executeExecuteSRQL(r.Context(), toolParams.Arguments)
+	case "query_logs":
+		result, err = m.executeQueryLogs(r.Context(), toolParams.Arguments)
+	case "get_recent_logs":
+		result, err = m.executeGetRecentLogs(r.Context(), toolParams.Arguments)
+	default:
+		// Fallback to tool registry
+		tool, exists := m.tools[toolParams.Name]
+		if !exists {
+			m.writeJSONRPCError(w, id, -32602, "Unknown tool", fmt.Sprintf("Tool not found: %s", toolParams.Name))
+			return
+		}
+		result, err = tool.Handler(r.Context(), toolParams.Arguments)
+	}
+
+	if err != nil {
+		m.writeJSONRPCError(w, id, -32603, "Internal error", err.Error())
+		return
+	}
+
+	// Format result for MCP
+	var content []map[string]interface{}
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		m.writeJSONRPCError(w, id, -32603, "Internal error", "Failed to marshal result")
+		return
+	}
+
+	content = append(content, map[string]interface{}{
+		"type": "text",
+		"text": string(resultJSON),
+	})
+
+	m.writeJSONRPCSuccess(w, id, map[string]interface{}{
+		"content": content,
+	})
+}
+
+func (m *MCPServer) writeJSONRPCSuccess(w http.ResponseWriter, id, result interface{}) {
+	response := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"result":  result,
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
+func (m *MCPServer) writeJSONRPCError(w http.ResponseWriter, id interface{}, code int, message string, data interface{}) {
+	response := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error": map[string]interface{}{
+			"code":    code,
+			"message": message,
+			"data":    data,
+		},
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
+// Tool execution methods (SimpleMCPServer-style)
+func (m *MCPServer) executeListDevices(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Limit  int    `json:"limit,omitempty"`
+		Type   string `json:"type,omitempty"`
+		Status string `json:"status,omitempty"`
+	}
+
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &params); err != nil {
+			return nil, err
+		}
+	}
+
+	// Build SRQL query
+	query := "SHOW devices"
+	conditions := []string{}
+
+	if params.Type != "" {
+		conditions = append(conditions, fmt.Sprintf("device_type = '%s'", params.Type))
+	}
+
+	if params.Status != "" {
+		conditions = append(conditions, fmt.Sprintf("status = '%s'", params.Status))
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + conditions[0]
+		for _, condition := range conditions[1:] {
+			query += " AND " + condition
+		}
+	}
+
+	if params.Limit <= 0 {
+		params.Limit = 100
+	}
+
+	query += fmt.Sprintf(" LIMIT %d", params.Limit)
+
+	return m.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
+}
+
+func (m *MCPServer) executeGetDevice(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		DeviceID string `json:"device_id"`
+	}
+
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
+	}
+
+	if params.DeviceID == "" {
+		return nil, fmt.Errorf("device_id is required")
+	}
+
+	query := fmt.Sprintf("SHOW devices WHERE device_id = '%s' LIMIT 1", params.DeviceID)
+
+	return m.queryExecutor.ExecuteSRQLQuery(ctx, query, 1)
+}
+
+func (m *MCPServer) executeQueryEvents(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Query     string `json:"query,omitempty"`
+		StartTime string `json:"start_time,omitempty"`
+		EndTime   string `json:"end_time,omitempty"`
+		Limit     int    `json:"limit,omitempty"`
+	}
+
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &params); err != nil {
+			return nil, err
+		}
+	}
+
+	// Build SRQL query if none provided
+	if params.Query == "" {
+		query := "SHOW events"
+		conditions := []string{}
+
+		if params.StartTime != "" {
+			conditions = append(conditions, fmt.Sprintf("timestamp >= '%s'", params.StartTime))
+		}
+
+		if params.EndTime != "" {
+			conditions = append(conditions, fmt.Sprintf("timestamp <= '%s'", params.EndTime))
+		}
+
+		if len(conditions) > 0 {
+			query += " WHERE " + conditions[0]
+			for _, condition := range conditions[1:] {
+				query += " AND " + condition
+			}
+		}
+
+		if params.Limit <= 0 {
+			params.Limit = 100
+		}
+
+		query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d", params.Limit)
+		params.Query = query
+	}
+
+	return m.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
+}
+
+func (m *MCPServer) executeExecuteSRQL(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit,omitempty"`
+	}
+
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
+	}
+
+	if params.Query == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+
+	if params.Limit <= 0 {
+		params.Limit = 100
+	}
+
+	return m.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
+}
+
+func (m *MCPServer) executeQueryLogs(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Filter    string `json:"filter,omitempty"`
+		StartTime string `json:"start_time,omitempty"`
+		EndTime   string `json:"end_time,omitempty"`
+		Limit     int    `json:"limit,omitempty"`
+	}
+
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &params); err != nil {
+			return nil, err
+		}
+	}
+
+	// Build SRQL query for logs
+	query := "SHOW logs"
+	conditions := []string{}
+
+	if params.Filter != "" {
+		conditions = append(conditions, params.Filter)
+	}
+
+	if params.StartTime != "" {
+		conditions = append(conditions, fmt.Sprintf("timestamp >= '%s'", params.StartTime))
+	}
+
+	if params.EndTime != "" {
+		conditions = append(conditions, fmt.Sprintf("timestamp <= '%s'", params.EndTime))
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + conditions[0]
+		for _, condition := range conditions[1:] {
+			query += " AND " + condition
+		}
+	}
+
+	query += " ORDER BY timestamp DESC"
+
+	if params.Limit <= 0 {
+		params.Limit = 100
+	}
+
+	query += fmt.Sprintf(" LIMIT %d", params.Limit)
+
+	m.logger.Debug().Str("query", query).Msg("Executing logs query")
+
+	return m.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
+}
+
+func (m *MCPServer) executeGetRecentLogs(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Limit    int    `json:"limit,omitempty"`
+		PollerID string `json:"poller_id,omitempty"`
+	}
+
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &params); err != nil {
+			return nil, err
+		}
+	}
+
+	if params.Limit <= 0 {
+		params.Limit = 100
+	}
+
+	// Build SRQL query
+	query := "SHOW logs"
+	
+	if params.PollerID != "" {
+		query += fmt.Sprintf(" WHERE poller_id = '%s'", params.PollerID)
+	}
+
+	query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d", params.Limit)
+
+	m.logger.Debug().
+		Str("query", query).
+		Str("poller_id", params.PollerID).
+		Int("limit", params.Limit).
+		Msg("Executing recent logs query")
+
+	return m.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
 }
 
 // executeSRQLQuery executes an SRQL query directly via the query executor

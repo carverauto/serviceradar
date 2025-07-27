@@ -259,6 +259,48 @@ func (s *SimpleMCPServer) handleToolsList(w http.ResponseWriter, req JSONRPCRequ
 				"required": []string{"query"},
 			},
 		},
+		{
+			Name:        "logs.getLogs",
+			Description: "Searches log entries with optional time filtering",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"filter": map[string]interface{}{
+						"type":        "string",
+						"description": "SRQL WHERE clause for filtering logs",
+					},
+					"start_time": map[string]interface{}{
+						"type":        "string",
+						"description": "Start time for log filtering (ISO format)",
+					},
+					"end_time": map[string]interface{}{
+						"type":        "string",
+						"description": "End time for log filtering (ISO format)",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of logs to return",
+					},
+				},
+			},
+		},
+		{
+			Name:        "logs.getRecentLogs",
+			Description: "Get recent logs with simple limit",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of logs to return (default: 100)",
+					},
+					"poller_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional poller ID filter",
+					},
+				},
+			},
+		},
 	}
 
 	result := map[string]interface{}{
@@ -291,6 +333,10 @@ func (s *SimpleMCPServer) handleToolCall(w http.ResponseWriter, req JSONRPCReque
 		result, err = s.executeQueryEvents(r.Context(), params.Arguments)
 	case "execute_srql":
 		result, err = s.executeExecuteSRQL(r.Context(), params.Arguments)
+	case "logs.getLogs":
+		result, err = s.executeQueryLogs(r.Context(), params.Arguments)
+	case "logs.getRecentLogs":
+		result, err = s.executeGetRecentLogs(r.Context(), params.Arguments)
 	default:
 		s.writeError(w, req.ID, -32602, "Unknown tool", fmt.Sprintf("Tool not found: %s", params.Name))
 		return
@@ -445,6 +491,90 @@ func (s *SimpleMCPServer) executeExecuteSRQL(ctx context.Context, args json.RawM
 	}
 
 	return s.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
+}
+
+func (s *SimpleMCPServer) executeQueryLogs(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Filter    string `json:"filter,omitempty"`
+		StartTime string `json:"start_time,omitempty"`
+		EndTime   string `json:"end_time,omitempty"`
+		Limit     int    `json:"limit,omitempty"`
+	}
+
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &params); err != nil {
+			return nil, err
+		}
+	}
+
+	// Build SRQL query for logs
+	query := "SHOW logs"
+	conditions := []string{}
+
+	if params.Filter != "" {
+		conditions = append(conditions, params.Filter)
+	}
+
+	if params.StartTime != "" {
+		conditions = append(conditions, fmt.Sprintf("timestamp >= '%s'", params.StartTime))
+	}
+
+	if params.EndTime != "" {
+		conditions = append(conditions, fmt.Sprintf("timestamp <= '%s'", params.EndTime))
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + conditions[0]
+		for _, condition := range conditions[1:] {
+			query += " AND " + condition
+		}
+	}
+
+	query += " ORDER BY timestamp DESC"
+
+	if params.Limit <= 0 {
+		params.Limit = 100
+	}
+
+	query += fmt.Sprintf(" LIMIT %d", params.Limit)
+
+	s.logger.Debug().Str("query", query).Msg("Executing logs query")
+
+	return s.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
+}
+
+func (s *SimpleMCPServer) executeGetRecentLogs(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Limit    int    `json:"limit,omitempty"`
+		PollerID string `json:"poller_id,omitempty"`
+	}
+
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &params); err != nil {
+			return nil, err
+		}
+	}
+
+	if params.Limit <= 0 {
+		params.Limit = 100
+	}
+
+	// Build SRQL query
+	query := "SHOW logs"
+	
+	if params.PollerID != "" {
+		query += fmt.Sprintf(" WHERE poller_id = '%s'", params.PollerID)
+	}
+
+	query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d", params.Limit)
+
+	s.logger.Debug().
+		Str("query", query).
+		Str("poller_id", params.PollerID).
+		Int("limit", params.Limit).
+		Msg("Executing recent logs query")
+
+	return s.queryExecutor.ExecuteSRQLQuery(ctx, query, params.Limit)
 }
 
 // Utility methods
