@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"strconv"
@@ -169,55 +168,90 @@ func (s *APIServer) setupMiddleware() {
 // authenticationMiddleware provides flexible authentication, allowing either a Bearer token or an API key.
 func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Option 1: Authenticate with a Bearer token.
-		authHeader := r.Header.Get("Authorization")
-		if s.authService != nil && strings.HasPrefix(authHeader, "Bearer ") {
-			// Use the existing auth.AuthMiddleware to validate the token and enrich the context.
-			// We use a test recorder to "catch" the result of the middleware without it writing
-			// a premature response. This allows us to fall back to the API key check.
-			var isAuthenticated bool
-
-			var enrichedRequest *http.Request
-
-			recorder := httptest.NewRecorder()
-
-			// This handler will only be called by the authMiddleware if the token is valid.
-			dummyHandler := http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
-				isAuthenticated = true
-				enrichedRequest = req // Capture the request with the new context
-			})
-
-			authMiddleware := auth.AuthMiddleware(s.authService)
-			authMiddleware(dummyHandler).ServeHTTP(recorder, r)
-
-			if isAuthenticated {
-				// Token was valid, proceed with the original flow using the enriched request.
-				next.ServeHTTP(w, enrichedRequest)
-
-				return
-			}
-		}
-
-		// Option 2: Authenticate with an API Key.
-		apiKey := os.Getenv("API_KEY")
-		if apiKey != "" && r.Header.Get("X-API-Key") == apiKey {
-			next.ServeHTTP(w, r)
+		// Try Bearer token authentication
+		if handled := s.handleBearerTokenAuth(w, r, next); handled {
 			return
 		}
 
-		// If neither method is successful, and auth is configured, deny access.
-		isAuthEnabled := os.Getenv("AUTH_ENABLED") == "true"
+		// Try API key authentication
+		if handled := s.handleAPIKeyAuth(w, r, next); handled {
+			return
+		}
 
-		apiKeyConfigured := apiKey != ""
-		if isAuthEnabled || apiKeyConfigured {
-			writeError(w, "Unauthorized", http.StatusUnauthorized)
+		// Check if authentication is required
+		if s.isAuthRequired() {
+			s.logAuthFailure("Authentication required but not provided")
+			writeError(w, "Authentication required", http.StatusUnauthorized)
 
 			return
 		}
 
-		// Fallback for development: if no auth is configured, allow the request.
+		// Development mode - no auth configured
+		s.logAuthFailure("No authentication configured - allowing request (development mode)")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// handleBearerTokenAuth handles Bearer token authentication
+func (s *APIServer) handleBearerTokenAuth(w http.ResponseWriter, r *http.Request, next http.Handler) bool {
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return false
+	}
+
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+
+	if s.authService == nil {
+		return false
+	}
+
+	user, err := s.authService.VerifyToken(r.Context(), token)
+	if err != nil {
+		writeError(w, "Invalid bearer token", http.StatusUnauthorized)
+		return true // Handled (with rejection)
+	}
+
+	// Success - no logging to avoid exposing user info
+	ctx := context.WithValue(r.Context(), auth.UserKey, user)
+	next.ServeHTTP(w, r.WithContext(ctx))
+
+	return true
+}
+
+// handleAPIKeyAuth handles API key authentication
+func (*APIServer) handleAPIKeyAuth(w http.ResponseWriter, r *http.Request, next http.Handler) bool {
+	apiKey := os.Getenv("API_KEY")
+	if apiKey == "" {
+		return false
+	}
+
+	if r.Header.Get("X-API-Key") == apiKey {
+		next.ServeHTTP(w, r)
+		return true
+	}
+
+	return false
+}
+
+const (
+	authEnabledTrue = "true"
+)
+
+// isAuthRequired checks if authentication is required
+func (*APIServer) isAuthRequired() bool {
+	return os.Getenv("AUTH_ENABLED") == authEnabledTrue || os.Getenv("API_KEY") != ""
+}
+
+// logAuthFailure logs authentication failures
+func (s *APIServer) logAuthFailure(msg string) {
+	// Log without sensitive details
+	s.logger.Warn().Msg(msg)
+
+	if os.Getenv("AUTH_ENABLED") == authEnabledTrue {
+		s.logger.Warn().Msg("Authentication is enabled but no valid credentials provided")
+	} else {
+		s.logger.Warn().Msg("API key authentication is enabled but no valid API key provided")
+	}
 }
 
 // setupSwaggerRoutes configures routes for Swagger UI and documentation.
@@ -422,6 +456,9 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 	protected.HandleFunc("/devices/snmp/status", s.getDeviceSNMPStatus).Methods("POST")
+
+	// Store reference to protected router for MCP routes
+	s.protectedRouter = protected
 }
 
 // @Summary Get SNMP data
@@ -1378,4 +1415,49 @@ func mergeRelatedDevices(
 	logger.Info().Int("original_count", len(devices)).Int("merged_count", len(mergedDevices)).Msg("Device merging complete")
 
 	return mergedDevices
+}
+
+// RegisterMCPRoutes registers MCP routes with the API server
+func (s *APIServer) RegisterMCPRoutes(mcpServer MCPRouteRegistrar) {
+	// Use the protected router which already has authentication middleware
+	if s.protectedRouter != nil {
+		mcpServer.RegisterRoutes(s.protectedRouter)
+	} else {
+		// Fallback to creating a new protected subrouter if protectedRouter isn't set yet
+		if s.logger != nil {
+			s.logger.Warn().Msg("Protected router not initialized, creating new subrouter")
+		}
+
+		apiRouter := s.router.PathPrefix("/api").Subrouter()
+		apiRouter.Use(s.authenticationMiddleware)
+		mcpServer.RegisterRoutes(apiRouter)
+	}
+}
+
+// ExecuteSRQLQuery executes an SRQL query and returns the results
+func (s *APIServer) ExecuteSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error) {
+	// Create a QueryRequest similar to the HTTP API
+	req := &QueryRequest{
+		Query: query,
+		Limit: limit,
+	}
+
+	// Validate the request
+	if errMsg, _, ok := validateQueryRequest(req); !ok {
+		return nil, fmt.Errorf("invalid query request: %s", errMsg)
+	}
+
+	// Prepare the query
+	parsedQuery, _, err := s.prepareQuery(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare query: %w", err)
+	}
+
+	// Execute the query and build response
+	response, err := s.executeQueryAndBuildResponse(ctx, parsedQuery, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	return response.Results, nil
 }

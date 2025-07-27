@@ -17,7 +17,11 @@
 // Package api pkg/core/api/interfaces.go
 package api
 
-import "context"
+import (
+	"context"
+
+	"github.com/gorilla/mux"
+)
 
 //go:generate mockgen -destination=mock_api_server.go -package=api github.com/carverauto/serviceradar/pkg/core/api Service
 
@@ -27,4 +31,17 @@ type Service interface {
 	UpdatePollerStatus(pollerID string, status *PollerStatus)
 	SetPollerHistoryHandler(ctx context.Context, handler func(pollerID string) ([]PollerHistoryPoint, error))
 	SetKnownPollers(knownPollers []string)
+	RegisterMCPRoutes(mcpServer MCPRouteRegistrar)
+	SRQLQueryExecutor
+}
+
+// MCPRouteRegistrar interface for registering MCP routes
+type MCPRouteRegistrar interface {
+	RegisterRoutes(router *mux.Router)
+	Stop() error
+}
+
+// SRQLQueryExecutor interface for executing SRQL queries
+type SRQLQueryExecutor interface {
+	ExecuteSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error)
 }
