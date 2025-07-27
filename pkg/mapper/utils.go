@@ -177,12 +177,12 @@ func (*DiscoveryEngine) configureV3Privacy(usm *gosnmp.UsmSecurityParameters, cr
 }
 
 // processSingleIP processes a single IP address
-func processSingleIP(ipStr string, seen map[string]bool) string {
+func (e *DiscoveryEngine) processSingleIP(ipStr string, seen map[string]bool) string {
 	ip := net.ParseIP(ipStr)
 
 	if ip == nil {
-		// TODO: This standalone function needs logger parameter
-		// logger.Warn().Str("ip", ipStr).Msg("Invalid IP")
+		e.logger.Warn().Str("ip", ipStr).Msg("Invalid IP")
+
 		return ""
 	}
 
@@ -293,7 +293,7 @@ func (e *DiscoveryEngine) expandSeeds(seeds []string) []string {
 			targets = append(targets, cidrTargets...)
 		} else {
 			// It's a single IP
-			if ipTarget := processSingleIP(seed, seen); ipTarget != "" {
+			if ipTarget := e.processSingleIP(seed, seen); ipTarget != "" {
 				targets = append(targets, ipTarget)
 			}
 		}
@@ -314,8 +314,8 @@ func (e *DiscoveryEngine) expandCIDR(cidr string, seen map[string]bool) []string
 
 	ip, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
-		// TODO: This standalone function needs logger parameter
-		// logger.Warn().Str("cidr", cidr).Err(err).Msg("Invalid CIDR")
+		e.logger.Warn().Str("cidr", cidr).Err(err).Msg("Invalid CIDR")
+
 		return targets
 	}
 
