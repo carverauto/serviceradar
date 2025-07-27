@@ -150,6 +150,74 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				assert.Equal(t, "SELECT * FROM table(events)", sqlP)
 			},
 		},
+		{
+			name:  "SHOW query with DISTINCT function",
+			query: "SHOW DISTINCT(service_name) FROM logs WHERE service_name IS NOT NULL",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.Logs, query.Entity)
+				assert.Equal(t, "distinct", query.Function)
+				assert.Equal(t, []string{"service_name"}, query.FunctionArgs)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "service_name", query.Conditions[0].Field)
+				assert.Equal(t, models.Is, query.Conditions[0].Operator)
+
+				sqlP, errP := protonTranslator.Translate(query)
+				require.NoError(t, errP)
+				expected := "SELECT DISTINCT service_name FROM table(logs) WHERE service_name IS NOT NULL"
+				assert.Equal(t, expected, sqlP)
+
+				sqlCH, errCH := clickhouseTranslator.Translate(query)
+				require.NoError(t, errCH)
+				expectedCH := "SELECT DISTINCT service_name FROM logs WHERE service_name IS NOT NULL"
+				assert.Equal(t, expectedCH, sqlCH)
+			},
+		},
+		{
+			name:  "SHOW DISTINCT with ORDER BY",
+			query: "SHOW DISTINCT(ip) FROM devices WHERE ip IS NOT NULL ORDER BY ip ASC",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.Devices, query.Entity)
+				assert.Equal(t, "distinct", query.Function)
+				assert.Equal(t, []string{"ip"}, query.FunctionArgs)
+				require.Len(t, query.OrderBy, 1)
+				assert.Equal(t, "ip", query.OrderBy[0].Field)
+				assert.Equal(t, models.Ascending, query.OrderBy[0].Direction)
+
+				sqlP, errP := protonTranslator.Translate(query)
+				require.NoError(t, errP)
+				expected := "SELECT DISTINCT ip FROM table(unified_devices) WHERE (ip IS NOT NULL) " +
+					"AND coalesce(metadata['_deleted'], '') != 'true' ORDER BY ip ASC"
+				assert.Equal(t, expected, sqlP)
+			},
+		},
+		{
+			name:  "SHOW DISTINCT with LIMIT",
+			query: "SHOW DISTINCT(host) FROM events WHERE host IS NOT NULL LIMIT 10",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.Events, query.Entity)
+				assert.Equal(t, "distinct", query.Function)
+				assert.Equal(t, []string{"host"}, query.FunctionArgs)
+				assert.True(t, query.HasLimit)
+				assert.Equal(t, 10, query.Limit)
+
+				sqlP, errP := protonTranslator.Translate(query)
+				require.NoError(t, errP)
+				expected := "SELECT DISTINCT host FROM table(events) WHERE host IS NOT NULL LIMIT 10"
+				assert.Equal(t, expected, sqlP)
+			},
+		},
 		// Add more tests:
 		// - Multiple conditions with date(timestamp) and other fields
 		// - date(timestamp) with LATEST keyword (clarify expected behavior for LATEST with date filters)
