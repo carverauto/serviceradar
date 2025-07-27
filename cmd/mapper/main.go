@@ -62,20 +62,37 @@ func run() error {
 		return fmt.Errorf("%w: %w", errFailedToLoadMapperConfig, err)
 	}
 
+	// Step 2: Create logger from config
+	logger, err := lifecycle.CreateComponentLogger(ctx, "mapper", cfg.Logging)
+	if err != nil {
+		return fmt.Errorf("failed to initialize logger: %w", err)
+	}
+
+	// Step 3: Create config loader with proper logger for any future config operations
+	_ = config.NewConfig(logger)
+
 	// Create discovery engine with a nil publisher for now
 	// TODO: Create a proper publisher implementation
 	var publisher mapper.Publisher
 
-	engine, err := mapper.NewDiscoveryEngine(&cfg, publisher)
+	engine, err := mapper.NewDiscoveryEngine(&cfg, publisher, logger)
 	if err != nil {
+		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
+			log.Printf("Failed to shutdown logger: %v", shutdownErr)
+		}
+
 		return fmt.Errorf("%w: %w", errFailedToInitDiscoveryEngine, err)
 	}
 
 	// Create gRPC services
-	grpcDiscoveryService := mapper.NewGRPCDiscoveryService(engine)
+	grpcDiscoveryService := mapper.NewGRPCDiscoveryService(engine, logger)
 
 	snmpEngine, ok := engine.(*mapper.DiscoveryEngine)
 	if !ok {
+		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
+			log.Printf("Failed to shutdown logger: %v", shutdownErr)
+		}
+
 		return errFailedToTypeCastEngine
 	}
 
@@ -95,9 +112,22 @@ func run() error {
 			},
 		},
 		Security: cfg.Security,
+		Logger:   logger,
 	}
 
-	log.Printf("Starting ServiceRadar Mapper Service on %s", *listenAddr)
+	logger.Info().Str("listen_addr", *listenAddr).Msg("Starting ServiceRadar Mapper Service")
 
-	return lifecycle.RunServer(ctx, opts)
+	// Start server and handle shutdown
+	serverErr := lifecycle.RunServer(ctx, opts)
+
+	// Always shutdown logger before exiting
+	if err := lifecycle.ShutdownLogger(); err != nil {
+		log.Printf("Failed to shutdown logger: %v", err)
+	}
+
+	if serverErr != nil {
+		return fmt.Errorf("mapper service failed: %w", serverErr)
+	}
+
+	return nil
 }

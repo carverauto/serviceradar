@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	proto "github.com/carverauto/serviceradar/proto/discovery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,8 @@ func TestNewGRPCDiscoveryService(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockMapper := NewMockMapper(ctrl)
-	service := NewGRPCDiscoveryService(mockMapper)
+	mockLogger := logger.NewTestLogger()
+	service := NewGRPCDiscoveryService(mockMapper, mockLogger)
 
 	assert.NotNil(t, service)
 	assert.Equal(t, mockMapper, service.engine)
@@ -45,7 +47,8 @@ func TestGetStatus(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockMapper := NewMockMapper(ctrl)
-	service := NewGRPCDiscoveryService(mockMapper)
+	mockLogger := logger.NewTestLogger()
+	service := NewGRPCDiscoveryService(mockMapper, mockLogger)
 
 	ctx := context.Background()
 
@@ -79,7 +82,8 @@ func TestGRPCStartDiscovery(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockMapper := NewMockMapper(ctrl)
-	service := NewGRPCDiscoveryService(mockMapper)
+	mockLogger := logger.NewTestLogger()
+	service := NewGRPCDiscoveryService(mockMapper, mockLogger)
 
 	ctx := context.Background()
 	discoveryID := "test-discovery-id"
@@ -135,7 +139,8 @@ func TestGRPCGetDiscoveryResults(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockMapper := NewMockMapper(ctrl)
-	service := NewGRPCDiscoveryService(mockMapper)
+	mockLogger := logger.NewTestLogger()
+	service := NewGRPCDiscoveryService(mockMapper, mockLogger)
 
 	ctx := context.Background()
 	discoveryID := "test-discovery-id"
@@ -213,14 +218,15 @@ func TestGetLatestCachedResults(t *testing.T) {
 	// This test is more complex because it requires access to the internal state of DiscoveryEngine
 	// We'll create a real DiscoveryEngine with a mock publisher
 	mockPublisher := NewMockPublisher(ctrl)
+	mockLogger := logger.NewTestLogger()
 	engine, err := NewDiscoveryEngine(&Config{
 		Workers:       2,
 		MaxActiveJobs: 5,
 		Timeout:       30 * time.Second,
-	}, mockPublisher)
+	}, mockPublisher, mockLogger)
 	require.NoError(t, err)
 
-	service := NewGRPCDiscoveryService(engine)
+	service := NewGRPCDiscoveryService(engine, mockLogger)
 	ctx := context.Background()
 
 	// Add a completed job to the engine

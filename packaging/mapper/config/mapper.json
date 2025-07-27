@@ -83,5 +83,21 @@
       "ca_file": "root.pem",
       "client_ca_file": "root.pem"
     }
+  },
+  "logging": {
+    "level": "info",
+    "debug": false,
+    "output": "stdout",
+    "time_format": "",
+    "otel": {
+      "enabled": true,
+      "endpoint": "localhost:4317",
+      "service_name": "serviceradar-mapper",
+      "batch_timeout": "5s",
+      "insecure": true,
+      "headers": {
+        "x-api-key": "your-collector-api-key"
+      }
+    }
   }
 }

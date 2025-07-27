@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"time"
@@ -40,15 +39,15 @@ func (e *DiscoveryEngine) cleanupRoutine(ctx context.Context) {
 		e.config.ResultRetention / defaultResultRetentionDivisor) // Clean more frequently than retention
 	defer ticker.Stop()
 
-	log.Println("Discovery results cleanup routine started.")
+	e.logger.Info().Msg("Discovery results cleanup routine started")
 
 	for {
 		select {
 		case <-ctx.Done(): // Main context canceled
-			log.Println("Cleanup routine stopping due to main context cancellation.")
+			e.logger.Info().Msg("Cleanup routine stopping due to main context cancellation")
 			return
 		case <-e.done: // Engine stopping
-			log.Println("Cleanup routine stopping due to engine shutdown.")
+			e.logger.Info().Msg("Cleanup routine stopping due to engine shutdown")
 			return
 		case <-ticker.C:
 			e.cleanupCompletedJobs()
@@ -61,7 +60,7 @@ func (e *DiscoveryEngine) cleanupCompletedJobs() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	log.Printf("Cleaning up completed jobs (retention: %v)", e.config.ResultRetention)
+	e.logger.Debug().Dur("retention", e.config.ResultRetention).Msg("Cleaning up completed jobs")
 
 	cutoff := time.Now().Add(-e.config.ResultRetention)
 	removed := 0
@@ -74,7 +73,7 @@ func (e *DiscoveryEngine) cleanupCompletedJobs() {
 		}
 	}
 
-	log.Printf("Removed %d expired completed jobs", removed)
+	e.logger.Debug().Int("removed_count", removed).Msg("Removed expired completed jobs")
 }
 
 // createSNMPClient creates an SNMP client for the given target and credentials
@@ -178,11 +177,12 @@ func (*DiscoveryEngine) configureV3Privacy(usm *gosnmp.UsmSecurityParameters, cr
 }
 
 // processSingleIP processes a single IP address
-func processSingleIP(ipStr string, seen map[string]bool) string {
+func (e *DiscoveryEngine) processSingleIP(ipStr string, seen map[string]bool) string {
 	ip := net.ParseIP(ipStr)
 
 	if ip == nil {
-		log.Printf("Invalid IP %s", ipStr)
+		e.logger.Warn().Str("ip", ipStr).Msg("Invalid IP")
+
 		return ""
 	}
 
@@ -212,11 +212,12 @@ const (
 )
 
 // collectIPsFromRange collects IPs from a CIDR range, limiting if necessary
-func collectIPsFromRange(ip net.IP, ipNet *net.IPNet, hostBits int, seen map[string]bool) []string {
+func (e *DiscoveryEngine) collectIPsFromRange(ip net.IP, ipNet *net.IPNet, hostBits int, seen map[string]bool) []string {
 	var targets []string
 
 	if hostBits > defaultHostBitsCheckMin { // More than 256 hosts
-		log.Printf("CIDR range %s too large (/%d), limiting scan", ipNet.String(), hostBits)
+		e.logger.Warn().Str("cidr", ipNet.String()).Int("host_bits", hostBits).
+			Msg("CIDR range too large, limiting scan")
 
 		// Only scan first 256 IPs
 		count := 0
@@ -280,7 +281,7 @@ func filterNetworkAndBroadcast(targets []string, ip net.IP, ipNet *net.IPNet) []
 }
 
 // expandSeeds expands CIDR ranges and individual IPs into a list of IPs
-func expandSeeds(seeds []string) []string {
+func (e *DiscoveryEngine) expandSeeds(seeds []string) []string {
 	var targets []string
 
 	seen := make(map[string]bool) // To avoid duplicates
@@ -288,11 +289,11 @@ func expandSeeds(seeds []string) []string {
 	for _, seed := range seeds {
 		// Check if the seed is a CIDR notation
 		if strings.Contains(seed, "/") {
-			cidrTargets := expandCIDR(seed, seen)
+			cidrTargets := e.expandCIDR(seed, seen)
 			targets = append(targets, cidrTargets...)
 		} else {
 			// It's a single IP
-			if ipTarget := processSingleIP(seed, seen); ipTarget != "" {
+			if ipTarget := e.processSingleIP(seed, seen); ipTarget != "" {
 				targets = append(targets, ipTarget)
 			}
 		}
@@ -308,12 +309,13 @@ const (
 )
 
 // expandCIDR expands a CIDR notation into individual IP addresses
-func expandCIDR(cidr string, seen map[string]bool) []string {
+func (e *DiscoveryEngine) expandCIDR(cidr string, seen map[string]bool) []string {
 	var targets []string
 
 	ip, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
-		log.Printf("Invalid CIDR %s: %v", cidr, err)
+		e.logger.Warn().Str("cidr", cidr).Err(err).Msg("Invalid CIDR")
+
 		return targets
 	}
 
@@ -322,7 +324,7 @@ func expandCIDR(cidr string, seen map[string]bool) []string {
 	hostBits := bits - ones
 
 	// Collect IPs based on range size
-	targets = collectIPsFromRange(ip, ipNet, hostBits, seen)
+	targets = e.collectIPsFromRange(ip, ipNet, hostBits, seen)
 
 	// Filter out network and broadcast addresses if needed
 	if ip.To4() != nil && ones < defaultBroadCastMask && len(targets) > defaultCountCheckMin {

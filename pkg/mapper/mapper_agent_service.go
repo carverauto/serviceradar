@@ -20,7 +20,6 @@ package mapper
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/proto"
@@ -41,8 +40,6 @@ func NewAgentService(engine *DiscoveryEngine) *AgentService {
 
 // GetStatus implements the monitoring.AgentServiceServer interface.
 func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
-	log.Printf("Mapper's monitoring.AgentService/GetStatus called with request: %+v", req)
-
 	isAvailable := false
 
 	message := map[string]interface{}{
@@ -51,6 +48,10 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 	}
 
 	if s.engine != nil {
+		if s.engine.logger != nil {
+			s.engine.logger.Debug().Interface("request", req).Msg("Mapper's monitoring.AgentService/GetStatus called")
+		}
+
 		// Check if engine is initialized and running
 		s.engine.mu.RLock()
 		isRunning := s.engine.done != nil && len(s.engine.schedulers) > 0 // Check for active schedulers
@@ -65,7 +66,10 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 
 	messageBytes, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("Failed to marshal status message: %v", err)
+		if s.engine != nil && s.engine.logger != nil {
+			s.engine.logger.Error().Err(err).Msg("Failed to marshal status message")
+		}
+
 		return nil, err
 	}
 
@@ -82,8 +86,8 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 
 // GetResults implements the AgentService GetResults method.
 // Mapper service doesn't support GetResults, so return a "not supported" response.
-func (*AgentService) GetResults(_ context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
-	log.Printf("GetResults called for mapper service '%s' (type: '%s') - not supported", req.ServiceName, req.ServiceType)
+func (s *AgentService) GetResults(_ context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
+	s.engine.logger.Debug().Interface("request", req).Msg("Mapper's monitoring.AgentService/GetResults called")
 
 	return &proto.ResultsResponse{
 		Available:   false,
