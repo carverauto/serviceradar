@@ -1,7 +1,6 @@
 // Code generated from ServiceRadarQueryLanguage.g4 by ANTLR 4.13.2. DO NOT EDIT.
 
-package parser // ServiceRadarQueryLanguage
-
+package antlr // ServiceRadarQueryLanguage
 import "github.com/antlr4-go/antlr/v4"
 
 // BaseServiceRadarQueryLanguageListener is a complete listener for a parse tree produced by ServiceRadarQueryLanguageParser.

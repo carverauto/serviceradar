@@ -9,7 +9,7 @@ query
     ;
 
 showStatement
-    : SHOW entity (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
+    : SHOW (entity | functionCall FROM entity) (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
     ;
 
 findStatement

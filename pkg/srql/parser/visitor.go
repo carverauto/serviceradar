@@ -94,6 +94,8 @@ func (v *QueryVisitor) VisitQuery(ctx *gen.QueryContext) interface{} {
 		return v.VisitFindStatement(ctx.FindStatement().(*gen.FindStatementContext))
 	} else if ctx.CountStatement() != nil {
 		return v.VisitCountStatement(ctx.CountStatement().(*gen.CountStatementContext))
+	} else if ctx.StreamStatement() != nil {
+		return v.VisitStreamStatement(ctx.StreamStatement().(*gen.StreamStatementContext))
 	}
 
 	return nil
@@ -113,7 +115,8 @@ func (v *QueryVisitor) buildQuery(ctx interface{}, queryType models.QueryType) *
 
 	// Set query fields
 	v.setEntity(query, accessors)
-	v.setLatest(query, accessors) // New: Set IsLatest flag
+	v.setFunction(query, accessors) // Handle function calls like DISTINCT(field)
+	v.setLatest(query, accessors)   // New: Set IsLatest flag
 	v.setConditions(query, accessors.condition)
 	v.setOrderBy(query, accessors.orderByClause)
 	v.setLimit(query, accessors)
@@ -171,8 +174,41 @@ func (*QueryVisitor) getContextAccessors(ctx interface{}) (contextAccessors, boo
 // setEntity sets the query's entity field.
 func (v *QueryVisitor) setEntity(query *models.Query, accessors contextAccessors) {
 	for i := 0; i < accessors.childCount; i++ {
-		if entityCtx, ok := accessors.getChild(i).(*gen.EntityContext); ok {
+		child := accessors.getChild(i)
+		if entityCtx, ok := child.(*gen.EntityContext); ok {
 			query.Entity = v.getEntityType(entityCtx)
+
+			return
+		}
+
+		// Check for "FROM entity" pattern after function call
+		if fromToken, ok := child.(antlr.TerminalNode); ok && fromToken.GetText() == "FROM" {
+			// Look for entity after FROM
+			if i+1 < accessors.childCount {
+				if entityCtx, ok := accessors.getChild(i + 1).(*gen.EntityContext); ok {
+					query.Entity = v.getEntityType(entityCtx)
+
+					return
+				}
+			}
+		}
+	}
+}
+
+// setFunction handles function calls in SHOW statements like DISTINCT(field)
+func (v *QueryVisitor) setFunction(query *models.Query, accessors contextAccessors) {
+	for i := 0; i < accessors.childCount; i++ {
+		if funcCtx, ok := accessors.getChild(i).(*gen.FunctionCallContext); ok {
+			funcName := strings.ToLower(funcCtx.ID().GetText())
+			query.Function = funcName
+
+			// Extract function arguments
+			if argList := funcCtx.ArgumentList(); argList != nil {
+				args := v.VisitArgumentList(argList.(*gen.ArgumentListContext)).([]interface{})
+				for _, arg := range args {
+					query.FunctionArgs = append(query.FunctionArgs, fmt.Sprintf("%v", arg))
+				}
+			}
 
 			return
 		}
@@ -581,4 +617,87 @@ func (*QueryVisitor) getLogicalOperator(ctx *gen.LogicalOperatorContext) models.
 	}
 
 	return ""
+}
+
+// VisitStreamStatement visits the streamStatement rule
+func (v *QueryVisitor) VisitStreamStatement(ctx *gen.StreamStatementContext) interface{} {
+	query := &models.Query{
+		Type: models.Stream,
+	}
+
+	// Parse SELECT fields (selectList)
+	if selectList := ctx.SelectList(); selectList != nil {
+		if selectList.STAR() != nil {
+			query.SelectFields = []string{"*"}
+		} else {
+			var fields []string
+
+			for _, selectExpr := range selectList.AllSelectExpressionElement() {
+				field := v.VisitSelectExpressionElement(selectExpr.(*gen.SelectExpressionElementContext)).(string)
+				fields = append(fields, field)
+			}
+
+			query.SelectFields = fields
+		}
+	} else {
+		query.SelectFields = []string{"*"}
+	}
+
+	// Parse FROM entity
+	if dataSource := ctx.DataSource(); dataSource != nil {
+		if streamSource := dataSource.StreamSourcePrimary(); streamSource != nil {
+			if entity := streamSource.Entity(); entity != nil {
+				query.Entity = v.getEntityType(entity.(*gen.EntityContext))
+			}
+		}
+	}
+
+	// Parse WHERE clause
+	if whereClause := ctx.WhereClause(); whereClause != nil {
+		conditions := v.VisitCondition(whereClause.Condition().(*gen.ConditionContext)).([]models.Condition)
+
+		query.Conditions = conditions
+	}
+
+	// Parse GROUP BY clause
+	if groupByClause := ctx.GroupByClause(); groupByClause != nil {
+		var groupFields []string
+
+		if fieldList := groupByClause.FieldList(); fieldList != nil {
+			for _, field := range fieldList.AllField() {
+				fieldName := v.VisitField(field.(*gen.FieldContext)).(string)
+				groupFields = append(groupFields, fieldName)
+			}
+		}
+
+		query.GroupBy = groupFields
+	}
+
+	// Parse ORDER BY clause
+	if orderByClause := ctx.OrderByClauseS(); orderByClause != nil {
+		var orderBy []models.OrderByItem
+
+		for _, orderItem := range orderByClause.AllOrderByItem() {
+			item := v.VisitOrderByItem(orderItem.(*gen.OrderByItemContext)).(models.OrderByItem)
+			orderBy = append(orderBy, item)
+		}
+
+		query.OrderBy = orderBy
+	}
+
+	// Parse LIMIT clause
+	if limitClause := ctx.LimitClauseS(); limitClause != nil {
+		limitValue, err := strconv.Atoi(limitClause.INTEGER().GetText())
+		if err == nil {
+			query.Limit = limitValue
+			query.HasLimit = true
+		}
+	}
+
+	return query
+}
+
+// VisitSelectExpressionElement visits the selectExpressionElement rule
+func (v *QueryVisitor) VisitSelectExpressionElement(ctx *gen.SelectExpressionElementContext) interface{} {
+	return v.VisitExpressionSelectItem(ctx.ExpressionSelectItem().(*gen.ExpressionSelectItemContext))
 }

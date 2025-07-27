@@ -9,15 +9,22 @@ type Query struct {
 	OrderBy    []OrderByItem
 	Limit      int
 	HasLimit   bool
+	// STREAM-specific fields
+	SelectFields []string // For STREAM queries, the fields to select
+	GroupBy      []string // For GROUP BY clauses in STREAM queries
+	// Function call for SHOW queries like DISTINCT(field)
+	Function     string   // Function name like "distinct"
+	FunctionArgs []string // Function arguments like ["service_name"]
 }
 
-// QueryType represents the type of query (SHOW, FIND, COUNT)
+// QueryType represents the type of query (SHOW, FIND, COUNT, STREAM)
 type QueryType string
 
 const (
-	Show  QueryType = "SHOW"
-	Find  QueryType = "FIND"
-	Count QueryType = "COUNT"
+	Show   QueryType = "SHOW"
+	Find   QueryType = "FIND"
+	Count  QueryType = "COUNT"
+	Stream QueryType = "STREAM"
 )
 
 // Condition represents a filter condition in the query
