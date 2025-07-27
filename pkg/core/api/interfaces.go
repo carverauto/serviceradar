@@ -38,6 +38,7 @@ type Service interface {
 // MCPRouteRegistrar interface for registering MCP routes
 type MCPRouteRegistrar interface {
 	RegisterRoutes(router *mux.Router)
+	Stop() error
 }
 
 // SRQLQueryExecutor interface for executing SRQL queries
