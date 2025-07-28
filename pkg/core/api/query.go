@@ -111,6 +111,8 @@ func (*APIServer) getSecondaryOrderField(entityType models.EntityType) (string, 
 		return "service_name", true
 	case models.Interfaces:
 		return "device_ip", true
+	case models.SweepResults:
+		return "network", true
 	case models.Events:
 		return "id", true
 	case models.Pollers:
@@ -201,7 +203,7 @@ func isValidPaginationEntity(entity models.EntityType) bool {
 		models.Devices,
 		models.Services,
 		models.Interfaces,
-
+		models.SweepResults,
 		models.Events,
 		models.Logs,
 		models.Pollers,
