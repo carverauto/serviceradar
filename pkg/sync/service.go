@@ -235,12 +235,16 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 
 		// Fetch devices from integration. `devices` is now `[]*models.DeviceUpdate`.
 		kvData, devices, err := integration.Fetch(ctx)
+
 		if err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Discovery failed for source")
 			discoveryErrors = append(discoveryErrors, fmt.Errorf("source %s: %w", sourceName, err))
 
 			continue
 		}
+
+		// Apply source-specific network blacklist filtering if configured
+		devices, kvData = s.applySourceBlacklist(sourceName, devices, kvData)
 
 		// Immediately write device data to KV store
 		if err := s.writeToKV(ctx, sourceName, kvData); err != nil {
@@ -687,6 +691,48 @@ func (s *SimpleSyncService) initializeIntegrations(ctx context.Context) {
 
 		s.sources[name] = s.createIntegration(ctx, src, factory)
 	}
+}
+
+// applySourceBlacklist applies source-specific network blacklist filtering to devices and KV data
+func (s *SimpleSyncService) applySourceBlacklist(
+	sourceName string,
+	devices []*models.DeviceUpdate,
+	kvData map[string][]byte) (filteredDevices []*models.DeviceUpdate, filteredKVData map[string][]byte) {
+	sourceConfig := s.config.Sources[sourceName]
+	if sourceConfig == nil || len(sourceConfig.NetworkBlacklist) == 0 {
+		return devices, kvData
+	}
+
+	networkBlacklist, err := NewNetworkBlacklist(sourceConfig.NetworkBlacklist, s.logger)
+	if err != nil {
+		s.logger.Error().Err(err).Str("source", sourceName).Msg("Failed to create network blacklist for source")
+		return devices, kvData
+	}
+
+	originalCount := len(devices)
+	filteredDevices = networkBlacklist.FilterDevices(devices)
+
+	if filteredCount := originalCount - len(filteredDevices); filteredCount > 0 {
+		s.logger.Info().
+			Str("source", sourceName).
+			Int("filtered_count", filteredCount).
+			Int("remaining_count", len(filteredDevices)).
+			Msg("Applied source-specific network blacklist filtering to devices")
+	}
+
+	// Also filter KV data to remove blacklisted entries
+	originalKVCount := len(kvData)
+	filteredKVData = networkBlacklist.FilterKVData(kvData, filteredDevices)
+
+	if kvFilteredCount := originalKVCount - len(filteredKVData); kvFilteredCount > 0 {
+		s.logger.Info().
+			Str("source", sourceName).
+			Int("filtered_count", kvFilteredCount).
+			Int("remaining_count", len(filteredKVData)).
+			Msg("Applied source-specific network blacklist filtering to KV data")
+	}
+
+	return filteredDevices, filteredKVData
 }
 
 // createIntegration creates a single integration instance
