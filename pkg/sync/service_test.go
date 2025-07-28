@@ -824,3 +824,81 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to send chunk")
 	})
 }
+
+func TestSourceSpecificNetworkBlacklist(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+	mockGRPC := NewMockGRPCClient(ctrl)
+
+	// Create a mock integration that returns devices with various IPs
+	mockIntegration := NewMockIntegration(ctrl)
+	mockIntegration.EXPECT().Fetch(gomock.Any()).Return(
+		map[string][]byte{
+			"device1": []byte(`{"id": "device1"}`),
+			"device2": []byte(`{"id": "device2"}`),
+		},
+		[]*models.DeviceUpdate{
+			{IP: "192.168.1.100", Source: models.DiscoverySourceNetbox}, // Should be filtered for netbox
+			{IP: "10.0.0.50", Source: models.DiscoverySourceNetbox},     // Should be filtered for netbox
+			{IP: "8.8.8.8", Source: models.DiscoverySourceNetbox},       // Should pass for netbox
+			{IP: "172.16.0.1", Source: models.DiscoverySourceNetbox},    // Should be filtered for armis
+		},
+		nil,
+	).AnyTimes()
+
+	registry := map[string]IntegrationFactory{
+		"netbox": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
+			return mockIntegration
+		},
+	}
+
+	config := &Config{
+		Sources: map[string]*models.SourceConfig{
+			"netbox": {
+				Type:     "netbox",
+				Endpoint: "http://example.com",
+				// Netbox has its own blacklist - should filter 192.168.0.0/16 and 10.0.0.0/8
+				NetworkBlacklist: []string{"192.168.0.0/16", "10.0.0.0/8"},
+			},
+		},
+		ListenAddr:        ":8080",
+		DiscoveryInterval: models.Duration(1 * time.Minute),
+		UpdateInterval:    models.Duration(5 * time.Minute),
+	}
+
+	// Expect KV writes only for non-blacklisted devices
+	mockKV.EXPECT().PutMany(gomock.Any(), gomock.Any()).Return(&proto.PutManyResponse{}, nil).AnyTimes()
+
+	service, err := NewSimpleSyncService(
+		context.Background(),
+		config,
+		mockKV,
+		registry,
+		mockGRPC,
+		logger.NewTestLogger(),
+	)
+	require.NoError(t, err)
+
+	// Run discovery
+	ctx := context.Background()
+	err = service.runDiscovery(ctx)
+	require.NoError(t, err)
+
+	// Verify that results were filtered
+	service.resultsStore.mu.RLock()
+	results := service.resultsStore.results["netbox"]
+	service.resultsStore.mu.RUnlock()
+
+	// Should only have devices that passed the blacklist filter
+	assert.Len(t, results, 2, "Should have 2 devices after blacklist filtering")
+
+	// Verify the remaining devices are the non-blacklisted ones
+	deviceIPs := make([]string, len(results))
+	for i, device := range results {
+		deviceIPs[i] = device.IP
+	}
+
+	assert.ElementsMatch(t, []string{"8.8.8.8", "172.16.0.1"}, deviceIPs, "Should only contain non-blacklisted IPs")
+}

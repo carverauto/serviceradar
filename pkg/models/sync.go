@@ -24,6 +24,9 @@ type SourceConfig struct {
 	// PollInterval allows configuring how often this specific source should be polled.
 	// If empty, uses the global PollInterval from the sync config.
 	PollInterval Duration `json:"poll_interval,omitempty"`
+
+	// NetworkBlacklist contains CIDR ranges to filter out from this specific source
+	NetworkBlacklist []string `json:"network_blacklist,omitempty"`
 }
 
 // QueryConfig represents a single labeled AQL/ASQ query.
