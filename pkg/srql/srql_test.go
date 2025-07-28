@@ -433,3 +433,64 @@ func TestTodayYesterdayTranslation(t *testing.T) {
 		})
 	}
 }
+
+func TestLogsSeverityFieldMapping(t *testing.T) {
+	p := parser.NewParser()
+	protonTranslator := parser.NewTranslator(parser.Proton)
+	clickhouseTranslator := parser.NewTranslator(parser.ClickHouse)
+
+	testCases := []struct {
+		name               string
+		query              string
+		expectedProton     string
+		expectedClickHouse string
+	}{
+		{
+			name:               "severity field mapping in logs",
+			query:              "SHOW logs WHERE severity = 'warn'",
+			expectedProton:     "SELECT * FROM table(logs) WHERE severity_text = 'warn'",
+			expectedClickHouse: "SELECT * FROM logs WHERE severity_text = 'warn'",
+		},
+		{
+			name:               "level field mapping in logs (synonym for severity)",
+			query:              "SHOW logs WHERE level = 'error'",
+			expectedProton:     "SELECT * FROM table(logs) WHERE severity_text = 'error'",
+			expectedClickHouse: "SELECT * FROM logs WHERE severity_text = 'error'",
+		},
+		{
+			name:               "severity_text field should remain unchanged",
+			query:              "SHOW logs WHERE severity_text = 'info'",
+			expectedProton:     "SELECT * FROM table(logs) WHERE severity_text = 'info'",
+			expectedClickHouse: "SELECT * FROM logs WHERE severity_text = 'info'",
+		},
+		{
+			name:               "severity field with ORDER BY",
+			query:              "SHOW logs WHERE severity = 'warn' ORDER BY _tp_time DESC LIMIT 50",
+			expectedProton:     "SELECT * FROM table(logs) WHERE severity_text = 'warn' ORDER BY _tp_time DESC LIMIT 50",
+			expectedClickHouse: "SELECT * FROM logs WHERE severity_text = 'warn' ORDER BY _tp_time DESC LIMIT 50",
+		},
+		{
+			name:               "multiple conditions with severity mapping",
+			query:              "SHOW logs WHERE severity = 'error' AND service_name = 'test'",
+			expectedProton:     "SELECT * FROM table(logs) WHERE severity_text = 'error' AND service_name = 'test'",
+			expectedClickHouse: "SELECT * FROM logs WHERE severity_text = 'error' AND service_name = 'test'",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			parsedQuery, err := p.Parse(tc.query)
+			require.NoError(t, err, "Query parsing failed for: %s", tc.query)
+
+			// Test Proton translation
+			sqlProton, errProton := protonTranslator.Translate(parsedQuery)
+			require.NoError(t, errProton, "Proton translation failed")
+			assert.Equal(t, tc.expectedProton, sqlProton, "Proton SQL mismatch")
+
+			// Test ClickHouse translation
+			sqlClickHouse, errClickHouse := clickhouseTranslator.Translate(parsedQuery)
+			require.NoError(t, errClickHouse, "ClickHouse translation failed")
+			assert.Equal(t, tc.expectedClickHouse, sqlClickHouse, "ClickHouse SQL mismatch")
+		})
+	}
+}

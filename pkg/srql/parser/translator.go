@@ -249,7 +249,7 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 
 	if len(query.Conditions) > 0 {
 		sql.WriteString(" WHERE ")
-		sql.WriteString(t.buildClickHouseWhere(query.Conditions))
+		sql.WriteString(t.buildClickHouseWhere(query.Conditions, query.Entity))
 	}
 
 	if len(query.OrderBy) > 0 {
@@ -296,7 +296,7 @@ func (t *Translator) buildClickHouseStreamQuery(query *models.Query) (string, er
 	// Build WHERE clause
 	if len(query.Conditions) > 0 {
 		sql.WriteString(" WHERE ")
-		sql.WriteString(t.buildClickHouseWhere(query.Conditions))
+		sql.WriteString(t.buildClickHouseWhere(query.Conditions, query.Entity))
 	}
 
 	// Build GROUP BY clause
@@ -391,7 +391,7 @@ func (t *Translator) buildLatestCTE(sql *strings.Builder, query *models.Query, b
 
 	if len(query.Conditions) > 0 {
 		sql.WriteString(" WHERE ")
-		sql.WriteString(t.buildProtonWhere(query.Conditions))
+		sql.WriteString(t.buildProtonWhere(query.Conditions, query.Entity))
 	}
 
 	sql.WriteString("\n),\n")
@@ -472,7 +472,7 @@ func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *model
 	var whereClauses []string
 
 	if len(query.Conditions) > 0 {
-		conditionsStr := t.buildProtonWhere(query.Conditions)
+		conditionsStr := t.buildProtonWhere(query.Conditions, query.Entity)
 		// Only wrap user conditions in parentheses if there will be additional system filters
 		if query.Entity == models.Devices {
 			whereClauses = append(whereClauses, fmt.Sprintf("(%s)", conditionsStr))
@@ -534,7 +534,7 @@ func (t *Translator) buildStreamQuery(sql *strings.Builder, query *models.Query,
 	var whereClauses []string
 
 	if len(query.Conditions) > 0 {
-		conditionsStr := t.buildProtonWhere(query.Conditions)
+		conditionsStr := t.buildProtonWhere(query.Conditions, query.Entity)
 		whereClauses = append(whereClauses, conditionsStr)
 	}
 
@@ -679,7 +679,7 @@ func (t *Translator) formatOperatorCondition(fieldName string, cond *models.Cond
 }
 
 // formatCondition is a generic condition formatter for SQL databases.
-func (t *Translator) formatCondition(cond *models.Condition, formatters conditionFormatters) string {
+func (t *Translator) formatCondition(cond *models.Condition, formatters conditionFormatters, entity models.EntityType) string {
 	rawFieldName := cond.Field // Can be "field" or "func(field)"
 	operator := cond.Operator
 	rawValue := cond.Value
@@ -687,52 +687,68 @@ func (t *Translator) formatCondition(cond *models.Condition, formatters conditio
 	// Handle date(field) = TODAY/YESTERDAY specifically
 	if lowerRawFieldName := strings.ToLower(rawFieldName); strings.HasPrefix(lowerRawFieldName, "date(") &&
 		operator == models.Equals {
-		translatedFieldName := t.translateFieldName(rawFieldName)
+		translatedFieldName := t.translateFieldNameWithEntity(rawFieldName, entity)
 		if result, handled := t.formatDateCondition(rawFieldName, translatedFieldName, rawValue); handled {
 			return result
 		}
 	}
 
 	// Fallback to existing generic formatters
-	fieldName := t.translateFieldName(rawFieldName)
+	fieldName := t.translateFieldNameWithEntity(rawFieldName, entity)
 
 	return t.formatOperatorCondition(fieldName, cond, formatters)
 }
 
-// buildProtonWhere builds a WHERE clause for Proton SQL.
-func (t *Translator) buildProtonWhere(conditions []models.Condition) string {
+// buildWhereClause builds a WHERE clause for the specified database type
+func (t *Translator) buildWhereClause(conditions []models.Condition, entity models.EntityType, dbType DatabaseType) string {
+	var formatters conditionFormatters
+
+	var recursiveFunc func([]models.Condition) string
+
+	switch dbType {
+	case Proton:
+		formatters = conditionFormatters{
+			comparison: t.formatComparisonCondition,
+			like:       t.formatProtonLikeCondition,
+			contains:   t.formatProtonContainsCondition,
+			in:         t.formatProtonInCondition,
+			between:    t.formatProtonBetweenCondition,
+			is:         t.formatProtonIsCondition,
+		}
+		recursiveFunc = func(nestedConds []models.Condition) string {
+			return t.buildWhereClause(nestedConds, entity, Proton)
+		}
+	case ClickHouse:
+		formatters = conditionFormatters{
+			comparison: t.formatComparisonCondition,
+			like:       t.formatLikeCondition,
+			contains:   t.formatContainsCondition,
+			in:         t.formatInCondition,
+			between:    t.formatBetweenCondition,
+			is:         t.formatIsCondition,
+		}
+		recursiveFunc = func(nestedConds []models.Condition) string {
+			return t.buildWhereClause(nestedConds, entity, ClickHouse)
+		}
+	}
+
 	return t.buildConditionString(
 		conditions,
 		func(cond *models.Condition) string {
-			return t.formatCondition(cond, conditionFormatters{
-				comparison: t.formatComparisonCondition,
-				like:       t.formatProtonLikeCondition,
-				contains:   t.formatProtonContainsCondition,
-				in:         t.formatProtonInCondition,
-				between:    t.formatProtonBetweenCondition,
-				is:         t.formatProtonIsCondition,
-			})
+			return t.formatCondition(cond, formatters, entity)
 		},
-		t.buildProtonWhere,
+		recursiveFunc,
 	)
 }
 
+// buildProtonWhere builds a WHERE clause for Proton SQL.
+func (t *Translator) buildProtonWhere(conditions []models.Condition, entity models.EntityType) string {
+	return t.buildWhereClause(conditions, entity, Proton)
+}
+
 // buildClickHouseWhere builds a WHERE clause for ClickHouse SQL.
-func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string {
-	return t.buildConditionString(
-		conditions,
-		func(cond *models.Condition) string {
-			return t.formatCondition(cond, conditionFormatters{
-				comparison: t.formatComparisonCondition,
-				like:       t.formatLikeCondition,
-				contains:   t.formatContainsCondition,
-				in:         t.formatInCondition,
-				between:    t.formatBetweenCondition,
-				is:         t.formatIsCondition,
-			})
-		},
-		t.buildClickHouseWhere,
-	)
+func (t *Translator) buildClickHouseWhere(conditions []models.Condition, entity models.EntityType) string {
+	return t.buildWhereClause(conditions, entity, ClickHouse)
 }
 
 // isComparisonOperator checks if the operator is a basic comparison operator.
@@ -954,19 +970,48 @@ func (*Translator) formatClickHouseValue(value interface{}) string {
 	}
 }
 
-func (t *Translator) translateFieldName(fieldName string) string {
+// getEntityFieldMapData returns field mappings for specific entities
+func getEntityFieldMapData() map[models.EntityType]map[string]string {
+	return map[models.EntityType]map[string]string{
+		models.Logs: {
+			"severity": "severity_text",
+			"level":    "severity_text",
+		},
+		// Add more entity-specific field mappings as needed
+	}
+}
+
+// translateFieldNameWithEntity translates field names with entity-specific mappings
+func (t *Translator) translateFieldNameWithEntity(fieldName string, entity models.EntityType) string {
 	lowerFieldName := strings.ToLower(fieldName)
 
+	// Handle date() functions first
 	if strings.HasPrefix(lowerFieldName, "date(") && strings.HasSuffix(lowerFieldName, ")") {
 		// Extract actual field name from "date(actual_field)"
 		innerField := strings.TrimSuffix(strings.TrimPrefix(lowerFieldName, "date("), ")")
+
+		// Apply entity-specific mapping to the inner field
+		entityFieldMap := getEntityFieldMapData()
+		if fieldMappings, exists := entityFieldMap[entity]; exists {
+			if mappedField, exists := fieldMappings[innerField]; exists {
+				innerField = mappedField
+			}
+		}
 
 		if t.DBType == Proton {
 			return fmt.Sprintf("to_date(%s)", innerField)
 		}
 
 		if t.DBType == ClickHouse {
-			return fmt.Sprintf("toDate(%s)", innerField) // Use toDate for ClickHouse
+			return fmt.Sprintf("toDate(%s)", innerField)
+		}
+	}
+
+	// Apply entity-specific field mappings
+	entityFieldMap := getEntityFieldMapData()
+	if fieldMappings, exists := entityFieldMap[entity]; exists {
+		if mappedField, exists := fieldMappings[lowerFieldName]; exists {
+			return mappedField
 		}
 	}
 
