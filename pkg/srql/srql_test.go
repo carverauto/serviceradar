@@ -379,42 +379,36 @@ func TestTodayYesterdayTranslation(t *testing.T) {
 		query              string
 		expectedProton     string
 		expectedClickHouse string
-		expectedArango     string
 	}{
 		{
 			name:               "TODAY with greater than",
 			query:              "COUNT events WHERE _tp_time > TODAY",
 			expectedProton:     "SELECT count() FROM table(events) WHERE _tp_time > today()",
 			expectedClickHouse: "SELECT count() FROM events WHERE _tp_time > today()",
-			expectedArango:     "", // We'll check this separately due to date formatting
 		},
 		{
 			name:               "TODAY with equals",
 			query:              "SHOW events WHERE _tp_time = TODAY",
 			expectedProton:     "SELECT * FROM table(events) WHERE _tp_time = today()",
 			expectedClickHouse: "SELECT * FROM events WHERE _tp_time = today()",
-			expectedArango:     "", // We'll check this separately
 		},
 		{
 			name:               "YESTERDAY with greater than or equals",
 			query:              "SHOW cpu_metrics WHERE _tp_time >= YESTERDAY",
 			expectedProton:     "SELECT * FROM table(cpu_metrics) WHERE _tp_time >= yesterday()",
 			expectedClickHouse: "SELECT * FROM cpu_metrics WHERE _tp_time >= yesterday()",
-			expectedArango:     "", // We'll check this separately
 		},
 		{
 			name:               "timestamp field with TODAY",
 			query:              "SHOW cpu_metrics WHERE timestamp > TODAY",
 			expectedProton:     "SELECT * FROM table(cpu_metrics) WHERE timestamp > today()",
 			expectedClickHouse: "SELECT * FROM cpu_metrics WHERE timestamp > today()",
-			expectedArango:     "", // We'll check this separately
 		},
 		{
 			name:               "date() function with TODAY",
 			query:              "COUNT events WHERE date(_tp_time) = TODAY",
 			expectedProton:     "SELECT count() FROM table(events) WHERE to_date(_tp_time) = today()",
 			expectedClickHouse: "SELECT count() FROM events WHERE toDate(_tp_time) = today()",
-			expectedArango:     "", // We'll check this separately
 		},
 	}
 
