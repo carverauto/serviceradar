@@ -259,7 +259,7 @@ const CriticalEventsWidget: React.FC = () => {
                             <div key={`${event.id}-${index}`} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700/50 rounded">
                                 <div className="flex items-center space-x-2 flex-1 min-w-0">
                                     <div className="flex-shrink-0">
-                                        {getSeverityIcon(event.severity)}
+                                        {getSeverityIcon(event.severity || 'unknown')}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
@@ -268,13 +268,13 @@ const CriticalEventsWidget: React.FC = () => {
                                         <div className="text-xs text-gray-600 dark:text-gray-400 truncate">
                                             {truncateMessage(event.short_message)}
                                         </div>
-                                        <div className={`text-xs ${getSeverityColor(event.severity)}`}>
-                                            {event.severity} • {formatTimestamp(event.event_timestamp)}
+                                        <div className={`text-xs ${getSeverityColor(event.severity || 'unknown')}`}>
+                                            {event.severity || 'unknown'} • {formatTimestamp(event.event_timestamp)}
                                         </div>
                                     </div>
                                 </div>
                                 <Link 
-                                    href={`/events?severity=${encodeURIComponent(event.severity)}&search=${encodeURIComponent(event.host)}`}
+                                    href={`/events?severity=${encodeURIComponent(event.severity || 'unknown')}&search=${encodeURIComponent(event.host)}`}
                                     className="flex-shrink-0 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 ml-2"
                                     title={`View events for ${event.host}`}
                                 >
