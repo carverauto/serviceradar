@@ -11,7 +11,7 @@ export interface Event {
     level: number;
     raw_data: string; // This is a JSON string
     remote_addr: string;
-    severity: string;
+    severity: string | undefined;
     short_message: string;
     source: string;
     specversion: string;
