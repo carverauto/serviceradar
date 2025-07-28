@@ -45,7 +45,7 @@ func (*Translator) applyDefaultFilters(q *models.Query) {
 func applySweepResultsDefaultFilter(q *models.Query) {
 	if !hasDiscoverySourceCondition(q.Conditions) {
 		cond := models.Condition{
-			Field:    "discovery_source",
+			Field:    "discovery_sources",
 			Operator: models.Equals,
 			Value:    "sweep",
 		}
@@ -80,7 +80,7 @@ func applySNMPDefaultFilter(q *models.Query) {
 // check simple.
 func hasDiscoverySourceCondition(conds []models.Condition) bool {
 	for _, c := range conds {
-		if strings.EqualFold(c.Field, "discovery_source") {
+		if strings.EqualFold(c.Field, "discovery_source") || strings.EqualFold(c.Field, "discovery_sources") {
 			return true
 		}
 	}
@@ -101,6 +101,40 @@ func hasMetricTypeCondition(conds []models.Condition) bool {
 	return false
 }
 
+// transformQuery transforms unsupported entity types to their equivalent supported types
+func (t *Translator) transformQuery(query *models.Query) {
+	if query.Entity == models.SweepResults {
+		// Transform sweep_results to devices query with sweep filter
+		query.Entity = models.Devices
+		
+		// Add sweep discovery source filter if not already present
+		if !t.hasDiscoverySourcesCondition(query.Conditions) {
+			sweepCondition := models.Condition{
+				Field:    "discovery_sources",
+				Operator: models.Equals,
+				Value:    "sweep",
+			}
+			
+			// Add logical operator if there are existing conditions
+			if len(query.Conditions) > 0 {
+				sweepCondition.LogicalOp = models.And
+			}
+			
+			query.Conditions = append(query.Conditions, sweepCondition)
+		}
+	}
+}
+
+// hasDiscoverySourcesCondition checks if discovery_sources condition already exists
+func (t *Translator) hasDiscoverySourcesCondition(conditions []models.Condition) bool {
+	for _, condition := range conditions {
+		if condition.Field == "discovery_sources" || condition.Field == "discovery_source" {
+			return true
+		}
+	}
+	return false
+}
+
 // NewTranslator creates a new Translator
 func NewTranslator(dbType DatabaseType) *Translator {
 	return &Translator{
@@ -113,6 +147,9 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 	if query == nil {
 		return "", errCannotTranslateNilQuery
 	}
+
+	// Transform unsupported entity types to their equivalent supported types
+	t.transformQuery(query)
 
 	// Apply any implicit filters based on the entity type
 	t.applyDefaultFilters(query)
@@ -158,6 +195,7 @@ func getEntityPrimaryKeyMapData() map[models.EntityType]struct {
 		models.Logs: {"", false},
 		// Services stream is versioned_kv, latest handled automatically
 		models.Services:       {"", false},
+		models.SweepResults:   {"", false}, // SweepResults uses unified_devices which is versioned_kv
 		models.DeviceUpdates:  {"", false}, // DeviceUpdates is a versioned_kv stream
 		models.ICMPResults:    {"", false}, // ICMPResults is a versioned_kv stream
 		models.SNMPResults:    {"", false}, // SNMPResults is a versioned_kv stream
@@ -298,6 +336,7 @@ func getEntityToTableMapData() map[models.EntityType]string {
 		models.Devices:        "unified_devices", // Materialized view approach uses unified_devices stream
 		models.Flows:          "netflow_metrics",
 		models.Interfaces:     "discovered_interfaces",
+		models.SweepResults:   "unified_devices",
 		models.Traps:          "traps",
 		models.Connections:    "connections",
 		models.Logs:           "logs",
