@@ -233,6 +233,10 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 		return nil, nil, fmt.Errorf("failed to parse query: %w", err)
 	}
 
+	// Transform unsupported entity types before validation
+	translator := parser.NewTranslator(s.dbType)
+	translator.TransformQuery(query)
+
 	// Validate entity for pagination. COUNT queries don't need pagination support.
 	if query.Type != models.Count && !isValidPaginationEntity(query.Entity) {
 		return nil, nil, errors.New("pagination is only supported for devices, services, interfaces, " +

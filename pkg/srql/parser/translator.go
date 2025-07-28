@@ -101,8 +101,8 @@ func hasMetricTypeCondition(conds []models.Condition) bool {
 	return false
 }
 
-// transformQuery transforms unsupported entity types to their equivalent supported types
-func (t *Translator) transformQuery(query *models.Query) {
+// TransformQuery transforms unsupported entity types to their equivalent supported types
+func (t *Translator) TransformQuery(query *models.Query) {
 	if query.Entity == models.SweepResults {
 		// Transform sweep_results to devices query with sweep filter
 		query.Entity = models.Devices
@@ -149,7 +149,7 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 	}
 
 	// Transform unsupported entity types to their equivalent supported types
-	t.transformQuery(query)
+	t.TransformQuery(query)
 
 	// Apply any implicit filters based on the entity type
 	t.applyDefaultFilters(query)
