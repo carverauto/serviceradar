@@ -7,9 +7,6 @@
   "agent_id": "default-agent",
   "poller_id": "default-poller",
   "nats_url": "nats://127.0.0.1:4222",
-  "stream_name": "devices",
-  "subject": "discovery.devices",
-  "domain": "edge",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
@@ -41,20 +38,23 @@
       "prefix": "armis/",
       "poll_interval": "18h30m",
       "sweep_interval": "18h",
-    "agent_id": "agent-prod-dc1",
+      "agent_id": "agent-prod-dc1",
       "poller_id": "poller-prod-dc1",
       "credentials": {
         "secret_key": "your-armis-secret-key-here",
         "boundary": "Corporate",
         "page_size": "100"
       },
+      "network_blacklist": [
+        "192.168.2.19/32"
+      ],
       "queries": [
         {
           "label": "all_devices",
           "query": "in:devices orderBy=id boundaries:\"Corporate\""
         }
       ],
-      "custom_field": "IT_Isolation_Compliant"
+      "custom_field": "OT_Isolation_Compliant"
     }
   },
   "logging": {
