@@ -58,12 +58,13 @@ type StreamingResultsStore struct {
 type SimpleSyncService struct {
 	proto.UnimplementedAgentServiceServer
 
-	config     Config
-	kvClient   KVClient
-	sources    map[string]Integration
-	registry   map[string]IntegrationFactory
-	grpcClient GRPCClient
-	grpcServer *grpc.Server
+	config           Config
+	kvClient         KVClient
+	sources          map[string]Integration
+	registry         map[string]IntegrationFactory
+	grpcClient       GRPCClient
+	grpcServer       *grpc.Server
+	networkBlacklist *NetworkBlacklist
 
 	// Simplified results storage
 	resultsStore *StreamingResultsStore
@@ -103,12 +104,23 @@ func NewSimpleSyncService(
 
 	serviceCtx, cancel := context.WithCancel(ctx)
 
+	// Initialize network blacklist
+	var networkBlacklist *NetworkBlacklist
+	if len(config.NetworkBlacklist) > 0 {
+		nb, err := NewNetworkBlacklist(config.NetworkBlacklist, log)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create network blacklist: %w", err)
+		}
+		networkBlacklist = nb
+	}
+
 	s := &SimpleSyncService{
-		config:     *config,
-		kvClient:   kvClient,
-		sources:    make(map[string]Integration),
-		registry:   registry,
-		grpcClient: grpcClient,
+		config:           *config,
+		kvClient:         kvClient,
+		sources:          make(map[string]Integration),
+		registry:         registry,
+		grpcClient:       grpcClient,
+		networkBlacklist: networkBlacklist,
 		resultsStore: &StreamingResultsStore{
 			results: make(map[string][]*models.DeviceUpdate),
 		},
@@ -240,6 +252,30 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 			discoveryErrors = append(discoveryErrors, fmt.Errorf("source %s: %w", sourceName, err))
 
 			continue
+		}
+
+		// Apply network blacklist filtering if configured
+		if s.networkBlacklist != nil {
+			originalCount := len(devices)
+			devices = s.networkBlacklist.FilterDevices(devices)
+			if filteredCount := originalCount - len(devices); filteredCount > 0 {
+				s.logger.Info().
+					Str("source", sourceName).
+					Int("filtered_count", filteredCount).
+					Int("remaining_count", len(devices)).
+					Msg("Applied network blacklist filtering to devices")
+			}
+			
+			// Also filter KV data to remove blacklisted entries
+			originalKVCount := len(kvData)
+			kvData = s.networkBlacklist.FilterKVData(kvData, devices)
+			if kvFilteredCount := originalKVCount - len(kvData); kvFilteredCount > 0 {
+				s.logger.Info().
+					Str("source", sourceName).
+					Int("filtered_count", kvFilteredCount).
+					Int("remaining_count", len(kvData)).
+					Msg("Applied network blacklist filtering to KV data")
+			}
 		}
 
 		// Immediately write device data to KV store
