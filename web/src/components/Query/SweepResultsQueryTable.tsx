@@ -41,8 +41,7 @@ interface PortResult {
 }
 
 const SweepResultsQueryTable: React.FC<SweepResultsQueryTableProps> = ({ 
-    devices,
-    jsonViewTheme = 'rjv-default' 
+    devices
 }) => {
     const [viewMode, setViewMode] = useState<'summary' | 'table'>('summary');
     const [searchTerm, setSearchTerm] = useState('');
