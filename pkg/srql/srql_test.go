@@ -58,7 +58,6 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 	// Define translators once
 	protonTranslator := parser.NewTranslator(parser.Proton)
 	clickhouseTranslator := parser.NewTranslator(parser.ClickHouse)
-	arangoTranslator := parser.NewTranslator(parser.ArangoDB)
 
 	testCases := []struct {
 		name          string
@@ -78,8 +77,6 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 
 				sqlCH, _ := clickhouseTranslator.Translate(query)
 				assert.Equal(t, "SELECT * FROM devices", sqlCH)
-				aql, _ := arangoTranslator.Translate(query)
-				assert.Equal(t, "FOR doc IN devices\n  RETURN doc", aql)
 				sqlP, _ := protonTranslator.Translate(query)
 				assert.Equal(t, "SELECT * FROM table(unified_devices) "+
 					"WHERE coalesce(metadata['_deleted'], '') != 'true'", sqlP)
@@ -364,6 +361,7 @@ func TestTodayYesterdayParsing(t *testing.T) {
 			} else {
 				require.NoError(t, err, "Query parsing failed unexpectedly")
 			}
+
 			tc.validate(t, parsedQuery, err)
 		})
 	}
@@ -371,53 +369,52 @@ func TestTodayYesterdayParsing(t *testing.T) {
 
 func TestTodayYesterdayTranslation(t *testing.T) {
 	p := parser.NewParser()
-	
+
 	// Define translators
 	protonTranslator := parser.NewTranslator(parser.Proton)
 	clickhouseTranslator := parser.NewTranslator(parser.ClickHouse)
-	arangoTranslator := parser.NewTranslator(parser.ArangoDB)
 
 	testCases := []struct {
-		name             string
-		query            string
-		expectedProton   string
+		name               string
+		query              string
+		expectedProton     string
 		expectedClickHouse string
-		expectedArango   string
+		expectedArango     string
 	}{
 		{
-			name:             "TODAY with greater than",
-			query:            "COUNT events WHERE _tp_time > TODAY",
-			expectedProton:   "SELECT count() FROM table(events) WHERE _tp_time > today()",
+			name:               "TODAY with greater than",
+			query:              "COUNT events WHERE _tp_time > TODAY",
+			expectedProton:     "SELECT count() FROM table(events) WHERE _tp_time > today()",
 			expectedClickHouse: "SELECT count() FROM events WHERE _tp_time > today()",
-			expectedArango:   "", // We'll check this separately due to date formatting
+			expectedArango:     "", // We'll check this separately due to date formatting
 		},
 		{
-			name:             "TODAY with equals",
-			query:            "SHOW events WHERE _tp_time = TODAY",
-			expectedProton:   "SELECT * FROM table(events) WHERE _tp_time = today()",
+			name:               "TODAY with equals",
+			query:              "SHOW events WHERE _tp_time = TODAY",
+			expectedProton:     "SELECT * FROM table(events) WHERE _tp_time = today()",
 			expectedClickHouse: "SELECT * FROM events WHERE _tp_time = today()",
-			expectedArango:   "", // We'll check this separately
+			expectedArango:     "", // We'll check this separately
 		},
 		{
-			name:             "YESTERDAY with greater than or equals",
-			query:            "SHOW cpu_metrics WHERE _tp_time >= YESTERDAY",
-			expectedProton:   "SELECT * FROM table(cpu_metrics) WHERE _tp_time >= yesterday()",
+			name:               "YESTERDAY with greater than or equals",
+			query:              "SHOW cpu_metrics WHERE _tp_time >= YESTERDAY",
+			expectedProton:     "SELECT * FROM table(cpu_metrics) WHERE _tp_time >= yesterday()",
 			expectedClickHouse: "SELECT * FROM cpu_metrics WHERE _tp_time >= yesterday()",
-			expectedArango:   "", // We'll check this separately
+			expectedArango:     "", // We'll check this separately
 		},
 		{
-			name:             "timestamp field with TODAY",
-			query:            "SHOW cpu_metrics WHERE timestamp > TODAY",
-			expectedProton:   "SELECT * FROM table(cpu_metrics) WHERE timestamp > today()",
+			name:               "timestamp field with TODAY",
+			query:              "SHOW cpu_metrics WHERE timestamp > TODAY",
+			expectedProton:     "SELECT * FROM table(cpu_metrics) WHERE timestamp > today()",
 			expectedClickHouse: "SELECT * FROM cpu_metrics WHERE timestamp > today()",
-			expectedArango:   "", // We'll check this separately
+			expectedArango:     "", // We'll check this separately
 		},
 		{
-			name:             "date() function with TODAY",
-			query:            "COUNT events WHERE date(_tp_time) = TODAY",
-			expectedProton:   "SELECT count() FROM table(events) WHERE to_date(_tp_time) = today()",
+			name:               "date() function with TODAY",
+			query:              "COUNT events WHERE date(_tp_time) = TODAY",
+			expectedProton:     "SELECT count() FROM table(events) WHERE to_date(_tp_time) = today()",
 			expectedClickHouse: "SELECT count() FROM events WHERE toDate(_tp_time) = today()",
-			expectedArango:   "", // We'll check this separately
+			expectedArango:     "", // We'll check this separately
 		},
 	}
 
@@ -438,19 +435,6 @@ func TestTodayYesterdayTranslation(t *testing.T) {
 				sqlClickHouse, errClickHouse := clickhouseTranslator.Translate(parsedQuery)
 				require.NoError(t, errClickHouse, "ClickHouse translation failed")
 				assert.Equal(t, tc.expectedClickHouse, sqlClickHouse, "ClickHouse SQL mismatch")
-			}
-
-			// Test ArangoDB translation (check that TODAY gets converted to actual date)
-			if tc.expectedArango == "" {
-				aql, errArango := arangoTranslator.Translate(parsedQuery)
-				require.NoError(t, errArango, "ArangoDB translation failed")
-				
-				// For ArangoDB, we expect TODAY to be converted to today's date string
-				// We can't assert exact string due to date formatting, but we can check structure
-				assert.Contains(t, aql, "FOR doc IN", "ArangoDB query should start with FOR doc IN")
-				assert.Contains(t, aql, "FILTER", "ArangoDB query should contain FILTER")
-				assert.NotContains(t, aql, "TODAY", "ArangoDB query should not contain literal TODAY")
-				assert.NotContains(t, aql, "YESTERDAY", "ArangoDB query should not contain literal YESTERDAY")
 			}
 		})
 	}
