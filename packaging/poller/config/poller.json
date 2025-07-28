@@ -39,14 +39,7 @@
                     "service_name": "network_sweep",
                     "details": "",
                     "results_interval": "18h"
-                },
-                {
-                    "service_type": "grpc",
-                    "service_name": "sync",
-                    "details": "127.0.0.1:50058",
-                    "results_interval": "18h30m"
                 }
-
             ]
         }
     },
@@ -68,6 +61,24 @@
             "key_file": "poller-key.pem",
             "ca_file": "root.pem",
             "client_ca_file": "root.pem"
+        }
+    },
+    "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+            "enabled": true,
+            "endpoint": "192.168.2.23:4317",
+            "service_name": "serviceradar-poller",
+            "batch_timeout": "5s",
+            "insecure": false,
+            "tls": {
+                "cert_file": "/etc/serviceradar/certs/poller.pem",
+                "key_file": "/etc/serviceradar/certs/poller-key.pem",
+                "ca_file": "/etc/serviceradar/certs/root.pem"
+            }
         }
     }
 }

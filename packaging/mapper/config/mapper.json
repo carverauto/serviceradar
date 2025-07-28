@@ -91,12 +91,14 @@
     "time_format": "",
     "otel": {
       "enabled": true,
-      "endpoint": "localhost:4317",
+      "endpoint": "192.168.2.23:4317",
       "service_name": "serviceradar-mapper",
       "batch_timeout": "5s",
-      "insecure": true,
-      "headers": {
-        "x-api-key": "your-collector-api-key"
+      "insecure": false,
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/mapper.pem",
+        "key_file": "/etc/serviceradar/certs/mapper-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
       }
     }
   }
