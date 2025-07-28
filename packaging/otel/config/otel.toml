@@ -20,6 +20,12 @@ stream = "events"
 timeout_secs = 30
 
 # Optional TLS configuration
-tls_cert = "/etc/serviceradar/certs/nats.pem"
-tls_key = "/etc/serviceradar/certs/nats-key.pem"
-tls_ca = "/etc/serviceradar/certs/root.pem"
+[nats.tls]
+cert_file = "/etc/serviceradar/certs/nats-client.pem"
+key_file = "/etc/serviceradar/certs/nats-client-key.pem"
+ca_file = "/etc/serviceradar/certs/root.pem"
+
+[grpc_tls]
+cert_file = "/etc/serviceradar/certs/otel.pem"
+key_file = "/etc/serviceradar/certs/otel-key.pem"
+ca_file = "/etc/serviceradar/certs/root.pem"

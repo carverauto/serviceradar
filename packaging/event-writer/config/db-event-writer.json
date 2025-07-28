@@ -1,7 +1,6 @@
 {
   "listen_addr": "0.0.0.0:50041",
   "nats_url": "nats://127.0.0.1:4222",
-  "domain": "edge",
   "partition": "default",
   "stream_name": "events",
   "consumer_name": "db-event-writer",
@@ -61,12 +60,19 @@
     "output": "stdout",
     "time_format": "",
     "otel": {
-      "enabled": false,
-      "endpoint": "",
-      "headers": {},
-      "service_name": "db-event-writer",
+      "enabled": true,
+      "endpoint": "127.0.0.1:4317",
+      "service_name": "serviceradar-event-writer",
       "batch_timeout": "5s",
-      "insecure": false
+      "insecure": false,
+      "headers": {
+        "x-api-key": "your-collector-api-key"
+      },
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/core.pem",
+        "key_file": "/etc/serviceradar/certs/core-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      }
     }
   }
 }
