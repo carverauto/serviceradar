@@ -4,7 +4,7 @@ A flexible, powerful query language for network monitoring, inspired by Armis AS
 
 ## Overview
 
-SRQL is a domain-specific query language that allows you to query network entities such as devices, flows, traps, and connections using a simple, readable syntax. It compiles to various database backends, including ClickHouse and ArangoDB.
+SRQL is a domain-specific query language that allows you to query network entities such as devices, flows, traps, and connections using a simple, readable syntax. It compiles to various database backends, including ClickHouse and Proton.
 
 ## Example Queries
 
@@ -134,7 +134,7 @@ func setupQueryEndpoint(router *gin.Engine) {
 
 func executeQuery(query string) (interface{}, error) {
     // Implement this based on your database setup
-    // This could query ClickHouse, ArangoDB, etc.
+    // This could query ClickHouse, Proton, etc.
     // ...
 }
 ```
