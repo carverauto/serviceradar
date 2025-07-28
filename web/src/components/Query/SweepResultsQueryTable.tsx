@@ -69,7 +69,11 @@ const SweepResultsQueryTable: React.FC<SweepResultsQueryTableProps> = ({
         let avgResponseTime = 0;
         
         try {
-            const hostsWithMetadata = devices.filter(device => device.metadata && device.metadata !== '{}');
+            const hostsWithMetadata = devices.filter(device => 
+                device.metadata && 
+                typeof device.metadata === 'object' && 
+                Object.keys(device.metadata).length > 0
+            );
             if (hostsWithMetadata.length > 0) {
                 hostsWithMetadata.forEach(device => {
                     const metadata = parseMetadata(device.metadata);
