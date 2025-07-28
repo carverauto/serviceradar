@@ -65,9 +65,6 @@
       "service_name": "serviceradar-event-writer",
       "batch_timeout": "5s",
       "insecure": false,
-      "headers": {
-        "x-api-key": "your-collector-api-key"
-      },
       "tls": {
         "cert_file": "/etc/serviceradar/certs/core.pem",
         "key_file": "/etc/serviceradar/certs/core-key.pem",
