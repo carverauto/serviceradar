@@ -22,7 +22,7 @@ import { useAuth } from '../AuthProvider';
 import Link from 'next/link';
 
 interface LogStats {
-    critical: number;
+    fatal: number;
     error: number;
     warning: number;
     info: number;
@@ -42,7 +42,7 @@ interface LogEntry {
 const CriticalLogsWidget = () => {
     const { token } = useAuth();
     const [stats, setStats] = useState<LogStats>({
-        critical: 0,
+        fatal: 0,
         error: 0,
         warning: 0,
         info: 0,
@@ -80,26 +80,26 @@ const CriticalLogsWidget = () => {
             // Fetch log counts by level in parallel (using lowercase severity values)
             const [
                 totalLogsRes,
-                criticalLogsRes,
+                fatalLogsRes,
                 errorLogsRes,
                 warningLogsRes,
                 infoLogsRes,
                 debugLogsRes,
-                recentCriticalLogsRes
+                recentFatalLogsRes
             ] = await Promise.all([
                 postQuery<{ results: [{ 'count()': number }] }>('COUNT LOGS').catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'critical'").catch(() => ({ results: [{ 'count()': 0 }] })),
+                postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'fatal'").catch(() => ({ results: [{ 'count()': 0 }] })),
                 postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'error'").catch(() => ({ results: [{ 'count()': 0 }] })),
                 postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'warning' OR severity_text = 'warn'").catch(() => ({ results: [{ 'count()': 0 }] })),
                 postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'info'").catch(() => ({ results: [{ 'count()': 0 }] })),
                 postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'debug'").catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: LogEntry[] }>("SHOW LOGS WHERE severity_text IN ('critical', 'error') ORDER BY timestamp DESC").catch(() => ({ results: [] }))
+                postQuery<{ results: LogEntry[] }>("SHOW LOGS WHERE severity_text IN ('fatal', 'error') ORDER BY timestamp DESC").catch(() => ({ results: [] }))
             ]);
 
             // Update stats
             setStats({
                 total: totalLogsRes.results[0]?.['count()'] || 0,
-                critical: criticalLogsRes.results[0]?.['count()'] || 0,
+                fatal: fatalLogsRes.results[0]?.['count()'] || 0,
                 error: errorLogsRes.results[0]?.['count()'] || 0,
                 warning: warningLogsRes.results[0]?.['count()'] || 0,
                 info: infoLogsRes.results[0]?.['count()'] || 0,
@@ -107,7 +107,7 @@ const CriticalLogsWidget = () => {
             });
 
             // Update recent logs (take top 5)
-            setRecentLogs((recentCriticalLogsRes.results || []).slice(0, 5));
+            setRecentLogs((recentFatalLogsRes.results || []).slice(0, 5));
 
         } catch (err) {
             console.error('Error fetching log stats:', err);
@@ -192,7 +192,7 @@ const CriticalLogsWidget = () => {
         return (
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px]">
                 <div className="flex justify-between items-start mb-4">
-                    <h3 className="font-semibold text-gray-900 dark:text-white">Critical Logs</h3>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Log Levels</h3>
                 </div>
                 <div className="flex-1 flex items-center justify-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -205,7 +205,7 @@ const CriticalLogsWidget = () => {
         return (
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px]">
                 <div className="flex justify-between items-start mb-4">
-                    <h3 className="font-semibold text-gray-900 dark:text-white">Critical Logs</h3>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Log Levels</h3>
                 </div>
                 <div className="flex-1 flex items-center justify-center">
                     <div className="text-center text-red-500 dark:text-red-400">
@@ -243,10 +243,10 @@ const CriticalLogsWidget = () => {
                         </thead>
                         <tbody>
                             <tr className="border-b border-gray-100 dark:border-gray-800">
-                                <td className="py-1 text-red-600 dark:text-red-400">Critical</td>
-                                <td className="text-center text-red-600 dark:text-red-400 font-bold">{stats.critical}</td>
+                                <td className="py-1 text-red-600 dark:text-red-400">Fatal</td>
+                                <td className="text-center text-red-600 dark:text-red-400 font-bold">{stats.fatal}</td>
                                 <td className="text-center text-red-600 dark:text-red-400 text-xs">
-                                    {stats.total > 0 ? Math.round((stats.critical / stats.total) * 100) : 0}%
+                                    {stats.total > 0 ? Math.round((stats.fatal / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
                             <tr className="border-b border-gray-100 dark:border-gray-800">
@@ -263,11 +263,18 @@ const CriticalLogsWidget = () => {
                                     {stats.total > 0 ? Math.round((stats.warning / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
-                            <tr>
+                            <tr className="border-b border-gray-100 dark:border-gray-800">
                                 <td className="py-1 text-blue-600 dark:text-blue-400">Info</td>
                                 <td className="text-center text-blue-600 dark:text-blue-400 font-bold">{stats.info}</td>
                                 <td className="text-center text-blue-600 dark:text-blue-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.info / stats.total) * 100) : 0}%
+                                </td>
+                            </tr>
+                            <tr>
+                                <td className="py-1 text-gray-600 dark:text-gray-400">Debug</td>
+                                <td className="text-center text-gray-600 dark:text-gray-400 font-bold">{stats.debug}</td>
+                                <td className="text-center text-gray-600 dark:text-gray-400 text-xs">
+                                    {stats.total > 0 ? Math.round((stats.debug / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
                         </tbody>
@@ -309,7 +316,7 @@ const CriticalLogsWidget = () => {
                     <div className="flex-1 flex items-center justify-center text-center text-gray-600 dark:text-gray-400">
                         <div>
                             <FileText className="h-8 w-8 mx-auto mb-2 text-green-600 dark:text-green-400" />
-                            <p className="text-sm">No critical logs</p>
+                            <p className="text-sm">No fatal or error logs</p>
                             <p className="text-xs mt-1">All systems logging normally</p>
                         </div>
                     </div>

@@ -14,7 +14,9 @@ import {
     ArrowUp,
     ArrowDown,
     Info,
-    AlertOctagon
+    AlertOctagon,
+    XCircle,
+    Bug
 } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
@@ -55,22 +57,34 @@ const StatCard = ({
     </div>
 );
 
+const formatNumber = (num: number): string => {
+    if (num >= 1000000) {
+        return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    }
+    if (num >= 1000) {
+        return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    }
+    return num.toString();
+};
+
 const LogsDashboard = () => {
     const { token } = useAuth();
     const [logs, setLogs] = useState<Log[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const [stats, setStats] = useState({
         total: 0,
+        fatal: 0,
         error: 0,
         warning: 0,
-        info: 0
+        info: 0,
+        debug: 0
     });
     const [statsLoading, setStatsLoading] = useState(true);
     const [logsLoading, setLogsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearchTerm] = useDebounce(searchTerm, 300);
-    const [filterSeverity, setFilterSeverity] = useState<'all' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG'>('all');
+    const [filterSeverity, setFilterSeverity] = useState<'all' | 'FATAL' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG'>('all');
     const [filterService, setFilterService] = useState<string>('all');
     const [services, setServices] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<SortableLogKeys>('timestamp');
@@ -115,18 +129,22 @@ const LogsDashboard = () => {
             // Use cached queries to prevent duplicates
             // Handle various severity text formats that might come from OTEL
             // Using case-insensitive queries to handle variations
-            const [totalRes, errorRes, warnRes, infoRes] = await Promise.all([
+            const [totalRes, fatalRes, errorRes, warnRes, infoRes, debugRes] = await Promise.all([
                 cachedQuery<{ results: [{ 'count()': number }] }>('COUNT LOGS', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) IN ('error', 'fatal', 'critical')", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) = 'fatal'", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) = 'error'", token || undefined, 30000),
                 cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) IN ('warn', 'warning')", token || undefined, 30000),
                 cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) = 'info'", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) IN ('debug', 'trace')", token || undefined, 30000),
             ]);
 
             setStats({
                 total: totalRes.results[0]?.['count()'] || 0,
+                fatal: fatalRes.results[0]?.['count()'] || 0,
                 error: errorRes.results[0]?.['count()'] || 0,
                 warning: warnRes.results[0]?.['count()'] || 0,
                 info: infoRes.results[0]?.['count()'] || 0,
+                debug: debugRes.results[0]?.['count()'] || 0,
             });
         } catch (e) {
             console.error("Failed to fetch log stats:", e);
@@ -177,8 +195,11 @@ const LogsDashboard = () => {
                 // Using case-insensitive queries to handle variations
                 let severityFilter = '';
                 switch (filterSeverity) {
+                    case 'FATAL':
+                        severityFilter = "lower(severity_text) = 'fatal'";
+                        break;
                     case 'ERROR':
-                        severityFilter = "lower(severity_text) IN ('error', 'fatal', 'critical')";
+                        severityFilter = "lower(severity_text) = 'error'";
                         break;
                     case 'WARN':
                         severityFilter = "lower(severity_text) IN ('warn', 'warning')";
@@ -308,34 +329,48 @@ const LogsDashboard = () => {
 
     return (
         <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <StatCard
                     title="Total Logs"
-                    value={stats.total.toLocaleString()}
+                    value={formatNumber(stats.total)}
                     icon={<FileText className="h-6 w-6 text-orange-600 dark:text-gray-300" />}
                     isLoading={statsLoading}
                     onClick={() => setFilterSeverity('all')}
                 />
                 <StatCard
+                    title="Fatal"
+                    value={formatNumber(stats.fatal)}
+                    icon={<XCircle className="h-6 w-6 text-red-600" />}
+                    isLoading={statsLoading}
+                    onClick={() => setFilterSeverity('FATAL')}
+                />
+                <StatCard
                     title="Errors"
-                    value={stats.error.toLocaleString()}
+                    value={formatNumber(stats.error)}
                     icon={<AlertOctagon className="h-6 w-6 text-red-400" />}
                     isLoading={statsLoading}
                     onClick={() => setFilterSeverity('ERROR')}
                 />
                 <StatCard
                     title="Warnings"
-                    value={stats.warning.toLocaleString()}
+                    value={formatNumber(stats.warning)}
                     icon={<AlertTriangleIcon className="h-6 w-6 text-orange-400" />}
                     isLoading={statsLoading}
                     onClick={() => setFilterSeverity('WARN')}
                 />
                 <StatCard
                     title="Info"
-                    value={stats.info.toLocaleString()}
+                    value={formatNumber(stats.info)}
                     icon={<Info className="h-6 w-6 text-sky-400" />}
                     isLoading={statsLoading}
                     onClick={() => setFilterSeverity('INFO')}
+                />
+                <StatCard
+                    title="Debug"
+                    value={formatNumber(stats.debug)}
+                    icon={<Bug className="h-6 w-6 text-gray-400" />}
+                    isLoading={statsLoading}
+                    onClick={() => setFilterSeverity('DEBUG')}
                 />
             </div>
 
@@ -360,10 +395,11 @@ const LogsDashboard = () => {
                             <select
                                 id="severityFilter"
                                 value={filterSeverity}
-                                onChange={(e) => setFilterSeverity(e.target.value as 'all' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG')}
+                                onChange={(e) => setFilterSeverity(e.target.value as 'all' | 'FATAL' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG')}
                                 className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
                             >
                                 <option value="all">All</option>
+                                <option value="FATAL">Fatal</option>
                                 <option value="ERROR">Error</option>
                                 <option value="WARN">Warning</option>
                                 <option value="INFO">Info</option>
