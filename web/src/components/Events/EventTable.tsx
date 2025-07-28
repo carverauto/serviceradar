@@ -29,8 +29,7 @@ interface EventTableProps {
 
 const EventTable: React.FC<EventTableProps> = ({ 
     events, 
-    jsonViewTheme = 'pop',
-    showSortHeaders = false
+    jsonViewTheme = 'pop'
 }) => {
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
