@@ -106,11 +106,14 @@ func NewSimpleSyncService(
 
 	// Initialize network blacklist
 	var networkBlacklist *NetworkBlacklist
+
 	if len(config.NetworkBlacklist) > 0 {
 		nb, err := NewNetworkBlacklist(config.NetworkBlacklist, log)
 		if err != nil {
+			cancel() // Prevent context leak
 			return nil, fmt.Errorf("failed to create network blacklist: %w", err)
 		}
+
 		networkBlacklist = nb
 	}
 
@@ -247,6 +250,7 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 
 		// Fetch devices from integration. `devices` is now `[]*models.DeviceUpdate`.
 		kvData, devices, err := integration.Fetch(ctx)
+
 		if err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Discovery failed for source")
 			discoveryErrors = append(discoveryErrors, fmt.Errorf("source %s: %w", sourceName, err))
@@ -258,6 +262,7 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		if s.networkBlacklist != nil {
 			originalCount := len(devices)
 			devices = s.networkBlacklist.FilterDevices(devices)
+
 			if filteredCount := originalCount - len(devices); filteredCount > 0 {
 				s.logger.Info().
 					Str("source", sourceName).
@@ -265,10 +270,11 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 					Int("remaining_count", len(devices)).
 					Msg("Applied network blacklist filtering to devices")
 			}
-			
+
 			// Also filter KV data to remove blacklisted entries
 			originalKVCount := len(kvData)
 			kvData = s.networkBlacklist.FilterKVData(kvData, devices)
+
 			if kvFilteredCount := originalKVCount - len(kvData); kvFilteredCount > 0 {
 				s.logger.Info().
 					Str("source", sourceName).
