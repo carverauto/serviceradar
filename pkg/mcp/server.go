@@ -498,6 +498,7 @@ func getLogTools() []map[string]interface{} {
 
 func getMCPToolsDefinition() []map[string]interface{} {
 	var tools []map[string]interface{}
+
 	tools = append(tools, getDeviceTools()...)
 	tools = append(tools, getQueryTools()...)
 	tools = append(tools, getLogTools()...)
@@ -765,6 +766,7 @@ func (m *MCPServer) executeGetRecentLogs(ctx context.Context, args json.RawMessa
 func (m *MCPServer) executeSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error) {
 	// Transform sweep_results queries to devices queries with sweep discovery source filter
 	transformedQuery := m.transformSweepResultsQuery(query)
+
 	return m.queryExecutor.ExecuteSRQLQuery(ctx, transformedQuery, limit)
 }
 
@@ -778,40 +780,61 @@ func (m *MCPServer) transformSweepResultsQuery(query string) string {
 
 	// Replace sweep_results with devices
 	transformedQuery := strings.ReplaceAll(query, "sweep_results", "devices")
-	
+
 	// Add sweep discovery source filter if not already present
-	lowerQuery := strings.ToLower(transformedQuery)
-	if !strings.Contains(lowerQuery, "discovery_sources") {
-		if strings.Contains(lowerQuery, "where") {
-			// Insert sweep filter after WHERE
-			wherePos := strings.Index(lowerQuery, "where")
-			if wherePos != -1 {
-				beforeWhere := transformedQuery[:wherePos+5]
-				afterWhere := strings.TrimSpace(transformedQuery[wherePos+5:])
-				transformedQuery = beforeWhere + " discovery_sources = 'sweep' AND " + afterWhere
-			}
-		} else {
-			// Add WHERE clause with sweep filter before ORDER BY or LIMIT
-			orderPos := strings.Index(lowerQuery, "order")
-			limitPos := strings.Index(lowerQuery, "limit")
-			
-			insertPos := len(transformedQuery)
-			if orderPos != -1 {
-				insertPos = orderPos
-			} else if limitPos != -1 {
-				insertPos = limitPos
-			}
-			
-			if insertPos < len(transformedQuery) {
-				beforeInsert := strings.TrimSpace(transformedQuery[:insertPos])
-				afterInsert := transformedQuery[insertPos:]
-				transformedQuery = beforeInsert + " WHERE discovery_sources = 'sweep' " + afterInsert
-			} else {
-				transformedQuery = transformedQuery + " WHERE discovery_sources = 'sweep'"
-			}
-		}
-	}
+	transformedQuery = addSweepFilter(transformedQuery)
 
 	m.logger.Debug().Str("transformed_query", transformedQuery).Msg("Transformed sweep_results query")
+
 	return transformedQuery
+}
+
+// addSweepFilter adds a discovery_sources = 'sweep' filter to the query if not already present
+func addSweepFilter(query string) string {
+	lowerQuery := strings.ToLower(query)
+
+	if strings.Contains(lowerQuery, "discovery_sources") {
+		return query
+	}
+
+	if strings.Contains(lowerQuery, "where") {
+		return addSweepFilterAfterWhere(query, lowerQuery)
+	}
+
+	return addSweepFilterWithWhereClause(query, lowerQuery)
+}
+
+// addSweepFilterAfterWhere inserts sweep filter after existing WHERE clause
+func addSweepFilterAfterWhere(query, lowerQuery string) string {
+	wherePos := strings.Index(lowerQuery, "where")
+	if wherePos == -1 {
+		return query
+	}
+
+	beforeWhere := query[:wherePos+5]
+	afterWhere := strings.TrimSpace(query[wherePos+5:])
+
+	return beforeWhere + " discovery_sources = 'sweep' AND " + afterWhere
+}
+
+// addSweepFilterWithWhereClause adds WHERE clause with sweep filter before ORDER BY or LIMIT
+func addSweepFilterWithWhereClause(query, lowerQuery string) string {
+	orderPos := strings.Index(lowerQuery, "order")
+	limitPos := strings.Index(lowerQuery, "limit")
+
+	insertPos := len(query)
+	if orderPos != -1 {
+		insertPos = orderPos
+	} else if limitPos != -1 {
+		insertPos = limitPos
+	}
+
+	if insertPos < len(query) {
+		beforeInsert := strings.TrimSpace(query[:insertPos])
+		afterInsert := query[insertPos:]
+
+		return beforeInsert + " WHERE discovery_sources = 'sweep' " + afterInsert
+	}
+
+	return query + " WHERE discovery_sources = 'sweep'"
 }
