@@ -106,7 +106,7 @@ func (t *Translator) TransformQuery(query *models.Query) {
 	if query.Entity == models.SweepResults {
 		// Transform sweep_results to devices query with sweep filter
 		query.Entity = models.Devices
-		
+
 		// Add sweep discovery source filter if not already present
 		if !t.hasDiscoverySourcesCondition(query.Conditions) {
 			sweepCondition := models.Condition{
@@ -114,24 +114,25 @@ func (t *Translator) TransformQuery(query *models.Query) {
 				Operator: models.Equals,
 				Value:    "sweep",
 			}
-			
+
 			// Add logical operator if there are existing conditions
 			if len(query.Conditions) > 0 {
 				sweepCondition.LogicalOp = models.And
 			}
-			
+
 			query.Conditions = append(query.Conditions, sweepCondition)
 		}
 	}
 }
 
 // hasDiscoverySourcesCondition checks if discovery_sources condition already exists
-func (t *Translator) hasDiscoverySourcesCondition(conditions []models.Condition) bool {
+func (*Translator) hasDiscoverySourcesCondition(conditions []models.Condition) bool {
 	for _, condition := range conditions {
 		if condition.Field == "discovery_sources" || condition.Field == "discovery_source" {
 			return true
 		}
 	}
+
 	return false
 }
 
