@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
@@ -497,6 +498,7 @@ func getLogTools() []map[string]interface{} {
 
 func getMCPToolsDefinition() []map[string]interface{} {
 	var tools []map[string]interface{}
+
 	tools = append(tools, getDeviceTools()...)
 	tools = append(tools, getQueryTools()...)
 	tools = append(tools, getLogTools()...)
@@ -734,7 +736,7 @@ func (m *MCPServer) executeExecuteSRQL(ctx context.Context, args json.RawMessage
 		params.Limit = defaultLimit
 	}
 
-	return m.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
+	return m.executeSRQLQuery(ctx, params.Query, params.Limit)
 }
 
 func (m *MCPServer) executeQueryLogs(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -760,6 +762,79 @@ func (m *MCPServer) executeGetRecentLogs(ctx context.Context, args json.RawMessa
 }
 
 // executeSRQLQuery executes an SRQL query directly via the query executor
+// It handles transformations for unsupported entity types like sweep_results
 func (m *MCPServer) executeSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error) {
-	return m.queryExecutor.ExecuteSRQLQuery(ctx, query, limit)
+	// Transform sweep_results queries to devices queries with sweep discovery source filter
+	transformedQuery := m.transformSweepResultsQuery(query)
+
+	return m.queryExecutor.ExecuteSRQLQuery(ctx, transformedQuery, limit)
+}
+
+// transformSweepResultsQuery transforms sweep_results queries to equivalent devices queries
+func (m *MCPServer) transformSweepResultsQuery(query string) string {
+	if !strings.Contains(strings.ToLower(query), "sweep_results") {
+		return query
+	}
+
+	m.logger.Debug().Str("original_query", query).Msg("Transforming sweep_results query")
+
+	// Replace sweep_results with devices
+	transformedQuery := strings.ReplaceAll(query, "sweep_results", "devices")
+
+	// Add sweep discovery source filter if not already present
+	transformedQuery = addSweepFilter(transformedQuery)
+
+	m.logger.Debug().Str("transformed_query", transformedQuery).Msg("Transformed sweep_results query")
+
+	return transformedQuery
+}
+
+// addSweepFilter adds a discovery_sources = 'sweep' filter to the query if not already present
+func addSweepFilter(query string) string {
+	lowerQuery := strings.ToLower(query)
+
+	if strings.Contains(lowerQuery, "discovery_sources") {
+		return query
+	}
+
+	if strings.Contains(lowerQuery, "where") {
+		return addSweepFilterAfterWhere(query, lowerQuery)
+	}
+
+	return addSweepFilterWithWhereClause(query, lowerQuery)
+}
+
+// addSweepFilterAfterWhere inserts sweep filter after existing WHERE clause
+func addSweepFilterAfterWhere(query, lowerQuery string) string {
+	wherePos := strings.Index(lowerQuery, "where")
+	if wherePos == -1 {
+		return query
+	}
+
+	beforeWhere := query[:wherePos+5]
+	afterWhere := strings.TrimSpace(query[wherePos+5:])
+
+	return beforeWhere + " discovery_sources = 'sweep' AND " + afterWhere
+}
+
+// addSweepFilterWithWhereClause adds WHERE clause with sweep filter before ORDER BY or LIMIT
+func addSweepFilterWithWhereClause(query, lowerQuery string) string {
+	orderPos := strings.Index(lowerQuery, "order")
+	limitPos := strings.Index(lowerQuery, "limit")
+
+	insertPos := len(query)
+	if orderPos != -1 {
+		insertPos = orderPos
+	} else if limitPos != -1 {
+		insertPos = limitPos
+	}
+
+	if insertPos < len(query) {
+		beforeInsert := strings.TrimSpace(query[:insertPos])
+		afterInsert := query[insertPos:]
+
+		return beforeInsert + " WHERE discovery_sources = 'sweep' " + afterInsert
+	}
+
+	return query + " WHERE discovery_sources = 'sweep'"
 }
