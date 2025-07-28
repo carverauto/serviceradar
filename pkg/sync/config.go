@@ -48,7 +48,6 @@ type Config struct {
 	PollerID          string                          `json:"poller_id"`          // Default Poller ID for device records
 	Security          *models.SecurityConfig          `json:"security"`           // mTLS config for gRPC
 	Logging           *logger.Config                  `json:"logging"`            // Logger configuration including OTEL settings
-	NetworkBlacklist  []string                        `json:"network_blacklist"`  // List of CIDR ranges to ignore from integrations
 }
 
 func (c *Config) Validate() error {
