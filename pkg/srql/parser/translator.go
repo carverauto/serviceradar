@@ -626,6 +626,34 @@ func (*Translator) formatArangoDBDateCondition(fieldName, dateValue string) stri
 	return fmt.Sprintf("%s = '%s'", fieldName, yesterdayDateStr)
 }
 
+// formatProtonOrClickHouseTimestampCondition formats timestamp conditions with TODAY/YESTERDAY for Proton or ClickHouse
+func (*Translator) formatProtonOrClickHouseTimestampCondition(fieldName, operator, dateValue string) string {
+	var dateFunc string
+	if dateValue == defaultToday {
+		dateFunc = "today()"
+	} else {
+		// Must be YESTERDAY
+		dateFunc = "yesterday()"
+	}
+
+	return fmt.Sprintf("%s %s %s", fieldName, operator, dateFunc)
+}
+
+// formatArangoDBTimestampCondition formats timestamp conditions with TODAY/YESTERDAY for ArangoDB
+func (*Translator) formatArangoDBTimestampCondition(fieldName, operator, dateValue string) string {
+	now := time.Now()
+	var dateStr string
+	
+	if dateValue == defaultToday {
+		dateStr = now.Format("2006-01-02")
+	} else {
+		// Must be YESTERDAY
+		dateStr = now.AddDate(0, 0, -1).Format("2006-01-02")
+	}
+
+	return fmt.Sprintf("%s %s '%s'", fieldName, operator, dateStr)
+}
+
 // formatOperatorCondition formats a condition based on its operator
 func (t *Translator) formatOperatorCondition(fieldName string, cond *models.Condition, formatters conditionFormatters) string {
 	switch {
@@ -713,6 +741,19 @@ func (*Translator) isComparisonOperator(op models.OperatorType) bool {
 // formatComparisonCondition formats a basic comparison condition.
 func (t *Translator) formatComparisonCondition(fieldName string, op models.OperatorType, value interface{}) string {
 	lowerField := strings.ToLower(fieldName)
+
+	// Handle TODAY/YESTERDAY for timestamp fields
+	if valueStr, ok := value.(string); ok {
+		upperVal := strings.ToUpper(valueStr)
+		if upperVal == defaultToday || upperVal == defaultYesterday {
+			switch t.DBType {
+			case Proton, ClickHouse:
+				return t.formatProtonOrClickHouseTimestampCondition(fieldName, string(op), upperVal)
+			case ArangoDB:
+				return t.formatArangoDBTimestampCondition(fieldName, string(op), upperVal)
+			}
+		}
+	}
 
 	if lowerField == "discovery_sources" {
 		formatted := t.formatGenericValue(value, t.DBType)
@@ -993,6 +1034,15 @@ func (t *Translator) formatArangoDBCondition(cond *models.Condition) string {
 				// t.formatArangoDBValue will handle quoting if it's a string.
 				return fmt.Sprintf("%s == %s", arangoLHS, t.formatArangoDBValue(dateValueString))
 			}
+		}
+	}
+
+	// Handle TODAY/YESTERDAY for regular timestamp fields (not in date() function)
+	if valueStr, ok := cond.Value.(string); ok {
+		upperVal := strings.ToUpper(valueStr)
+		if upperVal == defaultToday || upperVal == defaultYesterday {
+			fieldName := fmt.Sprintf("doc.%s", srqlFieldName)
+			return t.formatArangoDBTimestampCondition(fieldName, t.translateOperator(cond.Operator), upperVal)
 		}
 	}
 
