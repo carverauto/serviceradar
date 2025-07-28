@@ -74,9 +74,6 @@
             "service_name": "serviceradar-poller",
             "batch_timeout": "5s",
             "insecure": false,
-            "headers": {
-                "x-api-key": "your-collector-api-key"
-            },
             "tls": {
                 "cert_file": "/etc/serviceradar/certs/poller.pem",
                 "key_file": "/etc/serviceradar/certs/poller-key.pem",
