@@ -735,7 +735,7 @@ func (m *MCPServer) executeExecuteSRQL(ctx context.Context, args json.RawMessage
 		params.Limit = defaultLimit
 	}
 
-	return m.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
+	return m.executeSRQLQuery(ctx, params.Query, params.Limit)
 }
 
 func (m *MCPServer) executeQueryLogs(ctx context.Context, args json.RawMessage) (interface{}, error) {
