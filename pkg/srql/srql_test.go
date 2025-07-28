@@ -274,3 +274,184 @@ func TestSRQLEdgeCases(t *testing.T) {
 	// Assuming translator normalizes 'Ip' to 'ip' and 'Asc' to 'ASC'
 	assert.Equal(t, "SELECT * FROM devices WHERE ip = '192.168.1.1' ORDER BY ip ASC", sqlMixed)
 }
+
+func TestTodayYesterdayParsing(t *testing.T) {
+	p := parser.NewParser()
+
+	testCases := []struct {
+		name          string
+		query         string
+		expectedError bool
+		validate      func(t *testing.T, query *models.Query, err error)
+	}{
+		{
+			name:  "COUNT with TODAY comparison",
+			query: "COUNT events WHERE _tp_time > TODAY",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Count, query.Type)
+				assert.Equal(t, models.Events, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "_tp_time", query.Conditions[0].Field)
+				assert.Equal(t, models.GreaterThan, query.Conditions[0].Operator)
+				assert.Equal(t, "TODAY", query.Conditions[0].Value)
+			},
+		},
+		{
+			name:  "SHOW with TODAY equals",
+			query: "SHOW events WHERE _tp_time = TODAY",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.Events, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "_tp_time", query.Conditions[0].Field)
+				assert.Equal(t, models.Equals, query.Conditions[0].Operator)
+				assert.Equal(t, "TODAY", query.Conditions[0].Value)
+			},
+		},
+		{
+			name:  "SHOW with YESTERDAY comparison",
+			query: "SHOW cpu_metrics WHERE _tp_time >= YESTERDAY",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.CPUMetrics, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "_tp_time", query.Conditions[0].Field)
+				assert.Equal(t, models.GreaterThanOrEquals, query.Conditions[0].Operator)
+				assert.Equal(t, "YESTERDAY", query.Conditions[0].Value)
+			},
+		},
+		{
+			name:  "date() function with TODAY",
+			query: "COUNT events WHERE date(_tp_time) = TODAY",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Count, query.Type)
+				assert.Equal(t, models.Events, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "date(_tp_time)", query.Conditions[0].Field)
+				assert.Equal(t, models.Equals, query.Conditions[0].Operator)
+				assert.Equal(t, "TODAY", query.Conditions[0].Value)
+			},
+		},
+		{
+			name:  "timestamp field with TODAY",
+			query: "SHOW cpu_metrics WHERE timestamp > TODAY",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.CPUMetrics, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "timestamp", query.Conditions[0].Field)
+				assert.Equal(t, models.GreaterThan, query.Conditions[0].Operator)
+				assert.Equal(t, "TODAY", query.Conditions[0].Value)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			parsedQuery, err := p.Parse(tc.query)
+			if tc.expectedError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err, "Query parsing failed unexpectedly")
+			}
+			tc.validate(t, parsedQuery, err)
+		})
+	}
+}
+
+func TestTodayYesterdayTranslation(t *testing.T) {
+	p := parser.NewParser()
+	
+	// Define translators
+	protonTranslator := parser.NewTranslator(parser.Proton)
+	clickhouseTranslator := parser.NewTranslator(parser.ClickHouse)
+	arangoTranslator := parser.NewTranslator(parser.ArangoDB)
+
+	testCases := []struct {
+		name             string
+		query            string
+		expectedProton   string
+		expectedClickHouse string
+		expectedArango   string
+	}{
+		{
+			name:             "TODAY with greater than",
+			query:            "COUNT events WHERE _tp_time > TODAY",
+			expectedProton:   "SELECT count() FROM table(events) WHERE _tp_time > today()",
+			expectedClickHouse: "SELECT count() FROM events WHERE _tp_time > today()",
+			expectedArango:   "", // We'll check this separately due to date formatting
+		},
+		{
+			name:             "TODAY with equals",
+			query:            "SHOW events WHERE _tp_time = TODAY",
+			expectedProton:   "SELECT * FROM table(events) WHERE _tp_time = today()",
+			expectedClickHouse: "SELECT * FROM events WHERE _tp_time = today()",
+			expectedArango:   "", // We'll check this separately
+		},
+		{
+			name:             "YESTERDAY with greater than or equals",
+			query:            "SHOW cpu_metrics WHERE _tp_time >= YESTERDAY",
+			expectedProton:   "SELECT * FROM table(cpu_metrics) WHERE _tp_time >= yesterday()",
+			expectedClickHouse: "SELECT * FROM cpu_metrics WHERE _tp_time >= yesterday()",
+			expectedArango:   "", // We'll check this separately
+		},
+		{
+			name:             "timestamp field with TODAY",
+			query:            "SHOW cpu_metrics WHERE timestamp > TODAY",
+			expectedProton:   "SELECT * FROM table(cpu_metrics) WHERE timestamp > today()",
+			expectedClickHouse: "SELECT * FROM cpu_metrics WHERE timestamp > today()",
+			expectedArango:   "", // We'll check this separately
+		},
+		{
+			name:             "date() function with TODAY",
+			query:            "COUNT events WHERE date(_tp_time) = TODAY",
+			expectedProton:   "SELECT count() FROM table(events) WHERE to_date(_tp_time) = today()",
+			expectedClickHouse: "SELECT count() FROM events WHERE toDate(_tp_time) = today()",
+			expectedArango:   "", // We'll check this separately
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			parsedQuery, err := p.Parse(tc.query)
+			require.NoError(t, err, "Query parsing failed")
+
+			// Test Proton translation
+			if tc.expectedProton != "" {
+				sqlProton, errProton := protonTranslator.Translate(parsedQuery)
+				require.NoError(t, errProton, "Proton translation failed")
+				assert.Equal(t, tc.expectedProton, sqlProton, "Proton SQL mismatch")
+			}
+
+			// Test ClickHouse translation
+			if tc.expectedClickHouse != "" {
+				sqlClickHouse, errClickHouse := clickhouseTranslator.Translate(parsedQuery)
+				require.NoError(t, errClickHouse, "ClickHouse translation failed")
+				assert.Equal(t, tc.expectedClickHouse, sqlClickHouse, "ClickHouse SQL mismatch")
+			}
+
+			// Test ArangoDB translation (check that TODAY gets converted to actual date)
+			if tc.expectedArango == "" {
+				aql, errArango := arangoTranslator.Translate(parsedQuery)
+				require.NoError(t, errArango, "ArangoDB translation failed")
+				
+				// For ArangoDB, we expect TODAY to be converted to today's date string
+				// We can't assert exact string due to date formatting, but we can check structure
+				assert.Contains(t, aql, "FOR doc IN", "ArangoDB query should start with FOR doc IN")
+				assert.Contains(t, aql, "FILTER", "ArangoDB query should contain FILTER")
+				assert.NotContains(t, aql, "TODAY", "ArangoDB query should not contain literal TODAY")
+				assert.NotContains(t, aql, "YESTERDAY", "ArangoDB query should not contain literal YESTERDAY")
+			}
+		})
+	}
+}
