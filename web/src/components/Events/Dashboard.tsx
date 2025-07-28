@@ -347,8 +347,8 @@ const EventsDashboard = () => {
                                             {formatDate(event.event_timestamp)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSeverityBadge(event.severity)}`}>
-                          {event.severity}
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSeverityBadge(event.severity || 'unknown')}`}>
+                          {event.severity || 'unknown'}
                         </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">

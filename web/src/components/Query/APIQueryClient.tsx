@@ -24,9 +24,13 @@ import { useAuth } from '@/components/AuthProvider';
 import ReactJson from '@microlink/react-json-view';
 import { fetchAPI } from '@/lib/client-api';
 import { Device } from '@/types/devices';
+import { Event } from '@/types/events';
+import { Log } from '@/types/logs';
 import DeviceTable from '@/components/Devices/DeviceTable';
 import InterfaceTable, { NetworkInterface } from '@/components/Network/InterfaceTable';
 import SweepResultsTable, { SweepResult } from '@/components/Network/SweepResultsTable';
+import EventTable from '@/components/Events/EventTable';
+import LogTable from '@/components/Logs/LogTable';
 
 type ViewFormat = 'json' | 'table';
 
@@ -129,13 +133,12 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
         [query, token, limit]
     );
 
-    // Run query on mount if we have one
+    // Run query when query parameter changes
     useEffect(() => {
         if (query) {
             handleSubmit(undefined, undefined, undefined, query);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Only run on mount - we intentionally don't want to re-run when query changes
+    }, [query, handleSubmit]); // Re-run when query changes
 
     useEffect(() => {
         const updateTheme = () => {
@@ -180,6 +183,20 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                normalizedQuery.startsWith('COUNT SWEEP');
     };
 
+    const isEventQuery = (query: string): boolean => {
+        const normalizedQuery = query.trim().toUpperCase();
+        return normalizedQuery.startsWith('SHOW EVENTS') || 
+               normalizedQuery.startsWith('FIND EVENTS') ||
+               normalizedQuery.startsWith('COUNT EVENTS');
+    };
+
+    const isLogQuery = (query: string): boolean => {
+        const normalizedQuery = query.trim().toUpperCase();
+        return normalizedQuery.startsWith('SHOW LOGS') || 
+               normalizedQuery.startsWith('FIND LOGS') ||
+               normalizedQuery.startsWith('COUNT LOGS');
+    };
+
 
     const isDeviceData = (data: unknown): data is Device[] => {
         if (!Array.isArray(data) || data.length === 0) return false;
@@ -200,11 +217,14 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             typeof firstItem === 'object' &&
             firstItem !== null &&
             (
-                // Snake_case properties (from LAN Discovery)
+                // Snake_case properties (from SRQL SHOW INTERFACES and LAN Discovery)
                 'if_index' in firstItem ||
                 'if_name' in firstItem ||
                 'if_descr' in firstItem ||
-                // CamelCase properties (from SHOW INTERFACES query)
+                'if_admin_status' in firstItem ||
+                'if_oper_status' in firstItem ||
+                'if_phys_address' in firstItem ||
+                // CamelCase properties (from other interface queries)
                 'ifIndex' in firstItem ||
                 'ifName' in firstItem ||
                 'ifDescr' in firstItem ||
@@ -224,6 +244,26 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             'discovery_source' in firstItem &&
             'ip' in firstItem &&
             'timestamp' in firstItem
+        );
+    };
+
+    const isEventData = (data: unknown): data is Event[] => {
+        if (!Array.isArray(data) || data.length === 0) return false;
+        const firstItem = data[0];
+        return (
+            typeof firstItem === 'object' &&
+            firstItem !== null &&
+            ('event_timestamp' in firstItem || 'short_message' in firstItem)
+        );
+    };
+
+    const isLogData = (data: unknown): data is Log[] => {
+        if (!Array.isArray(data) || data.length === 0) return false;
+        const firstItem = data[0];
+        return (
+            typeof firstItem === 'object' &&
+            firstItem !== null &&
+            ('severity_text' in firstItem || 'scope_name' in firstItem)
         );
     };
 
@@ -498,11 +538,16 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                             )
                         ) : (
                             /* Table view - use specialized components when available */
-                            isDeviceQuery(query) && isDeviceData(results) ? (
+                            /* Check data type first, then verify query type for safety */
+                            isLogData(results) && isLogQuery(query) ? (
+                                <LogTable logs={results as Log[]} jsonViewTheme={jsonViewTheme} />
+                            ) : isEventData(results) && isEventQuery(query) ? (
+                                <EventTable events={results as Event[]} jsonViewTheme={jsonViewTheme} />
+                            ) : isDeviceData(results) && isDeviceQuery(query) ? (
                                 <DeviceTable devices={results as Device[]} />
-                            ) : isInterfaceQuery(query) && isInterfaceData(results) ? (
+                            ) : isInterfaceData(results) && isInterfaceQuery(query) ? (
                                 <InterfaceTable interfaces={results as NetworkInterface[]} showDeviceColumn={true} jsonViewTheme={jsonViewTheme} />
-                            ) : isSweepQuery(query) && isSweepData(results) ? (
+                            ) : isSweepData(results) && isSweepQuery(query) ? (
                                 <SweepResultsTable sweepResults={results as SweepResult[]} showPollerColumn={true} showPartitionColumn={true} jsonViewTheme={jsonViewTheme} />
                             ) : (
                                 /* Fallback to generic table */
