@@ -29,6 +29,7 @@ import { Log } from '@/types/logs';
 import DeviceTable from '@/components/Devices/DeviceTable';
 import InterfaceTable, { NetworkInterface } from '@/components/Network/InterfaceTable';
 import SweepResultsTable, { SweepResult } from '@/components/Network/SweepResultsTable';
+import SweepResultsQueryTable from '@/components/Query/SweepResultsQueryTable';
 import EventTable from '@/components/Events/EventTable';
 import LogTable from '@/components/Logs/LogTable';
 
@@ -178,7 +179,10 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
 
     const isSweepQuery = (query: string): boolean => {
         const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW SWEEP') || 
+        return normalizedQuery.startsWith('SHOW SWEEP_RESULTS') || 
+               normalizedQuery.startsWith('FIND SWEEP_RESULTS') ||
+               normalizedQuery.startsWith('COUNT SWEEP_RESULTS') ||
+               normalizedQuery.startsWith('SHOW SWEEP') || 
                normalizedQuery.startsWith('FIND SWEEP') ||
                normalizedQuery.startsWith('COUNT SWEEP');
     };
@@ -244,6 +248,20 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             'discovery_source' in firstItem &&
             'ip' in firstItem &&
             'timestamp' in firstItem
+        );
+    };
+
+    const isSweepResultsData = (data: unknown): data is Device[] => {
+        if (!Array.isArray(data) || data.length === 0) return false;
+        const firstItem = data[0];
+        return (
+            typeof firstItem === 'object' &&
+            firstItem !== null &&
+            'device_id' in firstItem &&
+            'ip' in firstItem &&
+            'discovery_sources' in firstItem &&
+            Array.isArray((firstItem as Device).discovery_sources) &&
+            (firstItem as Device).discovery_sources.includes('sweep')
         );
     };
 
@@ -399,12 +417,16 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             query: 'show devices',
         },
         {
-            name: 'Test Query',
-            query: 'show pollers',
+            name: 'Sweep Results',
+            query: 'show sweep_results',
         },
         {
             name: 'All Interfaces',
             query: 'show interfaces',
+        },
+        {
+            name: 'Test Query',
+            query: 'show pollers',
         },
         {
             name: 'Critical Traps Today',
@@ -413,10 +435,6 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
         {
             name: 'High Traffic Flows',
             query: 'find flows where bytes > 1000000 order by bytes desc limit 10',
-        },
-        {
-            name: 'Latest Device Updates',
-            query: 'show devices',
         },
     ];
 
@@ -543,6 +561,8 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                                 <LogTable logs={results as Log[]} jsonViewTheme={jsonViewTheme} />
                             ) : isEventData(results) && isEventQuery(query) ? (
                                 <EventTable events={results as Event[]} jsonViewTheme={jsonViewTheme} />
+                            ) : isSweepResultsData(results) && isSweepQuery(query) ? (
+                                <SweepResultsQueryTable devices={results as Device[]} jsonViewTheme={jsonViewTheme} />
                             ) : isDeviceData(results) && isDeviceQuery(query) ? (
                                 <DeviceTable devices={results as Device[]} />
                             ) : isInterfaceData(results) && isInterfaceQuery(query) ? (

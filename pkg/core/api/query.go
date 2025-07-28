@@ -111,6 +111,8 @@ func (*APIServer) getSecondaryOrderField(entityType models.EntityType) (string, 
 		return "service_name", true
 	case models.Interfaces:
 		return "device_ip", true
+	case models.SweepResults:
+		return "network", true
 	case models.Events:
 		return "id", true
 	case models.Pollers:
@@ -201,7 +203,7 @@ func isValidPaginationEntity(entity models.EntityType) bool {
 		models.Devices,
 		models.Services,
 		models.Interfaces,
-
+		models.SweepResults,
 		models.Events,
 		models.Logs,
 		models.Pollers,
@@ -230,6 +232,10 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse query: %w", err)
 	}
+
+	// Transform unsupported entity types before validation
+	translator := parser.NewTranslator(s.dbType)
+	translator.TransformQuery(query)
 
 	// Validate entity for pagination. COUNT queries don't need pagination support.
 	if query.Type != models.Count && !isValidPaginationEntity(query.Entity) {
