@@ -7,7 +7,7 @@ export interface Log {
     timestamp: string;
     trace_id: string;
     span_id: string;
-    severity_text: string;
+    severity_text: string | undefined;
     severity_number: number;
     body: string;
     service_name: string;
