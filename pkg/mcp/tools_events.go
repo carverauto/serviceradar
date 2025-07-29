@@ -38,6 +38,7 @@ type EventFilterArgs struct {
 // registerEventTools registers all event-related MCP tools
 func (m *MCPServer) registerEventTools() {
 	m.registerGetEventsTool()
+	m.registerQueryEventsTool()
 	m.registerGetAlertsTool()
 	m.registerGetEventTypesTool()
 }
@@ -59,6 +60,17 @@ func (m *MCPServer) registerGetEventsTool() {
 		"events",
 		eventFilterBuilder,
 	)
+}
+
+// registerQueryEventsTool registers the query_events tool for backward compatibility
+func (m *MCPServer) registerQueryEventsTool() {
+	m.tools["query_events"] = MCPTool{
+		Name:        "query_events",
+		Description: "Query system events with filters",
+		Handler: func(ctx context.Context, args json.RawMessage) (interface{}, error) {
+			return m.executeQueryEvents(ctx, args)
+		},
+	}
 }
 
 // registerGetAlertsTool registers the events.getAlerts tool

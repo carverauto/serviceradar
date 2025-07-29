@@ -13,6 +13,24 @@ const (
 	defaultLimit     = 100
 )
 
+// getEntityTimestampField returns the appropriate timestamp field name for each entity type
+func getEntityTimestampField(entity string) string {
+	switch entity {
+	case "events":
+		return "event_timestamp"
+	case "logs":
+		return "timestamp"
+	case "devices":
+		return "last_seen"
+	case "flows":
+		return "timestamp"
+	case "traps":
+		return "timestamp"
+	default:
+		return "timestamp" // Default fallback
+	}
+}
+
 type LogQueryParams struct {
 	Filter    string `json:"filter,omitempty"`
 	StartTime string `json:"start_time,omitempty"`
