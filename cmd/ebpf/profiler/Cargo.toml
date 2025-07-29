@@ -1,0 +1,54 @@
+[package]
+name = "profiler"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "profiler"
+path = "src/lib.rs"
+doctest = false
+
+[[bin]]
+name = "profiler"
+path = "src/main.rs"
+
+[[bin]]
+name = "profiler-ebpf"
+path = "src/bpf/profiler.rs"
+required-features = ["ebpf"]
+
+[dependencies]
+# gRPC and serialization
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+
+# eBPF framework (Linux only)
+aya = { version = "0.13", features = ["async_tokio"], optional = true }
+aya-log = { version = "0.2", optional = true }
+libc = "0.2"
+
+[target.'cfg(target_arch = "bpf")'.dependencies]
+aya-ebpf = "0.1"
+aya-log-ebpf = "0.1"
+
+# Utility crates
+anyhow = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+clap = { version = "4.0", features = ["derive"] }
+log = "0.4"
+env_logger = "0.11"
+dashmap = "6.0"
+
+[features]
+default = []
+ebpf = ["aya", "aya-log"]
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[build-dependencies]
+tonic-build = "0.12"
