@@ -98,10 +98,14 @@ type FilterQueryParams struct {
 	Limit     int        `json:"limit,omitempty"`
 }
 
+const (
+	defaultOrderBy = "timestamp"
+)
+
 // BuildFilteredQuery builds a filtered SRQL query using common parameters and additional filters
 func BuildFilteredQuery(entity string, params FilterQueryParams, additionalFilters ...string) string {
 	// Build time range filter if start/end times are provided
-	timeFilter := BuildTimeRangeFilter(params.StartTime, params.EndTime, "timestamp")
+	timeFilter := BuildTimeRangeFilter(params.StartTime, params.EndTime, defaultOrderBy)
 
 	// Build all filters
 	var filters []string
@@ -125,7 +129,7 @@ func BuildFilteredQuery(entity string, params FilterQueryParams, additionalFilte
 	sortDesc := params.SortDesc
 
 	if orderBy == "" {
-		orderBy = "timestamp"
+		orderBy = defaultOrderBy
 		sortDesc = true
 	}
 

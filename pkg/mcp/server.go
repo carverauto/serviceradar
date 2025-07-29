@@ -691,13 +691,14 @@ func (m *MCPServer) executeQueryEvents(ctx context.Context, args json.RawMessage
 	if params.Query == "" {
 		query := showEventsQuery
 		conditions := []string{}
+		timestampField := getEntityTimestampField("events")
 
 		if params.StartTime != "" {
-			conditions = append(conditions, fmt.Sprintf("timestamp >= '%s'", params.StartTime))
+			conditions = append(conditions, fmt.Sprintf("%s >= '%s'", timestampField, params.StartTime))
 		}
 
 		if params.EndTime != "" {
-			conditions = append(conditions, fmt.Sprintf("timestamp <= '%s'", params.EndTime))
+			conditions = append(conditions, fmt.Sprintf("%s <= '%s'", timestampField, params.EndTime))
 		}
 
 		if len(conditions) > 0 {
@@ -711,7 +712,7 @@ func (m *MCPServer) executeQueryEvents(ctx context.Context, args json.RawMessage
 			params.Limit = defaultLimit
 		}
 
-		query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d", params.Limit)
+		query += fmt.Sprintf(" ORDER BY %s DESC LIMIT %d", timestampField, params.Limit)
 		params.Query = query
 	}
 
