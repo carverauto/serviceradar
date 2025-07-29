@@ -1,59 +1,42 @@
-[package]
-name = "profiler"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "2"
+members = [
+    "profiler",
+    "profiler-ebpf", 
+    "profiler-common",
+    "xtask",
+]
 
-[lib]
-name = "profiler"
-path = "src/lib.rs"
-doctest = false
-
-[[bin]]
-name = "profiler"
-path = "src/main.rs"
-
-
-[dependencies]
-# gRPC and serialization
-tonic = { version = "0.12", features = ["tls"] }
-prost = "0.13"
-tokio = { version = "1", features = ["full"] }
-tokio-stream = "0.1"
-
-# eBPF framework (Linux only)
-aya = { version = "0.13", features = ["async_tokio"], optional = true }
-aya-log = { version = "0.2", optional = true }
-libc = "0.2"
-
-# Utility crates
-anyhow = { version = "1.0", features = ["std"] }
-uuid = { version = "1.0", features = ["v4"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-toml = "0.8"
-clap = { version = "4.0", features = ["derive"] }
+[workspace.dependencies]
+aya = "0.12.0"
+aya-ebpf = "0.1.0"
+aya-log = "0.2.0"
+aya-log-ebpf = "0.1.0"
+aya-log-common = "0.1.14"
+anyhow = "1.0.68"
+clap = { version = "4.1", features = ["derive"] }
+env_logger = "0.10"
 log = "0.4"
-env_logger = "0.11"
-dashmap = "6.0"
+tokio = { version = "1.25", features = ["macros", "rt", "rt-multi-thread", "net", "signal"] }
 
-# Profiling output formats
-pprof = { version = "0.13", features = ["flamegraph", "protobuf-codec"] }
+[profile.dev]
+debug = true
 
-# TUI for interactive flamegraph display
-ratatui = "0.29"
-crossterm = "0.28"
+[profile.release]
+debug = true
 
-[target.'cfg(target_arch = "bpf")'.dependencies]
-aya-ebpf = "0.1"
-aya-log-ebpf = "0.1"
+# eBPF specific profile settings - moved from profiler-ebpf/Cargo.toml
+[profile.dev.package.profiler-ebpf]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+codegen-units = 1
 
-
-[features]
-default = []
-ebpf = ["aya", "aya-log"]
-
-[dev-dependencies]
-tempfile = "3.0"
-
-[build-dependencies]
-tonic-build = "0.12"
+[profile.release.package.profiler-ebpf]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+codegen-units = 1
