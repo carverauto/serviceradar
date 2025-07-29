@@ -99,7 +99,7 @@ type FilterQueryParams struct {
 }
 
 const (
-	defaultOrderBy = "timestamp"
+	defaultOrderBy = "_tp_time"
 )
 
 // BuildFilteredQuery builds a filtered SRQL query using common parameters and additional filters
