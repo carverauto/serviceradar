@@ -1,14 +1,14 @@
 // Module for handling flame graph data format and utilities
 
-use crate::ebpf_profiler::StackTrace;
+use crate::ebpf_profiler::ProfileStackTrace;
 use std::collections::HashMap;
 
 pub struct FlameGraphFormatter {
-    traces: Vec<StackTrace>,
+    traces: Vec<ProfileStackTrace>,
 }
 
 impl FlameGraphFormatter {
-    pub fn new(traces: Vec<StackTrace>) -> Self {
+    pub fn new(traces: Vec<ProfileStackTrace>) -> Self {
         Self { traces }
     }
 

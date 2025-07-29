@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  serviceradar-profiler:
+    build:
+      context: ../../..
+      dockerfile: cmd/ebpf/profiler/Dockerfile
+    container_name: serviceradar-profiler
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /tmp/profiler-output:/tmp/profiler-output
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+    # Required for eBPF programs
+    privileged: true
+    pid: host
+    network_mode: host
+    
+  # Standalone profiling test - profile init process for 30 seconds with TUI
+  profiler-test-tui:
+    build:
+      context: ../../..
+      dockerfile: cmd/ebpf/profiler/Dockerfile
+    container_name: serviceradar-profiler-test-tui
+    volumes:
+      - /tmp/profiler-output:/tmp/profiler-output
+    environment:
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=1
+    # Required for eBPF programs
+    privileged: true
+    pid: host
+    network_mode: host
+    stdin_open: true
+    tty: true
+    # Example: Profile PID 1 with interactive TUI
+    command: ["/usr/local/bin/serviceradar-profiler", "--pid", "1", "--duration", "30", "--tui", "--debug"]
+
+  # Standalone profiling test - profile and save to file
+  profiler-test-file:
+    build:
+      context: ../../..
+      dockerfile: cmd/ebpf/profiler/Dockerfile
+    container_name: serviceradar-profiler-test-file
+    volumes:
+      - /tmp/profiler-output:/tmp/profiler-output
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+    # Required for eBPF programs
+    privileged: true
+    pid: host
+    network_mode: host
+    # Example: Profile PID 1 for 30 seconds and save to pprof file
+    command: ["/usr/local/bin/serviceradar-profiler", "--pid", "1", "--duration", "30", "--file", "/tmp/profiler-output/test.pprof", "--format", "pprof"]

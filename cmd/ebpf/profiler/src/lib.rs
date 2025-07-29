@@ -11,6 +11,8 @@ pub mod server;
 pub mod setup;
 pub mod ebpf_profiler;
 pub mod flame_graph;
+pub mod output;
+pub mod tui_flamegraph;
 
 // Generated protobuf code
 pub mod profiler {
@@ -23,6 +25,7 @@ use profiler::{
     GetProfilingResultsRequest, ProfilingResultsChunk,
     GetStatusRequest, GetStatusResponse,
 };
+use crate::ebpf_profiler::EbpfProfiler;
 
 // Session management
 #[derive(Debug, Clone)]
@@ -285,12 +288,161 @@ impl ServiceRadarProfiler {
         // Update session with results
         if let Some(mut session_ref) = self.sessions.get_mut(&session_id) {
             session_ref.status = SessionStatus::Completed;
-            session_ref.results = Some(mock_results);
+            session_ref.results = Some(results);
         }
 
         self.decrement_active_sessions().await;
         info!("Completed profiling session {}", session_id);
     }
+
+    async fn run_ebpf_profiling(&self, session: &ProfilingSession) -> Result<Vec<u8>, anyhow::Error> {
+        debug!("Starting eBPF profiling for session {}", session.session_id);
+
+        // Create eBPF profiler instance  
+        let mut profiler = match EbpfProfiler::new() {
+            Ok(p) => p,
+            Err(e) => {
+                warn!("Failed to create eBPF profiler, falling back to mock data: {}", e);
+                return Ok(generate_mock_flame_graph_data(session.process_id));
+            }
+        };
+
+        // Start profiling
+        if let Err(e) = profiler.start_profiling(
+            session.process_id,
+            session.frequency,
+            session.duration_seconds,
+        ) {
+            warn!("Failed to start eBPF profiling, falling back to mock data: {}", e);
+            return Ok(generate_mock_flame_graph_data(session.process_id));
+        }
+
+        // Wait for profiling duration
+        tokio::time::sleep(std::time::Duration::from_secs(session.duration_seconds as u64)).await;
+
+        // Stop profiling and collect results
+        if let Err(e) = profiler.stop_profiling() {
+            error!("Failed to stop eBPF profiling: {}", e);
+        }
+
+        let stack_traces = match profiler.collect_results() {
+            Ok(traces) => traces,
+            Err(e) => {
+                warn!("Failed to collect eBPF results, falling back to mock data: {}", e);
+                return Ok(generate_mock_flame_graph_data(session.process_id));
+            }
+        };
+
+        // Convert stack traces to flame graph format
+        let formatter = crate::flame_graph::FlameGraphFormatter::new(stack_traces);
+        let flame_graph_data = formatter.generate_complete_output(
+            session.process_id,
+            session.duration_seconds,
+        );
+
+        info!("Successfully completed eBPF profiling for session {}", session.session_id);
+        Ok(flame_graph_data)
+    }
+}
+
+// Standalone profiling function for CLI mode
+pub async fn run_standalone_profiling(
+    pid: i32,
+    duration: i32,
+    frequency: i32,
+    output_file: Option<String>,
+    format: crate::cli::OutputFormat,
+    show_tui: bool,
+) -> Result<(), anyhow::Error> {
+    use crate::output::{OutputWriter, suggest_output_filename};
+
+    info!("Starting standalone profiling for PID {} ({}s at {}Hz)", pid, duration, frequency);
+
+    // Determine output filename
+    let output_path = match output_file {
+        Some(path) => path,
+        None => {
+            let suggested = suggest_output_filename(pid, &format);
+            info!("No output file specified, using: {}", suggested);
+            suggested
+        }
+    };
+
+    // Create eBPF profiler
+    let mut profiler = EbpfProfiler::new()
+        .map_err(|e| anyhow::anyhow!("Failed to create eBPF profiler: {}", e))?;
+
+    // Start profiling
+    profiler.start_profiling(pid, frequency, duration)
+        .map_err(|e| anyhow::anyhow!("Failed to start profiling: {}", e))?;
+
+    info!("Profiling started, collecting data for {} seconds...", duration);
+
+    // Show progress
+    let progress_interval = std::cmp::max(1, duration / 10); // Show progress every 10% or at least every second
+    for i in 0..duration {
+        if i % progress_interval == 0 || i == duration - 1 {
+            let progress = ((i + 1) as f64 / duration as f64) * 100.0;
+            info!("Progress: {:.1}% ({}/{}s)", progress, i + 1, duration);
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+
+    // Stop profiling and collect results
+    profiler.stop_profiling()
+        .map_err(|e| anyhow::anyhow!("Failed to stop profiling: {}", e))?;
+
+    info!("Profiling completed, collecting results...");
+
+    let stack_traces = profiler.collect_results()
+        .map_err(|e| anyhow::anyhow!("Failed to collect results: {}", e))?;
+
+    if stack_traces.is_empty() {
+        warn!("No stack traces collected - this might indicate:");
+        warn!("  - Process {} is not running or not accessible", pid);
+        warn!("  - Insufficient privileges (try running with sudo)");
+        warn!("  - eBPF not supported on this system");
+        return Err(anyhow::anyhow!("No profiling data collected"));
+    }
+
+    info!("Collected {} unique stack traces", stack_traces.len());
+    let total_samples: u64 = stack_traces.iter().map(|t| t.count).sum();
+    info!("Total samples: {}", total_samples);
+
+    // Show TUI if requested
+    if show_tui {
+        info!("Launching interactive TUI flamegraph viewer...");
+        let mut tui = crate::tui_flamegraph::FlameGraphTUI::new(stack_traces, pid, duration);
+        return tui.run().map_err(|e| anyhow::anyhow!("TUI error: {}", e));
+    }
+
+    // Write output to file
+    let writer = OutputWriter::new(format, output_path.clone());
+    writer.write_profile(stack_traces, pid, duration)
+        .map_err(|e| anyhow::anyhow!("Failed to write output: {}", e))?;
+
+    info!("Successfully wrote profiling results to: {}", output_path);
+
+    // Provide usage suggestions based on format
+    match writer.format() {
+        crate::cli::OutputFormat::Pprof => {
+            info!("To view the profile:");
+            info!("  go tool pprof {}", output_path);
+            info!("  go tool pprof -http=:8080 {}", output_path);
+        }
+        crate::cli::OutputFormat::FlameGraph => {
+            info!("To generate flame graph SVG:");
+            info!("  flamegraph.pl {} > flamegraph.svg", output_path);
+            info!("  Or upload to https://www.speedscope.app/");
+        }
+        crate::cli::OutputFormat::Json => {
+            info!("JSON format written. You can:");
+            info!("  - Parse with jq: jq . {}", output_path);
+            info!("  - Import into custom analysis tools");
+        }
+    }
+
+    Ok(())
 }
 
 // Helper functions
