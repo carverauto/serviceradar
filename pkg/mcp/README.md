@@ -155,7 +155,6 @@ Get recent logs with simple limit.
 
 **Parameters:**
 - `limit` (int, optional): Maximum results (default 100)
-- `poller_id` (string, optional): Optional poller filter
 
 ### Event Tools
 
@@ -178,7 +177,6 @@ Get alert-level events (high severity events).
 **Parameters:**
 - `limit` (int, optional): Maximum results (default 50)
 - `start_time` (timestamp, optional): Start time filter
-- `poller_id` (string, optional): Optional poller filter
 
 #### `events.getEventTypes`
 Get available event types in the system.
@@ -197,7 +195,6 @@ Retrieves network sweep results with comprehensive filtering.
 - `limit` (int, optional): Maximum results
 - `order_by` (string, optional): Field to sort by
 - `sort_desc` (bool, optional): Sort descending
-- `poller_id` (string, optional): Filter by poller ID
 - `network` (string, optional): Filter by network range
 
 #### `sweeps.getRecentSweeps`
@@ -205,16 +202,68 @@ Get recent network sweeps with simple filtering.
 
 **Parameters:**
 - `limit` (int, optional): Maximum results (default 20)
-- `poller_id` (string, optional): Optional poller filter
 - `hours` (int, optional): Last N hours (default 24)
 
 #### `sweeps.getSweepSummary`
 Get summary statistics for network sweeps.
 
 **Parameters:**
-- `poller_id` (string, optional): Optional poller filter
 - `start_time` (timestamp, optional): Start time filter
 - `end_time` (timestamp, optional): End time filter
+
+### Backward Compatibility Tools
+
+These tools are provided for backward compatibility with older integrations. They have different parameter expectations than the newer tools above.
+
+#### `query_events`
+Query system events with filters (legacy tool).
+
+**Parameters:**
+- `query` (string, optional): **Full SRQL query** (e.g., `"SHOW events WHERE severity = 'Low' LIMIT 10"`)
+- `start_time` (string, optional): Start time filter (ISO format)
+- `end_time` (string, optional): End time filter (ISO format)  
+- `limit` (int, optional): Maximum results
+
+**Important Notes:**
+- If `query` parameter is provided, it must be a complete SRQL query, not just a WHERE clause
+- If `query` is not provided, the tool builds a query using the other parameters
+- Use `events.getEvents` for more flexible filtering with WHERE clauses
+
+**Example:**
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "query_events",
+    "arguments": {
+      "query": "SHOW events WHERE severity = 'Low' ORDER BY event_timestamp DESC LIMIT 5"
+    }
+  }
+}
+```
+
+#### `query_logs`
+Query system logs with filters (legacy tool).
+
+**Parameters:**
+- `filter` (string, optional): SRQL WHERE clause (e.g., `"severity_text = 'info'"`)
+- `start_time` (string, optional): Start time filter (ISO format)
+- `end_time` (string, optional): End time filter (ISO format)
+- `limit` (int, optional): Maximum results
+
+**Example:**
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "query_logs", 
+    "arguments": {
+      "filter": "severity_text = 'error'",
+      "limit": 10
+    }
+  }
+}
+```
 
 ### SRQL Tools
 

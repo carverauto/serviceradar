@@ -228,3 +228,54 @@ When helping users, always:
 4. Use appropriate operators (`CONTAINS` vs `=`).
 5. Add `ORDER BY` when logical.
 6. Reference the verified working examples above as templates.
+
+## MCP Tool Usage vs Direct SRQL
+
+The ServiceRadar MCP server provides both direct SRQL execution and simplified tools. Understanding the differences is important:
+
+### Direct SRQL Tools
+- **`execute_srql`**: Takes any valid SRQL query and executes it directly
+- **`query_events`** (legacy): When `query` parameter is provided, expects a **full SRQL query**
+
+**Examples:**
+```json
+// Direct SRQL - Full control
+{"name": "execute_srql", "arguments": {"query": "SHOW devices WHERE is_available = true LIMIT 10"}}
+
+// Legacy query_events - Must be complete SRQL
+{"name": "query_events", "arguments": {"query": "SHOW events WHERE severity = 'Low' ORDER BY event_timestamp DESC LIMIT 5"}}
+```
+
+### Simplified MCP Tools
+- **`list_devices`**: Takes simple parameters like `status`, automatically builds SRQL
+- **`query_logs`**: Takes `filter` parameter as a WHERE clause, builds the rest
+- **`events.getEvents`**: Takes `filter` parameter as a WHERE clause
+
+**Examples:**
+```json
+// Simplified tools - Parameters converted to SRQL internally
+{"name": "list_devices", "arguments": {"status": "available", "limit": 10}}
+{"name": "query_logs", "arguments": {"filter": "severity_text = 'error'", "limit": 10}}
+```
+
+### Key Differences:
+
+1. **Parameter Types:**
+   - Direct SRQL: `query` = Complete SRQL statement
+   - Simplified tools: `filter` = WHERE clause only, `status` = mapped to appropriate fields
+
+2. **Field Mappings:**
+   - `list_devices` status values (`available`, `active`) → `is_available = true`
+   - `query_logs` expects `severity_text` field (not `level`)
+   - Timestamp fields use `_tp_time` (not `timestamp`)
+
+3. **Error Handling:**
+   - Direct SRQL: SRQL syntax errors returned as-is
+   - Simplified tools: Parameter validation and mapping errors
+
+### Best Practices:
+
+- **Use simplified tools** for basic filtering and common operations
+- **Use `execute_srql`** for complex queries, aggregations, or when you need full SRQL features
+- **Avoid `query_events`** unless maintaining legacy compatibility - use `events.getEvents` instead
+- **Always test queries** with `execute_srql` first if unsure about syntax

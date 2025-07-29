@@ -62,11 +62,11 @@ func buildLogQuery(params LogQueryParams) string {
 	}
 
 	if params.StartTime != "" {
-		conditions = append(conditions, fmt.Sprintf("timestamp >= '%s'", params.StartTime))
+		conditions = append(conditions, fmt.Sprintf("_tp_time >= '%s'", params.StartTime))
 	}
 
 	if params.EndTime != "" {
-		conditions = append(conditions, fmt.Sprintf("timestamp <= '%s'", params.EndTime))
+		conditions = append(conditions, fmt.Sprintf("_tp_time <= '%s'", params.EndTime))
 	}
 
 	if len(conditions) > 0 {
@@ -76,7 +76,7 @@ func buildLogQuery(params LogQueryParams) string {
 		}
 	}
 
-	query += " ORDER BY timestamp DESC"
+	query += " ORDER BY _tp_time DESC"
 
 	if params.Limit <= 0 {
 		params.Limit = defaultLimit
@@ -98,7 +98,7 @@ func buildRecentLogsQuery(params RecentLogsParams) string {
 		params.Limit = defaultLimit
 	}
 
-	query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d", params.Limit)
+	query += fmt.Sprintf(" ORDER BY _tp_time DESC LIMIT %d", params.Limit)
 
 	return query
 }
