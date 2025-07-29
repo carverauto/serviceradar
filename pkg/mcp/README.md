@@ -112,7 +112,7 @@ export AUTH_TOKEN="your-jwt-token-here"
   "params": {
     "name": "srql.query",
     "arguments": {
-      "query": "SELECT * FROM devices WHERE available = true ORDER BY timestamp DESC LIMIT 20"
+      "query": "SHOW devices WHERE is_available = true ORDER BY _tp_time DESC LIMIT 20"
     }
   }
 }
@@ -285,6 +285,6 @@ The MCP server uses ServiceRadar's logging system. Log levels and destinations a
 ## Security
 
 - All tools require authentication when auth service is configured
-- SQL injection protection through parameterized queries
+- SRQL injection protection through parameterized queries
 - Input validation on all parameters
 - Secure token verification through ServiceRadar's auth system
