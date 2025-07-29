@@ -144,7 +144,23 @@ func buildDevicesQuery(params ListDevicesParams) string {
 	}
 
 	if params.Status != "" {
-		conditions = append(conditions, fmt.Sprintf("status = '%s'", params.Status))
+		// Map status values to is_available boolean field
+		var condition string
+		switch params.Status {
+		case "active", "online", "available":
+			condition = "is_available = true"
+		case "inactive", "offline", "unavailable":
+			condition = "is_available = false"
+		default:
+			// If it's a boolean string, use it directly
+			if params.Status == "true" || params.Status == "false" {
+				condition = fmt.Sprintf("is_available = %s", params.Status)
+			} else {
+				// Fallback: assume it's a custom status field
+				condition = fmt.Sprintf("status = '%s'", params.Status)
+			}
+		}
+		conditions = append(conditions, condition)
 	}
 
 	if len(conditions) > 0 {
