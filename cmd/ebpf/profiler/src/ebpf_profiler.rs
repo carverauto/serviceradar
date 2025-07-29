@@ -1,24 +1,29 @@
 // This module contains the actual eBPF profiling logic
 
-use anyhow::{Context, Result};
-use log::{debug, info, warn, error};
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use anyhow::Result;
+
+#[cfg(feature = "ebpf")]
+use anyhow::Context;
+use log::{debug, info, warn};
 
 // eBPF imports (only available with ebpf feature)
 #[cfg(feature = "ebpf")]
 use aya::{
-    Bpf, 
-    programs::{PerfEvent, PerfEventLinkId, perf_event::{PerfEventScope, PerfEventSampleType}},
-    maps::{MapData, StackTraceMap},
+    Ebpf,
+    programs::{
+        perf_event::{PerfEvent, PerfEventLinkId, PerfEventScope, SamplePolicy, perf_sw_ids},
+        PerfTypeId,
+    },
+    maps::StackTraceMap,
     util::online_cpus,
+    Pod,
 };
 
 #[cfg(feature = "ebpf")]
-use aya_log::BpfLogger;
+use aya_log::EbpfLogger;
 
 #[cfg(feature = "ebpf")]
-use libc::{pid_t, PERF_COUNT_SW_CPU_CLOCK, PERF_TYPE_SOFTWARE};
+// Note: perf constants are now available through aya::programs::perf_event::perf_sw_ids
 
 // Stack trace key structure (must match eBPF program)
 #[repr(C)]
@@ -27,6 +32,10 @@ pub struct StackKey {
     pub pid: u32,
     pub stack_id: i32,
 }
+
+// StackKey must be Pod to be used in a map.
+#[cfg(feature = "ebpf")]
+unsafe impl Pod for StackKey {}
 
 // Stack trace value structure (must match eBPF program)
 #[repr(C)]
@@ -37,9 +46,13 @@ pub struct StackValue {
     pub last_seen: u64,
 }
 
+// StackValue must be Pod to be used in a map.
+#[cfg(feature = "ebpf")]
+unsafe impl Pod for StackValue {}
+
 pub struct EbpfProfiler {
     #[cfg(feature = "ebpf")]
-    bpf: Option<Bpf>,
+    bpf: Option<Ebpf>,
     #[cfg(feature = "ebpf")]
     perf_links: Vec<PerfEventLinkId>,
     #[cfg(feature = "ebpf")]
@@ -56,10 +69,7 @@ impl EbpfProfiler {
         
         #[cfg(feature = "ebpf")]
         {
-            // Initialize BPF logger first
-            if let Err(e) = BpfLogger::init(&mut aya_log::DefaultLogger) {
-                warn!("Failed to initialize BPF logger: {}", e);
-            }
+            // Note: EbpfLogger will be initialized after loading the program
 
             Ok(Self { 
                 bpf: None,
@@ -81,11 +91,16 @@ impl EbpfProfiler {
         debug!("Loading eBPF program");
         
         // Load the eBPF program from embedded bytecode
-        let mut bpf = Bpf::load(include_bytes!(concat!(
+        let mut bpf = Ebpf::load(include_bytes!(concat!(
             env!("OUT_DIR"),
             "/profiler"
         )))
         .context("Failed to load eBPF program")?;
+
+        // Initialize Ebpf logger after loading the program
+        if let Err(e) = EbpfLogger::init(&mut bpf) {
+            warn!("Failed to initialize eBPF logger: {}", e);
+        }
 
         info!("eBPF program loaded successfully");
         self.bpf = Some(bpf);
@@ -108,22 +123,21 @@ impl EbpfProfiler {
         let program: &mut PerfEvent = bpf.program_mut("sample_stack_traces").unwrap().try_into()?;
 
         // Attach to CPU clock events on all online CPUs
-        let cpus = online_cpus().context("Failed to get online CPUs")?;
+        let cpus = online_cpus().map_err(|e| anyhow::anyhow!(e.1)).context("Failed to get online CPUs")?;
         
         for cpu_id in cpus {
             debug!("Attaching to CPU {}", cpu_id);
             
-            let link_id = program.attach(
-                PERF_TYPE_SOFTWARE,
-                PERF_COUNT_SW_CPU_CLOCK as u64,
-                PerfEventScope::AllProcesses,
-                PerfEventSampleType::default(),
+            // Attach to perf events with correct parameters
+            let link = program.attach(
+                PerfTypeId::Software,
+                perf_sw_ids::PERF_COUNT_SW_CPU_CLOCK as u64,
+                PerfEventScope::AllProcessesOneCpu { cpu: cpu_id as u32 },
+                SamplePolicy::Frequency(frequency),
                 true, // inherit
-                frequency,
-                cpu_id,
             ).context(format!("Failed to attach perf event on CPU {}", cpu_id))?;
             
-            self.perf_links.push(link_id);
+            self.perf_links.push(link);
         }
 
         info!("Attached perf events to {} CPUs", self.perf_links.len());
@@ -135,13 +149,8 @@ impl EbpfProfiler {
         if let Some(bpf) = &mut self.bpf {
             debug!("Detaching {} perf events", self.perf_links.len());
             
-            let program: &mut PerfEvent = bpf.program_mut("sample_stack_traces").unwrap().try_into()?;
-            
-            for link_id in self.perf_links.drain(..) {
-                if let Err(e) = program.detach(link_id) {
-                    error!("Failed to detach perf event: {}", e);
-                }
-            }
+            // Clearing the vector drops the links, which detaches the programs.
+            self.perf_links.clear();
             
             // Clear target PID
             let mut target_pid_map: aya::maps::HashMap<_, u32, u32> = 
@@ -196,7 +205,7 @@ impl EbpfProfiler {
         Ok(())
     }
     
-    pub fn collect_results(&self) -> Result<Vec<StackTrace>> {
+    pub fn collect_results(&self) -> Result<Vec<ProfileStackTrace>> {
         debug!("Collecting eBPF profiling results");
         
         #[cfg(feature = "ebpf")]
@@ -212,7 +221,7 @@ impl EbpfProfiler {
     }
 
     #[cfg(feature = "ebpf")]
-    fn collect_real_stack_traces(&self, bpf: &Bpf) -> Result<Vec<StackTrace>> {
+    fn collect_real_stack_traces(&self, bpf: &Ebpf) -> Result<Vec<ProfileStackTrace>> {
         debug!("Collecting real stack traces from eBPF maps");
 
         let mut result_traces = Vec::new();
@@ -222,7 +231,7 @@ impl EbpfProfiler {
             aya::maps::HashMap::try_from(bpf.map("STACK_COUNTS").unwrap())?;
 
         // Get the stack traces map
-        let stack_traces: StackTraceMap<_> = 
+        let stack_traces_map: StackTraceMap<_> = 
             StackTraceMap::try_from(bpf.map("STACK_TRACES").unwrap())?;
 
         // Collect all stack trace data
@@ -233,12 +242,17 @@ impl EbpfProfiler {
                    stack_key.pid, stack_key.stack_id, stack_value.count);
 
             // Get the actual stack trace frames
-            match stack_traces.get(&(stack_key.stack_id as u32), 0) {
-                Ok(stack_frames) => {
-                    let frames = self.resolve_stack_frames(&stack_frames)?;
+            match stack_traces_map.get(&(stack_key.stack_id as u32), 0) {
+                Ok(stack_trace) => {
+                    // Extract instruction pointers from the stack frames
+                    let raw_frames: Vec<u64> = stack_trace.frames()
+                        .iter()
+                        .map(|frame| frame.ip)
+                        .collect();
+                    let frames = self.resolve_stack_frames(&raw_frames)?;
                     
                     if !frames.is_empty() {
-                        result_traces.push(StackTrace {
+                        result_traces.push(ProfileStackTrace {
                             frames,
                             count: stack_value.count,
                         });
@@ -290,7 +304,7 @@ impl EbpfProfiler {
     }
 
     #[cfg(feature = "ebpf")]
-    fn log_statistics(&self, bpf: &Bpf) -> Result<()> {
+    fn log_statistics(&self, bpf: &Ebpf) -> Result<()> {
         let stats: aya::maps::HashMap<_, u32, u64> = 
             aya::maps::HashMap::try_from(bpf.map("STATS").unwrap())?;
 
@@ -324,20 +338,20 @@ impl EbpfProfiler {
 }
 
 #[derive(Debug, Clone)]
-pub struct StackTrace {
+pub struct ProfileStackTrace {
     pub frames: Vec<String>,
     pub count: u64,
 }
 
-impl StackTrace {
+impl ProfileStackTrace {
     pub fn to_folded_format(&self) -> String {
         format!("{} {}", self.frames.join(";"), self.count)
     }
 }
 
-fn generate_mock_stack_traces() -> Vec<StackTrace> {
+fn generate_mock_stack_traces() -> Vec<ProfileStackTrace> {
     vec![
-        StackTrace {
+        ProfileStackTrace {
             frames: vec![
                 "main".to_string(),
                 "worker_thread".to_string(),
@@ -346,7 +360,7 @@ fn generate_mock_stack_traces() -> Vec<StackTrace> {
             ],
             count: 42,
         },
-        StackTrace {
+        ProfileStackTrace {
             frames: vec![
                 "main".to_string(),
                 "worker_thread".to_string(),
@@ -355,7 +369,7 @@ fn generate_mock_stack_traces() -> Vec<StackTrace> {
             ],
             count: 15,
         },
-        StackTrace {
+        ProfileStackTrace {
             frames: vec![
                 "main".to_string(),
                 "worker_thread".to_string(),
@@ -364,14 +378,14 @@ fn generate_mock_stack_traces() -> Vec<StackTrace> {
             ],
             count: 8,
         },
-        StackTrace {
+        ProfileStackTrace {
             frames: vec![
                 "main".to_string(),
                 "signal_handler".to_string(),
             ],
             count: 2,
         },
-        StackTrace {
+        ProfileStackTrace {
             frames: vec![
                 "main".to_string(),
                 "worker_thread".to_string(),
@@ -379,7 +393,7 @@ fn generate_mock_stack_traces() -> Vec<StackTrace> {
             ],
             count: 156,
         },
-        StackTrace {
+        ProfileStackTrace {
             frames: vec![
                 "main".to_string(),
                 "worker_thread".to_string(),
@@ -389,7 +403,7 @@ fn generate_mock_stack_traces() -> Vec<StackTrace> {
             ],
             count: 89,
         },
-        StackTrace {
+        ProfileStackTrace {
             frames: vec![
                 "main".to_string(),
                 "worker_thread".to_string(),
@@ -414,7 +428,7 @@ mod tests {
 
     #[test]
     fn test_stack_trace_folded_format() {
-        let trace = StackTrace {
+        let trace = ProfileStackTrace {
             frames: vec!["main".to_string(), "foo".to_string(), "bar".to_string()],
             count: 42,
         };
