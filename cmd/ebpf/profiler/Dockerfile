@@ -10,19 +10,33 @@ RUN apt-get update && apt-get install -y \
     clang \
     libbpf-dev \
     linux-libc-dev \
+    linux-headers-generic \
     pkg-config \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project files following ServiceRadar structure
+# Install nightly toolchain for eBPF compilation
+RUN rustup toolchain install nightly
+RUN rustup component add rust-src --toolchain nightly
+
+# Install bpf-linker for eBPF linking
+RUN cargo install bpf-linker
+
+# Copy workspace files
 COPY cmd/ebpf/profiler/Cargo.toml cmd/ebpf/profiler/Cargo.lock* ./
-COPY cmd/ebpf/profiler/src ./src/
-COPY cmd/ebpf/profiler/build.rs ./
+COPY cmd/ebpf/profiler/.cargo ./.cargo/
+COPY cmd/ebpf/profiler/profiler ./profiler/
+COPY cmd/ebpf/profiler/profiler-ebpf ./profiler-ebpf/
+COPY cmd/ebpf/profiler/profiler-common ./profiler-common/
+COPY cmd/ebpf/profiler/xtask ./xtask/
 COPY proto ./proto/
 COPY proto /usr/proto
 
-# Build with eBPF support for native architecture
-RUN cargo build --release --features ebpf
+# Build eBPF code first using xtask
+RUN cargo xtask build-ebpf --release
+
+# Build the userspace profiler only (exclude eBPF package)
+RUN cargo build --release --bin profiler -p profiler
 
 # Runtime stage
 FROM debian:bookworm-slim
