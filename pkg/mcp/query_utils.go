@@ -19,15 +19,15 @@ func getEntityTimestampField(entity string) string {
 	case "events":
 		return "event_timestamp"
 	case "logs":
-		return "timestamp"
+		return defaultOrderBy
 	case "devices":
 		return "last_seen"
 	case "flows":
-		return "timestamp"
+		return defaultOrderBy
 	case "traps":
-		return "timestamp"
+		return defaultOrderBy
 	default:
-		return "timestamp" // Default fallback
+		return defaultOrderBy // Default fallback
 	}
 }
 
