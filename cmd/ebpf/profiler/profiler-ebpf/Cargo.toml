@@ -1,0 +1,21 @@
+[package]
+name = "profiler-ebpf"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "profiler"
+path = "src/main.rs"
+
+[dependencies]
+aya-ebpf = "0.1.0"
+aya-log-ebpf = "0.1.0"
+profiler-common = { path = "../profiler-common", default-features = false }
+
+[profile.dev]
+panic = "abort"
+lto = true
+
+[profile.release]
+panic = "abort"
+lto = true
