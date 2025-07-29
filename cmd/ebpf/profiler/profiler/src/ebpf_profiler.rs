@@ -29,16 +29,20 @@ impl EbpfProfiler {
         let target_pid = pid as u32;
         self.target_pid = Some(target_pid);
 
-        // Load eBPF program
+        // Load eBPF program with PID global variable set
         #[cfg(debug_assertions)]
-        let mut bpf = Bpf::load(include_bytes_aligned!(
-            "../../target/bpfel-unknown-none/debug/profiler"
-        ))?;
+        let mut bpf = aya::BpfLoader::new()
+            .set_global("PID", &target_pid, true)
+            .load(include_bytes_aligned!(
+                "../../target/bpfel-unknown-none/debug/profiler"
+            ))?;
         
         #[cfg(not(debug_assertions))]
-        let mut bpf = Bpf::load(include_bytes_aligned!(
-            "../../target/bpfel-unknown-none/release/profiler"
-        ))?;
+        let mut bpf = aya::BpfLoader::new()
+            .set_global("PID", &target_pid, true)
+            .load(include_bytes_aligned!(
+                "../../target/bpfel-unknown-none/release/profiler"
+            ))?;
 
         // Initialize eBPF logger - skip on compilation errors
         // if let Err(e) = aya_log::EbpfLogger::init(&mut bpf) {
