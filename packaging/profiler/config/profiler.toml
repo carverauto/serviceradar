@@ -1,0 +1,30 @@
+# ServiceRadar eBPF Profiler Configuration
+
+[server]
+bind_address = "0.0.0.0"
+port = 8080
+
+# [grpc_tls]
+# cert_file = "/etc/serviceradar/profiler/server.crt"
+# key_file = "/etc/serviceradar/profiler/server.key"
+# ca_file = "/etc/serviceradar/profiler/ca.pem"
+
+[profiler]
+max_concurrent_sessions = 10
+max_session_duration_seconds = 300
+max_frequency_hz = 1000
+chunk_size_bytes = 65536
+
+# eBPF specific settings
+[ebpf]
+# Enable eBPF stack trace collection (requires Linux kernel 4.9+)
+enabled = true
+
+# Maximum number of stack frames to capture per sample
+max_stack_depth = 32
+
+# Number of stack traces to buffer in kernel space
+stack_trace_buffer_size = 8192
+
+# Perf event buffer size (power of 2)
+perf_buffer_size = 262144
