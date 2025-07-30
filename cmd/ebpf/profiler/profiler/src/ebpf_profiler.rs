@@ -5,8 +5,9 @@ use aya::{
     include_bytes_aligned,
     maps::{MapData, RingBuf},
     programs::{perf_event, PerfEvent},
-    Bpf,
+    Bpf, BpfLoader,
 };
+use aya_log::BpfLogger;
 use log::{debug, info, warn};
 use profiler_common::Sample;
 use tokio::io::unix::AsyncFd;
@@ -14,7 +15,6 @@ use tokio::io::unix::AsyncFd;
 pub struct EbpfProfiler {
     bpf: Option<Bpf>,
     ring_buf: Option<AsyncFd<RingBuf<MapData>>>,
-    target_pid: Option<u32>,
 }
 
 impl EbpfProfiler {
@@ -23,7 +23,6 @@ impl EbpfProfiler {
         Ok(Self {
             bpf: None,
             ring_buf: None,
-            target_pid: None,
         })
     }
 
@@ -31,7 +30,6 @@ impl EbpfProfiler {
         info!("Starting eBPF profiling for PID {} at {}Hz", pid, frequency);
         
         let target_pid = pid as u32;
-        self.target_pid = Some(target_pid);
 
         // Load the eBPF program bytes
         #[cfg(debug_assertions)]
@@ -39,14 +37,16 @@ impl EbpfProfiler {
         #[cfg(not(debug_assertions))]
         let prog_bytes = include_bytes_aligned!("../../target/bpfel-unknown-none/release/profiler");
 
-        // Load the eBPF program using Bpf::load()
-        let mut bpf = Bpf::load(prog_bytes)?;
+        // Use BpfLoader to set the global PID before loading
+        let mut bpf = BpfLoader::new()
+            .set_global("PID", &target_pid, true)
+            .load(prog_bytes)?;
         
-        // Initialize the logger with the correct type - disabled due to API mismatch
-        // TODO: Fix eBPF logger initialization once we resolve the type issues
-        // if let Err(e) = EbpfLogger::init(&mut bpf) {
-        //     warn!("Failed to initialize eBPF logger: {}", e);
-        // }
+        // Initialize the eBPF logger. This is critical for preventing faults.
+        if let Err(e) = BpfLogger::init(&mut bpf) {
+            // This warning is normal if the eBPF code has no log statements.
+            warn!("Failed to initialize eBPF logger: {}", e);
+        }
 
         // Get a handle to the perf event program
         let program: &mut PerfEvent = bpf
@@ -60,7 +60,8 @@ impl EbpfProfiler {
         // Attach to the perf event
         info!("Attaching perf event to PID {} with frequency {}Hz", target_pid, frequency);
         
-        let _link = program.attach(
+        // Attach directly to the single process. The kernel will handle filtering.
+        program.attach(
             perf_event::PerfTypeId::Software,
             perf_event::perf_sw_ids::PERF_COUNT_SW_CPU_CLOCK as u64,
             perf_event::PerfEventScope::OneProcessAnyCpu { pid: target_pid },
@@ -78,6 +79,7 @@ impl EbpfProfiler {
         info!("Ring buffer initialized successfully");
         
         self.ring_buf = Some(ring_buf);
+        // Store the bpf object to keep the program and its link alive
         self.bpf = Some(bpf);
 
         // Give the program a moment to start
@@ -146,7 +148,6 @@ impl EbpfProfiler {
         debug!("Cleaning up eBPF profiler resources");
         self.bpf = None;
         self.ring_buf = None;
-        self.target_pid = None;
     }
 
     fn parse_sample_static(sample_data: &[u8]) -> Result<ProfileStackTrace> {
