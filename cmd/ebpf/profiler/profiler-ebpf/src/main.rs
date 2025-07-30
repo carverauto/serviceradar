@@ -10,12 +10,20 @@ use aya_ebpf::{
 };
 use profiler_common::{Sample, SampleHeader};
 
+// Add this static PID global to match the bencher example.
+// Userspace will patch this value.
+#[no_mangle]
+static PID: u32 = 0;
+
 // Ring buffer for sending samples to userspace
 #[map]
 static SAMPLES: RingBuf = RingBuf::with_byte_size(4_096 * 4_096, 0);
 
 #[perf_event]
 pub fn perf_profiler(ctx: PerfEventContext) -> u32 {
+    // No in-kernel filtering is needed. The kernel will handle it
+    // because of how we attach in userspace.
+    
     // Reserve memory in the ring buffer for our sample.
     // If the ring buffer is full, we return early.
     let Some(mut sample) = SAMPLES.reserve::<Sample>(0) else {
@@ -64,6 +72,3 @@ pub fn perf_profiler(ctx: PerfEventContext) -> u32 {
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe { core::hint::unreachable_unchecked() }
 }
-
-
-
