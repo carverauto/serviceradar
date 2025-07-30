@@ -137,7 +137,8 @@ func executeGetRecentLogs(ctx context.Context, args json.RawMessage, executor Qu
 
 func buildDevicesQuery(params ListDevicesParams) string {
 	query := showDevicesQuery
-	conditions := []string{}
+
+	var conditions []string
 
 	if params.Type != "" {
 		conditions = append(conditions, fmt.Sprintf("device_type = '%s'", params.Type))
