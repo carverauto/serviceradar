@@ -1,9 +1,13 @@
 // This module contains the actual eBPF profiling logic using the new Aya approach
 
 use anyhow::Result;
-use aya::{include_bytes_aligned, maps::MapData, programs::perf_event, Bpf};
-use aya::maps::RingBuf;
-use log::{debug, info};
+use aya::{
+    include_bytes_aligned,
+    maps::{MapData, RingBuf},
+    programs::{perf_event, PerfEvent},
+    Bpf,
+};
+use log::{debug, info, warn};
 use profiler_common::Sample;
 use tokio::io::unix::AsyncFd;
 
@@ -29,50 +33,55 @@ impl EbpfProfiler {
         let target_pid = pid as u32;
         self.target_pid = Some(target_pid);
 
-        // Load eBPF program with PID global variable set
+        // Load the eBPF program bytes
         #[cfg(debug_assertions)]
-        let mut bpf = aya::BpfLoader::new()
-            .set_global("PID", &target_pid, true)
-            .load(include_bytes_aligned!(
-                "../../target/bpfel-unknown-none/debug/profiler"
-            ))?;
-        
+        let prog_bytes = include_bytes_aligned!("../../target/bpfel-unknown-none/debug/profiler");
         #[cfg(not(debug_assertions))]
-        let mut bpf = aya::BpfLoader::new()
-            .set_global("PID", &target_pid, true)
-            .load(include_bytes_aligned!(
-                "../../target/bpfel-unknown-none/release/profiler"
-            ))?;
+        let prog_bytes = include_bytes_aligned!("../../target/bpfel-unknown-none/release/profiler");
 
-        // Initialize eBPF logger - skip on compilation errors
-        // if let Err(e) = aya_log::EbpfLogger::init(&mut bpf) {
+        // Load the eBPF program using Bpf::load()
+        let mut bpf = Bpf::load(prog_bytes)?;
+        
+        // Initialize the logger with the correct type - disabled due to API mismatch
+        // TODO: Fix eBPF logger initialization once we resolve the type issues
+        // if let Err(e) = EbpfLogger::init(&mut bpf) {
         //     warn!("Failed to initialize eBPF logger: {}", e);
         // }
 
-        // Get handle to perf event program
-        let program: &mut perf_event::PerfEvent = bpf
+        // Get a handle to the perf event program
+        let program: &mut PerfEvent = bpf
             .program_mut("perf_profiler")
             .unwrap()
             .try_into()?;
 
-        // Load program into kernel
+        // Load the program into the kernel
         program.load()?;
 
-        // Attach to perf events
-        program.attach(
+        // Attach to the perf event
+        info!("Attaching perf event to PID {} with frequency {}Hz", target_pid, frequency);
+        
+        let _link = program.attach(
             perf_event::PerfTypeId::Software,
             perf_event::perf_sw_ids::PERF_COUNT_SW_CPU_CLOCK as u64,
             perf_event::PerfEventScope::OneProcessAnyCpu { pid: target_pid },
             perf_event::SamplePolicy::Frequency(frequency as u64),
-            true, // inherit
+            true, // inherit child processes
         )?;
+        info!("Perf event attached successfully");
 
-        // Set up ring buffer
-        let samples = RingBuf::try_from(bpf.take_map("SAMPLES").unwrap())?;
+        // Set up the ring buffer for receiving samples
+        info!("Setting up ring buffer for samples");
+        let map = bpf.take_map("SAMPLES").ok_or_else(|| anyhow::anyhow!("SAMPLES map not found"))?;
+        info!("Found SAMPLES map");
+        let samples = RingBuf::try_from(map)?;
         let ring_buf = AsyncFd::new(samples)?;
+        info!("Ring buffer initialized successfully");
+        
         self.ring_buf = Some(ring_buf);
         self.bpf = Some(bpf);
 
+        // Give the program a moment to start
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         info!("eBPF profiling started successfully for PID {}", pid);
         Ok(())
     }
@@ -81,9 +90,7 @@ impl EbpfProfiler {
         debug!("Stopping eBPF profiling");
         
         if self.bpf.is_some() {
-            self.bpf = None;
-            self.ring_buf = None;
-            self.target_pid = None;
+            // Don't clear the state here - we need it for collect_results
             info!("eBPF profiling stopped successfully");
         } else {
             debug!("No eBPF program was loaded, nothing to stop");
@@ -93,23 +100,40 @@ impl EbpfProfiler {
     }
 
     pub async fn collect_results(&mut self) -> Result<Vec<ProfileStackTrace>> {
-        debug!("Collecting eBPF profiling results");
+        info!("Starting to collect eBPF profiling results");
         
         let mut traces = Vec::new();
         
         if let Some(ring_buf) = &mut self.ring_buf {
-            let mut guard = ring_buf.readable_mut().await?;
-            let ring_buf_inner = guard.get_inner_mut();
+            info!("Ring buffer found, attempting to read samples");
             
-            // Use next() instead of read() for RingBuf
-            while let Some(sample_data) = ring_buf_inner.next() {
-                // Parse sample outside of self to avoid borrowing issues
-                let parsed_sample = Self::parse_sample_static(&sample_data);
-                if let Ok(trace) = parsed_sample {
-                    traces.push(trace);
+            // Use tokio::time::timeout to avoid indefinite waiting
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                ring_buf.readable_mut()
+            ).await {
+                Ok(Ok(mut guard)) => {
+                    info!("Ring buffer is readable");
+                    let ring_buf_inner = guard.get_inner_mut();
+                    
+                    let mut sample_count = 0;
+                    while let Some(sample_data) = ring_buf_inner.next() {
+                        sample_count += 1;
+                        let parsed_sample = Self::parse_sample_static(&sample_data);
+                        if let Ok(trace) = parsed_sample {
+                            traces.push(trace);
+                        }
+                    }
+                    info!("Processed {} samples from ring buffer", sample_count);
+                    guard.clear_ready();
+                }
+                Ok(Err(e)) => {
+                    warn!("Error waiting for ring buffer: {}", e);
+                }
+                Err(_) => {
+                    warn!("Timeout waiting for ring buffer data (5s)");
                 }
             }
-            guard.clear_ready();
         } else {
             return Err(anyhow::anyhow!("eBPF program not loaded"));
         }
@@ -118,23 +142,27 @@ impl EbpfProfiler {
         Ok(traces)
     }
 
+    pub fn cleanup(&mut self) {
+        debug!("Cleaning up eBPF profiler resources");
+        self.bpf = None;
+        self.ring_buf = None;
+        self.target_pid = None;
+    }
+
     fn parse_sample_static(sample_data: &[u8]) -> Result<ProfileStackTrace> {
-        // Parse the sample data to extract stack trace
         let sample = unsafe { &*(sample_data.as_ptr() as *const Sample) };
         
         let mut frames = Vec::new();
-        let stack_depth = (sample.header.stack_len / 8) as usize; // 8 bytes per address
+        // Each address is a u64, so 8 bytes.
+        let stack_depth = (sample.header.stack_len / 8) as usize;
         
-        // Parse the stack trace from the byte array
         for i in 0..stack_depth {
             let offset = i * 8;
             if offset + 8 <= sample.stack.len() {
                 let addr_bytes = &sample.stack[offset..offset + 8];
-                let addr = u64::from_ne_bytes([
-                    addr_bytes[0], addr_bytes[1], addr_bytes[2], addr_bytes[3],
-                    addr_bytes[4], addr_bytes[5], addr_bytes[6], addr_bytes[7],
-                ]);
+                let addr = u64::from_ne_bytes(addr_bytes.try_into().unwrap());
                 if addr != 0 {
+                    // In a real application, you would resolve these symbols.
                     frames.push(format!("0x{:x}", addr));
                 }
             }
@@ -142,7 +170,7 @@ impl EbpfProfiler {
         
         Ok(ProfileStackTrace {
             frames,
-            count: 1, // Each sample represents one occurrence
+            count: 1, // Each sample from the ring buffer is unique initially
         })
     }
 }

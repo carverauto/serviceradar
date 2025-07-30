@@ -205,6 +205,8 @@ build_component() {
             local output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')
             echo "Building Go binary from $src_path..."
+            # Build with debug info for eBPF profiling support
+            # Frame pointers are enabled by default in Go 1.7+ on amd64
             GOOS=linux GOARCH=amd64 go build -o "${pkg_root}${output_path}" "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not built"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }

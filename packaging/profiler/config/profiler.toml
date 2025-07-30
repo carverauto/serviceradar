@@ -2,12 +2,12 @@
 
 [server]
 bind_address = "0.0.0.0"
-port = 8080
+port = 50084
 
-# [grpc_tls]
-# cert_file = "/etc/serviceradar/profiler/server.crt"
-# key_file = "/etc/serviceradar/profiler/server.key"
-# ca_file = "/etc/serviceradar/profiler/ca.pem"
+[grpc_tls]
+cert_file = "/etc/serviceradar/certs/profiler.pem"
+key_file = "/etc/serviceradar/certs/profiler-key.pem"
+ca_file = "/etc/serviceradar/certs/root.pem"
 
 [profiler]
 max_concurrent_sessions = 10

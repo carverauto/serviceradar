@@ -41,6 +41,7 @@ The following table lists the primary ServiceRadar components and their default 
 | rperf Checker  | 50081        | gRPC/TCP | Network performance monitoring client   |
 | Dusk Checker   | 50082        | gRPC/TCP | Dusk network node monitoring            |
 | SysMon Checker | 50083        | gRPC/TCP | SysMon (sysinfo/zfs) metrics collection |
+| Profiler Agent | 50084        | gRPC/TCP | eBPF Process Profiler                   |
 
 ## Event Ingestion
 

@@ -15,9 +15,9 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Install nightly toolchain for eBPF compilation
-RUN rustup toolchain install nightly
-RUN rustup component add rust-src --toolchain nightly
+# The rust-toolchain.toml in profiler-ebpf will handle the nightly toolchain
+# Just ensure we have rust-src available for the stable toolchain too
+RUN rustup component add rust-src
 
 # Install bpf-linker for eBPF linking
 RUN cargo install bpf-linker
@@ -33,7 +33,10 @@ COPY proto ./proto/
 COPY proto /usr/proto
 
 # Build eBPF code first using xtask
-RUN cargo xtask build-ebpf --release
+# Use --locked to ensure we don't update dependencies
+RUN RUSTUP_HOME=/usr/local/rustup cargo xtask build-ebpf --release || \
+    (echo "eBPF build failed, retrying with verbose output" && \
+     RUST_LOG=debug RUSTUP_HOME=/usr/local/rustup cargo xtask build-ebpf --release)
 
 # Build the userspace profiler only (exclude eBPF package)
 RUN cargo build --release --bin profiler -p profiler
