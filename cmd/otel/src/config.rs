@@ -57,20 +57,19 @@ impl Default for ServerConfig {
     }
 }
 
-
 impl Config {
     /// Load configuration from a TOML file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
-        
+
         let config: Config = toml::from_str(&content)
             .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
-        
+
         Ok(config)
     }
-    
+
     /// Load configuration from the specified path, or search default locations if None
     pub fn load(config_path: Option<&str>) -> Result<Self> {
         // If a specific path is provided, use it
@@ -78,11 +77,11 @@ impl Config {
             println!("Loading config from specified path: {path}");
             return Self::from_file(path);
         }
-        
+
         // Otherwise search default locations
         Self::load_from_defaults()
     }
-    
+
     /// Load configuration from the default locations
     /// Tries: ./otel.toml, /etc/serviceradar/otel.toml, ~/.config/serviceradar/otel.toml
     pub fn load_from_defaults() -> Result<Self> {
@@ -90,28 +89,28 @@ impl Config {
             "./otel.toml".to_string(),
             "/etc/serviceradar/otel.toml".to_string(),
         ];
-        
+
         // Add home directory path if available
         if let Ok(home) = std::env::var("HOME") {
             all_paths.push(format!("{home}/.config/serviceradar/otel.toml"));
         }
-        
+
         for path in &all_paths {
             if Path::new(path).exists() {
                 println!("Loading config from: {path}");
                 return Self::from_file(path);
             }
         }
-        
+
         println!("No config file found, using defaults (searched: {all_paths:?})");
         Ok(Self::default())
     }
-    
+
     /// Get the full bind address (address:port)
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.server.bind_address, self.server.port)
     }
-    
+
     /// Convert to NatsConfig if NATS is configured
     pub fn nats_config(&self) -> Option<NATSConfig> {
         self.nats.as_ref().map(|nats| {
@@ -124,7 +123,7 @@ impl Config {
             } else {
                 (None, None, None)
             };
-            
+
             NATSConfig {
                 url: nats.url.clone(),
                 subject: nats.subject.clone(),
@@ -136,7 +135,7 @@ impl Config {
             }
         })
     }
-    
+
     /// Generate an example configuration file content
     pub fn example_toml() -> String {
         let example = Config {
@@ -158,8 +157,9 @@ impl Config {
                 ca_file: Some("/path/to/grpc-ca.pem".to_string()),
             }),
         };
-        
-        toml::to_string_pretty(&example).unwrap_or_else(|_| "# Failed to generate example".to_string())
+
+        toml::to_string_pretty(&example)
+            .unwrap_or_else(|_| "# Failed to generate example".to_string())
     }
 }
 
@@ -212,11 +212,11 @@ subject = "test.otel"
 stream = "test"
 timeout_secs = 60
 "#;
-        
+
         let config: Config = toml::from_str(toml_content).unwrap();
         assert_eq!(config.server.bind_address, "127.0.0.1");
         assert_eq!(config.server.port, 8080);
-        
+
         let nats = config.nats.unwrap();
         assert_eq!(nats.url, "nats://test:4222");
         assert_eq!(nats.subject, "test.otel");
@@ -233,14 +233,14 @@ port = 9090
 [nats]
 url = "nats://localhost:4222"
 "#;
-        
+
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(toml_content.as_bytes()).unwrap();
-        
+
         let config = Config::from_file(temp_file.path()).unwrap();
         assert_eq!(config.server.port, 9090);
         assert_eq!(config.server.bind_address, "0.0.0.0"); // default
-        
+
         let nats = config.nats.unwrap();
         assert_eq!(nats.url, "nats://localhost:4222");
         assert_eq!(nats.subject, "events.otel"); // default
@@ -255,13 +255,13 @@ port = 8888
 [nats]
 url = "nats://test:4222"
 "#;
-        
+
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(toml_content.as_bytes()).unwrap();
-        
+
         let config = Config::load(Some(temp_file.path().to_str().unwrap())).unwrap();
         assert_eq!(config.server.port, 8888);
-        
+
         let nats = config.nats.unwrap();
         assert_eq!(nats.url, "nats://test:4222");
     }
@@ -286,7 +286,7 @@ url = "nats://test:4222"
             nats: None,
             grpc_tls: None,
         };
-        
+
         assert_eq!(config.bind_address(), "127.0.0.1:8080");
     }
 
@@ -301,7 +301,7 @@ url = "nats://test:4222"
                 ca_file: None,
             }),
         };
-        
+
         let tls = config.grpc_tls.unwrap();
         assert_eq!(tls.cert_file, "/server.crt");
         assert_eq!(tls.key_file, "/server.key");
@@ -324,7 +324,7 @@ cert_file = "/path/to/nats-client.crt"
 key_file = "/path/to/nats-client.key"
 ca_file = "/path/to/nats-ca.crt"
 "#;
-        
+
         let config: Config = toml::from_str(toml_content).unwrap();
         let nats = config.nats.unwrap();
         let nats_tls = nats.tls.unwrap();
@@ -351,15 +351,15 @@ key_file = "/nats.key"
 cert_file = "/grpc.crt"
 key_file = "/grpc.key"
 "#;
-        
+
         let config: Config = toml::from_str(toml_content).unwrap();
-        
+
         // Check NATS TLS
         let nats = config.nats.unwrap();
         let nats_tls = nats.tls.unwrap();
         assert_eq!(nats_tls.cert_file, "/nats.crt");
         assert_eq!(nats_tls.key_file, "/nats.key");
-        
+
         // Check gRPC TLS
         let grpc_tls = config.grpc_tls.unwrap();
         assert_eq!(grpc_tls.cert_file, "/grpc.crt");
@@ -383,7 +383,7 @@ key_file = "/grpc.key"
             }),
             grpc_tls: None,
         };
-        
+
         let nats_config = config.nats_config().unwrap();
         assert_eq!(nats_config.url, "nats://test:4222");
         assert_eq!(nats_config.subject, "test.subject");
@@ -418,11 +418,11 @@ cert_file = "/path/to/server.crt"
 key_file = "/path/to/server.key"
 ca_file = "/path/to/ca.pem"
 "#;
-        
+
         let config: Config = toml::from_str(toml_content).unwrap();
         assert_eq!(config.server.bind_address, "127.0.0.1");
         assert_eq!(config.server.port, 8080);
-        
+
         let tls = config.grpc_tls.unwrap();
         assert_eq!(tls.cert_file, "/path/to/server.crt");
         assert_eq!(tls.key_file, "/path/to/server.key");
