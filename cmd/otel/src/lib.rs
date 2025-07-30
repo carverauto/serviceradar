@@ -1,12 +1,12 @@
+use log::{debug, error, info};
 use tonic::{Request, Response, Status};
-use log::{debug, info, error};
 
 pub mod cli;
 pub mod config;
 pub mod nats_output;
-pub mod tls;
 pub mod server;
 pub mod setup;
+pub mod tls;
 
 pub mod opentelemetry {
     pub mod proto {
@@ -45,10 +45,14 @@ pub mod opentelemetry {
     }
 }
 
-use opentelemetry::proto::collector::trace::v1::trace_service_server::TraceService;
-use opentelemetry::proto::collector::trace::v1::{ExportTraceServiceRequest, ExportTraceServiceResponse};
 use opentelemetry::proto::collector::logs::v1::logs_service_server::LogsService;
-use opentelemetry::proto::collector::logs::v1::{ExportLogsServiceRequest, ExportLogsServiceResponse, ExportLogsPartialSuccess};
+use opentelemetry::proto::collector::logs::v1::{
+    ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse,
+};
+use opentelemetry::proto::collector::trace::v1::trace_service_server::TraceService;
+use opentelemetry::proto::collector::trace::v1::{
+    ExportTraceServiceRequest, ExportTraceServiceResponse,
+};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -58,16 +62,18 @@ pub struct ServiceRadarCollector {
 }
 
 impl ServiceRadarCollector {
-    pub async fn new(nats_config: Option<nats_output::NATSConfig>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(
+        nats_config: Option<nats_output::NATSConfig>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         debug!("Creating ServiceRadarCollector");
-        
+
         let nats_output = if let Some(config) = nats_config {
             debug!("Initializing NATS output for collector");
             match nats_output::NATSOutput::new(config).await {
                 Ok(output) => {
                     debug!("NATS output created successfully");
                     Some(Arc::new(Mutex::new(output)))
-                },
+                }
                 Err(e) => {
                     error!("Failed to initialize NATS output: {e}");
                     return Err(e.into());
@@ -77,8 +83,11 @@ impl ServiceRadarCollector {
             debug!("No NATS configuration provided, collector will not forward traces");
             None
         };
-        
-        debug!("ServiceRadarCollector created with NATS output: {}", nats_output.is_some());
+
+        debug!(
+            "ServiceRadarCollector created with NATS output: {}",
+            nats_output.is_some()
+        );
         Ok(Self { nats_output })
     }
 }
@@ -98,31 +107,55 @@ impl TraceService for ServiceRadarCollector {
         request: Request<ExportTraceServiceRequest>,
     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
         let trace_data = request.into_inner();
-        
-        let span_count = trace_data.resource_spans.iter()
-            .map(|rs| rs.scope_spans.iter().map(|ss| ss.spans.len()).sum::<usize>())
+
+        let span_count = trace_data
+            .resource_spans
+            .iter()
+            .map(|rs| {
+                rs.scope_spans
+                    .iter()
+                    .map(|ss| ss.spans.len())
+                    .sum::<usize>()
+            })
             .sum::<usize>();
-        
-        info!("Received OTEL export request: {} resource spans, {} total spans", 
-              trace_data.resource_spans.len(), span_count);
-        
+
+        info!(
+            "Received OTEL export request: {} resource spans, {} total spans",
+            trace_data.resource_spans.len(),
+            span_count
+        );
+
         // Log some debug details about the traces
         if log::log_enabled!(log::Level::Debug) {
             for (i, resource_span) in trace_data.resource_spans.iter().enumerate() {
-                let resource_attrs = resource_span.resource.as_ref()
-                    .map(|r| r.attributes.len()).unwrap_or(0);
-                debug!("Resource span {}: {} scope spans, {} resource attributes", 
-                       i, resource_span.scope_spans.len(), resource_attrs);
-                
+                let resource_attrs = resource_span
+                    .resource
+                    .as_ref()
+                    .map(|r| r.attributes.len())
+                    .unwrap_or(0);
+                debug!(
+                    "Resource span {}: {} scope spans, {} resource attributes",
+                    i,
+                    resource_span.scope_spans.len(),
+                    resource_attrs
+                );
+
                 for (j, scope_span) in resource_span.scope_spans.iter().enumerate() {
-                    let scope_name = scope_span.scope.as_ref()
-                        .map(|s| s.name.as_str()).unwrap_or("unknown");
-                    debug!("  Scope span {}: '{}' with {} spans", 
-                           j, scope_name, scope_span.spans.len());
+                    let scope_name = scope_span
+                        .scope
+                        .as_ref()
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("unknown");
+                    debug!(
+                        "  Scope span {}: '{}' with {} spans",
+                        j,
+                        scope_name,
+                        scope_span.spans.len()
+                    );
                 }
             }
         }
-        
+
         // Send to NATS if configured
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding traces to NATS");
@@ -134,7 +167,7 @@ impl TraceService for ServiceRadarCollector {
         } else {
             debug!("No NATS output configured, traces received but not forwarded");
         }
-        
+
         debug!("OTEL export request completed successfully");
         Ok(Response::new(ExportTraceServiceResponse {
             partial_success: None,
@@ -149,31 +182,55 @@ impl LogsService for ServiceRadarCollector {
         request: Request<ExportLogsServiceRequest>,
     ) -> Result<Response<ExportLogsServiceResponse>, Status> {
         let logs_data = request.into_inner();
-        
-        let logs_count = logs_data.resource_logs.iter()
-            .map(|rl| rl.scope_logs.iter().map(|sl| sl.log_records.len()).sum::<usize>())
+
+        let logs_count = logs_data
+            .resource_logs
+            .iter()
+            .map(|rl| {
+                rl.scope_logs
+                    .iter()
+                    .map(|sl| sl.log_records.len())
+                    .sum::<usize>()
+            })
             .sum::<usize>();
-        
-        info!("Received OTEL logs export request: {} resource logs, {} total log records", 
-              logs_data.resource_logs.len(), logs_count);
-        
+
+        info!(
+            "Received OTEL logs export request: {} resource logs, {} total log records",
+            logs_data.resource_logs.len(),
+            logs_count
+        );
+
         // Log some debug details about the logs
         if log::log_enabled!(log::Level::Debug) {
             for (i, resource_log) in logs_data.resource_logs.iter().enumerate() {
-                let resource_attrs = resource_log.resource.as_ref()
-                    .map(|r| r.attributes.len()).unwrap_or(0);
-                debug!("Resource log {}: {} scope logs, {} resource attributes", 
-                       i, resource_log.scope_logs.len(), resource_attrs);
-                
+                let resource_attrs = resource_log
+                    .resource
+                    .as_ref()
+                    .map(|r| r.attributes.len())
+                    .unwrap_or(0);
+                debug!(
+                    "Resource log {}: {} scope logs, {} resource attributes",
+                    i,
+                    resource_log.scope_logs.len(),
+                    resource_attrs
+                );
+
                 for (j, scope_log) in resource_log.scope_logs.iter().enumerate() {
-                    let scope_name = scope_log.scope.as_ref()
-                        .map(|s| s.name.as_str()).unwrap_or("unknown");
-                    debug!("  Scope log {}: '{}' with {} log records", 
-                           j, scope_name, scope_log.log_records.len());
+                    let scope_name = scope_log
+                        .scope
+                        .as_ref()
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("unknown");
+                    debug!(
+                        "  Scope log {}: '{}' with {} log records",
+                        j,
+                        scope_name,
+                        scope_log.log_records.len()
+                    );
                 }
             }
         }
-        
+
         // Send to NATS if configured
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding logs to NATS");
@@ -185,7 +242,7 @@ impl LogsService for ServiceRadarCollector {
         } else {
             debug!("No NATS output configured, logs received but not forwarded");
         }
-        
+
         debug!("OTEL logs export request completed successfully");
         Ok(Response::new(ExportLogsServiceResponse {
             partial_success: Some(ExportLogsPartialSuccess {
@@ -211,17 +268,21 @@ mod tests {
                         KeyValue {
                             key: "service.name".to_string(),
                             value: Some(AnyValue {
-                                value: Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(
-                                    "test-service".to_string(),
-                                )),
+                                value: Some(
+                                    opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                        "test-service".to_string(),
+                                    ),
+                                ),
                             }),
                         },
                         KeyValue {
                             key: "service.version".to_string(),
                             value: Some(AnyValue {
-                                value: Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(
-                                    "1.0.0".to_string(),
-                                )),
+                                value: Some(
+                                    opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                        "1.0.0".to_string(),
+                                    ),
+                                ),
                             }),
                         },
                     ],
@@ -248,9 +309,11 @@ mod tests {
                         attributes: vec![KeyValue {
                             key: "http.method".to_string(),
                             value: Some(AnyValue {
-                                value: Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(
-                                    "GET".to_string(),
-                                )),
+                                value: Some(
+                                    opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                        "GET".to_string(),
+                                    ),
+                                ),
                             }),
                         }],
                         dropped_attributes_count: 0,
@@ -274,9 +337,9 @@ mod tests {
     async fn test_export_success() {
         let collector = ServiceRadarCollector::new(None).await.unwrap();
         let request = tonic::Request::new(create_test_trace_request());
-        
+
         let response = TraceService::export(&collector, request).await;
-        
+
         assert!(response.is_ok());
         let response = response.unwrap();
         let inner = response.into_inner();
@@ -289,9 +352,9 @@ mod tests {
         let request = tonic::Request::new(ExportTraceServiceRequest {
             resource_spans: vec![],
         });
-        
+
         let response = TraceService::export(&collector, request).await;
-        
+
         assert!(response.is_ok());
         let response = response.unwrap();
         let inner = response.into_inner();
@@ -302,16 +365,18 @@ mod tests {
     async fn test_export_multiple_resource_spans() {
         let collector = ServiceRadarCollector::new(None).await.unwrap();
         let mut request_data = create_test_trace_request();
-        
+
         // Add another resource span
         request_data.resource_spans.push(ResourceSpans {
             resource: Some(Resource {
                 attributes: vec![KeyValue {
                     key: "service.name".to_string(),
                     value: Some(AnyValue {
-                        value: Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(
-                            "another-service".to_string(),
-                        )),
+                        value: Some(
+                            opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                "another-service".to_string(),
+                            ),
+                        ),
                     }),
                 }],
                 dropped_attributes_count: 0,
@@ -320,10 +385,10 @@ mod tests {
             scope_spans: vec![],
             schema_url: "".to_string(),
         });
-        
+
         let request = tonic::Request::new(request_data);
         let response = TraceService::export(&collector, request).await;
-        
+
         assert!(response.is_ok());
     }
 
@@ -337,7 +402,7 @@ mod tests {
     #[tokio::test]
     async fn test_trace_data_validation() {
         let collector = ServiceRadarCollector::new(None).await.unwrap();
-        
+
         // Test with malformed trace data
         let malformed_request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
@@ -350,10 +415,10 @@ mod tests {
                 schema_url: "".to_string(),
             }],
         };
-        
+
         let request = tonic::Request::new(malformed_request);
         let response = TraceService::export(&collector, request).await;
-        
+
         // Should still succeed - collector accepts any valid protobuf
         assert!(response.is_ok());
     }
@@ -362,9 +427,9 @@ mod tests {
     async fn test_logs_export_success() {
         let collector = ServiceRadarCollector::new(None).await.unwrap();
         let request = tonic::Request::new(create_test_logs_request());
-        
+
         let response = LogsService::export(&collector, request).await;
-        
+
         assert!(response.is_ok());
         let response = response.unwrap();
         let inner = response.into_inner();
@@ -378,16 +443,16 @@ mod tests {
         ExportLogsServiceRequest {
             resource_logs: vec![opentelemetry::proto::logs::v1::ResourceLogs {
                 resource: Some(opentelemetry::proto::resource::v1::Resource {
-                    attributes: vec![
-                        opentelemetry::proto::common::v1::KeyValue {
-                            key: "service.name".to_string(),
-                            value: Some(opentelemetry::proto::common::v1::AnyValue {
-                                value: Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                    attributes: vec![opentelemetry::proto::common::v1::KeyValue {
+                        key: "service.name".to_string(),
+                        value: Some(opentelemetry::proto::common::v1::AnyValue {
+                            value: Some(
+                                opentelemetry::proto::common::v1::any_value::Value::StringValue(
                                     "test-service".to_string(),
-                                )),
-                            }),
-                        },
-                    ],
+                                ),
+                            ),
+                        }),
+                    }],
                     dropped_attributes_count: 0,
                     entity_refs: vec![],
                 }),
@@ -401,12 +466,15 @@ mod tests {
                     log_records: vec![opentelemetry::proto::logs::v1::LogRecord {
                         time_unix_nano: 1640995200000000000, // 2022-01-01 00:00:00 UTC
                         observed_time_unix_nano: 1640995200000000000,
-                        severity_number: opentelemetry::proto::logs::v1::SeverityNumber::Info as i32,
+                        severity_number: opentelemetry::proto::logs::v1::SeverityNumber::Info
+                            as i32,
                         severity_text: "INFO".to_string(),
                         body: Some(opentelemetry::proto::common::v1::AnyValue {
-                            value: Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(
-                                "Test log message".to_string(),
-                            )),
+                            value: Some(
+                                opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                    "Test log message".to_string(),
+                                ),
+                            ),
                         }),
                         attributes: vec![],
                         dropped_attributes_count: 0,

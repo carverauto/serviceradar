@@ -1,5 +1,5 @@
+use log::{debug, error, info, warn};
 use std::net::SocketAddr;
-use log::{info, debug, warn, error};
 
 use crate::cli::CLI;
 use crate::config::Config;
@@ -7,19 +7,18 @@ use crate::config::Config;
 /// Sets up logging and parses command line arguments
 pub fn setup_logging_and_parse_args() -> Result<CLI, Box<dyn std::error::Error>> {
     let args = CLI::parse_args();
-    
+
     let log_level = if args.is_debug_enabled() {
         "debug"
     } else {
         "info"
     };
-    
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level))
-        .init();
-    
+
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
+
     debug!("Debug logging enabled");
     info!("ServiceRadar OTEL Collector starting up");
-    
+
     Ok(args)
 }
 
@@ -33,12 +32,12 @@ pub fn handle_generate_config() -> Result<(), Box<dyn std::error::Error>> {
 /// Loads configuration from the specified path or defaults
 pub fn load_configuration(args: &CLI) -> Result<Config, Box<dyn std::error::Error>> {
     debug!("Loading configuration from: {:?}", args.config);
-    
+
     match Config::load(args.config.as_deref()) {
         Ok(cfg) => {
             debug!("Configuration loaded successfully");
             Ok(cfg)
-        },
+        }
         Err(e) => {
             error!("Failed to load configuration: {e}");
             if args.config.is_some() {
@@ -55,8 +54,10 @@ pub fn load_configuration(args: &CLI) -> Result<Config, Box<dyn std::error::Erro
 /// Parses the bind address from configuration
 pub fn parse_bind_address(config: &Config) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     debug!("Parsing bind address: {}", config.bind_address());
-    
-    config.bind_address().parse()
+
+    config
+        .bind_address()
+        .parse()
         .map_err(|e| format!("Invalid bind address '{}': {}", config.bind_address(), e).into())
 }
 
@@ -64,8 +65,10 @@ pub fn parse_bind_address(config: &Config) -> Result<SocketAddr, Box<dyn std::er
 pub fn log_configuration_info(config: &Config) {
     // Log NATS configuration
     if let Some(nats) = config.nats_config() {
-        info!("NATS output enabled - URL: {}, Subject: {}, Stream: {}", 
-              nats.url, nats.subject, nats.stream);
+        info!(
+            "NATS output enabled - URL: {}, Subject: {}, Stream: {}",
+            nats.url, nats.subject, nats.stream
+        );
         debug!("NATS timeout: {:?}", nats.timeout);
         debug!("NATS TLS cert: {:?}", nats.tls_cert);
         debug!("NATS TLS key: {:?}", nats.tls_key);
@@ -73,7 +76,7 @@ pub fn log_configuration_info(config: &Config) {
     } else {
         info!("NATS output disabled (no [nats] section in config)");
     }
-    
+
     // Log gRPC TLS configuration (delegated to tls module)
     crate::tls::log_tls_info(config);
 }
