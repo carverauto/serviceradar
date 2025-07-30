@@ -320,6 +320,9 @@ impl ServiceRadarProfiler {
         let stack_traces = profiler.collect_results().await
             .map_err(|e| anyhow::anyhow!("Failed to collect eBPF results: {}", e))?;
 
+        // Clean up profiler resources after collecting results
+        profiler.cleanup();
+
         // Convert stack traces to flame graph format
         let formatter = crate::flame_graph::FlameGraphFormatter::new(stack_traces);
         let flame_graph_data = formatter.generate_complete_output(
@@ -383,6 +386,9 @@ pub async fn run_standalone_profiling(
 
     let stack_traces = profiler.collect_results().await
         .map_err(|e| anyhow::anyhow!("Failed to collect results: {}", e))?;
+
+    // Clean up profiler resources after collecting results
+    profiler.cleanup();
 
     if stack_traces.is_empty() {
         warn!("No stack traces collected - this might indicate:");
