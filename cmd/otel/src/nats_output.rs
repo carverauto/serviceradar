@@ -1,5 +1,5 @@
 use anyhow::Result;
-use async_nats::jetstream::{context::PublishAckFuture, stream::StorageType};
+use async_nats::jetstream::{context::PublishAckFuture, stream::{StorageType, Info as StreamInfo}};
 use async_nats::{Client, ConnectOptions, jetstream};
 use log::{debug, error, info, warn};
 use prost::Message;
@@ -51,7 +51,7 @@ impl NATSOutput {
         debug!("Creating/verifying JetStream stream: {}", config.stream);
         // Configure stream to handle both traces and logs subjects
         let subjects = vec![config.subject.clone(), format!("{}.logs", config.subject)];
-        debug!("Stream will handle subjects: {subjects:?}");
+        info!("Configuring JetStream stream '{}' with subjects: {:?}", config.stream, subjects);
 
         let stream_config = jetstream::stream::Config {
             name: config.stream.clone(),
@@ -78,21 +78,20 @@ impl NATSOutput {
                         config.stream, missing_subjects
                     );
                     warn!("Current subjects: {existing_subjects:?}");
+                    warn!("Required subjects: {subjects:?}");
 
-                    // Update the stream to include missing subjects
+                    // Build updated configuration with all required subjects
                     let mut updated_config = stream_info.config.clone();
-                    for subject in subjects {
-                        if !updated_config.subjects.contains(&subject) {
-                            updated_config.subjects.push(subject);
-                        }
-                    }
+                    updated_config.subjects = subjects.clone();
 
-                    debug!(
-                        "Updating stream with new subjects: {:?}",
-                        updated_config.subjects
+                    info!(
+                        "Updating stream '{}' to include all required subjects: {:?}",
+                        config.stream, updated_config.subjects
                     );
-                    match jetstream.update_stream(updated_config).await {
-                        Ok(updated_info) => {
+                    
+                    match jetstream.update_stream(updated_config.clone()).await {
+                        Ok(mut updated_stream) => {
+                            let updated_info = updated_stream.info().await?;
                             info!(
                                 "Successfully updated stream '{}' with subjects: {:?}",
                                 config.stream, updated_info.config.subjects
@@ -103,7 +102,48 @@ impl NATSOutput {
                                 "Failed to update stream '{}' with new subjects: {e}",
                                 config.stream
                             );
-                            warn!("Stream exists but may not handle all message types correctly");
+                            
+                            // Check if it's a specific error we can handle differently
+                            let error_str = e.to_string();
+                            if error_str.contains("subjects cannot be modified") || 
+                               error_str.contains("immutable") {
+                                error!("Stream '{}' has immutable subjects configuration", config.stream);
+                                error!("This typically happens when the stream was created with specific policies");
+                            }
+                            
+                            // Try to delete and recreate the stream as a last resort
+                            warn!("Attempting to delete and recreate stream '{}'", config.stream);
+                            
+                            match jetstream.delete_stream(&config.stream).await {
+                                Ok(_) => {
+                                    info!("Deleted existing stream '{}'", config.stream);
+                                    
+                                    // Now recreate with correct configuration
+                                    match jetstream.create_stream(stream_config.clone()).await {
+                                        Ok(mut new_stream) => {
+                                            let new_info = new_stream.info().await?;
+                                            info!(
+                                                "Successfully recreated stream '{}' with subjects: {:?}",
+                                                config.stream, new_info.config.subjects
+                                            );
+                                        }
+                                        Err(create_err) => {
+                                            error!("Failed to recreate stream '{}': {create_err}", config.stream);
+                                            return Err(anyhow::anyhow!(
+                                                "Failed to recreate stream '{}': {}",
+                                                config.stream, create_err
+                                            ));
+                                        }
+                                    }
+                                }
+                                Err(del_err) => {
+                                    error!("Failed to delete stream '{}': {del_err}", config.stream);
+                                    return Err(anyhow::anyhow!(
+                                        "Stream '{}' exists with wrong subjects and cannot be updated or deleted. Error: {}",
+                                        config.stream, e
+                                    ));
+                                }
+                            }
                         }
                     }
                 } else {
