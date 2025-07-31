@@ -54,6 +54,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/carverauto/serviceradar/proto"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.31.0"
 	"google.golang.org/grpc"
 
 	_ "github.com/carverauto/serviceradar/pkg/swagger"
@@ -76,10 +80,41 @@ func run() error {
 		return err
 	}
 
-	// Create root context for lifecycle management
+	// Create root context for lifecycle management with tracing
 	ctx := context.Background()
+	
+	// Initialize OpenTelemetry SDK
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceName("serviceradar-core"),
+			semconv.ServiceVersion("1.0.0"),
+		),
+	)
+	if err != nil {
+		return err
+	}
+	
+	// Create a TracerProvider with the resource
+	tp := trace.NewTracerProvider(
+		trace.WithResource(res),
+	)
+	otel.SetTracerProvider(tp)
+	
+	// Create a root trace span for the core service
+	tracer := otel.Tracer("serviceradar-core")
+	ctx, rootSpan := tracer.Start(ctx, "core.main")
+	defer rootSpan.End()
+	
+	// Debug: Check if we have a valid span context
+	spanCtx := rootSpan.SpanContext()
+	if spanCtx.IsValid() {
+		log.Printf("DEBUG: Created span with trace_id=%s span_id=%s", 
+			spanCtx.TraceID().String(), spanCtx.SpanID().String())
+	} else {
+		log.Printf("DEBUG: Span context is not valid!")
+	}
 
-	// Initialize logger for main process
+	// Initialize logger for main process (now with trace context)
 	mainLogger, err := lifecycle.CreateComponentLogger(ctx, "core-main", cfg.Logging)
 	if err != nil {
 		return err
