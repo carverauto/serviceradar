@@ -1,0 +1,14 @@
+[server]
+bind_address = "0.0.0.0"
+port = 8080
+
+[grpc_tls]
+cert_file = "/path/to/grpc-server.crt"
+key_file = "/path/to/grpc-server.key"
+ca_file = "/path/to/grpc-ca.pem"
+
+[profiler]
+max_concurrent_sessions = 10
+max_session_duration_seconds = 300
+max_frequency_hz = 1000
+chunk_size_bytes = 65536
