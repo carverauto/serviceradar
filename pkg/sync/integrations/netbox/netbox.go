@@ -405,6 +405,27 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
+	// Apply blacklist filtering to IPs before creating sweep config
+	if len(n.Config.NetworkBlacklist) > 0 {
+		n.Logger.Info().
+			Int("original_ip_count", len(ips)).
+			Strs("blacklist_cidrs", n.Config.NetworkBlacklist).
+			Msg("Applying network blacklist filtering to NetBox IPs")
+		
+		filteredIPs, err := models.FilterIPsWithBlacklist(ips, n.Config.NetworkBlacklist)
+		if err != nil {
+			n.Logger.Error().
+				Err(err).
+				Msg("Failed to apply network blacklist filtering, using original IPs")
+		} else {
+			ips = filteredIPs
+		}
+		
+		n.Logger.Info().
+			Int("filtered_ip_count", len(ips)).
+			Msg("Applied network blacklist filtering")
+	}
+
 	// AgentID to be used for the sweep config key.
 	// We prioritize the agent_id set on the source config itself.
 	agentIDForConfig := n.Config.AgentID
@@ -421,30 +442,29 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
 	
-	// Try to read existing sweep config from KV store first
-	var sweepConfig models.SweepConfig
-	existingConfigResp, err := n.KvClient.Get(ctx, &proto.GetRequest{
-		Key: configKey,
-	})
+	// Clean up old sweep config to remove any stale data before writing new config
+	n.Logger.Info().
+		Str("config_key", configKey).
+		Msg("Cleaning up old sweep config from KV store")
 	
-	if err == nil && existingConfigResp != nil && len(existingConfigResp.Value) > 0 {
-		// Parse existing config
-		if err := json.Unmarshal(existingConfigResp.Value, &sweepConfig); err != nil {
-			n.Logger.Warn().
-				Err(err).
-				Msg("Failed to parse existing sweep config, using defaults")
-			sweepConfig = n.getDefaultSweepConfig()
-		} else {
-			n.Logger.Info().Msg("Using existing sweep config, updating networks only")
-		}
+	if _, delErr := n.KvClient.Delete(ctx, &proto.DeleteRequest{
+		Key: configKey,
+	}); delErr != nil {
+		n.Logger.Debug().
+			Err(delErr).
+			Str("config_key", configKey).
+			Msg("Failed to delete old sweep config (may not exist)")
 	} else {
-		// No existing config found, use defaults
-		n.Logger.Info().Msg("No existing sweep config found, using defaults")
-		sweepConfig = n.getDefaultSweepConfig()
+		n.Logger.Info().
+			Str("config_key", configKey).
+			Msg("Successfully cleaned up old sweep config")
 	}
-
-	// Update only the networks field, preserve all other settings
-	sweepConfig.Networks = ips
+	
+	// Create minimal sweep config with only networks (file config is authoritative for everything else)
+	n.Logger.Info().Msg("Creating networks-only sweep config for KV")
+	sweepConfig := models.SweepConfig{
+		Networks: ips,
+	}
 
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {

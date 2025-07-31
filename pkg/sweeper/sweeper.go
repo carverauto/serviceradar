@@ -128,8 +128,19 @@ func NewNetworkSweeper(
 func (s *NetworkSweeper) Start(ctx context.Context) error {
 	s.logger.Info().Dur("interval", s.config.Interval).Msg("Starting network sweeper")
 
-	// Start KV config watching in a goroutine
-	go s.watchConfig(ctx)
+	// Start KV config watching and wait for initial config (if available)
+	configReady := make(chan struct{})
+	go s.watchConfigWithInitialSignal(ctx, configReady)
+
+	// Wait for initial config update (with timeout) or proceed with file config
+	select {
+	case <-configReady:
+		s.logger.Info().Msg("Received initial KV config, starting sweep with updated configuration")
+	case <-time.After(10 * time.Second):
+		s.logger.Info().Msg("No KV config received within timeout, starting sweep with file configuration")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 
 	initialCtx, initialCancel := context.WithTimeout(ctx, scanTimeout)
 	if err := s.runSweep(initialCtx); err != nil {
@@ -224,9 +235,169 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 	defer s.mu.Unlock()
 
 	s.logger.Info().Interface("config", config).Msg("Updating sweeper config")
+	
+	// Preserve existing non-zero values when new config has zero values
+	// This allows minimal configs from sync service (with only networks) to work properly
+	preservedFields := []string{}
+	
+	// Always update networks (this is what sync service sends)
+	// Networks field is handled by direct assignment below
+	
+	// Preserve existing ports if new config has nil/empty ports
+	if len(config.Ports) == 0 && len(s.config.Ports) > 0 {
+		config.Ports = s.config.Ports
+		preservedFields = append(preservedFields, "ports")
+	}
+	
+	// Preserve existing sweep modes if new config has nil/empty sweep modes
+	if len(config.SweepModes) == 0 && len(s.config.SweepModes) > 0 {
+		config.SweepModes = s.config.SweepModes
+		preservedFields = append(preservedFields, "sweep_modes")
+	}
+	
+	// Preserve existing interval if new config has zero interval
+	if config.Interval == 0 && s.config.Interval > 0 {
+		config.Interval = s.config.Interval
+		preservedFields = append(preservedFields, "interval")
+	}
+	
+	// Preserve existing concurrency if new config has zero concurrency
+	if config.Concurrency == 0 && s.config.Concurrency > 0 {
+		config.Concurrency = s.config.Concurrency
+		preservedFields = append(preservedFields, "concurrency")
+	}
+	
+	// Preserve existing timeout if new config has zero timeout
+	if config.Timeout == 0 && s.config.Timeout > 0 {
+		config.Timeout = s.config.Timeout
+		preservedFields = append(preservedFields, "timeout")
+	}
+	
+	// Preserve existing ICMP count if new config has zero ICMP count
+	if config.ICMPCount == 0 && s.config.ICMPCount > 0 {
+		config.ICMPCount = s.config.ICMPCount
+		preservedFields = append(preservedFields, "icmp_count")
+	}
+	
+	// Preserve existing max idle if new config has zero max idle
+	if config.MaxIdle == 0 && s.config.MaxIdle > 0 {
+		config.MaxIdle = s.config.MaxIdle
+		preservedFields = append(preservedFields, "max_idle")
+	}
+	
+	// Preserve existing max lifetime if new config has zero max lifetime
+	if config.MaxLifetime == 0 && s.config.MaxLifetime > 0 {
+		config.MaxLifetime = s.config.MaxLifetime
+		preservedFields = append(preservedFields, "max_lifetime")
+	}
+	
+	// Preserve existing idle timeout if new config has zero idle timeout
+	if config.IdleTimeout == 0 && s.config.IdleTimeout > 0 {
+		config.IdleTimeout = s.config.IdleTimeout
+		preservedFields = append(preservedFields, "idle_timeout")
+	}
+	
+	// Preserve ICMP settings if new config has zero values
+	if config.ICMPSettings.RateLimit == 0 && s.config.ICMPSettings.RateLimit > 0 {
+		config.ICMPSettings.RateLimit = s.config.ICMPSettings.RateLimit
+		preservedFields = append(preservedFields, "icmp_rate_limit")
+	}
+	if config.ICMPSettings.Timeout == 0 && s.config.ICMPSettings.Timeout > 0 {
+		config.ICMPSettings.Timeout = s.config.ICMPSettings.Timeout
+		preservedFields = append(preservedFields, "icmp_timeout")
+	}
+	if config.ICMPSettings.MaxBatch == 0 && s.config.ICMPSettings.MaxBatch > 0 {
+		config.ICMPSettings.MaxBatch = s.config.ICMPSettings.MaxBatch
+		preservedFields = append(preservedFields, "icmp_max_batch")
+	}
+	
+	// Preserve TCP settings if new config has zero values
+	if config.TCPSettings.Concurrency == 0 && s.config.TCPSettings.Concurrency > 0 {
+		config.TCPSettings.Concurrency = s.config.TCPSettings.Concurrency
+		preservedFields = append(preservedFields, "tcp_concurrency")
+	}
+	if config.TCPSettings.Timeout == 0 && s.config.TCPSettings.Timeout > 0 {
+		config.TCPSettings.Timeout = s.config.TCPSettings.Timeout
+		preservedFields = append(preservedFields, "tcp_timeout")
+	}
+	if config.TCPSettings.MaxBatch == 0 && s.config.TCPSettings.MaxBatch > 0 {
+		config.TCPSettings.MaxBatch = s.config.TCPSettings.MaxBatch
+		preservedFields = append(preservedFields, "tcp_max_batch")
+	}
+	
+	// Preserve ICMP rate limit if new config has zero value
+	if config.ICMPRateLimit == 0 && s.config.ICMPRateLimit > 0 {
+		config.ICMPRateLimit = s.config.ICMPRateLimit
+		preservedFields = append(preservedFields, "icmp_rate_limit_global")
+	}
+	
+	// Preserve EnableHighPerformanceICMP if not explicitly set
+	if !config.EnableHighPerformanceICMP && s.config.EnableHighPerformanceICMP {
+		config.EnableHighPerformanceICMP = s.config.EnableHighPerformanceICMP
+		preservedFields = append(preservedFields, "high_perf_icmp")
+	}
+	
+	if len(preservedFields) > 0 {
+		s.logger.Debug().Strs("preserved_fields", preservedFields).Msg("Preserved existing config values from zero/nil values")
+	}
+	
 	s.config = config
 
 	return nil
+}
+
+// watchConfigWithInitialSignal watches the KV store for config updates and signals when first config is received.
+func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, configReady chan<- struct{}) {
+	defer close(s.watchDone)
+
+	if s.kvStore == nil {
+		s.logger.Debug().Msg("No KV store configured, skipping config watch")
+		close(configReady) // Signal immediately since there's no KV config to wait for
+		return
+	}
+
+	ch, err := s.kvStore.Watch(ctx, s.configKey)
+	if err != nil {
+		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to watch KV key")
+		close(configReady) // Signal to proceed with file config
+		return
+	}
+
+	s.logger.Info().Str("configKey", s.configKey).Msg("Watching KV key for config updates")
+
+	initialConfigReceived := false
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Debug().Msg("Context canceled, stopping config watch")
+			if !initialConfigReceived {
+				close(configReady)
+			}
+			return
+		case <-s.done:
+			s.logger.Debug().Msg("Sweep service closed, stopping config watch")
+			if !initialConfigReceived {
+				close(configReady)
+			}
+			return
+		case value, ok := <-ch:
+			if !ok {
+				s.logger.Debug().Str("configKey", s.configKey).Msg("Watch channel closed for key")
+				if !initialConfigReceived {
+					close(configReady)
+				}
+				return
+			}
+
+			s.processConfigUpdate(value)
+			
+			// Signal that initial config has been received
+			if !initialConfigReceived {
+				initialConfigReceived = true
+				close(configReady)
+			}
+		}
+	}
 }
 
 // watchConfig watches the KV store for config updates.

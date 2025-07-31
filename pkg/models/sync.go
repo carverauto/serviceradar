@@ -1,5 +1,10 @@
 package models
 
+import (
+	"fmt"
+	"net"
+)
+
 type SourceConfig struct {
 	Type               string            `json:"type"`                   // "armis", "netbox", etc.
 	Endpoint           string            `json:"endpoint"`               // API endpoint
@@ -33,4 +38,53 @@ type SourceConfig struct {
 type QueryConfig struct {
 	Label string `json:"label"` // Name or description of the query
 	Query string `json:"query"` // The AQL/ASQ query string
+}
+
+// FilterIPsWithBlacklist filters out IP addresses that match the given CIDR blacklist.
+// This is a utility function to be used by sync integrations to apply network blacklisting.
+func FilterIPsWithBlacklist(ips []string, blacklistCIDRs []string) ([]string, error) {
+	if len(blacklistCIDRs) == 0 {
+		return ips, nil
+	}
+
+	// Parse blacklist CIDRs
+	var blacklistNets []*net.IPNet
+	for _, cidr := range blacklistCIDRs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR %s: %w", cidr, err)
+		}
+		blacklistNets = append(blacklistNets, network)
+	}
+
+	// Filter IPs
+	filtered := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		// Handle both plain IP addresses and CIDR notation
+		var parsedIP net.IP
+		if parsedIP = net.ParseIP(ip); parsedIP == nil {
+			// Try parsing as CIDR (e.g., "192.168.1.10/32")
+			if ipAddr, _, err := net.ParseCIDR(ip); err == nil {
+				parsedIP = ipAddr
+			} else {
+				// Keep invalid IPs as-is (they'll be handled elsewhere)
+				filtered = append(filtered, ip)
+				continue
+			}
+		}
+
+		isBlacklisted := false
+		for _, network := range blacklistNets {
+			if network.Contains(parsedIP) {
+				isBlacklisted = true
+				break
+			}
+		}
+
+		if !isBlacklisted {
+			filtered = append(filtered, ip)
+		}
+	}
+
+	return filtered, nil
 }
