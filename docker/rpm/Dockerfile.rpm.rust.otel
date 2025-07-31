@@ -47,8 +47,8 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 WORKDIR /root/rpmbuild
 COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
 RUN mkdir -p SOURCES/${COMPONENT}/systemd SOURCES/${COMPONENT}/config
-COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
-COPY packaging/${COMPONENT}/config/otel.toml SOURCES/${COMPONENT}/config/
+COPY packaging/otel/systemd/serviceradar-otel.service SOURCES/${COMPONENT}/systemd/
+COPY packaging/otel/config/otel.toml SOURCES/${COMPONENT}/config/
 
 # Build the RPM
 RUN sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
