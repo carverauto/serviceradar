@@ -983,6 +983,7 @@ func getEntityFieldMapData() map[models.EntityType]map[string]string {
 		models.Logs: {
 			"severity": "severity_text",
 			"level":    "severity_text",
+			"service":  "service_name",
 		},
 		// Add more entity-specific field mappings as needed
 	}
