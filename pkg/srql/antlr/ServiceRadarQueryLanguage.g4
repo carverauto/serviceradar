@@ -9,15 +9,15 @@ query
     ;
 
 showStatement
-    : SHOW (entity | functionCall FROM entity) (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
+    : SHOW (entity | functionCall FROM entity) (timeClause)? (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
     ;
 
 findStatement
-    : FIND entity (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
+    : FIND entity (timeClause)? (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
     ;
 
 countStatement
-    : COUNT entity (WHERE condition)?
+    : COUNT entity (timeClause)? (WHERE condition)?
     ;
 
 streamStatement
@@ -87,6 +87,10 @@ joinType
     ;
 
 whereClause     : WHERE condition ;
+timeClause      : FROM timeSpec ;
+timeSpec        : TODAY | YESTERDAY | LAST INTEGER timeUnit | timeRange ;
+timeRange       : BETWEEN value AND value ;
+timeUnit        : MINUTES | HOURS | DAYS | WEEKS | MONTHS ;
 groupByClause   : GROUP_KW BY fieldList ;
 fieldList       : field (COMMA field)* ;
 havingClause    : HAVING condition ;
@@ -215,6 +219,12 @@ NOT : N O T ;
 NULL : N U L L ;
 TODAY : T O D A Y ;
 YESTERDAY : Y E S T E R D A Y ;
+LAST : L A S T ;
+MINUTES : M I N U T E S ;
+HOURS : H O U R S ;
+DAYS : D A Y S ;
+WEEKS : W E E K S ;
+MONTHS : M O N T H S ;
 
 // --- Entity Type Keywords ---
 DEVICES : D E V I C E S ;
