@@ -26,15 +26,20 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ServerOption is a function type that modifies Server configuration.
 type ServerOption func(*Server)
+
+// Add a private context key to safely store and retrieve the logger.
+type loggerKey struct{}
 
 var (
 	errInternalError          = fmt.Errorf("internal error")
@@ -223,14 +228,78 @@ func (s *Server) Stop(ctx context.Context) {
 	}
 }
 
-// LoggingInterceptor logs RPC calls.
+// LoggingInterceptor logs RPC calls and injects a trace-aware logger into the context.
 func LoggingInterceptor(log logger.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		start := time.Now()
-		resp, err := handler(ctx, req)
-		log.Debug().Str("method", info.FullMethod).Dur("duration", time.Since(start)).Err(err).Msg("gRPC call")
+
+		// Create a trace-aware logger for this request
+		var requestLogger logger.Logger = log
+		
+		// Check if we can cast the logger to access its underlying zerolog instance
+		if zlogger, ok := log.(interface{ WithFields(map[string]interface{}) zerolog.Logger }); ok {
+			// Check for an active span in the context
+			span := trace.SpanFromContext(ctx)
+			if span.SpanContext().IsValid() {
+				// Create a new logger with trace information
+				spanCtx := span.SpanContext()
+				enhancedLogger := zlogger.WithFields(map[string]interface{}{
+					"trace_id": spanCtx.TraceID().String(),
+					"span_id":  spanCtx.SpanID().String(),
+				})
+				
+				// Wrap the enhanced logger back into our logger interface
+				requestLogger = &loggerWrapper{logger: enhancedLogger}
+			}
+		}
+
+		// Inject the request-scoped logger back into the context.
+		newCtx := context.WithValue(ctx, loggerKey{}, requestLogger)
+
+		// Call the actual handler with the new, logger-enriched context.
+		resp, err := handler(newCtx, req)
+
+		// Use the trace-aware requestLogger to log the completion of the call.
+		requestLogger.Debug().
+			Str("method", info.FullMethod).
+			Dur("duration", time.Since(start)).
+			Err(err).
+			Msg("gRPC call")
 
 		return resp, err
+	}
+}
+
+// loggerWrapper wraps a zerolog.Logger to implement the logger.Logger interface
+type loggerWrapper struct {
+	logger zerolog.Logger
+}
+
+func (l *loggerWrapper) Debug() *zerolog.Event { return l.logger.Debug() }
+func (l *loggerWrapper) Info() *zerolog.Event  { return l.logger.Info() }
+func (l *loggerWrapper) Warn() *zerolog.Event  { return l.logger.Warn() }
+func (l *loggerWrapper) Error() *zerolog.Event { return l.logger.Error() }
+func (l *loggerWrapper) Fatal() *zerolog.Event { return l.logger.Fatal() }
+func (l *loggerWrapper) Panic() *zerolog.Event { return l.logger.Panic() }
+func (l *loggerWrapper) With() zerolog.Context { return l.logger.With() }
+func (l *loggerWrapper) WithComponent(component string) zerolog.Logger {
+	return l.logger.With().Str("component", component).Logger()
+}
+func (l *loggerWrapper) WithFields(fields map[string]interface{}) zerolog.Logger {
+	ctx := l.logger.With()
+	for key, value := range fields {
+		ctx = ctx.Interface(key, value)
+	}
+	return ctx.Logger()
+}
+func (l *loggerWrapper) SetLevel(level zerolog.Level) {
+	l.logger = l.logger.Level(level)
+}
+func (l *loggerWrapper) SetDebug(debug bool) {
+	if debug {
+		l.logger = l.logger.Level(zerolog.DebugLevel)
+	} else {
+		l.logger = l.logger.Level(zerolog.InfoLevel)
 	}
 }
 
@@ -247,4 +316,14 @@ func RecoveryInterceptor(log logger.Logger) grpc.UnaryServerInterceptor {
 
 		return handler(ctx, req)
 	}
+}
+
+// FromContext retrieves the logger from the context.
+// If no logger is found, it returns a no-op test logger to prevent nil panics.
+func FromContext(ctx context.Context) logger.Logger {
+	if l, ok := ctx.Value(loggerKey{}).(logger.Logger); ok {
+		return l
+	}
+	// Fallback to a safe, non-nil logger that discards all output.
+	return logger.NewTestLogger()
 }

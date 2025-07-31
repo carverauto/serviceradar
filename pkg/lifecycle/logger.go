@@ -25,6 +25,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // InitializeLogger initializes the logger with the provided configuration.
@@ -83,11 +84,21 @@ func NewLoggerImpl(ctx context.Context, config *logger.Config) (*LoggerImpl, err
 		output = logger.NewMultiWriter(output, otelWriter)
 	}
 
-	zlog := zerolog.New(output).
-		Level(level).
-		With().
-		Timestamp().
-		Logger()
+	// Start building the logger's context, but don't create the logger yet.
+	zlogCtx := zerolog.New(output).With().Timestamp()
+
+	// Check the incoming application context for an active span.
+	span := trace.SpanFromContext(ctx)
+	if span.SpanContext().IsValid() {
+		// If a span exists, bake its Trace ID and Span ID into the logger's context.
+		spanCtx := span.SpanContext()
+		zlogCtx = zlogCtx.
+			Str("trace_id", spanCtx.TraceID().String()).
+			Str("span_id", spanCtx.SpanID().String())
+	}
+
+	// Now, build the final logger from the potentially enriched context.
+	zlog := zlogCtx.Logger().Level(level)
 
 	// Set the time format
 	zerolog.TimeFieldFormat = timeFormat
