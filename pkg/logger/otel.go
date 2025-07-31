@@ -158,6 +158,7 @@ func (w *OTelWriter) Write(p []byte) (n int, err error) {
 			record.SetTimestamp(parsedTime)
 		}
 	}
+
 	if !record.Timestamp().IsZero() {
 		delete(logEntry, "time")
 	}
@@ -181,15 +182,18 @@ func (w *OTelWriter) Write(p []byte) (n int, err error) {
 	componentName := "serviceradar-logger" // Default scope
 	if component, ok := logEntry["component"].(string); ok && component != "" {
 		componentName = component
+
 		delete(logEntry, "component")
 	}
 
 	w.mu.Lock()
 	logger, found := w.loggers[componentName]
+
 	if !found {
 		logger = w.provider.Logger(componentName)
 		w.loggers[componentName] = logger
 	}
+
 	w.mu.Unlock()
 
 	// Add all remaining fields as attributes.
