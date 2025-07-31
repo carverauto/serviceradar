@@ -61,6 +61,18 @@ type ServiceRadarQueryLanguageListener interface {
 	// EnterWhereClause is called when entering the whereClause production.
 	EnterWhereClause(c *WhereClauseContext)
 
+	// EnterTimeClause is called when entering the timeClause production.
+	EnterTimeClause(c *TimeClauseContext)
+
+	// EnterTimeSpec is called when entering the timeSpec production.
+	EnterTimeSpec(c *TimeSpecContext)
+
+	// EnterTimeRange is called when entering the timeRange production.
+	EnterTimeRange(c *TimeRangeContext)
+
+	// EnterTimeUnit is called when entering the timeUnit production.
+	EnterTimeUnit(c *TimeUnitContext)
+
 	// EnterGroupByClause is called when entering the groupByClause production.
 	EnterGroupByClause(c *GroupByClauseContext)
 
@@ -168,6 +180,18 @@ type ServiceRadarQueryLanguageListener interface {
 
 	// ExitWhereClause is called when exiting the whereClause production.
 	ExitWhereClause(c *WhereClauseContext)
+
+	// ExitTimeClause is called when exiting the timeClause production.
+	ExitTimeClause(c *TimeClauseContext)
+
+	// ExitTimeSpec is called when exiting the timeSpec production.
+	ExitTimeSpec(c *TimeSpecContext)
+
+	// ExitTimeRange is called when exiting the timeRange production.
+	ExitTimeRange(c *TimeRangeContext)
+
+	// ExitTimeUnit is called when exiting the timeUnit production.
+	ExitTimeUnit(c *TimeUnitContext)
 
 	// ExitGroupByClause is called when exiting the groupByClause production.
 	ExitGroupByClause(c *GroupByClauseContext)

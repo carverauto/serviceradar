@@ -9,6 +9,8 @@ type Query struct {
 	OrderBy    []OrderByItem
 	Limit      int
 	HasLimit   bool
+	// Time clause support
+	TimeClause *TimeClause // Optional time filter like "FROM YESTERDAY"
 	// STREAM-specific fields
 	SelectFields []string // For STREAM queries, the fields to select
 	GroupBy      []string // For GROUP BY clauses in STREAM queries
@@ -47,4 +49,40 @@ type OrderByItem struct {
 // Field represents a field reference, which can be dotted (e.g. "devices.os")
 type Field struct {
 	Parts []string
+}
+
+// TimeClause represents a time filter specification
+type TimeClause struct {
+	Type       TimeClauseType
+	Value      interface{} // For specific values or ranges
+	Amount     int         // For relative time (e.g., "LAST 5 DAYS")
+	Unit       TimeUnit    // For relative time
+	StartValue interface{} // For BETWEEN ranges
+	EndValue   interface{} // For BETWEEN ranges
+}
+
+// TimeClauseType represents the type of time clause
+type TimeClauseType string
+
+const (
+	TimeToday     TimeClauseType = "TODAY"
+	TimeYesterday TimeClauseType = "YESTERDAY"
+	TimeLast      TimeClauseType = "LAST"
+	TimeRange     TimeClauseType = "RANGE"
+)
+
+// TimeUnit represents time units for relative time clauses
+type TimeUnit string
+
+const (
+	UnitMinutes TimeUnit = "MINUTES"
+	UnitHours   TimeUnit = "HOURS"
+	UnitDays    TimeUnit = "DAYS"
+	UnitWeeks   TimeUnit = "WEEKS"
+	UnitMonths  TimeUnit = "MONTHS"
+)
+
+// SQLExpression represents a raw SQL expression that should not be quoted
+type SQLExpression struct {
+	Expression string
 }

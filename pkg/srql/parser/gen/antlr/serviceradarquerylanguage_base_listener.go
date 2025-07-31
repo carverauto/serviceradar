@@ -134,6 +134,30 @@ func (s *BaseServiceRadarQueryLanguageListener) EnterWhereClause(ctx *WhereClaus
 // ExitWhereClause is called when production whereClause is exited.
 func (s *BaseServiceRadarQueryLanguageListener) ExitWhereClause(ctx *WhereClauseContext) {}
 
+// EnterTimeClause is called when production timeClause is entered.
+func (s *BaseServiceRadarQueryLanguageListener) EnterTimeClause(ctx *TimeClauseContext) {}
+
+// ExitTimeClause is called when production timeClause is exited.
+func (s *BaseServiceRadarQueryLanguageListener) ExitTimeClause(ctx *TimeClauseContext) {}
+
+// EnterTimeSpec is called when production timeSpec is entered.
+func (s *BaseServiceRadarQueryLanguageListener) EnterTimeSpec(ctx *TimeSpecContext) {}
+
+// ExitTimeSpec is called when production timeSpec is exited.
+func (s *BaseServiceRadarQueryLanguageListener) ExitTimeSpec(ctx *TimeSpecContext) {}
+
+// EnterTimeRange is called when production timeRange is entered.
+func (s *BaseServiceRadarQueryLanguageListener) EnterTimeRange(ctx *TimeRangeContext) {}
+
+// ExitTimeRange is called when production timeRange is exited.
+func (s *BaseServiceRadarQueryLanguageListener) ExitTimeRange(ctx *TimeRangeContext) {}
+
+// EnterTimeUnit is called when production timeUnit is entered.
+func (s *BaseServiceRadarQueryLanguageListener) EnterTimeUnit(ctx *TimeUnitContext) {}
+
+// ExitTimeUnit is called when production timeUnit is exited.
+func (s *BaseServiceRadarQueryLanguageListener) ExitTimeUnit(ctx *TimeUnitContext) {}
+
 // EnterGroupByClause is called when production groupByClause is entered.
 func (s *BaseServiceRadarQueryLanguageListener) EnterGroupByClause(ctx *GroupByClauseContext) {}
 

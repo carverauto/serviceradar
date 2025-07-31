@@ -152,6 +152,9 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 	// Transform unsupported entity types to their equivalent supported types
 	t.TransformQuery(query)
 
+	// Convert time clauses to WHERE conditions
+	t.convertTimeClauseToCondition(query)
+
 	// Apply any implicit filters based on the entity type
 	t.applyDefaultFilters(query)
 
@@ -935,6 +938,8 @@ func (*Translator) buildConditionString(
 // formatProtonValue formats a value for Proton SQL
 func (*Translator) formatProtonValue(value interface{}) string {
 	switch v := value.(type) {
+	case models.SQLExpression:
+		return v.Expression // Return raw SQL expression without quoting
 	case string:
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
 	case bool:
@@ -954,6 +959,8 @@ func (*Translator) formatProtonValue(value interface{}) string {
 // formatClickHouseValue formats a value for ClickHouse SQL
 func (*Translator) formatClickHouseValue(value interface{}) string {
 	switch v := value.(type) {
+	case models.SQLExpression:
+		return v.Expression // Return raw SQL expression without quoting
 	case string:
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
 	case bool:
@@ -1039,4 +1046,127 @@ func (*Translator) translateOperator(op models.OperatorType) string {
 	}
 
 	return string(op)
+}
+
+// convertTimeClauseToCondition converts time clauses to WHERE conditions
+func (t *Translator) convertTimeClauseToCondition(query *models.Query) {
+	if query.TimeClause == nil {
+		return
+	}
+
+	// Determine the timestamp field based on entity type
+	timestampField := t.getTimestampFieldForEntity(query.Entity)
+
+	// Convert time clause to condition
+	condition := t.timeClauseToCondition(query.TimeClause, timestampField)
+
+	// Add logical operator to existing conditions if we're adding a new one
+	if len(query.Conditions) > 0 {
+		// Add AND to the first existing condition
+		query.Conditions[0].LogicalOp = models.And
+	}
+
+	// Prepend the time condition to existing conditions
+	query.Conditions = append([]models.Condition{condition}, query.Conditions...)
+
+	// Clear the time clause since it's now a condition
+	query.TimeClause = nil
+}
+
+// getTimestampFieldForEntity returns the appropriate timestamp field for an entity
+func (*Translator) getTimestampFieldForEntity(entity models.EntityType) string {
+	// Map entity types to their appropriate timestamp fields
+	entityTimestampFields := map[models.EntityType]string{
+		// Entities that use last_seen (when they were last detected/seen)
+		models.Devices:    "last_seen",
+		models.Services:   "last_seen",
+		models.Interfaces: "last_seen",
+
+		// All other entities use timestamp (when they occurred/were collected)
+		models.Flows:          "timestamp",
+		models.Connections:    "timestamp",
+		models.Traps:          "timestamp",
+		models.Logs:           "timestamp",
+		models.Events:         "timestamp",
+		models.Pollers:        "timestamp",
+		models.DeviceUpdates:  "timestamp",
+		models.ICMPResults:    "timestamp",
+		models.SNMPResults:    "timestamp",
+		models.SweepResults:   "timestamp",
+		models.CPUMetrics:     "timestamp",
+		models.DiskMetrics:    "timestamp",
+		models.MemoryMetrics:  "timestamp",
+		models.ProcessMetrics: "timestamp",
+		models.SNMPMetrics:    "timestamp",
+	}
+
+	if field, exists := entityTimestampFields[entity]; exists {
+		return field
+	}
+	// Default fallback for any new entity types
+	return "timestamp"
+}
+
+// timeClauseToCondition converts a TimeClause to a Condition
+func (t *Translator) timeClauseToCondition(tc *models.TimeClause, timestampField string) models.Condition {
+	switch tc.Type {
+	case models.TimeToday:
+		// Use timestamp range for today: timestamp >= start_of_today AND timestamp < start_of_tomorrow
+		startOfDayFunc := t.getStartOfDayFunction()
+
+		return models.Condition{
+			Field:    timestampField,
+			Operator: models.GreaterThanOrEquals,
+			Value:    models.SQLExpression{Expression: fmt.Sprintf("%s(now())", startOfDayFunc)},
+		}
+	case models.TimeYesterday:
+		// Use timestamp range for yesterday: timestamp >= start_of_yesterday AND timestamp < start_of_today
+		startOfDayFunc := t.getStartOfDayFunction()
+
+		return models.Condition{
+			Field:    timestampField,
+			Operator: models.Between,
+			Values: []interface{}{
+				models.SQLExpression{Expression: fmt.Sprintf("%s(yesterday())", startOfDayFunc)},
+				models.SQLExpression{Expression: fmt.Sprintf("%s(today())", startOfDayFunc)},
+			},
+		}
+	case models.TimeLast:
+		// For "LAST n timeUnit", create a condition like: timestamp >= NOW() - INTERVAL n timeUnit
+		intervalValue := fmt.Sprintf("NOW() - INTERVAL %d %s", tc.Amount, strings.ToUpper(string(tc.Unit)))
+
+		return models.Condition{
+			Field:    timestampField,
+			Operator: models.GreaterThanOrEquals,
+			Value:    models.SQLExpression{Expression: intervalValue},
+		}
+	case models.TimeRange:
+		// For BETWEEN ranges, create a BETWEEN condition
+		return models.Condition{
+			Field:    timestampField,
+			Operator: models.Between,
+			Values:   []interface{}{tc.StartValue, tc.EndValue},
+		}
+
+	default:
+		startOfDayFunc := t.getStartOfDayFunction()
+
+		return models.Condition{
+			Field:    timestampField,
+			Operator: models.GreaterThanOrEquals,
+			Value:    models.SQLExpression{Expression: fmt.Sprintf("%s(now())", startOfDayFunc)},
+		}
+	}
+}
+
+// getStartOfDayFunction returns the correct start-of-day function for the database type
+func (t *Translator) getStartOfDayFunction() string {
+	switch t.DBType {
+	case Proton:
+		return "to_start_of_day"
+	case ClickHouse:
+		return "toStartOfDay"
+	default:
+		return "toStartOfDay" // default to ClickHouse syntax
+	}
 }
