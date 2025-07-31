@@ -684,7 +684,6 @@ func TestSweepConfigDefaults(t *testing.T) {
 	assert.Equal(t, 5000, sweepCfg.IcmpRateLimit)
 }
 
-
 // Benchmark tests
 func BenchmarkDefaultIntegrationRegistry(b *testing.B) {
 	ctrl := gomock.NewController(b)

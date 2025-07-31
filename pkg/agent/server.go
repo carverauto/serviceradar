@@ -207,6 +207,7 @@ func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config,
 				return service, nil
 			}
 		}
+
 		return nil, fmt.Errorf("failed to load sweep config from file %s: %w", filePath, err)
 	}
 
@@ -218,6 +219,7 @@ func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config,
 		s.logger.Warn().Err(err).Str("kvPath", kvPath).Msg("Failed to merge KV updates, using file config only")
 	} else if mergedConfig != nil {
 		sweepConfig = *mergedConfig
+
 		s.logger.Info().Str("kvPath", kvPath).Msg("Successfully merged KV updates into file config")
 	}
 
@@ -263,6 +265,88 @@ func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *
 
 // mergeKVUpdates merges updates from KV store into the file-based config.
 // The file config is authoritative, but KV can provide updates (especially networks from sync service).
+// mergeStringSlice merges a string slice field from KV config to merged config if needed
+func (s *Server) mergeStringSlice(fieldName string, fileValue, kvValue []string, mergedConfig *SweepConfig) {
+	// For Networks, always merge if KV has values
+	// For other fields, only merge if file value is empty and KV value is not empty
+	isNetworks := fieldName == "networks"
+	shouldMerge := (len(fileValue) == 0 && len(kvValue) > 0) || (isNetworks && len(kvValue) > 0)
+
+	if shouldMerge {
+		// Update the field in mergedConfig
+		switch fieldName {
+		case "networks":
+			mergedConfig.Networks = kvValue
+		case "ports":
+		}
+
+		// Log the merge
+		msg := "Used %s from KV config (not set in file)"
+		if isNetworks {
+			msg = "Merged %s from KV config"
+		}
+
+		s.logger.Info().
+			Interface(fieldName, kvValue).
+			Msgf(msg, fieldName)
+	}
+}
+
+// mergeSweepModes merges SweepModes from KV config to merged config if needed
+func (s *Server) mergeSweepModes(fileValue, kvValue []models.SweepMode, mergedConfig *SweepConfig) {
+	if len(fileValue) == 0 && len(kvValue) > 0 {
+		mergedConfig.SweepModes = kvValue
+		s.logger.Info().
+			Interface("sweep_modes", kvValue).
+			Msg("Used sweep_modes from KV config (not set in file)")
+	}
+}
+
+// mergeIntSlice merges an int slice field from KV config to merged config if needed
+func (s *Server) mergeIntSlice(fieldName string, fileValue, kvValue []int, mergedConfig *SweepConfig) {
+	if len(fileValue) == 0 && len(kvValue) > 0 {
+		// Update the field in mergedConfig
+		if fieldName == "ports" {
+			mergedConfig.Ports = kvValue
+		}
+
+		s.logger.Info().
+			Interface(fieldName, kvValue).
+			Msgf("Used %s from KV config (not set in file)", fieldName)
+	}
+}
+
+// mergeInt merges an int field from KV config to merged config if needed
+func (s *Server) mergeInt(fieldName string, fileValue, kvValue int, mergedConfig *SweepConfig) {
+	if fileValue == 0 && kvValue > 0 {
+		// Update the field in mergedConfig
+		if fieldName == "concurrency" {
+			mergedConfig.Concurrency = kvValue
+		}
+
+		s.logger.Info().
+			Int(fieldName, kvValue).
+			Msgf("Used %s from KV config (not set in file)", fieldName)
+	}
+}
+
+// mergeDuration merges a Duration field from KV config to merged config if needed
+func (s *Server) mergeDuration(fieldName string, fileValue, kvValue Duration, mergedConfig *SweepConfig) {
+	if fileValue == 0 && kvValue > 0 {
+		// Update the field in mergedConfig
+		switch fieldName {
+		case "interval":
+			mergedConfig.Interval = kvValue
+		case "timeout":
+			mergedConfig.Timeout = kvValue
+		}
+
+		s.logger.Info().
+			Dur(fieldName, time.Duration(kvValue)).
+			Msgf("Used %s from KV config (not set in file)", fieldName)
+	}
+}
+
 func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *SweepConfig) (*SweepConfig, error) {
 	if s.kvStore == nil {
 		s.logger.Debug().Msg("KV store not initialized, skipping merge")
@@ -288,49 +372,13 @@ func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *
 	// Create merged config starting with file config as base
 	mergedConfig := *fileConfig
 
-	// Merge specific fields from KV (mainly networks from sync service)
-	if len(kvConfig.Networks) > 0 {
-		mergedConfig.Networks = kvConfig.Networks
-		s.logger.Info().
-			Interface("networks", kvConfig.Networks).
-			Msg("Merged networks from KV config")
-	}
-
-	// Only merge other fields if they're not set in file config (file config is authoritative)
-	if len(fileConfig.Ports) == 0 && len(kvConfig.Ports) > 0 {
-		mergedConfig.Ports = kvConfig.Ports
-		s.logger.Info().
-			Interface("ports", kvConfig.Ports).
-			Msg("Used ports from KV config (not set in file)")
-	}
-
-	if len(fileConfig.SweepModes) == 0 && len(kvConfig.SweepModes) > 0 {
-		mergedConfig.SweepModes = kvConfig.SweepModes
-		s.logger.Info().
-			Interface("sweep_modes", kvConfig.SweepModes).
-			Msg("Used sweep modes from KV config (not set in file)")
-	}
-
-	if fileConfig.Concurrency == 0 && kvConfig.Concurrency > 0 {
-		mergedConfig.Concurrency = kvConfig.Concurrency
-		s.logger.Info().
-			Int("concurrency", kvConfig.Concurrency).
-			Msg("Used concurrency from KV config (not set in file)")
-	}
-
-	if fileConfig.Interval == 0 && kvConfig.Interval > 0 {
-		mergedConfig.Interval = kvConfig.Interval
-		s.logger.Info().
-			Dur("interval", time.Duration(kvConfig.Interval)).
-			Msg("Used interval from KV config (not set in file)")
-	}
-
-	if fileConfig.Timeout == 0 && kvConfig.Timeout > 0 {
-		mergedConfig.Timeout = kvConfig.Timeout
-		s.logger.Info().
-			Dur("timeout", time.Duration(kvConfig.Timeout)).
-			Msg("Used timeout from KV config (not set in file)")
-	}
+	// Merge fields using helper functions
+	s.mergeStringSlice("networks", fileConfig.Networks, kvConfig.Networks, &mergedConfig)
+	s.mergeIntSlice("ports", fileConfig.Ports, kvConfig.Ports, &mergedConfig)
+	s.mergeSweepModes(fileConfig.SweepModes, kvConfig.SweepModes, &mergedConfig)
+	s.mergeInt("concurrency", fileConfig.Concurrency, kvConfig.Concurrency, &mergedConfig)
+	s.mergeDuration("interval", fileConfig.Interval, kvConfig.Interval, &mergedConfig)
+	s.mergeDuration("timeout", fileConfig.Timeout, kvConfig.Timeout, &mergedConfig)
 
 	return &mergedConfig, nil
 }

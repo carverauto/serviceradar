@@ -85,7 +85,7 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 			Int("original_ip_count", len(ips)).
 			Strs("blacklist_cidrs", a.Config.NetworkBlacklist).
 			Msg("Applying network blacklist filtering to Armis IPs")
-		
+
 		filteredIPs, err := models.FilterIPsWithBlacklist(ips, a.Config.NetworkBlacklist)
 		if err != nil {
 			a.Logger.Error().
@@ -94,13 +94,14 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		} else {
 			ips = filteredIPs
 		}
-		
+
 		a.Logger.Info().
 			Int("filtered_ip_count", len(ips)).
 			Msg("Applied network blacklist filtering")
 	}
 	// Try to read existing sweep config from KV store first
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", a.Config.AgentID)
+
 	var finalSweepConfig *models.SweepConfig
 
 	if a.KVClient != nil {
@@ -108,7 +109,7 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		a.Logger.Info().
 			Str("config_key", configKey).
 			Msg("Cleaning up old sweep config from KV store")
-		
+
 		if _, delErr := a.KVClient.Delete(ctx, &proto.DeleteRequest{
 			Key: configKey,
 		}); delErr != nil {
@@ -121,9 +122,10 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 				Str("config_key", configKey).
 				Msg("Successfully cleaned up old sweep config")
 		}
-		
+
 		// Create minimal sweep config with only networks (file config is authoritative for everything else)
 		a.Logger.Info().Msg("Creating networks-only sweep config for KV")
+
 		finalSweepConfig = &models.SweepConfig{
 			Networks: ips,
 		}
@@ -589,18 +591,4 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 	}
 
 	return data, ips, events
-}
-
-// getBaseSweepConfig returns the base sweep configuration with the given networks
-func (a *ArmisIntegration) getBaseSweepConfig(ips []string) *models.SweepConfig {
-	if a.SweeperConfig != nil {
-		clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
-		clonedConfig.Networks = ips      // Update with dynamically fetched IPs
-		return &clonedConfig
-	}
-	
-	// If SweeperConfig is nil, create a new one with just the networks
-	return &models.SweepConfig{
-		Networks: ips,
-	}
 }

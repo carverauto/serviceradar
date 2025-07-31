@@ -19,7 +19,7 @@ package netbox
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"  
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -48,6 +48,7 @@ func parseTCPPorts(config *models.SourceConfig) []int {
 	}
 
 	var ports []int
+
 	for _, portStr := range strings.Split(portsStr, ",") {
 		portStr = strings.TrimSpace(portStr)
 		if port, err := strconv.Atoi(portStr); err == nil && port > 0 && port <= 65535 {
@@ -62,7 +63,6 @@ func parseTCPPorts(config *models.SourceConfig) []int {
 
 	return ports
 }
-
 
 // Fetch retrieves devices from NetBox for discovery purposes only.
 // This method focuses purely on data discovery and does not perform state reconciliation.
@@ -411,7 +411,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 			Int("original_ip_count", len(ips)).
 			Strs("blacklist_cidrs", n.Config.NetworkBlacklist).
 			Msg("Applying network blacklist filtering to NetBox IPs")
-		
+
 		filteredIPs, err := models.FilterIPsWithBlacklist(ips, n.Config.NetworkBlacklist)
 		if err != nil {
 			n.Logger.Error().
@@ -420,7 +420,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		} else {
 			ips = filteredIPs
 		}
-		
+
 		n.Logger.Info().
 			Int("filtered_ip_count", len(ips)).
 			Msg("Applied network blacklist filtering")
@@ -441,12 +441,12 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 	}
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
-	
+
 	// Clean up old sweep config to remove any stale data before writing new config
 	n.Logger.Info().
 		Str("config_key", configKey).
 		Msg("Cleaning up old sweep config from KV store")
-	
+
 	if _, delErr := n.KvClient.Delete(ctx, &proto.DeleteRequest{
 		Key: configKey,
 	}); delErr != nil {
@@ -459,9 +459,10 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 			Str("config_key", configKey).
 			Msg("Successfully cleaned up old sweep config")
 	}
-	
+
 	// Create minimal sweep config with only networks (file config is authoritative for everything else)
 	n.Logger.Info().Msg("Creating networks-only sweep config for KV")
+
 	sweepConfig := models.SweepConfig{
 		Networks: ips,
 	}
@@ -497,24 +498,4 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 	n.Logger.Info().
 		Str("config_key", configKey).
 		Msg("Successfully wrote sweep config")
-}
-
-// getDefaultSweepConfig returns the default sweep configuration
-func (n *NetboxIntegration) getDefaultSweepConfig() models.SweepConfig {
-	interval := n.Config.SweepInterval
-	if interval == "" {
-		interval = "5m"
-	}
-
-	return models.SweepConfig{
-		Networks:      []string{},
-		Ports:         parseTCPPorts(n.Config),
-		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      interval,
-		Concurrency:   50,
-		Timeout:       "10s",
-		IcmpCount:     1,
-		HighPerfIcmp:  true,
-		IcmpRateLimit: 5000,
-	}
 }
