@@ -25,10 +25,11 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
-	"go.opentelemetry.io/otel/log"
+	log "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -37,8 +38,10 @@ import (
 )
 
 type OTelWriter struct {
-	logger log.Logger
-	ctx    context.Context
+	provider *sdklog.LoggerProvider
+	loggers  map[string]log.Logger
+	mu       sync.Mutex
+	ctx      context.Context
 }
 
 type OTelConfig struct {
@@ -130,16 +133,16 @@ func NewOTELWriter(ctx context.Context, config OTelConfig) (*OTelWriter, error) 
 	otelProvider = provider
 	global.SetLoggerProvider(provider)
 
-	logger := provider.Logger("serviceradar-logger")
-
+	// Return the initialized writer struct, DO NOT create a single logger here.
 	return &OTelWriter{
-		logger: logger,
-		ctx:    ctx,
+		provider: provider,
+		loggers:  make(map[string]log.Logger),
+		ctx:      ctx,
 	}, nil
 }
 
 func (w *OTelWriter) Write(p []byte) (n int, err error) {
-	if w.logger == nil {
+	if w.provider == nil {
 		return len(p), nil
 	}
 
@@ -154,28 +157,51 @@ func (w *OTelWriter) Write(p []byte) (n int, err error) {
 		if parsedTime, err := time.Parse(time.RFC3339, timestamp); err == nil {
 			record.SetTimestamp(parsedTime)
 		}
-	} else {
-		record.SetTimestamp(time.Now())
+	}
+
+	if !record.Timestamp().IsZero() {
+		delete(logEntry, "time")
 	}
 
 	if levelStr, ok := logEntry["level"].(string); ok {
 		record.SetSeverity(mapZerologLevelToOTEL(levelStr))
 		record.SetSeverityText(levelStr)
+		delete(logEntry, "level")
 	}
 
 	if message, ok := logEntry["message"].(string); ok {
 		record.SetBody(log.StringValue(message))
+		delete(logEntry, "message")
 	}
 
-	for key, value := range logEntry {
-		if key == "time" || key == "level" || key == "message" {
-			continue
-		}
+	// Process Trace and Span IDs as regular attributes
+	// The OTel Log Record doesn't have SetTraceID/SetSpanID methods
+	// So we'll keep these as regular attributes that observability backends can correlate
 
+	// Select Dynamic Logger Scope
+	componentName := "serviceradar-logger" // Default scope
+	if component, ok := logEntry["component"].(string); ok && component != "" {
+		componentName = component
+
+		delete(logEntry, "component")
+	}
+
+	w.mu.Lock()
+	logger, found := w.loggers[componentName]
+
+	if !found {
+		logger = w.provider.Logger(componentName)
+		w.loggers[componentName] = logger
+	}
+
+	w.mu.Unlock()
+
+	// Add all remaining fields as attributes.
+	for key, value := range logEntry {
 		record.AddAttributes(log.String(key, fmt.Sprintf("%v", value)))
 	}
 
-	w.logger.Emit(w.ctx, record)
+	logger.Emit(w.ctx, record)
 
 	return len(p), nil
 }
