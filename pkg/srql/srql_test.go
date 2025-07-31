@@ -488,10 +488,12 @@ func TestLogsSeverityFieldMapping(t *testing.T) {
 			expectedClickHouse: "SELECT * FROM logs WHERE service_name = 'serviceradar-sync'",
 		},
 		{
-			name:               "service field with time clause",
-			query:              "SHOW logs FROM YESTERDAY WHERE service = 'serviceradar-sync' AND severity = 'info'",
-			expectedProton:     "SELECT * FROM table(logs) WHERE timestamp BETWEEN to_start_of_day(yesterday()) AND to_start_of_day(today()) AND service_name = 'serviceradar-sync' AND severity_text = 'info'",
-			expectedClickHouse: "SELECT * FROM logs WHERE timestamp BETWEEN to_start_of_day(yesterday()) AND to_start_of_day(today()) AND service_name = 'serviceradar-sync' AND severity_text = 'info'",
+			name:  "service field with time clause",
+			query: "SHOW logs FROM YESTERDAY WHERE service = 'serviceradar-sync' AND severity = 'info'",
+			expectedProton: "SELECT * FROM table(logs) WHERE timestamp BETWEEN to_start_of_day(yesterday()) " +
+				"AND to_start_of_day(today()) AND service_name = 'serviceradar-sync' AND severity_text = 'info'",
+			expectedClickHouse: "SELECT * FROM logs WHERE timestamp BETWEEN to_start_of_day(yesterday()) " +
+				"AND to_start_of_day(today()) AND service_name = 'serviceradar-sync' AND severity_text = 'info'",
 		},
 	}
 
