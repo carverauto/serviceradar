@@ -265,17 +265,8 @@ func NewArmisIntegration(
 		Logger:     log,
 	}
 
-	// Simplified sweep config - just for KV writing
-	defaultSweepCfg := &models.SweepConfig{
-		Ports:         []int{22, 80, 443, 3389, 445, 5985, 5986, 8080},
-		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      config.SweepInterval,
-		Concurrency:   100,
-		Timeout:       "15s",
-		IcmpCount:     1,
-		HighPerfIcmp:  true,
-		IcmpRateLimit: 5000,
-	}
+	// No default sweep config - the agent's file config is authoritative
+	// The sync service should only provide network updates
 
 	// Initialize SweepResultsQuerier if ServiceRadar API credentials are provided
 	var sweepQuerier armis.SRQLQuerier
@@ -321,7 +312,7 @@ func NewArmisIntegration(
 		TokenProvider: defaultImpl,
 		DeviceFetcher: defaultImpl,
 		KVWriter:      kvWriter,
-		SweeperConfig: defaultSweepCfg,
+		SweeperConfig: nil, // No default config - agent's file config is authoritative
 		SweepQuerier:  sweepQuerier,
 		Updater:       armisUpdater,
 		Logger:        log,

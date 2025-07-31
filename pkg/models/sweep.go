@@ -155,15 +155,15 @@ type SweepSummary struct {
 
 // SweepConfig defines the network sweep tool configuration.
 type SweepConfig struct {
-	Networks      []string `json:"networks"`
-	Ports         []int    `json:"ports"`
-	SweepModes    []string `json:"sweep_modes"`
-	Interval      string   `json:"interval"`
-	Concurrency   int      `json:"concurrency"`
-	Timeout       string   `json:"timeout"`
-	IcmpCount     int      `json:"icmp_count"`
-	HighPerfIcmp  bool     `json:"high_perf_icmp"`
-	IcmpRateLimit int      `json:"icmp_rate_limit"`
+	Networks      []string `json:"networks,omitempty"`
+	Ports         []int    `json:"ports,omitempty"`
+	SweepModes    []string `json:"sweep_modes,omitempty"`
+	Interval      string   `json:"interval,omitempty"`
+	Concurrency   int      `json:"concurrency,omitempty"`
+	Timeout       string   `json:"timeout,omitempty"`
+	IcmpCount     int      `json:"icmp_count,omitempty"`
+	HighPerfIcmp  bool     `json:"high_perf_icmp,omitempty"`
+	IcmpRateLimit int      `json:"icmp_rate_limit,omitempty"`
 }
 
 // SweepHostState represents the latest sweep state for a host in the versioned KV store.

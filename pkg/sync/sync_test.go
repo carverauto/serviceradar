@@ -321,7 +321,7 @@ func TestNewArmisIntegration(t *testing.T) {
 			assert.NotNil(t, integration.TokenProvider)
 			assert.NotNil(t, integration.DeviceFetcher)
 			assert.NotNil(t, integration.KVWriter)
-			assert.NotNil(t, integration.SweeperConfig)
+			assert.Nil(t, integration.SweeperConfig) // SweeperConfig should be nil - agent's file config is authoritative
 
 			// Check if status updates are enabled
 			if tt.config.Credentials["enable_status_updates"] == "true" {

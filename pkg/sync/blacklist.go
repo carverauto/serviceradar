@@ -170,3 +170,37 @@ func (nb *NetworkBlacklist) FilterKVData(kvData map[string][]byte, devices []*mo
 
 	return filtered
 }
+
+// FilterIPAddresses filters out IP addresses that fall within blacklisted ranges
+func (nb *NetworkBlacklist) FilterIPAddresses(ips []string) []string {
+	if len(nb.networks) == 0 {
+		return ips
+	}
+
+	filtered := make([]string, 0, len(ips))
+	blacklistedCount := 0
+
+	for _, ip := range ips {
+		if nb.IsBlacklisted(ip) {
+			blacklistedCount++
+
+			nb.logger.Debug().
+				Str("ip", ip).
+				Msg("Filtering out blacklisted IP address")
+
+			continue
+		}
+
+		filtered = append(filtered, ip)
+	}
+
+	if blacklistedCount > 0 {
+		nb.logger.Info().
+			Int("filtered_count", blacklistedCount).
+			Int("original_count", len(ips)).
+			Int("remaining_count", len(filtered)).
+			Msg("Filtered IP addresses based on network blacklist")
+	}
+
+	return filtered
+}
