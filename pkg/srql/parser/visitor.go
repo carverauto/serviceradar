@@ -117,6 +117,7 @@ func (v *QueryVisitor) buildQuery(ctx interface{}, queryType models.QueryType) *
 	v.setEntity(query, accessors)
 	v.setFunction(query, accessors) // Handle function calls like DISTINCT(field)
 	v.setLatest(query, accessors)   // New: Set IsLatest flag
+	v.setTimeClause(query, accessors) // Handle time clauses like FROM YESTERDAY
 	v.setConditions(query, accessors.condition)
 	v.setOrderBy(query, accessors.orderByClause)
 	v.setLimit(query, accessors)
@@ -130,6 +131,7 @@ type contextAccessors struct {
 	getChild          func(int) antlr.Tree
 	latestModifierCtx antlr.Tree // Changed: Stores the actual context if present, nil otherwise
 	condition         func() gen.IConditionContext
+	timeClause        func() gen.ITimeClauseContext
 	orderByClause     func() gen.IOrderByClauseContext
 	limitToken        func() antlr.TerminalNode
 }
@@ -145,6 +147,7 @@ func (*QueryVisitor) getContextAccessors(ctx interface{}) (contextAccessors, boo
 			getChild:          c.GetChild,
 			latestModifierCtx: c.LATEST_MODIFIER(),
 			condition:         c.Condition,
+			timeClause:        c.TimeClause,
 			orderByClause:     c.OrderByClause,
 			limitToken:        c.LIMIT,
 		}
@@ -154,6 +157,7 @@ func (*QueryVisitor) getContextAccessors(ctx interface{}) (contextAccessors, boo
 			getChild:          c.GetChild,
 			latestModifierCtx: c.LATEST_MODIFIER(),
 			condition:         c.Condition,
+			timeClause:        c.TimeClause,
 			orderByClause:     c.OrderByClause,
 			limitToken:        c.LIMIT,
 		}
@@ -162,7 +166,8 @@ func (*QueryVisitor) getContextAccessors(ctx interface{}) (contextAccessors, boo
 			childCount: c.GetChildCount(),
 			getChild:   c.GetChild,
 			// latestModifierCtx remains nil for CountStatementContext, which is correct
-			condition: c.Condition,
+			condition:  c.Condition,
+			timeClause: c.TimeClause,
 		}
 	default:
 		return contextAccessors{}, false
@@ -229,6 +234,17 @@ func (v *QueryVisitor) setConditions(query *models.Query, condition func() gen.I
 		if conditionCtx := condition(); conditionCtx != nil {
 			query.Conditions = v.VisitCondition(conditionCtx.(*gen.ConditionContext)).([]models.Condition)
 		}
+	}
+}
+
+// setTimeClause sets the query's time clause field
+func (v *QueryVisitor) setTimeClause(query *models.Query, accessors contextAccessors) {
+	if accessors.timeClause == nil {
+		return
+	}
+	
+	if timeClauseCtx := accessors.timeClause(); timeClauseCtx != nil {
+		query.TimeClause = v.VisitTimeClause(timeClauseCtx.(*gen.TimeClauseContext)).(*models.TimeClause)
 	}
 }
 
@@ -700,4 +716,59 @@ func (v *QueryVisitor) VisitStreamStatement(ctx *gen.StreamStatementContext) int
 // VisitSelectExpressionElement visits the selectExpressionElement rule
 func (v *QueryVisitor) VisitSelectExpressionElement(ctx *gen.SelectExpressionElementContext) interface{} {
 	return v.VisitExpressionSelectItem(ctx.ExpressionSelectItem().(*gen.ExpressionSelectItemContext))
+}
+
+// VisitTimeClause visits the timeClause rule
+func (v *QueryVisitor) VisitTimeClause(ctx *gen.TimeClauseContext) interface{} {
+	timeSpecCtx := ctx.TimeSpec().(*gen.TimeSpecContext)
+	return v.VisitTimeSpec(timeSpecCtx)
+}
+
+// VisitTimeSpec visits the timeSpec rule
+func (v *QueryVisitor) VisitTimeSpec(ctx *gen.TimeSpecContext) interface{} {
+	timeClause := &models.TimeClause{}
+
+	if ctx.TODAY() != nil {
+		timeClause.Type = models.TimeToday
+	} else if ctx.YESTERDAY() != nil {
+		timeClause.Type = models.TimeYesterday
+	} else if ctx.LAST() != nil {
+		timeClause.Type = models.TimeLast
+		// Parse "LAST n timeUnit"
+		if ctx.INTEGER() != nil {
+			amount := ctx.INTEGER().GetText()
+			if val, err := strconv.Atoi(amount); err == nil {
+				timeClause.Amount = val
+			}
+		}
+		if ctx.TimeUnit() != nil {
+			timeClause.Unit = v.VisitTimeUnit(ctx.TimeUnit().(*gen.TimeUnitContext)).(models.TimeUnit)
+		}
+	} else if ctx.TimeRange() != nil {
+		timeClause.Type = models.TimeRange
+		timeRangeCtx := ctx.TimeRange().(*gen.TimeRangeContext)
+		values := timeRangeCtx.AllValue()
+		if len(values) >= 2 {
+			timeClause.StartValue = v.VisitValue(values[0].(*gen.ValueContext))
+			timeClause.EndValue = v.VisitValue(values[1].(*gen.ValueContext))
+		}
+	}
+
+	return timeClause
+}
+
+// VisitTimeUnit visits the timeUnit rule  
+func (*QueryVisitor) VisitTimeUnit(ctx *gen.TimeUnitContext) interface{} {
+	if ctx.MINUTES() != nil {
+		return models.UnitMinutes
+	} else if ctx.HOURS() != nil {
+		return models.UnitHours
+	} else if ctx.DAYS() != nil {
+		return models.UnitDays
+	} else if ctx.WEEKS() != nil {
+		return models.UnitWeeks
+	} else if ctx.MONTHS() != nil {
+		return models.UnitMonths
+	}
+	return models.UnitDays // default
 }

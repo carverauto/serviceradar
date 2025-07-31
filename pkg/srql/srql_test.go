@@ -494,3 +494,124 @@ func TestLogsSeverityFieldMapping(t *testing.T) {
 		})
 	}
 }
+
+func TestTimeClauseSupport(t *testing.T) {
+	p := parser.NewParser()
+	protonTranslator := parser.NewTranslator(parser.Proton)
+	clickhouseTranslator := parser.NewTranslator(parser.ClickHouse)
+
+	testCases := []struct {
+		name               string
+		query              string
+		expectedProton     string
+		expectedClickHouse string
+		validate           func(t *testing.T, query *models.Query, err error)
+	}{
+		{
+			name:               "FROM YESTERDAY simple",
+			query:              "SHOW logs FROM YESTERDAY",
+			expectedProton:     "SELECT * FROM table(logs) WHERE timestamp BETWEEN to_start_of_day(yesterday()) AND to_start_of_day(today())",
+			expectedClickHouse: "SELECT * FROM logs WHERE timestamp BETWEEN toStartOfDay(yesterday()) AND toStartOfDay(today())",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.Logs, query.Entity)
+				// Should have a TimeClause before translation
+				require.NotNil(t, query.TimeClause)
+				assert.Equal(t, models.TimeYesterday, query.TimeClause.Type)
+			},
+		},
+		{
+			name:               "FROM TODAY with additional conditions",
+			query:              "SHOW devices FROM TODAY WHERE ip = '192.168.1.1'",
+			expectedProton:     "SELECT * FROM table(unified_devices) WHERE (last_seen >= to_start_of_day(now()) AND ip = '192.168.1.1') AND coalesce(metadata['_deleted'], '') != 'true'",
+			expectedClickHouse: "SELECT * FROM devices WHERE last_seen >= toStartOfDay(now()) AND ip = '192.168.1.1'",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.Devices, query.Entity)
+				// Should have a TimeClause and one condition (IP)
+				require.NotNil(t, query.TimeClause)
+				assert.Equal(t, models.TimeToday, query.TimeClause.Type)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "ip", query.Conditions[0].Field)
+				assert.Equal(t, "192.168.1.1", query.Conditions[0].Value)
+			},
+		},
+		{
+			name:               "COUNT events FROM YESTERDAY",
+			query:              "COUNT events FROM YESTERDAY",
+			expectedProton:     "SELECT count() FROM table(events) WHERE timestamp BETWEEN to_start_of_day(yesterday()) AND to_start_of_day(today())",
+			expectedClickHouse: "SELECT count() FROM events WHERE timestamp BETWEEN toStartOfDay(yesterday()) AND toStartOfDay(today())",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, models.Count, query.Type)
+				assert.Equal(t, models.Events, query.Entity)
+				require.NotNil(t, query.TimeClause)
+				assert.Equal(t, models.TimeYesterday, query.TimeClause.Type)
+			},
+		},
+		{
+			name:               "LAST 5 DAYS syntax",
+			query:              "SHOW logs FROM LAST 5 DAYS",
+			expectedProton:     "SELECT * FROM table(logs) WHERE timestamp >= NOW() - INTERVAL 5 DAYS",
+			expectedClickHouse: "SELECT * FROM logs WHERE timestamp >= NOW() - INTERVAL 5 DAYS",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.Logs, query.Entity)
+				require.NotNil(t, query.TimeClause)
+				assert.Equal(t, models.TimeLast, query.TimeClause.Type)
+				assert.Equal(t, 5, query.TimeClause.Amount)
+				assert.Equal(t, models.UnitDays, query.TimeClause.Unit)
+			},
+		},
+		{
+			name:               "LAST 2 HOURS syntax",
+			query:              "SHOW events FROM LAST 2 HOURS",
+			expectedProton:     "SELECT * FROM table(events) WHERE timestamp >= NOW() - INTERVAL 2 HOURS",
+			expectedClickHouse: "SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 2 HOURS",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.Events, query.Entity)
+				require.NotNil(t, query.TimeClause)
+				assert.Equal(t, models.TimeLast, query.TimeClause.Type)
+				assert.Equal(t, 2, query.TimeClause.Amount)
+				assert.Equal(t, models.UnitHours, query.TimeClause.Unit)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			parsedQuery, err := p.Parse(tc.query)
+			
+			if tc.validate != nil {
+				tc.validate(t, parsedQuery, err)
+			} else {
+				require.NoError(t, err, "Query parsing failed for: %s", tc.query)
+			}
+
+			// Test Proton translation
+			if tc.expectedProton != "" {
+				// Parse a fresh copy for Proton
+				protonQuery, errProtonParse := p.Parse(tc.query)
+				require.NoError(t, errProtonParse, "Proton query parsing failed")
+				sqlProton, errProton := protonTranslator.Translate(protonQuery)
+				require.NoError(t, errProton, "Proton translation failed")
+				assert.Equal(t, tc.expectedProton, sqlProton, "Proton SQL mismatch")
+			}
+
+			// Test ClickHouse translation
+			if tc.expectedClickHouse != "" {
+				// Parse a fresh copy for ClickHouse
+				clickhouseQuery, errClickHouseParse := p.Parse(tc.query)
+				require.NoError(t, errClickHouseParse, "ClickHouse query parsing failed")
+				sqlClickHouse, errClickHouse := clickhouseTranslator.Translate(clickhouseQuery)
+				require.NoError(t, errClickHouse, "ClickHouse translation failed")
+				assert.Equal(t, tc.expectedClickHouse, sqlClickHouse, "ClickHouse SQL mismatch")
+			}
+		})
+	}
+}
