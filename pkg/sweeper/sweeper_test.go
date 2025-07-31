@@ -18,9 +18,11 @@ package sweeper
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -105,6 +107,203 @@ func TestMockSweeper(t *testing.T) {
 
 		err := mockSweeper.UpdateConfig(newConfig)
 		require.NoError(t, err)
+	})
+}
+
+func TestNetworkSweeper_UpdateConfig_IntervalPreservation(t *testing.T) {
+	// Create a NetworkSweeper with an initial config that has a valid interval
+	initialConfig := &models.Config{
+		Networks:    []string{"192.168.1.0/24"},
+		Ports:       []int{22, 80, 443},
+		SweepModes:  []models.SweepMode{models.ModeTCP, models.ModeICMP},
+		Interval:    5 * time.Minute,
+		Concurrency: 10,
+		Timeout:     30 * time.Second,
+	}
+
+	sweeper := &NetworkSweeper{
+		config: initialConfig,
+		logger: logger.NewTestLogger(),
+	}
+
+	t.Run("UpdateConfig preserves fields when new config has zero/nil values", func(t *testing.T) {
+		// Create a new config with minimal values (like from sync service)
+		newConfig := &models.Config{
+			Networks:    []string{"10.0.0.0/8", "172.16.0.0/12"}, // Only networks provided
+			Ports:       nil,                                       // Nil ports - should preserve existing
+			SweepModes:  nil,                                       // Nil sweep modes - should preserve existing
+			Interval:    0,                                         // Zero interval - should preserve existing
+			Concurrency: 0,                                         // Zero concurrency - should preserve existing
+			Timeout:     0,                                         // Zero timeout - should preserve existing
+		}
+
+		err := sweeper.UpdateConfig(newConfig)
+		require.NoError(t, err)
+
+		// Verify that existing values were preserved
+		assert.Equal(t, 5*time.Minute, sweeper.config.Interval, "Interval should be preserved when new config has zero interval")
+		assert.Equal(t, []int{22, 80, 443}, sweeper.config.Ports, "Ports should be preserved when new config has nil ports")
+		assert.Equal(t, []models.SweepMode{models.ModeTCP, models.ModeICMP}, sweeper.config.SweepModes, "SweepModes should be preserved when new config has nil sweep_modes")
+		assert.Equal(t, 10, sweeper.config.Concurrency, "Concurrency should be preserved when new config has zero concurrency")
+		assert.Equal(t, 30*time.Second, sweeper.config.Timeout, "Timeout should be preserved when new config has zero timeout")
+
+		// Verify networks were updated (this is what sync service sends)
+		assert.Equal(t, []string{"10.0.0.0/8", "172.16.0.0/12"}, sweeper.config.Networks, "Networks should be updated from new config")
+	})
+
+	t.Run("UpdateConfig updates fields when new config has valid values", func(t *testing.T) {
+		// Create a new config with valid non-zero values
+		newConfig := &models.Config{
+			Networks:    []string{"192.168.0.0/16"},
+			Ports:       []int{443, 8443},
+			SweepModes:  []models.SweepMode{models.ModeTCP},
+			Interval:    10 * time.Minute, // Valid new interval
+			Concurrency: 5,
+			Timeout:     60 * time.Second,
+		}
+
+		err := sweeper.UpdateConfig(newConfig)
+		require.NoError(t, err)
+
+		// Verify that all fields were updated to the new values
+		assert.Equal(t, 10*time.Minute, sweeper.config.Interval, "Interval should be updated when new config has valid interval")
+		assert.Equal(t, []string{"192.168.0.0/16"}, sweeper.config.Networks, "Networks should be updated")
+		assert.Equal(t, []int{443, 8443}, sweeper.config.Ports, "Ports should be updated when new config has valid ports")
+		assert.Equal(t, []models.SweepMode{models.ModeTCP}, sweeper.config.SweepModes, "SweepModes should be updated when new config has valid sweep_modes")
+		assert.Equal(t, 5, sweeper.config.Concurrency, "Concurrency should be updated when new config has valid concurrency")
+		assert.Equal(t, 60*time.Second, sweeper.config.Timeout, "Timeout should be updated when new config has valid timeout")
+	})
+}
+
+func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
+	// Create a mock KV store
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	
+	mockKVStore := NewMockKVStore(ctrl)
+	
+	t.Run("WatchConfig with initial KV config", func(t *testing.T) {
+		// Create fresh config for this test
+		initialConfig := &models.Config{
+			Networks: []string{"192.168.1.0/24"},
+			Ports:    []int{22, 80},
+			Interval: 5 * time.Minute,
+		}
+		
+		sweeper := &NetworkSweeper{
+			config:    initialConfig,
+			logger:    logger.NewTestLogger(),
+			kvStore:   mockKVStore,
+			configKey: "test-config-key",
+			watchDone: make(chan struct{}),
+		}
+		
+		// Mock KV config with new networks
+		kvConfigJSON := `{"networks":["10.0.0.0/8","172.16.0.0/12"],"ports":null,"interval":""}`
+		
+		// Create a channel that will send the config update
+		watchCh := make(chan []byte, 1)
+		watchCh <- []byte(kvConfigJSON)
+		close(watchCh)
+		
+		mockKVStore.EXPECT().
+			Watch(gomock.Any(), "test-config-key").
+			Return((<-chan []byte)(watchCh), nil)
+		
+		configReady := make(chan struct{})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		go sweeper.watchConfigWithInitialSignal(ctx, configReady)
+		
+		// Wait for the config ready signal
+		select {
+		case <-configReady:
+			// Config was received and processed
+		case <-ctx.Done():
+			t.Fatal("Timeout waiting for config ready signal")
+		}
+		
+		// Verify that networks were updated but other fields preserved
+		assert.Equal(t, []string{"10.0.0.0/8", "172.16.0.0/12"}, sweeper.config.Networks, "Networks should be updated from KV")
+		assert.Equal(t, []int{22, 80}, sweeper.config.Ports, "Ports should be preserved from file config")
+		assert.Equal(t, 5*time.Minute, sweeper.config.Interval, "Interval should be preserved from file config")
+	})
+	
+	t.Run("WatchConfig with no KV store", func(t *testing.T) {
+		// Create fresh config for this test
+		initialConfig := &models.Config{
+			Networks: []string{"192.168.1.0/24"},
+			Ports:    []int{22, 80},
+			Interval: 5 * time.Minute,
+		}
+		
+		sweeper := &NetworkSweeper{
+			config:    initialConfig,
+			logger:    logger.NewTestLogger(),
+			kvStore:   nil, // No KV store
+			configKey: "test-config-key",
+			watchDone: make(chan struct{}),
+		}
+		
+		configReady := make(chan struct{})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		go sweeper.watchConfigWithInitialSignal(ctx, configReady)
+		
+		// Should signal immediately since there's no KV store
+		select {
+		case <-configReady:
+			// Config ready signal received immediately
+		case <-ctx.Done():
+			t.Fatal("Timeout waiting for config ready signal")
+		}
+		
+		// Verify that original config is unchanged
+		assert.Equal(t, []string{"192.168.1.0/24"}, sweeper.config.Networks, "Networks should remain unchanged")
+		assert.Equal(t, []int{22, 80}, sweeper.config.Ports, "Ports should remain unchanged")
+		assert.Equal(t, 5*time.Minute, sweeper.config.Interval, "Interval should remain unchanged")
+	})
+	
+	t.Run("WatchConfig with KV error", func(t *testing.T) {
+		// Create fresh config for this test
+		initialConfig := &models.Config{
+			Networks: []string{"192.168.1.0/24"},
+			Ports:    []int{22, 80},
+			Interval: 5 * time.Minute,
+		}
+		
+		sweeper := &NetworkSweeper{
+			config:    initialConfig,
+			logger:    logger.NewTestLogger(),
+			kvStore:   mockKVStore,
+			configKey: "test-config-key",
+			watchDone: make(chan struct{}),
+		}
+		
+		mockKVStore.EXPECT().
+			Watch(gomock.Any(), "test-config-key").
+			Return(nil, errors.New("KV connection failed"))
+		
+		configReady := make(chan struct{})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		go sweeper.watchConfigWithInitialSignal(ctx, configReady)
+		
+		// Should signal immediately on error
+		select {
+		case <-configReady:
+			// Config ready signal received on error
+		case <-ctx.Done():
+			t.Fatal("Timeout waiting for config ready signal")
+		}
+		
+		// Verify that original config is unchanged when there's an error
+		assert.Equal(t, []string{"192.168.1.0/24"}, sweeper.config.Networks, "Networks should remain unchanged on error")
+		assert.Equal(t, []int{22, 80}, sweeper.config.Ports, "Ports should remain unchanged on error")
+		assert.Equal(t, 5*time.Minute, sweeper.config.Interval, "Interval should remain unchanged on error")
 	})
 }
 
