@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -33,6 +35,34 @@ import (
 var (
 	errUnexpectedStatusCode = errors.New("unexpected status code")
 )
+
+// parseTCPPorts parses TCP ports from the config credentials.
+// It looks for a "tcp_ports" credential containing comma-separated port numbers.
+// If not found or invalid, returns the default NetBox ports.
+func parseTCPPorts(config *models.SourceConfig) []int {
+	defaultPorts := []int{22, 80, 443, 3389, 445, 5985, 5986, 8080}
+
+	portsStr, ok := config.Credentials["tcp_ports"]
+	if !ok || portsStr == "" {
+		return defaultPorts
+	}
+
+	var ports []int
+
+	for _, portStr := range strings.Split(portsStr, ",") {
+		portStr = strings.TrimSpace(portStr)
+		if port, err := strconv.Atoi(portStr); err == nil && port > 0 && port <= 65535 {
+			ports = append(ports, port)
+		}
+	}
+
+	// If no valid ports were parsed, return defaults
+	if len(ports) == 0 {
+		return defaultPorts
+	}
+
+	return ports
+}
 
 // Fetch retrieves devices from NetBox for discovery purposes only.
 // This method focuses purely on data discovery and does not perform state reconciliation.
@@ -375,6 +405,27 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
+	// Apply blacklist filtering to IPs before creating sweep config
+	if len(n.Config.NetworkBlacklist) > 0 {
+		n.Logger.Info().
+			Int("original_ip_count", len(ips)).
+			Strs("blacklist_cidrs", n.Config.NetworkBlacklist).
+			Msg("Applying network blacklist filtering to NetBox IPs")
+
+		filteredIPs, err := models.FilterIPsWithBlacklist(ips, n.Config.NetworkBlacklist)
+		if err != nil {
+			n.Logger.Error().
+				Err(err).
+				Msg("Failed to apply network blacklist filtering, using original IPs")
+		} else {
+			ips = filteredIPs
+		}
+
+		n.Logger.Info().
+			Int("filtered_ip_count", len(ips)).
+			Msg("Applied network blacklist filtering")
+	}
+
 	// AgentID to be used for the sweep config key.
 	// We prioritize the agent_id set on the source config itself.
 	agentIDForConfig := n.Config.AgentID
@@ -389,21 +440,31 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return // Or simply return to avoid writing a config with an unpredictable key
 	}
 
-	interval := n.Config.SweepInterval
-	if interval == "" {
-		interval = "5m"
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
+
+	// Clean up old sweep config to remove any stale data before writing new config
+	n.Logger.Info().
+		Str("config_key", configKey).
+		Msg("Cleaning up old sweep config from KV store")
+
+	if _, delErr := n.KvClient.Delete(ctx, &proto.DeleteRequest{
+		Key: configKey,
+	}); delErr != nil {
+		n.Logger.Debug().
+			Err(delErr).
+			Str("config_key", configKey).
+			Msg("Failed to delete old sweep config (may not exist)")
+	} else {
+		n.Logger.Info().
+			Str("config_key", configKey).
+			Msg("Successfully cleaned up old sweep config")
 	}
 
+	// Create minimal sweep config with only networks (file config is authoritative for everything else)
+	n.Logger.Info().Msg("Creating networks-only sweep config for KV")
+
 	sweepConfig := models.SweepConfig{
-		Networks:      ips,
-		Ports:         []int{22, 80, 443, 3389, 445, 8080},
-		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      interval,
-		Concurrency:   50,
-		Timeout:       "10s",
-		IcmpCount:     1,
-		HighPerfIcmp:  true,
-		IcmpRateLimit: 5000,
+		Networks: ips,
 	}
 
 	configJSON, err := json.Marshal(sweepConfig)
@@ -415,7 +476,6 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
-	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
 	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,

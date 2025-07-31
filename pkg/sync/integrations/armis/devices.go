@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // fetchDevicesForQuery fetches all devices for a single query.
@@ -78,15 +79,58 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 
 // createAndWriteSweepConfig creates a sweep config from the given IPs and writes it to the KV store.
 func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string) error {
-	// Build sweep config using the base SweeperConfig from the integration instance
+	// Apply blacklist filtering to IPs before creating sweep config
+	if len(a.Config.NetworkBlacklist) > 0 {
+		a.Logger.Info().
+			Int("original_ip_count", len(ips)).
+			Strs("blacklist_cidrs", a.Config.NetworkBlacklist).
+			Msg("Applying network blacklist filtering to Armis IPs")
+
+		filteredIPs, err := models.FilterIPsWithBlacklist(ips, a.Config.NetworkBlacklist)
+		if err != nil {
+			a.Logger.Error().
+				Err(err).
+				Msg("Failed to apply network blacklist filtering, using original IPs")
+		} else {
+			ips = filteredIPs
+		}
+
+		a.Logger.Info().
+			Int("filtered_ip_count", len(ips)).
+			Msg("Applied network blacklist filtering")
+	}
+	// Try to read existing sweep config from KV store first
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", a.Config.AgentID)
+
 	var finalSweepConfig *models.SweepConfig
 
-	if a.SweeperConfig != nil {
-		clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
-		clonedConfig.Networks = ips      // Update with dynamically fetched IPs
-		finalSweepConfig = &clonedConfig
+	if a.KVClient != nil {
+		// Clean up old sweep config to remove any stale data before writing new config
+		a.Logger.Info().
+			Str("config_key", configKey).
+			Msg("Cleaning up old sweep config from KV store")
+
+		if _, delErr := a.KVClient.Delete(ctx, &proto.DeleteRequest{
+			Key: configKey,
+		}); delErr != nil {
+			a.Logger.Debug().
+				Err(delErr).
+				Str("config_key", configKey).
+				Msg("Failed to delete old sweep config (may not exist)")
+		} else {
+			a.Logger.Info().
+				Str("config_key", configKey).
+				Msg("Successfully cleaned up old sweep config")
+		}
+
+		// Create minimal sweep config with only networks (file config is authoritative for everything else)
+		a.Logger.Info().Msg("Creating networks-only sweep config for KV")
+
+		finalSweepConfig = &models.SweepConfig{
+			Networks: ips,
+		}
 	} else {
-		// If SweeperConfig is nil, create a new one with just the networks
+		// No KV client available, create minimal config
 		finalSweepConfig = &models.SweepConfig{
 			Networks: ips,
 		}

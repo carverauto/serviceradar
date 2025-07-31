@@ -198,16 +198,30 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
 	var sweepConfig SweepConfig
 
-	if service, err := s.tryLoadFromKV(ctx, kvPath, &sweepConfig); err == nil && service != nil {
-		return service, nil
-	}
-
+	// Always load from file first (file config is authoritative)
 	if err := cfgLoader.LoadAndValidate(ctx, filePath, &sweepConfig); err != nil {
+		// If file doesn't exist, try KV as fallback
+		if errors.Is(err, os.ErrNotExist) {
+			if service, kvErr := s.tryLoadFromKV(ctx, kvPath, &sweepConfig); kvErr == nil && service != nil {
+				s.logger.Info().Str("kvPath", kvPath).Msg("Loaded sweep config from KV (no file found)")
+				return service, nil
+			}
+		}
+
 		return nil, fmt.Errorf("failed to load sweep config from file %s: %w", filePath, err)
 	}
 
 	suffix := s.getLogSuffix()
 	s.logger.Info().Str("path", filePath).Str("suffix", suffix).Msg("Loaded sweep config from file")
+
+	// Merge KV config updates into file-based config
+	if mergedConfig, err := s.mergeKVUpdates(ctx, kvPath, &sweepConfig); err != nil {
+		s.logger.Warn().Err(err).Str("kvPath", kvPath).Msg("Failed to merge KV updates, using file config only")
+	} else if mergedConfig != nil {
+		sweepConfig = *mergedConfig
+
+		s.logger.Info().Str("kvPath", kvPath).Msg("Successfully merged KV updates into file config")
+	}
 
 	service, err := s.createSweepService(&sweepConfig, s.kvStore) // Pass s.kvStore
 	if err != nil {
@@ -247,6 +261,126 @@ func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *
 	}
 
 	return service, nil
+}
+
+// mergeKVUpdates merges updates from KV store into the file-based config.
+// The file config is authoritative, but KV can provide updates (especially networks from sync service).
+// mergeStringSlice merges a string slice field from KV config to merged config if needed
+func (s *Server) mergeStringSlice(fieldName string, fileValue, kvValue []string, mergedConfig *SweepConfig) {
+	// For Networks, always merge if KV has values
+	// For other fields, only merge if file value is empty and KV value is not empty
+	isNetworks := fieldName == "networks"
+	shouldMerge := (len(fileValue) == 0 && len(kvValue) > 0) || (isNetworks && len(kvValue) > 0)
+
+	if shouldMerge {
+		// Update the field in mergedConfig
+		switch fieldName {
+		case "networks":
+			mergedConfig.Networks = kvValue
+		case "ports":
+		}
+
+		// Log the merge
+		msg := "Used %s from KV config (not set in file)"
+		if isNetworks {
+			msg = "Merged %s from KV config"
+		}
+
+		s.logger.Info().
+			Interface(fieldName, kvValue).
+			Msgf(msg, fieldName)
+	}
+}
+
+// mergeSweepModes merges SweepModes from KV config to merged config if needed
+func (s *Server) mergeSweepModes(fileValue, kvValue []models.SweepMode, mergedConfig *SweepConfig) {
+	if len(fileValue) == 0 && len(kvValue) > 0 {
+		mergedConfig.SweepModes = kvValue
+		s.logger.Info().
+			Interface("sweep_modes", kvValue).
+			Msg("Used sweep_modes from KV config (not set in file)")
+	}
+}
+
+// mergeIntSlice merges an int slice field from KV config to merged config if needed
+func (s *Server) mergeIntSlice(fieldName string, fileValue, kvValue []int, mergedConfig *SweepConfig) {
+	if len(fileValue) == 0 && len(kvValue) > 0 {
+		// Update the field in mergedConfig
+		if fieldName == "ports" {
+			mergedConfig.Ports = kvValue
+		}
+
+		s.logger.Info().
+			Interface(fieldName, kvValue).
+			Msgf("Used %s from KV config (not set in file)", fieldName)
+	}
+}
+
+// mergeInt merges an int field from KV config to merged config if needed
+func (s *Server) mergeInt(fieldName string, fileValue, kvValue int, mergedConfig *SweepConfig) {
+	if fileValue == 0 && kvValue > 0 {
+		// Update the field in mergedConfig
+		if fieldName == "concurrency" {
+			mergedConfig.Concurrency = kvValue
+		}
+
+		s.logger.Info().
+			Int(fieldName, kvValue).
+			Msgf("Used %s from KV config (not set in file)", fieldName)
+	}
+}
+
+// mergeDuration merges a Duration field from KV config to merged config if needed
+func (s *Server) mergeDuration(fieldName string, fileValue, kvValue Duration, mergedConfig *SweepConfig) {
+	if fileValue == 0 && kvValue > 0 {
+		// Update the field in mergedConfig
+		switch fieldName {
+		case "interval":
+			mergedConfig.Interval = kvValue
+		case "timeout":
+			mergedConfig.Timeout = kvValue
+		}
+
+		s.logger.Info().
+			Dur(fieldName, time.Duration(kvValue)).
+			Msgf("Used %s from KV config (not set in file)", fieldName)
+	}
+}
+
+func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *SweepConfig) (*SweepConfig, error) {
+	if s.kvStore == nil {
+		s.logger.Debug().Msg("KV store not initialized, skipping merge")
+		return nil, nil
+	}
+
+	// Try to get KV config
+	kvValue, found, err := s.kvStore.Get(ctx, kvPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config from KV store: %w", err)
+	}
+
+	if !found {
+		s.logger.Debug().Str("kvPath", kvPath).Msg("No KV config found, using file config only")
+		return nil, nil
+	}
+
+	var kvConfig SweepConfig
+	if err := json.Unmarshal(kvValue, &kvConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal KV config: %w", err)
+	}
+
+	// Create merged config starting with file config as base
+	mergedConfig := *fileConfig
+
+	// Merge fields using helper functions
+	s.mergeStringSlice("networks", fileConfig.Networks, kvConfig.Networks, &mergedConfig)
+	s.mergeIntSlice("ports", fileConfig.Ports, kvConfig.Ports, &mergedConfig)
+	s.mergeSweepModes(fileConfig.SweepModes, kvConfig.SweepModes, &mergedConfig)
+	s.mergeInt("concurrency", fileConfig.Concurrency, kvConfig.Concurrency, &mergedConfig)
+	s.mergeDuration("interval", fileConfig.Interval, kvConfig.Interval, &mergedConfig)
+	s.mergeDuration("timeout", fileConfig.Timeout, kvConfig.Timeout, &mergedConfig)
+
+	return &mergedConfig, nil
 }
 
 func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Config) error {
