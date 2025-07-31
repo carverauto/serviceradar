@@ -27,12 +27,12 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // ServerOption is a function type that modifies Server configuration.
@@ -234,10 +234,12 @@ func LoggingInterceptor(log logger.Logger) grpc.UnaryServerInterceptor {
 		start := time.Now()
 
 		// Create a trace-aware logger for this request
-		var requestLogger logger.Logger = log
-		
+		var requestLogger = log
+
 		// Check if we can cast the logger to access its underlying zerolog instance
-		if zlogger, ok := log.(interface{ WithFields(map[string]interface{}) zerolog.Logger }); ok {
+		if zlogger, ok := log.(interface {
+			WithFields(map[string]interface{}) zerolog.Logger
+		}); ok {
 			// Check for an active span in the context
 			span := trace.SpanFromContext(ctx)
 			if span.SpanContext().IsValid() {
@@ -247,7 +249,7 @@ func LoggingInterceptor(log logger.Logger) grpc.UnaryServerInterceptor {
 					"trace_id": spanCtx.TraceID().String(),
 					"span_id":  spanCtx.SpanID().String(),
 				})
-				
+
 				// Wrap the enhanced logger back into our logger interface
 				requestLogger = &loggerWrapper{logger: enhancedLogger}
 			}
@@ -276,25 +278,35 @@ type loggerWrapper struct {
 }
 
 func (l *loggerWrapper) Debug() *zerolog.Event { return l.logger.Debug() }
-func (l *loggerWrapper) Info() *zerolog.Event  { return l.logger.Info() }
-func (l *loggerWrapper) Warn() *zerolog.Event  { return l.logger.Warn() }
+
+func (l *loggerWrapper) Info() *zerolog.Event { return l.logger.Info() }
+
+func (l *loggerWrapper) Warn() *zerolog.Event { return l.logger.Warn() }
+
 func (l *loggerWrapper) Error() *zerolog.Event { return l.logger.Error() }
+
 func (l *loggerWrapper) Fatal() *zerolog.Event { return l.logger.Fatal() }
+
 func (l *loggerWrapper) Panic() *zerolog.Event { return l.logger.Panic() }
+
 func (l *loggerWrapper) With() zerolog.Context { return l.logger.With() }
+
 func (l *loggerWrapper) WithComponent(component string) zerolog.Logger {
 	return l.logger.With().Str("component", component).Logger()
 }
+
 func (l *loggerWrapper) WithFields(fields map[string]interface{}) zerolog.Logger {
 	ctx := l.logger.With()
 	for key, value := range fields {
 		ctx = ctx.Interface(key, value)
 	}
+
 	return ctx.Logger()
 }
 func (l *loggerWrapper) SetLevel(level zerolog.Level) {
 	l.logger = l.logger.Level(level)
 }
+
 func (l *loggerWrapper) SetDebug(debug bool) {
 	if debug {
 		l.logger = l.logger.Level(zerolog.DebugLevel)
@@ -324,6 +336,7 @@ func FromContext(ctx context.Context) logger.Logger {
 	if l, ok := ctx.Value(loggerKey{}).(logger.Logger); ok {
 		return l
 	}
+
 	// Fallback to a safe, non-nil logger that discards all output.
 	return logger.NewTestLogger()
 }
