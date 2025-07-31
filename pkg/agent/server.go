@@ -198,16 +198,28 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
 	var sweepConfig SweepConfig
 
-	if service, err := s.tryLoadFromKV(ctx, kvPath, &sweepConfig); err == nil && service != nil {
-		return service, nil
-	}
-
+	// Always load from file first (file config is authoritative)
 	if err := cfgLoader.LoadAndValidate(ctx, filePath, &sweepConfig); err != nil {
+		// If file doesn't exist, try KV as fallback
+		if errors.Is(err, os.ErrNotExist) {
+			if service, kvErr := s.tryLoadFromKV(ctx, kvPath, &sweepConfig); kvErr == nil && service != nil {
+				s.logger.Info().Str("kvPath", kvPath).Msg("Loaded sweep config from KV (no file found)")
+				return service, nil
+			}
+		}
 		return nil, fmt.Errorf("failed to load sweep config from file %s: %w", filePath, err)
 	}
 
 	suffix := s.getLogSuffix()
 	s.logger.Info().Str("path", filePath).Str("suffix", suffix).Msg("Loaded sweep config from file")
+
+	// Merge KV config updates into file-based config
+	if mergedConfig, err := s.mergeKVUpdates(ctx, kvPath, &sweepConfig); err != nil {
+		s.logger.Warn().Err(err).Str("kvPath", kvPath).Msg("Failed to merge KV updates, using file config only")
+	} else if mergedConfig != nil {
+		sweepConfig = *mergedConfig
+		s.logger.Info().Str("kvPath", kvPath).Msg("Successfully merged KV updates into file config")
+	}
 
 	service, err := s.createSweepService(&sweepConfig, s.kvStore) // Pass s.kvStore
 	if err != nil {
@@ -247,6 +259,80 @@ func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *
 	}
 
 	return service, nil
+}
+
+// mergeKVUpdates merges updates from KV store into the file-based config.
+// The file config is authoritative, but KV can provide updates (especially networks from sync service).
+func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *SweepConfig) (*SweepConfig, error) {
+	if s.kvStore == nil {
+		s.logger.Debug().Msg("KV store not initialized, skipping merge")
+		return nil, nil
+	}
+
+	// Try to get KV config
+	kvValue, found, err := s.kvStore.Get(ctx, kvPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config from KV store: %w", err)
+	}
+
+	if !found {
+		s.logger.Debug().Str("kvPath", kvPath).Msg("No KV config found, using file config only")
+		return nil, nil
+	}
+
+	var kvConfig SweepConfig
+	if err := json.Unmarshal(kvValue, &kvConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal KV config: %w", err)
+	}
+
+	// Create merged config starting with file config as base
+	mergedConfig := *fileConfig
+
+	// Merge specific fields from KV (mainly networks from sync service)
+	if len(kvConfig.Networks) > 0 {
+		mergedConfig.Networks = kvConfig.Networks
+		s.logger.Info().
+			Interface("networks", kvConfig.Networks).
+			Msg("Merged networks from KV config")
+	}
+
+	// Only merge other fields if they're not set in file config (file config is authoritative)
+	if len(fileConfig.Ports) == 0 && len(kvConfig.Ports) > 0 {
+		mergedConfig.Ports = kvConfig.Ports
+		s.logger.Info().
+			Interface("ports", kvConfig.Ports).
+			Msg("Used ports from KV config (not set in file)")
+	}
+
+	if len(fileConfig.SweepModes) == 0 && len(kvConfig.SweepModes) > 0 {
+		mergedConfig.SweepModes = kvConfig.SweepModes
+		s.logger.Info().
+			Interface("sweep_modes", kvConfig.SweepModes).
+			Msg("Used sweep modes from KV config (not set in file)")
+	}
+
+	if fileConfig.Concurrency == 0 && kvConfig.Concurrency > 0 {
+		mergedConfig.Concurrency = kvConfig.Concurrency
+		s.logger.Info().
+			Int("concurrency", kvConfig.Concurrency).
+			Msg("Used concurrency from KV config (not set in file)")
+	}
+
+	if fileConfig.Interval == 0 && kvConfig.Interval > 0 {
+		mergedConfig.Interval = kvConfig.Interval
+		s.logger.Info().
+			Dur("interval", time.Duration(kvConfig.Interval)).
+			Msg("Used interval from KV config (not set in file)")
+	}
+
+	if fileConfig.Timeout == 0 && kvConfig.Timeout > 0 {
+		mergedConfig.Timeout = kvConfig.Timeout
+		s.logger.Info().
+			Dur("timeout", time.Duration(kvConfig.Timeout)).
+			Msg("Used timeout from KV config (not set in file)")
+	}
+
+	return &mergedConfig, nil
 }
 
 func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Config) error {

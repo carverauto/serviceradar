@@ -19,11 +19,13 @@ package netbox
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json"  
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -33,6 +35,34 @@ import (
 var (
 	errUnexpectedStatusCode = errors.New("unexpected status code")
 )
+
+// parseTCPPorts parses TCP ports from the config credentials.
+// It looks for a "tcp_ports" credential containing comma-separated port numbers.
+// If not found or invalid, returns the default NetBox ports.
+func parseTCPPorts(config *models.SourceConfig) []int {
+	defaultPorts := []int{22, 80, 443, 3389, 445, 5985, 5986, 8080}
+
+	portsStr, ok := config.Credentials["tcp_ports"]
+	if !ok || portsStr == "" {
+		return defaultPorts
+	}
+
+	var ports []int
+	for _, portStr := range strings.Split(portsStr, ",") {
+		portStr = strings.TrimSpace(portStr)
+		if port, err := strconv.Atoi(portStr); err == nil && port > 0 && port <= 65535 {
+			ports = append(ports, port)
+		}
+	}
+
+	// If no valid ports were parsed, return defaults
+	if len(ports) == 0 {
+		return defaultPorts
+	}
+
+	return ports
+}
+
 
 // Fetch retrieves devices from NetBox for discovery purposes only.
 // This method focuses purely on data discovery and does not perform state reconciliation.
@@ -389,22 +419,32 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return // Or simply return to avoid writing a config with an unpredictable key
 	}
 
-	interval := n.Config.SweepInterval
-	if interval == "" {
-		interval = "5m"
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
+	
+	// Try to read existing sweep config from KV store first
+	var sweepConfig models.SweepConfig
+	existingConfigResp, err := n.KvClient.Get(ctx, &proto.GetRequest{
+		Key: configKey,
+	})
+	
+	if err == nil && existingConfigResp != nil && len(existingConfigResp.Value) > 0 {
+		// Parse existing config
+		if err := json.Unmarshal(existingConfigResp.Value, &sweepConfig); err != nil {
+			n.Logger.Warn().
+				Err(err).
+				Msg("Failed to parse existing sweep config, using defaults")
+			sweepConfig = n.getDefaultSweepConfig()
+		} else {
+			n.Logger.Info().Msg("Using existing sweep config, updating networks only")
+		}
+	} else {
+		// No existing config found, use defaults
+		n.Logger.Info().Msg("No existing sweep config found, using defaults")
+		sweepConfig = n.getDefaultSweepConfig()
 	}
 
-	sweepConfig := models.SweepConfig{
-		Networks:      ips,
-		Ports:         []int{22, 80, 443, 3389, 445, 8080},
-		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      interval,
-		Concurrency:   50,
-		Timeout:       "10s",
-		IcmpCount:     1,
-		HighPerfIcmp:  true,
-		IcmpRateLimit: 5000,
-	}
+	// Update only the networks field, preserve all other settings
+	sweepConfig.Networks = ips
 
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
@@ -415,7 +455,6 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
-	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
 	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
@@ -438,4 +477,24 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 	n.Logger.Info().
 		Str("config_key", configKey).
 		Msg("Successfully wrote sweep config")
+}
+
+// getDefaultSweepConfig returns the default sweep configuration
+func (n *NetboxIntegration) getDefaultSweepConfig() models.SweepConfig {
+	interval := n.Config.SweepInterval
+	if interval == "" {
+		interval = "5m"
+	}
+
+	return models.SweepConfig{
+		Networks:      []string{},
+		Ports:         parseTCPPorts(n.Config),
+		SweepModes:    []string{"icmp", "tcp"},
+		Interval:      interval,
+		Concurrency:   50,
+		Timeout:       "10s",
+		IcmpCount:     1,
+		HighPerfIcmp:  true,
+		IcmpRateLimit: 5000,
+	}
 }
