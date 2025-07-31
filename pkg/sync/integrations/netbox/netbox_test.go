@@ -59,10 +59,10 @@ func TestProcessDevices_UsesIDs(t *testing.T) {
 
 func TestParseTCPPorts(t *testing.T) {
 	tests := []struct {
-		name           string
-		credentials    map[string]string
-		expectedPorts  []int
-		description    string
+		name          string
+		credentials   map[string]string
+		expectedPorts []int
+		description   string
 	}{
 		{
 			name:          "default ports when tcp_ports not set",
@@ -113,7 +113,7 @@ func TestParseTCPPorts(t *testing.T) {
 			config := &models.SourceConfig{
 				Credentials: tt.credentials,
 			}
-			
+
 			result := parseTCPPorts(config)
 			require.Equal(t, tt.expectedPorts, result, tt.description)
 		})

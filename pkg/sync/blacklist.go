@@ -183,11 +183,14 @@ func (nb *NetworkBlacklist) FilterIPAddresses(ips []string) []string {
 	for _, ip := range ips {
 		if nb.IsBlacklisted(ip) {
 			blacklistedCount++
+
 			nb.logger.Debug().
 				Str("ip", ip).
 				Msg("Filtering out blacklisted IP address")
+
 			continue
 		}
+
 		filtered = append(filtered, ip)
 	}
 

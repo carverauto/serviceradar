@@ -361,4 +361,3 @@ func NewNetboxIntegration(
 		Logger:        log,
 	}
 }
-
