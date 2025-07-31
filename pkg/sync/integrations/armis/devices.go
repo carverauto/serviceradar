@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // fetchDevicesForQuery fetches all devices for a single query.
@@ -78,18 +79,36 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 
 // createAndWriteSweepConfig creates a sweep config from the given IPs and writes it to the KV store.
 func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string) error {
-	// Build sweep config using the base SweeperConfig from the integration instance
+	// Try to read existing sweep config from KV store first
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", a.Config.AgentID)
 	var finalSweepConfig *models.SweepConfig
 
-	if a.SweeperConfig != nil {
-		clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
-		clonedConfig.Networks = ips      // Update with dynamically fetched IPs
-		finalSweepConfig = &clonedConfig
-	} else {
-		// If SweeperConfig is nil, create a new one with just the networks
-		finalSweepConfig = &models.SweepConfig{
-			Networks: ips,
+	if a.KVClient != nil {
+		existingConfigResp, err := a.KVClient.Get(ctx, &proto.GetRequest{
+			Key: configKey,
+		})
+		
+		if err == nil && existingConfigResp != nil && len(existingConfigResp.Value) > 0 {
+			// Parse existing config
+			var existingConfig models.SweepConfig
+			if err := json.Unmarshal(existingConfigResp.Value, &existingConfig); err != nil {
+				a.Logger.Warn().
+					Err(err).
+					Msg("Failed to parse existing sweep config, using base config")
+				finalSweepConfig = a.getBaseSweepConfig(ips)
+			} else {
+				a.Logger.Info().Msg("Using existing sweep config, updating networks only")
+				existingConfig.Networks = ips
+				finalSweepConfig = &existingConfig
+			}
+		} else {
+			// No existing config found, use base config
+			a.Logger.Info().Msg("No existing sweep config found, using base config")
+			finalSweepConfig = a.getBaseSweepConfig(ips)
 		}
+	} else {
+		// No KV client available, use base config
+		finalSweepConfig = a.getBaseSweepConfig(ips)
 	}
 
 	a.Logger.Info().
@@ -547,4 +566,18 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 	}
 
 	return data, ips, events
+}
+
+// getBaseSweepConfig returns the base sweep configuration with the given networks
+func (a *ArmisIntegration) getBaseSweepConfig(ips []string) *models.SweepConfig {
+	if a.SweeperConfig != nil {
+		clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
+		clonedConfig.Networks = ips      // Update with dynamically fetched IPs
+		return &clonedConfig
+	}
+	
+	// If SweeperConfig is nil, create a new one with just the networks
+	return &models.SweepConfig{
+		Networks: ips,
+	}
 }
