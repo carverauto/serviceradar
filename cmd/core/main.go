@@ -52,6 +52,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
@@ -79,7 +80,25 @@ func run() error {
 	// Create root context for lifecycle management
 	ctx := context.Background()
 
-	// Initialize logger for main process
+	// Initialize basic logger first (without trace context)
+	basicLogger, err := lifecycle.CreateComponentLogger(ctx, "core-main", cfg.Logging)
+	if err != nil {
+		return err
+	}
+
+	// Initialize OpenTelemetry tracing with logger
+	ctx, rootSpan, err := logger.InitializeTracing(ctx, logger.TracingConfig{
+		ServiceName:    "serviceradar-core",
+		ServiceVersion: "1.0.0",
+		Debug:          true,
+		Logger:         basicLogger,
+	})
+	if err != nil {
+		return err
+	}
+	defer rootSpan.End()
+
+	// Create trace-aware logger (this will have trace_id and span_id)
 	mainLogger, err := lifecycle.CreateComponentLogger(ctx, "core-main", cfg.Logging)
 	if err != nil {
 		return err
