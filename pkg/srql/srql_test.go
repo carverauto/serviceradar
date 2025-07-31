@@ -513,6 +513,7 @@ func TestTimeClauseSupport(t *testing.T) {
 			expectedProton:     "SELECT * FROM table(logs) WHERE timestamp BETWEEN to_start_of_day(yesterday()) AND to_start_of_day(today())",
 			expectedClickHouse: "SELECT * FROM logs WHERE timestamp BETWEEN toStartOfDay(yesterday()) AND toStartOfDay(today())",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
 				require.NoError(t, err)
 				assert.Equal(t, models.Show, query.Type)
 				assert.Equal(t, models.Logs, query.Entity)
@@ -522,11 +523,14 @@ func TestTimeClauseSupport(t *testing.T) {
 			},
 		},
 		{
-			name:               "FROM TODAY with additional conditions",
-			query:              "SHOW devices FROM TODAY WHERE ip = '192.168.1.1'",
-			expectedProton:     "SELECT * FROM table(unified_devices) WHERE (last_seen >= to_start_of_day(now()) AND ip = '192.168.1.1') AND coalesce(metadata['_deleted'], '') != 'true'",
+			name:  "FROM TODAY with additional conditions",
+			query: "SHOW devices FROM TODAY WHERE ip = '192.168.1.1'",
+			expectedProton: "SELECT * FROM table(unified_devices) WHERE " +
+				"(last_seen >= to_start_of_day(now()) AND ip = '192.168.1.1') AND " +
+				"coalesce(metadata['_deleted'], '') != 'true'",
 			expectedClickHouse: "SELECT * FROM devices WHERE last_seen >= toStartOfDay(now()) AND ip = '192.168.1.1'",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
 				require.NoError(t, err)
 				assert.Equal(t, models.Show, query.Type)
 				assert.Equal(t, models.Devices, query.Entity)
@@ -539,11 +543,13 @@ func TestTimeClauseSupport(t *testing.T) {
 			},
 		},
 		{
-			name:               "COUNT events FROM YESTERDAY",
-			query:              "COUNT events FROM YESTERDAY",
-			expectedProton:     "SELECT count() FROM table(events) WHERE timestamp BETWEEN to_start_of_day(yesterday()) AND to_start_of_day(today())",
+			name:  "COUNT events FROM YESTERDAY",
+			query: "COUNT events FROM YESTERDAY",
+			expectedProton: "SELECT count() FROM table(events) WHERE timestamp BETWEEN " +
+				"to_start_of_day(yesterday()) AND to_start_of_day(today())",
 			expectedClickHouse: "SELECT count() FROM events WHERE timestamp BETWEEN toStartOfDay(yesterday()) AND toStartOfDay(today())",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
 				require.NoError(t, err)
 				assert.Equal(t, models.Count, query.Type)
 				assert.Equal(t, models.Events, query.Entity)
@@ -557,6 +563,7 @@ func TestTimeClauseSupport(t *testing.T) {
 			expectedProton:     "SELECT * FROM table(logs) WHERE timestamp >= NOW() - INTERVAL 5 DAYS",
 			expectedClickHouse: "SELECT * FROM logs WHERE timestamp >= NOW() - INTERVAL 5 DAYS",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
 				require.NoError(t, err)
 				assert.Equal(t, models.Show, query.Type)
 				assert.Equal(t, models.Logs, query.Entity)
@@ -572,6 +579,7 @@ func TestTimeClauseSupport(t *testing.T) {
 			expectedProton:     "SELECT * FROM table(events) WHERE timestamp >= NOW() - INTERVAL 2 HOURS",
 			expectedClickHouse: "SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 2 HOURS",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
 				require.NoError(t, err)
 				assert.Equal(t, models.Show, query.Type)
 				assert.Equal(t, models.Events, query.Entity)
@@ -586,7 +594,7 @@ func TestTimeClauseSupport(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			parsedQuery, err := p.Parse(tc.query)
-			
+
 			if tc.validate != nil {
 				tc.validate(t, parsedQuery, err)
 			} else {
@@ -598,6 +606,7 @@ func TestTimeClauseSupport(t *testing.T) {
 				// Parse a fresh copy for Proton
 				protonQuery, errProtonParse := p.Parse(tc.query)
 				require.NoError(t, errProtonParse, "Proton query parsing failed")
+
 				sqlProton, errProton := protonTranslator.Translate(protonQuery)
 				require.NoError(t, errProton, "Proton translation failed")
 				assert.Equal(t, tc.expectedProton, sqlProton, "Proton SQL mismatch")
@@ -608,6 +617,7 @@ func TestTimeClauseSupport(t *testing.T) {
 				// Parse a fresh copy for ClickHouse
 				clickhouseQuery, errClickHouseParse := p.Parse(tc.query)
 				require.NoError(t, errClickHouseParse, "ClickHouse query parsing failed")
+
 				sqlClickHouse, errClickHouse := clickhouseTranslator.Translate(clickhouseQuery)
 				require.NoError(t, errClickHouse, "ClickHouse translation failed")
 				assert.Equal(t, tc.expectedClickHouse, sqlClickHouse, "ClickHouse SQL mismatch")

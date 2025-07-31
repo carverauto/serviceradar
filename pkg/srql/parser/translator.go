@@ -151,7 +151,7 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 
 	// Transform unsupported entity types to their equivalent supported types
 	t.TransformQuery(query)
-	
+
 	// Convert time clauses to WHERE conditions
 	t.convertTimeClauseToCondition(query)
 
@@ -1056,35 +1056,55 @@ func (t *Translator) convertTimeClauseToCondition(query *models.Query) {
 
 	// Determine the timestamp field based on entity type
 	timestampField := t.getTimestampFieldForEntity(query.Entity)
-	
+
 	// Convert time clause to condition
 	condition := t.timeClauseToCondition(query.TimeClause, timestampField)
-	
+
 	// Add logical operator to existing conditions if we're adding a new one
 	if len(query.Conditions) > 0 {
 		// Add AND to the first existing condition
 		query.Conditions[0].LogicalOp = models.And
 	}
-	
+
 	// Prepend the time condition to existing conditions
 	query.Conditions = append([]models.Condition{condition}, query.Conditions...)
-	
+
 	// Clear the time clause since it's now a condition
 	query.TimeClause = nil
 }
 
 // getTimestampFieldForEntity returns the appropriate timestamp field for an entity
 func (*Translator) getTimestampFieldForEntity(entity models.EntityType) string {
-	switch entity {
-	case models.Devices:
-		return "last_seen"
-	case models.Logs:
-		return "timestamp"
-	case models.Events:
-		return "timestamp"
-	default:
-		return "timestamp" // default timestamp field
+	// Map entity types to their appropriate timestamp fields
+	entityTimestampFields := map[models.EntityType]string{
+		// Entities that use last_seen (when they were last detected/seen)
+		models.Devices:    "last_seen",
+		models.Services:   "last_seen",
+		models.Interfaces: "last_seen",
+
+		// All other entities use timestamp (when they occurred/were collected)
+		models.Flows:          "timestamp",
+		models.Connections:    "timestamp",
+		models.Traps:          "timestamp",
+		models.Logs:           "timestamp",
+		models.Events:         "timestamp",
+		models.Pollers:        "timestamp",
+		models.DeviceUpdates:  "timestamp",
+		models.ICMPResults:    "timestamp",
+		models.SNMPResults:    "timestamp",
+		models.SweepResults:   "timestamp",
+		models.CPUMetrics:     "timestamp",
+		models.DiskMetrics:    "timestamp",
+		models.MemoryMetrics:  "timestamp",
+		models.ProcessMetrics: "timestamp",
+		models.SNMPMetrics:    "timestamp",
 	}
+
+	if field, exists := entityTimestampFields[entity]; exists {
+		return field
+	}
+	// Default fallback for any new entity types
+	return "timestamp"
 }
 
 // timeClauseToCondition converts a TimeClause to a Condition
@@ -1093,6 +1113,7 @@ func (t *Translator) timeClauseToCondition(tc *models.TimeClause, timestampField
 	case models.TimeToday:
 		// Use timestamp range for today: timestamp >= start_of_today AND timestamp < start_of_tomorrow
 		startOfDayFunc := t.getStartOfDayFunction()
+
 		return models.Condition{
 			Field:    timestampField,
 			Operator: models.GreaterThanOrEquals,
@@ -1101,6 +1122,7 @@ func (t *Translator) timeClauseToCondition(tc *models.TimeClause, timestampField
 	case models.TimeYesterday:
 		// Use timestamp range for yesterday: timestamp >= start_of_yesterday AND timestamp < start_of_today
 		startOfDayFunc := t.getStartOfDayFunction()
+
 		return models.Condition{
 			Field:    timestampField,
 			Operator: models.Between,
@@ -1112,6 +1134,7 @@ func (t *Translator) timeClauseToCondition(tc *models.TimeClause, timestampField
 	case models.TimeLast:
 		// For "LAST n timeUnit", create a condition like: timestamp >= NOW() - INTERVAL n timeUnit
 		intervalValue := fmt.Sprintf("NOW() - INTERVAL %d %s", tc.Amount, strings.ToUpper(string(tc.Unit)))
+
 		return models.Condition{
 			Field:    timestampField,
 			Operator: models.GreaterThanOrEquals,
@@ -1124,9 +1147,10 @@ func (t *Translator) timeClauseToCondition(tc *models.TimeClause, timestampField
 			Operator: models.Between,
 			Values:   []interface{}{tc.StartValue, tc.EndValue},
 		}
+
 	default:
-		// Default to today if unknown type
 		startOfDayFunc := t.getStartOfDayFunction()
+
 		return models.Condition{
 			Field:    timestampField,
 			Operator: models.GreaterThanOrEquals,
