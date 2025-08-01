@@ -20,6 +20,16 @@ pub struct ServerConfig {
     pub bind_address: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    #[serde(default)]
+    pub metrics: Option<MetricsConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]  
+pub struct MetricsConfig {
+    #[serde(default = "default_metrics_bind_address")]
+    pub bind_address: String,
+    #[serde(default = "default_metrics_port")]
+    pub port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +63,7 @@ impl Default for ServerConfig {
         Self {
             bind_address: default_bind_address(),
             port: default_port(),
+            metrics: None,
         }
     }
 }
@@ -111,6 +122,11 @@ impl Config {
         format!("{}:{}", self.server.bind_address, self.server.port)
     }
 
+    /// Get the full metrics bind address (address:port) if metrics are enabled
+    pub fn metrics_address(&self) -> Option<String> {
+        self.server.metrics.as_ref().map(|m| format!("{}:{}", m.bind_address, m.port))
+    }
+
     /// Convert to NatsConfig if NATS is configured
     pub fn nats_config(&self) -> Option<NATSConfig> {
         self.nats.as_ref().map(|nats| {
@@ -139,7 +155,14 @@ impl Config {
     /// Generate an example configuration file content
     pub fn example_toml() -> String {
         let example = Config {
-            server: ServerConfig::default(),
+            server: ServerConfig {
+                bind_address: default_bind_address(),
+                port: default_port(),
+                metrics: Some(MetricsConfig {
+                    bind_address: default_metrics_bind_address(),
+                    port: default_metrics_port(),
+                }),
+            },
             nats: Some(NATSConfigTOML {
                 url: "nats://localhost:4222".to_string(),
                 subject: "events.otel".to_string(),
@@ -182,6 +205,14 @@ fn default_nats_stream() -> String {
 
 fn default_timeout_secs() -> u64 {
     30
+}
+
+fn default_metrics_bind_address() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_metrics_port() -> u16 {
+    9090
 }
 
 #[cfg(test)]

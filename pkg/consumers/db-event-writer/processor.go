@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	v1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	tracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -44,6 +45,53 @@ type LogRow struct {
 	ScopeVersion       string    `db:"scope_version"`
 	Attributes         string    `db:"attributes"`
 	ResourceAttributes string    `db:"resource_attributes"`
+	RawData            string    `db:"raw_data"`
+}
+
+// MetricsRow represents a row in the metrics table
+type MetricsRow struct {
+	Timestamp        time.Time `db:"timestamp"`
+	TraceID          string    `db:"trace_id"`
+	SpanID           string    `db:"span_id"`
+	ServiceName      string    `db:"service_name"`
+	SpanName         string    `db:"span_name"`
+	SpanKind         string    `db:"span_kind"`
+	DurationMs       float64   `db:"duration_ms"`
+	DurationSeconds  float64   `db:"duration_seconds"`
+	MetricType       string    `db:"metric_type"`
+	HTTPMethod       string    `db:"http_method"`
+	HTTPRoute        string    `db:"http_route"`
+	HTTPStatusCode   string    `db:"http_status_code"`
+	GRPCService      string    `db:"grpc_service"`
+	GRPCMethod       string    `db:"grpc_method"`
+	GRPCStatusCode   string    `db:"grpc_status_code"`
+	IsSlow           bool      `db:"is_slow"`
+	Component        string    `db:"component"`
+	Level            string    `db:"level"`
+	RawData          string    `db:"raw_data"`
+}
+
+// TracesRow represents a row in the traces table
+type TracesRow struct {
+	Timestamp          time.Time `db:"timestamp"`
+	TraceID            string    `db:"trace_id"`
+	SpanID             string    `db:"span_id"`
+	ParentSpanID       string    `db:"parent_span_id"`
+	Name               string    `db:"name"`
+	Kind               int32     `db:"kind"`
+	StartTimeUnixNano  uint64    `db:"start_time_unix_nano"`
+	EndTimeUnixNano    uint64    `db:"end_time_unix_nano"`
+	ServiceName        string    `db:"service_name"`
+	ServiceVersion     string    `db:"service_version"`
+	ServiceInstance    string    `db:"service_instance"`
+	ScopeName          string    `db:"scope_name"`
+	ScopeVersion       string    `db:"scope_version"`
+	StatusCode         int32     `db:"status_code"`
+	StatusMessage      string    `db:"status_message"`
+	Attributes         string    `db:"attributes"`
+	ResourceAttributes string    `db:"resource_attributes"`
+	Events             string    `db:"events"`
+	Links              string    `db:"links"`
 	RawData            string    `db:"raw_data"`
 }
 
@@ -497,6 +545,22 @@ func (p *Processor) ProcessBatch(ctx context.Context, msgs []jetstream.Msg) ([]j
 			}
 
 			processed = append(processed, processedMsgs...)
+		} else if strings.Contains(table, "traces") {
+			// Handle OTEL traces table
+			processedMsgs, err := p.processTracesTable(ctx, table, tableMsgs)
+			if err != nil {
+				return processed, err
+			}
+
+			processed = append(processed, processedMsgs...)
+		} else if strings.Contains(table, "metrics") {
+			// Handle OTEL metrics table
+			processedMsgs, err := p.processMetricsTable(ctx, table, tableMsgs)
+			if err != nil {
+				return processed, err
+			}
+
+			processed = append(processed, processedMsgs...)
 		} else {
 			// Handle events table
 			processedMsgs, err := p.processEventsTable(ctx, table, tableMsgs)
@@ -608,6 +672,123 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 	return processed, nil
 }
 
+// processMetricsTable handles performance metrics table batch processing
+func (p *Processor) processMetricsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
+	query := fmt.Sprintf("INSERT INTO %s (timestamp, trace_id, span_id, service_name, span_name, span_kind, "+
+		"duration_ms, duration_seconds, metric_type, http_method, http_route, http_status_code, "+
+		"grpc_service, grpc_method, grpc_status_code, is_slow, component, level, raw_data) "+
+		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
+
+	batch, err := p.conn.PrepareBatch(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	processed := make([]jetstream.Msg, 0, len(msgs))
+
+	for _, msg := range msgs {
+		// Handle OTEL metrics messages
+		if strings.Contains(msg.Subject(), "otel") && strings.Contains(msg.Subject(), "metrics") {
+			if metricsRows, ok := p.parsePerformanceMessage(msg); ok {
+				for i := range metricsRows {
+					if err := batch.Append(
+						metricsRows[i].Timestamp,
+						metricsRows[i].TraceID,
+						metricsRows[i].SpanID,
+						metricsRows[i].ServiceName,
+						metricsRows[i].SpanName,
+						metricsRows[i].SpanKind,
+						metricsRows[i].DurationMs,
+						metricsRows[i].DurationSeconds,
+						metricsRows[i].MetricType,
+						metricsRows[i].HTTPMethod,
+						metricsRows[i].HTTPRoute,
+						metricsRows[i].HTTPStatusCode,
+						metricsRows[i].GRPCService,
+						metricsRows[i].GRPCMethod,
+						metricsRows[i].GRPCStatusCode,
+						metricsRows[i].IsSlow,
+						metricsRows[i].Component,
+						metricsRows[i].Level,
+						metricsRows[i].RawData,
+					); err != nil {
+						return processed, err
+					}
+				}
+			} else {
+				p.logger.Warn().Msg("Skipping malformed performance message")
+			}
+		}
+
+		processed = append(processed, msg)
+	}
+
+	if err := batch.Send(); err != nil {
+		return processed, err
+	}
+
+	return processed, nil
+}
+
+// processTracesTable handles traces table batch processing
+func (p *Processor) processTracesTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
+	query := fmt.Sprintf("INSERT INTO %s (timestamp, trace_id, span_id, parent_span_id, name, kind, "+
+		"start_time_unix_nano, end_time_unix_nano, service_name, service_version, service_instance, "+
+		"scope_name, scope_version, status_code, status_message, attributes, resource_attributes, "+
+		"events, links, raw_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
+
+	batch, err := p.conn.PrepareBatch(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	processed := make([]jetstream.Msg, 0, len(msgs))
+
+	for _, msg := range msgs {
+		// Handle OTEL traces
+		if strings.Contains(msg.Subject(), "otel") {
+			if traceRows, ok := p.parseOTELTraces(msg); ok {
+				for i := range traceRows {
+					if err := batch.Append(
+						traceRows[i].Timestamp,
+						traceRows[i].TraceID,
+						traceRows[i].SpanID,
+						traceRows[i].ParentSpanID,
+						traceRows[i].Name,
+						traceRows[i].Kind,
+						traceRows[i].StartTimeUnixNano,
+						traceRows[i].EndTimeUnixNano,
+						traceRows[i].ServiceName,
+						traceRows[i].ServiceVersion,
+						traceRows[i].ServiceInstance,
+						traceRows[i].ScopeName,
+						traceRows[i].ScopeVersion,
+						traceRows[i].StatusCode,
+						traceRows[i].StatusMessage,
+						traceRows[i].Attributes,
+						traceRows[i].ResourceAttributes,
+						traceRows[i].Events,
+						traceRows[i].Links,
+						traceRows[i].RawData,
+					); err != nil {
+						return processed, err
+					}
+				}
+			} else {
+				p.logger.Warn().Msg("Skipping malformed OTEL trace message")
+			}
+		}
+
+		processed = append(processed, msg)
+	}
+
+	if err := batch.Send(); err != nil {
+		return processed, err
+	}
+
+	return processed, nil
+}
+
 // parseOTELMessage attempts to parse an OTEL message and returns log rows
 // It returns the parsed log rows and a boolean indicating success
 func (p *Processor) parseOTELMessage(msg jetstream.Msg) ([]LogRow, bool) {
@@ -652,4 +833,256 @@ func (p *Processor) parseOTELMessage(msg jetstream.Msg) ([]LogRow, bool) {
 		Msg("Successfully parsed log rows from OTEL message")
 
 	return logRows, true
+}
+
+// parsePerformanceMessage attempts to parse a performance analytics JSON message and returns metrics rows
+// It returns the parsed metrics rows and a boolean indicating success
+func (p *Processor) parsePerformanceMessage(msg jetstream.Msg) ([]MetricsRow, bool) {
+	p.logger.Debug().
+		Str("subject", msg.Subject()).
+		Int("data_length", len(msg.Data())).
+		Msg("Processing performance message")
+
+	// Parse JSON array of performance metrics
+	var performanceMetrics []struct {
+		Timestamp       string  `json:"timestamp"`
+		TraceID         string  `json:"trace_id"`
+		SpanID          string  `json:"span_id"`
+		ServiceName     string  `json:"service_name"`
+		SpanName        string  `json:"span_name"`
+		SpanKind        string  `json:"span_kind"`
+		DurationMs      float64 `json:"duration_ms"`
+		DurationSeconds float64 `json:"duration_seconds"`
+		MetricType      string  `json:"metric_type"`
+		HTTPMethod      *string `json:"http_method"`
+		HTTPRoute       *string `json:"http_route"`
+		HTTPStatusCode  *string `json:"http_status_code"`
+		GRPCService     *string `json:"grpc_service"`
+		GRPCMethod      *string `json:"grpc_method"`
+		GRPCStatusCode  *string `json:"grpc_status_code"`
+		IsSlow          bool    `json:"is_slow"`
+		Component       string  `json:"component"`
+		Level           string  `json:"level"`
+	}
+
+	if err := json.Unmarshal(msg.Data(), &performanceMetrics); err != nil {
+		p.logger.Debug().Err(err).Msg("Failed to parse performance metrics JSON")
+		return nil, false
+	}
+
+	// Convert to MetricsRow structs
+	var metricsRows []MetricsRow
+	for _, metric := range performanceMetrics {
+		// Parse timestamp
+		timestamp, err := time.Parse(time.RFC3339, metric.Timestamp)
+		if err != nil {
+			p.logger.Warn().Err(err).Str("timestamp", metric.Timestamp).Msg("Failed to parse timestamp, using current time")
+			timestamp = time.Now()
+		}
+
+		// Helper function to convert optional string pointers to strings
+		getStringValue := func(s *string) string {
+			if s == nil {
+				return ""
+			}
+			return *s
+		}
+
+		// Create raw data JSON
+		rawDataJSON, _ := json.Marshal(metric)
+
+		row := MetricsRow{
+			Timestamp:       timestamp,
+			TraceID:         metric.TraceID,
+			SpanID:          metric.SpanID,
+			ServiceName:     metric.ServiceName,
+			SpanName:        metric.SpanName,
+			SpanKind:        metric.SpanKind,
+			DurationMs:      metric.DurationMs,
+			DurationSeconds: metric.DurationSeconds,
+			MetricType:      metric.MetricType,
+			HTTPMethod:      getStringValue(metric.HTTPMethod),
+			HTTPRoute:       getStringValue(metric.HTTPRoute),
+			HTTPStatusCode:  getStringValue(metric.HTTPStatusCode),
+			GRPCService:     getStringValue(metric.GRPCService),
+			GRPCMethod:      getStringValue(metric.GRPCMethod),
+			GRPCStatusCode:  getStringValue(metric.GRPCStatusCode),
+			IsSlow:          metric.IsSlow,
+			Component:       metric.Component,
+			Level:           metric.Level,
+			RawData:         string(rawDataJSON),
+		}
+
+		metricsRows = append(metricsRows, row)
+	}
+
+	p.logger.Debug().
+		Int("metrics_rows", len(metricsRows)).
+		Msg("Successfully parsed performance metrics")
+
+	return metricsRows, true
+}
+
+// parseOTELTraces attempts to parse an OTEL traces message and returns trace rows
+// It returns the parsed trace rows and a boolean indicating success
+func (p *Processor) parseOTELTraces(msg jetstream.Msg) ([]TracesRow, bool) {
+	p.logger.Debug().
+		Str("subject", msg.Subject()).
+		Int("data_length", len(msg.Data())).
+		Msg("Processing OTEL traces message")
+
+	// Unmarshal the protobuf data
+	var req tracev1.ExportTraceServiceRequest
+	if err := proto.Unmarshal(msg.Data(), &req); err != nil {
+		p.logger.Debug().Err(err).Msg("Failed to unmarshal OTEL traces")
+		return nil, false
+	}
+
+	// Pre-allocate result slice
+	var rows []TracesRow
+
+	// Process all traces
+	for _, resourceSpan := range req.ResourceSpans {
+		// Skip invalid resource spans
+		if resourceSpan.Resource == nil {
+			continue
+		}
+
+		// Get service info once per resource
+		serviceName, serviceVersion, serviceInstance, resourceAttribs :=
+			processResourceAttributes(resourceSpan.Resource)
+
+		// Process all scope spans for this resource
+		for _, scopeSpan := range resourceSpan.ScopeSpans {
+			// Get scope info once per scope
+			scopeName, scopeVersion := getScopeInfo(scopeSpan.Scope)
+
+			// Process all spans for this scope
+			for _, span := range scopeSpan.Spans {
+				// Convert timestamp safely to prevent uint64 -> int64 overflow
+				var timestamp time.Time
+				if span.StartTimeUnixNano <= uint64(maxInt64) {
+					timestamp = time.Unix(0, int64(span.StartTimeUnixNano))
+				} else {
+					// Handle overflow case
+					seconds := span.StartTimeUnixNano / 1000000000
+					nanos := span.StartTimeUnixNano % 1000000000
+					var secInt64 int64
+					if seconds > uint64(maxInt64) {
+						secInt64 = maxInt64
+					} else {
+						secInt64 = int64(seconds)
+					}
+					timestamp = time.Unix(secInt64, int64(nanos))
+				}
+
+				// Process span attributes
+				spanAttribs := processLogAttributes(span.Attributes)
+
+				// Process events to JSON
+				eventsJSON := "[]"
+				if len(span.Events) > 0 {
+					events := make([]map[string]interface{}, 0, len(span.Events))
+					for _, event := range span.Events {
+						eventMap := map[string]interface{}{
+							"time_unix_nano": event.TimeUnixNano,
+							"name":           event.Name,
+							"attributes":     processLogAttributes(event.Attributes),
+						}
+						events = append(events, eventMap)
+					}
+					if eventBytes, err := json.Marshal(events); err == nil {
+						eventsJSON = string(eventBytes)
+					}
+				}
+
+				// Process links to JSON
+				linksJSON := "[]"
+				if len(span.Links) > 0 {
+					links := make([]map[string]interface{}, 0, len(span.Links))
+					for _, link := range span.Links {
+						linkMap := map[string]interface{}{
+							"trace_id":   fmt.Sprintf("%x", link.TraceId),
+							"span_id":    fmt.Sprintf("%x", link.SpanId),
+							"attributes": processLogAttributes(link.Attributes),
+						}
+						links = append(links, linkMap)
+					}
+					if linkBytes, err := json.Marshal(links); err == nil {
+						linksJSON = string(linkBytes)
+					}
+				}
+
+				// Get status message
+				statusMessage := ""
+				if span.Status != nil {
+					statusMessage = span.Status.Message
+				}
+
+				// Create raw data JSON
+				rawDataMap := map[string]interface{}{
+					"resource_spans": map[string]interface{}{
+						"resource_attributes": resourceAttribs,
+						"scope_spans": map[string]interface{}{
+							"scope": map[string]interface{}{
+								"name":    scopeName,
+								"version": scopeVersion,
+							},
+							"span": map[string]interface{}{
+								"trace_id":       fmt.Sprintf("%x", span.TraceId),
+								"span_id":        fmt.Sprintf("%x", span.SpanId),
+								"parent_span_id": fmt.Sprintf("%x", span.ParentSpanId),
+								"name":           span.Name,
+								"kind":           span.Kind,
+								"start_time":     span.StartTimeUnixNano,
+								"end_time":       span.EndTimeUnixNano,
+								"attributes":     spanAttribs,
+								"events":         eventsJSON,
+								"links":          linksJSON,
+							},
+						},
+					},
+				}
+
+				// Marshal to JSON
+				rawDataJSON, _ := json.Marshal(rawDataMap)
+
+				row := TracesRow{
+					Timestamp:          timestamp,
+					TraceID:            fmt.Sprintf("%x", span.TraceId),
+					SpanID:             fmt.Sprintf("%x", span.SpanId),
+					ParentSpanID:       fmt.Sprintf("%x", span.ParentSpanId),
+					Name:               span.Name,
+					Kind:               int32(span.Kind),
+					StartTimeUnixNano:  span.StartTimeUnixNano,
+					EndTimeUnixNano:    span.EndTimeUnixNano,
+					ServiceName:        serviceName,
+					ServiceVersion:     serviceVersion,
+					ServiceInstance:    serviceInstance,
+					ScopeName:          scopeName,
+					ScopeVersion:       scopeVersion,
+					StatusCode:         0,
+					StatusMessage:      statusMessage,
+					Attributes:         strings.Join(spanAttribs, ","),
+					ResourceAttributes: strings.Join(resourceAttribs, ","),
+					Events:             eventsJSON,
+					Links:              linksJSON,
+					RawData:            string(rawDataJSON),
+				}
+
+				// Set status code if status exists
+				if span.Status != nil {
+					row.StatusCode = int32(span.Status.Code)
+				}
+
+				rows = append(rows, row)
+			}
+		}
+	}
+
+	p.logger.Debug().
+		Int("trace_rows", len(rows)).
+		Msg("Successfully parsed trace rows from OTEL message")
+
+	return rows, true
 }
