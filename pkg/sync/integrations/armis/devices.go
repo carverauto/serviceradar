@@ -50,12 +50,48 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 	for nextPage >= 0 {
 		page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, query.Query, nextPage, a.PageSize)
 		if err != nil {
-			a.Logger.Error().
-				Err(err).
-				Str("query_label", query.Label).
-				Msg("Failed to fetch devices page")
+			// Check if this is a 401 error and retry with a fresh token
+			if !(strings.Contains(err.Error(), "401") && strings.Contains(err.Error(), "Invalid access token")) {
+				a.Logger.Error().
+					Err(err).
+					Str("query_label", query.Label).
+					Msg("Failed to fetch devices page")
 
-			return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
+				return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
+			}
+
+			a.Logger.Warn().
+				Str("query_label", query.Label).
+				Msg("Got 401 error, invalidating token and retrying with fresh token")
+
+			// Invalidate the cached token if we have a CachedTokenProvider
+			if cachedProvider, ok := a.TokenProvider.(*CachedTokenProvider); ok {
+				cachedProvider.InvalidateToken()
+			}
+
+			// Get a fresh token
+			newAccessToken, tokenErr := a.TokenProvider.GetAccessToken(ctx)
+			if tokenErr != nil {
+				a.Logger.Error().
+					Err(tokenErr).
+					Str("query_label", query.Label).
+					Msg("Failed to get fresh access token after 401")
+
+				return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
+			}
+
+			// Retry with the fresh token
+			page, err = a.DeviceFetcher.FetchDevicesPage(ctx, newAccessToken, query.Query, nextPage, a.PageSize)
+			if err != nil {
+				a.Logger.Error().
+					Err(err).
+					Str("query_label", query.Label).
+					Msg("Failed to fetch devices page after token refresh")
+
+				return nil, fmt.Errorf("failed query '%s' after token refresh: %w", query.Label, err)
+			}
+			// Update the accessToken for subsequent pages
+			accessToken = newAccessToken
 		}
 
 		// Append devices even if page is empty
@@ -173,6 +209,7 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 	}
 
 	allDevices := make([]Device, 0)
+	deviceLabels := make(map[int]string) // Map device ID to query label
 
 	// Fetch devices for each query
 	for _, q := range a.Config.Queries {
@@ -181,11 +218,16 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 			return nil, nil, nil, queryErr
 		}
 
+		// Track which query discovered each device
+		for i := range devices {
+			deviceLabels[devices[i].ID] = q.Label
+		}
+
 		allDevices = append(allDevices, devices...)
 	}
 
-	// Process devices
-	data, ips, events := a.processDevices(allDevices)
+	// Process devices with query labels
+	data, ips, events := a.processDevices(allDevices, deviceLabels)
 
 	a.Logger.Info().
 		Int("total_devices", len(allDevices)).
@@ -491,89 +533,44 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string, events []*models.DeviceUpdate) {
+func (a *ArmisIntegration) processDevices(
+	devices []Device,
+	deviceLabels map[int]string,
+) (data map[string][]byte, ips []string, events []*models.DeviceUpdate) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices))
 	events = make([]*models.DeviceUpdate, 0, len(devices))
 
-	agentID := a.Config.AgentID
-	pollerID := a.Config.PollerID
-	partition := a.Config.Partition
-
 	now := time.Now()
 
 	for i := range devices {
-		var err error
+		d := &devices[i]
 
-		d := &devices[i] // Use a pointer to avoid copying the struct
-
-		tag := ""
-		if len(d.Tags) > 0 {
-			tag = strings.Join(d.Tags, ",")
-		}
-
-		enriched := DeviceWithMetadata{
-			Device:   *d,
-			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", d.ID), "tag": tag},
-		}
-
-		// Marshal the device with metadata to JSON
-		value, err := json.Marshal(enriched)
+		// Process enriched device for KV storage
+		enrichedData, err := a.createEnrichedDeviceData(d, deviceLabels[d.ID])
 		if err != nil {
 			a.Logger.Error().
 				Err(err).
 				Int("device_id", d.ID).
-				Msg("Failed to marshal enriched device")
+				Msg("Failed to create enriched device data")
 
 			continue
 		}
 
-		// Store device in KV with device ID as key
-		data[fmt.Sprintf("%d", d.ID)] = value
+		data[fmt.Sprintf("%d", d.ID)] = enrichedData
 
-		// Only consider the first IP address returned by Armis
+		// Extract IP and create device update event
 		ip := extractFirstIP(d.IPAddress)
 		if ip == "" {
 			continue
 		}
 
+		event := a.createDeviceUpdateEvent(d, ip, deviceLabels[d.ID], now)
+
+		// Marshal event for KV storage
 		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, ip)
 
-		// create discovery event (sweep result style)
-		metadata := map[string]interface{}{
-			"armis_device_id": fmt.Sprintf("%d", d.ID),
-			"tag":             tag,
-		}
-
-		hostname := d.Name
-		mac := d.MacAddress
-		deviceID := fmt.Sprintf("%s:%s", partition, ip)
-
-		event := &models.DeviceUpdate{
-			AgentID:   agentID,
-			PollerID:  pollerID,
-			Source:    models.DiscoverySourceArmis,
-			DeviceID:  deviceID,
-			Partition: partition,
-			IP:        ip,
-			MAC:       &mac,
-			Hostname:  &hostname,
-			Timestamp: now,
-			Metadata: map[string]string{
-				"integration_type": "armis",
-				"integration_id":   fmt.Sprintf("%d", d.ID),
-			},
-		}
-
-		for k, v := range metadata {
-			if str, ok := v.(string); ok {
-				event.Metadata[k] = str
-			} else {
-				event.Metadata[k] = fmt.Sprintf("%v", v)
-			}
-		}
-
-		value, err = json.Marshal(event)
+		eventData, err := json.Marshal(event)
 		if err != nil {
 			a.Logger.Error().
 				Err(err).
@@ -583,12 +580,63 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			continue
 		}
 
-		data[kvKey] = value
+		data[kvKey] = eventData
 
 		events = append(events, event)
-
 		ips = append(ips, ip+"/32")
 	}
 
 	return data, ips, events
+}
+
+// createEnrichedDeviceData creates enriched device data for KV storage
+func (*ArmisIntegration) createEnrichedDeviceData(d *Device, queryLabel string) ([]byte, error) {
+	tag := ""
+	if len(d.Tags) > 0 {
+		tag = strings.Join(d.Tags, ",")
+	}
+
+	enriched := DeviceWithMetadata{
+		Device: *d,
+		Metadata: map[string]string{
+			"armis_device_id": fmt.Sprintf("%d", d.ID),
+			"tag":             tag,
+			"query_label":     queryLabel,
+		},
+	}
+
+	return json.Marshal(enriched)
+}
+
+// createDeviceUpdateEvent creates a DeviceUpdate event from an Armis device
+func (a *ArmisIntegration) createDeviceUpdateEvent(d *Device, ip, queryLabel string, timestamp time.Time) *models.DeviceUpdate {
+	tag := ""
+	if len(d.Tags) > 0 {
+		tag = strings.Join(d.Tags, ",")
+	}
+
+	hostname := d.Name
+	mac := d.MacAddress
+	deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
+
+	event := &models.DeviceUpdate{
+		AgentID:   a.Config.AgentID,
+		PollerID:  a.Config.PollerID,
+		Source:    models.DiscoverySourceArmis,
+		DeviceID:  deviceID,
+		Partition: a.Config.Partition,
+		IP:        ip,
+		MAC:       &mac,
+		Hostname:  &hostname,
+		Timestamp: timestamp,
+		Metadata: map[string]string{
+			"integration_type": "armis",
+			"integration_id":   fmt.Sprintf("%d", d.ID),
+			"armis_device_id":  fmt.Sprintf("%d", d.ID),
+			"tag":              tag,
+			"query_label":      queryLabel,
+		},
+	}
+
+	return event
 }
