@@ -290,6 +290,9 @@ func NewArmisIntegration(
 		sweepQuerier = &armisDeviceStateAdapter{querier: baseSweepQuerier}
 	}
 
+	// Wrap the token provider with caching to avoid 401 errors
+	cachedTokenProvider := armis.NewCachedTokenProvider(defaultImpl)
+
 	// Initialize ArmisUpdater for status updates
 	var armisUpdater armis.ArmisUpdater
 
@@ -297,7 +300,7 @@ func NewArmisIntegration(
 		armisUpdater = armis.NewArmisUpdater(
 			config,
 			httpClient,
-			defaultImpl, // Using defaultImpl as TokenProvider
+			cachedTokenProvider, // Using cached token provider
 			log,
 		)
 	}
@@ -309,7 +312,7 @@ func NewArmisIntegration(
 		ServerName:    serverName,
 		PageSize:      pageSize,
 		HTTPClient:    httpClient,
-		TokenProvider: defaultImpl,
+		TokenProvider: cachedTokenProvider, // Using cached token provider
 		DeviceFetcher: defaultImpl,
 		KVWriter:      kvWriter,
 		SweeperConfig: nil, // No default config - agent's file config is authoritative

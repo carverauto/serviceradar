@@ -50,12 +50,48 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 	for nextPage >= 0 {
 		page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, query.Query, nextPage, a.PageSize)
 		if err != nil {
-			a.Logger.Error().
-				Err(err).
-				Str("query_label", query.Label).
-				Msg("Failed to fetch devices page")
+			// Check if this is a 401 error and retry with a fresh token
+			if !(strings.Contains(err.Error(), "401") && strings.Contains(err.Error(), "Invalid access token")) {
+				a.Logger.Error().
+					Err(err).
+					Str("query_label", query.Label).
+					Msg("Failed to fetch devices page")
 
-			return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
+				return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
+			}
+
+			a.Logger.Warn().
+				Str("query_label", query.Label).
+				Msg("Got 401 error, invalidating token and retrying with fresh token")
+
+			// Invalidate the cached token if we have a CachedTokenProvider
+			if cachedProvider, ok := a.TokenProvider.(*CachedTokenProvider); ok {
+				cachedProvider.InvalidateToken()
+			}
+
+			// Get a fresh token
+			newAccessToken, tokenErr := a.TokenProvider.GetAccessToken(ctx)
+			if tokenErr != nil {
+				a.Logger.Error().
+					Err(tokenErr).
+					Str("query_label", query.Label).
+					Msg("Failed to get fresh access token after 401")
+
+				return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
+			}
+
+			// Retry with the fresh token
+			page, err = a.DeviceFetcher.FetchDevicesPage(ctx, newAccessToken, query.Query, nextPage, a.PageSize)
+			if err != nil {
+				a.Logger.Error().
+					Err(err).
+					Str("query_label", query.Label).
+					Msg("Failed to fetch devices page after token refresh")
+
+				return nil, fmt.Errorf("failed query '%s' after token refresh: %w", query.Label, err)
+			}
+			// Update the accessToken for subsequent pages
+			accessToken = newAccessToken
 		}
 
 		// Append devices even if page is empty
