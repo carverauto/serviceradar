@@ -851,7 +851,12 @@ func TestProcessDevices(t *testing.T) {
 		{ID: 2, IPAddress: "192.168.1.2,10.0.0.1", MacAddress: "cc:dd", Name: "dev2"},
 	}
 
-	data, ips, events := integ.processDevices(devices)
+	deviceLabels := map[int]string{
+		1: "test_query_1",
+		2: "test_query_2",
+	}
+
+	data, ips, events := integ.processDevices(devices, deviceLabels)
 
 	require.Len(t, data, 4) // two device keys and two sweep device entries
 	assert.ElementsMatch(t, []string{"test-agent/192.168.1.1", "test-agent/192.168.1.2"}, keysWithPrefix(data, "test-agent/"))
@@ -876,6 +881,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "armis", events[0].Metadata["integration_type"])
 	assert.Equal(t, "1", events[0].Metadata["integration_id"])
 	assert.Equal(t, "1", events[0].Metadata["armis_device_id"])
+	assert.Equal(t, "test_query_1", events[0].Metadata["query_label"])
 
 	// Check second event
 	assert.Equal(t, "test-agent", events[1].AgentID)
@@ -893,6 +899,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "armis", events[1].Metadata["integration_type"])
 	assert.Equal(t, "2", events[1].Metadata["integration_id"])
 	assert.Equal(t, "2", events[1].Metadata["armis_device_id"])
+	assert.Equal(t, "test_query_2", events[1].Metadata["query_label"])
 
 	raw := data["1"]
 

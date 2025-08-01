@@ -269,10 +269,26 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 			Msg("Devices discovered in source")
 
 		for _, device := range devices {
-			s.logger.Info().
+			logEvent := s.logger.Info().
 				Str("source", sourceName).
-				Str("device_name", device.IP).
-				Msg("Discovered device")
+				Str("device_ip", device.IP)
+
+			// Add hostname if available
+			if device.Hostname != nil && *device.Hostname != "" {
+				logEvent = logEvent.Str("device_name", *device.Hostname)
+			}
+
+			// Add query label if present in metadata (primarily for Armis)
+			if queryLabel, ok := device.Metadata["query_label"]; ok && queryLabel != "" {
+				logEvent = logEvent.Str("query_label", queryLabel)
+			}
+
+			// Add integration type if present
+			if integrationType, ok := device.Metadata["integration_type"]; ok && integrationType != "" {
+				logEvent = logEvent.Str("integration_type", integrationType)
+			}
+
+			logEvent.Msg("Discovered device")
 		}
 	}
 
