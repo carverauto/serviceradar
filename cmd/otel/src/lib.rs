@@ -3,6 +3,7 @@ use tonic::{Request, Response, Status};
 
 pub mod cli;
 pub mod config;
+pub mod metrics;
 pub mod nats_output;
 pub mod server;
 pub mod setup;
@@ -53,6 +54,7 @@ use opentelemetry::proto::collector::trace::v1::trace_service_server::TraceServi
 use opentelemetry::proto::collector::trace::v1::{
     ExportTraceServiceRequest, ExportTraceServiceResponse,
 };
+use crate::nats_output::PerformanceMetric;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -125,7 +127,139 @@ impl TraceService for ServiceRadarCollector {
             span_count
         );
 
-        // Log some debug details about the traces
+        // Calculate durations and collect performance metrics for NATS publishing
+        let mut performance_metrics = Vec::new();
+        let current_time = chrono::Utc::now().to_rfc3339();
+
+        for resource_span in &trace_data.resource_spans {
+            // Extract service name from resource attributes
+            let service_name = resource_span
+                .resource
+                .as_ref()
+                .and_then(|r| {
+                    r.attributes
+                        .iter()
+                        .find(|kv| kv.key == "service.name")
+                        .and_then(|kv| kv.value.as_ref())
+                        .and_then(|v| {
+                            if let Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(s)) = &v.value {
+                                Some(s.as_str())
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .unwrap_or("unknown_service");
+
+            for scope_span in &resource_span.scope_spans {
+                for span in &scope_span.spans {
+                    // Calculate span duration
+                    let duration_ns = span.end_time_unix_nano.saturating_sub(span.start_time_unix_nano);
+                    let duration_ms = duration_ns as f64 / 1_000_000.0;
+                    let duration_seconds = duration_ns as f64 / 1_000_000_000.0;
+
+                    // Extract trace_id as hex string for easier correlation
+                    let trace_id = hex::encode(&span.trace_id);
+                    let span_id = hex::encode(&span.span_id);
+
+                    // Extract additional context from span attributes
+                    let mut span_attrs = std::collections::HashMap::new();
+                    for attr in &span.attributes {
+                        if let Some(value) = &attr.value {
+                            if let Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(s)) = &value.value {
+                                span_attrs.insert(attr.key.as_str(), s.as_str());
+                            }
+                        }
+                    }
+
+                    // Record Prometheus metrics
+                    let span_kind = metrics::span_kind_to_string(span.kind);
+                    metrics::record_span_metrics(
+                        service_name,
+                        &span.name,
+                        span_kind,
+                        duration_seconds,
+                        &span_attrs,
+                    );
+
+                    let is_slow = duration_ms > 100.0;
+
+                    // Create base performance metric
+                    let base_metric = PerformanceMetric {
+                        timestamp: current_time.clone(),
+                        trace_id: trace_id.clone(),
+                        span_id: span_id.clone(),
+                        service_name: service_name.to_string(),
+                        span_name: span.name.clone(),
+                        span_kind: span_kind.to_string(),
+                        duration_ms,
+                        duration_seconds,
+                        metric_type: "span".to_string(),
+                        http_method: None,
+                        http_route: None,
+                        http_status_code: None,
+                        grpc_service: None,
+                        grpc_method: None,
+                        grpc_status_code: None,
+                        is_slow,
+                        component: "otel-collector".to_string(),
+                        level: if is_slow { "warn".to_string() } else { "info".to_string() },
+                    };
+
+                    // Add base span metric
+                    performance_metrics.push(base_metric.clone());
+
+                    // Add HTTP-specific metric if available
+                    if let (Some(method), Some(route)) = (span_attrs.get("http.method"), span_attrs.get("http.route")) {
+                        let mut http_metric = base_metric.clone();
+                        http_metric.metric_type = "http".to_string();
+                        http_metric.http_method = Some(method.to_string());
+                        http_metric.http_route = Some(route.to_string());
+                        http_metric.http_status_code = span_attrs.get("http.status_code").map(|s| s.to_string());
+                        performance_metrics.push(http_metric);
+                    }
+
+                    // Add gRPC-specific metric if available
+                    if let Some(grpc_method) = span_attrs.get("rpc.method") {
+                        let grpc_service = span_attrs.get("rpc.service").map_or("unknown", |v| *v);
+                        let mut grpc_metric = base_metric.clone();
+                        grpc_metric.metric_type = "grpc".to_string();
+                        grpc_metric.grpc_service = Some(grpc_service.to_string());
+                        grpc_metric.grpc_method = Some(grpc_method.to_string());
+                        grpc_metric.grpc_status_code = span_attrs.get("rpc.grpc.status_code").map(|s| s.to_string());
+                        performance_metrics.push(grpc_metric);
+                    }
+
+                    // Add slow span metric if applicable
+                    if is_slow {
+                        let mut slow_metric = base_metric.clone();
+                        slow_metric.metric_type = "slow_span".to_string();
+                        slow_metric.level = "warn".to_string();
+                        performance_metrics.push(slow_metric);
+                    }
+
+                    // Still log for immediate visibility in logs
+                    info!(
+                        "PERF METRIC - Service: '{}', Span: '{}', Duration: {:.3}ms, TraceID: {}, SpanID: {}",
+                        service_name, span.name, duration_ms, trace_id, span_id
+                    );
+                }
+            }
+        }
+
+        // Publish performance metrics to NATS
+        if let Some(nats) = &self.nats_output {
+            if !performance_metrics.is_empty() {
+                debug!("Publishing {} performance metrics to NATS", performance_metrics.len());
+                let nats_output = nats.lock().await;
+                if let Err(e) = nats_output.publish_metrics(&performance_metrics).await {
+                    error!("Failed to publish performance metrics to NATS: {e}");
+                    // Don't fail the request, just log the error
+                }
+            }
+        }
+
+        // Log detailed debug information if enabled
         if log::log_enabled!(log::Level::Debug) {
             for (i, resource_span) in trace_data.resource_spans.iter().enumerate() {
                 let resource_attrs = resource_span
