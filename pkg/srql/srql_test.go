@@ -645,3 +645,233 @@ func TestTimeClauseSupport(t *testing.T) {
 		})
 	}
 }
+
+func TestOTELEntities(t *testing.T) {
+	p := parser.NewParser()
+	protonTranslator := parser.NewTranslator(parser.Proton)
+
+	tests := []struct {
+		name     string
+		query    string
+		validate func(t *testing.T, query *models.Query, err error)
+	}{
+		{
+			name:  "Find OTEL traces simple query",
+			query: "FIND otel_traces",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelTraces, query.Entity)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_traces)", sql)
+			},
+		},
+		{
+			name:  "Find OTEL metrics simple query",
+			query: "FIND otel_metrics",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelMetrics, query.Entity)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_metrics)", sql)
+			},
+		},
+		{
+			name:  "Find OTEL trace summaries simple query",
+			query: "FIND otel_trace_summaries",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelTraceSummaries, query.Entity)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_trace_summaries)", sql)
+			},
+		},
+		{
+			name:  "Find OTEL traces with trace ID correlation",
+			query: "FIND otel_traces WHERE trace = 'abc123'",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelTraces, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "trace", query.Conditions[0].Field)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_traces) WHERE trace_id = 'abc123'", sql)
+			},
+		},
+		{
+			name:  "Find OTEL trace summaries with service and duration filter",
+			query: "FIND otel_trace_summaries WHERE service = 'checkout' AND duration_ms > 250",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelTraceSummaries, query.Entity)
+				require.Len(t, query.Conditions, 2)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_trace_summaries) WHERE root_service_name = 'checkout' AND duration_ms > 250", sql)
+			},
+		},
+		{
+			name:  "Find OTEL traces with computed duration_ms",
+			query: "FIND otel_traces WHERE duration_ms > 100",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelTraces, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "duration_ms", query.Conditions[0].Field)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_traces) WHERE (end_time_unix_nano - start_time_unix_nano) / 1e6 > 100", sql)
+			},
+		},
+		{
+			name:  "Find logs with trace correlation",
+			query: "FIND logs WHERE trace = 'abc123'",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.Logs, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "trace", query.Conditions[0].Field)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(logs) WHERE trace_id = 'abc123'", sql)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query, err := p.Parse(tt.query)
+			tt.validate(t, query, err)
+		})
+	}
+}
+
+func TestBooleanComparisons(t *testing.T) {
+	p := parser.NewParser()
+	protonTranslator := parser.NewTranslator(parser.Proton)
+	clickhouseTranslator := parser.NewTranslator(parser.ClickHouse)
+
+	tests := []struct {
+		name               string
+		query              string
+		expectedProton     string
+		expectedClickHouse string
+		validate           func(t *testing.T, query *models.Query, err error)
+	}{
+		{
+			name:               "Boolean field equals true",
+			query:              "SHOW otel_metrics WHERE is_slow = true",
+			expectedProton:     "SELECT * FROM table(otel_metrics) WHERE is_slow = 1",
+			expectedClickHouse: "SELECT * FROM otel_metrics WHERE is_slow = 1",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.OtelMetrics, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "is_slow", query.Conditions[0].Field)
+				assert.Equal(t, models.Equals, query.Conditions[0].Operator)
+				assert.Equal(t, true, query.Conditions[0].Value)
+			},
+		},
+		{
+			name:               "Boolean field equals false",
+			query:              "SHOW otel_metrics WHERE is_slow = false",
+			expectedProton:     "SELECT * FROM table(otel_metrics) WHERE is_slow = 0",
+			expectedClickHouse: "SELECT * FROM otel_metrics WHERE is_slow = 0",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.OtelMetrics, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "is_slow", query.Conditions[0].Field)
+				assert.Equal(t, models.Equals, query.Conditions[0].Operator)
+				assert.Equal(t, false, query.Conditions[0].Value)
+			},
+		},
+		{
+			name:               "Count with boolean condition",
+			query:              "COUNT otel_metrics WHERE is_slow = true",
+			expectedProton:     "SELECT count() FROM table(otel_metrics) WHERE is_slow = 1",
+			expectedClickHouse: "SELECT count() FROM otel_metrics WHERE is_slow = 1",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Count, query.Type)
+				assert.Equal(t, models.OtelMetrics, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "is_slow", query.Conditions[0].Field)
+				assert.Equal(t, models.Equals, query.Conditions[0].Operator)
+				assert.Equal(t, true, query.Conditions[0].Value)
+			},
+		},
+		{
+			name:               "Boolean with other conditions",
+			query:              "SHOW otel_metrics WHERE is_slow = true AND service_name = 'test'",
+			expectedProton:     "SELECT * FROM table(otel_metrics) WHERE is_slow = 1 AND service_name = 'test'",
+			expectedClickHouse: "SELECT * FROM otel_metrics WHERE is_slow = 1 AND service_name = 'test'",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.OtelMetrics, query.Entity)
+				require.Len(t, query.Conditions, 2)
+				assert.Equal(t, "is_slow", query.Conditions[0].Field)
+				assert.Equal(t, true, query.Conditions[0].Value)
+				assert.Equal(t, "service_name", query.Conditions[1].Field)
+				assert.Equal(t, "test", query.Conditions[1].Value)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query, err := p.Parse(tt.query)
+
+			if tt.validate != nil {
+				tt.validate(t, query, err)
+			} else {
+				require.NoError(t, err, "Query parsing failed for: %s", tt.query)
+			}
+
+			// Test Proton translation
+			if tt.expectedProton != "" {
+				sqlProton, errProton := protonTranslator.Translate(query)
+				require.NoError(t, errProton, "Proton translation failed")
+				assert.Equal(t, tt.expectedProton, sqlProton, "Proton SQL mismatch")
+			}
+
+			// Test ClickHouse translation
+			if tt.expectedClickHouse != "" {
+				sqlClickHouse, errClickHouse := clickhouseTranslator.Translate(query)
+				require.NoError(t, errClickHouse, "ClickHouse translation failed")
+				assert.Equal(t, tt.expectedClickHouse, sqlClickHouse, "ClickHouse SQL mismatch")
+			}
+		})
+	}
+}

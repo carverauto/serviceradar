@@ -21,10 +21,13 @@ import (
 	"fmt"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.31.0"
 	otelTrace "go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc/credentials"
 )
 
 // TracingConfig holds the configuration for OpenTelemetry tracing setup
@@ -32,29 +35,33 @@ type TracingConfig struct {
 	ServiceName    string
 	ServiceVersion string
 	Debug          bool
-	Logger         Logger // Optional logger for debug output
+	Logger         Logger      // Optional logger for debug output
+	OTel           *OTelConfig // Optional OTel configuration for trace exporting
 }
 
 // InitializeTracing sets up OpenTelemetry tracing and returns a traced context with a root span.
 // This should be called once at application startup.
 //
 // Returns:
+//   - *trace.TracerProvider: The tracer provider (caller should defer tp.Shutdown())
 //   - context.Context: A context containing the root span
 //   - otelTrace.Span: The root span (caller should defer span.End())
 //   - error: Any initialization error
 //
 // Example usage:
 //
-//	ctx, rootSpan, err := logger.InitializeTracing(context.Background(), logger.TracingConfig{
+//	tp, ctx, rootSpan, err := logger.InitializeTracing(context.Background(), logger.TracingConfig{
 //	    ServiceName:    "my-service",
 //	    ServiceVersion: "1.0.0",
 //	    Debug:          true,
+//	    OTel:           &config.Logging.OTel,
 //	})
 //	if err != nil {
 //	    return err
 //	}
+//	defer func() { tp.Shutdown(context.Background()) }()
 //	defer rootSpan.End()
-func InitializeTracing(ctx context.Context, config TracingConfig) (context.Context, otelTrace.Span, error) {
+func InitializeTracing(ctx context.Context, config TracingConfig) (*trace.TracerProvider, context.Context, otelTrace.Span, error) {
 	// Set defaults
 	if config.ServiceName == "" {
 		config.ServiceName = "serviceradar"
@@ -72,16 +79,34 @@ func InitializeTracing(ctx context.Context, config TracingConfig) (context.Conte
 		),
 	)
 	if err != nil {
-		return ctx, nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
+		return nil, ctx, nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
 
-	// Create TracerProvider with the resource
-	tp := trace.NewTracerProvider(
-		trace.WithResource(res),
-	)
+	// Create TracerProvider options
+	var tpOptions []trace.TracerProviderOption
+	tpOptions = append(tpOptions, trace.WithResource(res))
 
-	// Set the global TracerProvider
+	// Add trace exporter if OTel config is provided
+	if config.OTel != nil && config.OTel.Enabled && config.OTel.Endpoint != "" {
+		exporter, err := createTraceExporter(ctx, config.OTel)
+		if err != nil {
+			return nil, ctx, nil, fmt.Errorf("failed to create trace exporter: %w", err)
+		}
+
+		// Use BatchSpanProcessor for efficient trace exporting
+		bsp := trace.NewBatchSpanProcessor(exporter)
+		tpOptions = append(tpOptions, trace.WithSpanProcessor(bsp))
+	}
+
+	// Create TracerProvider with the resource and optional exporter
+	tp := trace.NewTracerProvider(tpOptions...)
+
+	// Set the global TracerProvider and propagator
 	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
 
 	// Create a tracer for this service
 	tracer := otel.Tracer(config.ServiceName)
@@ -95,7 +120,7 @@ func InitializeTracing(ctx context.Context, config TracingConfig) (context.Conte
 		logTracingInitialization(config, rootSpan)
 	}
 
-	return ctx, rootSpan, nil
+	return tp, ctx, rootSpan, nil
 }
 
 // GetTracer returns a tracer for the given name.
@@ -134,4 +159,29 @@ func logTracingInitialization(config TracingConfig, span otelTrace.Span) {
 		fmt.Printf("DEBUG: Initialized tracing for %s with trace_id=%s span_id=%s\n",
 			config.ServiceName, spanCtx.TraceID().String(), spanCtx.SpanID().String())
 	}
+}
+
+// createTraceExporter creates an OTLP trace exporter based on the provided configuration
+func createTraceExporter(ctx context.Context, config *OTelConfig) (trace.SpanExporter, error) {
+	opts := []otlptracegrpc.Option{
+		otlptracegrpc.WithEndpoint(config.Endpoint),
+	}
+
+	if config.Insecure {
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	} else if config.TLS != nil {
+		tlsConfig, err := setupTLSConfig(config.TLS)
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup TLS configuration: %w", err)
+		}
+
+		creds := credentials.NewTLS(tlsConfig)
+		opts = append(opts, otlptracegrpc.WithTLSCredentials(creds))
+	}
+
+	if len(config.Headers) > 0 {
+		opts = append(opts, otlptracegrpc.WithHeaders(config.Headers))
+	}
+
+	return otlptracegrpc.New(ctx, opts...)
 }

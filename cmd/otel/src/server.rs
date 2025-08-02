@@ -1,6 +1,14 @@
 use log::{debug, error, info};
 use std::net::SocketAddr;
 use tonic::transport::{Server, ServerTlsConfig};
+use tokio::net::TcpListener;
+use std::convert::Infallible;
+use hyper::service::service_fn;
+use hyper::{body::Incoming, Request, Response, Method, StatusCode};
+use hyper_util::server::conn::auto::Builder as ConnBuilder;
+use hyper_util::rt::TokioIo;
+use http_body_util::Full;
+use hyper::body::Bytes;
 
 use crate::ServiceRadarCollector;
 use crate::opentelemetry::proto::collector::logs::v1::logs_service_server::LogsServiceServer;
@@ -55,6 +63,66 @@ pub async fn start_server(
         Err(e) => {
             error!("Server error: {e}");
             Err(e.into())
+        }
+    }
+}
+
+/// Start a simple HTTP server to serve Prometheus metrics
+pub async fn start_metrics_server(
+    addr: SocketAddr,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Starting metrics server on {addr}");
+    
+    let listener = TcpListener::bind(addr).await?;
+    
+    loop {
+        let (stream, _) = listener.accept().await?;
+        
+        tokio::task::spawn(async move {
+            let conn_builder = ConnBuilder::new(hyper_util::rt::TokioExecutor::new());
+            let io = TokioIo::new(stream);
+            
+            if let Err(err) = conn_builder.serve_connection(io, service_fn(metrics_handler)).await {
+                error!("Error serving connection: {err:?}");
+            }
+        });
+    }
+}
+
+async fn metrics_handler(
+    req: Request<Incoming>,
+) -> Result<Response<Full<Bytes>>, Infallible> {
+    match (req.method(), req.uri().path()) {
+        (&Method::GET, "/metrics") => {
+            debug!("Serving metrics endpoint");
+            match crate::metrics::get_metrics_text() {
+                Ok(metrics) => {
+                    Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .header("content-type", "text/plain; version=0.0.4; charset=utf-8")
+                        .body(Full::new(Bytes::from(metrics)))
+                        .unwrap())
+                }
+                Err(e) => {
+                    error!("Failed to gather metrics: {e}");
+                    Ok(Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Full::new(Bytes::from("Error gathering metrics")))
+                        .unwrap())
+                }
+            }
+        }
+        (&Method::GET, "/health") => {
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(Full::new(Bytes::from("OK")))
+                .unwrap())
+        }
+        _ => {
+            Ok(Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Full::new(Bytes::from("Not Found")))
+                .unwrap())
         }
     }
 }
