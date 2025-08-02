@@ -313,6 +313,7 @@ url = "nats://test:4222"
             server: ServerConfig {
                 bind_address: "127.0.0.1".to_string(),
                 port: 8080,
+                metrics: None,
             },
             nats: None,
             grpc_tls: None,

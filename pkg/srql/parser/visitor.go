@@ -571,10 +571,14 @@ func getEntityTypeMapData() map[string]models.EntityType {
 		"snmp_results":   models.SNMPResults,
 		"events":         models.Events,
 		"pollers":        models.Pollers,
-		"cpu_metrics":    models.CPUMetrics,
-		"disk_metrics":   models.DiskMetrics,
-		"memory_metrics": models.MemoryMetrics,
-		"snmp_metrics":   models.SNMPMetrics,
+		"cpu_metrics":     models.CPUMetrics,
+		"disk_metrics":    models.DiskMetrics,
+		"memory_metrics":  models.MemoryMetrics,
+		"process_metrics": models.ProcessMetrics,
+		"snmp_metrics":         models.SNMPMetrics,
+		"otel_traces":          models.OtelTraces,
+		"otel_metrics":         models.OtelMetrics,
+		"otel_trace_summaries": models.OtelTraceSummaries,
 	}
 }
 
