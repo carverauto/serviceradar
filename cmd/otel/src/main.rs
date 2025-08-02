@@ -26,10 +26,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start metrics server if configured
     if let Some(metrics_addr_str) = config.metrics_address() {
         let metrics_addr: SocketAddr = metrics_addr_str.parse()?;
-        println!("Starting metrics server on {}", metrics_addr);
+        println!("Starting metrics server on {metrics_addr}");
         tokio::spawn(async move {
             if let Err(e) = start_metrics_server(metrics_addr).await {
-                eprintln!("Metrics server error: {}", e);
+                eprintln!("Metrics server error: {e}");
             }
         });
     }

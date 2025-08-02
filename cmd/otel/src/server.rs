@@ -83,7 +83,7 @@ pub async fn start_metrics_server(
             let io = TokioIo::new(stream);
             
             if let Err(err) = conn_builder.serve_connection(io, service_fn(metrics_handler)).await {
-                error!("Error serving connection: {:?}", err);
+                error!("Error serving connection: {err:?}");
             }
         });
     }
@@ -104,7 +104,7 @@ async fn metrics_handler(
                         .unwrap())
                 }
                 Err(e) => {
-                    error!("Failed to gather metrics: {}", e);
+                    error!("Failed to gather metrics: {e}");
                     Ok(Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
                         .body(Full::new(Bytes::from("Error gathering metrics")))
