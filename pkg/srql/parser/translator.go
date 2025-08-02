@@ -172,8 +172,8 @@ const (
 	defaultAscending      = "ASC"
 	defaultDescending     = "DESC"
 	defaultModelsBetween  = 2
-	defaultBoolValueTrue  = "true"
-	defaultBoolValueFalse = "false"
+	defaultBoolValueTrue  = "1"
+	defaultBoolValueFalse = "0"
 )
 
 // getEntityPrimaryKeyMapData returns a map of entity types to their primary keys and whether they need ROW_NUMBER()
@@ -946,6 +946,7 @@ func (*Translator) formatProtonValue(value interface{}) string {
 	case string:
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
 	case bool:
+		// For Proton/ClickHouse, boolean values should be unquoted literals
 		if v {
 			return defaultBoolValueTrue
 		}
@@ -967,6 +968,7 @@ func (*Translator) formatClickHouseValue(value interface{}) string {
 	case string:
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
 	case bool:
+		// For ClickHouse, boolean values should be unquoted literals
 		if v {
 			return defaultBoolValueTrue
 		}
