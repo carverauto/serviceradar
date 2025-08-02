@@ -97,11 +97,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer func() { 
-		if err := tp.Shutdown(context.Background()); err != nil {
+
+	defer func() {
+		if err = tp.Shutdown(context.Background()); err != nil {
 			basicLogger.Error().Err(err).Msg("Error shutting down tracer provider")
 		}
-		rootSpan.End() 
+
+		rootSpan.End()
 	}()
 
 	// Create trace-aware logger (this will have trace_id and span_id)

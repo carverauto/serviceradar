@@ -334,31 +334,49 @@ func (t *Translator) buildClickHouseStreamQuery(query *models.Query) (string, er
 	return sql.String(), nil
 }
 
+// entityConfig holds configuration for each entity type
+type entityConfig struct {
+	tableName      string
+	timestampField string
+}
+
+// getEntityConfigurations returns a map of entity types to their configurations
+func getEntityConfigurations() map[models.EntityType]entityConfig {
+	return map[models.EntityType]entityConfig{
+		models.Devices:            {tableName: "unified_devices", timestampField: "last_seen"},
+		models.Flows:              {tableName: "netflow_metrics", timestampField: "timestamp"},
+		models.Interfaces:         {tableName: "discovered_interfaces", timestampField: "last_seen"},
+		models.SweepResults:       {tableName: "unified_devices", timestampField: "timestamp"},
+		models.Traps:              {tableName: "traps", timestampField: "timestamp"},
+		models.Connections:        {tableName: "connections", timestampField: "timestamp"},
+		models.Logs:               {tableName: "logs", timestampField: "timestamp"},
+		models.Services:           {tableName: "services", timestampField: "last_seen"},
+		models.DeviceUpdates:      {tableName: "device_updates", timestampField: "timestamp"},
+		models.ICMPResults:        {tableName: "icmp_results", timestampField: "timestamp"},
+		models.SNMPResults:        {tableName: "timeseries_metrics", timestampField: "timestamp"},
+		models.Events:             {tableName: "events", timestampField: "timestamp"},
+		models.Pollers:            {tableName: "pollers", timestampField: "timestamp"},
+		models.CPUMetrics:         {tableName: "cpu_metrics", timestampField: "timestamp"},
+		models.DiskMetrics:        {tableName: "disk_metrics", timestampField: "timestamp"},
+		models.MemoryMetrics:      {tableName: "memory_metrics", timestampField: "timestamp"},
+		models.ProcessMetrics:     {tableName: "process_metrics", timestampField: "timestamp"},
+		models.SNMPMetrics:        {tableName: "timeseries_metrics", timestampField: "timestamp"},
+		models.OtelTraces:         {tableName: "otel_traces", timestampField: "timestamp"},
+		models.OtelMetrics:        {tableName: "otel_metrics", timestampField: "timestamp"},
+		models.OtelTraceSummaries: {tableName: "otel_trace_summaries", timestampField: "timestamp"},
+	}
+}
+
 // getEntityToTableMapData returns a map of entity types to their base table names
 func getEntityToTableMapData() map[models.EntityType]string {
-	return map[models.EntityType]string{
-		models.Devices:        "unified_devices", // Materialized view approach uses unified_devices stream
-		models.Flows:          "netflow_metrics",
-		models.Interfaces:     "discovered_interfaces",
-		models.SweepResults:   "unified_devices",
-		models.Traps:          "traps",
-		models.Connections:    "connections",
-		models.Logs:           "logs",
-		models.Services:       "services",
-		models.DeviceUpdates:  "device_updates",
-		models.ICMPResults:    "icmp_results",
-		models.SNMPResults:    "timeseries_metrics",
-		models.Events:         "events",
-		models.Pollers:        "pollers",
-		models.CPUMetrics:     "cpu_metrics",
-		models.DiskMetrics:    "disk_metrics",
-		models.MemoryMetrics:  "memory_metrics",
-		models.ProcessMetrics: "process_metrics",
-		models.SNMPMetrics:        "timeseries_metrics",
-		models.OtelTraces:         "otel_traces",
-		models.OtelMetrics:        "otel_metrics",
-		models.OtelTraceSummaries: "otel_trace_summaries",
+	configs := getEntityConfigurations()
+	result := make(map[models.EntityType]string, len(configs))
+
+	for entity, config := range configs {
+		result[entity] = config.tableName
 	}
+
+	return result
 }
 
 // getProtonBaseTableName returns the base table name for a given entity type
@@ -1011,15 +1029,15 @@ func getEntityFieldMapData() map[models.EntityType]map[string]string {
 			"status":  "http_status_code",
 		},
 		models.OtelTraceSummaries: {
-			"trace":        "trace_id",
-			"service":      "root_service_name",
-			"duration_ms":  "duration_ms",
-			"status":       "status_code",
-			"span_count":   "span_count",
-			"errors":       "error_count",
-			"start":        "start_time_unix_nano",
-			"end":          "end_time_unix_nano",
-			"root_span":    "root_span_name",
+			"trace":       "trace_id",
+			"service":     "root_service_name",
+			"duration_ms": "duration_ms",
+			"status":      "status_code",
+			"span_count":  "span_count",
+			"errors":      "error_count",
+			"start":       "start_time_unix_nano",
+			"end":         "end_time_unix_nano",
+			"root_span":   "root_span_name",
 		},
 	}
 }
@@ -1111,36 +1129,9 @@ func (t *Translator) convertTimeClauseToCondition(query *models.Query) {
 
 // getTimestampFieldForEntity returns the appropriate timestamp field for an entity
 func (*Translator) getTimestampFieldForEntity(entity models.EntityType) string {
-	// Map entity types to their appropriate timestamp fields
-	entityTimestampFields := map[models.EntityType]string{
-		// Entities that use last_seen (when they were last detected/seen)
-		models.Devices:    "last_seen",
-		models.Services:   "last_seen",
-		models.Interfaces: "last_seen",
-
-		// All other entities use timestamp (when they occurred/were collected)
-		models.Flows:          "timestamp",
-		models.Connections:    "timestamp",
-		models.Traps:          "timestamp",
-		models.Logs:           "timestamp",
-		models.Events:         "timestamp",
-		models.Pollers:        "timestamp",
-		models.DeviceUpdates:  "timestamp",
-		models.ICMPResults:    "timestamp",
-		models.SNMPResults:    "timestamp",
-		models.SweepResults:   "timestamp",
-		models.CPUMetrics:     "timestamp",
-		models.DiskMetrics:    "timestamp",
-		models.MemoryMetrics:  "timestamp",
-		models.ProcessMetrics: "timestamp",
-		models.SNMPMetrics:        "timestamp",
-		models.OtelTraces:         "timestamp",
-		models.OtelMetrics:        "timestamp",
-		models.OtelTraceSummaries: "timestamp",
-	}
-
-	if field, exists := entityTimestampFields[entity]; exists {
-		return field
+	configs := getEntityConfigurations()
+	if config, exists := configs[entity]; exists {
+		return config.timestampField
 	}
 	// Default fallback for any new entity types
 	return "timestamp"

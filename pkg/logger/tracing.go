@@ -35,7 +35,7 @@ type TracingConfig struct {
 	ServiceName    string
 	ServiceVersion string
 	Debug          bool
-	Logger         Logger // Optional logger for debug output
+	Logger         Logger      // Optional logger for debug output
 	OTel           *OTelConfig // Optional OTel configuration for trace exporting
 }
 

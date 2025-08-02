@@ -35,6 +35,7 @@ import (
 const (
 	DirectionNext = "next"
 	DirectionPrev = "prev"
+	TraceIDField  = "trace_id"
 )
 
 // QueryRequest represents the request body for SRQL queries
@@ -104,41 +105,58 @@ func validateQueryRequest(req *QueryRequest) (errMsg string, statusCode int, ok 
 
 // getSecondaryOrderField returns the appropriate secondary order field for a given entity type
 func (*APIServer) getSecondaryOrderField(entityType models.EntityType) (string, bool) {
-	switch entityType {
-	case models.Devices, models.DeviceUpdates, models.ICMPResults, models.SNMPResults:
-		return "ip", true
-	case models.Services:
-		return "service_name", true
-	case models.Interfaces:
-		return "device_ip", true
-	case models.SweepResults:
-		return "network", true
-	case models.Events:
-		return "id", true
-	case models.Pollers:
-		return "poller_id", true
-	case models.CPUMetrics:
-		return "core_id", true
-	case models.DiskMetrics:
-		return "mount_point", true
-	case models.ProcessMetrics:
-		return "pid", true
-	case models.SNMPMetrics:
-		return "metric_name", true
-	case models.Logs:
-		return "trace_id", true
-	// OTEL entities
-	case models.OtelTraces:
-		return "trace_id", true
-	case models.OtelMetrics:
-		return "trace_id", true
-	case models.OtelTraceSummaries:
-		return "trace_id", true
-	// These entities don't need additional sort fields
-	case models.Flows, models.Traps, models.Connections, models.MemoryMetrics:
+	// Define entity type mappings in groups to reduce complexity
+	secondaryOrderFields := getSecondaryOrderFieldsMap()
+
+	if field, exists := secondaryOrderFields[entityType]; exists {
+		return field, true
+	}
+
+	// Check entities that don't need additional sort fields
+	noSortEntities := map[models.EntityType]bool{
+		models.Flows:         true,
+		models.Traps:         true,
+		models.Connections:   true,
+		models.MemoryMetrics: true,
+	}
+
+	if noSortEntities[entityType] {
 		return "", false
-	default:
-		return "", false
+	}
+
+	// Default case
+	return "", false
+}
+
+// getSecondaryOrderFieldsMap returns a map of entity types to their secondary order fields
+func getSecondaryOrderFieldsMap() map[models.EntityType]string {
+	return map[models.EntityType]string{
+		// Device-related entities
+		models.Devices:       "ip",
+		models.DeviceUpdates: "ip",
+		models.ICMPResults:   "ip",
+		models.SNMPResults:   "ip",
+
+		// Network entities
+		models.Services:     "service_name",
+		models.Interfaces:   "device_ip",
+		models.SweepResults: "network",
+
+		// System entities
+		models.Events:  "id",
+		models.Pollers: "poller_id",
+
+		// Metrics entities
+		models.CPUMetrics:     "core_id",
+		models.DiskMetrics:    "mount_point",
+		models.ProcessMetrics: "pid",
+		models.SNMPMetrics:    "metric_name",
+
+		// Observability entities (all use trace_id)
+		models.Logs:               TraceIDField,
+		models.OtelTraces:         TraceIDField,
+		models.OtelMetrics:        TraceIDField,
+		models.OtelTraceSummaries: TraceIDField,
 	}
 }
 
@@ -848,18 +866,18 @@ func createCursorData(result map[string]interface{}, orderField string) map[stri
 func addEntityFields(cursorData, result map[string]interface{}, entity models.EntityType) {
 	// Map entity types to the fields that should be copied from result to cursor data
 	entityFieldMap := map[models.EntityType][]string{
-		models.Devices:             {"ip"},
-		models.Interfaces:          {"device_ip", "ifIndex"},
-		models.Services:            {"service_name"},
-		models.Events:              {"id"},
-		models.Pollers:             {"poller_id"},
-		models.CPUMetrics:          {"core_id"},
-		models.DiskMetrics:         {"mount_point"},
-		models.ProcessMetrics:      {"pid"},
+		models.Devices:        {"ip"},
+		models.Interfaces:     {"device_ip", "ifIndex"},
+		models.Services:       {"service_name"},
+		models.Events:         {"id"},
+		models.Pollers:        {"poller_id"},
+		models.CPUMetrics:     {"core_id"},
+		models.DiskMetrics:    {"mount_point"},
+		models.ProcessMetrics: {"pid"},
 		// OTEL entities
-		models.OtelTraces:          {"trace_id"},
-		models.OtelMetrics:         {"trace_id"},
-		models.OtelTraceSummaries:  {"trace_id"},
+		models.OtelTraces:         {"trace_id"},
+		models.OtelMetrics:        {"trace_id"},
+		models.OtelTraceSummaries: {"trace_id"},
 		// The following entities don't need additional fields:
 		// models.Flows, models.Traps, models.Connections, models.Logs,
 		// models.ICMPResults, models.SNMPResults, models.MemoryMetrics
