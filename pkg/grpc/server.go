@@ -27,6 +27,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -67,6 +68,7 @@ type Server struct {
 func NewServer(addr string, log logger.Logger, opts ...ServerOption) *Server {
 	// Initialize with default interceptors
 	defaultOpts := []grpc.ServerOption{
+		grpc.StatsHandler(otelgrpc.NewServerHandler()), // Add OTel tracing
 		grpc.ChainUnaryInterceptor(
 			LoggingInterceptor(log),
 			RecoveryInterceptor(log),

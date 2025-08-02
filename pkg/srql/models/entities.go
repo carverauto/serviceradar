@@ -28,6 +28,12 @@ const (
 	MemoryMetrics  EntityType = "memory_metrics"  // Maps to 'memory_metrics' stream
 	ProcessMetrics EntityType = "process_metrics" // Maps to 'process_metrics' stream
 	SNMPMetrics    EntityType = "snmp_metrics"    // Maps to 'snmp_metrics' stream
+
+	// OpenTelemetry streams
+
+	OtelTraces         EntityType = "otel_traces"          // Maps to 'otel_traces' stream
+	OtelMetrics        EntityType = "otel_metrics"         // Maps to 'otel_metrics' stream
+	OtelTraceSummaries EntityType = "otel_trace_summaries" // Maps to 'otel_trace_summaries' stream
 )
 
 // OperatorType represents a comparison operator

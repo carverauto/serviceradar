@@ -87,16 +87,24 @@ func run() error {
 	}
 
 	// Initialize OpenTelemetry tracing with logger
-	ctx, rootSpan, err := logger.InitializeTracing(ctx, logger.TracingConfig{
+	tp, ctx, rootSpan, err := logger.InitializeTracing(ctx, logger.TracingConfig{
 		ServiceName:    "serviceradar-core",
 		ServiceVersion: "1.0.0",
 		Debug:          true,
 		Logger:         basicLogger,
+		OTel:           &cfg.Logging.OTel,
 	})
 	if err != nil {
 		return err
 	}
-	defer rootSpan.End()
+
+	defer func() {
+		if err = tp.Shutdown(context.Background()); err != nil {
+			basicLogger.Error().Err(err).Msg("Error shutting down tracer provider")
+		}
+
+		rootSpan.End()
+	}()
 
 	// Create trace-aware logger (this will have trace_id and span_id)
 	mainLogger, err := lifecycle.CreateComponentLogger(ctx, "core-main", cfg.Logging)

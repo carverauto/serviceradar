@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -87,6 +88,7 @@ func createDialOptions(ctx context.Context, cfg ClientConfig) ([]grpc.DialOption
 
 	return []grpc.DialOption{
 		creds,
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()), // Add OTel tracing
 		grpc.WithUnaryInterceptor(RetryInterceptor(cfg.MaxRetries, cfg.Logger)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                120 * time.Second, // Match server
