@@ -69,6 +69,10 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		srqlmodels.DiskMetrics:   "disk_metrics",
 		srqlmodels.MemoryMetrics: "memory_metrics",
 		srqlmodels.SNMPMetrics:   "timeseries_metrics",
+		// OTEL entities
+		srqlmodels.OtelTraces:         "otel_traces",
+		srqlmodels.OtelMetrics:        "otel_metrics",
+		srqlmodels.OtelTraceSummaries: "otel_trace_summaries",
 	}
 	s.entityTableMap = defaultEntityTableMap
 
