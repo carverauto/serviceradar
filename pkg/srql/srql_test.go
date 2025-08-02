@@ -645,3 +645,127 @@ func TestTimeClauseSupport(t *testing.T) {
 		})
 	}
 }
+
+func TestOTELEntities(t *testing.T) {
+	p := parser.NewParser()
+	protonTranslator := parser.NewTranslator(parser.Proton)
+
+	tests := []struct {
+		name     string
+		query    string
+		validate func(t *testing.T, query *models.Query, err error)
+	}{
+		{
+			name:  "Find OTEL traces simple query",
+			query: "FIND otel_traces",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelTraces, query.Entity)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_traces)", sql)
+			},
+		},
+		{
+			name:  "Find OTEL metrics simple query",
+			query: "FIND otel_metrics",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelMetrics, query.Entity)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_metrics)", sql)
+			},
+		},
+		{
+			name:  "Find OTEL trace summaries simple query",
+			query: "FIND otel_trace_summaries",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelTraceSummaries, query.Entity)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_trace_summaries)", sql)
+			},
+		},
+		{
+			name:  "Find OTEL traces with trace ID correlation",
+			query: "FIND otel_traces WHERE trace = 'abc123'",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelTraces, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "trace", query.Conditions[0].Field)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_traces) WHERE trace_id = 'abc123'", sql)
+			},
+		},
+		{
+			name:  "Find OTEL trace summaries with service and duration filter",
+			query: "FIND otel_trace_summaries WHERE service = 'checkout' AND duration_ms > 250",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelTraceSummaries, query.Entity)
+				require.Len(t, query.Conditions, 2)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_trace_summaries) WHERE root_service_name = 'checkout' AND duration_ms > 250", sql)
+			},
+		},
+		{
+			name:  "Find OTEL traces with computed duration_ms",
+			query: "FIND otel_traces WHERE duration_ms > 100",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.OtelTraces, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "duration_ms", query.Conditions[0].Field)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(otel_traces) WHERE (end_time_unix_nano - start_time_unix_nano) / 1e6 > 100", sql)
+			},
+		},
+		{
+			name:  "Find logs with trace correlation",
+			query: "FIND logs WHERE trace = 'abc123'",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, models.Find, query.Type)
+				assert.Equal(t, models.Logs, query.Entity)
+				require.Len(t, query.Conditions, 1)
+				assert.Equal(t, "trace", query.Conditions[0].Field)
+
+				sql, errT := protonTranslator.Translate(query)
+				require.NoError(t, errT)
+				assert.Equal(t, "SELECT * FROM table(logs) WHERE trace_id = 'abc123'", sql)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query, err := p.Parse(tt.query)
+			tt.validate(t, query, err)
+		})
+	}
+}
