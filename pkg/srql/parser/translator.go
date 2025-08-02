@@ -172,8 +172,8 @@ const (
 	defaultAscending      = "ASC"
 	defaultDescending     = "DESC"
 	defaultModelsBetween  = 2
-	defaultBoolValueTrue  = "true"
-	defaultBoolValueFalse = "false"
+	defaultBoolValueTrue  = "1"
+	defaultBoolValueFalse = "0"
 )
 
 // getEntityPrimaryKeyMapData returns a map of entity types to their primary keys and whether they need ROW_NUMBER()
@@ -354,7 +354,10 @@ func getEntityToTableMapData() map[models.EntityType]string {
 		models.DiskMetrics:    "disk_metrics",
 		models.MemoryMetrics:  "memory_metrics",
 		models.ProcessMetrics: "process_metrics",
-		models.SNMPMetrics:    "timeseries_metrics",
+		models.SNMPMetrics:        "timeseries_metrics",
+		models.OtelTraces:         "otel_traces",
+		models.OtelMetrics:        "otel_metrics",
+		models.OtelTraceSummaries: "otel_trace_summaries",
 	}
 }
 
@@ -943,6 +946,7 @@ func (*Translator) formatProtonValue(value interface{}) string {
 	case string:
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
 	case bool:
+		// For Proton/ClickHouse, boolean values should be unquoted literals
 		if v {
 			return defaultBoolValueTrue
 		}
@@ -964,6 +968,7 @@ func (*Translator) formatClickHouseValue(value interface{}) string {
 	case string:
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
 	case bool:
+		// For ClickHouse, boolean values should be unquoted literals
 		if v {
 			return defaultBoolValueTrue
 		}
@@ -984,8 +989,38 @@ func getEntityFieldMapData() map[models.EntityType]map[string]string {
 			"severity": "severity_text",
 			"level":    "severity_text",
 			"service":  "service_name",
+			"trace":    "trace_id",
+			"span":     "span_id",
 		},
-		// Add more entity-specific field mappings as needed
+		models.OtelTraces: {
+			"trace":       "trace_id",
+			"span":        "span_id",
+			"service":     "service_name",
+			"name":        "name",
+			"kind":        "kind",
+			"start":       "start_time_unix_nano",
+			"end":         "end_time_unix_nano",
+			"duration_ms": "(end_time_unix_nano - start_time_unix_nano) / 1e6",
+		},
+		models.OtelMetrics: {
+			"trace":   "trace_id",
+			"span":    "span_id",
+			"service": "service_name",
+			"route":   "http_route",
+			"method":  "http_method",
+			"status":  "http_status_code",
+		},
+		models.OtelTraceSummaries: {
+			"trace":        "trace_id",
+			"service":      "root_service_name",
+			"duration_ms":  "duration_ms",
+			"status":       "status_code",
+			"span_count":   "span_count",
+			"errors":       "error_count",
+			"start":        "start_time_unix_nano",
+			"end":          "end_time_unix_nano",
+			"root_span":    "root_span_name",
+		},
 	}
 }
 
@@ -1098,7 +1133,10 @@ func (*Translator) getTimestampFieldForEntity(entity models.EntityType) string {
 		models.DiskMetrics:    "timestamp",
 		models.MemoryMetrics:  "timestamp",
 		models.ProcessMetrics: "timestamp",
-		models.SNMPMetrics:    "timestamp",
+		models.SNMPMetrics:        "timestamp",
+		models.OtelTraces:         "timestamp",
+		models.OtelMetrics:        "timestamp",
+		models.OtelTraceSummaries: "timestamp",
 	}
 
 	if field, exists := entityTimestampFields[entity]; exists {

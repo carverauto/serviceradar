@@ -120,6 +120,9 @@ entity
     | MEMORY_METRICS
     | PROCESS_METRICS
     | SNMP_METRICS
+    | OTEL_TRACES
+    | OTEL_METRICS
+    | OTEL_TRACE_SUMMARIES
     ;
 
 condition
@@ -245,6 +248,9 @@ DISK_METRICS  : D I S K '_' M E T R I C S ;
 MEMORY_METRICS : M E M O R Y '_' M E T R I C S ;
 PROCESS_METRICS : P R O C E S S '_' M E T R I C S ;
 SNMP_METRICS  : S N M P '_' M E T R I C S ;
+OTEL_TRACES   : O T E L '_' T R A C E S ;
+OTEL_METRICS  : O T E L '_' M E T R I C S ;
+OTEL_TRACE_SUMMARIES : O T E L '_' T R A C E '_' S U M M A R I E S ;
 
 // --- New Keywords for Streaming and Joins ---
 // Suffix _KW is used for common words to avoid potential clashes with identifiers

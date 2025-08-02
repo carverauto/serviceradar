@@ -3,6 +3,7 @@ use async_nats::jetstream::{context::PublishAckFuture, stream::StorageType};
 use async_nats::{Client, ConnectOptions, jetstream};
 use log::{debug, error, info, warn};
 use prost::Message;
+use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -49,8 +50,12 @@ impl NATSOutput {
 
         // Ensure the target stream exists
         debug!("Creating/verifying JetStream stream: {}", config.stream);
-        // Configure stream to handle both traces and logs subjects
-        let subjects = vec![config.subject.clone(), format!("{}.logs", config.subject)];
+        // Configure stream to handle traces, logs, and metrics subjects
+        let subjects = vec![
+            format!("{}.traces", config.subject),     // events.otel.traces
+            format!("{}.logs", config.subject),       // events.otel.logs
+            format!("{}.metrics", config.subject),    // events.otel.metrics (derived analytics)
+        ];
         debug!("Stream will handle subjects: {subjects:?}");
 
         let stream_config = jetstream::stream::Config {
@@ -184,14 +189,15 @@ impl NATSOutput {
 
         debug!("Encoded trace data: {} bytes", payload.len());
 
-        // Publish with acknowledgment
-        debug!("Publishing to subject: {}", self.config.subject);
+        // Publish with acknowledgment - use traces-specific subject
+        let traces_subject = format!("{}.traces", self.config.subject); // events.otel.traces
+        debug!("Publishing traces to subject: {traces_subject}");
         let ack: PublishAckFuture = self
             .jetstream
-            .publish(self.config.subject.clone(), payload.into())
+            .publish(traces_subject, payload.into())
             .await
             .map_err(|e| {
-                error!("Failed to publish to NATS: {e}");
+                error!("Failed to publish traces to NATS: {e}");
                 e
             })?;
 
@@ -282,4 +288,84 @@ impl NATSOutput {
 
         Ok(())
     }
+
+    pub async fn publish_metrics(&self, metrics: &[PerformanceMetric]) -> Result<()> {
+        if metrics.is_empty() {
+            return Ok(());
+        }
+
+        debug!("Publishing {} performance metrics to NATS", metrics.len());
+
+        // Convert metrics to JSON
+        let json_payload = serde_json::to_vec(metrics)?;
+        debug!("Encoded metrics data: {} bytes", json_payload.len());
+
+        // Publish to otel metrics subject for derived analytics
+        let otel_metrics_subject = "events.otel.metrics".to_string();
+        debug!("Publishing performance metrics to subject: {otel_metrics_subject}");
+        
+        let ack: PublishAckFuture = self
+            .jetstream
+            .publish(otel_metrics_subject, json_payload.into())
+            .await
+            .map_err(|e| {
+                error!("Failed to publish metrics to NATS: {e}");
+                e
+            })?;
+
+        // Wait for acknowledgment with timeout
+        debug!(
+            "Waiting for NATS acknowledgment for metrics (timeout: {:?})",
+            self.config.timeout
+        );
+        match timeout(self.config.timeout, ack).await {
+            Ok(Ok(ack_result)) => {
+                debug!(
+                    "NATS metrics publish acknowledged: stream={}, sequence={}",
+                    ack_result.stream, ack_result.sequence
+                );
+                info!("Successfully published {} performance metrics to NATS", metrics.len());
+            }
+            Ok(Err(e)) => {
+                error!("NATS metrics acknowledgment failed: {e}");
+                return Err(anyhow::anyhow!("NATS metrics acknowledgment failed: {}", e));
+            }
+            Err(_) => {
+                warn!("NATS metrics ack timed out after {:?}", self.config.timeout);
+                return Err(anyhow::anyhow!("NATS metrics publish timeout"));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PerformanceMetric {
+    pub timestamp: String,  // ISO 8601 timestamp
+    pub trace_id: String,
+    pub span_id: String,
+    pub service_name: String,
+    pub span_name: String,
+    pub span_kind: String,
+    pub duration_ms: f64,
+    pub duration_seconds: f64,
+    pub metric_type: String,  // "span", "http", "grpc", "slow_span"
+    
+    // Optional HTTP fields
+    pub http_method: Option<String>,
+    pub http_route: Option<String>,
+    pub http_status_code: Option<String>,
+    
+    // Optional gRPC fields 
+    pub grpc_service: Option<String>,
+    pub grpc_method: Option<String>,
+    pub grpc_status_code: Option<String>,
+    
+    // Performance flags
+    pub is_slow: bool,  // true if > 100ms
+    
+    // Additional metadata
+    pub component: String,  // "otel-collector" 
+    pub level: String,      // "info", "warn" for slow spans
 }

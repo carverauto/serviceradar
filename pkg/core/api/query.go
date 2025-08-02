@@ -127,6 +127,13 @@ func (*APIServer) getSecondaryOrderField(entityType models.EntityType) (string, 
 		return "metric_name", true
 	case models.Logs:
 		return "trace_id", true
+	// OTEL entities
+	case models.OtelTraces:
+		return "trace_id", true
+	case models.OtelMetrics:
+		return "trace_id", true
+	case models.OtelTraceSummaries:
+		return "trace_id", true
 	// These entities don't need additional sort fields
 	case models.Flows, models.Traps, models.Connections, models.MemoryMetrics:
 		return "", false
@@ -212,6 +219,10 @@ func isValidPaginationEntity(entity models.EntityType) bool {
 		models.MemoryMetrics,
 		models.ProcessMetrics,
 		models.SNMPMetrics,
+		// OTEL entities
+		models.OtelTraces,
+		models.OtelMetrics,
+		models.OtelTraceSummaries,
 	}
 
 	for _, validEntity := range validEntities {
@@ -837,14 +848,18 @@ func createCursorData(result map[string]interface{}, orderField string) map[stri
 func addEntityFields(cursorData, result map[string]interface{}, entity models.EntityType) {
 	// Map entity types to the fields that should be copied from result to cursor data
 	entityFieldMap := map[models.EntityType][]string{
-		models.Devices:        {"ip"},
-		models.Interfaces:     {"device_ip", "ifIndex"},
-		models.Services:       {"service_name"},
-		models.Events:         {"id"},
-		models.Pollers:        {"poller_id"},
-		models.CPUMetrics:     {"core_id"},
-		models.DiskMetrics:    {"mount_point"},
-		models.ProcessMetrics: {"pid"},
+		models.Devices:             {"ip"},
+		models.Interfaces:          {"device_ip", "ifIndex"},
+		models.Services:            {"service_name"},
+		models.Events:              {"id"},
+		models.Pollers:             {"poller_id"},
+		models.CPUMetrics:          {"core_id"},
+		models.DiskMetrics:         {"mount_point"},
+		models.ProcessMetrics:      {"pid"},
+		// OTEL entities
+		models.OtelTraces:          {"trace_id"},
+		models.OtelMetrics:         {"trace_id"},
+		models.OtelTraceSummaries:  {"trace_id"},
 		// The following entities don't need additional fields:
 		// models.Flows, models.Traps, models.Connections, models.Logs,
 		// models.ICMPResults, models.SNMPResults, models.MemoryMetrics
