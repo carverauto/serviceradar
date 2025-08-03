@@ -114,7 +114,7 @@ SELECT
 FROM otel_spans_enriched
 GROUP BY trace_id;
 
--- C4. Error count per trace
+-- C4. Error count per trace (using sum(if(...)) instead of countIf)
 CREATE STREAM IF NOT EXISTS otel_trace_error_count (
   trace_id     string,
   error_count  uint32
@@ -125,7 +125,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_error_count_mv
 INTO otel_trace_error_count AS
 SELECT
   trace_id,
-  countIf(status_code = 2) AS error_count
+  sum(if(status_code = 2, 1, 0)) AS error_count
 FROM otel_spans_enriched
 GROUP BY trace_id;
 
