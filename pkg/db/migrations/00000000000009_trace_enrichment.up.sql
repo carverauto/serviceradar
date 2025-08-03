@@ -187,7 +187,7 @@ ORDER BY (trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_duration_mv
 INTO otel_trace_duration AS
-SELECT
+SELECT DISTINCT
   s.trace_id AS trace_id,
   s.start_time_unix_nano AS start_time_unix_nano,
   e.end_time_unix_nano AS end_time_unix_nano,
@@ -216,26 +216,20 @@ ORDER BY (timestamp, trace_id);
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_summaries_final_mv
 INTO otel_trace_summaries_final AS
 SELECT
-  t.timestamp,
-  d.trace_id,
-  COALESCE(r.root_span_id, '') AS root_span_id,
-  COALESCE(r.root_span_name, '') AS root_span_name,
-  COALESCE(r.root_service, '') AS root_service_name,
-  COALESCE(r.root_kind, 0) AS root_span_kind,
-  d.start_time_unix_nano,
-  d.end_time_unix_nano,
-  d.duration_ms,
-  COALESCE(c.span_count, 0) AS span_count,
-  COALESCE(ec.error_count, 0) AS error_count,
-  COALESCE(sm.status_code_max, 1) AS status_code,
-  COALESCE(sv.service_set, []) AS service_set
-FROM otel_trace_duration AS d
-LEFT JOIN otel_trace_min_ts AS t ON d.trace_id = t.trace_id
-LEFT JOIN otel_root_spans AS r ON d.trace_id = r.trace_id
-LEFT JOIN otel_trace_span_count AS c ON d.trace_id = c.trace_id
-LEFT JOIN otel_trace_error_count AS ec ON d.trace_id = ec.trace_id
-LEFT JOIN otel_trace_status_max AS sm ON d.trace_id = sm.trace_id
-LEFT JOIN otel_trace_services AS sv ON d.trace_id = sv.trace_id;
+  now() as timestamp,
+  trace_id,
+  '' AS root_span_id,
+  '' AS root_span_name,
+  '' AS root_service_name,
+  0 AS root_span_kind,
+  start_time_unix_nano,
+  end_time_unix_nano,
+  duration_ms,
+  0 AS span_count,
+  0 AS error_count,
+  1 AS status_code,
+  [''] AS service_set
+FROM otel_trace_duration;
 
 -- H. Attribute normalization stream (for span filters)
 -- Populated by db-event-writer at ingestion. No parsing in MVs.
