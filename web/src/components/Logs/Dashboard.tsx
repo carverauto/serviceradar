@@ -43,7 +43,7 @@ const StatCard = ({
     >
         <div className="flex items-center space-x-2">
             <div className="p-1.5 bg-orange-100 dark:bg-gray-700/50 rounded-md text-orange-600 dark:text-orange-400">
-                {React.cloneElement(icon as React.ReactElement, { className: "h-4 w-4" })}
+                {React.cloneElement(icon as React.ReactElement<{ className?: string }>, { className: "h-4 w-4" })}
             </div>
             <div className="flex-1 min-w-0">
                 <p className="text-sm text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>

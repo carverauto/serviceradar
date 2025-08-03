@@ -5,7 +5,6 @@ import { useAuth } from '@/components/AuthProvider';
 import { OtelMetric, OtelMetricsApiResponse, MetricsStats, SortableMetricKeys } from '@/types/otel-metrics';
 import { Pagination } from '@/types/devices';
 import {
-    Zap,
     Clock,
     AlertTriangle,
     BarChart3,
@@ -53,7 +52,7 @@ const StatCard = ({
         >
             <div className="flex items-center space-x-2">
                 <div className={`p-1.5 rounded-md ${colorClasses[color]}`}>
-                    {React.cloneElement(icon as React.ReactElement, { className: "h-4 w-4" })}
+                    {React.cloneElement(icon as React.ReactElement<{ className?: string }>, { className: "h-4 w-4" })}
                 </div>
                 <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
@@ -298,12 +297,7 @@ const MetricsDashboard = () => {
         }
     };
 
-    const getSlowBadge = (isSlow: boolean) => {
-        if (isSlow) {
-            return 'bg-red-100 dark:bg-red-600/50 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-500/60';
-        }
-        return 'bg-green-100 dark:bg-green-600/50 text-green-800 dark:text-green-200 border border-green-300 dark:border-green-500/60';
-    };
+
 
     const getStatusBadge = (statusCode: string) => {
         const code = parseInt(statusCode);
@@ -315,13 +309,7 @@ const MetricsDashboard = () => {
         return 'bg-green-100 dark:bg-green-600/50 text-green-800 dark:text-green-200 border border-green-300 dark:border-green-500/60';
     };
 
-    const formatDate = (dateString: string) => {
-        try {
-            return new Date(dateString).toLocaleString();
-        } catch {
-            return 'Invalid Date';
-        }
-    };
+
 
     const TableHeader = ({
         aKey,
@@ -495,7 +483,7 @@ const MetricsDashboard = () => {
                                             </td>
                                             <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
                                                 <div className="font-medium truncate max-w-xs">
-                                                    {metric.service_name || metric.service || 'Unknown'}
+                                                    {metric.service_name || 'Unknown'}
                                                 </div>
                                                 <div className="text-gray-500 dark:text-gray-400 truncate">
                                                     {metric.span_name || 'Unknown Span'}
@@ -511,15 +499,15 @@ const MetricsDashboard = () => {
                                             </td>
                                             <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hidden lg:table-cell">
                                                 <div className="truncate max-w-xs">
-                                                    {metric.http_route || metric.route || '-'}
+                                                    {metric.http_route || '-'}
                                                 </div>
                                                 <div className="text-gray-500 dark:text-gray-400">
-                                                    {metric.http_method || metric.method || '-'}
+                                                    {metric.http_method || '-'}
                                                 </div>
                                             </td>
                                             <td className="px-3 py-2 whitespace-nowrap">
-                                                <span className={`px-1.5 py-0.5 inline-flex text-xs leading-4 font-semibold rounded-full ${getStatusBadge(metric.http_status_code || metric.status)}`}>
-                                                    {metric.http_status_code || metric.status || '-'}
+                                                <span className={`px-1.5 py-0.5 inline-flex text-xs leading-4 font-semibold rounded-full ${getStatusBadge(metric.http_status_code)}`}>
+                                                    {metric.http_status_code || '-'}
                                                 </span>
                                             </td>
                                             <td className="px-3 py-2 whitespace-nowrap">
