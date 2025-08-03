@@ -20,6 +20,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { AlertTriangle, ShieldAlert, AlertCircle, Info, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Event } from '@/types/events';
 import { formatNumber } from '@/utils/formatters';
 
@@ -33,6 +34,7 @@ interface EventStats {
 
 const CriticalEventsWidget: React.FC = () => {
     const { token } = useAuth();
+    const router = useRouter();
     const [recentEvents, setRecentEvents] = useState<Event[]>([]);
     const [stats, setStats] = useState<EventStats>({
         critical: 0,
@@ -167,6 +169,45 @@ const CriticalEventsWidget: React.FC = () => {
         return message.substring(0, maxLength) + '...';
     };
 
+    const handleEventSeverityClick = useCallback((severity: string) => {
+        let query = '';
+        switch (severity.toLowerCase()) {
+            case 'critical':
+                query = 'show events where severity = "Critical"';
+                break;
+            case 'high':
+                query = 'show events where severity = "High"';
+                break;
+            case 'medium':
+                query = 'show events where severity = "Medium"';
+                break;
+            case 'low':
+                query = 'show events where severity = "Low"';
+                break;
+            case 'all':
+                query = 'show events';
+                break;
+            default:
+                query = 'show events';
+        }
+        const encodedQuery = encodeURIComponent(query);
+        router.push(`/query?q=${encodedQuery}`);
+    }, [router]);
+
+    const handleEventEntryClick = useCallback((event: Event) => {
+        // Try to find related events by host and event type
+        let query = '';
+        if (event.host && event.short_message) {
+            query = `show events where host = "${event.host}" and severity = "${event.severity}"`;
+        } else if (event.host) {
+            query = `show events where host = "${event.host}"`;
+        } else {
+            query = `show events where severity = "${event.severity}"`;
+        }
+        const encodedQuery = encodeURIComponent(query);
+        router.push(`/query?q=${encodedQuery}`);
+    }, [router]);
+
     if (loading) {
         return (
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px]">
@@ -199,14 +240,24 @@ const CriticalEventsWidget: React.FC = () => {
     return (
         <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px]">
             <div className="flex justify-between items-start mb-4">
-                <h3 className="font-semibold text-gray-900 dark:text-white">Critical Events</h3>
-                <Link 
-                    href="/events"
+                <h3 
+                    className="font-semibold text-gray-900 dark:text-white cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                    onClick={() => handleEventSeverityClick('all')}
+                    title="Click to view all events"
+                >
+                    Critical Events
+                </h3>
+                <button
+                    onClick={() => {
+                        const query = 'show events where severity in ("Critical", "High")';
+                        const encodedQuery = encodeURIComponent(query);
+                        router.push(`/query?q=${encodedQuery}`);
+                    }}
                     className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-                    title="View all events"
+                    title="View critical events (Critical + High)"
                 >
                     <ExternalLink size={16} />
-                </Link>
+                </button>
             </div>
             
             <div className="flex-1">
@@ -221,28 +272,44 @@ const CriticalEventsWidget: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            <tr className="border-b border-gray-100 dark:border-gray-800">
+                            <tr 
+                                className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
+                                onClick={() => handleEventSeverityClick('critical')}
+                                title="Click to view critical events"
+                            >
                                 <td className="py-1 text-red-600 dark:text-red-400">Critical</td>
                                 <td className="text-center text-red-600 dark:text-red-400 font-bold">{formatNumber(stats.critical)}</td>
                                 <td className="text-center text-red-600 dark:text-red-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.critical / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
-                            <tr className="border-b border-gray-100 dark:border-gray-800">
+                            <tr 
+                                className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/10 transition-colors"
+                                onClick={() => handleEventSeverityClick('high')}
+                                title="Click to view high severity events"
+                            >
                                 <td className="py-1 text-orange-600 dark:text-orange-400">High</td>
                                 <td className="text-center text-orange-600 dark:text-orange-400 font-bold">{formatNumber(stats.high)}</td>
                                 <td className="text-center text-orange-600 dark:text-orange-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.high / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
-                            <tr className="border-b border-gray-100 dark:border-gray-800">
+                            <tr 
+                                className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-900/10 transition-colors"
+                                onClick={() => handleEventSeverityClick('medium')}
+                                title="Click to view medium severity events"
+                            >
                                 <td className="py-1 text-yellow-600 dark:text-yellow-400">Medium</td>
                                 <td className="text-center text-yellow-600 dark:text-yellow-400 font-bold">{formatNumber(stats.medium)}</td>
                                 <td className="text-center text-yellow-600 dark:text-yellow-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.medium / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
-                            <tr>
+                            <tr 
+                                className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors"
+                                onClick={() => handleEventSeverityClick('low')}
+                                title="Click to view low severity events"
+                            >
                                 <td className="py-1 text-blue-600 dark:text-blue-400">Low</td>
                                 <td className="text-center text-blue-600 dark:text-blue-400 font-bold">{formatNumber(stats.low)}</td>
                                 <td className="text-center text-blue-600 dark:text-blue-400 text-xs">
@@ -257,7 +324,12 @@ const CriticalEventsWidget: React.FC = () => {
                 {recentEvents.length > 0 ? (
                     <div className="space-y-2 max-h-40 overflow-y-auto">
                         {recentEvents.map((event, index) => (
-                            <div key={`${event.id}-${index}`} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700/50 rounded">
+                            <div 
+                                key={`${event.id}-${index}`} 
+                                className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700/50 rounded cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600/50 transition-colors"
+                                onClick={() => handleEventEntryClick(event)}
+                                title={`Click to view related events for ${event.host} with ${event.severity} severity`}
+                            >
                                 <div className="flex items-center space-x-2 flex-1 min-w-0">
                                     <div className="flex-shrink-0">
                                         {getSeverityIcon(event.severity || 'unknown')}
@@ -271,16 +343,13 @@ const CriticalEventsWidget: React.FC = () => {
                                         </div>
                                         <div className={`text-xs ${getSeverityColor(event.severity || 'unknown')}`}>
                                             {event.severity || 'unknown'} • {formatTimestamp(event.event_timestamp)}
+                                            {event.id && <span className="ml-1 text-blue-600 dark:text-blue-400">🔗</span>}
                                         </div>
                                     </div>
                                 </div>
-                                <Link 
-                                    href={`/events?severity=${encodeURIComponent(event.severity || 'unknown')}&search=${encodeURIComponent(event.host)}`}
-                                    className="flex-shrink-0 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 ml-2"
-                                    title={`View events for ${event.host}`}
-                                >
+                                <div className="flex-shrink-0 text-blue-600 dark:text-blue-400 opacity-70">
                                     <ExternalLink size={14} />
-                                </Link>
+                                </div>
                             </div>
                         ))}
                     </div>
