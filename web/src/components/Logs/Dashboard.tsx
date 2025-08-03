@@ -36,21 +36,21 @@ const StatCard = ({
     onClick?: () => void;
 }) => (
     <div 
-        className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg transition-all ${
+        className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-2 rounded-lg transition-all ${
             onClick ? 'cursor-pointer hover:shadow-lg hover:border-orange-400 dark:hover:border-orange-600' : ''
         }`}
         onClick={onClick}
     >
-        <div className="flex items-center">
-            <div className="p-2 bg-orange-100 dark:bg-gray-700/50 rounded-md mr-4 text-orange-600 dark:text-orange-400">
-                {icon}
+        <div className="flex items-center space-x-2">
+            <div className="p-1.5 bg-orange-100 dark:bg-gray-700/50 rounded-md text-orange-600 dark:text-orange-400">
+                {React.cloneElement(icon as React.ReactElement<{ className?: string }>, { className: "h-4 w-4" })}
             </div>
-            <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
                 {isLoading ? (
-                    <div className="h-7 w-20 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse mt-1"></div>
+                    <div className="h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
                 ) : (
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white leading-tight">{value}</p>
                 )}
             </div>
         </div>
@@ -329,7 +329,7 @@ const LogsDashboard = () => {
 
     return (
         <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <StatCard
                     title="Total Logs"
                     value={formatNumber(stats.total)}
@@ -375,55 +375,57 @@ const LogsDashboard = () => {
             </div>
 
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg">
-                <div className="p-4 flex flex-col md:flex-row gap-4 justify-between items-center border-b border-gray-200 dark:border-gray-700">
-                    <div className="relative w-full md:w-1/3">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Search logs..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
-                        />
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <label htmlFor="severityFilter" className="text-sm text-gray-700 dark:text-gray-300">
-                                Severity:
-                            </label>
-                            <select
-                                id="severityFilter"
-                                value={filterSeverity}
-                                onChange={(e) => setFilterSeverity(e.target.value as 'all' | 'FATAL' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG')}
-                                className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                            >
-                                <option value="all">All</option>
-                                <option value="FATAL">Fatal</option>
-                                <option value="ERROR">Error</option>
-                                <option value="WARN">Warning</option>
-                                <option value="INFO">Info</option>
-                                <option value="DEBUG">Debug</option>
-                            </select>
+                <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex flex-col gap-3">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Search logs..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
+                            />
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <label htmlFor="serviceFilter" className="text-sm text-gray-700 dark:text-gray-300">
-                                Service:
-                            </label>
-                            <select
-                                id="serviceFilter"
-                                value={filterService}
-                                onChange={(e) => setFilterService(e.target.value)}
-                                className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                            >
-                                <option value="all">All</option>
-                                {services.map((service) => (
-                                    <option key={service} value={service}>
-                                        {service}
-                                    </option>
-                                ))}
-                            </select>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="severityFilter" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                                    Severity:
+                                </label>
+                                <select
+                                    id="severityFilter"
+                                    value={filterSeverity}
+                                    onChange={(e) => setFilterSeverity(e.target.value as 'all' | 'FATAL' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG')}
+                                    className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1 focus:ring-green-500 focus:border-green-500"
+                                >
+                                    <option value="all">All</option>
+                                    <option value="FATAL">Fatal</option>
+                                    <option value="ERROR">Error</option>
+                                    <option value="WARN">Warning</option>
+                                    <option value="INFO">Info</option>
+                                    <option value="DEBUG">Debug</option>
+                                </select>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="serviceFilter" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                                    Service:
+                                </label>
+                                <select
+                                    id="serviceFilter"
+                                    value={filterService}
+                                    onChange={(e) => setFilterService(e.target.value)}
+                                    className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1 focus:ring-green-500 focus:border-green-500"
+                                >
+                                    <option value="all">All</option>
+                                    {services.map((service) => (
+                                        <option key={service} value={service}>
+                                            {service}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
