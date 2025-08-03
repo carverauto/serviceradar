@@ -110,7 +110,7 @@ SELECT
     count() AS total_spans,
     avg(duration_ms) AS avg_duration_ms,
     quantile(0.95)(duration_ms) AS p95_duration_ms,
-    countIf(is_root) AS root_spans_count
+    sum(if(is_root, 1, 0)) AS root_spans_count
 FROM otel_spans_enriched
 WHERE timestamp >= now() - INTERVAL 1 HOUR
 GROUP BY service_name

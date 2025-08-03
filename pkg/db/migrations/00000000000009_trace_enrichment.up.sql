@@ -175,7 +175,7 @@ SELECT
 FROM otel_spans_enriched
 GROUP BY trace_id;
 
--- F. Duration per trace (derive from max_end and min_start via join-only MV)
+-- F. Duration per trace (join-only MV, use ON instead of USING)
 -- Compute duration_ms with a join-only MV that has no aggregates
 CREATE STREAM IF NOT EXISTS otel_trace_duration (
   trace_id              string,
@@ -188,15 +188,14 @@ ORDER BY (trace_id);
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_duration_mv
 INTO otel_trace_duration AS
 SELECT
-  s.trace_id,
-  s.start_time_unix_nano,
-  e.end_time_unix_nano,
+  s.trace_id AS trace_id,
+  s.start_time_unix_nano AS start_time_unix_nano,
+  e.end_time_unix_nano AS end_time_unix_nano,
   (e.end_time_unix_nano - s.start_time_unix_nano) / 1e6 AS duration_ms
 FROM otel_trace_min_start AS s
-JOIN otel_trace_max_end AS e USING (trace_id);
+JOIN otel_trace_max_end AS e ON s.trace_id = e.trace_id;
 
--- G. Final summaries (join-only MV)
--- Consolidate everything into one table without any aggregates in the SELECT
+-- G. Final summaries using ON joins (avoid multiple USING)
 CREATE STREAM IF NOT EXISTS otel_trace_summaries_final (
   timestamp             DateTime64(9),
   trace_id              string,
@@ -217,26 +216,26 @@ ORDER BY (timestamp, trace_id);
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_summaries_final_mv
 INTO otel_trace_summaries_final AS
 SELECT
-  tsmin.timestamp,
+  t.timestamp,
   d.trace_id,
-  r.root_span_id,
-  r.root_span_name,
-  r.root_service AS root_service_name,
-  r.root_kind    AS root_span_kind,
+  COALESCE(r.root_span_id, '') AS root_span_id,
+  COALESCE(r.root_span_name, '') AS root_span_name,
+  COALESCE(r.root_service, '') AS root_service_name,
+  COALESCE(r.root_kind, 0) AS root_span_kind,
   d.start_time_unix_nano,
   d.end_time_unix_nano,
   d.duration_ms,
-  c.span_count,
-  ec.error_count,
-  sm.status_code_max AS status_code,
-  sv.service_set
-FROM otel_trace_duration       AS d
-LEFT JOIN otel_root_spans      AS r   USING (trace_id)
-LEFT JOIN otel_trace_span_count AS c  USING (trace_id)
-LEFT JOIN otel_trace_error_count AS ec USING (trace_id)
-LEFT JOIN otel_trace_status_max  AS sm USING (trace_id)
-LEFT JOIN otel_trace_services    AS sv USING (trace_id)
-LEFT JOIN otel_trace_min_ts      AS tsmin USING (trace_id);
+  COALESCE(c.span_count, 0) AS span_count,
+  COALESCE(ec.error_count, 0) AS error_count,
+  COALESCE(sm.status_code_max, 1) AS status_code,
+  COALESCE(sv.service_set, []) AS service_set
+FROM otel_trace_duration AS d
+LEFT JOIN otel_trace_min_ts AS t ON d.trace_id = t.trace_id
+LEFT JOIN otel_root_spans AS r ON d.trace_id = r.trace_id
+LEFT JOIN otel_trace_span_count AS c ON d.trace_id = c.trace_id
+LEFT JOIN otel_trace_error_count AS ec ON d.trace_id = ec.trace_id
+LEFT JOIN otel_trace_status_max AS sm ON d.trace_id = sm.trace_id
+LEFT JOIN otel_trace_services AS sv ON d.trace_id = sv.trace_id;
 
 -- H. Attribute normalization stream (for span filters)
 -- Populated by db-event-writer at ingestion. No parsing in MVs.
