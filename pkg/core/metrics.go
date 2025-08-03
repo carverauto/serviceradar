@@ -757,7 +757,7 @@ func (s *Server) processGRPCService(
 
 		return s.discoveryService.ProcessSyncResults(ctx, pollerID, partition, svc, serviceData, now)
 	default:
-		s.logger.Warn().
+		s.logger.Debug().
 			Str("service_name", svc.ServiceName).
 			Str("poller_id", pollerID).
 			Msg("Unknown GRPC service name")
@@ -809,7 +809,7 @@ func (s *Server) processServicePayload(
 	case syncServiceType:
 		return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 	default:
-		s.logger.Warn().
+		s.logger.Debug().
 			Str("service_type", svc.ServiceType).
 			Str("poller_id", pollerID).
 			Msg("Unknown service type")
