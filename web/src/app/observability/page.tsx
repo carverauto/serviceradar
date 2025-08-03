@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Activity, Clock, BarChart3, Link as LinkIcon } from 'lucide-react';
 import LogsDashboard from '@/components/Logs/Dashboard';
 import TracesDashboard from '@/components/Observability/TracesDashboard';
@@ -17,9 +18,19 @@ const tabs = [
 ];
 
 export default function ObservabilityPage() {
+    const searchParams = useSearchParams();
     const [activeTab, setActiveTab] = useState<TabType>('traces');
 
+    useEffect(() => {
+        const tabParam = searchParams.get('tab') as TabType;
+        if (tabParam && ['logs', 'traces', 'metrics', 'correlation'].includes(tabParam)) {
+            setActiveTab(tabParam);
+        }
+    }, [searchParams]);
+
     const renderTabContent = () => {
+        const traceId = searchParams.get('trace_id');
+        
         switch (activeTab) {
             case 'logs':
                 return <LogsDashboard />;
@@ -28,7 +39,7 @@ export default function ObservabilityPage() {
             case 'metrics':
                 return <MetricsDashboard />;
             case 'correlation':
-                return <CorrelationDashboard />;
+                return <CorrelationDashboard initialTraceId={traceId || undefined} />;
             default:
                 return <TracesDashboard />;
         }

@@ -20,6 +20,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AlertCircle, XCircle, AlertTriangle, Info, ExternalLink, FileText } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
 import Link from 'next/link';
+import { formatNumber } from '@/utils/formatters';
 
 interface LogStats {
     fatal: number;
@@ -244,35 +245,35 @@ const CriticalLogsWidget = () => {
                         <tbody>
                             <tr className="border-b border-gray-100 dark:border-gray-800">
                                 <td className="py-1 text-red-600 dark:text-red-400">Fatal</td>
-                                <td className="text-center text-red-600 dark:text-red-400 font-bold">{stats.fatal}</td>
+                                <td className="text-center text-red-600 dark:text-red-400 font-bold">{formatNumber(stats.fatal)}</td>
                                 <td className="text-center text-red-600 dark:text-red-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.fatal / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
                             <tr className="border-b border-gray-100 dark:border-gray-800">
                                 <td className="py-1 text-orange-600 dark:text-orange-400">Error</td>
-                                <td className="text-center text-orange-600 dark:text-orange-400 font-bold">{stats.error}</td>
+                                <td className="text-center text-orange-600 dark:text-orange-400 font-bold">{formatNumber(stats.error)}</td>
                                 <td className="text-center text-orange-600 dark:text-orange-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.error / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
                             <tr className="border-b border-gray-100 dark:border-gray-800">
                                 <td className="py-1 text-yellow-600 dark:text-yellow-400">Warning</td>
-                                <td className="text-center text-yellow-600 dark:text-yellow-400 font-bold">{stats.warning}</td>
+                                <td className="text-center text-yellow-600 dark:text-yellow-400 font-bold">{formatNumber(stats.warning)}</td>
                                 <td className="text-center text-yellow-600 dark:text-yellow-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.warning / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
                             <tr className="border-b border-gray-100 dark:border-gray-800">
                                 <td className="py-1 text-blue-600 dark:text-blue-400">Info</td>
-                                <td className="text-center text-blue-600 dark:text-blue-400 font-bold">{stats.info}</td>
+                                <td className="text-center text-blue-600 dark:text-blue-400 font-bold">{formatNumber(stats.info)}</td>
                                 <td className="text-center text-blue-600 dark:text-blue-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.info / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
                             <tr>
                                 <td className="py-1 text-gray-600 dark:text-gray-400">Debug</td>
-                                <td className="text-center text-gray-600 dark:text-gray-400 font-bold">{stats.debug}</td>
+                                <td className="text-center text-gray-600 dark:text-gray-400 font-bold">{formatNumber(stats.debug)}</td>
                                 <td className="text-center text-gray-600 dark:text-gray-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.debug / stats.total) * 100) : 0}%
                                 </td>
