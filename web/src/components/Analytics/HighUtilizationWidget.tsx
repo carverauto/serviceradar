@@ -19,7 +19,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { AlertTriangle, Cpu, HardDrive, MemoryStick, ExternalLink } from 'lucide-react';
-import Link from 'next/link';
+
 import { useRouter } from 'next/navigation';
 
 interface HighUtilizationService {
@@ -89,7 +89,7 @@ const HighUtilizationWidget: React.FC = () => {
             const endTime = new Date();
             const startTime = new Date(endTime.getTime() - 5 * 60 * 1000); // Last 5 minutes for more recent data
             
-            const sysmonPromises = pollers.map(async (poller: any) => {
+            const sysmonPromises = pollers.map(async (poller: { poller_id: string }) => {
                 const [cpuResponse, memoryResponse, diskResponse] = await Promise.all([
                     fetch(`/api/pollers/${poller.poller_id}/sysmon/cpu?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
                         headers: {
@@ -126,7 +126,7 @@ const HighUtilizationWidget: React.FC = () => {
             
             // Create a map of device info by IP address and hostname
             const deviceMap = new Map();
-            devices.forEach((device: any) => {
+            devices.forEach((device: { ip?: string; hostname?: string; device_id: string }) => {
                 if (device.ip) {
                     deviceMap.set(device.ip, device);
                 }
@@ -149,7 +149,7 @@ const HighUtilizationWidget: React.FC = () => {
                 if (cpuData.length > 0) {
                     const latestCpu = cpuData[cpuData.length - 1];
                     if (latestCpu?.cpus && latestCpu.cpus.length > 0) {
-                        const avgCpuUsage = latestCpu.cpus.reduce((sum: number, core: any) => sum + core.usage_percent, 0) / latestCpu.cpus.length;
+                        const avgCpuUsage = latestCpu.cpus.reduce((sum: number, core: { usage_percent: number }) => sum + core.usage_percent, 0) / latestCpu.cpus.length;
                         const agentInfo = latestCpu.cpus[0];
                         
                         // Get device info from map
@@ -234,7 +234,7 @@ const HighUtilizationWidget: React.FC = () => {
                     
                     if (disks.length > 0) {
                         // Process each disk and find the one with highest usage
-                        disks.forEach((disk: any) => {
+                        disks.forEach((disk: { used_bytes: number; total_bytes: number; host_id?: string; agent_id?: string }) => {
                             const diskUsagePercent = (disk.used_bytes / disk.total_bytes) * 100;
                             
                             const hostId = disk.host_id || pollerId;
@@ -332,7 +332,7 @@ const HighUtilizationWidget: React.FC = () => {
         return 'text-yellow-600 dark:text-yellow-400';
     };
 
-    const handleUtilizationClick = useCallback((metricType: 'cpu' | 'memory' | 'disk' | 'all', severity?: 'warning' | 'critical') => {
+    const handleUtilizationClick = useCallback(() => {
         // For sysmon metrics, navigate to the metrics page instead of SRQL queries
         // If we have services, use the first one as an example, otherwise go to general metrics page
         if (services.length > 0) {
@@ -384,7 +384,7 @@ const HighUtilizationWidget: React.FC = () => {
             <div className="flex justify-between items-start mb-4">
                 <h3 
                     className="font-semibold text-gray-900 dark:text-white cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                    onClick={() => handleUtilizationClick('all')}
+                    onClick={handleUtilizationClick}
                     title="Click to view system metrics"
                 >
                     High Utilization Services
@@ -420,7 +420,7 @@ const HighUtilizationWidget: React.FC = () => {
                         <tbody>
                             <tr 
                                 className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                                onClick={() => handleUtilizationClick('cpu')}
+                                onClick={handleUtilizationClick}
                                 title="Click to view CPU-related sysmon services"
                             >
                                 <td className="py-1 text-gray-900 dark:text-white">CPU</td>
@@ -428,7 +428,7 @@ const HighUtilizationWidget: React.FC = () => {
                                     className="text-center text-yellow-600 dark:text-yellow-400 font-bold cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-900/10"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleUtilizationClick('cpu', 'warning');
+                                        handleUtilizationClick();
                                     }}
                                     title="Click to view warning CPU services"
                                 >
@@ -438,7 +438,7 @@ const HighUtilizationWidget: React.FC = () => {
                                     className="text-center text-red-600 dark:text-red-400 font-bold cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/10"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleUtilizationClick('cpu', 'critical');
+                                        handleUtilizationClick();
                                     }}
                                     title="Click to view critical CPU services"
                                 >
@@ -447,7 +447,7 @@ const HighUtilizationWidget: React.FC = () => {
                             </tr>
                             <tr 
                                 className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                                onClick={() => handleUtilizationClick('memory')}
+                                onClick={handleUtilizationClick}
                                 title="Click to view Memory-related sysmon services"
                             >
                                 <td className="py-1 text-gray-900 dark:text-white">Memory</td>
@@ -455,7 +455,7 @@ const HighUtilizationWidget: React.FC = () => {
                                     className="text-center text-yellow-600 dark:text-yellow-400 font-bold cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-900/10"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleUtilizationClick('memory', 'warning');
+                                        handleUtilizationClick();
                                     }}
                                     title="Click to view warning Memory services"
                                 >
@@ -465,7 +465,7 @@ const HighUtilizationWidget: React.FC = () => {
                                     className="text-center text-red-600 dark:text-red-400 font-bold cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/10"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleUtilizationClick('memory', 'critical');
+                                        handleUtilizationClick();
                                     }}
                                     title="Click to view critical Memory services"
                                 >
@@ -474,7 +474,7 @@ const HighUtilizationWidget: React.FC = () => {
                             </tr>
                             <tr 
                                 className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                                onClick={() => handleUtilizationClick('disk')}
+                                onClick={handleUtilizationClick}
                                 title="Click to view Disk-related sysmon services"
                             >
                                 <td className="py-1 text-gray-900 dark:text-white">Disk</td>
@@ -482,7 +482,7 @@ const HighUtilizationWidget: React.FC = () => {
                                     className="text-center text-yellow-600 dark:text-yellow-400 font-bold cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-900/10"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleUtilizationClick('disk', 'warning');
+                                        handleUtilizationClick();
                                     }}
                                     title="Click to view warning Disk services"
                                 >
@@ -492,7 +492,7 @@ const HighUtilizationWidget: React.FC = () => {
                                     className="text-center text-red-600 dark:text-red-400 font-bold cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/10"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleUtilizationClick('disk', 'critical');
+                                        handleUtilizationClick();
                                     }}
                                     title="Click to view critical Disk services"
                                 >

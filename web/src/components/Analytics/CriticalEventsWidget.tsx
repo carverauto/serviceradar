@@ -19,7 +19,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { AlertTriangle, ShieldAlert, AlertCircle, Info, ExternalLink } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Event } from '@/types/events';
 import { formatNumber } from '@/utils/formatters';
