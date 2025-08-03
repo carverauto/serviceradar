@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { 
     Search, 
@@ -23,9 +23,9 @@ interface CorrelationResult {
     metrics: OtelMetric[];
 }
 
-const CorrelationDashboard = () => {
+const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) => {
     const { token } = useAuth();
-    const [traceId, setTraceId] = useState('');
+    const [traceId, setTraceId] = useState(initialTraceId || '');
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<CorrelationResult | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -90,6 +90,13 @@ const CorrelationDashboard = () => {
             setTimeout(() => setCopiedTraceId(false), 2000);
         }
     }, [result?.trace_id]);
+
+    // Automatically search if initialTraceId is provided
+    useEffect(() => {
+        if (initialTraceId && initialTraceId.trim()) {
+            searchByTraceId();
+        }
+    }, [initialTraceId, searchByTraceId]);
 
     const formatDate = (dateString: string) => {
         try {
