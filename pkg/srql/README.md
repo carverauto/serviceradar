@@ -4,14 +4,23 @@ A flexible, powerful query language for network monitoring, inspired by Armis AS
 
 ## Overview
 
-SRQL is a domain-specific query language that allows you to query network entities such as devices, flows, traps, and connections using a simple, readable syntax. It compiles to various database backends, including ClickHouse and Proton.
+SRQL is a domain-specific query language that allows you to query network entities such as devices, flows, traps, connections, and OpenTelemetry traces using a simple, readable syntax. It compiles to various database backends, including ClickHouse and Proton.
 
 ## Example Queries
 
+### Network Monitoring
 ```
 show devices where ip = '192.168.1.1'
 find flows where bytes > 1000000 and dst_port = 80 order by bytes desc limit 10
 count devices where traps.severity = 'critical' and os contains 'Windows'
+```
+
+### OpenTelemetry Tracing
+```
+show otel_trace_summaries where duration_ms > 1000
+find otel_trace_summaries where error_count > 0 and root_service_name = 'serviceradar-poller'
+show otel_spans_enriched where trace_id = 'abc123' order by start_time_unix_nano
+count otel_trace_summaries where timestamp >= now() - interval 1 hour
 ```
 
 ## Getting Started
@@ -66,10 +75,12 @@ func main() {
 ## Features
 
 - Natural, readable query syntax
-- Support for multiple database backends
+- Support for multiple database backends (ClickHouse, Proton/Timeplus)
 - Rich condition expressions (equality, comparison, contains, in, between, etc.)
 - Order by and limit clauses
 - Nested conditions with parentheses
+- OpenTelemetry trace and span querying support
+- Pre-aggregated trace summaries for performance
 
 
 ## How to Use This Package in Your API
