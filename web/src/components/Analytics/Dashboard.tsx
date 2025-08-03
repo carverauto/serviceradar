@@ -30,6 +30,8 @@ import { RperfMetric } from "@/types/rperf";
 import HighUtilizationWidget from './HighUtilizationWidget';
 import CriticalEventsWidget from './CriticalEventsWidget';
 import CriticalLogsWidget from './CriticalLogsWidget';
+import ObservabilityWidget from './ObservabilityWidget';
+import { formatNumber } from '@/utils/formatters';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
@@ -115,12 +117,10 @@ const Dashboard = () => {
     const [chartData, setChartData] = useState<{
         deviceAvailability: { name: string; value: number; color: string }[];
         topLatencyServices: { name: string; value: number; color: string }[];
-        discoveryBySource: { name: string; value: number; color: string }[];
         rperfBandwidth: { name: string; value: number; color: string }[];
     }>({
         deviceAvailability: [],
         topLatencyServices: [],
-        discoveryBySource: [],
         rperfBandwidth: [],
     });
     const [isLoading, setIsLoading] = useState(true);
@@ -337,12 +337,6 @@ const Dashboard = () => {
                     { name: 'Offline', value: offlineDevices, color: '#ef4444' }
                 ],
                 topLatencyServices: topLatencyServices,
-                discoveryBySource: Object.entries((allDevicesRes.results as Device[]).reduce((acc, d) => {
-                    (d.discovery_sources || []).forEach(source => {
-                        acc[source] = (acc[source] || 0) + 1;
-                    });
-                    return acc;
-                }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][i % 5] })),
                 rperfBandwidth: rperfBandwidthData,
             });
 
@@ -373,27 +367,27 @@ const Dashboard = () => {
                 <StatCard
                     icon={Server}
                     title="Total Devices"
-                    value={stats.totalDevices.toLocaleString()}
+                    value={formatNumber(stats.totalDevices)}
                     isLoading={isLoading}
                 />
                 <StatCard
                     icon={ServerOff}
                     title="Offline Devices"
-                    value={stats.offlineDevices.toLocaleString()}
+                    value={formatNumber(stats.offlineDevices)}
                     alert
                     isLoading={isLoading}
                 />
                 <StatCard
                     icon={Activity}
                     title="High Latency Services"
-                    value={stats.highLatencyServices.toLocaleString()}
+                    value={formatNumber(stats.highLatencyServices)}
                     alert={stats.highLatencyServices > 0}
                     isLoading={isLoading}
                 />
                 <StatCard
                     icon={AlertTriangle}
                     title="Failing Services"
-                    value={stats.failingServices.toLocaleString()}
+                    value={formatNumber(stats.failingServices)}
                     alert
                     isLoading={isLoading}
                 />
@@ -406,15 +400,13 @@ const Dashboard = () => {
                     <ChartWidget title="Device Availability">
                         {chartData.deviceAvailability.length > 0 ? <SimpleBarChart data={chartData.deviceAvailability} /> : <NoData />}
                     </ChartWidget>
-                    <ChartWidget title="Device Discovery Sources">
-                        {chartData.discoveryBySource.length > 0 ? <SimpleBarChart data={chartData.discoveryBySource} /> : <NoData />}
-                    </ChartWidget>
                     <HighUtilizationWidget />
-                    <CriticalEventsWidget />
-                    <CriticalLogsWidget />
                     <ChartWidget title="RPerf Bandwidth by Target (Mbps)">
                         {chartData.rperfBandwidth.length > 0 ? <SimpleBarChart data={chartData.rperfBandwidth} /> : <NoData />}
                     </ChartWidget>
+                    <CriticalLogsWidget />
+                    <ObservabilityWidget />
+                    <CriticalEventsWidget />
                 </div>
             </div>
         </div>
