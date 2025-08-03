@@ -28,6 +28,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func (s *Server) MonitorPollers(ctx context.Context) {
@@ -805,7 +807,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 	// Validate required location fields - critical for device registration
 	if req.Partition == "" || req.SourceIp == "" {
-		s.logger.Error().
+		s.logger.Warn().
 			Str("poller_id", req.PollerId).
 			Str("partition", req.Partition).
 			Str("source_ip", req.SourceIp).
@@ -828,6 +830,11 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	}
 
 	s.updateAPIState(req.PollerId, apiStatus)
+
+	// Explicitly set span status to OK for successful operations
+	if span := trace.SpanFromContext(ctx); span != nil {
+		span.SetStatus(codes.Ok, "Status report processed successfully")
+	}
 
 	return &proto.PollerStatusResponse{Received: true}, nil
 }
@@ -890,7 +897,7 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 
 	// Validate required location fields
 	if partition == "" || sourceIP == "" {
-		s.logger.Error().
+		s.logger.Warn().
 			Str("poller_id", pollerID).
 			Str("partition", partition).
 			Str("source_ip", sourceIP).
@@ -925,6 +932,11 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 	}
 
 	s.updateAPIState(pollerID, apiStatus)
+
+	// Explicitly set span status to OK for successful operations
+	if span := trace.SpanFromContext(ctx); span != nil {
+		span.SetStatus(codes.Ok, "Streaming status report processed successfully")
+	}
 
 	return stream.SendAndClose(&proto.PollerStatusResponse{Received: true})
 }

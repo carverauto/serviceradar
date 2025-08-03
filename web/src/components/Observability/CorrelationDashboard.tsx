@@ -30,6 +30,7 @@ const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) =
     const [result, setResult] = useState<CorrelationResult | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [copiedTraceId, setCopiedTraceId] = useState(false);
+    const [expandedSpan, setExpandedSpan] = useState<number | null>(null);
 
     const postQuery = useCallback(async <T,>(query: string): Promise<T> => {
         const response = await fetch('/api/query', {
@@ -321,25 +322,138 @@ const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) =
                                 ) : (
                                     <div className="space-y-3">
                                         {result.spans.map((span, index) => (
-                                            <div key={index} className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                                        {span.name}
-                                                    </span>
-                                                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                                                        {formatDuration((span.end_time_unix_nano - span.start_time_unix_nano) / 1e6)}
-                                                    </span>
+                                            <div key={index} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                                                <div className="p-3">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                                            {span.name}
+                                                        </span>
+                                                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                                                            {formatDuration((span.end_time_unix_nano - span.start_time_unix_nano) / 1e6)}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-gray-600 dark:text-gray-400">{span.service_name || 'Unknown Service'}</p>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <button
+                                                            onClick={() => setExpandedSpan(expandedSpan === index ? null : index)}
+                                                            className={`px-2 py-1 text-xs font-semibold rounded-full transition-all hover:shadow-md hover:scale-105 cursor-pointer ${
+                                                                span.status_code === 1 
+                                                                    ? 'bg-green-100 text-green-800 dark:bg-green-600/50 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-600/70'
+                                                                    : 'bg-red-100 text-red-800 dark:bg-red-600/50 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-600/70'
+                                                            }`}
+                                                            title="Click to see detailed status analysis"
+                                                        >
+                                                            {span.status_code === 1 ? 'OK' : 'Error'}
+                                                        </button>
+                                                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                                                            span_id: {span.span_id?.substring(0, 8)}...
+                                                        </span>
+                                                    </div>
                                                 </div>
-                                                <p className="text-xs text-gray-600 dark:text-gray-400">{span.service_name || 'Unknown Service'}</p>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                                                        span.status_code === 1 
-                                                            ? 'bg-green-100 text-green-800 dark:bg-green-600/50 dark:text-green-200'
-                                                            : 'bg-red-100 text-red-800 dark:bg-red-600/50 dark:text-red-200'
-                                                    }`}>
-                                                        {span.status_code === 1 ? 'OK' : 'Error'}
-                                                    </span>
-                                                </div>
+                                                
+                                                {/* Expanded Span Diagnostics */}
+                                                {expandedSpan === index && (
+                                                    <div className="border-t border-gray-200 dark:border-gray-600 p-3 bg-white dark:bg-gray-800">
+                                                        <h5 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                                                            Span Status Analysis
+                                                        </h5>
+                                                        
+                                                        {/* Status Analysis */}
+                                                        <div className="space-y-2 text-xs mb-4">
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-gray-600 dark:text-gray-400">Current Badge Status:</span>
+                                                                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                                                    span.status_code === 1 
+                                                                        ? 'bg-green-100 text-green-800 dark:bg-green-600/50 dark:text-green-200'
+                                                                        : 'bg-red-100 text-red-800 dark:bg-red-600/50 dark:text-red-200'
+                                                                }`}>
+                                                                    {span.status_code === 1 ? 'OK' : 'Error'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-gray-600 dark:text-gray-400">Status Code Check:</span>
+                                                                <span className={`font-mono ${span.status_code === 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                                                    status_code = {span.status_code} {span.status_code === 1 ? '✓ (OK)' : '✗ (Error)'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-gray-600 dark:text-gray-400">Logic Result:</span>
+                                                                <span className="font-mono text-gray-900 dark:text-white">
+                                                                    {span.status_code === 1 
+                                                                        ? '✓ Should show OK (status_code === 1)'
+                                                                        : `✗ Should show Error (status_code = ${span.status_code} !== 1)`
+                                                                    }
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Span Details */}
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs mb-4">
+                                                            <div>
+                                                                <p className="text-gray-600 dark:text-gray-400">Span ID:</p>
+                                                                <p className="font-mono text-gray-900 dark:text-white break-all">{span.span_id}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-gray-600 dark:text-gray-400">Parent Span ID:</p>
+                                                                <p className="font-mono text-gray-900 dark:text-white break-all">{span.parent_span_id || 'None (Root)'}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-gray-600 dark:text-gray-400">Service:</p>
+                                                                <p className="text-gray-900 dark:text-white">{span.service_name || 'Unknown'}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-gray-600 dark:text-gray-400">Span Kind:</p>
+                                                                <p className="text-gray-900 dark:text-white">{span.kind || 'Unknown'}</p>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Status Message */}
+                                                        {span.status_message && (
+                                                            <div className="mb-4">
+                                                                <p className="text-gray-600 dark:text-gray-400 text-xs">Status Message:</p>
+                                                                <p className="text-gray-900 dark:text-white text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded border">
+                                                                    {span.status_message}
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                        
+                                                        {/* Raw Span Data Debug */}
+                                                        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                                                            <h6 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                                                                Raw Span Data (Debug)
+                                                            </h6>
+                                                            <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto">
+                                                                {JSON.stringify({
+                                                                    span_id: span.span_id,
+                                                                    parent_span_id: span.parent_span_id,
+                                                                    name: span.name,
+                                                                    status_code: span.status_code,
+                                                                    status_message: span.status_message,
+                                                                    service_name: span.service_name,
+                                                                    kind: span.kind,
+                                                                    start_time: span.start_time_unix_nano,
+                                                                    end_time: span.end_time_unix_nano,
+                                                                    duration_ms: (span.end_time_unix_nano - span.start_time_unix_nano) / 1e6
+                                                                }, null, 2)}
+                                                            </pre>
+                                                        </div>
+                                                        
+                                                        {/* Error Information */}
+                                                        {span.status_code !== 1 && (
+                                                            <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
+                                                                <p className="text-red-800 dark:text-red-200 font-semibold text-xs mb-2">
+                                                                    🚨 Why This Span Shows as Error:
+                                                                </p>
+                                                                <ul className="text-red-700 dark:text-red-300 text-xs space-y-1">
+                                                                    <li>• Status code is {span.status_code} (expected: 1 for OK)</li>
+                                                                    {span.status_message && (
+                                                                        <li>• Status message: "{span.status_message}"</li>
+                                                                    )}
+                                                                </ul>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
