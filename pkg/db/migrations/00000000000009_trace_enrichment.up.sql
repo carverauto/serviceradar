@@ -218,9 +218,9 @@ INTO otel_trace_summaries_final AS
 SELECT
   now() as timestamp,
   d.trace_id,
-  COALESCE(r.root_span_id, '') AS root_span_id,
-  COALESCE(r.root_span_name, '') AS root_span_name,
-  COALESCE(r.root_service, '') AS root_service_name,
+  COALESCE(nullif(r.root_span_id, ''), 'unknown') AS root_span_id,
+  COALESCE(nullif(r.root_span_name, ''), 'unknown') AS root_span_name,
+  COALESCE(nullif(r.root_service, ''), 'unknown') AS root_service_name,
   COALESCE(r.root_kind, 0) AS root_span_kind,
   d.start_time_unix_nano,
   d.end_time_unix_nano,
