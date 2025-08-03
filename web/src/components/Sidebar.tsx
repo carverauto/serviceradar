@@ -25,7 +25,6 @@ import {
     Server,
     MessageSquareCode,
     Globe,
-    FileText,
     Activity,
 } from 'lucide-react';
 
@@ -35,7 +34,6 @@ const navItems = [
     { href: '/network', label: 'Network', icon: Globe },
     { href: '/events', label: 'Events', icon: MessageSquareCode },
     { href: '/observability', label: 'Observability', icon: Activity },
-    { href: '/logs', label: 'Logs', icon: FileText },
 ];
 
 export default function Sidebar() {
