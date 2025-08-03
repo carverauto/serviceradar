@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
 import {Poller, GenericServiceDetails} from "@/types/types";
-import { Device } from "@/types/devices";
 import { RperfMetric } from "@/types/rperf";
 import HighUtilizationWidget from './HighUtilizationWidget';
 import CriticalEventsWidget from './CriticalEventsWidget';
@@ -170,12 +169,10 @@ const Dashboard = () => {
             const [
                 totalDevicesRes,
                 offlineDevicesRes,
-                allDevicesRes,
                 pollersData,
             ] = await Promise.all([
                 postQuery('COUNT DEVICES'),
                 postQuery('COUNT DEVICES WHERE is_available = false'),
-                postQuery('SHOW DEVICES'),
                 // Fetch pollers to get detailed service status and latency, which is not available in the 'SERVICES' stream
                 fetch('/api/pollers', {
                     headers: {
