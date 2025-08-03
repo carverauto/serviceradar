@@ -222,7 +222,7 @@ const CriticalLogsWidget = () => {
             <div className="flex justify-between items-start mb-4 flex-shrink-0">
                 <h3 className="font-semibold text-gray-900 dark:text-white">Critical Logs</h3>
                 <Link 
-                    href="/logs"
+                    href="/observability"
                     className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                     title="View all logs"
                 >
@@ -303,7 +303,7 @@ const CriticalLogsWidget = () => {
                                     </div>
                                 </div>
                                 <Link 
-                                    href={`/logs?filterSeverity=${encodeURIComponent(log.severity_text.toUpperCase())}`}
+                                    href="/observability"
                                     className="flex-shrink-0 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
                                     title={`View ${formatSeverityForDisplay(log.severity_text)} logs`}
                                 >
