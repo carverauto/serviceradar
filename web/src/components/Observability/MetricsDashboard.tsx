@@ -52,15 +52,15 @@ const StatCard = ({
             onClick={onClick}
         >
             <div className="flex items-center space-x-2">
-                <div className={`p-1 rounded-md ${colorClasses[color]}`}>
-                    {React.cloneElement(icon as React.ReactElement, { className: "h-3 w-3" })}
+                <div className={`p-1.5 rounded-md ${colorClasses[color]}`}>
+                    {React.cloneElement(icon as React.ReactElement, { className: "h-4 w-4" })}
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
                     {isLoading ? (
-                        <div className="h-4 w-12 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
+                        <div className="h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
                     ) : (
-                        <p className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{value}</p>
+                        <p className="text-lg font-bold text-gray-900 dark:text-white leading-tight">{value}</p>
                     )}
                 </div>
             </div>
@@ -186,18 +186,24 @@ const MetricsDashboard = () => {
         setStatsLoading(true);
 
         try {
-            const [totalRes, slowRes] = await Promise.all([
+            const [totalRes, slowRes, errorRateRes] = await Promise.all([
                 cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_metrics', token || undefined, 30000),
                 cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_metrics WHERE is_slow = true', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT otel_metrics WHERE http_status_code = '500' OR http_status_code = '400' OR http_status_code = '404' OR http_status_code = '503'", token || undefined, 30000),
             ]);
 
+            const total = totalRes.results[0]?.['count()'] || 0;
+            const errors = errorRateRes.results[0]?.['count()'] || 0;
+            
+            // Average duration will be calculated after fetching metrics data
+            
             setStats({
-                total: totalRes.results[0]?.['count()'] || 0,
+                total: total,
                 slow_spans: slowRes.results[0]?.['count()'] || 0,
-                avg_duration_ms: 0, // Will calculate from current data
-                p95_duration_ms: 0, // Will calculate from current data
-                error_rate: 0, // Will calculate from current data
-                top_services: [] // Will populate separately
+                avg_duration_ms: 0,
+                p95_duration_ms: 0, // P95 calculation would need a more complex query
+                error_rate: total > 0 ? errors / total : 0,
+                top_services: [] // Removed this section
             });
         } catch (e) {
             console.error("Failed to fetch metrics stats:", e);
@@ -253,6 +259,17 @@ const MetricsDashboard = () => {
             const response = await postQuery<OtelMetricsApiResponse>(query, cursor, direction);
             setMetrics(response.results);
             setPagination(response.pagination);
+            
+            // Update stats with calculated averages from the fetched data
+            if (response.results && response.results.length > 0) {
+                const totalDuration = response.results.reduce((sum, metric) => sum + (metric.duration_ms || 0), 0);
+                const avgDuration = totalDuration / response.results.length;
+                
+                setStats(prevStats => ({
+                    ...prevStats,
+                    avg_duration_ms: avgDuration
+                }));
+            }
         } catch (e) {
             console.error("Failed to fetch metrics:", e);
             setError(e instanceof Error ? e.message : 'Failed to fetch metrics');

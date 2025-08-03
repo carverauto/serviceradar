@@ -63,10 +63,10 @@ const CorrelationDashboard = () => {
         try {
             // Execute all correlation queries in parallel
             const [logsRes, traceSummaryRes, spansRes, metricsRes] = await Promise.all([
-                postQuery<{ results: Log[] }>(`FIND logs WHERE trace = '${traceId}' ORDER BY timestamp ASC`),
-                postQuery<{ results: TraceSummary[] }>(`FIND otel_trace_summaries WHERE trace = '${traceId}'`),
-                postQuery<{ results: TraceSpan[] }>(`FIND otel_traces WHERE trace = '${traceId}' ORDER BY start ASC`),
-                postQuery<{ results: OtelMetric[] }>(`FIND otel_metrics WHERE trace = '${traceId}' ORDER BY timestamp ASC`)
+                postQuery<{ results: Log[] }>(`SHOW LOGS WHERE trace_id = '${traceId}' ORDER BY timestamp ASC`),
+                postQuery<{ results: TraceSummary[] }>(`SHOW otel_trace_summaries WHERE trace_id = '${traceId}'`),
+                postQuery<{ results: TraceSpan[] }>(`SHOW otel_traces WHERE trace_id = '${traceId}' ORDER BY start_time_unix_nano ASC`),
+                postQuery<{ results: OtelMetric[] }>(`SHOW otel_metrics WHERE trace_id = '${traceId}' ORDER BY timestamp ASC`)
             ]);
 
             setResult({
