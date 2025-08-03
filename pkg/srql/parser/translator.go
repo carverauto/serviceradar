@@ -363,7 +363,9 @@ func getEntityConfigurations() map[models.EntityType]entityConfig {
 		models.SNMPMetrics:        {tableName: "timeseries_metrics", timestampField: "timestamp"},
 		models.OtelTraces:         {tableName: "otel_traces", timestampField: "timestamp"},
 		models.OtelMetrics:        {tableName: "otel_metrics", timestampField: "timestamp"},
-		models.OtelTraceSummaries: {tableName: "otel_trace_summaries", timestampField: "timestamp"},
+		models.OtelTraceSummaries: {tableName: "otel_trace_summaries_final", timestampField: "timestamp"},
+		models.OtelSpansEnriched:  {tableName: "otel_spans_enriched", timestampField: "timestamp"},
+		models.OtelRootSpans:      {tableName: "otel_root_spans", timestampField: "trace_id"},
 	}
 }
 
@@ -1038,6 +1040,25 @@ func getEntityFieldMapData() map[models.EntityType]map[string]string {
 			"start":       "start_time_unix_nano",
 			"end":         "end_time_unix_nano",
 			"root_span":   "root_span_name",
+		},
+		models.OtelSpansEnriched: {
+			"trace":       "trace_id",
+			"span":        "span_id",
+			"service":     "service_name",
+			"name":        "name",
+			"kind":        "kind",
+			"duration_ms": "duration_ms",
+			"is_root":     "is_root",
+			"parent":      "parent_span_id",
+			"start":       "start_time_unix_nano",
+			"end":         "end_time_unix_nano",
+		},
+		models.OtelRootSpans: {
+			"trace":   "trace_id",
+			"span":    "root_span_id",
+			"name":    "root_span_name",
+			"kind":    "root_kind",
+			"service": "root_service",
 		},
 	}
 }
