@@ -20,6 +20,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AlertCircle, XCircle, AlertTriangle, Info, ExternalLink, FileText } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { formatNumber } from '@/utils/formatters';
 
 interface LogStats {
@@ -42,6 +43,7 @@ interface LogEntry {
 
 const CriticalLogsWidget = () => {
     const { token } = useAuth();
+    const router = useRouter();
     const [stats, setStats] = useState<LogStats>({
         fatal: 0,
         error: 0,
@@ -189,6 +191,46 @@ const CriticalLogsWidget = () => {
         return message.substring(0, maxLength) + '...';
     };
 
+    const handleLogLevelClick = useCallback((level: string) => {
+        let query = '';
+        switch (level.toLowerCase()) {
+            case 'fatal':
+                query = 'show logs where severity_text = "fatal"';
+                break;
+            case 'error':
+                query = 'show logs where severity_text = "error"';
+                break;
+            case 'warning':
+                query = 'show logs where severity_text = "warning" or severity_text = "warn"';
+                break;
+            case 'info':
+                query = 'show logs where severity_text = "info"';
+                break;
+            case 'debug':
+                query = 'show logs where severity_text = "debug"';
+                break;
+            case 'all':
+                query = 'show logs';
+                break;
+            default:
+                query = 'show logs';
+        }
+        const encodedQuery = encodeURIComponent(query);
+        router.push(`/query?q=${encodedQuery}`);
+    }, [router]);
+
+    const handleLogEntryClick = useCallback((log: LogEntry) => {
+        if (log.trace_id) {
+            const query = `show logs where trace_id = "${log.trace_id}"`;
+            const encodedQuery = encodeURIComponent(query);
+            router.push(`/query?q=${encodedQuery}`);
+        } else {
+            const query = `show logs where severity_text = "${log.severity_text}"`;
+            const encodedQuery = encodeURIComponent(query);
+            router.push(`/query?q=${encodedQuery}`);
+        }
+    }, [router]);
+
     if (loading) {
         return (
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px]">
@@ -221,14 +263,24 @@ const CriticalLogsWidget = () => {
     return (
         <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px] overflow-hidden">
             <div className="flex justify-between items-start mb-4 flex-shrink-0">
-                <h3 className="font-semibold text-gray-900 dark:text-white">Critical Logs</h3>
-                <Link 
-                    href="/observability"
+                <h3 
+                    className="font-semibold text-gray-900 dark:text-white cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                    onClick={() => handleLogLevelClick('all')}
+                    title="Click to view all logs"
+                >
+                    Critical Logs
+                </h3>
+                <button
+                    onClick={() => {
+                        const query = 'show logs where severity_text in ("fatal", "error")';
+                        const encodedQuery = encodeURIComponent(query);
+                        router.push(`/query?q=${encodedQuery}`);
+                    }}
                     className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-                    title="View all logs"
+                    title="View critical logs (fatal + error)"
                 >
                     <ExternalLink size={16} />
-                </Link>
+                </button>
             </div>
             
             <div className="flex-1 flex flex-col min-h-0">
@@ -243,35 +295,55 @@ const CriticalLogsWidget = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            <tr className="border-b border-gray-100 dark:border-gray-800">
+                            <tr 
+                                className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
+                                onClick={() => handleLogLevelClick('fatal')}
+                                title="Click to view fatal logs"
+                            >
                                 <td className="py-1 text-red-600 dark:text-red-400">Fatal</td>
                                 <td className="text-center text-red-600 dark:text-red-400 font-bold">{formatNumber(stats.fatal)}</td>
                                 <td className="text-center text-red-600 dark:text-red-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.fatal / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
-                            <tr className="border-b border-gray-100 dark:border-gray-800">
+                            <tr 
+                                className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/10 transition-colors"
+                                onClick={() => handleLogLevelClick('error')}
+                                title="Click to view error logs"
+                            >
                                 <td className="py-1 text-orange-600 dark:text-orange-400">Error</td>
                                 <td className="text-center text-orange-600 dark:text-orange-400 font-bold">{formatNumber(stats.error)}</td>
                                 <td className="text-center text-orange-600 dark:text-orange-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.error / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
-                            <tr className="border-b border-gray-100 dark:border-gray-800">
+                            <tr 
+                                className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-900/10 transition-colors"
+                                onClick={() => handleLogLevelClick('warning')}
+                                title="Click to view warning logs"
+                            >
                                 <td className="py-1 text-yellow-600 dark:text-yellow-400">Warning</td>
                                 <td className="text-center text-yellow-600 dark:text-yellow-400 font-bold">{formatNumber(stats.warning)}</td>
                                 <td className="text-center text-yellow-600 dark:text-yellow-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.warning / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
-                            <tr className="border-b border-gray-100 dark:border-gray-800">
+                            <tr 
+                                className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors"
+                                onClick={() => handleLogLevelClick('info')}
+                                title="Click to view info logs"
+                            >
                                 <td className="py-1 text-blue-600 dark:text-blue-400">Info</td>
                                 <td className="text-center text-blue-600 dark:text-blue-400 font-bold">{formatNumber(stats.info)}</td>
                                 <td className="text-center text-blue-600 dark:text-blue-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.info / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
-                            <tr>
+                            <tr 
+                                className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                                onClick={() => handleLogLevelClick('debug')}
+                                title="Click to view debug logs"
+                            >
                                 <td className="py-1 text-gray-600 dark:text-gray-400">Debug</td>
                                 <td className="text-center text-gray-600 dark:text-gray-400 font-bold">{formatNumber(stats.debug)}</td>
                                 <td className="text-center text-gray-600 dark:text-gray-400 text-xs">
@@ -286,7 +358,12 @@ const CriticalLogsWidget = () => {
                 {recentLogs.length > 0 ? (
                     <div className="space-y-2 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
                         {recentLogs.map((log, index) => (
-                            <div key={index} className="flex items-center justify-between gap-2 p-2 bg-gray-50 dark:bg-gray-700/50 rounded">
+                            <div 
+                                key={index} 
+                                className="flex items-center justify-between gap-2 p-2 bg-gray-50 dark:bg-gray-700/50 rounded cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600/50 transition-colors"
+                                onClick={() => handleLogEntryClick(log)}
+                                title={`Click to view ${log.trace_id ? 'related logs for this trace' : 'all ' + formatSeverityForDisplay(log.severity_text) + ' logs'}`}
+                            >
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                     <div className="flex-shrink-0">
                                         {getLevelIcon(log.severity_text)}
@@ -300,16 +377,13 @@ const CriticalLogsWidget = () => {
                                         </div>
                                         <div className={`text-xs ${getLevelColor(log.severity_text)} truncate`}>
                                             {formatSeverityForDisplay(log.severity_text)} • {formatTimestamp(log.timestamp)}
+                                            {log.trace_id && <span className="ml-1 text-blue-600 dark:text-blue-400">🔗</span>}
                                         </div>
                                     </div>
                                 </div>
-                                <Link 
-                                    href="/observability"
-                                    className="flex-shrink-0 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
-                                    title={`View ${formatSeverityForDisplay(log.severity_text)} logs`}
-                                >
+                                <div className="flex-shrink-0 text-blue-600 dark:text-blue-400 opacity-70">
                                     <ExternalLink size={14} />
-                                </Link>
+                                </div>
                             </div>
                         ))}
                     </div>
