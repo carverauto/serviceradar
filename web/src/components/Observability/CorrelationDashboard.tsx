@@ -7,7 +7,6 @@ import {
     Activity, 
     Clock, 
     BarChart3, 
-    ArrowRight,
     ExternalLink,
     Copy,
     CheckCircle
@@ -290,7 +289,7 @@ const CorrelationDashboard = () => {
                                                         {formatDate(log.timestamp)}
                                                     </span>
                                                 </div>
-                                                <p className="text-sm text-gray-900 dark:text-white">{log.service_name || log.service}</p>
+                                                <p className="text-sm text-gray-900 dark:text-white">{log.service_name || 'Unknown Service'}</p>
                                                 <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
                                                     {log.body}
                                                 </p>
@@ -324,7 +323,7 @@ const CorrelationDashboard = () => {
                                                         {formatDuration((span.end_time_unix_nano - span.start_time_unix_nano) / 1e6)}
                                                     </span>
                                                 </div>
-                                                <p className="text-xs text-gray-600 dark:text-gray-400">{span.service_name || span.service}</p>
+                                                <p className="text-xs text-gray-600 dark:text-gray-400">{span.service_name || 'Unknown Service'}</p>
                                                 <div className="flex items-center gap-2 mt-1">
                                                     <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                                                         span.status_code === 1 
@@ -364,10 +363,10 @@ const CorrelationDashboard = () => {
                                                         {formatDuration(metric.duration_ms)}
                                                     </span>
                                                 </div>
-                                                <p className="text-xs text-gray-600 dark:text-gray-400">{metric.service_name || metric.service}</p>
+                                                <p className="text-xs text-gray-600 dark:text-gray-400">{metric.service_name || 'Unknown Service'}</p>
                                                 {metric.http_route && (
                                                     <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                                                        {metric.http_method || metric.method} {metric.http_route || metric.route}
+                                                        {metric.http_method || 'GET'} {metric.http_route || 'Unknown Route'}
                                                     </p>
                                                 )}
                                                 <div className="flex items-center gap-2 mt-1">
@@ -378,9 +377,9 @@ const CorrelationDashboard = () => {
                                                     }`}>
                                                         {metric.is_slow ? 'Slow' : 'Fast'}
                                                     </span>
-                                                    {(metric.http_status_code || metric.status) && (
+                                                    {metric.http_status_code && (
                                                         <span className="text-xs text-gray-600 dark:text-gray-400">
-                                                            {metric.http_status_code || metric.status}
+                                                            {metric.http_status_code}
                                                         </span>
                                                     )}
                                                 </div>

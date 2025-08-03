@@ -16,8 +16,6 @@ import {
     ArrowDown,
     ChevronDown,
     ChevronRight,
-    Eye,
-    ExternalLink,
     Copy,
     Check
 } from 'lucide-react';
@@ -56,7 +54,7 @@ const StatCard = ({
         >
             <div className="flex items-center space-x-2">
                 <div className={`p-1.5 rounded-md ${colorClasses[color]}`}>
-                    {React.cloneElement(icon as React.ReactElement, { className: "h-4 w-4" })}
+                    {React.cloneElement(icon as React.ReactElement<{ className?: string }>, { className: "h-4 w-4" })}
                 </div>
                 <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
@@ -267,7 +265,7 @@ const TracesDashboard = () => {
                 
                 // Get unique services
                 const uniqueServices = new Set(response.results.map(trace => 
-                    trace.root_service_name || trace.service
+                    trace.root_service_name
                 ).filter(Boolean));
                 
                 setStats(prevStats => ({
@@ -312,13 +310,7 @@ const TracesDashboard = () => {
         return 'bg-green-100 dark:bg-green-600/50 text-green-800 dark:text-green-200 border border-green-300 dark:border-green-500/60';
     };
 
-    const formatDate = (dateString: string) => {
-        try {
-            return new Date(dateString).toLocaleString();
-        } catch {
-            return 'Invalid Date';
-        }
-    };
+
 
     const TableHeader = ({
         aKey,
@@ -518,10 +510,10 @@ const TracesDashboard = () => {
 
                                                 <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
                                                     <div className="font-medium truncate max-w-xs">
-                                                        {trace.root_span_name || trace.root_span || 'Unknown'}
+                                                        {trace.root_span_name || 'Unknown'}
                                                     </div>
                                                     <div className="text-gray-500 dark:text-gray-400 truncate">
-                                                        {trace.root_service_name || trace.service || 'Unknown Service'}
+                                                        {trace.root_service_name || 'Unknown Service'}
                                                     </div>
                                                 </td>
                                                 <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-300">
@@ -560,7 +552,7 @@ const TracesDashboard = () => {
                                                                     <div>
                                                                         <p className="text-gray-600 dark:text-gray-400">Services:</p>
                                                                         <p className="text-gray-900 dark:text-white">
-                                                                            {trace.service_set?.join(', ') || trace.root_service_name || trace.service}
+                                                                            {trace.service_set?.join(', ') || trace.root_service_name || 'Unknown Service'}
                                                                         </p>
                                                                     </div>
                                                                     <div>
