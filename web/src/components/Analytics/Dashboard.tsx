@@ -18,25 +18,48 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip, Legend
-} from 'recharts';
-import {
-    AlertTriangle, Activity, ServerOff, MoreHorizontal, Server
+    AlertTriangle, Activity, ServerOff, Server
 } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
 import {Poller, GenericServiceDetails} from "@/types/types";
-import { RperfMetric } from "@/types/rperf";
+import { useRouter } from 'next/navigation';
 import HighUtilizationWidget from './HighUtilizationWidget';
 import CriticalEventsWidget from './CriticalEventsWidget';
 import CriticalLogsWidget from './CriticalLogsWidget';
 import ObservabilityWidget from './ObservabilityWidget';
+import DeviceAvailabilityWidget from './DeviceAvailabilityWidget';
+import RperfBandwidthWidget from './RperfBandwidthWidget';
 import { formatNumber } from '@/utils/formatters';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
 // Reusable component for the top statistic cards
-const StatCard = ({ icon: Icon, title, value, subValue, alert = false, isLoading = false }: { icon: React.ElementType; title: string; value: string | number; subValue?: string; alert?: boolean; isLoading?: boolean }) => (
-    <div className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg flex items-center gap-4`}>
+const StatCard = ({ 
+    icon: Icon, 
+    title, 
+    value, 
+    subValue, 
+    alert = false, 
+    isLoading = false, 
+    onClick,
+    tooltip
+}: { 
+    icon: React.ElementType; 
+    title: string; 
+    value: string | number; 
+    subValue?: string; 
+    alert?: boolean; 
+    isLoading?: boolean;
+    onClick?: () => void;
+    tooltip?: string;
+}) => (
+    <div 
+        className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg flex items-center gap-4 ${
+            onClick ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors' : ''
+        }`}
+        onClick={onClick}
+        title={tooltip}
+    >
         <div className={`p-3 rounded-md ${
             alert ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
                 : title.includes('Latency') ? 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-600 dark:text-yellow-400'
@@ -60,68 +83,18 @@ const StatCard = ({ icon: Icon, title, value, subValue, alert = false, isLoading
     </div>
 );
 
-// Reusable component for the chart widgets
-const ChartWidget = ({ title, children, moreOptions = true }: { title: string; children: React.ReactNode; moreOptions?: boolean }) => (
-    <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px]">
-        <div className="flex justify-between items-start mb-4">
-            <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
-            <div className="flex items-center gap-x-2">
-                {moreOptions && <button className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"><MoreHorizontal size={20} /></button>}
-            </div>
-        </div>
-        <div className="flex-1">{children}</div>
-    </div>
-);
 
-// "No Data to Show" component for charts
-const NoData = () => (
-    <div className="flex flex-col items-center justify-center h-full text-center text-gray-600 dark:text-gray-500">
-        <div className="w-16 h-12 relative mb-2">
-            <div className="absolute top-0 left-0 w-8 h-12 bg-gray-600 transform -skew-x-12"></div>
-            <div className="absolute top-0 left-8 w-8 h-12 bg-green-600 transform -skew-x-12"></div>
-        </div>
-        <p>No data to show</p>
-    </div>
-);
-
-// Bar Chart component for reuse
-const SimpleBarChart = ({ data }: { data: { name: string; value: number; color: string }[] }) => (
-    <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 5 }}>
-            <XAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={false} tickLine={false} interval={0} />
-            <YAxis tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={false} tickLine={false} />
-            <Tooltip
-                cursor={{ fill: 'rgba(100, 116, 139, 0.1)' }}
-                contentStyle={{ backgroundColor: '#16151c', border: '1px solid #4b5563', borderRadius: '0.5rem' }}
-                labelStyle={{ color: '#d1d5db' }}
-            />
-            <Legend wrapperStyle={{fontSize: "12px"}}/>
-            <Bar dataKey="value" name="Count" radius={[4, 4, 0, 0]}>
-                {data.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-            </Bar>
-        </BarChart>
-    </ResponsiveContainer>
-);
 
 const Dashboard = () => {
     const { token } = useAuth();
+    const router = useRouter();
     const [stats, setStats] = useState({
         totalDevices: 0,
         offlineDevices: 0,
         highLatencyServices: 0,
         failingServices: 0,
     });
-    const [chartData, setChartData] = useState<{
-        deviceAvailability: { name: string; value: number; color: string }[];
-        topLatencyServices: { name: string; value: number; color: string }[];
-        rperfBandwidth: { name: string; value: number; color: string }[];
-    }>({
-        deviceAvailability: [],
-        topLatencyServices: [],
-        rperfBandwidth: [],
-    });
+
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -185,40 +158,6 @@ const Dashboard = () => {
                 }),
             ]);
 
-            // Fetch rperf data from all pollers that have rperf services
-            const rperfPollers = pollersData.filter(poller => 
-                poller.services?.some(s => s.type === 'grpc' && s.name === 'rperf-checker')
-            );
-            
-            // Get data for the last 1 hour
-            const endTime = new Date();
-            const startTime = new Date(endTime.getTime() - 1 * 60 * 60 * 1000);
-            
-            const rperfPromises = rperfPollers.map(poller => {
-                const url = `/api/pollers/${poller.poller_id}/rperf?start=${startTime.toISOString()}&end=${endTime.toISOString()}`;
-                
-                return fetch(url, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` }),
-                    },
-                })
-                .then(res => {
-                    if (!res.ok) {
-                        console.error(`RPerf API error for poller ${poller.poller_id}: ${res.status}`);
-                        return [];
-                    }
-                    return res.json() as Promise<RperfMetric[]>;
-                })
-                .catch((err) => {
-                    console.error(`Error fetching rperf for poller ${poller.poller_id}:`, err);
-                    return [];
-                });
-            });
-            
-            const rperfDataArrays = await Promise.all(rperfPromises);
-            const allRperfData = rperfDataArrays.flat();
-
             // Calculate stats
             const totalDevices = totalDevicesRes.results[0]?.['count()'] || 0;
             const offlineDevices = offlineDevicesRes.results[0]?.['count()'] || 0;
@@ -254,88 +193,7 @@ const Dashboard = () => {
                 });
             });
 
-            // Calculate average rperf bandwidth (in Mbps)
-            /*
-            let avgRperfBandwidth = 0;
-            if (allRperfData.length > 0) {
-                const recentRperfData = allRperfData
-                    .filter(metric => metric.success)
-                    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                    .slice(0, 10); // Get last 10 successful measurements
-
-                if (recentRperfData.length > 0) {
-                     const totalBandwidth = recentRperfData.reduce((sum, metric) => sum + (metric.bits_per_second / 1000000), 0);
-                     avgRperfBandwidth = Math.round(totalBandwidth / recentRperfData.length);
-                }
-            }
-             */
-
             setStats({ totalDevices, offlineDevices, highLatencyServices, failingServices });
-
-            // Prepare rperf bandwidth data for chart
-            const rperfBandwidthData: { name: string; value: number; color: string }[] = [];
-            if (allRperfData.length > 0) {
-                // Group by target and calculate average bandwidth for each
-                const successfulMetrics = allRperfData.filter(metric => metric.success);
-                
-                // Track which sources (pollers) are measuring each target
-                const targetBandwidths = successfulMetrics.reduce((acc, metric) => {
-                    if (!acc[metric.target]) {
-                        acc[metric.target] = { total: 0, count: 0, sources: new Set<string>() };
-                    }
-                    acc[metric.target].total += metric.bits_per_second / 1000000; // Convert to Mbps
-                    acc[metric.target].count += 1;
-                    
-                    // Track the source poller if available
-                    if (metric.agent_id) {
-                        acc[metric.target].sources.add(metric.agent_id);
-                    }
-                    
-                    return acc;
-                }, {} as Record<string, { total: number; count: number; sources: Set<string> }>);
-
-                // Convert to chart data format and sort by bandwidth
-                Object.entries(targetBandwidths)
-                    .map(([target, data]) => {
-                        let displayName = target;
-                        if (data.sources.size > 1) {
-                            // Multiple sources measuring this target
-                            displayName = `${target} (${data.sources.size} sources)`;
-                        } else if (data.sources.size === 1 && rperfPollers.length > 1) {
-                            // Single source but multiple pollers exist - show which one
-                            const sourceName = Array.from(data.sources)[0];
-                            displayName = `${target} (${sourceName})`;
-                        }
-                        return {
-                            name: displayName,
-                            value: Math.round(data.total / data.count),
-                        };
-                    })
-                    .sort((a, b) => b.value - a.value)
-                    .slice(0, 5) // Top 5 targets
-                    .forEach((item, i) => {
-                        rperfBandwidthData.push({
-                            ...item,
-                            color: ['#3b82f6', '#60a5fa', '#93c5fd', '#dbeafe', '#eff6ff'][i % 5]
-                        });
-                    });
-            }
-
-            // Prepare chart data
-            const topLatencyServices = latencyData
-                .sort((a, b) => b.value - a.value)
-                .slice(0, 5)
-                .map((item, i) => ({ ...item, color: ['#f59e0b', '#facc15', '#fef08a', '#fde68a', '#fcd34d'][i % 5] }));
-
-
-            setChartData({
-                deviceAvailability: [
-                    { name: 'Online', value: totalDevices - offlineDevices, color: '#3b82f6' },
-                    { name: 'Offline', value: offlineDevices, color: '#ef4444' }
-                ],
-                topLatencyServices: topLatencyServices,
-                rperfBandwidth: rperfBandwidthData,
-            });
 
         } catch (e) {
             setError(e instanceof Error ? e.message : "An unknown error occurred.");
@@ -343,6 +201,26 @@ const Dashboard = () => {
             setIsLoading(false);
         }
     }, [postQuery, token]);
+
+    const handleStatCardClick = useCallback((type: 'total' | 'offline' | 'latency' | 'failing') => {
+        let query = '';
+        switch (type) {
+            case 'total':
+                query = 'show devices';
+                break;
+            case 'offline':
+                query = 'show devices where is_available = false';
+                break;
+            case 'latency':
+                query = 'show services where type = "icmp" and response_time > 100000000';
+                break;
+            case 'failing':
+                query = 'show services where available = false';
+                break;
+        }
+        const encodedQuery = encodeURIComponent(query);
+        router.push(`/query?q=${encodedQuery}`);
+    }, [router]);
 
     useEffect(() => {
         fetchData();
@@ -366,6 +244,8 @@ const Dashboard = () => {
                     title="Total Devices"
                     value={formatNumber(stats.totalDevices)}
                     isLoading={isLoading}
+                    onClick={() => handleStatCardClick('total')}
+                    tooltip="Click to view all devices"
                 />
                 <StatCard
                     icon={ServerOff}
@@ -373,13 +253,18 @@ const Dashboard = () => {
                     value={formatNumber(stats.offlineDevices)}
                     alert
                     isLoading={isLoading}
+                    onClick={() => handleStatCardClick('offline')}
+                    tooltip="Click to view offline devices"
                 />
                 <StatCard
                     icon={Activity}
                     title="High Latency Services"
                     value={formatNumber(stats.highLatencyServices)}
+                    subValue="> 100ms"
                     alert={stats.highLatencyServices > 0}
                     isLoading={isLoading}
+                    onClick={() => handleStatCardClick('latency')}
+                    tooltip="Click to view high latency ICMP services (> 100ms)"
                 />
                 <StatCard
                     icon={AlertTriangle}
@@ -387,6 +272,8 @@ const Dashboard = () => {
                     value={formatNumber(stats.failingServices)}
                     alert
                     isLoading={isLoading}
+                    onClick={() => handleStatCardClick('failing')}
+                    tooltip="Click to view unavailable services"
                 />
             </div>
 
@@ -394,13 +281,9 @@ const Dashboard = () => {
             <div>
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Network & Performance Analytics</h2>
                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                    <ChartWidget title="Device Availability">
-                        {chartData.deviceAvailability.length > 0 ? <SimpleBarChart data={chartData.deviceAvailability} /> : <NoData />}
-                    </ChartWidget>
+                    <DeviceAvailabilityWidget />
                     <HighUtilizationWidget />
-                    <ChartWidget title="RPerf Bandwidth by Target (Mbps)">
-                        {chartData.rperfBandwidth.length > 0 ? <SimpleBarChart data={chartData.rperfBandwidth} /> : <NoData />}
-                    </ChartWidget>
+                    <RperfBandwidthWidget />
                     <CriticalLogsWidget />
                     <ObservabilityWidget />
                     <CriticalEventsWidget />
