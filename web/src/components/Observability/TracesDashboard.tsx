@@ -16,8 +16,8 @@ import {
     ArrowDown,
     ChevronDown,
     ChevronRight,
-    Eye,
-    ExternalLink
+    Copy,
+    Check
 } from 'lucide-react';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
@@ -47,21 +47,21 @@ const StatCard = ({
 
     return (
         <div 
-            className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg transition-all ${
+            className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-2 rounded-lg transition-all ${
                 onClick ? 'cursor-pointer hover:shadow-lg hover:border-orange-400 dark:hover:border-orange-600' : ''
             }`}
             onClick={onClick}
         >
-            <div className="flex items-center">
-                <div className={`p-2 rounded-md mr-4 ${colorClasses[color]}`}>
-                    {icon}
+            <div className="flex items-center space-x-2">
+                <div className={`p-1.5 rounded-md ${colorClasses[color]}`}>
+                    {React.cloneElement(icon as React.ReactElement<{ className?: string }>, { className: "h-4 w-4" })}
                 </div>
-                <div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
+                <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
                     {isLoading ? (
-                        <div className="h-7 w-20 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse mt-1"></div>
+                        <div className="h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
                     ) : (
-                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+                        <p className="text-lg font-bold text-gray-900 dark:text-white leading-tight">{value}</p>
                     )}
                 </div>
             </div>
@@ -77,6 +77,45 @@ const formatNumber = (num: number): string => {
         return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
     }
     return num.toString();
+};
+
+const TraceIdCell = ({ traceId }: { traceId: string }) => {
+    const [copied, setCopied] = useState(false);
+    
+    const copyToClipboard = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            await navigator.clipboard.writeText(traceId);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    };
+
+    return (
+        <div className="group relative">
+            <button
+                onClick={copyToClipboard}
+                className="flex items-center gap-1 text-xs font-mono text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                title={`Click to copy: ${traceId}`}
+            >
+                <span className="lg:hidden">{traceId.substring(0, 6)}...</span>
+                <span className="hidden lg:inline">{traceId.substring(0, 8)}...</span>
+                {copied ? (
+                    <Check className="h-3 w-3 text-green-500" />
+                ) : (
+                    <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                )}
+            </button>
+            
+            {/* Tooltip with full trace ID */}
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-nowrap">
+                {traceId}
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-100"></div>
+            </div>
+        </div>
+    );
 };
 
 const formatDuration = (ms: number): string => {
@@ -213,6 +252,29 @@ const TracesDashboard = () => {
             const response = await postQuery<TraceSummariesApiResponse>(query, cursor, direction);
             setTraces(response.results);
             setPagination(response.pagination);
+            
+            // Update stats with calculated values from the fetched data
+            if (response.results && response.results.length > 0) {
+                const durations = response.results.map(trace => trace.duration_ms || 0).sort((a, b) => a - b);
+                const totalDuration = durations.reduce((sum, duration) => sum + duration, 0);
+                const avgDuration = totalDuration / durations.length;
+                
+                // Calculate P95 (95th percentile)
+                const p95Index = Math.floor(durations.length * 0.95);
+                const p95Duration = durations[p95Index] || 0;
+                
+                // Get unique services
+                const uniqueServices = new Set(response.results.map(trace => 
+                    trace.root_service_name
+                ).filter(Boolean));
+                
+                setStats(prevStats => ({
+                    ...prevStats,
+                    avg_duration_ms: avgDuration,
+                    p95_duration_ms: p95Duration,
+                    services_count: uniqueServices.size
+                }));
+            }
         } catch (e) {
             console.error("Failed to fetch traces:", e);
             setError(e instanceof Error ? e.message : 'Failed to fetch traces');
@@ -248,13 +310,7 @@ const TracesDashboard = () => {
         return 'bg-green-100 dark:bg-green-600/50 text-green-800 dark:text-green-200 border border-green-300 dark:border-green-500/60';
     };
 
-    const formatDate = (dateString: string) => {
-        try {
-            return new Date(dateString).toLocaleString();
-        } catch {
-            return 'Invalid Date';
-        }
-    };
+
 
     const TableHeader = ({
         aKey,
@@ -265,7 +321,7 @@ const TracesDashboard = () => {
     }) => (
         <th
             scope="col"
-            className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer"
+            className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer"
             onClick={() => handleSort(aKey)}
         >
             <div className="flex items-center">
@@ -284,7 +340,7 @@ const TracesDashboard = () => {
     return (
         <div className="space-y-6">
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <StatCard
                     title="Total Traces"
                     value={formatNumber(stats.total)}
@@ -333,52 +389,54 @@ const TracesDashboard = () => {
 
             {/* Traces Table */}
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg">
-                <div className="p-4 flex flex-col md:flex-row gap-4 justify-between items-center border-b border-gray-200 dark:border-gray-700">
-                    <div className="relative w-full md:w-1/3">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Search traces..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
-                        />
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <label htmlFor="statusFilter" className="text-sm text-gray-700 dark:text-gray-300">
-                                Status:
-                            </label>
-                            <select
-                                id="statusFilter"
-                                value={filterStatus}
-                                onChange={(e) => setFilterStatus(e.target.value as 'all' | 'success' | 'error')}
-                                className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                            >
-                                <option value="all">All</option>
-                                <option value="success">Success</option>
-                                <option value="error">Error</option>
-                            </select>
+                <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex flex-col gap-3">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Search traces..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
+                            />
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <label htmlFor="serviceFilter" className="text-sm text-gray-700 dark:text-gray-300">
-                                Service:
-                            </label>
-                            <select
-                                id="serviceFilter"
-                                value={filterService}
-                                onChange={(e) => setFilterService(e.target.value)}
-                                className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                            >
-                                <option value="all">All</option>
-                                {services.map((service) => (
-                                    <option key={service} value={service}>
-                                        {service}
-                                    </option>
-                                ))}
-                            </select>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="statusFilter" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                                    Status:
+                                </label>
+                                <select
+                                    id="statusFilter"
+                                    value={filterStatus}
+                                    onChange={(e) => setFilterStatus(e.target.value as 'all' | 'success' | 'error')}
+                                    className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1 focus:ring-green-500 focus:border-green-500"
+                                >
+                                    <option value="all">All</option>
+                                    <option value="success">Success</option>
+                                    <option value="error">Error</option>
+                                </select>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="serviceFilter" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                                    Service:
+                                </label>
+                                <select
+                                    id="serviceFilter"
+                                    value={filterService}
+                                    onChange={(e) => setFilterService(e.target.value)}
+                                    className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1 focus:ring-green-500 focus:border-green-500"
+                                >
+                                    <option value="all">All</option>
+                                    {services.map((service) => (
+                                        <option key={service} value={service}>
+                                            {service}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -387,22 +445,18 @@ const TracesDashboard = () => {
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-100 dark:bg-gray-800/50">
                             <tr>
-                                <th scope="col" className="w-12"></th>
-                                <TableHeader aKey="timestamp" label="Timestamp" />
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                <th scope="col" className="w-8"></th>
+                                <TableHeader aKey="timestamp" label="Time" />
+                                <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider hidden lg:table-cell">
                                     Trace ID
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Root Span
+                                <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                    Span/Service
                                 </th>
-                                <TableHeader aKey="root_service_name" label="Service" />
                                 <TableHeader aKey="duration_ms" label="Duration" />
                                 <TableHeader aKey="span_count" label="Spans" />
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                                     Status
-                                </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Actions
                                 </th>
                             </tr>
                         </thead>
@@ -410,20 +464,20 @@ const TracesDashboard = () => {
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                             {tracesLoading ? (
                                 <tr>
-                                    <td colSpan={9} className="text-center p-8">
+                                    <td colSpan={7} className="text-center p-8">
                                         <Loader2 className="h-8 w-8 text-gray-400 animate-spin mx-auto" />
                                     </td>
                                 </tr>
                             ) : error ? (
                                 <tr>
-                                    <td colSpan={9} className="text-center p-8 text-red-500 dark:text-red-400">
+                                    <td colSpan={7} className="text-center p-8 text-red-500 dark:text-red-400">
                                         <AlertCircle className="mx-auto h-6 w-6 mb-2" />
                                         {error}
                                     </td>
                                 </tr>
                             ) : traces.length === 0 ? (
                                 <tr>
-                                    <td colSpan={9} className="text-center p-8 text-gray-600 dark:text-gray-400">
+                                    <td colSpan={7} className="text-center p-8 text-gray-600 dark:text-gray-400">
                                         No traces found.
                                     </td>
                                 </tr>
@@ -433,57 +487,63 @@ const TracesDashboard = () => {
                                     return (
                                         <React.Fragment key={uniqueKey}>
                                             <tr className="hover:bg-gray-100 dark:hover:bg-gray-700/30">
-                                                <td className="pl-4">
+                                                <td className="pl-2">
                                                     <button
                                                         onClick={() => setExpandedRow(expandedRow === uniqueKey ? null : uniqueKey)}
                                                         className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-400"
                                                     >
                                                         {expandedRow === uniqueKey ? (
-                                                            <ChevronDown className="h-5 w-5" />
+                                                            <ChevronDown className="h-4 w-4" />
                                                         ) : (
-                                                            <ChevronRight className="h-5 w-5" />
+                                                            <ChevronRight className="h-4 w-4" />
                                                         )}
                                                     </button>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                                    {formatDate(trace.timestamp)}
+                                                <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-300">
+                                                    <div className="font-medium">
+                                                        {new Date(trace.timestamp).toLocaleDateString()}
+                                                    </div>
+                                                    <div className="text-gray-500 dark:text-gray-400">
+                                                        {new Date(trace.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </div>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 font-mono">
-                                                    {trace.trace_id.substring(0, 12)}...
+                                                <td className="px-3 py-2 whitespace-nowrap hidden lg:table-cell">
+                                                    <TraceIdCell traceId={trace.trace_id} />
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate">
-                                                    {trace.root_span_name || trace.root_span}
+                                                <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
+                                                    <div className="font-medium truncate max-w-xs">
+                                                        {trace.root_span_name || 'Unknown'}
+                                                    </div>
+                                                    <div className="text-gray-500 dark:text-gray-400 truncate">
+                                                        {trace.root_service_name || 'Unknown Service'}
+                                                    </div>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                                    {trace.root_service_name || trace.service}
+                                                <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-300">
+                                                    <div className="font-medium">
+                                                        {formatDuration(trace.duration_ms)}
+                                                    </div>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                                    {formatDuration(trace.duration_ms)}
+                                                <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-300">
+                                                    <div className="font-medium">
+                                                        {trace.span_count}
+                                                    </div>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                                    {trace.span_count}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadge(trace.status_code, trace.error_count)}`}>
-                                                        {trace.status_code === 1 && trace.error_count === 0 ? 'Success' : 'Error'}
+                                                <td className="px-3 py-2 whitespace-nowrap">
+                                                    <span className={`px-1.5 py-0.5 inline-flex text-xs leading-4 font-semibold rounded-full ${getStatusBadge(trace.status_code, trace.error_count)}`}>
+                                                        {trace.status_code === 1 && trace.error_count === 0 ? 'OK' : 'ERR'}
                                                     </span>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                    <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-3">
-                                                        <Eye className="h-4 w-4" />
-                                                    </button>
                                                 </td>
                                             </tr>
 
                                             {expandedRow === uniqueKey && (
                                                 <tr className="bg-gray-100 dark:bg-gray-800/50">
-                                                    <td colSpan={9} className="p-4">
-                                                        <div className="space-y-4">
+                                                    <td colSpan={7} className="p-3">
+                                                        <div className="space-y-3">
                                                             <div>
-                                                                <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
+                                                                <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
                                                                     Trace Details
                                                                 </h4>
-                                                                <div className="grid grid-cols-3 gap-4 text-sm">
+                                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
                                                                     <div>
                                                                         <p className="text-gray-600 dark:text-gray-400">Full Trace ID:</p>
                                                                         <p className="font-mono text-gray-900 dark:text-white text-xs break-all">{trace.trace_id}</p>
@@ -491,7 +551,7 @@ const TracesDashboard = () => {
                                                                     <div>
                                                                         <p className="text-gray-600 dark:text-gray-400">Services:</p>
                                                                         <p className="text-gray-900 dark:text-white">
-                                                                            {trace.service_set?.join(', ') || trace.root_service_name || trace.service}
+                                                                            {trace.service_set?.join(', ') || trace.root_service_name || 'Unknown Service'}
                                                                         </p>
                                                                     </div>
                                                                     <div>

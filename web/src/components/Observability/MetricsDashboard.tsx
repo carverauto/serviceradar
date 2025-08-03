@@ -5,7 +5,6 @@ import { useAuth } from '@/components/AuthProvider';
 import { OtelMetric, OtelMetricsApiResponse, MetricsStats, SortableMetricKeys } from '@/types/otel-metrics';
 import { Pagination } from '@/types/devices';
 import {
-    Zap,
     Clock,
     AlertTriangle,
     BarChart3,
@@ -14,7 +13,9 @@ import {
     Loader2,
     ArrowUp,
     ArrowDown,
-    Activity
+    Activity,
+    Copy,
+    Check
 } from 'lucide-react';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
@@ -44,21 +45,21 @@ const StatCard = ({
 
     return (
         <div 
-            className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg transition-all ${
+            className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-2 rounded-lg transition-all ${
                 onClick ? 'cursor-pointer hover:shadow-lg hover:border-orange-400 dark:hover:border-orange-600' : ''
             }`}
             onClick={onClick}
         >
-            <div className="flex items-center">
-                <div className={`p-2 rounded-md mr-4 ${colorClasses[color]}`}>
-                    {icon}
+            <div className="flex items-center space-x-2">
+                <div className={`p-1.5 rounded-md ${colorClasses[color]}`}>
+                    {React.cloneElement(icon as React.ReactElement<{ className?: string }>, { className: "h-4 w-4" })}
                 </div>
-                <div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
+                <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
                     {isLoading ? (
-                        <div className="h-7 w-20 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse mt-1"></div>
+                        <div className="h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
                     ) : (
-                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+                        <p className="text-lg font-bold text-gray-900 dark:text-white leading-tight">{value}</p>
                     )}
                 </div>
             </div>
@@ -85,6 +86,45 @@ const formatDuration = (ms: number): string => {
 
 const formatPercentage = (value: number): string => {
     return (value * 100).toFixed(1) + '%';
+};
+
+const TraceIdCell = ({ traceId }: { traceId: string }) => {
+    const [copied, setCopied] = useState(false);
+    
+    const copyToClipboard = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            await navigator.clipboard.writeText(traceId);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    };
+
+    return (
+        <div className="group relative">
+            <button
+                onClick={copyToClipboard}
+                className="flex items-center gap-1 text-xs font-mono text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                title={`Click to copy: ${traceId}`}
+            >
+                <span className="lg:hidden">{traceId?.substring(0, 6)}...</span>
+                <span className="hidden lg:inline">{traceId?.substring(0, 8)}...</span>
+                {copied ? (
+                    <Check className="h-3 w-3 text-green-500" />
+                ) : (
+                    <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                )}
+            </button>
+            
+            {/* Tooltip with full trace ID */}
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-nowrap">
+                {traceId}
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-100"></div>
+            </div>
+        </div>
+    );
 };
 
 const MetricsDashboard = () => {
@@ -145,18 +185,24 @@ const MetricsDashboard = () => {
         setStatsLoading(true);
 
         try {
-            const [totalRes, slowRes] = await Promise.all([
+            const [totalRes, slowRes, errorRateRes] = await Promise.all([
                 cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_metrics', token || undefined, 30000),
                 cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_metrics WHERE is_slow = true', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT otel_metrics WHERE http_status_code = '500' OR http_status_code = '400' OR http_status_code = '404' OR http_status_code = '503'", token || undefined, 30000),
             ]);
 
+            const total = totalRes.results[0]?.['count()'] || 0;
+            const errors = errorRateRes.results[0]?.['count()'] || 0;
+            
+            // Average duration will be calculated after fetching metrics data
+            
             setStats({
-                total: totalRes.results[0]?.['count()'] || 0,
+                total: total,
                 slow_spans: slowRes.results[0]?.['count()'] || 0,
-                avg_duration_ms: 0, // Will calculate from current data
-                p95_duration_ms: 0, // Will calculate from current data
-                error_rate: 0, // Will calculate from current data
-                top_services: [] // Will populate separately
+                avg_duration_ms: 0,
+                p95_duration_ms: 0, // P95 calculation would need a more complex query
+                error_rate: total > 0 ? errors / total : 0,
+                top_services: [] // Removed this section
             });
         } catch (e) {
             console.error("Failed to fetch metrics stats:", e);
@@ -212,6 +258,17 @@ const MetricsDashboard = () => {
             const response = await postQuery<OtelMetricsApiResponse>(query, cursor, direction);
             setMetrics(response.results);
             setPagination(response.pagination);
+            
+            // Update stats with calculated averages from the fetched data
+            if (response.results && response.results.length > 0) {
+                const totalDuration = response.results.reduce((sum, metric) => sum + (metric.duration_ms || 0), 0);
+                const avgDuration = totalDuration / response.results.length;
+                
+                setStats(prevStats => ({
+                    ...prevStats,
+                    avg_duration_ms: avgDuration
+                }));
+            }
         } catch (e) {
             console.error("Failed to fetch metrics:", e);
             setError(e instanceof Error ? e.message : 'Failed to fetch metrics');
@@ -240,12 +297,7 @@ const MetricsDashboard = () => {
         }
     };
 
-    const getSlowBadge = (isSlow: boolean) => {
-        if (isSlow) {
-            return 'bg-red-100 dark:bg-red-600/50 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-500/60';
-        }
-        return 'bg-green-100 dark:bg-green-600/50 text-green-800 dark:text-green-200 border border-green-300 dark:border-green-500/60';
-    };
+
 
     const getStatusBadge = (statusCode: string) => {
         const code = parseInt(statusCode);
@@ -257,13 +309,7 @@ const MetricsDashboard = () => {
         return 'bg-green-100 dark:bg-green-600/50 text-green-800 dark:text-green-200 border border-green-300 dark:border-green-500/60';
     };
 
-    const formatDate = (dateString: string) => {
-        try {
-            return new Date(dateString).toLocaleString();
-        } catch {
-            return 'Invalid Date';
-        }
-    };
+
 
     const TableHeader = ({
         aKey,
@@ -274,7 +320,7 @@ const MetricsDashboard = () => {
     }) => (
         <th
             scope="col"
-            className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer"
+            className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer"
             onClick={() => handleSort(aKey)}
         >
             <div className="flex items-center">
@@ -293,7 +339,7 @@ const MetricsDashboard = () => {
     return (
         <div className="space-y-6">
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <StatCard
                     title="Total Metrics"
                     value={formatNumber(stats.total)}
@@ -317,13 +363,6 @@ const MetricsDashboard = () => {
                     color="purple"
                 />
                 <StatCard
-                    title="P95 Duration"
-                    value={formatDuration(stats.p95_duration_ms)}
-                    icon={<Zap className="h-6 w-6" />}
-                    isLoading={statsLoading}
-                    color="orange"
-                />
-                <StatCard
                     title="Error Rate"
                     value={formatPercentage(stats.error_rate)}
                     icon={<TrendingUp className="h-6 w-6" />}
@@ -332,77 +371,58 @@ const MetricsDashboard = () => {
                 />
             </div>
 
-            {/* Top Services */}
-            {stats.top_services.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-4">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Top Services by Volume</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                        {stats.top_services.map((service, index) => (
-                            <div key={service.service_name} className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                        {service.service_name}
-                                    </span>
-                                    <span className="text-xs text-gray-500 dark:text-gray-400">#{index + 1}</span>
-                                </div>
-                                <div className="text-xs text-gray-600 dark:text-gray-400">
-                                    <div>{formatNumber(service.count)} spans</div>
-                                    <div>{formatDuration(service.avg_duration_ms)} avg</div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
+
 
             {/* Metrics Table */}
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg">
-                <div className="p-4 flex flex-col md:flex-row gap-4 justify-between items-center border-b border-gray-200 dark:border-gray-700">
-                    <div className="relative w-full md:w-1/3">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Search metrics..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
-                        />
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <label htmlFor="slowFilter" className="text-sm text-gray-700 dark:text-gray-300">
-                                Performance:
-                            </label>
-                            <select
-                                id="slowFilter"
-                                value={filterSlow}
-                                onChange={(e) => setFilterSlow(e.target.value as 'all' | 'slow' | 'fast')}
-                                className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                            >
-                                <option value="all">All</option>
-                                <option value="slow">Slow</option>
-                                <option value="fast">Fast</option>
-                            </select>
+                <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex flex-col gap-3">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Search metrics..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
+                            />
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <label htmlFor="serviceFilter" className="text-sm text-gray-700 dark:text-gray-300">
-                                Service:
-                            </label>
-                            <select
-                                id="serviceFilter"
-                                value={filterService}
-                                onChange={(e) => setFilterService(e.target.value)}
-                                className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
-                            >
-                                <option value="all">All</option>
-                                {services.map((service) => (
-                                    <option key={service} value={service}>
-                                        {service}
-                                    </option>
-                                ))}
-                            </select>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="slowFilter" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                                    Performance:
+                                </label>
+                                <select
+                                    id="slowFilter"
+                                    value={filterSlow}
+                                    onChange={(e) => setFilterSlow(e.target.value as 'all' | 'slow' | 'fast')}
+                                    className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1 focus:ring-green-500 focus:border-green-500"
+                                >
+                                    <option value="all">All</option>
+                                    <option value="slow">Slow</option>
+                                    <option value="fast">Fast</option>
+                                </select>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="serviceFilter" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                                    Service:
+                                </label>
+                                <select
+                                    id="serviceFilter"
+                                    value={filterService}
+                                    onChange={(e) => setFilterService(e.target.value)}
+                                    className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1 focus:ring-green-500 focus:border-green-500"
+                                >
+                                    <option value="all">All</option>
+                                    {services.map((service) => (
+                                        <option key={service} value={service}>
+                                            {service}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -411,25 +431,18 @@ const MetricsDashboard = () => {
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-100 dark:bg-gray-800/50">
                             <tr>
-                                <TableHeader aKey="timestamp" label="Timestamp" />
-                                <TableHeader aKey="service_name" label="Service" />
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Span Name
+                                <TableHeader aKey="timestamp" label="Time" />
+                                <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                    Service/Span
                                 </th>
                                 <TableHeader aKey="duration_ms" label="Duration" />
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    HTTP Route
+                                <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider hidden lg:table-cell">
+                                    Route/Method
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Method
-                                </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                                     Status
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Performance
-                                </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                                     Trace ID
                                 </th>
                             </tr>
@@ -460,36 +473,49 @@ const MetricsDashboard = () => {
                                     const uniqueKey = `${metric.trace_id}-${metric.span_id}-${index}`;
                                     return (
                                         <tr key={uniqueKey} className="hover:bg-gray-100 dark:hover:bg-gray-700/30">
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                                {formatDate(metric.timestamp)}
+                                            <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-300">
+                                                <div className="font-medium">
+                                                    {new Date(metric.timestamp).toLocaleDateString()}
+                                                </div>
+                                                <div className="text-gray-500 dark:text-gray-400">
+                                                    {new Date(metric.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </div>
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                                {metric.service_name || metric.service}
+                                            <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
+                                                <div className="font-medium truncate max-w-xs">
+                                                    {metric.service_name || 'Unknown'}
+                                                </div>
+                                                <div className="text-gray-500 dark:text-gray-400 truncate">
+                                                    {metric.span_name || 'Unknown Span'}
+                                                </div>
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate">
-                                                {metric.span_name}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                                {formatDuration(metric.duration_ms)}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate">
-                                                {metric.http_route || metric.route || '-'}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                                {metric.http_method || metric.method || '-'}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadge(metric.http_status_code || metric.status)}`}>
-                                                    {metric.http_status_code || metric.status || '-'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSlowBadge(metric.is_slow)}`}>
+                                            <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-300">
+                                                <div className="font-medium">
+                                                    {formatDuration(metric.duration_ms)}
+                                                </div>
+                                                <div className={`text-xs ${metric.is_slow ? 'text-red-500' : 'text-green-500'}`}>
                                                     {metric.is_slow ? 'Slow' : 'Fast'}
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hidden lg:table-cell">
+                                                <div className="truncate max-w-xs">
+                                                    {metric.http_route || '-'}
+                                                </div>
+                                                <div className="text-gray-500 dark:text-gray-400">
+                                                    {metric.http_method || '-'}
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-2 whitespace-nowrap">
+                                                <span className={`px-1.5 py-0.5 inline-flex text-xs leading-4 font-semibold rounded-full ${getStatusBadge(metric.http_status_code)}`}>
+                                                    {metric.http_status_code || '-'}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 font-mono">
-                                                {metric.trace_id ? metric.trace_id.substring(0, 8) + '...' : '-'}
+                                            <td className="px-3 py-2 whitespace-nowrap">
+                                                {metric.trace_id ? (
+                                                    <TraceIdCell traceId={metric.trace_id} />
+                                                ) : (
+                                                    <span className="text-xs text-gray-400">-</span>
+                                                )}
                                             </td>
                                         </tr>
                                     );
