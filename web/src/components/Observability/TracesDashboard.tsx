@@ -55,15 +55,15 @@ const StatCard = ({
             onClick={onClick}
         >
             <div className="flex items-center space-x-2">
-                <div className={`p-1 rounded-md ${colorClasses[color]}`}>
-                    {React.cloneElement(icon as React.ReactElement, { className: "h-3 w-3" })}
+                <div className={`p-1.5 rounded-md ${colorClasses[color]}`}>
+                    {React.cloneElement(icon as React.ReactElement, { className: "h-4 w-4" })}
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
                     {isLoading ? (
-                        <div className="h-4 w-12 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
+                        <div className="h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
                     ) : (
-                        <p className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{value}</p>
+                        <p className="text-lg font-bold text-gray-900 dark:text-white leading-tight">{value}</p>
                     )}
                 </div>
             </div>
@@ -254,6 +254,29 @@ const TracesDashboard = () => {
             const response = await postQuery<TraceSummariesApiResponse>(query, cursor, direction);
             setTraces(response.results);
             setPagination(response.pagination);
+            
+            // Update stats with calculated values from the fetched data
+            if (response.results && response.results.length > 0) {
+                const durations = response.results.map(trace => trace.duration_ms || 0).sort((a, b) => a - b);
+                const totalDuration = durations.reduce((sum, duration) => sum + duration, 0);
+                const avgDuration = totalDuration / durations.length;
+                
+                // Calculate P95 (95th percentile)
+                const p95Index = Math.floor(durations.length * 0.95);
+                const p95Duration = durations[p95Index] || 0;
+                
+                // Get unique services
+                const uniqueServices = new Set(response.results.map(trace => 
+                    trace.root_service_name || trace.service
+                ).filter(Boolean));
+                
+                setStats(prevStats => ({
+                    ...prevStats,
+                    avg_duration_ms: avgDuration,
+                    p95_duration_ms: p95Duration,
+                    services_count: uniqueServices.size
+                }));
+            }
         } catch (e) {
             console.error("Failed to fetch traces:", e);
             setError(e instanceof Error ? e.message : 'Failed to fetch traces');

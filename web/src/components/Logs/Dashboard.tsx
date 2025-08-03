@@ -42,15 +42,15 @@ const StatCard = ({
         onClick={onClick}
     >
         <div className="flex items-center space-x-2">
-            <div className="p-1 bg-orange-100 dark:bg-gray-700/50 rounded-md text-orange-600 dark:text-orange-400">
-                {React.cloneElement(icon as React.ReactElement, { className: "h-3 w-3" })}
+            <div className="p-1.5 bg-orange-100 dark:bg-gray-700/50 rounded-md text-orange-600 dark:text-orange-400">
+                {React.cloneElement(icon as React.ReactElement, { className: "h-4 w-4" })}
             </div>
             <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 leading-tight truncate">{title}</p>
                 {isLoading ? (
-                    <div className="h-4 w-12 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
+                    <div className="h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
                 ) : (
-                    <p className="text-sm font-bold text-gray-900 dark:text-white leading-tight">{value}</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white leading-tight">{value}</p>
                 )}
             </div>
         </div>
