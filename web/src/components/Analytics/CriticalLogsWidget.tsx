@@ -19,7 +19,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AlertCircle, XCircle, AlertTriangle, Info, ExternalLink, FileText } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
-import Link from 'next/link';
+
 import { useRouter } from 'next/navigation';
 import { formatNumber } from '@/utils/formatters';
 
