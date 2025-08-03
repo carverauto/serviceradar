@@ -464,20 +464,20 @@ const TracesDashboard = () => {
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                             {tracesLoading ? (
                                 <tr>
-                                    <td colSpan={9} className="text-center p-8">
+                                    <td colSpan={7} className="text-center p-8">
                                         <Loader2 className="h-8 w-8 text-gray-400 animate-spin mx-auto" />
                                     </td>
                                 </tr>
                             ) : error ? (
                                 <tr>
-                                    <td colSpan={9} className="text-center p-8 text-red-500 dark:text-red-400">
+                                    <td colSpan={7} className="text-center p-8 text-red-500 dark:text-red-400">
                                         <AlertCircle className="mx-auto h-6 w-6 mb-2" />
                                         {error}
                                     </td>
                                 </tr>
                             ) : traces.length === 0 ? (
                                 <tr>
-                                    <td colSpan={9} className="text-center p-8 text-gray-600 dark:text-gray-400">
+                                    <td colSpan={7} className="text-center p-8 text-gray-600 dark:text-gray-400">
                                         No traces found.
                                     </td>
                                 </tr>
@@ -507,7 +507,9 @@ const TracesDashboard = () => {
                                                         {new Date(trace.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                     </div>
                                                 </td>
-
+                                                <td className="px-3 py-2 whitespace-nowrap hidden lg:table-cell">
+                                                    <TraceIdCell traceId={trace.trace_id} />
+                                                </td>
                                                 <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
                                                     <div className="font-medium truncate max-w-xs">
                                                         {trace.root_span_name || 'Unknown'}
@@ -530,9 +532,6 @@ const TracesDashboard = () => {
                                                     <span className={`px-1.5 py-0.5 inline-flex text-xs leading-4 font-semibold rounded-full ${getStatusBadge(trace.status_code, trace.error_count)}`}>
                                                         {trace.status_code === 1 && trace.error_count === 0 ? 'OK' : 'ERR'}
                                                     </span>
-                                                </td>
-                                                <td className="px-3 py-2 whitespace-nowrap">
-                                                    <TraceIdCell traceId={trace.trace_id} />
                                                 </td>
                                             </tr>
 
