@@ -123,3 +123,31 @@ When OTel is enabled:
 ## Integration with Sync Service
 
 The sync service uses the same OTel configuration structure. You can use similar configuration for both services to have unified observability.
+
+## ServiceRadar Trace Processing
+
+ServiceRadar automatically processes OpenTelemetry traces through a sophisticated pipeline:
+
+1. **Ingestion**: Raw OTEL traces are stored in the `otel_traces` stream
+2. **Enrichment**: Materialized views calculate span durations and detect root spans
+3. **Aggregation**: Trace-level summaries are pre-calculated for fast querying
+4. **Querying**: Use SRQL or SQL to query enriched trace data
+
+### Available Streams for Analysis
+
+- `otel_traces` - Raw trace data from collectors
+- `otel_spans_enriched` - Enriched spans with calculated durations and root detection
+- `otel_trace_summaries_final` - Pre-aggregated trace summaries (recommended for dashboards)
+- `otel_root_spans` - Root spans only for service-level analysis
+
+### Example Query Integration
+
+```go
+// Query slow traces using SRQL
+slowTraces := "show otel_trace_summaries where duration_ms > 1000 and timestamp >= now() - interval 1 hour"
+
+// Query specific trace details
+traceDetails := "show otel_spans_enriched where trace_id = 'abc123' order by start_time_unix_nano"
+```
+
+This integration allows complete request tracing from poller → agent → core with proper duration calculations and service correlation.
