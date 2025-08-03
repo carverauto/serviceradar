@@ -575,76 +575,7 @@ const TracesDashboard = () => {
                                                                     </div>
                                                                 </div>
                                                                 
-                                                                {/* Error Analysis Section */}
-                                                                <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                                                    <h5 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                                                                        Status Analysis
-                                                                    </h5>
-                                                                    <div className="space-y-2 text-xs">
-                                                                        <div className="flex items-center justify-between">
-                                                                            <span className="text-gray-600 dark:text-gray-400">Current Badge Status:</span>
-                                                                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusBadge(trace.status_code, trace.error_count)}`}>
-                                                                                {trace.status_code === 1 && trace.error_count === 0 ? 'OK' : 'ERR'}
-                                                                            </span>
-                                                                        </div>
-                                                                        <div className="flex items-center justify-between">
-                                                                            <span className="text-gray-600 dark:text-gray-400">Status Code Check:</span>
-                                                                            <span className={`font-mono ${trace.status_code === 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                                                                status_code = {trace.status_code} {trace.status_code === 1 ? '✓ (OK)' : '✗ (Not OK)'}
-                                                                            </span>
-                                                                        </div>
-                                                                        <div className="flex items-center justify-between">
-                                                                            <span className="text-gray-600 dark:text-gray-400">Error Count Check:</span>
-                                                                            <span className={`font-mono ${trace.error_count === 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                                                                error_count = {trace.error_count} {trace.error_count === 0 ? '✓ (No Errors)' : '✗ (Has Errors)'}
-                                                                            </span>
-                                                                        </div>
-                                                                        <div className="flex items-center justify-between">
-                                                                            <span className="text-gray-600 dark:text-gray-400">Logic Result:</span>
-                                                                            <span className="font-mono text-gray-900 dark:text-white">
-                                                                                {trace.status_code === 1 && trace.error_count === 0 
-                                                                                    ? '✓ Should show OK (status_code === 1 && error_count === 0)'
-                                                                                    : `✗ Should show ERR (status_code !== 1: ${trace.status_code !== 1} || error_count > 0: ${trace.error_count > 0})`
-                                                                                }
-                                                                            </span>
-                                                                        </div>
-                                                                        {(trace.status_code !== 1 || trace.error_count > 0) && (
-                                                                            <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
-                                                                                <p className="text-red-800 dark:text-red-200 font-semibold text-xs">
-                                                                                    Error Reason:
-                                                                                </p>
-                                                                                <ul className="text-red-700 dark:text-red-300 text-xs mt-1 space-y-1">
-                                                                                    {trace.status_code !== 1 && (
-                                                                                        <li>• Status code is {trace.status_code} (expected: 1)</li>
-                                                                                    )}
-                                                                                    {trace.error_count > 0 && (
-                                                                                        <li>• Error count is {trace.error_count} (expected: 0)</li>
-                                                                                    )}
-                                                                                </ul>
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                
-                                                                {/* Raw Data Debug Section */}
-                                                                <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                                                                    <h5 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                                                                        Raw Trace Data (Debug)
-                                                                    </h5>
-                                                                    <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 overflow-x-auto whitespace-pre-wrap">
-                                                                        {JSON.stringify({
-                                                                            trace_id: trace.trace_id,
-                                                                            status_code: trace.status_code,
-                                                                            error_count: trace.error_count,
-                                                                            duration_ms: trace.duration_ms,
-                                                                            span_count: trace.span_count,
-                                                                            root_service_name: trace.root_service_name,
-                                                                            root_span_name: trace.root_span_name,
-                                                                            timestamp: trace.timestamp,
-                                                                            service_set: trace.service_set
-                                                                        }, null, 2)}
-                                                                    </pre>
-                                                                </div>
+
                                                             </div>
                                                         </div>
                                                     </td>
