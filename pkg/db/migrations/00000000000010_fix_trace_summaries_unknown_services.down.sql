@@ -2,8 +2,13 @@
 -- == Rollback Fix Trace Summaries Unknown Services Migration
 -- =================================================================
 
--- Drop and recreate the materialized view with original logic
+-- This rollback restores the original broken materialized view
+-- Note: This will bring back the "unknown service" and missing duration issues
+
 DROP VIEW IF EXISTS otel_trace_summaries_final_mv;
+
+-- Note: We don't recreate the stream since it should already exist from the original migration
+-- If needed, the stream definition from migration 00000000000009 should be used
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_summaries_final_mv
 INTO otel_trace_summaries_final AS
