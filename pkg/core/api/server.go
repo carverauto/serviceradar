@@ -72,7 +72,7 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		// OTEL entities
 		srqlmodels.OtelTraces:         "otel_traces",
 		srqlmodels.OtelMetrics:        "otel_metrics",
-		srqlmodels.OtelTraceSummaries: "otel_trace_summaries",
+		srqlmodels.OtelTraceSummaries: "otel_trace_summaries_final",
 	}
 	s.entityTableMap = defaultEntityTableMap
 
