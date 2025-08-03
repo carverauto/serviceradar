@@ -694,7 +694,7 @@ func TestOTELEntities(t *testing.T) {
 
 				sql, errT := protonTranslator.Translate(query)
 				require.NoError(t, errT)
-				assert.Equal(t, "SELECT * FROM table(otel_trace_summaries)", sql)
+				assert.Equal(t, "SELECT * FROM table(otel_trace_summaries_final)", sql)
 			},
 		},
 		{
@@ -725,7 +725,7 @@ func TestOTELEntities(t *testing.T) {
 
 				sql, errT := protonTranslator.Translate(query)
 				require.NoError(t, errT)
-				assert.Equal(t, "SELECT * FROM table(otel_trace_summaries) WHERE root_service_name = 'checkout' AND duration_ms > 250", sql)
+				assert.Equal(t, "SELECT * FROM table(otel_trace_summaries_final) WHERE root_service_name = 'checkout' AND duration_ms > 250", sql)
 			},
 		},
 		{

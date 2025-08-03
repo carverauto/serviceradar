@@ -1054,11 +1054,11 @@ func getEntityFieldMapData() map[models.EntityType]map[string]string {
 			"end":         "end_time_unix_nano",
 		},
 		models.OtelRootSpans: {
-			"trace":     "trace_id",
-			"span":      "root_span_id",
-			"name":      "root_span_name",
-			"kind":      "root_kind",
-			"service":   "root_service",
+			"trace":   "trace_id",
+			"span":    "root_span_id",
+			"name":    "root_span_name",
+			"kind":    "root_kind",
+			"service": "root_service",
 		},
 	}
 }
