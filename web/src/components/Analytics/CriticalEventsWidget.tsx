@@ -21,6 +21,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { AlertTriangle, ShieldAlert, AlertCircle, Info, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { Event } from '@/types/events';
+import { formatNumber } from '@/utils/formatters';
 
 interface EventStats {
     critical: number;
@@ -222,28 +223,28 @@ const CriticalEventsWidget: React.FC = () => {
                         <tbody>
                             <tr className="border-b border-gray-100 dark:border-gray-800">
                                 <td className="py-1 text-red-600 dark:text-red-400">Critical</td>
-                                <td className="text-center text-red-600 dark:text-red-400 font-bold">{stats.critical}</td>
+                                <td className="text-center text-red-600 dark:text-red-400 font-bold">{formatNumber(stats.critical)}</td>
                                 <td className="text-center text-red-600 dark:text-red-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.critical / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
                             <tr className="border-b border-gray-100 dark:border-gray-800">
                                 <td className="py-1 text-orange-600 dark:text-orange-400">High</td>
-                                <td className="text-center text-orange-600 dark:text-orange-400 font-bold">{stats.high}</td>
+                                <td className="text-center text-orange-600 dark:text-orange-400 font-bold">{formatNumber(stats.high)}</td>
                                 <td className="text-center text-orange-600 dark:text-orange-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.high / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
                             <tr className="border-b border-gray-100 dark:border-gray-800">
                                 <td className="py-1 text-yellow-600 dark:text-yellow-400">Medium</td>
-                                <td className="text-center text-yellow-600 dark:text-yellow-400 font-bold">{stats.medium}</td>
+                                <td className="text-center text-yellow-600 dark:text-yellow-400 font-bold">{formatNumber(stats.medium)}</td>
                                 <td className="text-center text-yellow-600 dark:text-yellow-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.medium / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
                             <tr>
                                 <td className="py-1 text-blue-600 dark:text-blue-400">Low</td>
-                                <td className="text-center text-blue-600 dark:text-blue-400 font-bold">{stats.low}</td>
+                                <td className="text-center text-blue-600 dark:text-blue-400 font-bold">{formatNumber(stats.low)}</td>
                                 <td className="text-center text-blue-600 dark:text-blue-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.low / stats.total) * 100) : 0}%
                                 </td>
