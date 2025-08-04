@@ -1,11 +1,12 @@
 -- =================================================================
--- == ServiceRadar Unified Device Registry Schema (Consolidated & Fixed)
+-- == RESTORE MISSING OPERATIONAL STREAMS
 -- =================================================================
--- This schema represents the final, consolidated state after all migrations.
--- It uses the device_updates stream instead of the legacy sweep_results.
+-- This migration adds back all the critical operational streams that were
+-- accidentally omitted from the consolidated migration. These are essential
+-- for ServiceRadar's core functionality.
 
 -- =================================================================
--- == Core Data Streams
+-- == Core Operational Streams (from original schema)
 -- =================================================================
 
 -- Versioned sweep host states - latest status per host with rich metadata
@@ -44,7 +45,7 @@ CREATE STREAM IF NOT EXISTS device_updates (
     metadata map(string, string)
 );
 
--- Current device inventory - aggregated device state
+-- Current device inventory - aggregated device state  
 CREATE STREAM IF NOT EXISTS unified_devices (
     device_id string,
     ip string,
@@ -88,7 +89,7 @@ CREATE STREAM IF NOT EXISTS unified_devices_registry (
 ) PRIMARY KEY (device_id)
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Materialized view with proper discovery source aggregation (WORKING VERSION)
+-- Materialized view with proper discovery source aggregation
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
 INTO unified_devices
 AS SELECT
@@ -100,9 +101,6 @@ AS SELECT
     if(index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0,
        u.discovery_sources,
        array_push_back(if_null(u.discovery_sources, []), s.discovery_source)) AS discovery_sources,
-    -- For passive sources (netbox, armis) that don't perform availability checks,
-    -- preserve the existing availability status. For active sources (sweep, snmp, etc),
-    -- use their availability status.
     coalesce(
         if(s.discovery_source IN ('netbox', 'armis'), u.is_available, s.available), 
         s.available
@@ -126,7 +124,7 @@ LEFT JOIN unified_devices AS u ON s.device_id = u.device_id;
 -- == Network Discovery Streams
 -- =================================================================
 
--- SNMP discovery results (versioned key-value to prevent duplicates)
+-- SNMP discovery results
 CREATE STREAM IF NOT EXISTS discovered_interfaces (
     timestamp         DateTime64(3),
     agent_id          string,
@@ -235,7 +233,7 @@ CREATE STREAM IF NOT EXISTS memory_metrics (
 -- == Service Management Streams
 -- =================================================================
 
--- Service status tracking
+-- Service status tracking (note: we already have a 'services' stream in migration 1)
 CREATE STREAM IF NOT EXISTS service_statuses (
     timestamp         DateTime64(3),
     poller_id         string,
@@ -261,18 +259,8 @@ CREATE STREAM IF NOT EXISTS service_status (
     partition         string
 );
 
--- Service definitions
-CREATE STREAM IF NOT EXISTS services (
-    timestamp         DateTime64(3),
-    poller_id         string,
-    agent_id          string,
-    service_name      string,
-    service_type      string,
-    config            map(string, string),
-    partition         string
-);
-
--- Poller registry - current state
+-- Update pollers stream to match original schema (use versioned_kv mode)
+DROP STREAM IF EXISTS pollers;
 CREATE STREAM IF NOT EXISTS pollers (
     poller_id         string,
     first_seen        DateTime64(3),
@@ -304,17 +292,14 @@ CREATE STREAM IF NOT EXISTS poller_statuses (
 -- == Events and Alerting Streams
 -- =================================================================
 
--- Recreate events stream with CloudEvents schema
+-- CloudEvents schema
 CREATE STREAM IF NOT EXISTS events (
-    -- CloudEvents standard fields
     specversion       string,
     id                string,
     source            string,
     type              string,
     datacontenttype   string,
     subject           string,
-
-    -- Event data fields
     remote_addr       string,
     host              string,
     level             int32,
@@ -322,8 +307,6 @@ CREATE STREAM IF NOT EXISTS events (
     short_message     string,
     event_timestamp   DateTime64(3),
     version           string,
-
-    -- Raw data for debugging
     raw_data          string
 ) PRIMARY KEY (id)
   SETTINGS mode='versioned_kv', version_column='_tp_time';
@@ -374,48 +357,3 @@ CREATE STREAM IF NOT EXISTS users (
     roles             array(string)
 ) PRIMARY KEY (id)
   SETTINGS mode='versioned_kv', version_column='_tp_time';
-
--- =================================================================
--- == Performance Optimization Views
--- =================================================================
-
--- Device aggregates for fast queries (replaces legacy materialized views)
-CREATE STREAM IF NOT EXISTS device_metrics_summary (
-    window_time       DateTime64(3),
-    device_id         string,
-    poller_id         string,
-    agent_id          string,
-    partition         string,
-    avg_cpu_usage     float64,
-    total_disk_bytes  uint64,
-    used_disk_bytes   uint64,
-    total_memory_bytes uint64,
-    used_memory_bytes  uint64,
-    metric_count      uint64
-);
-
--- Create materialized view for device metrics aggregation
-CREATE MATERIALIZED VIEW IF NOT EXISTS device_metrics_aggregator_mv
-INTO device_metrics_summary AS
-SELECT
-    c.window_start                  AS window_time,
-    c.device_id                     AS device_id,
-    c.poller_id                     AS poller_id,
-    c.agent_id                      AS agent_id,
-    c.partition                     AS partition,
-    avg(c.usage_percent)            AS avg_cpu_usage,
-    any(d.total_bytes)              AS total_disk_bytes,
-    any(d.used_bytes)               AS used_disk_bytes,
-    any(m.total_bytes)              AS total_memory_bytes,
-    any(m.used_bytes)               AS used_memory_bytes,
-    count(*)                        AS metric_count
-FROM hop(cpu_metrics, timestamp, 10s, 60s) AS c
-         LEFT JOIN hop(disk_metrics, timestamp, 10s, 60s) AS d
-                   ON c.window_start = d.window_start
-                       AND c.device_id = d.device_id
-                       AND c.poller_id = d.poller_id
-         LEFT JOIN hop(memory_metrics, timestamp, 10s, 60s) AS m
-                   ON c.window_start = m.window_start
-                       AND c.device_id = m.device_id
-                       AND c.poller_id = m.poller_id
-GROUP BY c.window_start, c.device_id, c.poller_id, c.agent_id, c.partition;

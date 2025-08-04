@@ -85,7 +85,7 @@ const ObservabilityWidget = () => {
                 recentSlowSpansRes
             ] = await Promise.all([
                 postQuery<{ results: [{ 'count()': number }] }>('COUNT otel_metrics').catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries').catch(() => ({ results: [{ 'count()': 0 }] })),
+                postQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries_final').catch(() => ({ results: [{ 'count()': 0 }] })),
                 postQuery<{ results: [{ 'count()': number }] }>('COUNT otel_metrics WHERE is_slow = true').catch(() => ({ results: [{ 'count()': 0 }] })),
                 postQuery<{ results: [{ 'count()': number }] }>("COUNT otel_metrics WHERE http_status_code >= '400'").catch(() => ({ results: [{ 'count()': 0 }] })),
                 postQuery<{ results: Array<{ duration_ms: number }> }>('SHOW otel_metrics WHERE duration_ms > 0 ORDER BY timestamp DESC').catch(() => ({ results: [] })),
