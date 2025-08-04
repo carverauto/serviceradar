@@ -52,6 +52,24 @@ func safeIntToInt32(val int) int32 {
 	return int32(val)
 }
 
+// formatBytes converts bytes to human readable format
+func formatBytes(bytes int) string {
+	const unit = 1024
+
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+
+	div, exp := int64(unit), 0
+
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+
+	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
 // New creates a new poller instance.
 func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*Poller, error) {
 	if clock == nil {
@@ -356,11 +374,44 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		}
 	}
 
-	// Use streaming if we have a large number of services (20k+ threshold)
-	const streamingThreshold = 100 // Use 100 services as threshold for now
+	// Calculate total data size to determine if we should use streaming
+	// Default gRPC max message size is 4MB, so we'll use streaming if we're close to that
+	const maxSafeMessageSize = 3 * 1024 * 1024 // 3MB to be safe (leaving room for other fields)
 
-	if len(statuses) > streamingThreshold {
-		p.logger.Info().Int("service_count", len(statuses)).Msg("Using streaming to report large dataset to core")
+	const streamingServiceCountThreshold = 100 // Also use streaming for many services
+
+	totalDataSize := 0
+
+	for _, status := range statuses {
+		messageSize := 0
+
+		if status.Message != nil {
+			messageSize = len(status.Message)
+			totalDataSize += messageSize
+		}
+
+		// Add rough estimate for other fields (service name, type, etc.)
+		totalDataSize += 200 // Approximate overhead per service
+
+		// Log large messages for debugging
+		if messageSize > 1024*1024 { // Log if message > 1MB
+			p.logger.Info().
+				Str("service_name", status.ServiceName).
+				Str("service_type", status.ServiceType).
+				Int("message_size_bytes", messageSize).
+				Str("message_size_human", formatBytes(messageSize)).
+				Msg("Large message detected in service status")
+		}
+	}
+
+	// Use streaming if data is large OR if we have many services
+	if totalDataSize > maxSafeMessageSize || len(statuses) > streamingServiceCountThreshold {
+		p.logger.Info().
+			Int("service_count", len(statuses)).
+			Int("total_data_size_bytes", totalDataSize).
+			Int("max_safe_size_bytes", maxSafeMessageSize).
+			Msg("Using streaming to report large dataset to core")
+
 		return p.reportToCoreStreaming(ctx, statuses)
 	}
 
