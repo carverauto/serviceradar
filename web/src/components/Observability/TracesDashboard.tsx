@@ -149,10 +149,18 @@ const TracesDashboard = () => {
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
-    const postQuery = useCallback(async <T,>(query: string): Promise<T> => {
+    const postQuery = useCallback(async <T,>(
+        query: string,
+        cursor?: string,
+        direction?: 'next' | 'prev'
+    ): Promise<T> => {
         const body: Record<string, unknown> = {
-            query
+            query,
+            limit: 20
         };
+
+        if (cursor) body.cursor = cursor;
+        if (direction) body.direction = direction;
 
         const response = await fetch('/api/query', {
             method: 'POST',
@@ -209,7 +217,7 @@ const TracesDashboard = () => {
         }
     }, [postQuery]);
 
-    const fetchTraces = useCallback(async () => {
+    const fetchTraces = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
         setTracesLoading(true);
         setError(null);
 
@@ -238,12 +246,12 @@ const TracesDashboard = () => {
                 query += ` WHERE ${conditions.join(' AND ')}`;
             }
 
-            // Add ordering and limit
-            query += ` ORDER BY timestamp ${sortOrder.toUpperCase()} LIMIT 50`;
+            // Add ordering
+            query += ` ORDER BY ${sortBy === 'timestamp' ? '_tp_time' : sortBy} ${sortOrder.toUpperCase()}`;
 
-            const response = await postQuery<{ results: TraceSummary[] }>(query);
+            const response = await postQuery<TraceSummariesApiResponse>(query, cursor, direction);
             setTraces(response.results || []);
-            setPagination(null);
+            setPagination(response.pagination);
             
             // Update stats with calculated values from the fetched data
             if (response.results && response.results.length > 0) {
