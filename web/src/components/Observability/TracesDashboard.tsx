@@ -149,18 +149,10 @@ const TracesDashboard = () => {
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
-    const postQuery = useCallback(async <T,>(
-        query: string,
-        cursor?: string,
-        direction?: 'next' | 'prev'
-    ): Promise<T> => {
+    const postQuery = useCallback(async <T,>(query: string): Promise<T> => {
         const body: Record<string, unknown> = {
-            query,
-            limit: 20
+            query
         };
-
-        if (cursor) body.cursor = cursor;
-        if (direction) body.direction = direction;
 
         const response = await fetch('/api/query', {
             method: 'POST',
@@ -185,9 +177,9 @@ const TracesDashboard = () => {
 
         try {
             const [totalRes, successRes, errorRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries WHERE status = 1', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries WHERE status != 1 OR errors > 0', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries_final', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries_final WHERE status_code = 1', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries_final WHERE status_code != 1 OR error_count > 0', token || undefined, 30000),
             ]);
 
             setStats({
@@ -207,7 +199,7 @@ const TracesDashboard = () => {
 
     const fetchServices = useCallback(async () => {
         try {
-            const query = 'SHOW DISTINCT(root_service_name) FROM otel_trace_summaries WHERE root_service_name IS NOT NULL LIMIT 100';
+            const query = 'SHOW DISTINCT(root_service_name) FROM otel_trace_summaries_final WHERE root_service_name IS NOT NULL LIMIT 100';
             const response = await postQuery<{ results: Array<{ root_service_name: string }> }>(query);
             const serviceNames = response.results?.map(r => r.root_service_name).filter(Boolean) || [];
             setServices(serviceNames);
@@ -217,12 +209,12 @@ const TracesDashboard = () => {
         }
     }, [postQuery]);
 
-    const fetchTraces = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
+    const fetchTraces = useCallback(async () => {
         setTracesLoading(true);
         setError(null);
 
         try {
-            let query = 'SHOW otel_trace_summaries';
+            let query = 'SHOW otel_trace_summaries_final';
             const conditions: string[] = [];
 
             // Add search filter
@@ -246,12 +238,12 @@ const TracesDashboard = () => {
                 query += ` WHERE ${conditions.join(' AND ')}`;
             }
 
-            // Add ordering
-            query += ` ORDER BY ${sortBy === 'timestamp' ? '_tp_time' : sortBy} ${sortOrder.toUpperCase()}`;
+            // Add ordering and limit
+            query += ` ORDER BY timestamp ${sortOrder.toUpperCase()} LIMIT 50`;
 
-            const response = await postQuery<TraceSummariesApiResponse>(query, cursor, direction);
+            const response = await postQuery<{ results: TraceSummary[] }>(query);
             setTraces(response.results || []);
-            setPagination(response.pagination);
+            setPagination(null);
             
             // Update stats with calculated values from the fetched data
             if (response.results && response.results.length > 0) {
