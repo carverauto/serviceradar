@@ -31,32 +31,31 @@ func NewConsumer(
 		Strs("subjects", subjects).
 		Msg("Creating/getting pull consumer")
 
-	consumer, err := js.Consumer(ctx, streamName, consumerName)
+	cfg := jetstream.ConsumerConfig{
+		Durable:       consumerName,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		AckWait:       30 * time.Second,
+		MaxDeliver:    3,
+		MaxAckPending: 1000,
+	}
+
+	if len(subjects) == 1 {
+		cfg.FilterSubject = subjects[0]
+	} else if len(subjects) > 1 {
+		cfg.FilterSubjects = subjects
+	}
+
+	// Always create or update the consumer to ensure it has the correct filter subjects
+	consumer, err := js.CreateOrUpdateConsumer(ctx, streamName, cfg)
 	if err != nil {
-		cfg := jetstream.ConsumerConfig{
-			Durable:       consumerName,
-			AckPolicy:     jetstream.AckExplicitPolicy,
-			AckWait:       30 * time.Second,
-			MaxDeliver:    3,
-			MaxAckPending: 1000,
-		}
+		log.Error().
+			Err(err).
+			Str("stream_name", streamName).
+			Str("consumer_name", consumerName).
+			Strs("subjects", subjects).
+			Msg("Failed to create or update consumer")
 
-		if len(subjects) == 1 {
-			cfg.FilterSubject = subjects[0]
-		} else if len(subjects) > 1 {
-			cfg.FilterSubjects = subjects
-		}
-
-		consumer, err = js.CreateConsumer(ctx, streamName, cfg)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("stream_name", streamName).
-				Str("consumer_name", consumerName).
-				Msg("Failed to create consumer")
-
-			return nil, fmt.Errorf("failed to create consumer: %w", err)
-		}
+		return nil, fmt.Errorf("failed to create or update consumer: %w", err)
 	}
 
 	log.Debug().Msg("Pull consumer created or retrieved successfully")

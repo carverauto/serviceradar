@@ -110,18 +110,6 @@ type TracesRow struct {
 	RawData            string    `db:"raw_data"`
 }
 
-// SpanAttrsRow represents normalized span attributes for fast filtering
-type SpanAttrsRow struct {
-	TraceID           string  `db:"trace_id"`
-	SpanID            string  `db:"span_id"`
-	HTTPMethod        *string `db:"http_method"`
-	HTTPRoute         *string `db:"http_route"`
-	HTTPStatusCode    *string `db:"http_status_code"`
-	RPCService        *string `db:"rpc_service"`
-	RPCMethod         *string `db:"rpc_method"`
-	RPCGRPCStatusCode *string `db:"rpc_grpc_status_code"`
-}
-
 // parseCloudEvent attempts to extract the `data` field from a CloudEvent.
 // It returns the data as a JSON string and true on success. If the message is
 // not a valid CloudEvent or does not contain a `data` field, ok will be false.
@@ -154,51 +142,6 @@ func extractAttributeValue(attr *commonv1.KeyValue) string {
 	}
 
 	return ""
-}
-
-// extractNormalizedSpanAttributes extracts normalized attributes for fast filtering
-func extractNormalizedSpanAttributes(traceID, spanID string, attributes []*commonv1.KeyValue) *SpanAttrsRow {
-	row := &SpanAttrsRow{
-		TraceID: traceID,
-		SpanID:  spanID,
-	}
-
-	hasAnyAttribute := false
-
-	for _, attr := range attributes {
-		value := extractAttributeValue(attr)
-		if value == "" {
-			continue
-		}
-
-		switch attr.Key {
-		case "http.method":
-			row.HTTPMethod = &value
-			hasAnyAttribute = true
-		case "http.route":
-			row.HTTPRoute = &value
-			hasAnyAttribute = true
-		case "http.status_code":
-			row.HTTPStatusCode = &value
-			hasAnyAttribute = true
-		case "rpc.service":
-			row.RPCService = &value
-			hasAnyAttribute = true
-		case "rpc.method":
-			row.RPCMethod = &value
-			hasAnyAttribute = true
-		case "rpc.grpc.status_code":
-			row.RPCGRPCStatusCode = &value
-			hasAnyAttribute = true
-		}
-	}
-
-	// Only return the row if at least one normalized attribute is present
-	if hasAnyAttribute {
-		return row
-	}
-
-	return nil
 }
 
 // processResourceAttributes processes resource attributes and extracts service information
@@ -820,21 +763,19 @@ func (p *Processor) processMetricsTable(ctx context.Context, table string, msgs 
 	return processed, nil
 }
 
-// processOTELTracesMessage processes a single OTEL traces message and updates counters
-func (p *Processor) processOTELTracesMessage(msg jetstream.Msg, batch, attrsBatch interface{}) (tracesCount, attrsCount int, err error) {
-	traceRows, spanAttrsRows, ok := p.parseOTELTracesWithAttrs(msg)
+// processOTELTracesMessage processes a single OTEL traces message
+func (p *Processor) processOTELTracesMessage(msg jetstream.Msg, batch interface{}) (tracesCount int, err error) {
+	traceRows, ok := p.parseOTELTraces(msg)
 	if !ok {
 		p.logger.Warn().Msg("Skipping malformed OTEL trace message")
-		return 0, 0, nil
+		return 0, nil
 	}
 
 	p.logger.Debug().
 		Int("traces_rows_count", len(traceRows)).
-		Int("attrs_rows_count", len(spanAttrsRows)).
-		Msg("Parsed OTEL traces and attributes rows")
+		Msg("Parsed OTEL traces rows")
 
 	rowsProcessed := 0
-	attrsRowsProcessed := 0
 
 	// Append traces rows
 	for i := range traceRows {
@@ -863,34 +804,13 @@ func (p *Processor) processOTELTracesMessage(msg jetstream.Msg, batch, attrsBatc
 			traceRows[i].RawData,
 		); err != nil {
 			p.logger.Error().Err(err).Msg("Failed to append traces row to batch")
-			return rowsProcessed, attrsRowsProcessed, err
+			return rowsProcessed, err
 		}
 
 		rowsProcessed++
 	}
 
-	// Append span attributes rows
-	for i := range spanAttrsRows {
-		if err := attrsBatch.(interface {
-			Append(...interface{}) error
-		}).Append(
-			spanAttrsRows[i].TraceID,
-			spanAttrsRows[i].SpanID,
-			spanAttrsRows[i].HTTPMethod,
-			spanAttrsRows[i].HTTPRoute,
-			spanAttrsRows[i].HTTPStatusCode,
-			spanAttrsRows[i].RPCService,
-			spanAttrsRows[i].RPCMethod,
-			spanAttrsRows[i].RPCGRPCStatusCode,
-		); err != nil {
-			p.logger.Error().Err(err).Msg("Failed to append span attrs row to batch")
-			return rowsProcessed, attrsRowsProcessed, err
-		}
-
-		attrsRowsProcessed++
-	}
-
-	return rowsProcessed, attrsRowsProcessed, nil
+	return rowsProcessed, nil
 }
 
 // processTracesTable handles traces table batch processing
@@ -909,34 +829,21 @@ func (p *Processor) processTracesTable(ctx context.Context, table string, msgs [
 		return nil, err
 	}
 
-	// Prepare span attributes batch
-	attrsQuery := "INSERT INTO otel_span_attrs (trace_id, span_id, http_method, http_route, " +
-		"http_status_code, rpc_service, rpc_method, rpc_grpc_status_code) VALUES (?,?,?,?,?,?,?,?)"
-
-	attrsBatch, err := p.conn.PrepareBatch(ctx, attrsQuery)
-	if err != nil {
-		p.logger.Error().Err(err).Str("query", attrsQuery).Msg("Failed to prepare batch for span attrs table")
-		return nil, err
-	}
-
-	p.logger.Debug().Str("table", table).Msg("Prepared batches for traces and span attrs tables")
+	p.logger.Debug().Str("table", table).Msg("Prepared batch for traces table")
 
 	processed := make([]jetstream.Msg, 0, len(msgs))
 	rowsProcessed := 0
-	attrsRowsProcessed := 0
 
 	for _, msg := range msgs {
 		if strings.Contains(msg.Subject(), "otel") {
 			p.logger.Debug().Str("subject", msg.Subject()).Msg("Processing OTEL traces message")
 
-			tracesCount, attrsCount, processErr := p.processOTELTracesMessage(msg, batch, attrsBatch)
+			tracesCount, processErr := p.processOTELTracesMessage(msg, batch)
 			if processErr != nil {
 				return processed, processErr
 			}
 
 			rowsProcessed += tracesCount
-
-			attrsRowsProcessed += attrsCount
 		}
 
 		processed = append(processed, msg)
@@ -944,9 +851,8 @@ func (p *Processor) processTracesTable(ctx context.Context, table string, msgs [
 
 	p.logger.Info().
 		Int("traces_rows_processed", rowsProcessed).
-		Int("attrs_rows_processed", attrsRowsProcessed).
 		Str("table", table).
-		Msg("Sending batches to database")
+		Msg("Sending batch to database")
 
 	// Send traces batch
 	if err = batch.(interface{ Send() error }).Send(); err != nil {
@@ -954,17 +860,10 @@ func (p *Processor) processTracesTable(ctx context.Context, table string, msgs [
 		return processed, err
 	}
 
-	// Send span attributes batch
-	if err = attrsBatch.(interface{ Send() error }).Send(); err != nil {
-		p.logger.Error().Err(err).Int("attrs_rows_processed", attrsRowsProcessed).Msg("Failed to send span attrs batch to database")
-		return processed, err
-	}
-
 	p.logger.Info().
 		Int("traces_rows_processed", rowsProcessed).
-		Int("attrs_rows_processed", attrsRowsProcessed).
 		Str("table", table).
-		Msg("Successfully sent both batches to database")
+		Msg("Successfully sent traces batch to database")
 
 	return processed, nil
 }
@@ -1469,9 +1368,9 @@ func processSpanLinks(links []*tracepbv1.Span_Link) string {
 	return "[]"
 }
 
-// processSpan converts a single span to a TracesRow and extracts normalized attributes
-func processSpan(span *tracepbv1.Span, serviceName, serviceVersion, serviceInstance string,
-	resourceAttribs []string, scopeName, scopeVersion string) (TracesRow, *SpanAttrsRow) {
+// processSpanSimple converts a single span to a TracesRow
+func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, serviceInstance string,
+	resourceAttribs []string, scopeName, scopeVersion string) TracesRow {
 	// Convert timestamp
 	timestamp := convertSpanTimestamp(span.StartTimeUnixNano)
 
@@ -1523,16 +1422,11 @@ func processSpan(span *tracepbv1.Span, serviceName, serviceVersion, serviceInsta
 	spanAttribsStr := strings.Join(spanAttribs, ",")
 	resourceAttribsStr := strings.Join(resourceAttribs, ",")
 
-	// Extract normalized attributes for fast filtering
-	traceID := fmt.Sprintf("%x", span.TraceId)
-	spanID := fmt.Sprintf("%x", span.SpanId)
-	spanAttrsRow := extractNormalizedSpanAttributes(traceID, spanID, span.Attributes)
-
 	// Create the trace row
 	traceRow := TracesRow{
 		Timestamp:          timestamp,
-		TraceID:            traceID,
-		SpanID:             spanID,
+		TraceID:            fmt.Sprintf("%x", span.TraceId),
+		SpanID:             fmt.Sprintf("%x", span.SpanId),
 		ParentSpanID:       fmt.Sprintf("%x", span.ParentSpanId),
 		Name:               span.Name,
 		Kind:               int32(span.Kind),
@@ -1552,18 +1446,16 @@ func processSpan(span *tracepbv1.Span, serviceName, serviceVersion, serviceInsta
 		RawData:            string(rawDataJSON),
 	}
 
-	return traceRow, spanAttrsRow
+	return traceRow
 }
 
-// processResourceSpansWithAttrs processes all spans for a single resource and extracts normalized attributes
-func processResourceSpansWithAttrs(resourceSpan *tracepbv1.ResourceSpans) ([]TracesRow, []SpanAttrsRow) {
+// processResourceSpans processes all spans for a single resource
+func processResourceSpans(resourceSpan *tracepbv1.ResourceSpans) []TracesRow {
 	var traceRows []TracesRow
-
-	var spanAttrsRows []SpanAttrsRow
 
 	// Skip invalid resource spans
 	if resourceSpan.Resource == nil {
-		return traceRows, spanAttrsRows
+		return traceRows
 	}
 
 	// Get service info once per resource
@@ -1577,52 +1469,42 @@ func processResourceSpansWithAttrs(resourceSpan *tracepbv1.ResourceSpans) ([]Tra
 
 		// Process all spans for this scope
 		for _, span := range scopeSpan.Spans {
-			traceRow, spanAttrsRow := processSpan(span, serviceName, serviceVersion, serviceInstance,
+			traceRow := processSpanSimple(span, serviceName, serviceVersion, serviceInstance,
 				resourceAttribs, scopeName, scopeVersion)
 			traceRows = append(traceRows, traceRow)
-
-			// Only add span attrs row if it has normalized attributes
-			if spanAttrsRow != nil {
-				spanAttrsRows = append(spanAttrsRows, *spanAttrsRow)
-			}
 		}
 	}
 
-	return traceRows, spanAttrsRows
+	return traceRows
 }
 
-// parseOTELTracesWithAttrs attempts to parse an OTEL traces message and returns trace rows with normalized attributes
-// It returns the parsed trace rows, span attribute rows, and a boolean indicating success
-func (p *Processor) parseOTELTracesWithAttrs(msg jetstream.Msg) ([]TracesRow, []SpanAttrsRow, bool) {
+// parseOTELTraces attempts to parse an OTEL traces message and returns trace rows
+// It returns the parsed trace rows and a boolean indicating success
+func (p *Processor) parseOTELTraces(msg jetstream.Msg) ([]TracesRow, bool) {
 	p.logger.Debug().
 		Str("subject", msg.Subject()).
 		Int("data_length", len(msg.Data())).
-		Msg("Processing OTEL traces message with attributes")
+		Msg("Processing OTEL traces message")
 
 	// Parse the traces request
 	req, err := p.parseTracesRequest(msg.Data())
 	if err != nil {
 		p.logger.Debug().Err(err).Msg("Failed to parse OTEL traces message")
-
-		return nil, nil, false
+		return nil, false
 	}
 
-	// Pre-allocate result slices
+	// Pre-allocate result slice
 	var traceRows []TracesRow
-
-	var spanAttrsRows []SpanAttrsRow
 
 	// Process all traces
 	for _, resourceSpan := range req.ResourceSpans {
-		resourceTraceRows, resourceSpanAttrsRows := processResourceSpansWithAttrs(resourceSpan)
+		resourceTraceRows := processResourceSpans(resourceSpan)
 		traceRows = append(traceRows, resourceTraceRows...)
-		spanAttrsRows = append(spanAttrsRows, resourceSpanAttrsRows...)
 	}
 
 	p.logger.Debug().
 		Int("trace_rows", len(traceRows)).
-		Int("span_attrs_rows", len(spanAttrsRows)).
-		Msg("Successfully parsed trace and span attribute rows from OTEL message")
+		Msg("Successfully parsed trace rows from OTEL message")
 
-	return traceRows, spanAttrsRows, true
+	return traceRows, true
 }
