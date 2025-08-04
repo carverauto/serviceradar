@@ -123,6 +123,8 @@ entity
     | OTEL_TRACES
     | OTEL_METRICS
     | OTEL_TRACE_SUMMARIES
+    | OTEL_TRACE_SUMMARIES_FINAL
+    | OTEL_TRACE_SUMMARIES_DEDUPLICATED
     ;
 
 condition
@@ -251,6 +253,8 @@ SNMP_METRICS  : S N M P '_' M E T R I C S ;
 OTEL_TRACES   : O T E L '_' T R A C E S ;
 OTEL_METRICS  : O T E L '_' M E T R I C S ;
 OTEL_TRACE_SUMMARIES : O T E L '_' T R A C E '_' S U M M A R I E S ;
+OTEL_TRACE_SUMMARIES_FINAL : O T E L '_' T R A C E '_' S U M M A R I E S '_' F I N A L ;
+OTEL_TRACE_SUMMARIES_DEDUPLICATED : O T E L '_' T R A C E '_' S U M M A R I E S '_' D E D U P L I C A T E D ;
 
 // --- New Keywords for Streaming and Joins ---
 // Suffix _KW is used for common words to avoid potential clashes with identifiers

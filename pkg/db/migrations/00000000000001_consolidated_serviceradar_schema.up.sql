@@ -1,8 +1,9 @@
 -- =================================================================
--- == ServiceRadar Unified Device Registry Schema (Consolidated & Fixed)
+-- == ServiceRadar Complete Database Schema - Consolidated Migration
 -- =================================================================
--- This schema represents the final, consolidated state after all migrations.
--- It uses the device_updates stream instead of the legacy sweep_results.
+-- This migration creates the COMPLETE ServiceRadar database schema
+-- from the original working main branch plus OTEL fixes.
+-- Based on the working schema from main branch.
 
 -- =================================================================
 -- == Core Data Streams
@@ -231,6 +232,22 @@ CREATE STREAM IF NOT EXISTS memory_metrics (
     partition         string
 );
 
+-- Process metrics (12 columns as expected by Go code)
+CREATE STREAM IF NOT EXISTS process_metrics (
+    timestamp         DateTime64(3),
+    poller_id         string,
+    agent_id          string,
+    host_id           string,
+    pid               uint32,
+    name              string,
+    cpu_usage         float32,
+    memory_usage      uint64,
+    status            string,
+    start_time        string,
+    device_id         string,
+    partition         string
+);
+
 -- =================================================================
 -- == Service Management Streams
 -- =================================================================
@@ -261,7 +278,7 @@ CREATE STREAM IF NOT EXISTS service_status (
     partition         string
 );
 
--- Service definitions
+-- Service definitions (7 columns)
 CREATE STREAM IF NOT EXISTS services (
     timestamp         DateTime64(3),
     poller_id         string,
@@ -272,7 +289,7 @@ CREATE STREAM IF NOT EXISTS services (
     partition         string
 );
 
--- Poller registry - current state
+-- Poller registry - current state (4 columns)
 CREATE STREAM IF NOT EXISTS pollers (
     poller_id         string,
     first_seen        DateTime64(3),
@@ -419,3 +436,259 @@ FROM hop(cpu_metrics, timestamp, 10s, 60s) AS c
                        AND c.device_id = m.device_id
                        AND c.poller_id = m.poller_id
 GROUP BY c.window_start, c.device_id, c.poller_id, c.agent_id, c.partition;
+
+-- =================================================================
+-- == Observability Tables (Logs, Metrics, Traces)
+-- =================================================================
+
+-- Application and system logs
+CREATE STREAM IF NOT EXISTS logs (
+    timestamp          DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    trace_id           string CODEC(ZSTD(1)),
+    span_id            string CODEC(ZSTD(1)),
+    severity_text      string CODEC(ZSTD(1)),
+    severity_number    int32 CODEC(ZSTD(1)),
+    body               string CODEC(ZSTD(1)),
+    service_name       string CODEC(ZSTD(1)),
+    service_version    string CODEC(ZSTD(1)),
+    service_instance   string CODEC(ZSTD(1)),
+    scope_name         string CODEC(ZSTD(1)),
+    scope_version      string CODEC(ZSTD(1)),
+    attributes         string CODEC(ZSTD(1)),
+    resource_attributes string CODEC(ZSTD(1)),
+    raw_data           string CODEC(ZSTD(1))
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, service_name, trace_id)
+SETTINGS index_granularity = 8192;
+
+-- OpenTelemetry metrics
+CREATE STREAM IF NOT EXISTS otel_metrics (
+    timestamp       DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    trace_id        string CODEC(ZSTD(1)),
+    span_id         string CODEC(ZSTD(1)),
+    service_name    string CODEC(ZSTD(1)),
+    span_name       string CODEC(ZSTD(1)),
+    span_kind       string CODEC(ZSTD(1)),
+    duration_ms     float64 CODEC(ZSTD(1)),
+    duration_seconds float64 CODEC(ZSTD(1)),
+    metric_type     string CODEC(ZSTD(1)),
+    http_method     string CODEC(ZSTD(1)),
+    http_route      string CODEC(ZSTD(1)),
+    http_status_code string CODEC(ZSTD(1)),
+    grpc_service    string CODEC(ZSTD(1)),
+    grpc_method     string CODEC(ZSTD(1)),
+    grpc_status_code string CODEC(ZSTD(1)),
+    is_slow         bool CODEC(ZSTD(1)),
+    component       string CODEC(ZSTD(1)),
+    level           string CODEC(ZSTD(1)),
+    raw_data        string CODEC(ZSTD(1))
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, service_name, span_id)
+SETTINGS index_granularity = 8192;
+
+-- OpenTelemetry traces (FINAL WORKING SCHEMA from main branch)
+CREATE STREAM IF NOT EXISTS otel_traces (
+    -- Core span identifiers
+    timestamp         DateTime64(9) CODEC(Delta(8), ZSTD(1)),  -- start_time_unix_nano
+    trace_id          string CODEC(ZSTD(1)),
+    span_id           string CODEC(ZSTD(1)),
+    parent_span_id    string CODEC(ZSTD(1)),
+    
+    -- Span details
+    name              string CODEC(ZSTD(1)),
+    kind              int32 CODEC(ZSTD(1)),  -- SpanKind enum value
+    start_time_unix_nano uint64 CODEC(Delta(8), ZSTD(1)),
+    end_time_unix_nano   uint64 CODEC(Delta(8), ZSTD(1)),
+    
+    -- Service identification
+    service_name      string CODEC(ZSTD(1)),
+    service_version   string CODEC(ZSTD(1)),
+    service_instance  string CODEC(ZSTD(1)),
+    
+    -- Instrumentation scope
+    scope_name        string CODEC(ZSTD(1)),
+    scope_version     string CODEC(ZSTD(1)),
+    
+    -- Status
+    status_code       int32 CODEC(ZSTD(1)),   -- Status code enum
+    status_message    string CODEC(ZSTD(1)),
+    
+    -- Attributes as comma-separated key=value pairs
+    attributes        string CODEC(ZSTD(1)),
+    resource_attributes string CODEC(ZSTD(1)),
+    
+    -- Events (JSON array)
+    events            string CODEC(ZSTD(1)),
+    
+    -- Links (JSON array)
+    links             string CODEC(ZSTD(1)),
+    
+    -- Raw protobuf data for debugging/reprocessing
+    raw_data          string CODEC(ZSTD(1))
+    
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)  -- Hourly partitions
+ORDER BY (service_name, timestamp, trace_id, span_id)
+SETTINGS index_granularity = 8192;
+
+-- =================================================================
+-- == TRACE SUMMARIES - EFFICIENT IMPLEMENTATION
+-- =================================================================
+
+-- Trace summaries stream - aggregated trace information
+CREATE STREAM IF NOT EXISTS otel_trace_summaries (
+    timestamp         DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    trace_id          string CODEC(ZSTD(1)),
+    root_span_id      string CODEC(ZSTD(1)),
+    root_span_name    string CODEC(ZSTD(1)),
+    root_service_name string CODEC(ZSTD(1)),
+    root_span_kind    int32 CODEC(ZSTD(1)),
+    start_time_unix_nano uint64 CODEC(Delta(8), ZSTD(1)),
+    end_time_unix_nano   uint64 CODEC(Delta(8), ZSTD(1)),
+    duration_ms          float64 CODEC(ZSTD(1)),
+    status_code       int32 CODEC(ZSTD(1)),
+    service_set       array(string) CODEC(ZSTD(1)),
+    span_count        uint32 CODEC(ZSTD(1)),
+    error_count       uint32 CODEC(ZSTD(1))
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, trace_id)
+SETTINGS index_granularity = 8192;
+
+-- Step 1: Create an intermediate enriched spans stream
+CREATE STREAM IF NOT EXISTS otel_spans_enriched (
+  timestamp             DateTime64(9),
+  trace_id              string,
+  span_id               string,
+  parent_span_id        string,
+  name                  string,
+  kind                  int32,
+  start_time_unix_nano  uint64,
+  end_time_unix_nano    uint64,
+  service_name          string,
+  status_code           int32,
+  duration_ms           float64,
+  is_root               bool
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (trace_id, span_id)
+SETTINGS index_granularity = 8192;
+
+-- Step 1 MV: Enrich spans with duration calculation
+CREATE MATERIALIZED VIEW IF NOT EXISTS otel_spans_enriched_mv
+INTO otel_spans_enriched AS
+SELECT
+  timestamp,
+  trace_id,
+  span_id,
+  parent_span_id,
+  name,
+  kind,
+  start_time_unix_nano,
+  end_time_unix_nano,
+  service_name,
+  status_code,
+  (end_time_unix_nano - start_time_unix_nano) / 1e6 AS duration_ms,
+  (parent_span_id = '' OR parent_span_id = '0000000000000000' OR length(parent_span_id) = 0) AS is_root
+FROM otel_traces;
+
+-- Step 2: Create the final trace summaries materialized view
+CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_summaries_mv
+INTO otel_trace_summaries AS
+SELECT
+  min(timestamp) AS timestamp,
+  trace_id,
+  
+  -- Root span detection using the enriched data
+  any_if(span_id, is_root) AS root_span_id,
+  any_if(name, is_root) AS root_span_name,
+  any_if(service_name, is_root) AS root_service_name,
+  any_if(kind, is_root) AS root_span_kind,
+  
+  -- Store raw timing values (let views calculate duration)
+  min(start_time_unix_nano) AS start_time_unix_nano,
+  max(end_time_unix_nano) AS end_time_unix_nano,
+  any_if(duration_ms, is_root) AS duration_ms,  -- Use span-level duration from root span
+  
+  -- Status
+  max(status_code) AS status_code,
+  
+  -- Aggregations  
+  group_uniq_array(service_name) AS service_set,
+  count() AS span_count,
+  0 AS error_count  -- Placeholder for now
+
+FROM otel_spans_enriched
+GROUP BY trace_id;
+
+-- =================================================================
+-- == UI COMPATIBILITY VIEWS
+-- =================================================================
+
+-- Deduplication view with _tp_time for Timeplus compatibility
+CREATE VIEW IF NOT EXISTS otel_trace_summaries_dedup AS
+SELECT 
+  trace_id,
+  timestamp,
+  timestamp as _tp_time,  -- Add _tp_time for Timeplus compatibility
+  root_span_id,
+  root_span_name,
+  root_service_name,
+  root_span_kind,
+  start_time_unix_nano,
+  end_time_unix_nano,
+  duration_ms,
+  span_count,
+  error_count,
+  status_code,
+  service_set
+FROM otel_trace_summaries;
+
+-- UI compatibility aliases
+CREATE VIEW otel_trace_summaries_final AS 
+SELECT * FROM otel_trace_summaries_dedup;
+
+CREATE VIEW otel_trace_summaries_final_v2 AS 
+SELECT * FROM otel_trace_summaries_dedup;
+
+CREATE VIEW otel_trace_summaries_deduplicated AS 
+SELECT * FROM otel_trace_summaries_dedup;
+
+-- =================================================================
+-- == PERFORMANCE INDEXES
+-- =================================================================
+
+-- Trace indexes
+ALTER STREAM otel_traces ADD INDEX IF NOT EXISTS idx_timestamp timestamp TYPE minmax GRANULARITY 1;
+ALTER STREAM otel_traces ADD INDEX IF NOT EXISTS idx_trace_id trace_id TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM otel_traces ADD INDEX IF NOT EXISTS idx_service service_name TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM otel_traces ADD INDEX IF NOT EXISTS idx_span_id span_id TYPE bloom_filter GRANULARITY 1;
+
+-- Trace summary indexes
+ALTER STREAM otel_trace_summaries ADD INDEX IF NOT EXISTS idx_timestamp timestamp TYPE minmax GRANULARITY 1;
+ALTER STREAM otel_trace_summaries ADD INDEX IF NOT EXISTS idx_trace_id trace_id TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM otel_trace_summaries ADD INDEX IF NOT EXISTS idx_service root_service_name TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM otel_trace_summaries ADD INDEX IF NOT EXISTS idx_duration duration_ms TYPE minmax GRANULARITY 1;
+
+-- Log indexes
+ALTER STREAM logs ADD INDEX IF NOT EXISTS idx_timestamp timestamp TYPE minmax GRANULARITY 1;
+ALTER STREAM logs ADD INDEX IF NOT EXISTS idx_service service_name TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM logs ADD INDEX IF NOT EXISTS idx_trace_id trace_id TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM logs ADD INDEX IF NOT EXISTS idx_severity severity_text TYPE bloom_filter GRANULARITY 1;
+
+-- Metrics indexes  
+ALTER STREAM process_metrics ADD INDEX IF NOT EXISTS idx_timestamp timestamp TYPE minmax GRANULARITY 1;
+ALTER STREAM process_metrics ADD INDEX IF NOT EXISTS idx_device device_id TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM process_metrics ADD INDEX IF NOT EXISTS idx_poller poller_id TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM process_metrics ADD INDEX IF NOT EXISTS idx_host host_id TYPE bloom_filter GRANULARITY 1;
+
+ALTER STREAM otel_metrics ADD INDEX IF NOT EXISTS idx_timestamp timestamp TYPE minmax GRANULARITY 1;
+ALTER STREAM otel_metrics ADD INDEX IF NOT EXISTS idx_service service_name TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM otel_metrics ADD INDEX IF NOT EXISTS idx_trace_id trace_id TYPE bloom_filter GRANULARITY 1;
+
+-- Services indexes
+ALTER STREAM services ADD INDEX IF NOT EXISTS idx_timestamp timestamp TYPE minmax GRANULARITY 1;
+ALTER STREAM services ADD INDEX IF NOT EXISTS idx_poller poller_id TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM services ADD INDEX IF NOT EXISTS idx_service_name service_name TYPE bloom_filter GRANULARITY 1;
