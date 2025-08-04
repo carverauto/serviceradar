@@ -237,3 +237,27 @@ func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
+
+func (c *CoreServiceConfig) Validate() error {
+	if c.Logging == nil {
+		return fmt.Errorf("logging configuration is required")
+	}
+
+	if c.Database.Name == "" && c.DBName == "" {
+		return fmt.Errorf("database name is required")
+	}
+
+	if len(c.Database.Addresses) == 0 && c.DBAddr == "" {
+		return fmt.Errorf("database address is required")
+	}
+
+	if c.ListenAddr == "" {
+		return fmt.Errorf("listen address is required")
+	}
+
+	if c.GrpcAddr == "" {
+		return fmt.Errorf("grpc address is required")
+	}
+
+	return nil
+}

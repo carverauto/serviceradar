@@ -44,6 +44,10 @@ func LoadConfig(path string) (models.CoreServiceConfig, error) {
 		return models.CoreServiceConfig{}, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	if err := config.Validate(); err != nil {
+		return models.CoreServiceConfig{}, fmt.Errorf("invalid configuration: %w", err)
+	}
+
 	// Security config logging removed - will be handled by the logger instance in server
 
 	return config, nil
