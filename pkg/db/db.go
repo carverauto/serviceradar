@@ -45,6 +45,11 @@ type DB struct {
 
 // createTLSConfig builds TLS configuration from security settings
 func createTLSConfig(config *models.CoreServiceConfig) (*tls.Config, error) {
+	// If no security config, return nil for no TLS
+	if config.Security == nil {
+		return nil, nil
+	}
+
 	// Construct absolute paths for certificate files
 	certDir := config.Security.CertDir
 	certFile := config.Security.TLS.CertFile
