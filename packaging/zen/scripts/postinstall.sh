@@ -40,7 +40,9 @@ chown -R serviceradar:serviceradar /etc/serviceradar/zen
 chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/bin/serviceradar-zen
 chmod 755 /usr/local/bin/zen-put-rule
-chmod 644 /etc/serviceradar/consumers/zen-consumer.json
+if [ -f /etc/serviceradar/consumers/zen-consumer.json ]; then
+    chmod 644 /etc/serviceradar/consumers/zen-consumer.json
+fi
 
 # Enable and start the service
 systemctl daemon-reload
