@@ -21,7 +21,7 @@ require (
 	github.com/spiffe/go-spiffe/v2 v2.5.0
 	github.com/stretchr/testify v1.10.0
 	github.com/swaggo/http-swagger v1.3.4
-	github.com/swaggo/swag v1.16.5
+	github.com/swaggo/swag v1.16.6
 	github.com/timeplus-io/proton-go-driver/v2 v2.1.2
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.62.0
 	go.opentelemetry.io/otel v1.37.0
