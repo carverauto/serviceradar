@@ -96,10 +96,7 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	// 5. Test Reconcile (Updates) - should perform correlation and updates
 	// Expectations for the reconciliation logic
 	mocks.SweepQuerier.EXPECT().GetDeviceStatesBySource(gomock.Any(), "armis").Return(mockDeviceStates, nil)
-	// Reconcile also needs to fetch current devices from Armis, so it needs another access token call
-	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
-	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(firstPageResp, nil)
-	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
+	// Reconcile no longer fetches devices from Armis - it just uses what's in the database
 	mocks.Updater.EXPECT().UpdateDeviceStatus(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
 			// Verify the content of the updates being sent to Armis
@@ -937,23 +934,6 @@ func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {
 	assert.Equal(t, "1.1.1.1", updates[0].IP)
 	// We're marking devices as OT_Isolation_Compliant in Armis if we CANT reach them
 	assert.False(t, updates[0].Available)
-}
-
-func TestPrepareArmisUpdateFromDeviceQuery(t *testing.T) {
-	integ := &ArmisIntegration{Logger: logger.NewTestLogger()}
-	results := []map[string]interface{}{
-		{"ip": "1.1.1.1", "is_available": true, "metadata": map[string]interface{}{"armis_device_id": "5"}},
-		{"ip": "", "is_available": true, "metadata": map[string]interface{}{"armis_device_id": "6"}},
-		{"ip": "2.2.2.2", "is_available": false},
-	}
-
-	updates := integ.prepareArmisUpdateFromDeviceQuery(results)
-
-	require.Len(t, updates, 1)
-
-	assert.Equal(t, 5, updates[0].DeviceID)
-	assert.Equal(t, "1.1.1.1", updates[0].IP)
-	assert.True(t, updates[0].Available)
 }
 
 func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {

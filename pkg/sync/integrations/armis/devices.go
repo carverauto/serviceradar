@@ -353,47 +353,8 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 		Int("device_states_count", len(deviceStates)).
 		Msg("Successfully queried device states from ServiceRadar for reconciliation")
 
-	// Fetch current devices from Armis to check for retractions
-	// We need this to identify devices that no longer exist in Armis but are still in ServiceRadar
-	_, _, currentDevices, err := a.fetchAndProcessDevices(ctx)
-	if err != nil {
-		a.Logger.Error().
-			Err(err).
-			Msg("Failed to fetch current devices from Armis during reconciliation")
-
-		return err
-	}
-
-	// Generate retraction events for devices no longer found in Armis
-	retractionEvents := a.generateRetractionEvents(currentDevices, deviceStates)
-	if len(retractionEvents) > 0 {
-		a.Logger.Info().
-			Int("retraction_events_count", len(retractionEvents)).
-			Str("source", string(models.DiscoverySourceArmis)).
-			Msg("Generated retraction events during reconciliation")
-
-		// Send retraction events to the core service
-		if a.ResultSubmitter != nil {
-			if err := a.ResultSubmitter.SubmitBatchSweepResults(ctx, retractionEvents); err != nil {
-				a.Logger.Error().
-					Err(err).
-					Int("retraction_events_count", len(retractionEvents)).
-					Msg("Failed to submit retraction events to core service")
-
-				return err
-			}
-
-			a.Logger.Info().
-				Int("retraction_events_count", len(retractionEvents)).
-				Msg("Successfully submitted retraction events to core service")
-		} else {
-			a.Logger.Warn().
-				Int("retraction_events_count", len(retractionEvents)).
-				Msg("ResultSubmitter not configured, retraction events not sent")
-		}
-	}
-
-	// Prepare status updates for Armis
+	// Prepare status updates for Armis directly from the device states
+	// No need to query Armis again - we trust our database as the source of truth
 	updates := a.prepareArmisUpdateFromDeviceStates(deviceStates)
 
 	a.Logger.Debug().
@@ -421,54 +382,6 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 	return nil
 }
 
-// generateRetractionEvents checks for devices that exist in ServiceRadar but not in the current Armis fetch.
-func (a *ArmisIntegration) generateRetractionEvents(
-	currentDevices []Device, existingDeviceStates []DeviceState) []*models.DeviceUpdate {
-	// Create a map of current device IDs from the Armis API for efficient lookup.
-	currentDeviceIDs := make(map[string]struct{}, len(currentDevices))
-	for i := range currentDevices {
-		currentDeviceIDs[strconv.Itoa(currentDevices[i].ID)] = struct{}{}
-	}
-
-	var retractionEvents []*models.DeviceUpdate
-
-	now := time.Now()
-
-	for _, state := range existingDeviceStates {
-		// Extract the original armis_device_id from the metadata of the device stored in ServiceRadar.
-		armisID, ok := state.Metadata["armis_device_id"].(string)
-		if !ok {
-			continue // Cannot determine retraction status without the original ID.
-		}
-
-		// If a device that was previously discovered is not in the current list, it's considered retracted.
-		if _, found := currentDeviceIDs[armisID]; !found {
-			a.Logger.Info().
-				Str("armis_id", armisID).
-				Str("ip", state.IP).
-				Msg("Device no longer detected, generating retraction event")
-
-			retractionEvent := &models.DeviceUpdate{
-				DeviceID:    state.DeviceID,
-				Source:      models.DiscoverySourceArmis,
-				IP:          state.IP,
-				IsAvailable: false,
-				Timestamp:   now,
-				Metadata: map[string]string{
-					"_deleted": "true",
-				},
-				AgentID:   a.Config.AgentID,
-				PollerID:  a.Config.PollerID,
-				Partition: a.Config.Partition,
-			}
-
-			retractionEvents = append(retractionEvents, retractionEvent)
-		}
-	}
-
-	return retractionEvents
-}
-
 func (*ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState) []ArmisDeviceStatus {
 	updates := make([]ArmisDeviceStatus, 0, len(states))
 
@@ -493,41 +406,6 @@ func (*ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState
 			DeviceID:  armisDeviceID,
 			IP:        state.IP,
 			Available: !state.IsAvailable,
-		})
-	}
-
-	return updates
-}
-
-// prepareArmisUpdateFromDeviceQuery processes the results of a 'show devices'
-// SRQL query and prepares them for an Armis status update.
-func (*ArmisIntegration) prepareArmisUpdateFromDeviceQuery(results []map[string]interface{}) []ArmisDeviceStatus {
-	updates := make([]ArmisDeviceStatus, 0, len(results))
-
-	for _, deviceData := range results {
-		ip, _ := deviceData["ip"].(string)
-		isAvailable, _ := deviceData["is_available"].(bool)
-
-		var armisDeviceID int
-
-		if metadata, ok := deviceData["metadata"].(map[string]interface{}); ok {
-			if idStr, ok := metadata["armis_device_id"].(string); ok {
-				id, err := strconv.Atoi(idStr)
-				if err == nil {
-					armisDeviceID = id
-				}
-			}
-		}
-
-		// To update Armis, we must have the device's original ID.
-		if ip == "" || armisDeviceID == 0 {
-			continue
-		}
-
-		updates = append(updates, ArmisDeviceStatus{
-			DeviceID:  armisDeviceID,
-			IP:        ip,
-			Available: isAvailable,
 		})
 	}
 
