@@ -26,6 +26,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+const (
+	// HTTPStatusInternalServer defines the threshold for server errors
+	HTTPStatusInternalServer = 500
+)
+
 // CircuitBreakerState represents the current state of the circuit breaker
 type CircuitBreakerState int
 
@@ -85,13 +90,14 @@ func NewCircuitBreaker(name string, config CircuitBreakerConfig, log logger.Logg
 }
 
 // Execute executes a function call through the circuit breaker
-func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
+func (cb *CircuitBreaker) Execute(_ context.Context, fn func() error) error {
 	if !cb.allowRequest() {
 		return fmt.Errorf("circuit breaker %s is open", cb.name)
 	}
 
 	err := fn()
 	cb.recordResult(err)
+
 	return err
 }
 
@@ -109,8 +115,8 @@ func (cb *CircuitBreaker) allowRequest() bool {
 			cb.failureCount = 0
 			cb.lastResetTime = now
 		}
-		return true
 
+		return true
 	case StateOpen:
 		// Transition to half-open if timeout has passed
 		if now.Sub(cb.lastFailTime) >= cb.config.Timeout {
@@ -119,8 +125,10 @@ func (cb *CircuitBreaker) allowRequest() bool {
 			cb.logger.Info().
 				Str("circuit_breaker", cb.name).
 				Msg("Circuit breaker transitioning to half-open")
+
 			return true
 		}
+
 		return false
 
 	case StateHalfOpen:
@@ -157,12 +165,12 @@ func (cb *CircuitBreaker) onFailure() {
 				Int("failure_count", cb.failureCount).
 				Msg("Circuit breaker opened due to failures")
 		}
-
 	case StateHalfOpen:
 		cb.state = StateOpen
 		cb.logger.Warn().
 			Str("circuit_breaker", cb.name).
 			Msg("Circuit breaker reopened after failed attempt in half-open state")
+	case StateOpen:
 	}
 }
 
@@ -179,11 +187,11 @@ func (cb *CircuitBreaker) onSuccess() {
 				Str("circuit_breaker", cb.name).
 				Msg("Circuit breaker closed after successful recovery")
 		}
-
 	case StateClosed:
 		// Reset failure count on success
 		cb.failureCount = 0
 		cb.lastResetTime = time.Now()
+	case StateOpen:
 	}
 }
 
@@ -191,6 +199,7 @@ func (cb *CircuitBreaker) onSuccess() {
 func (cb *CircuitBreaker) GetState() CircuitBreakerState {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
+
 	return cb.state
 }
 
@@ -240,17 +249,22 @@ func NewCircuitBreakerHTTPClient(client HTTPClient, name string, config CircuitB
 // Do executes an HTTP request through the circuit breaker
 func (c *CircuitBreakerHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	var resp *http.Response
+
 	var err error
 
 	execErr := c.circuitBreaker.Execute(req.Context(), func() error {
 		resp, err = c.client.Do(req)
-
-		// Consider HTTP 5xx errors and network errors as failures
 		if err != nil {
 			return err
 		}
+		// Always close the response body on error paths to prevent resource leaks
+		defer func() {
+			if err != nil && resp != nil {
+				_ = resp.Body.Close()
+			}
+		}()
 
-		if resp.StatusCode >= 500 {
+		if resp.StatusCode >= HTTPStatusInternalServer {
 			return fmt.Errorf("server error: %d", resp.StatusCode)
 		}
 
@@ -258,6 +272,11 @@ func (c *CircuitBreakerHTTPClient) Do(req *http.Request) (*http.Response, error)
 	})
 
 	if execErr != nil {
+		// Close response body if we have one but are returning an error
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+
 		return nil, execErr
 	}
 

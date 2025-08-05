@@ -24,6 +24,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+const (
+	// HTTPStatusBadRequest represents the threshold for client/server errors
+	HTTPStatusBadRequest = 400
+)
+
 // Metrics defines the interface for collecting sync service metrics
 type Metrics interface {
 	// Integration metrics
@@ -53,23 +58,20 @@ type Metrics interface {
 // NoOpMetrics provides a no-op implementation of the Metrics interface
 type NoOpMetrics struct{}
 
-func (n *NoOpMetrics) RecordDiscoveryAttempt(source string) {}
-func (n *NoOpMetrics) RecordDiscoverySuccess(source string, deviceCount int, duration time.Duration) {
+func (*NoOpMetrics) RecordDiscoveryAttempt(string)                            {}
+func (*NoOpMetrics) RecordDiscoverySuccess(string, int, time.Duration)        {}
+func (*NoOpMetrics) RecordDiscoveryFailure(string, error, time.Duration)      {}
+func (*NoOpMetrics) RecordReconciliationAttempt(string)                       {}
+func (*NoOpMetrics) RecordReconciliationSuccess(string, int, time.Duration)   {}
+func (*NoOpMetrics) RecordReconciliationFailure(string, error, time.Duration) {}
+func (*NoOpMetrics) RecordAPICall(string, string)                             {}
+func (*NoOpMetrics) RecordAPISuccess(string, string, time.Duration)           {}
+func (*NoOpMetrics) RecordAPIFailure(string, string, int, time.Duration)      {}
+func (*NoOpMetrics) RecordCircuitBreakerStateChange(string, CircuitBreakerState, CircuitBreakerState) {
 }
-func (n *NoOpMetrics) RecordDiscoveryFailure(source string, err error, duration time.Duration) {}
-func (n *NoOpMetrics) RecordReconciliationAttempt(source string)                               {}
-func (n *NoOpMetrics) RecordReconciliationSuccess(source string, updateCount int, duration time.Duration) {
-}
-func (n *NoOpMetrics) RecordReconciliationFailure(source string, err error, duration time.Duration) {}
-func (n *NoOpMetrics) RecordAPICall(integration, endpoint string)                                   {}
-func (n *NoOpMetrics) RecordAPISuccess(integration, endpoint string, duration time.Duration)        {}
-func (n *NoOpMetrics) RecordAPIFailure(integration, endpoint string, statusCode int, duration time.Duration) {
-}
-func (n *NoOpMetrics) RecordCircuitBreakerStateChange(name string, oldState, newState CircuitBreakerState) {
-}
-func (n *NoOpMetrics) RecordActiveIntegrations(count int)     {}
-func (n *NoOpMetrics) RecordTotalDevicesDiscovered(count int) {}
-func (n *NoOpMetrics) GetMetrics() map[string]interface{}     { return map[string]interface{}{} }
+func (*NoOpMetrics) RecordActiveIntegrations(int)       {}
+func (*NoOpMetrics) RecordTotalDevicesDiscovered(int)   {}
+func (*NoOpMetrics) GetMetrics() map[string]interface{} { return map[string]interface{}{} }
 
 // InMemoryMetrics provides an in-memory implementation of the Metrics interface
 type InMemoryMetrics struct {
@@ -131,6 +133,7 @@ func NewInMemoryMetrics(log logger.Logger) *InMemoryMetrics {
 func (m *InMemoryMetrics) RecordDiscoveryAttempt(source string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.discoveryAttempts[source]++
 	m.lastUpdated = time.Now()
 }
@@ -138,6 +141,7 @@ func (m *InMemoryMetrics) RecordDiscoveryAttempt(source string) {
 func (m *InMemoryMetrics) RecordDiscoverySuccess(source string, deviceCount int, duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.discoverySuccess[source]++
 	m.discoveryDuration[source] = duration
 	m.devicesDiscovered[source] = deviceCount
@@ -153,6 +157,7 @@ func (m *InMemoryMetrics) RecordDiscoverySuccess(source string, deviceCount int,
 func (m *InMemoryMetrics) RecordDiscoveryFailure(source string, err error, duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.discoveryFailures[source]++
 	m.discoveryDuration[source] = duration
 	m.lastUpdated = time.Now()
@@ -167,6 +172,7 @@ func (m *InMemoryMetrics) RecordDiscoveryFailure(source string, err error, durat
 func (m *InMemoryMetrics) RecordReconciliationAttempt(source string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.reconciliationAttempts[source]++
 	m.lastUpdated = time.Now()
 }
@@ -174,6 +180,7 @@ func (m *InMemoryMetrics) RecordReconciliationAttempt(source string) {
 func (m *InMemoryMetrics) RecordReconciliationSuccess(source string, updateCount int, duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.reconciliationSuccess[source]++
 	m.reconciliationDuration[source] = duration
 	m.reconciliationUpdates[source] = updateCount
@@ -189,6 +196,7 @@ func (m *InMemoryMetrics) RecordReconciliationSuccess(source string, updateCount
 func (m *InMemoryMetrics) RecordReconciliationFailure(source string, err error, duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.reconciliationFailures[source]++
 	m.reconciliationDuration[source] = duration
 	m.lastUpdated = time.Now()
@@ -203,6 +211,7 @@ func (m *InMemoryMetrics) RecordReconciliationFailure(source string, err error, 
 func (m *InMemoryMetrics) RecordAPICall(integration, endpoint string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	key := integration + ":" + endpoint
 	m.apiCalls[key]++
 	m.lastUpdated = time.Now()
@@ -211,6 +220,7 @@ func (m *InMemoryMetrics) RecordAPICall(integration, endpoint string) {
 func (m *InMemoryMetrics) RecordAPISuccess(integration, endpoint string, duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	key := integration + ":" + endpoint
 	m.apiSuccess[key]++
 	m.apiDuration[key] = duration
@@ -220,6 +230,7 @@ func (m *InMemoryMetrics) RecordAPISuccess(integration, endpoint string, duratio
 func (m *InMemoryMetrics) RecordAPIFailure(integration, endpoint string, statusCode int, duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	key := integration + ":" + endpoint
 	m.apiFailures[key]++
 	m.apiDuration[key] = duration
@@ -318,6 +329,7 @@ func (m *MetricsHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	}
 
 	start := time.Now()
+
 	m.metrics.RecordAPICall(m.integration, endpoint)
 
 	resp, err := m.client.Do(req)
@@ -328,7 +340,7 @@ func (m *MetricsHTTPClient) Do(req *http.Request) (*http.Response, error) {
 		return resp, err
 	}
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode >= HTTPStatusBadRequest {
 		m.metrics.RecordAPIFailure(m.integration, endpoint, resp.StatusCode, duration)
 	} else {
 		m.metrics.RecordAPISuccess(m.integration, endpoint, duration)
