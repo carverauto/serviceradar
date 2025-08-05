@@ -24,6 +24,7 @@ import (
 	"io"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -32,6 +33,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+const (
+	// MaxBatchSize defines the maximum number of entries to write to KV in a single batch
+	MaxBatchSize = 500
 )
 
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
@@ -72,11 +78,6 @@ type SimpleSyncService struct {
 	discoveryInterval   time.Duration
 	armisUpdateInterval time.Duration
 
-	// Sweep completion tracking
-	lastSweepCompleted time.Time
-	sweepInProgress    bool
-	mu                 sync.RWMutex // Protects sweep completion state
-
 	// Context for managing service lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -84,6 +85,12 @@ type SimpleSyncService struct {
 	// Error handling
 	errorChan chan error
 	wg        sync.WaitGroup
+
+	// Metrics and monitoring
+	metrics Metrics
+
+	// Atomic flags to prevent overlapping operations
+	armisUpdateRunning int32
 
 	logger logger.Logger
 }
@@ -95,6 +102,19 @@ func NewSimpleSyncService(
 	kvClient KVClient,
 	registry map[string]IntegrationFactory,
 	grpcClient GRPCClient,
+	log logger.Logger,
+) (*SimpleSyncService, error) {
+	return NewSimpleSyncServiceWithMetrics(ctx, config, kvClient, registry, grpcClient, NewInMemoryMetrics(log), log)
+}
+
+// NewSimpleSyncServiceWithMetrics creates a new simplified sync service with custom metrics
+func NewSimpleSyncServiceWithMetrics(
+	ctx context.Context,
+	config *Config,
+	kvClient KVClient,
+	registry map[string]IntegrationFactory,
+	grpcClient GRPCClient,
+	metrics Metrics,
 	log logger.Logger,
 ) (*SimpleSyncService, error) {
 	if err := config.Validate(); err != nil {
@@ -117,6 +137,7 @@ func NewSimpleSyncService(
 		ctx:                 serviceCtx,
 		cancel:              cancel,
 		errorChan:           make(chan error, 10), // Buffered channel for error collection
+		metrics:             metrics,
 		logger:              log,
 	}
 
@@ -151,9 +172,11 @@ func (s *SimpleSyncService) sendError(err error) {
 }
 
 // launchTask adds to the wait group and launches a goroutine to execute the given task
-func (s *SimpleSyncService) launchTask(ctx context.Context, taskName string, task func(context.Context) error) {
+// It uses the service's internal context to ensure proper cancellation when Stop() is called
+func (s *SimpleSyncService) launchTask(_ context.Context, taskName string, task func(context.Context) error) {
 	s.wg.Add(1)
-	go s.safelyRunTask(ctx, taskName, task)
+	// Use the service's internal context to ensure proper cancellation during Stop()
+	go s.safelyRunTask(s.ctx, taskName, task)
 }
 
 // Start begins the simple interval-based discovery and Armis update cycles
@@ -198,8 +221,19 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 		s.cancel()
 	}
 
-	// Wait for all goroutines to finish
-	s.wg.Wait()
+	// Wait for all goroutines to finish with a timeout
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All goroutines finished
+	case <-time.After(2 * time.Second):
+		s.logger.Warn().Msg("Timeout waiting for goroutines to finish during stop")
+	}
 
 	// Close error channel
 	close(s.errorChan)
@@ -221,10 +255,10 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 
 // runDiscovery executes discovery for all integrations and immediately writes to KV
 func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
+	start := time.Now()
 	s.logger.Info().
-		Time("started_at", time.Now()).
+		Time("started_at", start).
 		Msg("Starting discovery cycle")
-	s.markSweepStarted()
 
 	allDeviceUpdates := make(map[string][]*models.DeviceUpdate)
 
@@ -232,12 +266,16 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 
 	for sourceName, integration := range s.sources {
 		s.logger.Info().Str("source", sourceName).Msg("Running discovery for source")
+		s.metrics.RecordDiscoveryAttempt(sourceName)
+
+		sourceStart := time.Now()
 
 		// Fetch devices from integration. `devices` is now `[]*models.DeviceUpdate`.
 		kvData, devices, err := integration.Fetch(ctx)
 
 		if err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Discovery failed for source")
+			s.metrics.RecordDiscoveryFailure(sourceName, err, time.Since(sourceStart))
 			discoveryErrors = append(discoveryErrors, fmt.Errorf("source %s: %w", sourceName, err))
 
 			continue
@@ -249,7 +287,10 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		// Immediately write device data to KV store
 		if err := s.writeToKV(ctx, sourceName, kvData); err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Failed to write to KV")
+			s.metrics.RecordDiscoveryFailure(sourceName, err, time.Since(sourceStart))
 			discoveryErrors = append(discoveryErrors, fmt.Errorf("KV write for source %s: %w", sourceName, err))
+		} else {
+			s.metrics.RecordDiscoverySuccess(sourceName, len(devices), time.Since(sourceStart))
 		}
 
 		allDeviceUpdates[sourceName] = devices
@@ -304,12 +345,14 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		totalDevices += len(devices)
 	}
 
+	// Record overall metrics
+	s.metrics.RecordActiveIntegrations(len(s.sources))
+	s.metrics.RecordTotalDevicesDiscovered(totalDevices)
+
 	s.logger.Info().
 		Int("total_devices", totalDevices).
 		Int("sources", len(allDeviceUpdates)).
 		Msg("Discovery cycle completed")
-
-	s.markSweepCompleted()
 
 	// Return aggregated errors if any occurred
 	if len(discoveryErrors) > 0 {
@@ -321,20 +364,28 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 
 // runArmisUpdates queries SRQL and updates Armis with device availability
 func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
-	// Check if we should wait for sweep completion
-	if !s.shouldProceedWithUpdates() {
-		s.logger.Info().Msg("Waiting for sweep completion before running updates")
+	// Skip if already running to prevent overlapping operations
+	if !atomic.CompareAndSwapInt32(&s.armisUpdateRunning, 0, 1) {
+		s.logger.Warn().Msg("Armis update already running, skipping this cycle")
 		return nil
 	}
+	defer atomic.StoreInt32(&s.armisUpdateRunning, 0)
 
 	s.logger.Info().Msg("Starting Armis update cycle")
 
 	var updateErrors []error
 
 	for sourceName, integration := range s.sources {
+		s.metrics.RecordReconciliationAttempt(sourceName)
+
+		sourceStart := time.Now()
+
 		if err := integration.Reconcile(ctx); err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Armis update failed for source")
+			s.metrics.RecordReconciliationFailure(sourceName, err, time.Since(sourceStart))
 			updateErrors = append(updateErrors, fmt.Errorf("reconcile source %s: %w", sourceName, err))
+		} else {
+			s.metrics.RecordReconciliationSuccess(sourceName, 0, time.Since(sourceStart)) // updateCount will be 0 for now
 		}
 	}
 
@@ -346,44 +397,6 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// shouldProceedWithUpdates checks if enough time has passed since last sweep completion
-func (s *SimpleSyncService) shouldProceedWithUpdates() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// If sweep is currently in progress, wait
-	if s.sweepInProgress {
-		return false
-	}
-
-	// If no sweep has completed yet, don't update
-	if s.lastSweepCompleted.IsZero() {
-		return false
-	}
-
-	// Wait at least 30 minutes after sweep completion to ensure data is settled
-	minWaitTime := 30 * time.Minute
-
-	return time.Since(s.lastSweepCompleted) >= minWaitTime
-}
-
-// markSweepStarted marks that a sweep operation has started
-func (s *SimpleSyncService) markSweepStarted() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sweepInProgress = true
-	s.logger.Info().Msg("Sweep operation started")
-}
-
-// markSweepCompleted marks that a sweep operation has completed
-func (s *SimpleSyncService) markSweepCompleted() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sweepInProgress = false
-	s.lastSweepCompleted = time.Now()
-	s.logger.Info().Time("completed_at", s.lastSweepCompleted).Msg("Sweep operation completed")
 }
 
 // writeToKV writes device data to the KV store
@@ -409,7 +422,7 @@ func (s *SimpleSyncService) writeToKV(ctx context.Context, sourceName string, da
 		})
 	}
 
-	const maxBatchSize = 500
+	const maxBatchSize = MaxBatchSize
 
 	for i := 0; i < len(entries); i += maxBatchSize {
 		end := i + maxBatchSize
@@ -528,6 +541,11 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 		CurrentSequence: fmt.Sprintf("%d", s.resultsStore.updated.Unix()),
 		HasNewData:      true,
 	}, nil
+}
+
+// GetServiceMetrics returns current service metrics for monitoring
+func (s *SimpleSyncService) GetServiceMetrics() map[string]interface{} {
+	return s.metrics.GetMetrics()
 }
 
 // collectDeviceUpdates gathers all device updates from the results store

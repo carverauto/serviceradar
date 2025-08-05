@@ -245,10 +245,17 @@ func NewArmisIntegration(
 		}
 	}
 
-	// Create the default HTTP client
-	httpClient := &http.Client{
+	// Create the default HTTP client with circuit breaker and metrics
+	baseHTTPClient := &http.Client{
 		Timeout: 30 * time.Second,
 	}
+
+	// Wrap with metrics collection
+	metricsClient := NewMetricsHTTPClient(baseHTTPClient, "armis", NewInMemoryMetrics(log))
+
+	// Wrap with circuit breaker
+	circuitBreakerConfig := DefaultCircuitBreakerConfig()
+	httpClient := NewCircuitBreakerHTTPClient(metricsClient, "armis-api", circuitBreakerConfig, log)
 
 	// Create the default implementations
 	defaultImpl := &armis.DefaultArmisIntegration{
@@ -297,9 +304,14 @@ func NewArmisIntegration(
 	var armisUpdater armis.ArmisUpdater
 
 	if config.Credentials["enable_status_updates"] == trueString {
+		// Create separate HTTP client for updater with its own circuit breaker
+		updaterBaseClient := &http.Client{Timeout: 30 * time.Second}
+		updaterMetricsClient := NewMetricsHTTPClient(updaterBaseClient, "armis-updater", NewInMemoryMetrics(log))
+		updaterCircuitClient := NewCircuitBreakerHTTPClient(updaterMetricsClient, "armis-updater-api", circuitBreakerConfig, log)
+
 		armisUpdater = armis.NewArmisUpdater(
 			config,
-			httpClient,
+			updaterCircuitClient,
 			cachedTokenProvider, // Using cached token provider
 			log,
 		)

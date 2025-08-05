@@ -126,6 +126,12 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
+
+	// Ensure mock controller is finished even if test panics
+	t.Cleanup(func() {
+		ctrl.Finish()
+	})
+
 	mocks := &armisMocks{
 		TokenProvider: NewMockTokenProvider(ctrl),
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
@@ -1166,4 +1172,144 @@ func TestBatchUpdateDeviceAttributes_SingleBatch(t *testing.T) {
 
 	// Verify no error occurred
 	assert.NoError(t, err)
+}
+
+func TestArmisIntegration_Reconcile_SimpleUpdate(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+
+	// Test data
+	ctx := context.Background()
+
+	// Existing device states from ServiceRadar
+	existingDeviceStates := []DeviceState{
+		{
+			DeviceID:    "test-partition/192.168.1.1",
+			IP:          "192.168.1.1",
+			IsAvailable: true,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "1",
+			},
+		},
+		{
+			DeviceID:    "test-partition:192.168.1.2",
+			IP:          "192.168.1.2",
+			IsAvailable: false,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "2",
+			},
+		},
+	}
+
+	// Setup expectations
+	mocks.SweepQuerier.EXPECT().
+		GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis)).
+		Return(existingDeviceStates, nil)
+
+	// Mock the Armis updater to verify the updates
+	mocks.Updater.EXPECT().
+		UpdateDeviceStatus(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
+			require.Len(t, updates, 2)
+
+			// Device 1 is available in ServiceRadar, so it should be marked as NOT available in Armis
+			assert.Equal(t, 1, updates[0].DeviceID)
+			assert.Equal(t, "192.168.1.1", updates[0].IP)
+			assert.False(t, updates[0].Available)
+
+			// Device 2 is NOT available in ServiceRadar, so it should be marked as available in Armis
+			assert.Equal(t, 2, updates[1].DeviceID)
+			assert.Equal(t, "192.168.1.2", updates[1].IP)
+			assert.True(t, updates[1].Available)
+
+			return nil
+		})
+
+	// Execute the reconcile operation
+	err := integration.Reconcile(ctx)
+	require.NoError(t, err)
+}
+
+func TestArmisIntegration_Reconcile_EmptyDeviceStates(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+
+	// Test data
+	ctx := context.Background()
+
+	// No existing device states from ServiceRadar
+	existingDeviceStates := []DeviceState{}
+
+	// Setup expectations
+	mocks.SweepQuerier.EXPECT().
+		GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis)).
+		Return(existingDeviceStates, nil)
+
+	// Updater should not be called since there are no device states
+
+	// Execute the reconcile operation
+	err := integration.Reconcile(ctx)
+	require.NoError(t, err)
+}
+
+func TestArmisIntegration_Reconcile_UpdaterError(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+
+	// Test data
+	ctx := context.Background()
+	expectedError := assert.AnError
+
+	// Existing device states from ServiceRadar
+	existingDeviceStates := []DeviceState{
+		{
+			DeviceID:    "test-partition/192.168.1.1",
+			IP:          "192.168.1.1",
+			IsAvailable: true,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "1",
+			},
+		},
+	}
+
+	// Setup expectations
+	mocks.SweepQuerier.EXPECT().
+		GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis)).
+		Return(existingDeviceStates, nil)
+
+	// Mock the updater to return an error
+	mocks.Updater.EXPECT().
+		UpdateDeviceStatus(ctx, gomock.Any()).
+		Return(expectedError)
+
+	// Execute the reconcile operation - should return error
+	err := integration.Reconcile(ctx)
+	require.Error(t, err)
+	assert.Equal(t, expectedError, err)
+}
+
+func TestArmisIntegration_Reconcile_NoUpdater(t *testing.T) {
+	integration, _ := setupArmisIntegration(t)
+
+	// Clear the updater to simulate no updater configured
+	integration.Updater = nil
+
+	// Execute the reconcile operation - should succeed with early return
+	err := integration.Reconcile(context.Background())
+	require.NoError(t, err)
+}
+
+func TestArmisIntegration_Reconcile_QueryError(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+
+	// Test data
+	ctx := context.Background()
+	expectedError := assert.AnError
+
+	// Setup expectations - querier returns error
+	mocks.SweepQuerier.EXPECT().
+		GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis)).
+		Return(nil, expectedError)
+
+	// Execute the reconcile operation - should return error
+	err := integration.Reconcile(ctx)
+	require.Error(t, err)
+	assert.Equal(t, expectedError, err)
 }
