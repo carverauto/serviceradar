@@ -60,7 +60,7 @@ type LogRow struct {
 	ScopeVersion       string    `db:"scope_version"`
 	Attributes         string    `db:"attributes"`
 	ResourceAttributes string    `db:"resource_attributes"`
-	RawData            string    `db:"raw_data"`
+	// RawData removed to save storage space
 }
 
 // MetricsRow represents a row in the metrics table
@@ -83,7 +83,7 @@ type MetricsRow struct {
 	IsSlow          bool      `db:"is_slow"`
 	Component       string    `db:"component"`
 	Level           string    `db:"level"`
-	RawData         string    `db:"raw_data"`
+	// RawData removed to save storage space
 }
 
 // TracesRow represents a row in the traces table
@@ -107,7 +107,7 @@ type TracesRow struct {
 	ResourceAttributes string    `db:"resource_attributes"`
 	Events             string    `db:"events"`
 	Links              string    `db:"links"`
-	RawData            string    `db:"raw_data"`
+	// RawData removed to save storage space
 }
 
 // parseCloudEvent attempts to extract the `data` field from a CloudEvent.
@@ -243,30 +243,8 @@ func createLogRow(
 		timestamp = time.Unix(secInt64, nanosInt64)
 	}
 
-	// Create raw data JSON
-	rawDataMap := map[string]interface{}{
-		"resource_logs": map[string]interface{}{
-			"resource_attributes": resourceAttribs,
-			"scope_logs": map[string]interface{}{
-				"scope": map[string]interface{}{
-					"name":    scopeName,
-					"version": scopeVersion,
-				},
-				"log_record": map[string]interface{}{
-					"timestamp":       logRecord.TimeUnixNano,
-					"severity_text":   logRecord.SeverityText,
-					"severity_number": logRecord.SeverityNumber,
-					"body":            body,
-					"attributes":      logAttribs,
-					"trace_id":        fmt.Sprintf("%x", logRecord.TraceId),
-					"span_id":         fmt.Sprintf("%x", logRecord.SpanId),
-				},
-			},
-		},
-	}
-
-	// Marshal to JSON
-	rawDataJSON, _ := json.Marshal(rawDataMap)
+	// Note: Removed raw_data JSON generation to save storage space
+	// The raw protobuf data was consuming massive storage with no benefit
 
 	return LogRow{
 		Timestamp:          timestamp,
@@ -282,7 +260,7 @@ func createLogRow(
 		ScopeVersion:       scopeVersion,
 		Attributes:         strings.Join(logAttribs, ","),
 		ResourceAttributes: strings.Join(resourceAttribs, ","),
-		RawData:            string(rawDataJSON),
+		// RawData field removed to save storage space
 	}
 }
 
@@ -636,7 +614,7 @@ func (p *Processor) processEventsTable(ctx context.Context, table string, msgs [
 func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
 	query := fmt.Sprintf("INSERT INTO %s (timestamp, trace_id, span_id, severity_text, severity_number, "+
 		"body, service_name, service_version, service_instance, scope_name, scope_version, "+
-		"attributes, resource_attributes, raw_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
+		"attributes, resource_attributes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
 
 	batch, err := p.conn.PrepareBatch(ctx, query)
 	if err != nil {
@@ -665,7 +643,6 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 						logRows[i].ScopeVersion,
 						logRows[i].Attributes,
 						logRows[i].ResourceAttributes,
-						logRows[i].RawData,
 					); err != nil {
 						return processed, err
 					}
@@ -691,8 +668,8 @@ func (p *Processor) processMetricsTable(ctx context.Context, table string, msgs 
 
 	query := fmt.Sprintf("INSERT INTO %s (timestamp, trace_id, span_id, service_name, span_name, span_kind, "+
 		"duration_ms, duration_seconds, metric_type, http_method, http_route, http_status_code, "+
-		"grpc_service, grpc_method, grpc_status_code, is_slow, component, level, raw_data) "+
-		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
+		"grpc_service, grpc_method, grpc_status_code, is_slow, component, level) "+
+		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
 
 	batch, err := p.conn.PrepareBatch(ctx, query)
 	if err != nil {
@@ -734,7 +711,6 @@ func (p *Processor) processMetricsTable(ctx context.Context, table string, msgs 
 						metricsRows[i].IsSlow,
 						metricsRows[i].Component,
 						metricsRows[i].Level,
-						metricsRows[i].RawData,
 					); err != nil {
 						p.logger.Error().Err(err).Msg("Failed to append metrics row to batch")
 						return processed, err
@@ -801,7 +777,6 @@ func (p *Processor) processOTELTracesMessage(msg jetstream.Msg, batch interface{
 			traceRows[i].ResourceAttributes,
 			traceRows[i].Events,
 			traceRows[i].Links,
-			traceRows[i].RawData,
 		); err != nil {
 			p.logger.Error().Err(err).Msg("Failed to append traces row to batch")
 			return rowsProcessed, err
@@ -821,7 +796,7 @@ func (p *Processor) processTracesTable(ctx context.Context, table string, msgs [
 	query := fmt.Sprintf("INSERT INTO %s (timestamp, trace_id, span_id, parent_span_id, name, kind, "+
 		"start_time_unix_nano, end_time_unix_nano, service_name, service_version, service_instance, "+
 		"scope_name, scope_version, status_code, status_message, attributes, resource_attributes, "+
-		"events, links, raw_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
+		"events, links) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
 
 	batch, err := p.conn.PrepareBatch(ctx, query)
 	if err != nil {
@@ -969,8 +944,7 @@ func (p *Processor) parsePerformanceMessage(msg jetstream.Msg) ([]MetricsRow, bo
 			return *s
 		}
 
-		// Create raw data JSON
-		rawDataJSON, _ := json.Marshal(metric)
+		// Note: Removed raw_data JSON generation to save storage space
 
 		row := MetricsRow{
 			Timestamp:       timestamp,
@@ -991,7 +965,7 @@ func (p *Processor) parsePerformanceMessage(msg jetstream.Msg) ([]MetricsRow, bo
 			IsSlow:          metric.IsSlow,
 			Component:       metric.Component,
 			Level:           metric.Level,
-			RawData:         string(rawDataJSON),
+			// RawData field removed to save storage space
 		}
 
 		metricsRows = append(metricsRows, row)
@@ -1104,7 +1078,7 @@ func processMetricDataPoints(metric *metricspbv1.Metric, baseRow *MetricsRow) []
 	var rows []MetricsRow
 
 	// Helper function to process number data points
-	processNumberDataPoint := func(point *metricspbv1.NumberDataPoint, metricType string) MetricsRow {
+	processNumberDataPoint := func(point *metricspbv1.NumberDataPoint, _ string) MetricsRow {
 		row := *baseRow
 		row.Timestamp = time.Unix(0, safeUint64ToInt64(point.TimeUnixNano))
 		row.DurationMs = getNumberValue(point)
@@ -1113,16 +1087,7 @@ func processMetricDataPoints(metric *metricspbv1.Metric, baseRow *MetricsRow) []
 		// Extract attributes
 		extractMetricAttributes(&row, point.Attributes)
 
-		// Create raw data
-		rawData := map[string]interface{}{
-			"metric_name": metric.Name,
-			"metric_type": metricType,
-			"value":       row.DurationMs,
-			"timestamp":   point.TimeUnixNano,
-			"attributes":  attributesToMap(point.Attributes),
-		}
-		rawDataJSON, _ := json.Marshal(rawData)
-		row.RawData = string(rawDataJSON)
+		// Note: Removed raw_data JSON generation to save storage space
 
 		return row
 	}
@@ -1153,17 +1118,7 @@ func processMetricDataPoints(metric *metricspbv1.Metric, baseRow *MetricsRow) []
 			// Extract attributes
 			extractMetricAttributes(&row, point.Attributes)
 
-			// Create raw data
-			rawData := map[string]interface{}{
-				"metric_name": metric.Name,
-				"metric_type": "histogram",
-				"sum":         point.Sum,
-				"count":       point.Count,
-				"timestamp":   point.TimeUnixNano,
-				"attributes":  attributesToMap(point.Attributes),
-			}
-			rawDataJSON, _ := json.Marshal(rawData)
-			row.RawData = string(rawDataJSON)
+			// Note: Removed raw_data JSON generation to save storage space
 
 			rows = append(rows, row)
 		}
@@ -1278,16 +1233,6 @@ func extractMetricAttributes(row *MetricsRow, attributes []*commonv1.KeyValue) {
 	}
 }
 
-// attributesToMap converts attributes to a map for JSON serialization
-func attributesToMap(attributes []*commonv1.KeyValue) map[string]string {
-	result := make(map[string]string)
-	for _, attr := range attributes {
-		result[attr.Key] = extractAttributeValue(attr)
-	}
-
-	return result
-}
-
 // parseTracesRequest attempts to unmarshal traces request from message data
 func (p *Processor) parseTracesRequest(msgData []byte) (*tracev1.ExportTraceServiceRequest, error) {
 	var req tracev1.ExportTraceServiceRequest
@@ -1381,33 +1326,8 @@ func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, servic
 	eventsJSON := processSpanEvents(span.Events)
 	linksJSON := processSpanLinks(span.Links)
 
-	// Create raw data JSON
-	rawDataMap := map[string]interface{}{
-		"resource_spans": map[string]interface{}{
-			"resource_attributes": resourceAttribs,
-			"scope_spans": map[string]interface{}{
-				"scope": map[string]interface{}{
-					"name":    scopeName,
-					"version": scopeVersion,
-				},
-				"span": map[string]interface{}{
-					"trace_id":       fmt.Sprintf("%x", span.TraceId),
-					"span_id":        fmt.Sprintf("%x", span.SpanId),
-					"parent_span_id": fmt.Sprintf("%x", span.ParentSpanId),
-					"name":           span.Name,
-					"kind":           span.Kind,
-					"start_time":     span.StartTimeUnixNano,
-					"end_time":       span.EndTimeUnixNano,
-					"attributes":     spanAttribs,
-					"events":         eventsJSON,
-					"links":          linksJSON,
-				},
-			},
-		},
-	}
-
-	// Marshal to JSON
-	rawDataJSON, _ := json.Marshal(rawDataMap)
+	// Note: Removed raw_data JSON generation to save storage space
+	// The raw protobuf data was consuming massive storage (65-160GB) with no benefit
 
 	// Get status info
 	statusCode := int32(0)
@@ -1443,7 +1363,7 @@ func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, servic
 		ResourceAttributes: resourceAttribsStr,
 		Events:             eventsJSON,
 		Links:              linksJSON,
-		RawData:            string(rawDataJSON),
+		// RawData field removed to save storage space
 	}
 
 	return traceRow

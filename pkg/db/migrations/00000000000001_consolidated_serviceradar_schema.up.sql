@@ -441,7 +441,7 @@ GROUP BY c.window_start, c.device_id, c.poller_id, c.agent_id, c.partition;
 -- == Observability Tables (Logs, Metrics, Traces)
 -- =================================================================
 
--- Application and system logs
+-- Application and system logs (7 day TTL)
 CREATE STREAM IF NOT EXISTS logs (
     timestamp          DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     trace_id           string CODEC(ZSTD(1)),
@@ -455,14 +455,16 @@ CREATE STREAM IF NOT EXISTS logs (
     scope_name         string CODEC(ZSTD(1)),
     scope_version      string CODEC(ZSTD(1)),
     attributes         string CODEC(ZSTD(1)),
-    resource_attributes string CODEC(ZSTD(1)),
-    raw_data           string CODEC(ZSTD(1))
+    resource_attributes string CODEC(ZSTD(1))
+    -- Note: removed raw_data field to save storage space
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, trace_id)
-SETTINGS index_granularity = 8192;
+TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
+SETTINGS 
+    index_granularity = 8192;
 
--- OpenTelemetry metrics
+-- OpenTelemetry metrics (7 day TTL)
 CREATE STREAM IF NOT EXISTS otel_metrics (
     timestamp       DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     trace_id        string CODEC(ZSTD(1)),
@@ -481,14 +483,16 @@ CREATE STREAM IF NOT EXISTS otel_metrics (
     grpc_status_code string CODEC(ZSTD(1)),
     is_slow         bool CODEC(ZSTD(1)),
     component       string CODEC(ZSTD(1)),
-    level           string CODEC(ZSTD(1)),
-    raw_data        string CODEC(ZSTD(1))
+    level           string CODEC(ZSTD(1))
+    -- Note: removed raw_data field to save storage space
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, span_id)
-SETTINGS index_granularity = 8192;
+TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
+SETTINGS 
+    index_granularity = 8192;
 
--- OpenTelemetry traces (FINAL WORKING SCHEMA from main branch)
+-- OpenTelemetry traces (7 day TTL, no raw_data to save storage)
 CREATE STREAM IF NOT EXISTS otel_traces (
     -- Core span identifiers
     timestamp         DateTime64(9) CODEC(Delta(8), ZSTD(1)),  -- start_time_unix_nano
@@ -523,15 +527,16 @@ CREATE STREAM IF NOT EXISTS otel_traces (
     events            string CODEC(ZSTD(1)),
     
     -- Links (JSON array)
-    links             string CODEC(ZSTD(1)),
+    links             string CODEC(ZSTD(1))
     
-    -- Raw protobuf data for debugging/reprocessing
-    raw_data          string CODEC(ZSTD(1))
+    -- Note: removed raw_data field to save storage space
     
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)  -- Hourly partitions
 ORDER BY (service_name, timestamp, trace_id, span_id)
-SETTINGS index_granularity = 8192;
+TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
+SETTINGS 
+    index_granularity = 8192;
 
 -- =================================================================
 -- == TRACE SUMMARIES - EFFICIENT IMPLEMENTATION
@@ -555,7 +560,9 @@ CREATE STREAM IF NOT EXISTS otel_trace_summaries (
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, trace_id)
-SETTINGS index_granularity = 8192;
+TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
+SETTINGS 
+    index_granularity = 8192;
 
 -- Step 1: Create an intermediate enriched spans stream
 CREATE STREAM IF NOT EXISTS otel_spans_enriched (
@@ -574,7 +581,9 @@ CREATE STREAM IF NOT EXISTS otel_spans_enriched (
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (trace_id, span_id)
-SETTINGS index_granularity = 8192;
+TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
+SETTINGS 
+    index_granularity = 8192;
 
 -- Step 1 MV: Enrich spans with duration calculation
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_spans_enriched_mv
