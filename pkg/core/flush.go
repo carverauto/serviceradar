@@ -112,14 +112,159 @@ func (s *Server) flushServiceStatuses(ctx context.Context) {
 			continue
 		}
 
-		if err := s.DB.UpdateServiceStatuses(ctx, statuses); err != nil {
+		s.flushServiceStatusBatch(ctx, pollerID, statuses)
+		s.serviceBuffers[pollerID] = nil
+	}
+}
+
+// flushServiceStatusBatch processes a single poller's service status batch
+func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, statuses []*models.ServiceStatus) {
+	// With sync services now chunked at the streaming level, we should not have oversized records
+	const maxBatchSizeBytes = 5 * 1024 * 1024 // 5MB batch limit
+
+	totalSize := s.calculateBatchSize(statuses)
+
+	s.logger.Info().
+		Str("poller_id", pollerID).
+		Int("status_count", len(statuses)).
+		Int("estimated_size_bytes", totalSize).
+		Msg("FLUSH DEBUG: Starting service status batch processing")
+
+	// Separate sync services from others for special handling
+	syncServices := make([]*models.ServiceStatus, 0)
+	nonSyncServices := make([]*models.ServiceStatus, 0)
+
+	for _, status := range statuses {
+		s.logger.Info().
+			Str("service_name", status.ServiceName).
+			Str("service_type", status.ServiceType).
+			Int("message_size", len(status.Message)).
+			Int("details_size", len(status.Details)).
+			Msg("FLUSH DEBUG: Processing service in batch")
+
+		if status.ServiceType == "sync" {
+			syncServices = append(syncServices, status)
+		} else {
+			nonSyncServices = append(nonSyncServices, status)
+		}
+	}
+
+	// Handle sync services individually to avoid batch size issues
+	for _, status := range syncServices {
+		detailsSize := len(status.Details)
+		s.logger.Info().
+			Str("service_name", status.ServiceName).
+			Int("details_size", detailsSize).
+			Msg("FLUSH DEBUG: Flushing large sync service individually")
+
+		if err := s.DB.UpdateServiceStatuses(ctx, []*models.ServiceStatus{status}); err != nil {
 			s.logger.Error().
 				Err(err).
+				Str("service_name", status.ServiceName).
 				Str("poller_id", pollerID).
-				Msg("Failed to flush service statuses")
+				Int("details_size", detailsSize).
+				Msg("Failed to flush sync service")
+		}
+	}
+
+	// Handle non-sync services with normal batching
+	if len(nonSyncServices) == 0 {
+		s.logger.Info().
+			Str("poller_id", pollerID).
+			Int("sync_services_flushed", len(syncServices)).
+			Msg("FLUSH DEBUG: Only sync services in batch - all handled individually")
+
+		return // Only had sync services, we're done
+	}
+
+	// Recalculate batch info for non-sync services only
+	nonSyncTotalSize := s.calculateBatchSize(nonSyncServices)
+
+	s.logger.Info().
+		Str("poller_id", pollerID).
+		Int("sync_services_flushed", len(syncServices)).
+		Int("non_sync_services", len(nonSyncServices)).
+		Int("non_sync_batch_size", nonSyncTotalSize).
+		Msg("FLUSH DEBUG: Processing non-sync services batch")
+
+	// Simple batch processing for non-sync services
+	if nonSyncTotalSize <= maxBatchSizeBytes {
+		s.flushSingleBatch(ctx, pollerID, nonSyncServices, nonSyncTotalSize)
+	} else {
+		// Split into smaller batches
+		s.flushInSimpleBatches(ctx, pollerID, nonSyncServices, maxBatchSizeBytes)
+	}
+}
+
+// calculateBatchSize estimates the total size of a service status batch
+func (*Server) calculateBatchSize(statuses []*models.ServiceStatus) int {
+	totalSize := 0
+
+	for _, status := range statuses {
+		// Estimate size: details + message + other fields (~200 bytes overhead per record)
+		statusSize := len(status.Details) + len(status.Message) + 200
+		totalSize += statusSize
+	}
+
+	return totalSize
+}
+
+// flushSingleBatch flushes a batch that fits within size limits
+func (s *Server) flushSingleBatch(ctx context.Context, pollerID string, statuses []*models.ServiceStatus, totalSize int) {
+	if err := s.DB.UpdateServiceStatuses(ctx, statuses); err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("poller_id", pollerID).
+			Int("status_count", len(statuses)).
+			Int("estimated_size_bytes", totalSize).
+			Msg("Failed to flush service statuses")
+	} else {
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Int("status_count", len(statuses)).
+			Int("estimated_size_bytes", totalSize).
+			Msg("Successfully flushed service status batch")
+	}
+}
+
+// flushInSimpleBatches splits and flushes a large batch into smaller batches
+func (s *Server) flushInSimpleBatches(
+	ctx context.Context, pollerID string, statuses []*models.ServiceStatus, maxBatchSizeBytes int) {
+	s.logger.Info().
+		Str("poller_id", pollerID).
+		Int("total_statuses", len(statuses)).
+		Msg("Splitting large batch into smaller batches")
+
+	// Pre-allocate batch with estimated capacity
+	// Assuming average service status size ~1KB, estimate batch capacity
+	estimatedCapacity := maxBatchSizeBytes / 1024
+
+	if estimatedCapacity < 10 {
+		estimatedCapacity = 10
+	}
+
+	batch := make([]*models.ServiceStatus, 0, estimatedCapacity)
+
+	batchSize := 0
+
+	for _, status := range statuses {
+		statusSize := len(status.Details) + len(status.Message) + 200 // Estimate overhead
+
+		// If adding this status would exceed the limit, flush current batch
+		if len(batch) > 0 && (batchSize+statusSize > maxBatchSizeBytes) {
+			s.flushSingleBatch(ctx, pollerID, batch, batchSize)
+
+			batch = []*models.ServiceStatus{}
+			batchSize = 0
 		}
 
-		s.serviceBuffers[pollerID] = nil
+		batch = append(batch, status)
+		batchSize += statusSize
+	}
+
+	// Flush remaining batch
+	if len(batch) > 0 {
+		s.flushSingleBatch(ctx, pollerID, batch, batchSize)
 	}
 }
 

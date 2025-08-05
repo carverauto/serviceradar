@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -34,9 +35,10 @@ import (
 )
 
 const (
-	MaxRecvSize     = 4 * 1024 * 1024 // 4MB
-	MaxSendSize     = 4 * 1024 * 1024 // 4MB
-	ShutdownTimeout = 10 * time.Second
+	// Default max message sizes - can be overridden via environment variables
+	DefaultMaxRecvSize = 4 * 1024 * 1024 // 4MB
+	DefaultMaxSendSize = 4 * 1024 * 1024 // 4MB
+	ShutdownTimeout    = 10 * time.Second
 )
 
 // Service defines the interface that all services must implement.
@@ -224,11 +226,66 @@ func normalizeSecurityMode(config *models.SecurityConfig, log logger.Logger) {
 	config.Mode = models.SecurityMode(strings.ToLower(string(config.Mode)))
 }
 
+// parseSize parses a size string like "50MB" or "50M" into bytes
+func parseSize(s string) (int, error) {
+	s = strings.ToUpper(strings.TrimSpace(s))
+
+	// Try to parse as plain number first (assume bytes)
+	if n, err := strconv.Atoi(s); err == nil {
+		return n, nil
+	}
+
+	// Parse with suffix
+	multipliers := map[string]int{
+		"K":  1024,
+		"KB": 1024,
+		"M":  1024 * 1024,
+		"MB": 1024 * 1024,
+		"G":  1024 * 1024 * 1024,
+		"GB": 1024 * 1024 * 1024,
+	}
+
+	for suffix, multiplier := range multipliers {
+		if strings.HasSuffix(s, suffix) {
+			numStr := strings.TrimSuffix(s, suffix)
+			if n, err := strconv.Atoi(numStr); err == nil {
+				return n * multiplier, nil
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("invalid size format: %s", s)
+}
+
 // configureServerOptions sets up gRPC server options including security.
 func configureServerOptions(ctx context.Context, provider grpc.SecurityProvider, log logger.Logger) ([]grpc.ServerOption, error) {
+	// Get max message sizes from environment or use defaults
+	maxRecvSize := DefaultMaxRecvSize
+	maxSendSize := DefaultMaxSendSize
+
+	if envSize := os.Getenv("GRPC_MAX_RECV_MSG_SIZE"); envSize != "" {
+		if size, err := parseSize(envSize); err == nil {
+			maxRecvSize = size
+
+			log.Info().Str("size", envSize).Msg("Using custom GRPC_MAX_RECV_MSG_SIZE")
+		} else {
+			log.Warn().Err(err).Str("value", envSize).Msg("Invalid GRPC_MAX_RECV_MSG_SIZE, using default")
+		}
+	}
+
+	if envSize := os.Getenv("GRPC_MAX_SEND_MSG_SIZE"); envSize != "" {
+		if size, err := parseSize(envSize); err == nil {
+			maxSendSize = size
+
+			log.Info().Str("size", envSize).Msg("Using custom GRPC_MAX_SEND_MSG_SIZE")
+		} else {
+			log.Warn().Err(err).Str("value", envSize).Msg("Invalid GRPC_MAX_SEND_MSG_SIZE, using default")
+		}
+	}
+
 	opts := []grpc.ServerOption{
-		grpc.WithMaxRecvSize(MaxRecvSize),
-		grpc.WithMaxSendSize(MaxSendSize),
+		grpc.WithMaxRecvSize(maxRecvSize),
+		grpc.WithMaxSendSize(maxSendSize),
 	}
 
 	if provider == nil {

@@ -50,8 +50,59 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		Hosts []models.HostResult `json:"hosts"`
 	}
 
-	if err := json.Unmarshal(sweepMessage, &sweepData); err != nil {
-		return fmt.Errorf("%w: failed to unmarshal sweep data: %w", errInvalidSweepData, err)
+	// First try to parse as a single JSON object
+	err := json.Unmarshal(sweepMessage, &sweepData)
+	if err != nil {
+		// If that fails, try to parse as multiple concatenated JSON objects from chunked streaming
+		s.logger.Debug().
+			Err(err).
+			Str("service_name", svc.Name).
+			Msg("Single object parse failed for sweep data, trying to parse concatenated objects")
+
+		// Try to parse as concatenated JSON objects
+		decoder := json.NewDecoder(strings.NewReader(string(sweepMessage)))
+
+		var allHosts []models.HostResult
+
+		var lastSweepData *proto.SweepServiceStatus
+
+		for decoder.More() {
+			var chunkData struct {
+				proto.SweepServiceStatus
+				Hosts []models.HostResult `json:"hosts"`
+			}
+
+			if chunkErr := decoder.Decode(&chunkData); chunkErr != nil {
+				s.logger.Error().
+					Err(chunkErr).
+					Str("service_name", svc.Name).
+					Msg("Failed to decode chunk in sweep data")
+
+				return fmt.Errorf("%w: failed to unmarshal sweep data: %w", errInvalidSweepData, err)
+			}
+
+			// Accumulate hosts from all chunks
+			allHosts = append(allHosts, chunkData.Hosts...)
+
+			// Use the last chunk's sweep status data
+			lastSweepData = &chunkData.SweepServiceStatus
+		}
+
+		// Combine all the data
+		if lastSweepData != nil {
+			// Copy fields individually to avoid copying embedded mutex
+			sweepData.Network = lastSweepData.Network
+			sweepData.TotalHosts = lastSweepData.TotalHosts
+			sweepData.AvailableHosts = lastSweepData.AvailableHosts
+			sweepData.LastSweep = lastSweepData.LastSweep
+		}
+
+		sweepData.Hosts = allHosts
+
+		s.logger.Debug().
+			Int("host_count", len(allHosts)).
+			Str("service_name", svc.Name).
+			Msg("Successfully parsed sweep data from multiple JSON chunks")
 	}
 
 	// Validate and potentially correct timestamp
@@ -241,8 +292,8 @@ func (s *Server) processServices(
 	services []*proto.ServiceStatus,
 	now time.Time) {
 	allServicesAvailable := true
-	serviceStatuses := make([]*models.ServiceStatus, 0, len(services))
-	serviceList := make([]*models.Service, 0, len(services))
+	bufferedServiceStatuses := make([]*models.ServiceStatus, 0, len(services))
+	bufferedServiceList := make([]*models.Service, 0, len(services))
 
 	for _, svc := range services {
 		s.logger.Debug().Str("service_name", svc.ServiceName).Msg("Processing Service")
@@ -262,7 +313,7 @@ func (s *Server) processServices(
 
 		deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, sourceIP, string(apiService.Message))
 
-		serviceStatuses = append(serviceStatuses, &models.ServiceStatus{
+		serviceStatus := &models.ServiceStatus{
 			AgentID:     svc.AgentId,
 			PollerID:    svc.PollerId,
 			ServiceName: apiService.Name,
@@ -272,9 +323,14 @@ func (s *Server) processServices(
 			DeviceID:    deviceID,
 			Partition:   devicePartition,
 			Timestamp:   now,
-		})
+		}
 
-		serviceList = append(serviceList, &models.Service{
+		// For sync services, clear the details after discovery processing to avoid storing large payloads
+		if apiService.Type == "sync" {
+			serviceStatus.Details = []byte(`{"status":"processed"}`)
+		}
+
+		serviceRecord := &models.Service{
 			PollerID:    pollerID,
 			ServiceName: svc.ServiceName,
 			ServiceType: svc.ServiceType,
@@ -282,18 +338,27 @@ func (s *Server) processServices(
 			DeviceID:    deviceID,
 			Partition:   devicePartition,
 			Timestamp:   now,
-		})
+		}
+
+		// Buffer all services for processing
+		bufferedServiceStatuses = append(bufferedServiceStatuses, serviceStatus)
+		bufferedServiceList = append(bufferedServiceList, serviceRecord)
 
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
-	s.serviceBufferMu.Lock()
-	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], serviceStatuses...)
-	s.serviceBufferMu.Unlock()
+	// Only buffer non-sync services
+	if len(bufferedServiceStatuses) > 0 {
+		s.serviceBufferMu.Lock()
+		s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], bufferedServiceStatuses...)
+		s.serviceBufferMu.Unlock()
+	}
 
-	s.serviceListBufferMu.Lock()
-	s.serviceListBuffers[pollerID] = append(s.serviceListBuffers[pollerID], serviceList...)
-	s.serviceListBufferMu.Unlock()
+	if len(bufferedServiceList) > 0 {
+		s.serviceListBufferMu.Lock()
+		s.serviceListBuffers[pollerID] = append(s.serviceListBuffers[pollerID], bufferedServiceList...)
+		s.serviceListBufferMu.Unlock()
+	}
 
 	apiStatus.IsHealthy = allServicesAvailable
 }
@@ -320,9 +385,9 @@ func (s *Server) processServiceDetails(
 
 	var err error
 
-	// Special handling for the sync service, which sends a top-level JSON array.
-	// We pass its payload directly without trying to parse it as a single JSON object.
-	if svc.ServiceType == syncServiceType {
+	// Special handling for sync and sweep services, which may send concatenated JSON objects from chunking.
+	// We pass their payload directly without trying to parse it as a single JSON object.
+	if svc.ServiceType == syncServiceType || svc.ServiceType == "sweep" {
 		details = svc.Message
 	} else {
 		// For all other services, use the standard parsing logic.
