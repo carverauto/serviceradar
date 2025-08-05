@@ -131,6 +131,11 @@ func TestNewSimpleSyncService(t *testing.T) {
 			registry := make(map[string]IntegrationFactory)
 			log := logger.NewTestLogger()
 
+			// Set expectation for Close() if we expect success
+			if !tt.expectError {
+				mockGRPC.EXPECT().Close().Return(nil)
+			}
+
 			service, err := NewSimpleSyncService(ctx, tt.config, mockKV, registry, mockGRPC, log)
 
 			if tt.expectError {
@@ -139,6 +144,9 @@ func TestNewSimpleSyncService(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.NotNil(t, service)
+
+				defer service.Stop(context.Background())
+
 				assert.Equal(t, tt.config.AgentID, service.config.AgentID)
 				assert.Equal(t, tt.config.PollerID, service.config.PollerID)
 				assert.NotNil(t, service.resultsStore)
@@ -206,11 +214,15 @@ func TestSimpleSyncService_GetStatus(t *testing.T) {
 
 	mockKV := NewMockKVClient(ctrl)
 	mockGRPC := NewMockGRPCClient(ctrl)
+	mockGRPC.EXPECT().Close().Return(nil)
+
 	registry := make(map[string]IntegrationFactory)
+
 	log := logger.NewTestLogger()
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+	defer service.Stop(context.Background())
 
 	req := &proto.StatusRequest{
 		ServiceName: "test-service",
@@ -256,12 +268,17 @@ func TestSimpleSyncService_GetResults(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+
 	mockGRPC := NewMockGRPCClient(ctrl)
+	mockGRPC.EXPECT().Close().Return(nil)
+
 	registry := make(map[string]IntegrationFactory)
+
 	log := logger.NewTestLogger()
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+	defer service.Stop(context.Background())
 
 	devices := []*models.DeviceUpdate{
 		{
@@ -339,12 +356,17 @@ func TestSimpleSyncService_writeToKV(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+
 	mockGRPC := NewMockGRPCClient(ctrl)
+	mockGRPC.EXPECT().Close().Return(nil)
+
 	registry := make(map[string]IntegrationFactory)
+
 	log := logger.NewTestLogger()
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+	defer service.Stop(context.Background())
 
 	data := map[string][]byte{
 		"key1": []byte("value1"),
@@ -401,12 +423,17 @@ func TestSimpleSyncService_writeToKV_WithDefaultPrefix(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+
 	mockGRPC := NewMockGRPCClient(ctrl)
+	mockGRPC.EXPECT().Close().Return(nil)
+
 	registry := make(map[string]IntegrationFactory)
+
 	log := logger.NewTestLogger()
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+	defer service.Stop(context.Background())
 
 	data := map[string][]byte{
 		"key1": []byte("value1"),
@@ -450,12 +477,17 @@ func TestSimpleSyncService_writeToKV_EmptyData(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+
 	mockGRPC := NewMockGRPCClient(ctrl)
+	mockGRPC.EXPECT().Close().Return(nil)
+
 	registry := make(map[string]IntegrationFactory)
+
 	log := logger.NewTestLogger()
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+	defer service.Stop(context.Background())
 
 	err = service.writeToKV(ctx, "test-source", map[string][]byte{})
 	assert.NoError(t, err)
@@ -484,6 +516,7 @@ func TestSimpleSyncService_writeToKV_NilKVClient(t *testing.T) {
 
 	service, err := NewSimpleSyncService(ctx, config, nil, registry, nil, log)
 	require.NoError(t, err)
+	defer service.Stop(context.Background())
 
 	data := map[string][]byte{
 		"key1": []byte("value1"),
@@ -518,12 +551,17 @@ func TestSimpleSyncService_createIntegration(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+
 	mockGRPC := NewMockGRPCClient(ctrl)
+	mockGRPC.EXPECT().Close().Return(nil)
+
 	registry := make(map[string]IntegrationFactory)
+
 	log := logger.NewTestLogger()
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+	defer service.Stop(context.Background())
 
 	mockIntegration := NewMockIntegration(ctrl)
 	factory := func(_ context.Context, cfg *models.SourceConfig, _ logger.Logger) Integration {
@@ -564,12 +602,17 @@ func TestSimpleSyncService_createIntegration_WithExistingValues(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+
 	mockGRPC := NewMockGRPCClient(ctrl)
+	mockGRPC.EXPECT().Close().Return(nil)
+
 	registry := make(map[string]IntegrationFactory)
+
 	log := logger.NewTestLogger()
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+	defer service.Stop(context.Background())
 
 	mockIntegration := NewMockIntegration(ctrl)
 	factory := func(_ context.Context, cfg *models.SourceConfig, _ logger.Logger) Integration {
@@ -638,11 +681,15 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 
 	mockKV := NewMockKVClient(ctrl)
 	mockGRPC := NewMockGRPCClient(ctrl)
+	mockGRPC.EXPECT().Close().Return(nil)
+
 	registry := make(map[string]IntegrationFactory)
+
 	log := logger.NewTestLogger()
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+	defer service.Stop(context.Background())
 
 	t.Run("empty results", func(t *testing.T) {
 		req := &proto.ResultsRequest{
@@ -746,6 +793,7 @@ func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 
 	mockKV := NewMockKVClient(ctrl)
 	mockGRPC := NewMockGRPCClient(ctrl)
+	mockGRPC.EXPECT().Close().Return(nil)
 
 	// Create a mock integration that returns devices with various IPs
 	mockIntegration := NewMockIntegration(ctrl)
@@ -795,6 +843,7 @@ func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 		logger.NewTestLogger(),
 	)
 	require.NoError(t, err)
+	defer service.Stop(context.Background())
 
 	// Run discovery
 	ctx := context.Background()
@@ -816,4 +865,105 @@ func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 	}
 
 	assert.ElementsMatch(t, []string{"8.8.8.8", "172.16.0.1"}, deviceIPs, "Should only contain non-blacklisted IPs")
+}
+
+func TestSimpleSyncService_runArmisUpdates_OverlapPrevention(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKVClient := NewMockKVClient(ctrl)
+
+	mockGRPCClient := NewMockGRPCClient(ctrl)
+	mockGRPCClient.EXPECT().Close().Return(nil)
+
+	mockIntegration := NewMockIntegration(ctrl)
+
+	log := logger.NewTestLogger()
+
+	registry := map[string]IntegrationFactory{
+		"test": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
+			return mockIntegration
+		},
+	}
+
+	config := &Config{
+		AgentID:           "test-agent",
+		PollerID:          "test-poller",
+		DiscoveryInterval: models.Duration(time.Minute),
+		UpdateInterval:    models.Duration(time.Minute),
+		ListenAddr:        ":9090",
+		Sources: map[string]*models.SourceConfig{
+			"test": {
+				Type:     "test",
+				AgentID:  "test-agent",
+				Endpoint: "http://test.example.com",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	service, err := NewSimpleSyncService(ctx, config, mockKVClient, registry, mockGRPCClient, log)
+	require.NoError(t, err)
+
+	defer service.Stop(context.Background())
+
+	reconcileCallCount := 0
+	reconcileStarted := make(chan struct{})
+	reconcileFinished := make(chan struct{})
+
+	// Mock the integration to simulate a slow reconcile operation
+	// Due to overlap prevention, this should only be called once
+	mockIntegration.EXPECT().Reconcile(gomock.Any()).DoAndReturn(func(ctx context.Context) error {
+		reconcileCallCount++
+		reconcileStarted <- struct{}{}
+
+		// Simulate slow operation - use shorter duration for tests
+		select {
+		case <-time.After(50 * time.Millisecond):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+
+		reconcileFinished <- struct{}{}
+		return nil
+	}).Times(1) // Expect exactly one call due to overlap prevention
+
+	firstCallDone := make(chan error, 1)
+	secondCallDone := make(chan error, 1)
+
+	// Start first Armis update
+	go func() {
+		err := service.runArmisUpdates(ctx)
+		firstCallDone <- err
+	}()
+
+	// Wait for first reconcile to start
+	<-reconcileStarted
+
+	// Start second Armis update while first is still running
+	go func() {
+		err := service.runArmisUpdates(ctx)
+		secondCallDone <- err
+	}()
+
+	// Wait for first reconcile to finish
+	<-reconcileFinished
+
+	// Wait for both calls to complete with generous timeout
+	select {
+	case err := <-firstCallDone:
+		require.NoError(t, err, "First call should succeed")
+	case <-time.After(1 * time.Second):
+		t.Fatal("First call did not complete in time")
+	}
+
+	select {
+	case err := <-secondCallDone:
+		require.NoError(t, err, "Second call should return nil (skipped due to overlap prevention)")
+	case <-time.After(1 * time.Second):
+		t.Fatal("Second call did not complete in time")
+	}
+
+	// Verify only one reconcile was called (overlap prevented)
+	assert.Equal(t, 1, reconcileCallCount, "Should have called reconcile only once due to overlap prevention")
 }
