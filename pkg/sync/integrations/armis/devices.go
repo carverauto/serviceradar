@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -115,26 +116,7 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 
 // createAndWriteSweepConfig creates a sweep config from the given IPs and writes it to the KV store.
 func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string) error {
-	// Apply blacklist filtering to IPs before creating sweep config
-	if len(a.Config.NetworkBlacklist) > 0 {
-		a.Logger.Info().
-			Int("original_ip_count", len(ips)).
-			Strs("blacklist_cidrs", a.Config.NetworkBlacklist).
-			Msg("Applying network blacklist filtering to Armis IPs")
-
-		filteredIPs, err := models.FilterIPsWithBlacklist(ips, a.Config.NetworkBlacklist)
-		if err != nil {
-			a.Logger.Error().
-				Err(err).
-				Msg("Failed to apply network blacklist filtering, using original IPs")
-		} else {
-			ips = filteredIPs
-		}
-
-		a.Logger.Info().
-			Int("filtered_ip_count", len(ips)).
-			Msg("Applied network blacklist filtering")
-	}
+	// Note: IPs have already been filtered by the blacklist in fetchAndProcessDevices
 	// Try to read existing sweep config from KV store first
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", a.Config.AgentID)
 
@@ -178,6 +160,7 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 
 	if a.KVWriter == nil {
 		a.Logger.Warn().Msg("KVWriter not configured, skipping sweep config write")
+
 		return nil
 	}
 
@@ -190,6 +173,87 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 	}
 
 	return err
+}
+
+// applyBlacklistFiltering filters out devices, KV data, and IPs based on the network blacklist
+func (a *ArmisIntegration) applyBlacklistFiltering(
+	events []*models.DeviceUpdate,
+	data map[string][]byte,
+	ips []string,
+) (filteredEvents []*models.DeviceUpdate, filteredData map[string][]byte, filteredIPs []string) {
+	if len(a.Config.NetworkBlacklist) == 0 {
+		return events, data, ips
+	}
+
+	a.Logger.Info().
+		Int("original_device_count", len(events)).
+		Strs("blacklist_cidrs", a.Config.NetworkBlacklist).
+		Msg("Applying network blacklist filtering to Armis devices")
+
+	// Parse blacklist CIDRs once
+	blacklistNetworks := make([]*net.IPNet, 0, len(a.Config.NetworkBlacklist))
+
+	for _, cidr := range a.Config.NetworkBlacklist {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			a.Logger.Error().
+				Err(err).
+				Str("cidr", cidr).
+				Msg("Invalid CIDR in blacklist")
+
+			continue
+		}
+
+		blacklistNetworks = append(blacklistNetworks, network)
+	}
+
+	// Initialize return values
+	filteredEvents = make([]*models.DeviceUpdate, 0, len(events))
+	filteredData = make(map[string][]byte)
+	filteredIPs = make([]string, 0, len(ips))
+
+	for _, event := range events {
+		// Check if device IP is blacklisted
+		isBlacklisted := false
+
+		ip := net.ParseIP(event.IP)
+
+		if ip != nil {
+			for _, network := range blacklistNetworks {
+				if network.Contains(ip) {
+					isBlacklisted = true
+					break
+				}
+			}
+		}
+
+		if !isBlacklisted {
+			filteredEvents = append(filteredEvents, event)
+
+			// Keep corresponding KV data entries
+			// Device data by ID - the integration_id contains the numeric Armis device ID
+			if integrationID, ok := event.Metadata["integration_id"]; ok {
+				if val, ok := data[integrationID]; ok {
+					filteredData[integrationID] = val
+				}
+			}
+			// Device data by agent/IP
+			agentKey := fmt.Sprintf("%s/%s", a.Config.AgentID, event.IP)
+			if val, ok := data[agentKey]; ok {
+				filteredData[agentKey] = val
+			}
+
+			// Keep IP for sweep config
+			filteredIPs = append(filteredIPs, event.IP+"/32")
+		}
+	}
+
+	a.Logger.Info().
+		Int("filtered_device_count", len(filteredEvents)).
+		Int("filtered_out", len(events)-len(filteredEvents)).
+		Msg("Applied network blacklist filtering to devices")
+
+	return filteredEvents, filteredData, filteredIPs
 }
 
 // fetchAndProcessDevices is an unexported method that handles the core logic of fetching devices from Armis,
@@ -232,6 +296,9 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 	a.Logger.Info().
 		Int("total_devices", len(allDevices)).
 		Msg("Fetched total devices from Armis")
+
+	// Apply blacklist filtering to devices before returning
+	events, data, ips = a.applyBlacklistFiltering(events, data, ips)
 
 	// Create and write sweep config
 	_ = a.createAndWriteSweepConfig(ctx, ips)
