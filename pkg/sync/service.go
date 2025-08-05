@@ -78,6 +78,11 @@ type SimpleSyncService struct {
 	discoveryInterval   time.Duration
 	armisUpdateInterval time.Duration
 
+	// Sweep completion tracking
+	lastSweepCompleted time.Time
+	sweepInProgress    bool
+	mu                 sync.RWMutex // Protects sweep completion state
+
 	// Context for managing service lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -259,6 +264,7 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 	s.logger.Info().
 		Time("started_at", start).
 		Msg("Starting discovery cycle")
+	s.markSweepStarted()
 
 	allDeviceUpdates := make(map[string][]*models.DeviceUpdate)
 
@@ -354,6 +360,8 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		Int("sources", len(allDeviceUpdates)).
 		Msg("Discovery cycle completed")
 
+	s.markSweepCompleted()
+
 	// Return aggregated errors if any occurred
 	if len(discoveryErrors) > 0 {
 		return fmt.Errorf("discovery completed with %d errors: %w", len(discoveryErrors), errors.Join(discoveryErrors...))
@@ -370,6 +378,12 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 		return nil
 	}
 	defer atomic.StoreInt32(&s.armisUpdateRunning, 0)
+
+	// Check if we should wait for sweep completion
+	if !s.shouldProceedWithUpdates() {
+		s.logger.Info().Msg("Waiting for sweep completion before running updates")
+		return nil
+	}
 
 	s.logger.Info().Msg("Starting Armis update cycle")
 
@@ -785,4 +799,54 @@ func (s *SimpleSyncService) createIntegration(ctx context.Context, src *models.S
 	}
 
 	return factory(ctx, &cfgCopy, s.logger)
+}
+
+// shouldProceedWithUpdates checks if enough time has passed since last sweep completion
+func (s *SimpleSyncService) shouldProceedWithUpdates() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// If sweep is currently in progress, wait
+	if s.sweepInProgress {
+		return false
+	}
+
+	// If no sweep has completed yet, don't update
+	if s.lastSweepCompleted.IsZero() {
+		return false
+	}
+
+	// Wait at least 30 minutes after sweep completion to ensure data is settled
+	// This gives time for:
+	// 1. Agent to complete sweeps on all discovered devices
+	// 2. Poller to retrieve sweep results (results_interval: 1m)
+	// 3. Core to process and merge sweep results with device updates
+	minWaitTime := 5 * time.Minute
+
+	timeSinceSweep := time.Since(s.lastSweepCompleted)
+	if timeSinceSweep < minWaitTime {
+		s.logger.Debug().
+			Dur("time_since_sweep", timeSinceSweep).
+			Dur("min_wait_time", minWaitTime).
+			Msg("Not enough time since sweep completion, skipping updates")
+	}
+
+	return timeSinceSweep >= minWaitTime
+}
+
+// markSweepStarted marks that a sweep operation has started
+func (s *SimpleSyncService) markSweepStarted() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepInProgress = true
+	s.logger.Info().Msg("Sweep operation started")
+}
+
+// markSweepCompleted marks that a sweep operation has completed
+func (s *SimpleSyncService) markSweepCompleted() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepInProgress = false
+	s.lastSweepCompleted = time.Now()
+	s.logger.Info().Time("completed_at", s.lastSweepCompleted).Msg("Sweep operation completed")
 }

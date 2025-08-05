@@ -254,7 +254,9 @@ func TestRunArmisUpdatesErrorAggregation(t *testing.T) {
 
 			defer s.Stop(context.Background())
 
-			// Sweep timing logic removed - updates proceed immediately
+			// Mark sweep as completed and set time to allow updates
+			s.markSweepCompleted()
+			s.lastSweepCompleted = time.Now().Add(-31 * time.Minute)
 
 			// Setup mocks
 			tt.setupMocks(mockInt1, mockInt2)

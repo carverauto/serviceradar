@@ -340,14 +340,17 @@ func (s *Server) processServices(
 			Timestamp:   now,
 		}
 
-		// Buffer all services for processing
-		bufferedServiceStatuses = append(bufferedServiceStatuses, serviceStatus)
-		bufferedServiceList = append(bufferedServiceList, serviceRecord)
+		// Only buffer services that don't need immediate device discovery processing
+		// Sync and sweep services are processed immediately via handleService() for device updates
+		if apiService.Type != "sync" && apiService.Type != "sweep" {
+			bufferedServiceStatuses = append(bufferedServiceStatuses, serviceStatus)
+			bufferedServiceList = append(bufferedServiceList, serviceRecord)
+		}
 
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
-	// Only buffer non-sync services
+	// Buffer non-sync, non-sweep services for later processing
 	if len(bufferedServiceStatuses) > 0 {
 		s.serviceBufferMu.Lock()
 		s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], bufferedServiceStatuses...)
