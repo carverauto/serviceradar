@@ -245,9 +245,7 @@ func TestRunArmisUpdatesErrorAggregation(t *testing.T) {
 
 			require.NoError(t, err)
 
-			// Mark sweep as completed and set time to allow updates
-			s.markSweepCompleted()
-			s.lastSweepCompleted = time.Now().Add(-31 * time.Minute)
+			// Sweep timing logic removed - updates proceed immediately
 
 			// Setup mocks
 			tt.setupMocks(mockInt1, mockInt2)
