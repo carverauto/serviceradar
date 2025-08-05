@@ -841,104 +841,200 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 // StreamStatus handles streaming status reports from pollers for large datasets
 func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) error {
-	var allServices []*proto.ServiceStatus
+	s.logger.Debug().Msg("Starting streaming status reception")
 
-	var pollerID, agentID, partition, sourceIP string
-
-	var timestamp int64
+	// Receive and reassemble chunks
+	allServices, metadata, err := s.receiveAndAssembleChunks(stream)
+	if err != nil {
+		return err
+	}
 
 	s.logger.Debug().
-		Msg("Starting streaming status reception")
+		Str("poller_id", metadata.pollerID).
+		Int("total_service_count", len(allServices)).
+		Msg("Completed streaming reception")
 
-	// Receive all chunks from the stream
+	// Validate and process the assembled data
+	return s.processStreamedStatus(stream, allServices, metadata)
+}
+
+// streamMetadata holds metadata extracted from streaming chunks
+type streamMetadata struct {
+	pollerID  string
+	agentID   string
+	partition string
+	sourceIP  string
+	timestamp int64
+}
+
+// receiveAndAssembleChunks receives all chunks and handles service messages
+// For sync services, keeps chunks separate. For other services, reassembles them.
+func (s *Server) receiveAndAssembleChunks(stream proto.PollerService_StreamStatusServer) ([]*proto.ServiceStatus, streamMetadata, error) {
+	var metadata streamMetadata
+	serviceMessages := make(map[string][]byte)
+	serviceMetadata := make(map[string]*proto.ServiceStatus)
+
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
 			if err.Error() == "EOF" {
 				break
 			}
-
-			return fmt.Errorf("error receiving stream chunk: %w", err)
+			return nil, metadata, fmt.Errorf("error receiving stream chunk: %w", err)
 		}
 
 		// Extract metadata from first chunk
-		if pollerID == "" {
-			pollerID = chunk.PollerId
-			agentID = chunk.AgentId
-			partition = chunk.Partition
-			sourceIP = chunk.SourceIp
-			timestamp = chunk.Timestamp
+		if metadata.pollerID == "" {
+			metadata = streamMetadata{
+				pollerID:  chunk.PollerId,
+				agentID:   chunk.AgentId,
+				partition: chunk.Partition,
+				sourceIP:  chunk.SourceIp,
+				timestamp: chunk.Timestamp,
+			}
 		}
 
-		s.logger.Debug().
-			Int32("chunk_index", chunk.ChunkIndex+1).
-			Int32("total_chunks", chunk.TotalChunks).
-			Str("poller_id", chunk.PollerId).
-			Int("service_count", len(chunk.Services)).
-			Msg("Received chunk")
+		s.logChunkReceipt(chunk)
+		
+		// Process all services with normal reassembly - but we'll handle sync services specially later
+		s.collectServiceChunks(chunk.Services, serviceMessages, serviceMetadata)
 
-		// Collect services from this chunk
-		allServices = append(allServices, chunk.Services...)
-
-		// If this is the final chunk, break
 		if chunk.IsFinal {
 			break
 		}
 	}
 
-	s.logger.Debug().
-		Str("poller_id", pollerID).
-		Int("total_service_count", len(allServices)).
-		Msg("Completed streaming reception")
+	// Assemble all services (including sync services that need reassembly for processing)
+	allServices := s.assembleServices(serviceMessages, serviceMetadata)
+	
+	s.logger.Info().
+		Int("total_services", len(allServices)).
+		Msg("Completed service message assembly")
 
-	if pollerID == "" {
+	return allServices, metadata, nil
+}
+
+// logChunkReceipt logs the receipt of a chunk
+func (s *Server) logChunkReceipt(chunk *proto.PollerStatusChunk) {
+	s.logger.Debug().
+		Int32("chunk_index", chunk.ChunkIndex+1).
+		Int32("total_chunks", chunk.TotalChunks).
+		Str("poller_id", chunk.PollerId).
+		Int("service_count", len(chunk.Services)).
+		Msg("Received chunk")
+}
+
+
+// collectServiceChunks processes services from a chunk
+func (s *Server) collectServiceChunks(services []*proto.ServiceStatus, serviceMessages map[string][]byte, serviceMetadata map[string]*proto.ServiceStatus) {
+	for _, svc := range services {
+		key := fmt.Sprintf("%s:%s", svc.ServiceName, svc.ServiceType)
+
+		if existingData, exists := serviceMessages[key]; exists {
+			// Append to existing data
+			serviceMessages[key] = append(existingData, svc.Message...)
+			s.logger.Debug().
+				Str("service_name", svc.ServiceName).
+				Int("chunk_size", len(svc.Message)).
+				Int("total_size", len(serviceMessages[key])).
+				Msg("Appending to chunked service message")
+		} else {
+			// First time seeing this service
+			serviceMessages[key] = append([]byte{}, svc.Message...)
+			serviceMetadata[key] = svc
+
+			if len(svc.Message) > 0 {
+				s.logger.Debug().
+					Str("service_name", svc.ServiceName).
+					Int("message_size", len(svc.Message)).
+					Msg("Started collecting service message")
+			}
+		}
+	}
+}
+
+// assembleServices creates the final service list from reassembled messages
+func (s *Server) assembleServices(serviceMessages map[string][]byte, serviceMetadata map[string]*proto.ServiceStatus) []*proto.ServiceStatus {
+	var allServices []*proto.ServiceStatus
+
+	for key, message := range serviceMessages {
+		if metadata, ok := serviceMetadata[key]; ok {
+			service := &proto.ServiceStatus{
+				ServiceName:  metadata.ServiceName,
+				ServiceType:  metadata.ServiceType,
+				Message:      message,
+				Available:    metadata.Available,
+				ResponseTime: metadata.ResponseTime,
+				AgentId:      metadata.AgentId,
+				PollerId:     metadata.PollerId,
+				Partition:    metadata.Partition,
+			}
+
+			allServices = append(allServices, service)
+
+			if len(message) > 1024*1024 { // Log large reassembled messages
+				s.logger.Info().
+					Str("service_name", metadata.ServiceName).
+					Int("message_size", len(message)).
+					Msg("Reassembled large service message")
+			}
+		}
+	}
+
+	return allServices
+}
+
+// processStreamedStatus validates and processes the assembled streaming data
+func (s *Server) processStreamedStatus(stream proto.PollerService_StreamStatusServer, allServices []*proto.ServiceStatus, metadata streamMetadata) error {
+	if metadata.pollerID == "" {
 		return errEmptyPollerID
 	}
 
-	// Validate required location fields
-	if partition == "" || sourceIP == "" {
-		s.logger.Warn().
-			Str("poller_id", pollerID).
-			Str("partition", partition).
-			Str("source_ip", sourceIP).
-			Msg("CRITICAL: Streaming status report missing required location data, device registration will be skipped")
-	}
+	s.validateLocationData(metadata)
 
-	if !s.isKnownPoller(pollerID) {
+	if !s.isKnownPoller(metadata.pollerID) {
 		s.logger.Warn().
-			Str("poller_id", pollerID).
+			Str("poller_id", metadata.pollerID).
 			Msg("Ignoring streaming status report from unknown poller")
-
 		return stream.SendAndClose(&proto.PollerStatusResponse{Received: true})
 	}
 
-	// Convert to regular PollerStatusRequest for processing
 	req := &proto.PollerStatusRequest{
 		Services:  allServices,
-		PollerId:  pollerID,
-		AgentId:   agentID,
-		Timestamp: timestamp,
-		Partition: partition,
-		SourceIp:  sourceIP,
+		PollerId:  metadata.pollerID,
+		AgentId:   metadata.agentID,
+		Timestamp: metadata.timestamp,
+		Partition: metadata.partition,
+		SourceIp:  metadata.sourceIP,
 	}
 
 	ctx := stream.Context()
-
-	now := time.Unix(timestamp, 0)
+	now := time.Unix(metadata.timestamp, 0)
 
 	apiStatus, err := s.processStatusReport(ctx, req, now)
 	if err != nil {
 		return fmt.Errorf("failed to process streaming status report: %w", err)
 	}
 
-	s.updateAPIState(pollerID, apiStatus)
+	s.updateAPIState(metadata.pollerID, apiStatus)
 
-	// Explicitly set span status to OK for successful operations
+	// Set span status for successful operations
 	if span := trace.SpanFromContext(ctx); span != nil {
 		span.SetStatus(codes.Ok, "Streaming status report processed successfully")
 	}
 
 	return stream.SendAndClose(&proto.PollerStatusResponse{Received: true})
+}
+
+// validateLocationData logs warnings for missing location data
+func (s *Server) validateLocationData(metadata streamMetadata) {
+	if metadata.partition == "" || metadata.sourceIP == "" {
+		s.logger.Warn().
+			Str("poller_id", metadata.pollerID).
+			Str("partition", metadata.partition).
+			Str("source_ip", metadata.sourceIP).
+			Msg("CRITICAL: Streaming status report missing required location data, device registration will be skipped")
+	}
 }
 
 func getHostname() string {
