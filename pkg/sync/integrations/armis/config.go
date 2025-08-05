@@ -45,10 +45,15 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 		Msg("Writing sweep config to KV")
 
 	// Warn if payload is approaching gRPC limits (default 4MB)
-	const warningSizeThreshold = 2 * 1024 * 1024 // 2MB
+	const (
+		bytesPerKB           = 1024
+		bytesPerMB           = bytesPerKB * 1024
+		warningSizeThreshold = 2 * bytesPerMB // 2MB
+	)
+
 	if payloadSize > warningSizeThreshold {
 		kw.Logger.Warn().
-			Int("payload_size_mb", payloadSize/1024/1024).
+			Int("payload_size_mb", payloadSize/bytesPerMB).
 			Int("network_count", len(sweepConfig.Networks)).
 			Msg("Large sweep config detected - consider chunking if performance issues occur")
 	}

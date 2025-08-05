@@ -351,7 +351,10 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 		Msg("Blacklist filtering completed - writing sweep config with all accumulated devices")
 
 	// Create and write sweep config with ALL devices from ALL queries
-	_ = a.createAndWriteSweepConfig(ctx, ips)
+	// Note: We continue processing even if sweep config write fails to ensure device data is still written to KV
+	if err := a.createAndWriteSweepConfig(ctx, ips); err != nil {
+		a.Logger.Warn().Err(err).Msg("Failed to write sweep config, continuing with device processing")
+	}
 
 	return data, events, allDevices, nil
 }
