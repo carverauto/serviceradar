@@ -24,6 +24,7 @@ import (
 	"io"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -87,6 +88,9 @@ type SimpleSyncService struct {
 
 	// Metrics and monitoring
 	metrics Metrics
+
+	// Atomic flags to prevent overlapping operations
+	armisUpdateRunning int32
 
 	logger logger.Logger
 }
@@ -168,9 +172,11 @@ func (s *SimpleSyncService) sendError(err error) {
 }
 
 // launchTask adds to the wait group and launches a goroutine to execute the given task
-func (s *SimpleSyncService) launchTask(ctx context.Context, taskName string, task func(context.Context) error) {
+// It uses the service's internal context to ensure proper cancellation when Stop() is called
+func (s *SimpleSyncService) launchTask(_ context.Context, taskName string, task func(context.Context) error) {
 	s.wg.Add(1)
-	go s.safelyRunTask(ctx, taskName, task)
+	// Use the service's internal context to ensure proper cancellation during Stop()
+	go s.safelyRunTask(s.ctx, taskName, task)
 }
 
 // Start begins the simple interval-based discovery and Armis update cycles
@@ -215,8 +221,19 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 		s.cancel()
 	}
 
-	// Wait for all goroutines to finish
-	s.wg.Wait()
+	// Wait for all goroutines to finish with a timeout
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All goroutines finished
+	case <-time.After(2 * time.Second):
+		s.logger.Warn().Msg("Timeout waiting for goroutines to finish during stop")
+	}
 
 	// Close error channel
 	close(s.errorChan)
@@ -347,6 +364,13 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 
 // runArmisUpdates queries SRQL and updates Armis with device availability
 func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
+	// Skip if already running to prevent overlapping operations
+	if !atomic.CompareAndSwapInt32(&s.armisUpdateRunning, 0, 1) {
+		s.logger.Warn().Msg("Armis update already running, skipping this cycle")
+		return nil
+	}
+	defer atomic.StoreInt32(&s.armisUpdateRunning, 0)
+
 	s.logger.Info().Msg("Starting Armis update cycle")
 
 	var updateErrors []error
