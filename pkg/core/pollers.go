@@ -871,7 +871,9 @@ type streamMetadata struct {
 // For sync services, keeps chunks separate. For other services, reassembles them.
 func (s *Server) receiveAndAssembleChunks(stream proto.PollerService_StreamStatusServer) ([]*proto.ServiceStatus, streamMetadata, error) {
 	var metadata streamMetadata
+
 	serviceMessages := make(map[string][]byte)
+
 	serviceMetadata := make(map[string]*proto.ServiceStatus)
 
 	for {
@@ -880,6 +882,7 @@ func (s *Server) receiveAndAssembleChunks(stream proto.PollerService_StreamStatu
 			if err.Error() == "EOF" {
 				break
 			}
+
 			return nil, metadata, fmt.Errorf("error receiving stream chunk: %w", err)
 		}
 
@@ -895,7 +898,7 @@ func (s *Server) receiveAndAssembleChunks(stream proto.PollerService_StreamStatu
 		}
 
 		s.logChunkReceipt(chunk)
-		
+
 		// Process all services with normal reassembly - but we'll handle sync services specially later
 		s.collectServiceChunks(chunk.Services, serviceMessages, serviceMetadata)
 
@@ -906,7 +909,7 @@ func (s *Server) receiveAndAssembleChunks(stream proto.PollerService_StreamStatu
 
 	// Assemble all services (including sync services that need reassembly for processing)
 	allServices := s.assembleServices(serviceMessages, serviceMetadata)
-	
+
 	s.logger.Info().
 		Int("total_services", len(allServices)).
 		Msg("Completed service message assembly")
@@ -924,9 +927,11 @@ func (s *Server) logChunkReceipt(chunk *proto.PollerStatusChunk) {
 		Msg("Received chunk")
 }
 
-
 // collectServiceChunks processes services from a chunk
-func (s *Server) collectServiceChunks(services []*proto.ServiceStatus, serviceMessages map[string][]byte, serviceMetadata map[string]*proto.ServiceStatus) {
+func (s *Server) collectServiceChunks(
+	services []*proto.ServiceStatus,
+	serviceMessages map[string][]byte,
+	serviceMetadata map[string]*proto.ServiceStatus) {
 	for _, svc := range services {
 		key := fmt.Sprintf("%s:%s", svc.ServiceName, svc.ServiceType)
 
@@ -954,7 +959,8 @@ func (s *Server) collectServiceChunks(services []*proto.ServiceStatus, serviceMe
 }
 
 // assembleServices creates the final service list from reassembled messages
-func (s *Server) assembleServices(serviceMessages map[string][]byte, serviceMetadata map[string]*proto.ServiceStatus) []*proto.ServiceStatus {
+func (s *Server) assembleServices(
+	serviceMessages map[string][]byte, serviceMetadata map[string]*proto.ServiceStatus) []*proto.ServiceStatus {
 	var allServices []*proto.ServiceStatus
 
 	for key, message := range serviceMessages {
@@ -985,7 +991,8 @@ func (s *Server) assembleServices(serviceMessages map[string][]byte, serviceMeta
 }
 
 // processStreamedStatus validates and processes the assembled streaming data
-func (s *Server) processStreamedStatus(stream proto.PollerService_StreamStatusServer, allServices []*proto.ServiceStatus, metadata streamMetadata) error {
+func (s *Server) processStreamedStatus(
+	stream proto.PollerService_StreamStatusServer, allServices []*proto.ServiceStatus, metadata streamMetadata) error {
 	if metadata.pollerID == "" {
 		return errEmptyPollerID
 	}
@@ -996,6 +1003,7 @@ func (s *Server) processStreamedStatus(stream proto.PollerService_StreamStatusSe
 		s.logger.Warn().
 			Str("poller_id", metadata.pollerID).
 			Msg("Ignoring streaming status report from unknown poller")
+
 		return stream.SendAndClose(&proto.PollerStatusResponse{Received: true})
 	}
 
