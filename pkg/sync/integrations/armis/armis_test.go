@@ -463,6 +463,123 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 	assert.Contains(t, err.Error(), "no queries configured")
 }
 
+// TestArmisIntegration_FetchMultipleQueries tests that multiple ASQ queries are accumulated in memory
+// and all devices are included in the final sweep.json, preventing the overwriting issue.
+func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+
+	// Configure multiple queries
+	integration.Config.Queries = []models.QueryConfig{
+		{Label: "corporate_devices", Query: "in:devices boundaries:\"Corporate\""},
+		{Label: "guest_devices", Query: "in:devices boundaries:\"Guest\""},
+	}
+
+	// Mock devices for first query (corporate)
+	corporateDevices := []Device{
+		{ID: 1, Name: "corporate-laptop-1", IPAddress: "192.168.1.100", MacAddress: "00:11:22:33:44:55"},
+		{ID: 2, Name: "corporate-laptop-2", IPAddress: "192.168.1.101", MacAddress: "00:11:22:33:44:56"},
+	}
+
+	// Mock devices for second query (guest)
+	guestDevices := []Device{
+		{ID: 3, Name: "guest-phone-1", IPAddress: "192.168.2.100", MacAddress: "00:11:22:33:44:57"},
+		{ID: 4, Name: "guest-tablet-1", IPAddress: "192.168.2.101", MacAddress: "00:11:22:33:44:58"},
+	}
+
+	testAccessToken := "test-access-token"
+
+	// Set up expectations for token provider
+	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
+
+	// Set up expectations for first query (corporate)
+	corporateResp := &SearchResponse{
+		Success: true,
+		Data: struct {
+			Count   int         `json:"count"`
+			Next    int         `json:"next"`
+			Prev    interface{} `json:"prev"`
+			Results []Device    `json:"results"`
+			Total   int         `json:"total"`
+		}{
+			Count:   len(corporateDevices),
+			Next:    0, // No next page
+			Prev:    nil,
+			Results: corporateDevices,
+			Total:   len(corporateDevices),
+		},
+	}
+	mocks.DeviceFetcher.EXPECT().
+		FetchDevicesPage(gomock.Any(), testAccessToken, "in:devices boundaries:\"Corporate\"", 0, 100).
+		Return(corporateResp, nil)
+
+	// Set up expectations for second query (guest)
+	guestResp := &SearchResponse{
+		Success: true,
+		Data: struct {
+			Count   int         `json:"count"`
+			Next    int         `json:"next"`
+			Prev    interface{} `json:"prev"`
+			Results []Device    `json:"results"`
+			Total   int         `json:"total"`
+		}{
+			Count:   len(guestDevices),
+			Next:    0, // No next page
+			Prev:    nil,
+			Results: guestDevices,
+			Total:   len(guestDevices),
+		},
+	}
+	mocks.DeviceFetcher.EXPECT().
+		FetchDevicesPage(gomock.Any(), testAccessToken, "in:devices boundaries:\"Guest\"", 0, 100).
+		Return(guestResp, nil)
+
+	// The KVWriter should be called ONCE with a sweep config containing ALL devices from BOTH queries
+	expectedNetworks := []string{"192.168.1.100/32", "192.168.1.101/32", "192.168.2.100/32", "192.168.2.101/32"}
+	expectedSweepConfig := &models.SweepConfig{
+		Networks: expectedNetworks,
+	}
+
+	mocks.KVWriter.EXPECT().
+		WriteSweepConfig(gomock.Any(), expectedSweepConfig).
+		Return(nil)
+
+	// Execute the fetch
+	result, events, err := integration.Fetch(context.Background())
+
+	// Verify no errors
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify that we got devices from BOTH queries
+	assert.Len(t, events, 4, "Should have 4 device events from both queries combined")
+
+	// Verify device labels are correctly assigned
+	corporateEvents := 0
+	guestEvents := 0
+
+	for _, event := range events {
+		queryLabel, exists := event.Metadata["query_label"]
+		require.True(t, exists, "Each device should have a query_label")
+
+		switch queryLabel {
+		case "corporate_devices":
+			corporateEvents++
+		case "guest_devices":
+			guestEvents++
+		default:
+			t.Errorf("Unexpected query_label: %s", queryLabel)
+		}
+	}
+
+	assert.Equal(t, 2, corporateEvents, "Should have 2 events from corporate query")
+	assert.Equal(t, 2, guestEvents, "Should have 2 events from guest query")
+
+	// Verify KV data contains entries for all devices
+	assert.Len(t, result, 8, "Should have 8 KV entries: 4 device data + 4 agent/IP entries")
+
+	t.Log("Successfully verified that multiple queries are accumulated in memory and written as single sweep config")
+}
+
 func createSuccessResponse(t *testing.T) *http.Response {
 	t.Helper()
 

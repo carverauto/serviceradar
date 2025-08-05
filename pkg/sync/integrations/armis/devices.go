@@ -117,8 +117,12 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 // createAndWriteSweepConfig creates a sweep config from the given IPs and writes it to the KV store.
 func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string) error {
 	// Note: IPs have already been filtered by the blacklist in fetchAndProcessDevices
-	// Try to read existing sweep config from KV store first
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", a.Config.AgentID)
+
+	a.Logger.Info().
+		Str("config_key", configKey).
+		Int("total_ips", len(ips)).
+		Msg("Creating sweep config with ALL devices from ALL queries accumulated in memory")
 
 	var finalSweepConfig *models.SweepConfig
 
@@ -126,7 +130,7 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		// Clean up old sweep config to remove any stale data before writing new config
 		a.Logger.Info().
 			Str("config_key", configKey).
-			Msg("Cleaning up old sweep config from KV store")
+			Msg("Cleaning up old sweep config from KV store before writing complete config")
 
 		if _, delErr := a.KVClient.Delete(ctx, &proto.DeleteRequest{
 			Key: configKey,
@@ -142,7 +146,9 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		}
 
 		// Create minimal sweep config with only networks (file config is authoritative for everything else)
-		a.Logger.Info().Msg("Creating networks-only sweep config for KV")
+		a.Logger.Info().
+			Int("network_count", len(ips)).
+			Msg("Creating networks-only sweep config for KV with all accumulated devices")
 
 		finalSweepConfig = &models.SweepConfig{
 			Networks: ips,
@@ -155,8 +161,9 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 	}
 
 	a.Logger.Info().
-		Interface("sweep_config", finalSweepConfig).
-		Msg("Sweep config to be written")
+		Int("network_count", len(finalSweepConfig.Networks)).
+		Str("config_key", configKey).
+		Msg("Writing complete sweep config with all devices from all ASQ queries")
 
 	if a.KVWriter == nil {
 		a.Logger.Warn().Msg("KVWriter not configured, skipping sweep config write")
@@ -169,7 +176,14 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		// Log as warning, as per existing behavior for KV write errors during sweep config.
 		a.Logger.Warn().
 			Err(err).
-			Msg("Failed to write full sweep config")
+			Int("network_count", len(finalSweepConfig.Networks)).
+			Str("config_key", configKey).
+			Msg("Failed to write complete sweep config")
+	} else {
+		a.Logger.Info().
+			Int("network_count", len(finalSweepConfig.Networks)).
+			Str("config_key", configKey).
+			Msg("Successfully wrote complete sweep config with all devices from all ASQ queries")
 	}
 
 	return err
@@ -272,15 +286,33 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 		a.PageSize = 100
 	}
 
+	a.Logger.Info().
+		Int("query_count", len(a.Config.Queries)).
+		Msg("Starting device fetch for all queries - accumulating in memory before writing sweep config")
+
 	allDevices := make([]Device, 0)
 	deviceLabels := make(map[int]string) // Map device ID to query label
 
-	// Fetch devices for each query
-	for _, q := range a.Config.Queries {
+	// Fetch devices for each query and accumulate them in memory
+	// This ensures we collect ALL devices from ALL queries before writing the sweep config
+	for queryIndex, q := range a.Config.Queries {
+		a.Logger.Info().
+			Int("query_index", queryIndex).
+			Int("total_queries", len(a.Config.Queries)).
+			Str("query_label", q.Label).
+			Msg("Fetching devices for query")
+
 		devices, queryErr := a.fetchDevicesForQuery(ctx, accessToken, q)
 		if queryErr != nil {
 			return nil, nil, nil, queryErr
 		}
+
+		a.Logger.Info().
+			Int("query_index", queryIndex).
+			Str("query_label", q.Label).
+			Int("query_device_count", len(devices)).
+			Int("accumulated_device_count", len(allDevices)).
+			Msg("Query completed, accumulating devices in memory")
 
 		// Track which query discovered each device
 		for i := range devices {
@@ -288,20 +320,41 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 		}
 
 		allDevices = append(allDevices, devices...)
+
+		a.Logger.Info().
+			Int("query_index", queryIndex).
+			Str("query_label", q.Label).
+			Int("total_accumulated_devices", len(allDevices)).
+			Msg("Devices accumulated from query")
 	}
+
+	a.Logger.Info().
+		Int("total_devices_from_all_queries", len(allDevices)).
+		Int("total_queries_processed", len(a.Config.Queries)).
+		Msg("All queries completed - processing accumulated devices")
 
 	// Process devices with query labels
 	data, ips, events := a.processDevices(allDevices, deviceLabels)
 
 	a.Logger.Info().
 		Int("total_devices", len(allDevices)).
-		Msg("Fetched total devices from Armis")
+		Int("total_ips", len(ips)).
+		Int("total_events", len(events)).
+		Msg("Device processing completed - applying blacklist filtering")
 
 	// Apply blacklist filtering to devices before returning
 	events, data, ips = a.applyBlacklistFiltering(events, data, ips)
 
-	// Create and write sweep config
-	_ = a.createAndWriteSweepConfig(ctx, ips)
+	a.Logger.Info().
+		Int("filtered_ips", len(ips)).
+		Int("filtered_events", len(events)).
+		Msg("Blacklist filtering completed - writing sweep config with all accumulated devices")
+
+	// Create and write sweep config with ALL devices from ALL queries
+	// Note: We continue processing even if sweep config write fails to ensure device data is still written to KV
+	if err := a.createAndWriteSweepConfig(ctx, ips); err != nil {
+		a.Logger.Warn().Err(err).Msg("Failed to write sweep config, continuing with device processing")
+	}
 
 	return data, events, allDevices, nil
 }
