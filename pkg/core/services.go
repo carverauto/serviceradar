@@ -61,34 +61,44 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 		// Try to parse as concatenated JSON objects
 		decoder := json.NewDecoder(strings.NewReader(string(sweepMessage)))
-		
+
 		var allHosts []models.HostResult
-		var lastSweepData proto.SweepServiceStatus
-		
+
+		var lastSweepData *proto.SweepServiceStatus
+
 		for decoder.More() {
 			var chunkData struct {
 				proto.SweepServiceStatus
 				Hosts []models.HostResult `json:"hosts"`
 			}
-			
+
 			if chunkErr := decoder.Decode(&chunkData); chunkErr != nil {
 				s.logger.Error().
 					Err(chunkErr).
 					Str("service_name", svc.Name).
 					Msg("Failed to decode chunk in sweep data")
+
 				return fmt.Errorf("%w: failed to unmarshal sweep data: %w", errInvalidSweepData, err)
 			}
-			
+
 			// Accumulate hosts from all chunks
 			allHosts = append(allHosts, chunkData.Hosts...)
+
 			// Use the last chunk's sweep status data
-			lastSweepData = chunkData.SweepServiceStatus
+			lastSweepData = &chunkData.SweepServiceStatus
 		}
-		
+
 		// Combine all the data
-		sweepData.SweepServiceStatus = lastSweepData
+		if lastSweepData != nil {
+			// Copy fields individually to avoid copying embedded mutex
+			sweepData.Network = lastSweepData.Network
+			sweepData.TotalHosts = lastSweepData.TotalHosts
+			sweepData.AvailableHosts = lastSweepData.AvailableHosts
+			sweepData.LastSweep = lastSweepData.LastSweep
+		}
+
 		sweepData.Hosts = allHosts
-		
+
 		s.logger.Debug().
 			Int("host_count", len(allHosts)).
 			Str("service_name", svc.Name).
