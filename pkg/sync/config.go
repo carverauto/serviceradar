@@ -64,11 +64,11 @@ func (c *Config) Validate() error {
 	}
 
 	if time.Duration(c.DiscoveryInterval) == 0 {
-		c.DiscoveryInterval = models.Duration(5 * time.Minute)
+		c.DiscoveryInterval = models.Duration(6 * time.Hour)
 	}
 
 	if time.Duration(c.UpdateInterval) == 0 {
-		c.UpdateInterval = models.Duration(10 * time.Minute)
+		c.UpdateInterval = models.Duration(12 * time.Hour)
 	}
 
 	for name, src := range c.Sources {
