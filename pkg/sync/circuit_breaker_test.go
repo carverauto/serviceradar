@@ -43,22 +43,22 @@ func TestCircuitBreaker_BasicFunctionality(t *testing.T) {
 
 	// Successful calls should keep it closed
 	err := cb.Execute(context.Background(), func() error { return nil })
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, StateClosed, cb.GetState())
 
 	// First failure
 	err = cb.Execute(context.Background(), func() error { return errors.New("test error") })
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, StateClosed, cb.GetState())
 
 	// Second failure should open the circuit
 	err = cb.Execute(context.Background(), func() error { return errors.New("test error") })
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, StateOpen, cb.GetState())
 
 	// Subsequent calls should be rejected
 	err = cb.Execute(context.Background(), func() error { return nil })
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "circuit breaker test is open")
 
 	// Wait for timeout to transition to half-open
@@ -66,7 +66,7 @@ func TestCircuitBreaker_BasicFunctionality(t *testing.T) {
 
 	// Should allow one call in half-open state
 	err = cb.Execute(context.Background(), func() error { return nil })
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, StateClosed, cb.GetState()) // Should close after successful call
 }
 

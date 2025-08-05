@@ -34,6 +34,11 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const (
+	// MaxBatchSize defines the maximum number of entries to write to KV in a single batch
+	MaxBatchSize = 500
+)
+
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
 func safeIntToInt32(val int) int32 {
 	if val > math.MaxInt32 {
@@ -245,6 +250,7 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 	for sourceName, integration := range s.sources {
 		s.logger.Info().Str("source", sourceName).Msg("Running discovery for source")
 		s.metrics.RecordDiscoveryAttempt(sourceName)
+
 		sourceStart := time.Now()
 
 		// Fetch devices from integration. `devices` is now `[]*models.DeviceUpdate`.
@@ -347,6 +353,7 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 
 	for sourceName, integration := range s.sources {
 		s.metrics.RecordReconciliationAttempt(sourceName)
+
 		sourceStart := time.Now()
 
 		if err := integration.Reconcile(ctx); err != nil {
@@ -391,7 +398,7 @@ func (s *SimpleSyncService) writeToKV(ctx context.Context, sourceName string, da
 		})
 	}
 
-	const maxBatchSize = 500
+	const maxBatchSize = MaxBatchSize
 
 	for i := 0; i < len(entries); i += maxBatchSize {
 		end := i + maxBatchSize
