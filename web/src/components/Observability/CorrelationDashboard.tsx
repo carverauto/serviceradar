@@ -23,6 +23,20 @@ interface CorrelationResult {
     metrics: OtelMetric[];
 }
 
+// Helper function to safely parse JSON fields that might be strings
+const parseJSONField = (field: string | object | null): any => {
+    if (!field) return null;
+    if (typeof field === 'object') return field;
+    if (typeof field === 'string') {
+        try {
+            return JSON.parse(field);
+        } catch {
+            return null;
+        }
+    }
+    return null;
+};
+
 const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) => {
     const { token } = useAuth();
     const [traceId, setTraceId] = useState(initialTraceId || '');
@@ -61,19 +75,28 @@ const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) =
         setError(null);
 
         try {
-            // Execute all correlation queries in parallel
+            // Execute all correlation queries in parallel with proper error handling
             const [logsRes, traceSummaryRes, spansRes, metricsRes] = await Promise.all([
-                postQuery<{ results: Log[] }>(`SHOW LOGS WHERE trace_id = '${traceId}' ORDER BY timestamp ASC`),
-                postQuery<{ results: TraceSummary[] }>(`SHOW otel_trace_summaries_final WHERE trace_id = '${traceId}'`),
-                postQuery<{ results: TraceSpan[] }>(`SHOW otel_traces WHERE trace_id = '${traceId}' ORDER BY start_time_unix_nano ASC`),
-                postQuery<{ results: OtelMetric[] }>(`SHOW otel_metrics WHERE trace_id = '${traceId}' ORDER BY timestamp ASC`)
+                postQuery<{ results: Log[] }>(`SHOW LOGS WHERE trace_id = '${traceId}' ORDER BY timestamp ASC`).catch(() => ({ results: [] })),
+                postQuery<{ results: TraceSummary[] }>(`SHOW otel_trace_summaries_final WHERE trace_id = '${traceId}'`).catch(() => ({ results: [] })),
+                // Query the actual otel_traces table from your schema
+                postQuery<{ results: TraceSpan[] }>(`SHOW otel_traces WHERE trace_id = '${traceId}' ORDER BY start_time_unix_nano ASC`).catch(() => ({ results: [] })),
+                postQuery<{ results: OtelMetric[] }>(`SHOW otel_metrics WHERE trace_id = '${traceId}' ORDER BY timestamp ASC`).catch(() => ({ results: [] }))
             ]);
+
+            // Parse span data to handle JSON strings for attributes and events
+            const parsedSpans = (spansRes.results || []).map(span => ({
+                ...span,
+                attributes: parseJSONField(span.attributes),
+                events: parseJSONField(span.events),
+                resource_attributes: parseJSONField(span.resource_attributes)
+            }));
 
             setResult({
                 trace_id: traceId,
                 logs: logsRes.results || [],
                 trace_summary: traceSummaryRes.results?.[0] || null,
-                spans: spansRes.results || [],
+                spans: parsedSpans,
                 metrics: metricsRes.results || []
             });
         } catch (e) {
@@ -378,6 +401,56 @@ const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) =
                                                             </div>
                                                         </div>
                                                         
+                                                        {/* Span Attributes */}
+                                                        {span.attributes && Object.keys(span.attributes).length > 0 && (
+                                                            <div className="mb-4">
+                                                                <p className="text-gray-600 dark:text-gray-400 text-xs mb-2">Span Attributes:</p>
+                                                                <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded border max-h-32 overflow-y-auto">
+                                                                    <div className="grid grid-cols-1 gap-1 text-xs">
+                                                                        {Object.entries(span.attributes).map(([key, value]) => (
+                                                                            <div key={key} className="flex justify-between">
+                                                                                <span className="text-gray-600 dark:text-gray-400 font-mono">{key}:</span>
+                                                                                <span className="text-gray-900 dark:text-white font-mono ml-2 break-all">
+                                                                                    {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                                                                </span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Span Events */}
+                                                        {span.events && Array.isArray(span.events) && span.events.length > 0 && (
+                                                            <div className="mb-4">
+                                                                <p className="text-gray-600 dark:text-gray-400 text-xs mb-2">Span Events:</p>
+                                                                <div className="space-y-2">
+                                                                    {span.events.map((event: any, eventIndex: number) => (
+                                                                        <div key={eventIndex} className="bg-gray-50 dark:bg-gray-700 p-2 rounded border">
+                                                                            <div className="flex justify-between items-center mb-1">
+                                                                                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                                                                    {event.name}
+                                                                                </span>
+                                                                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                                                                    {new Date(event.timestamp / 1e6).toLocaleTimeString()}
+                                                                                </span>
+                                                                            </div>
+                                                                            {event.attributes && Object.keys(event.attributes).length > 0 && (
+                                                                                <div className="text-xs text-gray-600 dark:text-gray-400">
+                                                                                    {Object.entries(event.attributes).map(([key, value]) => (
+                                                                                        <div key={key} className="flex">
+                                                                                            <span className="font-mono">{key}: </span>
+                                                                                            <span className="font-mono ml-1">{String(value)}</span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
                                                         {/* Status Message */}
                                                         {span.status_message && (
                                                             <div className="mb-4">
