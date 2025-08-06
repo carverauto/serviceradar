@@ -34,6 +34,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
+	"go.opentelemetry.io/otel"
 )
 
 const (
@@ -120,6 +121,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		logger:              log,
+		tracer:              otel.Tracer("serviceradar-core"),
 	}
 
 	// Initialize the cache on startup

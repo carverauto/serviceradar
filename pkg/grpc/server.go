@@ -42,6 +42,14 @@ type ServerOption func(*Server)
 // Add a private context key to safely store and retrieve the logger.
 type loggerKey struct{}
 
+// GetLogger extracts the trace-aware logger from context, falls back to default if not found
+func GetLogger(ctx context.Context, defaultLogger logger.Logger) logger.Logger {
+	if l, ok := ctx.Value(loggerKey{}).(logger.Logger); ok {
+		return l
+	}
+	return defaultLogger
+}
+
 var (
 	errInternalError          = fmt.Errorf("internal error")
 	errHealthServerRegistered = fmt.Errorf("health server already registered")
