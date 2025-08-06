@@ -57,15 +57,17 @@ func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient, log
 
 // GetDeviceStatesBySource queries the ServiceRadar API to get the current state of devices for a given discovery source.
 func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error) {
-	// Use a large limit to ensure all devices are fetched.
+	// Use a reasonable batch size for pagination to avoid memory issues
+	// while ensuring we fetch all devices through proper pagination.
 	// This query finds devices that originated from the specified source and have also been seen by a sweep.
 	// The `discovery_sources = 'sweep'` part is a useful heuristic to filter for devices that are actually "known" on the network.
 	query := fmt.Sprintf("show devices where discovery_sources = '%s' and discovery_sources = 'sweep'", source)
-	limit := 10000
+	limit := 5000 // Reduced from 10000 to ensure better pagination handling
 
 	var allDeviceStates []DeviceState
 
 	cursor := ""
+	pageCount := 0
 
 	for {
 		queryReq := QueryRequest{
@@ -76,13 +78,27 @@ func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source 
 
 		response, err := s.executeQuery(ctx, queryReq)
 		if err != nil {
-			return nil, fmt.Errorf("failed to execute device query: %w", err)
+			return nil, fmt.Errorf("failed to execute device query on page %d: %w", pageCount, err)
 		}
 
 		states := s.convertToDeviceStates(response.Results)
 		allDeviceStates = append(allDeviceStates, states...)
 
+		pageCount++
+		s.Logger.Info().
+			Int("page", pageCount).
+			Int("states_in_page", len(states)).
+			Int("total_states", len(allDeviceStates)).
+			Str("next_cursor", response.Pagination.NextCursor).
+			Msg("Fetched device states page")
+
+		// Continue pagination if there's a next cursor
 		if response.Pagination.NextCursor == "" || len(states) == 0 {
+			s.Logger.Info().
+				Int("total_pages", pageCount).
+				Int("total_device_states", len(allDeviceStates)).
+				Msg("Completed fetching all device states")
+
 			break
 		}
 
