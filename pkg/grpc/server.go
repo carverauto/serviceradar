@@ -47,6 +47,7 @@ func GetLogger(ctx context.Context, defaultLogger logger.Logger) logger.Logger {
 	if l, ok := ctx.Value(loggerKey{}).(logger.Logger); ok {
 		return l
 	}
+
 	return defaultLogger
 }
 

@@ -801,7 +801,7 @@ func (*Server) findAgentID(services []*proto.ServiceStatus) string {
 func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "ReportStatus")
 	defer span.End()
-	
+
 	// Add span attributes for the request
 	span.SetAttributes(
 		attribute.String("poller_id", req.PollerId),
@@ -809,7 +809,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 		attribute.String("source_ip", req.SourceIp),
 		attribute.Int("service_count", len(req.Services)),
 	)
-	
+
 	// Get trace-aware logger from context (added by LoggingInterceptor)
 	logger := grpc.GetLogger(ctx, s.logger)
 	logger.Debug().
@@ -882,9 +882,10 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) error {
 	ctx := stream.Context()
 	ctx, span := s.tracer.Start(ctx, "StreamStatus")
+
 	defer span.End()
-	
-	// Get trace-aware logger from context (added by gRPC interceptor) 
+
+	// Get trace-aware logger from context (added by gRPC interceptor)
 	logger := grpc.GetLogger(ctx, s.logger)
 	logger.Debug().Msg("Starting streaming status reception")
 
@@ -895,9 +896,10 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 		span.AddEvent("Failed to receive and assemble chunks", trace.WithAttributes(
 			attribute.String("error", err.Error()),
 		))
+
 		return err
 	}
-	
+
 	// Add span attributes for the received data
 	span.SetAttributes(
 		attribute.String("poller_id", metadata.pollerID),
@@ -948,7 +950,8 @@ type streamMetadata struct {
 
 // receiveAndAssembleChunks receives all chunks and handles service messages
 // For sync services, keeps chunks separate. For other services, reassembles them.
-func (s *Server) receiveAndAssembleChunks(ctx context.Context, stream proto.PollerService_StreamStatusServer) ([]*proto.ServiceStatus, streamMetadata, error) {
+func (s *Server) receiveAndAssembleChunks(
+	_ context.Context, stream proto.PollerService_StreamStatusServer) ([]*proto.ServiceStatus, streamMetadata, error) {
 	var metadata streamMetadata
 
 	serviceMessages := make(map[string][]byte)
