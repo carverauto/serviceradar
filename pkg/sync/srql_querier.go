@@ -62,15 +62,17 @@ func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source 
 	query := fmt.Sprintf("show devices where discovery_sources = '%s' and discovery_sources = 'sweep'", source)
 
 	var allDeviceStates []DeviceState
-
 	cursor := ""
 	pageCount := 0
+	
+	// Use a reasonable page size for efficient pagination
+	pageSize := 1000
 
 	for {
 		queryReq := QueryRequest{
 			Query:  query,
+			Limit:  pageSize,
 			Cursor: cursor,
-			// Don't set a limit - let the server use its default pagination size
 		}
 
 		response, err := s.executeQuery(ctx, queryReq)
@@ -88,6 +90,8 @@ func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source 
 			Int("total_states", len(allDeviceStates)).
 			Int("page_limit", response.Pagination.Limit).
 			Str("next_cursor", response.Pagination.NextCursor).
+			Str("prev_cursor", response.Pagination.PrevCursor).
+			Bool("has_next", response.Pagination.NextCursor != "").
 			Msg("Fetched device states page")
 
 		// Continue pagination if there's a next cursor
@@ -95,11 +99,15 @@ func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source 
 			s.Logger.Info().
 				Int("total_pages", pageCount).
 				Int("total_device_states", len(allDeviceStates)).
-				Msg("Completed fetching all device states")
+				Int("last_page_size", len(states)).
+				Msg("Completed fetching all device states - no more pages")
 			break
 		}
 
 		cursor = response.Pagination.NextCursor
+		s.Logger.Debug().
+			Str("cursor_for_next_page", cursor).
+			Msg("Moving to next page")
 	}
 
 	return allDeviceStates, nil
