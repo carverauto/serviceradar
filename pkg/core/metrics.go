@@ -446,7 +446,7 @@ func (s *Server) processSweepService(
 	pollerID string,
 	partition string,
 	agentID string,
-	svc *proto.ServiceStatus,
+	_ *proto.ServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
 	s.logger.Debug().

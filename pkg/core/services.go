@@ -36,23 +36,24 @@ func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, part
 		Bool("available", svc.Available).
 		Int("message_length", len(svc.Message)).
 		Msg("CORE_DEBUG: handleService called")
-	
+
 	if svc.Type == sweepService {
 		s.logger.Debug().
 			Str("service_name", svc.Name).
 			Str("service_type", svc.Type).
 			Str("partition", partition).
 			Msg("CORE_DEBUG: Identified as sweep service, calling processSweepData")
-		
+
 		if err := s.processSweepData(ctx, svc, partition, now); err != nil {
 			s.logger.Error().
 				Err(err).
 				Str("service_name", svc.Name).
 				Str("service_type", svc.Type).
 				Msg("CORE_DEBUG: processSweepData failed")
+
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
-		
+
 		s.logger.Debug().
 			Str("service_name", svc.Name).
 			Str("service_type", svc.Type).
@@ -73,17 +74,19 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		Str("partition", partition).
 		Int("message_length", len(svc.Message)).
 		Msg("CORE_DEBUG: processSweepData started")
-	
+
 	// Extract enhanced payload if present, or use original data
 	enhancedPayload, sweepMessage := s.extractServicePayload(svc.Message)
-	
+
+	const maxPreviewLength = 300
+
 	s.logger.Debug().
 		Str("service_name", svc.Name).
 		Bool("has_enhanced_payload", enhancedPayload != nil).
 		Int("sweep_message_length", len(sweepMessage)).
 		Str("sweep_message_preview", func() string {
-			if len(sweepMessage) > 300 {
-				return string(sweepMessage)[:300] + "..."
+			if len(sweepMessage) > maxPreviewLength {
+				return string(sweepMessage)[:maxPreviewLength] + "..."
 			}
 			return string(sweepMessage)
 		}()).
@@ -91,7 +94,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 	// Update context from enhanced payload if available
 	contextPollerID, contextPartition, contextAgentID := s.extractContextInfo(svc, enhancedPayload, partition)
-	
+
 	s.logger.Debug().
 		Str("service_name", svc.Name).
 		Str("context_poller_id", contextPollerID).
@@ -108,13 +111,85 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	s.logger.Debug().
 		Str("service_name", svc.Name).
 		Msg("CORE_DEBUG: Attempting to parse sweep data as single JSON object")
-	
+
+	parsedData, err := s.parseConcatenatedSweepJSON(sweepMessage, svc.Name)
+	if err != nil {
+		return err
+	}
+
+	// Copy fields individually to avoid copying embedded mutex
+	sweepData.Network = parsedData.Network
+	sweepData.TotalHosts = parsedData.TotalHosts
+	sweepData.AvailableHosts = parsedData.AvailableHosts
+	sweepData.LastSweep = parsedData.LastSweep
+	sweepData.Hosts = parsedData.Hosts
+
+	// Validate and potentially correct timestamp
+	if err := s.validateAndCorrectTimestamp(&sweepData, svc, now); err != nil {
+		return err
+	}
+
+	// processHostResults now correctly returns []*models.DeviceUpdate
+	s.logger.Debug().
+		Str("service_name", svc.Name).
+		Int("host_count", len(sweepData.Hosts)).
+		Msg("CORE_DEBUG: About to process host results for device updates")
+
+	updatesToStore := s.processHostResults(sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
+
+	s.logger.Debug().
+		Str("service_name", svc.Name).
+		Int("device_updates_count", len(updatesToStore)).
+		Msg("CORE_DEBUG: Generated device updates from sweep data")
+
+	if len(updatesToStore) > 0 {
+		s.logger.Debug().
+			Str("service_name", svc.Name).
+			Int("device_updates_count", len(updatesToStore)).
+			Msg("CORE_DEBUG: About to process batch device updates")
+
+		if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, updatesToStore); err != nil {
+			s.logger.Error().
+				Err(err).
+				Str("service_name", svc.Name).
+				Msg("CORE_DEBUG: Error processing batch sweep updates")
+
+			return err
+		}
+
+		s.logger.Debug().
+			Str("service_name", svc.Name).
+			Int("device_updates_processed", len(updatesToStore)).
+			Msg("CORE_DEBUG: Successfully processed batch device updates")
+	} else {
+		s.logger.Debug().
+			Str("service_name", svc.Name).
+			Msg("CORE_DEBUG: No device updates to process from sweep data")
+	}
+
+	s.logger.Debug().
+		Str("service_name", svc.Name).
+		Msg("CORE_DEBUG: processSweepData completed successfully")
+
+	return nil
+}
+
+// parseConcatenatedSweepJSON parses sweep data that may be a single JSON object or multiple concatenated objects
+func (s *Server) parseConcatenatedSweepJSON(sweepMessage []byte, serviceName string) (*struct {
+	proto.SweepServiceStatus
+	Hosts []models.HostResult `json:"hosts"`
+}, error) {
+	var sweepData struct {
+		proto.SweepServiceStatus
+		Hosts []models.HostResult `json:"hosts"`
+	}
+
 	err := json.Unmarshal(sweepMessage, &sweepData)
 	if err != nil {
 		// If that fails, try to parse as multiple concatenated JSON objects from chunked streaming
 		s.logger.Debug().
 			Err(err).
-			Str("service_name", svc.Name).
+			Str("service_name", serviceName).
 			Msg("CORE_DEBUG: Single object parse failed for sweep data, trying to parse concatenated objects")
 
 		// Try to parse as concatenated JSON objects
@@ -133,10 +208,10 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 			if chunkErr := decoder.Decode(&chunkData); chunkErr != nil {
 				s.logger.Error().
 					Err(chunkErr).
-					Str("service_name", svc.Name).
+					Str("service_name", serviceName).
 					Msg("Failed to decode chunk in sweep data")
 
-				return fmt.Errorf("%w: failed to unmarshal sweep data: %w", errInvalidSweepData, err)
+				return nil, fmt.Errorf("%w: failed to unmarshal sweep data: %w", errInvalidSweepData, err)
 			}
 
 			// Accumulate hosts from all chunks
@@ -159,11 +234,11 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 		s.logger.Debug().
 			Int("host_count", len(allHosts)).
-			Str("service_name", svc.Name).
+			Str("service_name", serviceName).
 			Msg("CORE_DEBUG: Successfully parsed sweep data from multiple JSON chunks")
 	} else {
 		s.logger.Debug().
-			Str("service_name", svc.Name).
+			Str("service_name", serviceName).
 			Int("host_count", len(sweepData.Hosts)).
 			Str("network", sweepData.Network).
 			Int32("total_hosts", sweepData.TotalHosts).
@@ -171,54 +246,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 			Msg("CORE_DEBUG: Successfully parsed sweep data as single JSON object")
 	}
 
-	// Validate and potentially correct timestamp
-	if err := s.validateAndCorrectTimestamp(&sweepData, svc, now); err != nil {
-		return err
-	}
-
-	// processHostResults now correctly returns []*models.DeviceUpdate
-	s.logger.Debug().
-		Str("service_name", svc.Name).
-		Int("host_count", len(sweepData.Hosts)).
-		Msg("CORE_DEBUG: About to process host results for device updates")
-	
-	updatesToStore := s.processHostResults(sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
-	
-	s.logger.Debug().
-		Str("service_name", svc.Name).
-		Int("device_updates_count", len(updatesToStore)).
-		Msg("CORE_DEBUG: Generated device updates from sweep data")
-
-	if len(updatesToStore) > 0 {
-		s.logger.Debug().
-			Str("service_name", svc.Name).
-			Int("device_updates_count", len(updatesToStore)).
-			Msg("CORE_DEBUG: About to process batch device updates")
-		
-		if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, updatesToStore); err != nil {
-			s.logger.Error().
-				Err(err).
-				Str("service_name", svc.Name).
-				Msg("CORE_DEBUG: Error processing batch sweep updates")
-
-			return err
-		}
-		
-		s.logger.Debug().
-			Str("service_name", svc.Name).
-			Int("device_updates_processed", len(updatesToStore)).
-			Msg("CORE_DEBUG: Successfully processed batch device updates")
-	} else {
-		s.logger.Debug().
-			Str("service_name", svc.Name).
-			Msg("CORE_DEBUG: No device updates to process from sweep data")
-	}
-
-	s.logger.Debug().
-		Str("service_name", svc.Name).
-		Msg("CORE_DEBUG: processSweepData completed successfully")
-
-	return nil
+	return &sweepData, nil
 }
 
 // extractContextInfo extracts context information from service status and enhanced payload
@@ -386,14 +414,13 @@ func (s *Server) processServices(
 	apiStatus *api.PollerStatus,
 	services []*proto.ServiceStatus,
 	now time.Time) {
-	
 	s.logger.Debug().
 		Str("poller_id", pollerID).
 		Str("partition", partition).
 		Str("source_ip", sourceIP).
 		Int("service_count", len(services)).
 		Msg("CORE_DEBUG: Starting processServices")
-	
+
 	allServicesAvailable := true
 	bufferedServiceStatuses := make([]*models.ServiceStatus, 0, len(services))
 	bufferedServiceList := make([]*models.Service, 0, len(services))
@@ -406,22 +433,24 @@ func (s *Server) processServices(
 			Bool("available", svc.Available).
 			Int("message_length", len(svc.Message)).
 			Msg("CORE_DEBUG: Processing individual service in processServices")
-		
+
 		// Special debug logging for sweep services
 		if svc.ServiceType == "sweep" {
+			const maxMessagePreview = 500
+
 			s.logger.Debug().
 				Str("poller_id", pollerID).
 				Str("service_name", svc.ServiceName).
 				Str("service_type", svc.ServiceType).
 				Str("message_preview", func() string {
-					if len(svc.Message) > 500 {
-						return string(svc.Message)[:500] + "..."
+					if len(svc.Message) > maxMessagePreview {
+						return string(svc.Message)[:maxMessagePreview] + "..."
 					}
 					return string(svc.Message)
 				}()).
 				Msg("CORE_DEBUG: Sweep service being processed in processServices")
 		}
-		
+
 		apiService := s.createAPIService(svc)
 
 		if !svc.Available {
@@ -434,7 +463,7 @@ func (s *Server) processServices(
 			Str("service_name", svc.ServiceName).
 			Str("service_type", svc.ServiceType).
 			Msg("CORE_DEBUG: About to call processServiceDetails (this calls handleService)")
-		
+
 		if err := s.processServiceDetails(ctx, pollerID, partition, sourceIP, &apiService, svc, now); err != nil {
 			s.logger.Error().
 				Err(err).
@@ -442,7 +471,7 @@ func (s *Server) processServices(
 				Str("poller_id", pollerID).
 				Msg("Error processing details for service")
 		}
-		
+
 		// DEBUG: Log after processServiceDetails completes
 		s.logger.Debug().
 			Str("poller_id", pollerID).
@@ -450,34 +479,7 @@ func (s *Server) processServices(
 			Str("service_type", svc.ServiceType).
 			Msg("CORE_DEBUG: Completed processServiceDetails call")
 
-		deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, sourceIP, string(apiService.Message))
-
-		serviceStatus := &models.ServiceStatus{
-			AgentID:     svc.AgentId,
-			PollerID:    svc.PollerId,
-			ServiceName: apiService.Name,
-			ServiceType: apiService.Type,
-			Available:   apiService.Available,
-			Details:     apiService.Message,
-			DeviceID:    deviceID,
-			Partition:   devicePartition,
-			Timestamp:   now,
-		}
-
-		// For sync services, clear the details after discovery processing to avoid storing large payloads
-		if apiService.Type == "sync" {
-			serviceStatus.Details = []byte(`{"status":"processed"}`)
-		}
-
-		serviceRecord := &models.Service{
-			PollerID:    pollerID,
-			ServiceName: svc.ServiceName,
-			ServiceType: svc.ServiceType,
-			AgentID:     svc.AgentId,
-			DeviceID:    deviceID,
-			Partition:   devicePartition,
-			Timestamp:   now,
-		}
+		serviceStatus, serviceRecord := s.createServiceRecords(ctx, svc, &apiService, pollerID, partition, sourceIP, now)
 
 		// Buffer all services for processing
 		bufferedServiceStatuses = append(bufferedServiceStatuses, serviceStatus)
@@ -500,6 +502,46 @@ func (s *Server) processServices(
 	}
 
 	apiStatus.IsHealthy = allServicesAvailable
+}
+
+// createServiceRecords creates service status and service records for a given service
+func (s *Server) createServiceRecords(
+	ctx context.Context,
+	svc *proto.ServiceStatus,
+	apiService *api.ServiceStatus,
+	pollerID, partition, sourceIP string,
+	now time.Time,
+) (*models.ServiceStatus, *models.Service) {
+	deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, sourceIP, string(apiService.Message))
+
+	serviceStatus := &models.ServiceStatus{
+		AgentID:     svc.AgentId,
+		PollerID:    svc.PollerId,
+		ServiceName: apiService.Name,
+		ServiceType: apiService.Type,
+		Available:   apiService.Available,
+		Details:     apiService.Message,
+		DeviceID:    deviceID,
+		Partition:   devicePartition,
+		Timestamp:   now,
+	}
+
+	// For sync services, clear the details after discovery processing to avoid storing large payloads
+	if apiService.Type == "sync" {
+		serviceStatus.Details = []byte(`{"status":"processed"}`)
+	}
+
+	serviceRecord := &models.Service{
+		PollerID:    pollerID,
+		ServiceName: svc.ServiceName,
+		ServiceType: svc.ServiceType,
+		AgentID:     svc.AgentId,
+		DeviceID:    deviceID,
+		Partition:   devicePartition,
+		Timestamp:   now,
+	}
+
+	return serviceStatus, serviceRecord
 }
 
 func (s *Server) processServiceDetails(
