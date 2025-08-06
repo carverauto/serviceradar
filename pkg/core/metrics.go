@@ -449,14 +449,27 @@ func (s *Server) processSweepService(
 	svc *proto.ServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
-	s.logger.Info().
-		Str("poller_id", pollerID).
-		Int("data_size", len(serviceData)).
-		Msg("Processing sweep service data")
 	s.logger.Debug().
-		Str("service_name", svc.ServiceName).
-		Str("service_type", svc.ServiceType).
-		Msg("Service details")
+		Str("component", "core").
+		Str("service_name", "network_sweep").
+		Bool("has_enhanced_payload", true).
+		Int("sweep_message_length", len(serviceData)).
+		Str("sweep_message_preview", func() string {
+			if len(serviceData) > 200 {
+				return string(serviceData[:200]) + "..."
+			}
+			return string(serviceData)
+		}()).
+		Msg("CORE_DEBUG: Extracted sweep message payload")
+
+	s.logger.Debug().
+		Str("context_poller_id", pollerID).
+		Str("context_partition", partition).
+		Str("context_agent_id", agentID).
+		Msg("CORE_DEBUG: Extracted context information")
+
+	s.logger.Debug().
+		Msg("CORE_DEBUG: Attempting to parse sweep data as single JSON object")
 
 	// Unmarshal as SweepSummary which contains HostResults
 	var sweepSummary models.SweepSummary
@@ -469,14 +482,24 @@ func (s *Server) processSweepService(
 		return nil
 	}
 
-	s.logger.Info().
+	s.logger.Debug().
 		Int("host_count", len(sweepSummary.Hosts)).
-		Str("poller_id", pollerID).
-		Msg("Processing sweep summary")
+		Str("network", sweepSummary.Network).
+		Int("total_hosts", sweepSummary.TotalHosts).
+		Int("available_hosts", sweepSummary.AvailableHosts).
+		Msg("CORE_DEBUG: Successfully parsed sweep data as single JSON object")
+
+	s.logger.Debug().
+		Int("host_count", len(sweepSummary.Hosts)).
+		Msg("CORE_DEBUG: About to process host results for device updates")
 
 	// Use the result processor to convert HostResults to DeviceUpdates
 	// This ensures ICMP metadata is properly extracted and availability is correctly set
 	deviceUpdates := s.processHostResults(sweepSummary.Hosts, pollerID, partition, agentID, now)
+
+	s.logger.Debug().
+		Int("device_updates_count", len(deviceUpdates)).
+		Msg("CORE_DEBUG: Generated device updates from sweep data")
 
 	// Directly process the device updates without redundant JSON marshaling
 	if len(deviceUpdates) > 0 {
@@ -487,7 +510,13 @@ func (s *Server) processSweepService(
 
 			return err
 		}
+	} else {
+		s.logger.Debug().
+			Msg("CORE_DEBUG: No device updates to process from sweep data")
 	}
+
+	s.logger.Debug().
+		Msg("CORE_DEBUG: processSweepData completed successfully")
 
 	return nil
 }
