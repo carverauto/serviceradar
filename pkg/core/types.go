@@ -18,6 +18,7 @@
 package core
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // sysmonMetricBuffer holds sysmon metrics with their associated partition
@@ -79,6 +81,7 @@ type Server struct {
 	cacheLastUpdated        time.Time
 	cacheMutex              sync.RWMutex
 	logger                  logger.Logger
+	tracer                  trace.Tracer
 }
 
 // OIDStatusData represents the structure of OID status data.

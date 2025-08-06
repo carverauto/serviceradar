@@ -26,8 +26,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -573,7 +575,8 @@ func (s *Server) processStatusReport(
 				return
 			}
 
-			timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			// Create a detached context but preserve trace information
+			timeoutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 			defer cancel()
 
 			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services),
@@ -627,7 +630,8 @@ func (s *Server) processStatusReport(
 			return
 		}
 
-		timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// Create a detached context but preserve trace information
+		timeoutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 
 		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services),
@@ -795,7 +799,20 @@ func (*Server) findAgentID(services []*proto.ServiceStatus) string {
 }
 
 func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
-	s.logger.Debug().
+	ctx, span := s.tracer.Start(ctx, "ReportStatus")
+	defer span.End()
+	
+	// Add span attributes for the request
+	span.SetAttributes(
+		attribute.String("poller_id", req.PollerId),
+		attribute.String("partition", req.Partition),
+		attribute.String("source_ip", req.SourceIp),
+		attribute.Int("service_count", len(req.Services)),
+	)
+	
+	// Get trace-aware logger from context (added by LoggingInterceptor)
+	logger := grpc.GetLogger(ctx, s.logger)
+	logger.Debug().
 		Str("poller_id", req.PollerId).
 		Int("service_count", len(req.Services)).
 		Time("timestamp", time.Now()).
@@ -863,13 +880,32 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 // StreamStatus handles streaming status reports from pollers for large datasets
 func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) error {
-	s.logger.Debug().Msg("Starting streaming status reception")
+	ctx := stream.Context()
+	ctx, span := s.tracer.Start(ctx, "StreamStatus")
+	defer span.End()
+	
+	// Get trace-aware logger from context (added by gRPC interceptor) 
+	logger := grpc.GetLogger(ctx, s.logger)
+	logger.Debug().Msg("Starting streaming status reception")
 
 	// Receive and reassemble chunks
-	allServices, metadata, err := s.receiveAndAssembleChunks(stream)
+	allServices, metadata, err := s.receiveAndAssembleChunks(ctx, stream)
 	if err != nil {
+		span.RecordError(err)
+		span.AddEvent("Failed to receive and assemble chunks", trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
 		return err
 	}
+	
+	// Add span attributes for the received data
+	span.SetAttributes(
+		attribute.String("poller_id", metadata.pollerID),
+		attribute.String("partition", metadata.partition),
+		attribute.String("source_ip", metadata.sourceIP),
+		attribute.Int("service_count", len(allServices)),
+		attribute.String("agent_id", metadata.agentID),
+	)
 
 	s.logger.Debug().
 		Str("poller_id", metadata.pollerID).
@@ -898,7 +934,7 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 	}
 
 	// Validate and process the assembled data
-	return s.processStreamedStatus(stream, allServices, metadata)
+	return s.processStreamedStatus(ctx, stream, allServices, metadata)
 }
 
 // streamMetadata holds metadata extracted from streaming chunks
@@ -912,7 +948,7 @@ type streamMetadata struct {
 
 // receiveAndAssembleChunks receives all chunks and handles service messages
 // For sync services, keeps chunks separate. For other services, reassembles them.
-func (s *Server) receiveAndAssembleChunks(stream proto.PollerService_StreamStatusServer) ([]*proto.ServiceStatus, streamMetadata, error) {
+func (s *Server) receiveAndAssembleChunks(ctx context.Context, stream proto.PollerService_StreamStatusServer) ([]*proto.ServiceStatus, streamMetadata, error) {
 	var metadata streamMetadata
 
 	serviceMessages := make(map[string][]byte)
@@ -1035,7 +1071,7 @@ func (s *Server) assembleServices(
 
 // processStreamedStatus validates and processes the assembled streaming data
 func (s *Server) processStreamedStatus(
-	stream proto.PollerService_StreamStatusServer, allServices []*proto.ServiceStatus, metadata streamMetadata) error {
+	ctx context.Context, stream proto.PollerService_StreamStatusServer, allServices []*proto.ServiceStatus, metadata streamMetadata) error {
 	if metadata.pollerID == "" {
 		return errEmptyPollerID
 	}
@@ -1059,7 +1095,6 @@ func (s *Server) processStreamedStatus(
 		SourceIp:  metadata.sourceIP,
 	}
 
-	ctx := stream.Context()
 	now := time.Unix(metadata.timestamp, 0)
 
 	apiStatus, err := s.processStatusReport(ctx, req, now)

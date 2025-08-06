@@ -37,6 +37,7 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
 )
 
@@ -145,6 +146,7 @@ func newServerWithDB(_ context.Context, config *models.CoreServiceConfig, databa
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		logger:              logger.NewTestLogger(),
+		tracer:              otel.Tracer("serviceradar-core-test"),
 	}
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
@@ -217,6 +219,7 @@ func TestReportStatus(t *testing.T) {
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		logger:              logger.NewTestLogger(),
+		tracer:              otel.Tracer("serviceradar-core-test"),
 	}
 
 	// Test unknown poller
@@ -358,6 +361,7 @@ func TestProcessSweepData(t *testing.T) {
 		DB:             mockDB,
 		DeviceRegistry: mockDeviceRegistry,
 		logger:         logger.NewTestLogger(),
+		tracer:         otel.Tracer("serviceradar-core-test"),
 	}
 	now := time.Now()
 	ctx := context.Background()
@@ -438,6 +442,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 		DB:            mockDB,
 		metricBuffers: make(map[string][]*models.TimeseriesMetric),
 		logger:        logger.NewTestLogger(),
+		tracer:        otel.Tracer("serviceradar-core-test"),
 	}
 
 	pollerID := "test-poller"
@@ -496,6 +501,7 @@ func TestUpdatePollerStatus(t *testing.T) {
 		DB:                  mockDB,
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		logger:              logger.NewTestLogger(),
+		tracer:              otel.Tracer("serviceradar-core-test"),
 	}
 
 	err := server.updatePollerStatus(context.Background(), "test-poller", true, time.Now())
@@ -512,6 +518,7 @@ func TestHandlePollerRecovery(t *testing.T) {
 	server := &Server{
 		webhooks: []alerts.AlertService{mockWebhook},
 		logger:   logger.NewTestLogger(),
+		tracer:   otel.Tracer("serviceradar-core-test"),
 	}
 
 	pollerID := "test-poller"
@@ -544,6 +551,7 @@ func TestHandlePollerDown(t *testing.T) {
 		cacheMutex:              sync.RWMutex{},
 		pollerStatusUpdateMutex: sync.Mutex{},
 		logger:                  logger.NewTestLogger(),
+		tracer:                  otel.Tracer("serviceradar-core-test"),
 	}
 
 	pollerID := "test-poller"
@@ -609,6 +617,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		alertThreshold:      5 * time.Minute, // Set threshold to match test
 		logger:              logger.NewTestLogger(),
+		tracer:              otel.Tracer("serviceradar-core-test"),
 	}
 
 	now := time.Now()
@@ -722,6 +731,7 @@ func setupTestServer(
 		ShutdownChan:            make(chan struct{}),
 		config:                  &models.CoreServiceConfig{KnownPollers: []string{"test-poller"}},
 		logger:                  logger.NewTestLogger(),
+		tracer:                  otel.Tracer("serviceradar-core-test"),
 	}
 
 	// Clear all buffers and caches for isolation
