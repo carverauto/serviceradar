@@ -801,6 +801,28 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 		Time("timestamp", time.Now()).
 		Msg("Received status report")
 
+	// DEBUG: Log all services received and their types 
+	for _, svc := range req.Services {
+		s.logger.Debug().
+			Str("poller_id", req.PollerId).
+			Str("service_name", svc.ServiceName).
+			Str("service_type", svc.ServiceType).
+			Bool("available", svc.Available).
+			Int("message_length", len(svc.Message)).
+			Str("source", svc.Source).
+			Msg("CORE_DEBUG: Received service in ReportStatus")
+		
+		// Log actual message content for sweep services
+		if svc.ServiceType == "sweep" {
+			s.logger.Debug().
+				Str("poller_id", req.PollerId).
+				Str("service_name", svc.ServiceName).
+				Str("service_type", svc.ServiceType).
+				Str("message_content", string(svc.Message)).
+				Msg("CORE_DEBUG: Sweep service message content")
+		}
+	}
+
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
 	}
@@ -853,6 +875,27 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 		Str("poller_id", metadata.pollerID).
 		Int("total_service_count", len(allServices)).
 		Msg("Completed streaming reception")
+
+	// DEBUG: Log all services received via streaming and their types 
+	for _, svc := range allServices {
+		s.logger.Debug().
+			Str("poller_id", metadata.pollerID).
+			Str("service_name", svc.ServiceName).
+			Str("service_type", svc.ServiceType).
+			Bool("available", svc.Available).
+			Int("message_length", len(svc.Message)).
+			Msg("CORE_DEBUG: Received service in StreamStatus")
+		
+		// Log actual message content for sweep services
+		if svc.ServiceType == "sweep" {
+			s.logger.Debug().
+				Str("poller_id", metadata.pollerID).
+				Str("service_name", svc.ServiceName).
+				Str("service_type", svc.ServiceType).
+				Str("message_content", string(svc.Message)).
+				Msg("CORE_DEBUG: Sweep service message content from streaming")
+		}
+	}
 
 	// Validate and process the assembled data
 	return s.processStreamedStatus(stream, allServices, metadata)
