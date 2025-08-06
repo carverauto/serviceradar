@@ -97,7 +97,16 @@ func TestSweepJSONParsing(t *testing.T) {
 		},
 		{
 			name: "real_world_scenario",
-			serviceData: `{"poller_id":"demo-staging","agent_id":"default-agent","network":"192.168.1.0/24","total_hosts":256,"available_hosts":0,"last_sweep":1735857600,"ports":[],"hosts":[]}{"poller_id":"demo-staging","agent_id":"local-agent","network":"192.168.1.0/24","total_hosts":256,"available_hosts":3,"last_sweep":1735857600,"ports":[],"hosts":[{"host":"192.168.1.1","available":true,"first_seen":"2025-01-02T20:00:00Z","last_seen":"2025-01-02T20:00:00Z","response_time":1000000},{"host":"192.168.1.100","available":true,"first_seen":"2025-01-02T20:00:00Z","last_seen":"2025-01-02T20:00:00Z","response_time":1500000},{"host":"192.168.1.254","available":true,"first_seen":"2025-01-02T20:00:00Z","last_seen":"2025-01-02T20:00:00Z","response_time":2000000}]}`,
+			serviceData: `{"poller_id":"demo-staging","agent_id":"default-agent","network":"192.168.1.0/24",` +
+				`"total_hosts":256,"available_hosts":0,"last_sweep":1735857600,"ports":[],"hosts":[]}` +
+				`{"poller_id":"demo-staging","agent_id":"local-agent","network":"192.168.1.0/24",` +
+				`"total_hosts":256,"available_hosts":3,"last_sweep":1735857600,"ports":[],` +
+				`"hosts":[{"host":"192.168.1.1","available":true,` +
+				`"first_seen":"2025-01-02T20:00:00Z","last_seen":"2025-01-02T20:00:00Z","response_time":1000000},` +
+				`{"host":"192.168.1.100","available":true,` +
+				`"first_seen":"2025-01-02T20:00:00Z","last_seen":"2025-01-02T20:00:00Z","response_time":1500000},` +
+				`{"host":"192.168.1.254","available":true,` +
+				`"first_seen":"2025-01-02T20:00:00Z","last_seen":"2025-01-02T20:00:00Z","response_time":2000000}]}`,
 			expectedHostCount: 3,
 			expectedError:     false,
 			description:       "Real world concatenated JSON should parse correctly",
@@ -115,15 +124,19 @@ func TestSweepJSONParsing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// This test replicates the core parsing logic from our fix
 			var sweepSummary models.SweepSummary
+
 			serviceData := json.RawMessage(tt.serviceData)
-			
+
 			// Try to parse as a single JSON object first
 			err := json.Unmarshal(serviceData, &sweepSummary)
 			if err != nil {
 				// If single object parsing fails, try to parse as multiple concatenated JSON objects
 				decoder := json.NewDecoder(strings.NewReader(string(serviceData)))
+
 				var allHosts []models.HostResult
+
 				var lastSummary *models.SweepSummary
+
 				var parseError error
 
 				for decoder.More() {
@@ -145,6 +158,7 @@ func TestSweepJSONParsing(t *testing.T) {
 						assert.Error(t, parseError, tt.description)
 						return
 					}
+
 					t.Fatalf("Failed to decode chunk: %v", parseError)
 				}
 
@@ -152,6 +166,7 @@ func TestSweepJSONParsing(t *testing.T) {
 				if lastSummary != nil {
 					sweepSummary = *lastSummary
 				}
+
 				sweepSummary.Hosts = allHosts
 			}
 
@@ -159,19 +174,21 @@ func TestSweepJSONParsing(t *testing.T) {
 			if tt.expectedError {
 				t.Fatalf("Expected an error but parsing succeeded with %d hosts", len(sweepSummary.Hosts))
 			} else {
-				assert.Equal(t, tt.expectedHostCount, len(sweepSummary.Hosts), 
-					"Expected %d hosts, got %d. %s", 
+				assert.Len(t, sweepSummary.Hosts, tt.expectedHostCount,
+					"Expected %d hosts, got %d. %s",
 					tt.expectedHostCount, len(sweepSummary.Hosts), tt.description)
 
 				// Verify host data integrity for the real world scenario
 				if tt.name == "real_world_scenario" {
 					expectedHosts := []string{"192.168.1.1", "192.168.1.100", "192.168.1.254"}
 					actualHosts := make([]string, len(sweepSummary.Hosts))
+
 					for i, host := range sweepSummary.Hosts {
 						actualHosts[i] = host.Host
 					}
+
 					assert.ElementsMatch(t, expectedHosts, actualHosts, "Should have correct host IPs")
-					
+
 					// Verify all hosts are marked as available
 					for i, host := range sweepSummary.Hosts {
 						assert.True(t, host.Available, "Host %d should be marked as available", i)
