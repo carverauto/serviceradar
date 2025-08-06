@@ -324,6 +324,10 @@ func (s *APIServer) executeQueryAndBuildResponse(
 		hasMore = true
 		// Trim results back to original limit
 		results = results[:originalLimit]
+	} else if query.HasLimit && len(results) == originalLimit {
+		// If we got exactly the limit, we might have more pages
+		// We should generate a cursor to allow the client to check
+		hasMore = true
 	}
 
 	// Restore original limit for cursor generation
