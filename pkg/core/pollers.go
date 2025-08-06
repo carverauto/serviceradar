@@ -801,7 +801,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 		Time("timestamp", time.Now()).
 		Msg("Received status report")
 
-	// DEBUG: Log all services received and their types 
+	// DEBUG: Log all services received and their types
 	for _, svc := range req.Services {
 		s.logger.Debug().
 			Str("poller_id", req.PollerId).
@@ -811,9 +811,9 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 			Int("message_length", len(svc.Message)).
 			Str("source", svc.Source).
 			Msg("CORE_DEBUG: Received service in ReportStatus")
-		
+
 		// Log actual message content for sweep services
-		if svc.ServiceType == "sweep" {
+		if svc.ServiceType == sweepService {
 			s.logger.Debug().
 				Str("poller_id", req.PollerId).
 				Str("service_name", svc.ServiceName).
@@ -876,7 +876,7 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 		Int("total_service_count", len(allServices)).
 		Msg("Completed streaming reception")
 
-	// DEBUG: Log all services received via streaming and their types 
+	// DEBUG: Log all services received via streaming and their types
 	for _, svc := range allServices {
 		s.logger.Debug().
 			Str("poller_id", metadata.pollerID).
@@ -885,9 +885,9 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 			Bool("available", svc.Available).
 			Int("message_length", len(svc.Message)).
 			Msg("CORE_DEBUG: Received service in StreamStatus")
-		
+
 		// Log actual message content for sweep services
-		if svc.ServiceType == "sweep" {
+		if svc.ServiceType == sweepService {
 			s.logger.Debug().
 				Str("poller_id", metadata.pollerID).
 				Str("service_name", svc.ServiceName).
