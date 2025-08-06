@@ -57,12 +57,9 @@ func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient, log
 
 // GetDeviceStatesBySource queries the ServiceRadar API to get the current state of devices for a given discovery source.
 func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error) {
-	// Use a reasonable batch size for pagination to avoid memory issues
-	// while ensuring we fetch all devices through proper pagination.
 	// This query finds devices that originated from the specified source and have also been seen by a sweep.
 	// The `discovery_sources = 'sweep'` part is a useful heuristic to filter for devices that are actually "known" on the network.
 	query := fmt.Sprintf("show devices where discovery_sources = '%s' and discovery_sources = 'sweep'", source)
-	limit := 5000 // Reduced from 10000 to ensure better pagination handling
 
 	var allDeviceStates []DeviceState
 
@@ -72,8 +69,8 @@ func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source 
 	for {
 		queryReq := QueryRequest{
 			Query:  query,
-			Limit:  limit,
 			Cursor: cursor,
+			// Don't set a limit - let the server use its default pagination size
 		}
 
 		response, err := s.executeQuery(ctx, queryReq)
@@ -89,16 +86,16 @@ func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source 
 			Int("page", pageCount).
 			Int("states_in_page", len(states)).
 			Int("total_states", len(allDeviceStates)).
+			Int("page_limit", response.Pagination.Limit).
 			Str("next_cursor", response.Pagination.NextCursor).
 			Msg("Fetched device states page")
 
 		// Continue pagination if there's a next cursor
-		if response.Pagination.NextCursor == "" || len(states) == 0 {
+		if response.Pagination.NextCursor == "" {
 			s.Logger.Info().
 				Int("total_pages", pageCount).
 				Int("total_device_states", len(allDeviceStates)).
 				Msg("Completed fetching all device states")
-
 			break
 		}
 
