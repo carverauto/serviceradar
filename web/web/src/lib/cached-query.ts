@@ -33,11 +33,51 @@ const pendingQueries = new Map<string, Promise<any>>();
 // Cache configuration
 const CACHE_TTL = 30000; // 30 seconds cache TTL
 
+// Track if cleanup interval has been set up
+let cleanupIntervalId: NodeJS.Timeout | null = null;
+
+// Setup cleanup interval (only in browser)
+function setupCleanupInterval() {
+    if (typeof window === 'undefined' || typeof document === 'undefined' || cleanupIntervalId) {
+        return;
+    }
+
+    const startCleanup = () => {
+        cleanupIntervalId = setInterval(() => {
+            const now = Date.now();
+            const expiredKeys: string[] = [];
+            
+            queryCache.forEach((value, key) => {
+                if (now - value.timestamp > CACHE_TTL * 2) {
+                    expiredKeys.push(key);
+                }
+            });
+            
+            expiredKeys.forEach(key => {
+                queryCache.delete(key);
+                console.log(`[Query Cache Cleanup] Removed expired entry: ${key}`);
+            });
+        }, 60000); // Run cleanup every minute
+    };
+
+    // Use requestIdleCallback if available, otherwise use setTimeout
+    if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(startCleanup);
+    } else {
+        setTimeout(startCleanup, 0);
+    }
+}
+
 export async function cachedQuery<T>(
     query: string,
     token?: string,
     ttl: number = CACHE_TTL
 ): Promise<T> {
+    // Setup cleanup interval on first use (only in browser)
+    if (typeof window !== 'undefined' && !cleanupIntervalId) {
+        setupCleanupInterval();
+    }
+
     const cacheKey = `query:${query}`;
     const now = Date.now();
     
@@ -112,45 +152,10 @@ export function clearQueryCache(query?: string) {
     }
 }
 
-// Cleanup old cache entries periodically (only in browser environment)
-if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-    // Ensure this only runs on the client side after hydration
-    if (typeof requestIdleCallback !== 'undefined') {
-        requestIdleCallback(() => {
-            setInterval(() => {
-                const now = Date.now();
-                const expiredKeys: string[] = [];
-                
-                queryCache.forEach((value, key) => {
-                    if (now - value.timestamp > CACHE_TTL * 2) {
-                        expiredKeys.push(key);
-                    }
-                });
-                
-                expiredKeys.forEach(key => {
-                    queryCache.delete(key);
-                    console.log(`[Query Cache Cleanup] Removed expired entry: ${key}`);
-                });
-            }, 60000); // Run cleanup every minute
-        });
-    } else {
-        // Fallback for browsers that don't support requestIdleCallback
-        setTimeout(() => {
-            setInterval(() => {
-                const now = Date.now();
-                const expiredKeys: string[] = [];
-                
-                queryCache.forEach((value, key) => {
-                    if (now - value.timestamp > CACHE_TTL * 2) {
-                        expiredKeys.push(key);
-                    }
-                });
-                
-                expiredKeys.forEach(key => {
-                    queryCache.delete(key);
-                    console.log(`[Query Cache Cleanup] Removed expired entry: ${key}`);
-                });
-            }, 60000); // Run cleanup every minute
-        }, 0);
+// Clean up on unmount (for use in React components)
+export function cleanupCacheInterval() {
+    if (cleanupIntervalId) {
+        clearInterval(cleanupIntervalId);
+        cleanupIntervalId = null;
     }
 }

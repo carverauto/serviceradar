@@ -16,13 +16,15 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import {
     AlertTriangle, Activity, ServerOff, Server
 } from 'lucide-react';
-import { useAuth } from '../AuthProvider';
-import {Poller, GenericServiceDetails} from "@/types/types";
+import {GenericServiceDetails} from "@/types/types";
 import { useRouter } from 'next/navigation';
+import { AnalyticsProvider, useAnalytics } from '@/contexts/AnalyticsContext';
+import { SysmonProvider } from '@/contexts/SysmonContext';
+import { RperfProvider } from '@/contexts/RperfContext';
 import HighUtilizationWidget from './HighUtilizationWidget';
 import CriticalEventsWidget from './CriticalEventsWidget';
 import CriticalLogsWidget from './CriticalLogsWidget';
@@ -30,8 +32,6 @@ import ObservabilityWidget from './ObservabilityWidget';
 import DeviceAvailabilityWidget from './DeviceAvailabilityWidget';
 import RperfBandwidthWidget from './RperfBandwidthWidget';
 import { formatNumber } from '@/utils/formatters';
-
-const REFRESH_INTERVAL = 60000; // 60 seconds
 
 // Reusable component for the top statistic cards
 const StatCard = ({ 
@@ -85,122 +85,49 @@ const StatCard = ({
 
 
 
-const Dashboard = () => {
-    const { token } = useAuth();
+const DashboardContent = () => {
     const router = useRouter();
-    const [stats, setStats] = useState({
-        totalDevices: 0,
-        offlineDevices: 0,
-        highLatencyServices: 0,
-        failingServices: 0,
-    });
+    const { data: analyticsData, loading: isLoading, error } = useAnalytics();
 
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    // Simple in-memory cache for 30 seconds
-    const cacheRef = React.useRef<Map<string, { data: unknown; timestamp: number }>>(new Map());
-    
-    const postQuery = useCallback(async (query: string) => {
-        const cacheKey = query;
-        const now = Date.now();
-        
-        // Check cache first (30 second TTL)
-        const cached = cacheRef.current.get(cacheKey);
-        if (cached && (now - cached.timestamp) < 30000) {
-            console.log(`[Cache Hit] ${query}`);
-            return cached.data;
+    // Calculate derived stats from shared analytics data
+    const stats = useMemo(() => {
+        if (!analyticsData) {
+            return { totalDevices: 0, offlineDevices: 0, highLatencyServices: 0, failingServices: 0 };
         }
-        
-        console.log(`[API Call] ${query}`);
-        const response = await fetch('/api/query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token && { Authorization: `Bearer ${token}` }),
-            },
-            body: JSON.stringify({ query, limit: 1000 }),
-        });
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to execute query');
-        }
-        const data = await response.json();
-        
-        // Cache the result
-        cacheRef.current.set(cacheKey, { data, timestamp: now });
-        
-        return data;
-    }, [token]);
 
-    const fetchData = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
+        let failingServices = 0;
+        let highLatencyServices = 0;
+        const latencyThreshold = 100 * 1000000; // 100ms in nanoseconds
 
-        try {
-            // Use Promise.all to fetch data concurrently
-            const [
-                totalDevicesRes,
-                offlineDevicesRes,
-                pollersData,
-            ] = await Promise.all([
-                postQuery('COUNT DEVICES'),
-                postQuery('COUNT DEVICES WHERE is_available = false'),
-                // Fetch pollers to get detailed service status and latency, which is not available in the 'SERVICES' stream
-                fetch('/api/pollers', {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` }),
-                    },
-                }).then(res => {
-                    if (!res.ok) throw new Error('Failed to fetch pollers data for analytics');
-                    return res.json() as Promise<Poller[]>;
-                }),
-            ]);
-
-            // Calculate stats
-            const totalDevices = totalDevicesRes.results[0]?.['count()'] || 0;
-            const offlineDevices = offlineDevicesRes.results[0]?.['count()'] || 0;
-
-            let failingServices = 0;
-            let highLatencyServices = 0;
-            const latencyThreshold = 100 * 1000000; // 100ms in nanoseconds
-            const latencyData: { name: string; value: number }[] = [];
-
-            pollersData.forEach(poller => {
-                poller.services?.forEach(service => {
-                    if (!service.available) {
-                        failingServices++;
-                    }
-                    if (service.type === 'icmp' && service.available && service.details) {
-                        try {
-                            const details = (typeof service.details === 'string' ? JSON.parse(service.details) : service.details) as GenericServiceDetails;
-                            // Handle both direct response_time and nested data.response_time (enhanced payload)
-                            let responseTime = details?.response_time;
-                            if (!responseTime && details?.data?.response_time) {
-                                responseTime = details.data.response_time;
-                            }
-                            
-                            if (responseTime) {
-                                const responseTimeMs = responseTime / 1000000;
-                                latencyData.push({ name: service.name, value: responseTimeMs });
-                                if (responseTime > latencyThreshold) {
-                                    highLatencyServices++;
-                                }
-                            }
-                        } catch { /* ignore parse errors */ }
-                    }
-                });
+        (analyticsData.pollers as Array<{ services?: Array<{ available: boolean; type: string; details?: unknown; }> }>).forEach((poller) => {
+            poller.services?.forEach((service) => {
+                if (!service.available) {
+                    failingServices++;
+                }
+                if (service.type === 'icmp' && service.available && service.details) {
+                    try {
+                        const details = (typeof service.details === 'string' ? JSON.parse(service.details) : service.details) as GenericServiceDetails;
+                        // Handle both direct response_time and nested data.response_time (enhanced payload)
+                        let responseTime = details?.response_time;
+                        if (!responseTime && details?.data?.response_time) {
+                            responseTime = details.data.response_time;
+                        }
+                        
+                        if (responseTime && responseTime > latencyThreshold) {
+                            highLatencyServices++;
+                        }
+                    } catch { /* ignore parse errors */ }
+                }
             });
+        });
 
-            setStats({ totalDevices, offlineDevices, highLatencyServices, failingServices });
-
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "An unknown error occurred.");
-        } finally {
-            setIsLoading(false);
-        }
-    }, [postQuery, token]);
+        return {
+            totalDevices: analyticsData.totalDevices,
+            offlineDevices: analyticsData.offlineDevices,
+            highLatencyServices,
+            failingServices
+        };
+    }, [analyticsData]);
 
     const handleStatCardClick = useCallback((type: 'total' | 'offline' | 'latency' | 'failing') => {
         let query = '';
@@ -221,14 +148,6 @@ const Dashboard = () => {
         const encodedQuery = encodeURIComponent(query);
         router.push(`/query?q=${encodedQuery}`);
     }, [router]);
-
-    useEffect(() => {
-        fetchData();
-        const interval = setInterval(() => {
-            fetchData();
-        }, REFRESH_INTERVAL);
-        return () => clearInterval(interval);
-    }, [fetchData]);
 
     return (
         <div className="space-y-6">
@@ -290,6 +209,18 @@ const Dashboard = () => {
                 </div>
             </div>
         </div>
+    );
+};
+
+const Dashboard = () => {
+    return (
+        <AnalyticsProvider>
+            <SysmonProvider>
+                <RperfProvider>
+                    <DashboardContent />
+                </RperfProvider>
+            </SysmonProvider>
+        </AnalyticsProvider>
     );
 };
 

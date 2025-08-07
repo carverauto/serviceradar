@@ -15,16 +15,22 @@ import { Log } from '@/types/logs';
 import { TraceSummary, TraceSpan } from '@/types/traces';
 import { OtelMetric } from '@/types/otel-metrics';
 
+interface ExtendedTraceSpan extends TraceSpan {
+    parsed_attributes?: unknown;
+    parsed_events?: unknown;
+    parsed_resource_attributes?: unknown;
+}
+
 interface CorrelationResult {
     trace_id: string;
     logs: Log[];
     trace_summary: TraceSummary | null;
-    spans: TraceSpan[];
+    spans: ExtendedTraceSpan[];
     metrics: OtelMetric[];
 }
 
 // Helper function to safely parse JSON fields that might be strings
-const parseJSONField = (field: string | object | null): any => {
+const parseJSONField = (field: string | object | null): unknown => {
     if (!field) return null;
     if (typeof field === 'object') return field;
     if (typeof field === 'string') {
@@ -36,6 +42,139 @@ const parseJSONField = (field: string | object | null): any => {
     }
     return null;
 };
+
+// Helper functions to safely convert values to strings
+const safeString = (value: unknown): string => {
+    if (value === null || value === undefined) return '';
+    return String(value);
+};
+
+// Helper function to render span attributes safely
+const renderSpanAttributes = (attributes: unknown): React.ReactNode => {
+    if (!attributes || typeof attributes !== 'object' || attributes === null) return null;
+    
+    const attrObj = attributes as Record<string, unknown>;
+    if (Object.keys(attrObj).length === 0) return null;
+    
+    return (
+        <div className="mb-4">
+            <p className="text-gray-600 dark:text-gray-400 text-xs mb-2">Span Attributes:</p>
+            <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded border max-h-32 overflow-y-auto">
+                <div className="grid grid-cols-1 gap-1 text-xs">
+                    {Object.entries(attrObj).map(([key, value]) => (
+                        <div key={key} className="flex justify-between">
+                            <span className="text-gray-600 dark:text-gray-400 font-mono">{key}:</span>
+                            <span className="text-gray-900 dark:text-white font-mono ml-2 break-all">
+                                {value === null ? 'null' : value === undefined ? 'undefined' : typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Helper function to render span events safely
+const renderSpanEvents = (events: unknown): React.ReactNode => {
+    if (!events || !Array.isArray(events) || events.length === 0) return null;
+    
+    return (
+        <div className="mb-4">
+            <p className="text-gray-600 dark:text-gray-400 text-xs mb-2">Span Events:</p>
+            <div className="space-y-2">
+                {events.map((event: Record<string, unknown>, eventIndex: number) => {
+                    const eventName = String(event.name || 'Unknown Event');
+                    const eventTime = event.timestamp && typeof event.timestamp === 'number' 
+                        ? new Date(event.timestamp / 1e6).toLocaleTimeString() 
+                        : 'Unknown Time';
+                    
+                    const hasAttributes = event.attributes 
+                        && typeof event.attributes === 'object' 
+                        && event.attributes !== null 
+                        && Object.keys(event.attributes as Record<string, unknown>).length > 0;
+                    
+                    return (
+                        <div key={eventIndex} className="bg-gray-50 dark:bg-gray-700 p-2 rounded border">
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                    {eventName}
+                                </span>
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    {eventTime}
+                                </span>
+                            </div>
+                            {(() => {
+                                if (!hasAttributes) return null;
+                                return (
+                                    <div className="text-xs text-gray-600 dark:text-gray-400">
+                                        {Object.entries(event.attributes as Record<string, unknown>).map(([key, value]) => (
+                                            <div key={key} className="flex">
+                                                <span className="font-mono">{key}: </span>
+                                                <span className="font-mono ml-1">
+                                                    {value === null ? 'null' : value === undefined ? 'undefined' : typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
+// Component to render span details
+function SpanDetails({ span }: { span: ExtendedTraceSpan }): React.ReactElement {
+    const spanId = safeString(span.span_id) || '';
+    const parentSpanId = safeString(span.parent_span_id) || 'None (Root)';
+    const serviceName = safeString(span.service_name) || 'Unknown';
+    const spanKind = safeString(span.kind) || 'Unknown';
+    const statusMessage = safeString(span.status_message);
+
+    return (
+        <div className="border-t border-gray-200 dark:border-gray-600 p-3 bg-white dark:bg-gray-800">
+            <h5 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                Span Details
+            </h5>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs mb-4">
+                <div>
+                    <p className="text-gray-600 dark:text-gray-400">Span ID:</p>
+                    <p className="font-mono text-gray-900 dark:text-white break-all">{spanId}</p>
+                </div>
+                <div>
+                    <p className="text-gray-600 dark:text-gray-400">Parent Span ID:</p>
+                    <p className="font-mono text-gray-900 dark:text-white break-all">{parentSpanId}</p>
+                </div>
+                <div>
+                    <p className="text-gray-600 dark:text-gray-400">Service:</p>
+                    <p className="text-gray-900 dark:text-white">{serviceName}</p>
+                </div>
+                <div>
+                    <p className="text-gray-600 dark:text-gray-400">Span Kind:</p>
+                    <p className="text-gray-900 dark:text-white">{spanKind}</p>
+                </div>
+            </div>
+            
+            {renderSpanAttributes(span.parsed_attributes)}
+
+            {renderSpanEvents(span.parsed_events)}
+
+            {statusMessage && (
+                <div className="mb-4">
+                    <p className="text-gray-600 dark:text-gray-400 text-xs">Status Message:</p>
+                    <p className="text-gray-900 dark:text-white text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded border">
+                        {statusMessage}
+                    </p>
+                </div>
+            )}
+        </div>
+    );
+}
 
 const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) => {
     const { token } = useAuth();
@@ -87,9 +226,12 @@ const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) =
             // Parse span data to handle JSON strings for attributes and events
             const parsedSpans = (spansRes.results || []).map(span => ({
                 ...span,
-                attributes: parseJSONField(span.attributes),
-                events: parseJSONField(span.events),
-                resource_attributes: parseJSONField(span.resource_attributes)
+                attributes: span.attributes, // Keep as string to match TraceSpan interface
+                events: span.events, // Keep as string to match TraceSpan interface
+                resource_attributes: span.resource_attributes, // Keep as string to match TraceSpan interface
+                parsed_attributes: parseJSONField(span.attributes),
+                parsed_events: parseJSONField(span.events),
+                parsed_resource_attributes: parseJSONField(span.resource_attributes)
             }));
 
             setResult({
@@ -344,124 +486,38 @@ const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) =
                                     <p className="text-gray-600 dark:text-gray-400 text-sm">No spans found for this trace.</p>
                                 ) : (
                                     <div className="space-y-3">
-                                        {result.spans.map((span, index) => (
+                                        {result.spans.map((span: ExtendedTraceSpan, index: number) => (
                                             <div key={index} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                                                 <div className="p-3">
                                                     <div className="flex items-center justify-between mb-2">
                                                         <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                                            {span.name}
+                                                            {safeString(span.name) || 'Unknown Span'}
                                                         </span>
                                                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                                                            {formatDuration((span.end_time_unix_nano - span.start_time_unix_nano) / 1e6)}
+                                                            {formatDuration((Number(span.end_time_unix_nano || 0) - Number(span.start_time_unix_nano || 0)) / 1e6)}
                                                         </span>
                                                     </div>
-                                                    <p className="text-xs text-gray-600 dark:text-gray-400">{span.service_name || 'Unknown Service'}</p>
+                                                    <p className="text-xs text-gray-600 dark:text-gray-400">{safeString(span.service_name) || 'Unknown Service'}</p>
                                                     <div className="flex items-center gap-2 mt-1">
                                                         <button
                                                             onClick={() => setExpandedSpan(expandedSpan === index ? null : index)}
                                                             className={`px-2 py-1 text-xs font-semibold rounded-full transition-all hover:shadow-md hover:scale-105 cursor-pointer ${
-                                                                span.status_code === 1 
+                                                                Number(span.status_code) === 1 
                                                                     ? 'bg-green-100 text-green-800 dark:bg-green-600/50 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-600/70'
                                                                     : 'bg-red-100 text-red-800 dark:bg-red-600/50 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-600/70'
                                                             }`}
                                                             title="Click to see detailed status analysis"
                                                         >
-                                                            {span.status_code === 1 ? 'OK' : 'Error'}
+                                                            {Number(span.status_code) === 1 ? 'OK' : 'Error'}
                                                         </button>
                                                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                                                            span_id: {span.span_id?.substring(0, 8)}...
+                                                            span_id: {(safeString(span.span_id) || '').substring(0, 8)}...
                                                         </span>
                                                     </div>
                                                 </div>
                                                 
                                                 {/* Expanded Span Details */}
-                                                {expandedSpan === index && (
-                                                    <div className="border-t border-gray-200 dark:border-gray-600 p-3 bg-white dark:bg-gray-800">
-                                                        <h5 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-                                                            Span Details
-                                                        </h5>
-                                                        
-                                                        {/* Span Details */}
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs mb-4">
-                                                            <div>
-                                                                <p className="text-gray-600 dark:text-gray-400">Span ID:</p>
-                                                                <p className="font-mono text-gray-900 dark:text-white break-all">{span.span_id}</p>
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-gray-600 dark:text-gray-400">Parent Span ID:</p>
-                                                                <p className="font-mono text-gray-900 dark:text-white break-all">{span.parent_span_id || 'None (Root)'}</p>
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-gray-600 dark:text-gray-400">Service:</p>
-                                                                <p className="text-gray-900 dark:text-white">{span.service_name || 'Unknown'}</p>
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-gray-600 dark:text-gray-400">Span Kind:</p>
-                                                                <p className="text-gray-900 dark:text-white">{span.kind || 'Unknown'}</p>
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        {/* Span Attributes */}
-                                                        {span.attributes && Object.keys(span.attributes).length > 0 && (
-                                                            <div className="mb-4">
-                                                                <p className="text-gray-600 dark:text-gray-400 text-xs mb-2">Span Attributes:</p>
-                                                                <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded border max-h-32 overflow-y-auto">
-                                                                    <div className="grid grid-cols-1 gap-1 text-xs">
-                                                                        {Object.entries(span.attributes).map(([key, value]) => (
-                                                                            <div key={key} className="flex justify-between">
-                                                                                <span className="text-gray-600 dark:text-gray-400 font-mono">{key}:</span>
-                                                                                <span className="text-gray-900 dark:text-white font-mono ml-2 break-all">
-                                                                                    {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                                                                                </span>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Span Events */}
-                                                        {span.events && Array.isArray(span.events) && span.events.length > 0 && (
-                                                            <div className="mb-4">
-                                                                <p className="text-gray-600 dark:text-gray-400 text-xs mb-2">Span Events:</p>
-                                                                <div className="space-y-2">
-                                                                    {span.events.map((event: any, eventIndex: number) => (
-                                                                        <div key={eventIndex} className="bg-gray-50 dark:bg-gray-700 p-2 rounded border">
-                                                                            <div className="flex justify-between items-center mb-1">
-                                                                                <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                                                                    {event.name}
-                                                                                </span>
-                                                                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                                                                    {new Date(event.timestamp / 1e6).toLocaleTimeString()}
-                                                                                </span>
-                                                                            </div>
-                                                                            {event.attributes && Object.keys(event.attributes).length > 0 && (
-                                                                                <div className="text-xs text-gray-600 dark:text-gray-400">
-                                                                                    {Object.entries(event.attributes).map(([key, value]) => (
-                                                                                        <div key={key} className="flex">
-                                                                                            <span className="font-mono">{key}: </span>
-                                                                                            <span className="font-mono ml-1">{String(value)}</span>
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Status Message */}
-                                                        {span.status_message && (
-                                                            <div className="mb-4">
-                                                                <p className="text-gray-600 dark:text-gray-400 text-xs">Status Message:</p>
-                                                                <p className="text-gray-900 dark:text-white text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded border">
-                                                                    {span.status_message}
-                                                                </p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
+                                                {expandedSpan === index && <SpanDetails span={span} />}
                                             </div>
                                         ))}
                                     </div>
