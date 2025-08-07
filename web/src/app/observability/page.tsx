@@ -1,12 +1,41 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { Activity, Clock, BarChart3, Link as LinkIcon } from 'lucide-react';
-import LogsDashboard from '@/components/Logs/Dashboard';
-import TracesDashboard from '@/components/Observability/TracesDashboard';
-import MetricsDashboard from '@/components/Observability/MetricsDashboard';
-import CorrelationDashboard from '@/components/Observability/CorrelationDashboard';
+// Dynamically import all dashboards to prevent SSR issues
+const LogsDashboard = dynamic(
+    () => import('@/components/Logs/Dashboard'),
+    { 
+        ssr: false,
+        loading: () => <div className="flex items-center justify-center p-8">Loading logs...</div>
+    }
+);
+
+const TracesDashboard = dynamic(
+    () => import('@/components/Observability/TracesDashboard'),
+    { 
+        ssr: false,
+        loading: () => <div className="flex items-center justify-center p-8">Loading traces...</div>
+    }
+);
+
+const MetricsDashboard = dynamic(
+    () => import('@/components/Observability/MetricsDashboard'),
+    { 
+        ssr: false,
+        loading: () => <div className="flex items-center justify-center p-8">Loading metrics...</div>
+    }
+);
+
+const CorrelationDashboard = dynamic(
+    () => import('@/components/Observability/CorrelationDashboard'),
+    { 
+        ssr: false,
+        loading: () => <div className="flex items-center justify-center p-8">Loading correlation...</div>
+    }
+);
 
 type TabType = 'logs' | 'traces' | 'metrics' | 'correlation';
 

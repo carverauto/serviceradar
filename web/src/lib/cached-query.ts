@@ -112,19 +112,45 @@ export function clearQueryCache(query?: string) {
     }
 }
 
-// Cleanup old cache entries periodically
-setInterval(() => {
-    const now = Date.now();
-    const expiredKeys: string[] = [];
-    
-    queryCache.forEach((value, key) => {
-        if (now - value.timestamp > CACHE_TTL * 2) {
-            expiredKeys.push(key);
-        }
-    });
-    
-    expiredKeys.forEach(key => {
-        queryCache.delete(key);
-        console.log(`[Query Cache Cleanup] Removed expired entry: ${key}`);
-    });
-}, 60000); // Run cleanup every minute
+// Cleanup old cache entries periodically (only in browser environment)
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    // Ensure this only runs on the client side after hydration
+    if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(() => {
+            setInterval(() => {
+                const now = Date.now();
+                const expiredKeys: string[] = [];
+                
+                queryCache.forEach((value, key) => {
+                    if (now - value.timestamp > CACHE_TTL * 2) {
+                        expiredKeys.push(key);
+                    }
+                });
+                
+                expiredKeys.forEach(key => {
+                    queryCache.delete(key);
+                    console.log(`[Query Cache Cleanup] Removed expired entry: ${key}`);
+                });
+            }, 60000); // Run cleanup every minute
+        });
+    } else {
+        // Fallback for browsers that don't support requestIdleCallback
+        setTimeout(() => {
+            setInterval(() => {
+                const now = Date.now();
+                const expiredKeys: string[] = [];
+                
+                queryCache.forEach((value, key) => {
+                    if (now - value.timestamp > CACHE_TTL * 2) {
+                        expiredKeys.push(key);
+                    }
+                });
+                
+                expiredKeys.forEach(key => {
+                    queryCache.delete(key);
+                    console.log(`[Query Cache Cleanup] Removed expired entry: ${key}`);
+                });
+            }, 60000); // Run cleanup every minute
+        }, 0);
+    }
+}

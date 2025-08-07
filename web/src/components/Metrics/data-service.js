@@ -447,8 +447,10 @@ const cleanupCache = () => {
     });
 };
 
-// Run cache cleanup every 30 seconds
-setInterval(cleanupCache, 30000);
+// Run cache cleanup every 30 seconds (only in browser environment)
+if (typeof window !== 'undefined') {
+    setInterval(cleanupCache, 30000);
+}
 
 // Generate default data points if API fails
 const generateDefaultDataPoints = () => {

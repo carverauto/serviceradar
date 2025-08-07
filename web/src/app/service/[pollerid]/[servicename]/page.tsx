@@ -22,7 +22,6 @@ import { Poller, ServiceMetric, ServicePayload } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
 import { fetchFromAPI } from "@/lib/api";
 import { SysmonData } from "@/types/sysmon";
-import { fetchSystemData } from "@/components/Metrics/data-service";
 
 type Params = Promise<{ pollerid: string; servicename: string }>;
 
@@ -43,7 +42,7 @@ async function fetchServiceData(
     let service: ServicePayload | null = null;
     let metrics: ServiceMetric[] = [];
     const snmpData: SnmpDataPoint[] = [];
-    let sysmonData: SysmonData | Record<string, never> = {};
+    const sysmonData: SysmonData | Record<string, never> = {};
 
     try {
         service = await fetchFromAPI<ServicePayload>(
@@ -86,18 +85,10 @@ async function fetchServiceData(
 
         // If the service is 'sysmon', fetch the full SysmonData using the dedicated function
         if (serviceName.toLowerCase() === "sysmon") {
-            try {
-                // Call fetchSystemData which already fetches and processes all Sysmon metrics
-                const fetchedSysmonData: SysmonData | null = await fetchSystemData(pollerId, timeRange);
-                if (fetchedSysmonData) {
-                    sysmonData = fetchedSysmonData;
-                } else {
-                    console.warn(`fetchSystemData returned null for poller ${pollerId}.`);
-                }
-            } catch (sysmonError) {
-                console.error("Error fetching Sysmon data with fetchSystemData:", sysmonError);
-                // On error, sysmonData remains its default empty object
-            }
+            // For sysmon, we'll let the client-side component fetch the data
+            // Server-side fetching of sysmon data is handled differently
+            // The ServiceDashboard component will handle fetching sysmon data on the client
+            console.log(`Sysmon service detected for poller ${pollerId}, data will be fetched client-side`);
         }
 
         return { service, metrics: serviceMetrics, snmpData, sysmonData, timeRange };
