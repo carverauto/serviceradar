@@ -434,14 +434,13 @@ func TestExecuteQueryAndBuildResponse(t *testing.T) {
 					Return([]map[string]interface{}{
 						{"ip": "192.168.1.1", "last_seen": time.Now()},
 						{"ip": "192.168.1.2", "last_seen": time.Now().Add(-1 * time.Hour)},
-						{"ip": "192.168.1.3", "last_seen": time.Now().Add(-2 * time.Hour)},
 					}, nil)
 			},
 			validateResp: func(t *testing.T, resp *QueryResponse) {
 				t.Helper()
 				assert.Len(t, resp.Results, 2)
 				assert.Equal(t, 2, resp.Pagination.Limit)
-				assert.NotEmpty(t, resp.Pagination.NextCursor)
+				assert.NotEmpty(t, resp.Pagination.NextCursor) // Next cursor generated when results == limit
 				assert.NotEmpty(t, resp.Pagination.PrevCursor)
 			},
 		},
@@ -748,8 +747,8 @@ func TestCursorFunctions(t *testing.T) {
 			"last_seen": now,
 		}
 
-		cursorData := createCursorData(result, "last_seen")
-		assert.Equal(t, now.Format(time.RFC3339), cursorData["last_seen"])
+		cursorData := createCursorData(result, []models.OrderByItem{{Field: "last_seen", Direction: models.Descending}})
+		assert.Equal(t, now.Format(time.RFC3339Nano), cursorData["last_seen"])
 	})
 
 	// Test addEntityFields
