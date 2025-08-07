@@ -23,6 +23,8 @@ import {
 import {GenericServiceDetails} from "@/types/types";
 import { useRouter } from 'next/navigation';
 import { AnalyticsProvider, useAnalytics } from '@/contexts/AnalyticsContext';
+import { SysmonProvider } from '@/contexts/SysmonContext';
+import { RperfProvider } from '@/contexts/RperfContext';
 import HighUtilizationWidget from './HighUtilizationWidget';
 import CriticalEventsWidget from './CriticalEventsWidget';
 import CriticalLogsWidget from './CriticalLogsWidget';
@@ -213,7 +215,11 @@ const DashboardContent = () => {
 const Dashboard = () => {
     return (
         <AnalyticsProvider>
-            <DashboardContent />
+            <SysmonProvider>
+                <RperfProvider>
+                    <DashboardContent />
+                </RperfProvider>
+            </SysmonProvider>
         </AnalyticsProvider>
     );
 };
