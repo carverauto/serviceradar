@@ -19,6 +19,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { AlertTriangle, Cpu, HardDrive, MemoryStick, ExternalLink } from 'lucide-react';
+import { pollersService } from '@/services/pollersService';
+import { analyticsService } from '@/services/analyticsService';
 
 import { useRouter } from 'next/navigation';
 
@@ -50,40 +52,14 @@ const HighUtilizationWidget: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const postQuery = useCallback(async (query: string) => {
-        const response = await fetch('/api/query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token && { Authorization: `Bearer ${token}` }),
-            },
-            body: JSON.stringify({ query, limit: 100 }),
-        });
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to execute query');
-        }
-        return response.json();
-    }, [token]);
 
     const fetchHighUtilizationServices = useCallback(async () => {
         try {
             setLoading(true);
             setError(null);
 
-            // First, get all pollers
-            const pollersResponse = await fetch('/api/pollers', {
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token && { Authorization: `Bearer ${token}` }),
-                },
-            });
-            
-            if (!pollersResponse.ok) {
-                throw new Error('Failed to fetch pollers');
-            }
-            
-            const pollers = await pollersResponse.json();
+            // Get all pollers using shared service (with caching and retry logic)
+            const pollers = await pollersService.getPollers(token);
             
             // For each poller, fetch sysmon data
             const endTime = new Date();
@@ -120,9 +96,9 @@ const HighUtilizationWidget: React.FC = () => {
             
             const allSysmonData = await Promise.all(sysmonPromises);
 
-            // Get devices to match with metrics
-            const devicesRes = await postQuery('SHOW DEVICES LATEST');
-            const devices = devicesRes.results || [];
+            // Get devices from shared analytics service
+            const analyticsData = await analyticsService.getAnalyticsData(token);
+            const devices = analyticsData.devicesLatest;
             
             // Create a map of device info by IP address and hostname
             const deviceMap = new Map();
@@ -301,7 +277,7 @@ const HighUtilizationWidget: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [token, postQuery]);
+    }, [token]);
 
     useEffect(() => {
         fetchHighUtilizationServices();

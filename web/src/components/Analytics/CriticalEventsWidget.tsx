@@ -16,10 +16,10 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/components/AuthProvider';
+import React, { useMemo, useCallback } from 'react';
 import { AlertTriangle, ShieldAlert, AlertCircle, Info, ExternalLink } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { Event } from '@/types/events';
 import { formatNumber } from '@/utils/formatters';
 
@@ -32,85 +32,29 @@ interface EventStats {
 }
 
 const CriticalEventsWidget: React.FC = () => {
-    const { token } = useAuth();
     const router = useRouter();
-    const [recentEvents, setRecentEvents] = useState<Event[]>([]);
-    const [stats, setStats] = useState<EventStats>({
-        critical: 0,
-        high: 0,
-        medium: 0,
-        low: 0,
-        total: 0
-    });
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    const postQuery = useCallback(async <T,>(query: string): Promise<T> => {
-        const response = await fetch('/api/query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token && { Authorization: `Bearer ${token}` })
-            },
-            body: JSON.stringify({ query, limit: 20 }),
-            cache: 'no-store',
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to execute query');
+    const { data: analyticsData, loading, error } = useAnalytics();
+    
+    const { stats, recentEvents } = useMemo(() => {
+        if (!analyticsData) {
+            return {
+                stats: { critical: 0, high: 0, medium: 0, low: 0, total: 0 },
+                recentEvents: []
+            };
         }
-
-        return response.json();
-    }, [token]);
-
-    const fetchCriticalEvents = useCallback(async () => {
-        try {
-            setLoading(true);
-            setError(null);
-
-            // Fetch event counts and recent critical/high events in parallel
-            const [
-                totalEventsRes,
-                criticalEventsRes,
-                highEventsRes,
-                mediumEventsRes,
-                lowEventsRes,
-                recentCriticalEventsRes
-            ] = await Promise.all([
-                postQuery<{ results: [{ 'count()': number }] }>('COUNT EVENTS'),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Critical'"),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'High'"),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Medium'"),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Low'"),
-                postQuery<{ results: Event[] }>("SHOW EVENTS WHERE severity IN ('Critical', 'High') ORDER BY event_timestamp DESC")
-            ]);
-
-            // Update stats
-            setStats({
-                total: totalEventsRes.results[0]?.['count()'] || 0,
-                critical: criticalEventsRes.results[0]?.['count()'] || 0,
-                high: highEventsRes.results[0]?.['count()'] || 0,
-                medium: mediumEventsRes.results[0]?.['count()'] || 0,
-                low: lowEventsRes.results[0]?.['count()'] || 0
-            });
-
-            // Update recent events (take top 5)
-            setRecentEvents((recentCriticalEventsRes.results || []).slice(0, 5));
-
-        } catch (err) {
-            console.error('Error fetching critical events:', err);
-            setError(err instanceof Error ? err.message : 'Unknown error');
-        } finally {
-            setLoading(false);
-        }
-    }, [postQuery]);
-
-    useEffect(() => {
-        fetchCriticalEvents();
-        const interval = setInterval(fetchCriticalEvents, 60000); // Refresh every minute
-        return () => clearInterval(interval);
-    }, [fetchCriticalEvents]);
+        
+        const stats = {
+            total: analyticsData.totalEvents,
+            critical: analyticsData.criticalEvents,
+            high: analyticsData.highEvents,
+            medium: analyticsData.mediumEvents,
+            low: analyticsData.lowEvents
+        };
+        
+        const recentEvents = (analyticsData.recentCriticalEvents as Event[] || []).slice(0, 5);
+        
+        return { stats, recentEvents };
+    }, [analyticsData]);
 
     const getSeverityIcon = (severity: string) => {
         const lowerSeverity = severity.toLowerCase();
