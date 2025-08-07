@@ -239,14 +239,17 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 	req.Header.Set("Accept", "application/json")
 
 	startTime := time.Now()
+
 	resp, err := u.HTTPClient.Do(req)
 	if err != nil {
 		u.Logger.Error().
 			Err(err).
 			Int("devices_in_batch", len(updates)).
 			Msg("Failed to send request to Armis API")
+
 		return err
 	}
+
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
@@ -260,6 +263,7 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 			Int("devices_in_batch", len(updates)).
 			Dur("api_call_duration_ms", duration).
 			Msg("Armis API returned error status")
+
 		return fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode, resp.StatusCode, string(respBody))
 	}
 
