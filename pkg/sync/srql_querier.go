@@ -153,7 +153,13 @@ func (s *SweepResultsQuery) executeQuery(ctx context.Context, queryReq QueryRequ
 	}
 
 	// log the request for debugging
-	s.Logger.Debug().Str("query", queryReq.Query).Str("request_body", string(reqBody)).Msg("Executing SRQL query")
+	s.Logger.Debug().
+		Str("query", queryReq.Query).
+		Int("limit", queryReq.Limit).
+		Str("cursor", queryReq.Cursor).
+		Str("direction", queryReq.Direction).
+		Str("request_body", string(reqBody)).
+		Msg("Executing SRQL query")
 
 	// Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,

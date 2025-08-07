@@ -87,8 +87,10 @@ func validateQueryRequest(req *QueryRequest) (errMsg string, statusCode int, ok 
 		req.Limit = 10
 	}
 
-	// Validate direction
-	if req.Direction != "" && req.Direction != DirectionNext && req.Direction != DirectionPrev {
+	// Validate direction and set default if empty
+	if req.Direction == "" {
+		req.Direction = DirectionNext // Default to forward pagination
+	} else if req.Direction != DirectionNext && req.Direction != DirectionPrev {
 		errMsg = fmt.Sprintf("Direction must be '%s' or '%s'", DirectionNext, DirectionPrev)
 		statusCode = http.StatusBadRequest
 		ok = false
@@ -293,14 +295,6 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 // executeQueryAndBuildResponse executes the query and builds the response
 func (s *APIServer) executeQueryAndBuildResponse(
 	ctx context.Context, query *models.Query, req *QueryRequest) (*QueryResponse, error) {
-	// Store original limit for cursor generation
-	originalLimit := query.Limit
-	hasMore := false
-
-	// For pagination queries, fetch one extra result to detect if there are more pages
-	if query.HasLimit && len(query.OrderBy) > 0 && query.Type != models.Count {
-		query.Limit = originalLimit + 1
-	}
 
 	// Translate to database query
 	translator := parser.NewTranslator(s.dbType)
@@ -308,6 +302,16 @@ func (s *APIServer) executeQueryAndBuildResponse(
 	dbQuery, err := translator.Translate(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate query: %w", err)
+	}
+
+	// Debug: Log the translated query for cursor debugging
+	if req.Cursor != "" {
+		s.logger.Debug().
+			Str("translated_query", dbQuery).
+			Str("original_query", req.Query).
+			Str("cursor", req.Cursor).
+			Str("direction", req.Direction).
+			Msg("Executing cursor-based query")
 	}
 
 	// Execute the query
@@ -319,22 +323,8 @@ func (s *APIServer) executeQueryAndBuildResponse(
 	// Post-process results for specific entity types
 	results = s.postProcessResults(results, query.Entity)
 
-	// Check if we got more results than requested (indicating more pages exist)
-	if query.HasLimit && len(results) > originalLimit {
-		hasMore = true
-		// Trim results back to original limit
-		results = results[:originalLimit]
-	} else if query.HasLimit && len(results) == originalLimit {
-		// If we got exactly the limit, we might have more pages
-		// We should generate a cursor to allow the client to check
-		hasMore = true
-	}
-
-	// Restore original limit for cursor generation
-	query.Limit = originalLimit
-
-	// Generate cursors with hasMore information
-	nextCursor, prevCursor := generateCursorsWithLookAhead(query, results, hasMore, s.dbType)
+	// Generate cursors
+	nextCursor, prevCursor := generateCursors(query, results, s.dbType)
 
 	// Prepare response
 	response := &QueryResponse{
@@ -763,7 +753,7 @@ func determineOperator(direction string, sortDirection models.SortDirection) mod
 	return op
 }
 
-// In query.go, replace the existing buildCursorConditions with this new version
+// buildCursorConditions creates cursor-based pagination conditions for keyset pagination
 func buildCursorConditions(query *models.Query, cursorData map[string]interface{}, direction string) []models.Condition {
 	if len(query.OrderBy) == 0 {
 		return nil
@@ -789,13 +779,6 @@ func buildCursorConditions(query *models.Query, cursorData map[string]interface{
 				continue
 			} // Should not happen with a valid cursor
 
-			// Convert timestamp strings back to time.Time for proper comparison
-			if strValue, isString := prevValue.(string); isString {
-				if parsedTime, err := time.Parse(time.RFC3339, strValue); err == nil {
-					prevValue = parsedTime
-				}
-			}
-
 			currentLevelAnds = append(currentLevelAnds, models.Condition{
 				Field:     prevItem.Field,
 				Operator:  models.Equals,
@@ -810,13 +793,6 @@ func buildCursorConditions(query *models.Query, cursorData map[string]interface{
 		cursorValue, ok := cursorData[orderItem.Field]
 		if !ok {
 			continue
-		}
-
-		// Convert timestamp strings back to time.Time for proper comparison
-		if strValue, isString := cursorValue.(string); isString {
-			if parsedTime, err := time.Parse(time.RFC3339, strValue); err == nil {
-				cursorValue = parsedTime
-			}
 		}
 
 		currentLevelAnds = append(currentLevelAnds, models.Condition{
@@ -852,14 +828,16 @@ func buildCursorConditions(query *models.Query, cursorData map[string]interface{
 }
 
 // createCursorData creates cursor data from a result
-func createCursorData(result map[string]interface{}, orderField string) map[string]interface{} {
+func createCursorData(result map[string]interface{}, orderFields []models.OrderByItem) map[string]interface{} {
 	cursorData := make(map[string]interface{})
 
-	if value, ok := result[orderField]; ok {
-		if t, isTime := value.(time.Time); isTime {
-			cursorData[orderField] = t.Format(time.RFC3339)
-		} else {
-			cursorData[orderField] = value
+	for _, orderItem := range orderFields {
+		if value, ok := result[orderItem.Field]; ok {
+			if t, isTime := value.(time.Time); isTime {
+				cursorData[orderItem.Field] = t.Format(time.RFC3339Nano)
+			} else {
+				cursorData[orderItem.Field] = value
+			}
 		}
 	}
 
@@ -926,9 +904,8 @@ func generateCursorsWithLookAhead(
 
 	// Generate next cursor if we know there are more results
 	if query.HasLimit && hasMore && len(results) > 0 {
-		orderField := query.OrderBy[0].Field
 		lastResult := results[len(results)-1]
-		nextCursorData := createCursorData(lastResult, orderField)
+		nextCursorData := createCursorData(lastResult, query.OrderBy)
 		addEntityFields(nextCursorData, lastResult, query.Entity)
 
 		nextCursor = encodeCursor(nextCursorData)
@@ -936,9 +913,8 @@ func generateCursorsWithLookAhead(
 
 	// Generate previous cursor (always when we have results)
 	if len(results) > 0 {
-		orderField := query.OrderBy[0].Field
 		firstResult := results[0]
-		prevCursorData := createCursorData(firstResult, orderField)
+		prevCursorData := createCursorData(firstResult, query.OrderBy)
 		addEntityFields(prevCursorData, firstResult, query.Entity)
 
 		prevCursor = encodeCursor(prevCursorData)
@@ -957,18 +933,16 @@ func generateCursors(
 	}
 
 	if query.HasLimit && len(results) == query.Limit {
-		orderField := query.OrderBy[0].Field
 		lastResult := results[len(results)-1]
-		nextCursorData := createCursorData(lastResult, orderField)
+		nextCursorData := createCursorData(lastResult, query.OrderBy)
 		addEntityFields(nextCursorData, lastResult, query.Entity)
 
 		nextCursor = encodeCursor(nextCursorData)
 	}
 
-	orderField := query.OrderBy[0].Field
 	firstResult := results[0]
 
-	prevCursorData := createCursorData(firstResult, orderField)
+	prevCursorData := createCursorData(firstResult, query.OrderBy)
 
 	addEntityFields(prevCursorData, firstResult, query.Entity)
 
