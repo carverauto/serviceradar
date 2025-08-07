@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { 
     Activity, 
@@ -25,8 +25,8 @@ import {
     Minus, 
     AlertTriangle
 } from 'lucide-react';
-import { useAuth } from '../AuthProvider';
 import { useRouter } from 'next/navigation';
+import { useRperf } from '@/contexts/RperfContext';
 import { RperfMetric } from '@/types/rperf';
 
 interface BandwidthTarget {
@@ -41,174 +41,109 @@ interface BandwidthTarget {
 }
 
 const RperfBandwidthWidget = () => {
-    const { token } = useAuth();
     const router = useRouter();
-    const [targets, setTargets] = useState<BandwidthTarget[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-
-    const [error, setError] = useState<string | null>(null);
+    const { data: rperfData, loading: isLoading, error } = useRperf();
     const [viewMode, setViewMode] = useState<'table' | 'heatmap'>('table');
 
-    const fetchData = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
+    const targets = useMemo(() => {
+        if (!rperfData || rperfData.length === 0) {
+            return [];
+        }
 
-        try {
-            // Get pollers that have rperf services
-            const pollersResponse = await fetch('/api/pollers', {
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token && { Authorization: `Bearer ${token}` }),
-                },
-            });
+        // Combine all rperf metrics from all pollers
+        const allRperfMetrics: RperfMetric[] = [];
+        rperfData.forEach(({ rperfMetrics }) => {
+            allRperfMetrics.push(...rperfMetrics);
+        });
 
-            if (!pollersResponse.ok) {
-                throw new Error('Failed to fetch pollers');
-            }
+        if (allRperfMetrics.length === 0) {
+            return [];
+        }
 
-            const pollersData = await pollersResponse.json();
-            const rperfPollers = pollersData.filter((poller: {
-                poller_id: string;
-                services?: { type: string; name: string }[];
-            }) => 
-                poller.services?.some((s) => s.type === 'grpc' && s.name === 'rperf-checker')
-            );
+        // Process data by target
+        const targetMap = new Map<string, {
+            metrics: RperfMetric[];
+            sources: Set<string>;
+        }>();
 
-            if (rperfPollers.length === 0) {
-                setTargets([]);
-                return;
-            }
-
-            // Get data for the last 2 hours to calculate trends
-            const endTime = new Date();
-            const startTime = new Date(endTime.getTime() - 2 * 60 * 60 * 1000);
-            
-            const rperfPromises = rperfPollers.map((poller: { poller_id: string }) => {
-                const url = `/api/pollers/${poller.poller_id}/rperf?start=${startTime.toISOString()}&end=${endTime.toISOString()}`;
+        allRperfMetrics
+            .filter(metric => metric.success)
+            .forEach(metric => {
+                const target = metric.target;
+                if (!targetMap.has(target)) {
+                    targetMap.set(target, {
+                        metrics: [],
+                        sources: new Set()
+                    });
+                }
                 
-                return fetch(url, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` }),
-                    },
-                })
-                .then(res => {
-                    if (!res.ok) {
-                        console.error(`RPerf API error for poller ${poller.poller_id}: ${res.status}`);
-                        return [];
-                    }
-                    return res.json() as Promise<RperfMetric[]>;
-                })
-                .catch((err) => {
-                    console.error(`Error fetching rperf for poller ${poller.poller_id}:`, err);
-                    return [];
-                });
+                const targetData = targetMap.get(target)!;
+                targetData.metrics.push(metric);
+                if (metric.agent_id) {
+                    targetData.sources.add(metric.agent_id);
+                }
             });
-            
-            const rperfDataArrays = await Promise.all(rperfPromises);
-            const allRperfData = rperfDataArrays.flat();
 
-            if (allRperfData.length === 0) {
-                setTargets([]);
-                return;
-            }
-
-            // Process data by target
-            const targetMap = new Map<string, {
-                metrics: RperfMetric[];
-                sources: Set<string>;
-            }>();
-
-            allRperfData
-                .filter(metric => metric.success)
-                .forEach(metric => {
-                    const target = metric.target;
-                    if (!targetMap.has(target)) {
-                        targetMap.set(target, {
-                            metrics: [],
-                            sources: new Set()
-                        });
-                    }
+        // Calculate statistics for each target
+        const processedTargets: BandwidthTarget[] = Array.from(targetMap.entries())
+            .map(([target, data]) => {
+                const metrics = data.metrics.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                
+                // Current bandwidth (average of last 10 minutes)
+                const recentMetrics = metrics.slice(-10);
+                const currentBandwidth = recentMetrics.reduce((sum, m) => sum + (m.bits_per_second / 1000000), 0) / recentMetrics.length;
+                
+                // Overall average
+                const avgBandwidth = metrics.reduce((sum, m) => sum + (m.bits_per_second / 1000000), 0) / metrics.length;
+                
+                // Trend calculation (compare last 30 minutes vs previous 30 minutes)
+                const halfPoint = Math.floor(metrics.length / 2);
+                const firstHalf = metrics.slice(0, halfPoint);
+                const secondHalf = metrics.slice(halfPoint);
+                
+                let trend: 'up' | 'down' | 'stable' = 'stable';
+                let trendPercentage = 0;
+                
+                if (firstHalf.length > 0 && secondHalf.length > 0) {
+                    const firstAvg = firstHalf.reduce((sum, m) => sum + (m.bits_per_second / 1000000), 0) / firstHalf.length;
+                    const secondAvg = secondHalf.reduce((sum, m) => sum + (m.bits_per_second / 1000000), 0) / secondHalf.length;
                     
-                    const targetData = targetMap.get(target)!;
-                    targetData.metrics.push(metric);
-                    if (metric.agent_id) {
-                        targetData.sources.add(metric.agent_id);
-                    }
-                });
-
-            // Calculate statistics for each target
-            const processedTargets: BandwidthTarget[] = Array.from(targetMap.entries())
-                .map(([target, data]) => {
-                    const metrics = data.metrics.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-                    
-                    // Current bandwidth (average of last 10 minutes)
-                    const recentMetrics = metrics.slice(-10);
-                    const currentBandwidth = recentMetrics.reduce((sum, m) => sum + (m.bits_per_second / 1000000), 0) / recentMetrics.length;
-                    
-                    // Overall average
-                    const avgBandwidth = metrics.reduce((sum, m) => sum + (m.bits_per_second / 1000000), 0) / metrics.length;
-                    
-                    // Trend calculation (compare last 30 minutes vs previous 30 minutes)
-                    const halfPoint = Math.floor(metrics.length / 2);
-                    const firstHalf = metrics.slice(0, halfPoint);
-                    const secondHalf = metrics.slice(halfPoint);
-                    
-                    let trend: 'up' | 'down' | 'stable' = 'stable';
-                    let trendPercentage = 0;
-                    
-                    if (firstHalf.length > 0 && secondHalf.length > 0) {
-                        const firstAvg = firstHalf.reduce((sum, m) => sum + (m.bits_per_second / 1000000), 0) / firstHalf.length;
-                        const secondAvg = secondHalf.reduce((sum, m) => sum + (m.bits_per_second / 1000000), 0) / secondHalf.length;
-                        
-                        if (firstAvg > 0) {
-                            trendPercentage = ((secondAvg - firstAvg) / firstAvg) * 100;
-                            if (Math.abs(trendPercentage) > 5) {
-                                trend = trendPercentage > 0 ? 'up' : 'down';
-                            }
+                    if (firstAvg > 0) {
+                        trendPercentage = ((secondAvg - firstAvg) / firstAvg) * 100;
+                        if (Math.abs(trendPercentage) > 5) {
+                            trend = trendPercentage > 0 ? 'up' : 'down';
                         }
                     }
-                    
-                    // Sparkline data (last 20 points)
-                    const sparklineData = metrics.slice(-20).map(m => ({
-                        timestamp: new Date(m.timestamp).getTime(),
-                        value: m.bits_per_second / 1000000
-                    }));
-                    
-                    // Status based on bandwidth performance
-                    let status: 'excellent' | 'good' | 'warning' | 'critical' = 'good';
-                    if (currentBandwidth >= 8) status = 'excellent';
-                    else if (currentBandwidth >= 6) status = 'good';
-                    else if (currentBandwidth >= 3) status = 'warning';
-                    else status = 'critical';
-                    
-                    return {
-                        target,
-                        currentBandwidth: Math.round(currentBandwidth * 100) / 100,
-                        avgBandwidth: Math.round(avgBandwidth * 100) / 100,
-                        trend,
-                        trendPercentage: Math.abs(trendPercentage),
-                        sources: Array.from(data.sources),
-                        sparklineData,
-                        status
-                    };
-                })
-                .sort((a, b) => b.currentBandwidth - a.currentBandwidth);
+                }
+                
+                // Sparkline data (last 20 points)
+                const sparklineData = metrics.slice(-20).map(m => ({
+                    timestamp: new Date(m.timestamp).getTime(),
+                    value: m.bits_per_second / 1000000
+                }));
+                
+                // Status based on bandwidth performance
+                let status: 'excellent' | 'good' | 'warning' | 'critical' = 'good';
+                if (currentBandwidth >= 8) status = 'excellent';
+                else if (currentBandwidth >= 6) status = 'good';
+                else if (currentBandwidth >= 3) status = 'warning';
+                else status = 'critical';
+                
+                return {
+                    target,
+                    currentBandwidth: Math.round(currentBandwidth * 100) / 100,
+                    avgBandwidth: Math.round(avgBandwidth * 100) / 100,
+                    trend,
+                    trendPercentage: Math.abs(trendPercentage),
+                    sources: Array.from(data.sources),
+                    sparklineData,
+                    status
+                };
+            })
+            .sort((a, b) => b.currentBandwidth - a.currentBandwidth);
 
-            setTargets(processedTargets);
-
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "Failed to fetch RPerf bandwidth data");
-        } finally {
-            setIsLoading(false);
-        }
-    }, [token]);
-
-    useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 60000);
-        return () => clearInterval(interval);
-    }, [fetchData]);
+        return processedTargets;
+    }, [rperfData]);
 
     const handleRperfTargetClick = useCallback((target: BandwidthTarget) => {
         // Find a poller that measures this target
