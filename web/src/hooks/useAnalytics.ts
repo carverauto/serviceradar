@@ -15,19 +15,19 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { analyticsService } from '@/services/analyticsService';
+import { analyticsService, AnalyticsData } from '@/services/analyticsService';
 import { useAuth } from '@/components/AuthProvider';
 
 export const useAnalytics = () => {
   const { token } = useAuth();
-  const [data, setData] = useState(analyticsService.isCacheValid() ? null : null);
+  const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
       setError(null);
-      const analyticsData = await analyticsService.getAnalyticsData(token);
+      const analyticsData = await analyticsService.getAnalyticsData(token ?? undefined);
       setData(analyticsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch analytics data');
@@ -40,7 +40,7 @@ export const useAnalytics = () => {
     setLoading(true);
     try {
       setError(null);
-      const analyticsData = await analyticsService.refresh(token);
+      const analyticsData = await analyticsService.refresh(token ?? undefined);
       setData(analyticsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh analytics data');

@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { AlertTriangle, Cpu, HardDrive, MemoryStick, ExternalLink } from 'lucide-react';
 import { useSysmon } from '@/contexts/SysmonContext';
 import { useAnalytics } from '@/contexts/AnalyticsContext';
@@ -60,9 +60,9 @@ const HighUtilizationWidget: React.FC = () => {
         }
 
         // Create a map of device info by IP address and hostname
-        const devices = analyticsData.devicesLatest;
+        const devices = analyticsData.devicesLatest as { ip?: string; hostname?: string; device_id: string }[];
         const deviceMap = new Map();
-        devices.forEach((device: { ip?: string; hostname?: string; device_id: string }) => {
+        devices.forEach((device) => {
             if (device.ip) {
                 deviceMap.set(device.ip, device);
             }
@@ -83,7 +83,10 @@ const HighUtilizationWidget: React.FC = () => {
         sysmonData.forEach(({ pollerId, cpuData, memoryData, diskData }) => {
             // Process CPU data
             if (Array.isArray(cpuData) && cpuData.length > 0) {
-                const latestCpu = cpuData[cpuData.length - 1] as any;
+                const latestCpu = cpuData[cpuData.length - 1] as { 
+                    cpus?: { usage_percent: number; host_id?: string; agent_id?: string }[]; 
+                    timestamp?: string 
+                };
                 if (latestCpu?.cpus && latestCpu.cpus.length > 0) {
                     const avgCpuUsage = latestCpu.cpus.reduce((sum: number, core: { usage_percent: number }) => sum + core.usage_percent, 0) / latestCpu.cpus.length;
                     const agentInfo = latestCpu.cpus[0];
@@ -124,7 +127,10 @@ const HighUtilizationWidget: React.FC = () => {
             
             // Process Memory data
             if (Array.isArray(memoryData) && memoryData.length > 0) {
-                const latestMemory = memoryData[memoryData.length - 1] as any;
+                const latestMemory = memoryData[memoryData.length - 1] as { 
+                    memory?: { used_bytes: number; total_bytes: number; host_id?: string; agent_id?: string }; 
+                    timestamp?: string 
+                };
                 if (latestMemory?.memory) {
                     const memoryUsagePercent = (latestMemory.memory.used_bytes / latestMemory.memory.total_bytes) * 100;
                     
@@ -163,7 +169,11 @@ const HighUtilizationWidget: React.FC = () => {
             
             // Process Disk data
             if (Array.isArray(diskData) && diskData.length > 0) {
-                const latestDisk = diskData[diskData.length - 1] as any;
+                const latestDisk = diskData[diskData.length - 1] as { 
+                    disks?: { used_bytes: number; total_bytes: number; host_id?: string; agent_id?: string }[]; 
+                    disk?: { used_bytes: number; total_bytes: number; host_id?: string; agent_id?: string }; 
+                    timestamp?: string 
+                };
                 
                 // Check both possible data structures: disks array or single disk
                 const disks = latestDisk?.disks || (latestDisk?.disk ? [latestDisk.disk] : []);

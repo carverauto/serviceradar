@@ -22,14 +22,6 @@ import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { useRouter } from 'next/navigation';
 import { formatNumber } from '@/utils/formatters';
 
-interface LogStats {
-    fatal: number;
-    error: number;
-    warning: number;
-    info: number;
-    debug: number;
-    total: number;
-}
 
 interface LogEntry {
     timestamp: string;

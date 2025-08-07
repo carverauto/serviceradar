@@ -22,13 +22,6 @@ import { BarChart3, TrendingUp, Clock, Activity, ExternalLink } from 'lucide-rea
 import Link from 'next/link';
 import { formatNumber, formatDuration, formatPercentage } from '@/utils/formatters';
 
-interface ObservabilityStats {
-    totalMetrics: number;
-    totalTraces: number;
-    avgDuration: number;
-    errorRate: number;
-    slowSpans: number;
-}
 
 interface SlowSpan {
     trace_id: string;

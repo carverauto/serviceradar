@@ -23,13 +23,6 @@ import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { Event } from '@/types/events';
 import { formatNumber } from '@/utils/formatters';
 
-interface EventStats {
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-    total: number;
-}
 
 const CriticalEventsWidget: React.FC = () => {
     const router = useRouter();
