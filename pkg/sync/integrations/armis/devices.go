@@ -421,19 +421,21 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 
 		// Process updates in batches to avoid overwhelming the API
 		const batchSize = 1000
+
 		totalUpdates := len(updates)
+
 		successfulUpdates := 0
-		
+
 		for i := 0; i < totalUpdates; i += batchSize {
 			end := i + batchSize
 			if end > totalUpdates {
 				end = totalUpdates
 			}
-			
+
 			batch := updates[i:end]
 			batchNum := (i / batchSize) + 1
 			totalBatches := (totalUpdates + batchSize - 1) / batchSize
-			
+
 			a.Logger.Info().
 				Int("batch_number", batchNum).
 				Int("total_batches", totalBatches).
@@ -441,7 +443,7 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 				Int("updates_sent_so_far", i).
 				Int("total_updates", totalUpdates).
 				Msg("Sending batch of updates to Armis")
-			
+
 			if err := a.Updater.UpdateDeviceStatus(ctx, batch); err != nil {
 				a.Logger.Error().
 					Err(err).
@@ -449,13 +451,13 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 					Int("batch_size", len(batch)).
 					Int("successful_updates_before_error", successfulUpdates).
 					Msg("Failed to update device status batch in Armis during reconciliation")
-				
-				return fmt.Errorf("failed to update batch %d of %d (devices %d-%d): %w", 
+
+				return fmt.Errorf("failed to update batch %d of %d (devices %d-%d): %w",
 					batchNum, totalBatches, i+1, end, err)
 			}
-			
+
 			successfulUpdates += len(batch)
-			
+
 			a.Logger.Info().
 				Int("batch_number", batchNum).
 				Int("total_batches", totalBatches).
