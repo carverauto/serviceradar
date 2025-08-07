@@ -188,6 +188,11 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 		return nil
 	}
 
+	u.Logger.Info().
+		Int("devices_in_batch", len(updates)).
+		Str("custom_field", u.Config.CustomField).
+		Msg("Preparing device status update batch for Armis API")
+
 	accessToken, err := u.TokenProvider.GetAccessToken(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get access token: %w", err)
@@ -217,6 +222,11 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
+	u.Logger.Debug().
+		Int("payload_size_bytes", len(bodyBytes)).
+		Int("operations_count", len(operations)).
+		Msg("Sending bulk update request to Armis API")
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		fmt.Sprintf("%s/api/v1/devices/custom-properties/_bulk/", u.Config.Endpoint),
 		bytes.NewReader(bodyBytes))
@@ -228,22 +238,41 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
+	startTime := time.Now()
+
 	resp, err := u.HTTPClient.Do(req)
 	if err != nil {
+		u.Logger.Error().
+			Err(err).
+			Int("devices_in_batch", len(updates)).
+			Msg("Failed to send request to Armis API")
+
 		return err
 	}
+
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+	duration := time.Since(startTime)
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated &&
 		resp.StatusCode != http.StatusMultiStatus {
+		u.Logger.Error().
+			Int("status_code", resp.StatusCode).
+			Str("response_body", string(respBody)).
+			Int("devices_in_batch", len(updates)).
+			Dur("api_call_duration_ms", duration).
+			Msg("Armis API returned error status")
+
 		return fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode, resp.StatusCode, string(respBody))
 	}
 
-	u.Logger.Debug().
+	u.Logger.Info().
+		Int("status_code", resp.StatusCode).
+		Int("devices_updated", len(updates)).
+		Dur("api_call_duration_ms", duration).
 		Str("response_body", string(respBody)).
-		Msg("Armis bulk update response")
+		Msg("Successfully sent device status batch to Armis")
 
 	return nil
 }

@@ -416,18 +416,59 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 
 	if len(updates) > 0 {
 		a.Logger.Info().
-			Int("updates_count", len(updates)).
-			Msg("Sending status updates to Armis")
+			Int("total_updates_to_send", len(updates)).
+			Msg("Starting to send status updates to Armis")
 
-		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
-			a.Logger.Error().
-				Err(err).
-				Msg("Failed to update device status in Armis during reconciliation")
+		// Process updates in batches to avoid overwhelming the API
+		const batchSize = 1000
 
-			return err
+		totalUpdates := len(updates)
+
+		successfulUpdates := 0
+
+		for i := 0; i < totalUpdates; i += batchSize {
+			end := i + batchSize
+			if end > totalUpdates {
+				end = totalUpdates
+			}
+
+			batch := updates[i:end]
+			batchNum := (i / batchSize) + 1
+			totalBatches := (totalUpdates + batchSize - 1) / batchSize
+
+			a.Logger.Info().
+				Int("batch_number", batchNum).
+				Int("total_batches", totalBatches).
+				Int("batch_size", len(batch)).
+				Int("updates_sent_so_far", i).
+				Int("total_updates", totalUpdates).
+				Msg("Sending batch of updates to Armis")
+
+			if err := a.Updater.UpdateDeviceStatus(ctx, batch); err != nil {
+				a.Logger.Error().
+					Err(err).
+					Int("batch_number", batchNum).
+					Int("batch_size", len(batch)).
+					Int("successful_updates_before_error", successfulUpdates).
+					Msg("Failed to update device status batch in Armis during reconciliation")
+
+				return fmt.Errorf("failed to update batch %d of %d (devices %d-%d): %w",
+					batchNum, totalBatches, i+1, end, err)
+			}
+
+			successfulUpdates += len(batch)
+
+			a.Logger.Info().
+				Int("batch_number", batchNum).
+				Int("total_batches", totalBatches).
+				Int("successful_updates_total", successfulUpdates).
+				Msg("Successfully sent batch to Armis")
 		}
 
-		a.Logger.Info().Msg("Successfully completed Armis reconciliation")
+		a.Logger.Info().
+			Int("total_updates_sent", successfulUpdates).
+			Int("total_updates_requested", totalUpdates).
+			Msg("Successfully completed Armis reconciliation")
 	} else {
 		a.Logger.Info().Msg("No device status updates needed for Armis reconciliation")
 	}
