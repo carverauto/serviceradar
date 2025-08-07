@@ -293,9 +293,7 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 }
 
 // executeQueryAndBuildResponse executes the query and builds the response
-func (s *APIServer) executeQueryAndBuildResponse(
-	ctx context.Context, query *models.Query, req *QueryRequest) (*QueryResponse, error) {
-
+func (s *APIServer) executeQueryAndBuildResponse(ctx context.Context, query *models.Query, req *QueryRequest) (*QueryResponse, error) {
 	// Translate to database query
 	translator := parser.NewTranslator(s.dbType)
 
@@ -891,36 +889,6 @@ func encodeCursor(cursorData map[string]interface{}) string {
 	}
 
 	return base64.StdEncoding.EncodeToString(bytes)
-}
-
-// generateCursorsWithLookAhead creates next and previous cursors using look-ahead information.
-func generateCursorsWithLookAhead(
-	query *models.Query, results []map[string]interface{}, hasMore bool, _ parser.DatabaseType) (nextCursor, prevCursor string) {
-	// COUNT queries and queries without an explicit order-by clause do not
-	// support pagination. Additionally, skip when there are no results.
-	if len(results) == 0 || query.Type == models.Count || len(query.OrderBy) == 0 {
-		return "", "" // No cursors generated.
-	}
-
-	// Generate next cursor if we know there are more results
-	if query.HasLimit && hasMore && len(results) > 0 {
-		lastResult := results[len(results)-1]
-		nextCursorData := createCursorData(lastResult, query.OrderBy)
-		addEntityFields(nextCursorData, lastResult, query.Entity)
-
-		nextCursor = encodeCursor(nextCursorData)
-	}
-
-	// Generate previous cursor (always when we have results)
-	if len(results) > 0 {
-		firstResult := results[0]
-		prevCursorData := createCursorData(firstResult, query.OrderBy)
-		addEntityFields(prevCursorData, firstResult, query.Entity)
-
-		prevCursor = encodeCursor(prevCursorData)
-	}
-
-	return nextCursor, prevCursor
 }
 
 // generateCursors creates next and previous cursors from query results.

@@ -62,9 +62,10 @@ func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source 
 	query := fmt.Sprintf("show devices where discovery_sources = '%s' and discovery_sources = 'sweep'", source)
 
 	var allDeviceStates []DeviceState
+
 	cursor := ""
 	pageCount := 0
-	
+
 	// Use a reasonable page size for efficient pagination
 	pageSize := 1000
 
@@ -101,6 +102,7 @@ func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source 
 				Int("total_device_states", len(allDeviceStates)).
 				Int("last_page_size", len(states)).
 				Msg("Completed fetching all device states - no more pages")
+
 			break
 		}
 
