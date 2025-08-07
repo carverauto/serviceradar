@@ -1282,7 +1282,8 @@ func TestArmisIntegration_Reconcile_UpdaterError(t *testing.T) {
 	// Execute the reconcile operation - should return error
 	err := integration.Reconcile(ctx)
 	require.Error(t, err)
-	assert.Equal(t, expectedError, err)
+	// The error is now wrapped with batch information, so we check if it contains the original error
+	assert.Contains(t, err.Error(), expectedError.Error())
 }
 
 func TestArmisIntegration_Reconcile_NoUpdater(t *testing.T) {
