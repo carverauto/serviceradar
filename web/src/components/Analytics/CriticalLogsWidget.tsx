@@ -16,10 +16,9 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { AlertCircle, XCircle, AlertTriangle, Info, ExternalLink, FileText } from 'lucide-react';
-import { useAuth } from '../AuthProvider';
-
+import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { useRouter } from 'next/navigation';
 import { formatNumber } from '@/utils/formatters';
 
@@ -42,89 +41,30 @@ interface LogEntry {
 }
 
 const CriticalLogsWidget = () => {
-    const { token } = useAuth();
     const router = useRouter();
-    const [stats, setStats] = useState<LogStats>({
-        fatal: 0,
-        error: 0,
-        warning: 0,
-        info: 0,
-        debug: 0,
-        total: 0
-    });
-    const [recentLogs, setRecentLogs] = useState<LogEntry[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    const postQuery = useCallback(async <T,>(query: string): Promise<T> => {
-        const response = await fetch('/api/query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token && { Authorization: `Bearer ${token}` })
-            },
-            body: JSON.stringify({ query, limit: 100 }),
-            cache: 'no-store',
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to execute query');
+    const { data: analyticsData, loading, error } = useAnalytics();
+    
+    const { stats, recentLogs } = useMemo(() => {
+        if (!analyticsData) {
+            return {
+                stats: { fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0 },
+                recentLogs: []
+            };
         }
-
-        return response.json();
-    }, [token]);
-
-    const fetchLogStats = useCallback(async () => {
-        try {
-            setLoading(true);
-            setError(null);
-
-            // Fetch log counts by level in parallel (using lowercase severity values)
-            const [
-                totalLogsRes,
-                fatalLogsRes,
-                errorLogsRes,
-                warningLogsRes,
-                infoLogsRes,
-                debugLogsRes,
-                recentFatalLogsRes
-            ] = await Promise.all([
-                postQuery<{ results: [{ 'count()': number }] }>('COUNT LOGS').catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'fatal'").catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'error'").catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'warning' OR severity_text = 'warn'").catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'info'").catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE severity_text = 'debug'").catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: LogEntry[] }>("SHOW LOGS WHERE severity_text IN ('fatal', 'error') ORDER BY timestamp DESC").catch(() => ({ results: [] }))
-            ]);
-
-            // Update stats
-            setStats({
-                total: totalLogsRes.results[0]?.['count()'] || 0,
-                fatal: fatalLogsRes.results[0]?.['count()'] || 0,
-                error: errorLogsRes.results[0]?.['count()'] || 0,
-                warning: warningLogsRes.results[0]?.['count()'] || 0,
-                info: infoLogsRes.results[0]?.['count()'] || 0,
-                debug: debugLogsRes.results[0]?.['count()'] || 0
-            });
-
-            // Update recent logs (take top 5)
-            setRecentLogs((recentFatalLogsRes.results || []).slice(0, 5));
-
-        } catch (err) {
-            console.error('Error fetching log stats:', err);
-            setError(err instanceof Error ? err.message : 'Unknown error');
-        } finally {
-            setLoading(false);
-        }
-    }, [postQuery]);
-
-    useEffect(() => {
-        fetchLogStats();
-        const interval = setInterval(fetchLogStats, 60000); // Refresh every minute
-        return () => clearInterval(interval);
-    }, [fetchLogStats]);
+        
+        const stats = {
+            total: analyticsData.totalLogs,
+            fatal: analyticsData.fatalLogs,
+            error: analyticsData.errorLogs,
+            warning: analyticsData.warningLogs,
+            info: analyticsData.infoLogs,
+            debug: analyticsData.debugLogs
+        };
+        
+        const recentLogs = (analyticsData.recentErrorLogs as LogEntry[] || []).slice(0, 5);
+        
+        return { stats, recentLogs };
+    }, [analyticsData]);
 
     const getLevelIcon = (level: string) => {
         switch (level?.toLowerCase()) {

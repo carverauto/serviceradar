@@ -36,29 +36,73 @@ export async function GET(req: NextRequest) {
       headers["Authorization"] = authHeader;
     }
 
-    // Forward to your Go API
-    const response = await fetch(`${apiUrl}/api/pollers`, {
-      headers,
-    });
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
-    if (!response.ok) {
-      // const errorText = await response.text();
+    try {
+      // Forward to your Go API with timeout
+      const response = await fetch(`${apiUrl}/api/pollers`, {
+        headers,
+        signal: controller.signal,
+      });
 
-      return NextResponse.json(
-        { error: "Failed to fetch pollers" },
-        { status: response.status },
-      );
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        let errorDetail = "Unknown error";
+        try {
+          const errorData = await response.text();
+          errorDetail = errorData || `HTTP ${response.status}`;
+        } catch {
+          errorDetail = `HTTP ${response.status}`;
+        }
+
+        console.error(`Pollers API error: ${response.status} - ${errorDetail}`);
+        
+        return NextResponse.json(
+          { 
+            error: "Failed to fetch pollers",
+            detail: errorDetail,
+            status: response.status,
+          },
+          { status: response.status },
+        );
+      }
+
+      // Forward the successful response
+      const data = await response.json();
+      return NextResponse.json(data);
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      throw fetchError;
     }
-
-    // Forward the successful response
-    const data = await response.json();
-    return NextResponse.json(data);
   } catch (error) {
     console.error("Error fetching pollers:", error);
 
+    // Determine error type and provide specific message
+    let errorMessage = "Internal server error while fetching pollers";
+    let statusCode = 500;
+
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        errorMessage = "Request timeout while fetching pollers";
+        statusCode = 504; // Gateway Timeout
+      } else if (error.message.includes('ECONNREFUSED')) {
+        errorMessage = "Backend service unavailable";
+        statusCode = 503; // Service Unavailable
+      } else if (error.message.includes('ENOTFOUND')) {
+        errorMessage = "Backend service not found";
+        statusCode = 502; // Bad Gateway
+      }
+    }
+
     return NextResponse.json(
-      { error: "Internal server error while fetching pollers" },
-      { status: 500 },
+      { 
+        error: errorMessage,
+        detail: error instanceof Error ? error.message : "Unknown error"
+      },
+      { status: statusCode },
     );
   }
 }

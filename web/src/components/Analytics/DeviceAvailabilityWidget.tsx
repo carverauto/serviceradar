@@ -16,13 +16,11 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { ServerOff, AlertTriangle } from 'lucide-react';
-import { useAuth } from '../AuthProvider';
 import { useRouter } from 'next/navigation';
-
-
+import { useAnalytics } from '@/contexts/AnalyticsContext';
 
 interface DeviceAvailabilityData {
     name: string;
@@ -31,76 +29,17 @@ interface DeviceAvailabilityData {
 }
 
 const DeviceAvailabilityWidget = () => {
-    const { token } = useAuth();
     const router = useRouter();
-    const [data, setData] = useState<DeviceAvailabilityData[]>([]);
+    const { data: analyticsData, loading: isLoading, error } = useAnalytics();
 
-    const [isLoading, setIsLoading] = useState(true);
-
-    const [error, setError] = useState<string | null>(null);
-
-    const cacheRef = React.useRef<Map<string, { data: unknown; timestamp: number }>>(new Map());
-    
-    const postQuery = useCallback(async (query: string) => {
-        const cacheKey = query;
-        const now = Date.now();
+    const data = useMemo((): DeviceAvailabilityData[] => {
+        if (!analyticsData) return [];
         
-        const cached = cacheRef.current.get(cacheKey);
-        if (cached && (now - cached.timestamp) < 30000) {
-            return cached.data;
-        }
-        
-        const response = await fetch('/api/query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token && { Authorization: `Bearer ${token}` }),
-            },
-            body: JSON.stringify({ query, limit: 1000 }),
-        });
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to execute query');
-        }
-        const responseData = await response.json();
-        
-        cacheRef.current.set(cacheKey, { data: responseData, timestamp: now });
-        return responseData;
-    }, [token]);
-
-    const fetchData = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
-
-        try {
-            const [totalDevicesRes, offlineDevicesRes] = await Promise.all([
-                postQuery('COUNT DEVICES'),
-                postQuery('COUNT DEVICES WHERE is_available = false'),
-            ]);
-
-            const totalDevices = totalDevicesRes.results[0]?.['count()'] || 0;
-            const offlineCount = offlineDevicesRes.results[0]?.['count()'] || 0;
-            const onlineCount = totalDevices - offlineCount;
-
-            setData([
-                { name: 'Online', value: onlineCount, color: '#10b981' },
-                { name: 'Offline', value: offlineCount, color: '#ef4444' }
-            ]);
-
-
-
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "Failed to fetch device availability data");
-        } finally {
-            setIsLoading(false);
-        }
-    }, [postQuery]);
-
-    useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 60000);
-        return () => clearInterval(interval);
-    }, [fetchData]);
+        return [
+            { name: 'Online', value: analyticsData.onlineDevices, color: '#10b981' },
+            { name: 'Offline', value: analyticsData.offlineDevices, color: '#ef4444' }
+        ];
+    }, [analyticsData]);
 
     const totalDevices = data.reduce((sum, item) => sum + item.value, 0);
     const offlineCount = data.find(item => item.name === 'Offline')?.value || 0;
