@@ -45,7 +45,7 @@ export const SysmonProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const fetchData = useCallback(async () => {
         try {
             setError(null);
-            const sysmonData = await sysmonService.getSysmonData(token);
+            const sysmonData = await sysmonService.getSysmonData(token ?? undefined);
             setData(sysmonData);
         } catch (err) {
             console.error('Failed to fetch sysmon data:', err);

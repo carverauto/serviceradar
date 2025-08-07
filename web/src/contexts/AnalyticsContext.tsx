@@ -73,7 +73,7 @@ export const AnalyticsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       console.log('[AnalyticsProvider] Fetching analytics data');
       setError(null);
-      const analyticsData = await analyticsService.getAnalyticsData(token);
+      const analyticsData = await analyticsService.getAnalyticsData(token ?? undefined);
       setData(analyticsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch analytics data');

@@ -44,7 +44,7 @@ export const RperfProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const fetchData = useCallback(async () => {
         try {
             setError(null);
-            const rperfData = await rperfService.getRperfData(token);
+            const rperfData = await rperfService.getRperfData(token ?? undefined);
             setData(rperfData);
         } catch (err) {
             console.error('Failed to fetch rperf data:', err);

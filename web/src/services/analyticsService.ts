@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-interface AnalyticsData {
+export interface AnalyticsData {
   // Device stats
   totalDevices: number;
   offlineDevices: number;
