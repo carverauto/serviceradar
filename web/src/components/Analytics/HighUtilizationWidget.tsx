@@ -16,10 +16,10 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/components/AuthProvider';
+import React, { useCallback, useMemo } from 'react';
 import { AlertTriangle, Cpu, HardDrive, MemoryStick, ExternalLink } from 'lucide-react';
-
+import { useSysmon } from '@/contexts/SysmonContext';
+import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { useRouter } from 'next/navigation';
 
 interface HighUtilizationService {
@@ -35,279 +35,211 @@ interface HighUtilizationService {
 }
 
 const HighUtilizationWidget: React.FC = () => {
-    const { token } = useAuth();
     const router = useRouter();
-    const [services, setServices] = useState<HighUtilizationService[]>([]);
-    const [stats, setStats] = useState({
-        highCpu: 0,
-        highMemory: 0,
-        highDisk: 0,
-        warningCpu: 0,
-        warningMemory: 0,
-        warningDisk: 0,
-        totalIssues: 0
-    });
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const { data: sysmonData, loading: sysmonLoading, error: sysmonError } = useSysmon();
+    const { data: analyticsData, loading: analyticsLoading } = useAnalytics();
+    
+    const loading = sysmonLoading || analyticsLoading;
+    const error = sysmonError;
 
-    const postQuery = useCallback(async (query: string) => {
-        const response = await fetch('/api/query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token && { Authorization: `Bearer ${token}` }),
-            },
-            body: JSON.stringify({ query, limit: 100 }),
-        });
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to execute query');
+
+    const { services, stats } = useMemo(() => {
+        if (!sysmonData || !analyticsData) {
+            return {
+                services: [],
+                stats: {
+                    highCpu: 0,
+                    highMemory: 0,
+                    highDisk: 0,
+                    warningCpu: 0,
+                    warningMemory: 0,
+                    warningDisk: 0,
+                    totalIssues: 0
+                }
+            };
         }
-        return response.json();
-    }, [token]);
 
-    const fetchHighUtilizationServices = useCallback(async () => {
-        try {
-            setLoading(true);
-            setError(null);
-
-            // First, get all pollers
-            const pollersResponse = await fetch('/api/pollers', {
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token && { Authorization: `Bearer ${token}` }),
-                },
-            });
-            
-            if (!pollersResponse.ok) {
-                throw new Error('Failed to fetch pollers');
+        // Create a map of device info by IP address and hostname
+        const devices = analyticsData.devicesLatest as { ip?: string; hostname?: string; device_id: string }[];
+        const deviceMap = new Map();
+        devices.forEach((device) => {
+            if (device.ip) {
+                deviceMap.set(device.ip, device);
             }
-            
-            const pollers = await pollersResponse.json();
-            
-            // For each poller, fetch sysmon data
-            const endTime = new Date();
-            const startTime = new Date(endTime.getTime() - 5 * 60 * 1000); // Last 5 minutes for more recent data
-            
-            const sysmonPromises = pollers.map(async (poller: { poller_id: string }) => {
-                const [cpuResponse, memoryResponse, diskResponse] = await Promise.all([
-                    fetch(`/api/pollers/${poller.poller_id}/sysmon/cpu?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...(token && { Authorization: `Bearer ${token}` })
-                        }
-                    }),
-                    fetch(`/api/pollers/${poller.poller_id}/sysmon/memory?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...(token && { Authorization: `Bearer ${token}` })
-                        }
-                    }),
-                    fetch(`/api/pollers/${poller.poller_id}/sysmon/disk?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...(token && { Authorization: `Bearer ${token}` })
-                        }
-                    })
-                ]);
-                
-                const cpuData = cpuResponse.ok ? await cpuResponse.json() : [];
-                const memoryData = memoryResponse.ok ? await memoryResponse.json() : [];
-                const diskData = diskResponse.ok ? await diskResponse.json() : [];
-                
-                return { pollerId: poller.poller_id, cpuData, memoryData, diskData };
-            });
-            
-            const allSysmonData = await Promise.all(sysmonPromises);
+            if (device.hostname) {
+                deviceMap.set(device.hostname, device);
+            }
+        });
 
-            // Get devices to match with metrics
-            const devicesRes = await postQuery('SHOW DEVICES LATEST');
-            const devices = devicesRes.results || [];
-            
-            // Create a map of device info by IP address and hostname
-            const deviceMap = new Map();
-            devices.forEach((device: { ip?: string; hostname?: string; device_id: string }) => {
-                if (device.ip) {
-                    deviceMap.set(device.ip, device);
-                }
-                if (device.hostname) {
-                    deviceMap.set(device.hostname, device);
-                }
-            });
-
-            // Process and combine the results
-            const highUtilizationServices: HighUtilizationService[] = [];
-            let criticalCpuCount = 0;
-            let criticalMemoryCount = 0;
-            let criticalDiskCount = 0;
-            let warningCpuCount = 0;
-            let warningMemoryCount = 0;
-            let warningDiskCount = 0;
-            
-            allSysmonData.forEach(({ pollerId, cpuData, memoryData, diskData }) => {
-                // Process CPU data
-                if (cpuData.length > 0) {
-                    const latestCpu = cpuData[cpuData.length - 1];
-                    if (latestCpu?.cpus && latestCpu.cpus.length > 0) {
-                        const avgCpuUsage = latestCpu.cpus.reduce((sum: number, core: { usage_percent: number }) => sum + core.usage_percent, 0) / latestCpu.cpus.length;
-                        const agentInfo = latestCpu.cpus[0];
-                        
-                        // Get device info from map
-                        const hostId = agentInfo.host_id || pollerId;
-                        const device = deviceMap.get(hostId) || deviceMap.get(agentInfo.agent_id);
-                        
-                        if (avgCpuUsage > 90) {
-                            criticalCpuCount++;
-                            highUtilizationServices.push({
-                                device_id: device?.device_id || `${pollerId}:${hostId}`,
-                                hostname: device?.hostname || hostId,
-                                ip_address: device?.ip || hostId,
-                                service_type: 'grpc',
-                                service_name: 'sysmon',
-                                metric_value: avgCpuUsage,
-                                metric_type: 'cpu',
-                                severity: 'critical',
-                                timestamp: latestCpu.timestamp
-                            });
-                        } else if (avgCpuUsage > 75) {
-                            warningCpuCount++;
-                            highUtilizationServices.push({
-                                device_id: device?.device_id || `${pollerId}:${hostId}`,
-                                hostname: device?.hostname || hostId,
-                                ip_address: device?.ip || hostId,
-                                service_type: 'grpc',
-                                service_name: 'sysmon',
-                                metric_value: avgCpuUsage,
-                                metric_type: 'cpu',
-                                severity: 'warning',
-                                timestamp: latestCpu.timestamp
-                            });
-                        }
-                    }
-                }
-                
-                // Process Memory data
-                if (memoryData.length > 0) {
-                    const latestMemory = memoryData[memoryData.length - 1];
-                    if (latestMemory?.memory) {
-                        const memoryUsagePercent = (latestMemory.memory.used_bytes / latestMemory.memory.total_bytes) * 100;
-                        
-                        const hostId = latestMemory.memory.host_id || pollerId;
-                        const device = deviceMap.get(hostId) || deviceMap.get(latestMemory.memory.agent_id);
-                        
-                        if (memoryUsagePercent > 90) {
-                            criticalMemoryCount++;
-                            highUtilizationServices.push({
-                                device_id: device?.device_id || `${pollerId}:${hostId}`,
-                                hostname: device?.hostname || hostId,
-                                ip_address: device?.ip || hostId,
-                                service_type: 'grpc',
-                                service_name: 'sysmon',
-                                metric_value: memoryUsagePercent,
-                                metric_type: 'memory',
-                                severity: 'critical',
-                                timestamp: latestMemory.timestamp
-                            });
-                        } else if (memoryUsagePercent > 75) {
-                            warningMemoryCount++;
-                            highUtilizationServices.push({
-                                device_id: device?.device_id || `${pollerId}:${hostId}`,
-                                hostname: device?.hostname || hostId,
-                                ip_address: device?.ip || hostId,
-                                service_type: 'grpc',
-                                service_name: 'sysmon',
-                                metric_value: memoryUsagePercent,
-                                metric_type: 'memory',
-                                severity: 'warning',
-                                timestamp: latestMemory.timestamp
-                            });
-                        }
-                    }
-                }
-                
-                // Process Disk data
-                if (diskData.length > 0) {
-                    const latestDisk = diskData[diskData.length - 1];
+        // Process and combine the results
+        const highUtilizationServices: HighUtilizationService[] = [];
+        let criticalCpuCount = 0;
+        let criticalMemoryCount = 0;
+        let criticalDiskCount = 0;
+        let warningCpuCount = 0;
+        let warningMemoryCount = 0;
+        let warningDiskCount = 0;
+        
+        sysmonData.forEach(({ pollerId, cpuData, memoryData, diskData }) => {
+            // Process CPU data
+            if (Array.isArray(cpuData) && cpuData.length > 0) {
+                const latestCpu = cpuData[cpuData.length - 1] as { 
+                    cpus?: { usage_percent: number; host_id?: string; agent_id?: string }[]; 
+                    timestamp?: string 
+                };
+                if (latestCpu?.cpus && latestCpu.cpus.length > 0) {
+                    const avgCpuUsage = latestCpu.cpus.reduce((sum: number, core: { usage_percent: number }) => sum + core.usage_percent, 0) / latestCpu.cpus.length;
+                    const agentInfo = latestCpu.cpus[0];
                     
-                    // Check both possible data structures: disks array or single disk
-                    const disks = latestDisk?.disks || (latestDisk?.disk ? [latestDisk.disk] : []);
+                    // Get device info from map
+                    const hostId = agentInfo.host_id || pollerId;
+                    const device = deviceMap.get(hostId) || deviceMap.get(agentInfo.agent_id);
                     
-                    if (disks.length > 0) {
-                        // Process each disk and find the one with highest usage
-                        disks.forEach((disk: { used_bytes: number; total_bytes: number; host_id?: string; agent_id?: string }) => {
-                            const diskUsagePercent = (disk.used_bytes / disk.total_bytes) * 100;
-                            
-                            const hostId = disk.host_id || pollerId;
-                            const device = deviceMap.get(hostId) || deviceMap.get(disk.agent_id);
-                            
-                            if (diskUsagePercent > 85) {
-                                criticalDiskCount++;
-                                highUtilizationServices.push({
-                                    device_id: device?.device_id || `${pollerId}:${hostId}`,
-                                    hostname: device?.hostname || hostId,
-                                    ip_address: device?.ip || hostId,
-                                    service_type: 'grpc',
-                                    service_name: 'sysmon',
-                                    metric_value: diskUsagePercent,
-                                    metric_type: 'disk',
-                                    severity: 'critical',
-                                    timestamp: latestDisk.timestamp
-                                });
-                            } else if (diskUsagePercent > 75) {
-                                warningDiskCount++;
-                                highUtilizationServices.push({
-                                    device_id: device?.device_id || `${pollerId}:${hostId}`,
-                                    hostname: device?.hostname || hostId,
-                                    ip_address: device?.ip || hostId,
-                                    service_type: 'grpc',
-                                    service_name: 'sysmon',
-                                    metric_value: diskUsagePercent,
-                                    metric_type: 'disk',
-                                    severity: 'warning',
-                                    timestamp: latestDisk.timestamp
-                                });
-                            }
+                    if (avgCpuUsage > 90) {
+                        criticalCpuCount++;
+                        highUtilizationServices.push({
+                            device_id: device?.device_id || `${pollerId}:${hostId}`,
+                            hostname: device?.hostname || hostId,
+                            ip_address: device?.ip || hostId,
+                            service_type: 'grpc',
+                            service_name: 'sysmon',
+                            metric_value: avgCpuUsage,
+                            metric_type: 'cpu',
+                            severity: 'critical',
+                            timestamp: latestCpu.timestamp
+                        });
+                    } else if (avgCpuUsage > 75) {
+                        warningCpuCount++;
+                        highUtilizationServices.push({
+                            device_id: device?.device_id || `${pollerId}:${hostId}`,
+                            hostname: device?.hostname || hostId,
+                            ip_address: device?.ip || hostId,
+                            service_type: 'grpc',
+                            service_name: 'sysmon',
+                            metric_value: avgCpuUsage,
+                            metric_type: 'cpu',
+                            severity: 'warning',
+                            timestamp: latestCpu.timestamp
                         });
                     }
                 }
-            });
-
-            // Sort by severity (critical first) then by metric value
-            const sortedServices = highUtilizationServices
-                .sort((a, b) => {
-                    if (a.severity !== b.severity) {
-                        return a.severity === 'critical' ? -1 : 1;
-                    }
-                    return b.metric_value - a.metric_value;
-                })
-                .slice(0, 5);
-
-            setServices(sortedServices);
+            }
             
-            // Calculate stats
-            setStats({
-                highCpu: criticalCpuCount,
-                highMemory: criticalMemoryCount,
-                highDisk: criticalDiskCount,
-                warningCpu: warningCpuCount,
-                warningMemory: warningMemoryCount,
-                warningDisk: warningDiskCount,
-                totalIssues: highUtilizationServices.length
-            });
+            // Process Memory data
+            if (Array.isArray(memoryData) && memoryData.length > 0) {
+                const latestMemory = memoryData[memoryData.length - 1] as { 
+                    memory?: { used_bytes: number; total_bytes: number; host_id?: string; agent_id?: string }; 
+                    timestamp?: string 
+                };
+                if (latestMemory?.memory) {
+                    const memoryUsagePercent = (latestMemory.memory.used_bytes / latestMemory.memory.total_bytes) * 100;
+                    
+                    const hostId = latestMemory.memory.host_id || pollerId;
+                    const device = deviceMap.get(hostId) || deviceMap.get(latestMemory.memory.agent_id);
+                    
+                    if (memoryUsagePercent > 90) {
+                        criticalMemoryCount++;
+                        highUtilizationServices.push({
+                            device_id: device?.device_id || `${pollerId}:${hostId}`,
+                            hostname: device?.hostname || hostId,
+                            ip_address: device?.ip || hostId,
+                            service_type: 'grpc',
+                            service_name: 'sysmon',
+                            metric_value: memoryUsagePercent,
+                            metric_type: 'memory',
+                            severity: 'critical',
+                            timestamp: latestMemory.timestamp
+                        });
+                    } else if (memoryUsagePercent > 75) {
+                        warningMemoryCount++;
+                        highUtilizationServices.push({
+                            device_id: device?.device_id || `${pollerId}:${hostId}`,
+                            hostname: device?.hostname || hostId,
+                            ip_address: device?.ip || hostId,
+                            service_type: 'grpc',
+                            service_name: 'sysmon',
+                            metric_value: memoryUsagePercent,
+                            metric_type: 'memory',
+                            severity: 'warning',
+                            timestamp: latestMemory.timestamp
+                        });
+                    }
+                }
+            }
+            
+            // Process Disk data
+            if (Array.isArray(diskData) && diskData.length > 0) {
+                const latestDisk = diskData[diskData.length - 1] as { 
+                    disks?: { used_bytes: number; total_bytes: number; host_id?: string; agent_id?: string }[]; 
+                    disk?: { used_bytes: number; total_bytes: number; host_id?: string; agent_id?: string }; 
+                    timestamp?: string 
+                };
+                
+                // Check both possible data structures: disks array or single disk
+                const disks = latestDisk?.disks || (latestDisk?.disk ? [latestDisk.disk] : []);
+                
+                if (disks.length > 0) {
+                    // Process each disk and find the one with highest usage
+                    disks.forEach((disk: { used_bytes: number; total_bytes: number; host_id?: string; agent_id?: string }) => {
+                        const diskUsagePercent = (disk.used_bytes / disk.total_bytes) * 100;
+                        
+                        const hostId = disk.host_id || pollerId;
+                        const device = deviceMap.get(hostId) || deviceMap.get(disk.agent_id);
+                        
+                        if (diskUsagePercent > 85) {
+                            criticalDiskCount++;
+                            highUtilizationServices.push({
+                                device_id: device?.device_id || `${pollerId}:${hostId}`,
+                                hostname: device?.hostname || hostId,
+                                ip_address: device?.ip || hostId,
+                                service_type: 'grpc',
+                                service_name: 'sysmon',
+                                metric_value: diskUsagePercent,
+                                metric_type: 'disk',
+                                severity: 'critical',
+                                timestamp: latestDisk.timestamp
+                            });
+                        } else if (diskUsagePercent > 75) {
+                            warningDiskCount++;
+                            highUtilizationServices.push({
+                                device_id: device?.device_id || `${pollerId}:${hostId}`,
+                                hostname: device?.hostname || hostId,
+                                ip_address: device?.ip || hostId,
+                                service_type: 'grpc',
+                                service_name: 'sysmon',
+                                metric_value: diskUsagePercent,
+                                metric_type: 'disk',
+                                severity: 'warning',
+                                timestamp: latestDisk.timestamp
+                            });
+                        }
+                    });
+                }
+            }
+        });
 
-        } catch (err) {
-            console.error('Error fetching high utilization services:', err);
-            setError(err instanceof Error ? err.message : 'Unknown error');
-        } finally {
-            setLoading(false);
-        }
-    }, [token, postQuery]);
+        // Sort by severity (critical first) then by metric value
+        const sortedServices = highUtilizationServices
+            .sort((a, b) => {
+                if (a.severity !== b.severity) {
+                    return a.severity === 'critical' ? -1 : 1;
+                }
+                return b.metric_value - a.metric_value;
+            })
+            .slice(0, 5);
 
-    useEffect(() => {
-        fetchHighUtilizationServices();
-        const interval = setInterval(fetchHighUtilizationServices, 60000); // Refresh every minute
-        return () => clearInterval(interval);
-    }, [fetchHighUtilizationServices]);
+        const stats = {
+            highCpu: criticalCpuCount,
+            highMemory: criticalMemoryCount,
+            highDisk: criticalDiskCount,
+            warningCpu: warningCpuCount,
+            warningMemory: warningMemoryCount,
+            warningDisk: warningDiskCount,
+            totalIssues: highUtilizationServices.length
+        };
+
+        return { services: sortedServices, stats };
+    }, [sysmonData, analyticsData]);
 
     const getMetricIcon = (type: 'cpu' | 'memory' | 'disk') => {
         switch (type) {

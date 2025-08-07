@@ -16,19 +16,12 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '../AuthProvider';
+import React, { useMemo } from 'react';
+import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { BarChart3, TrendingUp, Clock, Activity, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { formatNumber, formatDuration, formatPercentage } from '@/utils/formatters';
 
-interface ObservabilityStats {
-    totalMetrics: number;
-    totalTraces: number;
-    avgDuration: number;
-    errorRate: number;
-    slowSpans: number;
-}
 
 interface SlowSpan {
     trace_id: string;
@@ -39,95 +32,36 @@ interface SlowSpan {
 }
 
 const ObservabilityWidget = () => {
-    const { token } = useAuth();
-    const [stats, setStats] = useState<ObservabilityStats>({
-        totalMetrics: 0,
-        totalTraces: 0,
-        avgDuration: 0,
-        errorRate: 0,
-        slowSpans: 0
-    });
-    const [recentSlowSpans, setRecentSlowSpans] = useState<SlowSpan[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    const postQuery = useCallback(async <T,>(query: string): Promise<T> => {
-        const response = await fetch('/api/query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token && { Authorization: `Bearer ${token}` })
-            },
-            body: JSON.stringify({ query, limit: 100 }),
-            cache: 'no-store',
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to execute query');
+    const { data: analyticsData, loading, error } = useAnalytics();
+    
+    const { stats, recentSlowSpans } = useMemo(() => {
+        if (!analyticsData) {
+            return {
+                stats: { totalMetrics: 0, totalTraces: 0, avgDuration: 0, errorRate: 0, slowSpans: 0 },
+                recentSlowSpans: []
+            };
         }
 
-        return response.json();
-    }, [token]);
+        const totalMetrics = analyticsData.totalMetrics;
+        const totalErrors = analyticsData.errorMetrics;
+        const totalTraces = analyticsData.totalTraces;
+        const slowSpans = analyticsData.slowMetrics;
+        
+        // Calculate average duration - for now use 0, can be enhanced later
+        const avgDuration = 0;
+        
+        const stats = {
+            totalMetrics,
+            totalTraces,
+            avgDuration,
+            errorRate: totalMetrics > 0 ? totalErrors / totalMetrics : 0,
+            slowSpans
+        };
 
-    const fetchObservabilityStats = useCallback(async () => {
-        try {
-            setLoading(true);
-            setError(null);
-
-            // Fetch observability metrics in parallel
-            const [
-                totalMetricsRes,
-                totalTracesRes,
-                slowSpansRes,
-                errorSpansRes,
-                recentMetricsRes,
-                recentSlowSpansRes
-            ] = await Promise.all([
-                postQuery<{ results: [{ 'count()': number }] }>('COUNT otel_metrics').catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries_final').catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: [{ 'count()': number }] }>('COUNT otel_metrics WHERE is_slow = true').catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT otel_metrics WHERE http_status_code >= '400'").catch(() => ({ results: [{ 'count()': 0 }] })),
-                postQuery<{ results: Array<{ duration_ms: number }> }>('SHOW otel_metrics WHERE duration_ms > 0 ORDER BY timestamp DESC').catch(() => ({ results: [] })),
-                postQuery<{ results: SlowSpan[] }>('SHOW otel_metrics WHERE is_slow = true ORDER BY timestamp DESC').catch(() => ({ results: [] }))
-            ]);
-
-            const totalMetrics = totalMetricsRes.results[0]?.['count()'] || 0;
-            const totalErrors = errorSpansRes.results[0]?.['count()'] || 0;
-            
-            // Calculate average duration from recent metrics
-            let avgDuration = 0;
-            if (recentMetricsRes.results && recentMetricsRes.results.length > 0) {
-                const totalDuration = recentMetricsRes.results.reduce((sum, metric) => sum + (metric.duration_ms || 0), 0);
-                avgDuration = totalDuration / recentMetricsRes.results.length;
-            }
-
-            setStats({
-                totalMetrics: totalMetrics,
-                totalTraces: totalTracesRes.results[0]?.['count()'] || 0,
-                avgDuration: avgDuration,
-                errorRate: totalMetrics > 0 ? totalErrors / totalMetrics : 0,
-                slowSpans: slowSpansRes.results[0]?.['count()'] || 0
-            });
-
-            // Update recent slow spans (take top 3)
-            setRecentSlowSpans((recentSlowSpansRes.results || []).slice(0, 3));
-
-        } catch (err) {
-            console.error('Error fetching observability stats:', err);
-            setError(err instanceof Error ? err.message : 'Unknown error');
-        } finally {
-            setLoading(false);
-        }
-    }, [postQuery]);
-
-
-
-    useEffect(() => {
-        fetchObservabilityStats();
-        const interval = setInterval(fetchObservabilityStats, 60000); // Refresh every minute
-        return () => clearInterval(interval);
-    }, [fetchObservabilityStats]);
+        const recentSlowSpans = (analyticsData.recentSlowSpans as SlowSpan[] || []).slice(0, 3);
+        
+        return { stats, recentSlowSpans };
+    }, [analyticsData]);
 
     if (loading) {
         return (
