@@ -238,6 +238,7 @@ func (s *APIServer) handleAPIKeyAuth(w http.ResponseWriter, r *http.Request, nex
 	// API key is configured but the provided key is invalid
 	s.logger.Warn().Msg("API key authentication is enabled but no valid API key provided")
 	writeError(w, "Invalid API key", http.StatusUnauthorized)
+
 	return true // Handled (with rejection)
 }
 
