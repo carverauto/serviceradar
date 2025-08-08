@@ -75,7 +75,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		return fmt.Errorf("failed to publish device updates: %w", err)
 	}
 
-	r.logger.Info().
+	r.logger.Debug().
 		Int("update_count", len(updates)).
 		Msg("Successfully processed and published device updates")
 
