@@ -224,7 +224,7 @@ func (s *APIServer) handleBearerTokenAuth(w http.ResponseWriter, r *http.Request
 }
 
 // handleAPIKeyAuth handles API key authentication
-func (*APIServer) handleAPIKeyAuth(w http.ResponseWriter, r *http.Request, next http.Handler) bool {
+func (s *APIServer) handleAPIKeyAuth(w http.ResponseWriter, r *http.Request, next http.Handler) bool {
 	apiKey := os.Getenv("API_KEY")
 	if apiKey == "" {
 		return false
@@ -235,7 +235,11 @@ func (*APIServer) handleAPIKeyAuth(w http.ResponseWriter, r *http.Request, next 
 		return true
 	}
 
-	return false
+	// API key is configured but the provided key is invalid
+	s.logger.Warn().Msg("API key authentication is enabled but no valid API key provided")
+	writeError(w, "Invalid API key", http.StatusUnauthorized)
+
+	return true // Handled (with rejection)
 }
 
 const (
@@ -251,12 +255,6 @@ func (*APIServer) isAuthRequired() bool {
 func (s *APIServer) logAuthFailure(msg string) {
 	// Log without sensitive details
 	s.logger.Warn().Msg(msg)
-
-	if os.Getenv("AUTH_ENABLED") == authEnabledTrue {
-		s.logger.Warn().Msg("Authentication is enabled but no valid credentials provided")
-	} else {
-		s.logger.Warn().Msg("API key authentication is enabled but no valid API key provided")
-	}
 }
 
 // setupSwaggerRoutes configures routes for Swagger UI and documentation.
