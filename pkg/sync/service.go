@@ -489,12 +489,12 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 
 	var allDeviceUpdates []*models.DeviceUpdate
 
-	s.logger.Info().
+	s.logger.Debug().
 		Int("total_sources", len(s.resultsStore.results)).
 		Msg("SYNC DEBUG: GetResults called")
 
 	for sourceName, devices := range s.resultsStore.results {
-		s.logger.Info().
+		s.logger.Debug().
 			Str("source_name", sourceName).
 			Int("device_count", len(devices)).
 			Msg("SYNC DEBUG: Source devices")
@@ -511,7 +511,7 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 		allDeviceUpdates = append(allDeviceUpdates, devices...)
 	}
 
-	s.logger.Info().
+	s.logger.Debug().
 		Int("total_device_updates", len(allDeviceUpdates)).
 		Msg("SYNC DEBUG: About to marshal DeviceUpdate array")
 
@@ -525,7 +525,7 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
 	}
 
-	s.logger.Info().
+	s.logger.Debug().
 		Int("json_bytes", len(resultsJSON)).
 		Int("device_count", len(allDeviceUpdates)).
 		Msg("SYNC DEBUG: Successfully marshaled DeviceUpdate array")
@@ -649,7 +649,7 @@ func (s *SimpleSyncService) sendSingleChunk(
 		return status.Errorf(codes.Internal, "failed to marshal chunk: %v", err)
 	}
 
-	s.logger.Info().
+	s.logger.Debug().
 		Int("chunk_index", chunkIndex).
 		Int("chunk_bytes", len(chunkData)).
 		Int("device_count", len(chunkDevices)).
