@@ -830,7 +830,7 @@ func (s *Server) registerServiceDevice(
 			Msg("DeviceRegistry not available for device registration")
 	}
 
-	s.logger.Info().
+	s.logger.Debug().
 		Str("device_id", deviceID).
 		Interface("service_types", serviceTypes).
 		Str("poller_id", pollerID).
