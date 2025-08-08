@@ -47,7 +47,7 @@ func (s *Server) createSysmonDeviceRecord(
 		},
 	}
 
-	s.logger.Info().
+	s.logger.Debug().
 		Str("device_id", deviceID).
 		Str("hostname", payload.Status.HostID).
 		Str("ip", payload.Status.HostIP).

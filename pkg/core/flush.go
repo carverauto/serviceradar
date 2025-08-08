@@ -124,7 +124,7 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 
 	totalSize := s.calculateBatchSize(statuses)
 
-	s.logger.Info().
+	s.logger.Debug().
 		Str("poller_id", pollerID).
 		Int("status_count", len(statuses)).
 		Int("estimated_size_bytes", totalSize).
@@ -135,7 +135,7 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 	nonSyncServices := make([]*models.ServiceStatus, 0)
 
 	for _, status := range statuses {
-		s.logger.Info().
+		s.logger.Debug().
 			Str("service_name", status.ServiceName).
 			Str("service_type", status.ServiceType).
 			Int("message_size", len(status.Message)).
@@ -152,7 +152,7 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 	// Handle sync services individually to avoid batch size issues
 	for _, status := range syncServices {
 		detailsSize := len(status.Details)
-		s.logger.Info().
+		s.logger.Debug().
 			Str("service_name", status.ServiceName).
 			Int("details_size", detailsSize).
 			Msg("FLUSH DEBUG: Flushing large sync service individually")
@@ -169,7 +169,7 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 
 	// Handle non-sync services with normal batching
 	if len(nonSyncServices) == 0 {
-		s.logger.Info().
+		s.logger.Debug().
 			Str("poller_id", pollerID).
 			Int("sync_services_flushed", len(syncServices)).
 			Msg("FLUSH DEBUG: Only sync services in batch - all handled individually")
@@ -180,7 +180,7 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 	// Recalculate batch info for non-sync services only
 	nonSyncTotalSize := s.calculateBatchSize(nonSyncServices)
 
-	s.logger.Info().
+	s.logger.Debug().
 		Str("poller_id", pollerID).
 		Int("sync_services_flushed", len(syncServices)).
 		Int("non_sync_services", len(nonSyncServices)).
