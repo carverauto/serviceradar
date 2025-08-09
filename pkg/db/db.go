@@ -48,6 +48,7 @@ func (db *DB) GetStreamingConnection() (interface{}, error) {
 	if db.Conn == nil {
 		return nil, fmt.Errorf("database connection not initialized")
 	}
+
 	return db.Conn, nil
 }
 

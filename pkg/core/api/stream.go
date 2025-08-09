@@ -31,16 +31,6 @@ import (
 	"github.com/timeplus-io/proton-go-driver/v2"
 )
 
-// WebSocket upgrader configuration
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// TODO: Implement proper CORS checking based on s.corsConfig
-		return true
-	},
-}
-
 // StreamMessage represents a message sent over the WebSocket
 type StreamMessage struct {
 	Type      string                 `json:"type"` // "data", "error", "complete", "ping"
@@ -59,11 +49,21 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upgrade HTTP connection to WebSocket
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(_ *http.Request) bool {
+			// TODO: Implement proper CORS checking based on s.corsConfig
+			return true
+		},
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
+
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to upgrade to WebSocket")
 		return
 	}
+
 	defer conn.Close()
 
 	// Create cancellable context for the streaming operation
@@ -74,9 +74,12 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 	go s.handleClientMessages(ctx, conn, cancel)
 
 	// Parse and prepare the streaming query
-	streamingSQL, entity, err := s.prepareStreamingQuery(query)
+	streamingSQL, entity, err := prepareStreamingQuery(query)
 	if err != nil {
-		s.sendErrorMessage(conn, fmt.Sprintf("Failed to prepare query: %v", err))
+		if sendErr := sendErrorMessage(conn, fmt.Sprintf("Failed to prepare query: %v", err)); sendErr != nil {
+			s.logger.Error().Err(sendErr).Msg("Failed to send error message")
+		}
+
 		return
 	}
 
@@ -87,13 +90,16 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 		Msg("Starting streaming query")
 
 	// Execute the streaming query
-	if err := s.streamQueryResults(ctx, conn, streamingSQL); err != nil {
-		s.logger.Error().Err(err).Msg("Streaming query failed")
-		s.sendErrorMessage(conn, fmt.Sprintf("Query execution failed: %v", err))
+	if streamErr := s.streamQueryResults(ctx, conn, streamingSQL); streamErr != nil {
+		s.logger.Error().Err(streamErr).Msg("Streaming query failed")
+
+		if sendErr := sendErrorMessage(conn, fmt.Sprintf("Query execution failed: %v", streamErr)); sendErr != nil {
+			s.logger.Error().Err(sendErr).Msg("Failed to send error message")
+		}
 	}
 
 	// Send completion message
-	err = s.sendCompletionMessage(conn)
+	err = sendCompletionMessage(conn)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to send completion message")
 
@@ -102,7 +108,7 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 // prepareStreamingQuery parses an SRQL query and prepares it for streaming execution
-func (s *APIServer) prepareStreamingQuery(srqlQuery string) (string, models.EntityType, error) {
+func prepareStreamingQuery(srqlQuery string) (string, models.EntityType, error) {
 	// Parse the SRQL query
 	parsedQuery, err := srql.NewParser().Parse(srqlQuery)
 	if err != nil {
@@ -142,6 +148,7 @@ func (s *APIServer) streamQueryResults(ctx context.Context, conn *websocket.Conn
 	// Get column information with proper types
 	columnTypes := rows.ColumnTypes()
 	columns := make([]string, len(columnTypes))
+
 	for i, ct := range columnTypes {
 		columns[i] = ct.Name()
 	}
@@ -155,17 +162,18 @@ func (s *APIServer) streamQueryResults(ctx context.Context, conn *websocket.Conn
 	// Stream rows to the WebSocket
 	rowCount := 0
 	ticker := time.NewTicker(30 * time.Second) // Ping ticker for keepalive
+
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			// Context cancelled (client disconnected or server shutdown)
+			// Context canceled (client disconnected or server shutdown)
 			return ctx.Err()
 
 		case <-ticker.C:
 			// Send ping to keep connection alive
-			if err := s.sendPingMessage(conn); err != nil {
+			if err := sendPingMessage(conn); err != nil {
 				return err
 			}
 
@@ -188,10 +196,10 @@ func (s *APIServer) streamQueryResults(ctx context.Context, conn *websocket.Conn
 			}
 
 			// Convert row to map using the same logic as db.convertRow
-			rowData := s.convertStreamRow(columns, scanVars)
+			rowData := convertStreamRow(columns, scanVars)
 
 			// Send data message
-			if err := s.sendDataMessage(conn, rowData); err != nil {
+			if err := sendDataMessage(conn, rowData); err != nil {
 				return err
 			}
 
@@ -213,14 +221,18 @@ func (s *APIServer) handleClientMessages(ctx context.Context, conn *websocket.Co
 			return
 		default:
 			// Set read deadline to detect disconnection
-			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+				s.logger.Warn().Err(err).Msg("Failed to set read deadline")
+			}
 
 			messageType, _, err := conn.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					s.logger.Warn().Err(err).Msg("WebSocket closed unexpectedly")
 				}
+
 				cancel() // Cancel the streaming context
+
 				return
 			}
 
@@ -256,47 +268,51 @@ func (s *APIServer) getStreamingDB() (proton.Conn, error) {
 
 // Message sending helper functions
 
-func (s *APIServer) sendDataMessage(conn *websocket.Conn, data map[string]interface{}) error {
+func sendDataMessage(conn *websocket.Conn, data map[string]interface{}) error {
 	msg := StreamMessage{
 		Type:      "data",
 		Data:      data,
 		Timestamp: time.Now(),
 	}
+
 	return conn.WriteJSON(msg)
 }
 
-func (s *APIServer) sendErrorMessage(conn *websocket.Conn, errMsg string) error {
+func sendErrorMessage(conn *websocket.Conn, errMsg string) error {
 	msg := StreamMessage{
 		Type:      "error",
 		Error:     errMsg,
 		Timestamp: time.Now(),
 	}
+
 	return conn.WriteJSON(msg)
 }
 
-func (s *APIServer) sendCompletionMessage(conn *websocket.Conn) error {
+func sendCompletionMessage(conn *websocket.Conn) error {
 	msg := StreamMessage{
 		Type:      "complete",
 		Timestamp: time.Now(),
 	}
+
 	return conn.WriteJSON(msg)
 }
 
-func (s *APIServer) sendPingMessage(conn *websocket.Conn) error {
+func sendPingMessage(conn *websocket.Conn) error {
 	msg := StreamMessage{
 		Type:      "ping",
 		Timestamp: time.Now(),
 	}
+
 	return conn.WriteJSON(msg)
 }
 
 // convertStreamRow converts scanned row values to a map, handling type dereferencing
 // This uses the same logic as db.convertRow for consistency
-func (s *APIServer) convertStreamRow(columns []string, scanVars []interface{}) map[string]interface{} {
+func convertStreamRow(columns []string, scanVars []interface{}) map[string]interface{} {
 	row := make(map[string]interface{}, len(columns))
 
 	for i, col := range columns {
-		row[col] = s.dereferenceValue(scanVars[i])
+		row[col] = dereferenceValue(scanVars[i])
 	}
 
 	return row
@@ -304,7 +320,7 @@ func (s *APIServer) convertStreamRow(columns []string, scanVars []interface{}) m
 
 // dereferenceValue dereferences a scanned value and returns its concrete type
 // This mirrors the db.dereferenceValue function for consistency
-func (s *APIServer) dereferenceValue(v interface{}) interface{} {
+func dereferenceValue(v interface{}) interface{} {
 	switch val := v.(type) {
 	case *string:
 		return *val
@@ -317,7 +333,7 @@ func (s *APIServer) dereferenceValue(v interface{}) interface{} {
 	case *float64:
 		return *val
 	case *time.Time:
-		return (*val).Format(time.RFC3339)
+		return val.Format(time.RFC3339)
 	case *bool:
 		return *val
 	default:
@@ -332,6 +348,7 @@ func (s *APIServer) dereferenceValue(v interface{}) interface{} {
 			if t, ok := val.(time.Time); ok {
 				return t.Format(time.RFC3339)
 			}
+
 			return val
 		}
 
