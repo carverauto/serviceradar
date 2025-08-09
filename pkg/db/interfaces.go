@@ -34,6 +34,9 @@ type QueryExecutor interface {
 // Service represents all database operations for Timeplus Proton.
 type Service interface {
 	Close() error
+	
+	// GetStreamingConnection returns a raw database connection for streaming queries
+	GetStreamingConnection() (interface{}, error)
 
 	// Poller operations.
 

@@ -452,6 +452,9 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices/{id}/sysmon/processes", s.getDeviceSysmonProcessMetrics).Methods("GET")
 
 	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
+	
+	// WebSocket streaming endpoint
+	protected.HandleFunc("/stream", s.handleStreamQuery).Methods("GET")
 
 	// Device-centric endpoints
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
