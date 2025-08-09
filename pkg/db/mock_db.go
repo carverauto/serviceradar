@@ -435,6 +435,21 @@ func (mr *MockServiceMockRecorder) GetServiceHistory(ctx, pollerID, serviceName,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceHistory", reflect.TypeOf((*MockService)(nil).GetServiceHistory), ctx, pollerID, serviceName, limit)
 }
 
+// GetStreamingConnection mocks base method.
+func (m *MockService) GetStreamingConnection() (any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetStreamingConnection")
+	ret0, _ := ret[0].(any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetStreamingConnection indicates an expected call of GetStreamingConnection.
+func (mr *MockServiceMockRecorder) GetStreamingConnection() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStreamingConnection", reflect.TypeOf((*MockService)(nil).GetStreamingConnection))
+}
+
 // GetSweepHostStates mocks base method.
 func (m *MockService) GetSweepHostStates(ctx context.Context, pollerID string, limit int) ([]*models.SweepHostState, error) {
 	m.ctrl.T.Helper()
