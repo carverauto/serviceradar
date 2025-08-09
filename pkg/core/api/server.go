@@ -453,6 +453,9 @@ func (s *APIServer) setupProtectedRoutes() {
 
 	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
 
+	// WebSocket streaming endpoint
+	protected.HandleFunc("/stream", s.handleStreamQuery).Methods("GET")
+
 	// Device-centric endpoints
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
 	protected.HandleFunc("/devices/{id}", s.getDevice).Methods("GET")

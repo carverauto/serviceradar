@@ -35,6 +35,9 @@ type QueryExecutor interface {
 type Service interface {
 	Close() error
 
+	// GetStreamingConnection returns a raw database connection for streaming queries
+	GetStreamingConnection() (interface{}, error)
+
 	// Poller operations.
 
 	UpdatePollerStatus(ctx context.Context, status *models.PollerStatus) error
