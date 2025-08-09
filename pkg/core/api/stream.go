@@ -52,9 +52,8 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-		CheckOrigin: func(_ *http.Request) bool {
-			// TODO: Implement proper CORS checking based on s.corsConfig
-			return true
+		CheckOrigin: func(r *http.Request) bool {
+			return s.checkWebSocketOrigin(r)
 		},
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -316,6 +315,33 @@ func convertStreamRow(columns []string, scanVars []interface{}) map[string]inter
 	}
 
 	return row
+}
+
+// checkWebSocketOrigin validates WebSocket origin against CORS configuration
+func (s *APIServer) checkWebSocketOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+
+	// If there's no Origin header, allow the connection (same as middleware logic)
+	if origin == "" {
+		return true
+	}
+
+	// Check if the request origin is in the allowed list
+	for _, allowedOrigin := range s.corsConfig.AllowedOrigins {
+		if allowedOrigin == origin || allowedOrigin == "*" {
+			return true
+		}
+	}
+
+	// Log the rejected origin for debugging
+	if s.logger != nil {
+		s.logger.Warn().
+			Str("origin", origin).
+			Interface("allowed_origins", s.corsConfig.AllowedOrigins).
+			Msg("WebSocket CORS: Origin not allowed")
+	}
+
+	return false
 }
 
 // dereferenceValue dereferences a scanned value and returns its concrete type
