@@ -603,14 +603,18 @@ func (t *Translator) buildStreamQuery(sql *strings.Builder, query *models.Query,
 	// Add ORDER BY if specified
 	if len(query.OrderBy) > 0 {
 		sql.WriteString(" ORDER BY ")
+
 		var orderByParts []string
+
 		for _, item := range query.OrderBy {
 			direction := defaultAscending
 			if item.Direction == models.Descending {
 				direction = defaultDescending
 			}
+
 			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
 		}
+
 		sql.WriteString(strings.Join(orderByParts, ", "))
 	}
 
@@ -627,6 +631,7 @@ func (t *Translator) buildProtonStreamingQuery(query *models.Query) (string, err
 	}
 
 	var sql strings.Builder
+
 	baseTableName := t.getProtonBaseTableName(query.Entity)
 
 	// Build SELECT clause
@@ -643,11 +648,13 @@ func (t *Translator) buildProtonStreamingQuery(query *models.Query) (string, err
 		sql.WriteString("SELECT count() FROM ")
 	case models.Stream:
 		sql.WriteString("SELECT ")
+
 		if len(query.SelectFields) > 0 {
 			sql.WriteString(strings.Join(query.SelectFields, ", "))
 		} else {
 			sql.WriteString("*")
 		}
+
 		sql.WriteString(" FROM ")
 	}
 
@@ -673,14 +680,18 @@ func (t *Translator) buildProtonStreamingQuery(query *models.Query) (string, err
 	// ORDER BY clause (if applicable for streaming)
 	if len(query.OrderBy) > 0 {
 		sql.WriteString(" ORDER BY ")
+
 		var orderByParts []string
+
 		for _, item := range query.OrderBy {
 			direction := defaultAscending
 			if item.Direction == models.Descending {
 				direction = defaultDescending
 			}
+
 			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
 		}
+
 		sql.WriteString(strings.Join(orderByParts, ", "))
 	}
 
