@@ -43,6 +43,14 @@ type DB struct {
 	logger        logger.Logger
 }
 
+// GetStreamingConnection returns the underlying proton connection for streaming queries
+func (db *DB) GetStreamingConnection() (interface{}, error) {
+	if db.Conn == nil {
+		return nil, fmt.Errorf("database connection not initialized")
+	}
+	return db.Conn, nil
+}
+
 // createTLSConfig builds TLS configuration from security settings
 func createTLSConfig(config *models.CoreServiceConfig) (*tls.Config, error) {
 	// If no security config, return nil for no TLS

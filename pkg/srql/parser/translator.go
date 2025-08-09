@@ -168,6 +168,31 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 	}
 }
 
+// TranslateForStreaming converts a Query model to a streaming database query string (without table() wrapper)
+func (t *Translator) TranslateForStreaming(query *models.Query) (string, error) {
+	if query == nil {
+		return "", errCannotTranslateNilQuery
+	}
+
+	// Transform unsupported entity types to their equivalent supported types
+	t.TransformQuery(query)
+
+	// Convert time clauses to WHERE conditions
+	t.convertTimeClauseToCondition(query)
+
+	// Apply any implicit filters based on the entity type
+	t.applyDefaultFilters(query)
+
+	switch t.DBType {
+	case Proton:
+		return t.buildProtonStreamingQuery(query)
+	case ClickHouse:
+		return t.buildClickHouseStreamingQuery(query)
+	default:
+		return "", fmt.Errorf("%w for database type: %s", errUnsupportedDatabaseType, t.DBType)
+	}
+}
+
 const (
 	defaultAscending      = "ASC"
 	defaultDescending     = "DESC"
@@ -564,45 +589,114 @@ func (t *Translator) buildStreamQuery(sql *strings.Builder, query *models.Query,
 		whereClauses = append(whereClauses, conditionsStr)
 	}
 
-	// Add implicit filter for non-deleted devices, only for 'devices' entity
-	if query.Entity == models.Devices {
-		deletedFilter := "coalesce(metadata['_deleted'], '') != 'true'"
-		whereClauses = append(whereClauses, deletedFilter)
+	if len(whereClauses) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(strings.Join(whereClauses, " AND "))
 	}
+
+	// Add GROUP BY if specified
+	if len(query.GroupBy) > 0 {
+		sql.WriteString(" GROUP BY ")
+		sql.WriteString(strings.Join(query.GroupBy, ", "))
+	}
+
+	// Add ORDER BY if specified
+	if len(query.OrderBy) > 0 {
+		sql.WriteString(" ORDER BY ")
+		var orderByParts []string
+		for _, item := range query.OrderBy {
+			direction := defaultAscending
+			if item.Direction == models.Descending {
+				direction = defaultDescending
+			}
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
+		}
+		sql.WriteString(strings.Join(orderByParts, ", "))
+	}
+
+	// Add LIMIT if specified
+	if query.HasLimit {
+		fmt.Fprintf(sql, " LIMIT %d", query.Limit)
+	}
+}
+
+// buildProtonStreamingQuery builds a SQL query for Timeplus Proton WITHOUT table() wrapper for streaming
+func (t *Translator) buildProtonStreamingQuery(query *models.Query) (string, error) {
+	if query == nil {
+		return "", errCannotTranslateNilQueryProton
+	}
+
+	var sql strings.Builder
+	baseTableName := t.getProtonBaseTableName(query.Entity)
+
+	// Build SELECT clause
+	switch query.Type {
+	case models.Show, models.Find:
+		if query.Function != "" {
+			sql.WriteString("SELECT ")
+			sql.WriteString(t.buildFunctionCall(query))
+			sql.WriteString(" FROM ")
+		} else {
+			sql.WriteString("SELECT * FROM ")
+		}
+	case models.Count:
+		sql.WriteString("SELECT count() FROM ")
+	case models.Stream:
+		sql.WriteString("SELECT ")
+		if len(query.SelectFields) > 0 {
+			sql.WriteString(strings.Join(query.SelectFields, ", "))
+		} else {
+			sql.WriteString("*")
+		}
+		sql.WriteString(" FROM ")
+	}
+
+	// Add table name WITHOUT table() wrapper for streaming
+	sql.WriteString(baseTableName)
+
+	// Build WHERE clause
+	var whereClauses []string
+
+	if len(query.Conditions) > 0 {
+		conditionsStr := t.buildProtonWhere(query.Conditions, query.Entity)
+		whereClauses = append(whereClauses, conditionsStr)
+	}
+
+	// Skip the implicit filter for deleted devices in streaming mode
+	// as it might interfere with real-time streaming
 
 	if len(whereClauses) > 0 {
 		sql.WriteString(" WHERE ")
 		sql.WriteString(strings.Join(whereClauses, " AND "))
 	}
 
-	// Build GROUP BY clause
-	if len(query.GroupBy) > 0 {
-		sql.WriteString(" GROUP BY ")
-		sql.WriteString(strings.Join(query.GroupBy, ", "))
-	}
-
-	// Build ORDER BY clause
+	// ORDER BY clause (if applicable for streaming)
 	if len(query.OrderBy) > 0 {
 		sql.WriteString(" ORDER BY ")
-
 		var orderByParts []string
-
 		for _, item := range query.OrderBy {
 			direction := defaultAscending
 			if item.Direction == models.Descending {
 				direction = defaultDescending
 			}
-
 			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
 		}
-
 		sql.WriteString(strings.Join(orderByParts, ", "))
 	}
 
-	// Build LIMIT clause
+	// LIMIT clause (if applicable for streaming)
 	if query.HasLimit {
-		fmt.Fprintf(sql, " LIMIT %d", query.Limit)
+		fmt.Fprintf(&sql, " LIMIT %d", query.Limit)
 	}
+
+	return sql.String(), nil
+}
+
+// buildClickHouseStreamingQuery builds a streaming SQL query for ClickHouse (without special wrappers)
+func (t *Translator) buildClickHouseStreamingQuery(query *models.Query) (string, error) {
+	// For ClickHouse, streaming queries are the same as regular queries
+	// since ClickHouse doesn't use table() wrapper
+	return t.buildClickHouseQuery(query)
 }
 
 // buildFunctionCall builds a function call like DISTINCT(field) for SQL
