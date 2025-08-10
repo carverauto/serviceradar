@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { TraceSummary, TraceSummariesApiResponse, TraceStats, SortableTraceKeys } from '@/types/traces';
 import { Pagination } from '@/types/devices';
@@ -20,7 +20,12 @@ import {
     Check,
     Radio,
     Wifi,
-    WifiOff
+    WifiOff,
+    Play,
+    Pause,
+    ChevronLeft,
+    ChevronRight as ChevronRightIcon,
+    ChevronsDown
 } from 'lucide-react';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
@@ -150,14 +155,24 @@ const TracesDashboard = () => {
     const [filterStatus, setFilterStatus] = useState<'all' | 'success' | 'error'>('all');
     const [services, setServices] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<SortableTraceKeys>('timestamp');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // Default to chronological order for streaming
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     
     // Streaming state
     const [streamingEnabled, setStreamingEnabled] = useState(false);
     const [streamingConnected, setStreamingConnected] = useState(false);
+    const [streamingAvailable, setStreamingAvailable] = useState(true);
+    const [streamingPaused, setStreamingPaused] = useState(false);
     const streamingClient = useRef<StreamingClient | null>(null);
     const [streamingTraces, setStreamingTraces] = useState<TraceSummary[]>([]);
+    
+    // Client-side pagination for streaming traces
+    const [streamingCurrentPage, setStreamingCurrentPage] = useState(1);
+    const streamingTracesPerPage = 20;
+    const maxStreamingHistory = 1000; // Keep ~4 cycles worth (250 traces per cycle × 4 = 1000)
+    
+    // Track if user is viewing the latest traces (for auto-advance behavior)
+    const [autoFollowLatest, setAutoFollowLatest] = useState(true);
 
     const postQuery = useCallback(async <T,>(
         query: string,
@@ -318,34 +333,96 @@ const TracesDashboard = () => {
         }
 
         query += ` ORDER BY ${sortBy === 'timestamp' ? '_tp_time' : sortBy} ${sortOrder.toUpperCase()}`;
+        
+        // Debug: Log the streaming query being used
+        console.log('📡 Streaming query:', query);
+        console.log('📡 Active filters - Status:', filterStatus, 'Service:', filterService, 'Search:', debouncedSearchTerm);
+        
         return query;
     }, [debouncedSearchTerm, filterService, filterStatus, sortBy, sortOrder]);
 
     const startStreaming = useCallback(() => {
+        // Prevent multiple simultaneous connection attempts
+        if (streamingClient.current && streamingClient.current.isConnected()) {
+            console.log('📡 Streaming already connected, skipping duplicate start request');
+            return;
+        }
+
         if (streamingClient.current) {
+            console.log('📡 Disconnecting existing streaming client before starting new one');
             streamingClient.current.disconnect();
         }
 
         const query = buildStreamingQuery();
+        console.log('📡 Creating new streaming client for query:', query);
         
         streamingClient.current = createStreamingClient({
             onData: (data) => {
-                setStreamingTraces(prev => [data as unknown as TraceSummary, ...prev.slice(0, 499)]); // Keep last 500 traces
+                // The data comes as a map[string]interface{} from the backend
+                // We need to ensure it has the required fields for the TraceSummary type
+                const trace: TraceSummary = {
+                    timestamp: (data.timestamp as string) || (data._tp_time as string) || '',
+                    trace_id: (data.trace_id as string) || '',
+                    root_span_id: (data.root_span_id as string) || '',
+                    root_span_name: (data.root_span_name as string) || '',
+                    root_service_name: (data.root_service_name as string) || '',
+                    root_span_kind: (data.root_span_kind as number) || 0,
+                    start_time_unix_nano: (data.start_time_unix_nano as number) || 0,
+                    end_time_unix_nano: (data.end_time_unix_nano as number) || 0,
+                    duration_ms: (data.duration_ms as number) || 0,
+                    status_code: (data.status_code as number) || 0,
+                    status_message: (data.status_message as string) || '',
+                    service_set: (data.service_set as string[]) || [],
+                    span_count: (data.span_count as number) || 0,
+                    error_count: (data.error_count as number) || 0
+                };
+                
+                // Only add trace if streaming is not paused
+                if (!streamingPaused) {
+                    setStreamingTraces(prev => {
+                        // Append new trace to the end (CloudWatch style)
+                        const newTraces = [...prev, trace];
+                        // Debug: Log the count every 50 messages (every ~1/5 cycle)
+                        if (newTraces.length % 50 === 0) {
+                            console.log(`📊 Streaming traces count: ${newTraces.length} (${Math.floor(newTraces.length / 250)} cycles)`);
+                        }
+                        // Keep up to maxStreamingHistory traces, remove oldest when exceeded
+                        return newTraces.length > maxStreamingHistory ? newTraces.slice(-maxStreamingHistory) : newTraces;
+                    });
+                }
+                // If paused, just ignore the trace (could add to a buffer if needed later)
+                // Clear any previous errors when receiving data successfully
+                setError(null);
             },
             onError: (error) => {
                 console.error('Streaming error:', error);
-                setError(`Streaming error: ${error}`);
+                
+                // Only show critical errors that affect functionality, not connection issues
+                if (error.includes('authentication failed') || error.includes('not supported') || 
+                    error.includes('not available') || error.includes('server rejected')) {
+                    setError(`Streaming error: ${error}`);
+                }
+                
+                // Check if error indicates streaming is not available
+                if (error.includes('not yet available') || error.includes('not available')) {
+                    setStreamingAvailable(false);
+                    setStreamingEnabled(false);
+                }
             },
             onComplete: () => {
                 console.log('Streaming completed');
             },
             onConnection: (connected) => {
                 setStreamingConnected(connected);
+                // Clear errors when successfully connected
+                if (connected) {
+                    setError(null);
+                }
             }
         });
 
         streamingClient.current.connect(query);
-    }, [buildStreamingQuery]);
+    }, [buildStreamingQuery, streamingPaused]);
 
     const stopStreaming = useCallback(() => {
         if (streamingClient.current) {
@@ -354,17 +431,37 @@ const TracesDashboard = () => {
         }
         setStreamingConnected(false);
         setStreamingTraces([]);
+        setStreamingCurrentPage(1);
+        setStreamingPaused(false);
+        setAutoFollowLatest(true);
+    }, []);
+
+    const pauseStreaming = useCallback(() => {
+        setStreamingPaused(true);
+    }, []);
+
+    const resumeStreaming = useCallback(() => {
+        setStreamingPaused(false);
     }, []);
 
     const toggleStreaming = useCallback(() => {
+        console.log('📡 toggleStreaming called, current state:', streamingEnabled);
         if (streamingEnabled) {
+            console.log('📡 Stopping streaming...');
             stopStreaming();
             setStreamingEnabled(false);
         } else {
+            console.log('📡 Enabling streaming (useEffect will handle the actual start)...');
+            // Clear regular traces when switching to streaming mode
+            // This prevents showing old paginated data
+            setTraces([]);
+            setPagination(null);
+            setStreamingCurrentPage(1); // Reset to first page
+            setAutoFollowLatest(true); // Enable auto-follow for new stream
             setStreamingEnabled(true);
-            startStreaming();
+            // Don't call startStreaming() here - let the useEffect handle it to avoid double calls
         }
-    }, [streamingEnabled, stopStreaming, startStreaming]);
+    }, [streamingEnabled, stopStreaming]);
 
     useEffect(() => {
         // Cleanup on unmount
@@ -376,8 +473,10 @@ const TracesDashboard = () => {
     }, []);
 
     useEffect(() => {
-        // Restart streaming when filters change
+        // Start/restart streaming when filters change or streaming is enabled
+        console.log('📡 useEffect: streamingEnabled changed to:', streamingEnabled);
         if (streamingEnabled) {
+            console.log('📡 useEffect: Starting streaming...');
             startStreaming();
         }
     }, [streamingEnabled, startStreaming]);
@@ -392,7 +491,63 @@ const TracesDashboard = () => {
         if (!streamingEnabled) {
             fetchTraces();
         }
+        // Don't fetch regular traces when streaming is enabled
+        // We only want to show streaming data
     }, [fetchTraces, streamingEnabled]);
+
+    // Combine and sort traces from both sources when streaming is enabled
+    const allTraces = useMemo(() => {
+        if (!streamingEnabled) {
+            return traces;
+        }
+
+        // When streaming is enabled, show only streaming traces
+        // Sort streaming traces by timestamp
+        const sortedTraces = [...streamingTraces].sort((a, b) => {
+            const dateA = new Date(a.timestamp).getTime();
+            const dateB = new Date(b.timestamp).getTime();
+            return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+        });
+
+        return sortedTraces;
+    }, [streamingEnabled, streamingTraces, traces, sortOrder]);
+
+    // Calculate streaming pagination info
+    const streamingTotalPages = Math.ceil(allTraces.length / streamingTracesPerPage);
+    const streamingHasNextPage = streamingCurrentPage < streamingTotalPages;
+    const streamingHasPrevPage = streamingCurrentPage > 1;
+    const isOnLatestPage = streamingCurrentPage === streamingTotalPages;
+
+    // Paginated streaming traces
+    const paginatedStreamingTraces = useMemo(() => {
+        if (!streamingEnabled) return [];
+        
+        const startIndex = (streamingCurrentPage - 1) * streamingTracesPerPage;
+        const endIndex = startIndex + streamingTracesPerPage;
+        return allTraces.slice(startIndex, endIndex);
+    }, [streamingEnabled, allTraces, streamingCurrentPage, streamingTracesPerPage]);
+
+    // Auto-advance to latest page when new traces arrive (only if user was already on latest)
+    useEffect(() => {
+        if (streamingEnabled && autoFollowLatest && streamingTotalPages > 0) {
+            const newLatestPage = streamingTotalPages;
+            if (streamingCurrentPage !== newLatestPage) {
+                setStreamingCurrentPage(newLatestPage);
+            }
+        }
+    }, [streamingEnabled, streamingTotalPages, autoFollowLatest, streamingCurrentPage]);
+
+    // Update auto-follow when user manually navigates
+    const handlePageChange = useCallback((newPage: number) => {
+        setStreamingCurrentPage(newPage);
+        // Enable auto-follow only if user navigates to the latest page
+        setAutoFollowLatest(newPage === streamingTotalPages);
+    }, [streamingTotalPages]);
+
+    const goToLatestPage = useCallback(() => {
+        setStreamingCurrentPage(streamingTotalPages);
+        setAutoFollowLatest(true);
+    }, [streamingTotalPages]);
 
     const handleSort = (key: SortableTraceKeys) => {
         if (sortBy === key) {
@@ -409,8 +564,6 @@ const TracesDashboard = () => {
         }
         return 'bg-green-100 dark:bg-green-600/50 text-green-800 dark:text-green-200 border border-green-300 dark:border-green-500/60';
     };
-
-
 
     const TableHeader = ({
         aKey,
@@ -542,32 +695,61 @@ const TracesDashboard = () => {
                                 <label htmlFor="streamingToggle" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
                                     Streaming:
                                 </label>
-                                <button
-                                    id="streamingToggle"
-                                    onClick={toggleStreaming}
-                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                                        streamingEnabled
-                                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700'
-                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
-                                    }`}
-                                    title={streamingEnabled ? 'Switch to standard pagination' : 'Enable real-time streaming'}
-                                >
-                                    {streamingEnabled ? (
-                                        <>
-                                            {streamingConnected ? (
-                                                <Wifi className="h-3 w-3" />
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        id="streamingToggle"
+                                        onClick={streamingAvailable ? toggleStreaming : undefined}
+                                        disabled={!streamingAvailable}
+                                        className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                                            !streamingAvailable 
+                                                ? 'bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 cursor-not-allowed'
+                                                : streamingEnabled
+                                                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700'
+                                                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                        }`}
+                                        title={
+                                            !streamingAvailable 
+                                                ? 'Streaming not available on this server version'
+                                                : streamingEnabled 
+                                                ? 'Disable streaming' 
+                                                : 'Enable real-time streaming'
+                                        }
+                                    >
+                                        {streamingEnabled ? (
+                                            <>
+                                                {streamingConnected ? (
+                                                    <Wifi className="h-3 w-3" />
+                                                ) : (
+                                                    <WifiOff className="h-3 w-3" />
+                                                )}
+                                                Live
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Radio className="h-3 w-3" />
+                                                Enable
+                                            </>
+                                        )}
+                                    </button>
+                                    
+                                    {streamingEnabled && streamingConnected && (
+                                        <button
+                                            onClick={streamingPaused ? resumeStreaming : pauseStreaming}
+                                            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                                streamingPaused
+                                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-200 dark:hover:bg-blue-800/40'
+                                                    : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700 hover:bg-orange-200 dark:hover:bg-orange-800/40'
+                                            }`}
+                                            title={streamingPaused ? 'Resume streaming' : 'Pause streaming'}
+                                        >
+                                            {streamingPaused ? (
+                                                <Play className="h-3 w-3" />
                                             ) : (
-                                                <WifiOff className="h-3 w-3" />
+                                                <Pause className="h-3 w-3" />
                                             )}
-                                            Live
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Radio className="h-3 w-3" />
-                                            Enable
-                                        </>
+                                        </button>
                                     )}
-                                </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -616,24 +798,25 @@ const TracesDashboard = () => {
                                         {error}
                                     </td>
                                 </tr>
-                            ) : (streamingEnabled ? streamingTraces : traces).length === 0 ? (
+                            ) : (streamingEnabled ? paginatedStreamingTraces : allTraces).length === 0 ? (
                                 <tr>
                                     <td colSpan={7} className="text-center p-8 text-gray-600 dark:text-gray-400">
                                         {streamingEnabled ? 'No streaming data yet...' : 'No traces found.'}
                                     </td>
                                 </tr>
                             ) : (
-                                (streamingEnabled ? streamingTraces : traces).map((trace, index) => {
-                                    const uniqueKey = `${trace.trace_id}-${index}`;
+                                (streamingEnabled ? paginatedStreamingTraces : allTraces).map((trace, index) => {
+                                    const uniqueKey = `${trace.trace_id}-${trace.timestamp}-${index}`;
+                                    const expandKey = `${trace.trace_id}-${trace.timestamp}-${index}`;
                                     return (
-                                        <React.Fragment key={uniqueKey}>
+                                        <Fragment key={uniqueKey}>
                                             <tr className="hover:bg-gray-100 dark:hover:bg-gray-700/30">
                                                 <td className="pl-2">
                                                     <button
-                                                        onClick={() => setExpandedRow(expandedRow === uniqueKey ? null : uniqueKey)}
+                                                        onClick={() => setExpandedRow(expandedRow === expandKey ? null : expandKey)}
                                                         className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-400"
                                                     >
-                                                        {expandedRow === uniqueKey ? (
+                                                        {expandedRow === expandKey ? (
                                                             <ChevronDown className="h-4 w-4" />
                                                         ) : (
                                                             <ChevronRight className="h-4 w-4" />
@@ -673,7 +856,7 @@ const TracesDashboard = () => {
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            setExpandedRow(expandedRow === uniqueKey ? null : uniqueKey);
+                                                            setExpandedRow(expandedRow === expandKey ? null : expandKey);
                                                         }}
                                                         className={`px-1.5 py-0.5 inline-flex text-xs leading-4 font-semibold rounded-full transition-all hover:shadow-md hover:scale-105 cursor-pointer ${getStatusBadge(trace.status_code, trace.error_count)}`}
                                                         title="Click to see detailed status analysis"
@@ -683,7 +866,7 @@ const TracesDashboard = () => {
                                                 </td>
                                             </tr>
 
-                                            {expandedRow === uniqueKey && (
+                                            {expandedRow === expandKey && (
                                                 <tr className="bg-gray-100 dark:bg-gray-800/50">
                                                     <td colSpan={7} className="p-3">
                                                         <div className="space-y-3">
@@ -715,14 +898,12 @@ const TracesDashboard = () => {
                                                                         <p className="text-gray-900 dark:text-white">{formatDuration(trace.duration_ms)}</p>
                                                                     </div>
                                                                 </div>
-                                                                
-
                                                             </div>
                                                         </div>
                                                     </td>
                                                 </tr>
                                             )}
-                                        </React.Fragment>
+                                        </Fragment>
                                     );
                                 })
                             )}
@@ -756,7 +937,14 @@ const TracesDashboard = () => {
                                 {streamingConnected ? (
                                     <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
                                         <Wifi className="h-4 w-4" />
-                                        <span className="text-sm">Streaming live data</span>
+                                        <span className="text-sm">
+                                            {streamingPaused 
+                                                ? 'Stream paused' 
+                                                : autoFollowLatest 
+                                                    ? 'Streaming live data' 
+                                                    : 'Streaming (viewing history)'
+                                            }
+                                        </span>
                                     </div>
                                 ) : (
                                     <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
@@ -765,8 +953,44 @@ const TracesDashboard = () => {
                                     </div>
                                 )}
                             </div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                                {streamingTraces.length} trace{streamingTraces.length !== 1 ? 's' : ''} received
+                            <div className="flex items-center gap-4">
+                                {/* Streaming pagination */}
+                                {streamingTotalPages > 1 && (
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => handlePageChange(Math.max(1, streamingCurrentPage - 1))}
+                                            disabled={!streamingHasPrevPage}
+                                            className="p-1 rounded text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title="Previous page"
+                                        >
+                                            <ChevronLeft className="h-4 w-4" />
+                                        </button>
+                                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                                            Page {streamingCurrentPage} of {streamingTotalPages}
+                                        </span>
+                                        <button
+                                            onClick={() => handlePageChange(Math.min(streamingTotalPages, streamingCurrentPage + 1))}
+                                            disabled={!streamingHasNextPage}
+                                            className="p-1 rounded text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title="Next page"
+                                        >
+                                            <ChevronRightIcon className="h-4 w-4" />
+                                        </button>
+                                        {/* Go to latest button - only show when not on latest page */}
+                                        {!isOnLatestPage && (
+                                            <button
+                                                onClick={goToLatestPage}
+                                                className="ml-2 p-1 rounded text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                                                title="Go to latest traces"
+                                            >
+                                                <ChevronsDown className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                                <div className="text-sm text-gray-500 dark:text-gray-400">
+                                    {streamingTraces.length} trace{streamingTraces.length !== 1 ? 's' : ''} received
+                                </div>
                             </div>
                         </div>
                     </div>
