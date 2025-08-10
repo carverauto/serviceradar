@@ -53,7 +53,7 @@ const (
 	monitorInterval                   = 30 * time.Second
 	defaultSkipInterval               = 5 * time.Minute
 	defaultTimeout                    = 30 * time.Second
-	defaultFlushInterval              = 10 * time.Second
+	defaultFlushInterval              = 30 * time.Second
 
 	snmpDiscoveryResultsServiceType = "snmp-discovery-results"
 	mapperDiscoveryServiceType      = "mapper_discovery"

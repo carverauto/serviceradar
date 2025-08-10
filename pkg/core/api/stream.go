@@ -21,7 +21,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/srql"
@@ -29,6 +31,22 @@ import (
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/gorilla/websocket"
 	"github.com/timeplus-io/proton-go-driver/v2"
+)
+
+// ContextKey is a custom type for context keys to avoid string collisions
+type ContextKey string
+
+// Context key constants
+const (
+	UserContextKey ContextKey = "user"
+)
+
+// WebSocket buffer and channel size constants
+const (
+	WebSocketReadBufferSize  = 1024
+	WebSocketWriteBufferSize = 1024
+	WebSocketChannelSize     = 256
+	WebSocketReadLimit       = 512
 )
 
 // StreamMessage represents a message sent over the WebSocket
@@ -39,25 +57,30 @@ type StreamMessage struct {
 	Timestamp time.Time              `json:"timestamp"`
 }
 
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+)
+
 // handleStreamQuery handles WebSocket connections for streaming SRQL queries
 func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
-	// Get query from URL parameter
 	query := r.URL.Query().Get("query")
 	if query == "" {
 		writeError(w, "Query parameter is required", http.StatusBadRequest)
 		return
 	}
 
-	// Upgrade HTTP connection to WebSocket
 	upgrader := websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			return s.checkWebSocketOrigin(r)
-		},
+		ReadBufferSize:  WebSocketReadBufferSize,
+		WriteBufferSize: WebSocketWriteBufferSize,
+		CheckOrigin:     func(r *http.Request) bool { return s.checkWebSocketOrigin(r) },
 	}
-	conn, err := upgrader.Upgrade(w, r, nil)
 
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to upgrade to WebSocket")
 		return
@@ -65,44 +88,155 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 
 	defer conn.Close()
 
-	// Create cancellable context for the streaming operation
+	if !s.authenticateWebSocketConnection(r) {
+		if writeErr := conn.WriteJSON(StreamMessage{Type: "error", Error: "Authentication required", Timestamp: time.Now()}); writeErr != nil {
+			s.logger.Error().Err(writeErr).Msg("Failed to write authentication error")
+		}
+
+		return
+	}
+
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	// Start goroutine to handle client disconnect
-	go s.handleClientMessages(ctx, conn, cancel)
+	// Channel for messages to be sent to the client.
+	sendCh := make(chan StreamMessage, WebSocketChannelSize)
 
-	// Parse and prepare the streaming query
-	streamingSQL, entity, err := prepareStreamingQuery(query)
+	// Start the writer goroutine. It is the ONLY goroutine that writes to the connection.
+	go writer(conn, sendCh)
+
+	// Start the reader goroutine to handle pongs and detect disconnects.
+	go reader(conn, cancel)
+
+	streamingSQL, _, err := prepareStreamingQuery(query)
 	if err != nil {
-		if sendErr := sendErrorMessage(conn, fmt.Sprintf("Failed to prepare query: %v", err)); sendErr != nil {
-			s.logger.Error().Err(sendErr).Msg("Failed to send error message")
-		}
-
+		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Failed to prepare query: %v", err), Timestamp: time.Now()}
 		return
 	}
 
-	s.logger.Info().
-		Str("query", query).
-		Str("sql", streamingSQL).
-		Str("entity", string(entity)).
-		Msg("Starting streaming query")
+	s.logger.Info().Str("query", query).Str("sql", streamingSQL).Msg("Starting streaming query")
 
-	// Execute the streaming query
-	if streamErr := s.streamQueryResults(ctx, conn, streamingSQL); streamErr != nil {
-		s.logger.Error().Err(streamErr).Msg("Streaming query failed")
+	s.streamQueryResults(ctx, streamingSQL, sendCh)
 
-		if sendErr := sendErrorMessage(conn, fmt.Sprintf("Query execution failed: %v", streamErr)); sendErr != nil {
-			s.logger.Error().Err(sendErr).Msg("Failed to send error message")
+	s.logger.Info().Str("remote_addr", conn.RemoteAddr().String()).Msg("WebSocket streaming handler finished")
+}
+
+// writer is a dedicated goroutine that pumps messages from the sendCh to the WebSocket connection.
+func writer(conn *websocket.Conn, sendCh <-chan StreamMessage) {
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+	defer conn.Close()
+
+	for {
+		select {
+		case message, ok := <-sendCh:
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				return
+			}
+
+			if !ok {
+				// The channel was closed.
+				if err := conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
+					return
+				}
+
+				return
+			}
+
+			if err := conn.WriteJSON(message); err != nil {
+				return
+			}
+		case <-ticker.C:
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				return
+			}
+
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
+}
 
-	// Send completion message
-	err = sendCompletionMessage(conn)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to send completion message")
+// reader pumps messages from the WebSocket connection to discard them, handles pong messages, and detects disconnects.
+func reader(conn *websocket.Conn, cancel context.CancelFunc) {
+	defer cancel()
+	defer conn.Close()
+	conn.SetReadLimit(WebSocketReadLimit)
 
+	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
 		return
+	}
+
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+	}
+}
+
+// streamQueryResults executes the database query and sends results to the sendCh.
+func (s *APIServer) streamQueryResults(ctx context.Context, sqlQuery string, sendCh chan<- StreamMessage) {
+	// When this function exits, close the send channel to signal the writer to stop.
+	defer close(sendCh)
+
+	dbConn, err := s.getStreamingDB()
+	if err != nil {
+		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Failed to get db connection: %v", err), Timestamp: time.Now()}
+		return
+	}
+
+	rows, err := dbConn.Query(ctx, sqlQuery)
+	if err != nil {
+		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Failed to execute query: %v", err), Timestamp: time.Now()}
+		return
+	}
+	defer rows.Close()
+
+	columnTypes := rows.ColumnTypes()
+	columns := make([]string, len(columnTypes))
+
+	for i, ct := range columnTypes {
+		columns[i] = ct.Name()
+	}
+
+	for {
+		// Check if the context has been canceled (e.g., client disconnected).
+		select {
+		case <-ctx.Done():
+			s.logger.Info().Err(ctx.Err()).Msg("Streaming context canceled, stopping database query.")
+			return
+		default:
+		}
+
+		if !rows.Next() {
+			break // Exit loop if no more rows or an error occurred.
+		}
+
+		scanVars := make([]interface{}, len(columnTypes))
+		for i := range columnTypes {
+			scanVars[i] = reflect.New(columnTypes[i].ScanType()).Interface()
+		}
+
+		if err := rows.Scan(scanVars...); err != nil {
+			sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Failed to scan row: %v", err), Timestamp: time.Now()}
+			return
+		}
+
+		sendCh <- StreamMessage{Type: "data", Data: convertStreamRow(columns, scanVars), Timestamp: time.Now()}
+	}
+
+	if err := rows.Err(); err != nil {
+		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Database iteration error: %v", err), Timestamp: time.Now()}
+	} else {
+		sendCh <- StreamMessage{Type: "complete", Timestamp: time.Now()}
+
+		s.logger.Info().Msg("✅ Database stream finished successfully.")
 	}
 }
 
@@ -120,6 +254,14 @@ func prepareStreamingQuery(srqlQuery string) (string, models.EntityType, error) 
 	// Transform the query (entity type transformations)
 	translator.TransformQuery(parsedQuery)
 
+	// Force the query to be treated as a STREAM type (not Show) for infinite streaming
+	// This ensures no LIMIT is applied and the query runs continuously
+	parsedQuery.Type = models.Stream
+
+	// Remove any explicit limit for streaming - we want infinite results
+	parsedQuery.HasLimit = false
+	parsedQuery.Limit = 0
+
 	// Translate to SQL for streaming (without table() wrapper)
 	sql, err := translator.TranslateForStreaming(parsedQuery)
 	if err != nil {
@@ -127,121 +269,6 @@ func prepareStreamingQuery(srqlQuery string) (string, models.EntityType, error) 
 	}
 
 	return sql, parsedQuery.Entity, nil
-}
-
-// streamQueryResults executes the SQL query and streams results to the WebSocket
-func (s *APIServer) streamQueryResults(ctx context.Context, conn *websocket.Conn, sqlQuery string) error {
-	// Get database connection
-	dbConn, err := s.getStreamingDB()
-	if err != nil {
-		return fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	// Execute the streaming query using the proton connection
-	rows, err := dbConn.Query(ctx, sqlQuery)
-	if err != nil {
-		return fmt.Errorf("failed to execute query: %w", err)
-	}
-	defer rows.Close()
-
-	// Get column information with proper types
-	columnTypes := rows.ColumnTypes()
-	columns := make([]string, len(columnTypes))
-
-	for i, ct := range columnTypes {
-		columns[i] = ct.Name()
-	}
-
-	// Create properly typed scan variables like the regular query code
-	scanVars := make([]interface{}, len(columnTypes))
-	for i := range columnTypes {
-		scanVars[i] = reflect.New(columnTypes[i].ScanType()).Interface()
-	}
-
-	// Stream rows to the WebSocket
-	rowCount := 0
-	ticker := time.NewTicker(30 * time.Second) // Ping ticker for keepalive
-
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			// Context canceled (client disconnected or server shutdown)
-			return ctx.Err()
-
-		case <-ticker.C:
-			// Send ping to keep connection alive
-			if err := sendPingMessage(conn); err != nil {
-				return err
-			}
-
-		default:
-			// Check if there's a next row
-			if !rows.Next() {
-				// Check for iteration error
-				if err := rows.Err(); err != nil {
-					return fmt.Errorf("row iteration error: %w", err)
-				}
-
-				// No more rows
-				return nil
-			}
-
-			// Scan the row with proper types
-			if err := rows.Scan(scanVars...); err != nil {
-				s.logger.Warn().Err(err).Msg("Failed to scan row")
-				continue
-			}
-
-			// Convert row to map using the same logic as db.convertRow
-			rowData := convertStreamRow(columns, scanVars)
-
-			// Send data message
-			if err := sendDataMessage(conn, rowData); err != nil {
-				return err
-			}
-
-			rowCount++
-
-			// Small yield to prevent tight loop
-			if rowCount%100 == 0 {
-				time.Sleep(10 * time.Millisecond)
-			}
-		}
-	}
-}
-
-// handleClientMessages reads messages from the client (for disconnect detection)
-func (s *APIServer) handleClientMessages(ctx context.Context, conn *websocket.Conn, cancel context.CancelFunc) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			// Set read deadline to detect disconnection
-			if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
-				s.logger.Warn().Err(err).Msg("Failed to set read deadline")
-			}
-
-			messageType, _, err := conn.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					s.logger.Warn().Err(err).Msg("WebSocket closed unexpectedly")
-				}
-
-				cancel() // Cancel the streaming context
-
-				return
-			}
-
-			// Handle control messages (ping/pong handled automatically by gorilla/websocket)
-			if messageType == websocket.CloseMessage {
-				cancel()
-				return
-			}
-		}
-	}
 }
 
 // getStreamingDB returns a database connection suitable for streaming
@@ -265,44 +292,87 @@ func (s *APIServer) getStreamingDB() (proton.Conn, error) {
 	return protonConn, nil
 }
 
-// Message sending helper functions
+// authenticateWebSocketConnection validates authentication without interfering with WebSocket handshake
+// Returns true if authentication is successful or not required, false otherwise
+func (s *APIServer) authenticateWebSocketConnection(r *http.Request) bool {
+	// Try Bearer token authentication (from Authorization header)
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if s.authService != nil {
+			user, err := s.authService.VerifyToken(r.Context(), token)
+			if err != nil {
+				s.logger.Warn().Err(err).Msg("WebSocket bearer token authentication failed")
+				return false
+			}
+			// Add user to context
+			*r = *r.WithContext(context.WithValue(r.Context(), UserContextKey, user))
 
-func sendDataMessage(conn *websocket.Conn, data map[string]interface{}) error {
-	msg := StreamMessage{
-		Type:      "data",
-		Data:      data,
-		Timestamp: time.Now(),
+			return true
+		}
 	}
 
-	return conn.WriteJSON(msg)
+	// Try Bearer token from cookies (more secure for WebSocket)
+	// Check for accessToken cookie (used by the web app)
+	if cookie, err := r.Cookie("accessToken"); err == nil && s.authService != nil {
+		user, err := s.authService.VerifyToken(r.Context(), cookie.Value)
+		if err == nil {
+			// Add user to context
+			*r = *r.WithContext(context.WithValue(r.Context(), UserContextKey, user))
+
+			s.logger.Debug().Msg("WebSocket authenticated via accessToken cookie")
+
+			return true
+		}
+
+		s.logger.Warn().Err(err).Msg("WebSocket accessToken cookie authentication failed")
+	}
+
+	// Also check legacy access_token cookie name
+	if cookie, err := r.Cookie("access_token"); err == nil && s.authService != nil {
+		user, err := s.authService.VerifyToken(r.Context(), cookie.Value)
+		if err == nil {
+			// Add user to context
+			*r = *r.WithContext(context.WithValue(r.Context(), UserContextKey, user))
+
+			s.logger.Debug().Msg("WebSocket authenticated via access_token cookie")
+
+			return true
+		}
+
+		s.logger.Warn().Err(err).Msg("WebSocket access_token cookie authentication failed")
+	}
+
+	// Try API key authentication (header and cookie only - no query parameters for security)
+	apiKey := r.Header.Get("X-API-Key")
+	if apiKey == "" {
+		// Also check for API key in cookies
+		if cookie, err := r.Cookie("api_key"); err == nil {
+			apiKey = cookie.Value
+		}
+	}
+
+	if apiKey != "" && s.isAPIKeyValid(apiKey) {
+		s.logger.Debug().Msg("WebSocket authenticated via API key")
+		return true
+	}
+
+	// Check if authentication is required
+	if s.isAuthRequired() {
+		s.logger.Warn().Msg("WebSocket authentication required but not provided")
+		return false
+	}
+
+	// Development mode - no auth configured
+	s.logger.Debug().Msg("No authentication configured for WebSocket - allowing request (development mode)")
+
+	return true
 }
 
-func sendErrorMessage(conn *websocket.Conn, errMsg string) error {
-	msg := StreamMessage{
-		Type:      "error",
-		Error:     errMsg,
-		Timestamp: time.Now(),
-	}
-
-	return conn.WriteJSON(msg)
-}
-
-func sendCompletionMessage(conn *websocket.Conn) error {
-	msg := StreamMessage{
-		Type:      "complete",
-		Timestamp: time.Now(),
-	}
-
-	return conn.WriteJSON(msg)
-}
-
-func sendPingMessage(conn *websocket.Conn) error {
-	msg := StreamMessage{
-		Type:      "ping",
-		Timestamp: time.Now(),
-	}
-
-	return conn.WriteJSON(msg)
+// isAPIKeyValid checks if the provided API key is valid
+func (*APIServer) isAPIKeyValid(providedKey string) bool {
+	configuredKey := os.Getenv("API_KEY")
+	return configuredKey != "" && providedKey == configuredKey
 }
 
 // convertStreamRow converts scanned row values to a map, handling type dereferencing
