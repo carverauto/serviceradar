@@ -23,6 +23,7 @@ export class StreamingClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  private completionReceived = false; // Track if server sent completion message
   
   constructor(private options: StreamingOptions) {}
 
@@ -35,6 +36,7 @@ export class StreamingClient {
 
     this.isManualClose = false;
     this.reconnectAttempts = 0;
+    this.completionReceived = false; // Reset completion flag for new connection
     this.establishConnection(query);
   }
 
@@ -92,7 +94,17 @@ export class StreamingClient {
       };
 
       this.websocket.onclose = (event) => {
-        console.log('WebSocket closed:', event.code, event.reason || 'no reason');
+        // Provide context-aware logging for WebSocket closures
+        if (event.code === 1006 && this.completionReceived) {
+          console.log('✅ [StreamingClient] WebSocket closed normally after server completion (1006 is expected for Proton batch completion)');
+        } else if (event.code === 1000) {
+          console.log('✅ [StreamingClient] WebSocket closed normally (1000)');
+        } else if (event.code === 1006) {
+          console.log('⚠️ [StreamingClient] WebSocket closed unexpectedly (1006) - this may indicate a network issue or server restart');
+        } else {
+          console.log(`🔴 [StreamingClient] WebSocket closed with code ${event.code}: ${event.reason || 'no reason provided'}`);
+        }
+        
         this.options.onConnection?.(false);
         
         // Check for specific close codes that indicate different issues
@@ -100,18 +112,25 @@ export class StreamingClient {
           this.options.onError('Streaming not supported by this server version');
           return;
         } else if (event.code === 1006) {
-          // 1006 is abnormal closure - often network issues, should retry
-          console.log('WebSocket abnormal closure (1006) - will attempt reconnection');
-          // Don't show error message for 1006 - it's often just normal WebSocket behavior
-          // this.options.onError('Connection lost - reconnecting...');
-          // Don't return - allow reconnection logic to proceed
+          // Handle 1006 based on whether we received completion
+          if (this.completionReceived) {
+            console.log('📝 [StreamingClient] 1006 closure after completion is normal - streaming finished successfully');
+            return; // Don't attempt reconnection, this was a successful completion
+          } else {
+            console.log('🔄 [StreamingClient] 1006 closure without completion - may need reconnection');
+            // Continue to reconnection logic below
+          }
         } else if (event.code >= 4000) {
           this.options.onError(`Server rejected connection: ${event.reason || 'authentication failed'}`);
           return;
         }
         
-        if (!this.isManualClose && this.reconnectAttempts < this.maxReconnectAttempts) {
+        // Only attempt reconnection if this wasn't a successful completion
+        if (!this.isManualClose && !this.completionReceived && this.reconnectAttempts < this.maxReconnectAttempts) {
+          console.log('🔄 [StreamingClient] Scheduling reconnection attempt...');
           this.scheduleReconnect(query);
+        } else if (this.completionReceived) {
+          console.log('✅ [StreamingClient] Streaming completed successfully, no reconnection needed');
         }
       };
 
@@ -171,6 +190,8 @@ export class StreamingClient {
         break;
       
       case 'complete':
+        console.log('✅ [StreamingClient] Received completion message from server');
+        this.completionReceived = true;
         this.options.onComplete();
         break;
       
@@ -202,6 +223,7 @@ export class StreamingClient {
   disconnect(): void {
     console.log('🔌 [StreamingClient] Manual disconnect requested');
     this.isManualClose = true;
+    this.completionReceived = false; // Reset completion flag
     
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);

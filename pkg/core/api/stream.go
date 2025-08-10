@@ -41,112 +41,163 @@ type StreamMessage struct {
 	Timestamp time.Time              `json:"timestamp"`
 }
 
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+)
+
 // handleStreamQuery handles WebSocket connections for streaming SRQL queries
 func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
-	// Get query from URL parameter
 	query := r.URL.Query().Get("query")
 	if query == "" {
 		writeError(w, "Query parameter is required", http.StatusBadRequest)
 		return
 	}
 
-	s.logger.Debug().
-		Str("query", query).
-		Str("remote_addr", r.RemoteAddr).
-		Str("user_agent", r.UserAgent()).
-		Str("origin", r.Header.Get("Origin")).
-		Msg("WebSocket streaming request received")
-
-	// Upgrade HTTP connection to WebSocket first
-	// Authentication will be handled after successful upgrade
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			return s.checkWebSocketOrigin(r)
-		},
+		CheckOrigin:     func(r *http.Request) bool { return s.checkWebSocketOrigin(r) },
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
-
 	if err != nil {
-		s.logger.Error().
-			Err(err).
-			Str("remote_addr", r.RemoteAddr).
-			Str("origin", r.Header.Get("Origin")).
-			Msg("Failed to upgrade to WebSocket")
+		s.logger.Error().Err(err).Msg("Failed to upgrade to WebSocket")
 		return
 	}
+	defer conn.Close()
 
-	s.logger.Info().
-		Str("remote_addr", r.RemoteAddr).
-		Str("query", query).
-		Msg("WebSocket connection established successfully")
-
-	defer func() {
-		s.logger.Debug().
-			Str("remote_addr", r.RemoteAddr).
-			Msg("Closing WebSocket connection")
-		conn.Close()
-	}()
-
-	// Handle authentication after WebSocket upgrade
-	// This way we don't interfere with the WebSocket handshake
 	if !s.authenticateWebSocketConnection(r) {
-		// Send authentication error through WebSocket
-		sendErrorMessage(conn, "Authentication required")
+		conn.WriteJSON(StreamMessage{Type: "error", Error: "Authentication required", Timestamp: time.Now()})
 		return
 	}
 
-	// Create cancellable context for the streaming operation
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	// Start goroutine to handle client disconnect
-	go s.handleClientMessages(ctx, conn, cancel)
+	// Channel for messages to be sent to the client.
+	sendCh := make(chan StreamMessage, 256)
 
-	// Parse and prepare the streaming query
-	streamingSQL, entity, err := prepareStreamingQuery(query)
+	// Start the writer goroutine. It is the ONLY goroutine that writes to the connection.
+	go writer(conn, sendCh)
+
+	// Start the reader goroutine to handle pongs and detect disconnects.
+	go reader(conn, cancel)
+
+	streamingSQL, _, err := prepareStreamingQuery(query)
 	if err != nil {
-		if sendErr := sendErrorMessage(conn, fmt.Sprintf("Failed to prepare query: %v", err)); sendErr != nil {
-			s.logger.Error().Err(sendErr).Msg("Failed to send error message")
-		}
-
+		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Failed to prepare query: %v", err), Timestamp: time.Now()}
 		return
 	}
 
-	s.logger.Info().
-		Str("query", query).
-		Str("sql", streamingSQL).
-		Str("entity", string(entity)).
-		Msg("Starting streaming query")
+	s.logger.Info().Str("query", query).Str("sql", streamingSQL).Msg("Starting streaming query")
 
-	// Execute the streaming query
-	s.logger.Info().
-		Str("query", query).
-		Str("sql", streamingSQL).
-		Str("remote_addr", r.RemoteAddr).
-		Msg("Starting WebSocket streaming query execution")
+	s.streamQueryResults(ctx, streamingSQL, sendCh)
 
-	if streamErr := s.streamQueryResults(ctx, conn, streamingSQL, r.RemoteAddr); streamErr != nil {
-		s.logger.Error().
-			Err(streamErr).
-			Str("query", query).
-			Str("sql", streamingSQL).
-			Str("remote_addr", r.RemoteAddr).
-			Msg("Streaming query failed")
+	s.logger.Info().Str("remote_addr", conn.RemoteAddr().String()).Msg("WebSocket streaming handler finished")
+}
 
-		if sendErr := sendErrorMessage(conn, fmt.Sprintf("Query execution failed: %v", streamErr)); sendErr != nil {
-			s.logger.Error().
-				Err(sendErr).
-				Str("remote_addr", r.RemoteAddr).
-				Msg("Failed to send error message")
+// writer is a dedicated goroutine that pumps messages from the sendCh to the WebSocket connection.
+func writer(conn *websocket.Conn, sendCh <-chan StreamMessage) {
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+	defer conn.Close()
+
+	for {
+		select {
+		case message, ok := <-sendCh:
+			conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// The channel was closed.
+				conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := conn.WriteJSON(message); err != nil {
+				return
+			}
+		case <-ticker.C:
+			conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
+}
 
-	// The streaming function should have already sent a completion message if it ended normally
-	s.logger.Info().
-		Str("remote_addr", r.RemoteAddr).
-		Msg("WebSocket streaming handler finished successfully")
+// reader pumps messages from the WebSocket connection to discard them, handles pong messages, and detects disconnects.
+func reader(conn *websocket.Conn, cancel context.CancelFunc) {
+	defer cancel()
+	defer conn.Close()
+	conn.SetReadLimit(512)
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error { conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+	}
+}
+
+// streamQueryResults executes the database query and sends results to the sendCh.
+func (s *APIServer) streamQueryResults(ctx context.Context, sqlQuery string, sendCh chan<- StreamMessage) {
+	// When this function exits, close the send channel to signal the writer to stop.
+	defer close(sendCh)
+
+	dbConn, err := s.getStreamingDB()
+	if err != nil {
+		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Failed to get db connection: %v", err), Timestamp: time.Now()}
+		return
+	}
+
+	rows, err := dbConn.Query(ctx, sqlQuery)
+	if err != nil {
+		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Failed to execute query: %v", err), Timestamp: time.Now()}
+		return
+	}
+	defer rows.Close()
+
+	columnTypes := rows.ColumnTypes()
+	columns := make([]string, len(columnTypes))
+	for i, ct := range columnTypes {
+		columns[i] = ct.Name()
+	}
+
+	for {
+		// Check if the context has been canceled (e.g., client disconnected).
+		select {
+		case <-ctx.Done():
+			s.logger.Info().Err(ctx.Err()).Msg("Streaming context canceled, stopping database query.")
+			return
+		default:
+		}
+
+		if !rows.Next() {
+			break // Exit loop if no more rows or an error occurred.
+		}
+
+		scanVars := make([]interface{}, len(columnTypes))
+		for i := range columnTypes {
+			scanVars[i] = reflect.New(columnTypes[i].ScanType()).Interface()
+		}
+
+		if err := rows.Scan(scanVars...); err != nil {
+			sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Failed to scan row: %v", err), Timestamp: time.Now()}
+			return
+		}
+
+		sendCh <- StreamMessage{Type: "data", Data: convertStreamRow(columns, scanVars), Timestamp: time.Now()}
+	}
+
+	if err := rows.Err(); err != nil {
+		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Database iteration error: %v", err), Timestamp: time.Now()}
+	} else {
+		sendCh <- StreamMessage{Type: "complete", Timestamp: time.Now()}
+		s.logger.Info().Msg("✅ Database stream finished successfully.")
+	}
 }
 
 // prepareStreamingQuery parses an SRQL query and prepares it for streaming execution
@@ -162,11 +213,11 @@ func prepareStreamingQuery(srqlQuery string) (string, models.EntityType, error) 
 
 	// Transform the query (entity type transformations)
 	translator.TransformQuery(parsedQuery)
-	
+
 	// Force the query to be treated as a STREAM type (not Show) for infinite streaming
 	// This ensures no LIMIT is applied and the query runs continuously
 	parsedQuery.Type = models.Stream
-	
+
 	// Remove any explicit limit for streaming - we want infinite results
 	parsedQuery.HasLimit = false
 	parsedQuery.Limit = 0
@@ -180,316 +231,45 @@ func prepareStreamingQuery(srqlQuery string) (string, models.EntityType, error) 
 	return sql, parsedQuery.Entity, nil
 }
 
-// streamQueryResults executes the SQL query and streams results to the WebSocket
-func (s *APIServer) streamQueryResults(ctx context.Context, conn *websocket.Conn, sqlQuery string, clientAddr string) error {
-	s.logger.Debug().
-		Str("client_addr", clientAddr).
-		Str("sql", sqlQuery).
-		Msg("Starting database query execution for streaming")
-
-	// Get database connection
-	dbConn, err := s.getStreamingDB()
-	if err != nil {
-		s.logger.Error().
-			Err(err).
-			Str("client_addr", clientAddr).
-			Msg("Failed to get streaming database connection")
-		return fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	// Execute the streaming query using the proton connection
-	s.logger.Debug().
-		Str("client_addr", clientAddr).
-		Str("sql", sqlQuery).
-		Msg("Executing streaming query against Proton")
-
-	rows, err := dbConn.Query(ctx, sqlQuery)
-	if err != nil {
-		s.logger.Error().
-			Err(err).
-			Str("client_addr", clientAddr).
-			Str("sql", sqlQuery).
-			Msg("Failed to execute streaming query")
-		return fmt.Errorf("failed to execute query: %w", err)
-	}
-	defer func() {
-		s.logger.Debug().
-			Str("client_addr", clientAddr).
-			Msg("Closing database result rows")
-		rows.Close()
-	}()
-
-	// Get column information with proper types
-	columnTypes := rows.ColumnTypes()
-	columns := make([]string, len(columnTypes))
-
-	for i, ct := range columnTypes {
-		columns[i] = ct.Name()
-	}
-
-	// Create properly typed scan variables like the regular query code
-	scanVars := make([]interface{}, len(columnTypes))
-	for i := range columnTypes {
-		scanVars[i] = reflect.New(columnTypes[i].ScanType()).Interface()
-	}
-
-	s.logger.Info().
-		Str("client_addr", clientAddr).
-		Int("column_count", len(columns)).
-		Interface("column_names", columns).
-		Msg("Starting WebSocket data streaming loop")
-
-	// Stream rows to the WebSocket
-	rowCount := 0
-	sendCount := 0
-	errorCount := 0
-	lastProgressTime := time.Now()
-	ticker := time.NewTicker(30 * time.Second) // Ping ticker for keepalive
-
-	defer func() {
-		s.logger.Info().
-			Str("client_addr", clientAddr).
-			Int("final_row_count", rowCount).
-			Int("final_send_count", sendCount).
-			Int("error_count", errorCount).
-			Msg("WebSocket streaming loop ended")
-		ticker.Stop()
-	}()
-
-	for {
-		select {
-		case <-ctx.Done():
-			// Context canceled (client disconnected or server shutdown)
-			s.logger.Info().
-				Str("client_addr", clientAddr).
-				Int("row_count", rowCount).
-				Int("send_count", sendCount).
-				Err(ctx.Err()).
-				Msg("WebSocket streaming context canceled")
-			return ctx.Err()
-
-		case <-ticker.C:
-			// Send ping to keep connection alive
-			s.logger.Debug().
-				Str("client_addr", clientAddr).
-				Int("row_count", rowCount).
-				Int("send_count", sendCount).
-				Msg("Sending WebSocket keepalive ping")
-			if err := sendPingMessage(conn); err != nil {
-				s.logger.Error().
-					Err(err).
-					Str("client_addr", clientAddr).
-					Msg("Failed to send WebSocket ping - connection likely broken")
-				return fmt.Errorf("ping failed: %w", err)
-			}
-
-		default:
-			// Check if there's a next row
-			if !rows.Next() {
-				// Check for iteration error
-				if err := rows.Err(); err != nil {
-					// Context cancellation is expected when client disconnects
-					if err == context.Canceled {
-						s.logger.Info().
-							Str("client_addr", clientAddr).
-							Int("final_row_count", rowCount).
-							Msg("Streaming query canceled by client disconnect")
-						return nil
-					}
-					s.logger.Error().
-						Err(err).
-						Str("client_addr", clientAddr).
-						Int("row_count", rowCount).
-						Msg("Database row iteration error during streaming")
-					return fmt.Errorf("row iteration error: %w", err)
-				}
-
-				// IMPORTANT: This is likely the root cause of our 1006 issues!
-				// When Proton finishes a batch (often around 500 records), rows.Next() returns false
-				// This is NOT an error - it's normal behavior for batch processing
-				// We should close the connection cleanly rather than waiting indefinitely
-				
-				s.logger.Info().
-					Str("client_addr", clientAddr).
-					Int("final_row_count", rowCount).
-					Int("final_send_count", sendCount).
-					Msg("✅ Proton query batch completed - this is normal! Closing connection cleanly.")
-
-				// Send completion message to client
-				if err := sendCompletionMessage(conn); err != nil {
-					s.logger.Warn().
-						Err(err).
-						Str("client_addr", clientAddr).
-						Msg("Failed to send completion message")
-				}
-
-				// Return cleanly - this should result in a normal WebSocket close, not 1006
-				return nil
-			}
-
-			// Scan the row with proper types
-			if err := rows.Scan(scanVars...); err != nil {
-				errorCount++
-				s.logger.Warn().
-					Err(err).
-					Str("client_addr", clientAddr).
-					Int("row_count", rowCount).
-					Int("error_count", errorCount).
-					Msg("Failed to scan row during streaming")
-				continue
-			}
-
-			// Convert row to map using the same logic as db.convertRow
-			rowData := convertStreamRow(columns, scanVars)
-			rowCount++
-
-			// Send data message
-			if err := sendDataMessage(conn, rowData); err != nil {
-				s.logger.Error().
-					Err(err).
-					Str("client_addr", clientAddr).
-					Int("row_count", rowCount).
-					Int("send_count", sendCount).
-					Msg("Failed to send data message - WebSocket connection broken")
-				return fmt.Errorf("failed to send data message: %w", err)
-			}
-			sendCount++
-
-			// Log progress every 50 rows to better track the 500 limit issue
-			if rowCount%50 == 0 {
-				elapsed := time.Since(lastProgressTime)
-				rate := float64(50) / elapsed.Seconds()
-				s.logger.Info().
-					Str("client_addr", clientAddr).
-					Int("row_count", rowCount).
-					Int("send_count", sendCount).
-					Int("error_count", errorCount).
-					Float64("rows_per_sec", rate).
-					Str("sql", sqlQuery).
-					Msg("WebSocket streaming progress")
-				lastProgressTime = time.Now()
-			}
-
-			// Special logging around the 500 limit to diagnose the issue
-			if rowCount == 400 {
-				s.logger.Warn().
-					Str("client_addr", clientAddr).
-					Int("row_count", rowCount).
-					Str("sql", sqlQuery).
-					Msg("⚠️ APPROACHING 500 ROW LIMIT - monitoring for connection issues")
-			} else if rowCount == 495 {
-				s.logger.Warn().
-					Str("client_addr", clientAddr).
-					Int("row_count", rowCount).
-					Msg("🔴 VERY CLOSE TO 500 LIMIT - next few messages critical")
-			} else if rowCount == 500 {
-				s.logger.Error().
-					Str("client_addr", clientAddr).
-					Int("row_count", rowCount).
-					Int("send_count", sendCount).
-					Str("sql", sqlQuery).
-					Msg("🚨 HIT 500 ROW LIMIT - MONITORING FOR CONNECTION DROP")
-			} else if rowCount > 500 && rowCount <= 520 {
-				s.logger.Info().
-					Str("client_addr", clientAddr).
-					Int("row_count", rowCount).
-					Msg("🎉 SUCCESSFULLY PASSED 500 LIMIT - connection still alive!")
-			} else if rowCount == 1000 {
-				s.logger.Info().
-					Str("client_addr", clientAddr).
-					Int("row_count", rowCount).
-					Msg("🏆 REACHED 1000 ROWS - streaming working well!")
-			}
-		}
-	}
-}
-
-// handleClientMessages reads messages from the client (for disconnect detection)
+// handleClientMessages reads messages from the client and handles disconnects.
+// This new version uses the standard WebSocket ping/pong keepalive mechanism.
 func (s *APIServer) handleClientMessages(ctx context.Context, conn *websocket.Conn, cancel context.CancelFunc) {
-	start := time.Now()
-	clientAddr := conn.RemoteAddr().String()
-
-	s.logger.Debug().
-		Str("client_addr", clientAddr).
-		Msg("Starting WebSocket client message handler")
-
 	defer func() {
-		duration := time.Since(start)
-		s.logger.Info().
-			Str("client_addr", clientAddr).
-			Dur("duration", duration).
-			Msg("WebSocket client message handler ended")
+		s.logger.Info().Str("client_addr", conn.RemoteAddr().String()).Msg("WebSocket client handler finished, canceling stream context.")
+		cancel() // Ensure the streaming context is canceled when this goroutine exits.
 	}()
 
+	// Define the wait time for a pong response from the client.
+	const pongWait = 60 * time.Second
+	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		s.logger.Error().Err(err).Str("client_addr", conn.RemoteAddr().String()).Msg("Failed to set initial read deadline")
+		return
+	}
+
+	// The PongHandler resets the read deadline every time a pong is received.
+	conn.SetPongHandler(func(string) error {
+		s.logger.Debug().Str("client_addr", conn.RemoteAddr().String()).Msg("Pong received, extending read deadline.")
+		return conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
+	// This loop blocks on ReadMessage(). It will only unblock if the client
+	// sends a message or if the read deadline is exceeded (indicating a disconnect).
 	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Debug().
-				Str("client_addr", clientAddr).
-				Msg("WebSocket client handler context canceled")
+		messageType, _, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				s.logger.Error().Err(err).Str("client_addr", conn.RemoteAddr().String()).Msg("Unexpected WebSocket close error")
+			} else {
+				s.logger.Info().Err(err).Str("client_addr", conn.RemoteAddr().String()).Msg("WebSocket client disconnected or timed out")
+			}
+			// Exit the loop and trigger the deferred cancel().
 			return
-		default:
-			// Set read deadline to detect disconnection
-			if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
-				s.logger.Warn().
-					Err(err).
-					Str("client_addr", clientAddr).
-					Msg("Failed to set WebSocket read deadline")
-			}
+		}
 
-			messageType, message, err := conn.ReadMessage()
-			if err != nil {
-				duration := time.Since(start)
-
-				// Check if this is an unexpected close error
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
-					s.logger.Error().
-						Err(err).
-						Str("client_addr", clientAddr).
-						Dur("connection_duration", duration).
-						Msg("🚨 UNEXPECTED WebSocket close error detected")
-				} else if closeErr, ok := err.(*websocket.CloseError); ok {
-					s.logger.Info().
-						Int("close_code", closeErr.Code).
-						Str("close_text", closeErr.Text).
-						Str("client_addr", clientAddr).
-						Dur("connection_duration", duration).
-						Msg("🔴 WebSocket closed with specific code")
-
-					// Log specific close codes to help diagnose 1006 errors
-					if closeErr.Code == 1006 {
-						s.logger.Error().
-							Str("client_addr", clientAddr).
-							Dur("connection_duration", duration).
-							Msg("🚨 ABNORMAL CLOSURE (1006) - This is the main issue we're investigating!")
-					}
-				} else {
-					s.logger.Warn().
-						Err(err).
-						Str("client_addr", clientAddr).
-						Dur("connection_duration", duration).
-						Msg("WebSocket read error (not a close error)")
-				}
-
-				cancel() // Cancel the streaming context
-				return
-			}
-
-			// Log received message for debugging
-			s.logger.Debug().
-				Str("client_addr", clientAddr).
-				Int("message_type", messageType).
-				Int("message_length", len(message)).
-				Msg("Received WebSocket message from client")
-
-			// Handle control messages (ping/pong handled automatically by gorilla/websocket)
-			if messageType == websocket.CloseMessage {
-				s.logger.Info().
-					Str("client_addr", clientAddr).
-					Msg("Received WebSocket close message from client")
-				cancel()
-				return
-			}
+		// If a close message is received, exit cleanly.
+		if messageType == websocket.CloseMessage {
+			s.logger.Info().Str("client_addr", conn.RemoteAddr().String()).Msg("Client sent a close message.")
+			return
 		}
 	}
 }
@@ -663,7 +443,7 @@ func (s *APIServer) authenticateWebSocketConnection(r *http.Request) bool {
 		}
 		s.logger.Warn().Err(err).Msg("WebSocket accessToken cookie authentication failed")
 	}
-	
+
 	// Also check legacy access_token cookie name
 	if cookie, err := r.Cookie("access_token"); err == nil && s.authService != nil {
 		user, err := s.authService.VerifyToken(r.Context(), cookie.Value)
