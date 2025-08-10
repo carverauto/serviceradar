@@ -249,7 +249,14 @@ const (
 
 // isAuthRequired checks if authentication is required
 func (*APIServer) isAuthRequired() bool {
-	return os.Getenv("AUTH_ENABLED") == authEnabledTrue || os.Getenv("API_KEY") != ""
+	// If AUTH_ENABLED is explicitly set to false, authentication is not required
+	authEnabled := os.Getenv("AUTH_ENABLED")
+	if authEnabled == "false" {
+		return false
+	}
+
+	// Authentication is required if AUTH_ENABLED is true or if an API_KEY is configured
+	return authEnabled == authEnabledTrue || os.Getenv("API_KEY") != ""
 }
 
 // logAuthFailure logs authentication failures
