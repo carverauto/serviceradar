@@ -126,10 +126,14 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 			Method: proton.CompressionLZ4,
 		},
 		Settings: proton.Settings{
-			"max_execution_time":         60,
+			"max_execution_time":         0, // Disable execution timeout for streaming queries
 			"max_memory_usage":           2000000000, // 2 GiB
 			"max_insert_block_size":      100000,
 			"min_insert_block_size_rows": 1000,
+			"max_result_rows":            0, // Disable row limit for streaming
+			"result_overflow_mode":       "break", // Allow unlimited results
+			"max_rows_to_read":           0, // Disable read limit
+			"stream_flush_interval_ms":   100, // Flush streaming results frequently
 		},
 		DialTimeout:     5 * time.Second,
 		MaxOpenConns:    10,

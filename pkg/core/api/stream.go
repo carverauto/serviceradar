@@ -21,7 +21,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/srql"
@@ -45,6 +47,12 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("query")
 	if query == "" {
 		writeError(w, "Query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Handle authentication for WebSocket connections
+	// WebSocket supports cookies, so we can check for auth tokens in cookies
+	if !s.handleWebSocketAuth(w, r) {
 		return
 	}
 
@@ -119,6 +127,14 @@ func prepareStreamingQuery(srqlQuery string) (string, models.EntityType, error) 
 
 	// Transform the query (entity type transformations)
 	translator.TransformQuery(parsedQuery)
+	
+	// Force the query to be treated as a STREAM type (not Show) for infinite streaming
+	// This ensures no LIMIT is applied and the query runs continuously
+	parsedQuery.Type = models.Stream
+	
+	// Remove any explicit limit for streaming - we want infinite results
+	parsedQuery.HasLimit = false
+	parsedQuery.Limit = 0
 
 	// Translate to SQL for streaming (without table() wrapper)
 	sql, err := translator.TranslateForStreaming(parsedQuery)
@@ -181,11 +197,19 @@ func (s *APIServer) streamQueryResults(ctx context.Context, conn *websocket.Conn
 			if !rows.Next() {
 				// Check for iteration error
 				if err := rows.Err(); err != nil {
+					// Context cancellation is expected when client disconnects
+					if err == context.Canceled {
+						s.logger.Info().Msg("Streaming query canceled by client disconnect")
+						return nil
+					}
 					return fmt.Errorf("row iteration error: %w", err)
 				}
 
-				// No more rows
-				return nil
+				// No more rows currently available
+				// For streaming queries, we should wait for new data rather than ending
+				// Sleep briefly to avoid tight loop, then continue checking
+				time.Sleep(100 * time.Millisecond)
+				continue
 			}
 
 			// Scan the row with proper types
@@ -303,6 +327,75 @@ func sendPingMessage(conn *websocket.Conn) error {
 	}
 
 	return conn.WriteJSON(msg)
+}
+
+// handleWebSocketAuth handles authentication for WebSocket connections
+// Returns true if authentication is successful or not required, false otherwise
+func (s *APIServer) handleWebSocketAuth(w http.ResponseWriter, r *http.Request) bool {
+	// Try Bearer token authentication (from Authorization header)
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if s.authService != nil {
+			user, err := s.authService.VerifyToken(r.Context(), token)
+			if err != nil {
+				writeError(w, "Invalid bearer token", http.StatusUnauthorized)
+				return false
+			}
+			// Add user to context
+			*r = *r.WithContext(context.WithValue(r.Context(), "user", user))
+			return true
+		}
+	}
+
+	// Try Bearer token from cookies (more secure for WebSocket)
+	// Check for accessToken cookie (used by the web app)
+	if cookie, err := r.Cookie("accessToken"); err == nil && s.authService != nil {
+		user, err := s.authService.VerifyToken(r.Context(), cookie.Value)
+		if err == nil {
+			// Add user to context
+			*r = *r.WithContext(context.WithValue(r.Context(), "user", user))
+			return true
+		}
+	}
+	// Also check legacy access_token cookie name
+	if cookie, err := r.Cookie("access_token"); err == nil && s.authService != nil {
+		user, err := s.authService.VerifyToken(r.Context(), cookie.Value)
+		if err == nil {
+			// Add user to context
+			*r = *r.WithContext(context.WithValue(r.Context(), "user", user))
+			return true
+		}
+	}
+
+	// Try API key authentication (header and cookie only - no query parameters for security)
+	apiKey := r.Header.Get("X-API-Key")
+	if apiKey == "" {
+		// Also check for API key in cookies
+		if cookie, err := r.Cookie("api_key"); err == nil {
+			apiKey = cookie.Value
+		}
+	}
+	if apiKey != "" && s.isAPIKeyValid(apiKey) {
+		return true
+	}
+
+	// Check if authentication is required
+	if s.isAuthRequired() {
+		s.logAuthFailure("WebSocket authentication required but not provided")
+		writeError(w, "Authentication required", http.StatusUnauthorized)
+		return false
+	}
+
+	// Development mode - no auth configured
+	s.logAuthFailure("No authentication configured for WebSocket - allowing request (development mode)")
+	return true
+}
+
+// isAPIKeyValid checks if the provided API key is valid
+func (s *APIServer) isAPIKeyValid(providedKey string) bool {
+	configuredKey := os.Getenv("API_KEY")
+	return configuredKey != "" && providedKey == configuredKey
 }
 
 // convertStreamRow converts scanned row values to a map, handling type dereferencing

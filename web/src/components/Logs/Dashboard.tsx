@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, Fragment } from 'react';
+import React, { useState, useEffect, useCallback, Fragment, useRef } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Log, Pagination, LogsApiResponse, SortableLogKeys } from '@/types/logs';
 import {
@@ -16,11 +16,15 @@ import {
     Info,
     AlertOctagon,
     XCircle,
-    Bug
+    Bug,
+    Radio,
+    Wifi,
+    WifiOff
 } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
+import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
 
 const StatCard = ({
     title,
@@ -90,6 +94,13 @@ const LogsDashboard = () => {
     const [sortBy, setSortBy] = useState<SortableLogKeys>('timestamp');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
+    
+    // Streaming state
+    const [streamingEnabled, setStreamingEnabled] = useState(false);
+    const [streamingConnected, setStreamingConnected] = useState(false);
+    const [streamingAvailable, setStreamingAvailable] = useState(true);
+    const streamingClient = useRef<StreamingClient | null>(null);
+    const [streamingLogs, setStreamingLogs] = useState<Log[]>([]);
 
     const postQuery = useCallback(async <T,>(
         query: string,
@@ -236,6 +247,115 @@ const LogsDashboard = () => {
         }
     }, [postQuery, debouncedSearchTerm, filterSeverity, filterService, sortBy, sortOrder]);
 
+    const buildStreamingQuery = useCallback(() => {
+        let query = 'SHOW LOGS';
+        const whereClauses: string[] = [];
+
+        if (debouncedSearchTerm) {
+            whereClauses.push(`(body LIKE '%${debouncedSearchTerm}%' OR service_name LIKE '%${debouncedSearchTerm}%')`);
+        }
+
+        if (filterSeverity !== 'all') {
+            let severityFilter = '';
+            switch (filterSeverity) {
+                case 'FATAL':
+                    severityFilter = "lower(severity_text) = 'fatal'";
+                    break;
+                case 'ERROR':
+                    severityFilter = "lower(severity_text) = 'error'";
+                    break;
+                case 'WARN':
+                    severityFilter = "lower(severity_text) IN ('warn', 'warning')";
+                    break;
+                case 'INFO':
+                    severityFilter = "lower(severity_text) = 'info'";
+                    break;
+                case 'DEBUG':
+                    severityFilter = "lower(severity_text) IN ('debug', 'trace')";
+                    break;
+            }
+            whereClauses.push(severityFilter);
+        }
+
+        if (filterService !== 'all') {
+            whereClauses.push(`service_name = '${filterService}'`);
+        }
+
+        if (whereClauses.length > 0) {
+            query += ` WHERE ${whereClauses.join(' AND ')}`;
+        }
+
+        query += ` ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
+        return query;
+    }, [debouncedSearchTerm, filterSeverity, filterService, sortBy, sortOrder]);
+
+    const startStreaming = useCallback(() => {
+        if (streamingClient.current) {
+            streamingClient.current.disconnect();
+        }
+
+        const query = buildStreamingQuery();
+        
+        streamingClient.current = createStreamingClient({
+            onData: (data) => {
+                setStreamingLogs(prev => [data as unknown as Log, ...prev.slice(0, 499)]); // Keep last 500 logs
+            },
+            onError: (error) => {
+                console.error('Streaming error:', error);
+                setError(`Streaming error: ${error}`);
+                
+                // Check if error indicates streaming is not available
+                if (error.includes('not yet available') || error.includes('not available')) {
+                    setStreamingAvailable(false);
+                    setStreamingEnabled(false);
+                }
+            },
+            onComplete: () => {
+                console.log('Streaming completed');
+            },
+            onConnection: (connected) => {
+                setStreamingConnected(connected);
+            }
+        });
+
+        streamingClient.current.connect(query);
+    }, [buildStreamingQuery]);
+
+    const stopStreaming = useCallback(() => {
+        if (streamingClient.current) {
+            streamingClient.current.disconnect();
+            streamingClient.current = null;
+        }
+        setStreamingConnected(false);
+        setStreamingLogs([]);
+    }, []);
+
+    const toggleStreaming = useCallback(() => {
+        if (streamingEnabled) {
+            stopStreaming();
+            setStreamingEnabled(false);
+        } else {
+            setStreamingEnabled(true);
+            startStreaming();
+        }
+    }, [streamingEnabled, stopStreaming, startStreaming]);
+
+    useEffect(() => {
+        // Cleanup on unmount
+        return () => {
+            if (streamingClient.current) {
+                streamingClient.current.disconnect();
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        // Restart streaming when filters change
+        if (streamingEnabled) {
+            startStreaming();
+        }
+    }, [streamingEnabled, startStreaming]);
+
     useEffect(() => {
         // Fetch stats and services on mount
         fetchStats();
@@ -243,9 +363,11 @@ const LogsDashboard = () => {
     }, [fetchStats, fetchServices]);
 
     useEffect(() => {
-        // Fetch logs when dependencies change
-        fetchLogs();
-    }, [fetchLogs]);
+        // Fetch logs when dependencies change (only if streaming is disabled)
+        if (!streamingEnabled) {
+            fetchLogs();
+        }
+    }, [fetchLogs, streamingEnabled]);
 
     const handleSort = (key: SortableLogKeys) => {
         if (sortBy === key) {
@@ -426,6 +548,47 @@ const LogsDashboard = () => {
                                     ))}
                                 </select>
                             </div>
+
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="streamingToggle" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                                    Streaming:
+                                </label>
+                                <button
+                                    id="streamingToggle"
+                                    onClick={streamingAvailable ? toggleStreaming : undefined}
+                                    disabled={!streamingAvailable}
+                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                                        !streamingAvailable 
+                                            ? 'bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 cursor-not-allowed'
+                                            : streamingEnabled
+                                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700'
+                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                    }`}
+                                    title={
+                                        !streamingAvailable 
+                                            ? 'Streaming not available on this server version'
+                                            : streamingEnabled 
+                                            ? 'Switch to standard pagination' 
+                                            : 'Enable real-time streaming'
+                                    }
+                                >
+                                    {streamingEnabled ? (
+                                        <>
+                                            {streamingConnected ? (
+                                                <Wifi className="h-3 w-3" />
+                                            ) : (
+                                                <WifiOff className="h-3 w-3" />
+                                            )}
+                                            Live
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Radio className="h-3 w-3" />
+                                            Enable
+                                        </>
+                                    )}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -454,7 +617,16 @@ const LogsDashboard = () => {
                         </thead>
 
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                        {logsLoading ? (
+                        {(streamingEnabled && !streamingConnected && streamingLogs.length === 0) ? (
+                            <tr>
+                                <td colSpan={6} className="text-center p-8">
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Loader2 className="h-8 w-8 text-orange-400 animate-spin" />
+                                        <span className="text-gray-600 dark:text-gray-400">Connecting to stream...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        ) : logsLoading && !streamingEnabled ? (
                             <tr>
                                 <td colSpan={6} className="text-center p-8">
                                     <Loader2 className="h-8 w-8 text-gray-400 animate-spin mx-auto" />
@@ -467,14 +639,14 @@ const LogsDashboard = () => {
                                     {error}
                                 </td>
                             </tr>
-                        ) : logs.length === 0 ? (
+                        ) : (streamingEnabled ? streamingLogs : logs).length === 0 ? (
                             <tr>
                                 <td colSpan={6} className="text-center p-8 text-gray-600 dark:text-gray-400">
-                                    No logs found.
+                                    {streamingEnabled ? 'No streaming data yet...' : 'No logs found.'}
                                 </td>
                             </tr>
                         ) : (
-                            logs.map((log, index) => {
+                            (streamingEnabled ? streamingLogs : logs).map((log, index) => {
                                 const uniqueKey = `${log.timestamp}-${log.trace_id || 'no-trace'}-${log.span_id || 'no-span'}-${index}`;
                                 const expandKey = `${log.timestamp}-${log.trace_id || 'no-trace'}-${index}`;
                                 return (
@@ -598,7 +770,7 @@ const LogsDashboard = () => {
                     </table>
                 </div>
 
-                {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
+                {!streamingEnabled && pagination && (pagination.prev_cursor || pagination.next_cursor) && (
                     <div className="p-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
                         <button
                             onClick={() => fetchLogs(pagination.prev_cursor, 'prev')}
@@ -614,6 +786,29 @@ const LogsDashboard = () => {
                         >
                             Next
                         </button>
+                    </div>
+                )}
+
+                {streamingEnabled && (
+                    <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                {streamingConnected ? (
+                                    <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                                        <Wifi className="h-4 w-4" />
+                                        <span className="text-sm">Streaming live data</span>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
+                                        <WifiOff className="h-4 w-4" />
+                                        <span className="text-sm">Connecting...</span>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                {streamingLogs.length} log{streamingLogs.length !== 1 ? 's' : ''} received
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
