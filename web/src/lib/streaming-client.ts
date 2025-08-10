@@ -27,6 +27,12 @@ export class StreamingClient {
   constructor(private options: StreamingOptions) {}
 
   connect(query: string): void {
+    // Prevent multiple simultaneous connection attempts
+    if (this.websocket && this.websocket.readyState === WebSocket.CONNECTING) {
+      console.log('WebSocket already connecting, ignoring duplicate connect request');
+      return;
+    }
+
     this.isManualClose = false;
     this.reconnectAttempts = 0;
     this.establishConnection(query);
@@ -34,6 +40,13 @@ export class StreamingClient {
 
   private async establishConnection(query: string): Promise<void> {
     try {
+      // Clean up any existing connection first
+      if (this.websocket) {
+        console.log('Cleaning up existing WebSocket connection');
+        this.websocket.close();
+        this.websocket = null;
+      }
+
       // Construct WebSocket URL
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       
@@ -50,17 +63,20 @@ export class StreamingClient {
       const wsUrl = `${protocol}//${apiHost}/api/stream?query=${encodedQuery}`;
       
       // Log connection details for debugging
-      console.log('WebSocket connecting to:', wsUrl);
-      console.log('Origin:', window.location.origin);
-      console.log('Cookies will be sent automatically for same-origin authentication');
+      console.log('🔌 [StreamingClient] Establishing new WebSocket connection to:', wsUrl);
+      console.log('📍 [StreamingClient] Origin:', window.location.origin);
+      console.log('🍪 [StreamingClient] Cookies will be sent automatically for same-origin authentication');
       
       // Create WebSocket connection
       // Note: Cookies are automatically sent for same-origin requests
       this.websocket = new WebSocket(wsUrl);
+      
+      // Add immediate state check
+      console.log('🔄 [StreamingClient] WebSocket created, initial readyState:', this.websocket.readyState);
       // For cross-origin connections, authentication must be handled differently
       
       this.websocket.onopen = () => {
-        console.log('WebSocket connected');
+        console.log('✅ [StreamingClient] WebSocket connected successfully');
         this.reconnectAttempts = 0;
         this.options.onConnection?.(true);
       };
@@ -86,7 +102,8 @@ export class StreamingClient {
         } else if (event.code === 1006) {
           // 1006 is abnormal closure - often network issues, should retry
           console.log('WebSocket abnormal closure (1006) - will attempt reconnection');
-          this.options.onError('Connection lost - reconnecting...');
+          // Don't show error message for 1006 - it's often just normal WebSocket behavior
+          // this.options.onError('Connection lost - reconnecting...');
           // Don't return - allow reconnection logic to proceed
         } else if (event.code >= 4000) {
           this.options.onError(`Server rejected connection: ${event.reason || 'authentication failed'}`);
@@ -99,19 +116,43 @@ export class StreamingClient {
       };
 
       this.websocket.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.error('❌ [StreamingClient] WebSocket error:', error);
+        console.error('🔍 [StreamingClient] WebSocket error details:', {
+          url: wsUrl,
+          readyState: this.websocket?.readyState,
+          readyStateText: this.getReadyStateText(this.websocket?.readyState),
+          cookies: document.cookie.substring(0, 100) + '...',
+          origin: window.location.origin,
+          timestamp: new Date().toISOString()
+        });
         
-        // Provide more helpful error messages
-        if (this.reconnectAttempts === 0) {
-          this.options.onError('Streaming connection failed');
+        // Check if this is the "closed before established" error
+        if (this.websocket?.readyState === WebSocket.CLOSED) {
+          console.error('🚨 [StreamingClient] WebSocket closed before connection established!');
+          this.options.onError('Connection closed before establishment - this may be due to multiple rapid connection attempts');
         } else {
-          this.options.onError('WebSocket connection error');
+          // Provide more helpful error messages
+          if (this.reconnectAttempts === 0) {
+            this.options.onError('Streaming connection failed - check server logs');
+          } else {
+            this.options.onError('WebSocket connection error');
+          }
         }
       };
 
     } catch (error) {
-      console.error('Failed to establish WebSocket connection:', error);
+      console.error('❌ [StreamingClient] Failed to establish WebSocket connection:', error);
       this.options.onError('Failed to establish connection');
+    }
+  }
+
+  private getReadyStateText(readyState?: number): string {
+    switch (readyState) {
+      case WebSocket.CONNECTING: return 'CONNECTING (0)';
+      case WebSocket.OPEN: return 'OPEN (1)';
+      case WebSocket.CLOSING: return 'CLOSING (2)';
+      case WebSocket.CLOSED: return 'CLOSED (3)';
+      default: return `UNKNOWN (${readyState})`;
     }
   }
 
@@ -159,6 +200,7 @@ export class StreamingClient {
   }
 
   disconnect(): void {
+    console.log('🔌 [StreamingClient] Manual disconnect requested');
     this.isManualClose = true;
     
     if (this.reconnectTimer) {
@@ -167,6 +209,7 @@ export class StreamingClient {
     }
 
     if (this.websocket) {
+      console.log('🔌 [StreamingClient] Closing WebSocket, readyState:', this.getReadyStateText(this.websocket.readyState));
       this.websocket.close();
       this.websocket = null;
     }

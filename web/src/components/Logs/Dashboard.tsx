@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, Fragment, useRef } from 'react';
+import React, { useState, useEffect, useCallback, Fragment, useRef, useMemo } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Log, Pagination, LogsApiResponse, SortableLogKeys } from '@/types/logs';
 import {
@@ -290,19 +290,34 @@ const LogsDashboard = () => {
     }, [debouncedSearchTerm, filterSeverity, filterService, sortBy, sortOrder]);
 
     const startStreaming = useCallback(() => {
+        // Prevent multiple simultaneous connection attempts
+        if (streamingClient.current && streamingClient.current.isConnected()) {
+            console.log('📡 Streaming already connected, skipping duplicate start request');
+            return;
+        }
+
         if (streamingClient.current) {
+            console.log('📡 Disconnecting existing streaming client before starting new one');
             streamingClient.current.disconnect();
         }
 
         const query = buildStreamingQuery();
+        console.log('📡 Creating new streaming client for query:', query);
         
         streamingClient.current = createStreamingClient({
             onData: (data) => {
                 setStreamingLogs(prev => [data as unknown as Log, ...prev.slice(0, 499)]); // Keep last 500 logs
+                // Clear any previous errors when receiving data successfully
+                setError(null);
             },
             onError: (error) => {
                 console.error('Streaming error:', error);
-                setError(`Streaming error: ${error}`);
+                
+                // Only show critical errors that affect functionality, not connection issues
+                if (error.includes('authentication failed') || error.includes('not supported') || 
+                    error.includes('not available') || error.includes('server rejected')) {
+                    setError(`Streaming error: ${error}`);
+                }
                 
                 // Check if error indicates streaming is not available
                 if (error.includes('not yet available') || error.includes('not available')) {
@@ -315,6 +330,10 @@ const LogsDashboard = () => {
             },
             onConnection: (connected) => {
                 setStreamingConnected(connected);
+                // Clear errors when successfully connected
+                if (connected) {
+                    setError(null);
+                }
             }
         });
 
@@ -331,14 +350,17 @@ const LogsDashboard = () => {
     }, []);
 
     const toggleStreaming = useCallback(() => {
+        console.log('📡 toggleStreaming called, current state:', streamingEnabled);
         if (streamingEnabled) {
+            console.log('📡 Stopping streaming...');
             stopStreaming();
             setStreamingEnabled(false);
         } else {
+            console.log('📡 Enabling streaming (useEffect will handle the actual start)...');
             setStreamingEnabled(true);
-            startStreaming();
+            // Don't call startStreaming() here - let the useEffect handle it to avoid double calls
         }
-    }, [streamingEnabled, stopStreaming, startStreaming]);
+    }, [streamingEnabled, stopStreaming]);
 
     useEffect(() => {
         // Cleanup on unmount
@@ -350,8 +372,10 @@ const LogsDashboard = () => {
     }, []);
 
     useEffect(() => {
-        // Restart streaming when filters change
+        // Start/restart streaming when filters change or streaming is enabled
+        console.log('📡 useEffect: streamingEnabled changed to:', streamingEnabled);
         if (streamingEnabled) {
+            console.log('📡 useEffect: Starting streaming...');
             startStreaming();
         }
     }, [streamingEnabled, startStreaming]);
@@ -363,11 +387,39 @@ const LogsDashboard = () => {
     }, [fetchStats, fetchServices]);
 
     useEffect(() => {
-        // Fetch logs when dependencies change (only if streaming is disabled)
+        // Fetch logs when dependencies change
         if (!streamingEnabled) {
+            fetchLogs();
+        } else {
+            // When streaming is enabled, fetch initial batch of logs from API 
+            // and merge with streaming data
             fetchLogs();
         }
     }, [fetchLogs, streamingEnabled]);
+
+    // Combine and sort logs from both sources when streaming is enabled
+    const allLogs = useMemo(() => {
+        if (!streamingEnabled) {
+            return logs;
+        }
+
+        // When streaming is enabled, merge streaming logs with normal logs
+        // Remove duplicates based on timestamp + trace_id + span_id combination
+        const combined = [...streamingLogs, ...logs];
+        const uniqueLogs = combined.filter((log, index, self) => {
+            const key = `${log.timestamp}-${log.trace_id || 'no-trace'}-${log.span_id || 'no-span'}`;
+            return index === self.findIndex(l => 
+                `${l.timestamp}-${l.trace_id || 'no-trace'}-${l.span_id || 'no-span'}` === key
+            );
+        });
+
+        // Sort by timestamp (newest first for desc, oldest first for asc)
+        return uniqueLogs.sort((a, b) => {
+            const dateA = new Date(a.timestamp).getTime();
+            const dateB = new Date(b.timestamp).getTime();
+            return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+        });
+    }, [streamingEnabled, streamingLogs, logs, sortOrder]);
 
     const handleSort = (key: SortableLogKeys) => {
         if (sortBy === key) {
@@ -639,14 +691,14 @@ const LogsDashboard = () => {
                                     {error}
                                 </td>
                             </tr>
-                        ) : (streamingEnabled ? streamingLogs : logs).length === 0 ? (
+                        ) : allLogs.length === 0 ? (
                             <tr>
                                 <td colSpan={6} className="text-center p-8 text-gray-600 dark:text-gray-400">
                                     {streamingEnabled ? 'No streaming data yet...' : 'No logs found.'}
                                 </td>
                             </tr>
                         ) : (
-                            (streamingEnabled ? streamingLogs : logs).map((log, index) => {
+                            allLogs.map((log, index) => {
                                 const uniqueKey = `${log.timestamp}-${log.trace_id || 'no-trace'}-${log.span_id || 'no-span'}-${index}`;
                                 const expandKey = `${log.timestamp}-${log.trace_id || 'no-trace'}-${index}`;
                                 return (
