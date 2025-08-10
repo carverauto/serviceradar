@@ -464,7 +464,7 @@ TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
 SETTINGS 
     index_granularity = 8192;
 
--- OpenTelemetry metrics (7 day TTL)
+-- OpenTelemetry metrics (3 day TTL)
 CREATE STREAM IF NOT EXISTS otel_metrics (
     timestamp       DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     trace_id        string CODEC(ZSTD(1)),
@@ -488,11 +488,11 @@ CREATE STREAM IF NOT EXISTS otel_metrics (
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, span_id)
-TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
+TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
 SETTINGS 
     index_granularity = 8192;
 
--- OpenTelemetry traces (7 day TTL, no raw_data to save storage)
+-- OpenTelemetry traces (3 day TTL, no raw_data to save storage)
 CREATE STREAM IF NOT EXISTS otel_traces (
     -- Core span identifiers
     timestamp         DateTime64(9) CODEC(Delta(8), ZSTD(1)),  -- start_time_unix_nano
@@ -534,7 +534,7 @@ CREATE STREAM IF NOT EXISTS otel_traces (
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)  -- Hourly partitions
 ORDER BY (service_name, timestamp, trace_id, span_id)
-TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
+TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
 SETTINGS 
     index_granularity = 8192;
 
@@ -560,7 +560,7 @@ CREATE STREAM IF NOT EXISTS otel_trace_summaries (
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, trace_id)
-TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
+TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
 SETTINGS 
     index_granularity = 8192;
 
@@ -581,7 +581,7 @@ CREATE STREAM IF NOT EXISTS otel_spans_enriched (
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (trace_id, span_id)
-TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
+TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
 SETTINGS 
     index_granularity = 8192;
 

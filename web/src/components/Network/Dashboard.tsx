@@ -64,7 +64,7 @@ interface PortResult {
 }
 
 interface NetworkDashboardProps {
-    initialPollers: Poller[];
+    initialPollers?: Poller[];
 }
 
 interface ServiceWithPoller extends Service {
@@ -818,20 +818,24 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         const snmp: ServiceWithPoller[] = [];
         const apps: ServiceWithPoller[] = [];
 
-        initialPollers.forEach(poller => {
-            poller.services?.forEach(service => {
-                const serviceWithPollerId = { ...service, poller_id: poller.poller_id };
-                if (service.type === 'network_discovery' || service.name === 'lan_discovery_via_mapper') {
-                    discovery.push(serviceWithPollerId);
-                } else if (service.type === 'sweep') {
-                    sweep.push(serviceWithPollerId);
-                } else if (service.type === 'snmp') {
-                    snmp.push(serviceWithPollerId);
-                } else if (service.type === 'grpc' || ['dusk', 'rusk', 'grpc', 'rperf-checker'].includes(service.name)) {
-                    apps.push(serviceWithPollerId);
-                }
+        // If initialPollers is provided, use it; otherwise return empty arrays
+        // The UI will still work with empty service lists
+        if (initialPollers) {
+            initialPollers.forEach(poller => {
+                poller.services?.forEach(service => {
+                    const serviceWithPollerId = { ...service, poller_id: poller.poller_id };
+                    if (service.type === 'network_discovery' || service.name === 'lan_discovery_via_mapper') {
+                        discovery.push(serviceWithPollerId);
+                    } else if (service.type === 'sweep') {
+                        sweep.push(serviceWithPollerId);
+                    } else if (service.type === 'snmp') {
+                        snmp.push(serviceWithPollerId);
+                    } else if (service.type === 'grpc' || ['dusk', 'rusk', 'grpc', 'rperf-checker'].includes(service.name)) {
+                        apps.push(serviceWithPollerId);
+                    }
+                });
             });
-        });
+        }
 
         return {
             discoveryServices: discovery,

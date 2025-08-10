@@ -624,6 +624,34 @@ func (t *Translator) buildStreamQuery(sql *strings.Builder, query *models.Query,
 	}
 }
 
+// buildSelectClause builds the SELECT clause for streaming queries
+func (t *Translator) buildSelectClause(query *models.Query) string {
+	switch query.Type {
+	case models.Show, models.Find:
+		if query.Function != "" {
+			return "SELECT " + t.buildFunctionCall(query) + " FROM "
+		}
+
+		return "SELECT * FROM "
+
+	case models.Count:
+		return "SELECT count() FROM "
+	case models.Stream:
+		selectClause := "SELECT "
+		if len(query.SelectFields) > 0 {
+			selectClause += strings.Join(query.SelectFields, ", ")
+		} else {
+			selectClause += "*"
+		}
+
+		selectClause += " FROM "
+
+		return selectClause
+	default:
+		return "SELECT * FROM "
+	}
+}
+
 // buildProtonStreamingQuery builds a SQL query for Timeplus Proton WITHOUT table() wrapper for streaming
 func (t *Translator) buildProtonStreamingQuery(query *models.Query) (string, error) {
 	if query == nil {
@@ -634,29 +662,8 @@ func (t *Translator) buildProtonStreamingQuery(query *models.Query) (string, err
 
 	baseTableName := t.getProtonBaseTableName(query.Entity)
 
-	// Build SELECT clause
-	switch query.Type {
-	case models.Show, models.Find:
-		if query.Function != "" {
-			sql.WriteString("SELECT ")
-			sql.WriteString(t.buildFunctionCall(query))
-			sql.WriteString(" FROM ")
-		} else {
-			sql.WriteString("SELECT * FROM ")
-		}
-	case models.Count:
-		sql.WriteString("SELECT count() FROM ")
-	case models.Stream:
-		sql.WriteString("SELECT ")
-
-		if len(query.SelectFields) > 0 {
-			sql.WriteString(strings.Join(query.SelectFields, ", "))
-		} else {
-			sql.WriteString("*")
-		}
-
-		sql.WriteString(" FROM ")
-	}
+	// Build SELECT clause using helper function
+	sql.WriteString(t.buildSelectClause(query))
 
 	// Add table name WITHOUT table() wrapper for streaming
 	sql.WriteString(baseTableName)
@@ -695,19 +702,60 @@ func (t *Translator) buildProtonStreamingQuery(query *models.Query) (string, err
 		sql.WriteString(strings.Join(orderByParts, ", "))
 	}
 
-	// LIMIT clause (if applicable for streaming)
-	if query.HasLimit {
-		fmt.Fprintf(&sql, " LIMIT %d", query.Limit)
-	}
+	// NEVER add LIMIT clauses for streaming queries - they should run indefinitely
+	// LIMIT clauses would cause streaming to stop after N results instead of continuing forever
 
 	return sql.String(), nil
 }
 
 // buildClickHouseStreamingQuery builds a streaming SQL query for ClickHouse (without special wrappers)
 func (t *Translator) buildClickHouseStreamingQuery(query *models.Query) (string, error) {
-	// For ClickHouse, streaming queries are the same as regular queries
-	// since ClickHouse doesn't use table() wrapper
-	return t.buildClickHouseQuery(query)
+	// For streaming queries, build a custom query without LIMIT clauses
+	if query == nil {
+		return "", errCannotTranslateNilQueryClickHouse
+	}
+
+	var sql strings.Builder
+
+	// Build SELECT clause using helper function
+	sql.WriteString(t.buildSelectClause(query))
+
+	sql.WriteString(strings.ToLower(string(query.Entity)))
+
+	// Build WHERE clause
+	if len(query.Conditions) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(t.buildClickHouseWhere(query.Conditions, query.Entity))
+	}
+
+	// Build GROUP BY clause
+	if len(query.GroupBy) > 0 {
+		sql.WriteString(" GROUP BY ")
+		sql.WriteString(strings.Join(query.GroupBy, ", "))
+	}
+
+	// Build ORDER BY clause
+	if len(query.OrderBy) > 0 {
+		sql.WriteString(" ORDER BY ")
+
+		var orderByParts []string
+
+		for _, item := range query.OrderBy {
+			direction := defaultAscending
+			if item.Direction == models.Descending {
+				direction = defaultDescending
+			}
+
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
+		}
+
+		sql.WriteString(strings.Join(orderByParts, ", "))
+	}
+
+	// NEVER add LIMIT clauses for streaming queries - they should run indefinitely
+	// LIMIT clauses would cause streaming to stop after N results instead of continuing forever
+
+	return sql.String(), nil
 }
 
 // buildFunctionCall builds a function call like DISTINCT(field) for SQL
