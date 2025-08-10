@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { TraceSummary, TraceSummariesApiResponse, TraceStats, SortableTraceKeys } from '@/types/traces';
 import { Pagination } from '@/types/devices';
@@ -17,10 +17,14 @@ import {
     ChevronDown,
     ChevronRight,
     Copy,
-    Check
+    Check,
+    Radio,
+    Wifi,
+    WifiOff
 } from 'lucide-react';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
+import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
 
 const StatCard = ({
     title,
@@ -148,6 +152,12 @@ const TracesDashboard = () => {
     const [sortBy, setSortBy] = useState<SortableTraceKeys>('timestamp');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
+    
+    // Streaming state
+    const [streamingEnabled, setStreamingEnabled] = useState(false);
+    const [streamingConnected, setStreamingConnected] = useState(false);
+    const streamingClient = useRef<StreamingClient | null>(null);
+    const [streamingTraces, setStreamingTraces] = useState<TraceSummary[]>([]);
 
     const postQuery = useCallback(async <T,>(
         query: string,
@@ -285,14 +295,104 @@ const TracesDashboard = () => {
         }
     }, [postQuery, debouncedSearchTerm, filterService, filterStatus, sortBy, sortOrder]);
 
+    const buildStreamingQuery = useCallback(() => {
+        let query = 'SHOW otel_trace_summaries_final';
+        const conditions: string[] = [];
+
+        if (debouncedSearchTerm) {
+            conditions.push(`(trace_id LIKE '%${debouncedSearchTerm}%' OR root_service_name LIKE '%${debouncedSearchTerm}%' OR root_span_name LIKE '%${debouncedSearchTerm}%')`);
+        }
+
+        if (filterService !== 'all') {
+            conditions.push(`root_service_name = '${filterService}'`);
+        }
+
+        if (filterStatus === 'success') {
+            conditions.push('status_code = 1 AND error_count = 0');
+        } else if (filterStatus === 'error') {
+            conditions.push('(status_code != 1 OR error_count > 0)');
+        }
+
+        if (conditions.length > 0) {
+            query += ` WHERE ${conditions.join(' AND ')}`;
+        }
+
+        query += ` ORDER BY ${sortBy === 'timestamp' ? '_tp_time' : sortBy} ${sortOrder.toUpperCase()}`;
+        return query;
+    }, [debouncedSearchTerm, filterService, filterStatus, sortBy, sortOrder]);
+
+    const startStreaming = useCallback(() => {
+        if (streamingClient.current) {
+            streamingClient.current.disconnect();
+        }
+
+        const query = buildStreamingQuery();
+        
+        streamingClient.current = createStreamingClient({
+            onData: (data) => {
+                setStreamingTraces(prev => [data as unknown as TraceSummary, ...prev.slice(0, 499)]); // Keep last 500 traces
+            },
+            onError: (error) => {
+                console.error('Streaming error:', error);
+                setError(`Streaming error: ${error}`);
+            },
+            onComplete: () => {
+                console.log('Streaming completed');
+            },
+            onConnection: (connected) => {
+                setStreamingConnected(connected);
+            }
+        });
+
+        streamingClient.current.connect(query);
+    }, [buildStreamingQuery]);
+
+    const stopStreaming = useCallback(() => {
+        if (streamingClient.current) {
+            streamingClient.current.disconnect();
+            streamingClient.current = null;
+        }
+        setStreamingConnected(false);
+        setStreamingTraces([]);
+    }, []);
+
+    const toggleStreaming = useCallback(() => {
+        if (streamingEnabled) {
+            stopStreaming();
+            setStreamingEnabled(false);
+        } else {
+            setStreamingEnabled(true);
+            startStreaming();
+        }
+    }, [streamingEnabled, stopStreaming, startStreaming]);
+
+    useEffect(() => {
+        // Cleanup on unmount
+        return () => {
+            if (streamingClient.current) {
+                streamingClient.current.disconnect();
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        // Restart streaming when filters change
+        if (streamingEnabled) {
+            startStreaming();
+        }
+    }, [streamingEnabled, startStreaming]);
+
     useEffect(() => {
         fetchStats();
         fetchServices();
     }, [fetchStats, fetchServices]);
 
     useEffect(() => {
-        fetchTraces();
-    }, [fetchTraces]);
+        // Fetch traces when dependencies change (only if streaming is disabled)
+        if (!streamingEnabled) {
+            fetchTraces();
+        }
+    }, [fetchTraces, streamingEnabled]);
 
     const handleSort = (key: SortableTraceKeys) => {
         if (sortBy === key) {
@@ -437,6 +537,38 @@ const TracesDashboard = () => {
                                     ))}
                                 </select>
                             </div>
+
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="streamingToggle" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                                    Streaming:
+                                </label>
+                                <button
+                                    id="streamingToggle"
+                                    onClick={toggleStreaming}
+                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                                        streamingEnabled
+                                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700'
+                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                    }`}
+                                    title={streamingEnabled ? 'Switch to standard pagination' : 'Enable real-time streaming'}
+                                >
+                                    {streamingEnabled ? (
+                                        <>
+                                            {streamingConnected ? (
+                                                <Wifi className="h-3 w-3" />
+                                            ) : (
+                                                <WifiOff className="h-3 w-3" />
+                                            )}
+                                            Live
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Radio className="h-3 w-3" />
+                                            Enable
+                                        </>
+                                    )}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -462,7 +594,16 @@ const TracesDashboard = () => {
                         </thead>
 
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {tracesLoading ? (
+                            {(streamingEnabled && !streamingConnected && streamingTraces.length === 0) ? (
+                                <tr>
+                                    <td colSpan={7} className="text-center p-8">
+                                        <div className="flex items-center justify-center gap-2">
+                                            <Loader2 className="h-8 w-8 text-orange-400 animate-spin" />
+                                            <span className="text-gray-600 dark:text-gray-400">Connecting to stream...</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ) : tracesLoading && !streamingEnabled ? (
                                 <tr>
                                     <td colSpan={7} className="text-center p-8">
                                         <Loader2 className="h-8 w-8 text-gray-400 animate-spin mx-auto" />
@@ -475,14 +616,14 @@ const TracesDashboard = () => {
                                         {error}
                                     </td>
                                 </tr>
-                            ) : traces.length === 0 ? (
+                            ) : (streamingEnabled ? streamingTraces : traces).length === 0 ? (
                                 <tr>
                                     <td colSpan={7} className="text-center p-8 text-gray-600 dark:text-gray-400">
-                                        No traces found.
+                                        {streamingEnabled ? 'No streaming data yet...' : 'No traces found.'}
                                     </td>
                                 </tr>
                             ) : (
-                                traces.map((trace, index) => {
+                                (streamingEnabled ? streamingTraces : traces).map((trace, index) => {
                                     const uniqueKey = `${trace.trace_id}-${index}`;
                                     return (
                                         <React.Fragment key={uniqueKey}>
@@ -589,7 +730,7 @@ const TracesDashboard = () => {
                     </table>
                 </div>
 
-                {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
+                {!streamingEnabled && pagination && (pagination.prev_cursor || pagination.next_cursor) && (
                     <div className="p-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
                         <button
                             onClick={() => fetchTraces(pagination.prev_cursor, 'prev')}
@@ -605,6 +746,29 @@ const TracesDashboard = () => {
                         >
                             Next
                         </button>
+                    </div>
+                )}
+
+                {streamingEnabled && (
+                    <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                {streamingConnected ? (
+                                    <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                                        <Wifi className="h-4 w-4" />
+                                        <span className="text-sm">Streaming live data</span>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
+                                        <WifiOff className="h-4 w-4" />
+                                        <span className="text-sm">Connecting...</span>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                {streamingTraces.length} trace{streamingTraces.length !== 1 ? 's' : ''} received
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

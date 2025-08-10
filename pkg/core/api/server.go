@@ -152,6 +152,7 @@ func (s *APIServer) setupRoutes() {
 	s.setupMiddleware()
 	s.setupSwaggerRoutes()
 	s.setupAuthRoutes()
+	s.setupWebSocketRoutes()
 	s.setupProtectedRoutes()
 }
 
@@ -424,6 +425,12 @@ func (s *APIServer) setupAuthRoutes() {
 	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
 }
 
+// setupWebSocketRoutes configures WebSocket routes with custom authentication.
+func (s *APIServer) setupWebSocketRoutes() {
+	// WebSocket streaming endpoint - bypasses middleware auth and handles auth internally
+	s.router.HandleFunc("/api/stream", s.handleStreamQuery).Methods("GET")
+}
+
 // setupProtectedRoutes configures protected API routes.
 func (s *APIServer) setupProtectedRoutes() {
 	protected := s.router.PathPrefix("/api").Subrouter()
@@ -453,8 +460,6 @@ func (s *APIServer) setupProtectedRoutes() {
 
 	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
 
-	// WebSocket streaming endpoint
-	protected.HandleFunc("/stream", s.handleStreamQuery).Methods("GET")
 
 	// Device-centric endpoints
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
