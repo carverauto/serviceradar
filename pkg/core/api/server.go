@@ -460,7 +460,6 @@ func (s *APIServer) setupProtectedRoutes() {
 
 	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
 
-
 	// Device-centric endpoints
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
 	protected.HandleFunc("/devices/{id}", s.getDevice).Methods("GET")

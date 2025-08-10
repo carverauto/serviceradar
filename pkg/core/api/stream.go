@@ -33,6 +33,22 @@ import (
 	"github.com/timeplus-io/proton-go-driver/v2"
 )
 
+// ContextKey is a custom type for context keys to avoid string collisions
+type ContextKey string
+
+// Context key constants
+const (
+	UserContextKey ContextKey = "user"
+)
+
+// WebSocket buffer and channel size constants
+const (
+	WebSocketReadBufferSize  = 1024
+	WebSocketWriteBufferSize = 1024
+	WebSocketChannelSize     = 256
+	WebSocketReadLimit       = 512
+)
+
 // StreamMessage represents a message sent over the WebSocket
 type StreamMessage struct {
 	Type      string                 `json:"type"` // "data", "error", "complete", "ping"
@@ -59,19 +75,24 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	upgrader := websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
+		ReadBufferSize:  WebSocketReadBufferSize,
+		WriteBufferSize: WebSocketWriteBufferSize,
 		CheckOrigin:     func(r *http.Request) bool { return s.checkWebSocketOrigin(r) },
 	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to upgrade to WebSocket")
 		return
 	}
+
 	defer conn.Close()
 
 	if !s.authenticateWebSocketConnection(r) {
-		conn.WriteJSON(StreamMessage{Type: "error", Error: "Authentication required", Timestamp: time.Now()})
+		if writeErr := conn.WriteJSON(StreamMessage{Type: "error", Error: "Authentication required", Timestamp: time.Now()}); writeErr != nil {
+			s.logger.Error().Err(writeErr).Msg("Failed to write authentication error")
+		}
+
 		return
 	}
 
@@ -79,7 +100,7 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Channel for messages to be sent to the client.
-	sendCh := make(chan StreamMessage, 256)
+	sendCh := make(chan StreamMessage, WebSocketChannelSize)
 
 	// Start the writer goroutine. It is the ONLY goroutine that writes to the connection.
 	go writer(conn, sendCh)
@@ -109,17 +130,27 @@ func writer(conn *websocket.Conn, sendCh <-chan StreamMessage) {
 	for {
 		select {
 		case message, ok := <-sendCh:
-			conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if !ok {
-				// The channel was closed.
-				conn.WriteMessage(websocket.CloseMessage, []byte{})
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 				return
 			}
+
+			if !ok {
+				// The channel was closed.
+				if err := conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
+					return
+				}
+
+				return
+			}
+
 			if err := conn.WriteJSON(message); err != nil {
 				return
 			}
 		case <-ticker.C:
-			conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				return
+			}
+
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -131,9 +162,16 @@ func writer(conn *websocket.Conn, sendCh <-chan StreamMessage) {
 func reader(conn *websocket.Conn, cancel context.CancelFunc) {
 	defer cancel()
 	defer conn.Close()
-	conn.SetReadLimit(512)
-	conn.SetReadDeadline(time.Now().Add(pongWait))
-	conn.SetPongHandler(func(string) error { conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	conn.SetReadLimit(WebSocketReadLimit)
+
+	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		return
+	}
+
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
 	for {
 		_, _, err := conn.ReadMessage()
 		if err != nil {
@@ -162,6 +200,7 @@ func (s *APIServer) streamQueryResults(ctx context.Context, sqlQuery string, sen
 
 	columnTypes := rows.ColumnTypes()
 	columns := make([]string, len(columnTypes))
+
 	for i, ct := range columnTypes {
 		columns[i] = ct.Name()
 	}
@@ -196,6 +235,7 @@ func (s *APIServer) streamQueryResults(ctx context.Context, sqlQuery string, sen
 		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Database iteration error: %v", err), Timestamp: time.Now()}
 	} else {
 		sendCh <- StreamMessage{Type: "complete", Timestamp: time.Now()}
+
 		s.logger.Info().Msg("✅ Database stream finished successfully.")
 	}
 }
@@ -231,49 +271,6 @@ func prepareStreamingQuery(srqlQuery string) (string, models.EntityType, error) 
 	return sql, parsedQuery.Entity, nil
 }
 
-// handleClientMessages reads messages from the client and handles disconnects.
-// This new version uses the standard WebSocket ping/pong keepalive mechanism.
-func (s *APIServer) handleClientMessages(ctx context.Context, conn *websocket.Conn, cancel context.CancelFunc) {
-	defer func() {
-		s.logger.Info().Str("client_addr", conn.RemoteAddr().String()).Msg("WebSocket client handler finished, canceling stream context.")
-		cancel() // Ensure the streaming context is canceled when this goroutine exits.
-	}()
-
-	// Define the wait time for a pong response from the client.
-	const pongWait = 60 * time.Second
-	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
-		s.logger.Error().Err(err).Str("client_addr", conn.RemoteAddr().String()).Msg("Failed to set initial read deadline")
-		return
-	}
-
-	// The PongHandler resets the read deadline every time a pong is received.
-	conn.SetPongHandler(func(string) error {
-		s.logger.Debug().Str("client_addr", conn.RemoteAddr().String()).Msg("Pong received, extending read deadline.")
-		return conn.SetReadDeadline(time.Now().Add(pongWait))
-	})
-
-	// This loop blocks on ReadMessage(). It will only unblock if the client
-	// sends a message or if the read deadline is exceeded (indicating a disconnect).
-	for {
-		messageType, _, err := conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				s.logger.Error().Err(err).Str("client_addr", conn.RemoteAddr().String()).Msg("Unexpected WebSocket close error")
-			} else {
-				s.logger.Info().Err(err).Str("client_addr", conn.RemoteAddr().String()).Msg("WebSocket client disconnected or timed out")
-			}
-			// Exit the loop and trigger the deferred cancel().
-			return
-		}
-
-		// If a close message is received, exit cleanly.
-		if messageType == websocket.CloseMessage {
-			s.logger.Info().Str("client_addr", conn.RemoteAddr().String()).Msg("Client sent a close message.")
-			return
-		}
-	}
-}
-
 // getStreamingDB returns a database connection suitable for streaming
 func (s *APIServer) getStreamingDB() (proton.Conn, error) {
 	if s.dbService == nil {
@@ -295,123 +292,6 @@ func (s *APIServer) getStreamingDB() (proton.Conn, error) {
 	return protonConn, nil
 }
 
-// Message sending helper functions
-
-func sendDataMessage(conn *websocket.Conn, data map[string]interface{}) error {
-	msg := StreamMessage{
-		Type:      "data",
-		Data:      data,
-		Timestamp: time.Now(),
-	}
-
-	if err := conn.WriteJSON(msg); err != nil {
-		// Don't log every write error as it can flood logs, but return the error
-		// The caller will log the error with more context
-		return fmt.Errorf("failed to write JSON message: %w", err)
-	}
-
-	return nil
-}
-
-func sendErrorMessage(conn *websocket.Conn, errMsg string) error {
-	msg := StreamMessage{
-		Type:      "error",
-		Error:     errMsg,
-		Timestamp: time.Now(),
-	}
-
-	if err := conn.WriteJSON(msg); err != nil {
-		return fmt.Errorf("failed to write error message: %w", err)
-	}
-
-	return nil
-}
-
-func sendCompletionMessage(conn *websocket.Conn) error {
-	msg := StreamMessage{
-		Type:      "complete",
-		Timestamp: time.Now(),
-	}
-
-	return conn.WriteJSON(msg)
-}
-
-func sendPingMessage(conn *websocket.Conn) error {
-	msg := StreamMessage{
-		Type:      "ping",
-		Timestamp: time.Now(),
-	}
-
-	if err := conn.WriteJSON(msg); err != nil {
-		return fmt.Errorf("failed to write ping message: %w", err)
-	}
-
-	return nil
-}
-
-// handleWebSocketAuth handles authentication for WebSocket connections
-// Returns true if authentication is successful or not required, false otherwise
-func (s *APIServer) handleWebSocketAuth(w http.ResponseWriter, r *http.Request) bool {
-	// Try Bearer token authentication (from Authorization header)
-	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if s.authService != nil {
-			user, err := s.authService.VerifyToken(r.Context(), token)
-			if err != nil {
-				writeError(w, "Invalid bearer token", http.StatusUnauthorized)
-				return false
-			}
-			// Add user to context
-			*r = *r.WithContext(context.WithValue(r.Context(), "user", user))
-			return true
-		}
-	}
-
-	// Try Bearer token from cookies (more secure for WebSocket)
-	// Check for accessToken cookie (used by the web app)
-	if cookie, err := r.Cookie("accessToken"); err == nil && s.authService != nil {
-		user, err := s.authService.VerifyToken(r.Context(), cookie.Value)
-		if err == nil {
-			// Add user to context
-			*r = *r.WithContext(context.WithValue(r.Context(), "user", user))
-			return true
-		}
-	}
-	// Also check legacy access_token cookie name
-	if cookie, err := r.Cookie("access_token"); err == nil && s.authService != nil {
-		user, err := s.authService.VerifyToken(r.Context(), cookie.Value)
-		if err == nil {
-			// Add user to context
-			*r = *r.WithContext(context.WithValue(r.Context(), "user", user))
-			return true
-		}
-	}
-
-	// Try API key authentication (header and cookie only - no query parameters for security)
-	apiKey := r.Header.Get("X-API-Key")
-	if apiKey == "" {
-		// Also check for API key in cookies
-		if cookie, err := r.Cookie("api_key"); err == nil {
-			apiKey = cookie.Value
-		}
-	}
-	if apiKey != "" && s.isAPIKeyValid(apiKey) {
-		return true
-	}
-
-	// Check if authentication is required
-	if s.isAuthRequired() {
-		s.logAuthFailure("WebSocket authentication required but not provided")
-		writeError(w, "Authentication required", http.StatusUnauthorized)
-		return false
-	}
-
-	// Development mode - no auth configured
-	s.logAuthFailure("No authentication configured for WebSocket - allowing request (development mode)")
-	return true
-}
-
 // authenticateWebSocketConnection validates authentication without interfering with WebSocket handshake
 // Returns true if authentication is successful or not required, false otherwise
 func (s *APIServer) authenticateWebSocketConnection(r *http.Request) bool {
@@ -426,7 +306,8 @@ func (s *APIServer) authenticateWebSocketConnection(r *http.Request) bool {
 				return false
 			}
 			// Add user to context
-			*r = *r.WithContext(context.WithValue(r.Context(), "user", user))
+			*r = *r.WithContext(context.WithValue(r.Context(), UserContextKey, user))
+
 			return true
 		}
 	}
@@ -437,10 +318,13 @@ func (s *APIServer) authenticateWebSocketConnection(r *http.Request) bool {
 		user, err := s.authService.VerifyToken(r.Context(), cookie.Value)
 		if err == nil {
 			// Add user to context
-			*r = *r.WithContext(context.WithValue(r.Context(), "user", user))
+			*r = *r.WithContext(context.WithValue(r.Context(), UserContextKey, user))
+
 			s.logger.Debug().Msg("WebSocket authenticated via accessToken cookie")
+
 			return true
 		}
+
 		s.logger.Warn().Err(err).Msg("WebSocket accessToken cookie authentication failed")
 	}
 
@@ -449,10 +333,13 @@ func (s *APIServer) authenticateWebSocketConnection(r *http.Request) bool {
 		user, err := s.authService.VerifyToken(r.Context(), cookie.Value)
 		if err == nil {
 			// Add user to context
-			*r = *r.WithContext(context.WithValue(r.Context(), "user", user))
+			*r = *r.WithContext(context.WithValue(r.Context(), UserContextKey, user))
+
 			s.logger.Debug().Msg("WebSocket authenticated via access_token cookie")
+
 			return true
 		}
+
 		s.logger.Warn().Err(err).Msg("WebSocket access_token cookie authentication failed")
 	}
 
@@ -464,6 +351,7 @@ func (s *APIServer) authenticateWebSocketConnection(r *http.Request) bool {
 			apiKey = cookie.Value
 		}
 	}
+
 	if apiKey != "" && s.isAPIKeyValid(apiKey) {
 		s.logger.Debug().Msg("WebSocket authenticated via API key")
 		return true
@@ -477,11 +365,12 @@ func (s *APIServer) authenticateWebSocketConnection(r *http.Request) bool {
 
 	// Development mode - no auth configured
 	s.logger.Debug().Msg("No authentication configured for WebSocket - allowing request (development mode)")
+
 	return true
 }
 
 // isAPIKeyValid checks if the provided API key is valid
-func (s *APIServer) isAPIKeyValid(providedKey string) bool {
+func (*APIServer) isAPIKeyValid(providedKey string) bool {
 	configuredKey := os.Getenv("API_KEY")
 	return configuredKey != "" && providedKey == configuredKey
 }
