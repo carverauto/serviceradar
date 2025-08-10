@@ -390,7 +390,7 @@ const LogsDashboard = () => {
         });
 
         streamingClient.current.connect(query);
-    }, [buildStreamingQuery]);
+    }, [buildStreamingQuery, streamingPaused]);
 
     const stopStreaming = useCallback(() => {
         if (streamingClient.current) {
