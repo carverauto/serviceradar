@@ -624,6 +624,34 @@ func (t *Translator) buildStreamQuery(sql *strings.Builder, query *models.Query,
 	}
 }
 
+// buildSelectClause builds the SELECT clause for streaming queries
+func (t *Translator) buildSelectClause(query *models.Query) string {
+	switch query.Type {
+	case models.Show, models.Find:
+		if query.Function != "" {
+			return "SELECT " + t.buildFunctionCall(query) + " FROM "
+		}
+
+		return "SELECT * FROM "
+
+	case models.Count:
+		return "SELECT count() FROM "
+	case models.Stream:
+		selectClause := "SELECT "
+		if len(query.SelectFields) > 0 {
+			selectClause += strings.Join(query.SelectFields, ", ")
+		} else {
+			selectClause += "*"
+		}
+
+		selectClause += " FROM "
+
+		return selectClause
+	default:
+		return "SELECT * FROM "
+	}
+}
+
 // buildProtonStreamingQuery builds a SQL query for Timeplus Proton WITHOUT table() wrapper for streaming
 func (t *Translator) buildProtonStreamingQuery(query *models.Query) (string, error) {
 	if query == nil {
@@ -634,29 +662,8 @@ func (t *Translator) buildProtonStreamingQuery(query *models.Query) (string, err
 
 	baseTableName := t.getProtonBaseTableName(query.Entity)
 
-	// Build SELECT clause
-	switch query.Type {
-	case models.Show, models.Find:
-		if query.Function != "" {
-			sql.WriteString("SELECT ")
-			sql.WriteString(t.buildFunctionCall(query))
-			sql.WriteString(" FROM ")
-		} else {
-			sql.WriteString("SELECT * FROM ")
-		}
-	case models.Count:
-		sql.WriteString("SELECT count() FROM ")
-	case models.Stream:
-		sql.WriteString("SELECT ")
-
-		if len(query.SelectFields) > 0 {
-			sql.WriteString(strings.Join(query.SelectFields, ", "))
-		} else {
-			sql.WriteString("*")
-		}
-
-		sql.WriteString(" FROM ")
-	}
+	// Build SELECT clause using helper function
+	sql.WriteString(t.buildSelectClause(query))
 
 	// Add table name WITHOUT table() wrapper for streaming
 	sql.WriteString(baseTableName)
@@ -710,27 +717,8 @@ func (t *Translator) buildClickHouseStreamingQuery(query *models.Query) (string,
 
 	var sql strings.Builder
 
-	// Build SELECT clause
-	switch query.Type {
-	case models.Show, models.Find:
-		if query.Function != "" {
-			sql.WriteString("SELECT ")
-			sql.WriteString(t.buildFunctionCall(query))
-			sql.WriteString(" FROM ")
-		} else {
-			sql.WriteString("SELECT * FROM ")
-		}
-	case models.Count:
-		sql.WriteString("SELECT count() FROM ")
-	case models.Stream:
-		sql.WriteString("SELECT ")
-		if len(query.SelectFields) > 0 {
-			sql.WriteString(strings.Join(query.SelectFields, ", "))
-		} else {
-			sql.WriteString("*")
-		}
-		sql.WriteString(" FROM ")
-	}
+	// Build SELECT clause using helper function
+	sql.WriteString(t.buildSelectClause(query))
 
 	sql.WriteString(strings.ToLower(string(query.Entity)))
 
