@@ -19,7 +19,12 @@ import {
     Bug,
     Radio,
     Wifi,
-    WifiOff
+    WifiOff,
+    Play,
+    Pause,
+    ChevronLeft,
+    ChevronRight as ChevronRightIcon,
+    ChevronsDown
 } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
@@ -92,15 +97,24 @@ const LogsDashboard = () => {
     const [filterService, setFilterService] = useState<string>('all');
     const [services, setServices] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<SortableLogKeys>('timestamp');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // Default to chronological order for streaming
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     
     // Streaming state
     const [streamingEnabled, setStreamingEnabled] = useState(false);
     const [streamingConnected, setStreamingConnected] = useState(false);
     const [streamingAvailable, setStreamingAvailable] = useState(true);
+    const [streamingPaused, setStreamingPaused] = useState(false);
     const streamingClient = useRef<StreamingClient | null>(null);
     const [streamingLogs, setStreamingLogs] = useState<Log[]>([]);
+    
+    // Client-side pagination for streaming logs
+    const [streamingCurrentPage, setStreamingCurrentPage] = useState(1);
+    const streamingLogsPerPage = 20;
+    const maxStreamingHistory = 1000; // Keep ~4 cycles worth (250 logs per cycle × 4 = 1000)
+    
+    // Track if user is viewing the latest logs (for auto-advance behavior)
+    const [autoFollowLatest, setAutoFollowLatest] = useState(true);
 
     const postQuery = useCallback(async <T,>(
         query: string,
@@ -286,6 +300,11 @@ const LogsDashboard = () => {
         }
 
         query += ` ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
+        
+        // Debug: Log the streaming query being used
+        console.log('📡 Streaming query:', query);
+        console.log('📡 Active filters - Severity:', filterSeverity, 'Service:', filterService, 'Search:', debouncedSearchTerm);
+        
         return query;
     }, [debouncedSearchTerm, filterSeverity, filterService, sortBy, sortOrder]);
 
@@ -306,7 +325,40 @@ const LogsDashboard = () => {
         
         streamingClient.current = createStreamingClient({
             onData: (data) => {
-                setStreamingLogs(prev => [data as unknown as Log, ...prev.slice(0, 499)]); // Keep last 500 logs
+                // The data comes as a map[string]interface{} from the backend
+                // We need to ensure it has the required fields for the Log type
+                const log: Log = {
+                    _tp_time: (data._tp_time as string) || (data.timestamp as string) || '',
+                    timestamp: (data.timestamp as string) || (data._tp_time as string) || '',
+                    trace_id: (data.trace_id as string) || '',
+                    span_id: (data.span_id as string) || '',
+                    severity_text: (data.severity_text as string) || undefined,
+                    severity_number: (data.severity_number as number) || 0,
+                    body: (data.body as string) || '',
+                    service_name: (data.service_name as string) || '',
+                    service_version: (data.service_version as string) || '',
+                    service_instance: (data.service_instance as string) || '',
+                    scope_name: (data.scope_name as string) || '',
+                    scope_version: (data.scope_version as string) || '',
+                    attributes: (data.attributes as string) || '',
+                    resource_attributes: (data.resource_attributes as string) || '',
+                    raw_data: (data.raw_data as string) || ''
+                };
+                
+                // Only add log if streaming is not paused
+                if (!streamingPaused) {
+                    setStreamingLogs(prev => {
+                        // Append new log to the end (CloudWatch style)
+                        const newLogs = [...prev, log];
+                        // Debug: Log the count every 50 messages (every ~1/5 cycle)
+                        if (newLogs.length % 50 === 0) {
+                            console.log(`📊 Streaming logs count: ${newLogs.length} (${Math.floor(newLogs.length / 250)} cycles)`);
+                        }
+                        // Keep up to maxStreamingHistory logs, remove oldest when exceeded
+                        return newLogs.length > maxStreamingHistory ? newLogs.slice(-maxStreamingHistory) : newLogs;
+                    });
+                }
+                // If paused, just ignore the log (could add to a buffer if needed later)
                 // Clear any previous errors when receiving data successfully
                 setError(null);
             },
@@ -347,6 +399,17 @@ const LogsDashboard = () => {
         }
         setStreamingConnected(false);
         setStreamingLogs([]);
+        setStreamingCurrentPage(1);
+        setStreamingPaused(false);
+        setAutoFollowLatest(true);
+    }, []);
+
+    const pauseStreaming = useCallback(() => {
+        setStreamingPaused(true);
+    }, []);
+
+    const resumeStreaming = useCallback(() => {
+        setStreamingPaused(false);
     }, []);
 
     const toggleStreaming = useCallback(() => {
@@ -357,6 +420,12 @@ const LogsDashboard = () => {
             setStreamingEnabled(false);
         } else {
             console.log('📡 Enabling streaming (useEffect will handle the actual start)...');
+            // Clear regular logs when switching to streaming mode
+            // This prevents showing old paginated data
+            setLogs([]);
+            setPagination(null);
+            setStreamingCurrentPage(1); // Reset to first page
+            setAutoFollowLatest(true); // Enable auto-follow for new stream
             setStreamingEnabled(true);
             // Don't call startStreaming() here - let the useEffect handle it to avoid double calls
         }
@@ -390,11 +459,9 @@ const LogsDashboard = () => {
         // Fetch logs when dependencies change
         if (!streamingEnabled) {
             fetchLogs();
-        } else {
-            // When streaming is enabled, fetch initial batch of logs from API 
-            // and merge with streaming data
-            fetchLogs();
         }
+        // Don't fetch regular logs when streaming is enabled
+        // We only want to show streaming data
     }, [fetchLogs, streamingEnabled]);
 
     // Combine and sort logs from both sources when streaming is enabled
@@ -403,23 +470,53 @@ const LogsDashboard = () => {
             return logs;
         }
 
-        // When streaming is enabled, merge streaming logs with normal logs
-        // Remove duplicates based on timestamp + trace_id + span_id combination
-        const combined = [...streamingLogs, ...logs];
-        const uniqueLogs = combined.filter((log, index, self) => {
-            const key = `${log.timestamp}-${log.trace_id || 'no-trace'}-${log.span_id || 'no-span'}`;
-            return index === self.findIndex(l => 
-                `${l.timestamp}-${l.trace_id || 'no-trace'}-${l.span_id || 'no-span'}` === key
-            );
-        });
-
-        // Sort by timestamp (newest first for desc, oldest first for asc)
-        return uniqueLogs.sort((a, b) => {
+        // When streaming is enabled, show only streaming logs
+        // Sort streaming logs by timestamp
+        const sortedLogs = [...streamingLogs].sort((a, b) => {
             const dateA = new Date(a.timestamp).getTime();
             const dateB = new Date(b.timestamp).getTime();
             return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
         });
+
+        return sortedLogs;
     }, [streamingEnabled, streamingLogs, logs, sortOrder]);
+
+    // Calculate streaming pagination info
+    const streamingTotalPages = Math.ceil(allLogs.length / streamingLogsPerPage);
+    const streamingHasNextPage = streamingCurrentPage < streamingTotalPages;
+    const streamingHasPrevPage = streamingCurrentPage > 1;
+    const isOnLatestPage = streamingCurrentPage === streamingTotalPages;
+
+    // Paginated streaming logs
+    const paginatedStreamingLogs = useMemo(() => {
+        if (!streamingEnabled) return [];
+        
+        const startIndex = (streamingCurrentPage - 1) * streamingLogsPerPage;
+        const endIndex = startIndex + streamingLogsPerPage;
+        return allLogs.slice(startIndex, endIndex);
+    }, [streamingEnabled, allLogs, streamingCurrentPage, streamingLogsPerPage]);
+
+    // Auto-advance to latest page when new logs arrive (only if user was already on latest)
+    useEffect(() => {
+        if (streamingEnabled && autoFollowLatest && streamingTotalPages > 0) {
+            const newLatestPage = streamingTotalPages;
+            if (streamingCurrentPage !== newLatestPage) {
+                setStreamingCurrentPage(newLatestPage);
+            }
+        }
+    }, [streamingEnabled, streamingTotalPages, autoFollowLatest, streamingCurrentPage]);
+
+    // Update auto-follow when user manually navigates
+    const handlePageChange = useCallback((newPage: number) => {
+        setStreamingCurrentPage(newPage);
+        // Enable auto-follow only if user navigates to the latest page
+        setAutoFollowLatest(newPage === streamingTotalPages);
+    }, [streamingTotalPages]);
+
+    const goToLatestPage = useCallback(() => {
+        setStreamingCurrentPage(streamingTotalPages);
+        setAutoFollowLatest(true);
+    }, [streamingTotalPages]);
 
     const handleSort = (key: SortableLogKeys) => {
         if (sortBy === key) {
@@ -605,41 +702,61 @@ const LogsDashboard = () => {
                                 <label htmlFor="streamingToggle" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
                                     Streaming:
                                 </label>
-                                <button
-                                    id="streamingToggle"
-                                    onClick={streamingAvailable ? toggleStreaming : undefined}
-                                    disabled={!streamingAvailable}
-                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                                        !streamingAvailable 
-                                            ? 'bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 cursor-not-allowed'
-                                            : streamingEnabled
-                                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700'
-                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
-                                    }`}
-                                    title={
-                                        !streamingAvailable 
-                                            ? 'Streaming not available on this server version'
-                                            : streamingEnabled 
-                                            ? 'Switch to standard pagination' 
-                                            : 'Enable real-time streaming'
-                                    }
-                                >
-                                    {streamingEnabled ? (
-                                        <>
-                                            {streamingConnected ? (
-                                                <Wifi className="h-3 w-3" />
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        id="streamingToggle"
+                                        onClick={streamingAvailable ? toggleStreaming : undefined}
+                                        disabled={!streamingAvailable}
+                                        className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                                            !streamingAvailable 
+                                                ? 'bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 cursor-not-allowed'
+                                                : streamingEnabled
+                                                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700'
+                                                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                        }`}
+                                        title={
+                                            !streamingAvailable 
+                                                ? 'Streaming not available on this server version'
+                                                : streamingEnabled 
+                                                ? 'Disable streaming' 
+                                                : 'Enable real-time streaming'
+                                        }
+                                    >
+                                        {streamingEnabled ? (
+                                            <>
+                                                {streamingConnected ? (
+                                                    <Wifi className="h-3 w-3" />
+                                                ) : (
+                                                    <WifiOff className="h-3 w-3" />
+                                                )}
+                                                Live
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Radio className="h-3 w-3" />
+                                                Enable
+                                            </>
+                                        )}
+                                    </button>
+                                    
+                                    {streamingEnabled && streamingConnected && (
+                                        <button
+                                            onClick={streamingPaused ? resumeStreaming : pauseStreaming}
+                                            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                                streamingPaused
+                                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-200 dark:hover:bg-blue-800/40'
+                                                    : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700 hover:bg-orange-200 dark:hover:bg-orange-800/40'
+                                            }`}
+                                            title={streamingPaused ? 'Resume streaming' : 'Pause streaming'}
+                                        >
+                                            {streamingPaused ? (
+                                                <Play className="h-3 w-3" />
                                             ) : (
-                                                <WifiOff className="h-3 w-3" />
+                                                <Pause className="h-3 w-3" />
                                             )}
-                                            Live
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Radio className="h-3 w-3" />
-                                            Enable
-                                        </>
+                                        </button>
                                     )}
-                                </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -691,14 +808,14 @@ const LogsDashboard = () => {
                                     {error}
                                 </td>
                             </tr>
-                        ) : allLogs.length === 0 ? (
+                        ) : (streamingEnabled ? paginatedStreamingLogs : allLogs).length === 0 ? (
                             <tr>
                                 <td colSpan={6} className="text-center p-8 text-gray-600 dark:text-gray-400">
                                     {streamingEnabled ? 'No streaming data yet...' : 'No logs found.'}
                                 </td>
                             </tr>
                         ) : (
-                            allLogs.map((log, index) => {
+                            (streamingEnabled ? paginatedStreamingLogs : allLogs).map((log, index) => {
                                 const uniqueKey = `${log.timestamp}-${log.trace_id || 'no-trace'}-${log.span_id || 'no-span'}-${index}`;
                                 const expandKey = `${log.timestamp}-${log.trace_id || 'no-trace'}-${index}`;
                                 return (
@@ -848,7 +965,14 @@ const LogsDashboard = () => {
                                 {streamingConnected ? (
                                     <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
                                         <Wifi className="h-4 w-4" />
-                                        <span className="text-sm">Streaming live data</span>
+                                        <span className="text-sm">
+                                            {streamingPaused 
+                                                ? 'Stream paused' 
+                                                : autoFollowLatest 
+                                                    ? 'Streaming live data' 
+                                                    : 'Streaming (viewing history)'
+                                            }
+                                        </span>
                                     </div>
                                 ) : (
                                     <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
@@ -857,8 +981,44 @@ const LogsDashboard = () => {
                                     </div>
                                 )}
                             </div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                                {streamingLogs.length} log{streamingLogs.length !== 1 ? 's' : ''} received
+                            <div className="flex items-center gap-4">
+                                {/* Streaming pagination */}
+                                {streamingTotalPages > 1 && (
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => handlePageChange(Math.max(1, streamingCurrentPage - 1))}
+                                            disabled={!streamingHasPrevPage}
+                                            className="p-1 rounded text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title="Previous page"
+                                        >
+                                            <ChevronLeft className="h-4 w-4" />
+                                        </button>
+                                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                                            Page {streamingCurrentPage} of {streamingTotalPages}
+                                        </span>
+                                        <button
+                                            onClick={() => handlePageChange(Math.min(streamingTotalPages, streamingCurrentPage + 1))}
+                                            disabled={!streamingHasNextPage}
+                                            className="p-1 rounded text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title="Next page"
+                                        >
+                                            <ChevronRightIcon className="h-4 w-4" />
+                                        </button>
+                                        {/* Go to latest button - only show when not on latest page */}
+                                        {!isOnLatestPage && (
+                                            <button
+                                                onClick={goToLatestPage}
+                                                className="ml-2 p-1 rounded text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                                                title="Go to latest logs"
+                                            >
+                                                <ChevronsDown className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                                <div className="text-sm text-gray-500 dark:text-gray-400">
+                                    {streamingLogs.length} log{streamingLogs.length !== 1 ? 's' : ''} received
+                                </div>
                             </div>
                         </div>
                     </div>
