@@ -40,6 +40,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/gorilla/mux"
 	httpSwagger "github.com/swaggo/http-swagger"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 )
 
 // NewAPIServer creates a new API server instance with the given configuration
@@ -156,8 +157,11 @@ func (s *APIServer) setupRoutes() {
 	s.setupProtectedRoutes()
 }
 
-// setupMiddleware configures CORS middleware.
+// setupMiddleware configures CORS and OpenTelemetry middleware.
 func (s *APIServer) setupMiddleware() {
+	// Add OpenTelemetry instrumentation middleware
+	s.router.Use(otelmux.Middleware("serviceradar-api"))
+
 	corsConfig := models.CORSConfig{
 		AllowedOrigins:   s.corsConfig.AllowedOrigins,
 		AllowCredentials: s.corsConfig.AllowCredentials,
