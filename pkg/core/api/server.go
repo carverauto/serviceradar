@@ -161,7 +161,7 @@ func (s *APIServer) setupRoutes() {
 func (s *APIServer) setupMiddleware() {
 	// Add OpenTelemetry instrumentation middleware
 	s.router.Use(otelmux.Middleware("serviceradar-api"))
-	
+
 	corsConfig := models.CORSConfig{
 		AllowedOrigins:   s.corsConfig.AllowedOrigins,
 		AllowCredentials: s.corsConfig.AllowCredentials,
