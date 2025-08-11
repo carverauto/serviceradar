@@ -79,7 +79,7 @@ func TestNewAgentPoller(t *testing.T) {
 					},
 				},
 			},
-			expectedChecks:  2,
+			expectedChecks:  1, // Only service1 should remain in regular checks (service2 goes to results pollers)
 			expectedResults: 1,
 		},
 		{
@@ -100,7 +100,7 @@ func TestNewAgentPoller(t *testing.T) {
 					},
 				},
 			},
-			expectedChecks:  2,
+			expectedChecks:  0, // Both services have ResultsInterval, so no regular checks remain
 			expectedResults: 2,
 		},
 	}
@@ -110,7 +110,8 @@ func TestNewAgentPoller(t *testing.T) {
 			ap := newAgentPoller(tt.agentName, tt.config, mockClient, poller)
 
 			assert.Equal(t, tt.agentName, ap.name)
-			assert.Equal(t, tt.config, ap.config)
+			assert.Equal(t, tt.config.Address, ap.config.Address)
+			assert.Equal(t, tt.config.Security, ap.config.Security)
 			assert.Equal(t, mockClient, ap.client)
 			assert.Equal(t, defaultTimeout, ap.timeout)
 			assert.Equal(t, poller, ap.poller)

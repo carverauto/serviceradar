@@ -1,11 +1,13 @@
 use tonic::Request;
 
-use otel::opentelemetry::proto::collector::trace::v1::{ExportTraceServiceRequest};
+use otel::ServiceRadarCollector;
+use otel::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
 use otel::opentelemetry::proto::collector::trace::v1::trace_service_server::TraceService;
 use otel::opentelemetry::proto::common::v1::{AnyValue, KeyValue};
 use otel::opentelemetry::proto::resource::v1::Resource;
-use otel::opentelemetry::proto::trace::v1::{ResourceSpans, ScopeSpans, Span, Status as SpanStatus};
-use otel::ServiceRadarCollector;
+use otel::opentelemetry::proto::trace::v1::{
+    ResourceSpans, ScopeSpans, Span, Status as SpanStatus,
+};
 
 fn create_test_trace_request() -> ExportTraceServiceRequest {
     ExportTraceServiceRequest {
@@ -111,9 +113,9 @@ fn create_test_trace_request() -> ExportTraceServiceRequest {
 async fn test_trace_service_export() {
     let collector = ServiceRadarCollector::new(None).await.unwrap();
     let request = Request::new(create_test_trace_request());
-    
+
     let response = collector.export(request).await;
-    
+
     assert!(response.is_ok());
     let response = response.unwrap();
     let inner = response.into_inner();
@@ -126,9 +128,9 @@ async fn test_trace_service_export_empty() {
     let request = Request::new(ExportTraceServiceRequest {
         resource_spans: vec![],
     });
-    
+
     let response = collector.export(request).await;
-    
+
     assert!(response.is_ok());
     let response = response.unwrap();
     let inner = response.into_inner();
@@ -138,11 +140,11 @@ async fn test_trace_service_export_empty() {
 #[tokio::test]
 async fn test_trace_service_export_multiple_batches() {
     let collector = ServiceRadarCollector::new(None).await.unwrap();
-    
+
     // Send multiple batches
     for i in 0..5 {
         let mut request_data = create_test_trace_request();
-        
+
         // Modify the trace ID to make each batch unique
         if let Some(resource_span) = request_data.resource_spans.first_mut() {
             if let Some(scope_span) = resource_span.scope_spans.first_mut() {
@@ -152,10 +154,10 @@ async fn test_trace_service_export_multiple_batches() {
                 }
             }
         }
-        
+
         let request = Request::new(request_data);
         let response = collector.export(request).await;
-        
+
         assert!(response.is_ok());
         let response = response.unwrap();
         let inner = response.into_inner();
@@ -166,12 +168,12 @@ async fn test_trace_service_export_multiple_batches() {
 #[tokio::test]
 async fn test_trace_service_concurrent_requests() {
     let mut handles = vec![];
-    
+
     for i in 0..10 {
         let handle = tokio::spawn(async move {
             let collector = ServiceRadarCollector::new(None).await.unwrap();
             let mut request_data = create_test_trace_request();
-            
+
             // Make each request unique
             if let Some(resource_span) = request_data.resource_spans.first_mut() {
                 if let Some(scope_span) = resource_span.scope_spans.first_mut() {
@@ -181,17 +183,17 @@ async fn test_trace_service_concurrent_requests() {
                     }
                 }
             }
-            
+
             let request = Request::new(request_data);
             let response = collector.export(request).await;
-            
+
             assert!(response.is_ok());
             response.unwrap().into_inner()
         });
-        
+
         handles.push(handle);
     }
-    
+
     // Wait for all requests to complete
     for handle in handles {
         let result = handle.await.unwrap();

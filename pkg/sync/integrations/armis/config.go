@@ -37,6 +37,27 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 		return fmt.Errorf("failed to marshal sweep config: %w", err)
 	}
 
+	// Log payload size for monitoring large configurations
+	payloadSize := len(configJSON)
+	kw.Logger.Info().
+		Int("payload_size_bytes", payloadSize).
+		Int("network_count", len(sweepConfig.Networks)).
+		Msg("Writing sweep config to KV")
+
+	// Warn if payload is approaching gRPC limits (default 4MB)
+	const (
+		bytesPerKB           = 1024
+		bytesPerMB           = bytesPerKB * 1024
+		warningSizeThreshold = 2 * bytesPerMB // 2MB
+	)
+
+	if payloadSize > warningSizeThreshold {
+		kw.Logger.Warn().
+			Int("payload_size_mb", payloadSize/bytesPerMB).
+			Int("network_count", len(sweepConfig.Networks)).
+			Msg("Large sweep config detected - consider chunking if performance issues occur")
+	}
+
 	// Use a configurable key, defaulting to "config/agentID/network-sweep"
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.AgentID)
 	_, err = kw.KVClient.PutMany(ctx, &proto.PutManyRequest{
@@ -52,7 +73,8 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 
 	kw.Logger.Info().
 		Str("config_key", configKey).
-		Msg("Wrote sweep config to KV store")
+		Int("payload_size_bytes", payloadSize).
+		Msg("Successfully wrote sweep config to KV store")
 
 	return nil
 }

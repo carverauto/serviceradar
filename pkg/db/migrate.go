@@ -144,7 +144,7 @@ func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, conte
 }
 
 // splitSQLStatements splits SQL content into individual statements.
-// It handles comments and ensures semicolons inside strings are not treated as delimiters.
+// It handles comments and multi-line SETTINGS blocks properly.
 func splitSQLStatements(content string) []string {
 	var statements []string
 
@@ -152,51 +152,114 @@ func splitSQLStatements(content string) []string {
 
 	lines := strings.Split(content, "\n")
 
+	parser := &sqlStatementParser{
+		inSettingsBlock:  false,
+		parenthesesDepth: 0,
+	}
+
 	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-
-		// Skip comment-only lines
-		if strings.HasPrefix(trimmedLine, "--") || trimmedLine == "" {
-			if currentStatement.Len() > 0 {
-				currentStatement.WriteString("\n")
-			}
-
+		if shouldSkipLine(line) {
+			appendNewlineIfNeeded(&currentStatement)
 			continue
 		}
 
-		// Add the line to the current statement
-		if currentStatement.Len() > 0 {
-			currentStatement.WriteString("\n")
-		}
+		appendLineToStatement(&currentStatement, line)
+		parser.updateState(line)
 
-		currentStatement.WriteString(line)
-
-		// Check if this line ends with a semicolon (simple check, may need refinement for complex cases)
-		if strings.HasSuffix(strings.TrimSpace(line), ";") {
-			// Remove the trailing semicolon and add the statement
-			stmt := currentStatement.String()
-			stmt = strings.TrimSpace(stmt)
-			stmt = strings.TrimSuffix(stmt, ";")
-
-			if stmt != "" {
+		if parser.shouldSplitStatement(line) {
+			if stmt := extractStatement(&currentStatement); stmt != "" {
 				statements = append(statements, stmt)
 			}
 
 			currentStatement.Reset()
+			parser.reset()
 		}
 	}
 
 	// Add any remaining statement
-	if currentStatement.Len() > 0 {
-		stmt := strings.TrimSpace(currentStatement.String())
-		stmt = strings.TrimSuffix(stmt, ";")
-
-		if stmt != "" {
-			statements = append(statements, stmt)
-		}
+	if stmt := extractStatement(&currentStatement); stmt != "" {
+		statements = append(statements, stmt)
 	}
 
 	return statements
+}
+
+// sqlStatementParser tracks the state needed for parsing SQL statements
+type sqlStatementParser struct {
+	inSettingsBlock  bool
+	parenthesesDepth int
+}
+
+// shouldSkipLine checks if a line should be skipped (comments and empty lines)
+func shouldSkipLine(line string) bool {
+	trimmedLine := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmedLine, "--") || trimmedLine == ""
+}
+
+// appendNewlineIfNeeded adds a newline to the statement if it's not empty
+func appendNewlineIfNeeded(stmt *strings.Builder) {
+	if stmt.Len() > 0 {
+		stmt.WriteString("\n")
+	}
+}
+
+// appendLineToStatement adds a line to the current statement
+func appendLineToStatement(stmt *strings.Builder, line string) {
+	appendNewlineIfNeeded(stmt)
+	stmt.WriteString(line)
+}
+
+// updateState updates the parser state based on the current line
+func (p *sqlStatementParser) updateState(line string) {
+	trimmedLine := strings.TrimSpace(line)
+	upperLine := strings.ToUpper(trimmedLine)
+
+	if strings.Contains(upperLine, "SETTINGS") {
+		p.inSettingsBlock = true
+	}
+
+	// Count parentheses
+	for _, char := range line {
+		if char == '(' {
+			p.parenthesesDepth++
+		} else if char == ')' {
+			p.parenthesesDepth--
+		}
+	}
+}
+
+// shouldSplitStatement determines if we should split the statement at this line
+func (p *sqlStatementParser) shouldSplitStatement(line string) bool {
+	trimmedLine := strings.TrimSpace(line)
+
+	if !strings.HasSuffix(trimmedLine, ";") {
+		return false
+	}
+
+	// If we're in a SETTINGS block, check if this semicolon ends it
+	if p.inSettingsBlock && p.parenthesesDepth == 0 {
+		p.inSettingsBlock = false
+	}
+
+	// Split only if we're not in a SETTINGS block
+	return !p.inSettingsBlock
+}
+
+// reset resets the parser state after splitting a statement
+func (p *sqlStatementParser) reset() {
+	p.parenthesesDepth = 0
+}
+
+// extractStatement extracts and cleans a statement from the builder
+func extractStatement(stmt *strings.Builder) string {
+	if stmt.Len() == 0 {
+		return ""
+	}
+
+	result := strings.TrimSpace(stmt.String())
+	result = strings.TrimSuffix(result, ";")
+
+	return result
 }
 
 func createMigrationsTable(ctx context.Context, conn proton.Conn) error {

@@ -18,9 +18,11 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -40,6 +42,9 @@ import (
 	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/gorilla/mux"
 	httpSwagger "github.com/swaggo/http-swagger"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // NewAPIServer creates a new API server instance with the given configuration
@@ -69,6 +74,10 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		srqlmodels.DiskMetrics:   "disk_metrics",
 		srqlmodels.MemoryMetrics: "memory_metrics",
 		srqlmodels.SNMPMetrics:   "timeseries_metrics",
+		// OTEL entities
+		srqlmodels.OtelTraces:         "otel_traces",
+		srqlmodels.OtelMetrics:        "otel_metrics",
+		srqlmodels.OtelTraceSummaries: "otel_trace_summaries_final",
 	}
 	s.entityTableMap = defaultEntityTableMap
 
@@ -148,11 +157,18 @@ func (s *APIServer) setupRoutes() {
 	s.setupMiddleware()
 	s.setupSwaggerRoutes()
 	s.setupAuthRoutes()
+	s.setupWebSocketRoutes()
 	s.setupProtectedRoutes()
 }
 
-// setupMiddleware configures CORS middleware.
+// setupMiddleware configures CORS and OpenTelemetry middleware.
 func (s *APIServer) setupMiddleware() {
+	// Add OpenTelemetry instrumentation middleware
+	s.router.Use(otelmux.Middleware("serviceradar-api"))
+
+	// Add custom middleware to fix OpenTelemetry span status codes
+	s.router.Use(s.otelStatusCodeMiddleware)
+
 	corsConfig := models.CORSConfig{
 		AllowedOrigins:   s.corsConfig.AllowedOrigins,
 		AllowCredentials: s.corsConfig.AllowCredentials,
@@ -164,6 +180,68 @@ func (s *APIServer) setupMiddleware() {
 	}
 
 	s.router.Use(middlewareChain)
+}
+
+// otelStatusCodeMiddleware is a custom middleware that sets OpenTelemetry span status codes
+// based on HTTP response status codes to fix the issue where all traces show as errors
+func (*APIServer) otelStatusCodeMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Create a response writer wrapper to capture the status code
+		wrapper := &responseWriterWrapper{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK, // Default to 200 if not explicitly set
+		}
+
+		// Process the request
+		next.ServeHTTP(wrapper, r)
+
+		// Get the current span from the context
+		span := trace.SpanFromContext(r.Context())
+		if !span.IsRecording() {
+			return
+		}
+
+		// Set the OpenTelemetry span status based on HTTP status code
+		statusCode := wrapper.statusCode
+
+		switch {
+		case statusCode >= httpOK && statusCode < httpBadRequest:
+			// Success: 2xx and 3xx responses
+			span.SetStatus(codes.Ok, "")
+		case statusCode >= httpBadRequest && statusCode < httpInternalServerError:
+			// Client error: 4xx responses
+			span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", statusCode))
+		case statusCode >= httpInternalServerError:
+			// Server error: 5xx responses
+			span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", statusCode))
+		default:
+			// Other codes (including 1xx informational)
+			span.SetStatus(codes.Ok, "")
+		}
+	})
+}
+
+// responseWriterWrapper wraps http.ResponseWriter to capture the status code
+// and implements http.Hijacker for WebSocket support
+type responseWriterWrapper struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+// WriteHeader captures the status code before calling the underlying WriteHeader
+func (w *responseWriterWrapper) WriteHeader(statusCode int) {
+	w.statusCode = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Hijack implements http.Hijacker interface to support WebSocket upgrades
+func (w *responseWriterWrapper) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("responseWriter does not implement http.Hijacker")
+	}
+
+	return hijacker.Hijack()
 }
 
 // authenticationMiddleware provides flexible authentication, allowing either a Bearer token or an API key.
@@ -220,7 +298,7 @@ func (s *APIServer) handleBearerTokenAuth(w http.ResponseWriter, r *http.Request
 }
 
 // handleAPIKeyAuth handles API key authentication
-func (*APIServer) handleAPIKeyAuth(w http.ResponseWriter, r *http.Request, next http.Handler) bool {
+func (s *APIServer) handleAPIKeyAuth(w http.ResponseWriter, r *http.Request, next http.Handler) bool {
 	apiKey := os.Getenv("API_KEY")
 	if apiKey == "" {
 		return false
@@ -231,28 +309,36 @@ func (*APIServer) handleAPIKeyAuth(w http.ResponseWriter, r *http.Request, next 
 		return true
 	}
 
-	return false
+	// API key is configured but the provided key is invalid
+	s.logger.Warn().Msg("API key authentication is enabled but no valid API key provided")
+	writeError(w, "Invalid API key", http.StatusUnauthorized)
+
+	return true // Handled (with rejection)
 }
 
 const (
-	authEnabledTrue = "true"
+	authEnabledTrue         = "true"
+	httpInternalServerError = 500
+	httpBadRequest          = 400
+	httpOK                  = 200
 )
 
 // isAuthRequired checks if authentication is required
 func (*APIServer) isAuthRequired() bool {
-	return os.Getenv("AUTH_ENABLED") == authEnabledTrue || os.Getenv("API_KEY") != ""
+	// If AUTH_ENABLED is explicitly set to false, authentication is not required
+	authEnabled := os.Getenv("AUTH_ENABLED")
+	if authEnabled == "false" {
+		return false
+	}
+
+	// Authentication is required if AUTH_ENABLED is true or if an API_KEY is configured
+	return authEnabled == authEnabledTrue || os.Getenv("API_KEY") != ""
 }
 
 // logAuthFailure logs authentication failures
 func (s *APIServer) logAuthFailure(msg string) {
 	// Log without sensitive details
 	s.logger.Warn().Msg(msg)
-
-	if os.Getenv("AUTH_ENABLED") == authEnabledTrue {
-		s.logger.Warn().Msg("Authentication is enabled but no valid credentials provided")
-	} else {
-		s.logger.Warn().Msg("API key authentication is enabled but no valid API key provided")
-	}
 }
 
 // setupSwaggerRoutes configures routes for Swagger UI and documentation.
@@ -420,6 +506,12 @@ func (s *APIServer) setupAuthRoutes() {
 	s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
 	s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
 	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
+}
+
+// setupWebSocketRoutes configures WebSocket routes with custom authentication.
+func (s *APIServer) setupWebSocketRoutes() {
+	// WebSocket streaming endpoint - bypasses middleware auth and handles auth internally
+	s.router.HandleFunc("/api/stream", s.handleStreamQuery).Methods("GET")
 }
 
 // setupProtectedRoutes configures protected API routes.

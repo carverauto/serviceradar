@@ -1,11 +1,10 @@
 // src/app/api/query/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { env } from "next-runtime-env";
 
 export async function POST(req: NextRequest) {
-  const apiKey = env("API_KEY") || "";
-  const apiUrl = env("NEXT_PUBLIC_API_URL") || "http://localhost:8090";
-  const authEnabled = env("AUTH_ENABLED") === "true";
+  const apiKey = process.env.API_KEY || "";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+  const authEnabled = process.env.AUTH_ENABLED === "true";
 
   try {
     const body = await req.json();

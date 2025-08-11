@@ -1,6 +1,6 @@
 # ServiceRadar
 
-<img width="1470" height="797" alt="Screenshot 2025-07-25 at 1 53 45 AM" src="https://github.com/user-attachments/assets/8b981c02-1683-480f-a003-b7af71f7c36e" />
+<img width="1470" height="798" alt="Screenshot 2025-08-03 at 12 15 47 AM" src="https://github.com/user-attachments/assets/d6c61754-89d7-4c56-981f-1486e0586f3a" />
 
 [![releases](https://github.com/carverauto/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/release.yml)
 [![Go Linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
@@ -29,7 +29,7 @@ ServiceRadar provides a simple installation script for deploying all components:
 
 ```bash
 # All-in-One Installation (non-interactive mode)
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.48/install-serviceradar.sh | bash -s -- --all --non-interactive
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --all --non-interactive
 ```
 
 For detailed installation options including component-specific deployments and optional checkers, see [INSTALL.md](INSTALL.md).

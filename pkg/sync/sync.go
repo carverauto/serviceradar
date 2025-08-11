@@ -245,10 +245,17 @@ func NewArmisIntegration(
 		}
 	}
 
-	// Create the default HTTP client
-	httpClient := &http.Client{
+	// Create the default HTTP client with circuit breaker and metrics
+	baseHTTPClient := &http.Client{
 		Timeout: 30 * time.Second,
 	}
+
+	// Wrap with metrics collection
+	metricsClient := NewMetricsHTTPClient(baseHTTPClient, "armis", NewInMemoryMetrics(log))
+
+	// Wrap with circuit breaker
+	circuitBreakerConfig := DefaultCircuitBreakerConfig()
+	httpClient := NewCircuitBreakerHTTPClient(metricsClient, "armis-api", circuitBreakerConfig, log)
 
 	// Create the default implementations
 	defaultImpl := &armis.DefaultArmisIntegration{
@@ -265,17 +272,8 @@ func NewArmisIntegration(
 		Logger:     log,
 	}
 
-	// Simplified sweep config - just for KV writing
-	defaultSweepCfg := &models.SweepConfig{
-		Ports:         []int{22, 80, 443, 3389, 445, 5985, 5986, 8080},
-		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      config.SweepInterval,
-		Concurrency:   100,
-		Timeout:       "15s",
-		IcmpCount:     1,
-		HighPerfIcmp:  true,
-		IcmpRateLimit: 5000,
-	}
+	// No default sweep config - the agent's file config is authoritative
+	// The sync service should only provide network updates
 
 	// Initialize SweepResultsQuerier if ServiceRadar API credentials are provided
 	var sweepQuerier armis.SRQLQuerier
@@ -299,14 +297,22 @@ func NewArmisIntegration(
 		sweepQuerier = &armisDeviceStateAdapter{querier: baseSweepQuerier}
 	}
 
+	// Wrap the token provider with caching to avoid 401 errors
+	cachedTokenProvider := armis.NewCachedTokenProvider(defaultImpl)
+
 	// Initialize ArmisUpdater for status updates
 	var armisUpdater armis.ArmisUpdater
 
 	if config.Credentials["enable_status_updates"] == trueString {
+		// Create separate HTTP client for updater with its own circuit breaker
+		updaterBaseClient := &http.Client{Timeout: 30 * time.Second}
+		updaterMetricsClient := NewMetricsHTTPClient(updaterBaseClient, "armis-updater", NewInMemoryMetrics(log))
+		updaterCircuitClient := NewCircuitBreakerHTTPClient(updaterMetricsClient, "armis-updater-api", circuitBreakerConfig, log)
+
 		armisUpdater = armis.NewArmisUpdater(
 			config,
-			httpClient,
-			defaultImpl, // Using defaultImpl as TokenProvider
+			updaterCircuitClient,
+			cachedTokenProvider, // Using cached token provider
 			log,
 		)
 	}
@@ -318,10 +324,10 @@ func NewArmisIntegration(
 		ServerName:    serverName,
 		PageSize:      pageSize,
 		HTTPClient:    httpClient,
-		TokenProvider: defaultImpl,
+		TokenProvider: cachedTokenProvider, // Using cached token provider
 		DeviceFetcher: defaultImpl,
 		KVWriter:      kvWriter,
-		SweeperConfig: defaultSweepCfg,
+		SweeperConfig: nil, // No default config - agent's file config is authoritative
 		SweepQuerier:  sweepQuerier,
 		Updater:       armisUpdater,
 		Logger:        log,

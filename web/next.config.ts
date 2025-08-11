@@ -22,6 +22,7 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_API_URL:
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090",
+    // WebSocket authentication uses cookies only - no API keys in query parameters
   },
   serverRuntimeConfig: {
     // Will only be available on the server side

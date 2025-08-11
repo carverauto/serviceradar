@@ -41,6 +41,28 @@
                     "results_interval": "18h"
                 }
             ]
+        },
+        "default-agent": {
+            "address": ":50058",
+            "security": {
+                "server_name": "127.0.0.1",
+                "mode": "mtls",
+                "cert_dir": "/etc/serviceradar/certs",
+                "tls": {
+                    "cert_file": "sync.pem",
+                    "key_file": "sync-key.pem",
+                    "ca_file": "root.pem",
+                    "client_ca_file": "root.pem"
+                }
+            },
+            "checks": [
+                {
+                    "service_type": "sync",
+                    "service_name": "sync",
+                    "details": "",
+                    "results_interval": "30m"
+                }
+            ]
         }
     },
     "core_address": "127.0.0.1:50052",

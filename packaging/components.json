@@ -32,18 +32,24 @@
   {
     "name": "core",
     "package_name": "serviceradar-core",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar Core API service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd", "jq"],
+      "depends": [
+        "systemd",
+        "jq"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd", "jq"],
+      "depends": [
+        "systemd",
+        "jq"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
@@ -81,18 +87,24 @@
   {
     "name": "event-writer",
     "package_name": "serviceradar-event-writer",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar DB Event Writer Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd", "jq"],
+      "depends": [
+        "systemd",
+        "jq"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd", "jq"],
+      "depends": [
+        "systemd",
+        "jq"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
@@ -124,18 +136,22 @@
   {
     "name": "goflow2",
     "package_name": "serviceradar-goflow2",
-    "version": "1.0.0",
+    "version": "1.0.53",
     "description": "goflow2 with NATS JetStream support",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "net",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.goflow2",
       "release": "1"
     },
@@ -161,18 +177,25 @@
   {
     "name": "proton",
     "package_name": "serviceradar-proton",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar Proton Server (Stream Processing Engine)",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "database",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd", "libcap2-bin", "serviceradar-cli"],
+      "depends": [
+        "systemd",
+        "libcap2-bin",
+        "serviceradar-cli"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd", "libcap"],
+      "depends": [
+        "systemd",
+        "libcap"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.proton",
       "release": "1"
     },
@@ -226,18 +249,26 @@
   {
     "name": "web",
     "package_name": "serviceradar-web",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar web interface",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd", "nodejs (>= 16.0.0)", "nginx"],
+      "depends": [
+        "systemd",
+        "nodejs (>= 16.0.0)",
+        "nginx"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd", "nodejs", "nginx"],
+      "depends": [
+        "systemd",
+        "nodejs",
+        "nginx"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.web",
       "release": "1"
     },
@@ -272,18 +303,23 @@
   {
     "name": "agent",
     "package_name": "serviceradar-agent",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar Agent Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd", "libcap"],
+      "depends": [
+        "systemd",
+        "libcap"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
@@ -320,18 +356,22 @@
   {
     "name": "poller",
     "package_name": "serviceradar-poller",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar Poller Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
@@ -364,18 +404,22 @@
   {
     "name": "mapper",
     "package_name": "serviceradar-mapper",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar Mapper Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
@@ -408,18 +452,22 @@
   {
     "name": "nats",
     "package_name": "serviceradar-nats",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar NATS JetStream service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.nats",
       "release": "1"
     },
@@ -464,18 +512,22 @@
   {
     "name": "kv",
     "package_name": "serviceradar-kv",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar Key-Value store",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
@@ -507,18 +559,22 @@
   {
     "name": "sync",
     "package_name": "serviceradar-sync",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar Key-Value store Sync service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
@@ -550,14 +606,16 @@
   {
     "name": "dusk-checker",
     "package_name": "serviceradar-dusk",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar Dusk node checker",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": null
     },
     "binary": {
@@ -588,18 +646,22 @@
   {
     "name": "snmp-checker",
     "package_name": "serviceradar-snmp-checker",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar SNMP poller",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
@@ -631,26 +693,30 @@
   {
     "name": "zen",
     "package_name": "serviceradar-zen",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar Zen Consumer Service",
     "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "net",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "cmd/consumers/zen/Dockerfile"
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.rust.zen",
       "release": "1"
     },
-      "binary": {
-        "build_method": "rust",
-        "source_path": "cmd/consumers/zen",
-        "output_path": "/usr/local/bin/serviceradar-zen"
-      },
+    "binary": {
+      "build_method": "rust",
+      "source_path": "cmd/consumers/zen",
+      "output_path": "/usr/local/bin/serviceradar-zen"
+    },
     "config_files": [
       {
         "source": "packaging/zen/config/zen-consumer.json",
@@ -693,18 +759,22 @@
   {
     "name": "rperf",
     "package_name": "serviceradar-rperf",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar RPerf Network Performance Testing Tool",
     "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "net",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "cmd/checkers/rperf-server/Dockerfile-deb"
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.rust.rperf",
       "release": "1"
     },
@@ -731,18 +801,22 @@
   {
     "name": "rperf-checker",
     "package_name": "serviceradar-rperf-checker",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar RPerf Network Performance Test Checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",
     "section": "net",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "cmd/checkers/rperf-client/Dockerfile"
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
       "release": "1"
     },
@@ -776,18 +850,22 @@
   {
     "name": "flowgger",
     "package_name": "serviceradar-flowgger",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar Flowgger log ingestion service",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",
     "section": "net",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "cmd/flowgger/Dockerfile"
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.rust.flowgger",
       "release": "1"
     },
@@ -821,18 +899,22 @@
   {
     "name": "trapd",
     "package_name": "serviceradar-trapd",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar SNMP trap receiver service",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",
     "section": "net",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "cmd/trapd/Dockerfile"
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.rust.trapd",
       "release": "1"
     },
@@ -866,7 +948,7 @@
   {
     "name": "cli",
     "package_name": "serviceradar-cli",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar CLI tool",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -899,7 +981,7 @@
   {
     "name": "otel",
     "package_name": "serviceradar-otel",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar OTEL Collector",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -910,7 +992,9 @@
       "dockerfile": "cmd/otel/Dockerfile"
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.rust.otel",
       "release": "1"
     },
@@ -985,18 +1069,24 @@
   {
     "name": "sysmon",
     "package_name": "serviceradar-sysmon-checker",
-    "version": "1.0.48",
+    "version": "1.0.53",
     "description": "ServiceRadar System Monitor checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd", "libssl-dev", "ca-certificates"],
+      "depends": [
+        "systemd",
+        "libssl-dev",
+        "ca-certificates"
+      ],
       "dockerfile": "cmd/checkers/sysmon/Dockerfile"
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": [
+        "systemd"
+      ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.sysmon",
       "release": "1"
     },

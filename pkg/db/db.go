@@ -43,8 +43,22 @@ type DB struct {
 	logger        logger.Logger
 }
 
+// GetStreamingConnection returns the underlying proton connection for streaming queries
+func (db *DB) GetStreamingConnection() (interface{}, error) {
+	if db.Conn == nil {
+		return nil, fmt.Errorf("database connection not initialized")
+	}
+
+	return db.Conn, nil
+}
+
 // createTLSConfig builds TLS configuration from security settings
 func createTLSConfig(config *models.CoreServiceConfig) (*tls.Config, error) {
+	// If no security config, return nil for no TLS
+	if config.Security == nil {
+		return nil, nil
+	}
+
 	// Construct absolute paths for certificate files
 	certDir := config.Security.CertDir
 	certFile := config.Security.TLS.CertFile
@@ -112,10 +126,14 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 			Method: proton.CompressionLZ4,
 		},
 		Settings: proton.Settings{
-			"max_execution_time":         60,
+			"max_execution_time":         0,          // Disable execution timeout for streaming queries
 			"max_memory_usage":           2000000000, // 2 GiB
 			"max_insert_block_size":      100000,
 			"min_insert_block_size_rows": 1000,
+			"max_result_rows":            0,       // Disable row limit for streaming
+			"result_overflow_mode":       "break", // Allow unlimited results
+			"max_rows_to_read":           0,       // Disable read limit
+			"stream_flush_interval_ms":   100,     // Flush streaming results frequently
 		},
 		DialTimeout:     5 * time.Second,
 		MaxOpenConns:    10,

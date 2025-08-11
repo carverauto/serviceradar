@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -29,6 +30,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // fetchDevicesForQuery fetches all devices for a single query.
@@ -49,12 +51,48 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 	for nextPage >= 0 {
 		page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, query.Query, nextPage, a.PageSize)
 		if err != nil {
-			a.Logger.Error().
-				Err(err).
-				Str("query_label", query.Label).
-				Msg("Failed to fetch devices page")
+			// Check if this is a 401 error and retry with a fresh token
+			if !(strings.Contains(err.Error(), "401") && strings.Contains(err.Error(), "Invalid access token")) {
+				a.Logger.Error().
+					Err(err).
+					Str("query_label", query.Label).
+					Msg("Failed to fetch devices page")
 
-			return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
+				return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
+			}
+
+			a.Logger.Warn().
+				Str("query_label", query.Label).
+				Msg("Got 401 error, invalidating token and retrying with fresh token")
+
+			// Invalidate the cached token if we have a CachedTokenProvider
+			if cachedProvider, ok := a.TokenProvider.(*CachedTokenProvider); ok {
+				cachedProvider.InvalidateToken()
+			}
+
+			// Get a fresh token
+			newAccessToken, tokenErr := a.TokenProvider.GetAccessToken(ctx)
+			if tokenErr != nil {
+				a.Logger.Error().
+					Err(tokenErr).
+					Str("query_label", query.Label).
+					Msg("Failed to get fresh access token after 401")
+
+				return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
+			}
+
+			// Retry with the fresh token
+			page, err = a.DeviceFetcher.FetchDevicesPage(ctx, newAccessToken, query.Query, nextPage, a.PageSize)
+			if err != nil {
+				a.Logger.Error().
+					Err(err).
+					Str("query_label", query.Label).
+					Msg("Failed to fetch devices page after token refresh")
+
+				return nil, fmt.Errorf("failed query '%s' after token refresh: %w", query.Label, err)
+			}
+			// Update the accessToken for subsequent pages
+			accessToken = newAccessToken
 		}
 
 		// Append devices even if page is empty
@@ -78,26 +116,58 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 
 // createAndWriteSweepConfig creates a sweep config from the given IPs and writes it to the KV store.
 func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string) error {
-	// Build sweep config using the base SweeperConfig from the integration instance
+	// Note: IPs have already been filtered by the blacklist in fetchAndProcessDevices
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", a.Config.AgentID)
+
+	a.Logger.Info().
+		Str("config_key", configKey).
+		Int("total_ips", len(ips)).
+		Msg("Creating sweep config with ALL devices from ALL queries accumulated in memory")
+
 	var finalSweepConfig *models.SweepConfig
 
-	if a.SweeperConfig != nil {
-		clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
-		clonedConfig.Networks = ips      // Update with dynamically fetched IPs
-		finalSweepConfig = &clonedConfig
+	if a.KVClient != nil {
+		// Clean up old sweep config to remove any stale data before writing new config
+		a.Logger.Info().
+			Str("config_key", configKey).
+			Msg("Cleaning up old sweep config from KV store before writing complete config")
+
+		if _, delErr := a.KVClient.Delete(ctx, &proto.DeleteRequest{
+			Key: configKey,
+		}); delErr != nil {
+			a.Logger.Debug().
+				Err(delErr).
+				Str("config_key", configKey).
+				Msg("Failed to delete old sweep config (may not exist)")
+		} else {
+			a.Logger.Info().
+				Str("config_key", configKey).
+				Msg("Successfully cleaned up old sweep config")
+		}
+
+		// Create minimal sweep config with only networks (file config is authoritative for everything else)
+		a.Logger.Info().
+			Int("network_count", len(ips)).
+			Msg("Creating networks-only sweep config for KV with all accumulated devices")
+
+		finalSweepConfig = &models.SweepConfig{
+			Networks: ips,
+		}
 	} else {
-		// If SweeperConfig is nil, create a new one with just the networks
+		// No KV client available, create minimal config
 		finalSweepConfig = &models.SweepConfig{
 			Networks: ips,
 		}
 	}
 
 	a.Logger.Info().
-		Interface("sweep_config", finalSweepConfig).
-		Msg("Sweep config to be written")
+		Int("network_count", len(finalSweepConfig.Networks)).
+		Str("config_key", configKey).
+		Msg("Writing complete sweep config with all devices from all ASQ queries")
 
 	if a.KVWriter == nil {
 		a.Logger.Warn().Msg("KVWriter not configured, skipping sweep config write")
+
 		return nil
 	}
 
@@ -106,10 +176,98 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		// Log as warning, as per existing behavior for KV write errors during sweep config.
 		a.Logger.Warn().
 			Err(err).
-			Msg("Failed to write full sweep config")
+			Int("network_count", len(finalSweepConfig.Networks)).
+			Str("config_key", configKey).
+			Msg("Failed to write complete sweep config")
+	} else {
+		a.Logger.Info().
+			Int("network_count", len(finalSweepConfig.Networks)).
+			Str("config_key", configKey).
+			Msg("Successfully wrote complete sweep config with all devices from all ASQ queries")
 	}
 
 	return err
+}
+
+// applyBlacklistFiltering filters out devices, KV data, and IPs based on the network blacklist
+func (a *ArmisIntegration) applyBlacklistFiltering(
+	events []*models.DeviceUpdate,
+	data map[string][]byte,
+	ips []string,
+) (filteredEvents []*models.DeviceUpdate, filteredData map[string][]byte, filteredIPs []string) {
+	if len(a.Config.NetworkBlacklist) == 0 {
+		return events, data, ips
+	}
+
+	a.Logger.Info().
+		Int("original_device_count", len(events)).
+		Strs("blacklist_cidrs", a.Config.NetworkBlacklist).
+		Msg("Applying network blacklist filtering to Armis devices")
+
+	// Parse blacklist CIDRs once
+	blacklistNetworks := make([]*net.IPNet, 0, len(a.Config.NetworkBlacklist))
+
+	for _, cidr := range a.Config.NetworkBlacklist {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			a.Logger.Error().
+				Err(err).
+				Str("cidr", cidr).
+				Msg("Invalid CIDR in blacklist")
+
+			continue
+		}
+
+		blacklistNetworks = append(blacklistNetworks, network)
+	}
+
+	// Initialize return values
+	filteredEvents = make([]*models.DeviceUpdate, 0, len(events))
+	filteredData = make(map[string][]byte)
+	filteredIPs = make([]string, 0, len(ips))
+
+	for _, event := range events {
+		// Check if device IP is blacklisted
+		isBlacklisted := false
+
+		ip := net.ParseIP(event.IP)
+
+		if ip != nil {
+			for _, network := range blacklistNetworks {
+				if network.Contains(ip) {
+					isBlacklisted = true
+					break
+				}
+			}
+		}
+
+		if !isBlacklisted {
+			filteredEvents = append(filteredEvents, event)
+
+			// Keep corresponding KV data entries
+			// Device data by ID - the integration_id contains the numeric Armis device ID
+			if integrationID, ok := event.Metadata["integration_id"]; ok {
+				if val, ok := data[integrationID]; ok {
+					filteredData[integrationID] = val
+				}
+			}
+			// Device data by agent/IP
+			agentKey := fmt.Sprintf("%s/%s", a.Config.AgentID, event.IP)
+			if val, ok := data[agentKey]; ok {
+				filteredData[agentKey] = val
+			}
+
+			// Keep IP for sweep config
+			filteredIPs = append(filteredIPs, event.IP+"/32")
+		}
+	}
+
+	a.Logger.Info().
+		Int("filtered_device_count", len(filteredEvents)).
+		Int("filtered_out", len(events)-len(filteredEvents)).
+		Msg("Applied network blacklist filtering to devices")
+
+	return filteredEvents, filteredData, filteredIPs
 }
 
 // fetchAndProcessDevices is an unexported method that handles the core logic of fetching devices from Armis,
@@ -128,27 +286,75 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 		a.PageSize = 100
 	}
 
-	allDevices := make([]Device, 0)
+	a.Logger.Info().
+		Int("query_count", len(a.Config.Queries)).
+		Msg("Starting device fetch for all queries - accumulating in memory before writing sweep config")
 
-	// Fetch devices for each query
-	for _, q := range a.Config.Queries {
+	allDevices := make([]Device, 0)
+	deviceLabels := make(map[int]string) // Map device ID to query label
+
+	// Fetch devices for each query and accumulate them in memory
+	// This ensures we collect ALL devices from ALL queries before writing the sweep config
+	for queryIndex, q := range a.Config.Queries {
+		a.Logger.Info().
+			Int("query_index", queryIndex).
+			Int("total_queries", len(a.Config.Queries)).
+			Str("query_label", q.Label).
+			Msg("Fetching devices for query")
+
 		devices, queryErr := a.fetchDevicesForQuery(ctx, accessToken, q)
 		if queryErr != nil {
 			return nil, nil, nil, queryErr
 		}
 
+		a.Logger.Info().
+			Int("query_index", queryIndex).
+			Str("query_label", q.Label).
+			Int("query_device_count", len(devices)).
+			Int("accumulated_device_count", len(allDevices)).
+			Msg("Query completed, accumulating devices in memory")
+
+		// Track which query discovered each device
+		for i := range devices {
+			deviceLabels[devices[i].ID] = q.Label
+		}
+
 		allDevices = append(allDevices, devices...)
+
+		a.Logger.Info().
+			Int("query_index", queryIndex).
+			Str("query_label", q.Label).
+			Int("total_accumulated_devices", len(allDevices)).
+			Msg("Devices accumulated from query")
 	}
 
-	// Process devices
-	data, ips, events := a.processDevices(allDevices)
+	a.Logger.Info().
+		Int("total_devices_from_all_queries", len(allDevices)).
+		Int("total_queries_processed", len(a.Config.Queries)).
+		Msg("All queries completed - processing accumulated devices")
+
+	// Process devices with query labels
+	data, ips, events := a.processDevices(allDevices, deviceLabels)
 
 	a.Logger.Info().
 		Int("total_devices", len(allDevices)).
-		Msg("Fetched total devices from Armis")
+		Int("total_ips", len(ips)).
+		Int("total_events", len(events)).
+		Msg("Device processing completed - applying blacklist filtering")
 
-	// Create and write sweep config
-	_ = a.createAndWriteSweepConfig(ctx, ips)
+	// Apply blacklist filtering to devices before returning
+	events, data, ips = a.applyBlacklistFiltering(events, data, ips)
+
+	a.Logger.Info().
+		Int("filtered_ips", len(ips)).
+		Int("filtered_events", len(events)).
+		Msg("Blacklist filtering completed - writing sweep config with all accumulated devices")
+
+	// Create and write sweep config with ALL devices from ALL queries
+	// Note: We continue processing even if sweep config write fails to ensure device data is still written to KV
+	if err := a.createAndWriteSweepConfig(ctx, ips); err != nil {
+		a.Logger.Warn().Err(err).Msg("Failed to write sweep config, continuing with device processing")
+	}
 
 	return data, events, allDevices, nil
 }
@@ -200,47 +406,8 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 		Int("device_states_count", len(deviceStates)).
 		Msg("Successfully queried device states from ServiceRadar for reconciliation")
 
-	// Fetch current devices from Armis to check for retractions
-	// We need this to identify devices that no longer exist in Armis but are still in ServiceRadar
-	_, _, currentDevices, err := a.fetchAndProcessDevices(ctx)
-	if err != nil {
-		a.Logger.Error().
-			Err(err).
-			Msg("Failed to fetch current devices from Armis during reconciliation")
-
-		return err
-	}
-
-	// Generate retraction events for devices no longer found in Armis
-	retractionEvents := a.generateRetractionEvents(currentDevices, deviceStates)
-	if len(retractionEvents) > 0 {
-		a.Logger.Info().
-			Int("retraction_events_count", len(retractionEvents)).
-			Str("source", string(models.DiscoverySourceArmis)).
-			Msg("Generated retraction events during reconciliation")
-
-		// Send retraction events to the core service
-		if a.ResultSubmitter != nil {
-			if err := a.ResultSubmitter.SubmitBatchSweepResults(ctx, retractionEvents); err != nil {
-				a.Logger.Error().
-					Err(err).
-					Int("retraction_events_count", len(retractionEvents)).
-					Msg("Failed to submit retraction events to core service")
-
-				return err
-			}
-
-			a.Logger.Info().
-				Int("retraction_events_count", len(retractionEvents)).
-				Msg("Successfully submitted retraction events to core service")
-		} else {
-			a.Logger.Warn().
-				Int("retraction_events_count", len(retractionEvents)).
-				Msg("ResultSubmitter not configured, retraction events not sent")
-		}
-	}
-
-	// Prepare status updates for Armis
+	// Prepare status updates for Armis directly from the device states
+	// No need to query Armis again - we trust our database as the source of truth
 	updates := a.prepareArmisUpdateFromDeviceStates(deviceStates)
 
 	a.Logger.Debug().
@@ -249,71 +416,64 @@ func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
 
 	if len(updates) > 0 {
 		a.Logger.Info().
-			Int("updates_count", len(updates)).
-			Msg("Sending status updates to Armis")
+			Int("total_updates_to_send", len(updates)).
+			Msg("Starting to send status updates to Armis")
 
-		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
-			a.Logger.Error().
-				Err(err).
-				Msg("Failed to update device status in Armis during reconciliation")
+		// Process updates in batches to avoid overwhelming the API
+		const batchSize = 1000
 
-			return err
+		totalUpdates := len(updates)
+
+		successfulUpdates := 0
+
+		for i := 0; i < totalUpdates; i += batchSize {
+			end := i + batchSize
+			if end > totalUpdates {
+				end = totalUpdates
+			}
+
+			batch := updates[i:end]
+			batchNum := (i / batchSize) + 1
+			totalBatches := (totalUpdates + batchSize - 1) / batchSize
+
+			a.Logger.Info().
+				Int("batch_number", batchNum).
+				Int("total_batches", totalBatches).
+				Int("batch_size", len(batch)).
+				Int("updates_sent_so_far", i).
+				Int("total_updates", totalUpdates).
+				Msg("Sending batch of updates to Armis")
+
+			if err := a.Updater.UpdateDeviceStatus(ctx, batch); err != nil {
+				a.Logger.Error().
+					Err(err).
+					Int("batch_number", batchNum).
+					Int("batch_size", len(batch)).
+					Int("successful_updates_before_error", successfulUpdates).
+					Msg("Failed to update device status batch in Armis during reconciliation")
+
+				return fmt.Errorf("failed to update batch %d of %d (devices %d-%d): %w",
+					batchNum, totalBatches, i+1, end, err)
+			}
+
+			successfulUpdates += len(batch)
+
+			a.Logger.Info().
+				Int("batch_number", batchNum).
+				Int("total_batches", totalBatches).
+				Int("successful_updates_total", successfulUpdates).
+				Msg("Successfully sent batch to Armis")
 		}
 
-		a.Logger.Info().Msg("Successfully completed Armis reconciliation")
+		a.Logger.Info().
+			Int("total_updates_sent", successfulUpdates).
+			Int("total_updates_requested", totalUpdates).
+			Msg("Successfully completed Armis reconciliation")
 	} else {
 		a.Logger.Info().Msg("No device status updates needed for Armis reconciliation")
 	}
 
 	return nil
-}
-
-// generateRetractionEvents checks for devices that exist in ServiceRadar but not in the current Armis fetch.
-func (a *ArmisIntegration) generateRetractionEvents(
-	currentDevices []Device, existingDeviceStates []DeviceState) []*models.DeviceUpdate {
-	// Create a map of current device IDs from the Armis API for efficient lookup.
-	currentDeviceIDs := make(map[string]struct{}, len(currentDevices))
-	for i := range currentDevices {
-		currentDeviceIDs[strconv.Itoa(currentDevices[i].ID)] = struct{}{}
-	}
-
-	var retractionEvents []*models.DeviceUpdate
-
-	now := time.Now()
-
-	for _, state := range existingDeviceStates {
-		// Extract the original armis_device_id from the metadata of the device stored in ServiceRadar.
-		armisID, ok := state.Metadata["armis_device_id"].(string)
-		if !ok {
-			continue // Cannot determine retraction status without the original ID.
-		}
-
-		// If a device that was previously discovered is not in the current list, it's considered retracted.
-		if _, found := currentDeviceIDs[armisID]; !found {
-			a.Logger.Info().
-				Str("armis_id", armisID).
-				Str("ip", state.IP).
-				Msg("Device no longer detected, generating retraction event")
-
-			retractionEvent := &models.DeviceUpdate{
-				DeviceID:    state.DeviceID,
-				Source:      models.DiscoverySourceArmis,
-				IP:          state.IP,
-				IsAvailable: false,
-				Timestamp:   now,
-				Metadata: map[string]string{
-					"_deleted": "true",
-				},
-				AgentID:   a.Config.AgentID,
-				PollerID:  a.Config.PollerID,
-				Partition: a.Config.Partition,
-			}
-
-			retractionEvents = append(retractionEvents, retractionEvent)
-		}
-	}
-
-	return retractionEvents
 }
 
 func (*ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState) []ArmisDeviceStatus {
@@ -340,41 +500,6 @@ func (*ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState
 			DeviceID:  armisDeviceID,
 			IP:        state.IP,
 			Available: !state.IsAvailable,
-		})
-	}
-
-	return updates
-}
-
-// prepareArmisUpdateFromDeviceQuery processes the results of a 'show devices'
-// SRQL query and prepares them for an Armis status update.
-func (*ArmisIntegration) prepareArmisUpdateFromDeviceQuery(results []map[string]interface{}) []ArmisDeviceStatus {
-	updates := make([]ArmisDeviceStatus, 0, len(results))
-
-	for _, deviceData := range results {
-		ip, _ := deviceData["ip"].(string)
-		isAvailable, _ := deviceData["is_available"].(bool)
-
-		var armisDeviceID int
-
-		if metadata, ok := deviceData["metadata"].(map[string]interface{}); ok {
-			if idStr, ok := metadata["armis_device_id"].(string); ok {
-				id, err := strconv.Atoi(idStr)
-				if err == nil {
-					armisDeviceID = id
-				}
-			}
-		}
-
-		// To update Armis, we must have the device's original ID.
-		if ip == "" || armisDeviceID == 0 {
-			continue
-		}
-
-		updates = append(updates, ArmisDeviceStatus{
-			DeviceID:  armisDeviceID,
-			IP:        ip,
-			Available: isAvailable,
 		})
 	}
 
@@ -447,89 +572,44 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string, events []*models.DeviceUpdate) {
+func (a *ArmisIntegration) processDevices(
+	devices []Device,
+	deviceLabels map[int]string,
+) (data map[string][]byte, ips []string, events []*models.DeviceUpdate) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices))
 	events = make([]*models.DeviceUpdate, 0, len(devices))
 
-	agentID := a.Config.AgentID
-	pollerID := a.Config.PollerID
-	partition := a.Config.Partition
-
 	now := time.Now()
 
 	for i := range devices {
-		var err error
+		d := &devices[i]
 
-		d := &devices[i] // Use a pointer to avoid copying the struct
-
-		tag := ""
-		if len(d.Tags) > 0 {
-			tag = strings.Join(d.Tags, ",")
-		}
-
-		enriched := DeviceWithMetadata{
-			Device:   *d,
-			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", d.ID), "tag": tag},
-		}
-
-		// Marshal the device with metadata to JSON
-		value, err := json.Marshal(enriched)
+		// Process enriched device for KV storage
+		enrichedData, err := a.createEnrichedDeviceData(d, deviceLabels[d.ID])
 		if err != nil {
 			a.Logger.Error().
 				Err(err).
 				Int("device_id", d.ID).
-				Msg("Failed to marshal enriched device")
+				Msg("Failed to create enriched device data")
 
 			continue
 		}
 
-		// Store device in KV with device ID as key
-		data[fmt.Sprintf("%d", d.ID)] = value
+		data[fmt.Sprintf("%d", d.ID)] = enrichedData
 
-		// Only consider the first IP address returned by Armis
+		// Extract IP and create device update event
 		ip := extractFirstIP(d.IPAddress)
 		if ip == "" {
 			continue
 		}
 
+		event := a.createDeviceUpdateEvent(d, ip, deviceLabels[d.ID], now)
+
+		// Marshal event for KV storage
 		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, ip)
 
-		// create discovery event (sweep result style)
-		metadata := map[string]interface{}{
-			"armis_device_id": fmt.Sprintf("%d", d.ID),
-			"tag":             tag,
-		}
-
-		hostname := d.Name
-		mac := d.MacAddress
-		deviceID := fmt.Sprintf("%s:%s", partition, ip)
-
-		event := &models.DeviceUpdate{
-			AgentID:   agentID,
-			PollerID:  pollerID,
-			Source:    models.DiscoverySourceArmis,
-			DeviceID:  deviceID,
-			Partition: partition,
-			IP:        ip,
-			MAC:       &mac,
-			Hostname:  &hostname,
-			Timestamp: now,
-			Metadata: map[string]string{
-				"integration_type": "armis",
-				"integration_id":   fmt.Sprintf("%d", d.ID),
-			},
-		}
-
-		for k, v := range metadata {
-			if str, ok := v.(string); ok {
-				event.Metadata[k] = str
-			} else {
-				event.Metadata[k] = fmt.Sprintf("%v", v)
-			}
-		}
-
-		value, err = json.Marshal(event)
+		eventData, err := json.Marshal(event)
 		if err != nil {
 			a.Logger.Error().
 				Err(err).
@@ -539,12 +619,63 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			continue
 		}
 
-		data[kvKey] = value
+		data[kvKey] = eventData
 
 		events = append(events, event)
-
 		ips = append(ips, ip+"/32")
 	}
 
 	return data, ips, events
+}
+
+// createEnrichedDeviceData creates enriched device data for KV storage
+func (*ArmisIntegration) createEnrichedDeviceData(d *Device, queryLabel string) ([]byte, error) {
+	tag := ""
+	if len(d.Tags) > 0 {
+		tag = strings.Join(d.Tags, ",")
+	}
+
+	enriched := DeviceWithMetadata{
+		Device: *d,
+		Metadata: map[string]string{
+			"armis_device_id": fmt.Sprintf("%d", d.ID),
+			"tag":             tag,
+			"query_label":     queryLabel,
+		},
+	}
+
+	return json.Marshal(enriched)
+}
+
+// createDeviceUpdateEvent creates a DeviceUpdate event from an Armis device
+func (a *ArmisIntegration) createDeviceUpdateEvent(d *Device, ip, queryLabel string, timestamp time.Time) *models.DeviceUpdate {
+	tag := ""
+	if len(d.Tags) > 0 {
+		tag = strings.Join(d.Tags, ",")
+	}
+
+	hostname := d.Name
+	mac := d.MacAddress
+	deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
+
+	event := &models.DeviceUpdate{
+		AgentID:   a.Config.AgentID,
+		PollerID:  a.Config.PollerID,
+		Source:    models.DiscoverySourceArmis,
+		DeviceID:  deviceID,
+		Partition: a.Config.Partition,
+		IP:        ip,
+		MAC:       &mac,
+		Hostname:  &hostname,
+		Timestamp: timestamp,
+		Metadata: map[string]string{
+			"integration_type": "armis",
+			"integration_id":   fmt.Sprintf("%d", d.ID),
+			"armis_device_id":  fmt.Sprintf("%d", d.ID),
+			"tag":              tag,
+			"query_label":      queryLabel,
+		},
+	}
+
+	return event
 }

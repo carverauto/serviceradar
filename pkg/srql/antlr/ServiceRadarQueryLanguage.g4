@@ -9,15 +9,15 @@ query
     ;
 
 showStatement
-    : SHOW (entity | functionCall FROM entity) (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
+    : SHOW (entity | functionCall FROM entity) (timeClause)? (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
     ;
 
 findStatement
-    : FIND entity (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
+    : FIND entity (timeClause)? (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
     ;
 
 countStatement
-    : COUNT entity (WHERE condition)?
+    : COUNT entity (timeClause)? (WHERE condition)?
     ;
 
 streamStatement
@@ -87,6 +87,10 @@ joinType
     ;
 
 whereClause     : WHERE condition ;
+timeClause      : FROM timeSpec ;
+timeSpec        : TODAY | YESTERDAY | LAST INTEGER timeUnit | timeRange ;
+timeRange       : BETWEEN value AND value ;
+timeUnit        : MINUTES | HOURS | DAYS | WEEKS | MONTHS ;
 groupByClause   : GROUP_KW BY fieldList ;
 fieldList       : field (COMMA field)* ;
 havingClause    : HAVING condition ;
@@ -116,6 +120,11 @@ entity
     | MEMORY_METRICS
     | PROCESS_METRICS
     | SNMP_METRICS
+    | OTEL_TRACES
+    | OTEL_METRICS
+    | OTEL_TRACE_SUMMARIES
+    | OTEL_TRACE_SUMMARIES_FINAL
+    | OTEL_TRACE_SUMMARIES_DEDUPLICATED
     ;
 
 condition
@@ -215,6 +224,12 @@ NOT : N O T ;
 NULL : N U L L ;
 TODAY : T O D A Y ;
 YESTERDAY : Y E S T E R D A Y ;
+LAST : L A S T ;
+MINUTES : M I N U T E S ;
+HOURS : H O U R S ;
+DAYS : D A Y S ;
+WEEKS : W E E K S ;
+MONTHS : M O N T H S ;
 
 // --- Entity Type Keywords ---
 DEVICES : D E V I C E S ;
@@ -235,6 +250,11 @@ DISK_METRICS  : D I S K '_' M E T R I C S ;
 MEMORY_METRICS : M E M O R Y '_' M E T R I C S ;
 PROCESS_METRICS : P R O C E S S '_' M E T R I C S ;
 SNMP_METRICS  : S N M P '_' M E T R I C S ;
+OTEL_TRACES   : O T E L '_' T R A C E S ;
+OTEL_METRICS  : O T E L '_' M E T R I C S ;
+OTEL_TRACE_SUMMARIES : O T E L '_' T R A C E '_' S U M M A R I E S ;
+OTEL_TRACE_SUMMARIES_FINAL : O T E L '_' T R A C E '_' S U M M A R I E S '_' F I N A L ;
+OTEL_TRACE_SUMMARIES_DEDUPLICATED : O T E L '_' T R A C E '_' S U M M A R I E S '_' D E D U P L I C A T E D ;
 
 // --- New Keywords for Streaming and Joins ---
 // Suffix _KW is used for common words to avoid potential clashes with identifiers

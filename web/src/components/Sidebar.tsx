@@ -25,7 +25,7 @@ import {
     Server,
     MessageSquareCode,
     Globe,
-    FileText,
+    Activity,
 } from 'lucide-react';
 
 const navItems = [
@@ -33,11 +33,26 @@ const navItems = [
     { href: '/devices', label: 'Devices', icon: Server },
     { href: '/network', label: 'Network', icon: Globe },
     { href: '/events', label: 'Events', icon: MessageSquareCode },
-    { href: '/logs', label: 'Logs', icon: FileText },
+    { href: '/observability', label: 'Observability', icon: Activity },
 ];
 
 export default function Sidebar() {
     const pathname = usePathname();
+    const [buildInfo, setBuildInfo] = React.useState<{version?: string; buildId?: string}>({});
+
+    React.useEffect(() => {
+        // Try to fetch build info from public file
+        fetch('/build-info.json')
+            .then(res => res.json())
+            .then(data => setBuildInfo(data))
+            .catch(() => {
+                // Fallback to environment variables if file doesn't exist
+                setBuildInfo({
+                    version: process.env.NEXT_PUBLIC_VERSION || '1.0.0',
+                    buildId: process.env.NEXT_PUBLIC_BUILD_ID || 'dev'
+                });
+            });
+    }, []);
 
     return (
         <aside className="w-60 flex-shrink-0 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 flex flex-col border-r border-gray-200 dark:border-gray-700">
@@ -58,6 +73,16 @@ export default function Sidebar() {
                     );
                 })}
             </nav>
+            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                    {buildInfo.version && (
+                        <div>Version: {buildInfo.version}</div>
+                    )}
+                    {buildInfo.buildId && (
+                        <div>Build: {buildInfo.buildId}</div>
+                    )}
+                </div>
+            </div>
         </aside>
     );
 }

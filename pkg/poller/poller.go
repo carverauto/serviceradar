@@ -52,6 +52,24 @@ func safeIntToInt32(val int) int32 {
 	return int32(val)
 }
 
+// formatBytes converts bytes to human readable format
+func formatBytes(bytes int) string {
+	const unit = 1024
+
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+
+	div, exp := int64(unit), 0
+
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+
+	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
 // New creates a new poller instance.
 func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*Poller, error) {
 	if clock == nil {
@@ -356,11 +374,44 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		}
 	}
 
-	// Use streaming if we have a large number of services (20k+ threshold)
-	const streamingThreshold = 100 // Use 100 services as threshold for now
+	// Calculate total data size to determine if we should use streaming
+	// Default gRPC max message size is 4MB, so we'll use streaming if we're close to that
+	const maxSafeMessageSize = 1 * 1024 * 1024 // 1MB - use streaming more aggressively
 
-	if len(statuses) > streamingThreshold {
-		p.logger.Info().Int("service_count", len(statuses)).Msg("Using streaming to report large dataset to core")
+	const streamingServiceCountThreshold = 5 // Lower threshold to use streaming for fewer services
+
+	totalDataSize := 0
+
+	for _, status := range statuses {
+		messageSize := 0
+
+		if status.Message != nil {
+			messageSize = len(status.Message)
+			totalDataSize += messageSize
+		}
+
+		// Add rough estimate for other fields (service name, type, etc.)
+		totalDataSize += 200 // Approximate overhead per service
+
+		// Log large messages for debugging
+		if messageSize > 1024*1024 { // Log if message > 1MB
+			p.logger.Info().
+				Str("service_name", status.ServiceName).
+				Str("service_type", status.ServiceType).
+				Int("message_size_bytes", messageSize).
+				Str("message_size_human", formatBytes(messageSize)).
+				Msg("Large message detected in service status")
+		}
+	}
+
+	// Use streaming if data is large OR if we have many services
+	if totalDataSize > maxSafeMessageSize || len(statuses) > streamingServiceCountThreshold {
+		p.logger.Info().
+			Int("service_count", len(statuses)).
+			Int("total_data_size_bytes", totalDataSize).
+			Int("max_safe_size_bytes", maxSafeMessageSize).
+			Msg("Using streaming to report large dataset to core")
+
 		return p.reportToCoreStreaming(ctx, statuses)
 	}
 
@@ -380,8 +431,6 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 
 // reportToCoreStreaming sends service statuses to core using streaming for large datasets
 func (p *Poller) reportToCoreStreaming(ctx context.Context, statuses []*proto.ServiceStatus) error {
-	const chunkSize = 100 // Services per chunk
-
 	stream, err := p.coreClient.StreamStatus(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create stream to core: %w", err)
@@ -393,48 +442,179 @@ func (p *Poller) reportToCoreStreaming(ctx context.Context, statuses []*proto.Se
 		}
 	}()
 
-	totalChunks := (len(statuses) + chunkSize - 1) / chunkSize
-	timestamp := time.Now().Unix()
-
 	p.logger.Info().
 		Int("total_services", len(statuses)).
-		Int("chunk_size", chunkSize).
-		Int("total_chunks", totalChunks).
 		Msg("Starting streaming status report to core")
 
-	// Send data in chunks
-	for i := 0; i < len(statuses); i += chunkSize {
-		end := i + chunkSize
+	// Calculate and send chunks
+	chunkPlan := p.calculateChunkPlan(statuses)
+	if err := p.sendChunks(stream, statuses, chunkPlan); err != nil {
+		return err
+	}
 
-		if end > len(statuses) {
-			end = len(statuses)
-		}
+	// Wait for and validate response
+	return p.handleStreamResponse(stream, len(statuses))
+}
 
-		chunkIndex := i / chunkSize
-		chunk := &proto.PollerStatusChunk{
-			Services:    statuses[i:end],
-			PollerId:    p.config.PollerID,
-			AgentId:     "", // Will be extracted from individual services
-			Timestamp:   timestamp,
-			Partition:   p.config.Partition,
-			SourceIp:    p.config.SourceIP,
-			IsFinal:     end == len(statuses),
-			ChunkIndex:  safeIntToInt32(chunkIndex),
-			TotalChunks: safeIntToInt32(totalChunks),
-		}
+// chunkPlan holds the chunking strategy for streaming
+type chunkPlan struct {
+	totalChunks  int
+	maxChunkSize int
+	timestamp    int64
+}
 
-		p.logger.Debug().
-			Int("chunk_index", chunkIndex).
-			Int("chunk_services", len(chunk.Services)).
-			Bool("is_final", chunk.IsFinal).
-			Msg("Sending chunk to core")
+// calculateChunkPlan determines how to chunk the services for streaming
+func (p *Poller) calculateChunkPlan(statuses []*proto.ServiceStatus) chunkPlan {
+	const maxChunkSize = 3 * 1024 * 1024 // 3MB to stay under 4MB gRPC limit
 
-		if sendErr := stream.Send(chunk); sendErr != nil {
-			return fmt.Errorf("failed to send chunk %d: %w", chunkIndex, sendErr)
+	actualChunkCount := 0
+
+	for _, status := range statuses {
+		messageSize := p.getMessageSize(status)
+
+		if messageSize > maxChunkSize {
+			chunks := (messageSize + maxChunkSize - 1) / maxChunkSize
+			actualChunkCount += chunks
+		} else {
+			actualChunkCount++
 		}
 	}
 
-	// Wait for response
+	return chunkPlan{
+		totalChunks:  actualChunkCount,
+		maxChunkSize: maxChunkSize,
+		timestamp:    time.Now().Unix(),
+	}
+}
+
+// getMessageSize safely gets the message size from a service status
+func (*Poller) getMessageSize(status *proto.ServiceStatus) int {
+	if status.Message != nil {
+		return len(status.Message)
+	}
+
+	return 0
+}
+
+// sendChunks sends all service chunks according to the plan
+func (p *Poller) sendChunks(stream proto.PollerService_StreamStatusClient, statuses []*proto.ServiceStatus, plan chunkPlan) error {
+	chunkIndex := 0
+
+	for _, status := range statuses {
+		messageSize := p.getMessageSize(status)
+
+		if messageSize > plan.maxChunkSize {
+			if err := p.sendLargeServiceChunks(stream, status, messageSize, plan, &chunkIndex); err != nil {
+				return err
+			}
+		} else {
+			if err := p.sendSingleServiceChunk(stream, status, messageSize, plan, &chunkIndex); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// sendLargeServiceChunks splits and sends a large service message
+func (p *Poller) sendLargeServiceChunks(
+	stream proto.PollerService_StreamStatusClient,
+	status *proto.ServiceStatus,
+	messageSize int,
+	plan chunkPlan,
+	chunkIndex *int) error {
+	p.logger.Info().
+		Str("service_name", status.ServiceName).
+		Int("message_size_bytes", messageSize).
+		Str("message_size_human", formatBytes(messageSize)).
+		Int("chunks_needed", (messageSize+plan.maxChunkSize-1)/plan.maxChunkSize).
+		Msg("Splitting large service message into chunks")
+
+	for offset := 0; offset < messageSize; offset += plan.maxChunkSize {
+		end := offset + plan.maxChunkSize
+		if end > messageSize {
+			end = messageSize
+		}
+
+		partialStatus := &proto.ServiceStatus{
+			ServiceName:  status.ServiceName,
+			Available:    status.Available,
+			Message:      status.Message[offset:end],
+			ServiceType:  status.ServiceType,
+			ResponseTime: status.ResponseTime,
+			AgentId:      status.AgentId,
+			PollerId:     status.PollerId,
+			Partition:    status.Partition,
+		}
+
+		chunk := p.createChunk([]*proto.ServiceStatus{partialStatus}, plan, *chunkIndex)
+
+		p.logger.Debug().
+			Int("chunk_index", *chunkIndex).
+			Str("service_name", status.ServiceName).
+			Int("offset", offset).
+			Int("chunk_size", end-offset).
+			Bool("is_final", chunk.IsFinal).
+			Msg("Sending partial service chunk to core")
+
+		if err := stream.Send(chunk); err != nil {
+			return fmt.Errorf("failed to send chunk %d: %w", *chunkIndex, err)
+		}
+
+		*chunkIndex++
+	}
+
+	return nil
+}
+
+// sendSingleServiceChunk sends a service that fits in one chunk
+func (p *Poller) sendSingleServiceChunk(
+	stream proto.PollerService_StreamStatusClient,
+	status *proto.ServiceStatus,
+	messageSize int,
+	plan chunkPlan,
+	chunkIndex *int) error {
+	chunk := p.createChunk([]*proto.ServiceStatus{status}, plan, *chunkIndex)
+
+	p.logger.Debug().
+		Int("chunk_index", *chunkIndex).
+		Str("service_name", status.ServiceName).
+		Int("message_size", messageSize).
+		Bool("is_final", chunk.IsFinal).
+		Msg("Sending service chunk to core")
+
+	if err := stream.Send(chunk); err != nil {
+		return fmt.Errorf("failed to send chunk %d: %w", *chunkIndex, err)
+	}
+
+	*chunkIndex++
+
+	return nil
+}
+
+// createChunk creates a PollerStatusChunk with the given services
+func (p *Poller) createChunk(services []*proto.ServiceStatus, plan chunkPlan, chunkIndex int) *proto.PollerStatusChunk {
+	var agentID string
+	if len(services) > 0 {
+		agentID = services[0].AgentId
+	}
+
+	return &proto.PollerStatusChunk{
+		Services:    services,
+		PollerId:    p.config.PollerID,
+		AgentId:     agentID,
+		Timestamp:   plan.timestamp,
+		Partition:   p.config.Partition,
+		SourceIp:    p.config.SourceIP,
+		IsFinal:     chunkIndex == plan.totalChunks-1,
+		ChunkIndex:  safeIntToInt32(chunkIndex),
+		TotalChunks: safeIntToInt32(plan.totalChunks),
+	}
+}
+
+// handleStreamResponse waits for and validates the stream response
+func (p *Poller) handleStreamResponse(stream proto.PollerService_StreamStatusClient, serviceCount int) error {
 	response, err := stream.CloseAndRecv()
 	if err != nil {
 		return fmt.Errorf("failed to receive response from core stream: %w", err)
@@ -445,8 +625,7 @@ func (p *Poller) reportToCoreStreaming(ctx context.Context, statuses []*proto.Se
 	}
 
 	p.logger.Info().
-		Int("total_services", len(statuses)).
-		Int("chunks_sent", totalChunks).
+		Int("total_services", serviceCount).
 		Msg("Successfully completed streaming status report to core")
 
 	return nil

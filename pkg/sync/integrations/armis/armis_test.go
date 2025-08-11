@@ -96,10 +96,7 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	// 5. Test Reconcile (Updates) - should perform correlation and updates
 	// Expectations for the reconciliation logic
 	mocks.SweepQuerier.EXPECT().GetDeviceStatesBySource(gomock.Any(), "armis").Return(mockDeviceStates, nil)
-	// Reconcile also needs to fetch current devices from Armis, so it needs another access token call
-	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
-	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(firstPageResp, nil)
-	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
+	// Reconcile no longer fetches devices from Armis - it just uses what's in the database
 	mocks.Updater.EXPECT().UpdateDeviceStatus(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
 			// Verify the content of the updates being sent to Armis
@@ -129,6 +126,12 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
+
+	// Ensure mock controller is finished even if test panics
+	t.Cleanup(func() {
+		ctrl.Finish()
+	})
+
 	mocks := &armisMocks{
 		TokenProvider: NewMockTokenProvider(ctrl),
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
@@ -464,6 +467,123 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 	assert.Nil(t, result)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no queries configured")
+}
+
+// TestArmisIntegration_FetchMultipleQueries tests that multiple ASQ queries are accumulated in memory
+// and all devices are included in the final sweep.json, preventing the overwriting issue.
+func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+
+	// Configure multiple queries
+	integration.Config.Queries = []models.QueryConfig{
+		{Label: "corporate_devices", Query: "in:devices boundaries:\"Corporate\""},
+		{Label: "guest_devices", Query: "in:devices boundaries:\"Guest\""},
+	}
+
+	// Mock devices for first query (corporate)
+	corporateDevices := []Device{
+		{ID: 1, Name: "corporate-laptop-1", IPAddress: "192.168.1.100", MacAddress: "00:11:22:33:44:55"},
+		{ID: 2, Name: "corporate-laptop-2", IPAddress: "192.168.1.101", MacAddress: "00:11:22:33:44:56"},
+	}
+
+	// Mock devices for second query (guest)
+	guestDevices := []Device{
+		{ID: 3, Name: "guest-phone-1", IPAddress: "192.168.2.100", MacAddress: "00:11:22:33:44:57"},
+		{ID: 4, Name: "guest-tablet-1", IPAddress: "192.168.2.101", MacAddress: "00:11:22:33:44:58"},
+	}
+
+	testAccessToken := "test-access-token"
+
+	// Set up expectations for token provider
+	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
+
+	// Set up expectations for first query (corporate)
+	corporateResp := &SearchResponse{
+		Success: true,
+		Data: struct {
+			Count   int         `json:"count"`
+			Next    int         `json:"next"`
+			Prev    interface{} `json:"prev"`
+			Results []Device    `json:"results"`
+			Total   int         `json:"total"`
+		}{
+			Count:   len(corporateDevices),
+			Next:    0, // No next page
+			Prev:    nil,
+			Results: corporateDevices,
+			Total:   len(corporateDevices),
+		},
+	}
+	mocks.DeviceFetcher.EXPECT().
+		FetchDevicesPage(gomock.Any(), testAccessToken, "in:devices boundaries:\"Corporate\"", 0, 100).
+		Return(corporateResp, nil)
+
+	// Set up expectations for second query (guest)
+	guestResp := &SearchResponse{
+		Success: true,
+		Data: struct {
+			Count   int         `json:"count"`
+			Next    int         `json:"next"`
+			Prev    interface{} `json:"prev"`
+			Results []Device    `json:"results"`
+			Total   int         `json:"total"`
+		}{
+			Count:   len(guestDevices),
+			Next:    0, // No next page
+			Prev:    nil,
+			Results: guestDevices,
+			Total:   len(guestDevices),
+		},
+	}
+	mocks.DeviceFetcher.EXPECT().
+		FetchDevicesPage(gomock.Any(), testAccessToken, "in:devices boundaries:\"Guest\"", 0, 100).
+		Return(guestResp, nil)
+
+	// The KVWriter should be called ONCE with a sweep config containing ALL devices from BOTH queries
+	expectedNetworks := []string{"192.168.1.100/32", "192.168.1.101/32", "192.168.2.100/32", "192.168.2.101/32"}
+	expectedSweepConfig := &models.SweepConfig{
+		Networks: expectedNetworks,
+	}
+
+	mocks.KVWriter.EXPECT().
+		WriteSweepConfig(gomock.Any(), expectedSweepConfig).
+		Return(nil)
+
+	// Execute the fetch
+	result, events, err := integration.Fetch(context.Background())
+
+	// Verify no errors
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify that we got devices from BOTH queries
+	assert.Len(t, events, 4, "Should have 4 device events from both queries combined")
+
+	// Verify device labels are correctly assigned
+	corporateEvents := 0
+	guestEvents := 0
+
+	for _, event := range events {
+		queryLabel, exists := event.Metadata["query_label"]
+		require.True(t, exists, "Each device should have a query_label")
+
+		switch queryLabel {
+		case "corporate_devices":
+			corporateEvents++
+		case "guest_devices":
+			guestEvents++
+		default:
+			t.Errorf("Unexpected query_label: %s", queryLabel)
+		}
+	}
+
+	assert.Equal(t, 2, corporateEvents, "Should have 2 events from corporate query")
+	assert.Equal(t, 2, guestEvents, "Should have 2 events from guest query")
+
+	// Verify KV data contains entries for all devices
+	assert.Len(t, result, 8, "Should have 8 KV entries: 4 device data + 4 agent/IP entries")
+
+	t.Log("Successfully verified that multiple queries are accumulated in memory and written as single sweep config")
 }
 
 func createSuccessResponse(t *testing.T) *http.Response {
@@ -851,7 +971,12 @@ func TestProcessDevices(t *testing.T) {
 		{ID: 2, IPAddress: "192.168.1.2,10.0.0.1", MacAddress: "cc:dd", Name: "dev2"},
 	}
 
-	data, ips, events := integ.processDevices(devices)
+	deviceLabels := map[int]string{
+		1: "test_query_1",
+		2: "test_query_2",
+	}
+
+	data, ips, events := integ.processDevices(devices, deviceLabels)
 
 	require.Len(t, data, 4) // two device keys and two sweep device entries
 	assert.ElementsMatch(t, []string{"test-agent/192.168.1.1", "test-agent/192.168.1.2"}, keysWithPrefix(data, "test-agent/"))
@@ -876,6 +1001,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "armis", events[0].Metadata["integration_type"])
 	assert.Equal(t, "1", events[0].Metadata["integration_id"])
 	assert.Equal(t, "1", events[0].Metadata["armis_device_id"])
+	assert.Equal(t, "test_query_1", events[0].Metadata["query_label"])
 
 	// Check second event
 	assert.Equal(t, "test-agent", events[1].AgentID)
@@ -893,6 +1019,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "armis", events[1].Metadata["integration_type"])
 	assert.Equal(t, "2", events[1].Metadata["integration_id"])
 	assert.Equal(t, "2", events[1].Metadata["armis_device_id"])
+	assert.Equal(t, "test_query_2", events[1].Metadata["query_label"])
 
 	raw := data["1"]
 
@@ -930,23 +1057,6 @@ func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {
 	assert.Equal(t, "1.1.1.1", updates[0].IP)
 	// We're marking devices as OT_Isolation_Compliant in Armis if we CANT reach them
 	assert.False(t, updates[0].Available)
-}
-
-func TestPrepareArmisUpdateFromDeviceQuery(t *testing.T) {
-	integ := &ArmisIntegration{Logger: logger.NewTestLogger()}
-	results := []map[string]interface{}{
-		{"ip": "1.1.1.1", "is_available": true, "metadata": map[string]interface{}{"armis_device_id": "5"}},
-		{"ip": "", "is_available": true, "metadata": map[string]interface{}{"armis_device_id": "6"}},
-		{"ip": "2.2.2.2", "is_available": false},
-	}
-
-	updates := integ.prepareArmisUpdateFromDeviceQuery(results)
-
-	require.Len(t, updates, 1)
-
-	assert.Equal(t, 5, updates[0].DeviceID)
-	assert.Equal(t, "1.1.1.1", updates[0].IP)
-	assert.True(t, updates[0].Available)
 }
 
 func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
@@ -1062,4 +1172,145 @@ func TestBatchUpdateDeviceAttributes_SingleBatch(t *testing.T) {
 
 	// Verify no error occurred
 	assert.NoError(t, err)
+}
+
+func TestArmisIntegration_Reconcile_SimpleUpdate(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+
+	// Test data
+	ctx := context.Background()
+
+	// Existing device states from ServiceRadar
+	existingDeviceStates := []DeviceState{
+		{
+			DeviceID:    "test-partition/192.168.1.1",
+			IP:          "192.168.1.1",
+			IsAvailable: true,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "1",
+			},
+		},
+		{
+			DeviceID:    "test-partition:192.168.1.2",
+			IP:          "192.168.1.2",
+			IsAvailable: false,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "2",
+			},
+		},
+	}
+
+	// Setup expectations
+	mocks.SweepQuerier.EXPECT().
+		GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis)).
+		Return(existingDeviceStates, nil)
+
+	// Mock the Armis updater to verify the updates
+	mocks.Updater.EXPECT().
+		UpdateDeviceStatus(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
+			require.Len(t, updates, 2)
+
+			// Device 1 is available in ServiceRadar, so it should be marked as NOT available in Armis
+			assert.Equal(t, 1, updates[0].DeviceID)
+			assert.Equal(t, "192.168.1.1", updates[0].IP)
+			assert.False(t, updates[0].Available)
+
+			// Device 2 is NOT available in ServiceRadar, so it should be marked as available in Armis
+			assert.Equal(t, 2, updates[1].DeviceID)
+			assert.Equal(t, "192.168.1.2", updates[1].IP)
+			assert.True(t, updates[1].Available)
+
+			return nil
+		})
+
+	// Execute the reconcile operation
+	err := integration.Reconcile(ctx)
+	require.NoError(t, err)
+}
+
+func TestArmisIntegration_Reconcile_EmptyDeviceStates(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+
+	// Test data
+	ctx := context.Background()
+
+	// No existing device states from ServiceRadar
+	existingDeviceStates := []DeviceState{}
+
+	// Setup expectations
+	mocks.SweepQuerier.EXPECT().
+		GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis)).
+		Return(existingDeviceStates, nil)
+
+	// Updater should not be called since there are no device states
+
+	// Execute the reconcile operation
+	err := integration.Reconcile(ctx)
+	require.NoError(t, err)
+}
+
+func TestArmisIntegration_Reconcile_UpdaterError(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+
+	// Test data
+	ctx := context.Background()
+	expectedError := assert.AnError
+
+	// Existing device states from ServiceRadar
+	existingDeviceStates := []DeviceState{
+		{
+			DeviceID:    "test-partition/192.168.1.1",
+			IP:          "192.168.1.1",
+			IsAvailable: true,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "1",
+			},
+		},
+	}
+
+	// Setup expectations
+	mocks.SweepQuerier.EXPECT().
+		GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis)).
+		Return(existingDeviceStates, nil)
+
+	// Mock the updater to return an error
+	mocks.Updater.EXPECT().
+		UpdateDeviceStatus(ctx, gomock.Any()).
+		Return(expectedError)
+
+	// Execute the reconcile operation - should return error
+	err := integration.Reconcile(ctx)
+	require.Error(t, err)
+	// The error is now wrapped with batch information, so we check if it contains the original error
+	assert.Contains(t, err.Error(), expectedError.Error())
+}
+
+func TestArmisIntegration_Reconcile_NoUpdater(t *testing.T) {
+	integration, _ := setupArmisIntegration(t)
+
+	// Clear the updater to simulate no updater configured
+	integration.Updater = nil
+
+	// Execute the reconcile operation - should succeed with early return
+	err := integration.Reconcile(context.Background())
+	require.NoError(t, err)
+}
+
+func TestArmisIntegration_Reconcile_QueryError(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+
+	// Test data
+	ctx := context.Background()
+	expectedError := assert.AnError
+
+	// Setup expectations - querier returns error
+	mocks.SweepQuerier.EXPECT().
+		GetDeviceStatesBySource(ctx, string(models.DiscoverySourceArmis)).
+		Return(nil, expectedError)
+
+	// Execute the reconcile operation - should return error
+	err := integration.Reconcile(ctx)
+	require.Error(t, err)
+	assert.Equal(t, expectedError, err)
 }

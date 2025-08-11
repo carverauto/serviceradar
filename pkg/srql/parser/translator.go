@@ -152,6 +152,9 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 	// Transform unsupported entity types to their equivalent supported types
 	t.TransformQuery(query)
 
+	// Convert time clauses to WHERE conditions
+	t.convertTimeClauseToCondition(query)
+
 	// Apply any implicit filters based on the entity type
 	t.applyDefaultFilters(query)
 
@@ -165,12 +168,37 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 	}
 }
 
+// TranslateForStreaming converts a Query model to a streaming database query string (without table() wrapper)
+func (t *Translator) TranslateForStreaming(query *models.Query) (string, error) {
+	if query == nil {
+		return "", errCannotTranslateNilQuery
+	}
+
+	// Transform unsupported entity types to their equivalent supported types
+	t.TransformQuery(query)
+
+	// Convert time clauses to WHERE conditions
+	t.convertTimeClauseToCondition(query)
+
+	// Apply any implicit filters based on the entity type
+	t.applyDefaultFilters(query)
+
+	switch t.DBType {
+	case Proton:
+		return t.buildProtonStreamingQuery(query)
+	case ClickHouse:
+		return t.buildClickHouseStreamingQuery(query)
+	default:
+		return "", fmt.Errorf("%w for database type: %s", errUnsupportedDatabaseType, t.DBType)
+	}
+}
+
 const (
 	defaultAscending      = "ASC"
 	defaultDescending     = "DESC"
 	defaultModelsBetween  = 2
-	defaultBoolValueTrue  = "true"
-	defaultBoolValueFalse = "false"
+	defaultBoolValueTrue  = "1"
+	defaultBoolValueFalse = "0"
 )
 
 // getEntityPrimaryKeyMapData returns a map of entity types to their primary keys and whether they need ROW_NUMBER()
@@ -331,28 +359,51 @@ func (t *Translator) buildClickHouseStreamQuery(query *models.Query) (string, er
 	return sql.String(), nil
 }
 
+// entityConfig holds configuration for each entity type
+type entityConfig struct {
+	tableName      string
+	timestampField string
+}
+
+// getEntityConfigurations returns a map of entity types to their configurations
+func getEntityConfigurations() map[models.EntityType]entityConfig {
+	return map[models.EntityType]entityConfig{
+		models.Devices:            {tableName: "unified_devices", timestampField: "last_seen"},
+		models.Flows:              {tableName: "netflow_metrics", timestampField: "timestamp"},
+		models.Interfaces:         {tableName: "discovered_interfaces", timestampField: "last_seen"},
+		models.SweepResults:       {tableName: "unified_devices", timestampField: "timestamp"},
+		models.Traps:              {tableName: "traps", timestampField: "timestamp"},
+		models.Connections:        {tableName: "connections", timestampField: "timestamp"},
+		models.Logs:               {tableName: "logs", timestampField: "timestamp"},
+		models.Services:           {tableName: "services", timestampField: "last_seen"},
+		models.DeviceUpdates:      {tableName: "device_updates", timestampField: "timestamp"},
+		models.ICMPResults:        {tableName: "icmp_results", timestampField: "timestamp"},
+		models.SNMPResults:        {tableName: "timeseries_metrics", timestampField: "timestamp"},
+		models.Events:             {tableName: "events", timestampField: "timestamp"},
+		models.Pollers:            {tableName: "pollers", timestampField: "timestamp"},
+		models.CPUMetrics:         {tableName: "cpu_metrics", timestampField: "timestamp"},
+		models.DiskMetrics:        {tableName: "disk_metrics", timestampField: "timestamp"},
+		models.MemoryMetrics:      {tableName: "memory_metrics", timestampField: "timestamp"},
+		models.ProcessMetrics:     {tableName: "process_metrics", timestampField: "timestamp"},
+		models.SNMPMetrics:        {tableName: "timeseries_metrics", timestampField: "timestamp"},
+		models.OtelTraces:         {tableName: "otel_traces", timestampField: "timestamp"},
+		models.OtelMetrics:        {tableName: "otel_metrics", timestampField: "timestamp"},
+		models.OtelTraceSummaries: {tableName: "otel_trace_summaries_final", timestampField: "timestamp"},
+		models.OtelSpansEnriched:  {tableName: "otel_spans_enriched", timestampField: "timestamp"},
+		models.OtelRootSpans:      {tableName: "otel_root_spans", timestampField: "trace_id"},
+	}
+}
+
 // getEntityToTableMapData returns a map of entity types to their base table names
 func getEntityToTableMapData() map[models.EntityType]string {
-	return map[models.EntityType]string{
-		models.Devices:        "unified_devices", // Materialized view approach uses unified_devices stream
-		models.Flows:          "netflow_metrics",
-		models.Interfaces:     "discovered_interfaces",
-		models.SweepResults:   "unified_devices",
-		models.Traps:          "traps",
-		models.Connections:    "connections",
-		models.Logs:           "logs",
-		models.Services:       "services",
-		models.DeviceUpdates:  "device_updates",
-		models.ICMPResults:    "icmp_results",
-		models.SNMPResults:    "timeseries_metrics",
-		models.Events:         "events",
-		models.Pollers:        "pollers",
-		models.CPUMetrics:     "cpu_metrics",
-		models.DiskMetrics:    "disk_metrics",
-		models.MemoryMetrics:  "memory_metrics",
-		models.ProcessMetrics: "process_metrics",
-		models.SNMPMetrics:    "timeseries_metrics",
+	configs := getEntityConfigurations()
+	result := make(map[models.EntityType]string, len(configs))
+
+	for entity, config := range configs {
+		result[entity] = config.tableName
 	}
+
+	return result
 }
 
 // getProtonBaseTableName returns the base table name for a given entity type
@@ -538,15 +589,143 @@ func (t *Translator) buildStreamQuery(sql *strings.Builder, query *models.Query,
 		whereClauses = append(whereClauses, conditionsStr)
 	}
 
-	// Add implicit filter for non-deleted devices, only for 'devices' entity
-	if query.Entity == models.Devices {
-		deletedFilter := "coalesce(metadata['_deleted'], '') != 'true'"
-		whereClauses = append(whereClauses, deletedFilter)
+	if len(whereClauses) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(strings.Join(whereClauses, " AND "))
 	}
+
+	// Add GROUP BY if specified
+	if len(query.GroupBy) > 0 {
+		sql.WriteString(" GROUP BY ")
+		sql.WriteString(strings.Join(query.GroupBy, ", "))
+	}
+
+	// Add ORDER BY if specified
+	if len(query.OrderBy) > 0 {
+		sql.WriteString(" ORDER BY ")
+
+		var orderByParts []string
+
+		for _, item := range query.OrderBy {
+			direction := defaultAscending
+			if item.Direction == models.Descending {
+				direction = defaultDescending
+			}
+
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
+		}
+
+		sql.WriteString(strings.Join(orderByParts, ", "))
+	}
+
+	// Add LIMIT if specified
+	if query.HasLimit {
+		fmt.Fprintf(sql, " LIMIT %d", query.Limit)
+	}
+}
+
+// buildSelectClause builds the SELECT clause for streaming queries
+func (t *Translator) buildSelectClause(query *models.Query) string {
+	switch query.Type {
+	case models.Show, models.Find:
+		if query.Function != "" {
+			return "SELECT " + t.buildFunctionCall(query) + " FROM "
+		}
+
+		return "SELECT * FROM "
+
+	case models.Count:
+		return "SELECT count() FROM "
+	case models.Stream:
+		selectClause := "SELECT "
+		if len(query.SelectFields) > 0 {
+			selectClause += strings.Join(query.SelectFields, ", ")
+		} else {
+			selectClause += "*"
+		}
+
+		selectClause += " FROM "
+
+		return selectClause
+	default:
+		return "SELECT * FROM "
+	}
+}
+
+// buildProtonStreamingQuery builds a SQL query for Timeplus Proton WITHOUT table() wrapper for streaming
+func (t *Translator) buildProtonStreamingQuery(query *models.Query) (string, error) {
+	if query == nil {
+		return "", errCannotTranslateNilQueryProton
+	}
+
+	var sql strings.Builder
+
+	baseTableName := t.getProtonBaseTableName(query.Entity)
+
+	// Build SELECT clause using helper function
+	sql.WriteString(t.buildSelectClause(query))
+
+	// Add table name WITHOUT table() wrapper for streaming
+	sql.WriteString(baseTableName)
+
+	// Build WHERE clause
+	var whereClauses []string
+
+	if len(query.Conditions) > 0 {
+		conditionsStr := t.buildProtonWhere(query.Conditions, query.Entity)
+		whereClauses = append(whereClauses, conditionsStr)
+	}
+
+	// Skip the implicit filter for deleted devices in streaming mode
+	// as it might interfere with real-time streaming
 
 	if len(whereClauses) > 0 {
 		sql.WriteString(" WHERE ")
 		sql.WriteString(strings.Join(whereClauses, " AND "))
+	}
+
+	// ORDER BY clause (if applicable for streaming)
+	if len(query.OrderBy) > 0 {
+		sql.WriteString(" ORDER BY ")
+
+		var orderByParts []string
+
+		for _, item := range query.OrderBy {
+			direction := defaultAscending
+			if item.Direction == models.Descending {
+				direction = defaultDescending
+			}
+
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
+		}
+
+		sql.WriteString(strings.Join(orderByParts, ", "))
+	}
+
+	// NEVER add LIMIT clauses for streaming queries - they should run indefinitely
+	// LIMIT clauses would cause streaming to stop after N results instead of continuing forever
+
+	return sql.String(), nil
+}
+
+// buildClickHouseStreamingQuery builds a streaming SQL query for ClickHouse (without special wrappers)
+func (t *Translator) buildClickHouseStreamingQuery(query *models.Query) (string, error) {
+	// For streaming queries, build a custom query without LIMIT clauses
+	if query == nil {
+		return "", errCannotTranslateNilQueryClickHouse
+	}
+
+	var sql strings.Builder
+
+	// Build SELECT clause using helper function
+	sql.WriteString(t.buildSelectClause(query))
+
+	sql.WriteString(strings.ToLower(string(query.Entity)))
+
+	// Build WHERE clause
+	if len(query.Conditions) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(t.buildClickHouseWhere(query.Conditions, query.Entity))
 	}
 
 	// Build GROUP BY clause
@@ -573,10 +752,10 @@ func (t *Translator) buildStreamQuery(sql *strings.Builder, query *models.Query,
 		sql.WriteString(strings.Join(orderByParts, ", "))
 	}
 
-	// Build LIMIT clause
-	if query.HasLimit {
-		fmt.Fprintf(sql, " LIMIT %d", query.Limit)
-	}
+	// NEVER add LIMIT clauses for streaming queries - they should run indefinitely
+	// LIMIT clauses would cause streaming to stop after N results instead of continuing forever
+
+	return sql.String(), nil
 }
 
 // buildFunctionCall builds a function call like DISTINCT(field) for SQL
@@ -935,9 +1114,12 @@ func (*Translator) buildConditionString(
 // formatProtonValue formats a value for Proton SQL
 func (*Translator) formatProtonValue(value interface{}) string {
 	switch v := value.(type) {
+	case models.SQLExpression:
+		return v.Expression // Return raw SQL expression without quoting
 	case string:
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
 	case bool:
+		// For Proton/ClickHouse, boolean values should be unquoted literals
 		if v {
 			return defaultBoolValueTrue
 		}
@@ -954,9 +1136,12 @@ func (*Translator) formatProtonValue(value interface{}) string {
 // formatClickHouseValue formats a value for ClickHouse SQL
 func (*Translator) formatClickHouseValue(value interface{}) string {
 	switch v := value.(type) {
+	case models.SQLExpression:
+		return v.Expression // Return raw SQL expression without quoting
 	case string:
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
 	case bool:
+		// For ClickHouse, boolean values should be unquoted literals
 		if v {
 			return defaultBoolValueTrue
 		}
@@ -976,8 +1161,58 @@ func getEntityFieldMapData() map[models.EntityType]map[string]string {
 		models.Logs: {
 			"severity": "severity_text",
 			"level":    "severity_text",
+			"service":  "service_name",
+			"trace":    "trace_id",
+			"span":     "span_id",
 		},
-		// Add more entity-specific field mappings as needed
+		models.OtelTraces: {
+			"trace":       "trace_id",
+			"span":        "span_id",
+			"service":     "service_name",
+			"name":        "name",
+			"kind":        "kind",
+			"start":       "start_time_unix_nano",
+			"end":         "end_time_unix_nano",
+			"duration_ms": "(end_time_unix_nano - start_time_unix_nano) / 1e6",
+		},
+		models.OtelMetrics: {
+			"trace":   "trace_id",
+			"span":    "span_id",
+			"service": "service_name",
+			"route":   "http_route",
+			"method":  "http_method",
+			"status":  "http_status_code",
+		},
+		models.OtelTraceSummaries: {
+			"trace":       "trace_id",
+			"service":     "root_service_name",
+			"duration_ms": "duration_ms",
+			"status":      "status_code",
+			"span_count":  "span_count",
+			"errors":      "error_count",
+			"start":       "start_time_unix_nano",
+			"end":         "end_time_unix_nano",
+			"root_span":   "root_span_name",
+		},
+		models.OtelSpansEnriched: {
+			"trace":       "trace_id",
+			"span":        "span_id",
+			"service":     "service_name",
+			"name":        "name",
+			"kind":        "kind",
+			"duration_ms": "duration_ms",
+			"is_root":     "is_root",
+			"parent":      "parent_span_id",
+			"start":       "start_time_unix_nano",
+			"end":         "end_time_unix_nano",
+		},
+		models.OtelRootSpans: {
+			"trace":   "trace_id",
+			"span":    "root_span_id",
+			"name":    "root_span_name",
+			"kind":    "root_kind",
+			"service": "root_service",
+		},
 	}
 }
 
@@ -1039,4 +1274,103 @@ func (*Translator) translateOperator(op models.OperatorType) string {
 	}
 
 	return string(op)
+}
+
+// convertTimeClauseToCondition converts time clauses to WHERE conditions
+func (t *Translator) convertTimeClauseToCondition(query *models.Query) {
+	if query.TimeClause == nil {
+		return
+	}
+
+	// Determine the timestamp field based on entity type
+	timestampField := t.getTimestampFieldForEntity(query.Entity)
+
+	// Convert time clause to condition
+	condition := t.timeClauseToCondition(query.TimeClause, timestampField)
+
+	// Add logical operator to existing conditions if we're adding a new one
+	if len(query.Conditions) > 0 {
+		// Add AND to the first existing condition
+		query.Conditions[0].LogicalOp = models.And
+	}
+
+	// Prepend the time condition to existing conditions
+	query.Conditions = append([]models.Condition{condition}, query.Conditions...)
+
+	// Clear the time clause since it's now a condition
+	query.TimeClause = nil
+}
+
+// getTimestampFieldForEntity returns the appropriate timestamp field for an entity
+func (*Translator) getTimestampFieldForEntity(entity models.EntityType) string {
+	configs := getEntityConfigurations()
+	if config, exists := configs[entity]; exists {
+		return config.timestampField
+	}
+	// Default fallback for any new entity types
+	return "timestamp"
+}
+
+// timeClauseToCondition converts a TimeClause to a Condition
+func (t *Translator) timeClauseToCondition(tc *models.TimeClause, timestampField string) models.Condition {
+	switch tc.Type {
+	case models.TimeToday:
+		// Use timestamp range for today: timestamp >= start_of_today AND timestamp < start_of_tomorrow
+		startOfDayFunc := t.getStartOfDayFunction()
+
+		return models.Condition{
+			Field:    timestampField,
+			Operator: models.GreaterThanOrEquals,
+			Value:    models.SQLExpression{Expression: fmt.Sprintf("%s(now())", startOfDayFunc)},
+		}
+	case models.TimeYesterday:
+		// Use timestamp range for yesterday: timestamp >= start_of_yesterday AND timestamp < start_of_today
+		startOfDayFunc := t.getStartOfDayFunction()
+
+		return models.Condition{
+			Field:    timestampField,
+			Operator: models.Between,
+			Values: []interface{}{
+				models.SQLExpression{Expression: fmt.Sprintf("%s(yesterday())", startOfDayFunc)},
+				models.SQLExpression{Expression: fmt.Sprintf("%s(today())", startOfDayFunc)},
+			},
+		}
+	case models.TimeLast:
+		// For "LAST n timeUnit", create a condition like: timestamp >= NOW() - INTERVAL n timeUnit
+		intervalValue := fmt.Sprintf("NOW() - INTERVAL %d %s", tc.Amount, strings.ToUpper(string(tc.Unit)))
+
+		return models.Condition{
+			Field:    timestampField,
+			Operator: models.GreaterThanOrEquals,
+			Value:    models.SQLExpression{Expression: intervalValue},
+		}
+	case models.TimeRange:
+		// For BETWEEN ranges, create a BETWEEN condition
+		return models.Condition{
+			Field:    timestampField,
+			Operator: models.Between,
+			Values:   []interface{}{tc.StartValue, tc.EndValue},
+		}
+
+	default:
+		startOfDayFunc := t.getStartOfDayFunction()
+
+		return models.Condition{
+			Field:    timestampField,
+			Operator: models.GreaterThanOrEquals,
+			Value:    models.SQLExpression{Expression: fmt.Sprintf("%s(now())", startOfDayFunc)},
+		}
+	}
+}
+
+// getStartOfDayFunction returns the correct start-of-day function for the database type
+func (t *Translator) getStartOfDayFunction() string {
+	switch t.DBType {
+	case Proton:
+		return "to_start_of_day"
+	case ClickHouse:
+		return "toStartOfDay"
+	default:
+		return "toStartOfDay" // default to ClickHouse syntax
+	}
 }

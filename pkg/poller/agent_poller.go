@@ -31,9 +31,16 @@ func newAgentPoller(
 	config *AgentConfig,
 	client proto.AgentServiceClient,
 	poller *Poller) *AgentPoller {
+	// Create filtered config that excludes checks with results_interval
+	filteredConfig := &AgentConfig{
+		Address:  config.Address,
+		Security: config.Security,
+		Checks:   make([]Check, 0, len(config.Checks)),
+	}
+
 	ap := &AgentPoller{
 		name:    name,
-		config:  config,
+		config:  filteredConfig,
 		client:  client,
 		timeout: defaultTimeout,
 		poller:  poller,
@@ -41,6 +48,7 @@ func newAgentPoller(
 
 	for _, check := range config.Checks {
 		if check.ResultsInterval != nil {
+			// Checks with results_interval go to results pollers
 			resultsPoller := &ResultsPoller{
 				client:    client,
 				check:     check,
@@ -51,8 +59,18 @@ func newAgentPoller(
 				logger:    poller.logger,
 			}
 			ap.resultsPollers = append(ap.resultsPollers, resultsPoller)
+		} else {
+			// Regular checks stay in the agent poller
+			filteredConfig.Checks = append(filteredConfig.Checks, check)
 		}
 	}
+
+	poller.logger.Debug().
+		Str("agent", name).
+		Int("total_checks", len(config.Checks)).
+		Int("regular_checks", len(filteredConfig.Checks)).
+		Int("results_pollers", len(ap.resultsPollers)).
+		Msg("Agent poller created with filtered checks")
 
 	return ap
 }
