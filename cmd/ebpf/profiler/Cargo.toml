@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [
+    "profiler",
+    "profiler-ebpf", 
+    "profiler-common",
+    "xtask",
+]
+
+[workspace.dependencies]
+aya = "0.12.0"
+aya-ebpf = "0.1.0"
+aya-log = "0.2.0"
+aya-log-ebpf = "0.1.0"
+aya-log-common = "0.1.14"
+anyhow = "1.0.68"
+clap = { version = "4.1", features = ["derive"] }
+env_logger = "0.10"
+log = "0.4"
+tokio = { version = "1.25", features = ["macros", "rt", "rt-multi-thread", "net", "signal"] }
+
+[profile.dev]
+debug = true
+
+[profile.release]
+debug = true
+
+# eBPF specific profile settings - moved from profiler-ebpf/Cargo.toml
+[profile.dev.package.profiler-ebpf]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+codegen-units = 1
+
+[profile.release.package.profiler-ebpf]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+codegen-units = 1
