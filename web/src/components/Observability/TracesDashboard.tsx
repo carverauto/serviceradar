@@ -155,7 +155,7 @@ const TracesDashboard = () => {
     const [filterStatus, setFilterStatus] = useState<'all' | 'success' | 'error'>('all');
     const [services, setServices] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<SortableTraceKeys>('timestamp');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // Default to chronological order for streaming
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Default to desc to show latest first
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     
     // Streaming state
