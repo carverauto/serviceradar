@@ -21,7 +21,8 @@ tokio-stream = "0.1"
 
 # eBPF framework
 aya = { workspace = true, features = ["async_tokio"] }
-aya-log = { workspace = true }
+aya-log = "=0.2.0"
+aya-log-common = "=0.1.14"
 profiler-common = { path = "../profiler-common", features = ["user"] }
 
 # Utility crates
@@ -38,6 +39,12 @@ futures-util = "0.3"
 
 # Profiling output formats
 pprof = { version = "0.13", features = ["flamegraph", "protobuf-codec"] }
+
+# Symbol resolution (disabled for now due to thread safety issues)
+# addr2line = "0.24"
+# object = "0.36" 
+# memmap2 = "0.9"
+# gimli = "0.31"
 
 # TUI for interactive flamegraph display
 ratatui = "0.29"

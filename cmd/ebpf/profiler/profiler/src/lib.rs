@@ -405,6 +405,16 @@ pub async fn run_standalone_profiling(
     // Show TUI if requested
     if show_tui {
         info!("Launching interactive TUI flamegraph viewer...");
+        
+        // Debug: Show some stack trace samples
+        info!("Sample stack traces for TUI:");
+        for (i, trace) in stack_traces.iter().take(3).enumerate() {
+            info!("  Trace {}: {} frames, {} samples", i + 1, trace.frames.len(), trace.count);
+            for (j, frame) in trace.frames.iter().take(5).enumerate() {
+                info!("    Frame {}: {}", j + 1, frame);
+            }
+        }
+        
         let mut tui = crate::tui_flamegraph::FlameGraphTUI::new(stack_traces, pid, duration);
         return tui.run().map_err(|e| anyhow::anyhow!("TUI error: {}", e));
     }

@@ -38,3 +38,8 @@ tempfile = "3.0"
 
 [build-dependencies]
 tonic-build = "0.12"
+
+# In Cargo.toml
+[profile.release]
+debug = 1  # Keep minimal debug info
+strip = false  # Don't strip symbols

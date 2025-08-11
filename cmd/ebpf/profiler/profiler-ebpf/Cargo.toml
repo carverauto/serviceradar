@@ -17,5 +17,7 @@ panic = "abort"
 lto = true
 
 [profile.release]
+debug = 1  # Keep minimal debug info
+strip = false  # Don't strip symbols
 panic = "abort"
 lto = true
