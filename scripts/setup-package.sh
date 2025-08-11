@@ -265,7 +265,7 @@ build_component() {
             output_path=$(echo "$config" | jq -r '.binary.output_path')
             echo "Building Go binary from $src_path with version $VERSION and build $BUILD_ID..."
             GOOS=linux GOARCH=amd64 go build \
-                -ldflags "-X github.com/carverauto/serviceradar/pkg/version.Version=$VERSION -X github.com/carverauto/serviceradar/pkg/version.BuildID=$BUILD_ID" \
+                -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=$VERSION -X github.com/carverauto/serviceradar/pkg/version.buildID=$BUILD_ID" \
                 -o "${pkg_root}${output_path}" \
                 "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not built"; exit 1; }
