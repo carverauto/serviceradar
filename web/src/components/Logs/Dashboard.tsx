@@ -97,7 +97,7 @@ const LogsDashboard = () => {
     const [filterService, setFilterService] = useState<string>('all');
     const [services, setServices] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<SortableLogKeys>('timestamp');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc'); // Default to chronological order for streaming
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Default to desc to show latest first in non-streaming mode
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     
     // Streaming state
@@ -418,6 +418,8 @@ const LogsDashboard = () => {
             console.log('📡 Stopping streaming...');
             stopStreaming();
             setStreamingEnabled(false);
+            // When disabling streaming, reset to non-streaming default sort order (newest first)
+            setSortOrder('desc');
         } else {
             console.log('📡 Enabling streaming (useEffect will handle the actual start)...');
             // Clear regular logs when switching to streaming mode
@@ -427,6 +429,8 @@ const LogsDashboard = () => {
             setStreamingCurrentPage(1); // Reset to first page
             setAutoFollowLatest(true); // Enable auto-follow for new stream
             setStreamingEnabled(true);
+            // When enabling streaming, set to chronological order (oldest first)
+            setSortOrder('asc');
             // Don't call startStreaming() here - let the useEffect handle it to avoid double calls
         }
     }, [streamingEnabled, stopStreaming]);
@@ -471,15 +475,16 @@ const LogsDashboard = () => {
         }
 
         // When streaming is enabled, show only streaming logs
-        // Sort streaming logs by timestamp
+        // Sort streaming logs by timestamp - in streaming mode we want oldest first (chronological)
         const sortedLogs = [...streamingLogs].sort((a, b) => {
             const dateA = new Date(a.timestamp).getTime();
             const dateB = new Date(b.timestamp).getTime();
-            return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+            // Always chronological order (oldest first) in streaming mode
+            return dateA - dateB;
         });
 
         return sortedLogs;
-    }, [streamingEnabled, streamingLogs, logs, sortOrder]);
+    }, [streamingEnabled, streamingLogs, logs]);
 
     // Calculate streaming pagination info
     const streamingTotalPages = Math.ceil(allLogs.length / streamingLogsPerPage);
