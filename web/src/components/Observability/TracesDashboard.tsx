@@ -155,7 +155,7 @@ const TracesDashboard = () => {
     const [filterStatus, setFilterStatus] = useState<'all' | 'success' | 'error'>('all');
     const [services, setServices] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<SortableTraceKeys>('timestamp');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Default to desc to show latest first
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // Default to desc to show latest first in non-streaming mode
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     
     // Streaming state
@@ -450,6 +450,8 @@ const TracesDashboard = () => {
             console.log('📡 Stopping streaming...');
             stopStreaming();
             setStreamingEnabled(false);
+            // When disabling streaming, reset to non-streaming default sort order (newest first)
+            setSortOrder('desc');
         } else {
             console.log('📡 Enabling streaming (useEffect will handle the actual start)...');
             // Clear regular traces when switching to streaming mode
@@ -459,6 +461,8 @@ const TracesDashboard = () => {
             setStreamingCurrentPage(1); // Reset to first page
             setAutoFollowLatest(true); // Enable auto-follow for new stream
             setStreamingEnabled(true);
+            // When enabling streaming, set to chronological order (oldest first)
+            setSortOrder('asc');
             // Don't call startStreaming() here - let the useEffect handle it to avoid double calls
         }
     }, [streamingEnabled, stopStreaming]);
@@ -502,15 +506,16 @@ const TracesDashboard = () => {
         }
 
         // When streaming is enabled, show only streaming traces
-        // Sort streaming traces by timestamp
+        // Sort streaming traces by timestamp - in streaming mode we want oldest first (chronological)
         const sortedTraces = [...streamingTraces].sort((a, b) => {
             const dateA = new Date(a.timestamp).getTime();
             const dateB = new Date(b.timestamp).getTime();
-            return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+            // Always chronological order (oldest first) in streaming mode
+            return dateA - dateB;
         });
 
         return sortedTraces;
-    }, [streamingEnabled, streamingTraces, traces, sortOrder]);
+    }, [streamingEnabled, streamingTraces, traces]);
 
     // Calculate streaming pagination info
     const streamingTotalPages = Math.ceil(allTraces.length / streamingTracesPerPage);
