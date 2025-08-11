@@ -43,8 +43,8 @@ import (
 	"github.com/gorilla/mux"
 	httpSwagger "github.com/swaggo/http-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
-	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // NewAPIServer creates a new API server instance with the given configuration
@@ -165,7 +165,7 @@ func (s *APIServer) setupRoutes() {
 func (s *APIServer) setupMiddleware() {
 	// Add OpenTelemetry instrumentation middleware
 	s.router.Use(otelmux.Middleware("serviceradar-api"))
-	
+
 	// Add custom middleware to fix OpenTelemetry span status codes
 	s.router.Use(s.otelStatusCodeMiddleware)
 
@@ -184,7 +184,7 @@ func (s *APIServer) setupMiddleware() {
 
 // otelStatusCodeMiddleware is a custom middleware that sets OpenTelemetry span status codes
 // based on HTTP response status codes to fix the issue where all traces show as errors
-func (s *APIServer) otelStatusCodeMiddleware(next http.Handler) http.Handler {
+func (*APIServer) otelStatusCodeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Create a response writer wrapper to capture the status code
 		wrapper := &responseWriterWrapper{
@@ -203,14 +203,15 @@ func (s *APIServer) otelStatusCodeMiddleware(next http.Handler) http.Handler {
 
 		// Set the OpenTelemetry span status based on HTTP status code
 		statusCode := wrapper.statusCode
+
 		switch {
-		case statusCode >= 200 && statusCode < 400:
+		case statusCode >= httpOK && statusCode < httpBadRequest:
 			// Success: 2xx and 3xx responses
 			span.SetStatus(codes.Ok, "")
-		case statusCode >= 400 && statusCode < 500:
-			// Client error: 4xx responses  
+		case statusCode >= httpBadRequest && statusCode < httpInternalServerError:
+			// Client error: 4xx responses
 			span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", statusCode))
-		case statusCode >= 500:
+		case statusCode >= httpInternalServerError:
 			// Server error: 5xx responses
 			span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", statusCode))
 		default:
@@ -239,6 +240,7 @@ func (w *responseWriterWrapper) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !ok {
 		return nil, nil, fmt.Errorf("responseWriter does not implement http.Hijacker")
 	}
+
 	return hijacker.Hijack()
 }
 
@@ -315,7 +317,10 @@ func (s *APIServer) handleAPIKeyAuth(w http.ResponseWriter, r *http.Request, nex
 }
 
 const (
-	authEnabledTrue = "true"
+	authEnabledTrue         = "true"
+	httpInternalServerError = 500
+	httpBadRequest          = 400
+	httpOK                  = 200
 )
 
 // isAuthRequired checks if authentication is required
