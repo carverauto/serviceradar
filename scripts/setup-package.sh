@@ -17,16 +17,31 @@
 # setup-package.sh - Unified script to build ServiceRadar Debian and RPM packages
 set -e
 
-# Default version
-VERSION=${VERSION:-1.0.34}
+# Configuration
 CONFIG_FILE="packaging/components.json"
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_DIR="${BASE_DIR}/release-artifacts"
 
+# Generate a unique build ID if not provided
+generate_build_id() {
+    # Format: YYYYMMDD-HHMMSS-GITSHORT
+    local timestamp=$(date +"%Y%m%d-%H%M%S")
+    local git_short=$(git rev-parse --short HEAD 2>/dev/null || echo "nogit")
+    echo "${timestamp}-${git_short}"
+}
+
 usage() {
     local components
     components=$(jq -r '.[] | select(.name != null) | .name' "$CONFIG_FILE")
-    echo "Usage: $0 --type=[deb|rpm] [--all | all | component_name]"
+    echo "Usage: $0 --type=[deb|rpm] [--version=VERSION] [--build-id=BUILD_ID] [--all | all | component_name]"
+    echo ""
+    echo "Options:"
+    echo "  --type=[deb|rpm]      Package type to build (required)"
+    echo "  --version=VERSION     Version to use (or set VERSION env var)"
+    echo "  --build-id=BUILD_ID   Build ID to use (or set BUILD_ID env var, auto-generated if not set)"
+    echo "  --all | all           Build all components"
+    echo "  component_name        Build specific component"
+    echo ""
     echo "Components: $components"
     exit 1
 }
@@ -35,15 +50,28 @@ usage() {
 package_type=""
 build_all=false
 component=""
+# Don't initialize VERSION and BUILD_ID here - let them inherit from environment
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --type=*)
             package_type="${1#*=}"
             shift
             ;;
+        --version=*)
+            VERSION="${1#*=}"
+            shift
+            ;;
+        --build-id=*)
+            BUILD_ID="${1#*=}"
+            shift
+            ;;
         --all|all)
             build_all=true
             shift
+            ;;
+        --help|-h)
+            usage
             ;;
         *)
             component="$1"
@@ -51,6 +79,36 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Version handling - prioritize command line, then env var, then VERSION file
+if [ -z "$VERSION" ]; then
+    # Use environment variable if set
+    VERSION="${VERSION:-}"
+    if [ -z "$VERSION" ]; then
+        # Try to read from VERSION file
+        if [ -f "${BASE_DIR}/VERSION" ]; then
+            VERSION=$(cat "${BASE_DIR}/VERSION" | tr -d '[:space:]')
+            echo "Using version from VERSION file: $VERSION"
+        else
+            echo "Error: Version must be specified via --version flag, VERSION environment variable, or VERSION file"
+            echo ""
+            usage
+        fi
+    fi
+fi
+
+# Build ID handling - prioritize command line, then env var, then generate
+if [ -z "$BUILD_ID" ]; then
+    # Use environment variable if set, otherwise generate
+    BUILD_ID="${BUILD_ID:-$(generate_build_id)}"
+    if [[ "$BUILD_ID" == *"-"* ]]; then
+        echo "Build ID: $BUILD_ID"
+    fi
+fi
+
+# Export for use in build processes
+export VERSION
+export BUILD_ID
 
 # Debug argument parsing
 echo "Parsed arguments: package_type='$package_type', build_all='$build_all', component='$component'"
@@ -157,9 +215,10 @@ build_component() {
     fi
 
     # Extract fields
-    local package_name version description maintainer architecture section priority
+    local package_name description maintainer architecture section priority
     package_name=$(echo "$config" | jq -r '.package_name')
-    version=$(echo "$config" | jq -r '.version')
+    # Use VERSION from environment/flags instead of components.json
+    version="$VERSION"
     description=$(echo "$config" | jq -r '.description')
     maintainer=$(echo "$config" | jq -r '.maintainer')
     architecture=$(echo "$config" | jq -r '.architecture')
@@ -204,8 +263,11 @@ build_component() {
         if [ "$build_method" = "go" ]; then
             local output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')
-            echo "Building Go binary from $src_path..."
-            GOOS=linux GOARCH=amd64 go build -o "${pkg_root}${output_path}" "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
+            echo "Building Go binary from $src_path with version $VERSION and build $BUILD_ID..."
+            GOOS=linux GOARCH=amd64 go build \
+                -ldflags "-X github.com/carverauto/serviceradar/pkg/version.Version=$VERSION -X github.com/carverauto/serviceradar/pkg/version.BuildID=$BUILD_ID" \
+                -o "${pkg_root}${output_path}" \
+                "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not built"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
         elif [ "$build_method" = "docker" ] && [ -n "$dockerfile" ]; then
@@ -214,7 +276,7 @@ build_component() {
             echo "Building with Docker ($dockerfile) from context ${BASE_DIR}..."
             echo "Verifying context contents..."
             ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" || { echo "Error: Source files missing in context"; exit 1; }
-            docker build --platform linux/amd64 --build-arg VERSION="$version" --build-arg BUILD_TAGS="$BUILD_TAGS" -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
+            docker build --platform linux/amd64 --build-arg VERSION="$version" --build-arg BUILD_ID="$BUILD_ID" --build-arg BUILD_TAGS="$BUILD_TAGS" -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
             container_id=$(docker create "${package_name}-builder" /bin/true)
             #echo "Listing container contents at /src..."
             #docker run --rm "${package_name}-builder" ls -l /src || { echo "Error: Failed to list container contents"; exit 1; }
@@ -235,10 +297,21 @@ build_component() {
             echo "Current directory: $(pwd)"
             echo "Node.js version: $(node -v)"
             echo "npm version: $(npm -v)"
+            
+            # Create build info file for web UI
+            echo "Creating build info file..."
+            cat > public/build-info.json << EOF
+{
+  "version": "$VERSION",
+  "buildId": "$BUILD_ID",
+  "buildTime": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+EOF
+            
             echo "Installing dependencies..."
             npm install || { echo "Error: npm install failed"; exit 1; }
-            echo "Building Next.js application..."
-            npm run build || { echo "Error: npm build failed"; exit 1; }
+            echo "Building Next.js application with VERSION=$VERSION and BUILD_ID=$BUILD_ID..."
+            NEXT_PUBLIC_VERSION="$VERSION" NEXT_PUBLIC_BUILD_ID="$BUILD_ID" npm run build || { echo "Error: npm build failed"; exit 1; }
             echo "Installing production dependencies for runtime..."
             rm -rf node_modules package-lock.json
             npm install --production || { echo "Error: npm install --production failed"; exit 1; }
@@ -284,6 +357,7 @@ build_component() {
                 --platform linux/amd64 \
                 --no-cache \
                 --build-arg VERSION="$version" \
+                --build-arg BUILD_ID="$BUILD_ID" \
                 --build-arg RELEASE="$rpm_release" \
                 --build-arg COMPONENT="$component" \
                 --build-arg BINARY_PATH="$src_path" \
@@ -466,6 +540,7 @@ EOF
             docker build \
                 --platform linux/amd64 \
                 --build-arg VERSION="$version" \
+                --build-arg BUILD_ID="$BUILD_ID" \
                 --build-arg RELEASE="$rpm_release" \
                 --build-arg COMPONENT="$component" \
                 --build-arg BINARY_PATH="$src_path" \
