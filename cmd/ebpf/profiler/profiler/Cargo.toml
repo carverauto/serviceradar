@@ -37,7 +37,7 @@ dashmap = "6.0"
 futures-util = "0.3"
 
 # Profiling output formats
-pprof = { version = "0.13", features = ["flamegraph", "protobuf-codec"] }
+pprof = { version = "0.14", features = ["flamegraph", "protobuf-codec"] }
 
 # TUI for interactive flamegraph display
 ratatui = "0.29"
