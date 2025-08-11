@@ -24,10 +24,10 @@ RELEASE_DIR="${BASE_DIR}/release-artifacts"
 
 # Generate a unique build ID if not provided
 generate_build_id() {
-    # Format: YYYYMMDD-HHMMSS-GITSHORT
-    local timestamp=$(date +"%Y%m%d-%H%M%S")
-    local git_short=$(git rev-parse --short HEAD 2>/dev/null || echo "nogit")
-    echo "${timestamp}-${git_short}"
+    # Format: DDHHMM (6 chars) + 2-char git hash = 8 chars total
+    local day_time=$(date +"%d%H%M")
+    local git_short=$(git rev-parse --short HEAD 2>/dev/null | cut -c1-2 || echo "xx")
+    echo "${day_time}${git_short}"
 }
 
 usage() {
@@ -101,10 +101,10 @@ fi
 if [ -z "$BUILD_ID" ]; then
     # Use environment variable if set, otherwise generate
     BUILD_ID="${BUILD_ID:-$(generate_build_id)}"
-    if [[ "$BUILD_ID" == *"-"* ]]; then
-        echo "Build ID: $BUILD_ID"
-    fi
 fi
+
+# Always show the final BUILD_ID
+echo "Build ID: $BUILD_ID"
 
 # Export for use in build processes
 export VERSION
