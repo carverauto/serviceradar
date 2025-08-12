@@ -725,6 +725,7 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 
 	totalHostCount := 0
 
+	// Process legacy networks with global sweep modes (for backward compatibility)
 	for _, network := range s.config.Networks {
 		ips, err := scan.ExpandCIDR(network)
 		if err != nil {
@@ -736,6 +737,7 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 		metadata := map[string]interface{}{
 			"network":     network,
 			"total_hosts": len(ips),
+			"source":      "legacy_networks",
 		}
 
 		for _, ip := range ips {
@@ -755,11 +757,62 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 		}
 	}
 
+	// Process device targets with per-device sweep modes (from sync service)
+	for _, deviceTarget := range s.config.DeviceTargets {
+		ips, err := scan.ExpandCIDR(deviceTarget.Network)
+		if err != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("network", deviceTarget.Network).
+				Str("query_label", deviceTarget.QueryLabel).
+				Msg("Failed to expand device target CIDR, skipping")
+			continue
+		}
+
+		totalHostCount += len(ips)
+
+		metadata := map[string]interface{}{
+			"network":      deviceTarget.Network,
+			"total_hosts":  len(ips),
+			"source":       deviceTarget.Source,
+			"query_label":  deviceTarget.QueryLabel,
+		}
+
+		// Add device target metadata to the scan metadata
+		for k, v := range deviceTarget.Metadata {
+			metadata[k] = v
+		}
+
+		for _, ip := range ips {
+			// Use device-specific sweep modes if available, otherwise fall back to global
+			sweepModes := deviceTarget.SweepModes
+			if len(sweepModes) == 0 {
+				sweepModes = s.config.SweepModes
+			}
+
+			if containsMode(sweepModes, models.ModeICMP) {
+				target := scan.TargetFromIP(ip, models.ModeICMP)
+				target.Metadata = metadata
+				targets = append(targets, target)
+			}
+
+			if containsMode(sweepModes, models.ModeTCP) {
+				portsToScan := s.config.Ports
+				for _, port := range portsToScan {
+					target := scan.TargetFromIP(ip, models.ModeTCP, port)
+					target.Metadata = metadata
+					targets = append(targets, target)
+				}
+			}
+		}
+	}
+
 	s.logger.Info().
 		Int("targetsGenerated", len(targets)).
 		Int("networkCount", len(s.config.Networks)).
+		Int("deviceTargetCount", len(s.config.DeviceTargets)).
 		Int("totalHosts", totalHostCount).
-		Msg("Generated targets from networks")
+		Msg("Generated targets from networks and device targets")
 
 	return targets, nil
 }

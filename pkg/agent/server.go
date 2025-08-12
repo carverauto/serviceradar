@@ -172,15 +172,16 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 	}
 
 	c := &models.Config{
-		Networks:    sweepConfig.Networks,
-		Ports:       sweepConfig.Ports,
-		SweepModes:  sweepConfig.SweepModes,
-		Interval:    time.Duration(sweepConfig.Interval),
-		Concurrency: sweepConfig.Concurrency,
-		Timeout:     time.Duration(sweepConfig.Timeout),
-		AgentID:     cfg.AgentID,
-		PollerID:    cfg.AgentID, // Use AgentID as PollerID for now
-		Partition:   cfg.Partition,
+		Networks:      sweepConfig.Networks,
+		Ports:         sweepConfig.Ports,
+		SweepModes:    sweepConfig.SweepModes,
+		DeviceTargets: sweepConfig.DeviceTargets,
+		Interval:      time.Duration(sweepConfig.Interval),
+		Concurrency:   sweepConfig.Concurrency,
+		Timeout:       time.Duration(sweepConfig.Timeout),
+		AgentID:       cfg.AgentID,
+		PollerID:      cfg.AgentID, // Use AgentID as PollerID for now
+		Partition:     cfg.Partition,
 	}
 
 	// Prioritize AgentID as the unique identifier for the KV path.
@@ -302,6 +303,17 @@ func (s *Server) mergeSweepModes(fileValue, kvValue []models.SweepMode, mergedCo
 	}
 }
 
+// mergeDeviceTargets merges DeviceTargets from KV config to merged config
+// Always merge device targets from KV since they come from sync service discovery
+func (s *Server) mergeDeviceTargets(fileValue, kvValue []models.DeviceTarget, mergedConfig *SweepConfig) {
+	if len(kvValue) > 0 {
+		mergedConfig.DeviceTargets = kvValue
+		s.logger.Info().
+			Int("device_target_count", len(kvValue)).
+			Msg("Merged device_targets from KV config")
+	}
+}
+
 // mergeIntSlice merges an int slice field from KV config to merged config if needed
 func (s *Server) mergeIntSlice(fieldName string, fileValue, kvValue []int, mergedConfig *SweepConfig) {
 	if len(fileValue) == 0 && len(kvValue) > 0 {
@@ -376,6 +388,7 @@ func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *
 	s.mergeStringSlice("networks", fileConfig.Networks, kvConfig.Networks, &mergedConfig)
 	s.mergeIntSlice("ports", fileConfig.Ports, kvConfig.Ports, &mergedConfig)
 	s.mergeSweepModes(fileConfig.SweepModes, kvConfig.SweepModes, &mergedConfig)
+	s.mergeDeviceTargets(fileConfig.DeviceTargets, kvConfig.DeviceTargets, &mergedConfig)
 	s.mergeInt("concurrency", fileConfig.Concurrency, kvConfig.Concurrency, &mergedConfig)
 	s.mergeDuration("interval", fileConfig.Interval, kvConfig.Interval, &mergedConfig)
 	s.mergeDuration("timeout", fileConfig.Timeout, kvConfig.Timeout, &mergedConfig)

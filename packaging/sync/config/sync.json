@@ -51,7 +51,8 @@
       "queries": [
         {
           "label": "all_devices",
-          "query": "in:devices orderBy=id boundaries:\"Corporate\""
+          "query": "in:devices orderBy=id boundaries:\"Corporate\"",
+          "sweep_modes": ["tcp"]
         }
       ],
       "custom_field": "OT_Isolation_Compliant"
