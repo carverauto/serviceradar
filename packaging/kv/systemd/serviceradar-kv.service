@@ -11,5 +11,8 @@ RestartSec=10
 LimitNPROC=512
 LimitNOFILE=65535
 
+StandardOutput=append:/var/log/serviceradar/kv.log
+StandardError=append:/var/log/serviceradar/kv-error.log
+
 [Install]
 WantedBy=multi-user.target

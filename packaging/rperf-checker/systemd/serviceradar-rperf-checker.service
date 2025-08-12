@@ -8,6 +8,8 @@ ExecStart=/usr/local/bin/serviceradar-rperf-checker --config /etc/serviceradar/c
 Restart=on-failure
 User=serviceradar
 Group=serviceradar
+StandardOutput=append:/var/log/serviceradar/rperf-checker.log
+StandardError=append:/var/log/serviceradar/rperf-checker-error.log
 
 [Install]
 WantedBy=multi-user.target

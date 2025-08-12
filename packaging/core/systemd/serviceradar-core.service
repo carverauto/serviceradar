@@ -12,6 +12,8 @@ RestartSec=10
 TimeoutStopSec=20
 KillMode=mixed
 KillSignal=SIGTERM
+StandardOutput=append:/var/log/serviceradar/core.log
+StandardError=append:/var/log/serviceradar/core-error.log
 
 [Install]
 WantedBy=multi-user.target
