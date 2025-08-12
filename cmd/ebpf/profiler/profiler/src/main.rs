@@ -30,6 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             args.format,
             args.tui,
             args.flamegraph,
+            args.enhanced_tui,
         ).await?;
         return Ok(());
     }

@@ -13,6 +13,8 @@ pub mod ebpf_profiler;
 pub mod flame_graph;
 pub mod output;
 pub mod tui_flamegraph;
+pub mod tui;
+pub mod enhanced_tui;
 
 // Generated protobuf code
 pub mod profiler {
@@ -344,6 +346,7 @@ pub async fn run_standalone_profiling(
     format: crate::cli::OutputFormat,
     show_tui: bool,
     show_flamegraph: bool,
+    enhanced_tui: bool,
 ) -> Result<(), anyhow::Error> {
     use crate::output::{OutputWriter, suggest_output_filename};
 
@@ -399,6 +402,22 @@ pub async fn run_standalone_profiling(
         return Err(anyhow::anyhow!("No profiling data collected"));
     }
 
+    // Show enhanced TUI if requested
+    if enhanced_tui {
+        info!("Launching enhanced TUI flamegraph viewer...");
+        
+        return crate::enhanced_tui::run_enhanced_tui(stack_traces, pid, duration)
+            .map_err(|e| anyhow::anyhow!("Enhanced TUI error: {}", e));
+    }
+
+    // Show original TUI if requested (legacy)
+    if show_tui {
+        info!("Launching original TUI flamegraph viewer...");
+        
+        let mut tui = crate::tui_flamegraph::FlameGraphTUI::new(stack_traces, pid, duration);
+        return tui.run().map_err(|e| anyhow::anyhow!("TUI error: {}", e));
+    }
+
     info!("Collected {} unique stack traces", stack_traces.len());
     let total_samples: u64 = stack_traces.iter().map(|t| t.count).sum();
     info!("Total samples: {}", total_samples);
@@ -430,23 +449,6 @@ pub async fn run_standalone_profiling(
             html_filename);
         
         return Ok(());
-    }
-
-    // Show TUI if requested
-    if show_tui {
-        info!("Launching interactive TUI flamegraph viewer...");
-        
-        // Debug: Show some stack trace samples
-        info!("Sample stack traces for TUI:");
-        for (i, trace) in stack_traces.iter().take(3).enumerate() {
-            info!("  Trace {}: {} frames, {} samples", i + 1, trace.frames.len(), trace.count);
-            for (j, frame) in trace.frames.iter().take(5).enumerate() {
-                info!("    Frame {}: {}", j + 1, frame);
-            }
-        }
-        
-        let mut tui = crate::tui_flamegraph::FlameGraphTUI::new(stack_traces, pid, duration);
-        return tui.run().map_err(|e| anyhow::anyhow!("TUI error: {}", e));
     }
 
     // Write output to file

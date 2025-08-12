@@ -11,7 +11,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Clear, Wrap, Table, Row},
+    widgets::{Block, Borders, Paragraph, Table, Row},
     Frame, Terminal,
 };
 use std::collections::hash_map::DefaultHasher;

@@ -49,6 +49,10 @@ pub struct CLI {
     #[arg(long = "tui")]
     pub tui: bool,
 
+    /// Use enhanced TUI with flamelens-style interface
+    #[arg(long = "enhanced-tui")]
+    pub enhanced_tui: bool,
+
     /// Generate interactive HTML flamegraph (like Brendan Gregg's)
     #[arg(long = "flamegraph")]
     pub flamegraph: bool,
