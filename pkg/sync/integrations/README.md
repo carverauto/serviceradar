@@ -90,7 +90,7 @@ Each entry in the `sources` map defines a connection to an external system.
 | `queries`              | `array`   | (Armis only) An array of AQL queries to run against the Armis API to fetch devices.                                                                                                                               | **Yes**  |
 | `poll_interval`        | `string`  | (Optional) Overrides the global `poll_interval` for this specific source. Uses Go's `time.ParseDuration` format.                                                                                                | No       |
 | `sweep_interval`       | `string`  | How often agents should sweep discovered networks. Uses Go duration format (e.g., "5m").                                                                                                                        | No       |
-| `batch_size`           | `integer` | (Armis only) Number of devices to update in each batch when syncing to Armis. Default: 1000. Lower values reduce API load but increase update time.                                                              | No       |
+| `batch_size`           | `integer` | (Armis only) Number of devices to update in each batch when syncing to Armis. Default: 500. Lower values reduce API load but increase update time.                                                               | No       |
 
 ---
 

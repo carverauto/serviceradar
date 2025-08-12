@@ -1131,7 +1131,7 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 		Logger:        logger.NewTestLogger(),
 	}
 
-	// Create test data with 2500 devices (should be split into 3 batches of 1000, 1000, and 500)
+	// Create test data with 2500 devices (should be split into 5 batches of 500 each)
 	const totalDevices = 2500
 	devices := make([]Device, totalDevices)
 	sweepResults := make([]SweepResult, totalDevices)
@@ -1149,24 +1149,11 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 		}
 	}
 
-	// Expect exactly 3 calls to UpdateMultipleDeviceCustomAttributes
-	// Batch 1: 1000 devices
-	mockUpdater.EXPECT().
-		UpdateMultipleDeviceCustomAttributes(gomock.Any(), gomock.Len(1000)).
-		Return(nil).
-		Times(1)
-
-	// Batch 2: 1000 devices
-	mockUpdater.EXPECT().
-		UpdateMultipleDeviceCustomAttributes(gomock.Any(), gomock.Len(1000)).
-		Return(nil).
-		Times(1)
-
-	// Batch 3: 500 devices
+	// Expect exactly 5 calls to UpdateMultipleDeviceCustomAttributes (500 devices each)
 	mockUpdater.EXPECT().
 		UpdateMultipleDeviceCustomAttributes(gomock.Any(), gomock.Len(500)).
 		Return(nil).
-		Times(1)
+		Times(5)
 
 	// Execute the batch update
 	ctx := context.Background()
