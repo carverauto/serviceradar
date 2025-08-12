@@ -10,6 +10,8 @@ Restart=always
 RestartSec=10
 LimitNPROC=512
 LimitNOFILE=65535
+StandardOutput=append:/var/log/serviceradar/poller.log
+StandardError=append:/var/log/serviceradar/poller-error.log
 
 [Install]
 WantedBy=multi-user.target

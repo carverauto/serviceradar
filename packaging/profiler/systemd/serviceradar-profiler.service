@@ -9,5 +9,8 @@ Restart=on-failure
 User=serviceradar
 Group=serviceradar
 
+StandardOutput=append:/var/log/serviceradar/profiler.log
+StandardError=append:/var/log/serviceradar/profiler-error.log
+
 [Install]
 WantedBy=multi-user.target

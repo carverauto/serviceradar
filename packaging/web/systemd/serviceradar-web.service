@@ -13,5 +13,8 @@ ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=10
 
+StandardOutput=append:/var/log/serviceradar/web.log
+StandardError=append:/var/log/serviceradar/web-error.log
+
 [Install]
 WantedBy=multi-user.target
