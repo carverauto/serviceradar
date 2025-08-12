@@ -305,7 +305,7 @@ func (s *Server) mergeSweepModes(fileValue, kvValue []models.SweepMode, mergedCo
 
 // mergeDeviceTargets merges DeviceTargets from KV config to merged config
 // Always merge device targets from KV since they come from sync service discovery
-func (s *Server) mergeDeviceTargets(fileValue, kvValue []models.DeviceTarget, mergedConfig *SweepConfig) {
+func (s *Server) mergeDeviceTargets(_, kvValue []models.DeviceTarget, mergedConfig *SweepConfig) {
 	if len(kvValue) > 0 {
 		mergedConfig.DeviceTargets = kvValue
 		s.logger.Info().

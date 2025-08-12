@@ -746,3 +746,331 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	assert.False(t, sweepResp.Available)
 	assert.Contains(t, string(sweepResp.Data), "No sweep service configured")
 }
+
+func TestServer_mergeKVUpdates_DeviceTargets(t *testing.T) {
+	tests := []struct {
+		name                  string
+		fileConfig            *SweepConfig
+		kvConfig              *SweepConfig
+		kvStoreFound          bool
+		expectedDeviceTargets []models.DeviceTarget
+		expectError           bool
+	}{
+		{
+			name: "merge device targets from KV into empty file config",
+			fileConfig: &SweepConfig{
+				Networks:      []string{"192.168.1.0/24"},
+				DeviceTargets: []models.DeviceTarget{},
+			},
+			kvConfig: &SweepConfig{
+				Networks: []string{"192.168.1.0/24"},
+				DeviceTargets: []models.DeviceTarget{
+					{
+						Network:    "192.168.1.10/32",
+						SweepModes: []models.SweepMode{models.ModeTCP},
+						QueryLabel: "tcp_devices",
+						Source:     "armis",
+						Metadata: map[string]string{
+							"armis_device_id": "123",
+						},
+					},
+					{
+						Network:    "192.168.1.20/32",
+						SweepModes: []models.SweepMode{models.ModeICMP},
+						QueryLabel: "icmp_devices",
+						Source:     "armis",
+						Metadata: map[string]string{
+							"armis_device_id": "456",
+						},
+					},
+				},
+			},
+			kvStoreFound: true,
+			expectedDeviceTargets: []models.DeviceTarget{
+				{
+					Network:    "192.168.1.10/32",
+					SweepModes: []models.SweepMode{models.ModeTCP},
+					QueryLabel: "tcp_devices",
+					Source:     "armis",
+					Metadata: map[string]string{
+						"armis_device_id": "123",
+					},
+				},
+				{
+					Network:    "192.168.1.20/32",
+					SweepModes: []models.SweepMode{models.ModeICMP},
+					QueryLabel: "icmp_devices",
+					Source:     "armis",
+					Metadata: map[string]string{
+						"armis_device_id": "456",
+					},
+				},
+			},
+		},
+		{
+			name: "KV device targets override file device targets",
+			fileConfig: &SweepConfig{
+				Networks: []string{"192.168.1.0/24"},
+				DeviceTargets: []models.DeviceTarget{
+					{
+						Network:    "10.0.0.10/32",
+						SweepModes: []models.SweepMode{models.ModeTCP},
+						QueryLabel: "old_devices",
+						Source:     "netbox",
+					},
+				},
+			},
+			kvConfig: &SweepConfig{
+				Networks: []string{"192.168.1.0/24"},
+				DeviceTargets: []models.DeviceTarget{
+					{
+						Network:    "192.168.1.10/32",
+						SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+						QueryLabel: "new_devices",
+						Source:     "armis",
+						Metadata: map[string]string{
+							"armis_device_id": "789",
+						},
+					},
+				},
+			},
+			kvStoreFound: true,
+			expectedDeviceTargets: []models.DeviceTarget{
+				{
+					Network:    "192.168.1.10/32",
+					SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+					QueryLabel: "new_devices",
+					Source:     "armis",
+					Metadata: map[string]string{
+						"armis_device_id": "789",
+					},
+				},
+			},
+		},
+		{
+			name: "no KV config found, use file config only",
+			fileConfig: &SweepConfig{
+				Networks: []string{"192.168.1.0/24"},
+				DeviceTargets: []models.DeviceTarget{
+					{
+						Network:    "192.168.1.30/32",
+						SweepModes: []models.SweepMode{models.ModeTCP},
+						QueryLabel: "file_devices",
+						Source:     "static",
+					},
+				},
+			},
+			kvStoreFound: false,
+			expectedDeviceTargets: []models.DeviceTarget{
+				{
+					Network:    "192.168.1.30/32",
+					SweepModes: []models.SweepMode{models.ModeTCP},
+					QueryLabel: "file_devices",
+					Source:     "static",
+				},
+			},
+		},
+		{
+			name: "empty KV device targets, keep file device targets",
+			fileConfig: &SweepConfig{
+				Networks: []string{"192.168.1.0/24"},
+				DeviceTargets: []models.DeviceTarget{
+					{
+						Network:    "192.168.1.40/32",
+						SweepModes: []models.SweepMode{models.ModeICMP},
+						QueryLabel: "file_devices",
+						Source:     "static",
+					},
+				},
+			},
+			kvConfig: &SweepConfig{
+				Networks:      []string{"192.168.1.0/24"},
+				DeviceTargets: []models.DeviceTarget{}, // Empty
+			},
+			kvStoreFound: true,
+			expectedDeviceTargets: []models.DeviceTarget{
+				{
+					Network:    "192.168.1.40/32",
+					SweepModes: []models.SweepMode{models.ModeICMP},
+					QueryLabel: "file_devices",
+					Source:     "static",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock KV store that implements the agent's KVStore interface
+			mockKVStore := &testKVStore{data: make(map[string][]byte)}
+
+			if tt.kvStoreFound {
+				kvData, err := json.Marshal(tt.kvConfig)
+				require.NoError(t, err)
+
+				mockKVStore.data["test/sweep.json"] = kvData
+			}
+
+			// Create server with mock KV store
+			server := &Server{
+				kvStore: mockKVStore,
+				config:  &ServerConfig{},
+				logger:  createTestLogger(),
+			}
+
+			// Execute merge
+			result, err := server.mergeKVUpdates(context.Background(), "test/sweep.json", tt.fileConfig)
+
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+
+			if !tt.kvStoreFound {
+				// No KV config found, should return nil
+				assert.Nil(t, result)
+				return
+			}
+
+			// Verify merged config
+			require.NotNil(t, result)
+			assert.Equal(t, tt.expectedDeviceTargets, result.DeviceTargets)
+
+			// Verify other fields from file config are preserved
+			assert.Equal(t, tt.fileConfig.Networks, result.Networks)
+		})
+	}
+}
+
+func TestServer_mergeDeviceTargets(t *testing.T) {
+	server := &Server{
+		config: &ServerConfig{},
+		logger: createTestLogger(),
+	}
+
+	tests := []struct {
+		name              string
+		fileDeviceTargets []models.DeviceTarget
+		kvDeviceTargets   []models.DeviceTarget
+		expectedTargets   []models.DeviceTarget
+	}{
+		{
+			name:              "empty file, non-empty KV",
+			fileDeviceTargets: []models.DeviceTarget{},
+			kvDeviceTargets: []models.DeviceTarget{
+				{
+					Network:    "192.168.1.10/32",
+					SweepModes: []models.SweepMode{models.ModeTCP},
+					QueryLabel: "kv_devices",
+					Source:     "armis",
+				},
+			},
+			expectedTargets: []models.DeviceTarget{
+				{
+					Network:    "192.168.1.10/32",
+					SweepModes: []models.SweepMode{models.ModeTCP},
+					QueryLabel: "kv_devices",
+					Source:     "armis",
+				},
+			},
+		},
+		{
+			name: "non-empty file, non-empty KV - KV overrides",
+			fileDeviceTargets: []models.DeviceTarget{
+				{
+					Network:    "10.0.0.10/32",
+					SweepModes: []models.SweepMode{models.ModeICMP},
+					QueryLabel: "file_devices",
+					Source:     "static",
+				},
+			},
+			kvDeviceTargets: []models.DeviceTarget{
+				{
+					Network:    "192.168.1.20/32",
+					SweepModes: []models.SweepMode{models.ModeTCP},
+					QueryLabel: "kv_devices",
+					Source:     "armis",
+				},
+			},
+			expectedTargets: []models.DeviceTarget{
+				{
+					Network:    "192.168.1.20/32",
+					SweepModes: []models.SweepMode{models.ModeTCP},
+					QueryLabel: "kv_devices",
+					Source:     "armis",
+				},
+			},
+		},
+		{
+			name: "non-empty file, empty KV - file preserved",
+			fileDeviceTargets: []models.DeviceTarget{
+				{
+					Network:    "192.168.1.30/32",
+					SweepModes: []models.SweepMode{models.ModeICMP},
+					QueryLabel: "file_devices",
+					Source:     "static",
+				},
+			},
+			kvDeviceTargets: []models.DeviceTarget{},
+			expectedTargets: []models.DeviceTarget{
+				{
+					Network:    "192.168.1.30/32",
+					SweepModes: []models.SweepMode{models.ModeICMP},
+					QueryLabel: "file_devices",
+					Source:     "static",
+				},
+			},
+		},
+		{
+			name:              "empty file, empty KV",
+			fileDeviceTargets: []models.DeviceTarget{},
+			kvDeviceTargets:   []models.DeviceTarget{},
+			expectedTargets:   []models.DeviceTarget{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mergedConfig := &SweepConfig{
+				DeviceTargets: tt.fileDeviceTargets,
+			}
+
+			server.mergeDeviceTargets(tt.fileDeviceTargets, tt.kvDeviceTargets, mergedConfig)
+
+			assert.Equal(t, tt.expectedTargets, mergedConfig.DeviceTargets)
+		})
+	}
+}
+
+// testKVStore implements KVStore interface for testing
+type testKVStore struct {
+	data map[string][]byte
+}
+
+func (t *testKVStore) Get(_ context.Context, key string) ([]byte, bool, error) {
+	value, found := t.data[key]
+	return value, found, nil
+}
+
+func (t *testKVStore) Put(_ context.Context, key string, value []byte, _ time.Duration) error {
+	t.data[key] = value
+	return nil
+}
+
+func (t *testKVStore) Delete(_ context.Context, key string) error {
+	delete(t.data, key)
+	return nil
+}
+
+func (*testKVStore) Watch(context.Context, string) (<-chan []byte, error) {
+	ch := make(chan []byte)
+	close(ch)
+
+	return ch, nil
+}
+
+func (*testKVStore) Close() error {
+	return nil
+}

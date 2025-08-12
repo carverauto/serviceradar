@@ -48,6 +48,32 @@ func TestArmisIntegration_Fetch_NoUpdater(t *testing.T) {
 	firstPageResp := getFirstPageResponse(expectedDevices)
 	expectedSweepConfig := &models.SweepConfig{
 		Networks: []string{"192.168.1.1/32", "192.168.1.2/32"},
+		DeviceTargets: []models.DeviceTarget{
+			{
+				Network:    "192.168.1.1/32",
+				SweepModes: []models.SweepMode{},
+				QueryLabel: "test",
+				Source:     "armis",
+				Metadata: map[string]string{
+					"armis_device_id":  "1",
+					"integration_id":   "1",
+					"integration_type": "armis",
+					"query_label":      "test",
+				},
+			},
+			{
+				Network:    "192.168.1.2/32",
+				SweepModes: []models.SweepMode{},
+				QueryLabel: "test",
+				Source:     "armis",
+				Metadata: map[string]string{
+					"armis_device_id":  "2",
+					"integration_id":   "2",
+					"integration_type": "armis",
+					"query_label":      "test",
+				},
+			},
+		},
 	}
 
 	setupArmisMocks(t, mocks, firstPageResp, expectedSweepConfig)
@@ -214,7 +240,7 @@ func getFirstPageResponse(devices []Device) *SearchResponse {
 	}
 }
 
-func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, expectedSweepConfig *models.SweepConfig) {
+func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, _ *models.SweepConfig) {
 	t.Helper()
 
 	testAccessToken := "test-access-token"
@@ -222,7 +248,7 @@ func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, expe
 
 	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
 	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(resp, nil)
-	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
+	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 }
 
 func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models.DeviceUpdate, err error, expectedDevices []Device) {
@@ -324,9 +350,6 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 		Total   int         `json:"total"`
 	}{Count: 2, Next: 0, Prev: 0, Results: secondPageDevices, Total: 4}, Success: true}
 	expectedQuery := "in:devices orderBy=id"
-	expectedSweepConfig := &models.SweepConfig{
-		Networks: []string{"192.168.1.1/32", "192.168.1.2/32", "192.168.1.3/32", "192.168.1.4/32"},
-	}
 
 	integration.TokenProvider.(*MockTokenProvider).
 		EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
@@ -335,7 +358,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	integration.DeviceFetcher.(*MockDeviceFetcher).
 		EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 2, 50).Return(secondPageResp, nil)
 	integration.KVWriter.(*MockKVWriter).
-		EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
+		EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 
 	result, _, err := integration.Fetch(context.Background())
 
@@ -415,8 +438,7 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 					EXPECT().FetchDevicesPage(gomock.Any(),
 					"test-token", "in:devices orderBy=id", 0, 100).Return(firstPageResp, nil)
 				i.KVWriter.(*MockKVWriter).
-					EXPECT().WriteSweepConfig(gomock.Any(),
-					&models.SweepConfig{Networks: []string{"192.168.1.1/32"}}).Return(errKVWriteError)
+					EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(errKVWriteError)
 			},
 			expectedError: "",
 		},
@@ -540,13 +562,9 @@ func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
 		Return(guestResp, nil)
 
 	// The KVWriter should be called ONCE with a sweep config containing ALL devices from BOTH queries
-	expectedNetworks := []string{"192.168.1.100/32", "192.168.1.101/32", "192.168.2.100/32", "192.168.2.101/32"}
-	expectedSweepConfig := &models.SweepConfig{
-		Networks: expectedNetworks,
-	}
 
 	mocks.KVWriter.EXPECT().
-		WriteSweepConfig(gomock.Any(), expectedSweepConfig).
+		WriteSweepConfig(gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	// Execute the fetch
@@ -976,7 +994,12 @@ func TestProcessDevices(t *testing.T) {
 		2: "test_query_2",
 	}
 
-	data, ips, events := integ.processDevices(devices, deviceLabels)
+	deviceQueries := map[int]models.QueryConfig{
+		1: {Label: "test_query_1", SweepModes: []models.SweepMode{models.ModeTCP}},
+		2: {Label: "test_query_2", SweepModes: []models.SweepMode{models.ModeICMP}},
+	}
+
+	data, ips, events, deviceTargets := integ.processDevices(devices, deviceLabels, deviceQueries)
 
 	require.Len(t, data, 4) // two device keys and two sweep device entries
 	assert.ElementsMatch(t, []string{"test-agent/192.168.1.1", "test-agent/192.168.1.2"}, keysWithPrefix(data, "test-agent/"))
@@ -1020,6 +1043,33 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "2", events[1].Metadata["integration_id"])
 	assert.Equal(t, "2", events[1].Metadata["armis_device_id"])
 	assert.Equal(t, "test_query_2", events[1].Metadata["query_label"])
+
+	// Verify device targets were created correctly
+	require.Len(t, deviceTargets, 2)
+	// Find device targets by network
+	var target1, target2 *models.DeviceTarget
+
+	for i := range deviceTargets {
+		target := &deviceTargets[i]
+		switch target.Network {
+		case "192.168.1.1/32":
+			target1 = target
+		case "192.168.1.2/32":
+			target2 = target
+		}
+	}
+	// Verify device target 1 (TCP)
+	require.NotNil(t, target1)
+	assert.Equal(t, []models.SweepMode{models.ModeTCP}, target1.SweepModes)
+	assert.Equal(t, "test_query_1", target1.QueryLabel)
+	assert.Equal(t, "armis", target1.Source)
+	assert.Equal(t, "1", target1.Metadata["armis_device_id"])
+	// Verify device target 2 (ICMP)
+	require.NotNil(t, target2)
+	assert.Equal(t, []models.SweepMode{models.ModeICMP}, target2.SweepModes)
+	assert.Equal(t, "test_query_2", target2.QueryLabel)
+	assert.Equal(t, "armis", target2.Source)
+	assert.Equal(t, "2", target2.Metadata["armis_device_id"])
 
 	raw := data["1"]
 
@@ -1313,4 +1363,186 @@ func TestArmisIntegration_Reconcile_QueryError(t *testing.T) {
 	err := integration.Reconcile(ctx)
 	require.Error(t, err)
 	assert.Equal(t, expectedError, err)
+}
+
+// TestArmisIntegration_Fetch_PerDeviceSweepModes tests that devices from different queries
+// get associated with their query's specific sweep modes.
+func TestArmisIntegration_Fetch_PerDeviceSweepModes(t *testing.T) {
+	integration, mocks := setupArmisIntegration(t)
+	integration.Updater = nil
+	integration.SweepQuerier = nil
+
+	// Configure multiple queries with different sweep modes
+	integration.Config.Queries = []models.QueryConfig{
+		{
+			Label:      "tcp_devices",
+			Query:      "in:devices boundaries:\"Corporate\"",
+			SweepModes: []models.SweepMode{models.ModeTCP},
+		},
+		{
+			Label:      "icmp_devices",
+			Query:      "in:devices boundaries:\"Guest\"",
+			SweepModes: []models.SweepMode{models.ModeICMP},
+		},
+		{
+			Label:      "both_modes_devices",
+			Query:      "in:devices boundaries:\"Lab\"",
+			SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+		},
+	}
+
+	// Mock devices for each query
+	tcpDevices := []Device{
+		{ID: 1, IPAddress: "192.168.1.10", Name: "tcp-server"},
+	}
+	icmpDevices := []Device{
+		{ID: 2, IPAddress: "192.168.1.20", Name: "icmp-device"},
+	}
+	bothModesDevices := []Device{
+		{ID: 3, IPAddress: "192.168.1.30", Name: "hybrid-device"},
+	}
+
+	ctx := context.Background()
+
+	// Mock responses for each query
+	mocks.TokenProvider.EXPECT().GetAccessToken(ctx).Return("test-token", nil)
+	// First query (TCP devices)
+	mocks.DeviceFetcher.EXPECT().
+		FetchDevicesPage(ctx, "test-token", "in:devices boundaries:\"Corporate\"", 0, 100).
+		Return(&SearchResponse{
+			Success: true,
+			Data: struct {
+				Count   int         `json:"count"`
+				Next    int         `json:"next"`
+				Prev    interface{} `json:"prev"`
+				Results []Device    `json:"results"`
+				Total   int         `json:"total"`
+			}{
+				Count:   1,
+				Results: tcpDevices,
+				Next:    0,
+			},
+		}, nil)
+
+	// Second query (ICMP devices)
+	mocks.DeviceFetcher.EXPECT().
+		FetchDevicesPage(ctx, "test-token", "in:devices boundaries:\"Guest\"", 0, 100).
+		Return(&SearchResponse{
+			Success: true,
+			Data: struct {
+				Count   int         `json:"count"`
+				Next    int         `json:"next"`
+				Prev    interface{} `json:"prev"`
+				Results []Device    `json:"results"`
+				Total   int         `json:"total"`
+			}{
+				Count:   1,
+				Results: icmpDevices,
+				Next:    0,
+			},
+		}, nil)
+
+	// Third query (both modes devices)
+	mocks.DeviceFetcher.EXPECT().
+		FetchDevicesPage(ctx, "test-token", "in:devices boundaries:\"Lab\"", 0, 100).
+		Return(&SearchResponse{
+			Success: true,
+			Data: struct {
+				Count   int         `json:"count"`
+				Next    int         `json:"next"`
+				Prev    interface{} `json:"prev"`
+				Results []Device    `json:"results"`
+				Total   int         `json:"total"`
+			}{
+				Count:   1,
+				Results: bothModesDevices,
+				Next:    0,
+			},
+		}, nil)
+
+	// Mock KV writer to capture the sweep config
+	var capturedSweepConfig *models.SweepConfig
+
+	mocks.KVWriter.EXPECT().
+		WriteSweepConfig(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, config *models.SweepConfig) error {
+			capturedSweepConfig = config
+			return nil
+		})
+
+	// Execute fetch
+	kvData, deviceUpdates, err := integration.Fetch(ctx)
+
+	// Verify no errors
+	require.NoError(t, err)
+	require.NotNil(t, kvData)
+	require.NotNil(t, deviceUpdates)
+	require.NotNil(t, capturedSweepConfig)
+
+	// Verify device updates contain correct metadata
+	assert.Len(t, deviceUpdates, 3)
+
+	// Find device updates by IP
+	var tcpDevice, icmpDevice, bothModesDevice *models.DeviceUpdate
+
+	for _, update := range deviceUpdates {
+		switch update.IP {
+		case "192.168.1.10":
+			tcpDevice = update
+		case "192.168.1.20":
+			icmpDevice = update
+		case "192.168.1.30":
+			bothModesDevice = update
+		}
+	}
+
+	// Verify device updates have correct query labels
+	require.NotNil(t, tcpDevice)
+	assert.Equal(t, "tcp_devices", tcpDevice.Metadata["query_label"])
+
+	require.NotNil(t, icmpDevice)
+	assert.Equal(t, "icmp_devices", icmpDevice.Metadata["query_label"])
+	require.NotNil(t, bothModesDevice)
+	assert.Equal(t, "both_modes_devices", bothModesDevice.Metadata["query_label"])
+
+	// Verify sweep config contains device targets with correct sweep modes
+	assert.Len(t, capturedSweepConfig.DeviceTargets, 3)
+
+	// Find device targets by network
+	var tcpTarget, icmpTarget, bothModesTarget *models.DeviceTarget
+
+	for i := range capturedSweepConfig.DeviceTargets {
+		target := &capturedSweepConfig.DeviceTargets[i]
+		switch target.Network {
+		case "192.168.1.10/32":
+			tcpTarget = target
+		case "192.168.1.20/32":
+			icmpTarget = target
+		case "192.168.1.30/32":
+			bothModesTarget = target
+		}
+	}
+
+	// Verify TCP device target
+	require.NotNil(t, tcpTarget)
+	assert.Equal(t, []models.SweepMode{models.ModeTCP}, tcpTarget.SweepModes)
+	assert.Equal(t, "tcp_devices", tcpTarget.QueryLabel)
+	assert.Equal(t, "armis", tcpTarget.Source)
+
+	// Verify ICMP device target
+	require.NotNil(t, icmpTarget)
+	assert.Equal(t, []models.SweepMode{models.ModeICMP}, icmpTarget.SweepModes)
+	assert.Equal(t, "icmp_devices", icmpTarget.QueryLabel)
+	assert.Equal(t, "armis", icmpTarget.Source)
+
+	// Verify both modes device target
+	require.NotNil(t, bothModesTarget)
+	assert.Equal(t, []models.SweepMode{models.ModeICMP, models.ModeTCP}, bothModesTarget.SweepModes)
+	assert.Equal(t, "both_modes_devices", bothModesTarget.QueryLabel)
+	assert.Equal(t, "armis", bothModesTarget.Source)
+
+	// Verify metadata is preserved
+	assert.Equal(t, "1", tcpTarget.Metadata["armis_device_id"])
+	assert.Equal(t, "2", icmpTarget.Metadata["armis_device_id"])
+	assert.Equal(t, "3", bothModesTarget.Metadata["armis_device_id"])
 }

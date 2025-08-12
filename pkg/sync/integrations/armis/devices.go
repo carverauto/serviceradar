@@ -196,23 +196,8 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 	return err
 }
 
-// applyBlacklistFiltering filters out devices, KV data, and IPs based on the network blacklist
-func (a *ArmisIntegration) applyBlacklistFiltering(
-	events []*models.DeviceUpdate,
-	data map[string][]byte,
-	ips []string,
-	deviceTargets []models.DeviceTarget,
-) (filteredEvents []*models.DeviceUpdate, filteredData map[string][]byte, filteredIPs []string, filteredTargets []models.DeviceTarget) {
-	if len(a.Config.NetworkBlacklist) == 0 {
-		return events, data, ips, deviceTargets
-	}
-
-	a.Logger.Info().
-		Int("original_device_count", len(events)).
-		Strs("blacklist_cidrs", a.Config.NetworkBlacklist).
-		Msg("Applying network blacklist filtering to Armis devices")
-
-	// Parse blacklist CIDRs once
+// parseBlacklistNetworks parses the blacklist CIDRs and returns valid networks
+func (a *ArmisIntegration) parseBlacklistNetworks() []*net.IPNet {
 	blacklistNetworks := make([]*net.IPNet, 0, len(a.Config.NetworkBlacklist))
 
 	for _, cidr := range a.Config.NetworkBlacklist {
@@ -229,70 +214,97 @@ func (a *ArmisIntegration) applyBlacklistFiltering(
 		blacklistNetworks = append(blacklistNetworks, network)
 	}
 
-	// Initialize return values
-	filteredEvents = make([]*models.DeviceUpdate, 0, len(events))
-	filteredData = make(map[string][]byte)
-	filteredIPs = make([]string, 0, len(ips))
-	filteredTargets = make([]models.DeviceTarget, 0, len(deviceTargets))
+	return blacklistNetworks
+}
 
-	for _, event := range events {
-		// Check if device IP is blacklisted
-		isBlacklisted := false
+// isIPBlacklisted checks if an IP is contained in any of the blacklist networks
+func (*ArmisIntegration) isIPBlacklisted(ipStr string, blacklistNetworks []*net.IPNet) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
 
-		ip := net.ParseIP(event.IP)
-
-		if ip != nil {
-			for _, network := range blacklistNetworks {
-				if network.Contains(ip) {
-					isBlacklisted = true
-					break
-				}
-			}
-		}
-
-		if !isBlacklisted {
-			filteredEvents = append(filteredEvents, event)
-
-			// Keep corresponding KV data entries
-			// Device data by ID - the integration_id contains the numeric Armis device ID
-			if integrationID, ok := event.Metadata["integration_id"]; ok {
-				if val, ok := data[integrationID]; ok {
-					filteredData[integrationID] = val
-				}
-			}
-			// Device data by agent/IP
-			agentKey := fmt.Sprintf("%s/%s", a.Config.AgentID, event.IP)
-			if val, ok := data[agentKey]; ok {
-				filteredData[agentKey] = val
-			}
-
-			// Keep IP for sweep config
-			filteredIPs = append(filteredIPs, event.IP+"/32")
+	for _, network := range blacklistNetworks {
+		if network.Contains(ip) {
+			return true
 		}
 	}
 
-	// Filter device targets based on the same IP filtering logic
+	return false
+}
+
+// filterDeviceEvents filters device events based on blacklist
+func (a *ArmisIntegration) filterDeviceEvents(
+	events []*models.DeviceUpdate,
+	data map[string][]byte,
+	blacklistNetworks []*net.IPNet,
+) (filteredEvents []*models.DeviceUpdate, filteredData map[string][]byte, filteredIPs []string) {
+	filteredEvents = make([]*models.DeviceUpdate, 0, len(events))
+	filteredData = make(map[string][]byte)
+	filteredIPs = make([]string, 0, len(events))
+
+	for _, event := range events {
+		if a.isIPBlacklisted(event.IP, blacklistNetworks) {
+			continue
+		}
+
+		filteredEvents = append(filteredEvents, event)
+
+		// Keep corresponding KV data entries
+		if integrationID, ok := event.Metadata["integration_id"]; ok {
+			if val, ok := data[integrationID]; ok {
+				filteredData[integrationID] = val
+			}
+		}
+
+		// Device data by agent/IP
+		agentKey := fmt.Sprintf("%s/%s", a.Config.AgentID, event.IP)
+		if val, ok := data[agentKey]; ok {
+			filteredData[agentKey] = val
+		}
+
+		// Keep IP for sweep config
+		filteredIPs = append(filteredIPs, event.IP+"/32")
+	}
+
+	return filteredEvents, filteredData, filteredIPs
+}
+
+// filterDeviceTargets filters device targets based on blacklist
+func (a *ArmisIntegration) filterDeviceTargets(deviceTargets []models.DeviceTarget, blacklistNetworks []*net.IPNet) []models.DeviceTarget {
+	filteredTargets := make([]models.DeviceTarget, 0, len(deviceTargets))
+
 	for _, target := range deviceTargets {
 		// Extract IP from network (remove /32 suffix if present)
 		targetIP := strings.TrimSuffix(target.Network, "/32")
-		
-		// Check if this IP is blacklisted
-		isBlacklisted := false
-		ip := net.ParseIP(targetIP)
-		
-		if ip != nil {
-			for _, network := range blacklistNetworks {
-				if network.Contains(ip) {
-					isBlacklisted = true
-					break
-				}
-			}
-		}
-		
-		if !isBlacklisted {
+
+		if !a.isIPBlacklisted(targetIP, blacklistNetworks) {
 			filteredTargets = append(filteredTargets, target)
 		}
 	}
+
+	return filteredTargets
+}
+
+// applyBlacklistFiltering filters out devices, KV data, and IPs based on the network blacklist
+func (a *ArmisIntegration) applyBlacklistFiltering(
+	events []*models.DeviceUpdate,
+	data map[string][]byte,
+	ips []string,
+	deviceTargets []models.DeviceTarget,
+) (filteredEvents []*models.DeviceUpdate, filteredData map[string][]byte, filteredIPs []string, filteredTargets []models.DeviceTarget) {
+	if len(a.Config.NetworkBlacklist) == 0 {
+		return events, data, ips, deviceTargets
+	}
+
+	a.Logger.Info().
+		Int("original_device_count", len(events)).
+		Strs("blacklist_cidrs", a.Config.NetworkBlacklist).
+		Msg("Applying network blacklist filtering to Armis devices")
+
+	blacklistNetworks := a.parseBlacklistNetworks()
+	filteredEvents, filteredData, filteredIPs = a.filterDeviceEvents(events, data, blacklistNetworks)
+	filteredTargets = a.filterDeviceTargets(deviceTargets, blacklistNetworks)
 
 	a.Logger.Info().
 		Int("filtered_device_count", len(filteredEvents)).
@@ -324,7 +336,7 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 		Msg("Starting device fetch for all queries - accumulating in memory before writing sweep config")
 
 	allDevices := make([]Device, 0)
-	deviceLabels := make(map[int]string)          // Map device ID to query label
+	deviceLabels := make(map[int]string)              // Map device ID to query label
 	deviceQueries := make(map[int]models.QueryConfig) // Map device ID to query config
 
 	// Fetch devices for each query and accumulate them in memory
