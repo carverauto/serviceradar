@@ -75,7 +75,7 @@ func (a *ArmisIntegration) setServiceRadarCompliant(ip string, resultMap map[str
 
 const (
 	// Default batch size for bulk updates to prevent API overload
-	defaultBatchSize = 1000
+	defaultBatchSize = 500
 )
 
 // BatchUpdateDeviceAttributes updates multiple devices with sweep result attributes in batches
