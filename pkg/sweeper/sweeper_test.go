@@ -548,3 +548,290 @@ func TestGomockMatchers(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+func TestNetworkSweeper_generateTargets(t *testing.T) {
+	tests := []struct {
+		name            string
+		config          *models.Config
+		expectedTargets []models.Target
+		expectError     bool
+	}{
+		{
+			name: "legacy networks with global ICMP mode",
+			config: &models.Config{
+				Networks:   []string{"192.168.1.1/32", "192.168.1.2/32"},
+				SweepModes: []models.SweepMode{models.ModeICMP},
+				Ports:      []int{80, 443},
+			},
+			expectedTargets: []models.Target{
+				{
+					Host: "192.168.1.1",
+					Mode: models.ModeICMP,
+					Metadata: map[string]interface{}{
+						"network":     "192.168.1.1/32",
+						"total_hosts": 1,
+						"source":      "legacy_networks",
+					},
+				},
+				{
+					Host: "192.168.1.2",
+					Mode: models.ModeICMP,
+					Metadata: map[string]interface{}{
+						"network":     "192.168.1.2/32",
+						"total_hosts": 1,
+						"source":      "legacy_networks",
+					},
+				},
+			},
+		},
+		{
+			name: "legacy networks with global TCP mode",
+			config: &models.Config{
+				Networks:   []string{"192.168.1.1/32"},
+				SweepModes: []models.SweepMode{models.ModeTCP},
+				Ports:      []int{80, 443},
+			},
+			expectedTargets: []models.Target{
+				{
+					Host: "192.168.1.1",
+					Port: 80,
+					Mode: models.ModeTCP,
+					Metadata: map[string]interface{}{
+						"network":     "192.168.1.1/32",
+						"total_hosts": 1,
+						"source":      "legacy_networks",
+					},
+				},
+				{
+					Host: "192.168.1.1",
+					Port: 443,
+					Mode: models.ModeTCP,
+					Metadata: map[string]interface{}{
+						"network":     "192.168.1.1/32",
+						"total_hosts": 1,
+						"source":      "legacy_networks",
+					},
+				},
+			},
+		},
+		{
+			name: "device targets with per-device TCP mode",
+			config: &models.Config{
+				SweepModes: []models.SweepMode{models.ModeICMP}, // Global default
+				Ports:      []int{22},
+				DeviceTargets: []models.DeviceTarget{
+					{
+						Network:    "192.168.1.10/32",
+						SweepModes: []models.SweepMode{models.ModeTCP}, // Override global
+						QueryLabel: "tcp_devices",
+						Source:     "armis",
+						Metadata: map[string]string{
+							"armis_device_id": "123",
+						},
+					},
+				},
+			},
+			expectedTargets: []models.Target{
+				{
+					Host: "192.168.1.10",
+					Port: 22,
+					Mode: models.ModeTCP,
+					Metadata: map[string]interface{}{
+						"network":         "192.168.1.10/32",
+						"total_hosts":     1,
+						"source":          "armis",
+						"query_label":     "tcp_devices",
+						"armis_device_id": "123",
+					},
+				},
+			},
+		},
+		{
+			name: "device targets with per-device ICMP mode",
+			config: &models.Config{
+				SweepModes: []models.SweepMode{models.ModeTCP}, // Global default
+				Ports:      []int{22},
+				DeviceTargets: []models.DeviceTarget{
+					{
+						Network:    "192.168.1.20/32",
+						SweepModes: []models.SweepMode{models.ModeICMP}, // Override global
+						QueryLabel: "icmp_devices",
+						Source:     "armis",
+						Metadata: map[string]string{
+							"armis_device_id": "456",
+						},
+					},
+				},
+			},
+			expectedTargets: []models.Target{
+				{
+					Host: "192.168.1.20",
+					Mode: models.ModeICMP,
+					Metadata: map[string]interface{}{
+						"network":         "192.168.1.20/32",
+						"total_hosts":     1,
+						"source":          "armis",
+						"query_label":     "icmp_devices",
+						"armis_device_id": "456",
+					},
+				},
+			},
+		},
+		{
+			name: "device targets with both ICMP and TCP modes",
+			config: &models.Config{
+				SweepModes: []models.SweepMode{}, // No global default
+				Ports:      []int{80},
+				DeviceTargets: []models.DeviceTarget{
+					{
+						Network:    "192.168.1.30/32",
+						SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+						QueryLabel: "both_modes",
+						Source:     "armis",
+					},
+				},
+			},
+			expectedTargets: []models.Target{
+				{
+					Host: "192.168.1.30",
+					Mode: models.ModeICMP,
+					Metadata: map[string]interface{}{
+						"network":     "192.168.1.30/32",
+						"total_hosts": 1,
+						"source":      "armis",
+						"query_label": "both_modes",
+					},
+				},
+				{
+					Host: "192.168.1.30",
+					Port: 80,
+					Mode: models.ModeTCP,
+					Metadata: map[string]interface{}{
+						"network":     "192.168.1.30/32",
+						"total_hosts": 1,
+						"source":      "armis",
+						"query_label": "both_modes",
+					},
+				},
+			},
+		},
+		{
+			name: "device targets fallback to global modes when no per-device modes",
+			config: &models.Config{
+				SweepModes: []models.SweepMode{models.ModeICMP}, // Global default
+				Ports:      []int{22},
+				DeviceTargets: []models.DeviceTarget{
+					{
+						Network:    "192.168.1.40/32",
+						SweepModes: []models.SweepMode{}, // Empty, should fallback
+						QueryLabel: "fallback_devices",
+						Source:     "armis",
+					},
+				},
+			},
+			expectedTargets: []models.Target{
+				{
+					Host: "192.168.1.40",
+					Mode: models.ModeICMP,
+					Metadata: map[string]interface{}{
+						"network":     "192.168.1.40/32",
+						"total_hosts": 1,
+						"source":      "armis",
+						"query_label": "fallback_devices",
+					},
+				},
+			},
+		},
+		{
+			name: "mixed legacy networks and device targets",
+			config: &models.Config{
+				Networks:   []string{"10.0.0.1/32"},
+				SweepModes: []models.SweepMode{models.ModeICMP},
+				Ports:      []int{80},
+				DeviceTargets: []models.DeviceTarget{
+					{
+						Network:    "192.168.1.50/32",
+						SweepModes: []models.SweepMode{models.ModeTCP},
+						QueryLabel: "mixed_test",
+						Source:     "armis",
+					},
+				},
+			},
+			expectedTargets: []models.Target{
+				{
+					Host: "10.0.0.1",
+					Mode: models.ModeICMP,
+					Metadata: map[string]interface{}{
+						"network":     "10.0.0.1/32",
+						"total_hosts": 1,
+						"source":      "legacy_networks",
+					},
+				},
+				{
+					Host: "192.168.1.50",
+					Port: 80,
+					Mode: models.ModeTCP,
+					Metadata: map[string]interface{}{
+						"network":     "192.168.1.50/32",
+						"total_hosts": 1,
+						"source":      "armis",
+						"query_label": "mixed_test",
+					},
+				},
+			},
+		},
+		{
+			name: "invalid CIDR in legacy networks",
+			config: &models.Config{
+				Networks:   []string{"invalid-cidr"},
+				SweepModes: []models.SweepMode{models.ModeICMP},
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sweeper := &NetworkSweeper{
+				config: tt.config,
+				logger: logger.NewTestLogger(),
+			}
+
+			targets, err := sweeper.generateTargets()
+
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, targets, len(tt.expectedTargets))
+
+			// Convert to map for easier comparison since order might vary
+			actualMap := make(map[string]models.Target)
+
+			for _, target := range targets {
+				key := generateTargetKey(target)
+				actualMap[key] = target
+			}
+
+			expectedMap := make(map[string]models.Target)
+
+			for _, target := range tt.expectedTargets {
+				key := generateTargetKey(target)
+				expectedMap[key] = target
+			}
+
+			assert.Equal(t, expectedMap, actualMap)
+		})
+	}
+}
+
+// generateTargetKey creates a unique key for a target to help with comparison
+func generateTargetKey(target models.Target) string {
+	if target.Mode == models.ModeICMP {
+		return target.Host + ":icmp"
+	}
+
+	return target.Host + ":" + string(target.Mode) + ":" + string(rune(target.Port))
+}
