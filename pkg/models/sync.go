@@ -32,6 +32,10 @@ type SourceConfig struct {
 
 	// NetworkBlacklist contains CIDR ranges to filter out from this specific source
 	NetworkBlacklist []string `json:"network_blacklist,omitempty"`
+
+	// BatchSize configures the number of items to process in each batch
+	// for bulk operations. If not specified, a default will be used.
+	BatchSize int `json:"batch_size,omitempty"`
 }
 
 // QueryConfig represents a single labeled AQL/ASQ query.
