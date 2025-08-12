@@ -170,11 +170,11 @@ type SweepConfig struct {
 
 // DeviceTarget represents a single device/network with its specific sweep configuration
 type DeviceTarget struct {
-	Network     string            `json:"network"`               // CIDR or IP address
-	SweepModes  []SweepMode       `json:"sweep_modes,omitempty"` // Specific sweep modes for this device
-	QueryLabel  string            `json:"query_label,omitempty"` // Source query label
-	Source      string            `json:"source,omitempty"`      // Discovery source (armis, netbox, etc.)
-	Metadata    map[string]string `json:"metadata,omitempty"`    // Additional metadata from discovery
+	Network    string            `json:"network"`               // CIDR or IP address
+	SweepModes []SweepMode       `json:"sweep_modes,omitempty"` // Specific sweep modes for this device
+	QueryLabel string            `json:"query_label,omitempty"` // Source query label
+	Source     string            `json:"source,omitempty"`      // Discovery source (armis, netbox, etc.)
+	Metadata   map[string]string `json:"metadata,omitempty"`    // Additional metadata from discovery
 }
 
 // SweepHostState represents the latest sweep state for a host in the versioned KV store.
