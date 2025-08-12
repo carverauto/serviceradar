@@ -162,9 +162,9 @@ type SweepConfig struct {
 	Interval      string         `json:"interval,omitempty"`
 	Concurrency   int            `json:"concurrency,omitempty"`
 	Timeout       string         `json:"timeout,omitempty"`
-	IcmpCount     int            `json:"icmp_count,omitempty"`
-	HighPerfIcmp  bool           `json:"high_perf_icmp,omitempty"`
-	IcmpRateLimit int            `json:"icmp_rate_limit,omitempty"`
+	ICMPCount     int            `json:"icmp_count,omitempty"`
+	HighPerfICMP  bool           `json:"high_perf_icmp,omitempty"`
+	ICMPRateLimit int            `json:"icmp_rate_limit,omitempty"`
 	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
 }
 

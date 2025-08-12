@@ -669,9 +669,9 @@ func TestSweepConfigDefaults(t *testing.T) {
 		Interval:      "300s",
 		Concurrency:   100,
 		Timeout:       "15s",
-		IcmpCount:     1,
-		HighPerfIcmp:  true,
-		IcmpRateLimit: 5000,
+		ICMPCount:     1,
+		HighPerfICMP:  true,
+		ICMPRateLimit: 5000,
 	}
 
 	assert.Equal(t, []int{22, 80, 443, 3389, 445, 5985, 5986, 8080}, sweepCfg.Ports)
@@ -679,9 +679,9 @@ func TestSweepConfigDefaults(t *testing.T) {
 	assert.Equal(t, "300s", sweepCfg.Interval)
 	assert.Equal(t, 100, sweepCfg.Concurrency)
 	assert.Equal(t, "15s", sweepCfg.Timeout)
-	assert.Equal(t, 1, sweepCfg.IcmpCount)
-	assert.True(t, sweepCfg.HighPerfIcmp)
-	assert.Equal(t, 5000, sweepCfg.IcmpRateLimit)
+	assert.Equal(t, 1, sweepCfg.ICMPCount)
+	assert.True(t, sweepCfg.HighPerfICMP)
+	assert.Equal(t, 5000, sweepCfg.ICMPRateLimit)
 }
 
 // Benchmark tests
