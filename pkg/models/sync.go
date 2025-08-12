@@ -36,8 +36,9 @@ type SourceConfig struct {
 
 // QueryConfig represents a single labeled AQL/ASQ query.
 type QueryConfig struct {
-	Label string `json:"label"` // Name or description of the query
-	Query string `json:"query"` // The AQL/ASQ query string
+	Label      string      `json:"label"`       // Name or description of the query
+	Query      string      `json:"query"`       // The AQL/ASQ query string
+	SweepModes []SweepMode `json:"sweep_modes"` // Sweep modes to apply to devices from this query
 }
 
 // FilterIPsWithBlacklist filters out IP addresses that match the given CIDR blacklist.

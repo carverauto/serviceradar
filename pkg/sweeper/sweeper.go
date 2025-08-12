@@ -719,47 +719,120 @@ func (s *NetworkSweeper) processDeviceRegistry(result *models.Result) error {
 	return s.deviceRegistry.UpdateDevice(bgCtx, deviceUpdate)
 }
 
+// generateTargetsForNetwork creates targets for a legacy network configuration
+func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Target, int, error) {
+	ips, err := scan.ExpandCIDR(network)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to expand CIDR %s: %w", network, err)
+	}
+
+	var targets []models.Target
+
+	metadata := map[string]interface{}{
+		"network":     network,
+		"total_hosts": len(ips),
+		"source":      "legacy_networks",
+	}
+
+	for _, ip := range ips {
+		targets = append(targets, s.createTargetsForIP(ip, s.config.SweepModes, metadata)...)
+	}
+
+	return targets, len(ips), nil
+}
+
+// generateTargetsForDeviceTarget creates targets for a device target configuration
+func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.DeviceTarget) (targets []models.Target, hostCount int) {
+	ips, err := scan.ExpandCIDR(deviceTarget.Network)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("network", deviceTarget.Network).
+			Str("query_label", deviceTarget.QueryLabel).
+			Msg("Failed to expand device target CIDR, skipping")
+
+		return targets, hostCount
+	}
+
+	metadata := map[string]interface{}{
+		"network":     deviceTarget.Network,
+		"total_hosts": len(ips),
+		"source":      deviceTarget.Source,
+		"query_label": deviceTarget.QueryLabel,
+	}
+
+	// Add device target metadata to the scan metadata
+	for k, v := range deviceTarget.Metadata {
+		metadata[k] = v
+	}
+
+	// Use device-specific sweep modes if available, otherwise fall back to global
+	sweepModes := deviceTarget.SweepModes
+	if len(sweepModes) == 0 {
+		sweepModes = s.config.SweepModes
+	}
+
+	for _, ip := range ips {
+		targets = append(targets, s.createTargetsForIP(ip, sweepModes, metadata)...)
+	}
+
+	hostCount = len(ips)
+
+	return targets, hostCount
+}
+
+// createTargetsForIP creates targets for a specific IP using the given sweep modes
+func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.SweepMode, metadata map[string]interface{}) []models.Target {
+	var targets []models.Target
+
+	if containsMode(sweepModes, models.ModeICMP) {
+		target := scan.TargetFromIP(ip, models.ModeICMP)
+		target.Metadata = metadata
+		targets = append(targets, target)
+	}
+
+	if containsMode(sweepModes, models.ModeTCP) {
+		for _, port := range s.config.Ports {
+			target := scan.TargetFromIP(ip, models.ModeTCP, port)
+			target.Metadata = metadata
+			targets = append(targets, target)
+		}
+	}
+
+	return targets
+}
+
 // generateTargets creates scan targets from the configuration.
 func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 	var targets []models.Target
 
 	totalHostCount := 0
 
+	// Process legacy networks with global sweep modes (for backward compatibility)
 	for _, network := range s.config.Networks {
-		ips, err := scan.ExpandCIDR(network)
+		networkTargets, hostCount, err := s.generateTargetsForNetwork(network)
 		if err != nil {
-			return nil, fmt.Errorf("failed to expand CIDR %s: %w", network, err)
+			return nil, err
 		}
 
-		totalHostCount += len(ips)
+		targets = append(targets, networkTargets...)
+		totalHostCount += hostCount
+	}
 
-		metadata := map[string]interface{}{
-			"network":     network,
-			"total_hosts": len(ips),
-		}
+	// Process device targets with per-device sweep modes (from sync service)
+	for _, deviceTarget := range s.config.DeviceTargets {
+		deviceTargets, hostCount := s.generateTargetsForDeviceTarget(&deviceTarget)
 
-		for _, ip := range ips {
-			if containsMode(s.config.SweepModes, models.ModeICMP) {
-				target := scan.TargetFromIP(ip, models.ModeICMP)
-				target.Metadata = metadata
-				targets = append(targets, target)
-			}
-
-			if containsMode(s.config.SweepModes, models.ModeTCP) {
-				for _, port := range s.config.Ports {
-					target := scan.TargetFromIP(ip, models.ModeTCP, port)
-					target.Metadata = metadata
-					targets = append(targets, target)
-				}
-			}
-		}
+		targets = append(targets, deviceTargets...)
+		totalHostCount += hostCount
 	}
 
 	s.logger.Info().
 		Int("targetsGenerated", len(targets)).
 		Int("networkCount", len(s.config.Networks)).
+		Int("deviceTargetCount", len(s.config.DeviceTargets)).
 		Int("totalHosts", totalHostCount).
-		Msg("Generated targets from networks")
+		Msg("Generated targets from networks and device targets")
 
 	return targets, nil
 }

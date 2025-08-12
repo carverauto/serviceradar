@@ -36,16 +36,17 @@ type PortStatus struct {
 
 // Config defines sweeper configuration.
 type Config struct {
-	Networks    []string      `json:"networks"`
-	Ports       []int         `json:"ports"`
-	SweepModes  []SweepMode   `json:"sweep_modes"`
-	Interval    time.Duration `json:"interval"`
-	Concurrency int           `json:"concurrency"`
-	Timeout     time.Duration `json:"timeout"`
-	ICMPCount   int           `json:"icmp_count"`
-	MaxIdle     int           `json:"max_idle"`
-	MaxLifetime time.Duration `json:"max_lifetime"`
-	IdleTimeout time.Duration `json:"idle_timeout"`
+	Networks      []string       `json:"networks"`
+	Ports         []int          `json:"ports"`
+	SweepModes    []SweepMode    `json:"sweep_modes"`
+	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	Interval      time.Duration  `json:"interval"`
+	Concurrency   int            `json:"concurrency"`
+	Timeout       time.Duration  `json:"timeout"`
+	ICMPCount     int            `json:"icmp_count"`
+	MaxIdle       int            `json:"max_idle"`
+	MaxLifetime   time.Duration  `json:"max_lifetime"`
+	IdleTimeout   time.Duration  `json:"idle_timeout"`
 	// Agent/Partition information for proper device identification
 	AgentID      string `json:"agent_id,omitempty"`
 	PollerID     string `json:"poller_id,omitempty"`
@@ -155,15 +156,25 @@ type SweepSummary struct {
 
 // SweepConfig defines the network sweep tool configuration.
 type SweepConfig struct {
-	Networks      []string `json:"networks,omitempty"`
-	Ports         []int    `json:"ports,omitempty"`
-	SweepModes    []string `json:"sweep_modes,omitempty"`
-	Interval      string   `json:"interval,omitempty"`
-	Concurrency   int      `json:"concurrency,omitempty"`
-	Timeout       string   `json:"timeout,omitempty"`
-	IcmpCount     int      `json:"icmp_count,omitempty"`
-	HighPerfIcmp  bool     `json:"high_perf_icmp,omitempty"`
-	IcmpRateLimit int      `json:"icmp_rate_limit,omitempty"`
+	Networks      []string       `json:"networks,omitempty"`
+	Ports         []int          `json:"ports,omitempty"`
+	SweepModes    []string       `json:"sweep_modes,omitempty"`
+	Interval      string         `json:"interval,omitempty"`
+	Concurrency   int            `json:"concurrency,omitempty"`
+	Timeout       string         `json:"timeout,omitempty"`
+	ICMPCount     int            `json:"icmp_count,omitempty"`
+	HighPerfICMP  bool           `json:"high_perf_icmp,omitempty"`
+	ICMPRateLimit int            `json:"icmp_rate_limit,omitempty"`
+	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+}
+
+// DeviceTarget represents a single device/network with its specific sweep configuration
+type DeviceTarget struct {
+	Network    string            `json:"network"`               // CIDR or IP address
+	SweepModes []SweepMode       `json:"sweep_modes,omitempty"` // Specific sweep modes for this device
+	QueryLabel string            `json:"query_label,omitempty"` // Source query label
+	Source     string            `json:"source,omitempty"`      // Discovery source (armis, netbox, etc.)
+	Metadata   map[string]string `json:"metadata,omitempty"`    // Additional metadata from discovery
 }
 
 // SweepHostState represents the latest sweep state for a host in the versioned KV store.
