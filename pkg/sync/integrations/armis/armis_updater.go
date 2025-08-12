@@ -121,8 +121,17 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 		return nil
 	}
 
+	// Use configured batch size or default
+	batchSize := defaultBatchSize
+	if a.Config.BatchSize > 0 {
+		batchSize = a.Config.BatchSize
+		a.Logger.Info().
+			Int("configured_batch_size", batchSize).
+			Msg("Using configured batch size from config")
+	}
+
 	// Process updates in chunks
-	return a.processDeviceUpdatesInBatches(ctx, updates, defaultBatchSize)
+	return a.processDeviceUpdatesInBatches(ctx, updates, batchSize)
 }
 
 // processDeviceUpdatesInBatches processes device updates in configurable batch sizes
