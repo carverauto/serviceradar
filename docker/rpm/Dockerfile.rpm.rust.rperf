@@ -17,7 +17,9 @@ COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
 COPY packaging/rperf/systemd/serviceradar-rperf.service SOURCES/rperf/systemd/
 
 # Build the RPM
-RUN sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
+# Sanitize VERSION for RPM (remove pre-release suffixes like -pre1)
+RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-.*//') && \
+    sed -i "s/%{version}/${RPM_VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
     sed -i "s/%{release}/${RELEASE}/g" SPECS/serviceradar-${COMPONENT}.spec && \
     mkdir -p BUILD && \
     cp /usr/local/bin/serviceradar-${COMPONENT} BUILD/serviceradar-${COMPONENT} && \

@@ -58,7 +58,9 @@ COPY packaging/${COMPONENT}/config/zen-consumer.json SOURCES/${COMPONENT}/config
 COPY packaging/${COMPONENT}/rules/*.json SOURCES/${COMPONENT}/rules/
 
 # Build the RPM
-RUN sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
+# Sanitize VERSION for RPM (remove pre-release suffixes like -pre1)
+RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-.*//') && \
+    sed -i "s/%{version}/${RPM_VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
     sed -i "s/%{release}/${RELEASE}/g" SPECS/serviceradar-${COMPONENT}.spec && \
     mkdir -p BUILD && \
     echo "Listing binary directory contents:" && \
