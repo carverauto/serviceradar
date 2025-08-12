@@ -343,14 +343,15 @@ pub async fn run_standalone_profiling(
     output_file: Option<String>,
     format: crate::cli::OutputFormat,
     show_tui: bool,
+    show_flamegraph: bool,
 ) -> Result<(), anyhow::Error> {
     use crate::output::{OutputWriter, suggest_output_filename};
 
     info!("Starting standalone profiling for PID {} ({}s at {}Hz)", pid, duration, frequency);
 
     // Determine output filename
-    let output_path = match output_file {
-        Some(path) => path,
+    let output_path = match &output_file {
+        Some(path) => path.clone(),
         None => {
             let suggested = suggest_output_filename(pid, &format);
             info!("No output file specified, using: {}", suggested);
@@ -402,6 +403,35 @@ pub async fn run_standalone_profiling(
     let total_samples: u64 = stack_traces.iter().map(|t| t.count).sum();
     info!("Total samples: {}", total_samples);
 
+    // Show HTML flamegraph if requested
+    if show_flamegraph {
+        info!("Generating interactive HTML flamegraph...");
+        
+        // Determine output filename for HTML
+        let html_filename = match output_file {
+            Some(path) if path.ends_with(".html") => path,
+            Some(path) => format!("{}.html", path.trim_end_matches(".gz").trim_end_matches(".pb")),
+            None => format!("profile_pid_{}_{}.html", pid, 
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()),
+        };
+        
+        let formatter = crate::flame_graph::FlameGraphFormatter::new(stack_traces);
+        let title = format!("ServiceRadar Profile - PID {} ({}s)", pid, duration);
+        
+        formatter.save_flamegraph_html(&html_filename, &title)
+            .map_err(|e| anyhow::anyhow!("Failed to generate flamegraph: {}", e))?;
+        
+        info!("✅ Interactive flamegraph saved to: {}", html_filename);
+        info!("📊 Open in your browser: file://{}/{}", 
+            std::env::current_dir().unwrap_or_default().display(), 
+            html_filename);
+        
+        return Ok(());
+    }
+
     // Show TUI if requested
     if show_tui {
         info!("Launching interactive TUI flamegraph viewer...");
@@ -437,6 +467,7 @@ pub async fn run_standalone_profiling(
             info!("To generate flame graph SVG:");
             info!("  flamegraph.pl {} > flamegraph.svg", output_path);
             info!("  Or upload to https://www.speedscope.app/");
+            info!("  Or use --flamegraph flag for interactive HTML");
         }
         crate::cli::OutputFormat::Json => {
             info!("JSON format written. You can:");

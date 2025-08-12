@@ -2,6 +2,9 @@
 
 use crate::ebpf_profiler::ProfileStackTrace;
 use std::collections::HashMap;
+use std::str::FromStr;
+use inferno::flamegraph;
+use anyhow::Result;
 
 pub struct FlameGraphFormatter {
     traces: Vec<ProfileStackTrace>,
@@ -82,6 +85,222 @@ impl FlameGraphFormatter {
         stats
     }
 
+    /// Generate interactive HTML flamegraph (like Brendan Gregg's)
+    pub fn generate_flamegraph_html(&self, title: &str) -> Result<String> {
+        let folded_data = self.to_folded_format();
+        
+        let mut svg_output = Vec::new();
+        let mut options = flamegraph::Options::default();
+        
+        // Configure the flamegraph to look like Brendan Gregg's style
+        options.title = title.to_string();
+        options.subtitle = Some("ServiceRadar eBPF Profiler".to_string());
+        options.min_width = 0.01; // Show smaller functions
+        options.font_type = "Verdana".to_string();
+        options.font_size = 12;
+        options.colors = flamegraph::color::Palette::from_str("hot").unwrap_or_default();
+        options.bgcolors = Some(flamegraph::color::BackgroundColor::Blue);
+        options.hash = true; // Consistent colors
+        
+        // Generate SVG flamegraph
+        flamegraph::from_reader(&mut options, folded_data.as_bytes(), &mut svg_output)?;
+        
+        let svg_content = String::from_utf8(svg_output)?;
+        
+        // Wrap in HTML with interactivity
+        let html = format!(r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{}</title>
+    <style>
+        body {{
+            margin: 0;
+            padding: 20px;
+            font-family: Verdana, sans-serif;
+            background-color: #f5f5f5;
+        }}
+        .flamegraph-container {{
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+            overflow: auto;
+        }}
+        .controls {{
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #eeeeee;
+            border-radius: 4px;
+        }}
+        button {{
+            padding: 5px 10px;
+            margin-right: 10px;
+            background: #007acc;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }}
+        button:hover {{
+            background: #005999;
+        }}
+        .info {{
+            margin-top: 15px;
+            padding: 10px;
+            background: #e8f4f8;
+            border-left: 4px solid #007acc;
+            border-radius: 0 4px 4px 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="flamegraph-container">
+        <div class="controls">
+            <button onclick="resetZoom()">Reset Zoom</button>
+            <button onclick="searchFunction()">Search</button>
+            <span id="details" style="margin-left: 20px; font-weight: bold;"></span>
+        </div>
+        <div id="flamegraph">
+            {}
+        </div>
+        <div class="info">
+            <h3>How to use:</h3>
+            <ul>
+                <li><strong>Click</strong> on any rectangle to zoom into that function</li>
+                <li><strong>Reset Zoom</strong> to return to full view</li>
+                <li><strong>Hover</strong> over rectangles to see details</li>
+                <li><strong>Width</strong> represents time spent in function (including children)</li>
+                <li><strong>Colors</strong> are consistent - same function = same color</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Enhanced interactivity for the flamegraph
+        let originalViewBox = null;
+        let currentZoom = null;
+        
+        // Initialize flamegraph interactivity
+        document.addEventListener('DOMContentLoaded', function() {{
+            const svg = document.querySelector('svg');
+            if (svg) {{
+                originalViewBox = svg.getAttribute('viewBox');
+                setupFlameGraphInteractivity();
+            }}
+        }});
+        
+        function setupFlameGraphInteractivity() {{
+            const rects = document.querySelectorAll('svg rect');
+            const texts = document.querySelectorAll('svg text');
+            
+            // Add click handlers to rectangles for zooming
+            rects.forEach(function(rect) {{
+                rect.style.cursor = 'pointer';
+                rect.addEventListener('click', function() {{
+                    zoomToElement(rect);
+                }});
+                
+                rect.addEventListener('mouseenter', function() {{
+                    showDetails(rect);
+                }});
+                
+                rect.addEventListener('mouseleave', function() {{
+                    hideDetails();
+                }});
+            }});
+            
+            // Add click handlers to text elements too
+            texts.forEach(function(text) {{
+                text.style.cursor = 'pointer';
+                text.addEventListener('click', function() {{
+                    const rect = text.previousElementSibling;
+                    if (rect && rect.tagName === 'rect') {{
+                        zoomToElement(rect);
+                    }}
+                }});
+            }});
+        }}
+        
+        function zoomToElement(element) {{
+            const svg = document.querySelector('svg');
+            const rect = element.getBBox();
+            const padding = 10;
+            
+            const newViewBox = `${{rect.x - padding}} ${{rect.y - padding}} ${{rect.width + 2*padding}} ${{rect.height + 2*padding}}`;
+            svg.setAttribute('viewBox', newViewBox);
+            currentZoom = newViewBox;
+            
+            // Update details
+            const funcName = element.getAttribute('data-function') || 'Unknown Function';
+            const samples = element.getAttribute('data-samples') || '0';
+            document.getElementById('details').textContent = `Zoomed: ${{funcName}} (${{samples}} samples)`;
+        }}
+        
+        function resetZoom() {{
+            const svg = document.querySelector('svg');
+            if (originalViewBox) {{
+                svg.setAttribute('viewBox', originalViewBox);
+                currentZoom = null;
+                document.getElementById('details').textContent = '';
+            }}
+        }}
+        
+        function showDetails(element) {{
+            const funcName = element.getAttribute('data-function') || 'Unknown Function';
+            const samples = element.getAttribute('data-samples') || '0';
+            const percentage = element.getAttribute('data-percentage') || '0.0';
+            document.getElementById('details').textContent = `${{funcName}}: ${{samples}} samples (${{percentage}}%)`;
+        }}
+        
+        function hideDetails() {{
+            if (!currentZoom) {{
+                document.getElementById('details').textContent = '';
+            }}
+        }}
+        
+        function searchFunction() {{
+            const term = prompt('Enter function name to search:');
+            if (!term) return;
+            
+            const rects = document.querySelectorAll('svg rect');
+            const texts = document.querySelectorAll('svg text');
+            
+            // Reset highlights
+            rects.forEach(r => r.style.stroke = '');
+            
+            // Highlight matching functions
+            let found = false;
+            texts.forEach(function(text) {{
+                if (text.textContent.toLowerCase().includes(term.toLowerCase())) {{
+                    const rect = text.previousElementSibling;
+                    if (rect && rect.tagName === 'rect') {{
+                        rect.style.stroke = '#ff0000';
+                        rect.style.strokeWidth = '2';
+                        found = true;
+                    }}
+                }}
+            }});
+            
+            if (!found) {{
+                alert(`No functions found matching: ${{term}}`);
+            }}
+        }}
+    </script>
+</body>
+</html>"#, title, svg_content);
+
+        Ok(html)
+    }
+    
+    /// Save flamegraph as HTML file
+    pub fn save_flamegraph_html(&self, path: &str, title: &str) -> Result<()> {
+        let html = self.generate_flamegraph_html(title)?;
+        std::fs::write(path, html)?;
+        Ok(())
+    }
+
     /// Get summary statistics about the profiling session
     pub fn get_summary(&self) -> ProfilingSummary {
         let total_samples: u64 = self.traces.iter().map(|t| t.count).sum();
@@ -154,17 +373,17 @@ impl ProfilingSummary {
 mod tests {
     use super::*;
 
-    fn create_test_traces() -> Vec<StackTrace> {
+    fn create_test_traces() -> Vec<ProfileStackTrace> {
         vec![
-            StackTrace {
+            ProfileStackTrace {
                 frames: vec!["main".to_string(), "foo".to_string(), "bar".to_string()],
                 count: 10,
             },
-            StackTrace {
+            ProfileStackTrace {
                 frames: vec!["main".to_string(), "foo".to_string(), "baz".to_string()],
                 count: 20,
             },
-            StackTrace {
+            ProfileStackTrace {
                 frames: vec!["main".to_string(), "other".to_string()],
                 count: 5,
             },

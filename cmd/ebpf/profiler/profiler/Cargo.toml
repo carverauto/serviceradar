@@ -39,6 +39,7 @@ futures-util = "0.3"
 
 # Profiling output formats
 pprof = { version = "0.13", features = ["flamegraph", "protobuf-codec"] }
+inferno = "0.11"
 
 # Symbol resolution (disabled for now due to thread safety issues)
 # addr2line = "0.24"
@@ -49,6 +50,7 @@ pprof = { version = "0.13", features = ["flamegraph", "protobuf-codec"] }
 # TUI for interactive flamegraph display
 ratatui = "0.29"
 crossterm = "0.28"
+regex = "1.10"
 
 [dev-dependencies]
 tempfile = "3.0"

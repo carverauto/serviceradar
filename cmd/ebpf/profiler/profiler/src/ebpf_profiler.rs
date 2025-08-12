@@ -79,12 +79,16 @@ impl SymbolResolver {
     fn resolve_symbol_internal(&mut self, addr: u64) -> String {
         // If we don't have the executable path or addr2line, just return the address
         if !self.addr2line_available {
+            debug!("addr2line not available, returning raw address for 0x{:x}", addr);
             return format!("0x{:x}", addr);
         }
 
         let exe_path = match &self.exe_path {
             Some(path) => path,
-            None => return format!("0x{:x}", addr),
+            None => {
+                debug!("No executable path available, returning raw address for 0x{:x}", addr);
+                return format!("0x{:x}", addr);
+            }
         };
 
         // Try to resolve with addr2line
@@ -120,14 +124,18 @@ impl SymbolResolver {
                     }
                 }
                 
-                // If addr2line didn't find anything useful, fall back to address
-                format!("0x{:x}", addr)
+                // If addr2line didn't find anything useful, fall back to address with context
+                let exe_name = exe_path.split('/').last().unwrap_or("unknown");
+                format!("{}+0x{:x}", exe_name, addr)
             }
             Ok(_) => {
                 // addr2line failed, try nm as fallback
                 self.resolve_with_nm(exe_path, addr).unwrap_or_else(|| format!("0x{:x}", addr))
             }
-            Err(_) => format!("0x{:x}", addr),
+            Err(_) => {
+                let exe_name = exe_path.split('/').last().unwrap_or("unknown");
+                format!("{}+0x{:x}", exe_name, addr)
+            },
         }
     }
 
@@ -172,6 +180,7 @@ pub struct EbpfProfiler {
     ring_buf: Option<AsyncFd<RingBuf<MapData>>>,
     perf_links: Vec<perf_event::PerfEventLinkId>,
     symbol_resolver: SymbolResolver,
+    target_pid: Option<u32>,
 }
 
 impl EbpfProfiler {
@@ -182,6 +191,7 @@ impl EbpfProfiler {
             ring_buf: None,
             perf_links: Vec::new(),
             symbol_resolver: SymbolResolver::new(),
+            target_pid: None,
         })
     }
     
@@ -212,6 +222,9 @@ impl EbpfProfiler {
         info!("Starting eBPF profiling for PID {} at {}Hz", pid, frequency);
 
         let target_pid = pid as u32;
+        
+        // Store target PID for symbol resolution
+        self.target_pid = Some(target_pid);
         
         // Check if process exists and is accessible
         Self::verify_process_exists(pid)?;
@@ -244,40 +257,100 @@ impl EbpfProfiler {
         // Load the program into the kernel
         program.load()?;
 
-        // Use system-wide profiling with eBPF-based PID filtering
-        // This approach works for all processes, including low-activity I/O-bound ones
-        info!("Setting up system-wide profiling with eBPF PID filtering for PID {}", target_pid);
+        // For debugging: Force system-wide profiling to ensure we get events
+        // This will profile ALL processes but filter in eBPF to our target
+        let force_system_wide = true; // TODO: Make this configurable
         
-        let cpus = online_cpus()?;
-        let mut attached_count = 0;
-
-        for cpu in cpus {
-            // Use CPU_CLOCK for consistent timer-based sampling regardless of process activity
-            let attach_result = program.attach(
+        let mut process_attached = false;
+        
+        if !force_system_wide {
+            // Strategy 1: Try process-specific timer-based profiling first
+            // This is more efficient for single-process profiling
+            info!("Attempting process-specific timer-based profiling for PID {}", target_pid);
+            
+            // Try TASK_CLOCK first - this should fire more regularly for the target process
+            // even during I/O waits, scheduler events, etc.
+            // Use a reasonable period - 10ms (10,000,000 nanoseconds) for 100Hz sampling
+            let period_ns = 1_000_000_000 / frequency as u64; // Convert frequency to nanosecond period
+            let task_clock_result = program.attach(
                 perf_event::PerfTypeId::Software,
-                perf_event::perf_sw_ids::PERF_COUNT_SW_CPU_CLOCK as u64,
-                perf_event::PerfEventScope::AllProcessesOneCpu { cpu },
-                perf_event::SamplePolicy::Frequency(frequency as u64),
-                false, // Don't inherit for system-wide profiling
+                perf_event::perf_sw_ids::PERF_COUNT_SW_TASK_CLOCK as u64,
+                perf_event::PerfEventScope::OneProcessAnyCpu { pid: target_pid },
+                perf_event::SamplePolicy::Period(period_ns),
+                true, // Inherit child processes
             );
             
-            match attach_result {
+            match task_clock_result {
                 Ok(link) => {
                     self.perf_links.push(link);
-                    attached_count += 1;
-                    debug!("✅ Attached system-wide perf event to CPU {}", cpu);
+                    process_attached = true;
+                    info!("✅ Successfully attached TASK_CLOCK to PID {} (process-specific) with period {}ns ({}Hz)", 
+                        target_pid, period_ns, frequency);
                 }
                 Err(e) => {
-                    warn!("Failed to attach to CPU {}: {}", cpu, e);
+                    warn!("TASK_CLOCK attachment failed for PID {}: {}", target_pid, e);
+                    
+                    // Try CPU_CLOCK as fallback
+                    let cpu_clock_result = program.attach(
+                        perf_event::PerfTypeId::Software,
+                        perf_event::perf_sw_ids::PERF_COUNT_SW_CPU_CLOCK as u64,
+                        perf_event::PerfEventScope::OneProcessAnyCpu { pid: target_pid },
+                        perf_event::SamplePolicy::Frequency(frequency as u64),
+                        true,
+                    );
+                    
+                    match cpu_clock_result {
+                        Ok(link) => {
+                            self.perf_links.push(link);
+                            process_attached = true;
+                            info!("✅ Successfully attached CPU_CLOCK to PID {} (process-specific)", target_pid);
+                        }
+                        Err(e) => {
+                            warn!("CPU_CLOCK attachment also failed for PID {}: {}", target_pid, e);
+                        }
+                    }
                 }
             }
         }
+        
+        // Strategy 2: Use system-wide if process-specific fails or is disabled
+        if !process_attached {
+            if force_system_wide {
+                info!("Using forced system-wide profiling mode with eBPF PID filtering for PID {}", target_pid);
+            } else {
+                warn!("Process-specific attachment failed, falling back to system-wide with filtering");
+                info!("Using system-wide profiling with eBPF PID filtering for PID {}", target_pid);
+            }
+            
+            let cpus = online_cpus()?;
+            let mut attached_count = 0;
 
-        if attached_count == 0 {
-            return Err(anyhow::anyhow!("Failed to attach perf events to any CPU"));
-        } else {
-            info!("✅ Successfully attached to {} CPUs for system-wide profiling", attached_count);
-            info!("eBPF program will filter events to only capture PID {}", target_pid);
+            for cpu in cpus {
+                let attach_result = program.attach(
+                    perf_event::PerfTypeId::Software,
+                    perf_event::perf_sw_ids::PERF_COUNT_SW_CPU_CLOCK as u64,
+                    perf_event::PerfEventScope::AllProcessesOneCpu { cpu },
+                    perf_event::SamplePolicy::Frequency(frequency as u64),
+                    false,
+                );
+                
+                match attach_result {
+                    Ok(link) => {
+                        self.perf_links.push(link);
+                        attached_count += 1;
+                        debug!("✅ Attached system-wide perf event to CPU {}", cpu);
+                    }
+                    Err(e) => {
+                        warn!("Failed to attach to CPU {}: {}", cpu, e);
+                    }
+                }
+            }
+
+            if attached_count == 0 {
+                return Err(anyhow::anyhow!("Failed to attach perf events with any strategy"));
+            } else {
+                info!("✅ Using system-wide profiling on {} CPUs with eBPF filtering", attached_count);
+            }
         }
 
         // Set up the ring buffer for receiving samples
@@ -367,7 +440,8 @@ impl EbpfProfiler {
                                     // Apply symbol resolution here if needed
                                     for frame in &mut trace.frames {
                                         if let Ok(addr) = u64::from_str_radix(frame.trim_start_matches("0x"), 16) {
-                                            let symbol = self.symbol_resolver.resolve_symbol(0, addr);
+                                            let pid = self.target_pid.unwrap_or(0);
+                                            let symbol = self.symbol_resolver.resolve_symbol(pid, addr);
                                             *frame = symbol;
                                         }
                                     }
@@ -430,6 +504,7 @@ impl EbpfProfiler {
         self.perf_links.clear();
         self.bpf = None;
         self.ring_buf = None;
+        self.target_pid = None;
     }
 
     fn parse_sample_static(sample_data: &[u8]) -> Result<ProfileStackTrace> {

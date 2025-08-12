@@ -48,6 +48,10 @@ pub struct CLI {
     /// Display interactive TUI flamegraph instead of writing to file
     #[arg(long = "tui")]
     pub tui: bool,
+
+    /// Generate interactive HTML flamegraph (like Brendan Gregg's)
+    #[arg(long = "flamegraph")]
+    pub flamegraph: bool,
 }
 
 #[derive(Clone, Debug)]

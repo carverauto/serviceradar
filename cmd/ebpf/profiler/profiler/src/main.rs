@@ -29,6 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             args.output_file,
             args.format,
             args.tui,
+            args.flamegraph,
         ).await?;
         return Ok(());
     }
