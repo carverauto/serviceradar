@@ -11,5 +11,8 @@ RestartSec=10
 LimitNPROC=512
 LimitNOFILE=65535
 
+StandardOutput=append:/var/log/serviceradar/mapper.log
+StandardError=append:/var/log/serviceradar/mapper-error.log
+
 [Install]
 WantedBy=multi-user.target
