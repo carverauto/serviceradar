@@ -57,12 +57,13 @@ type SweepConfig struct {
 	MaxGoroutines int
 	BatchSize     int
 	MemoryLimit   int64
-	Networks      []string           `json:"networks"`
-	Ports         []int              `json:"ports"`
-	SweepModes    []models.SweepMode `json:"sweep_modes"`
-	Interval      Duration           `json:"interval"`
-	Concurrency   int                `json:"concurrency"`
-	Timeout       Duration           `json:"timeout"`
+	Networks      []string              `json:"networks"`
+	Ports         []int                 `json:"ports"`
+	SweepModes    []models.SweepMode    `json:"sweep_modes"`
+	DeviceTargets []models.DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	Interval      Duration              `json:"interval"`
+	Concurrency   int                   `json:"concurrency"`
+	Timeout       Duration              `json:"timeout"`
 }
 
 type CheckerConfig struct {
