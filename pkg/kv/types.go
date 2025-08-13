@@ -43,4 +43,8 @@ type Config struct {
 		Roles []RBACRule `json:"roles"`
 	} `json:"rbac"`
 	Bucket string `json:"bucket,omitempty"` // Added for NATS KV bucket
+	GRPC   struct {
+		MaxRecvMsgSize string `json:"max_recv_msg_size,omitempty"` // e.g., "16MB"
+		MaxSendMsgSize string `json:"max_send_msg_size,omitempty"` // e.g., "16MB"
+	} `json:"grpc,omitempty"`
 }

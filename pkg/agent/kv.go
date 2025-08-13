@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
@@ -67,7 +68,26 @@ func (g *grpcKVStore) Watch(ctx context.Context, key string) (<-chan []byte, err
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
+				// Log stream errors to help debug the corruption issue
+				if ctx.Err() == nil { // Don't log if context was cancelled
+					log.Printf("KV watch stream error for key %s: %v", key, err)
+				}
 				return
+			}
+
+			// Validate that we received a proper response
+			if resp == nil {
+				log.Printf("KV watch received nil response for key %s", key)
+				continue
+			}
+
+			// Basic validation that the data looks like JSON
+			if len(resp.Value) > 0 {
+				if resp.Value[0] != '{' && resp.Value[0] != '[' {
+					log.Printf("KV watch received non-JSON data for key %s: starts with '%c', length %d", 
+						key, resp.Value[0], len(resp.Value))
+					continue
+				}
 			}
 
 			select {

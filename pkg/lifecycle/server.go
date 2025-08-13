@@ -60,6 +60,13 @@ type ServerOptions struct {
 	Security             *models.SecurityConfig
 	LoggerConfig         *logger.Config
 	Logger               logger.Logger // Optional: if provided, uses this logger instead of creating a new one
+	GRPCConfig           *GRPCConfig   // Optional: gRPC-specific configuration
+}
+
+// GRPCConfig holds gRPC server configuration options.
+type GRPCConfig struct {
+	MaxRecvMsgSize string // e.g., "16MB"
+	MaxSendMsgSize string // e.g., "16MB"
 }
 
 // RunServer starts a service with the provided options and handles lifecycle.
@@ -127,7 +134,7 @@ func setupGRPCServer(ctx context.Context, opts *ServerOptions, log logger.Logger
 		}
 	}()
 
-	serverOpts, err := configureServerOptions(ctx, securityProvider, log)
+	serverOpts, err := configureServerOptions(ctx, securityProvider, opts.GRPCConfig, log)
 	if err != nil {
 		return nil, err
 	}
@@ -258,26 +265,46 @@ func parseSize(s string) (int, error) {
 }
 
 // configureServerOptions sets up gRPC server options including security.
-func configureServerOptions(ctx context.Context, provider grpc.SecurityProvider, log logger.Logger) ([]grpc.ServerOption, error) {
-	// Get max message sizes from environment or use defaults
+func configureServerOptions(ctx context.Context, provider grpc.SecurityProvider, grpcCfg *GRPCConfig, log logger.Logger) ([]grpc.ServerOption, error) {
+	// Get max message sizes from config, environment, or use defaults
 	maxRecvSize := DefaultMaxRecvSize
 	maxSendSize := DefaultMaxSendSize
 
-	if envSize := os.Getenv("GRPC_MAX_RECV_MSG_SIZE"); envSize != "" {
+	// First check config
+	if grpcCfg != nil {
+		if grpcCfg.MaxRecvMsgSize != "" {
+			if size, err := parseSize(grpcCfg.MaxRecvMsgSize); err == nil {
+				maxRecvSize = size
+				log.Info().Str("size", grpcCfg.MaxRecvMsgSize).Msg("Using config GRPC MaxRecvMsgSize")
+			} else {
+				log.Warn().Err(err).Str("value", grpcCfg.MaxRecvMsgSize).Msg("Invalid config MaxRecvMsgSize, checking environment")
+			}
+		}
+
+		if grpcCfg.MaxSendMsgSize != "" {
+			if size, err := parseSize(grpcCfg.MaxSendMsgSize); err == nil {
+				maxSendSize = size
+				log.Info().Str("size", grpcCfg.MaxSendMsgSize).Msg("Using config GRPC MaxSendMsgSize")
+			} else {
+				log.Warn().Err(err).Str("value", grpcCfg.MaxSendMsgSize).Msg("Invalid config MaxSendMsgSize, checking environment")
+			}
+		}
+	}
+
+	// Fallback to environment variables if config not set or invalid
+	if envSize := os.Getenv("GRPC_MAX_RECV_MSG_SIZE"); envSize != "" && maxRecvSize == DefaultMaxRecvSize {
 		if size, err := parseSize(envSize); err == nil {
 			maxRecvSize = size
-
-			log.Info().Str("size", envSize).Msg("Using custom GRPC_MAX_RECV_MSG_SIZE")
+			log.Info().Str("size", envSize).Msg("Using environment GRPC_MAX_RECV_MSG_SIZE")
 		} else {
 			log.Warn().Err(err).Str("value", envSize).Msg("Invalid GRPC_MAX_RECV_MSG_SIZE, using default")
 		}
 	}
 
-	if envSize := os.Getenv("GRPC_MAX_SEND_MSG_SIZE"); envSize != "" {
+	if envSize := os.Getenv("GRPC_MAX_SEND_MSG_SIZE"); envSize != "" && maxSendSize == DefaultMaxSendSize {
 		if size, err := parseSize(envSize); err == nil {
 			maxSendSize = size
-
-			log.Info().Str("size", envSize).Msg("Using custom GRPC_MAX_SEND_MSG_SIZE")
+			log.Info().Str("size", envSize).Msg("Using environment GRPC_MAX_SEND_MSG_SIZE")
 		} else {
 			log.Warn().Err(err).Str("value", envSize).Msg("Invalid GRPC_MAX_SEND_MSG_SIZE, using default")
 		}

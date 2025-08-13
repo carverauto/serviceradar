@@ -34,6 +34,8 @@ type ClientConfig struct {
 	Address          string
 	SecurityProvider SecurityProvider
 	MaxRetries       int
+	MaxRecvMsgSize   int
+	MaxSendMsgSize   int
 	Logger           logger.Logger
 }
 
@@ -86,7 +88,7 @@ func createDialOptions(ctx context.Context, cfg ClientConfig) ([]grpc.DialOption
 		return nil, fmt.Errorf("failed to get client credentials: %w", err)
 	}
 
-	return []grpc.DialOption{
+	opts := []grpc.DialOption{
 		creds,
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()), // Add OTel tracing
 		grpc.WithUnaryInterceptor(RetryInterceptor(cfg.MaxRetries, cfg.Logger)),
@@ -95,7 +97,20 @@ func createDialOptions(ctx context.Context, cfg ClientConfig) ([]grpc.DialOption
 			Timeout:             20 * time.Second,
 			PermitWithoutStream: false,
 		}),
-	}, nil
+	}
+
+	var callOpts []grpc.CallOption
+	if cfg.MaxRecvMsgSize > 0 {
+		callOpts = append(callOpts, grpc.MaxCallRecvMsgSize(cfg.MaxRecvMsgSize))
+	}
+	if cfg.MaxSendMsgSize > 0 {
+		callOpts = append(callOpts, grpc.MaxCallSendMsgSize(cfg.MaxSendMsgSize))
+	}
+	if len(callOpts) > 0 {
+		opts = append(opts, grpc.WithDefaultCallOptions(callOpts...))
+	}
+
+	return opts, nil
 }
 
 // GetConnection returns the underlying gRPC connection.

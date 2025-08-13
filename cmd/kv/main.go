@@ -52,12 +52,21 @@ func main() {
 
 	cfgLoader.SetKVStore(server.Store())
 
+	var grpcConfig *lifecycle.GRPCConfig
+	if cfg.GRPC.MaxRecvMsgSize != "" || cfg.GRPC.MaxSendMsgSize != "" {
+		grpcConfig = &lifecycle.GRPCConfig{
+			MaxRecvMsgSize: cfg.GRPC.MaxRecvMsgSize,
+			MaxSendMsgSize: cfg.GRPC.MaxSendMsgSize,
+		}
+	}
+
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        cfg.ListenAddr,
 		ServiceName:       "kv",
 		Service:           server,
 		EnableHealthCheck: true,
 		Security:          cfg.Security,
+		GRPCConfig:        grpcConfig,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
 			func(srv *ggrpc.Server) error {
 				proto.RegisterKVServiceServer(srv, server)

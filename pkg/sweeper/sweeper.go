@@ -420,7 +420,17 @@ func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, confi
 func (s *NetworkSweeper) processConfigUpdate(value []byte) {
 	var temp unmarshalConfig
 	if err := json.Unmarshal(value, &temp); err != nil {
-		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to unmarshal config")
+		// Log more details about the corrupted data for debugging
+		valueStr := string(value)
+		if len(valueStr) > 200 {
+			valueStr = valueStr[:200] + "... (truncated)"
+		}
+		s.logger.Error().
+			Err(err).
+			Str("configKey", s.configKey).
+			Int("valueLen", len(value)).
+			Str("valuePreview", valueStr).
+			Msg("Failed to unmarshal config")
 		return
 	}
 
