@@ -8,9 +8,9 @@ members = [
 ]
 
 [workspace.dependencies]
-aya = "0.12.0"
+aya = "0.13"
 aya-ebpf = "0.1.0"
-aya-log = "0.2.0"
+aya-log = "0.2"
 aya-log-ebpf = "0.1.0"
 aya-log-common = "0.1.14"
 anyhow = "1.0.68"

@@ -5,15 +5,15 @@ use aya::{
     include_bytes_aligned,
     maps::{MapData, RingBuf},
     programs::{perf_event, PerfEvent},
-    Bpf, BpfLoader,
+    Ebpf, EbpfLoader,
 };
-use aya_log::BpfLogger;
+use aya_log::EbpfLogger;
 use log::{debug, info, warn};
 use profiler_common::Sample;
 use tokio::io::unix::AsyncFd;
 
 pub struct EbpfProfiler {
-    bpf: Option<Bpf>,
+    bpf: Option<Ebpf>,
     ring_buf: Option<AsyncFd<RingBuf<MapData>>>,
 }
 
@@ -37,13 +37,13 @@ impl EbpfProfiler {
         #[cfg(not(debug_assertions))]
         let prog_bytes = include_bytes_aligned!("../../target/bpfel-unknown-none/release/profiler");
 
-        // Use BpfLoader to set the global PID before loading
-        let mut bpf = BpfLoader::new()
+        // Use EbpfLoader to set the global PID before loading
+        let mut bpf = EbpfLoader::new()
             .set_global("PID", &target_pid, true)
             .load(prog_bytes)?;
         
         // Initialize the eBPF logger. This is critical for preventing faults.
-        if let Err(e) = BpfLogger::init(&mut bpf) {
+        if let Err(e) = EbpfLogger::init(&mut bpf) {
             // This warning is normal if the eBPF code has no log statements.
             warn!("Failed to initialize eBPF logger: {}", e);
         }
