@@ -19,29 +19,30 @@ RUN echo "BINARY_PATH=${BINARY_PATH}" && \
     echo "Current directory: $(pwd)" && \
     ls -la /src || echo "No /src directory yet"
 
-# Copy dependency files first for better layer caching
+# Copy workspace Cargo.toml first for better layer caching
 COPY ${BINARY_PATH}/Cargo.toml .
-COPY ${BINARY_PATH}/Cargo.lock .
 
 # Copy the OpenTelemetry proto files to the expected location
 COPY ${BINARY_PATH}/proto ./proto/
 
-# Copy build script and source files
-COPY ${BINARY_PATH}/build.rs .
-COPY ${BINARY_PATH}/src ./src/
+# Copy all workspace members
+COPY ${BINARY_PATH}/profiler ./profiler/
+COPY ${BINARY_PATH}/profiler-common ./profiler-common/
+COPY ${BINARY_PATH}/profiler-ebpf ./profiler-ebpf/
+COPY ${BINARY_PATH}/xtask ./xtask/
 
 # Build the Rust binary with cache mounts and copy artifacts out
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/tmp/target \
     echo "Building Rust binary..." && \
-    CARGO_TARGET_DIR=/tmp/target cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
+    CARGO_TARGET_DIR=/tmp/target cargo build --release --target x86_64-unknown-linux-gnu --verbose --package profiler && \
     echo "Build completed successfully" && \
-    ls -la /tmp/target/x86_64-unknown-linux-gnu/release/profiler && \
+    ls -la /tmp/target/x86_64-unknown-linux-gnu/release/ && \
     mkdir -p target/x86_64-unknown-linux-gnu/release && \
-    cp /tmp/target/x86_64-unknown-linux-gnu/release/profiler target/x86_64-unknown-linux-gnu/release/ && \
+    cp /tmp/target/x86_64-unknown-linux-gnu/release/profiler target/x86_64-unknown-linux-gnu/release/serviceradar-profiler && \
     echo "Copied binaries to persistent location:" && \
-    ls -la target/x86_64-unknown-linux-gnu/release/profiler
+    ls -la target/x86_64-unknown-linux-gnu/release/
 
 # Set up RPM build environment
 WORKDIR /root/rpmbuild
@@ -57,9 +58,9 @@ RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-.*//') && \
     sed -i "s/%{release}/${RELEASE}/g" SPECS/serviceradar-${COMPONENT}.spec && \
     mkdir -p BUILD && \
     echo "Listing binary directory contents:" && \
-    ls -la /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/profiler && \
+    ls -la /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/ && \
     # Copy the profiler binary
-    cp /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/profiler BUILD/serviceradar-${COMPONENT} && \
+    cp /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/serviceradar-profiler BUILD/serviceradar-${COMPONENT} && \
     echo "Copied profiler binary to BUILD/serviceradar-${COMPONENT}" && \
     rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec && \
     echo "Checking RPM build output:" && \
