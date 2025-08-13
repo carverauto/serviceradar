@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -476,10 +477,8 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
-	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
-		Key:   configKey,
-		Value: configJSON,
-	})
+	// Use streaming method for large data
+	err = kv.PutLarge(ctx, n.KvClient, configKey, configJSON, 0)
 
 	n.Logger.Info().
 		Str("config_key", configKey).

@@ -34,11 +34,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	KVService_Get_FullMethodName     = "/proto.KVService/Get"
-	KVService_Put_FullMethodName     = "/proto.KVService/Put"
-	KVService_PutMany_FullMethodName = "/proto.KVService/PutMany"
-	KVService_Delete_FullMethodName  = "/proto.KVService/Delete"
-	KVService_Watch_FullMethodName   = "/proto.KVService/Watch"
+	KVService_Get_FullMethodName       = "/proto.KVService/Get"
+	KVService_Put_FullMethodName       = "/proto.KVService/Put"
+	KVService_PutMany_FullMethodName   = "/proto.KVService/PutMany"
+	KVService_Delete_FullMethodName    = "/proto.KVService/Delete"
+	KVService_Watch_FullMethodName     = "/proto.KVService/Watch"
+	KVService_PutStream_FullMethodName = "/proto.KVService/PutStream"
 )
 
 // KVServiceClient is the client API for KVService service.
@@ -57,6 +58,8 @@ type KVServiceClient interface {
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 	// Watch streams updates for a specific key.
 	Watch(ctx context.Context, in *WatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchResponse], error)
+	// PutStream allows streaming large values in chunks for a given key.
+	PutStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PutStreamRequest, PutStreamResponse], error)
 }
 
 type kVServiceClient struct {
@@ -126,6 +129,19 @@ func (c *kVServiceClient) Watch(ctx context.Context, in *WatchRequest, opts ...g
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type KVService_WatchClient = grpc.ServerStreamingClient[WatchResponse]
 
+func (c *kVServiceClient) PutStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PutStreamRequest, PutStreamResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &KVService_ServiceDesc.Streams[1], KVService_PutStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[PutStreamRequest, PutStreamResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type KVService_PutStreamClient = grpc.ClientStreamingClient[PutStreamRequest, PutStreamResponse]
+
 // KVServiceServer is the server API for KVService service.
 // All implementations must embed UnimplementedKVServiceServer
 // for forward compatibility.
@@ -142,6 +158,8 @@ type KVServiceServer interface {
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	// Watch streams updates for a specific key.
 	Watch(*WatchRequest, grpc.ServerStreamingServer[WatchResponse]) error
+	// PutStream allows streaming large values in chunks for a given key.
+	PutStream(grpc.ClientStreamingServer[PutStreamRequest, PutStreamResponse]) error
 	mustEmbedUnimplementedKVServiceServer()
 }
 
@@ -166,6 +184,9 @@ func (UnimplementedKVServiceServer) Delete(context.Context, *DeleteRequest) (*De
 }
 func (UnimplementedKVServiceServer) Watch(*WatchRequest, grpc.ServerStreamingServer[WatchResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method Watch not implemented")
+}
+func (UnimplementedKVServiceServer) PutStream(grpc.ClientStreamingServer[PutStreamRequest, PutStreamResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method PutStream not implemented")
 }
 func (UnimplementedKVServiceServer) mustEmbedUnimplementedKVServiceServer() {}
 func (UnimplementedKVServiceServer) testEmbeddedByValue()                   {}
@@ -271,6 +292,13 @@ func _KVService_Watch_Handler(srv interface{}, stream grpc.ServerStream) error {
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type KVService_WatchServer = grpc.ServerStreamingServer[WatchResponse]
 
+func _KVService_PutStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(KVServiceServer).PutStream(&grpc.GenericServerStream[PutStreamRequest, PutStreamResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type KVService_PutStreamServer = grpc.ClientStreamingServer[PutStreamRequest, PutStreamResponse]
+
 // KVService_ServiceDesc is the grpc.ServiceDesc for KVService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -300,6 +328,11 @@ var KVService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Watch",
 			Handler:       _KVService_Watch_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "PutStream",
+			Handler:       _KVService_PutStream_Handler,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "kv.proto",

@@ -17,9 +17,11 @@
 package kv
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -90,7 +92,23 @@ func NewNatsStore(ctx context.Context, cfg *Config) (*NatsStore, error) {
 
 const (
 	secModeMTLS = "mtls"
+	
+	// NATSMaxPayload is the maximum payload size for NATS (conservative 900KB to leave room for headers)
+	NATSMaxPayload = 900 * 1024
+	// ChunkKeyPrefix is used to identify chunk keys
+	ChunkKeyPrefix = "_chunk_"
+	// MetadataKeySuffix is used to identify metadata keys for chunked values
+	MetadataKeySuffix = "_meta"
 )
+
+// ChunkMetadata stores information about chunked values
+type ChunkMetadata struct {
+	TotalSize   int       `json:"total_size"`
+	ChunkCount  int       `json:"chunk_count"`
+	ChunkSize   int       `json:"chunk_size"`
+	CreatedAt   time.Time `json:"created_at"`
+	IsChunked   bool      `json:"is_chunked"`
+}
 
 func getTLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
 	if sec == nil || sec.Mode != secModeMTLS {
@@ -122,6 +140,22 @@ func getTLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
 }
 
 func (n *NatsStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
+	// First, check if this is a chunked value by looking for metadata
+	metaKey := key + MetadataKeySuffix
+	metaEntry, err := n.kv.Get(ctx, metaKey)
+	if err == nil {
+		// This is a chunked value, reconstruct it
+		var metadata ChunkMetadata
+		if err := json.Unmarshal(metaEntry.Value(), &metadata); err != nil {
+			return nil, false, fmt.Errorf("failed to unmarshal chunk metadata: %w", err)
+		}
+		
+		if metadata.IsChunked {
+			return n.getChunkedValue(ctx, key, &metadata)
+		}
+	}
+	
+	// Not chunked, get normally
 	entry, err := n.kv.Get(ctx, key)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		return nil, false, nil
@@ -134,9 +168,34 @@ func (n *NatsStore) Get(ctx context.Context, key string) (value []byte, found bo
 	return entry.Value(), true, nil
 }
 
+// getChunkedValue retrieves and reassembles a chunked value
+func (n *NatsStore) getChunkedValue(ctx context.Context, key string, metadata *ChunkMetadata) ([]byte, bool, error) {
+	var buffer bytes.Buffer
+	buffer.Grow(metadata.TotalSize)
+	
+	for i := 0; i < metadata.ChunkCount; i++ {
+		chunkKey := fmt.Sprintf("%s%s_%d", key, ChunkKeyPrefix, i)
+		entry, err := n.kv.Get(ctx, chunkKey)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to get chunk %d: %w", i, err)
+		}
+		buffer.Write(entry.Value())
+	}
+	
+	return buffer.Bytes(), true, nil
+}
+
 // Put stores a key-value pair in the NATS key-value store. It accepts a context, key, value, and TTL.
 // The TTL is not used in this implementation, as it is handled at the bucket level.
 func (n *NatsStore) Put(ctx context.Context, key string, value []byte, _ time.Duration) error {
+	// Check if value exceeds NATS max payload
+	if len(value) > NATSMaxPayload {
+		return n.putChunkedValue(ctx, key, value)
+	}
+	
+	// Clean up any existing chunks if this key was previously chunked
+	n.cleanupChunks(ctx, key)
+	
 	_, err := n.kv.Put(ctx, key, value) // TTL handled at bucket level in this implementation
 	if err != nil {
 		return fmt.Errorf("failed to put key %s: %w", key, err)
@@ -145,10 +204,88 @@ func (n *NatsStore) Put(ctx context.Context, key string, value []byte, _ time.Du
 	return nil
 }
 
+// putChunkedValue stores a large value in chunks
+func (n *NatsStore) putChunkedValue(ctx context.Context, key string, value []byte) error {
+	chunkCount := (len(value) + NATSMaxPayload - 1) / NATSMaxPayload
+	
+	// Store metadata
+	metadata := ChunkMetadata{
+		TotalSize:  len(value),
+		ChunkCount: chunkCount,
+		ChunkSize:  NATSMaxPayload,
+		CreatedAt:  time.Now(),
+		IsChunked:  true,
+	}
+	
+	metaJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal chunk metadata: %w", err)
+	}
+	
+	metaKey := key + MetadataKeySuffix
+	if _, err := n.kv.Put(ctx, metaKey, metaJSON); err != nil {
+		return fmt.Errorf("failed to store chunk metadata: %w", err)
+	}
+	
+	// Store chunks
+	for i := 0; i < chunkCount; i++ {
+		start := i * NATSMaxPayload
+		end := start + NATSMaxPayload
+		if end > len(value) {
+			end = len(value)
+		}
+		
+		chunkKey := fmt.Sprintf("%s%s_%d", key, ChunkKeyPrefix, i)
+		if _, err := n.kv.Put(ctx, chunkKey, value[start:end]); err != nil {
+			// Clean up on failure
+			n.cleanupChunks(ctx, key)
+			return fmt.Errorf("failed to store chunk %d: %w", i, err)
+		}
+	}
+	
+	// Store a placeholder in the main key to indicate chunked storage
+	placeholder := []byte(fmt.Sprintf("CHUNKED:%d", chunkCount))
+	if _, err := n.kv.Put(ctx, key, placeholder); err != nil {
+		// Non-critical error, chunks are still accessible via metadata
+		log.Printf("Warning: failed to store placeholder for %s: %v", key, err)
+	}
+	
+	return nil
+}
+
+// cleanupChunks removes all chunks and metadata for a key
+func (n *NatsStore) cleanupChunks(ctx context.Context, key string) {
+	// Get metadata to know how many chunks to clean
+	metaKey := key + MetadataKeySuffix
+	metaEntry, err := n.kv.Get(ctx, metaKey)
+	if err != nil {
+		return // No metadata, nothing to clean
+	}
+	
+	var metadata ChunkMetadata
+	if err := json.Unmarshal(metaEntry.Value(), &metadata); err != nil {
+		return
+	}
+	
+	// Delete all chunks
+	for i := 0; i < metadata.ChunkCount; i++ {
+		chunkKey := fmt.Sprintf("%s%s_%d", key, ChunkKeyPrefix, i)
+		if err := n.kv.Delete(ctx, chunkKey); err != nil {
+			log.Printf("Warning: failed to delete chunk %s: %v", chunkKey, err)
+		}
+	}
+	
+	// Delete metadata
+	if err := n.kv.Delete(ctx, metaKey); err != nil {
+		log.Printf("Warning: failed to delete metadata %s: %v", metaKey, err)
+	}
+}
+
 // PutMany stores multiple key/value pairs. TTL is ignored in this implementation.
 func (n *NatsStore) PutMany(ctx context.Context, entries []KeyValueEntry, _ time.Duration) error {
 	for _, e := range entries {
-		if _, err := n.kv.Put(ctx, e.Key, e.Value); err != nil {
+		// Use Put method which handles chunking automatically
+		if err := n.Put(ctx, e.Key, e.Value, 0); err != nil {
 			return fmt.Errorf("failed to put key %s: %w", e.Key, err)
 		}
 	}
@@ -157,6 +294,9 @@ func (n *NatsStore) PutMany(ctx context.Context, entries []KeyValueEntry, _ time
 }
 
 func (n *NatsStore) Delete(ctx context.Context, key string) error {
+	// First clean up any chunks if this was a chunked value
+	n.cleanupChunks(ctx, key)
+	
 	err := n.kv.Delete(ctx, key)
 	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return fmt.Errorf("failed to delete key %s: %w", key, err)

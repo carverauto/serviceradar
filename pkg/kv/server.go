@@ -18,8 +18,10 @@
 package kv
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"time"
 
@@ -135,6 +137,56 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 			if err != nil {
 				return status.Errorf(codes.Internal, "failed to send watch update: %v", err)
 			}
+		}
+	}
+}
+
+// PutStream implements the PutStream RPC for handling large values.
+func (s *Server) PutStream(stream proto.KVService_PutStreamServer) error {
+	var metadata *proto.PutStreamMetadata
+	var buffer bytes.Buffer
+	bytesReceived := int64(0)
+
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			// Stream completed, store the data
+			if metadata == nil {
+				return status.Errorf(codes.InvalidArgument, "no metadata received in stream")
+			}
+
+			ttl := time.Duration(metadata.TtlSeconds) * time.Second
+			if err := s.store.Put(stream.Context(), metadata.Key, buffer.Bytes(), ttl); err != nil {
+				return status.Errorf(codes.Internal, "failed to store key %s: %v", metadata.Key, err)
+			}
+
+			return stream.SendAndClose(&proto.PutStreamResponse{
+				BytesReceived: bytesReceived,
+				Success:       true,
+			})
+		}
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to receive stream: %v", err)
+		}
+
+		switch data := req.Data.(type) {
+		case *proto.PutStreamRequest_Metadata:
+			if metadata != nil {
+				return status.Errorf(codes.InvalidArgument, "metadata already received")
+			}
+			metadata = data.Metadata
+			log.Printf("PutStream: Starting stream for key %s, expected size: %d bytes", 
+				metadata.Key, metadata.TotalSize)
+
+		case *proto.PutStreamRequest_Chunk:
+			if metadata == nil {
+				return status.Errorf(codes.InvalidArgument, "metadata must be sent before data chunks")
+			}
+			buffer.Write(data.Chunk)
+			bytesReceived += int64(len(data.Chunk))
+
+		default:
+			return status.Errorf(codes.InvalidArgument, "unexpected message type in stream")
 		}
 	}
 }

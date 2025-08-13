@@ -36,6 +36,9 @@ service KVService {
 
   // Watch streams updates for a specific key.
   rpc Watch(WatchRequest) returns (stream WatchResponse) {}
+
+  // PutStream allows streaming large values in chunks for a given key.
+  rpc PutStream(stream PutStreamRequest) returns (PutStreamResponse) {}
 }
 
 // GetRequest is the request message for the Get operation.
@@ -94,4 +97,27 @@ message WatchRequest {
 // WatchResponse is the response message streamed by the Watch operation.
 message WatchResponse {
   bytes value = 1;  // The updated value, empty if key was deleted
+}
+
+// PutStreamRequest is the request message for streaming Put operations.
+message PutStreamRequest {
+  oneof data {
+    // First message in the stream contains metadata
+    PutStreamMetadata metadata = 1;
+    // Subsequent messages contain data chunks
+    bytes chunk = 2;
+  }
+}
+
+// PutStreamMetadata contains metadata for the streaming Put operation.
+message PutStreamMetadata {
+  string key = 1;
+  int64 ttl_seconds = 2;  // TTL in seconds, 0 for no expiration
+  int64 total_size = 3;    // Total size of the data being streamed (optional, for progress tracking)
+}
+
+// PutStreamResponse is the response message for the PutStream operation.
+message PutStreamResponse {
+  int64 bytes_received = 1;  // Total bytes received
+  bool success = 2;           // Whether the operation succeeded
 }

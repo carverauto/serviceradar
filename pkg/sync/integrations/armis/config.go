@@ -22,8 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/carverauto/serviceradar/pkg/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 // WriteSweepConfig generates and writes the sweep config to KV.
@@ -60,13 +60,9 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 
 	// Use a configurable key, defaulting to "config/agentID/network-sweep"
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.AgentID)
-	_, err = kw.KVClient.PutMany(ctx, &proto.PutManyRequest{
-		Entries: []*proto.KeyValueEntry{{
-			Key:   configKey,
-			Value: configJSON,
-		}},
-	})
-
+	
+	// Use the new streaming method for large data
+	err = kv.PutLarge(ctx, kw.KVClient, configKey, configJSON, 0)
 	if err != nil {
 		return fmt.Errorf("failed to write sweep config to %s: %w", configKey, err)
 	}

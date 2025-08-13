@@ -123,6 +123,26 @@ func (mr *MockKVClientMockRecorder) PutMany(ctx, in any, opts ...any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutMany", reflect.TypeOf((*MockKVClient)(nil).PutMany), varargs...)
 }
 
+// PutStream mocks base method.
+func (m *MockKVClient) PutStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[proto.PutStreamRequest, proto.PutStreamResponse], error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PutStream", varargs...)
+	ret0, _ := ret[0].(grpc.ClientStreamingClient[proto.PutStreamRequest, proto.PutStreamResponse])
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PutStream indicates an expected call of PutStream.
+func (mr *MockKVClientMockRecorder) PutStream(ctx any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutStream", reflect.TypeOf((*MockKVClient)(nil).PutStream), varargs...)
+}
+
 // Watch mocks base method.
 func (m *MockKVClient) Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[proto.WatchResponse], error) {
 	m.ctrl.T.Helper()
