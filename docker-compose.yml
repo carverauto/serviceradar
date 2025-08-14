@@ -61,10 +61,11 @@ services:
   core:
     image: serviceradar-core:shared-creds
     container_name: serviceradar-core
-    ports:
-      - "8090:8090"  # HTTP API
-      - "50052:50052"  # gRPC (matching core.json)
-      - "9090:9090"  # Metrics (Prometheus)
+    # Remove direct port exposure - will access through nginx
+    # ports:
+    #   - "8090:8090"  # HTTP API
+    #   - "50052:50052"  # gRPC (matching core.json)
+    #   - "9090:9090"  # Metrics (Prometheus)
     volumes:
       # Mount the actual config files from packaging
       # Using core.docker.json which has the correct Proton connection details for Docker
@@ -104,6 +105,64 @@ services:
     networks:
       serviceradar-net:
         ipv4_address: 172.28.0.3
+    restart: unless-stopped
+
+  # ServiceRadar Web Application
+  web:
+    image: serviceradar-web:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.web
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost/api
+    container_name: serviceradar-web
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost/api
+      - NEXT_INTERNAL_API_URL=http://core:8090
+      - API_KEY=${API_KEY:-changeme}
+    volumes:
+      - ./packaging/web/config/web.json:/etc/serviceradar/web.json:ro
+    depends_on:
+      core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      serviceradar-net:
+        ipv4_address: 172.28.0.5
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: serviceradar-nginx:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.nginx
+    container_name: serviceradar-nginx
+    ports:
+      - "80:80"      # HTTP
+      # - "443:443"  # HTTPS (add SSL termination later)
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+    depends_on:
+      web:
+        condition: service_healthy
+      core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      serviceradar-net:
+        ipv4_address: 172.28.0.6
     restart: unless-stopped
 
   # Optional: Redpanda for Kafka compatibility (if needed for event streaming)
