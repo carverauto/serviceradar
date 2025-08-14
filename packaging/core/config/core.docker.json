@@ -3,7 +3,7 @@
     "grpc_addr": ":50052",
     "alert_threshold": "5m",
     "known_pollers": [
-        "default-poller"
+        "docker-poller"
     ],
     "metrics": {
         "enabled": true,
@@ -46,6 +46,13 @@
             "*"
         ],
         "allow_credentials": true
+    },
+    "auth": {
+        "jwt_secret": "e576700ea9389477faa72ca769297f313c03d84bd66d951060240703c7095758",
+        "jwt_expiration": "24h",
+        "local_users": {
+            "admin": "$2a$12$ctvr09tL1HwRk8Oja0jGs.mmcphhsHxgE2q31Sip1l6/R6z17MTNy"
+        }
     },
     "nats": {
         "url": "nats://nats:4222",

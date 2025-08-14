@@ -1,9 +1,9 @@
 {
     "agents": {
-        "local-agent": {
-            "address": ":50051",
+        "docker-agent": {
+            "address": "agent:50051",
             "security": {
-                "server_name": "serviceradar-core",
+                "server_name": "serviceradar-agent",
                 "mode": "mtls",
                 "cert_dir": "/etc/serviceradar/certs",
                 "tls": {
@@ -22,45 +22,18 @@
                 {
                     "service_type": "port",
                     "service_name": "SSH",
-                    "details": "core:22"
+                    "details": "agent:22"
                 },
                 {
                     "service_type": "icmp",
                     "service_name": "ping",
-                    "details": "1.1.1.1"
-                },
-                {
-                    "service_type": "grpc",
-                    "service_name": "sysmon",
-                    "details": "core:50083"
+                    "details": "8.8.8.8"
                 },
                 {
                     "service_type": "sweep",
                     "service_name": "network_sweep",
                     "details": "",
-                    "results_interval": "18h"
-                }
-            ]
-        },
-        "default-agent": {
-            "address": ":50058",
-            "security": {
-                "server_name": "serviceradar-core",
-                "mode": "mtls",
-                "cert_dir": "/etc/serviceradar/certs",
-                "tls": {
-                    "cert_file": "core.pem",
-                    "key_file": "core-key.pem",
-                    "ca_file": "root.pem",
-                    "client_ca_file": "root.pem"
-                }
-            },
-            "checks": [
-                {
-                    "service_type": "sync",
-                    "service_name": "sync",
-                    "details": "",
-                    "results_interval": "30m"
+                    "results_interval": "5m"
                 }
             ]
         }

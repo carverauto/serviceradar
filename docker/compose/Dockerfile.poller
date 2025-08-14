@@ -48,8 +48,7 @@ RUN mkdir -p /etc/serviceradar /var/lib/serviceradar /var/log/serviceradar
 # Copy binary from builder
 COPY --from=builder /app/bin/serviceradar-poller /usr/local/bin/serviceradar-poller
 
-# Copy Docker-specific poller configuration
-COPY docker/compose/poller.docker.json /etc/serviceradar/poller.json
+# Configuration will be mounted as volume at /etc/serviceradar/poller.json
 
 # Set ownership
 RUN chown -R serviceradar:serviceradar /etc/serviceradar /var/lib/serviceradar /var/log/serviceradar
