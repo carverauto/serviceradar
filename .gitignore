@@ -208,3 +208,6 @@ target/
 .venv
 #.bin
 .gemini/
+
+# Docker generated certificates
+docker/compose/certs/
