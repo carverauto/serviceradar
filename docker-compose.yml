@@ -61,16 +61,16 @@ services:
   core:
     image: serviceradar-core:shared-creds
     container_name: serviceradar-core
-    # Remove direct port exposure - will access through nginx
-    # ports:
-    #   - "8090:8090"  # HTTP API
-    #   - "50052:50052"  # gRPC (matching core.json)
-    #   - "9090:9090"  # Metrics (Prometheus)
+    # Expose core ports for debugging authentication
+    ports:
+      - "8090:8090"  # HTTP API
+      - "50052:50052"  # gRPC (matching core.json)
+      - "9090:9090"  # Metrics (Prometheus)
     volumes:
       # Mount the actual config files from packaging
       # Using core.docker.json which has the correct Proton connection details for Docker
       - ./packaging/core/config/core.docker.json:/etc/serviceradar/core.json:ro
-      - ./packaging/core/config/api.env:/etc/serviceradar/api.env:ro
+      - ./docker/compose/api.docker.env:/etc/serviceradar/api.env:ro
       - cert-data:/etc/serviceradar/certs:ro
       - credentials:/etc/serviceradar/credentials:ro
       - core-data:/var/lib/serviceradar
@@ -83,10 +83,10 @@ services:
       # Database password (will be set by init script)
       - PROTON_PASSWORD=${PROTON_PASSWORD:-}
       
-      # Override api.env values if needed
-      - API_KEY=${API_KEY:-changeme}
-      - JWT_SECRET=${JWT_SECRET:-changeme}
-      - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      # API settings are loaded from api.env file
+      - API_KEY=changeme
+      - JWT_SECRET=e576700ea9389477faa72ca769297f313c03d84bd66d951060240703c7095758
+      - AUTH_ENABLED=true
       
       # Config source
       - CONFIG_SOURCE=${CONFIG_SOURCE:-file}
@@ -120,9 +120,13 @@ services:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://localhost/api
       - NEXT_INTERNAL_API_URL=http://core:8090
-      - API_KEY=${API_KEY:-changeme}
+      - API_KEY=changeme
+      - NEXT_PUBLIC_API_KEY=changeme
+      - AUTH_ENABLED=true
+      - JWT_SECRET=changeme
     volumes:
       - ./packaging/web/config/web.json:/etc/serviceradar/web.json:ro
+      - ./docker/compose/api.docker.env:/etc/serviceradar/api.env:ro
     depends_on:
       core:
         condition: service_healthy
@@ -173,6 +177,7 @@ services:
       dockerfile: docker/compose/Dockerfile.poller
     container_name: serviceradar-poller
     volumes:
+      - ./docker/compose/poller.docker.json:/etc/serviceradar/poller.json:ro
       - cert-data:/etc/serviceradar/certs:ro
       - poller-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
