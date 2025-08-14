@@ -197,6 +197,40 @@ services:
         ipv4_address: 172.28.0.7
     restart: unless-stopped
 
+  # ServiceRadar Agent Service
+  agent:
+    image: serviceradar-agent:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.agent
+    container_name: serviceradar-agent
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - agent-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Config path
+      - CONFIG_PATH=/etc/serviceradar/agent.json
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    # Required capabilities for network operations
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "serviceradar-agent", "localhost:50051", "grpc.health.v1.Health/Check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      serviceradar-net:
+        ipv4_address: 172.28.0.8
+    restart: unless-stopped
+
   # Optional: Redpanda for Kafka compatibility (if needed for event streaming)
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v23.2.15
@@ -255,6 +289,8 @@ volumes:
   core-data:
     driver: local
   poller-data:
+    driver: local
+  agent-data:
     driver: local
   redpanda-data:
     driver: local
