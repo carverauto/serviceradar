@@ -165,6 +165,38 @@ services:
         ipv4_address: 172.28.0.6
     restart: unless-stopped
 
+  # ServiceRadar Poller Service
+  poller:
+    image: serviceradar-poller:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.poller
+    container_name: serviceradar-poller
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - poller-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Config path
+      - CONFIG_PATH=/etc/serviceradar/poller.json
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/poller.pem", "-key", "/etc/serviceradar/certs/poller-key.pem", "-servername", "serviceradar-poller", "localhost:50053", "grpc.health.v1.Health/Check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      serviceradar-net:
+        ipv4_address: 172.28.0.7
+    restart: unless-stopped
+
   # Optional: Redpanda for Kafka compatibility (if needed for event streaming)
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v23.2.15
@@ -221,6 +253,8 @@ volumes:
   proton-data:
     driver: local
   core-data:
+    driver: local
+  poller-data:
     driver: local
   redpanda-data:
     driver: local
