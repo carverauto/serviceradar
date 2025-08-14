@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	// Maximum networks to include in a single payload 
+	// Maximum networks to include in a single payload
 	maxNetworksInPayload = 5000
 	// Hard limit for gRPC message size (4MB default, using 2MB as safety margin for large configs)
 	maxGRPCPayloadSize = 2 * 1024 * 1024 // 2MB
@@ -39,7 +39,7 @@ const (
 // For very large configs (>5000 networks), it uses a compressed representation.
 func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *models.SweepConfig) error {
 	networkCount := len(sweepConfig.Networks)
-	
+
 	kw.Logger.Info().
 		Int("network_count", networkCount).
 		Msg("Preparing to write sweep config to KV")
@@ -50,11 +50,12 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 		kw.Logger.Error().
 			Err(err).
 			Msg("Failed to marshal sweep config")
+
 		return fmt.Errorf("failed to marshal sweep config: %w", err)
 	}
 
 	payloadSize := len(configJSON)
-	
+
 	// If the config is too large, use an alternative approach
 	if payloadSize > maxGRPCPayloadSize || networkCount > maxNetworksInPayload {
 		kw.Logger.Warn().
@@ -63,7 +64,7 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 			Int("network_count", networkCount).
 			Int("max_networks", maxNetworksInPayload).
 			Msg("Configuration is too large, using optimized storage approach")
-		
+
 		return kw.writeLargeConfig(ctx, sweepConfig)
 	}
 
@@ -74,7 +75,7 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 // writeNormalConfig writes a regular-sized config
 func (kw *DefaultKVWriter) writeNormalConfig(ctx context.Context, sweepConfig *models.SweepConfig, configJSON []byte) error {
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.AgentID)
-	
+
 	_, err := kw.KVClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
@@ -118,16 +119,16 @@ func (kw *DefaultKVWriter) writeLargeConfig(ctx context.Context, sweepConfig *mo
 	for i, mode := range sweepConfig.SweepModes {
 		sweepModes[i] = models.SweepMode(mode)
 	}
-	
+
 	for _, network := range sweepConfig.Networks {
 		deviceTarget := models.DeviceTarget{
 			Network:    network,
 			Source:     string(models.DiscoverySourceArmis), // Convert to string
 			SweepModes: sweepModes,                          // Use converted sweep modes
 			Metadata: map[string]string{
-				"converted_from_network":    "true",
-				"original_network_count":    fmt.Sprintf("%d", len(sweepConfig.Networks)),
-				"conversion_timestamp":      fmt.Sprintf("%d", time.Now().Unix()),
+				"converted_from_network": "true",
+				"original_network_count": fmt.Sprintf("%d", len(sweepConfig.Networks)),
+				"conversion_timestamp":   fmt.Sprintf("%d", time.Now().Unix()),
 			},
 		}
 		optimizedConfig.DeviceTargets = append(optimizedConfig.DeviceTargets, deviceTarget)
@@ -149,12 +150,12 @@ func (kw *DefaultKVWriter) writeLargeConfig(ctx context.Context, sweepConfig *mo
 			Int("max_size_bytes", maxGRPCPayloadSize).
 			Int("device_target_count", len(optimizedConfig.DeviceTargets)).
 			Msg("Optimized config still too large, applying network aggregation")
-		
+
 		return kw.writeAggregatedConfig(ctx, sweepConfig)
 	}
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.AgentID)
-	
+
 	_, err = kw.KVClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
@@ -182,13 +183,15 @@ func (kw *DefaultKVWriter) writeAggregatedConfig(ctx context.Context, sweepConfi
 
 	// Group individual IPs by their /24 networks to reduce the total number of entries
 	networkMap := make(map[string]int) // network -> count of IPs in that network
-	var otherNetworks []string         // networks that aren't /32 IPs
-	
+
+	var otherNetworks []string // networks that aren't /32 IPs
+
 	for _, network := range sweepConfig.Networks {
 		if strings.HasSuffix(network, "/32") {
 			// This is an individual IP, group it by /24
 			ip := strings.TrimSuffix(network, "/32")
 			parts := strings.Split(ip, ".")
+
 			if len(parts) == 4 {
 				subnet := fmt.Sprintf("%s.%s.%s.0/24", parts[0], parts[1], parts[2])
 				networkMap[subnet]++
@@ -200,17 +203,18 @@ func (kw *DefaultKVWriter) writeAggregatedConfig(ctx context.Context, sweepConfi
 			otherNetworks = append(otherNetworks, network)
 		}
 	}
-	
+
 	// Convert grouped networks back to a list
 	aggregatedNetworks := make([]string, 0, len(networkMap)+len(otherNetworks))
 	aggregatedNetworks = append(aggregatedNetworks, otherNetworks...)
-	
+
 	totalAggregatedIPs := 0
+
 	for subnet, count := range networkMap {
 		aggregatedNetworks = append(aggregatedNetworks, subnet)
 		totalAggregatedIPs += count
 	}
-	
+
 	kw.Logger.Info().
 		Int("original_networks", len(sweepConfig.Networks)).
 		Int("aggregated_networks", len(aggregatedNetworks)).
@@ -245,13 +249,14 @@ func (kw *DefaultKVWriter) writeAggregatedConfig(ctx context.Context, sweepConfi
 			Int("max_size_bytes", maxGRPCPayloadSize).
 			Int("aggregated_network_count", len(aggregatedNetworks)).
 			Msg("Even aggregated config exceeds size limits - configuration is too large")
-		
-		return fmt.Errorf("configuration exceeds maximum size even after aggregation (%d bytes > %d bytes limit) with %d networks - manual intervention required", 
+
+		return fmt.Errorf(
+			"configuration exceeds maximum size even after aggregation (%d bytes > %d bytes limit) with %d networks - manual intervention required",
 			len(configJSON), maxGRPCPayloadSize, len(aggregatedNetworks))
 	}
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.AgentID)
-	
+
 	_, err = kw.KVClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
