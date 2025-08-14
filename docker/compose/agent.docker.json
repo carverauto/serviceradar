@@ -1,0 +1,39 @@
+{
+  "checkers_dir": "/etc/serviceradar/checkers",
+  "listen_addr": ":50051",
+  "service_type": "grpc",
+  "service_name": "AgentService",
+  "agent_id": "docker-agent",
+  "agent_name": "agent",
+  "host_ip": "agent",
+  "partition": "default",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "serviceradar-agent",
+    "role": "agent",
+    "tls": {
+      "cert_file": "core.pem",
+      "key_file": "core-key.pem",
+      "ca_file": "root.pem"
+    }
+  },
+  "logging": {
+    "level": "info",
+    "debug": false,
+    "output": "stdout",
+    "time_format": "",
+    "otel": {
+      "enabled": false,
+      "endpoint": "",
+      "service_name": "serviceradar-agent",
+      "batch_timeout": "5s",
+      "insecure": false,
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/core.pem",
+        "key_file": "/etc/serviceradar/certs/core-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      }
+    }
+  }
+}
