@@ -1,0 +1,91 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Multi-stage build optimized for Docker Compose deployment
+FROM --platform=linux/amd64 golang:1.24-bullseye AS builder
+
+WORKDIR /src
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libc6-dev \
+    libsqlite3-dev
+
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the source
+COPY . .
+
+# Build arguments for version info
+ARG VERSION=dev
+ARG BUILD_ID=docker
+
+# Build the core service with CGO for SQLite support
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+    go build \
+    -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=${VERSION} \
+              -X github.com/carverauto/serviceradar/pkg/version.buildID=${BUILD_ID}" \
+    -o serviceradar-core ./cmd/core
+
+# Runtime stage - using Ubuntu for better compatibility
+FROM --platform=linux/amd64 ubuntu:22.04
+
+# Install runtime dependencies including grpcurl
+RUN apt-get update && \
+    apt-get install -y \
+        ca-certificates \
+        curl \
+        jq \
+        libsqlite3-0 \
+        netcat-openbsd \
+        wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && wget -qO- https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz \
+        | tar -xz -C /usr/local/bin grpcurl \
+    && chmod +x /usr/local/bin/grpcurl
+
+# Create non-root user
+RUN useradd -m -u 1000 serviceradar
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar /data && \
+    chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar /data
+
+# Copy binary from builder
+COPY --from=builder /src/serviceradar-core /usr/local/bin/serviceradar-core
+RUN chmod +x /usr/local/bin/serviceradar-core
+
+# Copy entrypoint script
+COPY docker/compose/entrypoint-core.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Switch to non-root user
+USER serviceradar
+
+# Set working directory
+WORKDIR /data
+
+# Expose ports (HTTP API and gRPC)
+EXPOSE 8090 50051
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8090/health || exit 1
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["serviceradar-core"]

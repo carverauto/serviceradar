@@ -1,0 +1,169 @@
+services:
+  # Certificate Generation Service (runs once to generate mTLS certs)
+  cert-generator:
+    image: ghcr.io/carverauto/serviceradar-cert-generator:${SERVICERADAR_VERSION:-latest}
+    container_name: serviceradar-cert-generator
+    volumes:
+      - cert-data:/certs
+    restart: "no"  # Only run once
+    networks:
+      - serviceradar-net
+
+  # Proton (TimeBase) Database with custom configuration
+  proton:
+    image: ghcr.io/carverauto/serviceradar-proton:1.0.53-perms
+    container_name: serviceradar-proton
+    ports:
+      - "8123:8123"  # HTTP port for JDBC driver, batch mode
+      - "8463:8463"  # Native TCP port
+      - "8443:8443"  # HTTPS port (with TLS)
+      - "9440:9440"  # Native TCP secure port (with TLS)
+    volumes:
+      - proton-data:/var/lib/proton
+      - cert-data:/etc/serviceradar/certs:ro
+      - cert-data:/etc/proton-server/certs:ro
+      - credentials:/etc/serviceradar/credentials
+    environment:
+      - PROTON_PASSWORD=${PROTON_PASSWORD:-}  # Will generate if not set
+      - PROTON_LOG_LEVEL=${PROTON_LOG_LEVEL:-error}
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+      nproc:
+        soft: 65535
+        hard: 65535
+    # sysctls disabled for Docker Desktop compatibility
+    # In production Linux environments, you can enable these:
+    # sysctls:
+    #   - kernel.threads-max=100000  
+    #   - kernel.pid_max=100000
+    #   - vm.nr_hugepages=0
+    cap_add:
+      - NET_ADMIN
+      - IPC_LOCK
+      - SYS_NICE
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8123/?query=SELECT%201 || curl -sf http://default:$(cat /etc/proton-server/generated_password.txt)@localhost:8123/?query=SELECT%201 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+    networks:
+      serviceradar-net:
+        ipv4_address: 172.28.0.2
+    restart: unless-stopped
+
+  # ServiceRadar Core Service
+  core:
+    image: serviceradar-core:shared-creds
+    container_name: serviceradar-core
+    ports:
+      - "8090:8090"  # HTTP API
+      - "50052:50052"  # gRPC (matching core.json)
+      - "9090:9090"  # Metrics (Prometheus)
+    volumes:
+      # Mount the actual config files from packaging
+      # Using core.docker.json which has the correct Proton connection details for Docker
+      - ./packaging/core/config/core.docker.json:/etc/serviceradar/core.json:ro
+      - ./packaging/core/config/api.env:/etc/serviceradar/api.env:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - credentials:/etc/serviceradar/credentials:ro
+      - core-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Wait for dependencies
+      - WAIT_FOR_PROTON=true
+      - INIT_DB=true
+      
+      # Database password (will be set by init script)
+      - PROTON_PASSWORD=${PROTON_PASSWORD:-}
+      
+      # Override api.env values if needed
+      - API_KEY=${API_KEY:-changeme}
+      - JWT_SECRET=${JWT_SECRET:-changeme}
+      - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      
+      # Config source
+      - CONFIG_SOURCE=${CONFIG_SOURCE:-file}
+      - CONFIG_PATH=/etc/serviceradar/core.json
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      proton:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "serviceradar-core", "localhost:50052", "grpc.health.v1.Health/Check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      serviceradar-net:
+        ipv4_address: 172.28.0.3
+    restart: unless-stopped
+
+  # Optional: Redpanda for Kafka compatibility (if needed for event streaming)
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.2.15
+    container_name: serviceradar-redpanda
+    command:
+      - redpanda start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --smp 1
+      - --memory 1G
+      - --mode dev-container
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    ports:
+      - "19092:19092"  # Kafka external port
+      - "9644:9644"    # Admin API
+    networks:
+      - serviceradar-net
+    profiles:
+      - full  # Only start when using --profile full
+    restart: unless-stopped
+
+  # Optional: NATS for messaging (if needed)
+  nats:
+    image: nats:latest
+    container_name: serviceradar-nats
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP monitoring
+      - "6222:6222"  # Cluster routing
+    volumes:
+      - nats-data:/data
+      - cert-data:/etc/serviceradar/certs:ro
+    command: ["--store_dir", "/data", "--cluster_name", "serviceradar"]
+    networks:
+      serviceradar-net:
+        ipv4_address: 172.28.0.4
+    profiles:
+      - full  # Only start when using --profile full
+    restart: unless-stopped
+
+networks:
+  serviceradar-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  cert-data:
+    driver: local
+  credentials:
+    driver: local
+  proton-data:
+    driver: local
+  core-data:
+    driver: local
+  redpanda-data:
+    driver: local
+  nats-data:
+    driver: local

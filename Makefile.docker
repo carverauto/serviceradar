@@ -1,0 +1,165 @@
+# ServiceRadar Docker Makefile
+# Usage: make -f Makefile.docker <target>
+
+.PHONY: help build up down logs clean rebuild status shell db-shell docker-login docker-build docker-push
+
+# Default target
+help:
+	@echo "ServiceRadar Docker Commands:"
+	@echo "  make -f Makefile.docker start      - 🚀 One command: generate certs, build, start (RECOMMENDED)"
+	@echo "  make -f Makefile.docker up         - Start services (core + proton)"
+	@echo "  make -f Makefile.docker up-full    - Start all services (includes NATS, Redpanda)"
+	@echo "  make -f Makefile.docker down       - Stop services"
+	@echo "  make -f Makefile.docker logs       - View logs"
+	@echo "  make -f Makefile.docker clean      - Remove containers and volumes"
+	@echo "  make -f Makefile.docker rebuild    - Rebuild and restart services"
+	@echo "  make -f Makefile.docker status     - Show service status"
+	@echo "  make -f Makefile.docker shell      - Shell into core container"
+	@echo "  make -f Makefile.docker db-shell   - Shell into Proton database"
+	@echo ""
+	@echo "Manual commands:"
+	@echo "  make -f Makefile.docker certs      - Generate mTLS certificates manually"
+	@echo "  make -f Makefile.docker build      - Build Docker images"
+	@echo ""
+	@echo "Image building and pushing:"
+	@echo "  make -f Makefile.docker docker-login    - Login to GitHub Container Registry"
+	@echo "  make -f Makefile.docker docker-build    - Build images locally"
+	@echo "  make -f Makefile.docker docker-push     - Build and push images to GHCR"
+
+# Generate mTLS certificates
+certs:
+	@echo "Generating mTLS certificates..."
+	@chmod +x docker/compose/generate-certs.sh
+	@./docker/compose/generate-certs.sh
+	@echo "Certificates generated successfully"
+
+# Build Docker images (certificates generated automatically)
+build:
+	docker-compose build --no-cache
+
+# Start everything (one command - certificates, build, start)
+start:
+	docker-compose up -d
+
+# Start core services (Proton + Core)
+up:
+	docker-compose up -d proton core
+	@echo "Waiting for services to be healthy..."
+	@sleep 5
+	@make -f Makefile.docker status
+
+# Start all services including optional ones
+up-full:
+	docker-compose --profile full up -d
+	@echo "Waiting for services to be healthy..."
+	@sleep 5
+	@make -f Makefile.docker status
+
+# Stop all services
+down:
+	docker-compose down
+
+# View logs
+logs:
+	docker-compose logs -f
+
+# View logs for specific service
+logs-core:
+	docker-compose logs -f core
+
+logs-proton:
+	docker-compose logs -f proton
+
+# Clean up everything (containers, volumes, networks)
+clean:
+	docker-compose down -v --remove-orphans
+	@echo "Cleaned up all containers, volumes, and networks"
+
+# Rebuild and restart
+rebuild: down build up
+
+# Show service status
+status:
+	@echo "=== ServiceRadar Docker Status ==="
+	@docker-compose ps
+	@echo ""
+	@echo "=== Service Health ==="
+	@docker-compose ps | grep -E "(healthy|unhealthy|starting)" || echo "Services starting..."
+	@echo ""
+	@echo "=== Network Info ==="
+	@docker network ls | grep serviceradar || echo "No ServiceRadar network found"
+	@echo ""
+	@echo "=== Volumes ==="
+	@docker volume ls | grep serviceradar || echo "No ServiceRadar volumes found"
+
+# Shell into core container
+shell:
+	docker-compose exec core /bin/bash
+
+# Shell into Proton database
+db-shell:
+	docker-compose exec proton clickhouse-client --host localhost --port 8463
+
+# Run database queries
+db-query:
+	@read -p "Enter SQL query: " query; \
+	docker-compose exec proton clickhouse-client --host localhost --port 8463 --query "$$query"
+
+# Initialize database tables
+db-init:
+	docker-compose exec core serviceradar-core init-db --config /etc/serviceradar/core.json
+
+# Export configuration template
+config-template:
+	@echo "Generating configuration template..."
+	@mkdir -p configs/docker
+	@docker-compose run --rm core serviceradar-core config-template > configs/docker/core-template.json
+	@echo "Configuration template saved to configs/docker/core-template.json"
+
+# Development mode with live reload (requires source mount)
+dev:
+	CONFIG_SOURCE=file docker-compose up -d
+	docker-compose logs -f core
+
+# Production build with specific version
+prod-build:
+	@read -p "Enter version (e.g., 1.0.0): " version; \
+	VERSION=$$version BUILD_ID=$$(date +%Y%m%d%H%M%S) docker-compose build --no-cache
+
+# Test connectivity
+test:
+	@echo "Testing Core API..."
+	@curl -sf http://localhost:8090/health && echo "✓ Core API is healthy" || echo "✗ Core API is not responding"
+	@echo ""
+	@echo "Testing Proton..."
+	@curl -sf http://localhost:8123/ping && echo "✓ Proton is healthy" || echo "✗ Proton is not responding"
+	@echo ""
+	@echo "Testing gRPC..."
+	@nc -zv localhost 50051 2>&1 | grep -q succeeded && echo "✓ gRPC port is open" || echo "✗ gRPC port is not accessible"
+	@echo ""
+	@echo "Testing Metrics..."
+	@curl -sf http://localhost:9090/metrics > /dev/null && echo "✓ Metrics endpoint is working" || echo "✗ Metrics endpoint is not responding"
+
+# Login to GitHub Container Registry
+docker-login:
+	@./scripts/docker-login.sh
+
+# Build Docker images locally (without pushing)
+docker-build:
+	@./scripts/build-and-push-docker.sh --all --tag local
+
+# Build and push Docker images to GHCR
+docker-push:
+	@read -p "Enter tag (default: latest): " tag; \
+	tag=$${tag:-latest}; \
+	./scripts/build-and-push-docker.sh --all --push --tag $$tag
+
+# Build specific image
+docker-build-core:
+	@./scripts/build-and-push-docker.sh --core --tag local
+
+docker-build-proton:
+	@./scripts/build-and-push-docker.sh --proton --tag local
+
+docker-build-cert-gen:
+	@./scripts/build-and-push-docker.sh --cert-gen --tag local
