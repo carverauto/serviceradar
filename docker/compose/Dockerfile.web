@@ -28,21 +28,37 @@ RUN npm install --save-dev @types/react @types/react-dom @types/node typescript
 # Copy application code
 COPY web/ ./
 
+# Use Docker-specific Next.js config for build
+RUN cp next.config.docker.ts next.config.ts
+
 # Build arguments for API configuration
-ARG NEXT_PUBLIC_API_URL=http://localhost:8090
+ARG NEXT_PUBLIC_API_URL=http://localhost/api
+ARG NEXT_INTERNAL_API_URL=http://core:8090
 ARG API_KEY=changeme
 
-# Set build-time environment variables
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV API_KEY=$API_KEY
+# Set build-time environment variables explicitly for Docker builds
+# These MUST be set before npm run build to ensure correct compilation
+ENV DOCKER_BUILD=true \
+    NEXT_INTERNAL_API_URL=http://core:8090 \
+    NEXT_PUBLIC_API_URL=http://localhost/api \
+    API_KEY=${API_KEY}
 
-# Build the application
-RUN npm run build
+# Build the application with Docker-specific environment
+# The environment variables above will be inlined into the compiled code
+RUN NEXT_INTERNAL_API_URL=http://core:8090 \
+    NEXT_PUBLIC_API_URL=http://localhost/api \
+    DOCKER_BUILD=true \
+    npm run build
+
+# Note: URL fixes will be applied in runtime stage after copying files
 
 # Runtime stage
 FROM node:20-alpine
 
 WORKDIR /app
+
+# Install jq for JSON parsing in entrypoint
+RUN apk add --no-cache jq
 
 # Install runtime dependencies only
 COPY --from=builder /app/package*.json ./
@@ -54,12 +70,29 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.ts ./
 COPY --from=builder /app/tsconfig.json ./
 
-# Copy web config
-COPY packaging/web/config/web.json /etc/serviceradar/web.json
+# Copy entrypoint script
+COPY docker/compose/entrypoint-web.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nextjs -u 1001
+
+# Create config directory
+RUN mkdir -p /etc/serviceradar && \
+    chown -R nextjs:nodejs /etc/serviceradar
+
+# Fix incorrect URLs in compiled JavaScript files (must be done after copying .next)
+# Use more specific patterns to avoid issues with find -exec
+RUN sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/server/app/api/*/route.js && \
+    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/server/app/api/*/*/route.js && \
+    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/server/app/api/*/*/*/route.js && \
+    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/server/app/api/*/*/*/*/route.js && \
+    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/standalone/.next/server/app/api/*/route.js && \
+    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/standalone/.next/server/app/api/*/*/route.js && \
+    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/standalone/.next/server/app/api/*/*/*/route.js && \
+    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/standalone/.next/server/app/api/*/*/*/*/route.js && \
+    echo "Docker URL fixes applied successfully in runtime stage"
 
 # Set ownership
 RUN chown -R nextjs:nodejs /app
@@ -77,6 +110,9 @@ ENV PORT=3000
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/api/status', (r) => {r.statusCode === 200 ? process.exit(0) : process.exit(1)}).on('error', () => process.exit(1))"
+
+# Use entrypoint script
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # Start the application
 CMD ["npm", "start"]

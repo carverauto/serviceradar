@@ -44,8 +44,8 @@ server {
         proxy_cache off;
     }
 
-    # Core API routes - direct to core service
-    location ~ ^/api/(query|devices|pollers|nodes|status|auth) {
+    # Core API routes - direct to core service (auth/login will go through Next.js)
+    location ~ ^/api/(query|devices|pollers|nodes|status)$ {
         proxy_pass http://core:8090;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -53,6 +53,16 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Authorization $http_authorization;
         proxy_set_header X-API-Key $http_x_api_key;
+        proxy_set_header Cookie $http_cookie;
+    }
+    
+    # Next.js API routes (including auth) - route to web container
+    location /api/ {
+        proxy_pass http://web:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Cookie $http_cookie;
     }
 
@@ -93,24 +103,6 @@ server {
         proxy_set_header X-API-Key $http_x_api_key;
     }
 
-    # Backend API routes
-    location /api/ {
-        proxy_pass http://core:8090;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Authorization $http_authorization;
-        proxy_set_header X-API-Key $http_x_api_key;
-        proxy_set_header Cookie $http_cookie;
-        
-        # WebSocket support
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 86400;
-    }
 
     # Auth API routes
     location /auth/ {

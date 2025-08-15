@@ -115,18 +115,20 @@ services:
       dockerfile: docker/compose/Dockerfile.web
       args:
         - NEXT_PUBLIC_API_URL=http://localhost/api
+        - NEXT_INTERNAL_API_URL=http://core:8090
+        - API_KEY=changeme
     container_name: serviceradar-web
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://localhost/api
       - NEXT_INTERNAL_API_URL=http://core:8090
-      - API_KEY=changeme
-      - NEXT_PUBLIC_API_KEY=changeme
+      - API_KEY=${API_KEY:-changeme}
+      - JWT_SECRET=${JWT_SECRET:-e576700ea9389477faa72ca769297f313c03d84bd66d951060240703c7095758}
       - AUTH_ENABLED=true
-      - JWT_SECRET=changeme
     volumes:
-      - ./packaging/web/config/web.json:/etc/serviceradar/web.json:ro
+      - ./docker/compose/web.docker.json:/etc/serviceradar/web.json:ro
       - ./docker/compose/api.docker.env:/etc/serviceradar/api.env:ro
+      - credentials:/etc/serviceradar/credentials:ro
     depends_on:
       core:
         condition: service_healthy

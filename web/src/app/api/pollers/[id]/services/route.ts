@@ -16,6 +16,7 @@
 
 // src/app/api/pollers/[id]/services/route.ts
 import {NextRequest, NextResponse} from "next/server";
+import { getInternalApiUrl, getApiKey } from "@/lib/config";
 import {Service} from "@/types/types";
 
 // Define the props type for the dynamic route
@@ -26,8 +27,8 @@ interface RouteProps {
 export async function GET(req: NextRequest, props: RouteProps) {
   const params = await props.params; // Await the params Promise
   const pollerId = params.id;
-  const apiKey = process.env.API_KEY || "";
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+  const apiKey = getApiKey();
+  const apiUrl = getInternalApiUrl();
 
   try {
     // Get authorization header
