@@ -289,7 +289,7 @@ services:
       - full  # Only start when using --profile full
     restart: unless-stopped
 
-  # Optional: NATS for messaging (if needed)
+  # NATS for messaging and KV store
   nats:
     image: nats:latest
     container_name: serviceradar-nats
@@ -300,11 +300,21 @@ services:
     volumes:
       - nats-data:/data
       - cert-data:/etc/serviceradar/certs:ro
-    command: ["--store_dir", "/data", "--cluster_name", "serviceradar"]
+      - ./docker/compose/nats.docker.conf:/etc/nats/nats-server.conf:ro
+    command: ["--config", "/etc/nats/nats-server.conf"]
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "nats", "server", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - serviceradar-net
-    profiles:
-      - full  # Only start when using --profile full
     restart: unless-stopped
 
 networks:
