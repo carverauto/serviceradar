@@ -11,24 +11,30 @@ services:
 
   # Configuration Updater (runs after cert generation to update configs with secrets)
   config-updater:
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.config-updater
     container_name: serviceradar-config-updater
     volumes:
-      - cert-data:/etc/serviceradar/certs:ro
+      - cert-data:/etc/serviceradar/certs
       - ./packaging/core/config:/config
-      - ./docker/compose/update-config.sh:/update-config.sh:ro
-    command: |
-      sh -c "
-        apk add --no-cache jq &&
-        chmod +x /update-config.sh &&
-        mkdir -p /etc/serviceradar &&
-        cp /config/core.docker.json /etc/serviceradar/core.json &&
-        /update-config.sh &&
-        cp /etc/serviceradar/core.json /config/core.docker.json &&
-        cp /etc/serviceradar/api.env /config/api.docker.env
-      "
     depends_on:
       cert-generator:
+        condition: service_completed_successfully
+    restart: "no"  # Only run once
+    networks:
+      - serviceradar-net
+
+  # Fix certificate permissions for Docker deployment
+  cert-permissions-fixer:
+    image: alpine:3.20
+    container_name: serviceradar-cert-permissions-fixer
+    volumes:
+      - cert-data:/etc/serviceradar/certs
+      - ./docker/compose/fix-cert-permissions.sh:/fix-cert-permissions.sh:ro
+    command: sh /fix-cert-permissions.sh
+    depends_on:
+      config-updater:
         condition: service_completed_successfully
     restart: "no"  # Only run once
     networks:
@@ -78,8 +84,7 @@ services:
       cert-generator:
         condition: service_completed_successfully
     networks:
-      serviceradar-net:
-        ipv4_address: 172.28.0.2
+      - serviceradar-net
     restart: unless-stopped
 
   # ServiceRadar Core Service
@@ -95,7 +100,7 @@ services:
       # Mount the actual config files from packaging
       # Using core.docker.json which has the correct Proton connection details for Docker
       - ./packaging/core/config/core.docker.json:/etc/serviceradar/core.json:ro
-      - ./docker/compose/api.docker.env:/etc/serviceradar/api.env:ro
+      - ./packaging/core/config/api.docker.env:/etc/serviceradar/api.env:ro
       - cert-data:/etc/serviceradar/certs:ro
       - credentials:/etc/serviceradar/credentials:ro
       - core-data:/var/lib/serviceradar
@@ -119,6 +124,8 @@ services:
         condition: service_completed_successfully
       config-updater:
         condition: service_completed_successfully
+      cert-permissions-fixer:
+        condition: service_completed_successfully
       proton:
         condition: service_healthy
     healthcheck:
@@ -128,8 +135,7 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      serviceradar-net:
-        ipv4_address: 172.28.0.3
+      - serviceradar-net
     restart: unless-stopped
 
   # ServiceRadar Web Application
@@ -146,6 +152,8 @@ services:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://localhost/api
       - NEXT_INTERNAL_API_URL=http://core:8090
+      - API_KEY=${API_KEY:-537d987470c38e062b686aa9922d91e48d3da7ff1205bb7663f8297b5541d29b}
+      - JWT_SECRET=${JWT_SECRET:-5d9ea8dba706b6ae5cd1a69924c7d8eacaea99c8cfd5959df23a0b549646a4a4}
       - AUTH_ENABLED=true
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -164,8 +172,7 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      serviceradar-net:
-        ipv4_address: 172.28.0.5
+      - serviceradar-net
     restart: unless-stopped
 
   # Nginx Reverse Proxy
@@ -192,8 +199,7 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      serviceradar-net:
-        ipv4_address: 172.28.0.6
+      - serviceradar-net
     restart: unless-stopped
 
   # ServiceRadar Poller Service
@@ -219,14 +225,13 @@ services:
       core:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/poller.pem", "-key", "/etc/serviceradar/certs/poller-key.pem", "-servername", "serviceradar-poller", "localhost:50053", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "serviceradar-poller", "localhost:50053", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     networks:
-      serviceradar-net:
-        ipv4_address: 172.28.0.7
+      - serviceradar-net
     restart: unless-stopped
 
   # ServiceRadar Agent Service
@@ -259,8 +264,7 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      serviceradar-net:
-        ipv4_address: 172.28.0.8
+      - serviceradar-net
     restart: unless-stopped
 
   # Optional: Redpanda for Kafka compatibility (if needed for event streaming)
@@ -298,8 +302,7 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
     command: ["--store_dir", "/data", "--cluster_name", "serviceradar"]
     networks:
-      serviceradar-net:
-        ipv4_address: 172.28.0.4
+      - serviceradar-net
     profiles:
       - full  # Only start when using --profile full
     restart: unless-stopped
@@ -307,9 +310,6 @@ services:
 networks:
   serviceradar-net:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16
 
 volumes:
   cert-data:
