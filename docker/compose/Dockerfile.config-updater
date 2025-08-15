@@ -1,0 +1,8 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache jq openssl
+
+COPY docker/compose/update-config.sh /update-config.sh
+RUN chmod +x /update-config.sh
+
+CMD ["/update-config.sh"]
