@@ -5,8 +5,13 @@ set -e
 
 echo "Starting ServiceRadar Web entrypoint..."
 
-# Load configuration from api.env if it exists
-if [ -f /etc/serviceradar/api.env ]; then
+# Load configuration from api.env if it exists (check generated config first)
+if [ -f /etc/serviceradar/config/api.env ]; then
+    echo "Loading API configuration from /etc/serviceradar/config/api.env (generated)..."
+    set -a
+    . /etc/serviceradar/config/api.env
+    set +a
+elif [ -f /etc/serviceradar/api.env ]; then
     echo "Loading API configuration from /etc/serviceradar/api.env..."
     set -a
     . /etc/serviceradar/api.env
@@ -36,22 +41,22 @@ if [ -z "$NEXT_PUBLIC_API_URL" ]; then
     echo "Setting NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL"
 fi
 
-# Load API key from generated file if available
+# Load API key from generated file if not already set from api.env
 if [ -z "$API_KEY" ] && [ -f /etc/serviceradar/certs/api-key ]; then
     export API_KEY=$(cat /etc/serviceradar/certs/api-key)
     echo "Loaded API key from /etc/serviceradar/certs/api-key"
 elif [ -z "$API_KEY" ]; then
-    echo "Warning: API_KEY not set, using default"
-    export API_KEY="changeme"
+    echo "Warning: API_KEY not set - authentication may fail"
+    export API_KEY="PLACEHOLDER_NO_KEY_SET"
 fi
 
-# Load JWT secret from generated file if available
+# Load JWT secret from generated file if not already set from api.env
 if [ -z "$JWT_SECRET" ] && [ -f /etc/serviceradar/certs/jwt-secret ]; then
     export JWT_SECRET=$(cat /etc/serviceradar/certs/jwt-secret)
     echo "Loaded JWT secret from /etc/serviceradar/certs/jwt-secret"
 elif [ -z "$JWT_SECRET" ]; then
-    echo "Warning: JWT_SECRET not set, using default"
-    export JWT_SECRET="changeme"
+    echo "Warning: JWT_SECRET not set - authentication may fail"
+    export JWT_SECRET="PLACEHOLDER_NO_SECRET_SET"
 fi
 
 # Set auth enabled
