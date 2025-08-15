@@ -425,16 +425,17 @@ func (s *NetworkSweeper) processConfigUpdate(value []byte) {
 	}
 
 	newConfig := models.Config{
-		Networks:    temp.Networks,
-		Ports:       temp.Ports,
-		SweepModes:  temp.SweepModes,
-		Interval:    time.Duration(temp.Interval),
-		Concurrency: temp.Concurrency,
-		Timeout:     time.Duration(temp.Timeout),
-		ICMPCount:   temp.ICMPCount,
-		MaxIdle:     temp.MaxIdle,
-		MaxLifetime: time.Duration(temp.MaxLifetime),
-		IdleTimeout: time.Duration(temp.IdleTimeout),
+		Networks:      temp.Networks,
+		DeviceTargets: temp.DeviceTargets, // Support device targets from sync service
+		Ports:         temp.Ports,
+		SweepModes:    []models.SweepMode(temp.SweepModes),
+		Interval:      time.Duration(temp.Interval),
+		Concurrency:   temp.Concurrency,
+		Timeout:       time.Duration(temp.Timeout),
+		ICMPCount:     temp.ICMPCount,
+		MaxIdle:       temp.MaxIdle,
+		MaxLifetime:   time.Duration(temp.MaxLifetime),
+		IdleTimeout:   time.Duration(temp.IdleTimeout),
 		ICMPSettings: struct {
 			RateLimit int
 			Timeout   time.Duration

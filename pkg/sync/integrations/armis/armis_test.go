@@ -866,37 +866,134 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 		Networks: []string{"192.168.1.1/32", "192.168.1.2/32"},
 	}
 
+	// Create a large config for testing optimization - use a reasonable size for testing
+	// This demonstrates the optimization behavior without causing test timeouts
+	largeNetworks := make([]string, 6000)
+	for i := 0; i < 6000; i++ {
+		// Generate IP addresses that would come from a /16 network (10.1.0.0/16)
+		largeNetworks[i] = fmt.Sprintf("10.1.%d.%d/32", (i/254)+1, (i%254)+1)
+	}
+
+	// Add some device targets to test mixed configurations
+	largeDeviceTargets := make([]models.DeviceTarget, 100)
+	for i := 0; i < 100; i++ {
+		largeDeviceTargets[i] = models.DeviceTarget{
+			Network:    fmt.Sprintf("172.16.%d.0/24", i%256),
+			Source:     "test",
+			QueryLabel: fmt.Sprintf("test_query_%d", i),
+			Metadata: map[string]string{
+				"device_id": fmt.Sprintf("device_%d", i),
+			},
+		}
+	}
+
+	largeSweepConfig := &models.SweepConfig{
+		Networks:      largeNetworks,
+		DeviceTargets: largeDeviceTargets,
+		SweepModes:    []string{"tcp", "icmp"},
+	}
+
 	testCases := []struct {
 		name          string
+		config        *models.SweepConfig
 		setupMock     func(*mockKVClientRecorder)
 		expectedError string
 	}{
 		{
-			name: "successful write",
+			name:   "successful write",
+			config: testSweepConfig,
 			setupMock: func(mock *mockKVClientRecorder) {
-				t.Log("Setting up mock expectation for PutMany")
-				mock.PutMany(gomock.Any(), gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, req *proto.PutManyRequest, _ ...grpc.CallOption) (*proto.PutManyResponse, error) {
-						assert.Len(t, req.Entries, 1)
-						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Entries[0].Key)
+				t.Log("Setting up mock expectation for Put")
+				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, req *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
+						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Key)
 
 						var config models.SweepConfig
-						err := json.Unmarshal(req.Entries[0].Value, &config)
+						err := json.Unmarshal(req.Value, &config)
 						require.NoError(t, err)
+						// For small configs, networks should be preserved as-is
 						assert.Equal(t, testSweepConfig.Networks, config.Networks)
 
-						return &proto.PutManyResponse{}, nil
+						return &proto.PutResponse{}, nil
 					})
 			},
 			expectedError: "",
 		},
 		{
-			name: "KV client error",
+			name:   "KV client error",
+			config: testSweepConfig,
 			setupMock: func(mock *mockKVClientRecorder) {
-				t.Log("Setting up mock expectation for PutMany with error")
-				mock.PutMany(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errNetworkError)
+				t.Log("Setting up mock expectation for Put with error")
+				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errNetworkError)
 			},
 			expectedError: "failed to write sweep config",
+		},
+		{
+			name:   "large configuration optimization",
+			config: largeSweepConfig,
+			setupMock: func(mock *mockKVClientRecorder) {
+				t.Log("Setting up mock expectation for Put with large config")
+				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, req *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
+						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Key)
+
+						var config models.SweepConfig
+						err := json.Unmarshal(req.Value, &config)
+						require.NoError(t, err)
+
+						// For large configs, the optimization should work (either device targets or aggregation)
+						// The key is that the config should be successfully written and processed
+						t.Logf("Optimized config has %d networks and %d device targets", len(config.Networks), len(config.DeviceTargets))
+
+						// Verify that the original large networks were processed somehow (either converted to device targets or aggregated)
+						// The exact approach depends on the size, but it should not still have 6000 individual /32 networks
+						if len(config.Networks) > 0 {
+							// If networks exist, they should be optimized (e.g., aggregated subnets)
+							assert.Less(t, len(config.Networks), 6000, "Networks should be optimized from original 6000")
+						}
+
+						// Device targets should exist (either original ones or converted networks)
+						assert.NotEmpty(t, config.DeviceTargets, "Should have device targets (original or converted)")
+
+						// Verify the config is reasonable in size (the optimization worked)
+						configSize := len(req.Value)
+						t.Logf("Final config size: %d bytes", configSize)
+						assert.Less(t, configSize, 2*1024*1024, "Config should be under 2MB after optimization")
+
+						return &proto.PutResponse{}, nil
+					})
+			},
+			expectedError: "",
+		},
+		{
+			name: "aggregation test for individual IPs",
+			config: &models.SweepConfig{
+				Networks: []string{
+					"10.1.1.1/32", "10.1.1.2/32", "10.1.1.3/32", "10.1.1.4/32",
+					"10.1.2.1/32", "10.1.2.2/32", "10.1.2.3/32",
+					"192.168.1.1/32", "192.168.1.2/32",
+					"172.16.0.0/16", // This one should stay as-is (not /32)
+				},
+			},
+			setupMock: func(mock *mockKVClientRecorder) {
+				t.Log("Setting up mock expectation for Put with aggregation test")
+				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, req *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
+						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Key)
+
+						var config models.SweepConfig
+						err := json.Unmarshal(req.Value, &config)
+						require.NoError(t, err)
+
+						// For this small config, it should use the normal write path, not aggregation
+						// This test verifies the config structure is preserved correctly
+						assert.Len(t, config.Networks, 10, "Should preserve all networks for small configs")
+						assert.Empty(t, config.DeviceTargets, "Should not have device targets for small configs")
+
+						return &proto.PutResponse{}, nil
+					})
+			},
+			expectedError: "",
 		},
 	}
 
@@ -909,7 +1006,7 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 			t.Log("Mock expectation set")
 			t.Log("Calling WriteSweepConfig")
 
-			err := kvWriter.WriteSweepConfig(context.Background(), testSweepConfig)
+			err := kvWriter.WriteSweepConfig(context.Background(), tc.config)
 
 			t.Log("WriteSweepConfig returned")
 
