@@ -128,7 +128,31 @@ chown serviceradar:serviceradar "$CERT_DIR/proton-core.pem" "$CERT_DIR/proton-co
 chmod 644 "$CERT_DIR/proton-core.pem"
 chmod 640 "$CERT_DIR/proton-core-key.pem"
 
-echo "All certificates generated successfully in $CERT_DIR"
+# Generate JWT secret for authentication
+JWT_SECRET_FILE="$CERT_DIR/jwt-secret"
+if [ ! -f "$JWT_SECRET_FILE" ]; then
+    echo "Generating JWT secret..."
+    openssl rand -hex 32 > "$JWT_SECRET_FILE"
+    chown serviceradar:serviceradar "$JWT_SECRET_FILE"
+    chmod 640 "$JWT_SECRET_FILE"
+    echo "JWT secret generated."
+else
+    echo "JWT secret already exists."
+fi
+
+# Generate API key
+API_KEY_FILE="$CERT_DIR/api-key" 
+if [ ! -f "$API_KEY_FILE" ]; then
+    echo "Generating API key..."
+    openssl rand -hex 32 > "$API_KEY_FILE"
+    chown serviceradar:serviceradar "$API_KEY_FILE"
+    chmod 640 "$API_KEY_FILE"
+    echo "API key generated."
+else
+    echo "API key already exists."
+fi
+
+echo "All certificates and secrets generated successfully in $CERT_DIR"
 echo ""
-echo "Certificate summary:"
-ls -la "$CERT_DIR"/*.pem | awk '{print $9}' | sort
+echo "Files generated:"
+ls -la "$CERT_DIR"/*.pem "$CERT_DIR"/jwt-secret "$CERT_DIR"/api-key 2>/dev/null | awk '{print $9}' | sort

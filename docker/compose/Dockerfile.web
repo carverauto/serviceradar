@@ -82,17 +82,7 @@ RUN addgroup -g 1001 -S nodejs && \
 RUN mkdir -p /etc/serviceradar && \
     chown -R nextjs:nodejs /etc/serviceradar
 
-# Fix incorrect URLs in compiled JavaScript files (must be done after copying .next)
-# Use more specific patterns to avoid issues with find -exec
-RUN sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/server/app/api/*/route.js && \
-    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/server/app/api/*/*/route.js && \
-    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/server/app/api/*/*/*/route.js && \
-    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/server/app/api/*/*/*/*/route.js && \
-    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/standalone/.next/server/app/api/*/route.js && \
-    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/standalone/.next/server/app/api/*/*/route.js && \
-    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/standalone/.next/server/app/api/*/*/*/route.js && \
-    sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' /app/.next/standalone/.next/server/app/api/*/*/*/*/route.js && \
-    echo "Docker URL fixes applied successfully in runtime stage"
+# Remove the URL fix hack - we'll solve this properly with environment variables
 
 # Set ownership
 RUN chown -R nextjs:nodejs /app
