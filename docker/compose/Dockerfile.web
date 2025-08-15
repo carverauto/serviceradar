@@ -82,7 +82,9 @@ RUN addgroup -g 1001 -S nodejs && \
 RUN mkdir -p /etc/serviceradar && \
     chown -R nextjs:nodejs /etc/serviceradar
 
-# Remove the URL fix hack - we'll solve this properly with environment variables
+# Fix incorrect URLs in compiled JavaScript files (temporary solution)
+# This replaces the incorrect localhost URLs with correct container URLs
+RUN find .next -name "*.js" -type f -exec sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' {} \;
 
 # Set ownership
 RUN chown -R nextjs:nodejs /app
