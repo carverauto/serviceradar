@@ -56,10 +56,8 @@ EOF
     echo "✅ Created api.env with generated secrets"
 fi
 
-# Copy updated files back to host
-cp /etc/serviceradar/core.json /config/core.docker.json
-if [ -f /etc/serviceradar/api.env ]; then
-    cp /etc/serviceradar/api.env /config/api.docker.env
-fi
+# Note: We do NOT copy generated secrets back to host to avoid
+# persisting sensitive data to the source tree. The generated
+# configurations are only used within the running containers.
 
 echo "🎉 Configuration update complete!"
