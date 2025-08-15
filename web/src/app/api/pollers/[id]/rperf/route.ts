@@ -1,5 +1,6 @@
 // src/app/api/pollers/[id]/rperf/route.ts - Update this file
 import { NextRequest, NextResponse } from "next/server";
+import { getInternalApiUrl, getApiKey } from "@/lib/config";
 import {RperfMetric} from "@/types/rperf";
 
 interface RouteProps {
@@ -9,8 +10,8 @@ interface RouteProps {
 export async function GET(req: NextRequest, props: RouteProps) {
     const params = await props.params;
     const pollerId = params.id;
-    const apiKey = process.env.API_KEY || "";
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+    const apiKey = getApiKey();
+    const apiUrl = getInternalApiUrl();
     const { searchParams } = new URL(req.url);
     const start = searchParams.get("start");
     const end = searchParams.get("end");
