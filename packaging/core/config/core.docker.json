@@ -48,7 +48,7 @@
     "allow_credentials": true
   },
   "auth": {
-    "jwt_secret": "3371a87975fdb97c1db3b85b18c3c3118ef5992b7c16d48e0ce46814dbc437f7",
+    "jwt_secret": "639a656522abb1c1c57a9f2d279423b511da523bd160b3db42037aa98a9e9b00",
     "jwt_expiration": "24h",
     "local_users": {
       "admin": "$2a$10$7cTFzX6ISkSrxCeO1ZL2EOc/zy.cvGO9GhsE9jVo2i.tCzsiowoiC"
