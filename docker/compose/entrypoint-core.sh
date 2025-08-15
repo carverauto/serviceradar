@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/bash
 # Copyright 2025 Carver Automation Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,18 +18,28 @@ set -e
 # Default config path
 CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/core.json}"
 
-# Load environment variables from api.env if it exists
-if [ -f "/etc/serviceradar/api.env" ]; then
+# Load environment variables from api.env if it exists (check generated config first)
+if [ -f "/etc/serviceradar/config/api.env" ]; then
+    echo "Loading environment from /etc/serviceradar/config/api.env (generated)"
+    set -a
+    source /etc/serviceradar/config/api.env
+    set +a
+    echo "✅ Loaded generated secrets (API_KEY length: ${#API_KEY})"
+elif [ -f "/etc/serviceradar/api.env" ]; then
     echo "Loading environment from /etc/serviceradar/api.env"
     set -a
     source /etc/serviceradar/api.env
     set +a
+    echo "✅ Loaded environment from api.env"
 fi
 
-# Override with Docker environment variables if set
+# Set defaults only if not already set from environment files
 export API_KEY="${API_KEY:-changeme}"
 export JWT_SECRET="${JWT_SECRET:-changeme}"
 export AUTH_ENABLED="${AUTH_ENABLED:-true}"
+
+echo "🔑 Using API_KEY: ${API_KEY:0:8}... (${#API_KEY} chars)"
+echo "🔐 Using JWT_SECRET: ${JWT_SECRET:0:8}... (${#JWT_SECRET} chars)"
 
 # Check that config file exists
 if [ ! -f "$CONFIG_PATH" ]; then
@@ -83,6 +93,12 @@ if [ "$INIT_DB" = "true" ]; then
     echo "Initializing database tables..."
     # TODO: Add database initialization logic here
 fi
+
+# Final environment check before starting core service
+echo "🔍 Final environment check:"
+echo "  API_KEY: ${API_KEY:0:8}... (${#API_KEY} chars)"
+echo "  JWT_SECRET: ${JWT_SECRET:0:8}... (${#JWT_SECRET} chars)"
+echo "  AUTH_ENABLED: $AUTH_ENABLED"
 
 # Execute the main command
 exec "$@" --config "$CONFIG_PATH"
