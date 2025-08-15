@@ -31,12 +31,14 @@ import (
 const (
 	// Maximum networks to include in a single payload
 	maxNetworksInPayload = 5000
-	// Hard limit for gRPC message size (4MB default, using 2MB as safety margin for large configs)
-	maxGRPCPayloadSize = 2 * 1024 * 1024 // 2MB
+	// Hard limit for gRPC message size - matches KV server and agent 16MB limits
+	maxGRPCPayloadSize = 16 * 1024 * 1024 // 16MB - matches KV server and agent limits
 )
 
 // WriteSweepConfig generates and writes the sweep config to KV.
 // For very large configs (>5000 networks), it uses a compressed representation.
+// 
+// TESTING: Currently configured to ALWAYS use large config path for testing new format.
 func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *models.SweepConfig) error {
 	networkCount := len(sweepConfig.Networks)
 
@@ -56,20 +58,30 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 
 	payloadSize := len(configJSON)
 
-	// If the config is too large, use an alternative approach
-	if payloadSize > maxGRPCPayloadSize || networkCount > maxNetworksInPayload {
-		kw.Logger.Warn().
-			Int("payload_size_bytes", payloadSize).
-			Int("max_payload_size_bytes", maxGRPCPayloadSize).
-			Int("network_count", networkCount).
-			Int("max_networks", maxNetworksInPayload).
-			Msg("Configuration is too large, using optimized storage approach")
+	// TESTING: Always use large config path to test new format handling
+	kw.Logger.Info().
+		Int("payload_size_bytes", payloadSize).
+		Int("max_payload_size_bytes", maxGRPCPayloadSize).
+		Int("network_count", networkCount).
+		Int("max_networks", maxNetworksInPayload).
+		Msg("TESTING: Force using optimized storage approach for all configs")
 
-		return kw.writeLargeConfig(ctx, sweepConfig)
-	}
+	return kw.writeLargeConfig(ctx, sweepConfig)
 
-	// Write normal config
-	return kw.writeNormalConfig(ctx, sweepConfig, configJSON)
+	// Original logic (commented out for testing):
+	// if payloadSize > maxGRPCPayloadSize || networkCount > maxNetworksInPayload {
+	//     kw.Logger.Warn().
+	//         Int("payload_size_bytes", payloadSize).
+	//         Int("max_payload_size_bytes", maxGRPCPayloadSize).
+	//         Int("network_count", networkCount).
+	//         Int("max_networks", maxNetworksInPayload).
+	//         Msg("Configuration is too large, using optimized storage approach")
+	//
+	//     return kw.writeLargeConfig(ctx, sweepConfig)
+	// }
+	//
+	// // Write normal config
+	// return kw.writeNormalConfig(ctx, sweepConfig, configJSON)
 }
 
 // writeNormalConfig writes a regular-sized config
