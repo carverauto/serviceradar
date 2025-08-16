@@ -51,9 +51,20 @@ fi
 
 echo "Using configuration from $CONFIG_PATH"
 
-# The proton user has a fixed password, so we don't need to replace it
-# Just use the configuration as-is since it has the proton user credentials
-echo "Using fixed proton user credentials from configuration"
+# Check for Proton password in shared credentials volume
+if [ -f "/etc/serviceradar/credentials/proton-password" ]; then
+    PROTON_PASSWORD=$(cat /etc/serviceradar/credentials/proton-password)
+    echo "Found Proton password from shared credentials"
+fi
+
+# If PROTON_PASSWORD is available, update the config file
+if [ -n "$PROTON_PASSWORD" ] && [ -f "$CONFIG_PATH" ]; then
+    echo "Updating configuration with generated Proton password..."
+    # Create a copy of the config with the password injected
+    cp "$CONFIG_PATH" /tmp/db-event-writer-original.json
+    jq --arg pwd "$PROTON_PASSWORD" '.database.password = $pwd' /tmp/db-event-writer-original.json > /tmp/db-event-writer.json
+    CONFIG_PATH="/tmp/db-event-writer.json"
+fi
 
 echo "Starting ServiceRadar DB Event Writer with config: $CONFIG_PATH"
 
