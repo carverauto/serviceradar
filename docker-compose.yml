@@ -454,6 +454,48 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # ServiceRadar Trapd Service (SNMP trap collector)
+  trapd:
+    image: serviceradar-trapd:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.trapd
+    container_name: serviceradar-trapd
+    ports:
+      - "162:162/udp"  # SNMP trap UDP port
+      - "50043:50043"  # gRPC port
+    volumes:
+      - ./docker/compose/trapd.docker.json:/etc/serviceradar/trapd.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - trapd-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Config path
+      - CONFIG_PATH=/etc/serviceradar/trapd.json
+      # Wait for dependencies
+      - WAIT_FOR_NATS=true
+      # Logging
+      - RUST_LOG=${RUST_LOG:-info}
+    # Capabilities needed for binding to privileged port 162
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+    # Health check disabled - Trapd service may not implement standard gRPC health service
+    # Service logs show when it's ready and healthy
+    # healthcheck:
+    #   test: ["CMD", "grpcurl", "-plaintext", "localhost:50043", "grpc.health.v1.Health/Check"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
 networks:
   serviceradar-net:
     driver: bridge
@@ -482,4 +524,6 @@ volumes:
   otel-data:
     driver: local
   flowgger-data:
+    driver: local
+  trapd-data:
     driver: local
