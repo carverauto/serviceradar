@@ -19,7 +19,7 @@ CERT_DIR="/certs"
 DAYS_VALID=3650
 
 # Check if basic certificates exist - but allow individual certificate generation
-if [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && [ -f "$CERT_DIR/proton.pem" ] && [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/kv.pem" ] && [ -f "$CERT_DIR/sync.pem" ]; then
+if [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && [ -f "$CERT_DIR/proton.pem" ] && [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/kv.pem" ] && [ -f "$CERT_DIR/sync.pem" ] && [ -f "$CERT_DIR/otel.pem" ]; then
     echo "All certificates already exist, nothing to generate"
     exit 0
 fi
@@ -108,6 +108,7 @@ generate_cert "proton" "proton.serviceradar" "DNS:proton,DNS:serviceradar-proton
 generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:serviceradar-nats,DNS:localhost,IP:127.0.0.1,IP:172.28.0.4"
 generate_cert "kv" "kv.serviceradar" "DNS:kv,DNS:serviceradar-kv,DNS:localhost,IP:127.0.0.1,IP:172.28.0.5"
 generate_cert "sync" "sync.serviceradar" "DNS:sync,DNS:serviceradar-sync,DNS:localhost,IP:127.0.0.1,IP:172.28.0.6"
+generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:serviceradar-otel,DNS:localhost,IP:127.0.0.1,IP:172.28.0.7"
 
 # Copy core certificate for Proton to use
 cp core.pem proton-core.pem
