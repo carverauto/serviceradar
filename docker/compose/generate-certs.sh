@@ -115,6 +115,7 @@ EOF
 generate_cert "core" "serviceradar-core" "DNS:core,DNS:serviceradar-core,DNS:localhost,IP:127.0.0.1,IP:172.28.0.3"
 generate_cert "proton" "serviceradar-proton" "DNS:proton,DNS:serviceradar-proton,DNS:localhost,IP:127.0.0.1,IP:172.28.0.2"
 generate_cert "nats" "serviceradar-nats" "DNS:nats,DNS:serviceradar-nats,DNS:localhost,IP:127.0.0.1,IP:172.28.0.4"
+generate_cert "kv" "serviceradar-kv" "DNS:kv,DNS:serviceradar-kv,DNS:localhost,IP:127.0.0.1,IP:172.28.0.5"
 generate_cert "web" "serviceradar-web" "DNS:web,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 generate_cert "poller" "serviceradar-poller" "DNS:poller,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
 generate_cert "agent" "serviceradar-agent" "DNS:agent,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"

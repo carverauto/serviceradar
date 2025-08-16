@@ -18,13 +18,13 @@ set -e
 CERT_DIR="/certs"
 DAYS_VALID=3650
 
-# Check if certificates already exist
-if [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && [ -f "$CERT_DIR/proton.pem" ]; then
-    echo "Certificates already exist, skipping generation"
+# Check if basic certificates exist - but allow individual certificate generation
+if [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && [ -f "$CERT_DIR/proton.pem" ] && [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/kv.pem" ]; then
+    echo "All certificates already exist, nothing to generate"
     exit 0
 fi
 
-echo "Generating mTLS certificates..."
+echo "Generating missing mTLS certificates..."
 
 # Create certificate directory
 mkdir -p "$CERT_DIR"
@@ -34,20 +34,31 @@ cd "$CERT_DIR"
 addgroup -S serviceradar 2>/dev/null || true
 adduser -S -G serviceradar -s /bin/false -h /nonexistent serviceradar 2>/dev/null || true
 
-# Generate Root CA
-echo "Generating Root CA..."
-openssl genrsa -out root-key.pem 4096
-openssl req -new -x509 -sha256 -key root-key.pem -out root.pem \
-    -days $DAYS_VALID -subj "/C=US/ST=CA/L=San Francisco/O=ServiceRadar/OU=Docker/CN=ServiceRadar Root CA"
-
-# Set standard permissions for Root CA (readable by all)
-chmod 644 root.pem root-key.pem
+# Generate Root CA only if it doesn't exist
+if [ ! -f "$CERT_DIR/root.pem" ]; then
+    echo "Generating Root CA..."
+    openssl genrsa -out root-key.pem 4096
+    openssl req -new -x509 -sha256 -key root-key.pem -out root.pem \
+        -days $DAYS_VALID -subj "/C=US/ST=CA/L=San Francisco/O=ServiceRadar/OU=Docker/CN=ServiceRadar Root CA"
+    
+    # Set standard permissions for Root CA (readable by all)
+    chmod 644 root.pem root-key.pem
+    echo "Root CA generated successfully!"
+else
+    echo "Root CA already exists, skipping"
+fi
 
 # Function to generate certificate
 generate_cert() {
     local component=$1
     local cn=$2
     local san=$3
+    
+    # Skip if certificate already exists
+    if [ -f "$component.pem" ]; then
+        echo "Certificate for $component already exists, skipping"
+        return
+    fi
     
     echo "Generating certificate for $component..."
     
@@ -91,10 +102,11 @@ EOF
     chmod 644 "$component.pem" "$component-key.pem"
 }
 
-# Generate certificates for components
-generate_cert "core" "serviceradar-core" "DNS:core,DNS:serviceradar-core,DNS:localhost,IP:127.0.0.1,IP:172.28.0.3"
-generate_cert "proton" "serviceradar-proton" "DNS:proton,DNS:serviceradar-proton,DNS:localhost,IP:127.0.0.1,IP:172.28.0.2"
-generate_cert "nats" "serviceradar-nats" "DNS:nats,DNS:serviceradar-nats,DNS:localhost,IP:127.0.0.1,IP:172.28.0.4"
+# Generate certificates for components (using NATS-compatible Common Names)
+generate_cert "core" "core.serviceradar" "DNS:core,DNS:serviceradar-core,DNS:localhost,IP:127.0.0.1,IP:172.28.0.3"
+generate_cert "proton" "proton.serviceradar" "DNS:proton,DNS:serviceradar-proton,DNS:localhost,IP:127.0.0.1,IP:172.28.0.2"
+generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:serviceradar-nats,DNS:localhost,IP:127.0.0.1,IP:172.28.0.4"
+generate_cert "kv" "kv.serviceradar" "DNS:kv,DNS:serviceradar-kv,DNS:localhost,IP:127.0.0.1,IP:172.28.0.5"
 
 # Copy core certificate for Proton to use
 cp core.pem proton-core.pem
