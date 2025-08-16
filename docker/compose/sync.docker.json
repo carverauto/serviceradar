@@ -1,0 +1,74 @@
+{
+  "kv_address": "kv:50057",
+  "listen_addr": ":50058",
+  "poll_interval": "30m",
+  "discovery_interval": "18h",
+  "update_interval": "18h30m",
+  "agent_id": "docker-agent",
+  "poller_id": "docker-poller",
+  "nats_url": "tls://nats:4222",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "serviceradar-sync",
+    "role": "poller",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/sync.pem",
+      "key_file": "/etc/serviceradar/certs/sync-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "client_ca_file": "/etc/serviceradar/certs/root.pem"
+    }
+  },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "serviceradar-nats",
+    "role": "poller",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/sync.pem",
+      "key_file": "/etc/serviceradar/certs/sync-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "client_ca_file": "/etc/serviceradar/certs/root.pem"
+    }
+  },
+  "sources": {
+    "example": {
+      "type": "example",
+      "endpoint": "https://api.example.com",
+      "prefix": "example/",
+      "poll_interval": "18h30m",
+      "sweep_interval": "18h",
+      "agent_id": "docker-agent",
+      "poller_id": "docker-poller",
+      "credentials": {
+        "secret_key": "example-key",
+        "boundary": "Default",
+        "page_size": "100"
+      },
+      "network_blacklist": [],
+      "queries": [
+        {
+          "label": "all_devices",
+          "query": "in:devices",
+          "sweep_modes": ["tcp"]
+        }
+      ]
+    }
+  },
+  "logging": {
+    "level": "info",
+    "debug": false,
+    "output": "stdout",
+    "time_format": "",
+    "otel": {
+      "enabled": false,
+      "endpoint": "localhost:4317",
+      "service_name": "serviceradar-sync",
+      "batch_timeout": "5s",
+      "insecure": true,
+      "headers": {
+        "x-api-key": "your-collector-api-key"
+      }
+    }
+  }
+}
