@@ -1,0 +1,80 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Multi-stage build for ServiceRadar Flowgger service (Rust)
+FROM rust:latest AS builder
+
+WORKDIR /usr/src/serviceradar-flowgger
+
+# Install dependencies for building (no protobuf needed for flowgger)
+RUN apt-get update && apt-get install -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files for Flowgger service
+COPY cmd/flowgger/Cargo.toml cmd/flowgger/Cargo.lock* ./
+COPY cmd/flowgger/src ./src/
+COPY cmd/flowgger/build.rs ./
+
+# Build arguments for version info (unused in Rust but kept for consistency)
+ARG VERSION=dev
+ARG BUILD_ID=docker
+
+# Build for current architecture (ARM64 or AMD64) with NATS output feature
+RUN cargo build --features nats-output --release
+
+# Runtime stage - using Ubuntu for better compatibility
+FROM ubuntu:22.04
+
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y \
+        ca-certificates \
+        curl \
+        jq \
+        netcat-openbsd \
+        wget \
+        libssl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && wget -qO- https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz \
+        | tar -xz -C /usr/local/bin grpcurl \
+    && chmod +x /usr/local/bin/grpcurl
+
+# Create non-root user
+RUN useradd -m -u 1000 serviceradar
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
+    chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
+
+# Copy binary from builder
+COPY --from=builder /usr/src/serviceradar-flowgger/target/release/serviceradar-flowgger /usr/local/bin/serviceradar-flowgger
+RUN chmod +x /usr/local/bin/serviceradar-flowgger
+
+# Copy entrypoint script
+COPY docker/compose/entrypoint-flowgger.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Switch to non-root user
+USER serviceradar
+
+# Set working directory
+WORKDIR /var/lib/serviceradar
+
+# Expose UDP syslog port and gRPC port
+EXPOSE 514/udp
+EXPOSE 50044
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["serviceradar-flowgger"]
