@@ -1,0 +1,81 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Multi-stage build for ServiceRadar DB Event Writer service (Go)
+FROM golang:1.24-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git protobuf-dev protobuf
+
+# Set working directory
+WORKDIR /usr/src/serviceradar
+
+# Copy go mod files first (for better layer caching)
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build arguments for version info
+ARG VERSION=dev
+ARG BUILD_ID=docker
+
+# Build the db-event-writer binary
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-X main.Version=${VERSION} -X main.BuildID=${BUILD_ID}" \
+    -o /usr/local/bin/serviceradar-db-event-writer \
+    ./cmd/consumers/db-event-writer
+
+# Runtime stage - using Alpine for small size
+FROM alpine:3.20
+
+# Install runtime dependencies including grpcurl for health checks
+RUN apk add --no-cache \
+        ca-certificates \
+        curl \
+        jq \
+        netcat-openbsd \
+        wget \
+    && wget -qO- https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz \
+        | tar -xz -C /usr/local/bin grpcurl \
+    && chmod +x /usr/local/bin/grpcurl
+
+# Create non-root user
+RUN adduser -D -u 1000 serviceradar
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
+    chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
+
+# Copy binary from builder
+COPY --from=builder /usr/local/bin/serviceradar-db-event-writer /usr/local/bin/serviceradar-db-event-writer
+RUN chmod +x /usr/local/bin/serviceradar-db-event-writer
+
+# Copy entrypoint script
+COPY docker/compose/entrypoint-db-event-writer.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Switch to non-root user
+USER serviceradar
+
+# Set working directory
+WORKDIR /var/lib/serviceradar
+
+# Expose gRPC port
+EXPOSE 50041
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["serviceradar-db-event-writer"]

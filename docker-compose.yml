@@ -537,6 +537,46 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # ServiceRadar DB Event Writer Service (NATS to Database bridge)
+  db-event-writer:
+    image: serviceradar-db-event-writer:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.db-event-writer
+    container_name: serviceradar-db-event-writer
+    ports:
+      - "50041:50041"  # gRPC port
+    volumes:
+      - ./docker/compose/db-event-writer.docker.json:/etc/serviceradar/consumers/db-event-writer.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - credentials:/etc/serviceradar/credentials:ro
+      - db-event-writer-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Wait for dependencies
+      - WAIT_FOR_NATS=true
+      - WAIT_FOR_PROTON=true
+      # Database password
+      - PROTON_PASSWORD=${PROTON_PASSWORD:-}
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+      proton:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/db-event-writer.pem", "-key", "/etc/serviceradar/certs/db-event-writer-key.pem", "-servername", "serviceradar-db-event-writer", "localhost:50041", "grpc.health.v1.Health/Check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
 networks:
   serviceradar-net:
     driver: bridge
@@ -569,4 +609,6 @@ volumes:
   trapd-data:
     driver: local
   zen-data:
+    driver: local
+  db-event-writer-data:
     driver: local
