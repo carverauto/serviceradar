@@ -1,7 +1,9 @@
 services:
   # Certificate Generation Service (runs once to generate mTLS certs)
   cert-generator:
-    image: ghcr.io/carverauto/serviceradar-cert-generator:${SERVICERADAR_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.cert-generator
     container_name: serviceradar-cert-generator
     volumes:
       - cert-data:/certs
@@ -280,12 +282,50 @@ services:
         condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
+    # Health check disabled - minimal NATS image doesn't include wget/curl
+    # NATS logs show when it's ready, and other services will connect via mTLS
+    # healthcheck:
+    #   test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/varz"]
+    #   interval: 30s
+    #   timeout: 5s
+    #   retries: 3
+    #   start_period: 30s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  # ServiceRadar KV Service (Key-Value store using NATS JetStream)
+  kv:
+    image: serviceradar-kv:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.kv
+    container_name: serviceradar-kv
+    ports:
+      - "50057:50057"  # gRPC port
+    volumes:
+      - ./docker/compose/kv.docker.json:/etc/serviceradar/kv.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - kv-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Config path
+      - CONFIG_PATH=/etc/serviceradar/kv.json
+      # Wait for dependencies
+      - WAIT_FOR_NATS=true
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
     healthcheck:
-      test: ["CMD", "nats", "server", "ping"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/kv.pem", "-key", "/etc/serviceradar/certs/kv-key.pem", "-servername", "serviceradar-kv", "localhost:50057", "grpc.health.v1.Health/Check"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 60s
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -310,4 +350,6 @@ volumes:
   agent-data:
     driver: local
   nats-data:
+    driver: local
+  kv-data:
     driver: local

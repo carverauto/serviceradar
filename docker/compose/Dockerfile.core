@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Multi-stage build optimized for Docker Compose deployment
-FROM --platform=linux/amd64 golang:1.24-bullseye AS builder
+FROM golang:1.24-bullseye AS builder
 
 WORKDIR /src
 
@@ -34,15 +34,15 @@ COPY . .
 ARG VERSION=dev
 ARG BUILD_ID=docker
 
-# Build the core service with CGO for SQLite support
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+# Build the core service (CGO disabled - no SQLite dependency)
+RUN CGO_ENABLED=0 GOOS=linux \
     go build \
     -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=${VERSION} \
               -X github.com/carverauto/serviceradar/pkg/version.buildID=${BUILD_ID}" \
     -o serviceradar-core ./cmd/core
 
 # Runtime stage - using Ubuntu for better compatibility
-FROM --platform=linux/amd64 ubuntu:22.04
+FROM ubuntu:22.04
 
 # Install runtime dependencies including grpcurl
 RUN apt-get update && \
