@@ -496,6 +496,47 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # ServiceRadar Zen Service (Event processing and rule engine)
+  zen:
+    image: serviceradar-zen:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.zen
+    container_name: serviceradar-zen
+    ports:
+      - "50040:50040"  # gRPC port
+    volumes:
+      - ./docker/compose/zen.docker.json:/etc/serviceradar/zen.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - zen-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Config path
+      - CONFIG_PATH=/etc/serviceradar/zen.json
+      # Wait for dependencies
+      - WAIT_FOR_NATS=true
+      - WAIT_FOR_KV=true
+      # Logging
+      - RUST_LOG=${RUST_LOG:-info}
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+      kv:
+        condition: service_healthy
+    # Health check disabled - Zen service may not implement standard gRPC health service
+    # Service logs show when it's ready and healthy
+    # healthcheck:
+    #   test: ["CMD", "grpcurl", "-plaintext", "localhost:50040", "grpc.health.v1.Health/Check"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
 networks:
   serviceradar-net:
     driver: bridge
@@ -526,4 +567,6 @@ volumes:
   flowgger-data:
     driver: local
   trapd-data:
+    driver: local
+  zen-data:
     driver: local
