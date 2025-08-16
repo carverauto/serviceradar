@@ -16,10 +16,12 @@
 
 // src/app/api/pollers/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { getInternalApiUrl, getApiKey } from "@/lib/config";
 
 export async function GET(req: NextRequest) {
-  const apiKey = process.env.API_KEY || "";
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+  const apiKey = getApiKey();
+  // Use hardcoded Docker URL if in Docker environment
+  const apiUrl = process.env.DOCKER_BUILD === 'true' ? 'http://core:8090' : getInternalApiUrl();
 
   try {
     // Get the authorization header if it exists
@@ -42,6 +44,7 @@ export async function GET(req: NextRequest) {
 
     try {
       // Forward to your Go API with timeout
+      // Don't add /api prefix since apiUrl already points to the API endpoint
       const response = await fetch(`${apiUrl}/api/pollers`, {
         headers,
         signal: controller.signal,

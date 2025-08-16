@@ -1,0 +1,28 @@
+# flowgger.toml for Docker deployment
+
+[input]
+type = "udp"
+listen = "0.0.0.0:514"
+format = "rfc3164"
+
+[output]
+type = "nats"
+format = "gelf"
+framing = "noop" # NATS output handles its own framing
+# Partition for overlapping IP spaces
+partition = "default"
+
+# NATS JetStream specific settings (Docker deployment)
+nats_url = "tls://nats:4222"
+nats_subject = "events.syslog"
+nats_stream = "events" # Optional: defaults to "events"
+nats_timeout = 30000 # Optional: ACK timeout in ms, defaults to 30000
+nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
+nats_tls_cert = "/etc/serviceradar/certs/flowgger.pem"
+nats_tls_key = "/etc/serviceradar/certs/flowgger-key.pem"
+
+[grpc]
+listen_addr = "0.0.0.0:50044"
+cert_file = "/etc/serviceradar/certs/flowgger.pem"
+key_file = "/etc/serviceradar/certs/flowgger-key.pem"
+ca_file = "/etc/serviceradar/certs/root.pem"

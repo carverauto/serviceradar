@@ -1,0 +1,100 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Custom Proton image with ServiceRadar configurations
+FROM d.timeplus.com/timeplus-io/proton:latest
+
+# Install required tools including grpcurl
+RUN apt-get update && \
+    apt-get install -y \
+        openssl \
+        libcap2-bin \
+        curl \
+        jq \
+        wget \
+        netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/* \
+    && wget -qO- https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz \
+        | tar -xz -C /usr/local/bin grpcurl \
+    && chmod +x /usr/local/bin/grpcurl
+
+# Create proton user and group if not exists
+RUN groupadd -r proton || true && \
+    groupadd -r serviceradar || true && \
+    useradd -r -g proton -s /bin/false -d /nonexistent proton || true && \
+    usermod -a -G serviceradar proton
+
+# Copy configuration files
+COPY packaging/proton/config/config.yaml /etc/proton-server/config.yaml
+COPY packaging/proton/config/users.yaml /etc/proton-server/users.yaml
+COPY packaging/proton/config/grok-patterns /etc/proton-server/grok-patterns
+COPY docker/compose/proton-init.sh /usr/local/bin/proton-init.sh
+
+# Fix Docker-specific configuration issues in the proper config file
+RUN sed -i 's/listen_host: 127.0.0.1/listen_host: 0.0.0.0/' /etc/proton-server/config.yaml && \
+    sed -i 's|certificateFile: /etc/proton-server/root.pem|certificateFile: /etc/proton-server/certs/proton.pem|' /etc/proton-server/config.yaml && \
+    sed -i 's|privateKeyFile: /etc/proton-server/core-key.pem|privateKeyFile: /etc/proton-server/certs/proton-key.pem|' /etc/proton-server/config.yaml && \
+    sed -i 's|caConfig: /etc/proton-server/ca-cert.pem|caConfig: /etc/proton-server/certs/root.pem|' /etc/proton-server/config.yaml && \
+    sed -i 's|/etc/proton-server/server.crt|/etc/proton-server/certs/proton.pem|g' /etc/proton-server/config.d/openssl.xml && \
+    sed -i 's|/etc/proton-server/server.key|/etc/proton-server/certs/proton-key.pem|g' /etc/proton-server/config.d/openssl.xml
+
+# Generate missing DH parameters for SSL
+RUN openssl dhparam -out /etc/proton-server/dhparam.pem 2048
+
+# Make init script executable
+RUN chmod +x /usr/local/bin/proton-init.sh
+
+# Create required directories
+RUN mkdir -p /var/lib/proton /var/log/proton-server /var/run/proton-server \
+             /etc/proton-server/config.d /etc/proton-server/users.d \
+             /etc/serviceradar/certs /etc/serviceradar/credentials && \
+    chown -R proton:proton /var/lib/proton /var/log/proton-server /var/run/proton-server \
+                          /etc/proton-server /etc/serviceradar/certs /etc/serviceradar/credentials
+
+# Set up ulimits configuration
+RUN echo "proton soft nofile 1048576" >> /etc/security/limits.conf && \
+    echo "proton hard nofile 1048576" >> /etc/security/limits.conf && \
+    echo "proton soft nproc 65535" >> /etc/security/limits.conf && \
+    echo "proton hard nproc 65535" >> /etc/security/limits.conf
+
+# Set up sysctl settings (will be applied at runtime if possible)
+RUN echo "kernel.threads-max=100000" > /etc/sysctl.d/99-clickhouse.conf && \
+    echo "kernel.pid_max=100000" >> /etc/sysctl.d/99-clickhouse.conf && \
+    echo "vm.nr_hugepages=0" >> /etc/sysctl.d/99-clickhouse.conf
+
+# Set capabilities on proton binary if it exists
+RUN if [ -f /usr/bin/proton ]; then \
+        setcap cap_net_admin,cap_ipc_lock,cap_sys_nice=ep /usr/bin/proton || true; \
+    fi
+
+# Create symlinks
+RUN ln -sf /usr/bin/proton /usr/bin/proton-server && \
+    ln -sf /usr/bin/proton /usr/bin/proton-client && \
+    ln -sf /usr/bin/proton /usr/bin/proton-local
+
+# Expose ports
+EXPOSE 8123 8463 8443 9440 7587
+
+# Set working directory
+WORKDIR /var/lib/proton
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
+    CMD proton-client --host localhost --port 8463 --query "SELECT 1" || exit 1
+
+# Run as proton user
+USER proton
+
+# Use the init script as entrypoint
+ENTRYPOINT ["/usr/local/bin/proton-init.sh"]

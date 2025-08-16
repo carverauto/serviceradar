@@ -1,0 +1,25 @@
+{
+    "networks": [
+        "172.28.0.0/16"
+    ],
+    "ports": [
+        22,
+        80,
+        443,
+        3000,
+        8090,
+        8123,
+        50051,
+        50052,
+        50053
+    ],
+    "sweep_modes": [
+        "tcp"
+    ],
+    "interval": "10m",
+    "concurrency": 10,
+    "timeout": "5s",
+    "icmp_count": 1,
+    "high_perf_icmp": true,
+    "icmp_rate_limit": 1000
+}

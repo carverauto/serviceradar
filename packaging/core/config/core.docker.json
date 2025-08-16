@@ -1,0 +1,90 @@
+{
+  "listen_addr": ":8090",
+  "grpc_addr": ":50052",
+  "alert_threshold": "5m",
+  "known_pollers": [
+    "docker-poller"
+  ],
+  "metrics": {
+    "enabled": true,
+    "retention": 100,
+    "max_pollers": 10000
+  },
+  "database": {
+    "addresses": [
+      "proton:9440"
+    ],
+    "name": "default",
+    "username": "default",
+    "password": "",
+    "max_conns": 10,
+    "idle_conns": 5,
+    "settings": {
+      "max_execution_time": 60,
+      "output_format_json_quote_64bit_int": 0,
+      "allow_experimental_live_view": 1,
+      "idle_connection_timeout": 600,
+      "join_use_nulls": 1,
+      "input_format_defaults_for_omitted_fields": 1
+    }
+  },
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "role": "core",
+    "server_name": "proton",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/core.pem",
+      "key_file": "/etc/serviceradar/certs/core-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "client_ca_file": "/etc/serviceradar/certs/root.pem",
+      "skip_verify": false
+    }
+  },
+  "cors": {
+    "allowed_origins": [
+      "*"
+    ],
+    "allow_credentials": true
+  },
+  "auth": {
+    "jwt_secret": "PLACEHOLDER_WILL_BE_REPLACED",
+    "jwt_expiration": "24h",
+    "local_users": {
+      "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
+    }
+  },
+  "nats": {
+    "url": "nats://nats:4222",
+    "max_reconnects": 10,
+    "reconnect_wait": "2s",
+    "drain_timeout": "30s"
+  },
+  "snmp": {
+    "enabled": false,
+    "listen_addr": ":161",
+    "community": "public",
+    "timeout": "5s",
+    "retries": 3
+  },
+  "write_buffer": {
+    "size": 10000,
+    "flush_interval": "5s",
+    "max_retries": 3,
+    "retry_delay": "1s"
+  },
+  "logging": {
+    "level": "info",
+    "debug": false,
+    "output": "stdout",
+    "time_format": "",
+    "otel": {
+      "enabled": false,
+      "endpoint": "127.0.0.1:4317",
+      "service_name": "serviceradar-core",
+      "batch_timeout": "5s",
+      "insecure": true,
+      "headers": {}
+    }
+  }
+}

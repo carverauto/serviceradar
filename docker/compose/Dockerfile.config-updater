@@ -1,0 +1,24 @@
+# Multi-stage build to include ServiceRadar CLI
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o serviceradar-cli ./cmd/cli
+
+# Runtime stage
+FROM alpine:3.20
+
+# Install runtime dependencies
+RUN apk add --no-cache jq openssl
+
+# Copy the CLI binary
+COPY --from=builder /src/serviceradar-cli /usr/local/bin/serviceradar-cli
+RUN chmod +x /usr/local/bin/serviceradar-cli
+
+COPY docker/compose/update-config.sh /update-config.sh
+RUN chmod +x /update-config.sh
+
+CMD ["/update-config.sh"]

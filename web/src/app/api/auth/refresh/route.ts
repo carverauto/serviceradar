@@ -16,10 +16,11 @@
 
 // src/app/api/auth/refresh/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { getInternalApiUrl, getApiKey } from "@/lib/config";
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.API_KEY || "";
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+  const apiKey = getApiKey();
+  const apiUrl = getInternalApiUrl();
 
   try {
     // Parse the request body to get the refresh token
