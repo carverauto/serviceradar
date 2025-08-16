@@ -37,8 +37,8 @@
       "proton:9440"
     ],
     "name": "default",
-    "username": "proton",
-    "password": "proton@t+"
+    "username": "default",
+    "password": "REPLACE_WITH_GENERATED_PASSWORD"
   },
   "security": {
     "mode": "mtls",
@@ -68,8 +68,8 @@
     "server_name": "proton",
     "role": "client",
     "tls": {
-      "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
-      "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+      "cert_file": "/etc/serviceradar/certs/core.pem",
+      "key_file": "/etc/serviceradar/certs/core-key.pem",
       "ca_file": "/etc/serviceradar/certs/root.pem"
     }
   },
