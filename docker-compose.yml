@@ -92,7 +92,10 @@ services:
 
   # ServiceRadar Core Service
   core:
-    image: serviceradar-core:shared-creds
+    image: serviceradar-core:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.core
     container_name: serviceradar-core
     # Expose core ports for debugging authentication
     ports:
