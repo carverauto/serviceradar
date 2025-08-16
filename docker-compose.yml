@@ -333,6 +333,47 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # ServiceRadar Sync Service (Device discovery synchronization)
+  sync:
+    image: serviceradar-sync:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.sync
+    container_name: serviceradar-sync
+    ports:
+      - "50058:50058"  # gRPC port
+    volumes:
+      - ./docker/compose/sync.docker.json:/etc/serviceradar/sync.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - sync-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Config path
+      - CONFIG_PATH=/etc/serviceradar/sync.json
+      # Wait for dependencies
+      - WAIT_FOR_KV=true
+      - WAIT_FOR_NATS=true
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      kv:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    # Health check disabled - sync service may not implement standard gRPC health service
+    # Service logs show when it's ready and healthy
+    # healthcheck:
+    #   test: ["CMD", "grpcurl", "-plaintext", "localhost:50058", "grpc.health.v1.Health/Check"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
 networks:
   serviceradar-net:
     driver: bridge
@@ -355,4 +396,6 @@ volumes:
   nats-data:
     driver: local
   kv-data:
+    driver: local
+  sync-data:
     driver: local
