@@ -262,28 +262,6 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  # Optional: Redpanda for Kafka compatibility (if needed for event streaming)
-  redpanda:
-    image: docker.redpanda.com/redpandadata/redpanda:v23.2.15
-    container_name: serviceradar-redpanda
-    command:
-      - redpanda start
-      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
-      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
-      - --smp 1
-      - --memory 1G
-      - --mode dev-container
-    volumes:
-      - redpanda-data:/var/lib/redpanda/data
-    ports:
-      - "19092:19092"  # Kafka external port
-      - "9644:9644"    # Admin API
-    networks:
-      - serviceradar-net
-    profiles:
-      - full  # Only start when using --profile full
-    restart: unless-stopped
-
   # NATS for messaging and KV store
   nats:
     image: nats:latest
@@ -330,8 +308,6 @@ volumes:
   poller-data:
     driver: local
   agent-data:
-    driver: local
-  redpanda-data:
     driver: local
   nats-data:
     driver: local
