@@ -374,6 +374,44 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # ServiceRadar OTEL Service (OpenTelemetry collector)
+  otel:
+    image: serviceradar-otel:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.otel
+    container_name: serviceradar-otel
+    ports:
+      - "4317:4317"  # OTEL gRPC port
+    volumes:
+      - ./docker/compose/otel.docker.toml:/etc/serviceradar/otel.toml:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - otel-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Config path
+      - CONFIG_PATH=/etc/serviceradar/otel.toml
+      # Wait for dependencies
+      - WAIT_FOR_NATS=true
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+    # Health check disabled - OTEL service may not implement standard gRPC health service
+    # Service logs show when it's ready and healthy
+    # healthcheck:
+    #   test: ["CMD", "grpcurl", "-plaintext", "localhost:4317", "grpc.health.v1.Health/Check"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
 networks:
   serviceradar-net:
     driver: bridge
@@ -398,4 +436,6 @@ volumes:
   kv-data:
     driver: local
   sync-data:
+    driver: local
+  otel-data:
     driver: local
