@@ -43,7 +43,7 @@
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "serviceradar-db-event-writer",
+    "server_name": "localhost",
     "role": "core",
     "tls": {
       "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
