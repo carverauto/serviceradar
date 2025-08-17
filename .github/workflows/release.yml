@@ -12,15 +12,17 @@
   # See the License for the specific language governing permissions and
   # limitations under the License.
 
-  name: Release ServiceRadar Packages
-  on:
-    release:
-      types: [created]
-  permissions:
-    contents: write
-    packages: write
-  jobs:
-    build-deb-packages:
+name: Release ServiceRadar Packages
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-deb-packages:
       runs-on: ubuntu-latest
       env:
         VERSION: ${{ github.ref_name }}
@@ -85,7 +87,7 @@
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    build-rpm-packages:
+  build-rpm-packages:
       runs-on: ubuntu-latest
       env:
         VERSION: ${{ github.ref_name }}
