@@ -42,14 +42,21 @@ if [ -n "$WAIT_FOR_PROTON" ]; then
     done
 fi
 
-# Check if config file exists (Go app expects it at a specific path)
+# Initialize config from template on first run
 CONFIG_PATH="/etc/serviceradar/consumers/db-event-writer.json"
-if [ ! -f "$CONFIG_PATH" ]; then
-    echo "Error: Configuration file not found at $CONFIG_PATH"
-    exit 1
-fi
+TEMPLATE_PATH="/etc/serviceradar/templates/db-event-writer.json"
 
-echo "Using configuration from $CONFIG_PATH"
+if [ ! -f "$CONFIG_PATH" ]; then
+    if [ ! -f "$TEMPLATE_PATH" ]; then
+        echo "Error: Template configuration file not found at $TEMPLATE_PATH"
+        exit 1
+    fi
+    echo "First-time setup: Copying template config to writable location..."
+    cp "$TEMPLATE_PATH" "$CONFIG_PATH"
+    echo "Configuration initialized at $CONFIG_PATH"
+else
+    echo "Using existing configuration from $CONFIG_PATH"
+fi
 
 # Check for Proton password in shared credentials volume (same as core service)
 if [ -f "/etc/serviceradar/credentials/proton-password" ]; then
@@ -57,18 +64,20 @@ if [ -f "/etc/serviceradar/credentials/proton-password" ]; then
     echo "Found Proton password from shared credentials"
 fi
 
-# If PROTON_PASSWORD is available and config password is empty, update the config file
-if [ -n "$PROTON_PASSWORD" ] && [ -f "$CONFIG_PATH" ]; then
+# One-time password injection: only update if password is empty
+if [ -n "$PROTON_PASSWORD" ]; then
     CURRENT_PASSWORD=$(jq -r '.database.password' "$CONFIG_PATH")
     if [ "$CURRENT_PASSWORD" = "" ] || [ "$CURRENT_PASSWORD" = "null" ]; then
-        echo "Updating configuration with generated Proton password..."
-        # Create a copy of the config with the password injected
-        cp "$CONFIG_PATH" /tmp/db-event-writer-original.json
-        jq --arg pwd "$PROTON_PASSWORD" '.database.password = $pwd' /tmp/db-event-writer-original.json > /tmp/db-event-writer.json
-        CONFIG_PATH="/tmp/db-event-writer.json"
+        echo "First-time setup: Writing generated Proton password to config permanently..."
+        # Update the config file permanently with the password
+        jq --arg pwd "$PROTON_PASSWORD" '.database.password = $pwd' "$CONFIG_PATH" > /tmp/config-updated.json
+        mv /tmp/config-updated.json "$CONFIG_PATH"
+        echo "✅ Password permanently written to $CONFIG_PATH - this will only happen once!"
     else
-        echo "Password already present in config, skipping injection"
+        echo "✅ Password already configured in $CONFIG_PATH, skipping injection"
     fi
+else
+    echo "⚠️  Warning: No Proton password found in credentials, using config as-is"
 fi
 
 echo "Starting ServiceRadar DB Event Writer with config: $CONFIG_PATH"

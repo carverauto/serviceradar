@@ -38,7 +38,7 @@
     ],
     "name": "default",
     "username": "default",
-    "password": "146bd17bfbd4b3434fda8f6bcea5869b"
+    "password": ""
   },
   "security": {
     "mode": "mtls",
