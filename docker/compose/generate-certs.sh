@@ -122,6 +122,7 @@ generate_cert "agent" "serviceradar-agent" "DNS:agent,DNS:serviceradar-agent,DNS
 generate_cert "db-event-writer" "serviceradar-db-event-writer" "DNS:db-event-writer,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
 generate_cert "mapper" "serviceradar-mapper" "DNS:mapper,DNS:serviceradar-mapper,DNS:localhost,IP:127.0.0.1"
 generate_cert "snmp-checker" "serviceradar-snmp-checker" "DNS:snmp-checker,DNS:serviceradar-snmp-checker,DNS:localhost,IP:127.0.0.1"
+generate_cert "rperf-client" "serviceradar-rperf-client" "DNS:rperf-client,DNS:serviceradar-rperf-client,DNS:localhost,IP:127.0.0.1"
 
 # Copy core certificate for Proton to use
 cp "$CERT_DIR/core.pem" "$CERT_DIR/proton-core.pem"

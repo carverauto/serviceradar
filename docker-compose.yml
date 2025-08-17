@@ -648,6 +648,43 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # ServiceRadar rperf Client - Network Performance Testing Service
+  rperf-client:
+    image: serviceradar-rperf-client:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.rperf-client
+    container_name: serviceradar-rperf-client
+    ports:
+      - "50059:50059"  # gRPC port
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - rperf-client-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Wait for dependencies
+      - WAIT_FOR_AGENT=true
+      - WAIT_FOR_OTEL=true
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - RUST_LOG=${RUST_LOG:-info}
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      agent:
+        condition: service_started
+      otel:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/rperf-client.pem", "-key", "/etc/serviceradar/certs/rperf-client-key.pem", "-servername", "serviceradar-rperf-client", "localhost:50059", "grpc.health.v1.Health/Check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
 networks:
   serviceradar-net:
     driver: bridge
@@ -686,4 +723,6 @@ volumes:
   mapper-data:
     driver: local
   snmp-checker-data:
+    driver: local
+  rperf-client-data:
     driver: local
