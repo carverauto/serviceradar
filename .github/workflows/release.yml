@@ -20,6 +20,8 @@ on:
 permissions:
   contents: write
   packages: write
+  actions: read
+  security-events: write
 
 jobs:
   build-deb-packages:
@@ -174,25 +176,25 @@ jobs:
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push all ServiceRadar Docker images
         env:
           DOCKER_BUILDKIT: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Use our comprehensive build script for releases
+          # Get version info
           export VERSION="${{ env.VERSION }}"
           export BUILD_ID="${{ github.run_number }}"
           export TAG="${{ env.VERSION }}"
           
-          # Verify login works before building
-          docker buildx ls
-          echo "Testing registry access..."
-          docker pull ghcr.io/carverauto/serviceradar-cert-generator:latest 2>/dev/null || echo "No existing image found, will build fresh"
+          echo "Building images with tag: $TAG"
+          echo "Logged in as: ${{ github.actor }}"
           
+          # Simple approach - just use the default buildx
           ./scripts/build-all-images.sh --push --tag "$TAG"
           
-          # Also tag as latest for releases
+          # Also tag as latest for releases  
           ./scripts/build-all-images.sh --push --tag latest
