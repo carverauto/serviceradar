@@ -1,9 +1,7 @@
 services:
   # Certificate Generation Service (runs once to generate mTLS certs)
   cert-generator:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.cert-generator
+    image: ghcr.io/carverauto/serviceradar-cert-generator:latest
     container_name: serviceradar-cert-generator
     volumes:
       - cert-data:/certs
@@ -13,9 +11,7 @@ services:
 
   # Configuration Updater (runs after cert generation to update configs with secrets)
   config-updater:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.config-updater
+    image: ghcr.io/carverauto/serviceradar-config-updater:latest
     container_name: serviceradar-config-updater
     volumes:
       - cert-data:/etc/serviceradar/certs
@@ -45,7 +41,7 @@ services:
 
   # Proton (TimeBase) Database with custom configuration
   proton:
-    image: ghcr.io/carverauto/serviceradar-proton:1.0.53-perms
+    image: ghcr.io/carverauto/serviceradar-proton:latest
     container_name: serviceradar-proton
     ports:
       - "8123:8123"  # HTTP port for JDBC driver, batch mode
@@ -92,10 +88,7 @@ services:
 
   # ServiceRadar Core Service
   core:
-    image: serviceradar-core:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.core
+    image: ghcr.io/carverauto/serviceradar-core:latest
     container_name: serviceradar-core
     # Expose core ports for debugging authentication
     ports:
@@ -141,13 +134,7 @@ services:
 
   # ServiceRadar Web Application
   web:
-    image: serviceradar-web:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.web
-      args:
-        - NEXT_PUBLIC_API_URL=http://localhost/api
-        - NEXT_INTERNAL_API_URL=http://core:8090
+    image: ghcr.io/carverauto/serviceradar-web:latest
     container_name: serviceradar-web
     environment:
       - NODE_ENV=production
@@ -177,10 +164,7 @@ services:
 
   # Nginx Reverse Proxy
   nginx:
-    image: serviceradar-nginx:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.nginx
+    image: ghcr.io/carverauto/serviceradar-nginx:latest
     container_name: serviceradar-nginx
     ports:
       - "80:80"      # HTTP
@@ -204,10 +188,7 @@ services:
 
   # ServiceRadar Poller Service
   poller:
-    image: serviceradar-poller:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.poller
+    image: ghcr.io/carverauto/serviceradar-poller:latest
     container_name: serviceradar-poller
     volumes:
       - ./docker/compose/poller.docker.json:/etc/serviceradar/poller.json:ro
@@ -236,10 +217,7 @@ services:
 
   # ServiceRadar Agent Service
   agent:
-    image: serviceradar-agent:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.agent
+    image: ghcr.io/carverauto/serviceradar-agent:latest
     container_name: serviceradar-agent
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -299,10 +277,7 @@ services:
 
   # ServiceRadar KV Service (Key-Value store using NATS JetStream)
   kv:
-    image: serviceradar-kv:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.kv
+    image: ghcr.io/carverauto/serviceradar-kv:latest
     container_name: serviceradar-kv
     ports:
       - "50057:50057"  # gRPC port
@@ -335,10 +310,7 @@ services:
 
   # ServiceRadar Sync Service (Device discovery synchronization)
   sync:
-    image: serviceradar-sync:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.sync
+    image: ghcr.io/carverauto/serviceradar-sync:latest
     container_name: serviceradar-sync
     ports:
       - "50058:50058"  # gRPC port
@@ -376,10 +348,7 @@ services:
 
   # ServiceRadar OTEL Service (OpenTelemetry collector)
   otel:
-    image: serviceradar-otel:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.otel
+    image: ghcr.io/carverauto/serviceradar-otel:latest
     container_name: serviceradar-otel
     ports:
       - "4317:4317"  # OTEL gRPC port
@@ -414,10 +383,7 @@ services:
 
   # ServiceRadar Flowgger Service (Syslog collector)
   flowgger:
-    image: serviceradar-flowgger:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.flowgger
+    image: ghcr.io/carverauto/serviceradar-flowgger:latest
     container_name: serviceradar-flowgger
     ports:
       - "514:514/udp"  # Syslog UDP port
@@ -456,10 +422,7 @@ services:
 
   # ServiceRadar Trapd Service (SNMP trap collector)
   trapd:
-    image: serviceradar-trapd:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.trapd
+    image: ghcr.io/carverauto/serviceradar-trapd:latest
     container_name: serviceradar-trapd
     ports:
       - "162:162/udp"  # SNMP trap UDP port
@@ -498,10 +461,7 @@ services:
 
   # ServiceRadar Zen Service (Event processing and rule engine)
   zen:
-    image: serviceradar-zen:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.zen
+    image: ghcr.io/carverauto/serviceradar-zen:latest
     container_name: serviceradar-zen
     ports:
       - "50040:50040"  # gRPC port
@@ -539,10 +499,7 @@ services:
 
   # ServiceRadar DB Event Writer Service (NATS to Database bridge)
   db-event-writer:
-    image: serviceradar-db-event-writer:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.db-event-writer
+    image: ghcr.io/carverauto/serviceradar-db-event-writer:latest
     container_name: serviceradar-db-event-writer
     ports:
       - "50041:50041"  # gRPC port
@@ -580,10 +537,7 @@ services:
 
   # ServiceRadar Mapper - SNMP Network Discovery Service
   mapper:
-    image: serviceradar-mapper:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.mapper
+    image: ghcr.io/carverauto/serviceradar-mapper:latest
     container_name: serviceradar-mapper
     ports:
       - "50056:50056"  # gRPC port
@@ -614,10 +568,7 @@ services:
 
   # ServiceRadar SNMP Checker - SNMP Polling Service
   snmp-checker:
-    image: serviceradar-snmp-checker:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.snmp-checker
+    image: ghcr.io/carverauto/serviceradar-snmp-checker:latest
     container_name: serviceradar-snmp-checker
     ports:
       - "50054:50054"  # gRPC port
@@ -651,10 +602,7 @@ services:
 
   # ServiceRadar rperf Client - Network Performance Testing Service
   rperf-client:
-    image: serviceradar-rperf-client:local
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.rperf-client
+    image: ghcr.io/carverauto/serviceradar-rperf-client:latest
     container_name: serviceradar-rperf-client
     ports:
       - "50059:50059"  # gRPC port
