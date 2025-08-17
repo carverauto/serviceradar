@@ -2,7 +2,7 @@
     "node_address": "localhost:50051",
     "listen_addr": ":50054",
     "security": {
-        "server_name": "changeme",
+        "server_name": "PLACEHOLDER_AGENT_SERVER_NAME",
         "mode": "none",
         "role": "checker",
         "cert_dir": "/etc/serviceradar/certs"
