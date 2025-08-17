@@ -56,7 +56,7 @@ RUN apk add --no-cache \
 RUN adduser -D -u 1000 serviceradar
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
+RUN mkdir -p /etc/serviceradar/consumers /etc/serviceradar/templates /var/log/serviceradar /var/lib/serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
 
 # Copy binary from builder
