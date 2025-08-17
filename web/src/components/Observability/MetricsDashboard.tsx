@@ -191,14 +191,14 @@ const MetricsDashboard = () => {
                 cachedQuery<{ results: [{ 'count()': number }] }>("COUNT otel_metrics WHERE http_status_code = '500' OR http_status_code = '400' OR http_status_code = '404' OR http_status_code = '503'", token || undefined, 30000),
             ]);
 
-            const total = totalRes.results[0]?.['count()'] || 0;
-            const errors = errorRateRes.results[0]?.['count()'] || 0;
+            const total = (totalRes.results && totalRes.results[0])?.['count()'] || 0;
+            const errors = (errorRateRes.results && errorRateRes.results[0])?.['count()'] || 0;
             
             // Average duration will be calculated after fetching metrics data
             
             setStats({
                 total: total,
-                slow_spans: slowRes.results[0]?.['count()'] || 0,
+                slow_spans: (slowRes.results && slowRes.results[0])?.['count()'] || 0,
                 avg_duration_ms: 0,
                 p95_duration_ms: 0, // P95 calculation would need a more complex query
                 error_rate: total > 0 ? errors / total : 0,
@@ -215,7 +215,7 @@ const MetricsDashboard = () => {
         try {
             const query = 'SHOW DISTINCT(service_name) FROM otel_metrics WHERE service_name IS NOT NULL LIMIT 100';
             const response = await postQuery<{ results: Array<{ service_name: string }> }>(query);
-            const serviceNames = response.results.map(r => r.service_name).filter(Boolean);
+            const serviceNames = (response.results || []).map(r => r.service_name).filter(Boolean);
             setServices(serviceNames);
         } catch (e) {
             console.error("Failed to fetch services:", e);
@@ -256,8 +256,8 @@ const MetricsDashboard = () => {
             query += ` ORDER BY ${sortBy === 'timestamp' ? '_tp_time' : sortBy} ${sortOrder.toUpperCase()}`;
 
             const response = await postQuery<OtelMetricsApiResponse>(query, cursor, direction);
-            setMetrics(response.results);
-            setPagination(response.pagination);
+            setMetrics(response.results || []);
+            setPagination(response.pagination || null);
             
             // Update stats with calculated averages from the fetched data
             if (response.results && response.results.length > 0) {

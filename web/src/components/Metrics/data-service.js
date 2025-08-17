@@ -66,25 +66,41 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
         // Improved error handling with individual try/catch blocks for each API call
         const cpuPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/cpu${queryParams}`, 5000)
             .catch(err => {
-                console.warn(`CPU metrics failed: ${err.message}`);
+                if (err.message === 'No metrics found') {
+                    console.log(`CPU metrics: No data available for ${idType} ${targetId}`);
+                } else {
+                    console.warn(`CPU metrics failed: ${err.message}`);
+                }
                 return null;
             });
 
         const diskPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/disk${queryParams}`, 5000)
             .catch(err => {
-                console.warn(`Disk metrics failed: ${err.message}`);
+                if (err.message === 'No metrics found') {
+                    console.log(`Disk metrics: No data available for ${idType} ${targetId}`);
+                } else {
+                    console.warn(`Disk metrics failed: ${err.message}`);
+                }
                 return null;
             });
 
         const memoryPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/memory${queryParams}`, 5000)
             .catch(err => {
-                console.warn(`Memory metrics failed: ${err.message}`);
+                if (err.message === 'No metrics found') {
+                    console.log(`Memory metrics: No data available for ${idType} ${targetId}`);
+                } else {
+                    console.warn(`Memory metrics failed: ${err.message}`);
+                }
                 return null;
             });
 
         const processPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/processes${queryParams}`, 5000)
             .catch(err => {
-                console.warn(`Process metrics failed: ${err.message}`);
+                if (err.message === 'No metrics found') {
+                    console.log(`Process metrics: No data available for ${idType} ${targetId}`);
+                } else {
+                    console.warn(`Process metrics failed: ${err.message}`);
+                }
                 return null;
             });
 
@@ -350,6 +366,14 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
             diskPoints: diskDataPoints.length,
             processPoints: processDataPoints.length,
         });
+
+        // Check if we have any actual metric data
+        const hasAnyData = cpuResponse || diskResponse || memoryResponse || processResponse;
+        if (!hasAnyData) {
+            console.log(`No sysmon data available for ${idType} ${targetId}`);
+            // Return null to indicate no data available, which will trigger the EmptyState
+            return null;
+        }
 
         return result;
     } catch (error) {
