@@ -1,5 +1,5 @@
 {
-  "listen_addr": "changeme:50081",
+  "listen_addr": "PLACEHOLDER_HOST_IP:50081",
   "name": "rperf-checker",
   "type": "grpc",
   "timeout": "30s",
@@ -13,7 +13,7 @@
   "targets": [
     {
       "name": "TCP Test",
-      "address": "<changeme - target address (rperf server)>",
+      "address": "PLACEHOLDER_RPERF_TARGET_ADDRESS",
       "port": 5199,
       "tcp_port_pool": "5200-5210",
       "protocol": "tcp",

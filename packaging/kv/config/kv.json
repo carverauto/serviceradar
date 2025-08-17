@@ -4,7 +4,7 @@
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "changeme",
+    "server_name": "PLACEHOLDER_NATS_SERVER_NAME",
     "role": "kv",
     "tls": {
       "cert_file": "kv.pem",
@@ -15,7 +15,7 @@
   },
   "rbac": {
     "roles": [
-      {"identity": "CN=changeme,O=ServiceRadar", "role": "reader"}
+      {"identity": "CN=PLACEHOLDER_IDENTITY,O=ServiceRadar", "role": "reader"}
     ]
   },
   "bucket": "serviceradar-kv"

@@ -5,7 +5,7 @@
     "listen_addr": ":50082",
     "timeout": "5m",
     "security": {
-        "server_name": "changeme",
+        "server_name": "PLACEHOLDER_AGENT_SERVER_NAME",
         "mode": "none",
         "role": "checker",
         "cert_dir": "/etc/serviceradar/certs",

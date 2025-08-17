@@ -5,7 +5,7 @@
   "service_name": "AgentService",
   "agent_id": "default-agent",
   "agent_name": "127.0.0.1",
-  "host_ip": "changeme",
+  "host_ip": "PLACEHOLDER_HOST_IP",
   "partition": "default",
   "security": {
     "mode": "mtls",

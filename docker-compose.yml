@@ -164,13 +164,15 @@ services:
 
   # Nginx Reverse Proxy
   nginx:
-    image: ghcr.io/carverauto/serviceradar-nginx:latest
+    image: nginx:alpine
     container_name: serviceradar-nginx
     ports:
       - "80:80"      # HTTP
       # - "443:443"  # HTTPS (add SSL termination later)
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
+      - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./docker/compose/entrypoint-nginx.sh:/docker-entrypoint.d/50-serviceradar.sh:ro
     depends_on:
       web:
         condition: service_healthy
