@@ -38,7 +38,7 @@
     ],
     "name": "default",
     "username": "default",
-    "password": "REPLACE_WITH_GENERATED_PASSWORD"
+    "password": "146bd17bfbd4b3434fda8f6bcea5869b"
   },
   "security": {
     "mode": "mtls",
@@ -74,8 +74,8 @@
     }
   },
   "logging": {
-    "level": "info",
-    "debug": false,
+    "level": "debug",
+    "debug": true,
     "output": "stdout",
     "time_format": "",
     "otel": {

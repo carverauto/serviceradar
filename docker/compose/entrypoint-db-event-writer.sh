@@ -51,19 +51,24 @@ fi
 
 echo "Using configuration from $CONFIG_PATH"
 
-# Check for Proton password in shared credentials volume
+# Check for Proton password in shared credentials volume (same as core service)
 if [ -f "/etc/serviceradar/credentials/proton-password" ]; then
     PROTON_PASSWORD=$(cat /etc/serviceradar/credentials/proton-password)
     echo "Found Proton password from shared credentials"
 fi
 
-# If PROTON_PASSWORD is available, update the config file
+# If PROTON_PASSWORD is available and config password is empty, update the config file
 if [ -n "$PROTON_PASSWORD" ] && [ -f "$CONFIG_PATH" ]; then
-    echo "Updating configuration with generated Proton password..."
-    # Create a copy of the config with the password injected
-    cp "$CONFIG_PATH" /tmp/db-event-writer-original.json
-    jq --arg pwd "$PROTON_PASSWORD" '.database.password = $pwd' /tmp/db-event-writer-original.json > /tmp/db-event-writer.json
-    CONFIG_PATH="/tmp/db-event-writer.json"
+    CURRENT_PASSWORD=$(jq -r '.database.password' "$CONFIG_PATH")
+    if [ "$CURRENT_PASSWORD" = "" ] || [ "$CURRENT_PASSWORD" = "null" ]; then
+        echo "Updating configuration with generated Proton password..."
+        # Create a copy of the config with the password injected
+        cp "$CONFIG_PATH" /tmp/db-event-writer-original.json
+        jq --arg pwd "$PROTON_PASSWORD" '.database.password = $pwd' /tmp/db-event-writer-original.json > /tmp/db-event-writer.json
+        CONFIG_PATH="/tmp/db-event-writer.json"
+    else
+        echo "Password already present in config, skipping injection"
+    fi
 fi
 
 echo "Starting ServiceRadar DB Event Writer with config: $CONFIG_PATH"
