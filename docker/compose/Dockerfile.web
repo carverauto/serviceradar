@@ -70,6 +70,10 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.ts ./
 COPY --from=builder /app/tsconfig.json ./
 
+# For standalone mode, copy public and static files to the correct locations
+COPY --from=builder /app/public ./.next/standalone/public
+COPY --from=builder /app/.next/static ./.next/standalone/.next/static
+
 # Copy entrypoint script
 COPY docker/compose/entrypoint-web.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
@@ -101,10 +105,10 @@ ENV PORT=3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/api/status', (r) => {r.statusCode === 200 ? process.exit(0) : process.exit(1)}).on('error', () => process.exit(1))"
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1
 
 # Use entrypoint script
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# Start the application
-CMD ["npm", "start"]
+# Start the application using standalone server (required for output: 'standalone')
+CMD ["node", ".next/standalone/server.js"]
