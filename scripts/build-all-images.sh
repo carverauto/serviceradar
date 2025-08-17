@@ -10,7 +10,7 @@ REGISTRY="ghcr.io"
 IMAGE_PREFIX="ghcr.io/carverauto/serviceradar"
 DEFAULT_TAG="latest"
 PLATFORM="linux/amd64,linux/arm64"
-BUILDER_NAME="multiarch"
+BUILDER_NAME="${BUILDX_BUILDER:-multiarch}"
 
 # Colors for output
 RED='\033[0;31m'
