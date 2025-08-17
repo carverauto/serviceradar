@@ -106,7 +106,7 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
     if (!data) {
         return (
             <EmptyState
-                message={`No system metrics data available for this ${actualIdType}.`}
+                message={`No system metrics are currently available for this ${actualIdType}. This may be because sysmon monitoring is not configured or enabled on this ${actualIdType}.`}
                 onAction={handleRefresh}
                 actionLabel="Refresh"
             />

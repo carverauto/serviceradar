@@ -152,7 +152,7 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({
     if (sysmonServices.length === 0) {
         return (
             <EmptyState
-                message="No sysmon services found for this poller."
+                message={`No system metrics are currently available for this ${idType}. This typically means that sysmon monitoring is not configured or enabled on this ${idType}. Check that the sysmon agent is running and properly configured.`}
                 onAction={() => window.location.reload()}
                 actionLabel="Refresh"
             />
