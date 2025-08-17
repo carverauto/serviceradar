@@ -577,6 +577,40 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # ServiceRadar Mapper - SNMP Network Discovery Service
+  mapper:
+    image: serviceradar-mapper:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.mapper
+    container_name: serviceradar-mapper
+    ports:
+      - "50056:50056"  # gRPC port
+    volumes:
+      - ./docker/compose/mapper.docker.json:/etc/serviceradar/mapper.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - mapper-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Wait for dependencies
+      - WAIT_FOR_OTEL=true
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      otel:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/mapper.pem", "-key", "/etc/serviceradar/certs/mapper-key.pem", "-servername", "serviceradar-mapper", "localhost:50056", "grpc.health.v1.Health/Check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
 networks:
   serviceradar-net:
     driver: bridge
@@ -611,4 +645,6 @@ volumes:
   zen-data:
     driver: local
   db-event-writer-data:
+    driver: local
+  mapper-data:
     driver: local
