@@ -39,8 +39,12 @@ if [ ! -f "$CERT_DIR/admin-password-hash" ]; then
     # Generate bcrypt hash using serviceradar-cli
     ADMIN_PASSWORD_HASH=$(echo "$ADMIN_PASSWORD" | serviceradar-cli)
     echo "$ADMIN_PASSWORD_HASH" > "$CERT_DIR/admin-password-hash"
-    echo "✅ Generated admin password: $ADMIN_PASSWORD (stored in admin-password file)"
+    echo "✅ Generated admin password: $ADMIN_PASSWORD"
     echo "✅ Generated bcrypt hash for admin password using serviceradar-cli"
+    
+    # Also write the password to the standard location for user reference
+    echo "$ADMIN_PASSWORD" > "$CERT_DIR/password.txt"
+    echo "✅ Admin password saved to: $CERT_DIR/password.txt"
 fi
 
 # Update core.json with JWT secret and admin password hash if the files exist
@@ -99,6 +103,29 @@ AUTH_ENABLED=true
 EOF
     
     echo "✅ Created .env file for Docker Compose"
+fi
+
+# Display important setup information to the user
+if [ -f "$CERT_DIR/admin-password" ]; then
+    ADMIN_PASSWORD=$(cat "$CERT_DIR/admin-password")
+    echo ""
+    echo "🔐 IMPORTANT: ServiceRadar Admin Credentials"
+    echo "============================================="
+    echo "Username: admin"
+    echo "Password: $ADMIN_PASSWORD"
+    echo ""
+    echo "📁 Password Location: /etc/serviceradar/certs/password.txt"
+    echo ""
+    echo "⚠️  SECURITY NOTICE:"
+    echo "   • Please save this password in a secure location"
+    echo "   • Delete the password.txt file after saving: rm /etc/serviceradar/certs/password.txt"
+    echo "   • You can change this password using the ServiceRadar CLI"
+    echo ""
+    echo "🔧 To change your admin password:"
+    echo "   1. Generate a new bcrypt hash: echo 'your-new-password' | serviceradar-cli"
+    echo "   2. Update core.json: serviceradar-cli update-config -file=/path/to/core.json -admin-hash=<new-hash>"
+    echo "   3. Restart the core service: docker-compose restart core"
+    echo ""
 fi
 
 # Note: We do NOT copy generated secrets back to host to avoid
