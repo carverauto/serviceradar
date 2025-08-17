@@ -16,6 +16,7 @@
 
 // src/app/api/devices/sysmon/status/route.ts
 import { NextRequest, NextResponse } from 'next/server';
+import { getInternalApiUrl, getApiKey } from '@/lib/config';
 
 // Simple in-memory cache for sysmon status results
 interface CacheEntry {
@@ -30,8 +31,8 @@ const statusCache = new Map<string, CacheEntry>();
 const CACHE_TTL = 30 * 1000; // 30 seconds cache
 
 export async function POST(req: NextRequest) {
-    const apiKey = process.env.API_KEY || '';
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090';
+    const apiKey = getApiKey();
+    const apiUrl = getInternalApiUrl();
 
     try {
         const body = await req.json();

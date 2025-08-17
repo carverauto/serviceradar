@@ -1,0 +1,31 @@
+# ServiceRadar OTEL Collector Configuration for Docker Deployment
+
+[server]
+# Address to bind the OTEL collector to
+bind_address = "0.0.0.0"
+# Port to listen on for OTEL traces
+port = 4317
+
+[nats]
+# NATS server URL with mTLS (Docker deployment)
+url = "tls://nats:4222"
+
+# Subject to publish traces to (default: events.otel)
+subject = "events.otel"
+
+# JetStream stream name (default: events)
+stream = "events"
+
+# Timeout for NATS operations in seconds (default: 30)
+timeout_secs = 30
+
+# mTLS configuration for NATS
+[nats.tls]
+cert_file = "/etc/serviceradar/certs/otel.pem"
+key_file = "/etc/serviceradar/certs/otel-key.pem"
+ca_file = "/etc/serviceradar/certs/root.pem"
+
+[grpc_tls]
+cert_file = "/etc/serviceradar/certs/otel.pem"
+key_file = "/etc/serviceradar/certs/otel-key.pem"
+ca_file = "/etc/serviceradar/certs/root.pem"

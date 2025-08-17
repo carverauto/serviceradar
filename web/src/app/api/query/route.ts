@@ -1,10 +1,11 @@
 // src/app/api/query/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { getInternalApiUrl, getApiKey, isAuthEnabled } from "@/lib/config";
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.API_KEY || "";
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
-  const authEnabled = process.env.AUTH_ENABLED === "true";
+  const apiKey = getApiKey();
+  const apiUrl = getInternalApiUrl();
+  const authEnabled = isAuthEnabled();
 
   try {
     const body = await req.json();

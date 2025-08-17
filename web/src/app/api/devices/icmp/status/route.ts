@@ -15,6 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getInternalApiUrl, getApiKey } from '@/lib/config';
 
 interface CacheEntry {
     statuses: Record<string, { hasMetrics: boolean; status: number }>;
@@ -26,8 +27,8 @@ const statusCache = new Map<string, CacheEntry>();
 const CACHE_TTL = 30 * 1000; // 30 seconds cache
 
 export async function POST(req: NextRequest) {
-    const apiKey = process.env.API_KEY || '';
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090';
+    const apiKey = getApiKey();
+    const apiUrl = getInternalApiUrl();
 
     try {
         const body = await req.json();

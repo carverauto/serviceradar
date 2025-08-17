@@ -41,6 +41,7 @@ var (
 const (
 	configSourceKV   = "kv"
 	configSourceFile = "file"
+	configSourceEnv  = "env"
 )
 
 // Config holds the configuration loading dependencies.
@@ -174,20 +175,26 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 
 	var loader ConfigLoader
 
-	if source == configSourceKV {
+	switch source {
+	case configSourceKV:
 		if c.kvStore == nil {
 			return errKVStoreNotSet
 		}
 
 		loader = NewKVConfigLoader(c.kvStore, c.logger)
-	}
+	case configSourceEnv:
+		// Use environment variables with optional prefix
+		prefix := os.Getenv("CONFIG_ENV_PREFIX")
+		if prefix == "" {
+			prefix = "SERVICERADAR_"
+		}
 
-	if source == configSourceFile || source == "" {
+		loader = NewEnvConfigLoader(c.logger, prefix)
+	case configSourceFile, "":
 		loader = c.defaultLoader
-	}
-
-	if loader == nil {
-		return fmt.Errorf("%w: %s (expected '%s' or '%s')", errInvalidConfigSource, source, configSourceFile, configSourceKV)
+	default:
+		return fmt.Errorf("%w: %s (expected '%s', '%s', or '%s')",
+			errInvalidConfigSource, source, configSourceFile, configSourceKV, configSourceEnv)
 	}
 
 	err := loader.Load(ctx, path, cfg)
