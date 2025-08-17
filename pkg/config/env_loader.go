@@ -57,11 +57,14 @@ func (e *EnvConfigLoader) Load(_ context.Context, _ string, dst interface{}) err
 			if e.logger != nil {
 				e.logger.Error().Err(err).Msg("Failed to unmarshal CONFIG_JSON")
 			}
+
 			return fmt.Errorf("failed to unmarshal CONFIG_JSON: %w", err)
 		}
+
 		if e.logger != nil {
 			e.logger.Info().Msg("Loaded configuration from CONFIG_JSON environment variable")
 		}
+
 		return nil
 	}
 
@@ -114,7 +117,7 @@ func (e *EnvConfigLoader) loadStruct(v reflect.Value, prefix string) error {
 		envName := e.buildEnvName(prefix, fieldName)
 
 		// Handle different field types
-		if err := e.setFieldValue(field, fieldType, envName); err != nil {
+		if err := e.setFieldValue(field, &fieldType, envName); err != nil {
 			if e.logger != nil {
 				e.logger.Debug().
 					Str("field", fieldName).
@@ -131,34 +134,25 @@ func (e *EnvConfigLoader) loadStruct(v reflect.Value, prefix string) error {
 }
 
 // buildEnvName constructs the environment variable name from prefix and field name.
-func (e *EnvConfigLoader) buildEnvName(prefix, fieldName string) string {
+func (*EnvConfigLoader) buildEnvName(prefix, fieldName string) string {
 	// Convert field name to uppercase and replace dots with underscores
 	envName := strings.ToUpper(fieldName)
 	envName = strings.ReplaceAll(envName, ".", "_")
-	
+
 	if prefix != "" {
 		envName = prefix + envName
 	}
-	
+
 	return envName
 }
 
 // setFieldValue sets a struct field value from an environment variable.
-func (e *EnvConfigLoader) setFieldValue(field reflect.Value, fieldType reflect.StructField, envName string) error {
+func (e *EnvConfigLoader) setFieldValue(field reflect.Value, fieldType *reflect.StructField, envName string) error {
 	envValue := os.Getenv(envName)
-	
-	// For nested structs, try with prefix
-	if field.Kind() == reflect.Struct || (field.Kind() == reflect.Ptr && field.Type().Elem().Kind() == reflect.Struct) {
-		prefix := envName + "_"
-		
-		// Initialize pointer if needed
-		if field.Kind() == reflect.Ptr {
-			if field.IsNil() {
-				field.Set(reflect.New(field.Type().Elem()))
-			}
-			return e.loadStruct(field.Elem(), prefix)
-		}
-		return e.loadStruct(field, prefix)
+
+	// Handle nested structs
+	if err := e.handleNestedStruct(field, envName); err != nil {
+		return err
 	}
 
 	// Skip if no environment variable is set
@@ -167,81 +161,8 @@ func (e *EnvConfigLoader) setFieldValue(field reflect.Value, fieldType reflect.S
 	}
 
 	// Handle different types
-	switch field.Kind() {
-	case reflect.String:
-		field.SetString(envValue)
-		
-	case reflect.Bool:
-		b, err := strconv.ParseBool(envValue)
-		if err != nil {
-			return fmt.Errorf("invalid boolean value for %s: %w", envName, err)
-		}
-		field.SetBool(b)
-		
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		// Special handling for time.Duration
-		if field.Type().String() == "time.Duration" {
-			d, err := time.ParseDuration(envValue)
-			if err != nil {
-				return fmt.Errorf("invalid duration value for %s: %w", envName, err)
-			}
-			field.SetInt(int64(d))
-		} else {
-			i, err := strconv.ParseInt(envValue, 10, 64)
-			if err != nil {
-				return fmt.Errorf("invalid integer value for %s: %w", envName, err)
-			}
-			field.SetInt(i)
-		}
-		
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		u, err := strconv.ParseUint(envValue, 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid unsigned integer value for %s: %w", envName, err)
-		}
-		field.SetUint(u)
-		
-	case reflect.Float32, reflect.Float64:
-		f, err := strconv.ParseFloat(envValue, 64)
-		if err != nil {
-			return fmt.Errorf("invalid float value for %s: %w", envName, err)
-		}
-		field.SetFloat(f)
-		
-	case reflect.Slice:
-		// Handle string slices (comma-separated values)
-		if field.Type().Elem().Kind() == reflect.String {
-			values := strings.Split(envValue, ",")
-			slice := reflect.MakeSlice(field.Type(), len(values), len(values))
-			for i, v := range values {
-				slice.Index(i).SetString(strings.TrimSpace(v))
-			}
-			field.Set(slice)
-		} else {
-			// Try to unmarshal as JSON for other slice types
-			if err := json.Unmarshal([]byte(envValue), field.Addr().Interface()); err != nil {
-				return fmt.Errorf("invalid slice value for %s: %w", envName, err)
-			}
-		}
-		
-	case reflect.Map:
-		// Try to unmarshal as JSON for map types
-		if err := json.Unmarshal([]byte(envValue), field.Addr().Interface()); err != nil {
-			return fmt.Errorf("invalid map value for %s: %w", envName, err)
-		}
-		
-	case reflect.Ptr:
-		// Initialize the pointer and set its value
-		if field.IsNil() {
-			field.Set(reflect.New(field.Type().Elem()))
-		}
-		return e.setFieldValue(field.Elem(), fieldType, envName)
-		
-	default:
-		// Try to unmarshal as JSON for complex types
-		if err := json.Unmarshal([]byte(envValue), field.Addr().Interface()); err != nil {
-			return fmt.Errorf("unsupported type %s for %s: %w", field.Kind(), envName, err)
-		}
+	if err := e.setFieldByKind(field, fieldType, envName, envValue); err != nil {
+		return err
 	}
 
 	if e.logger != nil {
@@ -249,6 +170,175 @@ func (e *EnvConfigLoader) setFieldValue(field reflect.Value, fieldType reflect.S
 			Str("env", envName).
 			Str("value", "[set]").
 			Msg("Loaded value from environment variable")
+	}
+
+	return nil
+}
+
+// handleNestedStruct handles nested struct and pointer to struct types.
+func (e *EnvConfigLoader) handleNestedStruct(field reflect.Value, envName string) error {
+	if field.Kind() == reflect.Struct || (field.Kind() == reflect.Ptr && field.Type().Elem().Kind() == reflect.Struct) {
+		prefix := envName + "_"
+
+		// Initialize pointer if needed
+		if field.Kind() == reflect.Ptr {
+			if field.IsNil() {
+				field.Set(reflect.New(field.Type().Elem()))
+			}
+
+			return e.loadStruct(field.Elem(), prefix)
+		}
+
+		return e.loadStruct(field, prefix)
+	}
+
+	return nil
+}
+
+// setFieldByKind sets field value based on its reflect.Kind.
+func (e *EnvConfigLoader) setFieldByKind(field reflect.Value, fieldType *reflect.StructField, envName, envValue string) error {
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(envValue)
+
+	case reflect.Bool:
+		return e.setBoolField(field, envName, envValue)
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return e.setIntField(field, envName, envValue)
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return e.setUintField(field, envName, envValue)
+
+	case reflect.Float32, reflect.Float64:
+		return e.setFloatField(field, envName, envValue)
+
+	case reflect.Slice:
+		return e.setSliceField(field, envName, envValue)
+
+	case reflect.Map:
+		return e.setMapField(field, envName, envValue)
+
+	case reflect.Ptr:
+		return e.setPtrField(field, fieldType, envName)
+
+	case reflect.Invalid, reflect.Uintptr, reflect.Complex64, reflect.Complex128,
+		reflect.Array, reflect.Chan, reflect.Func, reflect.Interface, reflect.Struct, reflect.UnsafePointer:
+		// Handle unsupported types
+		return e.setComplexField(field, envName, envValue)
+
+	default:
+		return e.setComplexField(field, envName, envValue)
+	}
+
+	return nil
+}
+
+// setBoolField sets a boolean field value.
+func (*EnvConfigLoader) setBoolField(field reflect.Value, envName, envValue string) error {
+	b, err := strconv.ParseBool(envValue)
+	if err != nil {
+		return fmt.Errorf("invalid boolean value for %s: %w", envName, err)
+	}
+
+	field.SetBool(b)
+
+	return nil
+}
+
+// setIntField sets an integer field value, with special handling for time.Duration.
+func (*EnvConfigLoader) setIntField(field reflect.Value, envName, envValue string) error {
+	// Special handling for time.Duration
+	if field.Type().String() == "time.Duration" {
+		d, err := time.ParseDuration(envValue)
+		if err != nil {
+			return fmt.Errorf("invalid duration value for %s: %w", envName, err)
+		}
+
+		field.SetInt(int64(d))
+	} else {
+		i, err := strconv.ParseInt(envValue, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid integer value for %s: %w", envName, err)
+		}
+
+		field.SetInt(i)
+	}
+
+	return nil
+}
+
+// setUintField sets an unsigned integer field value.
+func (*EnvConfigLoader) setUintField(field reflect.Value, envName, envValue string) error {
+	u, err := strconv.ParseUint(envValue, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid unsigned integer value for %s: %w", envName, err)
+	}
+
+	field.SetUint(u)
+
+	return nil
+}
+
+// setFloatField sets a floating-point field value.
+func (*EnvConfigLoader) setFloatField(field reflect.Value, envName, envValue string) error {
+	f, err := strconv.ParseFloat(envValue, 64)
+	if err != nil {
+		return fmt.Errorf("invalid float value for %s: %w", envName, err)
+	}
+
+	field.SetFloat(f)
+
+	return nil
+}
+
+// setSliceField sets a slice field value.
+func (*EnvConfigLoader) setSliceField(field reflect.Value, envName, envValue string) error {
+	// Handle string slices (comma-separated values)
+	if field.Type().Elem().Kind() == reflect.String {
+		values := strings.Split(envValue, ",")
+		slice := reflect.MakeSlice(field.Type(), len(values), len(values))
+
+		for i, v := range values {
+			slice.Index(i).SetString(strings.TrimSpace(v))
+		}
+
+		field.Set(slice)
+	} else {
+		// Try to unmarshal as JSON for other slice types
+		if err := json.Unmarshal([]byte(envValue), field.Addr().Interface()); err != nil {
+			return fmt.Errorf("invalid slice value for %s: %w", envName, err)
+		}
+	}
+
+	return nil
+}
+
+// setMapField sets a map field value.
+func (*EnvConfigLoader) setMapField(field reflect.Value, envName, envValue string) error {
+	// Try to unmarshal as JSON for map types
+	if err := json.Unmarshal([]byte(envValue), field.Addr().Interface()); err != nil {
+		return fmt.Errorf("invalid map value for %s: %w", envName, err)
+	}
+
+	return nil
+}
+
+// setPtrField sets a pointer field value.
+func (e *EnvConfigLoader) setPtrField(field reflect.Value, fieldType *reflect.StructField, envName string) error {
+	// Initialize the pointer and set its value
+	if field.IsNil() {
+		field.Set(reflect.New(field.Type().Elem()))
+	}
+
+	return e.setFieldValue(field.Elem(), fieldType, envName)
+}
+
+// setComplexField sets complex field types using JSON unmarshaling.
+func (*EnvConfigLoader) setComplexField(field reflect.Value, envName, envValue string) error {
+	// Try to unmarshal as JSON for complex types
+	if err := json.Unmarshal([]byte(envValue), field.Addr().Interface()); err != nil {
+		return fmt.Errorf("unsupported type %s for %s: %w", field.Kind(), envName, err)
 	}
 
 	return nil
