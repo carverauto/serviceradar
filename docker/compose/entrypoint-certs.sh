@@ -18,8 +18,14 @@ set -e
 CERT_DIR="/certs"
 DAYS_VALID=3650
 
-# Check if basic certificates exist - but allow individual certificate generation
-if [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && [ -f "$CERT_DIR/proton.pem" ] && [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/kv.pem" ] && [ -f "$CERT_DIR/sync.pem" ] && [ -f "$CERT_DIR/otel.pem" ] && [ -f "$CERT_DIR/flowgger.pem" ] && [ -f "$CERT_DIR/trapd.pem" ] && [ -f "$CERT_DIR/zen.pem" ] && [ -f "$CERT_DIR/db-event-writer.pem" ]; then
+# Check if ALL certificates exist - including checker and other services
+if [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && [ -f "$CERT_DIR/proton.pem" ] && \
+   [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/kv.pem" ] && [ -f "$CERT_DIR/sync.pem" ] && \
+   [ -f "$CERT_DIR/otel.pem" ] && [ -f "$CERT_DIR/flowgger.pem" ] && [ -f "$CERT_DIR/trapd.pem" ] && \
+   [ -f "$CERT_DIR/zen.pem" ] && [ -f "$CERT_DIR/db-event-writer.pem" ] && \
+   [ -f "$CERT_DIR/snmp-checker.pem" ] && [ -f "$CERT_DIR/mapper.pem" ] && \
+   [ -f "$CERT_DIR/rperf-client.pem" ] && [ -f "$CERT_DIR/agent.pem" ] && \
+   [ -f "$CERT_DIR/poller.pem" ] && [ -f "$CERT_DIR/web.pem" ]; then
     echo "All certificates already exist, nothing to generate"
     exit 0
 fi
@@ -113,6 +119,16 @@ generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:serviceradar-
 generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:serviceradar-trapd,DNS:localhost,IP:127.0.0.1,IP:172.28.0.9"
 generate_cert "zen" "zen.serviceradar" "DNS:zen,DNS:serviceradar-zen,DNS:localhost,IP:127.0.0.1,IP:172.28.0.10"
 generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1,IP:172.28.0.11"
+
+# Generate certificates for checker services
+generate_cert "snmp-checker" "snmp-checker.serviceradar" "DNS:snmp-checker,DNS:serviceradar-snmp-checker,DNS:localhost,IP:127.0.0.1"
+generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:serviceradar-mapper,DNS:localhost,IP:127.0.0.1"
+generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:serviceradar-rperf-client,DNS:localhost,IP:127.0.0.1"
+
+# Generate certificates for other services that might need them
+generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
+generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
+generate_cert "web" "web.serviceradar" "DNS:web,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 
 # Copy core certificate for Proton to use
 cp core.pem proton-core.pem
