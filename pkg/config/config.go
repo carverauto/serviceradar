@@ -180,6 +180,7 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 		if c.kvStore == nil {
 			return errKVStoreNotSet
 		}
+
 		loader = NewKVConfigLoader(c.kvStore, c.logger)
 	case configSourceEnv:
 		// Use environment variables with optional prefix
@@ -187,11 +188,13 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 		if prefix == "" {
 			prefix = "SERVICERADAR_"
 		}
+
 		loader = NewEnvConfigLoader(c.logger, prefix)
 	case configSourceFile, "":
 		loader = c.defaultLoader
 	default:
-		return fmt.Errorf("%w: %s (expected '%s', '%s', or '%s')", errInvalidConfigSource, source, configSourceFile, configSourceKV, configSourceEnv)
+		return fmt.Errorf("%w: %s (expected '%s', '%s', or '%s')",
+			errInvalidConfigSource, source, configSourceFile, configSourceKV, configSourceEnv)
 	}
 
 	err := loader.Load(ctx, path, cfg)
