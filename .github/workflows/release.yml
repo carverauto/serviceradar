@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   build-deb-packages:
-      runs-on: ubuntu-latest
+      runs-on: self-hosted
       env:
         VERSION: ${{ github.ref_name }}
       steps:
@@ -90,7 +90,7 @@ jobs:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-rpm-packages:
-      runs-on: ubuntu-latest
+      runs-on: self-hosted
       env:
         VERSION: ${{ github.ref_name }}
       steps:
@@ -156,7 +156,7 @@ jobs:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-docker-images:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
       packages: write
@@ -179,6 +179,27 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check GITHUB_TOKEN permissions
+        run: |
+          echo "🔍 Checking GITHUB_TOKEN permissions..."
+          echo "Repository: ${{ github.repository }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Event: ${{ github.event_name }}"
+          
+          # Check what permissions the token has
+          curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+               -H "Accept: application/vnd.github.v3+json" \
+               "https://api.github.com/repos/${{ github.repository }}" | \
+               jq '.permissions // "No permissions found"'
+          
+          # Check if we can write to packages
+          echo "Testing package write..."
+          echo "FROM alpine:latest" > Dockerfile.test
+          docker build -t ghcr.io/carverauto/test-permissions:latest -f Dockerfile.test . || true
+          docker push ghcr.io/carverauto/test-permissions:latest || echo "❌ Cannot write to package registry"
+          docker rmi ghcr.io/carverauto/test-permissions:latest || true
+          rm -f Dockerfile.test
 
       - name: Build and push all ServiceRadar Docker images
         env:
