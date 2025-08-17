@@ -611,6 +611,43 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # ServiceRadar SNMP Checker - SNMP Polling Service
+  snmp-checker:
+    image: serviceradar-snmp-checker:local
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.snmp-checker
+    container_name: serviceradar-snmp-checker
+    ports:
+      - "50054:50054"  # gRPC port
+    volumes:
+      - ./docker/compose/snmp-checker.docker.json:/etc/serviceradar/checkers/snmp.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - snmp-checker-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      # Wait for dependencies
+      - WAIT_FOR_AGENT=true
+      - WAIT_FOR_OTEL=true
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      agent:
+        condition: service_started
+      otel:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/snmp-checker.pem", "-key", "/etc/serviceradar/certs/snmp-checker-key.pem", "-servername", "serviceradar-snmp-checker", "localhost:50054", "grpc.health.v1.Health/Check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
 networks:
   serviceradar-net:
     driver: bridge
@@ -647,4 +684,6 @@ volumes:
   db-event-writer-data:
     driver: local
   mapper-data:
+    driver: local
+  snmp-checker-data:
     driver: local
