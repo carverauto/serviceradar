@@ -62,14 +62,21 @@ For more details, see the [TLS Security](./tls-security.md) and [Authentication 
 
 Navigate through our documentation to get ServiceRadar up and running:
 
-1. **[Installation Guide](./installation.md)** - Install ServiceRadar components
+### Quick Start with Docker
+- **[Docker Setup Guide](./docker-setup.md)** - Complete Docker deployment guide with automatic configuration
+- **[Device Configuration](./device-configuration.md)** - Configure network devices for SNMP, Syslog, and trap collection
+
+### Manual Installation
+1. **[Installation Guide](./installation.md)** - Install ServiceRadar components manually
 2. **[Configuration Basics](./configuration.md)** - Configure your ServiceRadar deployment
 3. **[TLS Security](./tls-security.md)** - Secure your ServiceRadar communications
 4. **[Authentication Configuration](./auth-configuration.md)** - Set up user authentication
 5. **[Web UI Configuration](./web-ui.md)** - Set up the web interface and dashboard
 6. **[KV Store Configuration](./kv-configuration.md)** - Configure dynamic configuration store
 7. **[Sync Service Configuration](./sync.md)** - Integrate with external systems
+
+### Advanced Topics
 8. **[Architecture](./architecture.md)** - Understand the system architecture
 9. **[Custom Checkers](./custom-checkers.md)** - Create custom checkers for specific services
 
-Or jump straight to the [Installation Guide](./installation.md) to get started with ServiceRadar.
+**Recommended**: Start with the [Docker Setup Guide](./docker-setup.md) for the fastest and most reliable deployment experience.

@@ -38,7 +38,7 @@
     ],
     "name": "default",
     "username": "default",
-    "password": "changeme"
+    "password": "PLACEHOLDER_WILL_BE_REPLACED"
   },
   "security": {
     "mode": "mtls",

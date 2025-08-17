@@ -5,3 +5,4 @@ release-artifacts
 *.log
 *.md
 *.lock
+demo-staging

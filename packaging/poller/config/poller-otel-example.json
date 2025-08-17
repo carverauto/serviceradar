@@ -79,7 +79,7 @@
             "enabled": true,
             "endpoint": "localhost:4317",
             "headers": {
-                "Authorization": "Bearer <your-token-here>"
+                "Authorization": "Bearer PLACEHOLDER_TOKEN"
             },
             "service_name": "serviceradar-poller",
             "batch_timeout": "5s",

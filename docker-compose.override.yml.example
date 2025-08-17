@@ -1,0 +1,14 @@
+# Docker Compose Override for Development
+# Copy this to docker-compose.override.yml and adjust as needed
+# This file is automatically loaded by docker-compose and overrides settings in docker-compose.yml
+
+version: '3.8'
+
+services:
+  core:
+    volumes:
+      # Override with a custom config for Docker that points to the Docker Proton instance
+      - ./packaging/core/config/core.docker.json:/etc/serviceradar/core.json:ro
+    environment:
+      # Additional environment overrides for development
+      - LOG_LEVEL=debug
