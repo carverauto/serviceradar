@@ -3,6 +3,7 @@
 <img width="1470" height="798" alt="Screenshot 2025-08-03 at 12 15 47 AM" src="https://github.com/user-attachments/assets/d6c61754-89d7-4c56-981f-1486e0586f3a" />
 
 [![releases](https://github.com/carverauto/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/release.yml)
+[![Docker Images](https://github.com/carverauto/serviceradar/actions/workflows/docker-build.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/docker-build.yml)
 [![Go Linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
 [![Web Linter](https://github.com/carverauto/serviceradar/actions/workflows/web-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/web-lint.yml)
 [![Go Tests](https://github.com/carverauto/serviceradar/actions/workflows/tests-golang.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests-golang.yml)
@@ -25,7 +26,43 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 
 ## Quick Installation
 
-ServiceRadar provides a simple installation script for deploying all components:
+### Option 1: Docker Compose (Recommended)
+
+The fastest way to get ServiceRadar running is with Docker Compose. This deploys the complete stack including the database, web UI, and all monitoring services.
+
+**Prerequisites:**
+- Docker and Docker Compose installed
+- 4GB+ available RAM
+- Ports 80, 8090, 8123, 9440 available
+
+```bash
+# Clone the repository
+git clone https://github.com/carverauto/serviceradar.git
+cd serviceradar
+
+# Start all services
+docker-compose up -d
+
+# Check status
+docker-compose ps
+
+# View logs
+docker-compose logs -f web
+```
+
+**Access ServiceRadar:**
+- **Web UI**: http://localhost (login: admin / serviceradar2025)
+- **API**: http://localhost/api/status
+- **Database**: localhost:8123 (HTTP) / localhost:9440 (HTTPS)
+
+**Stop Services:**
+```bash
+docker-compose down
+```
+
+### Option 2: Native Installation
+
+ServiceRadar provides a simple installation script for deploying components natively:
 
 ```bash
 # All-in-One Installation (non-interactive mode)
@@ -42,6 +79,58 @@ ServiceRadar uses a distributed architecture with four main components:
 2. **Poller** - Coordinates monitoring activities, can run anywhere in your network
 3. **Core Service** - Receives reports from pollers, provides API, and sends alerts
 4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
+
+## Docker Deployment
+
+ServiceRadar provides a complete Docker Compose stack with all components pre-configured and ready to run.
+
+### Services Included
+
+The Docker Compose deployment includes:
+
+- **Proton Database** - Timeplus stream processing engine with ClickHouse compatibility
+- **Core API** - Main ServiceRadar API and business logic
+- **Web UI** - Modern React-based dashboard  
+- **Nginx** - Reverse proxy and load balancer
+- **Agent** - Host monitoring service
+- **Poller** - Network and service polling coordinator
+- **Sync Service** - Data synchronization between components
+- **Key-Value Store** - Configuration and state management
+- **Observability Stack** - OTEL, logging, and telemetry collection
+- **Network Discovery** - SNMP/LLDP network mapping
+- **Performance Testing** - Built-in network performance monitoring
+
+### Multi-Platform Support
+
+All Docker images are built for both **AMD64** and **ARM64** architectures, ensuring compatibility with:
+- Intel/AMD servers
+- Apple Silicon Macs (M1/M2/M3)
+- ARM-based cloud instances
+- Raspberry Pi (4GB+ recommended)
+
+### Configuration
+
+Default configuration includes:
+- **Database**: Automatic setup with optimized settings
+- **Security**: mTLS between services, API key authentication
+- **Networking**: All services communicate via internal Docker network
+- **Storage**: Persistent volumes for database and configuration
+- **Monitoring**: Built-in health checks and metrics collection
+
+### Custom Configuration
+
+To customize the deployment:
+
+```bash
+# Copy and modify configuration files
+cp docker-compose.yml docker-compose.override.yml
+
+# Edit configuration as needed
+vim docker-compose.override.yml
+
+# Deploy with custom config
+docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d
+```
 
 ## Performance
 
