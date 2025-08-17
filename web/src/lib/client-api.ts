@@ -177,6 +177,14 @@ export async function fetchAPI<T>(
 
   if (!response.ok) {
     const errorText = await response.text();
+    
+    // Handle 404 errors for metrics endpoints more gracefully
+    if (response.status === 404 && apiUrl.includes('/sysmon/')) {
+      // For metrics endpoints, 404 means no data available - this is expected
+      // Don't pollute console with scary error messages
+      throw new Error(`No metrics found`);
+    }
+    
     console.error(
       `API request failed: ${response.status} - ${errorText} for ${apiUrl}`,
     );
