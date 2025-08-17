@@ -179,11 +179,19 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push all ServiceRadar Docker images
+        env:
+          DOCKER_BUILDKIT: 1
         run: |
           # Use our comprehensive build script for releases
           export VERSION="${{ env.VERSION }}"
           export BUILD_ID="${{ github.run_number }}"
           export TAG="${{ env.VERSION }}"
+          
+          # Verify login works before building
+          docker buildx ls
+          echo "Testing registry access..."
+          docker pull ghcr.io/carverauto/serviceradar-cert-generator:latest 2>/dev/null || echo "No existing image found, will build fresh"
+          
           ./scripts/build-all-images.sh --push --tag "$TAG"
           
           # Also tag as latest for releases

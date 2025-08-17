@@ -145,6 +145,10 @@ else
     docker buildx use "$BUILDER_NAME"
 fi
 
+# Ensure the builder has access to docker credentials
+log "Ensuring buildx builder has access to credentials..."
+docker buildx inspect --bootstrap
+
 # Build function
 build_image() {
     local image_name="$1"
