@@ -1,0 +1,91 @@
+{
+    "node_address": "agent:50051",
+    "listen_addr": ":50054",
+    "partition": "docker",
+    "security": {
+        "server_name": "localhost",
+        "mode": "mtls",
+        "role": "checker",
+        "cert_dir": "/etc/serviceradar/certs",
+        "tls": {
+            "cert_file": "/etc/serviceradar/certs/snmp-checker.pem",
+            "key_file": "/etc/serviceradar/certs/snmp-checker-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "client_ca_file": "/etc/serviceradar/certs/root.pem"
+        }
+    },
+    "timeout": "30s",
+    "logger": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+            "enabled": true,
+            "endpoint": "otel:4317",
+            "headers": {},
+            "service_name": "serviceradar-snmp-checker",
+            "batch_timeout": "5s",
+            "insecure": false,
+            "tls": {
+                "cert_file": "/etc/serviceradar/certs/snmp-checker.pem",
+                "key_file": "/etc/serviceradar/certs/snmp-checker-key.pem",
+                "ca_file": "/etc/serviceradar/certs/root.pem"
+            }
+        }
+    },
+    "targets": [
+        {
+            "name": "docker-test-router",
+            "host": "192.168.1.1",
+            "port": 161,
+            "community": "public",
+            "version": "v2c",
+            "interval": "60s",
+            "retries": 2,
+            "oids": [
+                {
+                    "oid": ".1.3.6.1.2.1.2.2.1.10.1",
+                    "name": "ifInOctets_1",
+                    "type": "counter",
+                    "scale": 1.0
+                },
+                {
+                    "oid": ".1.3.6.1.2.1.2.2.1.16.1",
+                    "name": "ifOutOctets_1",
+                    "type": "counter",
+                    "scale": 1.0
+                },
+                {
+                    "oid": ".1.3.6.1.2.1.1.3.0",
+                    "name": "sysUpTime",
+                    "type": "gauge",
+                    "scale": 1.0
+                }
+            ]
+        },
+        {
+            "name": "docker-test-switch",
+            "host": "192.168.2.1",
+            "port": 161,
+            "community": "public",
+            "version": "v2c",
+            "interval": "60s",
+            "retries": 2,
+            "oids": [
+                {
+                    "oid": ".1.3.6.1.2.1.2.2.1.10.2",
+                    "name": "ifInOctets_2",
+                    "type": "counter",
+                    "scale": 1.0
+                },
+                {
+                    "oid": ".1.3.6.1.2.1.2.2.1.16.2",
+                    "name": "ifOutOctets_2",
+                    "type": "counter",
+                    "scale": 1.0
+                }
+            ]
+        }
+    ]
+}
