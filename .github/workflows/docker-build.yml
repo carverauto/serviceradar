@@ -2,15 +2,9 @@ name: Build and Push Docker Images
 
 on:
   push:
-    branches:
-      - main
-      - develop
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
-      - develop
+  workflow_dispatch:  # Allow manual trigger if needed
 
 env:
   REGISTRY: ghcr.io
