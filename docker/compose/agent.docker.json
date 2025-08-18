@@ -7,14 +7,26 @@
   "agent_name": "agent",
   "host_ip": "agent",
   "partition": "default",
+  "kv_address": "kv:50057",
+  "kv_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "kv.serviceradar",
+    "role": "agent",
+    "tls": {
+      "cert_file": "agent.pem",
+      "key_file": "agent-key.pem",
+      "ca_file": "root.pem"
+    }
+  },
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "serviceradar-agent",
+    "server_name": "agent.serviceradar",
     "role": "agent",
     "tls": {
-      "cert_file": "core.pem",
-      "key_file": "core-key.pem",
+      "cert_file": "agent.pem",
+      "key_file": "agent-key.pem",
       "ca_file": "root.pem"
     }
   },
@@ -30,8 +42,8 @@
       "batch_timeout": "5s",
       "insecure": false,
       "tls": {
-        "cert_file": "/etc/serviceradar/certs/core.pem",
-        "key_file": "/etc/serviceradar/certs/core-key.pem",
+        "cert_file": "/etc/serviceradar/certs/agent.pem",
+        "key_file": "/etc/serviceradar/certs/agent-key.pem",
         "ca_file": "/etc/serviceradar/certs/root.pem"
       }
     }

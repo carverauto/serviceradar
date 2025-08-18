@@ -4,7 +4,7 @@
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "serviceradar-nats",
+    "server_name": "nats.serviceradar",
     "role": "kv",
     "tls": {
       "cert_file": "/etc/serviceradar/certs/kv.pem",

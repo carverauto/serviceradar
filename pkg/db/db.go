@@ -107,9 +107,61 @@ func createTLSConfig(config *models.CoreServiceConfig) (*tls.Config, error) {
 	}, nil
 }
 
+// createDatabaseTLSConfig builds TLS configuration specifically for database connections
+func createDatabaseTLSConfig(config *models.CoreServiceConfig) (*tls.Config, error) {
+	// If no database TLS config, fall back to service security config
+	if config.Database.TLS == nil {
+		return createTLSConfig(config)
+	}
+
+	dbTLS := config.Database.TLS
+	
+	// Construct absolute paths for certificate files
+	certFile := dbTLS.CertFile
+	keyFile := dbTLS.KeyFile
+	caFile := dbTLS.CAFile
+
+	// All database TLS files should already be absolute paths
+	if !filepath.IsAbs(certFile) {
+		return nil, fmt.Errorf("%w: database TLS cert_file must be absolute path", ErrFailedOpenDB)
+	}
+	if !filepath.IsAbs(keyFile) {
+		return nil, fmt.Errorf("%w: database TLS key_file must be absolute path", ErrFailedOpenDB)
+	}
+	if !filepath.IsAbs(caFile) {
+		return nil, fmt.Errorf("%w: database TLS ca_file must be absolute path", ErrFailedOpenDB)
+	}
+
+	// Load client certificate and key
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to load database client certificate: %w", ErrFailedOpenDB, err)
+	}
+
+	// Load CA certificate
+	caCert, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to read database CA certificate: %w", ErrFailedOpenDB, err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("%w: failed to append database CA certificate to pool", ErrFailedOpenDB)
+	}
+
+	// Configure TLS with mTLS settings for database
+	return &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		RootCAs:            caCertPool,
+		InsecureSkipVerify: false,
+		MinVersion:         tls.VersionTLS13,
+		ServerName:         dbTLS.ServerName,
+	}, nil
+}
+
 // New creates a new database connection and initializes the schema.
 func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logger) (Service, error) {
-	tlsConfig, err := createTLSConfig(config)
+	tlsConfig, err := createDatabaseTLSConfig(config)
 	if err != nil {
 		return nil, err
 	}
@@ -346,55 +398,84 @@ func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.D
 		return nil
 	}
 
+	// For large batches, split into smaller chunks to avoid Proton's batch size limit
+	// Proton's log_max_record_size is typically 10MB, so we'll use smaller chunks for safety
+	const maxBatchSize = 1000 // Process in chunks of 1000 records
+	
+	totalUpdates := len(updates)
 	db.logger.Debug().
-		Int("update_count", len(updates)).
+		Int("update_count", totalUpdates).
 		Msg("Publishing device updates directly to device_updates stream")
 
-	batch, err := db.Conn.PrepareBatch(ctx,
-		"INSERT INTO device_updates (agent_id, poller_id, partition, device_id, discovery_source, "+
-			"ip, mac, hostname, timestamp, available, metadata)")
-	if err != nil {
-		return fmt.Errorf("failed to prepare device updates batch: %w", err)
-	}
+	// Process updates in chunks
+	for i := 0; i < totalUpdates; i += maxBatchSize {
+		end := i + maxBatchSize
+		if end > totalUpdates {
+			end = totalUpdates
+		}
+		
+		chunk := updates[i:end]
+		chunkSize := len(chunk)
+		
+		db.logger.Debug().
+			Int("chunk_size", chunkSize).
+			Int("chunk_start", i).
+			Int("chunk_end", end).
+			Int("total_updates", totalUpdates).
+			Msg("Processing device updates chunk")
 
-	for _, update := range updates {
-		// Ensure required fields
-		if update.DeviceID == "" {
-			if update.Partition == "" {
-				update.Partition = "default"
+		batch, err := db.Conn.PrepareBatch(ctx,
+			"INSERT INTO device_updates (agent_id, poller_id, partition, device_id, discovery_source, "+
+				"ip, mac, hostname, timestamp, available, metadata)")
+		if err != nil {
+			return fmt.Errorf("failed to prepare device updates batch for chunk %d-%d: %w", i, end, err)
+		}
+
+		for _, update := range chunk {
+			// Ensure required fields
+			if update.DeviceID == "" {
+				if update.Partition == "" {
+					update.Partition = "default"
+				}
+
+				update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
 			}
 
-			update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
+			if update.Metadata == nil {
+				update.Metadata = make(map[string]string)
+			}
+
+			err := batch.Append(
+				update.AgentID,
+				update.PollerID,
+				update.Partition,
+				update.DeviceID,
+				string(update.Source),
+				update.IP,
+				update.MAC,
+				update.Hostname,
+				update.Timestamp,
+				update.IsAvailable,
+				update.Metadata,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to append device update in chunk %d-%d: %w", i, end, err)
+			}
 		}
 
-		if update.Metadata == nil {
-			update.Metadata = make(map[string]string)
+		if err := batch.Send(); err != nil {
+			return fmt.Errorf("failed to send device updates batch for chunk %d-%d: %w", i, end, err)
 		}
 
-		err := batch.Append(
-			update.AgentID,
-			update.PollerID,
-			update.Partition,
-			update.DeviceID,
-			string(update.Source),
-			update.IP,
-			update.MAC,
-			update.Hostname,
-			update.Timestamp,
-			update.IsAvailable,
-			update.Metadata,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to append device update: %w", err)
-		}
-	}
-
-	if err := batch.Send(); err != nil {
-		return fmt.Errorf("failed to send device updates batch: %w", err)
+		db.logger.Debug().
+			Int("chunk_size", chunkSize).
+			Int("processed_so_far", end).
+			Int("total_updates", totalUpdates).
+			Msg("Successfully published device updates chunk")
 	}
 
 	db.logger.Info().
-		Int("update_count", len(updates)).
+		Int("update_count", totalUpdates).
 		Msg("Successfully published device updates to device_updates stream")
 
 	return nil

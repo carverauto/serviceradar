@@ -56,6 +56,12 @@ services:
     environment:
       - PROTON_PASSWORD=${PROTON_PASSWORD:-}  # Will generate if not set
       - PROTON_LOG_LEVEL=${PROTON_LOG_LEVEL:-error}
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
     ulimits:
       nofile:
         soft: 1048576
@@ -123,7 +129,7 @@ services:
       proton:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "serviceradar-core", "localhost:50052", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "core.serviceradar", "localhost:50052", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -208,7 +214,7 @@ services:
       core:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "serviceradar-poller", "localhost:50053", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/poller.pem", "-key", "/etc/serviceradar/certs/poller-key.pem", "-servername", "poller.serviceradar", "localhost:50053", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -219,9 +225,15 @@ services:
 
   # ServiceRadar Agent Service
   agent:
-    image: ghcr.io/carverauto/serviceradar-agent:latest
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.agent
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_ID: ${BUILD_ID:-docker}
     container_name: serviceradar-agent
     volumes:
+      - ./docker/compose/agent.docker.json:/etc/serviceradar/agent.json:ro
       - cert-data:/etc/serviceradar/certs:ro
       - agent-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
@@ -238,7 +250,7 @@ services:
       cert-generator:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "serviceradar-agent", "localhost:50051", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/agent.pem", "-key", "/etc/serviceradar/certs/agent-key.pem", "-servername", "agent.serviceradar", "localhost:50051", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -301,7 +313,7 @@ services:
       nats:
         condition: service_started
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/kv.pem", "-key", "/etc/serviceradar/certs/kv-key.pem", "-servername", "serviceradar-kv", "localhost:50057", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/kv.pem", "-key", "/etc/serviceradar/certs/kv-key.pem", "-servername", "kv.serviceradar", "localhost:50057", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -312,7 +324,12 @@ services:
 
   # ServiceRadar Sync Service (Device discovery synchronization)
   sync:
-    image: ghcr.io/carverauto/serviceradar-sync:latest
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.sync
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_ID: ${BUILD_ID:-docker}
     container_name: serviceradar-sync
     ports:
       - "50058:50058"  # gRPC port
@@ -528,7 +545,7 @@ services:
       proton:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/db-event-writer.pem", "-key", "/etc/serviceradar/certs/db-event-writer-key.pem", "-servername", "serviceradar-db-event-writer", "localhost:50041", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/db-event-writer.pem", "-key", "/etc/serviceradar/certs/db-event-writer-key.pem", "-servername", "db-event-writer.serviceradar", "localhost:50041", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -559,7 +576,7 @@ services:
       otel:
         condition: service_started
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/mapper.pem", "-key", "/etc/serviceradar/certs/mapper-key.pem", "-servername", "serviceradar-mapper", "localhost:50056", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/mapper.pem", "-key", "/etc/serviceradar/certs/mapper-key.pem", "-servername", "mapper.serviceradar", "localhost:50056", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -593,7 +610,7 @@ services:
       otel:
         condition: service_started
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/snmp-checker.pem", "-key", "/etc/serviceradar/certs/snmp-checker-key.pem", "-servername", "serviceradar-snmp-checker", "localhost:50054", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/snmp-checker.pem", "-key", "/etc/serviceradar/certs/snmp-checker-key.pem", "-servername", "snmp-checker.serviceradar", "localhost:50054", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -627,7 +644,7 @@ services:
       otel:
         condition: service_started
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/rperf-client.pem", "-key", "/etc/serviceradar/certs/rperf-client-key.pem", "-servername", "serviceradar-rperf-client", "localhost:50059", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/rperf-client.pem", "-key", "/etc/serviceradar/certs/rperf-client-key.pem", "-servername", "rperf-client.serviceradar", "localhost:50059", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3

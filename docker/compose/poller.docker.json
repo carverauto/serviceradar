@@ -3,12 +3,12 @@
         "docker-agent": {
             "address": "agent:50051",
             "security": {
-                "server_name": "serviceradar-agent",
+                "server_name": "agent.serviceradar",
                 "mode": "mtls",
                 "cert_dir": "/etc/serviceradar/certs",
                 "tls": {
-                    "cert_file": "core.pem",
-                    "key_file": "core-key.pem",
+                    "cert_file": "poller.pem",
+                    "key_file": "poller-key.pem",
                     "ca_file": "root.pem",
                     "client_ca_file": "root.pem"
                 }
@@ -101,11 +101,11 @@
     "security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "serviceradar-core",
+        "server_name": "core.serviceradar",
         "role": "poller",
         "tls": {
-            "cert_file": "core.pem",
-            "key_file": "core-key.pem",
+            "cert_file": "poller.pem",
+            "key_file": "poller-key.pem",
             "ca_file": "root.pem",
             "client_ca_file": "root.pem"
         }
@@ -125,8 +125,8 @@
                 "x-api-key": "your-collector-api-key"
             },
             "tls": {
-                "cert_file": "/etc/serviceradar/certs/core.pem",
-                "key_file": "/etc/serviceradar/certs/core-key.pem",
+                "cert_file": "/etc/serviceradar/certs/poller.pem",
+                "key_file": "/etc/serviceradar/certs/poller-key.pem",
                 "ca_file": "/etc/serviceradar/certs/root.pem"
             }
         }

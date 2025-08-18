@@ -128,22 +128,39 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 	var finalSweepConfig *models.SweepConfig
 
 	if a.KVClient != nil {
-		// Clean up old sweep config to remove any stale data before writing new config
-		a.Logger.Info().
-			Str("config_key", configKey).
-			Msg("Cleaning up old sweep config from KV store before writing complete config")
+		// Check if the current config is chunked before deleting
+		// If it's chunked, we want to keep the metadata so the agent can read the chunks
+		shouldDelete := true
+		if getResp, getErr := a.KVClient.Get(ctx, &proto.GetRequest{Key: configKey}); getErr == nil && getResp != nil {
+			var metadata map[string]interface{}
+			if json.Unmarshal(getResp.Value, &metadata) == nil {
+				if chunked, exists := metadata["chunked"]; exists && chunked == true {
+					a.Logger.Info().
+						Str("config_key", configKey).
+						Msg("Keeping existing chunked metadata, will overwrite with new chunked config")
+					shouldDelete = false
+				}
+			}
+		}
 
-		if _, delErr := a.KVClient.Delete(ctx, &proto.DeleteRequest{
-			Key: configKey,
-		}); delErr != nil {
-			a.Logger.Debug().
-				Err(delErr).
-				Str("config_key", configKey).
-				Msg("Failed to delete old sweep config (may not exist)")
-		} else {
+		if shouldDelete {
+			// Clean up old sweep config to remove any stale data before writing new config
 			a.Logger.Info().
 				Str("config_key", configKey).
-				Msg("Successfully cleaned up old sweep config")
+				Msg("Cleaning up old sweep config from KV store before writing complete config")
+
+			if _, delErr := a.KVClient.Delete(ctx, &proto.DeleteRequest{
+				Key: configKey,
+			}); delErr != nil {
+				a.Logger.Debug().
+					Err(delErr).
+					Str("config_key", configKey).
+					Msg("Failed to delete old sweep config (may not exist)")
+			} else {
+				a.Logger.Info().
+					Str("config_key", configKey).
+					Msg("Successfully cleaned up old sweep config")
+			}
 		}
 
 		// Create sweep config with networks and device targets for per-device sweep mode configuration

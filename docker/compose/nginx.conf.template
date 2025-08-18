@@ -1,4 +1,8 @@
 # ServiceRadar Web Interface - Nginx Configuration for Docker
+
+# Use Docker's internal DNS resolver for dynamic service discovery
+resolver 127.0.0.11 valid=10s ipv6=off;
+
 server {
     listen 80;
     server_name _;
@@ -11,7 +15,9 @@ server {
 
     # Static assets from Next.js
     location /_next/ {
-        proxy_pass http://web:3000;
+        # Use variable to force runtime DNS resolution
+        set $web_upstream http://web:3000;
+        proxy_pass $web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -20,7 +26,9 @@ server {
 
     # WebSocket streaming endpoint - must come before other /api/ locations
     location /api/stream {
-        proxy_pass http://core:8090;
+        # Use variable to force runtime DNS resolution
+        set $core_upstream http://core:8090;
+        proxy_pass $core_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -46,7 +54,9 @@ server {
 
     # Core API routes - direct to core service (auth/login will go through Next.js)
     location ~ ^/api/(query|devices|pollers|nodes|status)$ {
-        proxy_pass http://core:8090;
+        # Use variable to force runtime DNS resolution
+        set $core_upstream http://core:8090;
+        proxy_pass $core_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -58,7 +68,9 @@ server {
     
     # Next.js API routes (including auth) - route to web container
     location /api/ {
-        proxy_pass http://web:3000;
+        # Use variable to force runtime DNS resolution
+        set $web_upstream http://web:3000;
+        proxy_pass $web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -68,7 +80,9 @@ server {
 
     # Swagger UI routes
     location /swagger/ {
-        proxy_pass http://core:8090;
+        # Use variable to force runtime DNS resolution
+        set $core_upstream http://core:8090;
+        proxy_pass $core_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -94,7 +108,9 @@ server {
 
     # API docs redirect
     location = /api-docs {
-        proxy_pass http://core:8090;
+        # Use variable to force runtime DNS resolution
+        set $core_upstream http://core:8090;
+        proxy_pass $core_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -106,7 +122,9 @@ server {
 
     # Auth API routes
     location /auth/ {
-        proxy_pass http://core:8090;
+        # Use variable to force runtime DNS resolution
+        set $core_upstream http://core:8090;
+        proxy_pass $core_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -118,7 +136,9 @@ server {
 
     # Main app
     location / {
-        proxy_pass http://web:3000;
+        # Use variable to force runtime DNS resolution
+        set $web_upstream http://web:3000;
+        proxy_pass $web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
