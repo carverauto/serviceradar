@@ -159,7 +159,7 @@ func (s *discoveryService) parseSyncDeviceUpdates(details json.RawMessage, polle
 					Str("payload", string(details)).
 					Msg("Full raw JSON payload causing unmarshal failure")
 
-				return nil, fmt.Errorf("failed to parse sync discovery data: %w", err)
+				return nil, fmt.Errorf("failed to parse sync discovery data: %w", chunkErr)
 			}
 
 			allSightings = append(allSightings, chunkSightings...)

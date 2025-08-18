@@ -17,8 +17,8 @@
 package poller
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -95,7 +95,7 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 		return nil, err
 	}
 
-	var dataBuffer bytes.Buffer
+	var mergedDevices []interface{}
 
 	var finalChunk *proto.ResultsChunk
 
@@ -127,9 +127,26 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 			Bool("is_final", chunk.IsFinal).
 			Msg("Received chunk")
 
-		if _, err := dataBuffer.Write(chunk.Data); err != nil {
-			rp.logger.Error().Err(err).Str("service_name", req.ServiceName).Msg("Failed to write chunk to buffer")
-			return nil, fmt.Errorf("failed to write chunk to buffer: %w", err)
+		// Parse chunk data as JSON array and merge with existing devices
+		var chunkDevices []interface{}
+		if len(chunk.Data) > 0 {
+			if err := json.Unmarshal(chunk.Data, &chunkDevices); err != nil {
+				rp.logger.Error().Err(err).
+					Str("service_name", req.ServiceName).
+					Int("chunk_index", int(chunk.ChunkIndex)).
+					Msg("Failed to parse chunk data as JSON array")
+				return nil, fmt.Errorf("failed to parse chunk data: %w", err)
+			}
+			
+			// Merge devices from this chunk
+			mergedDevices = append(mergedDevices, chunkDevices...)
+			
+			rp.logger.Debug().
+				Str("service_name", req.ServiceName).
+				Int("chunk_index", int(chunk.ChunkIndex)).
+				Int("chunk_devices", len(chunkDevices)).
+				Int("total_devices", len(mergedDevices)).
+				Msg("Merged chunk devices")
 		}
 
 		if chunk.IsFinal {
@@ -150,16 +167,27 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 		return nil, fmt.Errorf("stream completed without a final chunk")
 	}
 
+	// Marshal the merged devices back to JSON
+	mergedData, err := json.Marshal(mergedDevices)
+	if err != nil {
+		rp.logger.Error().Err(err).
+			Str("service_name", req.ServiceName).
+			Int("total_devices", len(mergedDevices)).
+			Msg("Failed to marshal merged devices")
+		return nil, fmt.Errorf("failed to marshal merged devices: %w", err)
+	}
+
 	rp.logger.Info().
 		Str("service_name", req.ServiceName).
 		Int("total_chunks", int(finalChunk.TotalChunks)).
-		Int("data_size_bytes", dataBuffer.Len()).
-		Msg("Successfully received all chunks from stream")
+		Int("total_devices", len(mergedDevices)).
+		Int("data_size_bytes", len(mergedData)).
+		Msg("Successfully received and merged all chunks from stream")
 
 	// Assemble the final ResultsResponse from the chunks
 	return &proto.ResultsResponse{
 		Available:       true,
-		Data:            dataBuffer.Bytes(),
+		Data:            mergedData,
 		ServiceName:     req.ServiceName,
 		ServiceType:     req.ServiceType,
 		ResponseTime:    time.Since(startTime).Nanoseconds(),

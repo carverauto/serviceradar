@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -1018,8 +1019,13 @@ func (s *Server) collectServiceChunks(
 		key := fmt.Sprintf("%s:%s", svc.ServiceName, svc.ServiceType)
 
 		if existingData, exists := serviceMessages[key]; exists {
-			// Append to existing data
-			serviceMessages[key] = append(existingData, svc.Message...)
+			// Handle sync services specially - they send JSON arrays that need proper merging
+			if svc.ServiceType == "sync" {
+				serviceMessages[key] = s.mergeSyncServiceChunks(existingData, svc.Message)
+			} else {
+				// For non-sync services, continue with byte concatenation
+				serviceMessages[key] = append(existingData, svc.Message...)
+			}
 			s.logger.Debug().
 				Str("service_name", svc.ServiceName).
 				Int("chunk_size", len(svc.Message)).
@@ -1038,6 +1044,58 @@ func (s *Server) collectServiceChunks(
 			}
 		}
 	}
+}
+
+// mergeSyncServiceChunks properly merges JSON arrays from sync service chunks
+func (s *Server) mergeSyncServiceChunks(existingData, newChunk []byte) []byte {
+	// Both existingData and newChunk should be valid JSON arrays
+	// We need to merge them into a single array
+	
+	// Parse existing data
+	var existingDevices []interface{}
+	if len(existingData) > 0 {
+		if err := json.Unmarshal(existingData, &existingDevices); err != nil {
+			s.logger.Warn().
+				Err(err).
+				Int("existing_size", len(existingData)).
+				Msg("Failed to parse existing sync chunk data, falling back to concatenation")
+			return append(existingData, newChunk...)
+		}
+	}
+	
+	// Parse new chunk
+	var newDevices []interface{}
+	if len(newChunk) > 0 {
+		if err := json.Unmarshal(newChunk, &newDevices); err != nil {
+			s.logger.Warn().
+				Err(err).
+				Int("chunk_size", len(newChunk)).
+				Msg("Failed to parse new sync chunk data, falling back to concatenation")
+			return append(existingData, newChunk...)
+		}
+	}
+	
+	// Merge arrays
+	merged := append(existingDevices, newDevices...)
+	
+	// Marshal back to JSON
+	result, err := json.Marshal(merged)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Int("merged_count", len(merged)).
+			Msg("Failed to marshal merged sync data, falling back to concatenation")
+		return append(existingData, newChunk...)
+	}
+	
+	s.logger.Debug().
+		Int("existing_devices", len(existingDevices)).
+		Int("new_devices", len(newDevices)).
+		Int("merged_devices", len(merged)).
+		Int("result_size", len(result)).
+		Msg("Successfully merged sync service chunks")
+	
+	return result
 }
 
 // assembleServices creates the final service list from reassembled messages
