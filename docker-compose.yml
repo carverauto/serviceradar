@@ -636,6 +636,27 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # Faker Service - Armis API Emulator for Testing
+  faker:
+    image: ghcr.io/carverauto/serviceradar-faker:latest
+    container_name: serviceradar-faker
+    build:
+      context: .
+      dockerfile: cmd/faker/Dockerfile
+    ports:
+      - "8080:8080"  # Armis API emulator port
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/search/?aql=test&length=1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
 networks:
   serviceradar-net:
     driver: bridge
