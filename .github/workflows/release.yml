@@ -67,7 +67,7 @@ jobs:
         - name: Install dependencies
           run: |
             sudo apt-get update
-            sudo apt-get install -y build-essential protobuf-compiler jq
+            sudo apt-get install -y build-essential protobuf-compiler jq golang-go
             go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
             go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
         - name: Pull required base images
@@ -128,7 +128,7 @@ jobs:
         - name: Install dependencies
           run: |
             sudo apt-get update
-            sudo apt-get install -y jq protobuf-compiler
+            sudo apt-get install -y jq protobuf-compiler golang-go
             go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
             go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
         - name: Create output directory
