@@ -111,18 +111,23 @@ EOF
 }
 
 # Generate certificates for each component
-# Using Docker service names and including localhost
-generate_cert "core" "serviceradar-core" "DNS:core,DNS:serviceradar-core,DNS:localhost,IP:127.0.0.1,IP:172.28.0.3"
-generate_cert "proton" "serviceradar-proton" "DNS:proton,DNS:serviceradar-proton,DNS:localhost,IP:127.0.0.1,IP:172.28.0.2"
-generate_cert "nats" "serviceradar-nats" "DNS:nats,DNS:serviceradar-nats,DNS:localhost,IP:127.0.0.1,IP:172.28.0.4"
-generate_cert "kv" "serviceradar-kv" "DNS:kv,DNS:serviceradar-kv,DNS:localhost,IP:127.0.0.1,IP:172.28.0.5"
-generate_cert "web" "serviceradar-web" "DNS:web,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
-generate_cert "poller" "serviceradar-poller" "DNS:poller,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
-generate_cert "agent" "serviceradar-agent" "DNS:agent,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
-generate_cert "db-event-writer" "serviceradar-db-event-writer" "DNS:db-event-writer,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
-generate_cert "mapper" "serviceradar-mapper" "DNS:mapper,DNS:serviceradar-mapper,DNS:localhost,IP:127.0.0.1"
-generate_cert "snmp-checker" "serviceradar-snmp-checker" "DNS:snmp-checker,DNS:serviceradar-snmp-checker,DNS:localhost,IP:127.0.0.1"
-generate_cert "rperf-client" "serviceradar-rperf-client" "DNS:rperf-client,DNS:serviceradar-rperf-client,DNS:localhost,IP:127.0.0.1"
+# Using <service>.serviceradar naming convention consistently
+generate_cert "core" "core.serviceradar" "DNS:core,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1,IP:172.28.0.3"
+generate_cert "proton" "proton.serviceradar" "DNS:proton,DNS:proton.serviceradar,DNS:localhost,IP:127.0.0.1,IP:172.28.0.2"
+generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:localhost,IP:127.0.0.1,IP:172.28.0.4"
+generate_cert "kv" "kv.serviceradar" "DNS:kv,DNS:kv.serviceradar,DNS:localhost,IP:127.0.0.1,IP:172.28.0.5"
+generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:mapper.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "snmp-checker" "snmp-checker.serviceradar" "DNS:snmp-checker,DNS:snmp-checker.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:rperf-client.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "sync" "sync.serviceradar" "DNS:sync,DNS:sync.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:otel.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:trapd.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "zen" "zen.serviceradar" "DNS:zen,DNS:zen.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Copy core certificate for Proton to use
 cp "$CERT_DIR/core.pem" "$CERT_DIR/proton-core.pem"

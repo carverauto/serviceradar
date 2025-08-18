@@ -18,7 +18,6 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -1046,54 +1045,17 @@ func (s *Server) collectServiceChunks(
 	}
 }
 
-// mergeSyncServiceChunks properly merges JSON arrays from sync service chunks
+// mergeSyncServiceChunks concatenates sync service streaming chunks
 func (s *Server) mergeSyncServiceChunks(existingData, newChunk []byte) []byte {
-	// Both existingData and newChunk should be valid JSON arrays
-	// We need to merge them into a single array
-	
-	// Parse existing data
-	var existingDevices []interface{}
-	if len(existingData) > 0 {
-		if err := json.Unmarshal(existingData, &existingDevices); err != nil {
-			s.logger.Warn().
-				Err(err).
-				Int("existing_size", len(existingData)).
-				Msg("Failed to parse existing sync chunk data, falling back to concatenation")
-			return append(existingData, newChunk...)
-		}
-	}
-	
-	// Parse new chunk
-	var newDevices []interface{}
-	if len(newChunk) > 0 {
-		if err := json.Unmarshal(newChunk, &newDevices); err != nil {
-			s.logger.Warn().
-				Err(err).
-				Int("chunk_size", len(newChunk)).
-				Msg("Failed to parse new sync chunk data, falling back to concatenation")
-			return append(existingData, newChunk...)
-		}
-	}
-	
-	// Merge arrays
-	merged := append(existingDevices, newDevices...)
-	
-	// Marshal back to JSON
-	result, err := json.Marshal(merged)
-	if err != nil {
-		s.logger.Warn().
-			Err(err).
-			Int("merged_count", len(merged)).
-			Msg("Failed to marshal merged sync data, falling back to concatenation")
-		return append(existingData, newChunk...)
-	}
+	// Sync service sends streaming JSON chunks that need simple concatenation
+	// The final reassembled payload will be parsed as a complete JSON structure later
+	result := append(existingData, newChunk...)
 	
 	s.logger.Debug().
-		Int("existing_devices", len(existingDevices)).
-		Int("new_devices", len(newDevices)).
-		Int("merged_devices", len(merged)).
-		Int("result_size", len(result)).
-		Msg("Successfully merged sync service chunks")
+		Int("existing_size", len(existingData)).
+		Int("new_chunk_size", len(newChunk)).
+		Int("total_size", len(result)).
+		Msg("Concatenated sync service chunks")
 	
 	return result
 }

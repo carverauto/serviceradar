@@ -86,5 +86,6 @@ type SweepService interface {
 }
 
 type KVStore interface {
+	Get(ctx context.Context, key string) (value []byte, found bool, err error)
 	Watch(ctx context.Context, key string) (<-chan []byte, error)
 }
