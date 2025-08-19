@@ -89,7 +89,9 @@ services:
       cert-generator:
         condition: service_completed_successfully
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - proton.serviceradar
     restart: unless-stopped
 
   # ServiceRadar Core Service
@@ -135,7 +137,9 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - core.serviceradar
     restart: unless-stopped
 
   # ServiceRadar Web Application
@@ -220,7 +224,9 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - poller.serviceradar
     restart: unless-stopped
 
   # ServiceRadar Agent Service
@@ -256,7 +262,9 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - agent.serviceradar
     restart: unless-stopped
 
   # NATS for messaging and KV store
@@ -286,7 +294,9 @@ services:
     #   retries: 3
     #   start_period: 30s
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - nats.serviceradar
     restart: unless-stopped
 
   # ServiceRadar KV Service (Key-Value store using NATS JetStream)
@@ -319,7 +329,9 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - kv.serviceradar
     restart: unless-stopped
 
   # ServiceRadar Sync Service (Device discovery synchronization)
@@ -677,6 +689,8 @@ services:
 networks:
   serviceradar-net:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: serviceradar-br
 
 volumes:
   cert-data:

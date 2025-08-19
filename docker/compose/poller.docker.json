@@ -6,6 +6,7 @@
                 "server_name": "agent.serviceradar",
                 "mode": "mtls",
                 "cert_dir": "/etc/serviceradar/certs",
+                "role": "poller",
                 "tls": {
                     "cert_file": "poller.pem",
                     "key_file": "poller-key.pem",
@@ -101,7 +102,7 @@
     "security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "core.serviceradar",
+        "server_name": "poller.serviceradar",
         "role": "poller",
         "tls": {
             "cert_file": "poller.pem",

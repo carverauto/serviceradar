@@ -38,7 +38,7 @@
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "role": "core",
-    "server_name": "proton",
+    "server_name": "core.serviceradar",
     "tls": {
       "cert_file": "/etc/serviceradar/certs/core.pem",
       "key_file": "/etc/serviceradar/certs/core-key.pem",
