@@ -18,12 +18,13 @@
 package main
 
 import (
-	"crypto/rand"
+	cryptoRand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -110,9 +111,18 @@ var (
 )
 
 func init() {
-	log.Printf("Generating %d fake Armis devices...", totalDevices)
+	// First, try to load existing device data from storage
+	if loadFromStorage() {
+		return
+	}
+	
+	// No existing data found, generate new random device data
+	log.Printf("Generating %d fake Armis devices with random data...", totalDevices)
 	allDevices = generateAllDevices()
 	log.Printf("Generated %d devices successfully", len(allDevices))
+	
+	// Save the generated data to persistent storage for future use
+	saveToStorage()
 }
 
 func main() {
@@ -639,6 +649,60 @@ func randInt(min, max int) int {
 	if min >= max {
 		return min
 	}
-	n, _ := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+	n, _ := cryptoRand.Int(cryptoRand.Reader, big.NewInt(int64(max-min+1)))
 	return int(n.Int64()) + min
+}
+
+// loadFromStorage attempts to load device data from persistent storage
+func loadFromStorage() bool {
+	storageFile := getStorageFilePath()
+	
+	data, err := os.ReadFile(storageFile)
+	if err != nil {
+		log.Printf("No existing device data found at %s, will generate new data", storageFile)
+		return false
+	}
+	
+	var storedDevices []ArmisDevice
+	if err := json.Unmarshal(data, &storedDevices); err != nil {
+		log.Printf("Failed to parse stored device data: %v, will generate new data", err)
+		return false
+	}
+	
+	if len(storedDevices) != totalDevices {
+		log.Printf("Stored device count (%d) doesn't match expected (%d), will generate new data", len(storedDevices), totalDevices)
+		return false
+	}
+	
+	allDevices = storedDevices
+	log.Printf("Successfully loaded %d devices from persistent storage", len(allDevices))
+	return true
+}
+
+// saveToStorage saves device data to persistent storage
+func saveToStorage() {
+	storageFile := getStorageFilePath()
+	
+	data, err := json.Marshal(allDevices)
+	if err != nil {
+		log.Printf("Failed to marshal device data for storage: %v", err)
+		return
+	}
+	
+	if err := os.WriteFile(storageFile, data, 0644); err != nil {
+		log.Printf("Failed to write device data to storage: %v", err)
+		return
+	}
+	
+	log.Printf("Successfully saved %d devices to persistent storage at %s", len(allDevices), storageFile)
+}
+
+// getStorageFilePath returns the path where device data should be stored
+func getStorageFilePath() string {
+	// Check if we're running in Docker with a volume mount
+	if _, err := os.Stat("/data"); err == nil {
+		return "/data/fake_armis_devices.json"
+	}
+	// Fallback to current directory
+	return "./fake_armis_devices.json"
 }
