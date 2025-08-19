@@ -404,10 +404,11 @@ func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.D
 		return nil
 	}
 
-	// Proton's log_max_record_size is typically 10MB, use 8MB as safety margin
-	const maxBatchBytes = 8 * 1024 * 1024 // 8MB safety limit
-	const minBatchSize = 50                // Minimum records per batch
-	const maxBatchSize = 1000              // Maximum records per batch
+	// Proton's log_max_record_size is typically 10MB
+	// Use much smaller batch to account for serialization overhead and metadata
+	const maxBatchBytes = 5 * 1024 * 1024 // 5MB safety limit (half of the 10MB limit)
+	const minBatchSize = 10                // Minimum records per batch
+	const maxBatchSize = 500               // Maximum records per batch (reduced from 1000)
 	
 	totalUpdates := len(updates)
 	db.logger.Debug().
@@ -427,27 +428,40 @@ func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.D
 		for currentBatchSize < maxBatchSize && processedCount+currentBatchSize < totalUpdates {
 			update := updates[processedCount+currentBatchSize]
 			
-			// Estimate bytes for this record (approximate serialization size)
-			recordEstimate := len(update.AgentID) + len(update.PollerID) + len(update.Partition) + 
-				len(update.DeviceID) + len(string(update.Source)) + len(update.IP)
+			// Estimate bytes for this record with more conservative calculation
+			// Account for column overhead and potential JSON expansion
+			recordEstimate := 50 // Base overhead for row structure
+			
+			// String fields with padding for potential escaping
+			recordEstimate += len(update.AgentID) * 2
+			recordEstimate += len(update.PollerID) * 2
+			recordEstimate += len(update.Partition) * 2
+			recordEstimate += len(update.DeviceID) * 2
+			recordEstimate += len(string(update.Source)) * 2
+			recordEstimate += len(update.IP) * 2
 			
 			if update.MAC != nil {
-				recordEstimate += len(*update.MAC)
+				recordEstimate += len(*update.MAC) * 2
 			}
 			if update.Hostname != nil {
-				recordEstimate += len(*update.Hostname)
+				recordEstimate += len(*update.Hostname) * 2
 			}
 			
-			// Estimate metadata size (JSON serialization overhead)
+			// Estimate metadata size with more conservative JSON overhead
+			// Metadata can be large and JSON serialization adds significant overhead
+			metadataEstimate := 50 // Base JSON object overhead
 			for k, v := range update.Metadata {
-				recordEstimate += len(k) + len(v) + 10 // JSON overhead
+				// Account for JSON escaping, quotes, and structure
+				metadataEstimate += (len(k) + len(v)) * 3 + 20
 			}
+			recordEstimate += metadataEstimate
 			
-			// Add base overhead for timestamp, boolean, and structure
+			// Add overhead for timestamp and boolean fields
 			recordEstimate += 100
 			
 			// Check if adding this record would exceed byte limit
-			if estimatedBytes+recordEstimate > maxBatchBytes && currentBatchSize >= minBatchSize {
+			// Be more conservative - stop if we're over 80% of limit
+			if estimatedBytes+recordEstimate > (maxBatchBytes*80/100) && currentBatchSize > 0 {
 				break
 			}
 			
@@ -455,11 +469,18 @@ func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.D
 			currentBatchSize++
 		}
 		
-		// Ensure we process at least minBatchSize records unless fewer remain
-		remainingUpdates := totalUpdates - processedCount
-		if currentBatchSize < minBatchSize && remainingUpdates >= minBatchSize {
-			currentBatchSize = minBatchSize
+		// If we haven't added any records yet, force at least one
+		// This handles the case where a single record is very large
+		if currentBatchSize == 0 {
+			currentBatchSize = 1
+			db.logger.Warn().
+				Int("record_index", processedCount).
+				Int("estimated_bytes", estimatedBytes).
+				Msg("Single record exceeds batch size limit, forcing single record batch")
 		}
+		
+		// Ensure we don't exceed remaining updates
+		remainingUpdates := totalUpdates - processedCount
 		if currentBatchSize > remainingUpdates {
 			currentBatchSize = remainingUpdates
 		}
