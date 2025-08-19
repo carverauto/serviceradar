@@ -318,7 +318,7 @@ func generateUniqueIP(index int) string {
 	// Fallback for any remaining devices
 	octet2 := ((index - currentIndex) / 65536) % 256
 	octet3 := ((index - currentIndex) / 256) % 256 
-	octet4 := ((index - currentIndex) % 256) + 1
+	octet4 := ((index - currentIndex) % 254) + 1  // Use 254 instead of 256 to avoid 255+1=256
 	return fmt.Sprintf("10.%d.%d.%d", octet2, octet3, octet4)
 }
 
