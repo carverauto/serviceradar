@@ -149,13 +149,19 @@ func createDatabaseTLSConfig(config *models.CoreServiceConfig) (*tls.Config, err
 		return nil, fmt.Errorf("%w: failed to append database CA certificate to pool", ErrFailedOpenDB)
 	}
 
+	// Get server name from security config, fallback to "proton.serviceradar" for database
+	serverName := "proton.serviceradar"
+	if config.Security != nil && config.Security.ServerName != "" {
+		serverName = config.Security.ServerName
+	}
+
 	// Configure TLS with mTLS settings for database
 	return &tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		RootCAs:            caCertPool,
 		InsecureSkipVerify: false,
 		MinVersion:         tls.VersionTLS13,
-		ServerName:         dbTLS.ServerName,
+		ServerName:         serverName,
 	}, nil
 }
 
@@ -398,37 +404,83 @@ func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.D
 		return nil
 	}
 
-	// For large batches, split into smaller chunks to avoid Proton's batch size limit
-	// Proton's log_max_record_size is typically 10MB, so we'll use smaller chunks for safety
-	const maxBatchSize = 1000 // Process in chunks of 1000 records
+	// Proton's log_max_record_size is typically 10MB, use 8MB as safety margin
+	const maxBatchBytes = 8 * 1024 * 1024 // 8MB safety limit
+	const minBatchSize = 50                // Minimum records per batch
+	const maxBatchSize = 1000              // Maximum records per batch
 	
 	totalUpdates := len(updates)
 	db.logger.Debug().
 		Int("update_count", totalUpdates).
 		Msg("Publishing device updates directly to device_updates stream")
 
-	// Process updates in chunks
-	for i := 0; i < totalUpdates; i += maxBatchSize {
-		end := i + maxBatchSize
-		if end > totalUpdates {
-			end = totalUpdates
+	// Process updates in dynamic chunks based on byte size
+	processedCount := 0
+	batchNum := 0
+	
+	for processedCount < totalUpdates {
+		batchNum++
+		currentBatchSize := 0
+		estimatedBytes := 0
+		
+		// Determine optimal batch size by estimating bytes
+		for currentBatchSize < maxBatchSize && processedCount+currentBatchSize < totalUpdates {
+			update := updates[processedCount+currentBatchSize]
+			
+			// Estimate bytes for this record (approximate serialization size)
+			recordEstimate := len(update.AgentID) + len(update.PollerID) + len(update.Partition) + 
+				len(update.DeviceID) + len(string(update.Source)) + len(update.IP)
+			
+			if update.MAC != nil {
+				recordEstimate += len(*update.MAC)
+			}
+			if update.Hostname != nil {
+				recordEstimate += len(*update.Hostname)
+			}
+			
+			// Estimate metadata size (JSON serialization overhead)
+			for k, v := range update.Metadata {
+				recordEstimate += len(k) + len(v) + 10 // JSON overhead
+			}
+			
+			// Add base overhead for timestamp, boolean, and structure
+			recordEstimate += 100
+			
+			// Check if adding this record would exceed byte limit
+			if estimatedBytes+recordEstimate > maxBatchBytes && currentBatchSize >= minBatchSize {
+				break
+			}
+			
+			estimatedBytes += recordEstimate
+			currentBatchSize++
 		}
 		
-		chunk := updates[i:end]
-		chunkSize := len(chunk)
+		// Ensure we process at least minBatchSize records unless fewer remain
+		remainingUpdates := totalUpdates - processedCount
+		if currentBatchSize < minBatchSize && remainingUpdates >= minBatchSize {
+			currentBatchSize = minBatchSize
+		}
+		if currentBatchSize > remainingUpdates {
+			currentBatchSize = remainingUpdates
+		}
+		
+		end := processedCount + currentBatchSize
+		chunk := updates[processedCount:end]
 		
 		db.logger.Debug().
-			Int("chunk_size", chunkSize).
-			Int("chunk_start", i).
+			Int("batch_num", batchNum).
+			Int("chunk_size", currentBatchSize).
+			Int("estimated_bytes", estimatedBytes).
+			Int("chunk_start", processedCount).
 			Int("chunk_end", end).
 			Int("total_updates", totalUpdates).
-			Msg("Processing device updates chunk")
+			Msg("Processing device updates chunk with byte size estimation")
 
 		batch, err := db.Conn.PrepareBatch(ctx,
 			"INSERT INTO device_updates (agent_id, poller_id, partition, device_id, discovery_source, "+
 				"ip, mac, hostname, timestamp, available, metadata)")
 		if err != nil {
-			return fmt.Errorf("failed to prepare device updates batch for chunk %d-%d: %w", i, end, err)
+			return fmt.Errorf("failed to prepare device updates batch %d (records %d-%d): %w", batchNum, processedCount, end, err)
 		}
 
 		for _, update := range chunk {
@@ -459,23 +511,28 @@ func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.D
 				update.Metadata,
 			)
 			if err != nil {
-				return fmt.Errorf("failed to append device update in chunk %d-%d: %w", i, end, err)
+				return fmt.Errorf("failed to append device update in batch %d (records %d-%d): %w", batchNum, processedCount, end, err)
 			}
 		}
 
 		if err := batch.Send(); err != nil {
-			return fmt.Errorf("failed to send device updates batch for chunk %d-%d: %w", i, end, err)
+			return fmt.Errorf("failed to send device updates batch %d (records %d-%d): %w", batchNum, processedCount, end, err)
 		}
 
 		db.logger.Debug().
-			Int("chunk_size", chunkSize).
+			Int("batch_num", batchNum).
+			Int("chunk_size", currentBatchSize).
+			Int("estimated_bytes", estimatedBytes).
 			Int("processed_so_far", end).
 			Int("total_updates", totalUpdates).
 			Msg("Successfully published device updates chunk")
+			
+		processedCount = end
 	}
 
 	db.logger.Info().
 		Int("update_count", totalUpdates).
+		Int("total_batches", batchNum).
 		Msg("Successfully published device updates to device_updates stream")
 
 	return nil
