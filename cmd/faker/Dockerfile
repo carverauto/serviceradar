@@ -18,7 +18,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o faker cmd/faker/m
 # Final stage
 FROM alpine:3.20
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates wget
+
+# Create data directory for persistent storage
+RUN mkdir -p /data
 
 WORKDIR /root/
 

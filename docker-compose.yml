@@ -1,10 +1,12 @@
 services:
   # Certificate Generation Service (runs once to generate mTLS certs)
   cert-generator:
-    image: ghcr.io/carverauto/serviceradar-cert-generator:latest
+    image: alpine:3.20
     container_name: serviceradar-cert-generator
     volumes:
       - cert-data:/certs
+      - ./docker/compose/generate-certs.sh:/generate-certs.sh:ro
+    command: sh -c "apk add --no-cache openssl bash && cp /generate-certs.sh /tmp/gen.sh && chmod +x /tmp/gen.sh && CERT_DIR=/certs bash /tmp/gen.sh"
     restart: "no"  # Only run once
     networks:
       - serviceradar-net
@@ -679,6 +681,8 @@ services:
       - "8080:8080"  # Armis API emulator port
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - faker-data:/data  # Persistent storage for generated device data
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/search/?aql=test&length=1"]
       interval: 30s
@@ -709,6 +713,8 @@ volumes:
   poller-data:
     driver: local
   agent-data:
+    driver: local
+  faker-data:
     driver: local
   nats-data:
     driver: local
