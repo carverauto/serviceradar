@@ -37,9 +37,9 @@ const (
 
 // AgentConfig represents configuration for a single agent.
 type AgentConfig struct {
-	Address  string                `json:"address"`
-	Checks   []Check               `json:"checks"`
-	Security models.SecurityConfig `json:"security"` // Per-agent security config
+	Address  string                 `json:"address"`
+	Checks   []Check                `json:"checks"`
+	Security *models.SecurityConfig `json:"security"` // Per-agent security config
 }
 
 // Check represents a service check configuration.

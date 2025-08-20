@@ -360,6 +360,8 @@ func (s *Server) mergeDuration(fieldName string, fileValue, kvValue Duration, me
 }
 
 func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *SweepConfig) (*SweepConfig, error) {
+	s.logger.Info().Str("kvPath", kvPath).Msg("*** ENHANCED DEBUG VERSION: mergeKVUpdates called ***")
+
 	if s.kvStore == nil {
 		s.logger.Debug().Msg("KV store not initialized, skipping merge")
 		return nil, nil
@@ -374,6 +376,29 @@ func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *
 	if !found {
 		s.logger.Debug().Str("kvPath", kvPath).Msg("No KV config found, using file config only")
 		return nil, nil
+	}
+
+	// First check if this is chunked metadata indicating chunked config
+	s.logger.Info().Str("kvValue", string(kvValue)).Msg("DEBUG: Processing KV value for chunked detection")
+
+	var metadataCheck map[string]interface{}
+
+	if err := json.Unmarshal(kvValue, &metadataCheck); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal KV value for chunk detection: %w", err)
+	}
+
+	s.logger.Info().Interface("metadataCheck", metadataCheck).Msg("DEBUG: Unmarshaled KV value")
+
+	// Check if this is a metadata file with chunk information
+	if chunkCount, exists := metadataCheck["chunk_count"]; exists {
+		s.logger.Info().
+			Interface("metadata", metadataCheck).
+			Interface("chunkCount", chunkCount).
+			Msg("Detected chunked sweep config during initial load")
+
+		// For chunked config, we need to bypass the normal merge process and let the KV watcher handle it
+		// Return the file config as-is for now, and the chunked processing will happen through KV watch
+		return fileConfig, nil
 	}
 
 	var kvConfig SweepConfig

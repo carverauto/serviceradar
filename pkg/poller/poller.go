@@ -244,8 +244,8 @@ func (p *Poller) initializeAgentPollers(ctx context.Context) error {
 			Logger:     p.logger,
 		}
 
-		if p.config.Security != nil {
-			provider, err := grpc.NewSecurityProvider(ctx, p.config.Security, p.logger)
+		if agentConfig.Security != nil {
+			provider, err := grpc.NewSecurityProvider(ctx, agentConfig.Security, p.logger)
 			if err != nil {
 				return fmt.Errorf("failed to create security provider for agent %s: %w", agentName, err)
 			}

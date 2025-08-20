@@ -17,8 +17,8 @@
 package poller
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -95,47 +95,70 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 		return nil, err
 	}
 
-	var dataBuffer bytes.Buffer
+	startTime := time.Now()
+	mergedDevices, finalChunk, err := rp.processStreamChunks(ctx, stream, req.ServiceName)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return rp.buildFinalResponse(req, mergedDevices, finalChunk, startTime)
+}
+
+// processStreamChunks processes all chunks from the stream and returns merged devices and final chunk
+func (rp *ResultsPoller) processStreamChunks(_ context.Context,
+	stream proto.AgentService_StreamResultsClient, serviceName string) ([]interface{}, *proto.ResultsChunk, error) {
+	var mergedDevices []interface{}
 
 	var finalChunk *proto.ResultsChunk
 
-	startTime := time.Now()
 	chunksReceived := 0
 
 	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			rp.logger.Info().Str("service_name", req.ServiceName).Int("chunks_received", chunksReceived).Msg("Stream ended normally")
+		chunk, streamErr := stream.Recv()
+		if errors.Is(streamErr, io.EOF) {
+			rp.logger.Info().Str("service_name", serviceName).Int("chunks_received", chunksReceived).Msg("Stream ended normally")
 			break // End of stream
 		}
 
-		if err != nil {
-			rp.logger.Error().Err(err).
-				Str("service_name", req.ServiceName).
+		if streamErr != nil {
+			rp.logger.Error().Err(streamErr).
+				Str("service_name", serviceName).
 				Int("chunks_received", chunksReceived).
 				Msg("Error receiving chunk from stream")
 
-			return nil, fmt.Errorf("failed to receive chunk: %w", err)
+			return nil, nil, fmt.Errorf("failed to receive chunk: %w", streamErr)
 		}
 
 		chunksReceived++
 
 		rp.logger.Debug().
-			Str("service_name", req.ServiceName).
+			Str("service_name", serviceName).
 			Int("chunk_index", int(chunk.ChunkIndex)).
 			Int("chunk_size", len(chunk.Data)).
 			Bool("is_final", chunk.IsFinal).
 			Msg("Received chunk")
 
-		if _, err := dataBuffer.Write(chunk.Data); err != nil {
-			rp.logger.Error().Err(err).Str("service_name", req.ServiceName).Msg("Failed to write chunk to buffer")
-			return nil, fmt.Errorf("failed to write chunk to buffer: %w", err)
+		// Process this chunk
+		chunkDevices, err := rp.processChunk(chunk, serviceName)
+		if err != nil {
+			return nil, nil, err
 		}
+
+		// Merge devices from this chunk
+		mergedDevices = append(mergedDevices, chunkDevices...)
+
+		rp.logger.Debug().
+			Str("service_name", serviceName).
+			Int("chunk_index", int(chunk.ChunkIndex)).
+			Int("chunk_devices", len(chunkDevices)).
+			Int("total_devices", len(mergedDevices)).
+			Msg("Merged chunk devices")
 
 		if chunk.IsFinal {
 			finalChunk = chunk
 
-			rp.logger.Info().Str("service_name", req.ServiceName).Int("total_chunks", chunksReceived).Msg("Received final chunk")
+			rp.logger.Info().Str("service_name", serviceName).Int("total_chunks", chunksReceived).Msg("Received final chunk")
 
 			break
 		}
@@ -143,23 +166,63 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 
 	if finalChunk == nil {
 		rp.logger.Error().
-			Str("service_name", req.ServiceName).
+			Str("service_name", serviceName).
 			Int("chunks_received", chunksReceived).
 			Msg("Stream completed without a final chunk")
 
-		return nil, fmt.Errorf("stream completed without a final chunk")
+		return nil, nil, fmt.Errorf("stream completed without a final chunk")
+	}
+
+	return mergedDevices, finalChunk, nil
+}
+
+// processChunk processes a single chunk and returns the devices from it
+func (rp *ResultsPoller) processChunk(chunk *proto.ResultsChunk, serviceName string) ([]interface{}, error) {
+	var chunkDevices []interface{}
+
+	if len(chunk.Data) > 0 {
+		if unmarshalErr := json.Unmarshal(chunk.Data, &chunkDevices); unmarshalErr != nil {
+			rp.logger.Error().Err(unmarshalErr).
+				Str("service_name", serviceName).
+				Int("chunk_index", int(chunk.ChunkIndex)).
+				Msg("Failed to parse chunk data as JSON array")
+
+			return nil, fmt.Errorf("failed to parse chunk data: %w", unmarshalErr)
+		}
+	}
+
+	return chunkDevices, nil
+}
+
+// buildFinalResponse constructs the final ResultsResponse from merged data
+func (rp *ResultsPoller) buildFinalResponse(
+	req *proto.ResultsRequest,
+	mergedDevices []interface{},
+	finalChunk *proto.ResultsChunk,
+	startTime time.Time,
+) (*proto.ResultsResponse, error) {
+	// Marshal the merged devices back to JSON
+	mergedData, err := json.Marshal(mergedDevices)
+	if err != nil {
+		rp.logger.Error().Err(err).
+			Str("service_name", req.ServiceName).
+			Int("total_devices", len(mergedDevices)).
+			Msg("Failed to marshal merged devices")
+
+		return nil, fmt.Errorf("failed to marshal merged devices: %w", err)
 	}
 
 	rp.logger.Info().
 		Str("service_name", req.ServiceName).
 		Int("total_chunks", int(finalChunk.TotalChunks)).
-		Int("data_size_bytes", dataBuffer.Len()).
-		Msg("Successfully received all chunks from stream")
+		Int("total_devices", len(mergedDevices)).
+		Int("data_size_bytes", len(mergedData)).
+		Msg("Successfully received and merged all chunks from stream")
 
 	// Assemble the final ResultsResponse from the chunks
 	return &proto.ResultsResponse{
 		Available:       true,
-		Data:            dataBuffer.Bytes(),
+		Data:            mergedData,
 		ServiceName:     req.ServiceName,
 		ServiceType:     req.ServiceType,
 		ResponseTime:    time.Since(startTime).Nanoseconds(),

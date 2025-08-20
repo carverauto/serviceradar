@@ -65,11 +65,11 @@
   "db_security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "proton",
+    "server_name": "proton.serviceradar",
     "role": "client",
     "tls": {
-      "cert_file": "/etc/serviceradar/certs/core.pem",
-      "key_file": "/etc/serviceradar/certs/core-key.pem",
+      "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+      "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
       "ca_file": "/etc/serviceradar/certs/root.pem"
     }
   },

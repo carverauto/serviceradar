@@ -128,22 +128,10 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 	var finalSweepConfig *models.SweepConfig
 
 	if a.KVClient != nil {
-		// Clean up old sweep config to remove any stale data before writing new config
-		a.Logger.Info().
-			Str("config_key", configKey).
-			Msg("Cleaning up old sweep config from KV store before writing complete config")
+		shouldDelete := a.shouldDeleteExistingConfig(ctx, configKey)
 
-		if _, delErr := a.KVClient.Delete(ctx, &proto.DeleteRequest{
-			Key: configKey,
-		}); delErr != nil {
-			a.Logger.Debug().
-				Err(delErr).
-				Str("config_key", configKey).
-				Msg("Failed to delete old sweep config (may not exist)")
-		} else {
-			a.Logger.Info().
-				Str("config_key", configKey).
-				Msg("Successfully cleaned up old sweep config")
+		if shouldDelete {
+			a.deleteOldSweepConfig(ctx, configKey)
 		}
 
 		// Create sweep config with networks and device targets for per-device sweep mode configuration
@@ -743,4 +731,56 @@ func (a *ArmisIntegration) createDeviceUpdateEvent(d *Device, ip, queryLabel str
 	}
 
 	return event
+}
+
+// shouldDeleteExistingConfig checks if the existing config should be deleted
+func (a *ArmisIntegration) shouldDeleteExistingConfig(ctx context.Context, configKey string) bool {
+	// Check if the current config is chunked before deleting
+	// If it's chunked, we want to keep the metadata so the agent can read the chunks
+	getResp, getErr := a.KVClient.Get(ctx, &proto.GetRequest{Key: configKey})
+	if getErr != nil || getResp == nil {
+		return true
+	}
+
+	var metadata map[string]interface{}
+	if json.Unmarshal(getResp.Value, &metadata) != nil {
+		return true
+	}
+
+	chunked, exists := metadata["chunked"]
+	if !exists {
+		return true
+	}
+
+	chunkedBool, ok := chunked.(bool)
+	if ok && chunkedBool {
+		a.Logger.Info().
+			Str("config_key", configKey).
+			Msg("Keeping existing chunked metadata, will overwrite with new chunked config")
+
+		return false
+	}
+
+	return true
+}
+
+// deleteOldSweepConfig removes the old sweep config from the KV store
+func (a *ArmisIntegration) deleteOldSweepConfig(ctx context.Context, configKey string) {
+	// Clean up old sweep config to remove any stale data before writing new config
+	a.Logger.Info().
+		Str("config_key", configKey).
+		Msg("Cleaning up old sweep config from KV store before writing complete config")
+
+	if _, delErr := a.KVClient.Delete(ctx, &proto.DeleteRequest{
+		Key: configKey,
+	}); delErr != nil {
+		a.Logger.Debug().
+			Err(delErr).
+			Str("config_key", configKey).
+			Msg("Failed to delete old sweep config (may not exist)")
+	} else {
+		a.Logger.Info().
+			Str("config_key", configKey).
+			Msg("Successfully cleaned up old sweep config")
+	}
 }
