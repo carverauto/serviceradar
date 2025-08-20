@@ -427,7 +427,9 @@ func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *
 }
 
 // processChunkedSweepConfig reads all chunks from KV and combines them into a single SweepConfig
-func (s *Server) processChunkedSweepConfig(ctx context.Context, baseKVPath string, chunkCount int, fileConfig *SweepConfig) (*SweepConfig, error) {
+func (s *Server) processChunkedSweepConfig(
+	ctx context.Context, baseKVPath string, chunkCount int, fileConfig *SweepConfig,
+) (*SweepConfig, error) {
 	s.logger.Info().
 		Str("baseKVPath", baseKVPath).
 		Int("chunkCount", chunkCount).
@@ -435,7 +437,9 @@ func (s *Server) processChunkedSweepConfig(ctx context.Context, baseKVPath strin
 
 	// Start with file config as base
 	mergedConfig := *fileConfig
+
 	var combinedNetworks []string
+
 	var combinedDeviceTargets []models.DeviceTarget
 
 	// Extract base path without .json extension for chunk naming
@@ -443,34 +447,14 @@ func (s *Server) processChunkedSweepConfig(ctx context.Context, baseKVPath strin
 
 	// Read and combine all chunks
 	for i := 0; i < chunkCount; i++ {
-		chunkKey := fmt.Sprintf("%s_chunk_%d.json", basePath, i)
-		
-		s.logger.Debug().
-			Str("chunkKey", chunkKey).
-			Int("chunkIndex", i).
-			Msg("Reading chunk from KV")
-
-		chunkData, found, err := s.kvStore.Get(ctx, chunkKey)
+		chunkConfig, err := s.readChunk(ctx, basePath, i)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get chunk %d from KV store: %w", i, err)
+			return nil, err
 		}
 
-		if !found {
-			s.logger.Warn().Str("chunkKey", chunkKey).Msg("Chunk not found in KV store")
-			continue
+		if chunkConfig == nil {
+			continue // Chunk not found, skip
 		}
-
-		// Parse chunk as SweepConfig
-		var chunkConfig SweepConfig
-		if err := json.Unmarshal(chunkData, &chunkConfig); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal chunk %d: %w", i, err)
-		}
-
-		s.logger.Debug().
-			Int("chunkIndex", i).
-			Int("networks", len(chunkConfig.Networks)).
-			Int("deviceTargets", len(chunkConfig.DeviceTargets)).
-			Msg("Successfully parsed chunk")
 
 		// Combine networks and device targets from this chunk
 		combinedNetworks = append(combinedNetworks, chunkConfig.Networks...)
@@ -478,21 +462,7 @@ func (s *Server) processChunkedSweepConfig(ctx context.Context, baseKVPath strin
 
 		// Use settings from first chunk if file config doesn't have them
 		if i == 0 {
-			if mergedConfig.Interval == 0 && chunkConfig.Interval > 0 {
-				mergedConfig.Interval = chunkConfig.Interval
-			}
-			if mergedConfig.Timeout == 0 && chunkConfig.Timeout > 0 {
-				mergedConfig.Timeout = chunkConfig.Timeout
-			}
-			if mergedConfig.Concurrency == 0 && chunkConfig.Concurrency > 0 {
-				mergedConfig.Concurrency = chunkConfig.Concurrency
-			}
-			if len(mergedConfig.Ports) == 0 && len(chunkConfig.Ports) > 0 {
-				mergedConfig.Ports = chunkConfig.Ports
-			}
-			if len(mergedConfig.SweepModes) == 0 && len(chunkConfig.SweepModes) > 0 {
-				mergedConfig.SweepModes = chunkConfig.SweepModes
-			}
+			s.applyChunkSettings(&mergedConfig, chunkConfig)
 		}
 	}
 
@@ -507,6 +477,63 @@ func (s *Server) processChunkedSweepConfig(ctx context.Context, baseKVPath strin
 		Msg("Successfully processed and combined all chunks")
 
 	return &mergedConfig, nil
+}
+
+// readChunk reads a single chunk from KV store
+func (s *Server) readChunk(ctx context.Context, basePath string, chunkIndex int) (*SweepConfig, error) {
+	chunkKey := fmt.Sprintf("%s_chunk_%d.json", basePath, chunkIndex)
+
+	s.logger.Debug().
+		Str("chunkKey", chunkKey).
+		Int("chunkIndex", chunkIndex).
+		Msg("Reading chunk from KV")
+
+	chunkData, found, err := s.kvStore.Get(ctx, chunkKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get chunk %d from KV store: %w", chunkIndex, err)
+	}
+
+	if !found {
+		s.logger.Warn().Str("chunkKey", chunkKey).Msg("Chunk not found in KV store")
+		return nil, nil
+	}
+
+	// Parse chunk as SweepConfig
+	var chunkConfig SweepConfig
+	if err := json.Unmarshal(chunkData, &chunkConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal chunk %d: %w", chunkIndex, err)
+	}
+
+	s.logger.Debug().
+		Int("chunkIndex", chunkIndex).
+		Int("networks", len(chunkConfig.Networks)).
+		Int("deviceTargets", len(chunkConfig.DeviceTargets)).
+		Msg("Successfully parsed chunk")
+
+	return &chunkConfig, nil
+}
+
+// applyChunkSettings applies settings from chunk to merged config if they're not set
+func (*Server) applyChunkSettings(mergedConfig, chunkConfig *SweepConfig) {
+	if mergedConfig.Interval == 0 && chunkConfig.Interval > 0 {
+		mergedConfig.Interval = chunkConfig.Interval
+	}
+
+	if mergedConfig.Timeout == 0 && chunkConfig.Timeout > 0 {
+		mergedConfig.Timeout = chunkConfig.Timeout
+	}
+
+	if mergedConfig.Concurrency == 0 && chunkConfig.Concurrency > 0 {
+		mergedConfig.Concurrency = chunkConfig.Concurrency
+	}
+
+	if len(mergedConfig.Ports) == 0 && len(chunkConfig.Ports) > 0 {
+		mergedConfig.Ports = chunkConfig.Ports
+	}
+
+	if len(mergedConfig.SweepModes) == 0 && len(chunkConfig.SweepModes) > 0 {
+		mergedConfig.SweepModes = chunkConfig.SweepModes
+	}
 }
 
 func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Config) error {
