@@ -130,7 +130,7 @@ func (p *MTLSProvider) loadCredentials() error {
 	if p.needsClient {
 		p.logger.Info().Msg("Loading client credentials using paths from config.TLS")
 
-		p.clientCreds, err = loadClientCredentials(p.config)
+		p.clientCreds, err = loadClientCredentials(p.config, p.logger)
 		if err != nil {
 			return fmt.Errorf("%w: %w", errFailedToLoadClientCreds, err)
 		}
@@ -159,11 +159,29 @@ func (p *MTLSProvider) Close() error {
 }
 
 // loadClientCredentials loads client TLS credentials using paths from config.TLS.
-func loadClientCredentials(config *models.SecurityConfig) (credentials.TransportCredentials, error) {
-	// Use paths directly from config.TLS (should be absolute/normalized)
+func loadClientCredentials(config *models.SecurityConfig, log logger.Logger) (credentials.TransportCredentials, error) {
+	// Normalize paths with CertDir if they are relative
 	certPath := config.TLS.CertFile
 	keyPath := config.TLS.KeyFile
 	caPath := config.TLS.CAFile
+
+	if !filepath.IsAbs(certPath) && config.CertDir != "" {
+		certPath = filepath.Join(config.CertDir, certPath)
+	}
+
+	if !filepath.IsAbs(keyPath) && config.CertDir != "" {
+		keyPath = filepath.Join(config.CertDir, keyPath)
+	}
+
+	if !filepath.IsAbs(caPath) && config.CertDir != "" {
+		caPath = filepath.Join(config.CertDir, caPath)
+	}
+
+	log.Info().
+		Str("certPath", certPath).
+		Str("keyPath", keyPath).
+		Str("caPath", caPath).
+		Msg("Loading client certificate")
 
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
