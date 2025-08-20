@@ -7,6 +7,9 @@ server {
     listen 80;
     server_name _;
 
+    # Disable automatic merging of consecutive slashes
+    merge_slashes off;
+
     # Increase buffer sizes for larger API responses
     client_max_body_size 100M;
     proxy_buffer_size 128k;
@@ -52,22 +55,8 @@ server {
         proxy_cache off;
     }
 
-    # Core API routes - direct to core service (auth/login will go through Next.js)
-    location ~ ^/api/(query|devices|pollers|nodes|status)$ {
-        # Use variable to force runtime DNS resolution
-        set $core_upstream http://core:8090;
-        proxy_pass $core_upstream;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Authorization $http_authorization;
-        proxy_set_header X-API-Key $http_x_api_key;
-        proxy_set_header Cookie $http_cookie;
-    }
-    
-    # Next.js API routes (including auth) - route to web container
-    location /api/ {
+    # API routes handled by Next.js (auth, nodes, status, pollers)
+    location ~ ^/api/(auth|nodes|status|pollers|devices|mcp) {
         # Use variable to force runtime DNS resolution
         set $web_upstream http://web:3000;
         proxy_pass $web_upstream;
@@ -75,7 +64,6 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Cookie $http_cookie;
     }
 
     # Swagger UI routes
@@ -119,6 +107,49 @@ server {
         proxy_set_header X-API-Key $http_x_api_key;
     }
 
+    # Fix double slashes in API URLs (frontend bug workaround)
+    location = /api//query {
+        # Use variable to force runtime DNS resolution
+        set $core_upstream http://core:8090;
+        proxy_pass $core_upstream/api/query$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-API-Key $http_x_api_key;
+        proxy_set_header Cookie $http_cookie;
+        
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400;
+    }
+
+    # Backend API routes (catch-all for core service APIs like /api/query)
+    location /api/ {
+        # Use variable to force runtime DNS resolution
+        set $core_upstream http://core:8090;
+        proxy_pass $core_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-API-Key $http_x_api_key;
+
+        # IMPORTANT: Forward cookies to backend for authentication
+        proxy_set_header Cookie $http_cookie;
+
+        # WebSocket support for /api/stream
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400;
+    }
 
     # Auth API routes
     location /auth/ {
