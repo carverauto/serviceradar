@@ -1025,6 +1025,7 @@ func (s *Server) collectServiceChunks(
 				// For non-sync services, continue with byte concatenation
 				serviceMessages[key] = append(existingData, svc.Message...)
 			}
+
 			s.logger.Debug().
 				Str("service_name", svc.ServiceName).
 				Int("chunk_size", len(svc.Message)).
@@ -1049,15 +1050,15 @@ func (s *Server) collectServiceChunks(
 func (s *Server) mergeSyncServiceChunks(existingData, newChunk []byte) []byte {
 	// Sync service sends streaming JSON chunks that need simple concatenation
 	// The final reassembled payload will be parsed as a complete JSON structure later
-	result := append(existingData, newChunk...)
-	
+	existingData = append(existingData, newChunk...)
+
 	s.logger.Debug().
-		Int("existing_size", len(existingData)).
+		Int("existing_size", len(existingData)-len(newChunk)).
 		Int("new_chunk_size", len(newChunk)).
-		Int("total_size", len(result)).
+		Int("total_size", len(existingData)).
 		Msg("Concatenated sync service chunks")
-	
-	return result
+
+	return existingData
 }
 
 // assembleServices creates the final service list from reassembled messages

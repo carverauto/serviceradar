@@ -418,21 +418,29 @@ func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, confi
 
 // processConfigUpdate processes a config update from the KV store.
 func (s *NetworkSweeper) processConfigUpdate(value []byte) {
-	s.logger.Info().Int("valueLength", len(value)).Str("valueString", string(value)).Msg("DETAILED DEBUG: processConfigUpdate called with value")
-	
+	s.logger.Info().
+		Int("valueLength", len(value)).
+		Str("valueString", string(value)).
+		Msg("DETAILED DEBUG: processConfigUpdate called with value")
+
 	// First check if this is a metadata file indicating chunked config
 	var metadataCheck map[string]interface{}
 	if err := json.Unmarshal(value, &metadataCheck); err != nil {
 		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("DETAILED DEBUG: Failed to unmarshal config")
 		return
 	}
-	
+
 	s.logger.Info().Interface("metadataCheck", metadataCheck).Msg("DETAILED DEBUG: Successfully unmarshaled config value")
 
 	// Check if this is a metadata file with chunk information
 	if chunkCount, exists := metadataCheck["chunk_count"]; exists {
-		s.logger.Info().Interface("metadata", metadataCheck).Interface("chunkCount", chunkCount).Msg("DETAILED DEBUG: Detected chunked sweep config, reading chunks")
+		s.logger.Info().
+			Interface("metadata", metadataCheck).
+			Interface("chunkCount", chunkCount).
+			Msg("DETAILED DEBUG: Detected chunked sweep config, reading chunks")
+
 		s.processChunkedConfig(metadataCheck)
+
 		return
 	}
 
@@ -450,7 +458,7 @@ func (s *NetworkSweeper) processSingleConfig(value []byte) {
 		return
 	}
 
-	newConfig := s.createConfigFromUnmarshal(temp)
+	newConfig := s.createConfigFromUnmarshal(&temp)
 
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply single config update")
@@ -472,14 +480,21 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 		s.logger.Error().Msg("Invalid chunk_count in metadata")
 		return
 	}
+
 	chunkCount := int(chunkCountFloat)
 
-	s.logger.Info().Int("chunkCount", chunkCount).Str("baseConfigKey", s.getBaseConfigKey()).Msg("DETAILED DEBUG: Reading chunked sweep configuration")
+	s.logger.Info().
+		Int("chunkCount", chunkCount).
+		Str("baseConfigKey", s.getBaseConfigKey()).
+		Msg("DETAILED DEBUG: Reading chunked sweep configuration")
 
 	// Read and parse all chunks
 	var combinedNetworks []string
+
 	var combinedDeviceTargets []models.DeviceTarget
+
 	var baseConfig unmarshalConfig
+
 	var configSet bool
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -487,9 +502,9 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 
 	for i := 0; i < chunkCount; i++ {
 		chunkKey := fmt.Sprintf("%s_chunk_%d.json", s.getBaseConfigKey(), i)
-		
+
 		s.logger.Info().Str("chunkKey", chunkKey).Int("chunkIndex", i).Msg("DETAILED DEBUG: Attempting to read chunk")
-		
+
 		// Get the chunk data directly
 		chunkData, found, err := s.kvStore.Get(ctx, chunkKey)
 		if err != nil {
@@ -552,7 +567,7 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 		Msg("Successfully assembled chunked sweep configuration")
 
 	// Convert to models.Config and apply
-	newConfig := s.createConfigFromUnmarshal(baseConfig)
+	newConfig := s.createConfigFromUnmarshal(&baseConfig)
 
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply chunked config update")
@@ -568,11 +583,12 @@ func (s *NetworkSweeper) getBaseConfigKey() string {
 	if len(baseKey) > 5 && baseKey[len(baseKey)-5:] == ".json" {
 		baseKey = baseKey[:len(baseKey)-5]
 	}
+
 	return baseKey
 }
 
 // createConfigFromUnmarshal creates a models.Config from the unmarshaled data
-func (s *NetworkSweeper) createConfigFromUnmarshal(temp unmarshalConfig) models.Config {
+func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.Config {
 	return models.Config{
 		Networks:      temp.Networks,
 		Ports:         temp.Ports,

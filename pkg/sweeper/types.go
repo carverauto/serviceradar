@@ -44,7 +44,7 @@ type unmarshalConfig struct {
 	MaxIdle       int                   `json:"max_idle"`
 	MaxLifetime   durationWrapper       `json:"max_lifetime,omitempty"`
 	IdleTimeout   durationWrapper       `json:"idle_timeout,omitempty"`
-	ICMPSettings struct {
+	ICMPSettings  struct {
 		RateLimit int             `json:"rate_limit"`
 		Timeout   durationWrapper `json:"timeout,omitempty"`
 		MaxBatch  int             `json:"max_batch"`

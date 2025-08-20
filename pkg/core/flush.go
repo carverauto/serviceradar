@@ -142,7 +142,7 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 			Int("details_size", len(status.Details)).
 			Msg("FLUSH DEBUG: Processing service in batch")
 
-		if status.ServiceType == "sync" {
+		if status.ServiceType == syncServiceType {
 			syncServices = append(syncServices, status)
 		} else {
 			nonSyncServices = append(nonSyncServices, status)
