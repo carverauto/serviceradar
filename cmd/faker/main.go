@@ -21,6 +21,7 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"net/http"
@@ -68,6 +69,19 @@ type AccessTokenResponse struct {
 		ExpirationUTC time.Time `json:"expiration_utc"`
 	} `json:"data"`
 	Success bool `json:"success"`
+}
+
+type UpsertOperation struct {
+	Upsert struct {
+		DeviceID int         `json:"deviceId"`
+		Key      string      `json:"key"`
+		Value    interface{} `json:"value"`
+	} `json:"upsert"`
+}
+
+type BulkUpdateResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
 }
 
 const (
@@ -161,6 +175,7 @@ func main() {
 	// Armis API endpoints
 	mux.HandleFunc("/api/v1/access_token/", tokenHandler)
 	mux.HandleFunc("/api/v1/search/", searchHandler)
+	mux.HandleFunc("/api/v1/devices/custom-properties/_bulk/", bulkUpdateHandler)
 	// Legacy endpoint if needed
 	mux.HandleFunc("/v1/devices", devicesHandler)
 
@@ -278,6 +293,65 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 // Legacy handler for backward compatibility
 func devicesHandler(w http.ResponseWriter, r *http.Request) {
 	searchHandler(w, r)
+}
+
+// bulkUpdateHandler handles POST requests for /api/v1/devices/custom-properties/_bulk/
+func bulkUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read the request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("Error reading bulk update request body: %v", err)
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Parse the bulk update operations
+	var operations []UpsertOperation
+	if err := json.Unmarshal(body, &operations); err != nil {
+		log.Printf("Error parsing bulk update operations: %v", err)
+		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	// Log the bulk update details for verification
+	log.Printf("📋 BULK UPDATE RECEIVED: Processing batch of %d device attribute updates", len(operations))
+	
+	// Group operations by device ID to simulate realistic processing
+	deviceUpdates := make(map[int]map[string]interface{})
+	for _, op := range operations {
+		deviceID := op.Upsert.DeviceID
+		if deviceUpdates[deviceID] == nil {
+			deviceUpdates[deviceID] = make(map[string]interface{})
+		}
+		deviceUpdates[deviceID][op.Upsert.Key] = op.Upsert.Value
+		
+		log.Printf("  ├─ Device %d: %s = %v", deviceID, op.Upsert.Key, op.Upsert.Value)
+	}
+
+	log.Printf("✅ BATCH COMPLETE: Successfully processed updates for %d unique devices", len(deviceUpdates))
+
+	// Simulate some processing time for realism
+	time.Sleep(100 * time.Millisecond)
+
+	// Return success response
+	response := BulkUpdateResponse{
+		Success: true,
+		Message: fmt.Sprintf("Successfully processed %d operations for %d devices", len(operations), len(deviceUpdates)),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding bulk update response: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // generateAllDevices generates all fake devices at startup

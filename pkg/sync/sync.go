@@ -303,6 +303,13 @@ func NewArmisIntegration(
 	// Initialize ArmisUpdater for status updates
 	var armisUpdater armis.ArmisUpdater
 
+	// Debug logging for credentials
+	log.Info().
+		Str("enable_status_updates_value", config.Credentials["enable_status_updates"]).
+		Str("trueString_value", trueString).
+		Bool("comparison_result", config.Credentials["enable_status_updates"] == trueString).
+		Msg("DEBUG: Checking enable_status_updates credential")
+
 	if config.Credentials["enable_status_updates"] == trueString {
 		// Create separate HTTP client for updater with its own circuit breaker
 		updaterBaseClient := &http.Client{Timeout: 30 * time.Second}

@@ -415,6 +415,12 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 // This method queries ServiceRadar for current device states and updates Armis accordingly.
 // It should only be called after sweep operations have completed and real availability data is available.
 func (a *ArmisIntegration) Reconcile(ctx context.Context) error {
+	// Debug logging to understand what's nil
+	a.Logger.Info().
+		Bool("updater_is_nil", a.Updater == nil).
+		Bool("sweep_querier_is_nil", a.SweepQuerier == nil).
+		Msg("DEBUG: Reconcile method called - checking components")
+
 	if a.Updater == nil || a.SweepQuerier == nil {
 		a.Logger.Info().Msg("Armis updater not configured, skipping reconciliation")
 		return nil
