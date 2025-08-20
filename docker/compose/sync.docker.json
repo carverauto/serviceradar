@@ -40,7 +40,7 @@
       "sweep_interval": "5m",
       "agent_id": "docker-agent",
       "poller_id": "docker-poller",
-      "partition": "test",
+      "partition": "default",
       "credentials": {
         "username": "test",
         "password": "test"
