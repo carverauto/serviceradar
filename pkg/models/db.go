@@ -16,6 +16,7 @@ type ProtonDatabase struct {
 	Password  string         `json:"password"`
 	MaxConns  int            `json:"max_conns"`
 	IdleConns int            `json:"idle_conns"`
+	TLS       *TLSConfig     `json:"tls,omitempty"`
 	Settings  ProtonSettings `json:"settings"`
 }
 

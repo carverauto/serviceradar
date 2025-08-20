@@ -3,12 +3,13 @@
         "docker-agent": {
             "address": "agent:50051",
             "security": {
-                "server_name": "serviceradar-agent",
+                "server_name": "agent.serviceradar",
                 "mode": "mtls",
                 "cert_dir": "/etc/serviceradar/certs",
+                "role": "poller",
                 "tls": {
-                    "cert_file": "core.pem",
-                    "key_file": "core-key.pem",
+                    "cert_file": "poller.pem",
+                    "key_file": "poller-key.pem",
                     "ca_file": "root.pem",
                     "client_ca_file": "root.pem"
                 }
@@ -33,7 +34,59 @@
                     "service_type": "sweep",
                     "service_name": "network_sweep",
                     "details": "",
-                    "results_interval": "5m"
+                    "results_interval": "2m"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "rperf-checker",
+                    "details": "rperf-client:50059"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "mapper",
+                    "details": "mapper:50056"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "db-event-writer",
+                    "details": "db-event-writer:50041"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "zen",
+                    "details": "zen:50040"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "trapd",
+                    "details": "trapd:50043"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "flowgger",
+                    "details": "flowgger:50044"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "sync",
+                    "details": "sync:50058",
+                    "results_interval": "30s"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "kv",
+                    "details": "kv:50057"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "nats",
+                    "details": "nats:4222"
+                },
+                {
+                    "service_type": "mapper_discovery",
+                    "service_name": "lan_discovery_via_mapper",
+                    "details": "{\"seeds\":[\"192.168.1.1\"], \"type\":\"full\", \"credentials\":{\"version\":\"v2c\", \"community\":\"public\"}}",
+                    "results_interval": "10m"
                 }
             ]
         }
@@ -49,29 +102,32 @@
     "security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "serviceradar-core",
+        "server_name": "poller.serviceradar",
         "role": "poller",
         "tls": {
-            "cert_file": "core.pem",
-            "key_file": "core-key.pem",
+            "cert_file": "poller.pem",
+            "key_file": "poller-key.pem",
             "ca_file": "root.pem",
             "client_ca_file": "root.pem"
         }
     },
     "logging": {
-        "level": "info",
-        "debug": false,
+        "level": "debug",
+        "debug": true,
         "output": "stdout",
         "time_format": "",
         "otel": {
             "enabled": false,
-            "endpoint": "",
+            "endpoint": "otel:4317",
             "service_name": "serviceradar-poller",
             "batch_timeout": "5s",
-            "insecure": false,
+            "insecure": true,
+            "headers": {
+                "x-api-key": "your-collector-api-key"
+            },
             "tls": {
-                "cert_file": "/etc/serviceradar/certs/core.pem",
-                "key_file": "/etc/serviceradar/certs/core-key.pem",
+                "cert_file": "/etc/serviceradar/certs/poller.pem",
+                "key_file": "/etc/serviceradar/certs/poller-key.pem",
                 "ca_file": "/etc/serviceradar/certs/root.pem"
             }
         }

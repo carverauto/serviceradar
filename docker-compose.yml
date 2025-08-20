@@ -1,10 +1,12 @@
 services:
   # Certificate Generation Service (runs once to generate mTLS certs)
   cert-generator:
-    image: ghcr.io/carverauto/serviceradar-cert-generator:latest
+    image: alpine:3.20
     container_name: serviceradar-cert-generator
     volumes:
       - cert-data:/certs
+      - ./docker/compose/generate-certs.sh:/generate-certs.sh:ro
+    command: sh -c "apk add --no-cache openssl bash && cp /generate-certs.sh /tmp/gen.sh && chmod +x /tmp/gen.sh && CERT_DIR=/certs bash /tmp/gen.sh"
     restart: "no"  # Only run once
     networks:
       - serviceradar-net
@@ -56,6 +58,12 @@ services:
     environment:
       - PROTON_PASSWORD=${PROTON_PASSWORD:-}  # Will generate if not set
       - PROTON_LOG_LEVEL=${PROTON_LOG_LEVEL:-error}
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
     ulimits:
       nofile:
         soft: 1048576
@@ -83,12 +91,17 @@ services:
       cert-generator:
         condition: service_completed_successfully
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - proton.serviceradar
     restart: unless-stopped
 
   # ServiceRadar Core Service
   core:
-    image: ghcr.io/carverauto/serviceradar-core:latest
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.core
+    image: serviceradar-core:local
     container_name: serviceradar-core
     # Expose core ports for debugging authentication
     ports:
@@ -123,13 +136,15 @@ services:
       proton:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "serviceradar-core", "localhost:50052", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "core.serviceradar", "localhost:50052", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - core.serviceradar
     restart: unless-stopped
 
   # ServiceRadar Web Application
@@ -153,7 +168,7 @@ services:
       core:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -179,7 +194,7 @@ services:
       core:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -208,20 +223,28 @@ services:
       core:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "serviceradar-poller", "localhost:50053", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/poller.pem", "-key", "/etc/serviceradar/certs/poller-key.pem", "-servername", "poller.serviceradar", "localhost:50053", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - poller.serviceradar
     restart: unless-stopped
 
   # ServiceRadar Agent Service
   agent:
-    image: ghcr.io/carverauto/serviceradar-agent:latest
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.agent
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_ID: ${BUILD_ID:-docker}
     container_name: serviceradar-agent
     volumes:
+      - ./docker/compose/agent.docker.json:/etc/serviceradar/agent.json:ro
       - cert-data:/etc/serviceradar/certs:ro
       - agent-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
@@ -238,13 +261,15 @@ services:
       cert-generator:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "serviceradar-agent", "localhost:50051", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/agent.pem", "-key", "/etc/serviceradar/certs/agent-key.pem", "-servername", "agent.serviceradar", "localhost:50051", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - agent.serviceradar
     restart: unless-stopped
 
   # NATS for messaging and KV store
@@ -274,7 +299,9 @@ services:
     #   retries: 3
     #   start_period: 30s
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - nats.serviceradar
     restart: unless-stopped
 
   # ServiceRadar KV Service (Key-Value store using NATS JetStream)
@@ -301,18 +328,25 @@ services:
       nats:
         condition: service_started
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/kv.pem", "-key", "/etc/serviceradar/certs/kv-key.pem", "-servername", "serviceradar-kv", "localhost:50057", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/kv.pem", "-key", "/etc/serviceradar/certs/kv-key.pem", "-servername", "kv.serviceradar", "localhost:50057", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     networks:
-      - serviceradar-net
+      serviceradar-net:
+        aliases:
+          - kv.serviceradar
     restart: unless-stopped
 
   # ServiceRadar Sync Service (Device discovery synchronization)
   sync:
-    image: ghcr.io/carverauto/serviceradar-sync:latest
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.sync
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_ID: ${BUILD_ID:-docker}
     container_name: serviceradar-sync
     ports:
       - "50058:50058"  # gRPC port
@@ -528,7 +562,7 @@ services:
       proton:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/db-event-writer.pem", "-key", "/etc/serviceradar/certs/db-event-writer-key.pem", "-servername", "serviceradar-db-event-writer", "localhost:50041", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/db-event-writer.pem", "-key", "/etc/serviceradar/certs/db-event-writer-key.pem", "-servername", "db-event-writer.serviceradar", "localhost:50041", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -559,7 +593,7 @@ services:
       otel:
         condition: service_started
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/mapper.pem", "-key", "/etc/serviceradar/certs/mapper-key.pem", "-servername", "serviceradar-mapper", "localhost:50056", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/mapper.pem", "-key", "/etc/serviceradar/certs/mapper-key.pem", "-servername", "mapper.serviceradar", "localhost:50056", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -593,7 +627,7 @@ services:
       otel:
         condition: service_started
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/snmp-checker.pem", "-key", "/etc/serviceradar/certs/snmp-checker-key.pem", "-servername", "serviceradar-snmp-checker", "localhost:50054", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/snmp-checker.pem", "-key", "/etc/serviceradar/certs/snmp-checker-key.pem", "-servername", "snmp-checker.serviceradar", "localhost:50054", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -627,7 +661,7 @@ services:
       otel:
         condition: service_started
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/rperf-client.pem", "-key", "/etc/serviceradar/certs/rperf-client-key.pem", "-servername", "serviceradar-rperf-client", "localhost:50059", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/rperf-client.pem", "-key", "/etc/serviceradar/certs/rperf-client-key.pem", "-servername", "rperf-client.serviceradar", "localhost:50059", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -647,6 +681,8 @@ services:
       - "8080:8080"  # Armis API emulator port
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - faker-data:/data  # Persistent storage for generated device data
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/search/?aql=test&length=1"]
       interval: 30s
@@ -660,6 +696,8 @@ services:
 networks:
   serviceradar-net:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: serviceradar-br
 
 volumes:
   cert-data:
@@ -675,6 +713,8 @@ volumes:
   poller-data:
     driver: local
   agent-data:
+    driver: local
+  faker-data:
     driver: local
   nats-data:
     driver: local

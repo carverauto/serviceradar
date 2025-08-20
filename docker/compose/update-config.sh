@@ -83,7 +83,7 @@ API_KEY=$API_KEY
 JWT_SECRET=$JWT_SECRET
 AUTH_ENABLED=true
 NEXT_INTERNAL_API_URL=http://core:8090
-NEXT_PUBLIC_API_URL=http://localhost/api
+NEXT_PUBLIC_API_URL=http://localhost
 EOF
     
     echo "✅ Created api.env with generated secrets"

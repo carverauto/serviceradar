@@ -391,6 +391,22 @@ func (m *MockKVStore) EXPECT() *MockKVStoreMockRecorder {
 	return m.recorder
 }
 
+// Get mocks base method.
+func (m *MockKVStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, key)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockKVStoreMockRecorder) Get(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockKVStore)(nil).Get), ctx, key)
+}
+
 // Watch mocks base method.
 func (m *MockKVStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
 	m.ctrl.T.Helper()

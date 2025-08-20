@@ -36,9 +36,13 @@ if [ -z "$NEXT_INTERNAL_API_URL" ]; then
 fi
 
 # Set public API URL for client-side calls (browser to API via nginx)
-if [ -z "$NEXT_PUBLIC_API_URL" ]; then
-    export NEXT_PUBLIC_API_URL="${WEB_API_URL:-http://localhost/api}"
-    echo "Setting NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL"
+# Always use web.json config value if available, otherwise use existing env var or fallback
+if [ -n "$WEB_API_URL" ]; then
+    export NEXT_PUBLIC_API_URL="$WEB_API_URL"
+    echo "Setting NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL (from web.json)"
+elif [ -z "$NEXT_PUBLIC_API_URL" ]; then
+    export NEXT_PUBLIC_API_URL="http://localhost/api"
+    echo "Setting NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL (fallback)"
 fi
 
 # Load API key from generated file if not already set from api.env

@@ -1,6 +1,6 @@
 {
     "port": 3000,
     "host": "0.0.0.0",
-    "api_url": "http://localhost/api",
+    "api_url": "http://localhost",
     "comment": "This configuration is for Docker deployment. The api_url is the public URL that browsers will use to access the API through nginx."
 }
