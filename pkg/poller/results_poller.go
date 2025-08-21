@@ -96,22 +96,21 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 	}
 
 	startTime := time.Now()
-	mergedDevices, finalChunk, err := rp.processStreamChunks(ctx, stream, req.ServiceName)
+	mergedDevices, finalChunk, metadata, err := rp.processStreamChunks(ctx, stream, req.ServiceName)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return rp.buildFinalResponse(req, mergedDevices, finalChunk, startTime)
+	return rp.buildFinalResponse(req, mergedDevices, finalChunk, metadata, startTime)
 }
 
 // processStreamChunks processes all chunks from the stream and returns merged devices and final chunk
-func (rp *ResultsPoller) processStreamChunks(_ context.Context,
-	stream proto.AgentService_StreamResultsClient, serviceName string) ([]interface{}, *proto.ResultsChunk, error) {
-	var mergedDevices []interface{}
-
-	var finalChunk *proto.ResultsChunk
-
+func (rp *ResultsPoller) processStreamChunks(
+	_ context.Context,
+	stream proto.AgentService_StreamResultsClient,
+	serviceName string,
+) (mergedDevices []interface{}, finalChunk *proto.ResultsChunk, metadata map[string]interface{}, err error) {
 	chunksReceived := 0
 
 	for {
@@ -127,7 +126,9 @@ func (rp *ResultsPoller) processStreamChunks(_ context.Context,
 				Int("chunks_received", chunksReceived).
 				Msg("Error receiving chunk from stream")
 
-			return nil, nil, fmt.Errorf("failed to receive chunk: %w", streamErr)
+			err = fmt.Errorf("failed to receive chunk: %w", streamErr)
+
+			return mergedDevices, finalChunk, metadata, err
 		}
 
 		chunksReceived++
@@ -140,9 +141,15 @@ func (rp *ResultsPoller) processStreamChunks(_ context.Context,
 			Msg("Received chunk")
 
 		// Process this chunk
-		chunkDevices, err := rp.processChunk(chunk, serviceName)
-		if err != nil {
-			return nil, nil, err
+		chunkDevices, chunkMetadata, chunkErr := rp.processChunk(chunk, serviceName)
+		if chunkErr != nil {
+			err = chunkErr
+			return mergedDevices, finalChunk, metadata, err
+		}
+
+		// Store metadata from first chunk for sweep services
+		if chunksReceived == 1 && chunkMetadata != nil {
+			metadata = chunkMetadata
 		}
 
 		// Merge devices from this chunk
@@ -170,28 +177,72 @@ func (rp *ResultsPoller) processStreamChunks(_ context.Context,
 			Int("chunks_received", chunksReceived).
 			Msg("Stream completed without a final chunk")
 
-		return nil, nil, fmt.Errorf("stream completed without a final chunk")
+		err = fmt.Errorf("stream completed without a final chunk")
+
+		return mergedDevices, finalChunk, metadata, err
 	}
 
-	return mergedDevices, finalChunk, nil
+	return mergedDevices, finalChunk, metadata, err
 }
 
-// processChunk processes a single chunk and returns the devices from it
-func (rp *ResultsPoller) processChunk(chunk *proto.ResultsChunk, serviceName string) ([]interface{}, error) {
-	var chunkDevices []interface{}
-
-	if len(chunk.Data) > 0 {
-		if unmarshalErr := json.Unmarshal(chunk.Data, &chunkDevices); unmarshalErr != nil {
+// parseChunkData attempts to parse chunk data as either array or object format
+func (rp *ResultsPoller) parseChunkData(
+	chunk *proto.ResultsChunk,
+	serviceName string,
+) (devices []interface{}, metadata map[string]interface{}, err error) {
+	// First try to parse as array (legacy format)
+	if unmarshalErr := json.Unmarshal(chunk.Data, &devices); unmarshalErr != nil {
+		// If that fails, try to parse as object with hosts field (new format)
+		var chunkData map[string]interface{}
+		if objErr := json.Unmarshal(chunk.Data, &chunkData); objErr != nil {
 			rp.logger.Error().Err(unmarshalErr).
 				Str("service_name", serviceName).
 				Int("chunk_index", int(chunk.ChunkIndex)).
-				Msg("Failed to parse chunk data as JSON array")
+				Msg("Failed to parse chunk data as JSON array or object")
 
-			return nil, fmt.Errorf("failed to parse chunk data: %w", unmarshalErr)
+			err = fmt.Errorf("failed to parse chunk data: %w", unmarshalErr)
+
+			return devices, metadata, err
+		}
+
+		// Extract hosts from the object
+		hostsInterface, ok := chunkData["hosts"]
+		if !ok {
+			err = fmt.Errorf("no hosts field found in chunk data")
+			return devices, metadata, err
+		}
+
+		hosts, ok := hostsInterface.([]interface{})
+		if !ok {
+			err = fmt.Errorf("hosts field is not an array in chunk data")
+			return devices, metadata, err
+		}
+
+		devices = hosts
+
+		// Store metadata (excluding hosts array)
+		metadata = make(map[string]interface{})
+
+		for key, value := range chunkData {
+			if key != "hosts" {
+				metadata[key] = value
+			}
 		}
 	}
 
-	return chunkDevices, nil
+	return devices, metadata, err
+}
+
+// processChunk processes a single chunk and returns the devices from it and any metadata
+func (rp *ResultsPoller) processChunk(
+	chunk *proto.ResultsChunk,
+	serviceName string,
+) (devices []interface{}, metadata map[string]interface{}, err error) {
+	if len(chunk.Data) > 0 {
+		return rp.parseChunkData(chunk, serviceName)
+	}
+
+	return devices, metadata, err
 }
 
 // buildFinalResponse constructs the final ResultsResponse from merged data
@@ -199,17 +250,36 @@ func (rp *ResultsPoller) buildFinalResponse(
 	req *proto.ResultsRequest,
 	mergedDevices []interface{},
 	finalChunk *proto.ResultsChunk,
+	metadata map[string]interface{},
 	startTime time.Time,
 ) (*proto.ResultsResponse, error) {
-	// Marshal the merged devices back to JSON
-	mergedData, err := json.Marshal(mergedDevices)
+	var mergedData []byte
+
+	var err error
+
+	// For sweep services, we need to reconstruct the original object format
+	if req.ServiceType == "sweep" && metadata != nil {
+		// Reconstruct the sweep object with preserved metadata and merged hosts
+		sweepObject := make(map[string]interface{})
+
+		for key, value := range metadata {
+			sweepObject[key] = value
+		}
+
+		sweepObject["hosts"] = mergedDevices
+		mergedData, err = json.Marshal(sweepObject)
+	} else {
+		// For other services, marshal the devices directly
+		mergedData, err = json.Marshal(mergedDevices)
+	}
+
 	if err != nil {
 		rp.logger.Error().Err(err).
 			Str("service_name", req.ServiceName).
 			Int("total_devices", len(mergedDevices)).
-			Msg("Failed to marshal merged devices")
+			Msg("Failed to marshal merged data")
 
-		return nil, fmt.Errorf("failed to marshal merged devices: %w", err)
+		return nil, fmt.Errorf("failed to marshal merged data: %w", err)
 	}
 
 	rp.logger.Info().
