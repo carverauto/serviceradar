@@ -35,6 +35,25 @@ func extractFirstIP(ipList string) string {
 	return ""
 }
 
+// extractAllIPs extracts all IPs from a potentially comma-separated list
+func extractAllIPs(ipList string) []string {
+	if ipList == "" {
+		return []string{}
+	}
+	
+	ips := strings.Split(ipList, ",")
+	result := make([]string, 0, len(ips))
+	
+	for _, ip := range ips {
+		trimmed := strings.TrimSpace(ip)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	
+	return result
+}
+
 // RiskLevelStats represents availability statistics for a risk level
 type RiskLevelStats struct {
 	Total     int `json:"total"`
