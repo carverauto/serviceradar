@@ -992,136 +992,165 @@ func (s *Server) handleGrpcStreamResults(req *proto.ResultsRequest, stream proto
 	return nil
 }
 
+// findSweepService finds the first sweep service from the server's services
+func (s *Server) findSweepService() *SweepService {
+	for _, svc := range s.services {
+		if sweepSvc, ok := svc.(*SweepService); ok {
+			return sweepSvc
+		}
+	}
+
+	return nil
+}
+
+// sendEmptyChunk sends an empty final chunk when there's no new data
+func (*Server) sendEmptyChunk(stream proto.AgentService_StreamResultsServer, response *proto.ResultsResponse) error {
+	return stream.Send(&proto.ResultsChunk{
+		Data:            []byte("{}"),
+		IsFinal:         true,
+		ChunkIndex:      0,
+		TotalChunks:     1,
+		CurrentSequence: response.CurrentSequence,
+		Timestamp:       response.Timestamp,
+	})
+}
+
+// sendSingleChunk sends a single chunk when data fits in one chunk
+func (*Server) sendSingleChunk(stream proto.AgentService_StreamResultsServer, response *proto.ResultsResponse) error {
+	return stream.Send(&proto.ResultsChunk{
+		Data:            response.Data,
+		IsFinal:         true,
+		ChunkIndex:      0,
+		TotalChunks:     1,
+		CurrentSequence: response.CurrentSequence,
+		Timestamp:       response.Timestamp,
+	})
+}
+
+// streamMultipleChunks handles streaming when data needs to be split into multiple chunks
+func (s *Server) streamMultipleChunks(
+	stream proto.AgentService_StreamResultsServer,
+	response *proto.ResultsResponse,
+	sweepData map[string]interface{},
+	hosts []interface{},
+) error {
+	const maxHostsPerChunk = 1000
+
+	totalHosts := len(hosts)
+	totalChunks := (totalHosts + maxHostsPerChunk - 1) / maxHostsPerChunk
+
+	for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
+		start := chunkIndex * maxHostsPerChunk
+		end := start + maxHostsPerChunk
+
+		if end > totalHosts {
+			end = totalHosts
+		}
+
+		// Create chunk with complete host elements and preserve metadata
+		chunkHosts := hosts[start:end]
+
+		// Create a new sweep data object with the same metadata but subset of hosts
+		chunkData := make(map[string]interface{})
+
+		for key, value := range sweepData {
+			if key != "hosts" {
+				chunkData[key] = value
+			}
+		}
+
+		chunkData["hosts"] = chunkHosts
+
+		chunkBytes, err := json.Marshal(chunkData)
+		if err != nil {
+			s.logger.Error().Err(err).Int("chunk", chunkIndex).Msg("Failed to marshal chunk data")
+			return status.Errorf(codes.Internal, "Failed to send chunk: %v", err)
+		}
+
+		chunk := &proto.ResultsChunk{
+			Data:            chunkBytes,
+			IsFinal:         chunkIndex == totalChunks-1,
+			ChunkIndex:      safeIntToInt32(chunkIndex),
+			TotalChunks:     safeIntToInt32(totalChunks),
+			CurrentSequence: response.CurrentSequence,
+			Timestamp:       response.Timestamp,
+		}
+
+		if err := stream.Send(chunk); err != nil {
+			s.logger.Error().Err(err).Int("chunk", chunkIndex).Msg("Error sending sweep results chunk")
+			return status.Errorf(codes.Internal, "Failed to send chunk: %v", err)
+		}
+	}
+
+	s.logger.Info().
+		Int("total_chunks", totalChunks).
+		Int("total_hosts", totalHosts).
+		Str("sequence", response.CurrentSequence).
+		Msg("Completed streaming sweep results")
+
+	return nil
+}
+
 // handleSweepStreamResults handles StreamResults calls for sweep services with chunking for large datasets.
 func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
 	s.logger.Info().Str("serviceName", req.ServiceName).Str("lastSequence", req.LastSequence).Msg("Handling sweep StreamResults")
 
 	// Find the sweep service
-	for _, svc := range s.services {
-		sweepSvc, ok := svc.(*SweepService)
-		if !ok {
-			continue
-		}
+	sweepSvc := s.findSweepService()
 
-		ctx := stream.Context()
-
-		response, err := sweepSvc.GetSweepResults(ctx, req.LastSequence)
-		if err != nil {
-			s.logger.Error().Err(err).Msg("Failed to get sweep results for streaming")
-			return status.Errorf(codes.Internal, "Failed to get sweep results: %v", err)
-		}
-
-		// Set AgentId and PollerId from the request
-		response.AgentId = s.config.AgentID
-		response.PollerId = req.PollerId
-
-		// If no new data, send empty final chunk
-		if !response.HasNewData || len(response.Data) == 0 {
-			return stream.Send(&proto.ResultsChunk{
-				Data:            []byte("{}"),
-				IsFinal:         true,
-				ChunkIndex:      0,
-				TotalChunks:     1,
-				CurrentSequence: response.CurrentSequence,
-				Timestamp:       response.Timestamp,
-			})
-		}
-
-		// Calculate chunk size to keep each chunk under ~1MB
-		const maxChunkSize = 1024 * 1024 // 1MB
-
-		totalBytes := len(response.Data)
-
-		if totalBytes <= maxChunkSize {
-			// Single chunk case
-			return stream.Send(&proto.ResultsChunk{
-				Data:            response.Data,
-				IsFinal:         true,
-				ChunkIndex:      0,
-				TotalChunks:     1,
-				CurrentSequence: response.CurrentSequence,
-				Timestamp:       response.Timestamp,
-			})
-		}
-
-		// Multi-chunk case: Parse JSON and chunk by complete elements to avoid corruption
-		var sweepData map[string]interface{}
-		
-		if err := json.Unmarshal(response.Data, &sweepData); err != nil {
-			s.logger.Error().Err(err).Msg("Failed to parse sweep data for chunking")
-			return status.Errorf(codes.Internal, "Failed to parse sweep data: %v", err)
-		}
-		
-		// Extract hosts array from the sweep data
-		hostsInterface, ok := sweepData["hosts"]
-		if !ok {
-			s.logger.Error().Msg("No hosts field found in sweep data")
-			return status.Errorf(codes.Internal, "No hosts field found in sweep data")
-		}
-		
-		hosts, ok := hostsInterface.([]interface{})
-		if !ok {
-			s.logger.Error().Msg("Hosts field is not an array")
-			return status.Errorf(codes.Internal, "Hosts field is not an array")
-		}
-		
-		const maxHostsPerChunk = 1000 // Adjust based on your needs
-		totalHosts := len(hosts)
-		totalChunks := (totalHosts + maxHostsPerChunk - 1) / maxHostsPerChunk
-
-		for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
-			start := chunkIndex * maxHostsPerChunk
-
-			end := start + maxHostsPerChunk
-			if end > totalHosts {
-				end = totalHosts
-			}
-
-			// Create chunk with complete host elements and preserve metadata
-			chunkHosts := hosts[start:end]
-			
-			// Create a new sweep data object with the same metadata but subset of hosts
-			chunkData := make(map[string]interface{})
-			for key, value := range sweepData {
-				if key != "hosts" {
-					chunkData[key] = value
-				}
-			}
-			chunkData["hosts"] = chunkHosts
-			
-			chunkBytes, err := json.Marshal(chunkData)
-			if err != nil {
-				s.logger.Error().Err(err).Int("chunk", chunkIndex).Msg("Failed to marshal chunk data")
-				return status.Errorf(codes.Internal, "Failed to send chunk: %v", err)
-			}
-
-			chunk := &proto.ResultsChunk{
-				Data:            chunkBytes,
-				IsFinal:         chunkIndex == totalChunks-1,
-				ChunkIndex:      safeIntToInt32(chunkIndex),
-				TotalChunks:     safeIntToInt32(totalChunks),
-				CurrentSequence: response.CurrentSequence,
-				Timestamp:       response.Timestamp,
-			}
-
-			if err := stream.Send(chunk); err != nil {
-				s.logger.Error().Err(err).Int("chunk", chunkIndex).Msg("Error sending sweep results chunk")
-				return status.Errorf(codes.Internal, "Failed to send chunk: %v", err)
-			}
-		}
-
-		s.logger.Info().
-			Int("total_chunks", totalChunks).
-			Int("total_hosts", totalHosts).
-			Str("sequence", response.CurrentSequence).
-			Msg("Completed streaming sweep results")
-
-		return nil
+	if sweepSvc == nil {
+		s.logger.Error().Msg("No sweep service found for StreamResults")
+		return status.Errorf(codes.NotFound, "No sweep service configured")
 	}
 
-	s.logger.Error().Msg("No sweep service found for StreamResults")
+	ctx := stream.Context()
+	response, err := sweepSvc.GetSweepResults(ctx, req.LastSequence)
 
-	return status.Errorf(codes.NotFound, "No sweep service configured")
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to get sweep results for streaming")
+		return status.Errorf(codes.Internal, "Failed to get sweep results: %v", err)
+	}
+
+	// Set AgentId and PollerId from the request
+	response.AgentId = s.config.AgentID
+	response.PollerId = req.PollerId
+
+	// If no new data, send empty final chunk
+	if !response.HasNewData || len(response.Data) == 0 {
+		return s.sendEmptyChunk(stream, response)
+	}
+
+	// Calculate chunk size to keep each chunk under ~1MB
+	const maxChunkSize = 1024 * 1024 // 1MB
+
+	totalBytes := len(response.Data)
+
+	if totalBytes <= maxChunkSize {
+		// Single chunk case
+		return s.sendSingleChunk(stream, response)
+	}
+
+	// Multi-chunk case: Parse JSON and chunk by complete elements to avoid corruption
+	var sweepData map[string]interface{}
+	if err := json.Unmarshal(response.Data, &sweepData); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to parse sweep data for chunking")
+		return status.Errorf(codes.Internal, "Failed to parse sweep data: %v", err)
+	}
+
+	// Extract hosts array from the sweep data
+	hostsInterface, ok := sweepData["hosts"]
+	if !ok {
+		s.logger.Error().Msg("No hosts field found in sweep data")
+		return status.Errorf(codes.Internal, "No hosts field found in sweep data")
+	}
+
+	hosts, ok := hostsInterface.([]interface{})
+	if !ok {
+		s.logger.Error().Msg("Hosts field is not an array")
+		return status.Errorf(codes.Internal, "Hosts field is not an array")
+	}
+
+	return s.streamMultipleChunks(stream, response, sweepData, hosts)
 }
 
 // handleSweepGetResults handles GetResults calls for sweep services.
