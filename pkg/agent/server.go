@@ -1044,20 +1044,59 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 			})
 		}
 
-		// Multi-chunk case for large datasets (like 20k devices)
-		totalChunks := (totalBytes + maxChunkSize - 1) / maxChunkSize
+		// Multi-chunk case: Parse JSON and chunk by complete elements to avoid corruption
+		var sweepData map[string]interface{}
+		
+		if err := json.Unmarshal(response.Data, &sweepData); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to parse sweep data for chunking")
+			return status.Errorf(codes.Internal, "Failed to parse sweep data: %v", err)
+		}
+		
+		// Extract hosts array from the sweep data
+		hostsInterface, ok := sweepData["hosts"]
+		if !ok {
+			s.logger.Error().Msg("No hosts field found in sweep data")
+			return status.Errorf(codes.Internal, "No hosts field found in sweep data")
+		}
+		
+		hosts, ok := hostsInterface.([]interface{})
+		if !ok {
+			s.logger.Error().Msg("Hosts field is not an array")
+			return status.Errorf(codes.Internal, "Hosts field is not an array")
+		}
+		
+		const maxHostsPerChunk = 1000 // Adjust based on your needs
+		totalHosts := len(hosts)
+		totalChunks := (totalHosts + maxHostsPerChunk - 1) / maxHostsPerChunk
 
 		for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
-			start := chunkIndex * maxChunkSize
+			start := chunkIndex * maxHostsPerChunk
 
-			end := start + maxChunkSize
-			if end > totalBytes {
-				end = totalBytes
+			end := start + maxHostsPerChunk
+			if end > totalHosts {
+				end = totalHosts
 			}
 
-			chunkData := response.Data[start:end]
+			// Create chunk with complete host elements and preserve metadata
+			chunkHosts := hosts[start:end]
+			
+			// Create a new sweep data object with the same metadata but subset of hosts
+			chunkData := make(map[string]interface{})
+			for key, value := range sweepData {
+				if key != "hosts" {
+					chunkData[key] = value
+				}
+			}
+			chunkData["hosts"] = chunkHosts
+			
+			chunkBytes, err := json.Marshal(chunkData)
+			if err != nil {
+				s.logger.Error().Err(err).Int("chunk", chunkIndex).Msg("Failed to marshal chunk data")
+				return status.Errorf(codes.Internal, "Failed to send chunk: %v", err)
+			}
+
 			chunk := &proto.ResultsChunk{
-				Data:            chunkData,
+				Data:            chunkBytes,
 				IsFinal:         chunkIndex == totalChunks-1,
 				ChunkIndex:      safeIntToInt32(chunkIndex),
 				TotalChunks:     safeIntToInt32(totalChunks),
@@ -1073,7 +1112,7 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 
 		s.logger.Info().
 			Int("total_chunks", totalChunks).
-			Int("total_bytes", totalBytes).
+			Int("total_hosts", totalHosts).
 			Str("sequence", response.CurrentSequence).
 			Msg("Completed streaming sweep results")
 
