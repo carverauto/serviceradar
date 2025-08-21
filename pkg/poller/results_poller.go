@@ -96,21 +96,22 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 	}
 
 	startTime := time.Now()
-	mergedDevices, finalChunk, err := rp.processStreamChunks(ctx, stream, req.ServiceName)
+	mergedDevices, finalChunk, metadata, err := rp.processStreamChunks(ctx, stream, req.ServiceName)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return rp.buildFinalResponse(req, mergedDevices, finalChunk, startTime)
+	return rp.buildFinalResponse(req, mergedDevices, finalChunk, metadata, startTime)
 }
 
 // processStreamChunks processes all chunks from the stream and returns merged devices and final chunk
 func (rp *ResultsPoller) processStreamChunks(_ context.Context,
-	stream proto.AgentService_StreamResultsClient, serviceName string) ([]interface{}, *proto.ResultsChunk, error) {
+	stream proto.AgentService_StreamResultsClient, serviceName string) ([]interface{}, *proto.ResultsChunk, map[string]interface{}, error) {
 	var mergedDevices []interface{}
 
 	var finalChunk *proto.ResultsChunk
+	var sweepMetadata map[string]interface{} // Store metadata from first chunk
 
 	chunksReceived := 0
 
@@ -127,7 +128,7 @@ func (rp *ResultsPoller) processStreamChunks(_ context.Context,
 				Int("chunks_received", chunksReceived).
 				Msg("Error receiving chunk from stream")
 
-			return nil, nil, fmt.Errorf("failed to receive chunk: %w", streamErr)
+			return nil, nil, nil, fmt.Errorf("failed to receive chunk: %w", streamErr)
 		}
 
 		chunksReceived++
@@ -140,9 +141,14 @@ func (rp *ResultsPoller) processStreamChunks(_ context.Context,
 			Msg("Received chunk")
 
 		// Process this chunk
-		chunkDevices, err := rp.processChunk(chunk, serviceName)
+		chunkDevices, chunkMetadata, err := rp.processChunk(chunk, serviceName)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
+		}
+
+		// Store metadata from first chunk for sweep services
+		if chunksReceived == 1 && chunkMetadata != nil {
+			sweepMetadata = chunkMetadata
 		}
 
 		// Merge devices from this chunk
@@ -170,28 +176,54 @@ func (rp *ResultsPoller) processStreamChunks(_ context.Context,
 			Int("chunks_received", chunksReceived).
 			Msg("Stream completed without a final chunk")
 
-		return nil, nil, fmt.Errorf("stream completed without a final chunk")
+		return nil, nil, nil, fmt.Errorf("stream completed without a final chunk")
 	}
 
-	return mergedDevices, finalChunk, nil
+	return mergedDevices, finalChunk, sweepMetadata, nil
 }
 
-// processChunk processes a single chunk and returns the devices from it
-func (rp *ResultsPoller) processChunk(chunk *proto.ResultsChunk, serviceName string) ([]interface{}, error) {
+// processChunk processes a single chunk and returns the devices from it and any metadata
+func (rp *ResultsPoller) processChunk(chunk *proto.ResultsChunk, serviceName string) ([]interface{}, map[string]interface{}, error) {
 	var chunkDevices []interface{}
 
-	if len(chunk.Data) > 0 {
-		if unmarshalErr := json.Unmarshal(chunk.Data, &chunkDevices); unmarshalErr != nil {
-			rp.logger.Error().Err(unmarshalErr).
-				Str("service_name", serviceName).
-				Int("chunk_index", int(chunk.ChunkIndex)).
-				Msg("Failed to parse chunk data as JSON array")
+	var chunkMetadata map[string]interface{}
 
-			return nil, fmt.Errorf("failed to parse chunk data: %w", unmarshalErr)
+	if len(chunk.Data) > 0 {
+		// First try to parse as array (legacy format)
+		if unmarshalErr := json.Unmarshal(chunk.Data, &chunkDevices); unmarshalErr != nil {
+			// If that fails, try to parse as object with hosts field (new format)
+			var chunkData map[string]interface{}
+			if objErr := json.Unmarshal(chunk.Data, &chunkData); objErr != nil {
+				rp.logger.Error().Err(unmarshalErr).
+					Str("service_name", serviceName).
+					Int("chunk_index", int(chunk.ChunkIndex)).
+					Msg("Failed to parse chunk data as JSON array or object")
+
+				return nil, nil, fmt.Errorf("failed to parse chunk data: %w", unmarshalErr)
+			}
+			
+			// Extract hosts from the object
+			if hostsInterface, ok := chunkData["hosts"]; ok {
+				if hosts, ok := hostsInterface.([]interface{}); ok {
+					chunkDevices = hosts
+				} else {
+					return nil, nil, fmt.Errorf("hosts field is not an array in chunk data")
+				}
+			} else {
+				return nil, nil, fmt.Errorf("no hosts field found in chunk data")
+			}
+			
+			// Store metadata (excluding hosts array)
+			chunkMetadata = make(map[string]interface{})
+			for key, value := range chunkData {
+				if key != "hosts" {
+					chunkMetadata[key] = value
+				}
+			}
 		}
 	}
 
-	return chunkDevices, nil
+	return chunkDevices, chunkMetadata, nil
 }
 
 // buildFinalResponse constructs the final ResultsResponse from merged data
@@ -199,17 +231,33 @@ func (rp *ResultsPoller) buildFinalResponse(
 	req *proto.ResultsRequest,
 	mergedDevices []interface{},
 	finalChunk *proto.ResultsChunk,
+	metadata map[string]interface{},
 	startTime time.Time,
 ) (*proto.ResultsResponse, error) {
-	// Marshal the merged devices back to JSON
-	mergedData, err := json.Marshal(mergedDevices)
+	var mergedData []byte
+	var err error
+	
+	// For sweep services, we need to reconstruct the original object format
+	if req.ServiceType == "sweep" && metadata != nil {
+		// Reconstruct the sweep object with preserved metadata and merged hosts
+		sweepObject := make(map[string]interface{})
+		for key, value := range metadata {
+			sweepObject[key] = value
+		}
+		sweepObject["hosts"] = mergedDevices
+		mergedData, err = json.Marshal(sweepObject)
+	} else {
+		// For other services, marshal the devices directly
+		mergedData, err = json.Marshal(mergedDevices)
+	}
+	
 	if err != nil {
 		rp.logger.Error().Err(err).
 			Str("service_name", req.ServiceName).
 			Int("total_devices", len(mergedDevices)).
-			Msg("Failed to marshal merged devices")
+			Msg("Failed to marshal merged data")
 
-		return nil, fmt.Errorf("failed to marshal merged devices: %w", err)
+		return nil, fmt.Errorf("failed to marshal merged data: %w", err)
 	}
 
 	rp.logger.Info().
