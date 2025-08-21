@@ -628,6 +628,7 @@ func (a *ArmisIntegration) processDevices(
 			a.Logger.Warn().
 				Int("device_id", d.ID).
 				Msg("Device has no IP addresses")
+
 			continue
 		}
 
@@ -641,6 +642,7 @@ func (a *ArmisIntegration) processDevices(
 				Err(err).
 				Int("device_id", d.ID).
 				Msg("Failed to create enriched device data")
+
 			continue
 		}
 
@@ -651,40 +653,47 @@ func (a *ArmisIntegration) processDevices(
 
 		// Marshal event for KV storage (store under primary IP)
 		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, primaryIP)
+
 		eventData, err := json.Marshal(event)
 		if err != nil {
 			a.Logger.Error().
 				Err(err).
 				Int("device_id", d.ID).
 				Msg("Failed to marshal device event")
+
 			continue
 		}
 
 		data[kvKey] = eventData
+
 		events = append(events, event)
 
-		// Create device targets for ALL IP addresses
+		// Create a single device target containing ALL IP addresses in metadata
 		queryConfig := deviceQueries[d.ID]
+
+		// Add all IPs to the sweep config networks list
 		for _, ip := range allIPs {
 			ips = append(ips, ip+"/32")
-			
-			deviceTarget := models.DeviceTarget{
-				Network:    ip + "/32",
-				SweepModes: queryConfig.SweepModes,
-				QueryLabel: queryConfig.Label,
-				Source:     "armis",
-				Metadata: map[string]string{
-					"integration_type":  "armis",
-					"integration_id":    fmt.Sprintf("%d", d.ID),
-					"armis_device_id":   fmt.Sprintf("%d", d.ID),
-					"query_label":       queryConfig.Label,
-					"primary_ip":        primaryIP,
-					"all_ips":           strings.Join(allIPs, ","),
-					"is_primary":        fmt.Sprintf("%t", ip == primaryIP),
-				},
-			}
-			deviceTargets = append(deviceTargets, deviceTarget)
 		}
+
+		// Create a single device target using primary IP but containing all IPs in metadata
+		deviceTarget := models.DeviceTarget{
+			Network:    primaryIP + "/32",
+			SweepModes: queryConfig.SweepModes,
+			QueryLabel: queryConfig.Label,
+			Source:     "armis",
+			Metadata: map[string]string{
+				"integration_type": "armis",
+				"integration_id":   fmt.Sprintf("%d", d.ID),
+				"armis_device_id":  fmt.Sprintf("%d", d.ID),
+				"query_label":      queryConfig.Label,
+				"primary_ip":       primaryIP,
+				"all_ips":          strings.Join(allIPs, ","),
+				"ip_count":         fmt.Sprintf("%d", len(allIPs)),
+				"device_name":      d.Name,
+			},
+		}
+		deviceTargets = append(deviceTargets, deviceTarget)
 
 		a.Logger.Debug().
 			Int("device_id", d.ID).
@@ -695,25 +704,6 @@ func (a *ArmisIntegration) processDevices(
 	}
 
 	return data, ips, events, deviceTargets
-}
-
-// createEnrichedDeviceData creates enriched device data for KV storage
-func (*ArmisIntegration) createEnrichedDeviceData(d *Device, queryLabel string) ([]byte, error) {
-	tag := ""
-	if len(d.Tags) > 0 {
-		tag = strings.Join(d.Tags, ",")
-	}
-
-	enriched := DeviceWithMetadata{
-		Device: *d,
-		Metadata: map[string]string{
-			"armis_device_id": fmt.Sprintf("%d", d.ID),
-			"tag":             tag,
-			"query_label":     queryLabel,
-		},
-	}
-
-	return json.Marshal(enriched)
 }
 
 // createEnrichedDeviceDataWithAllIPs creates enriched device data with all IP addresses in metadata
@@ -737,41 +727,10 @@ func (*ArmisIntegration) createEnrichedDeviceDataWithAllIPs(d *Device, queryLabe
 	return json.Marshal(enriched)
 }
 
-// createDeviceUpdateEvent creates a DeviceUpdate event from an Armis device
-func (a *ArmisIntegration) createDeviceUpdateEvent(d *Device, ip, queryLabel string, timestamp time.Time) *models.DeviceUpdate {
-	tag := ""
-	if len(d.Tags) > 0 {
-		tag = strings.Join(d.Tags, ",")
-	}
-
-	hostname := d.Name
-	mac := d.MacAddress
-	deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
-
-	event := &models.DeviceUpdate{
-		AgentID:   a.Config.AgentID,
-		PollerID:  a.Config.PollerID,
-		Source:    models.DiscoverySourceArmis,
-		DeviceID:  deviceID,
-		Partition: a.Config.Partition,
-		IP:        ip,
-		MAC:       &mac,
-		Hostname:  &hostname,
-		Timestamp: timestamp,
-		Metadata: map[string]string{
-			"integration_type": "armis",
-			"integration_id":   fmt.Sprintf("%d", d.ID),
-			"armis_device_id":  fmt.Sprintf("%d", d.ID),
-			"tag":              tag,
-			"query_label":      queryLabel,
-		},
-	}
-
-	return event
-}
-
 // createDeviceUpdateEventWithAllIPs creates a DeviceUpdate event with all IP addresses in metadata
-func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(d *Device, primaryIP string, allIPs []string, queryLabel string, timestamp time.Time) *models.DeviceUpdate {
+func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
+	d *Device, primaryIP string, allIPs []string, queryLabel string, timestamp time.Time,
+) *models.DeviceUpdate {
 	tag := ""
 	if len(d.Tags) > 0 {
 		tag = strings.Join(d.Tags, ",")

@@ -327,8 +327,10 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 func generateUniqueIPs(index int) string {
 	// Determine how many IPs this device should have
 	// 60% have 1 IP, 25% have 2-3 IPs, 10% have 4-5 IPs, 5% have 6+ IPs
-	numIPs := 1
 	mod := index % 100
+
+	var numIPs int
+
 	switch {
 	case mod < 60:
 		numIPs = 1
@@ -341,16 +343,15 @@ func generateUniqueIPs(index int) string {
 	}
 
 	ips := make([]string, numIPs)
-	
 	// Generate primary IP
 	ips[0] = generateSingleIP(index, 0)
-	
+
 	// Generate additional IPs for multi-homed devices
 	for i := 1; i < numIPs; i++ {
 		// Use a different offset to get IPs from different ranges
 		ips[i] = generateSingleIP(index, i*1000)
 	}
-	
+
 	return strings.Join(ips, ",")
 }
 
@@ -358,7 +359,7 @@ func generateUniqueIPs(index int) string {
 func generateSingleIP(index, offset int) string {
 	// Apply offset to simulate different network interfaces
 	effectiveIndex := index + offset
-	
+
 	// Define network ranges with different sizes to simulate realistic environments
 	networkRanges := []struct {
 		base string
@@ -768,9 +769,9 @@ func generateBoundary(ips, deviceType string) string {
 	if len(ipList) == 0 {
 		return "Corporate"
 	}
-	
+
 	ip := strings.TrimSpace(ipList[0])
-	
+
 	switch {
 	case strings.HasPrefix(ip, "192.168.1.") || strings.HasPrefix(ip, "192.168.2.") || strings.HasPrefix(ip, "10.0.0."):
 		return "Corporate LAN"
