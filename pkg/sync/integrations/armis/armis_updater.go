@@ -40,17 +40,17 @@ func extractAllIPs(ipList string) []string {
 	if ipList == "" {
 		return []string{}
 	}
-	
+
 	ips := strings.Split(ipList, ",")
 	result := make([]string, 0, len(ips))
-	
+
 	for _, ip := range ips {
 		trimmed := strings.TrimSpace(ip)
 		if trimmed != "" {
 			result = append(result, trimmed)
 		}
 	}
-	
+
 	return result
 }
 
