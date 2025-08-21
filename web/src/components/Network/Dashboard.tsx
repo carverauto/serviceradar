@@ -307,6 +307,8 @@ SNMPDevicesView.displayName = 'SNMPDevicesView';
 const DeviceUpdatesView: React.FC = React.memo(() => {
     const { token } = useAuth();
     const [deviceUpdates, setDeviceUpdates] = useState<DeviceUpdates[]>([]);
+    const [totalSweepDevices, setTotalSweepDevices] = useState<number>(0);
+    const [loadingTotal, setLoadingTotal] = useState(true);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'summary' | 'hosts'>('summary');
@@ -317,7 +319,40 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
         hasMore: boolean;
     }>({ nextCursor: null, prevCursor: null, hasMore: false });
 
-    const fetchDeviceUpdates = useCallback(async (cursor?: string, direction: 'next' | 'prev' = 'next', limit = 1000) => {
+    const fetchTotalSweepDevices = useCallback(async () => {
+        setLoadingTotal(true);
+        try {
+            // Use COUNT query to get total sweep devices efficiently
+            const response = await fetch('/api/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token && { 'Authorization': `Bearer ${token}` })
+                },
+                body: JSON.stringify({
+                    query: "COUNT DEVICES WHERE discovery_sources = 'sweep'",
+                    limit: 1
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            const totalDevices = data.results?.[0]?.['count()'] || 0;
+            console.log('COUNT query result:', data);
+            console.log('Setting totalSweepDevices to:', totalDevices);
+            setTotalSweepDevices(totalDevices);
+        } catch (error) {
+            console.error('Failed to fetch total sweep devices count:', error);
+            setTotalSweepDevices(0);
+        } finally {
+            setLoadingTotal(false);
+        }
+    }, [token]);
+
+    const fetchDeviceUpdates = useCallback(async (cursor?: string, direction: 'next' | 'prev' = 'next', limit = 20) => {
         setLoading(true);
         setError(null);
 
@@ -358,7 +393,8 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
 
     useEffect(() => {
         fetchDeviceUpdates();
-    }, [fetchDeviceUpdates]);
+        fetchTotalSweepDevices();
+    }, [fetchDeviceUpdates, fetchTotalSweepDevices]);
 
     const parseMetadata = (metadata: Record<string, unknown> | string | undefined): Record<string, unknown> => {
         if (!metadata) return {};
@@ -388,9 +424,9 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
     }, [deviceUpdates]);
 
     const aggregatedStats = useMemo(() => {
-        if (!uniqueHosts.length) return null;
+        if (!totalSweepDevices && !uniqueHosts.length) return null;
 
-        const totalHosts = uniqueHosts.length;
+        const totalHosts = totalSweepDevices;
         const respondingHosts = uniqueHosts.filter(result => result.is_available).length;
         
         // Try to parse metadata for detailed stats (if available)
@@ -442,7 +478,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
             totalOpenPorts,
             avgResponseTime
         };
-    }, [uniqueHosts]);
+    }, [totalSweepDevices, uniqueHosts]);
 
     const filteredResults = useMemo(() => {
         if (!searchTerm) return uniqueHosts;
@@ -489,6 +525,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                         title="Total Hosts Scanned"
                         value={aggregatedStats.totalHosts.toLocaleString()}
                         icon={<Server size={24} />}
+                        isLoading={loadingTotal}
                     />
                     <StatCard
                         title="Responding Hosts"
@@ -553,7 +590,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
             {viewMode === 'summary' ? (
                 <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-6">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Recent Sweep Results ({uniqueHosts.length} unique hosts, {deviceUpdates.length} total records)
+                        Recent Sweep Results ({uniqueHosts.length} showing from {totalSweepDevices.toLocaleString()} total scanned hosts)
                     </h3>
                     
                     {uniqueHosts.length === 0 ? (
@@ -766,7 +803,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                             </button>
                             
                             <span className="text-sm text-gray-600 dark:text-gray-400">
-                                Showing {deviceUpdates.length} results
+                                Showing {uniqueHosts.length} of {totalSweepDevices.toLocaleString()} total scanned hosts
                             </span>
                             
                             <button

@@ -43,8 +43,8 @@ export async function GET(req: NextRequest) {
       headers["Authorization"] = authHeader;
     }
 
-    // Query the devices using SRQL syntax with proper pagination
-    const query = `show devices order by last_seen desc`;
+    // Query the devices using SRQL syntax with proper pagination, filtering for sweep devices only
+    const query = `show devices where discovery_sources = 'sweep' order by last_seen desc`;
     
     // Build request body with pagination
     const requestBody: {
