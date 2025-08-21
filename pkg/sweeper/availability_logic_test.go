@@ -512,3 +512,275 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 		sweeper.finalizeDeviceAggregators(context.Background())
 	})
 }
+
+// TestTCPOnlyArmisScenarios tests TCP-only queries for Armis integration to verify
+// that successful TCP scans mark devices as available without requiring ICMP.
+// This validates production networks where ICMP might be allowed but TCP should be blocked.
+func TestTCPOnlyArmisScenarios(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := NewMockStore(ctrl)
+	mockProcessor := NewMockResultProcessor(ctrl)
+	mockDeviceRegistry := NewMockDeviceRegistryService(ctrl)
+
+	// Create a TCP-only configuration for Armis devices
+	config := &models.Config{
+		DeviceTargets: []models.DeviceTarget{
+			{
+				Network:    "192.168.1.100/32",                 // Single IP for focused testing
+				SweepModes: []models.SweepMode{models.ModeTCP}, // TCP ONLY - no ICMP
+				QueryLabel: "armis_tcp_only_devices",
+				Source:     "armis",
+				Metadata: map[string]string{
+					"armis_device_id": "tcp-test-device-456",
+					"all_ips":         "192.168.1.100,10.1.1.100", // Multiple IPs for this device
+					"primary_ip":      "192.168.1.100",
+					"agent_id":        "tcp-test-agent",
+					"poller_id":       "tcp-test-poller",
+					"partition":       "tcp-test-partition",
+				},
+			},
+		},
+		Ports:     []int{22, 80, 443}, // Common ports for TCP scanning
+		Interval:  time.Minute,
+		AgentID:   "tcp-test-agent",
+		PollerID:  "tcp-test-poller",
+		Partition: "tcp-test-partition",
+	}
+
+	sweeper := &NetworkSweeper{
+		config:         config,
+		store:          mockStore,
+		processor:      mockProcessor,
+		deviceRegistry: mockDeviceRegistry,
+		logger:         logger.NewTestLogger(),
+		deviceResults:  make(map[string]*DeviceResultAggregator),
+	}
+
+	t.Run("TCP-only: single port success marks device available", func(t *testing.T) {
+		// Generate targets and prepare aggregators
+		targets, err := sweeper.generateTargets()
+		require.NoError(t, err)
+		require.NotEmpty(t, targets)
+
+		sweeper.prepareDeviceAggregators(targets)
+
+		// Simulate TCP scan results where only port 22 on IP1 succeeds
+		deviceMeta := map[string]interface{}{"armis_device_id": "tcp-test-device-456"}
+		mockResults := []*models.Result{
+			// IP1: Port 22 succeeds, others fail
+			{
+				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
+				Available: true, // SSH port is open
+			},
+			{
+				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
+				Available: false, // HTTP port closed
+			},
+			{
+				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
+				Available: false, // HTTPS port closed
+			},
+			// IP2: All TCP ports fail
+			{
+				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
+				Available: false,
+			},
+			{
+				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
+				Available: false,
+			},
+			{
+				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
+				Available: false,
+			},
+		}
+
+		// Set up expectations for regular result processing
+		for _, result := range mockResults {
+			mockProcessor.EXPECT().Process(result).Return(nil)
+			mockStore.EXPECT().SaveResult(gomock.Any(), result).Return(nil)
+		}
+
+		// Set up device registry expectation - device should be available due to TCP success
+		mockDeviceRegistry.EXPECT().
+			UpdateDevice(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, update *models.DeviceUpdate) error {
+				// CRITICAL: Device should be available despite no ICMP checks
+				assert.True(t, update.IsAvailable,
+					"Device should be available with TCP-only scan when any TCP port succeeds")
+
+				// Verify metadata shows TCP success
+				assert.Equal(t, "192.168.1.100", update.Metadata["scan_available_ips"])
+				assert.Contains(t, update.Metadata["scan_unavailable_ips"], "10.1.1.100")
+
+				// Should show ~16.7% availability (1 success out of 6 total TCP scans)
+				assert.Equal(t, "16.7", update.Metadata["scan_availability_percent"])
+				assert.Equal(t, "1", update.Metadata["scan_available_count"])
+				assert.Equal(t, "5", update.Metadata["scan_unavailable_count"])
+
+				return nil
+			})
+
+		// Process results through the normal flow
+		for _, result := range mockResults {
+			err := sweeper.processResult(context.Background(), result)
+			require.NoError(t, err)
+		}
+
+		// Finalize aggregators to trigger device update
+		sweeper.finalizeDeviceAggregators(context.Background())
+	})
+
+	t.Run("TCP-only: all TCP ports fail - device unavailable", func(t *testing.T) {
+		// Reset aggregators for clean test
+		sweeper.deviceResults = make(map[string]*DeviceResultAggregator)
+
+		// Generate targets and prepare aggregators
+		targets, err := sweeper.generateTargets()
+		require.NoError(t, err)
+
+		sweeper.prepareDeviceAggregators(targets)
+
+		// Simulate TCP scan results where ALL TCP ports fail on all IPs
+		deviceMeta := map[string]interface{}{"armis_device_id": "tcp-test-device-456"}
+		mockResults := []*models.Result{
+			// IP1: All TCP ports fail
+			{
+				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
+				Available: false,
+			},
+			{
+				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
+				Available: false,
+			},
+			{
+				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
+				Available: false,
+			},
+			// IP2: All TCP ports fail
+			{
+				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
+				Available: false,
+			},
+			{
+				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
+				Available: false,
+			},
+			{
+				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
+				Available: false,
+			},
+		}
+
+		// Set up expectations for regular result processing
+		for _, result := range mockResults {
+			mockProcessor.EXPECT().Process(result).Return(nil)
+			mockStore.EXPECT().SaveResult(gomock.Any(), result).Return(nil)
+		}
+
+		// Set up device registry expectation - device should be unavailable
+		mockDeviceRegistry.EXPECT().
+			UpdateDevice(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, update *models.DeviceUpdate) error {
+				// Device should be unavailable when all TCP ports fail
+				assert.False(t, update.IsAvailable,
+					"Device should be unavailable in TCP-only scan when all TCP ports fail")
+
+				// Verify metadata shows no available IPs
+				assert.Equal(t, "", update.Metadata["scan_available_ips"])
+				assert.Equal(t, "0.0", update.Metadata["scan_availability_percent"])
+				assert.Equal(t, "0", update.Metadata["scan_available_count"])
+				assert.Equal(t, "6", update.Metadata["scan_unavailable_count"])
+
+				return nil
+			})
+
+		// Process results through the normal flow
+		for _, result := range mockResults {
+			err := sweeper.processResult(context.Background(), result)
+			require.NoError(t, err)
+		}
+
+		// Finalize aggregators to trigger device update
+		sweeper.finalizeDeviceAggregators(context.Background())
+	})
+
+	t.Run("TCP-only: mixed IP results - any TCP success makes available", func(t *testing.T) {
+		// Reset aggregators for clean test
+		sweeper.deviceResults = make(map[string]*DeviceResultAggregator)
+
+		// Generate targets and prepare aggregators
+		targets, err := sweeper.generateTargets()
+		require.NoError(t, err)
+
+		sweeper.prepareDeviceAggregators(targets)
+
+		// Simulate scenario where IP1 has all TCP ports closed but IP2 has one open
+		deviceMeta := map[string]interface{}{"armis_device_id": "tcp-test-device-456"}
+		mockResults := []*models.Result{
+			// IP1: All TCP ports fail (device might be blocking TCP as expected)
+			{
+				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
+				Available: false,
+			},
+			{
+				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
+				Available: false,
+			},
+			{
+				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
+				Available: false,
+			},
+			// IP2: HTTPS port is open (compliance violation - should be blocked)
+			{
+				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
+				Available: false,
+			},
+			{
+				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
+				Available: false,
+			},
+			{
+				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
+				Available: true, // Non-compliant: HTTPS should be blocked but isn't
+			},
+		}
+
+		// Set up expectations for regular result processing
+		for _, result := range mockResults {
+			mockProcessor.EXPECT().Process(result).Return(nil)
+			mockStore.EXPECT().SaveResult(gomock.Any(), result).Return(nil)
+		}
+
+		// Set up device registry expectation - device should be available and flagged as non-compliant
+		mockDeviceRegistry.EXPECT().
+			UpdateDevice(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, update *models.DeviceUpdate) error {
+				// CRITICAL: Device is reachable via TCP (non-compliant)
+				assert.True(t, update.IsAvailable,
+					"Device should be marked available when any TCP port succeeds, indicating non-compliance")
+
+				// Verify the specific IP that has open TCP port is identified
+				assert.Equal(t, "10.1.1.100", update.Metadata["scan_available_ips"])
+				assert.Contains(t, update.Metadata["scan_unavailable_ips"], "192.168.1.100")
+
+				// Should show ~16.7% availability (1 success out of 6 total TCP scans)
+				assert.Equal(t, "16.7", update.Metadata["scan_availability_percent"])
+				assert.Equal(t, "1", update.Metadata["scan_available_count"])
+				assert.Equal(t, "5", update.Metadata["scan_unavailable_count"])
+
+				return nil
+			})
+
+		// Process results through the normal flow
+		for _, result := range mockResults {
+			err := sweeper.processResult(context.Background(), result)
+			require.NoError(t, err)
+		}
+
+		// Finalize aggregators to trigger device update
+		sweeper.finalizeDeviceAggregators(context.Background())
+	})
+}
