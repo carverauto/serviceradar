@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,6 +59,21 @@ type NetworkSweeper struct {
 	done           chan struct{}
 	watchDone      chan struct{}
 	lastSweep      time.Time
+	// Device result aggregation for multi-IP devices
+	deviceResults map[string]*DeviceResultAggregator
+	resultsMu     sync.Mutex
+}
+
+// DeviceResultAggregator aggregates scan results for a device with multiple IPs
+type DeviceResultAggregator struct {
+	DeviceID    string
+	Results     []*models.Result
+	ExpectedIPs []string
+	Metadata    map[string]interface{}
+	AgentID     string
+	PollerID    string
+	Partition   string
+	mu          sync.Mutex
 }
 
 var (
@@ -121,6 +137,7 @@ func NewNetworkSweeper(
 		logger:         log,
 		done:           make(chan struct{}),
 		watchDone:      make(chan struct{}),
+		deviceResults:  make(map[string]*DeviceResultAggregator),
 	}, nil
 }
 
@@ -688,6 +705,9 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
 
+	// Prepare device result aggregators for multi-IP devices
+	s.prepareDeviceAggregators(targets)
+
 	var icmpTargets, tcpTargets []models.Target
 
 	for _, t := range targets {
@@ -731,6 +751,9 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		return tcpErr
 	}
 
+	// Finalize and process aggregated device results
+	s.finalizeDeviceAggregators(ctx)
+
 	s.logger.Info().Msg("Sweep completed successfully")
 
 	return nil
@@ -744,6 +767,12 @@ func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Resul
 	// Process basic result handling
 	if err := s.processBasicResult(ctx, result); err != nil {
 		return err
+	}
+
+	// Check if this result should be aggregated for a multi-IP device
+	if s.shouldAggregateResult(result) {
+		s.addResultToAggregator(result)
+		return nil // Don't process immediately through device registry
 	}
 
 	// Process through unified device registry for all results (both available and unavailable)
@@ -901,20 +930,43 @@ func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Tar
 
 // generateTargetsForDeviceTarget creates targets for a device target configuration
 func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.DeviceTarget) (targets []models.Target, hostCount int) {
-	ips, err := scan.ExpandCIDR(deviceTarget.Network)
-	if err != nil {
-		s.logger.Warn().
-			Err(err).
-			Str("network", deviceTarget.Network).
-			Str("query_label", deviceTarget.QueryLabel).
-			Msg("Failed to expand device target CIDR, skipping")
+	// Check if this device target has multiple IPs specified in metadata
+	var targetIPs []string
 
-		return targets, hostCount
+	if allIPsStr, hasAllIPs := deviceTarget.Metadata["all_ips"]; hasAllIPs {
+		// Parse comma-separated list of IPs
+		allIPs := strings.Split(allIPsStr, ",")
+		for _, ip := range allIPs {
+			trimmed := strings.TrimSpace(ip)
+			if trimmed != "" {
+				targetIPs = append(targetIPs, trimmed)
+			}
+		}
+
+		s.logger.Debug().
+			Str("device_target", deviceTarget.Network).
+			Strs("all_ips", targetIPs).
+			Str("armis_device_id", deviceTarget.Metadata["armis_device_id"]).
+			Msg("Device target has multiple IPs - will scan all of them")
+	} else {
+		// Fall back to expanding the CIDR normally
+		ips, err := scan.ExpandCIDR(deviceTarget.Network)
+		if err != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("network", deviceTarget.Network).
+				Str("query_label", deviceTarget.QueryLabel).
+				Msg("Failed to expand device target CIDR, skipping")
+
+			return targets, hostCount
+		}
+
+		targetIPs = ips
 	}
 
 	metadata := map[string]interface{}{
 		"network":     deviceTarget.Network,
-		"total_hosts": len(ips),
+		"total_hosts": len(targetIPs),
 		"source":      deviceTarget.Source,
 		"query_label": deviceTarget.QueryLabel,
 	}
@@ -930,11 +982,11 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 		sweepModes = s.config.SweepModes
 	}
 
-	for _, ip := range ips {
+	for _, ip := range targetIPs {
 		targets = append(targets, s.createTargetsForIP(ip, sweepModes, metadata)...)
 	}
 
-	hostCount = len(ips)
+	hostCount = len(targetIPs)
 
 	return targets, hostCount
 }
@@ -1004,4 +1056,292 @@ func containsMode(modes []models.SweepMode, mode models.SweepMode) bool {
 	}
 
 	return false
+}
+
+// prepareDeviceAggregators initializes result aggregators for devices with multiple IPs
+func (s *NetworkSweeper) prepareDeviceAggregators(targets []models.Target) {
+	s.resultsMu.Lock()
+	defer s.resultsMu.Unlock()
+
+	// Clear previous aggregators
+	s.deviceResults = make(map[string]*DeviceResultAggregator)
+
+	// Group targets by device
+	deviceTargets := make(map[string][]models.Target)
+	deviceMetadata := make(map[string]map[string]interface{})
+
+	for _, target := range targets {
+		deviceID := s.extractDeviceID(target)
+		if deviceID != "" {
+			deviceTargets[deviceID] = append(deviceTargets[deviceID], target)
+
+			if len(deviceMetadata[deviceID]) == 0 && target.Metadata != nil {
+				deviceMetadata[deviceID] = target.Metadata
+			}
+		}
+	}
+
+	// Create aggregators for devices with multiple IPs
+	for deviceID, targets := range deviceTargets {
+		if len(targets) <= 1 {
+			continue
+		}
+
+		var expectedIPs []string
+		for _, t := range targets {
+			expectedIPs = append(expectedIPs, t.Host)
+		}
+
+		agentID, pollerID, partition := s.extractAgentInfoFromMetadata(deviceMetadata[deviceID])
+
+		s.deviceResults[deviceID] = &DeviceResultAggregator{
+			DeviceID:    deviceID,
+			Results:     make([]*models.Result, 0, len(targets)),
+			ExpectedIPs: expectedIPs,
+			Metadata:    deviceMetadata[deviceID],
+			AgentID:     agentID,
+			PollerID:    pollerID,
+			Partition:   partition,
+		}
+
+		s.logger.Debug().
+			Str("deviceID", deviceID).
+			Strs("expectedIPs", expectedIPs).
+			Msg("Created device result aggregator for multi-IP device")
+	}
+}
+
+// extractDeviceID extracts a unique device identifier from target metadata
+func (*NetworkSweeper) extractDeviceID(target models.Target) string {
+	if target.Metadata == nil {
+		return ""
+	}
+
+	// Try armis_device_id first
+	if armisID, ok := target.Metadata["armis_device_id"]; ok {
+		if str, ok := armisID.(string); ok && str != "" {
+			return "armis:" + str
+		}
+	}
+
+	// Try integration_id
+	if integrationID, ok := target.Metadata["integration_id"]; ok {
+		if str, ok := integrationID.(string); ok && str != "" {
+			return "integration:" + str
+		}
+	}
+
+	return ""
+}
+
+// extractAgentInfoFromMetadata extracts agent info from metadata
+func (s *NetworkSweeper) extractAgentInfoFromMetadata(metadata map[string]interface{}) (agentID, pollerID, partition string) {
+	agentID = defaultName
+	pollerID = defaultName
+	partition = defaultName
+
+	if s.config.AgentID != "" {
+		agentID = s.config.AgentID
+	}
+
+	if s.config.PollerID != "" {
+		pollerID = s.config.PollerID
+	}
+
+	if s.config.Partition != "" {
+		partition = s.config.Partition
+	}
+
+	if metadata != nil {
+		if id, ok := metadata["agent_id"].(string); ok && id != "" {
+			agentID = id
+		}
+
+		if id, ok := metadata["poller_id"].(string); ok && id != "" {
+			pollerID = id
+		}
+
+		if p, ok := metadata["partition"].(string); ok && p != "" {
+			partition = p
+		}
+	}
+
+	return agentID, pollerID, partition
+}
+
+// shouldAggregateResult checks if a result should be aggregated
+func (s *NetworkSweeper) shouldAggregateResult(result *models.Result) bool {
+	deviceID := s.extractDeviceID(result.Target)
+	if deviceID == "" {
+		return false
+	}
+
+	s.resultsMu.Lock()
+	defer s.resultsMu.Unlock()
+
+	_, exists := s.deviceResults[deviceID]
+
+	return exists
+}
+
+// addResultToAggregator adds a result to the appropriate aggregator
+func (s *NetworkSweeper) addResultToAggregator(result *models.Result) {
+	deviceID := s.extractDeviceID(result.Target)
+	if deviceID == "" {
+		return
+	}
+
+	s.resultsMu.Lock()
+	defer s.resultsMu.Unlock()
+
+	if aggregator, exists := s.deviceResults[deviceID]; exists {
+		aggregator.mu.Lock()
+		aggregator.Results = append(aggregator.Results, result)
+		aggregator.mu.Unlock()
+
+		s.logger.Debug().
+			Str("deviceID", deviceID).
+			Str("ip", result.Target.Host).
+			Bool("available", result.Available).
+			Msg("Added result to device aggregator")
+	}
+}
+
+// finalizeDeviceAggregators processes all aggregated results and updates devices
+func (s *NetworkSweeper) finalizeDeviceAggregators(ctx context.Context) {
+	s.resultsMu.Lock()
+
+	aggregators := make([]*DeviceResultAggregator, 0, len(s.deviceResults))
+
+	for _, aggregator := range s.deviceResults {
+		aggregators = append(aggregators, aggregator)
+	}
+	s.resultsMu.Unlock()
+
+	for _, aggregator := range aggregators {
+		s.processAggregatedResults(ctx, aggregator)
+	}
+}
+
+// processAggregatedResults processes the aggregated results for a device
+func (s *NetworkSweeper) processAggregatedResults(_ context.Context, aggregator *DeviceResultAggregator) {
+	aggregator.mu.Lock()
+	defer aggregator.mu.Unlock()
+
+	if len(aggregator.Results) == 0 {
+		s.logger.Warn().
+			Str("deviceID", aggregator.DeviceID).
+			Msg("No results collected for device aggregator")
+
+		return
+	}
+
+	// Find the primary IP result (first available, or first if none available)
+	var primaryResult *models.Result
+
+	for _, result := range aggregator.Results {
+		if result.Available {
+			primaryResult = result
+			break
+		}
+	}
+
+	if primaryResult == nil {
+		primaryResult = aggregator.Results[0]
+	}
+
+	// Create device update based on primary result
+	deviceID := fmt.Sprintf("%s:%s", aggregator.Partition, primaryResult.Target.Host)
+	deviceUpdate := &models.DeviceUpdate{
+		AgentID:     aggregator.AgentID,
+		PollerID:    aggregator.PollerID,
+		Partition:   aggregator.Partition,
+		DeviceID:    deviceID,
+		Source:      models.DiscoverySourceSweep,
+		IP:          primaryResult.Target.Host,
+		Timestamp:   primaryResult.LastSeen,
+		IsAvailable: primaryResult.Available,
+		Metadata:    make(map[string]string),
+		Confidence:  models.GetSourceConfidence(models.DiscoverySourceSweep),
+	}
+
+	// Convert original metadata to string map
+	convertMetadataToStringMap(deviceUpdate, aggregator.Metadata)
+
+	// Add aggregated scan results to metadata
+	s.addAggregatedScanResults(deviceUpdate, aggregator.Results)
+
+	// Use background context to avoid cancellation
+	bgCtx := context.Background()
+
+	if err := s.deviceRegistry.UpdateDevice(bgCtx, deviceUpdate); err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("deviceID", aggregator.DeviceID).
+			Msg("Failed to update device with aggregated scan results")
+	} else {
+		s.logger.Info().
+			Str("deviceID", aggregator.DeviceID).
+			Int("resultCount", len(aggregator.Results)).
+			Str("primaryIP", primaryResult.Target.Host).
+			Bool("deviceAvailable", primaryResult.Available).
+			Msg("Successfully updated device with aggregated scan results")
+	}
+}
+
+// addAggregatedScanResults adds scan results for all IPs to device metadata
+func (*NetworkSweeper) addAggregatedScanResults(deviceUpdate *models.DeviceUpdate, results []*models.Result) {
+	allIPs := make([]string, 0, len(results))
+	availableIPs := make([]string, 0, len(results))
+	unavailableIPs := make([]string, 0, len(results))
+	icmpResults := make([]string, 0, len(results))
+	tcpResults := make([]string, 0, len(results))
+
+	for _, result := range results {
+		allIPs = append(allIPs, result.Target.Host)
+
+		if result.Available {
+			availableIPs = append(availableIPs, result.Target.Host)
+		} else {
+			unavailableIPs = append(unavailableIPs, result.Target.Host)
+		}
+
+		// Add detailed scan result
+		scanDetail := fmt.Sprintf("%s:%s:available=%t:response_time=%s:packet_loss=%.2f",
+			result.Target.Host,
+			string(result.Target.Mode),
+			result.Available,
+			result.RespTime.String(),
+			result.PacketLoss)
+
+		switch result.Target.Mode {
+		case models.ModeICMP:
+			icmpResults = append(icmpResults, scanDetail)
+		case models.ModeTCP:
+			tcpResults = append(tcpResults, scanDetail)
+		}
+	}
+
+	// Store aggregated scan results in metadata
+	deviceUpdate.Metadata["scan_all_ips"] = strings.Join(allIPs, ",")
+	deviceUpdate.Metadata["scan_available_ips"] = strings.Join(availableIPs, ",")
+	deviceUpdate.Metadata["scan_unavailable_ips"] = strings.Join(unavailableIPs, ",")
+	deviceUpdate.Metadata["scan_result_count"] = fmt.Sprintf("%d", len(results))
+	deviceUpdate.Metadata["scan_available_count"] = fmt.Sprintf("%d", len(availableIPs))
+	deviceUpdate.Metadata["scan_unavailable_count"] = fmt.Sprintf("%d", len(unavailableIPs))
+
+	if len(icmpResults) > 0 {
+		deviceUpdate.Metadata["scan_icmp_results"] = strings.Join(icmpResults, ";")
+	}
+
+	if len(tcpResults) > 0 {
+		deviceUpdate.Metadata["scan_tcp_results"] = strings.Join(tcpResults, ";")
+	}
+
+	// Calculate overall availability percentage
+	availabilityPercent := float64(len(availableIPs)) / float64(len(allIPs)) * 100
+	deviceUpdate.Metadata["scan_availability_percent"] = fmt.Sprintf("%.1f", availabilityPercent)
+
+	// Set device as available if any IP is available
+	deviceUpdate.IsAvailable = len(availableIPs) > 0
 }
