@@ -286,8 +286,8 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 	now := time.Now()
 
 	for i := 0; i < totalDevices; i++ {
-		// Generate unique IPs from different ranges
-		ip := generateUniqueIP(i)
+		// Generate multiple unique IPs for multi-homed devices
+		ips := generateUniqueIPs(i)
 
 		// Generate variable number of MAC addresses (1-200, with weighted distribution)
 		macCount := generateMACCount(i)
@@ -298,7 +298,7 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 
 		devices[i] = ArmisDevice{
 			ID:              i + 1,
-			IPAddress:       ip,
+			IPAddress:       ips,
 			MacAddress:      strings.Join(macAddresses, ","),
 			Name:            generateDeviceName(deviceType, manufacturer, i),
 			Type:            deviceType,
@@ -309,7 +309,7 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 			FirstSeen:       now.Add(-time.Duration(randInt(daysInMonth, daysInThreeYears)) * 24 * time.Hour),
 			LastSeen:        now.Add(-time.Duration(randInt(0, daysInMonth)) * 24 * time.Hour),
 			RiskLevel:       generateRiskLevel(deviceType),
-			Boundaries:      generateBoundary(ip, deviceType),
+			Boundaries:      generateBoundary(ips, deviceType),
 			Tags:            generateTags(i),
 		}
 
@@ -322,8 +322,44 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 	return devices
 }
 
-// generateUniqueIP generates unique IPs from different ranges including real network ranges
-func generateUniqueIP(index int) string {
+// generateUniqueIPs generates multiple unique IPs for a device
+// Returns a comma-separated string of IP addresses
+func generateUniqueIPs(index int) string {
+	// Determine how many IPs this device should have
+	// 60% have 1 IP, 25% have 2-3 IPs, 10% have 4-5 IPs, 5% have 6+ IPs
+	mod := index % 100
+
+	var numIPs int
+
+	switch {
+	case mod < 60:
+		numIPs = 1
+	case mod < 85:
+		numIPs = 2 + randInt(0, 1) // 2-3 IPs
+	case mod < 95:
+		numIPs = 4 + randInt(0, 1) // 4-5 IPs
+	default:
+		numIPs = 6 + randInt(0, 4) // 6-10 IPs
+	}
+
+	ips := make([]string, numIPs)
+	// Generate primary IP
+	ips[0] = generateSingleIP(index, 0)
+
+	// Generate additional IPs for multi-homed devices
+	for i := 1; i < numIPs; i++ {
+		// Use a different offset to get IPs from different ranges
+		ips[i] = generateSingleIP(index, i*1000)
+	}
+
+	return strings.Join(ips, ",")
+}
+
+// generateSingleIP generates a single unique IP from different ranges
+func generateSingleIP(index, offset int) string {
+	// Apply offset to simulate different network interfaces
+	effectiveIndex := index + offset
+
 	// Define network ranges with different sizes to simulate realistic environments
 	networkRanges := []struct {
 		base string
@@ -344,8 +380,8 @@ func generateUniqueIP(index int) string {
 	// Distribute devices across ranges
 	currentIndex := 0
 	for _, netRange := range networkRanges {
-		if index < currentIndex+netRange.size {
-			localIndex := index - currentIndex
+		if effectiveIndex < currentIndex+netRange.size {
+			localIndex := effectiveIndex - currentIndex
 
 			if strings.Count(netRange.base, ".") == 2 {
 				// /24 network (e.g., "192.168.1")
@@ -363,9 +399,9 @@ func generateUniqueIP(index int) string {
 	}
 
 	// Fallback for any remaining devices
-	octet2 := ((index - currentIndex) / 65536) % 256
-	octet3 := ((index - currentIndex) / 256) % 256
-	octet4 := ((index - currentIndex) % 254) + 1 // Use 254 instead of 256 to avoid 255+1=256
+	octet2 := ((effectiveIndex - currentIndex) / 65536) % 256
+	octet3 := ((effectiveIndex - currentIndex) / 256) % 256
+	octet4 := ((effectiveIndex - currentIndex) % 254) + 1 // Use 254 instead of 256 to avoid 255+1=256
 
 	return fmt.Sprintf("10.%d.%d.%d", octet2, octet3, octet4)
 }
@@ -727,7 +763,15 @@ func generateRiskLevel(deviceType string) int {
 }
 
 // generateBoundary determines network boundary based on IP range and device type
-func generateBoundary(ip, deviceType string) string {
+func generateBoundary(ips, deviceType string) string {
+	// Use the first IP to determine the primary boundary
+	ipList := strings.Split(ips, ",")
+	if len(ipList) == 0 {
+		return "Corporate"
+	}
+
+	ip := strings.TrimSpace(ipList[0])
+
 	switch {
 	case strings.HasPrefix(ip, "192.168.1.") || strings.HasPrefix(ip, "192.168.2.") || strings.HasPrefix(ip, "10.0.0."):
 		return "Corporate LAN"
