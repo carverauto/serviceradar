@@ -41,7 +41,7 @@ func buildSYNACKFrame(localIP, remoteIP net.IP, dstPort, srcPort uint16) []byte 
 	binary.BigEndian.PutUint16(tcp[14:], defaultTCPWindow)
 	binary.BigEndian.PutUint16(tcp[16:], 0)
 	binary.BigEndian.PutUint16(tcp[18:], 0)
-	binary.BigEndian.PutUint16(tcp[16:], tcpChecksumNew(remoteIP, localIP, tcp, nil))
+	binary.BigEndian.PutUint16(tcp[16:], TCPChecksumNew(remoteIP, localIP, tcp, nil))
 
 	return append(eth, append(ip, tcp...)...)
 }
