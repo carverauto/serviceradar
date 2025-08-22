@@ -211,6 +211,7 @@ func parseTCP(b []byte) (*TCPHdr, int, error) {
 }
 
 // BPF + Fanout
+// TODO: double-tag (QinQ) variant or an auxdata-aware approach
 func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 	ip4 := localIP.To4()
 	if ip4 == nil {
