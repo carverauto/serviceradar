@@ -259,8 +259,6 @@ services:
       - NET_ADMIN
     # Enable privileged mode for high-performance SYN scanning
     privileged: true
-    # Run as root user to enable SYN scanning capabilities
-    user: "0"
     depends_on:
       cert-generator:
         condition: service_completed_successfully
