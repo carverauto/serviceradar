@@ -139,6 +139,7 @@ func NewNetworkSweeper(
 	}
 
 	log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
+
 	tcpScanner := synScanner
 
 	// Default interval if not set
