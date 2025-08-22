@@ -24,11 +24,12 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTCPScanner_HighConcurrency(t *testing.T) {
 	log := logger.NewTestLogger()
-	
+
 	tests := []struct {
 		name        string
 		concurrency int
@@ -58,7 +59,7 @@ func TestTCPScanner_HighConcurrency(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scanner := NewTCPSweeper(tt.timeout, tt.concurrency, log)
-			
+
 			// Create targets scanning localhost on various ports
 			var targets []models.Target
 			for i := 0; i < tt.targetCount; i++ {
@@ -75,23 +76,24 @@ func TestTCPScanner_HighConcurrency(t *testing.T) {
 
 			start := time.Now()
 			results, err := scanner.Scan(ctx, targets)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			// Drain all results
 			var resultCount int
 			for range results {
 				resultCount++
 			}
+
 			duration := time.Since(start)
 
 			assert.Equal(t, tt.targetCount, resultCount)
-			
+
 			// With high concurrency, should complete much faster than sequential
 			maxSequentialTime := time.Duration(tt.targetCount) * tt.timeout
 			assert.Less(t, duration, maxSequentialTime/10) // Should be at least 10x faster
 
 			t.Logf("Scanned %d targets with %d workers in %v (throughput: %.1f targets/sec)",
-				tt.targetCount, tt.concurrency, duration, 
+				tt.targetCount, tt.concurrency, duration,
 				float64(tt.targetCount)/duration.Seconds())
 		})
 	}
@@ -99,21 +101,21 @@ func TestTCPScanner_HighConcurrency(t *testing.T) {
 
 func TestTCPScanner_OptimizedDefaults(t *testing.T) {
 	log := logger.NewTestLogger()
-	
+
 	// Test that new defaults are applied
 	scanner := NewTCPSweeper(0, 0, log)
-	
-	// Should use optimized defaults  
+
+	// Should use optimized defaults
 	assert.Equal(t, 500, scanner.concurrency)
 	assert.Equal(t, 5*time.Second, scanner.timeout)
 }
 
 func TestTCPScanner_FastTimeout(t *testing.T) {
 	log := logger.NewTestLogger()
-	
+
 	// Test with very fast timeout for closed ports
 	scanner := NewTCPSweeper(100*time.Millisecond, 50, log)
-	
+
 	// Scan ports that should be closed/filtered
 	var targets []models.Target
 	for port := 12345; port < 12355; port++ {
@@ -129,23 +131,25 @@ func TestTCPScanner_FastTimeout(t *testing.T) {
 
 	start := time.Now()
 	results, err := scanner.Scan(ctx, targets)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	var resultCount int
 	var successCount int
+
 	for result := range results {
 		resultCount++
 		if result.Available {
 			successCount++
 		}
 	}
+
 	duration := time.Since(start)
 
 	assert.Equal(t, len(targets), resultCount)
-	
+
 	// Most ports should be closed/filtered, so few successes expected
 	assert.LessOrEqual(t, successCount, resultCount/2)
-	
+
 	// Should complete quickly due to fast timeouts
 	assert.Less(t, duration, 2*time.Second)
 
@@ -170,7 +174,7 @@ func TestTCPScanner_MixedPorts(t *testing.T) {
 	defer cancel()
 
 	results, err := scanner.Scan(ctx, targets)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	var openPorts []int
 	var closedPorts []int
@@ -183,7 +187,7 @@ func TestTCPScanner_MixedPorts(t *testing.T) {
 		} else {
 			closedPorts = append(closedPorts, result.Target.Port)
 		}
-		
+
 		// Verify result has proper timing
 		assert.GreaterOrEqual(t, result.RespTime, time.Duration(0))
 		assert.Equal(t, "127.0.0.1", result.Target.Host)
@@ -211,16 +215,18 @@ func BenchmarkTCPScanner_HighConcurrency(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		
+
 		results, err := scanner.Scan(ctx, targets)
-		assert.NoError(b, err)
+		require.NoError(b, err)
 
 		// Drain results
-		for range results {
+		for result := range results {
+			_ = result // Consume all results
 		}
-		
+
 		cancel()
 	}
 }
@@ -228,7 +234,7 @@ func BenchmarkTCPScanner_HighConcurrency(b *testing.B) {
 // Benchmark comparing old vs new concurrency
 func BenchmarkTCPScanner_ConcurrencyComparison(b *testing.B) {
 	log := logger.NewTestLogger()
-	
+
 	tests := []struct {
 		name        string
 		concurrency int
@@ -239,6 +245,7 @@ func BenchmarkTCPScanner_ConcurrencyComparison(b *testing.B) {
 
 	// Fixed set of targets
 	var targets []models.Target
+
 	for i := 0; i < 100; i++ {
 		port := 15000 + i
 		targets = append(targets, models.Target{
@@ -251,18 +258,20 @@ func BenchmarkTCPScanner_ConcurrencyComparison(b *testing.B) {
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
 			scanner := NewTCPSweeper(500*time.Millisecond, tt.concurrency, log)
-			
+
 			b.ResetTimer()
+
 			for i := 0; i < b.N; i++ {
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				
+
 				results, err := scanner.Scan(ctx, targets)
-				assert.NoError(b, err)
+				require.NoError(b, err)
 
 				// Drain results
-				for range results {
+				for result := range results {
+					_ = result // Consume all results
 				}
-				
+
 				cancel()
 			}
 		})

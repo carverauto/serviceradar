@@ -119,6 +119,7 @@ func NewNetworkSweeper(
 	// Try to use SYN scanner for better performance, fall back to regular TCP if not available
 	var tcpScanner scan.Scanner
 	synScanner, err := scan.NewSYNScanner(config.Timeout, effectiveConcurrency, log)
+
 	if err != nil {
 		log.Info().Msg("SYN scanning not available (requires root), using regular TCP scanning")
 		tcpScanner = scan.NewTCPSweeper(config.Timeout, effectiveConcurrency, log)
@@ -695,11 +696,16 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 		case result, ok := <-results:
 			if !ok {
 				// Channel closed, all results received
-				s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete - all results received")
+				s.logger.Info().
+					Str("scanType", scanType).
+					Int("totalResults", count).
+					Int("successful", success).
+					Msg("Scan complete - all results received")
 				return nil
 			}
-			
+
 			count++
+
 			if err := s.processResult(ctx, &result); err != nil {
 				s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process result")
 				continue
@@ -708,12 +714,12 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 			if result.Available {
 				success++
 			}
-			
+
 			// Log progress periodically
 			if count%1000 == 0 {
 				s.logger.Info().Str("scanType", scanType).Int("processed", count).Int("successful", success).Msg("Scan progress")
 			}
-			
+
 		case <-ctx.Done():
 			// Timeout reached, return results collected so far
 			s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete - timeout reached")
@@ -1008,7 +1014,7 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 			Msg("Device target has no sweep modes, using global config")
 		sweepModes = s.config.SweepModes
 	}
-	
+
 	s.logger.Debug().
 		Str("device", deviceTarget.Network).
 		Strs("sweep_modes", func() []string {

@@ -25,12 +25,12 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewSYNScanner(t *testing.T) {
 	// Check if running as root
 	isRoot := os.Geteuid() == 0
-	
 	tests := []struct {
 		name        string
 		timeout     time.Duration
@@ -61,28 +61,29 @@ func TestNewSYNScanner(t *testing.T) {
 
 			if !isRoot {
 				// Without root privileges, should fail
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, scanner)
 				t.Logf("SYN scanner correctly failed without root privileges: %v", err)
+
 				return
 			}
 
 			// With root privileges, should succeed
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.NotNil(t, scanner)
 			assert.Equal(t, tt.wantTimeout, scanner.timeout)
 			assert.Equal(t, tt.wantConc, scanner.concurrency)
 
 			// Clean up
 			err = scanner.Stop(context.Background())
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		})
 	}
 }
 
 func TestSYNScanner_Scan_EmptyTargets(t *testing.T) {
 	log := logger.NewTestLogger()
-	
+
 	// Create SYN scanner (may require root)
 	scanner, err := NewSYNScanner(1*time.Second, 10, log)
 	if err != nil {
@@ -95,7 +96,7 @@ func TestSYNScanner_Scan_EmptyTargets(t *testing.T) {
 	targets := []models.Target{}
 
 	results, err := scanner.Scan(ctx, targets)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, results)
 
 	// Should get no results from empty channel
@@ -105,7 +106,7 @@ func TestSYNScanner_Scan_EmptyTargets(t *testing.T) {
 
 func TestSYNScanner_Scan_NonTCPTargets(t *testing.T) {
 	log := logger.NewTestLogger()
-	
+
 	// Create SYN scanner (may require root)
 	scanner, err := NewSYNScanner(1*time.Second, 10, log)
 	if err != nil {
@@ -121,7 +122,7 @@ func TestSYNScanner_Scan_NonTCPTargets(t *testing.T) {
 	}
 
 	results, err := scanner.Scan(ctx, targets)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, results)
 
 	// Should get no results since no TCP targets
@@ -131,7 +132,7 @@ func TestSYNScanner_Scan_NonTCPTargets(t *testing.T) {
 
 func TestSYNScanner_Scan_TCPTargets(t *testing.T) {
 	log := logger.NewTestLogger()
-	
+
 	// Create SYN scanner (may require root)
 	scanner, err := NewSYNScanner(1*time.Second, 10, log)
 	if err != nil {
@@ -150,7 +151,7 @@ func TestSYNScanner_Scan_TCPTargets(t *testing.T) {
 	}
 
 	results, err := scanner.Scan(ctx, targets)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, results)
 
 	// Should get results for 2 TCP targets only
@@ -167,7 +168,7 @@ func TestSYNScanner_Scan_TCPTargets(t *testing.T) {
 
 func TestSYNScanner_ConcurrentScanning(t *testing.T) {
 	log := logger.NewTestLogger()
-	
+
 	// Create SYN scanner (should work with root)
 	scanner, err := NewSYNScanner(100*time.Millisecond, 50, log)
 	if err != nil {
@@ -191,7 +192,7 @@ func TestSYNScanner_ConcurrentScanning(t *testing.T) {
 
 	start := time.Now()
 	results, err := scanner.Scan(ctx, targets)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	resultSlice := drainChannel(results)
 	duration := time.Since(start)
@@ -202,13 +203,13 @@ func TestSYNScanner_ConcurrentScanning(t *testing.T) {
 	assert.Less(t, duration, 3*time.Second)
 	assert.Len(t, resultSlice, len(targets))
 
-	t.Logf("Scanned %d targets in %v (avg: %v per target)", 
+	t.Logf("Scanned %d targets in %v (avg: %v per target)",
 		len(targets), duration, duration/time.Duration(len(targets)))
 }
 
 func TestSYNScanner_ContextCancellation(t *testing.T) {
 	log := logger.NewTestLogger()
-	
+
 	// Create SYN scanner with very short timeout for faster cancellation
 	scanner, err := NewSYNScanner(100*time.Millisecond, 10, log)
 	if err != nil {
@@ -225,7 +226,7 @@ func TestSYNScanner_ContextCancellation(t *testing.T) {
 	}
 
 	results, err := scanner.Scan(ctx, targets)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Cancel context after a short delay to allow scan to start
 	go func() {
@@ -245,9 +246,10 @@ func TestSYNScanner_ContextCancellation(t *testing.T) {
 
 // Helper function to drain all results from a channel
 func drainChannel(ch <-chan models.Result) []models.Result {
-	var results []models.Result
+	results := make([]models.Result, 0, 100) // Pre-allocate with reasonable capacity
 	for result := range ch {
 		results = append(results, result)
 	}
+
 	return results
 }
