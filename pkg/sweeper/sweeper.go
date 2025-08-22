@@ -98,10 +98,26 @@ func NewNetworkSweeper(
 		return nil, errNilConfig
 	}
 
-	// Initialize scanners
-	icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
+	// Initialize ICMP scanner only if needed
+	var icmpScanner scan.Scanner
+
+	needsICMP := false
+
+	for _, mode := range config.SweepModes {
+		if mode == models.ModeICMP {
+			needsICMP = true
+			break
+		}
+	}
+
+	if needsICMP {
+		var err error
+
+		icmpScanner, err = scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log)
+
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to create ICMP scanner, ICMP scanning will be disabled")
+		}
 	}
 
 	totalTargets := estimateTargetCount(config)
@@ -118,6 +134,7 @@ func NewNetworkSweeper(
 
 	// Try to use SYN scanner for better performance, fall back to regular TCP if not available
 	var tcpScanner scan.Scanner
+
 	synScanner, err := scan.NewSYNScanner(config.Timeout, effectiveConcurrency, log)
 
 	if err != nil {
@@ -125,6 +142,7 @@ func NewNetworkSweeper(
 		tcpScanner = scan.NewTCPSweeper(config.Timeout, effectiveConcurrency, log)
 	} else {
 		log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
+
 		tcpScanner = synScanner
 	}
 
@@ -701,6 +719,7 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 					Int("totalResults", count).
 					Int("successful", success).
 					Msg("Scan complete - all results received")
+
 				return nil
 			}
 
@@ -751,6 +770,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	s.logger.Info().Int("icmpTargets", len(icmpTargets)).Int("tcpTargets", len(tcpTargets)).Msg("Starting sweep")
 
 	var wg sync.WaitGroup
+
 	errChan := make(chan error, 2) // Buffer for both ICMP and TCP errors
 
 	if len(icmpTargets) > 0 {
@@ -1012,6 +1032,7 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 		s.logger.Debug().
 			Str("device", deviceTarget.Network).
 			Msg("Device target has no sweep modes, using global config")
+
 		sweepModes = s.config.SweepModes
 	}
 

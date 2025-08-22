@@ -24,6 +24,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -65,14 +66,14 @@ func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
 
 			if tt.expectFallback {
 				// Should succeed with TCP fallback
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotNil(t, sweeper)
 
 				// Verify it's using a scanner (can't easily determine which type without exposing internals)
 				assert.NotNil(t, sweeper.tcpScanner)
 			} else {
 				// Would succeed with SYN scanner if running as root
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotNil(t, sweeper)
 			}
 		})
@@ -91,6 +92,7 @@ func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 
 	log := logger.NewTestLogger()
 	ctrl := gomock.NewController(t)
+
 	defer ctrl.Finish()
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
@@ -102,12 +104,12 @@ func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 	mockProcessor.EXPECT().GetSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).AnyTimes()
 
 	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, sweeper)
 
 	// Generate targets and verify high concurrency handling
 	targets, err := sweeper.generateTargets()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Should generate targets for TCP scanning
 	// 6 hosts * 9 ports = 54 TCP targets
@@ -156,16 +158,17 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 
 	log := logger.NewTestLogger()
 	ctrl := gomock.NewController(t)
+
 	defer ctrl.Finish()
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
 
 	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	targets, err := sweeper.generateTargets()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Count targets by mode and device
 	tcpTargets := 0
@@ -174,6 +177,7 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 
 	for _, target := range targets {
 		deviceIPs[target.Host] = true
+
 		if target.Mode == models.ModeTCP {
 			tcpTargets++
 		} else if target.Mode == models.ModeICMP {
@@ -196,6 +200,10 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 }
 
 func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping timeout optimization test in short mode")
+	}
+
 	// Test that scan timeout is properly increased for large-scale scanning
 	config := &models.Config{
 		Networks:   []string{"127.0.0.1/32"},
@@ -206,13 +214,14 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 
 	log := logger.NewTestLogger()
 	ctrl := gomock.NewController(t)
+
 	defer ctrl.Finish()
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
 
 	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify the sweep uses the optimized scan timeout (20 minutes)
 	// This is internal to runSweep, but we can test that it doesn't timeout immediately
@@ -230,13 +239,17 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 	duration := time.Since(start)
 
 	// Should complete fast, not hit the 20-minute timeout
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Less(t, duration, 2*time.Second)
 
 	t.Logf("Single host sweep completed in %v", duration)
 }
 
 func TestNetworkSweeper_ProgressLogging(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping progress logging test in short mode")
+	}
+
 	// Test that progress logging works with optimized scanning
 	config := &models.Config{
 		Networks:    []string{"127.0.0.1/32"},
@@ -248,6 +261,7 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 
 	log := logger.NewTestLogger()
 	ctrl := gomock.NewController(t)
+
 	defer ctrl.Finish()
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
@@ -264,13 +278,13 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 	mockProcessor.EXPECT().GetSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).AnyTimes()
 
 	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	err = sweeper.runSweep(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Should have processed 5 TCP results (1 host * 5 ports)
 	assert.Len(t, processedResults, 5)
@@ -287,6 +301,10 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 
 // Benchmark the sweeper with optimized TCP scanning
 func BenchmarkNetworkSweeper_OptimizedTCPScan(b *testing.B) {
+	if testing.Short() {
+		b.Skip("Skipping benchmark in short mode")
+	}
+
 	config := &models.Config{
 		Networks:    []string{"127.0.0.1/32"},
 		Ports:       []int{22, 80, 135, 443, 445, 3389, 5985, 8080, 8443},
@@ -308,14 +326,15 @@ func BenchmarkNetworkSweeper_OptimizedTCPScan(b *testing.B) {
 	mockProcessor.EXPECT().GetSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).AnyTimes()
 
 	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
-	assert.NoError(b, err)
+	require.NoError(b, err)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
 		err := sweeper.runSweep(ctx)
-		assert.NoError(b, err)
+		require.NoError(b, err)
 
 		cancel()
 	}

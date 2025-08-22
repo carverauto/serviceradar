@@ -29,6 +29,10 @@ import (
 )
 
 func TestNewSYNScanner(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping SYN scanner test in short mode")
+	}
+
 	// Check if running as root
 	isRoot := os.Geteuid() == 0
 	tests := []struct {
@@ -131,6 +135,10 @@ func TestSYNScanner_Scan_NonTCPTargets(t *testing.T) {
 }
 
 func TestSYNScanner_Scan_TCPTargets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping SYN scanner test in short mode")
+	}
+
 	log := logger.NewTestLogger()
 
 	// Create SYN scanner (may require root)
@@ -167,6 +175,10 @@ func TestSYNScanner_Scan_TCPTargets(t *testing.T) {
 }
 
 func TestSYNScanner_ConcurrentScanning(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping SYN scanner test in short mode")
+	}
+
 	log := logger.NewTestLogger()
 
 	// Create SYN scanner (should work with root)
@@ -208,6 +220,10 @@ func TestSYNScanner_ConcurrentScanning(t *testing.T) {
 }
 
 func TestSYNScanner_ContextCancellation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping SYN scanner test in short mode")
+	}
+
 	log := logger.NewTestLogger()
 
 	// Create SYN scanner with very short timeout for faster cancellation
