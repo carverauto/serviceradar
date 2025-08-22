@@ -62,9 +62,9 @@ const (
 
 	// TPACKETv3 constants / defaults
 	defaultBlockSize   = 1 << 20 // 1 MiB per block
-	defaultBlockCount  = 64      // 64 MiB total ring
+	defaultBlockCount  = 8       // 8 MiB total ring (was 64 - overkill)
 	defaultFrameSize   = 2048    // alignment hint
-	defaultRetireTovMs = 10      // flush block to user within 10ms
+	defaultRetireTovMs = 200     // flush block to user within 200ms (was 10)
 
 	// tpacket v3 block ownership
 	tpStatusUser = 1 // TP_STATUS_USER
@@ -470,95 +470,78 @@ func (r *ringBuf) block(i uint32) []byte {
 }
 
 func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
-	pfd := []unix.PollFd{{Fd: int32(r.fd), Events: unix.POLLIN}}
+	pfd := []unix.PollFd{{Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL}}
 	cur := uint32(0)
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		_, _ = unix.Poll(pfd, 100)
-
-		for i := uint32(0); i < r.blockNr; i++ {
-			bi := (cur + i) % r.blockNr
-			blk := r.block(bi)
-
-			// Ensure block has sufficient size for all header fields we'll access
-			minSize := int(h1_first_pkt_off + 4)
-			if h1_status_off+4 > uint32(minSize) {
-				minSize = int(h1_status_off + 4)
+		// First, drain any ready blocks without polling
+		drained := false
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
 			}
 
-			if blk == nil || len(blk) < minSize {
-				continue
+			blk := r.block(cur)
+			if blk == nil || len(blk) < int(h1_first_pkt_off+4) {
+				break
+			}
+			if loadU32(blk, h1_status_off)&tpStatusUser == 0 {
+				break // no more ready blocks
 			}
 
-			// This ensures we see a consistent state of the block header and packet
-			// data AFTER we've confirmed the kernel has handed the block to us.
-			status := loadU32(blk, h1_status_off)
-			if status&tpStatusUser == 0 {
-				continue
-			}
-
-			// After the acquire barrier, standard reads are safe.
-			// The tpacket headers are host-endian, so no conversion is needed.
+			// === process one ready block ===
 			numPkts := host.Uint32(blk[h1_num_pkts_off : h1_num_pkts_off+4])
 			first := host.Uint32(blk[h1_first_pkt_off : h1_first_pkt_off+4])
 
-			if int(first) < 0 || int(first) >= len(blk) {
-				// Corrupt header; release block and move on
-				storeU32(blk, h1_status_off, 0)
-				cur = (bi + 1) % r.blockNr
+			if int(first) >= 0 && int(first) < len(blk) && numPkts > 0 {
+				off := int(first)
+				for p := uint32(0); p < numPkts; p++ {
+					if off+int(pkt_mac_off+2) > len(blk) {
+						break
+					}
 
+					ph := blk[off:]
+					if int(pkt_next_off+4) > len(ph) ||
+						int(pkt_snaplen_off+4) > len(ph) ||
+						int(pkt_mac_off+2) > len(ph) {
+						break
+					}
+
+					snap := int(host.Uint32(ph[pkt_snaplen_off : pkt_snaplen_off+4]))
+					mac := int(host.Uint16(ph[pkt_mac_off : pkt_mac_off+2]))
+
+					if mac >= 0 && snap >= 0 && mac+snap <= len(ph) {
+						s.processEthernetFrame(ph[mac : mac+snap])
+					}
+
+					next := int(host.Uint32(ph[pkt_next_off : pkt_next_off+4]))
+					if next <= 0 || off+next > len(blk) {
+						break
+					}
+					off += next
+				}
+			}
+
+			// hand ownership back
+			storeU32(blk, h1_status_off, 0)
+			cur = (cur + 1) % r.blockNr
+			drained = true
+		}
+
+		if drained {
+			continue // see if more blocks are ready without poll
+		}
+
+		// Nothing ready; block in poll
+		_, err := unix.Poll(pfd, int(defaultRetireTovMs)) // align with retire tov
+		if err != nil {
+			// EINTR is fine; anything else, exit this reader
+			if err == unix.EINTR {
 				continue
 			}
-
-			off := int(first)
-
-			var processed int
-
-			for p := uint32(0); p < numPkts; p++ {
-				if off+int(pkt_mac_off+2) > len(blk) {
-					break
-				}
-
-				ph := blk[off:]
-
-				if int(pkt_next_off+4) > len(ph) ||
-					int(pkt_snaplen_off+4) > len(ph) ||
-					int(pkt_mac_off+2) > len(ph) {
-
-					break
-				}
-
-				snap := int(host.Uint32(ph[pkt_snaplen_off : pkt_snaplen_off+4]))
-				mac := int(host.Uint16(ph[pkt_mac_off : pkt_mac_off+2]))
-
-				if mac >= 0 && snap >= 0 && mac+snap <= len(ph) {
-					frame := ph[mac : mac+snap]
-					s.processEthernetFrame(frame)
-					processed++
-				}
-
-				next := int(host.Uint32(ph[pkt_next_off : pkt_next_off+4]))
-				if next <= 0 || off+next > len(blk) {
-					break
-				}
-
-				off += next
-			}
-
-			if processed > 0 && processed%1000 == 0 {
-				s.logger.Debug().Int("frames", processed).Msg("ring frames processed")
-			}
-
-			// This ensures all our reads from the block are complete BEFORE
-			// we hand ownership back to the kernel.
-			storeU32(blk, h1_status_off, 0)
-			cur = (bi + 1) % r.blockNr
+			return
 		}
 	}
 }
@@ -572,7 +555,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 	}
 
 	if concurrency == 0 {
-		concurrency = 1000 // Can handle much higher concurrency
+		concurrency = 256 // Reasonable default to avoid port exhaustion
 	}
 
 	log.Info().Msg("DEBUG: Creating raw socket for sending")
@@ -641,12 +624,19 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 		log.Info().Msg("DEBUG: Attaching BPF filter")
 		if err := attachBPF(fd, sourceIP, ephemeralPortStart, ephemeralPortEnd); err != nil {
-			log.Error().Err(err).Msg("DEBUG: Failed to attach BPF filter, trying without BPF")
-			// Continue without BPF filter - less efficient but should work
-			log.Warn().Msg("DEBUG: Running without BPF filter (reduced efficiency)")
-		} else {
-			log.Info().Msg("DEBUG: BPF filter attached successfully")
+			log.Error().Err(err).Msg("DEBUG: Failed to attach BPF filter")
+			_ = unix.Close(fd)
+
+			for _, r := range rings {
+				_ = unix.Munmap(r.mem)
+				_ = unix.Close(r.fd)
+			}
+
+			syscall.Close(sendSocket)
+
+			return nil, fmt.Errorf("BPF filter attachment failed: %w", err)
 		}
+		log.Info().Msg("DEBUG: BPF filter attached successfully")
 
 		log.Info().Int("fanoutGroup", fanoutGroup).Msg("DEBUG: Enabling packet fanout")
 		if err := enableFanout(fd, fanoutGroup); err != nil {
@@ -739,10 +729,15 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	}
 
 	scanCtx, cancel := context.WithCancel(ctx)
-	s.cancel = cancel
 
-	// Initialize state for the new scan
+	// Initialize state for the new scan and atomically set up the scan
 	s.mu.Lock()
+	if s.cancel != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("scan already running")
+	}
+	s.cancel = cancel
+	s.readersWG.Add(1) // MUST come before Stop() can see non-nil cancel
 
 	s.results = make(map[string]models.Result, len(tcpTargets))
 	s.portTargetMap = make(map[uint16]string, len(tcpTargets))
@@ -750,13 +745,10 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	s.mu.Unlock()
 
-	// Start ring readers (one goroutine per ring)
-	var listenerWg sync.WaitGroup
-
-	listenerWg.Add(1)
+	// Start ring readers (one goroutine per ring) — manage with scanner-level WG
 
 	go func() {
-		defer listenerWg.Done()
+		defer s.readersWG.Done()
 		s.listenForReplies(scanCtx)
 	}()
 
@@ -795,10 +787,17 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		time.Sleep(s.timeout)
 		cancel()
 
-		listenerWg.Wait()
+		s.readersWG.Wait()
 		s.processResults(tcpTargets, resultCh)
 
 		close(resultCh)
+
+		// Clear cancel after normal completion
+		s.mu.Lock()
+		if s.cancel != nil { // avoid clobbering if Stop() already cleared it
+			s.cancel = nil
+		}
+		s.mu.Unlock()
 	}()
 
 	return resultCh, nil
@@ -914,12 +913,51 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	s.portAlloc.Release(tcp.DstPort)
 
 	// If we retried, there may be other pending src ports mapped to the same target—release them too.
+	var toFree []uint16
 	for sp, key := range s.portTargetMap {
 		if key == targetKey {
-			delete(s.portTargetMap, sp)
-			s.portAlloc.Release(sp)
+			toFree = append(toFree, sp)
 		}
 	}
+	for _, sp := range toFree {
+		delete(s.portTargetMap, sp)
+		s.portAlloc.Release(sp)
+	}
+}
+
+// handleLoopbackTarget handles TCP scanning for loopback addresses using connect()
+func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Target) {
+	targetKey := fmt.Sprintf("%s:%d", target.Host, target.Port)
+	
+	result := models.Result{
+		Target:    target,
+		FirstSeen: time.Now(),
+		LastSeen:  time.Now(),
+	}
+
+	// Use simple connect() for loopback targets
+	d := net.Dialer{Timeout: s.timeout}
+	addr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
+	
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		result.Available = false
+		result.Error = err
+	} else {
+		result.Available = true
+		conn.Close()
+	}
+	
+	result.RespTime = time.Since(result.FirstSeen)
+	result.LastSeen = time.Now()
+
+	// Store result directly (no ring buffer processing needed for loopback)
+	s.mu.Lock()
+	if s.results == nil {
+		s.results = make(map[string]models.Result)
+	}
+	s.results[targetKey] = result
+	s.mu.Unlock()
 }
 
 // sendSyn crafts and sends a single SYN packet to the target.
@@ -930,6 +968,12 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		return
 	}
 	destIP = destIP.To4()
+
+	// Special case for loopback targets - use simple connect() check
+	if destIP.IsLoopback() {
+		s.handleLoopbackTarget(ctx, target)
+		return
+	}
 
 	// === Reserve a unique source port ===
 	srcPort, err := s.portAlloc.Reserve(ctx)
@@ -975,6 +1019,22 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	}
 
 	s.mu.Unlock()
+
+	// Ensure we don't hold the source port forever if the target never replies.
+	// After s.timeout, mark timed out (if still undecided) and free the port.
+	time.AfterFunc(s.timeout, func() {
+		s.mu.Lock()
+		if key, ok := s.portTargetMap[srcPort]; ok && key == targetKey {
+			r := s.results[targetKey]
+			if !r.Available && r.Error == nil {
+				r.Error = fmt.Errorf("scan timed out")
+			}
+			s.results[targetKey] = r
+			delete(s.portTargetMap, srcPort)
+			s.portAlloc.Release(srcPort)
+		}
+		s.mu.Unlock()
+	})
 
 	if target.Port > maxPortNumber {
 		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
@@ -1027,42 +1087,52 @@ func (s *SYNScanner) processResults(targets []models.Target, ch chan<- models.Re
 
 // Stop gracefully stops the scanner
 func (s *SYNScanner) Stop(_ context.Context) error {
+	// Grab and clear the cancel func WITHOUT holding the lock while we wait
+	var cancel context.CancelFunc
+
+	s.mu.Lock()
+	cancel = s.cancel
+	s.cancel = nil
+	s.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	// IMPORTANT: wait for the listener (and thus all ring readers) to exit
+	// Do NOT hold s.mu here (processEthernetFrame uses it).
+	s.readersWG.Wait()
+
+	// Now it is safe to unmap/close the ring and socket resources.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for src := range s.portTargetMap {
 		s.portAlloc.Release(src)
 	}
-
 	s.portTargetMap = nil
 
-	if s.cancel != nil {
-		s.cancel()
-		s.cancel = nil
-	}
-
 	var err error
-
 	for _, r := range s.rings {
 		if r.mem != nil {
 			if e := unix.Munmap(r.mem); e != nil && err == nil {
 				err = e
 			}
+			r.mem = nil
 		}
-
 		if r.fd != 0 {
 			if e := unix.Close(r.fd); e != nil && err == nil {
 				err = e
 			}
+			r.fd = 0
 		}
 	}
-
 	s.rings = nil
+
 	if s.sendSocket != 0 {
 		if e := syscall.Close(s.sendSocket); e != nil && err == nil {
 			err = e
 		}
-
 		s.sendSocket = 0
 	}
 
