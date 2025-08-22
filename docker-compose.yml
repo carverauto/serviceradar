@@ -257,6 +257,8 @@ services:
     cap_add:
       - NET_RAW
       - NET_ADMIN
+    # Enable privileged mode for high-performance SYN scanning
+    privileged: true
     depends_on:
       cert-generator:
         condition: service_completed_successfully

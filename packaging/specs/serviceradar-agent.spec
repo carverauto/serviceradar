@@ -46,7 +46,8 @@ fi
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-agent
 # Set required capability for ICMP scanning
-setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
+# setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
+sudo setcap '13,21,38,39+ep' /usr/local/bin/serviceradar-agent
 
 # Enable and start service
 systemctl daemon-reload
