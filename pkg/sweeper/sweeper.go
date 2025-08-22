@@ -132,19 +132,14 @@ func NewNetworkSweeper(
 		log.Debug().Int("adjustedConcurrency", effectiveConcurrency).Int("totalTargets", totalTargets).Msg("Adjusted concurrency for targets")
 	}
 
-	// Try to use SYN scanner for better performance, fall back to regular TCP if not available
-	var tcpScanner scan.Scanner
-
+	// Use SYN scanner for better performance
 	synScanner, err := scan.NewSYNScanner(config.Timeout, effectiveConcurrency, log)
-
 	if err != nil {
-		log.Info().Msg("SYN scanning not available (requires root), using regular TCP scanning")
-		tcpScanner = scan.NewTCPSweeper(config.Timeout, effectiveConcurrency, log)
-	} else {
-		log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
-
-		tcpScanner = synScanner
+		return nil, fmt.Errorf("failed to create SYN scanner: %w", err)
 	}
+
+	log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
+	tcpScanner := synScanner
 
 	// Default interval if not set
 	if config.Interval == 0 {
