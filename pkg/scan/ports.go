@@ -28,9 +28,13 @@ type portSlot struct {
 }
 
 var (
-	ErrNoPorts     = errors.New("no ports available")
-	errCtxDone     = errors.New("context canceled")
+	ErrNoPorts = errors.New("no ports available")
+	errCtxDone = errors.New("context canceled")
+)
+
+const (
 	spinMaxBackoff = 200 * time.Microsecond
+	cursorSeed     = 997 // prime number for cursor initialization
 )
 
 // NewPortAllocator builds an allocator for [start, end] inclusive.
@@ -44,7 +48,10 @@ func NewPortAllocator(start, end uint16) *PortAllocator {
 	slots := make([]portSlot, cnt)
 
 	for i := uint32(0); i < cnt; i++ {
-		slots[i].port = uint16(uint32(start) + i)
+		// Safe conversion: start + i is guaranteed to fit in uint16 since
+		// cnt = end - start + 1, and both start and end are uint16 values
+		// #nosec G115 - conversion is safe within port range
+		slots[i].port = start + uint16(i)
 	}
 
 	a := &PortAllocator{
@@ -55,7 +62,12 @@ func NewPortAllocator(start, end uint16) *PortAllocator {
 	}
 
 	// seed cursor with randomish value derived from GOMAXPROCS
-	a.cursor.Store(uint32(runtime.GOMAXPROCS(0)) * 997)
+	gomaxprocs := runtime.GOMAXPROCS(0)
+	if gomaxprocs < 0 {
+		gomaxprocs = 1
+	}
+
+	a.cursor.Store(uint32(gomaxprocs) * cursorSeed) // #nosec G115 - GOMAXPROCS is always positive
 
 	return a
 }
@@ -102,6 +114,7 @@ func (a *PortAllocator) Reserve(ctx context.Context) (uint16, error) {
 		}
 
 		time.Sleep(backoff)
+
 		if backoff < spinMaxBackoff {
 			backoff *= 2
 		}

@@ -18,6 +18,7 @@ package sweeper
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -29,6 +30,10 @@ import (
 )
 
 func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("SYN scanning is only supported on Linux")
+	}
+
 	tests := []struct {
 		name           string
 		runAsRoot      bool
@@ -81,6 +86,10 @@ func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
 }
 
 func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("SYN scanning is only supported on Linux")
+	}
+
 	config := &models.Config{
 		Networks:    []string{"192.168.1.0/29"},                           // Small network, 6 hosts
 		Ports:       []int{22, 80, 135, 443, 445, 3389, 5985, 8080, 8443}, // 9 ports like production
@@ -128,6 +137,10 @@ func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 }
 
 func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("SYN scanning is only supported on Linux")
+	}
+
 	config := &models.Config{
 		DeviceTargets: []models.DeviceTarget{
 			{
@@ -200,6 +213,9 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 }
 
 func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("SYN scanning is only supported on Linux")
+	}
 	if testing.Short() {
 		t.Skip("Skipping timeout optimization test in short mode")
 	}
@@ -246,6 +262,9 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 }
 
 func TestNetworkSweeper_ProgressLogging(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("SYN scanning is only supported on Linux")
+	}
 	if testing.Short() {
 		t.Skip("Skipping progress logging test in short mode")
 	}
