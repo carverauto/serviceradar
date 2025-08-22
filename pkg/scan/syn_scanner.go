@@ -82,6 +82,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 	if err != nil {
 		return nil, fmt.Errorf("cannot create raw send socket (requires root): %w", err)
 	}
+
 	if err = syscall.SetsockoptInt(sendSocket, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1); err != nil {
 		syscall.Close(sendSocket)
 		return nil, fmt.Errorf("cannot set IP_HDRINCL (requires root): %w", err)
@@ -99,6 +100,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 	if err != nil {
 		syscall.Close(sendSocket)
 		listenConn.Close()
+
 		return nil, fmt.Errorf("failed to get local IP: %w", err)
 	}
 
@@ -117,6 +119,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	tcpTargets := filterTCPTargets(targets)
 	resultCh := make(chan models.Result, len(tcpTargets))
+
 	if len(tcpTargets) == 0 {
 		close(resultCh)
 		return resultCh, nil
@@ -133,7 +136,9 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	// Start a single listener goroutine to handle all incoming packets
 	var listenerWg sync.WaitGroup
+
 	listenerWg.Add(1)
+
 	go func() {
 		defer listenerWg.Done()
 		s.listenForReplies(scanCtx)
@@ -141,9 +146,12 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	// Start worker pool to send SYN packets
 	workCh := make(chan models.Target, s.concurrency)
+
 	var senderWg sync.WaitGroup
+
 	for i := 0; i < s.concurrency; i++ {
 		senderWg.Add(1)
+
 		go func() {
 			defer senderWg.Done()
 			s.worker(scanCtx, workCh)
@@ -159,6 +167,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 				return
 			}
 		}
+
 		close(workCh)
 	}()
 
@@ -189,6 +198,7 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 			if !ok {
 				return
 			}
+
 			s.sendSyn(target)
 		case <-ctx.Done():
 			return
@@ -199,6 +209,7 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 // listenForReplies reads incoming packets and updates scan results.
 func (s *SYNScanner) listenForReplies(ctx context.Context) {
 	buffer := make([]byte, maxEthernetFrameSize)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -210,13 +221,17 @@ func (s *SYNScanner) listenForReplies(ctx context.Context) {
 			s.logger.Debug().Err(err).Msg("Failed to set read deadline")
 			continue
 		}
+
 		n, addr, err := s.listenConn.ReadFrom(buffer)
+
 		if err != nil {
 			var opErr *net.OpError
 			if errors.As(err, &opErr) && opErr.Timeout() {
 				continue
 			}
+
 			s.logger.Debug().Err(err).Msg("Error reading from raw socket")
+
 			continue
 		}
 
@@ -293,16 +308,17 @@ func (s *SYNScanner) sendSyn(target models.Target) {
 		return
 	}
 
-	// Get a unique source port for this target (handle overflow by wrapping)
 	nextPortVal := atomic.AddUint32(&s.nextPort, 1)
 	if nextPortVal > maxPortNumber {
 		atomic.StoreUint32(&s.nextPort, ephemeralPortStart)
 		nextPortVal = ephemeralPortStart
 	}
+
 	srcPort := uint16(nextPortVal) //nolint:gosec // Port range is validated above
 
 	// Register the target and source port for response correlation
 	targetKey := fmt.Sprintf("%s:%d", target.Host, target.Port)
+
 	s.mu.Lock()
 	s.portTargetMap[srcPort] = targetKey
 
@@ -319,6 +335,7 @@ func (s *SYNScanner) sendSyn(target models.Target) {
 		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
 		return
 	}
+
 	packet := buildSynPacket(s.sourceIP, destIP, srcPort, uint16(target.Port)) //nolint:gosec // Port range validated above
 
 	// Send the packet

@@ -116,8 +116,12 @@ func (kw *DefaultKVWriter) writeChunkedConfig(ctx context.Context, sweepConfig *
 }
 
 // writeConfigChunk writes a single chunk of the config
-func (kw *DefaultKVWriter) writeConfigChunk(ctx context.Context, sweepConfig *models.SweepConfig,
-	chunkIndex, _ /* totalChunks */, devicesPerChunk int) error {
+func (kw *DefaultKVWriter) writeConfigChunk(
+	ctx context.Context,
+	sweepConfig *models.SweepConfig,
+	chunkIndex int,
+	_ int, // totalChunks
+	devicesPerChunk int) error { //nolint:wsl // function signature requires multiline format
 	// Networks array is empty - only process device targets
 
 	// Calculate device target range for this chunk

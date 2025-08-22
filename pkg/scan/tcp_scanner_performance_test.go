@@ -28,6 +28,10 @@ import (
 )
 
 func TestTCPScanner_HighConcurrency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping high concurrency test in short mode")
+	}
+
 	log := logger.NewTestLogger()
 
 	tests := []struct {
@@ -62,6 +66,7 @@ func TestTCPScanner_HighConcurrency(t *testing.T) {
 
 			// Create targets scanning localhost on various ports
 			var targets []models.Target
+
 			for i := 0; i < tt.targetCount; i++ {
 				port := 10000 + i // Use high ports that are likely closed
 				targets = append(targets, models.Target{
@@ -100,6 +105,10 @@ func TestTCPScanner_HighConcurrency(t *testing.T) {
 }
 
 func TestTCPScanner_OptimizedDefaults(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping optimized defaults test in short mode")
+	}
+
 	log := logger.NewTestLogger()
 
 	// Test that new defaults are applied
@@ -111,6 +120,10 @@ func TestTCPScanner_OptimizedDefaults(t *testing.T) {
 }
 
 func TestTCPScanner_FastTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping fast timeout test in short mode")
+	}
+
 	log := logger.NewTestLogger()
 
 	// Test with very fast timeout for closed ports
@@ -134,10 +147,12 @@ func TestTCPScanner_FastTimeout(t *testing.T) {
 	require.NoError(t, err)
 
 	var resultCount int
+
 	var successCount int
 
 	for result := range results {
 		resultCount++
+
 		if result.Available {
 			successCount++
 		}
@@ -158,6 +173,10 @@ func TestTCPScanner_FastTimeout(t *testing.T) {
 }
 
 func TestTCPScanner_MixedPorts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping mixed ports test in short mode")
+	}
+
 	log := logger.NewTestLogger()
 	scanner := NewTCPSweeper(1*time.Second, 100, log)
 
@@ -177,11 +196,14 @@ func TestTCPScanner_MixedPorts(t *testing.T) {
 	require.NoError(t, err)
 
 	var openPorts []int
+
 	var closedPorts []int
+
 	var resultCount int
 
 	for result := range results {
 		resultCount++
+
 		if result.Available {
 			openPorts = append(openPorts, result.Target.Port)
 		} else {
@@ -203,8 +225,8 @@ func BenchmarkTCPScanner_HighConcurrency(b *testing.B) {
 	log := logger.NewTestLogger()
 	scanner := NewTCPSweeper(500*time.Millisecond, 500, log)
 
-	// Create a realistic number of targets
 	var targets []models.Target
+
 	for i := 0; i < 1000; i++ {
 		port := 10000 + i
 		targets = append(targets, models.Target{

@@ -53,6 +53,10 @@ func TestSweepService_Creation(t *testing.T) {
 }
 
 func TestSweepService_LargeScaleConfig(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping large scale config test in short mode")
+	}
+
 	// Test configuration that simulates large-scale production scenario
 	config := &models.Config{
 		DeviceTargets: createLargeDeviceTargetSet(1000),                     // 1000 devices
@@ -86,6 +90,10 @@ func TestSweepService_LargeScaleConfig(t *testing.T) {
 }
 
 func TestSweepService_PerformanceComparison(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping performance comparison test in short mode")
+	}
+
 	// Compare old vs new default configurations
 	oldConfig := &models.Config{
 		Networks:    []string{"127.0.0.1/32"},
@@ -109,6 +117,7 @@ func TestSweepService_PerformanceComparison(t *testing.T) {
 	log := logger.NewTestLogger()
 	mockKVStore1 := NewMockKVStore(ctrl)
 	mockKVStore1.EXPECT().Close().Return(nil).AnyTimes()
+
 	mockKVStore2 := NewMockKVStore(ctrl)
 	mockKVStore2.EXPECT().Close().Return(nil).AnyTimes()
 
@@ -132,6 +141,10 @@ func TestSweepService_PerformanceComparison(t *testing.T) {
 }
 
 func TestSweepService_RealTimeProgressTracking(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping real-time progress tracking test in short mode")
+	}
+
 	// Test that real-time progress tracking works
 	config := &models.Config{
 		Networks:   []string{"127.0.0.1/32"},
@@ -159,6 +172,10 @@ func TestSweepService_RealTimeProgressTracking(t *testing.T) {
 }
 
 func TestSweepService_TimeoutHandling(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping timeout handling test in short mode")
+	}
+
 	// Test that the new 20-minute timeout handling works
 	config := &models.Config{
 		Networks:   []string{"127.0.0.1/32"},
@@ -249,6 +266,7 @@ func BenchmarkSweepService_OptimizedPerformance(b *testing.B) {
 	require.NoError(b, err)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		// Benchmark service name access (basic operation)
 		_ = service.Name()
