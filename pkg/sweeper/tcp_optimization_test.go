@@ -18,6 +18,7 @@ package sweeper
 
 import (
 	"context"
+	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -29,10 +30,21 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
+// skipIfNotLinuxRoot skips the test if not running on Linux or without root privileges
+func skipIfNotLinuxRoot(t *testing.T) {
+	t.Helper()
+
 	if runtime.GOOS != "linux" {
 		t.Skip("SYN scanning is only supported on Linux")
 	}
+
+	if os.Geteuid() != 0 {
+		t.Skip("SYN scanning requires root privileges")
+	}
+}
+
+func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
+	skipIfNotLinuxRoot(t)
 
 	tests := []struct {
 		name           string
@@ -86,9 +98,7 @@ func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
 }
 
 func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SYN scanning is only supported on Linux")
-	}
+	skipIfNotLinuxRoot(t)
 
 	config := &models.Config{
 		Networks:    []string{"192.168.1.0/29"},                           // Small network, 6 hosts
@@ -137,9 +147,7 @@ func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 }
 
 func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SYN scanning is only supported on Linux")
-	}
+	skipIfNotLinuxRoot(t)
 
 	config := &models.Config{
 		DeviceTargets: []models.DeviceTarget{
@@ -213,9 +221,7 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 }
 
 func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SYN scanning is only supported on Linux")
-	}
+	skipIfNotLinuxRoot(t)
 
 	if testing.Short() {
 		t.Skip("Skipping timeout optimization test in short mode")
@@ -263,9 +269,7 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 }
 
 func TestNetworkSweeper_ProgressLogging(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SYN scanning is only supported on Linux")
-	}
+	skipIfNotLinuxRoot(t)
 
 	if testing.Short() {
 		t.Skip("Skipping progress logging test in short mode")

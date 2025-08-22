@@ -18,6 +18,7 @@ package agent
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -29,10 +30,21 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestSweepService_Creation(t *testing.T) {
+// skipIfNotLinuxRoot skips the test if not running on Linux or without root privileges
+func skipIfNotLinuxRoot(t *testing.T) {
+	t.Helper()
+
 	if runtime.GOOS != "linux" {
 		t.Skip("SYN scanning is only supported on Linux")
 	}
+
+	if os.Geteuid() != 0 {
+		t.Skip("SYN scanning requires root privileges")
+	}
+}
+
+func TestSweepService_Creation(t *testing.T) {
+	skipIfNotLinuxRoot(t)
 
 	// Test that sweep service can be created successfully with optimized config
 	config := &models.Config{
@@ -58,9 +70,7 @@ func TestSweepService_Creation(t *testing.T) {
 }
 
 func TestSweepService_LargeScaleConfig(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SYN scanning is only supported on Linux")
-	}
+	skipIfNotLinuxRoot(t)
 
 	if testing.Short() {
 		t.Skip("Skipping large scale config test in short mode")
@@ -99,9 +109,7 @@ func TestSweepService_LargeScaleConfig(t *testing.T) {
 }
 
 func TestSweepService_PerformanceComparison(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SYN scanning is only supported on Linux")
-	}
+	skipIfNotLinuxRoot(t)
 
 	if testing.Short() {
 		t.Skip("Skipping performance comparison test in short mode")
@@ -154,9 +162,7 @@ func TestSweepService_PerformanceComparison(t *testing.T) {
 }
 
 func TestSweepService_RealTimeProgressTracking(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SYN scanning is only supported on Linux")
-	}
+	skipIfNotLinuxRoot(t)
 
 	if testing.Short() {
 		t.Skip("Skipping real-time progress tracking test in short mode")
@@ -189,9 +195,7 @@ func TestSweepService_RealTimeProgressTracking(t *testing.T) {
 }
 
 func TestSweepService_TimeoutHandling(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SYN scanning is only supported on Linux")
-	}
+	skipIfNotLinuxRoot(t)
 
 	if testing.Short() {
 		t.Skip("Skipping timeout handling test in short mode")

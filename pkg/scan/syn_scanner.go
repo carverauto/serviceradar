@@ -55,6 +55,9 @@ const (
 
 	// Ethernet type
 	etherTypeIPv4 = 0x0800
+	etherTypeVLAN = 0x8100
+	etherTypeQinQ = 0x88A8
+	etherType9100 = 0x9100 // common vendor tag
 
 	// TPACKETv3 constants / defaults
 	defaultBlockSize   = 1 << 20 // 1 MiB per block
@@ -88,13 +91,14 @@ var host = func() binary.ByteOrder {
 //
 // or with nftables:
 //
-//	nft add rule inet output tcp flags rst tcp sport 32768-61000 drop
+//	nft add rule inet filter output tcp flags rst tcp sport 32768-61000 drop
 //
 // This implementation sniffs replies via AF_PACKET + TPACKET_V3 ring (zero-copy),
 // uses classic BPF to reduce userland traffic, and PACKET_FANOUT to scale across cores.
 // Packet crafting uses raw IPv4+TCP with IP_HDRINCL (no unsafe, big-endian writes).
 //
 // Linux-only.
+// https://www.kernel.org/doc/Documentation/networking/packet_mmap.txt
 type SYNScanner struct {
 	timeout     time.Duration
 	concurrency int
@@ -110,12 +114,15 @@ type SYNScanner struct {
 	fanoutGroup int
 
 	mu            sync.Mutex
-	portTargetMap map[uint16]string // Maps source port -> target key ("ip:port")
-	targetIP      map[string]string // target key -> dest IP string (parsed)
+	portTargetMap map[uint16]string  // Maps source port -> target key ("ip:port")
+	targetIP      map[string][4]byte // target key -> dest IPv4 bytes
 	results       map[string]models.Result
-	nextPort      uint32
 
 	portAlloc *PortAllocator
+
+	retryAttempts  int           // e.g., 2
+	retryMinJitter time.Duration // e.g., 20 * time.Millisecond
+	retryMaxJitter time.Duration // e.g., 40 * time.Millisecond
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -213,35 +220,63 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 	lo := uint32(sportLo)
 	hi := uint32(sportHi)
 
+	// Instruction indices shown at left for sanity.
 	prog := []unix.SockFilter{
-		// ldh [12] -> EtherType
+		//  0: EtherType @ [12]
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 12},
-		// if EtherType != 0x0800 (IPv4) -> drop (jump to ret 0 at idx 11)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x0800, Jt: 0, Jf: 9},
+		//  1: vlan? (0x8100) -> jump to VLAN block @16
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x8100, Jt: 14, Jf: 0},
+		//  2: vlan? (0x88a8) -> VLAN block @16
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x88A8, Jt: 13, Jf: 0},
+		//  3: vlan? (0x9100) -> VLAN block @16
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x9100, Jt: 12, Jf: 0},
 
-		// ldb [23] -> IP protocol
+		// ---- Non-VLAN path (IPv4 at L2+14) ----
+		//  4: if EtherType != IPv4 -> drop
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x0800, Jt: 1, Jf: 0},
+		//  5: drop
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
+		//  6: proto @ [23]
 		{Code: unix.BPF_LD | unix.BPF_B | unix.BPF_ABS, K: 23},
-		// if proto != TCP(6) -> drop
+		//  7: if proto != TCP -> drop (jf=7 to instr 15)
 		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 6, Jt: 0, Jf: 7},
-
-		// ldw [30] -> IPv4 dst (14 + 16)
+		//  8: dst ip @ [30]
 		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 30},
-		// if dst != localIP -> drop
+		//  9: if dst != local -> drop (jf=5 to 15)
 		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipK, Jt: 0, Jf: 5},
-
-		// x = 4 * (IPv4 IHL at [14] & 0x0f)
+		// 10: X = 4*(IHL) @ [14]
 		{Code: unix.BPF_LDX | unix.BPF_MSH | unix.BPF_B | unix.BPF_ABS, K: 14},
-		// ldh [x + 16] -> TCP dst port (14 + IHL + 2)
+		// 11: tcp dport @ [16+X]
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_IND, K: 16},
-
-		// if port < lo -> drop
+		// 12: if dport < lo -> drop (jf=2 to 15)
 		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 2},
-		// if port > hi -> drop
+		// 13: if dport > hi -> drop (jt=1 to 15)
 		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 1, Jf: 0},
-
-		// accept
+		// 14: accept
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
-		// drop
+		// 15: drop
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
+
+		// ---- VLAN path (single tag; IPv4 at L2+18) ----
+		// 16: proto @ [27]
+		{Code: unix.BPF_LD | unix.BPF_B | unix.BPF_ABS, K: 27},
+		// 17: if proto != TCP -> drop (jf=7 to 25)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 6, Jt: 0, Jf: 7},
+		// 18: dst ip @ [34]
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 34},
+		// 19: if dst != local -> drop (jf=5 to 25)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipK, Jt: 0, Jf: 5},
+		// 20: X = 4*(IHL) @ [18]
+		{Code: unix.BPF_LDX | unix.BPF_MSH | unix.BPF_B | unix.BPF_ABS, K: 18},
+		// 21: tcp dport @ [20+X]  (18 + 2 + X)
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_IND, K: 20},
+		// 22: if dport < lo -> drop (jf=2 to 25)
+		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 2},
+		// 23: if dport > hi -> drop (jt=1 to 25)
+		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 1, Jf: 0},
+		// 24: accept
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
+		// 25: drop
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
 	}
 
@@ -279,6 +314,35 @@ func openSnifferOnInterface(iFace string) (int, error) {
 	}
 
 	return fd, nil
+}
+
+// VLAN-aware L2/L3 parsing + cBPF
+
+func ethernetL3(b []byte) (eth uint16, l3off int, err error) {
+	if len(b) < 14 {
+		return 0, 0, fmt.Errorf("short ethernet")
+	}
+
+	off := 12
+	eth = binary.BigEndian.Uint16(b[off : off+2])
+	l3off = 14
+
+	// Peel up to two tags (802.1Q / QinQ / 0x9100)
+	for i := 0; i < 2; i++ {
+		if eth == etherTypeVLAN || eth == etherTypeQinQ || eth == etherType9100 {
+			if len(b) < l3off+4 {
+				return 0, 0, fmt.Errorf("short vlan header")
+			}
+
+			// skip TCI (2 bytes) and read inner ethertype
+			eth = binary.BigEndian.Uint16(b[l3off+2 : l3off+4])
+			l3off += 4
+		} else {
+			break
+		}
+	}
+
+	return eth, l3off, nil
 }
 
 // TPACKETv3 Ring
@@ -338,10 +402,10 @@ func setupTPacketV3(fd int, blockSize, blockNr, frameSize, retireMs uint32) (*ri
 
 // Offsets inside tpacket_block_desc.v3 (host-endian)
 const (
-	blk_version_off  = 0                    // u32 version
-	blk_off_priv_off = 4                    // u32 offset_to_priv
+	blk_version_off  = 0
+	blk_off_priv_off = 4
 	blk_h1_off       = blk_off_priv_off + 4 // 8
-	// struct tpacket_hdr_v1 (host-endian)
+
 	h1_status_off    = blk_h1_off + 0  // u32 block_status
 	h1_num_pkts_off  = blk_h1_off + 4  // u32 num_pkts
 	h1_first_pkt_off = blk_h1_off + 8  // u32 offset_to_first_pkt
@@ -416,12 +480,28 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 				}
 
 				ph := blk[off:]
+
+				if int(pkt_next_off+4) > len(ph) ||
+					int(pkt_snaplen_off+4) > len(ph) ||
+					int(pkt_mac_off+2) > len(ph) {
+
+					break
+				}
+
 				snap := int(host.Uint32(ph[pkt_snaplen_off : pkt_snaplen_off+4]))
 				mac := int(host.Uint16(ph[pkt_mac_off : pkt_mac_off+2]))
+
+				processed := 0
 
 				if mac >= 0 && snap >= 0 && mac+snap <= len(ph) {
 					frame := ph[mac : mac+snap]
 					s.processEthernetFrame(frame)
+
+					// debug: count processed frames
+					processed++
+					if processed%1000 == 0 {
+						s.logger.Debug().Int("frames", processed).Msg("ring frames processed")
+					}
 				}
 
 				next := int(host.Uint32(ph[pkt_next_off : pkt_next_off+4]))
@@ -453,27 +533,31 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 	}
 
 	log.Info().Msg("DEBUG: Creating raw socket for sending")
+
 	// Create raw socket for sending packets with custom IP headers
 	sendSocket, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create raw send socket (requires root): %w", err)
 	}
-	log.Info().Int("socket", sendSocket).Msg("DEBUG: Raw socket created successfully")
 
+	log.Info().Int("socket", sendSocket).Msg("DEBUG: Raw socket created successfully")
 	log.Info().Msg("DEBUG: Setting IP_HDRINCL socket option")
+
 	if err = syscall.SetsockoptInt(sendSocket, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1); err != nil {
 		syscall.Close(sendSocket)
 		return nil, fmt.Errorf("cannot set IP_HDRINCL (requires root): %w", err)
 	}
-	log.Info().Msg("DEBUG: IP_HDRINCL set successfully")
 
+	log.Info().Msg("DEBUG: IP_HDRINCL set successfully")
 	log.Info().Msg("DEBUG: Getting local IP and interface")
+
 	// Find a local IP and interface to use
 	sourceIP, iface, err := getLocalIPAndInterface()
 	if err != nil {
 		syscall.Close(sendSocket)
 		return nil, fmt.Errorf("failed to get local IP and interface: %w", err)
 	}
+
 	log.Info().Str("sourceIP", sourceIP.String()).Str("interface", iface).Msg("DEBUG: Local IP and interface found")
 
 	sourceIP = sourceIP.To4()
@@ -483,6 +567,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 	}
 
 	log.Info().Msg("DEBUG: Setting up ring buffers")
+
 	// Build NumCPU ring readers with BPF + FANOUT
 	fanoutGroup := (os.Getpid() * 131) & 0xFFFF
 
@@ -493,11 +578,12 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 	for i := 0; i < n; i++ {
 		log.Info().Int("ringIndex", i).Msg("DEBUG: Creating ring buffer")
-
 		log.Info().Str("interface", iface).Msg("DEBUG: Opening sniffer on interface")
+
 		fd, err := openSnifferOnInterface(iface)
 		if err != nil {
 			log.Error().Err(err).Msg("DEBUG: Failed to open sniffer on interface")
+
 			for _, r := range rings {
 				_ = unix.Munmap(r.mem)
 				_ = unix.Close(r.fd)
@@ -507,6 +593,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 			return nil, fmt.Errorf("openSnifferOnInterface failed: %w", err)
 		}
+
 		log.Info().Int("fd", fd).Msg("DEBUG: Sniffer opened successfully")
 
 		log.Info().Msg("DEBUG: Attaching BPF filter")
@@ -559,16 +646,39 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 	log.Info().Int("ringCount", len(rings)).Msg("DEBUG: All ring buffers created successfully")
 
 	return &SYNScanner{
-		timeout:     timeout,
-		concurrency: concurrency,
-		logger:      log,
-		sendSocket:  sendSocket,
-		rings:       rings,
-		sourceIP:    sourceIP,
-		iface:       iface,
-		fanoutGroup: fanoutGroup,
-		portAlloc:   NewPortAllocator(ephemeralPortStart, ephemeralPortEnd),
+		timeout:        timeout,
+		concurrency:    concurrency,
+		logger:         log,
+		sendSocket:     sendSocket,
+		rings:          rings,
+		sourceIP:       sourceIP,
+		iface:          iface,
+		fanoutGroup:    fanoutGroup,
+		portAlloc:      NewPortAllocator(ephemeralPortStart, ephemeralPortEnd),
+		retryAttempts:  2,
+		retryMinJitter: 20 * time.Millisecond,
+		retryMaxJitter: 40 * time.Millisecond,
 	}, nil
+}
+
+func (s *SYNScanner) hasFinalResult(targetKey string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	r, ok := s.results[targetKey]
+
+	return ok && (r.Available || r.Error != nil)
+}
+
+func (s *SYNScanner) jitterSleep() {
+	span := s.retryMaxJitter - s.retryMinJitter
+	if span <= 0 {
+		time.Sleep(s.retryMinJitter)
+		return
+	}
+
+	d := s.retryMinJitter + time.Duration(rand.Int63n(int64(span)))
+	time.Sleep(d)
 }
 
 // Scan performs SYN scanning on the given targets
@@ -589,7 +699,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	s.results = make(map[string]models.Result, len(tcpTargets))
 	s.portTargetMap = make(map[uint16]string, len(tcpTargets))
-	s.targetIP = make(map[string]string, len(tcpTargets))
+	s.targetIP = make(map[string][4]byte, len(tcpTargets))
 
 	s.mu.Unlock()
 
@@ -655,7 +765,19 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 			if !ok {
 				return
 			}
-			s.sendSyn(ctx, target)
+
+			key := fmt.Sprintf("%s:%d", target.Host, target.Port)
+
+			for attempt := 0; attempt < s.retryAttempts; attempt++ {
+				s.sendSyn(ctx, target)
+
+				if attempt+1 < s.retryAttempts {
+					s.jitterSleep()
+					if s.hasFinalResult(key) {
+						break
+					}
+				}
+			}
 		case <-ctx.Done():
 			return
 		}
@@ -681,19 +803,27 @@ func (s *SYNScanner) listenForReplies(ctx context.Context) {
 
 // processEthernetFrame parses an Ethernet frame and extracts TCP response information.
 func (s *SYNScanner) processEthernetFrame(frame []byte) {
-	eth, err := parseEthernet(frame)
-	if err != nil || eth.EtherType != etherTypeIPv4 {
-		return // Not an IPv4 packet
+	ethType, l3off, err := ethernetL3(frame)
+	if err != nil || ethType != etherTypeIPv4 {
+		return
 	}
 
-	ip, ipLen, err := parseIPv4(frame[14:])
+	if len(frame) < l3off+20 {
+		return
+	}
+
+	ip, ipLen, err := parseIPv4(frame[l3off:])
 	if err != nil || ip.Protocol != syscall.IPPROTO_TCP {
-		return // Not a TCP packet
+		return
 	}
 
-	tcp, _, err := parseTCP(frame[14+ipLen:])
+	if len(frame) < l3off+ipLen+20 {
+		return
+	}
+
+	tcp, _, err := parseTCP(frame[l3off+ipLen:])
 	if err != nil {
-		return // Malformed TCP header
+		return
 	}
 
 	s.mu.Lock()
@@ -701,20 +831,24 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 
 	targetKey, ok := s.portTargetMap[tcp.DstPort]
 	if !ok {
-		return // Not a port we are tracking
+		return
 	}
 
-	wantIP := s.targetIP[targetKey]
-	if wantIP != ip.SrcIP.String() {
-		return // Source IP doesn't match the target for this port
+	src4 := ip.SrcIP.To4()
+	if src4 == nil {
+		return
+	}
+
+	want := s.targetIP[targetKey]
+	if src4[0] != want[0] || src4[1] != want[1] || src4[2] != want[2] || src4[3] != want[3] {
+		return
 	}
 
 	result := s.results[targetKey]
 	if result.Available || result.Error != nil {
-		return // already finalized
+		return
 	}
 
-	// SYN|ACK => open, any RST => closed
 	if tcp.Flags&(synFlag|ackFlag) == (synFlag | ackFlag) {
 		result.Available = true
 	} else if tcp.Flags&rstFlag != 0 {
@@ -728,8 +862,17 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	result.LastSeen = time.Now()
 	s.results[targetKey] = result
 
+	// Free the port used by this successful attempt
 	delete(s.portTargetMap, tcp.DstPort)
 	s.portAlloc.Release(tcp.DstPort)
+
+	// If we retried, there may be other pending src ports mapped to the same target—release them too.
+	for sp, key := range s.portTargetMap {
+		if key == targetKey {
+			delete(s.portTargetMap, sp)
+			s.portAlloc.Release(sp)
+		}
+	}
 }
 
 // sendSyn crafts and sends a single SYN packet to the target.
@@ -758,17 +901,26 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 
 	targetKey := fmt.Sprintf("%s:%d", target.Host, target.Port)
 
+	ip4b := destIP.To4()
+
+	var want [4]byte
+
+	copy(want[:], ip4b)
+
 	s.mu.Lock()
 	s.portTargetMap[srcPort] = targetKey
+
 	if s.targetIP == nil {
-		s.targetIP = make(map[string]string)
+		s.targetIP = make(map[string][4]byte)
 	}
-	s.targetIP[targetKey] = destIP.String()
+
+	s.targetIP[targetKey] = want
 	s.results[targetKey] = models.Result{
 		Target:    target,
 		FirstSeen: time.Now(),
 		LastSeen:  time.Now(),
 	}
+
 	s.mu.Unlock()
 
 	if target.Port > maxPortNumber {
@@ -824,6 +976,12 @@ func (s *SYNScanner) processResults(targets []models.Target, ch chan<- models.Re
 func (s *SYNScanner) Stop(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	for src := range s.portTargetMap {
+		s.portAlloc.Release(src)
+	}
+
+	s.portTargetMap = nil
 
 	if s.cancel != nil {
 		s.cancel()
