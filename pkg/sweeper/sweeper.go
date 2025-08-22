@@ -334,7 +334,11 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.logger.Info().Interface("config", config).Msg("Updating sweeper config")
+	s.logger.Info().
+		Int("networks", len(config.Networks)).
+		Int("deviceTargets", len(config.DeviceTargets)).
+		Int("ports", len(config.Ports)).
+		Msg("Updating sweeper config")
 
 	// Preserve existing non-zero values when new config has zero values
 	// This allows minimal configs from sync service (with only networks) to work properly
@@ -459,33 +463,29 @@ func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, confi
 
 // processConfigUpdate processes a config update from the KV store.
 func (s *NetworkSweeper) processConfigUpdate(value []byte) {
-	s.logger.Info().
+	s.logger.Debug().
 		Int("valueLength", len(value)).
-		Str("valueString", string(value)).
-		Msg("DETAILED DEBUG: processConfigUpdate called with value")
+		Msg("Processing KV config update")
 
 	// First check if this is a metadata file indicating chunked config
 	var metadataCheck map[string]interface{}
 	if err := json.Unmarshal(value, &metadataCheck); err != nil {
-		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("DETAILED DEBUG: Failed to unmarshal config")
+		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to unmarshal config")
 		return
 	}
-
-	s.logger.Info().Interface("metadataCheck", metadataCheck).Msg("DETAILED DEBUG: Successfully unmarshaled config value")
 
 	// Check if this is a metadata file with chunk information
 	if chunkCount, exists := metadataCheck["chunk_count"]; exists {
 		s.logger.Info().
-			Interface("metadata", metadataCheck).
-			Interface("chunkCount", chunkCount).
-			Msg("DETAILED DEBUG: Detected chunked sweep config, reading chunks")
+			Int("chunkCount", int(chunkCount.(float64))).
+			Msg("Detected chunked sweep config, reading chunks")
 
 		s.processChunkedConfig(metadataCheck)
 
 		return
 	}
 
-	s.logger.Info().Interface("metadataCheck", metadataCheck).Msg("DETAILED DEBUG: No chunk_count found, processing as single config")
+	s.logger.Debug().Msg("Processing as single config file")
 
 	// Process as single file (legacy format)
 	s.processSingleConfig(value)
@@ -504,7 +504,10 @@ func (s *NetworkSweeper) processSingleConfig(value []byte) {
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply single config update")
 	} else {
-		s.logger.Info().Interface("newConfig", newConfig).Msg("Successfully updated sweep config from single KV file")
+		s.logger.Info().
+			Int("networks", len(newConfig.Networks)).
+			Int("deviceTargets", len(newConfig.DeviceTargets)).
+			Msg("Successfully updated sweep config from single KV file")
 	}
 }
 
@@ -527,7 +530,7 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 	s.logger.Info().
 		Int("chunkCount", chunkCount).
 		Str("baseConfigKey", s.getBaseConfigKey()).
-		Msg("DETAILED DEBUG: Reading chunked sweep configuration")
+		Msg("Reading chunked sweep configuration")
 
 	// Read and parse all chunks
 	var combinedNetworks []string
@@ -544,26 +547,26 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 	for i := 0; i < chunkCount; i++ {
 		chunkKey := fmt.Sprintf("%s_chunk_%d.json", s.getBaseConfigKey(), i)
 
-		s.logger.Info().Str("chunkKey", chunkKey).Int("chunkIndex", i).Msg("DETAILED DEBUG: Attempting to read chunk")
+		s.logger.Debug().Str("chunkKey", chunkKey).Int("chunkIndex", i).Msg("Reading config chunk")
 
 		// Get the chunk data directly
 		chunkData, found, err := s.kvStore.Get(ctx, chunkKey)
 		if err != nil {
-			s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("DETAILED DEBUG: Failed to get chunk data")
+			s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("Failed to get chunk data")
 			return
 		}
 
 		if !found {
-			s.logger.Warn().Str("chunkKey", chunkKey).Msg("DETAILED DEBUG: Chunk data not found")
+			s.logger.Warn().Str("chunkKey", chunkKey).Msg("Chunk data not found")
 			continue
 		}
 
 		if len(chunkData) == 0 {
-			s.logger.Warn().Str("chunkKey", chunkKey).Msg("DETAILED DEBUG: Empty chunk data")
+			s.logger.Warn().Str("chunkKey", chunkKey).Msg("Empty chunk data")
 			continue
 		}
 
-		s.logger.Info().Str("chunkKey", chunkKey).Int("dataLength", len(chunkData)).Msg("DETAILED DEBUG: Successfully retrieved chunk data")
+		s.logger.Debug().Str("chunkKey", chunkKey).Int("dataLength", len(chunkData)).Msg("Successfully retrieved chunk data")
 
 		// Parse this chunk as a separate SweepConfig
 		var chunkConfig unmarshalConfig
@@ -613,7 +616,11 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply chunked config update")
 	} else {
-		s.logger.Info().Interface("newConfig", newConfig).Msg("Successfully updated sweep config from chunked KV data")
+		s.logger.Info().
+			Int("totalChunks", chunkCount).
+			Int("networks", len(newConfig.Networks)).
+			Int("deviceTargets", len(newConfig.DeviceTargets)).
+			Msg("Successfully updated sweep config from chunked KV data")
 	}
 }
 
@@ -769,7 +776,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 
 	errChan := make(chan error, 2) // Buffer for both ICMP and TCP errors
 
-	if len(icmpTargets) > 0 {
+	if len(icmpTargets) > 0 && s.icmpScanner != nil {
 		wg.Add(1)
 
 		go func() {
@@ -777,9 +784,11 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 				errChan <- err
 			}
 		}()
+	} else if len(icmpTargets) > 0 {
+		s.logger.Warn().Int("icmpTargets", len(icmpTargets)).Msg("ICMP targets found but ICMP scanner is not available, skipping ICMP scan")
 	}
 
-	if len(tcpTargets) > 0 {
+	if len(tcpTargets) > 0 && s.tcpScanner != nil {
 		wg.Add(1)
 
 		go func() {
@@ -787,6 +796,8 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 				errChan <- err
 			}
 		}()
+	} else if len(tcpTargets) > 0 {
+		s.logger.Warn().Int("tcpTargets", len(tcpTargets)).Msg("TCP targets found but TCP scanner is not available, skipping TCP scan")
 	}
 
 	wg.Wait()

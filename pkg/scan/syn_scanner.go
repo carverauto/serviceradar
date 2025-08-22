@@ -28,6 +28,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe" // only for PACKET_RX_RING req pointer & tiny endianness probe
@@ -68,6 +69,22 @@ const (
 	// tpacket v3 block ownership
 	tpStatusUser = 1 // TP_STATUS_USER
 )
+
+// u32ptr gets a pointer to a uint32 at a specific offset in a byte slice.
+// mmap'd memory is shared; use atomics to enforce ordering with the kernel.
+func u32ptr(b []byte, off int) *uint32 {
+	return (*uint32)(unsafe.Pointer(&b[off]))
+}
+
+// loadU32 performs an atomic load, which acts as an "acquire" memory barrier.
+func loadU32(b []byte, off int) uint32 {
+	return atomic.LoadUint32(u32ptr(b, off))
+}
+
+// storeU32 performs an atomic store, which acts as a "release" memory barrier.
+func storeU32(b []byte, off int, v uint32) {
+	atomic.StoreUint32(u32ptr(b, off), v)
+}
 
 // Host-endian detector for tpacket headers (host-endian on Linux)
 var host = func() binary.ByteOrder {
@@ -458,22 +475,29 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 				continue
 			}
 
-			status := host.Uint32(blk[h1_status_off : h1_status_off+4])
+			// This ensures we see a consistent state of the block header and packet
+			// data AFTER we've confirmed the kernel has handed the block to us.
+			status := loadU32(blk, h1_status_off)
 			if status&tpStatusUser == 0 {
 				continue
 			}
 
+			// After the acquire barrier, standard reads are safe.
+			// The tpacket headers are host-endian, so no conversion is needed.
 			numPkts := host.Uint32(blk[h1_num_pkts_off : h1_num_pkts_off+4])
 			first := host.Uint32(blk[h1_first_pkt_off : h1_first_pkt_off+4])
 
 			if int(first) < 0 || int(first) >= len(blk) {
-				// corrupt header; release block and move on
-				host.PutUint32(blk[h1_status_off:h1_status_off+4], 0)
+				// Corrupt header; release block and move on
+				storeU32(blk, h1_status_off, 0)
 				cur = (bi + 1) % r.blockNr
+
 				continue
 			}
 
 			off := int(first)
+
+			var processed int
 
 			for p := uint32(0); p < numPkts; p++ {
 				if off+int(pkt_mac_off+2) > len(blk) {
@@ -492,21 +516,13 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 				snap := int(host.Uint32(ph[pkt_snaplen_off : pkt_snaplen_off+4]))
 				mac := int(host.Uint16(ph[pkt_mac_off : pkt_mac_off+2]))
 
-				processed := 0
-
 				if mac >= 0 && snap >= 0 && mac+snap <= len(ph) {
 					frame := ph[mac : mac+snap]
 					s.processEthernetFrame(frame)
-
-					// debug: count processed frames
 					processed++
-					if processed%1000 == 0 {
-						s.logger.Debug().Int("frames", processed).Msg("ring frames processed")
-					}
 				}
 
 				next := int(host.Uint32(ph[pkt_next_off : pkt_next_off+4]))
-
 				if next <= 0 || off+next > len(blk) {
 					break
 				}
@@ -514,8 +530,13 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 				off += next
 			}
 
-			// Release block back to kernel
-			host.PutUint32(blk[h1_status_off:h1_status_off+4], 0)
+			if processed > 0 && processed%1000 == 0 {
+				s.logger.Debug().Int("frames", processed).Msg("ring frames processed")
+			}
+
+			// This ensures all our reads from the block are complete BEFORE
+			// we hand ownership back to the kernel.
+			storeU32(blk, h1_status_off, 0)
 			cur = (bi + 1) % r.blockNr
 		}
 	}
