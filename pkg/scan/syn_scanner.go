@@ -365,8 +365,14 @@ const (
 
 func (r *ringBuf) block(i uint32) []byte {
 	base := int(i * r.blockSize)
+	end := base + int(r.blockSize)
+	
+	// Bounds check to prevent panics
+	if base < 0 || end > len(r.mem) || base >= end {
+		return nil
+	}
 
-	return r.mem[base : base+int(r.blockSize)]
+	return r.mem[base:end]
 }
 
 func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
@@ -386,6 +392,11 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 		for i := uint32(0); i < r.blockNr; i++ {
 			bi := (cur + i) % r.blockNr
 			blk := r.block(bi)
+			
+			// Skip if block is invalid
+			if blk == nil || len(blk) < int(h1_status_off+4) {
+				continue
+			}
 
 			_ = host.Uint32(blk[blk_version_off : blk_version_off+4]) // currently unused
 
@@ -427,6 +438,8 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 
 // NewSYNScanner creates a new SYN scanner (with TPACKETv3 ring readers)
 func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*SYNScanner, error) {
+	log.Info().Msg("DEBUG: Starting SYN scanner initialization")
+	
 	if timeout == 0 {
 		timeout = 1 * time.Second // SYN scans can be faster
 	}
@@ -435,23 +448,29 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		concurrency = 1000 // Can handle much higher concurrency
 	}
 
+	log.Info().Msg("DEBUG: Creating raw socket for sending")
 	// Create raw socket for sending packets with custom IP headers
 	sendSocket, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create raw send socket (requires root): %w", err)
 	}
+	log.Info().Int("socket", sendSocket).Msg("DEBUG: Raw socket created successfully")
 
+	log.Info().Msg("DEBUG: Setting IP_HDRINCL socket option")
 	if err = syscall.SetsockoptInt(sendSocket, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1); err != nil {
 		syscall.Close(sendSocket)
 		return nil, fmt.Errorf("cannot set IP_HDRINCL (requires root): %w", err)
 	}
+	log.Info().Msg("DEBUG: IP_HDRINCL set successfully")
 
+	log.Info().Msg("DEBUG: Getting local IP and interface")
 	// Find a local IP and interface to use
 	sourceIP, iface, err := getLocalIPAndInterface()
 	if err != nil {
 		syscall.Close(sendSocket)
 		return nil, fmt.Errorf("failed to get local IP and interface: %w", err)
 	}
+	log.Info().Str("sourceIP", sourceIP.String()).Str("interface", iface).Msg("DEBUG: Local IP and interface found")
 
 	sourceIP = sourceIP.To4()
 	if sourceIP == nil {
@@ -459,16 +478,22 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		return nil, fmt.Errorf("non-IPv4 source IP")
 	}
 
+	log.Info().Msg("DEBUG: Setting up ring buffers")
 	// Build NumCPU ring readers with BPF + FANOUT
 	fanoutGroup := (os.Getpid() * 131) & 0xFFFF
 
 	n := runtime.NumCPU()
+	log.Info().Int("numCPU", n).Int("fanoutGroup", fanoutGroup).Msg("DEBUG: Ring setup parameters")
 
 	rings := make([]*ringBuf, 0, n)
 
 	for i := 0; i < n; i++ {
+		log.Info().Int("ringIndex", i).Msg("DEBUG: Creating ring buffer")
+		
+		log.Info().Str("interface", iface).Msg("DEBUG: Opening sniffer on interface")
 		fd, err := openSnifferOnInterface(iface)
 		if err != nil {
+			log.Error().Err(err).Msg("DEBUG: Failed to open sniffer on interface")
 			for _, r := range rings {
 				_ = unix.Munmap(r.mem)
 				_ = unix.Close(r.fd)
@@ -476,23 +501,22 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 			syscall.Close(sendSocket)
 
-			return nil, err
+			return nil, fmt.Errorf("openSnifferOnInterface failed: %w", err)
 		}
+		log.Info().Int("fd", fd).Msg("DEBUG: Sniffer opened successfully")
 
+		log.Info().Msg("DEBUG: Attaching BPF filter")
 		if err := attachBPF(fd, sourceIP, ephemeralPortStart, ephemeralPortEnd); err != nil {
-			_ = unix.Close(fd)
-
-			for _, r := range rings {
-				_ = unix.Munmap(r.mem)
-				_ = unix.Close(r.fd)
-			}
-
-			syscall.Close(sendSocket)
-
-			return nil, err
+			log.Error().Err(err).Msg("DEBUG: Failed to attach BPF filter, trying without BPF")
+			// Continue without BPF filter - less efficient but should work
+			log.Warn().Msg("DEBUG: Running without BPF filter (reduced efficiency)")
+		} else {
+			log.Info().Msg("DEBUG: BPF filter attached successfully")
 		}
 
+		log.Info().Int("fanoutGroup", fanoutGroup).Msg("DEBUG: Enabling packet fanout")
 		if err := enableFanout(fd, fanoutGroup); err != nil {
+			log.Error().Err(err).Msg("DEBUG: Failed to enable packet fanout")
 			_ = unix.Close(fd)
 
 			for _, r := range rings {
@@ -502,11 +526,14 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 			syscall.Close(sendSocket)
 
-			return nil, err
+			return nil, fmt.Errorf("enableFanout failed: %w", err)
 		}
+		log.Info().Msg("DEBUG: Packet fanout enabled successfully")
 
+		log.Info().Uint32("blockSize", defaultBlockSize).Uint32("blockCount", defaultBlockCount).Uint32("frameSize", defaultFrameSize).Uint32("retireMs", defaultRetireTovMs).Msg("DEBUG: Setting up TPACKET_V3")
 		r, err := setupTPacketV3(fd, defaultBlockSize, defaultBlockCount, defaultFrameSize, defaultRetireTovMs)
 		if err != nil {
+			log.Error().Err(err).Msg("DEBUG: Failed to setup TPACKET_V3")
 			_ = unix.Close(fd)
 
 			for _, r := range rings {
@@ -516,11 +543,13 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 			syscall.Close(sendSocket)
 
-			return nil, err
+			return nil, fmt.Errorf("setupTPacketV3 failed: %w", err)
 		}
+		log.Info().Msg("DEBUG: TPACKET_V3 setup successfully")
 
 		rings = append(rings, r)
 	}
+	log.Info().Int("ringCount", len(rings)).Msg("DEBUG: All ring buffers created successfully")
 
 	return &SYNScanner{
 		timeout:     timeout,
