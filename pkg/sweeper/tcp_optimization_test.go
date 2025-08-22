@@ -216,6 +216,7 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("SYN scanning is only supported on Linux")
 	}
+
 	if testing.Short() {
 		t.Skip("Skipping timeout optimization test in short mode")
 	}
@@ -265,6 +266,7 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("SYN scanning is only supported on Linux")
 	}
+
 	if testing.Short() {
 		t.Skip("Skipping progress logging test in short mode")
 	}
