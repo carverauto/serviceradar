@@ -95,12 +95,12 @@ func (kw *DefaultKVWriter) writeChunkedConfig(ctx context.Context, sweepConfig *
 		Int("payload_size_mb", payloadSize/bytesPerMB).
 		Msg("Large sweep config detected, writing in chunks")
 
-	// Calculate how many chunks we need
-	totalChunks := (len(sweepConfig.Networks) + maxNetworksPerChunk - 1) / maxNetworksPerChunk
-
-	// Also need to split DeviceTargets proportionally if they exist
-	devicesPerChunk := 0
-	if len(sweepConfig.DeviceTargets) > 0 {
+	// Calculate chunks based on device targets (networks array is now empty)
+	totalChunks := 1 // Default to 1 chunk
+	devicesPerChunk := len(sweepConfig.DeviceTargets)
+	
+	if len(sweepConfig.DeviceTargets) > maxNetworksPerChunk {
+		totalChunks = (len(sweepConfig.DeviceTargets) + maxNetworksPerChunk - 1) / maxNetworksPerChunk
 		devicesPerChunk = (len(sweepConfig.DeviceTargets) + totalChunks - 1) / totalChunks
 	}
 
@@ -118,13 +118,7 @@ func (kw *DefaultKVWriter) writeChunkedConfig(ctx context.Context, sweepConfig *
 // writeConfigChunk writes a single chunk of the config
 func (kw *DefaultKVWriter) writeConfigChunk(ctx context.Context, sweepConfig *models.SweepConfig,
 	chunkIndex, _ /* totalChunks */, devicesPerChunk int) error {
-	// Calculate network range for this chunk
-	netStart := chunkIndex * maxNetworksPerChunk
-	netEnd := netStart + maxNetworksPerChunk
-
-	if netEnd > len(sweepConfig.Networks) {
-		netEnd = len(sweepConfig.Networks)
-	}
+	// Networks array is empty - only process device targets
 
 	// Calculate device target range for this chunk
 	var chunkDeviceTargets []models.DeviceTarget
@@ -142,7 +136,7 @@ func (kw *DefaultKVWriter) writeConfigChunk(ctx context.Context, sweepConfig *mo
 
 	// Create chunk with subset of data
 	chunkConfig := &models.SweepConfig{
-		Networks:      sweepConfig.Networks[netStart:netEnd],
+		Networks:      []string{}, // Always empty - using DeviceTargets only
 		DeviceTargets: chunkDeviceTargets,
 		Ports:         sweepConfig.Ports,
 		SweepModes:    sweepConfig.SweepModes,
@@ -177,7 +171,6 @@ func (kw *DefaultKVWriter) writeConfigChunk(ctx context.Context, sweepConfig *mo
 		Str("chunk_key", chunkKey).
 		Int("chunk_index", chunkIndex).
 		Int("chunk_size_bytes", len(chunkJSON)).
-		Int("networks_in_chunk", netEnd-netStart).
 		Int("devices_in_chunk", len(chunkDeviceTargets)).
 		Msg("Successfully wrote sweep config chunk")
 

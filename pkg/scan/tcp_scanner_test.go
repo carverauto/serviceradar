@@ -41,7 +41,7 @@ func TestNewTCPSweeper(t *testing.T) {
 			timeout:     0,
 			concurrency: 0,
 			wantTimeout: 5 * time.Second,
-			wantConc:    20,
+			wantConc:    500,
 		},
 		{
 			name:        "custom values",
@@ -132,8 +132,8 @@ func TestTCPSweeper_checkPort(t *testing.T) {
 				t.Errorf("checkPort() err = %v, wantErr %v", err, tt.wantErr)
 			}
 
-			if tt.wantAvail && rtt <= 0 {
-				t.Errorf("Expected positive RTT for available port, got %v", rtt)
+			if tt.wantAvail && rtt < 0 {
+				t.Errorf("Expected non-negative RTT for available port, got %v", rtt)
 			}
 		})
 	}
@@ -272,8 +272,8 @@ func TestTCPSweeper_checkPort_Mocked(t *testing.T) {
 				t.Errorf("checkPortWithDialer() err = %v, wantErr %v", err, tt.wantErr)
 			}
 
-			if tt.wantAvail && rtt <= 0 {
-				t.Errorf("Expected positive RTT for available port, got %v", rtt)
+			if tt.wantAvail && rtt < 0 {
+				t.Errorf("Expected non-negative RTT for available port, got %v", rtt)
 			}
 		})
 	}

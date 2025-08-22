@@ -42,7 +42,8 @@ func NewTCPSweeper(timeout time.Duration, concurrency int, log logger.Logger) *T
 	}
 
 	if concurrency == 0 {
-		concurrency = 20
+		// Increased default for large-scale scanning
+		concurrency = 500
 	}
 
 	return &TCPSweeper{

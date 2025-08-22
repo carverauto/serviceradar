@@ -1003,7 +1003,7 @@ func TestProcessDevices(t *testing.T) {
 
 	require.Len(t, data, 4) // two device keys and two sweep device entries
 	assert.ElementsMatch(t, []string{"test-agent/192.168.1.1", "test-agent/192.168.1.2"}, keysWithPrefix(data, "test-agent/"))
-	assert.ElementsMatch(t, []string{"192.168.1.1/32", "192.168.1.2/32", "10.0.0.1/32"}, ips)
+	assert.Empty(t, ips) // ips array is no longer populated since we use device_targets instead
 
 	// Verify events were created correctly
 	require.Len(t, events, 2, "should have one event per device")

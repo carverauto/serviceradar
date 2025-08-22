@@ -31,7 +31,7 @@ import (
 
 const (
 	defaultInterval      = 5 * time.Minute
-	scanTimeout          = 2 * time.Minute // Timeout for individual scan operations
+	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
 	defaultResultTimeout = 500 * time.Millisecond
 )
 
@@ -116,7 +116,16 @@ func NewNetworkSweeper(
 		log.Debug().Int("adjustedConcurrency", effectiveConcurrency).Int("totalTargets", totalTargets).Msg("Adjusted concurrency for targets")
 	}
 
-	tcpScanner := scan.NewTCPSweeper(config.Timeout, effectiveConcurrency, log)
+	// Try to use SYN scanner for better performance, fall back to regular TCP if not available
+	var tcpScanner scan.Scanner
+	synScanner, err := scan.NewSYNScanner(config.Timeout, effectiveConcurrency, log)
+	if err != nil {
+		log.Info().Msg("SYN scanning not available (requires root), using regular TCP scanning")
+		tcpScanner = scan.NewTCPSweeper(config.Timeout, effectiveConcurrency, log)
+	} else {
+		log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
+		tcpScanner = synScanner
+	}
 
 	// Default interval if not set
 	if config.Interval == 0 {
@@ -680,23 +689,37 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 	count := 0
 	success := 0
 
-	for result := range results {
-		count++
+	// Process results as they arrive, respecting context timeout
+	for {
+		select {
+		case result, ok := <-results:
+			if !ok {
+				// Channel closed, all results received
+				s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete - all results received")
+				return nil
+			}
+			
+			count++
+			if err := s.processResult(ctx, &result); err != nil {
+				s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process result")
+				continue
+			}
 
-		if err := s.processResult(ctx, &result); err != nil {
-			s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process result")
-
-			continue
-		}
-
-		if result.Available {
-			success++
+			if result.Available {
+				success++
+			}
+			
+			// Log progress periodically
+			if count%1000 == 0 {
+				s.logger.Info().Str("scanType", scanType).Int("processed", count).Int("successful", success).Msg("Scan progress")
+			}
+			
+		case <-ctx.Done():
+			// Timeout reached, return results collected so far
+			s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete - timeout reached")
+			return nil
 		}
 	}
-
-	s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete")
-
-	return nil
 }
 
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {
@@ -722,14 +745,15 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	s.logger.Info().Int("icmpTargets", len(icmpTargets)).Int("tcpTargets", len(tcpTargets)).Msg("Starting sweep")
 
 	var wg sync.WaitGroup
-
-	var icmpErr, tcpErr error
+	errChan := make(chan error, 2) // Buffer for both ICMP and TCP errors
 
 	if len(icmpTargets) > 0 {
 		wg.Add(1)
 
 		go func() {
-			icmpErr = s.scanAndProcess(ctx, &wg, s.icmpScanner, icmpTargets, "ICMP")
+			if err := s.scanAndProcess(ctx, &wg, s.icmpScanner, icmpTargets, "ICMP"); err != nil {
+				errChan <- err
+			}
 		}()
 	}
 
@@ -737,18 +761,18 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		wg.Add(1)
 
 		go func() {
-			tcpErr = s.scanAndProcess(ctx, &wg, s.tcpScanner, tcpTargets, "TCP")
+			if err := s.scanAndProcess(ctx, &wg, s.tcpScanner, tcpTargets, "TCP"); err != nil {
+				errChan <- err
+			}
 		}()
 	}
 
 	wg.Wait()
+	close(errChan)
 
-	if icmpErr != nil {
-		return icmpErr
-	}
-
-	if tcpErr != nil {
-		return tcpErr
+	// Check for any errors
+	for err := range errChan {
+		return err
 	}
 
 	// Finalize and process aggregated device results
@@ -979,8 +1003,24 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 	// Use device-specific sweep modes if available, otherwise fall back to global
 	sweepModes := deviceTarget.SweepModes
 	if len(sweepModes) == 0 {
+		s.logger.Debug().
+			Str("device", deviceTarget.Network).
+			Msg("Device target has no sweep modes, using global config")
 		sweepModes = s.config.SweepModes
 	}
+	
+	s.logger.Debug().
+		Str("device", deviceTarget.Network).
+		Strs("sweep_modes", func() []string {
+			modes := []string{}
+			for _, m := range sweepModes {
+				modes = append(modes, string(m))
+			}
+			return modes
+		}()).
+		Int("ip_count", len(targetIPs)).
+		Int("port_count", len(s.config.Ports)).
+		Msg("Generating targets for device")
 
 	for _, ip := range targetIPs {
 		targets = append(targets, s.createTargetsForIP(ip, sweepModes, metadata)...)
@@ -1042,6 +1082,14 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 		Int("networkCount", len(s.config.Networks)).
 		Int("deviceTargetCount", len(s.config.DeviceTargets)).
 		Int("totalHosts", totalHostCount).
+		Ints("configuredPorts", s.config.Ports).
+		Strs("globalSweepModes", func() []string {
+			modes := []string{}
+			for _, m := range s.config.SweepModes {
+				modes = append(modes, string(m))
+			}
+			return modes
+		}()).
 		Msg("Generated targets from networks and device targets")
 
 	return targets, nil
@@ -1274,18 +1322,25 @@ func (s *NetworkSweeper) processAggregatedResults(_ context.Context, aggregator 
 	// Use background context to avoid cancellation
 	bgCtx := context.Background()
 
-	if err := s.deviceRegistry.UpdateDevice(bgCtx, deviceUpdate); err != nil {
-		s.logger.Error().
-			Err(err).
-			Str("deviceID", aggregator.DeviceID).
-			Msg("Failed to update device with aggregated scan results")
+	// Only update device registry if it's configured
+	if s.deviceRegistry != nil {
+		if err := s.deviceRegistry.UpdateDevice(bgCtx, deviceUpdate); err != nil {
+			s.logger.Error().
+				Err(err).
+				Str("deviceID", aggregator.DeviceID).
+				Msg("Failed to update device with aggregated scan results")
+		} else {
+			s.logger.Info().
+				Str("deviceID", aggregator.DeviceID).
+				Int("resultCount", len(aggregator.Results)).
+				Str("primaryIP", primaryResult.Target.Host).
+				Bool("deviceAvailable", primaryResult.Available).
+				Msg("Successfully updated device with aggregated scan results")
+		}
 	} else {
-		s.logger.Info().
+		s.logger.Debug().
 			Str("deviceID", aggregator.DeviceID).
-			Int("resultCount", len(aggregator.Results)).
-			Str("primaryIP", primaryResult.Target.Host).
-			Bool("deviceAvailable", primaryResult.Available).
-			Msg("Successfully updated device with aggregated scan results")
+			Msg("Device registry not configured, skipping device update")
 	}
 }
 
