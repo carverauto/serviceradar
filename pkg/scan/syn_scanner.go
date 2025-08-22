@@ -78,11 +78,19 @@ func u32ptr(b []byte, off int) *uint32 {
 
 // loadU32 performs an atomic load, which acts as an "acquire" memory barrier.
 func loadU32(b []byte, off int) uint32 {
+	// Defensive check to prevent out-of-bounds access
+	if off < 0 || off+4 > len(b) {
+		return 0
+	}
 	return atomic.LoadUint32(u32ptr(b, off))
 }
 
 // storeU32 performs an atomic store, which acts as a "release" memory barrier.
 func storeU32(b []byte, off int, v uint32) {
+	// Defensive check to prevent out-of-bounds access
+	if off < 0 || off+4 > len(b) {
+		return
+	}
 	atomic.StoreUint32(u32ptr(b, off), v)
 }
 
@@ -140,6 +148,8 @@ type SYNScanner struct {
 	retryAttempts  int           // e.g., 2
 	retryMinJitter time.Duration // e.g., 20 * time.Millisecond
 	retryMaxJitter time.Duration // e.g., 40 * time.Millisecond
+
+	readersWG sync.WaitGroup // tracks the outer listener, which itself waits for all ring readers
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -444,6 +454,11 @@ const (
 )
 
 func (r *ringBuf) block(i uint32) []byte {
+	// Defensive checks for nil or invalid ring buffer
+	if r == nil || r.mem == nil || len(r.mem) == 0 {
+		return nil
+	}
+
 	base := int(i * r.blockSize)
 	end := base + int(r.blockSize)
 
@@ -471,7 +486,13 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			bi := (cur + i) % r.blockNr
 			blk := r.block(bi)
 
-			if blk == nil || len(blk) < int(h1_first_pkt_off+4) {
+			// Ensure block has sufficient size for all header fields we'll access
+			minSize := int(h1_first_pkt_off + 4)
+			if h1_status_off+4 > uint32(minSize) {
+				minSize = int(h1_status_off + 4)
+			}
+
+			if blk == nil || len(blk) < minSize {
 				continue
 			}
 
@@ -680,6 +701,10 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		retryAttempts:  2,
 		retryMinJitter: 20 * time.Millisecond,
 		retryMaxJitter: 40 * time.Millisecond,
+		// Initialize maps to prevent nil pointer dereference
+		portTargetMap: make(map[uint16]string),
+		targetIP:      make(map[string][4]byte),
+		results:       make(map[string]models.Result),
 	}, nil
 }
 
@@ -930,12 +955,18 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	copy(want[:], ip4b)
 
 	s.mu.Lock()
-	s.portTargetMap[srcPort] = targetKey
-
+	// Defensive check to ensure maps are initialized
+	if s.portTargetMap == nil {
+		s.portTargetMap = make(map[uint16]string)
+	}
 	if s.targetIP == nil {
 		s.targetIP = make(map[string][4]byte)
 	}
+	if s.results == nil {
+		s.results = make(map[string]models.Result)
+	}
 
+	s.portTargetMap[srcPort] = targetKey
 	s.targetIP[targetKey] = want
 	s.results[targetKey] = models.Result{
 		Target:    target,
