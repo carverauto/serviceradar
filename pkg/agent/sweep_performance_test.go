@@ -61,6 +61,7 @@ func TestSweepService_LargeScaleConfig(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("SYN scanning is only supported on Linux")
 	}
+
 	if testing.Short() {
 		t.Skip("Skipping large scale config test in short mode")
 	}
@@ -101,6 +102,7 @@ func TestSweepService_PerformanceComparison(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("SYN scanning is only supported on Linux")
 	}
+
 	if testing.Short() {
 		t.Skip("Skipping performance comparison test in short mode")
 	}
@@ -155,6 +157,7 @@ func TestSweepService_RealTimeProgressTracking(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("SYN scanning is only supported on Linux")
 	}
+
 	if testing.Short() {
 		t.Skip("Skipping real-time progress tracking test in short mode")
 	}
@@ -189,6 +192,7 @@ func TestSweepService_TimeoutHandling(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("SYN scanning is only supported on Linux")
 	}
+
 	if testing.Short() {
 		t.Skip("Skipping timeout handling test in short mode")
 	}
