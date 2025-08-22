@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 /*
  * Copyright 2025 Carver Automation Corporation.
  *
