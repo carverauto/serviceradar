@@ -204,46 +204,44 @@ func parseTCP(b []byte) (*TCPHdr, int, error) {
 
 // BPF + Fanout
 func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
-	ip := localIP.To4()
-
-	if ip == nil {
+	ip4 := localIP.To4()
+	if ip4 == nil {
 		return fmt.Errorf("attachBPF: non-IPv4 local IP")
 	}
-
+	ipK := uint32(ip4[0])<<24 | uint32(ip4[1])<<16 | uint32(ip4[2])<<8 | uint32(ip4[3])
 	lo := uint32(sportLo)
 	hi := uint32(sportHi)
 
-	// Classic cBPF on DLT_EN10MB frames with variable IP header length (MSH trick).
-	// Matches: EtherType IPv4, proto TCP, dst IP == localIP, TCP dst port in [sportLo, sportHi].
 	prog := []unix.SockFilter{
-		// EtherType @12 == 0x0800 (IPv4)
+		// ldh [12] -> EtherType
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 12},
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x0800, Jf: 11},
+		// if EtherType != 0x0800 (IPv4) -> drop (jump to ret 0 at idx 11)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x0800, Jt: 0, Jf: 9},
 
-		// IP proto @23 == 6 (TCP)
+		// ldb [23] -> IP protocol
 		{Code: unix.BPF_LD | unix.BPF_B | unix.BPF_ABS, K: 23},
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 6, Jf: 9},
+		// if proto != TCP(6) -> drop
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 6, Jt: 0, Jf: 7},
 
-		// IPv4 dst @30..33 == localIP
+		// ldw [30] -> IPv4 dst (14 + 16)
 		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 30},
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K,
-			K:  uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3]),
-			Jf: 6},
+		// if dst != localIP -> drop
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipK, Jt: 0, Jf: 5},
 
-		// X = IP header length (IHL)*4 using MSH on first IP byte at 14
+		// x = 4 * (IPv4 IHL at [14] & 0x0f)
 		{Code: unix.BPF_LDX | unix.BPF_MSH | unix.BPF_B | unix.BPF_ABS, K: 14},
-
-		// load TCP dest port: halfword at 14 + X + 2
+		// ldh [x + 16] -> TCP dst port (14 + IHL + 2)
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_IND, K: 16},
-		// if A < sportLo -> drop
+
+		// if port < lo -> drop
 		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 2},
-		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
-		// if A > sportHi -> drop
+		// if port > hi -> drop
 		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 1, Jf: 0},
-		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
 
 		// accept
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
+		// drop
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
 	}
 
 	fprog := unix.SockFprog{Len: uint16(len(prog)), Filter: &prog[0]}
@@ -252,7 +250,7 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 }
 
 func enableFanout(fd int, groupID int) error {
-	val := (unix.PACKET_FANOUT_HASH << 16) | (groupID & 0xFFFF)
+	val := ((unix.PACKET_FANOUT_HASH | unix.PACKET_FANOUT_FLAG_DEFRAG) << 16) | (groupID & 0xFFFF)
 
 	return unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_FANOUT, val)
 }
@@ -339,16 +337,15 @@ func setupTPacketV3(fd int, blockSize, blockNr, frameSize, retireMs uint32) (*ri
 
 // Offsets inside tpacket_block_desc.v3 (host-endian)
 const (
-	blk_version_off  = 0 // u32 version
-	blk_off_priv_off = 4 // u32 offset_to_priv
-	blk_h1_off       = blk_off_priv_off + 4
-	// struct tpacket_hdr_v1 h1 fields:
+	blk_version_off  = 0                    // u32 version
+	blk_off_priv_off = 4                    // u32 offset_to_priv
+	blk_h1_off       = blk_off_priv_off + 4 // 8
+	// struct tpacket_hdr_v1 (host-endian)
 	h1_status_off    = blk_h1_off + 0  // u32 block_status
-	h1_len_off       = blk_h1_off + 4  // u32 block_len (unused)
-	h1_seq_off       = blk_h1_off + 8  // u32 seq (unused)
-	h1_hash_off      = blk_h1_off + 12 // u32 hash (unused)
-	h1_num_pkts_off  = blk_h1_off + 16 // u32 num_pkts
-	h1_first_pkt_off = blk_h1_off + 20 // u32 offset_to_first_pkt
+	h1_num_pkts_off  = blk_h1_off + 4  // u32 num_pkts
+	h1_first_pkt_off = blk_h1_off + 8  // u32 offset_to_first_pkt
+	h1_blk_len_off   = blk_h1_off + 12 // u32 blk_len
+	h1_seq_off       = blk_h1_off + 16 // u64 seq_num
 )
 
 // Offsets inside struct tpacket3_hdr (host-endian)
@@ -366,8 +363,7 @@ const (
 func (r *ringBuf) block(i uint32) []byte {
 	base := int(i * r.blockSize)
 	end := base + int(r.blockSize)
-	
-	// Bounds check to prevent panics
+
 	if base < 0 || end > len(r.mem) || base >= end {
 		return nil
 	}
@@ -377,7 +373,6 @@ func (r *ringBuf) block(i uint32) []byte {
 
 func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 	pfd := []unix.PollFd{{Fd: int32(r.fd), Events: unix.POLLIN}}
-
 	cur := uint32(0)
 
 	for {
@@ -392,16 +387,12 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 		for i := uint32(0); i < r.blockNr; i++ {
 			bi := (cur + i) % r.blockNr
 			blk := r.block(bi)
-			
-			// Skip if block is invalid
-			if blk == nil || len(blk) < int(h1_status_off+4) {
+
+			if blk == nil || len(blk) < int(h1_first_pkt_off+4) {
 				continue
 			}
 
-			_ = host.Uint32(blk[blk_version_off : blk_version_off+4]) // currently unused
-
 			status := host.Uint32(blk[h1_status_off : h1_status_off+4])
-
 			if status&tpStatusUser == 0 {
 				continue
 			}
@@ -409,20 +400,32 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			numPkts := host.Uint32(blk[h1_num_pkts_off : h1_num_pkts_off+4])
 			first := host.Uint32(blk[h1_first_pkt_off : h1_first_pkt_off+4])
 
+			if int(first) < 0 || int(first) >= len(blk) {
+				// corrupt header; release block and move on
+				host.PutUint32(blk[h1_status_off:h1_status_off+4], 0)
+				cur = (bi + 1) % r.blockNr
+				continue
+			}
+
 			off := int(first)
 
 			for p := uint32(0); p < numPkts; p++ {
+				if off+int(pkt_mac_off+2) > len(blk) {
+					break
+				}
+
 				ph := blk[off:]
 				snap := int(host.Uint32(ph[pkt_snaplen_off : pkt_snaplen_off+4]))
 				mac := int(host.Uint16(ph[pkt_mac_off : pkt_mac_off+2]))
 
-				if mac+snap <= len(ph) {
+				if mac >= 0 && snap >= 0 && mac+snap <= len(ph) {
 					frame := ph[mac : mac+snap]
 					s.processEthernetFrame(frame)
 				}
 
 				next := int(host.Uint32(ph[pkt_next_off : pkt_next_off+4]))
-				if next <= 0 {
+
+				if next <= 0 || off+next > len(blk) {
 					break
 				}
 
@@ -439,7 +442,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 // NewSYNScanner creates a new SYN scanner (with TPACKETv3 ring readers)
 func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*SYNScanner, error) {
 	log.Info().Msg("DEBUG: Starting SYN scanner initialization")
-	
+
 	if timeout == 0 {
 		timeout = 1 * time.Second // SYN scans can be faster
 	}
@@ -489,7 +492,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 	for i := 0; i < n; i++ {
 		log.Info().Int("ringIndex", i).Msg("DEBUG: Creating ring buffer")
-		
+
 		log.Info().Str("interface", iface).Msg("DEBUG: Opening sniffer on interface")
 		fd, err := openSnifferOnInterface(iface)
 		if err != nil {
