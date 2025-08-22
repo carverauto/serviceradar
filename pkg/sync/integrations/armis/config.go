@@ -98,7 +98,7 @@ func (kw *DefaultKVWriter) writeChunkedConfig(ctx context.Context, sweepConfig *
 	// Calculate chunks based on device targets (networks array is now empty)
 	totalChunks := 1 // Default to 1 chunk
 	devicesPerChunk := len(sweepConfig.DeviceTargets)
-	
+
 	if len(sweepConfig.DeviceTargets) > maxNetworksPerChunk {
 		totalChunks = (len(sweepConfig.DeviceTargets) + maxNetworksPerChunk - 1) / maxNetworksPerChunk
 		devicesPerChunk = (len(sweepConfig.DeviceTargets) + totalChunks - 1) / totalChunks

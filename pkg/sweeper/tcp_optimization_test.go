@@ -21,10 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 )
 
 func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
@@ -57,16 +57,17 @@ func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockStore := NewMockStore(ctrl)
 			mockProcessor := NewMockResultProcessor(ctrl)
+
 			defer ctrl.Finish()
 			mockKVStore := NewMockKVStore(ctrl)
 
 			sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
-			
+
 			if tt.expectFallback {
 				// Should succeed with TCP fallback
 				assert.NoError(t, err)
 				assert.NotNil(t, sweeper)
-				
+
 				// Verify it's using a scanner (can't easily determine which type without exposing internals)
 				assert.NotNil(t, sweeper.tcpScanner)
 			} else {
@@ -80,7 +81,7 @@ func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
 
 func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 	config := &models.Config{
-		Networks:    []string{"192.168.1.0/29"}, // Small network, 6 hosts
+		Networks:    []string{"192.168.1.0/29"},                           // Small network, 6 hosts
 		Ports:       []int{22, 80, 135, 443, 445, 3389, 5985, 8080, 8443}, // 9 ports like production
 		SweepModes:  []models.SweepMode{models.ModeTCP},
 		Concurrency: 500, // High concurrency
@@ -107,16 +108,18 @@ func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 	// Generate targets and verify high concurrency handling
 	targets, err := sweeper.generateTargets()
 	assert.NoError(t, err)
-	
+
 	// Should generate targets for TCP scanning
 	// 6 hosts * 9 ports = 54 TCP targets
 	expectedTCPTargets := 54
 	tcpTargetCount := 0
+
 	for _, target := range targets {
 		if target.Mode == models.ModeTCP {
 			tcpTargetCount++
 		}
 	}
+
 	assert.Equal(t, expectedTCPTargets, tcpTargetCount)
 
 	t.Logf("Generated %d TCP targets with high concurrency config", tcpTargetCount)
@@ -136,7 +139,7 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 				},
 			},
 			{
-				Network:    "10.1.1.2/32", 
+				Network:    "10.1.1.2/32",
 				SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
 				Source:     "armis",
 				QueryLabel: "unmanaged",
@@ -176,7 +179,7 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 		} else if target.Mode == models.ModeICMP {
 			icmpTargets++
 		}
-		
+
 		// Verify metadata is preserved
 		assert.Contains(t, target.Metadata, "armis_device_id")
 		assert.Contains(t, target.Metadata, "source")
@@ -186,9 +189,9 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 	// Second device: 1 ICMP + (1 IP * 3 ports) = 1 ICMP + 3 TCP targets
 	assert.Equal(t, 6, tcpTargets)  // 3 + 3
 	assert.Equal(t, 1, icmpTargets) // 0 + 1
-	assert.Len(t, deviceIPs, 2)    // 2 unique IPs
+	assert.Len(t, deviceIPs, 2)     // 2 unique IPs
 
-	t.Logf("Device targets: %d TCP, %d ICMP across %d devices", 
+	t.Logf("Device targets: %d TCP, %d ICMP across %d devices",
 		tcpTargets, icmpTargets, len(deviceIPs))
 }
 
@@ -225,7 +228,7 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 	start := time.Now()
 	err = sweeper.runSweep(ctx)
 	duration := time.Since(start)
-	
+
 	// Should complete fast, not hit the 20-minute timeout
 	assert.NoError(t, err)
 	assert.Less(t, duration, 2*time.Second)
@@ -236,10 +239,10 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 	// Test that progress logging works with optimized scanning
 	config := &models.Config{
-		Networks:   []string{"127.0.0.1/32"},
-		Ports:      []int{22, 80, 135, 443, 445}, // 5 ports to ensure progress logging
-		SweepModes: []models.SweepMode{models.ModeTCP},
-		Timeout:    100 * time.Millisecond, // Fast timeouts
+		Networks:    []string{"127.0.0.1/32"},
+		Ports:       []int{22, 80, 135, 443, 445}, // 5 ports to ensure progress logging
+		SweepModes:  []models.SweepMode{models.ModeTCP},
+		Timeout:     100 * time.Millisecond, // Fast timeouts
 		Concurrency: 10,
 	}
 
@@ -252,6 +255,7 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 
 	// Mock processor to capture all results
 	var processedResults []*models.Result
+
 	mockStore.EXPECT().SaveResult(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	mockProcessor.EXPECT().Process(gomock.Any()).DoAndReturn(func(result *models.Result) error {
 		processedResults = append(processedResults, result)
@@ -284,15 +288,16 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 // Benchmark the sweeper with optimized TCP scanning
 func BenchmarkNetworkSweeper_OptimizedTCPScan(b *testing.B) {
 	config := &models.Config{
-		Networks:   []string{"127.0.0.1/32"},
-		Ports:      []int{22, 80, 135, 443, 445, 3389, 5985, 8080, 8443},
-		SweepModes: []models.SweepMode{models.ModeTCP},
-		Timeout:    500 * time.Millisecond,
+		Networks:    []string{"127.0.0.1/32"},
+		Ports:       []int{22, 80, 135, 443, 445, 3389, 5985, 8080, 8443},
+		SweepModes:  []models.SweepMode{models.ModeTCP},
+		Timeout:     500 * time.Millisecond,
 		Concurrency: 500,
 	}
 
 	log := logger.NewTestLogger()
 	ctrl := gomock.NewController(b)
+
 	defer ctrl.Finish()
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
@@ -308,10 +313,10 @@ func BenchmarkNetworkSweeper_OptimizedTCPScan(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		
+
 		err := sweeper.runSweep(ctx)
 		assert.NoError(b, err)
-		
+
 		cancel()
 	}
 }
