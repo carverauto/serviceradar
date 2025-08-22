@@ -28,7 +28,6 @@ import (
 	"os"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe" // only for PACKET_RX_RING req pointer & tiny endianness probe
@@ -115,6 +114,8 @@ type SYNScanner struct {
 	targetIP      map[string]string // target key -> dest IP string (parsed)
 	results       map[string]models.Result
 	nextPort      uint32
+
+	portAlloc *PortAllocator
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -531,9 +532,10 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 			return nil, fmt.Errorf("enableFanout failed: %w", err)
 		}
-		log.Info().Msg("DEBUG: Packet fanout enabled successfully")
 
+		log.Info().Msg("DEBUG: Packet fanout enabled successfully")
 		log.Info().Uint32("blockSize", defaultBlockSize).Uint32("blockCount", defaultBlockCount).Uint32("frameSize", defaultFrameSize).Uint32("retireMs", defaultRetireTovMs).Msg("DEBUG: Setting up TPACKET_V3")
+
 		r, err := setupTPacketV3(fd, defaultBlockSize, defaultBlockCount, defaultFrameSize, defaultRetireTovMs)
 		if err != nil {
 			log.Error().Err(err).Msg("DEBUG: Failed to setup TPACKET_V3")
@@ -548,10 +550,12 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 			return nil, fmt.Errorf("setupTPacketV3 failed: %w", err)
 		}
+
 		log.Info().Msg("DEBUG: TPACKET_V3 setup successfully")
 
 		rings = append(rings, r)
 	}
+
 	log.Info().Int("ringCount", len(rings)).Msg("DEBUG: All ring buffers created successfully")
 
 	return &SYNScanner{
@@ -563,7 +567,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		sourceIP:    sourceIP,
 		iface:       iface,
 		fanoutGroup: fanoutGroup,
-		nextPort:    ephemeralPortStart,
+		portAlloc:   NewPortAllocator(ephemeralPortStart, ephemeralPortEnd),
 	}, nil
 }
 
@@ -651,8 +655,7 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 			if !ok {
 				return
 			}
-
-			s.sendSyn(target)
+			s.sendSyn(ctx, target)
 		case <-ctx.Done():
 			return
 		}
@@ -726,69 +729,74 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	s.results[targetKey] = result
 
 	delete(s.portTargetMap, tcp.DstPort)
+	s.portAlloc.Release(tcp.DstPort)
 }
 
 // sendSyn crafts and sends a single SYN packet to the target.
-func (s *SYNScanner) sendSyn(target models.Target) {
+func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	destIP := net.ParseIP(target.Host)
-	if destIP == nil {
-		s.logger.Warn().Str("host", target.Host).Msg("Invalid target host")
+	if destIP == nil || destIP.To4() == nil {
+		s.logger.Warn().Str("host", target.Host).Msg("Invalid/Non-IPv4 target host")
 		return
 	}
-
 	destIP = destIP.To4()
-	if destIP == nil {
-		s.logger.Warn().Str("host", target.Host).Msg("Target is not an IPv4 address")
+
+	// === Reserve a unique source port ===
+	srcPort, err := s.portAlloc.Reserve(ctx)
+	if err != nil {
+		s.logger.Debug().Err(err).Str("host", target.Host).Msg("No source port available")
 		return
 	}
 
-	nextPortVal := atomic.AddUint32(&s.nextPort, 1)
-	if nextPortVal > ephemeralPortEnd {
-		atomic.StoreUint32(&s.nextPort, ephemeralPortStart)
-		nextPortVal = ephemeralPortStart
+	// Ensure cleanup on any early return
+	release := func() {
+		s.mu.Lock()
+		delete(s.portTargetMap, srcPort)
+		s.mu.Unlock()
+		s.portAlloc.Release(srcPort)
 	}
 
-	srcPort := uint16(nextPortVal) //nolint:gosec
-
-	// Register mapping for correlation
 	targetKey := fmt.Sprintf("%s:%d", target.Host, target.Port)
 
 	s.mu.Lock()
 	s.portTargetMap[srcPort] = targetKey
-
 	if s.targetIP == nil {
 		s.targetIP = make(map[string]string)
 	}
-
 	s.targetIP[targetKey] = destIP.String()
-
 	s.results[targetKey] = models.Result{
 		Target:    target,
 		FirstSeen: time.Now(),
 		LastSeen:  time.Now(),
 	}
-
 	s.mu.Unlock()
 
 	if target.Port > maxPortNumber {
 		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
+		release()
 		return
 	}
 
 	packet := buildSynPacket(s.sourceIP, destIP, srcPort, uint16(target.Port)) //nolint:gosec
-
 	addr := syscall.SockaddrInet4{Port: target.Port}
-
 	copy(addr.Addr[:], destIP)
 
 	if err := syscall.Sendto(s.sendSocket, packet, 0, &addr); err != nil {
 		s.logger.Debug().Err(err).Str("host", target.Host).Msg("Failed to send SYN packet")
+		release()
+		return
 	}
 }
 
-// processResults aggregates final results and sends them to the channel.
 func (s *SYNScanner) processResults(targets []models.Target, ch chan<- models.Result) {
 	s.mu.Lock()
+
+	// Release any still-held source ports (timed out)
+	for src := range s.portTargetMap {
+		s.portAlloc.Release(src)
+	}
+
+	s.portTargetMap = make(map[uint16]string) // reset for safety
 	defer s.mu.Unlock()
 
 	for _, target := range targets {
