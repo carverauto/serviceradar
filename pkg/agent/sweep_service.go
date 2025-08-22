@@ -175,11 +175,15 @@ func applyDefaultConfig(config *models.Config) *models.Config {
 	}
 
 	if config.Timeout == 0 {
-		config.Timeout = 5 * time.Second
+		// Reduced from 5s to 2s for faster TCP scanning
+		// Failed connections will timeout quicker, improving throughput
+		config.Timeout = 2 * time.Second
 	}
 
 	if config.Concurrency == 0 {
-		config.Concurrency = 20
+		// Increased from 20 to handle large-scale TCP scanning
+		// With 164k+ TCP targets, we need much higher concurrency
+		config.Concurrency = 500
 	}
 
 	if config.Interval == 0 {

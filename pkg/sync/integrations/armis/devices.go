@@ -134,20 +134,20 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 			a.deleteOldSweepConfig(ctx, configKey)
 		}
 
-		// Create sweep config with networks and device targets for per-device sweep mode configuration
+		// Create sweep config with device targets for per-device sweep mode configuration
 		a.Logger.Info().
-			Int("network_count", len(ips)).
+			Int("network_count", 0).
 			Int("device_target_count", len(deviceTargets)).
-			Msg("Creating sweep config with networks and device targets from all accumulated devices")
+			Msg("Creating sweep config with device targets only (no legacy networks)")
 
 		finalSweepConfig = &models.SweepConfig{
-			Networks:      ips,
+			Networks:      []string{}, // Empty - using DeviceTargets for per-device sweep modes
 			DeviceTargets: deviceTargets,
 		}
 	} else {
 		// No KV client available, create minimal config
 		finalSweepConfig = &models.SweepConfig{
-			Networks:      ips,
+			Networks:      []string{}, // Empty - using DeviceTargets for per-device sweep modes
 			DeviceTargets: deviceTargets,
 		}
 	}
@@ -671,10 +671,7 @@ func (a *ArmisIntegration) processDevices(
 		// Create a single device target containing ALL IP addresses in metadata
 		queryConfig := deviceQueries[d.ID]
 
-		// Add all IPs to the sweep config networks list
-		for _, ip := range allIPs {
-			ips = append(ips, ip+"/32")
-		}
+		// Note: No longer adding IPs to networks array since we use DeviceTargets for per-device sweep modes
 
 		// Create a single device target using primary IP but containing all IPs in metadata
 		deviceTarget := models.DeviceTarget{
