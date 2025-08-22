@@ -151,7 +151,7 @@ type IPv4Hdr struct {
 
 func parseIPv4(b []byte) (*IPv4Hdr, int, error) {
 	if len(b) < 20 {
-		return nil, 0, fmt.Errorf("short ipv4 header")
+		return nil, 0, fmt.Errorf("short IPv4 header")
 	}
 
 	vihl := b[0]
@@ -161,7 +161,7 @@ func parseIPv4(b []byte) (*IPv4Hdr, int, error) {
 	hdrLen := int(ihl) * 4
 
 	if hdrLen < 20 || len(b) < hdrLen {
-		return nil, 0, fmt.Errorf("bad ipv4 header length")
+		return nil, 0, fmt.Errorf("bad IPv4 header length")
 	}
 
 	return &IPv4Hdr{
@@ -183,14 +183,14 @@ type TCPHdr struct {
 
 func parseTCP(b []byte) (*TCPHdr, int, error) {
 	if len(b) < 20 {
-		return nil, 0, fmt.Errorf("short tcp header")
+		return nil, 0, fmt.Errorf("short TCP header")
 	}
 
 	dataOff := (b[12] >> 4) & 0x0F
 	hdrLen := int(dataOff) * 4
 
 	if hdrLen < 20 || len(b) < hdrLen {
-		return nil, 0, fmt.Errorf("bad tcp header length")
+		return nil, 0, fmt.Errorf("bad TCP header length")
 	}
 
 	return &TCPHdr{
