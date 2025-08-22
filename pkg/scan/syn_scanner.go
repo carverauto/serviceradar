@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 /*
  * Copyright 2025 Carver Automation Corporation.
  *
@@ -19,16 +22,18 @@ package scan
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
-	"math"
 	"math/rand"
 	"net"
+	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unsafe"
+	"unsafe" // only for PACKET_RX_RING req pointer & tiny endianness probe
+
+	"golang.org/x/sys/unix"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -40,34 +45,387 @@ const (
 	rstFlag = 0x04
 	ackFlag = 0x10
 
-	// Ephemeral port range start for source ports
-	ephemeralPortStart = 10000
+	// Ephemeral port range start/end for source ports (dedicated range)
+	ephemeralPortStart = 32768
+	ephemeralPortEnd   = 61000
 
 	// Network constants
-	maxEthernetFrameSize = 1500
-	defaultTCPWindow     = 1024
+	maxEthernetFrameSize = 65536
+	defaultTCPWindow     = 65535
 	maxPortNumber        = 65535
+
+	// Ethernet type
+	etherTypeIPv4 = 0x0800
+
+	// TPACKETv3 constants / defaults
+	defaultBlockSize   = 1 << 20 // 1 MiB per block
+	defaultBlockCount  = 64      // 64 MiB total ring
+	defaultFrameSize   = 2048    // alignment hint
+	defaultRetireTovMs = 10      // flush block to user within 10ms
+
+	// tpacket v3 block ownership
+	tpStatusUser = 1 // TP_STATUS_USER
 )
 
-// SYNScanner performs SYN scanning (half-open scanning) for faster TCP port detection
+// Host-endian detector for tpacket headers (host-endian on Linux)
+var host = func() binary.ByteOrder {
+	var x uint16 = 0x0102
+
+	b := *(*[2]byte)(unsafe.Pointer(&x))
+
+	if b[0] == 0x01 {
+		return binary.BigEndian
+	}
+
+	return binary.LittleEndian
+}()
+
+// SYNScanner performs SYN scanning (half-open scanning) for faster TCP port detection.
+//
+// For maximum accuracy, consider setting iptables rules to drop outbound RSTs from your
+// ephemeral port range to prevent kernel interference:
+//
+//	iptables -A OUTPUT -p tcp --tcp-flags RST RST --sport 32768:61000 -j DROP
+//
+// or with nftables:
+//
+//	nft add rule inet output tcp flags rst tcp sport 32768-61000 drop
+//
+// This implementation sniffs replies via AF_PACKET + TPACKET_V3 ring (zero-copy),
+// uses classic BPF to reduce userland traffic, and PACKET_FANOUT to scale across cores.
+// Packet crafting uses raw IPv4+TCP with IP_HDRINCL (no unsafe, big-endian writes).
+//
+// Linux-only.
 type SYNScanner struct {
 	timeout     time.Duration
 	concurrency int
 	logger      logger.Logger
-	sendSocket  int // Raw socket file descriptor for sending packets
-	listenConn  net.PacketConn
-	cancel      context.CancelFunc
-	sourceIP    net.IP
+
+	sendSocket int // Raw IPv4 socket for sending (IP_HDRINCL enabled)
+	rings      []*ringBuf
+	cancel     context.CancelFunc
+
+	sourceIP net.IP
+	iface    string // Network interface name
+
+	fanoutGroup int
 
 	mu            sync.Mutex
-	portTargetMap map[uint16]string // Maps source port to target key ("ip:port")
+	portTargetMap map[uint16]string // Maps source port -> target key ("ip:port")
+	targetIP      map[string]string // target key -> dest IP string (parsed)
 	results       map[string]models.Result
 	nextPort      uint32
 }
 
 var _ Scanner = (*SYNScanner)(nil)
 
-// NewSYNScanner creates a new SYN scanner
+// Ethernet
+type EthHdr struct {
+	DstMAC    [6]byte
+	SrcMAC    [6]byte
+	EtherType uint16
+}
+
+func parseEthernet(b []byte) (*EthHdr, error) {
+	if len(b) < 14 {
+		return nil, fmt.Errorf("short ethernet frame")
+	}
+
+	h := &EthHdr{}
+
+	copy(h.DstMAC[:], b[0:6])
+	copy(h.SrcMAC[:], b[6:12])
+
+	h.EtherType = binary.BigEndian.Uint16(b[12:14])
+
+	return h, nil
+}
+
+// IPv4
+type IPv4Hdr struct {
+	IHL      uint8
+	Protocol uint8
+	SrcIP    net.IP
+	DstIP    net.IP
+}
+
+func parseIPv4(b []byte) (*IPv4Hdr, int, error) {
+	if len(b) < 20 {
+		return nil, 0, fmt.Errorf("short ipv4 header")
+	}
+
+	vihl := b[0]
+
+	ihl := vihl & 0x0F
+
+	hdrLen := int(ihl) * 4
+
+	if hdrLen < 20 || len(b) < hdrLen {
+		return nil, 0, fmt.Errorf("bad ipv4 header length")
+	}
+
+	return &IPv4Hdr{
+		IHL:      ihl,
+		Protocol: b[9],
+		SrcIP:    net.IPv4(b[12], b[13], b[14], b[15]),
+		DstIP:    net.IPv4(b[16], b[17], b[18], b[19]),
+	}, hdrLen, nil
+}
+
+// TCP
+type TCPHdr struct {
+	SrcPort uint16
+	DstPort uint16
+	Seq     uint32
+	Ack     uint32
+	Flags   uint8
+}
+
+func parseTCP(b []byte) (*TCPHdr, int, error) {
+	if len(b) < 20 {
+		return nil, 0, fmt.Errorf("short tcp header")
+	}
+
+	dataOff := (b[12] >> 4) & 0x0F
+	hdrLen := int(dataOff) * 4
+
+	if hdrLen < 20 || len(b) < hdrLen {
+		return nil, 0, fmt.Errorf("bad tcp header length")
+	}
+
+	return &TCPHdr{
+		SrcPort: binary.BigEndian.Uint16(b[0:2]),
+		DstPort: binary.BigEndian.Uint16(b[2:4]),
+		Seq:     binary.BigEndian.Uint32(b[4:8]),
+		Ack:     binary.BigEndian.Uint32(b[8:12]),
+		Flags:   b[13],
+	}, hdrLen, nil
+}
+
+// BPF + Fanout
+func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
+	ip := localIP.To4()
+
+	if ip == nil {
+		return fmt.Errorf("attachBPF: non-IPv4 local IP")
+	}
+
+	lo := uint32(sportLo)
+	hi := uint32(sportHi)
+
+	// Classic cBPF on DLT_EN10MB frames with variable IP header length (MSH trick).
+	// Matches: EtherType IPv4, proto TCP, dst IP == localIP, TCP dst port in [sportLo, sportHi].
+	prog := []unix.SockFilter{
+		// EtherType @12 == 0x0800 (IPv4)
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 12},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x0800, Jf: 11},
+
+		// IP proto @23 == 6 (TCP)
+		{Code: unix.BPF_LD | unix.BPF_B | unix.BPF_ABS, K: 23},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 6, Jf: 9},
+
+		// IPv4 dst @30..33 == localIP
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 30},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K,
+			K:  uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3]),
+			Jf: 6},
+
+		// X = IP header length (IHL)*4 using MSH on first IP byte at 14
+		{Code: unix.BPF_LDX | unix.BPF_MSH | unix.BPF_B | unix.BPF_ABS, K: 14},
+
+		// load TCP dest port: halfword at 14 + X + 2
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_IND, K: 16},
+		// if A < sportLo -> drop
+		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 2},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
+		// if A > sportHi -> drop
+		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 1, Jf: 0},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
+
+		// accept
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
+	}
+
+	fprog := unix.SockFprog{Len: uint16(len(prog)), Filter: &prog[0]}
+
+	return unix.SetsockoptSockFprog(fd, unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, &fprog)
+}
+
+func enableFanout(fd int, groupID int) error {
+	val := (unix.PACKET_FANOUT_HASH << 16) | (groupID & 0xFFFF)
+
+	return unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_FANOUT, val)
+}
+
+// AF_PACKET Open/Bind
+
+func openSnifferOnInterface(iFace string) (int, error) {
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(htons(unix.ETH_P_ALL)))
+	if err != nil {
+		return 0, fmt.Errorf("AF_PACKET socket: %w", err)
+	}
+
+	ifi, err := net.InterfaceByName(iFace)
+	if err != nil {
+		_ = unix.Close(fd)
+
+		return 0, fmt.Errorf("iFace %s: %w", iFace, err)
+	}
+
+	sll := &unix.SockaddrLinklayer{Protocol: htons(unix.ETH_P_ALL), Ifindex: ifi.Index}
+	if err := unix.Bind(fd, sll); err != nil {
+		_ = unix.Close(fd)
+
+		return 0, fmt.Errorf("bind %s: %w", iFace, err)
+	}
+
+	return fd, nil
+}
+
+// TPACKETv3 Ring
+// Mirrors Linux's struct tpacket_req3 (all fields uint32)
+type tpacketReq3 struct {
+	BlockSize      uint32 // tp_block_size
+	BlockNr        uint32 // tp_block_nr
+	FrameSize      uint32 // tp_frame_size
+	FrameNr        uint32 // tp_frame_nr
+	RetireBlkTov   uint32 // tp_retire_blk_tov (ms)
+	SizeofPriv     uint32 // tp_sizeof_priv
+	FeatureReqWord uint32 // tp_feature_req_word
+}
+
+type ringBuf struct {
+	fd        int
+	mem       []byte
+	blockSize uint32
+	blockNr   uint32
+}
+
+func setupTPacketV3(fd int, blockSize, blockNr, frameSize, retireMs uint32) (*ringBuf, error) {
+	if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_VERSION, unix.TPACKET_V3); err != nil {
+		return nil, fmt.Errorf("PACKET_VERSION TPACKET_V3: %w", err)
+	}
+
+	req := tpacketReq3{
+		BlockSize:    blockSize,
+		BlockNr:      blockNr,
+		FrameSize:    frameSize,
+		FrameNr:      (blockSize / frameSize) * blockNr,
+		RetireBlkTov: retireMs,
+	}
+
+	_, _, errno := unix.Syscall6(unix.SYS_SETSOCKOPT,
+		uintptr(fd),
+		uintptr(unix.SOL_PACKET),
+		uintptr(unix.PACKET_RX_RING),
+		uintptr(unsafe.Pointer(&req)),
+		uintptr(unsafe.Sizeof(req)),
+		0,
+	)
+
+	if errno != 0 {
+		return nil, fmt.Errorf("PACKET_RX_RING: %w", errno)
+	}
+
+	total := int(blockSize * blockNr)
+
+	mem, err := unix.Mmap(fd, 0, total, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+	if err != nil {
+		return nil, fmt.Errorf("mmap ring: %w", err)
+	}
+
+	return &ringBuf{fd: fd, mem: mem, blockSize: blockSize, blockNr: blockNr}, nil
+}
+
+// Offsets inside tpacket_block_desc.v3 (host-endian)
+const (
+	blk_version_off  = 0 // u32 version
+	blk_off_priv_off = 4 // u32 offset_to_priv
+	blk_h1_off       = blk_off_priv_off + 4
+	// struct tpacket_hdr_v1 h1 fields:
+	h1_status_off    = blk_h1_off + 0  // u32 block_status
+	h1_len_off       = blk_h1_off + 4  // u32 block_len (unused)
+	h1_seq_off       = blk_h1_off + 8  // u32 seq (unused)
+	h1_hash_off      = blk_h1_off + 12 // u32 hash (unused)
+	h1_num_pkts_off  = blk_h1_off + 16 // u32 num_pkts
+	h1_first_pkt_off = blk_h1_off + 20 // u32 offset_to_first_pkt
+)
+
+// Offsets inside struct tpacket3_hdr (host-endian)
+const (
+	pkt_next_off    = 0  // u32 tp_next_offset
+	pkt_sec_off     = 4  // u32 tp_sec (unused)
+	pkt_nsec_off    = 8  // u32 tp_nsec (unused)
+	pkt_snaplen_off = 12 // u32 tp_snaplen
+	pkt_len_off     = 16 // u32 tp_len (unused)
+	pkt_status_off  = 20 // u32 tp_status (unused here)
+	pkt_mac_off     = 24 // u16 tp_mac
+	pkt_net_off     = 26 // u16 tp_net (unused)
+)
+
+func (r *ringBuf) block(i uint32) []byte {
+	base := int(i * r.blockSize)
+
+	return r.mem[base : base+int(r.blockSize)]
+}
+
+func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
+	pfd := []unix.PollFd{{Fd: int32(r.fd), Events: unix.POLLIN}}
+
+	cur := uint32(0)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		_, _ = unix.Poll(pfd, 100)
+
+		for i := uint32(0); i < r.blockNr; i++ {
+			bi := (cur + i) % r.blockNr
+			blk := r.block(bi)
+
+			_ = host.Uint32(blk[blk_version_off : blk_version_off+4]) // currently unused
+
+			status := host.Uint32(blk[h1_status_off : h1_status_off+4])
+
+			if status&tpStatusUser == 0 {
+				continue
+			}
+
+			numPkts := host.Uint32(blk[h1_num_pkts_off : h1_num_pkts_off+4])
+			first := host.Uint32(blk[h1_first_pkt_off : h1_first_pkt_off+4])
+
+			off := int(first)
+
+			for p := uint32(0); p < numPkts; p++ {
+				ph := blk[off:]
+				snap := int(host.Uint32(ph[pkt_snaplen_off : pkt_snaplen_off+4]))
+				mac := int(host.Uint16(ph[pkt_mac_off : pkt_mac_off+2]))
+
+				if mac+snap <= len(ph) {
+					frame := ph[mac : mac+snap]
+					s.processEthernetFrame(frame)
+				}
+
+				next := int(host.Uint32(ph[pkt_next_off : pkt_next_off+4]))
+				if next <= 0 {
+					break
+				}
+
+				off += next
+			}
+
+			// Release block back to kernel
+			host.PutUint32(blk[h1_status_off:h1_status_off+4], 0)
+			cur = (bi + 1) % r.blockNr
+		}
+	}
+}
+
+// NewSYNScanner creates a new SYN scanner (with TPACKETv3 ring readers)
 func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*SYNScanner, error) {
 	if timeout == 0 {
 		timeout = 1 * time.Second // SYN scans can be faster
@@ -88,20 +446,80 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		return nil, fmt.Errorf("cannot set IP_HDRINCL (requires root): %w", err)
 	}
 
-	// Create a listening connection to receive TCP responses
-	listenConn, err := net.ListenPacket("ip4:tcp", "0.0.0.0")
+	// Find a local IP and interface to use
+	sourceIP, iface, err := getLocalIPAndInterface()
 	if err != nil {
 		syscall.Close(sendSocket)
-		return nil, fmt.Errorf("cannot create raw listen socket (requires root): %w", err)
+		return nil, fmt.Errorf("failed to get local IP and interface: %w", err)
 	}
 
-	// Find a local IP to use as the source for outgoing packets
-	sourceIP, err := getLocalIP()
-	if err != nil {
+	sourceIP = sourceIP.To4()
+	if sourceIP == nil {
 		syscall.Close(sendSocket)
-		listenConn.Close()
+		return nil, fmt.Errorf("non-IPv4 source IP")
+	}
 
-		return nil, fmt.Errorf("failed to get local IP: %w", err)
+	// Build NumCPU ring readers with BPF + FANOUT
+	fanoutGroup := (os.Getpid() * 131) & 0xFFFF
+
+	n := runtime.NumCPU()
+
+	rings := make([]*ringBuf, 0, n)
+
+	for i := 0; i < n; i++ {
+		fd, err := openSnifferOnInterface(iface)
+		if err != nil {
+			for _, r := range rings {
+				_ = unix.Munmap(r.mem)
+				_ = unix.Close(r.fd)
+			}
+
+			syscall.Close(sendSocket)
+
+			return nil, err
+		}
+
+		if err := attachBPF(fd, sourceIP, ephemeralPortStart, ephemeralPortEnd); err != nil {
+			_ = unix.Close(fd)
+
+			for _, r := range rings {
+				_ = unix.Munmap(r.mem)
+				_ = unix.Close(r.fd)
+			}
+
+			syscall.Close(sendSocket)
+
+			return nil, err
+		}
+
+		if err := enableFanout(fd, fanoutGroup); err != nil {
+			_ = unix.Close(fd)
+
+			for _, r := range rings {
+				_ = unix.Munmap(r.mem)
+				_ = unix.Close(r.fd)
+			}
+
+			syscall.Close(sendSocket)
+
+			return nil, err
+		}
+
+		r, err := setupTPacketV3(fd, defaultBlockSize, defaultBlockCount, defaultFrameSize, defaultRetireTovMs)
+		if err != nil {
+			_ = unix.Close(fd)
+
+			for _, r := range rings {
+				_ = unix.Munmap(r.mem)
+				_ = unix.Close(r.fd)
+			}
+
+			syscall.Close(sendSocket)
+
+			return nil, err
+		}
+
+		rings = append(rings, r)
 	}
 
 	return &SYNScanner{
@@ -109,8 +527,10 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		concurrency: concurrency,
 		logger:      log,
 		sendSocket:  sendSocket,
-		listenConn:  listenConn,
+		rings:       rings,
 		sourceIP:    sourceIP,
+		iface:       iface,
+		fanoutGroup: fanoutGroup,
 		nextPort:    ephemeralPortStart,
 	}, nil
 }
@@ -130,11 +550,14 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	// Initialize state for the new scan
 	s.mu.Lock()
+
 	s.results = make(map[string]models.Result, len(tcpTargets))
 	s.portTargetMap = make(map[uint16]string, len(tcpTargets))
+	s.targetIP = make(map[string]string, len(tcpTargets))
+
 	s.mu.Unlock()
 
-	// Start a single listener goroutine to handle all incoming packets
+	// Start ring readers (one goroutine per ring)
 	var listenerWg sync.WaitGroup
 
 	listenerWg.Add(1)
@@ -158,7 +581,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		}()
 	}
 
-	// Feed targets to the workers
+	// Feed targets to workers
 	go func() {
 		for _, t := range tcpTargets {
 			select {
@@ -171,19 +594,17 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		close(workCh)
 	}()
 
-	// Wait for all components to finish and process results
+	// Aggregate
 	go func() {
 		senderWg.Wait()
 
-		// Wait for potential late responses
+		// grace period for late replies
 		time.Sleep(s.timeout)
-
-		// Stop the listener
 		cancel()
-		listenerWg.Wait()
 
-		// Process and send results
+		listenerWg.Wait()
 		s.processResults(tcpTargets, resultCh)
+
 		close(resultCh)
 	}()
 
@@ -206,92 +627,73 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 	}
 }
 
-// listenForReplies reads incoming packets and updates scan results.
+// listenForReplies pumps all ring readers (ctx-driven)
 func (s *SYNScanner) listenForReplies(ctx context.Context) {
-	buffer := make([]byte, maxEthernetFrameSize)
+	var wg sync.WaitGroup
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
+	for _, r := range s.rings {
+		wg.Add(1)
 
-		if err := s.listenConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
-			s.logger.Debug().Err(err).Msg("Failed to set read deadline")
-			continue
-		}
-
-		n, addr, err := s.listenConn.ReadFrom(buffer)
-
-		if err != nil {
-			var opErr *net.OpError
-			if errors.As(err, &opErr) && opErr.Timeout() {
-				continue
-			}
-
-			s.logger.Debug().Err(err).Msg("Error reading from raw socket")
-
-			continue
-		}
-
-		// We only care about IPv4 packets for now
-		if ip, ok := addr.(*net.IPAddr); ok && ip.IP.To4() != nil {
-			s.processPacket(ip.IP, buffer[:n])
-		}
+		go func(rr *ringBuf) {
+			defer wg.Done()
+			s.runRingReader(ctx, rr)
+		}(r)
 	}
+
+	<-ctx.Done()
+	wg.Wait()
 }
 
-// processPacket parses a received IP packet and updates the corresponding target's result.
-func (s *SYNScanner) processPacket(srcIP net.IP, buffer []byte) {
-	// Basic validation
-	if len(buffer) < int(sizeIPHDR+sizeTCPHdr) {
-		return
+// processEthernetFrame parses an Ethernet frame and extracts TCP response information.
+func (s *SYNScanner) processEthernetFrame(frame []byte) {
+	eth, err := parseEthernet(frame)
+	if err != nil || eth.EtherType != etherTypeIPv4 {
+		return // Not an IPv4 packet
 	}
 
-	// Assumes IP header length is 20 bytes, which is common but not guaranteed.
-	// A more robust implementation would parse the IHL field.
-	tcpHdrBytes := buffer[sizeIPHDR : sizeIPHDR+sizeTCPHdr]
-	tcpHdr := (*tcphdr)(unsafe.Pointer(&tcpHdrBytes[0]))
+	ip, ipLen, err := parseIPv4(frame[14:])
+	if err != nil || ip.Protocol != syscall.IPPROTO_TCP {
+		return // Not a TCP packet
+	}
 
-	dstPort := ntohs(tcpHdr.dstPort)
+	tcp, _, err := parseTCP(frame[14+ipLen:])
+	if err != nil {
+		return // Malformed TCP header
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Check if this response corresponds to one of our sent packets
-	targetKey, ok := s.portTargetMap[dstPort]
+	targetKey, ok := s.portTargetMap[tcp.DstPort]
 	if !ok {
 		return // Not a port we are tracking
 	}
 
-	result, ok := s.results[targetKey]
-	if !ok || result.Target.Host != srcIP.String() {
+	wantIP := s.targetIP[targetKey]
+	if wantIP != ip.SrcIP.String() {
 		return // Source IP doesn't match the target for this port
 	}
 
-	// This check prevents processing duplicate responses
+	result := s.results[targetKey]
 	if result.Available || result.Error != nil {
-		return
+		return // already finalized
 	}
 
-	// Check TCP flags to determine port state
-	if tcpHdr.flags&(synFlag|ackFlag) == (synFlag | ackFlag) {
+	// SYN|ACK => open, any RST => closed
+	if tcp.Flags&(synFlag|ackFlag) == (synFlag | ackFlag) {
 		result.Available = true
-	} else if tcpHdr.flags&(rstFlag|ackFlag) == (rstFlag | ackFlag) {
+	} else if tcp.Flags&rstFlag != 0 {
 		result.Available = false
-		result.Error = fmt.Errorf("port closed (RST/ACK received)")
+		result.Error = fmt.Errorf("port closed (RST)")
 	} else {
-		return // Not a response we are interested in
+		return
 	}
 
 	result.RespTime = time.Since(result.FirstSeen)
 	result.LastSeen = time.Now()
-
 	s.results[targetKey] = result
 
-	// Clean up the port map to prevent reuse while it might still be in TIME_WAIT
-	delete(s.portTargetMap, dstPort)
+	delete(s.portTargetMap, tcp.DstPort)
 }
 
 // sendSyn crafts and sends a single SYN packet to the target.
@@ -309,18 +711,24 @@ func (s *SYNScanner) sendSyn(target models.Target) {
 	}
 
 	nextPortVal := atomic.AddUint32(&s.nextPort, 1)
-	if nextPortVal > maxPortNumber {
+	if nextPortVal > ephemeralPortEnd {
 		atomic.StoreUint32(&s.nextPort, ephemeralPortStart)
 		nextPortVal = ephemeralPortStart
 	}
 
-	srcPort := uint16(nextPortVal) //nolint:gosec // Port range is validated above
+	srcPort := uint16(nextPortVal) //nolint:gosec
 
-	// Register the target and source port for response correlation
+	// Register mapping for correlation
 	targetKey := fmt.Sprintf("%s:%d", target.Host, target.Port)
 
 	s.mu.Lock()
 	s.portTargetMap[srcPort] = targetKey
+
+	if s.targetIP == nil {
+		s.targetIP = make(map[string]string)
+	}
+
+	s.targetIP[targetKey] = destIP.String()
 
 	s.results[targetKey] = models.Result{
 		Target:    target,
@@ -330,16 +738,15 @@ func (s *SYNScanner) sendSyn(target models.Target) {
 
 	s.mu.Unlock()
 
-	// Build the packet
 	if target.Port > maxPortNumber {
 		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
 		return
 	}
 
-	packet := buildSynPacket(s.sourceIP, destIP, srcPort, uint16(target.Port)) //nolint:gosec // Port range validated above
+	packet := buildSynPacket(s.sourceIP, destIP, srcPort, uint16(target.Port)) //nolint:gosec
 
-	// Send the packet
 	addr := syscall.SockaddrInet4{Port: target.Port}
+
 	copy(addr.Addr[:], destIP)
 
 	if err := syscall.Sendto(s.sendSocket, packet, 0, &addr); err != nil {
@@ -354,15 +761,14 @@ func (s *SYNScanner) processResults(targets []models.Target, ch chan<- models.Re
 
 	for _, target := range targets {
 		key := fmt.Sprintf("%s:%d", target.Host, target.Port)
+
 		if result, ok := s.results[key]; ok {
-			// If result was not updated by listener, it's a timeout
 			if !result.Available && result.Error == nil {
 				result.Error = fmt.Errorf("scan timed out")
 			}
 
 			ch <- result
 		} else {
-			// Should not happen, but as a fallback
 			ch <- models.Result{
 				Target:    target,
 				Available: false,
@@ -386,11 +792,21 @@ func (s *SYNScanner) Stop(_ context.Context) error {
 
 	var err error
 
-	if s.listenConn != nil {
-		err = s.listenConn.Close()
-		s.listenConn = nil
+	for _, r := range s.rings {
+		if r.mem != nil {
+			if e := unix.Munmap(r.mem); e != nil && err == nil {
+				err = e
+			}
+		}
+
+		if r.fd != 0 {
+			if e := unix.Close(r.fd); e != nil && err == nil {
+				err = e
+			}
+		}
 	}
 
+	s.rings = nil
 	if s.sendSocket != 0 {
 		if e := syscall.Close(s.sendSocket); e != nil && err == nil {
 			err = e
@@ -404,149 +820,150 @@ func (s *SYNScanner) Stop(_ context.Context) error {
 
 // Packet Crafting and Utility Functions
 
-type iphdr struct {
-	versionAndIhl uint8
-	tos           uint8
-	totalLength   uint16
-	id            uint16
-	fragOff       uint16
-	ttl           uint8
-	protocol      uint8
-	checksum      uint16
-	srcAddr       uint32
-	destAddr      uint32
-}
-
-type tcphdr struct {
-	srcPort uint16
-	dstPort uint16
-	seq     uint32
-	ack     uint32
-	thOff   uint8
-	flags   uint8
-	window  uint16
-	sum     uint16
-	urp     uint16
-}
-
-type pseudotcphdr struct {
-	srcAddr  uint32
-	destAddr uint32
-	zero     uint8
-	protocol uint8
-	length   uint16
-}
-
-const (
-	sizeIPHDR        = 20 // IPv4 header is always 20 bytes (without options)
-	sizeTCPHdr       = 20 // TCP header is always 20 bytes (without options)
-	sizePseudoTCPHdr = 12 // Pseudo TCP header for checksum calculation
-)
-
 func buildSynPacket(srcIP, destIP net.IP, srcPort, destPort uint16) []byte {
-	ipHdr := iphdr{
-		versionAndIhl: (4 << 4) | 5, // IPv4, 20-byte header
-		tos:           0,
-		totalLength:   htons(uint16(sizeIPHDR + sizeTCPHdr)),
-		id:            uint16(rand.Intn(math.MaxUint16)), //nolint:gosec // ID randomization for network packets
-		fragOff:       0,
-		ttl:           64,
-		protocol:      syscall.IPPROTO_TCP,
-		srcAddr:       binary.BigEndian.Uint32(srcIP),
-		destAddr:      binary.BigEndian.Uint32(destIP),
-	}
-
-	ipHdrBytes := (*[sizeIPHDR]byte)(unsafe.Pointer(&ipHdr))
-	ipHdr.checksum = checksum(ipHdrBytes[:])
-	ipHdrBytes = (*[sizeIPHDR]byte)(unsafe.Pointer(&ipHdr))
-
-	pseudoHdr := pseudotcphdr{
-		srcAddr:  ipHdr.srcAddr,
-		destAddr: ipHdr.destAddr,
-		protocol: syscall.IPPROTO_TCP,
-		length:   htons(uint16(sizeTCPHdr)),
-	}
-
-	tcpHdr := tcphdr{
-		srcPort: htons(srcPort),
-		dstPort: htons(destPort),
-		seq:     rand.Uint32(),
-		ack:     0,
-		thOff:   (uint8(sizeTCPHdr) / 4) << 4,
-		flags:   synFlag,
-		window:  htons(defaultTCPWindow),
-	}
-
-	pseudoHdrBytes := (*[sizePseudoTCPHdr]byte)(unsafe.Pointer(&pseudoHdr))
-	tcpHdrBytes := (*[sizeTCPHdr]byte)(unsafe.Pointer(&tcpHdr))
-
-	// Calculate TCP checksum
-	sumPayload := make([]byte, 0, sizePseudoTCPHdr+sizeTCPHdr)
-	sumPayload = append(sumPayload, pseudoHdrBytes[:]...)
-	sumPayload = append(sumPayload, tcpHdrBytes[:]...)
-
-	tcpHdr.sum = checksum(sumPayload)
-
-	tcpHdrBytes = (*[sizeTCPHdr]byte)(unsafe.Pointer(&tcpHdr))
-
-	// Combine headers into final packet
-	packet := make([]byte, 0, sizeIPHDR+sizeTCPHdr)
-
-	packet = append(packet, ipHdrBytes[:]...)
-	packet = append(packet, tcpHdrBytes[:]...)
-
-	return packet
+	return buildIPv4TCPSYN(srcIP, destIP, srcPort, destPort, uint16(rand.Intn(65535)))
 }
 
-func checksum(payload []byte) uint16 {
-	var sum uint32
+// buildIPv4TCPSYN creates a complete IPv4+TCP SYN packet with proper checksums
+func buildIPv4TCPSYN(srcIP, dstIP net.IP, srcPort, dstPort uint16, id uint16) []byte {
+	// IPv4 header (20 bytes)
+	ip := make([]byte, 20)
+	ip[0] = 0x45 // version=4, ihl=5
+	ip[1] = 0    // TOS
 
-	for i := 0; i+1 < len(payload); i += 2 {
-		sum += uint32(binary.BigEndian.Uint16(payload[i:]))
+	binary.BigEndian.PutUint16(ip[2:], 40) // total length (20 IP + 20 TCP)
+	binary.BigEndian.PutUint16(ip[4:], id) // ID
+	binary.BigEndian.PutUint16(ip[6:], 0)  // flags+frag
+
+	ip[8] = 64 // TTL
+	ip[9] = syscall.IPPROTO_TCP
+
+	copy(ip[12:16], srcIP.To4())
+	copy(ip[16:20], dstIP.To4())
+
+	binary.BigEndian.PutUint16(ip[10:], ChecksumNew(ip))
+
+	// TCP header (20 bytes)
+	tcp := make([]byte, 20)
+
+	binary.BigEndian.PutUint16(tcp[0:], srcPort)
+	binary.BigEndian.PutUint16(tcp[2:], dstPort)
+	binary.BigEndian.PutUint32(tcp[4:], rand.Uint32()) // random Seq
+	binary.BigEndian.PutUint32(tcp[8:], 0)             // Ack
+
+	tcp[12] = (5 << 4) // data offset=5
+	tcp[13] = 0x02     // SYN
+
+	binary.BigEndian.PutUint16(tcp[14:], defaultTCPWindow)
+
+	tcp[16], tcp[17] = 0, 0 // checksum (to be filled)
+
+	binary.BigEndian.PutUint16(tcp[18:], 0) // Urgent ptr
+	binary.BigEndian.PutUint16(tcp[16:], TCPChecksumNew(srcIP, dstIP, tcp, nil))
+
+	return append(ip, tcp...)
+}
+
+// Checksum helpers
+
+func ChecksumNew(data []byte) uint16 {
+	sum := uint32(0)
+
+	for len(data) > 1 {
+		sum += uint32(binary.BigEndian.Uint16(data))
+		data = data[2:]
 	}
 
-	if len(payload)%2 != 0 {
-		sum += uint32(payload[len(payload)-1]) << 8
+	if len(data) > 0 {
+		sum += uint32(data[0]) << 8
 	}
 
-	for sum > 0xffff {
-		sum = (sum >> 16) + (sum & 0xffff)
+	for (sum >> 16) > 0 {
+		sum = (sum & 0xFFFF) + (sum >> 16)
 	}
 
 	return ^uint16(sum)
 }
 
-func getLocalIP() (net.IP, error) {
+// TCP checksum with IPv4 pseudo-header
+func TCPChecksumNew(src, dst net.IP, tcpHdr, payload []byte) uint16 {
+	psh := make([]byte, 12+len(tcpHdr)+len(payload))
+
+	copy(psh[0:4], src.To4())
+	copy(psh[4:8], dst.To4())
+
+	psh[8] = 0
+	psh[9] = syscall.IPPROTO_TCP
+
+	binary.BigEndian.PutUint16(psh[10:12], uint16(len(tcpHdr)+len(payload)))
+
+	copy(psh[12:], tcpHdr)
+	copy(psh[12+len(tcpHdr):], payload)
+
+	return ChecksumNew(psh)
+}
+
+func getLocalIPAndInterface() (net.IP, string, error) {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		// Fallback for environments without internet access
-		addrs, err := net.InterfaceAddrs()
+		interfaces, err := net.Interfaces()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
-		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-				if ipnet.IP.To4() != nil {
-					return ipnet.IP.To4(), nil
+		for _, iface := range interfaces {
+			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+				continue
+			}
+
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+
+			for _, addr := range addrs {
+				if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+					return ipnet.IP.To4(), iface.Name, nil
 				}
 			}
 		}
 
-		return nil, fmt.Errorf("no suitable local IP address found")
+		return nil, "", fmt.Errorf("no suitable local IP address and interface found")
 	}
 
 	defer conn.Close()
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
 
-	return localAddr.IP.To4(), nil
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	localIP := localAddr.IP.To4()
+
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, "", err
+	}
+
+	for _, iface := range interfaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.Equal(localIP) {
+				return localIP, iface.Name, nil
+			}
+		}
+	}
+
+	return nil, "", fmt.Errorf("could not find interface for local IP %s", localIP)
+}
+
+func getLocalIP() (net.IP, error) {
+	ip, _, err := getLocalIPAndInterface()
+
+	return ip, err
 }
 
 // Host to network short/long byte order conversions
-func htons(n uint16) uint16 {
-	return (n << 8) | (n >> 8)
-}
-
-func ntohs(n uint16) uint16 {
-	return htons(n) // Same operation
-}
+func htons(n uint16) uint16 { return (n << 8) | (n >> 8) }
+func ntohs(n uint16) uint16 { return htons(n) }
