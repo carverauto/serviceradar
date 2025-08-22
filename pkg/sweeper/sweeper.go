@@ -1259,15 +1259,33 @@ func (*NetworkSweeper) extractDeviceID(target models.Target) string {
 
 	// Try armis_device_id first
 	if armisID, ok := target.Metadata["armis_device_id"]; ok {
-		if str, ok := armisID.(string); ok && str != "" {
-			return "armis:" + str
+		switch v := armisID.(type) {
+		case string:
+			if v != "" {
+				return "armis:" + v
+			}
+		case int:
+			return fmt.Sprintf("armis:%d", v)
+		case int64:
+			return fmt.Sprintf("armis:%d", v)
+		case float64:
+			return fmt.Sprintf("armis:%d", int64(v))
 		}
 	}
 
 	// Try integration_id
 	if integrationID, ok := target.Metadata["integration_id"]; ok {
-		if str, ok := integrationID.(string); ok && str != "" {
-			return "integration:" + str
+		switch v := integrationID.(type) {
+		case string:
+			if v != "" {
+				return "integration:" + v
+			}
+		case int:
+			return fmt.Sprintf("integration:%d", v)
+		case int64:
+			return fmt.Sprintf("integration:%d", v)
+		case float64:
+			return fmt.Sprintf("integration:%d", int64(v))
 		}
 	}
 
@@ -1370,7 +1388,7 @@ func (s *NetworkSweeper) processAggregatedResults(_ context.Context, aggregator 
 
 	if len(aggregator.Results) == 0 {
 		s.logger.Warn().
-			Str("deviceID", aggregator.DeviceID).
+			Str("groupKey", aggregator.DeviceID).
 			Msg("No results collected for device aggregator")
 
 		return
