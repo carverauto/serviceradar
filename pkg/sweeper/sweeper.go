@@ -103,10 +103,26 @@ func NewNetworkSweeper(
 
 	needsICMP := false
 
+	// Check global sweep modes
 	for _, mode := range config.SweepModes {
 		if mode == models.ModeICMP {
 			needsICMP = true
 			break
+		}
+	}
+
+	// Also check device target sweep modes
+	if !needsICMP {
+		for _, deviceTarget := range config.DeviceTargets {
+			for _, mode := range deviceTarget.SweepModes {
+				if mode == models.ModeICMP {
+					needsICMP = true
+					break
+				}
+			}
+			if needsICMP {
+				break
+			}
 		}
 	}
 
@@ -393,6 +409,43 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 	}
 
 	s.config = config
+
+	// Re-check if we need ICMP scanner based on updated config
+	needsICMP := false
+
+	// Check global sweep modes
+	for _, mode := range config.SweepModes {
+		if mode == models.ModeICMP {
+			needsICMP = true
+			break
+		}
+	}
+
+	// Also check device target sweep modes
+	if !needsICMP {
+		for _, deviceTarget := range config.DeviceTargets {
+			for _, mode := range deviceTarget.SweepModes {
+				if mode == models.ModeICMP {
+					needsICMP = true
+					break
+				}
+			}
+			if needsICMP {
+				break
+			}
+		}
+	}
+
+	// Initialize ICMP scanner if needed and not already initialized
+	if needsICMP && s.icmpScanner == nil {
+		icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, s.logger)
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to create ICMP scanner during config update, ICMP scanning will be disabled")
+		} else {
+			s.icmpScanner = icmpScanner
+			s.logger.Info().Msg("Initialized ICMP scanner based on updated config")
+		}
+	}
 
 	return nil
 }
@@ -770,7 +823,12 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		}
 	}
 
-	s.logger.Info().Int("icmpTargets", len(icmpTargets)).Int("tcpTargets", len(tcpTargets)).Msg("Starting sweep")
+	s.logger.Info().
+		Int("icmpTargets", len(icmpTargets)).
+		Int("tcpTargets", len(tcpTargets)).
+		Bool("icmpScannerAvailable", s.icmpScanner != nil).
+		Bool("tcpScannerAvailable", s.tcpScanner != nil).
+		Msg("Starting sweep")
 
 	var wg sync.WaitGroup
 
