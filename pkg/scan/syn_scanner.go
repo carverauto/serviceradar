@@ -40,8 +40,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-func init() { 
-	rand.Seed(time.Now().UnixNano()) 
+func init() {
+	rand.Seed(time.Now().UnixNano())
 }
 
 const (
@@ -253,6 +253,7 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 	if ip4 == nil {
 		return fmt.Errorf("attachBPF: non-IPv4 local IP")
 	}
+
 	ipK := uint32(ip4[0])<<24 | uint32(ip4[1])<<16 | uint32(ip4[2])<<8 | uint32(ip4[3])
 	lo := uint32(sportLo)
 	hi := uint32(sportHi)
@@ -268,7 +269,7 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 		//  3: vlan? (0x9100) -> VLAN block @16
 		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x9100, Jt: 12, Jf: 0},
 
-		// ---- Non-VLAN path (IPv4 at L2+14) ----
+		// Non-VLAN path (IPv4 at L2+14)
 		//  4: if EtherType != IPv4 -> drop
 		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x0800, Jt: 1, Jf: 0},
 		//  5: drop
@@ -294,7 +295,7 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 		// 15: drop
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
 
-		// ---- VLAN path (single tag; IPv4 at L2+18) ----
+		// VLAN path (single tag; IPv4 at L2+18)
 		// 16: inner EtherType @ [16]
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 16},
 		// 17: if inner EtherType != IPv4 -> drop (jf=9 to 27)
@@ -500,6 +501,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			if blk == nil || len(blk) < int(h1_first_pkt_off+4) {
 				break
 			}
+
 			if loadU32(blk, h1_status_off)&tpStatusUser == 0 {
 				break // no more ready blocks
 			}
@@ -510,15 +512,18 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 
 			if int(first) >= 0 && int(first) < len(blk) && numPkts > 0 {
 				off := int(first)
+
 				for p := uint32(0); p < numPkts; p++ {
 					if off+int(pkt_mac_off+2) > len(blk) {
 						break
 					}
 
 					ph := blk[off:]
+
 					if int(pkt_next_off+4) > len(ph) ||
 						int(pkt_snaplen_off+4) > len(ph) ||
 						int(pkt_mac_off+2) > len(ph) {
+
 						break
 					}
 
@@ -533,6 +538,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 					if next <= 0 || off+next > len(blk) {
 						break
 					}
+
 					off += next
 				}
 			}
@@ -554,6 +560,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
 				continue
 			}
+
 			return
 		}
 
@@ -640,10 +647,11 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		}
 
 		log.Info().Int("fd", fd).Msg("DEBUG: Sniffer opened successfully")
-
 		log.Info().Msg("DEBUG: Attaching BPF filter")
+
 		if err := attachBPF(fd, sourceIP, ephemeralPortStart, ephemeralPortEnd); err != nil {
 			log.Error().Err(err).Msg("DEBUG: Failed to attach BPF filter")
+
 			_ = unix.Close(fd)
 
 			for _, r := range rings {
@@ -655,6 +663,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 			return nil, fmt.Errorf("BPF filter attachment failed: %w", err)
 		}
+
 		log.Info().Msg("DEBUG: BPF filter attached successfully")
 
 		log.Info().Int("fanoutGroup", fanoutGroup).Msg("DEBUG: Enabling packet fanout")
@@ -734,6 +743,7 @@ func (s *SYNScanner) jitterSleep() {
 	}
 
 	d := s.retryMinJitter + time.Duration(rand.Int63n(int64(span)))
+
 	time.Sleep(d)
 }
 
@@ -755,6 +765,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		s.mu.Unlock()
 		return nil, fmt.Errorf("scan already running")
 	}
+
 	s.cancel = cancel
 	s.readersWG.Add(1) // MUST come before Stop() can see non-nil cancel
 
@@ -766,6 +777,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	// Stream results immediately to resultCh (deduped so the final pass won't resend)
 	emitted := make(map[string]struct{}, len(tcpTargets))
+
 	var emittedMu sync.Mutex
 
 	// Dedicated emitter to avoid per-result goroutines.
@@ -782,6 +794,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			case r := <-emitCh:
 				// Forward to consumer
 				resultCh <- r
+
 				// Tee to user callback here (not in ring threads)
 				if cbAny := s.userCallback.Load(); cbAny != nil {
 					if cb, _ := cbAny.(func(models.Result)); cb != nil {
@@ -794,6 +807,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 					select {
 					case r := <-emitCh:
 						resultCh <- r
+
 						if cbAny := s.userCallback.Load(); cbAny != nil {
 							if cb, _ := cbAny.(func(models.Result)); cb != nil {
 								cb(r)
@@ -801,6 +815,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 						}
 					default:
 						close(resultCh)
+
 						return
 					}
 				}
@@ -817,12 +832,14 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			emittedMu.Unlock()
 			return
 		}
+
 		emitted[key] = struct{}{}
 		emittedMu.Unlock()
 
 		// Non-blocking in practice: emitCh capacity == len(tcpTargets) and we enqueue ≤1 per target.
 		emitCh <- r
 	}
+
 	s.mu.Unlock()
 
 	// Start ring readers (one goroutine per ring) — manage with scanner-level WG
@@ -868,6 +885,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		if grace > 200*time.Millisecond {
 			grace = 200 * time.Millisecond
 		}
+
 		time.Sleep(grace)
 
 		cancel()
@@ -875,16 +893,19 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 		// Fallback: emit anything not yet streamed (via emitter so user callback is tee'd)
 		s.mu.Lock()
+
 		for _, t := range tcpTargets {
 			key := fmt.Sprintf("%s:%d", t.Host, t.Port)
 			emittedMu.Lock()
+
 			if _, seen := emitted[key]; seen {
 				emittedMu.Unlock()
 				continue
 			}
+
 			emitted[key] = struct{}{}
 			emittedMu.Unlock()
-			
+
 			r, ok := s.results[key]
 			if !ok {
 				r = models.Result{
@@ -897,22 +918,25 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			} else if !r.Available && r.Error == nil {
 				r.Error = fmt.Errorf("scan timed out")
 			}
+
 			// Release lock while enqueueing; emitter handles backpressure and user callback tee.
 			s.mu.Unlock()
 			emitCh <- r
 			s.mu.Lock()
 		}
+
 		// Stop future callback enqueues and finish the emitter cleanly.
 		s.resultCallback = nil
 		s.mu.Unlock()
 
-		close(stopEmit)   // signal emitter to drain and close resultCh
-		<-emitterDone     // wait for emitter to finish
+		close(stopEmit) // signal emitter to drain and close resultCh
+		<-emitterDone   // wait for emitter to finish
 
 		s.mu.Lock()
 		if s.cancel != nil {
 			s.cancel = nil
 		}
+
 		s.mu.Unlock()
 	}()
 
@@ -935,6 +959,7 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 
 				if attempt+1 < s.retryAttempts {
 					s.jitterSleep()
+
 					if s.hasFinalResult(key) {
 						break
 					}
@@ -990,6 +1015,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 
 	// Precompute inexpensive bits *outside* the lock.
 	now := time.Now()
+
 	src4 := ip.SrcIP.To4()
 	if src4 == nil {
 		return
@@ -998,11 +1024,11 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	// We minimize time under s.mu. All map mutation stays inside; any potentially
 	// blocking work (callback -> channel send) happens after we unlock.
 	var (
-		emit       bool
-		toEmit     models.Result
-		cb         func(models.Result)
-		targetKey  string
-		toFree     []uint16
+		emit      bool
+		toEmit    models.Result
+		cb        func(models.Result)
+		targetKey string
+		toFree    []uint16
 	)
 
 	s.mu.Lock()
@@ -1048,6 +1074,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	// Remove all src-port mappings for this target and free them after unlock.
 	toFree = append(toFree, tcp.DstPort)
 	delete(s.portTargetMap, tcp.DstPort)
+
 	for sp, key := range s.portTargetMap {
 		if key == targetKey {
 			delete(s.portTargetMap, sp)
@@ -1061,6 +1088,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 		toEmit = result
 		cb = s.resultCallback
 	}
+
 	s.mu.Unlock()
 
 	// Release ports outside the lock
@@ -1110,6 +1138,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		s.logger.Warn().Str("host", target.Host).Msg("Invalid/Non-IPv4 target host")
 		return
 	}
+
 	destIP = destIP.To4()
 
 	// Special case for loopback targets - use simple connect() check
@@ -1130,6 +1159,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		s.mu.Lock()
 		delete(s.portTargetMap, srcPort)
 		s.mu.Unlock()
+
 		s.portAlloc.Release(srcPort)
 	}
 
@@ -1146,9 +1176,11 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	if s.portTargetMap == nil {
 		s.portTargetMap = make(map[uint16]string)
 	}
+
 	if s.targetIP == nil {
 		s.targetIP = make(map[string][4]byte)
 	}
+
 	if s.results == nil {
 		s.results = make(map[string]models.Result)
 	}
@@ -1174,14 +1206,18 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	if grace > 200*time.Millisecond {
 		grace = 200 * time.Millisecond
 	}
+
 	time.AfterFunc(s.timeout+grace, func() {
 		s.mu.Lock()
+
 		if key, ok := s.portTargetMap[srcPort]; ok && key == targetKey {
 			delete(s.portTargetMap, srcPort)
+
 			// Do not modify s.results here.
 			// End-of-scan fallback will set timeout if still undecided.
 			s.mu.Unlock()
 			s.portAlloc.Release(srcPort)
+
 			return
 		}
 		s.mu.Unlock()
@@ -1190,20 +1226,22 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	if target.Port <= 0 || target.Port > maxPortNumber {
 		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
 		release()
+
 		return
 	}
 
 	packet := buildSynPacket(s.sourceIP, destIP, srcPort, uint16(target.Port)) //nolint:gosec
 	addr := syscall.SockaddrInet4{Port: target.Port}
+
 	copy(addr.Addr[:], destIP)
 
 	if err := syscall.Sendto(s.sendSocket, packet, 0, &addr); err != nil {
 		s.logger.Debug().Err(err).Str("host", target.Host).Msg("Failed to send SYN packet")
 		release()
+
 		return
 	}
 }
-
 
 // SetResultCallback sets a callback function that will be called immediately when a result becomes available
 func (s *SYNScanner) SetResultCallback(callback func(models.Result)) {
@@ -1215,14 +1253,17 @@ func (s *SYNScanner) SetResultCallback(callback func(models.Result)) {
 // Callers MUST NOT hold s.mu when invoking this function.
 func (s *SYNScanner) emitResult(targetKey string, result models.Result) {
 	var cb func(models.Result)
+
 	s.mu.Lock()
 	if s.results == nil {
 		s.results = make(map[string]models.Result)
 	}
+
 	s.results[targetKey] = result
 	if s.resultCallback != nil && (result.Available || result.Error != nil) {
 		cb = s.resultCallback
 	}
+
 	s.mu.Unlock()
 	if cb != nil {
 		cb(result)
@@ -1249,39 +1290,51 @@ func (s *SYNScanner) Stop(_ context.Context) error {
 
 	// Now it is safe to unmap/close the ring and socket resources.
 	s.mu.Lock()
+
 	toRelease := make([]uint16, 0, len(s.portTargetMap))
+
 	for src := range s.portTargetMap {
 		toRelease = append(toRelease, src)
 	}
+
 	s.portTargetMap = nil
+
 	s.mu.Unlock()
+
 	for _, src := range toRelease {
 		s.portAlloc.Release(src)
 	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var err error
+
 	for _, r := range s.rings {
 		if r.mem != nil {
 			if e := unix.Munmap(r.mem); e != nil && err == nil {
 				err = e
 			}
+
 			r.mem = nil
 		}
+
 		if r.fd != 0 {
 			if e := unix.Close(r.fd); e != nil && err == nil {
 				err = e
 			}
+
 			r.fd = 0
 		}
 	}
+
 	s.rings = nil
 
 	if s.sendSocket != 0 {
 		if e := syscall.Close(s.sendSocket); e != nil && err == nil {
 			err = e
 		}
+
 		s.sendSocket = 0
 	}
 
