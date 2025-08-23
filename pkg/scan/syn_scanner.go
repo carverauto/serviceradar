@@ -964,6 +964,10 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 
 	// Precompute inexpensive bits *outside* the lock.
 	now := time.Now()
+	src4 := ip.SrcIP.To4()
+	if src4 == nil {
+		return
+	}
 
 	// We minimize time under s.mu. All map mutation stays inside; any potentially
 	// blocking work (callback -> channel send) happens after we unlock.
@@ -978,12 +982,6 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	s.mu.Lock()
 	targetKey, ok := s.portTargetMap[tcp.DstPort]
 	if !ok {
-		s.mu.Unlock()
-		return
-	}
-
-	src4 := ip.SrcIP.To4()
-	if src4 == nil {
 		s.mu.Unlock()
 		return
 	}
@@ -1021,18 +1019,14 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	// Persist the updated result.
 	s.results[targetKey] = result
 
-	// Free the port used by this successful attempt
-	delete(s.portTargetMap, tcp.DstPort)
+	// Remove all src-port mappings for this target and free them after unlock.
 	toFree = append(toFree, tcp.DstPort)
-
-	// If we retried, there may be other pending src ports mapped to the same target—release them too.
+	delete(s.portTargetMap, tcp.DstPort)
 	for sp, key := range s.portTargetMap {
 		if key == targetKey {
+			delete(s.portTargetMap, sp)
 			toFree = append(toFree, sp)
 		}
-	}
-	for _, sp := range toFree[1:] { // Skip the first one (tcp.DstPort) since we already added it
-		delete(s.portTargetMap, sp)
 	}
 
 	// If we want to emit, capture the callback and a copy of the result *under the lock*,
@@ -1079,13 +1073,8 @@ func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Tar
 	result.RespTime = time.Since(result.FirstSeen)
 	result.LastSeen = time.Now()
 
-	// Store result directly (no ring buffer processing needed for loopback)
-	s.mu.Lock()
-	if s.results == nil {
-		s.results = make(map[string]models.Result)
-	}
+	// Store & emit without holding s.mu inside the callback.
 	s.emitResult(targetKey, result)
-	s.mu.Unlock()
 }
 
 // sendSyn crafts and sends a single SYN packet to the target.
@@ -1149,37 +1138,18 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	s.mu.Unlock()
 
 	// Ensure we don't hold the source port forever if the target never replies.
-	// After s.timeout, mark timed out (if still undecided) and free the port.
+	// After s.timeout, just free the port (do NOT finalize result here).
 	time.AfterFunc(s.timeout, func() {
-		var (
-			shouldEmit bool
-			toEmit     models.Result
-			toRelease  uint16
-		)
-		
 		s.mu.Lock()
 		if key, ok := s.portTargetMap[srcPort]; ok && key == targetKey {
-			r := s.results[targetKey]
-			if !r.Available && r.Error == nil {
-				r.Error = fmt.Errorf("scan timed out")
-				r.RespTime = time.Since(r.FirstSeen)
-				r.LastSeen = time.Now()
-				s.results[targetKey] = r
-				shouldEmit = true
-				toEmit = r
-			}
 			delete(s.portTargetMap, srcPort)
-			toRelease = srcPort
+			// Do not modify s.results here.
+			// End-of-scan fallback will set timeout if still undecided.
+			s.mu.Unlock()
+			s.portAlloc.Release(srcPort)
+			return
 		}
 		s.mu.Unlock()
-		
-		// Do the potentially blocking work outside the lock
-		if shouldEmit {
-			s.emitResult(targetKey, toEmit)
-		}
-		if toRelease != 0 {
-			s.portAlloc.Release(toRelease)
-		}
 	})
 
 	if target.Port > maxPortNumber {
@@ -1249,7 +1219,7 @@ func (s *SYNScanner) SetResultCallback(callback func(models.Result)) {
 }
 
 // emitResult stores the result and, if definitive, calls the callback *after* releasing s.mu.
-// Safe to call with or without the caller holding s.mu.
+// Callers MUST NOT hold s.mu when invoking this function.
 func (s *SYNScanner) emitResult(targetKey string, result models.Result) {
 	var cb func(models.Result)
 	s.mu.Lock()
@@ -1286,12 +1256,17 @@ func (s *SYNScanner) Stop(_ context.Context) error {
 
 	// Now it is safe to unmap/close the ring and socket resources.
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	toRelease := make([]uint16, 0, len(s.portTargetMap))
 	for src := range s.portTargetMap {
-		s.portAlloc.Release(src)
+		toRelease = append(toRelease, src)
 	}
 	s.portTargetMap = nil
+	s.mu.Unlock()
+	for _, src := range toRelease {
+		s.portAlloc.Release(src)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	var err error
 	for _, r := range s.rings {
