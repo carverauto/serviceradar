@@ -322,6 +322,9 @@ type SYNScannerOptions struct {
 	// RateLimitBurst is the burst size for rate limiting
 	// If 0, defaults to RateLimit
 	RateLimitBurst int
+	// RouteDiscoveryHost is the target address for local IP discovery
+	// If empty, defaults to "8.8.8.8:80" 
+	RouteDiscoveryHost string
 }
 
 // batchArrays holds reusable arrays for sendmmsg batching
@@ -778,7 +781,15 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 	log.Info().Msg("DEBUG: Getting local IP and interface")
 
 	// Find a local IP and interface to use
-	sourceIP, iface, err := getLocalIPAndInterface()
+	var routeDiscoveryTarget string
+	if opts != nil && opts.RouteDiscoveryHost != "" {
+		routeDiscoveryTarget = opts.RouteDiscoveryHost
+		log.Debug().Str("target", routeDiscoveryTarget).Msg("Using configured route discovery target")
+	} else {
+		routeDiscoveryTarget = "8.8.8.8:80"
+	}
+	
+	sourceIP, iface, err := getLocalIPAndInterfaceWithTarget(routeDiscoveryTarget)
 	if err != nil {
 		syscall.Close(sendSocket)
 		return nil, fmt.Errorf("failed to get local IP and interface: %w", err)
@@ -2310,9 +2321,17 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 }
 
 func getLocalIPAndInterface() (net.IP, string, error) {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+	return getLocalIPAndInterfaceWithTarget("8.8.8.8:80")
+}
+
+func getLocalIPAndInterfaceWithTarget(target string) (net.IP, string, error) {
+	if target == "" {
+		target = "8.8.8.8:80"
+	}
+	
+	conn, err := net.Dial("udp", target)
 	if err != nil {
-		// Fallback for environments without internet access
+		// Fallback for environments without internet access or blocked targets
 		interfaces, err := net.Interfaces()
 		if err != nil {
 			return nil, "", err
@@ -2335,7 +2354,7 @@ func getLocalIPAndInterface() (net.IP, string, error) {
 			}
 		}
 
-		return nil, "", fmt.Errorf("no suitable local IP address and interface found")
+		return nil, "", fmt.Errorf("no suitable local IP address and interface found (target %s blocked)", target)
 	}
 
 	defer conn.Close()
