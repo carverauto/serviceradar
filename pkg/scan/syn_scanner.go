@@ -20,6 +20,7 @@
 package scan
 
 import (
+	"container/heap"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -72,6 +73,10 @@ const (
 
 	// tpacket v3 block ownership
 	tpStatusUser = 1 // TP_STATUS_USER
+
+	// Max number of SYNs to send per sendmmsg() call.
+	// 32–128 is typically a sweet spot; 64 is a safe default.
+	sendBatchSize = 64
 )
 
 // u32ptr gets a pointer to a uint32 at a specific offset in a byte slice.
@@ -159,6 +164,9 @@ type SYNScanner struct {
 	// Do NOT call user callback from ring threads; tee it in the emitter goroutine.
 	resultCallback func(models.Result) // internal, owned by Scan
 	userCallback   atomic.Value        // of type func(models.Result)
+
+	// Packet template for allocation reuse
+	packetTemplate [40]byte // IPv4 (20) + TCP (20) header template
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -706,7 +714,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 	log.Info().Int("ringCount", len(rings)).Msg("DEBUG: All ring buffers created successfully")
 
-	return &SYNScanner{
+	scanner := &SYNScanner{
 		timeout:        timeout,
 		concurrency:    concurrency,
 		logger:         log,
@@ -723,7 +731,66 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		portTargetMap: make(map[uint16]string),
 		targetIP:      make(map[string][4]byte),
 		results:       make(map[string]models.Result),
-	}, nil
+	}
+
+	// Initialize packet template for reuse
+	scanner.initPacketTemplate()
+
+	return scanner, nil
+}
+
+// initPacketTemplate initializes the reusable packet template with static fields
+func (s *SYNScanner) initPacketTemplate() {
+	// IPv4 header template (20 bytes)
+	s.packetTemplate[0] = 0x45  // version=4, ihl=5
+	s.packetTemplate[1] = 0     // TOS
+	binary.BigEndian.PutUint16(s.packetTemplate[2:], 40) // total length (20 IP + 20 TCP)
+	// ID will be set per packet: s.packetTemplate[4:6]
+	binary.BigEndian.PutUint16(s.packetTemplate[6:], 0) // flags+frag
+	s.packetTemplate[8] = 64 // TTL
+	s.packetTemplate[9] = syscall.IPPROTO_TCP
+	// checksum will be set per packet: s.packetTemplate[10:12]
+	// src IP will be set per packet: s.packetTemplate[12:16] 
+	// dst IP will be set per packet: s.packetTemplate[16:20]
+
+	// TCP header template (20 bytes)
+	// src port will be set per packet: s.packetTemplate[20:22]
+	// dst port will be set per packet: s.packetTemplate[22:24]
+	// seq will be set per packet: s.packetTemplate[24:28]
+	binary.BigEndian.PutUint32(s.packetTemplate[28:], 0) // ack
+	s.packetTemplate[32] = (5 << 4) // data offset=5
+	s.packetTemplate[33] = 0x02     // SYN flag
+	binary.BigEndian.PutUint16(s.packetTemplate[34:], defaultTCPWindow) // window
+	// checksum will be set per packet: s.packetTemplate[36:38]
+	binary.BigEndian.PutUint16(s.packetTemplate[38:], 0) // urgent ptr
+}
+
+// buildSynPacketFromTemplate efficiently builds a SYN packet using the pre-allocated template
+func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, destPort uint16) []byte {
+	// Create a copy of the template
+	packet := make([]byte, 40)
+	copy(packet, s.packetTemplate[:])
+
+	// Set variable IPv4 fields
+	id := uint16(rand.Intn(65535))
+	binary.BigEndian.PutUint16(packet[4:], id) // IP ID
+	copy(packet[12:16], srcIP.To4()) // src IP
+	copy(packet[16:20], destIP.To4()) // dst IP
+
+	// Calculate and set IPv4 checksum
+	binary.BigEndian.PutUint16(packet[10:], 0) // clear checksum
+	binary.BigEndian.PutUint16(packet[10:], ChecksumNew(packet[:20]))
+
+	// Set variable TCP fields
+	binary.BigEndian.PutUint16(packet[20:], srcPort) // src port
+	binary.BigEndian.PutUint16(packet[22:], destPort) // dst port
+	binary.BigEndian.PutUint32(packet[24:], rand.Uint32()) // seq
+
+	// Calculate and set TCP checksum
+	binary.BigEndian.PutUint16(packet[36:], 0) // clear checksum
+	binary.BigEndian.PutUint16(packet[36:], TCPChecksumNew(srcIP, destIP, packet[20:], nil))
+
+	return packet
 }
 
 func (s *SYNScanner) hasFinalResult(targetKey string) bool {
@@ -735,17 +802,6 @@ func (s *SYNScanner) hasFinalResult(targetKey string) bool {
 	return ok && (r.Available || r.Error != nil)
 }
 
-func (s *SYNScanner) jitterSleep() {
-	span := s.retryMaxJitter - s.retryMinJitter
-	if span <= 0 {
-		time.Sleep(s.retryMinJitter)
-		return
-	}
-
-	d := s.retryMinJitter + time.Duration(rand.Int63n(int64(span)))
-
-	time.Sleep(d)
-}
 
 // Scan performs SYN scanning on the given targets
 func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
@@ -945,26 +1001,63 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 // worker sends SYN packets to targets from the work channel
 func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
+	batch := make([]models.Target, 0, sendBatchSize)
+
 	for {
 		select {
-		case target, ok := <-workCh:
+		case first, ok := <-workCh:
 			if !ok {
 				return
 			}
 
-			key := fmt.Sprintf("%s:%d", target.Host, target.Port)
+			// Start a new batch with the first item
+			batch = batch[:0]
+			batch = append(batch, first)
 
-			for attempt := 0; attempt < s.retryAttempts; attempt++ {
-				s.sendSyn(ctx, target)
+			// Non‑blocking drain to fill the batch
+			for len(batch) < sendBatchSize {
+				select {
+				case t := <-workCh:
+					batch = append(batch, t)
+				default:
+					// channel empty for now; ship what we have
+					break
+				}
+				if len(batch) >= sendBatchSize {
+					break
+				}
+			}
 
-				if attempt+1 < s.retryAttempts {
-					s.jitterSleep()
+			// First attempt: fast path via sendmmsg()
+			s.sendSynBatch(ctx, batch)
 
-					if s.hasFinalResult(key) {
-						break
+			// Schedule additional attempts asynchronously (unchanged logic)
+			if s.retryAttempts > 1 {
+				for _, t := range batch {
+					tt := t // capture
+					key := fmt.Sprintf("%s:%d", tt.Host, tt.Port)
+
+					for attempt := 1; attempt < s.retryAttempts; attempt++ {
+						// jitter per attempt
+						span := s.retryMaxJitter - s.retryMinJitter
+						d := s.retryMinJitter
+						if span > 0 {
+							d += time.Duration(rand.Int63n(int64(span)))
+						}
+						delay := time.Duration(attempt) * d
+
+						time.AfterFunc(delay, func() {
+							if ctx.Err() != nil {
+								return
+							}
+							if !s.hasFinalResult(key) {
+								s.sendSyn(ctx, tt) // reuse existing single‑packet path
+							}
+						})
 					}
 				}
 			}
+
 		case <-ctx.Done():
 			return
 		}
@@ -1230,7 +1323,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		return
 	}
 
-	packet := buildSynPacket(s.sourceIP, destIP, srcPort, uint16(target.Port)) //nolint:gosec
+	packet := s.buildSynPacketFromTemplate(s.sourceIP, destIP, srcPort, uint16(target.Port)) //nolint:gosec
 	addr := syscall.SockaddrInet4{Port: target.Port}
 
 	copy(addr.Addr[:], destIP)
@@ -1240,6 +1333,177 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		release()
 
 		return
+	}
+}
+
+// sendSynBatch crafts and sends SYNs for a slice of targets using sendmmsg().
+// Only the *first attempt* should use this fast path; retries can go through sendSyn() or another batcher.
+func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) {
+	type entry struct {
+		tgt       models.Target
+		dst4      [4]byte
+		srcPort   uint16
+		packet    []byte
+		targetKey string
+	}
+
+	// Build up entries we can actually batch (valid IPv4, non-loopback, port in range, port reserved)
+	entries := make([]entry, 0, len(targets))
+
+	// Pre-calc the grace we already use elsewhere
+	grace := s.timeout / 4
+	if grace > 200*time.Millisecond {
+		grace = 200 * time.Millisecond
+	}
+
+	for _, t := range targets {
+		// Validate target port early
+		if t.Port <= 0 || t.Port > maxPortNumber {
+			s.logger.Debug().Int("port", t.Port).Msg("Skipping invalid target port")
+			continue
+		}
+
+		dst := net.ParseIP(t.Host)
+		if dst == nil {
+			s.logger.Debug().Str("host", t.Host).Msg("Skipping invalid target host")
+			continue
+		}
+		dst4 := dst.To4()
+		if dst4 == nil {
+			s.logger.Debug().Str("host", t.Host).Msg("Skipping non-IPv4 host")
+			continue
+		}
+
+		// Loopback? Use the simple connect path right away.
+		if net.IP(dst4).IsLoopback() {
+			s.handleLoopbackTarget(ctx, t)
+			continue
+		}
+
+		// Reserve an ephemeral source port for this probe
+		srcPort, err := s.portAlloc.Reserve(ctx)
+		if err != nil {
+			s.logger.Debug().Err(err).Str("host", t.Host).Msg("No source port available for batch entry")
+			continue
+		}
+
+		key := fmt.Sprintf("%s:%d", t.Host, t.Port)
+
+		// Update maps under lock (same as sendSyn)
+		var want [4]byte
+		copy(want[:], dst4)
+
+		s.mu.Lock()
+		if s.portTargetMap == nil {
+			s.portTargetMap = make(map[uint16]string)
+		}
+		if s.targetIP == nil {
+			s.targetIP = make(map[string][4]byte)
+		}
+		if s.results == nil {
+			s.results = make(map[string]models.Result)
+		}
+
+		s.portTargetMap[srcPort] = key
+		s.targetIP[key] = want
+		if existing, ok := s.results[key]; ok && !existing.FirstSeen.IsZero() {
+			existing.LastSeen = time.Now()
+			s.results[key] = existing
+		} else {
+			s.results[key] = models.Result{
+				Target:    t,
+				FirstSeen: time.Now(),
+				LastSeen:  time.Now(),
+			}
+		}
+		s.mu.Unlock()
+
+		// Schedule auto‑release of the mapping if nothing definitive happens
+		time.AfterFunc(s.timeout+grace, func() {
+			s.mu.Lock()
+			if k, ok := s.portTargetMap[srcPort]; ok && k == key {
+				delete(s.portTargetMap, srcPort)
+				s.mu.Unlock()
+				s.portAlloc.Release(srcPort)
+				return
+			}
+			s.mu.Unlock()
+		})
+
+		// Build the packet using template
+		pkt := s.buildSynPacketFromTemplate(s.sourceIP, dst4, srcPort, uint16(t.Port)) // 40 bytes
+
+		var addr4 [4]byte
+		copy(addr4[:], dst4)
+
+		entries = append(entries, entry{
+			tgt:       t,
+			dst4:      addr4,
+			srcPort:   srcPort,
+			packet:    pkt,
+			targetKey: key,
+		})
+	}
+
+	if len(entries) == 0 {
+		return
+	}
+
+	// Prepare arrays for sendmmsg: one RawSockaddrInet4, one Iovec, one Mmsghdr per entry
+	addrs := make([]unix.RawSockaddrInet4, len(entries))
+	iovecs := make([]unix.Iovec, len(entries))
+	hdrs := make([]unix.Mmsghdr, len(entries))
+
+	// Fill descriptors
+	for i := range entries {
+		// sockaddr_in
+		addrs[i] = unix.RawSockaddrInet4{
+			Family: unix.AF_INET,
+			Port:   htons(uint16(entries[i].tgt.Port)), // kernel expects network byte order
+			Addr:   entries[i].dst4,
+		}
+
+		// iovec pointing at the packet bytes
+		iovecs[i].Base = &entries[i].packet[0]
+		iovecs[i].SetLen(len(entries[i].packet)) // arch‑safe setter
+
+		// msghdr
+		hdrs[i].Hdr.Name = (*byte)(unsafe.Pointer(&addrs[i]))
+		hdrs[i].Hdr.Namelen = uint32(unsafe.Sizeof(addrs[i]))
+		hdrs[i].Hdr.Iov = &iovecs[i]
+		hdrs[i].Hdr.SetIovlen(1) // arch‑safe setter
+	}
+
+	// Send in a loop to handle partial sends; kernel will send them in order.
+	off := 0
+	for off < len(hdrs) {
+		n, err := unix.Sendmmsg(s.sendSocket, hdrs[off:], 0)
+		if n > 0 {
+			off += n
+		}
+		if err == nil {
+			continue
+		}
+		// Retry the same offset on transient errors
+		if err == unix.EAGAIN || err == unix.EWOULDBLOCK || err == unix.EINTR {
+			// tiny backoff; keep pressure high
+			runtime.Gosched()
+			continue
+		}
+
+		// Hard error: release the remaining unsent src ports and drop mappings
+		s.logger.Debug().Err(err).Int("remaining", len(hdrs)-off).Msg("sendmmsg failed; releasing unsent ports")
+		break
+	}
+
+	// Release *unsent* ports immediately, since their SYN never left the machine.
+	// The AfterFunc will see the missing mapping and will not release a second time.
+	for i := off; i < len(entries); i++ {
+		sp := entries[i].srcPort
+		s.mu.Lock()
+		delete(s.portTargetMap, sp)
+		s.mu.Unlock()
+		s.portAlloc.Release(sp)
 	}
 }
 
