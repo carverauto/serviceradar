@@ -98,65 +98,12 @@ func NewNetworkSweeper(
 		return nil, errNilConfig
 	}
 
-	// Initialize ICMP scanner only if needed
-	var icmpScanner scan.Scanner
+	icmpScanner := initializeICMPScanner(config, log)
+	tcpScanner, err := initializeTCPScanner(config, log)
 
-	needsICMP := false
-
-	// Check global sweep modes
-	for _, mode := range config.SweepModes {
-		if mode == models.ModeICMP {
-			needsICMP = true
-			break
-		}
-	}
-
-	// Also check device target sweep modes
-	if !needsICMP {
-		for _, deviceTarget := range config.DeviceTargets {
-			for _, mode := range deviceTarget.SweepModes {
-				if mode == models.ModeICMP {
-					needsICMP = true
-					break
-				}
-			}
-			if needsICMP {
-				break
-			}
-		}
-	}
-
-	if needsICMP {
-		var err error
-
-		icmpScanner, err = scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log)
-
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to create ICMP scanner, ICMP scanning will be disabled")
-		}
-	}
-
-	totalTargets := estimateTargetCount(config)
-	effectiveConcurrency := config.Concurrency
-
-	if totalTargets > 0 && effectiveConcurrency > totalTargets/10 {
-		effectiveConcurrency = totalTargets / defaultTotalTargetLimitPercentage // Limit to 10% of targets
-		if effectiveConcurrency < defaultEffectiveConcurrency {
-			effectiveConcurrency = defaultEffectiveConcurrency // Minimum concurrency
-		}
-
-		log.Debug().Int("adjustedConcurrency", effectiveConcurrency).Int("totalTargets", totalTargets).Msg("Adjusted concurrency for targets")
-	}
-
-	// Use SYN scanner for better performance
-	synScanner, err := scan.NewSYNScanner(config.Timeout, effectiveConcurrency, log)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create SYN scanner: %w", err)
+		return nil, err
 	}
-
-	log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
-
-	tcpScanner := synScanner
 
 	// Default interval if not set
 	if config.Interval == 0 {
@@ -179,6 +126,73 @@ func NewNetworkSweeper(
 		watchDone:      make(chan struct{}),
 		deviceResults:  make(map[string]*DeviceResultAggregator),
 	}, nil
+}
+
+// initializeICMPScanner creates an ICMP scanner if needed based on config
+func initializeICMPScanner(config *models.Config, log logger.Logger) scan.Scanner {
+	if !needsICMPScanning(config) {
+		return nil
+	}
+
+	icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to create ICMP scanner, ICMP scanning will be disabled")
+		return nil
+	}
+
+	return icmpScanner
+}
+
+// needsICMPScanning checks if ICMP scanning is needed based on config
+func needsICMPScanning(config *models.Config) bool {
+	// Check global sweep modes
+	for _, mode := range config.SweepModes {
+		if mode == models.ModeICMP {
+			return true
+		}
+	}
+
+	// Check device target sweep modes
+	for _, deviceTarget := range config.DeviceTargets {
+		for _, mode := range deviceTarget.SweepModes {
+			if mode == models.ModeICMP {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// initializeTCPScanner creates and configures the TCP scanner
+func initializeTCPScanner(config *models.Config, log logger.Logger) (scan.Scanner, error) {
+	effectiveConcurrency := calculateEffectiveConcurrency(config, log)
+
+	synScanner, err := scan.NewSYNScanner(config.Timeout, effectiveConcurrency, log)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SYN scanner: %w", err)
+	}
+
+	log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
+
+	return synScanner, nil
+}
+
+// calculateEffectiveConcurrency adjusts concurrency based on target count
+func calculateEffectiveConcurrency(config *models.Config, log logger.Logger) int {
+	totalTargets := estimateTargetCount(config)
+	effectiveConcurrency := config.Concurrency
+
+	if totalTargets > 0 && effectiveConcurrency > totalTargets/10 {
+		effectiveConcurrency = totalTargets / defaultTotalTargetLimitPercentage // Limit to 10% of targets
+		if effectiveConcurrency < defaultEffectiveConcurrency {
+			effectiveConcurrency = defaultEffectiveConcurrency // Minimum concurrency
+		}
+
+		log.Debug().Int("adjustedConcurrency", effectiveConcurrency).Int("totalTargets", totalTargets).Msg("Adjusted concurrency for targets")
+	}
+
+	return effectiveConcurrency
 }
 
 // Start begins periodic sweeping and KV watching.
@@ -430,6 +444,7 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 					break
 				}
 			}
+
 			if needsICMP {
 				break
 			}
@@ -571,21 +586,38 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 		return
 	}
 
-	// Extract chunk information
-	chunkCountFloat, ok := metadata["chunk_count"].(float64)
+	chunkCount, ok := s.extractChunkCount(metadata)
 	if !ok {
-		s.logger.Error().Msg("Invalid chunk_count in metadata")
 		return
 	}
 
-	chunkCount := int(chunkCountFloat)
+	baseConfig, combinedNetworks, combinedDeviceTargets, ok := s.readAndParseChunks(chunkCount)
+	if !ok {
+		return
+	}
 
+	s.applyChunkedConfig(&baseConfig, combinedNetworks, combinedDeviceTargets, chunkCount)
+}
+
+// extractChunkCount extracts and validates chunk count from metadata
+func (s *NetworkSweeper) extractChunkCount(metadata map[string]interface{}) (int, bool) {
+	chunkCountFloat, ok := metadata["chunk_count"].(float64)
+	if !ok {
+		s.logger.Error().Msg("Invalid chunk_count in metadata")
+		return 0, false
+	}
+
+	chunkCount := int(chunkCountFloat)
 	s.logger.Info().
 		Int("chunkCount", chunkCount).
 		Str("baseConfigKey", s.getBaseConfigKey()).
 		Msg("Reading chunked sweep configuration")
 
-	// Read and parse all chunks
+	return chunkCount, true
+}
+
+// readAndParseChunks reads all chunks and combines their data
+func (s *NetworkSweeper) readAndParseChunks(chunkCount int) (unmarshalConfig, []string, []models.DeviceTarget, bool) {
 	var combinedNetworks []string
 
 	var combinedDeviceTargets []models.DeviceTarget
@@ -599,48 +631,24 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 
 	for i := 0; i < chunkCount; i++ {
 		chunkKey := fmt.Sprintf("%s_chunk_%d.json", s.getBaseConfigKey(), i)
+		chunkConfig, ok := s.readSingleChunk(ctx, chunkKey, i)
 
-		s.logger.Debug().Str("chunkKey", chunkKey).Int("chunkIndex", i).Msg("Reading config chunk")
-
-		// Get the chunk data directly
-		chunkData, found, err := s.kvStore.Get(ctx, chunkKey)
-		if err != nil {
-			s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("Failed to get chunk data")
-			return
-		}
-
-		if !found {
-			s.logger.Warn().Str("chunkKey", chunkKey).Msg("Chunk data not found")
+		if !ok {
 			continue
 		}
 
-		if len(chunkData) == 0 {
-			s.logger.Warn().Str("chunkKey", chunkKey).Msg("Empty chunk data")
-			continue
-		}
-
-		s.logger.Debug().Str("chunkKey", chunkKey).Int("dataLength", len(chunkData)).Msg("Successfully retrieved chunk data")
-
-		// Parse this chunk as a separate SweepConfig
-		var chunkConfig unmarshalConfig
-		if err := json.Unmarshal(chunkData, &chunkConfig); err != nil {
-			s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("Failed to unmarshal chunk config")
-			return
-		}
-
-		// Use first chunk for base configuration (ports, intervals, etc.)
+		// Use first chunk for base configuration
 		if !configSet {
 			baseConfig = chunkConfig
 			configSet = true
 		}
 
-		// Accumulate networks and device targets from this chunk
+		// Accumulate networks and device targets
 		combinedNetworks = append(combinedNetworks, chunkConfig.Networks...)
 		combinedDeviceTargets = append(combinedDeviceTargets, chunkConfig.DeviceTargets...)
 
 		s.logger.Debug().
 			Str("chunkKey", chunkKey).
-			Int("chunkSize", len(chunkData)).
 			Int("networks", len(chunkConfig.Networks)).
 			Int("deviceTargets", len(chunkConfig.DeviceTargets)).
 			Int("totalNetworks", len(combinedNetworks)).
@@ -650,10 +658,50 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 
 	if !configSet {
 		s.logger.Error().Msg("No valid chunks found")
-		return
+		return unmarshalConfig{}, nil, nil, false
 	}
 
-	// Create final combined configuration
+	return baseConfig, combinedNetworks, combinedDeviceTargets, true
+}
+
+// readSingleChunk reads and parses a single chunk
+func (s *NetworkSweeper) readSingleChunk(ctx context.Context, chunkKey string, chunkIndex int) (unmarshalConfig, bool) {
+	s.logger.Debug().Str("chunkKey", chunkKey).Int("chunkIndex", chunkIndex).Msg("Reading config chunk")
+
+	chunkData, found, err := s.kvStore.Get(ctx, chunkKey)
+	if err != nil {
+		s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("Failed to get chunk data")
+		return unmarshalConfig{}, false
+	}
+
+	if !found {
+		s.logger.Warn().Str("chunkKey", chunkKey).Msg("Chunk data not found")
+		return unmarshalConfig{}, false
+	}
+
+	if len(chunkData) == 0 {
+		s.logger.Warn().Str("chunkKey", chunkKey).Msg("Empty chunk data")
+		return unmarshalConfig{}, false
+	}
+
+	s.logger.Debug().Str("chunkKey", chunkKey).Int("dataLength", len(chunkData)).Msg("Successfully retrieved chunk data")
+
+	var chunkConfig unmarshalConfig
+	if err := json.Unmarshal(chunkData, &chunkConfig); err != nil {
+		s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("Failed to unmarshal chunk config")
+		return unmarshalConfig{}, false
+	}
+
+	return chunkConfig, true
+}
+
+// applyChunkedConfig creates and applies the final combined configuration
+func (s *NetworkSweeper) applyChunkedConfig(
+	baseConfig *unmarshalConfig,
+	combinedNetworks []string,
+	combinedDeviceTargets []models.DeviceTarget,
+	chunkCount int,
+) {
 	baseConfig.Networks = combinedNetworks
 	baseConfig.DeviceTargets = combinedDeviceTargets
 
@@ -663,8 +711,7 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 		Int("totalDeviceTargets", len(combinedDeviceTargets)).
 		Msg("Successfully assembled chunked sweep configuration")
 
-	// Convert to models.Config and apply
-	newConfig := s.createConfigFromUnmarshal(&baseConfig)
+	newConfig := s.createConfigFromUnmarshal(baseConfig)
 
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply chunked config update")

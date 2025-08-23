@@ -106,6 +106,7 @@ func (s *InMemoryStore) cleanOldResults() {
 			r := &s.results[i]
 			s.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = i
 		}
+
 		s.lastCleanup = time.Now()
 	}
 }
