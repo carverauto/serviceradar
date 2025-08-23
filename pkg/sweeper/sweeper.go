@@ -168,7 +168,19 @@ func needsICMPScanning(config *models.Config) bool {
 func initializeTCPScanner(config *models.Config, log logger.Logger) (scan.Scanner, error) {
 	effectiveConcurrency := calculateEffectiveConcurrency(config, log)
 
-	synScanner, err := scan.NewSYNScanner(config.Timeout, effectiveConcurrency, log)
+	// Prepare options from config
+	opts := &scan.SYNScannerOptions{}
+	
+	// Use TCPSettings.MaxBatch if configured
+	if config.TCPSettings.MaxBatch > 0 {
+		opts.SendBatchSize = config.TCPSettings.MaxBatch
+		log.Info().Int("tcp_max_batch", config.TCPSettings.MaxBatch).Msg("Using configured TCP max batch size")
+	}
+	
+	// Note: RateLimit can be set here too if needed in the future
+	// opts.RateLimit = config.TCPSettings.RateLimit
+
+	synScanner, err := scan.NewSYNScannerWithOptions(config.Timeout, effectiveConcurrency, log, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SYN scanner: %w", err)
 	}

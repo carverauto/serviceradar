@@ -92,6 +92,17 @@ func getRetireTovMs() uint32 {
 	return defaultRetireTovMs
 }
 
+// getSendBatchSize returns the configurable sendmmsg batch size.
+// Checks SENDMMSG_BATCH_SIZE environment variable, falls back to defaultSendBatchSize.
+func getSendBatchSize() int {
+	if env := os.Getenv("SENDMMSG_BATCH_SIZE"); env != "" {
+		if size, err := strconv.Atoi(env); err == nil && size >= 1 && size <= 512 {
+			return size
+		}
+	}
+	return defaultSendBatchSize
+}
+
 const (
 	// TCP flags
 	synFlag = 0x02
@@ -123,7 +134,7 @@ const (
 
 	// Max number of SYNs to send per sendmmsg() call.
 	// 32–128 is typically a sweet spot; 64 is a safe default.
-	sendBatchSize = 64
+	defaultSendBatchSize = 64
 
 	// Size of the retry queue channel (enough for large scans with a couple of attempts).
 	retryQueueSize = 1 << 17 // 131072
@@ -284,9 +295,35 @@ type SYNScanner struct {
 
 	// Packet template for allocation reuse
 	packetTemplate [40]byte // IPv4 (20) + TCP (20) header template
+
+	// Sendmmsg batch configuration
+	sendBatchSize int
+
+	// Pool for sendmmsg batch arrays to reduce allocations
+	batchPool sync.Pool
 }
 
 var _ Scanner = (*SYNScanner)(nil)
+
+// SYNScannerOptions contains optional configuration for the SYN scanner
+type SYNScannerOptions struct {
+	// SendBatchSize is the number of packets to send per sendmmsg call
+	// If 0, defaults to defaultSendBatchSize or SENDMMSG_BATCH_SIZE env var
+	SendBatchSize int
+	// RateLimit is the packets per second limit
+	// If 0, a safe default will be calculated based on port window and timeout
+	RateLimit int
+	// RateLimitBurst is the burst size for rate limiting
+	// If 0, defaults to RateLimit
+	RateLimitBurst int
+}
+
+// batchArrays holds reusable arrays for sendmmsg batching
+type batchArrays struct {
+	addrs  []unix.RawSockaddrInet4
+	iovecs []unix.Iovec
+	hdrs   []Mmsghdr
+}
 
 // IPv4
 type IPv4Hdr struct {
@@ -678,7 +715,13 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 	}
 }
 
-// NewSYNScanner creates a new SYN scanner (with TPACKETv3 ring readers)
+// NewSYNScanner creates a new SYN scanner with default options
+// Deprecated: Use NewSYNScannerWithOptions for more control
+func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*SYNScanner, error) {
+	return NewSYNScannerWithOptions(timeout, concurrency, log, nil)
+}
+
+// NewSYNScannerWithOptions creates a new SYN scanner with custom options
 //
 // Rate limiting guidance:
 // Set rate limit to avoid source-port exhaustion. Ephemeral window is ~28,233 ports
@@ -689,7 +732,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 // uses atomic.Value and is safe to call anytime, including during active scans.
 //
 // Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
-func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*SYNScanner, error) {
+func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger.Logger, opts *SYNScannerOptions) (*SYNScanner, error) {
 	log.Info().Msg("DEBUG: Starting SYN scanner initialization")
 
 	if timeout == 0 {
@@ -830,6 +873,16 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 	retireTov := getRetireTovMs()
 	log.Info().Uint32("retireTovMs", retireTov).Msg("DEBUG: Using configurable retire TOV")
 
+	// Determine batch size from options, env var, or default
+	batchSize := defaultSendBatchSize
+	if opts != nil && opts.SendBatchSize > 0 {
+		batchSize = opts.SendBatchSize
+	} else {
+		// Fall back to env var if no option provided
+		batchSize = getSendBatchSize()
+	}
+	log.Info().Int("sendBatchSize", batchSize).Msg("DEBUG: Using configurable sendmmsg batch size")
+
 	scanner := &SYNScanner{
 		timeout:        timeout,
 		concurrency:    concurrency,
@@ -844,14 +897,58 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		retryAttempts:  2,
 		retryMinJitter: 20 * time.Millisecond,
 		retryMaxJitter: 40 * time.Millisecond,
+		sendBatchSize:  batchSize,
 		// Initialize maps to prevent nil pointer dereference
 		portTargetMap: make(map[uint16]string),
 		targetIP:      make(map[string][4]byte),
 		results:       make(map[string]models.Result),
 	}
 
+	// Initialize batch pool for sendmmsg arrays
+	scanner.batchPool = sync.Pool{
+		New: func() interface{} {
+			return &batchArrays{
+				addrs:  make([]unix.RawSockaddrInet4, 0, batchSize),
+				iovecs: make([]unix.Iovec, 0, batchSize),
+				hdrs:   make([]Mmsghdr, 0, batchSize),
+			}
+		},
+	}
+
 	// Initialize packet template for reuse
 	scanner.initPacketTemplate()
+
+	// Set rate limit from options or calculate safe default
+	var rateLimitPPS, rateLimitBurst int
+	
+	if opts != nil && opts.RateLimit > 0 {
+		// Use explicitly provided rate limit
+		rateLimitPPS = opts.RateLimit
+		rateLimitBurst = opts.RateLimitBurst
+		if rateLimitBurst <= 0 {
+			rateLimitBurst = rateLimitPPS
+		}
+	} else {
+		// Calculate safe default to prevent source port exhaustion
+		window := int(ephemeralPortEnd - ephemeralPortStart + 1) // ~28k ports
+		hold := timeout + timeout/4                              // timeout + grace period
+		if hold <= 0 {
+			hold = 1 * time.Second
+		}
+		rateLimitPPS = int(float64(window) / hold.Seconds())
+		
+		// Apply reasonable bounds
+		if rateLimitPPS < 1000 {
+			rateLimitPPS = 1000 // minimum 1k pps
+		}
+		if rateLimitPPS > 25000 {
+			rateLimitPPS = 25000 // conservative cap at 25k pps
+		}
+		rateLimitBurst = rateLimitPPS
+	}
+	
+	scanner.SetRateLimit(rateLimitPPS, rateLimitBurst)
+	log.Info().Int("rateLimit", rateLimitPPS).Int("burst", rateLimitBurst).Msg("DEBUG: Set rate limit to prevent port exhaustion")
 
 	return scanner, nil
 }
@@ -901,18 +998,55 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 	copy(packet[12:16], srcIP.To4())           // src IP
 	copy(packet[16:20], destIP.To4())          // dst IP
 
-	// Calculate and set IPv4 checksum
+	// Calculate and set IPv4 checksum inline for hot path optimization
 	binary.BigEndian.PutUint16(packet[10:], 0) // clear checksum
-	binary.BigEndian.PutUint16(packet[10:], ChecksumNew(packet[:20]))
+	ipSum := uint32(0)
+	ipHdr := packet[:20]
+	for i := 0; i < 20; i += 2 {
+		ipSum += uint32(binary.BigEndian.Uint16(ipHdr[i:]))
+	}
+	for (ipSum >> 16) > 0 {
+		ipSum = (ipSum & 0xFFFF) + (ipSum >> 16)
+	}
+	binary.BigEndian.PutUint16(packet[10:], ^uint16(ipSum))
 
 	// Set variable TCP fields
 	binary.BigEndian.PutUint16(packet[20:], srcPort)       // src port
 	binary.BigEndian.PutUint16(packet[22:], destPort)      // dst port
 	binary.BigEndian.PutUint32(packet[24:], rand.Uint32()) // seq
 
-	// Calculate and set TCP checksum
+	// Calculate and set TCP checksum inline for hot path optimization
 	binary.BigEndian.PutUint16(packet[36:], 0) // clear checksum
-	binary.BigEndian.PutUint16(packet[36:], TCPChecksumNew(srcIP, destIP, packet[20:], nil))
+	
+	// Build pseudo-header inline to avoid allocation
+	tcpSum := uint32(0)
+	
+	// Add source IP (4 bytes as 2 uint16s)
+	src4 := srcIP.To4()
+	tcpSum += uint32(src4[0])<<8 | uint32(src4[1])
+	tcpSum += uint32(src4[2])<<8 | uint32(src4[3])
+	
+	// Add destination IP (4 bytes as 2 uint16s)
+	dst4 := destIP.To4()
+	tcpSum += uint32(dst4[0])<<8 | uint32(dst4[1])
+	tcpSum += uint32(dst4[2])<<8 | uint32(dst4[3])
+	
+	// Add protocol (TCP = 6) and TCP length (20 bytes)
+	tcpSum += uint32(syscall.IPPROTO_TCP)
+	tcpSum += 20 // TCP header length
+	
+	// Add TCP header (20 bytes as 10 uint16s)
+	tcpHdr := packet[20:40]
+	for i := 0; i < 20; i += 2 {
+		tcpSum += uint32(binary.BigEndian.Uint16(tcpHdr[i:]))
+	}
+	
+	// Fold carries
+	for (tcpSum >> 16) > 0 {
+		tcpSum = (tcpSum & 0xFFFF) + (tcpSum >> 16)
+	}
+	
+	binary.BigEndian.PutUint16(packet[36:], ^uint16(tcpSum))
 
 	return packet
 }
@@ -996,7 +1130,7 @@ func (s *SYNScanner) runRetryQueue(ctx context.Context) {
 		<-timer.C
 	}
 
-	pending := make([]models.Target, 0, sendBatchSize)
+	pending := make([]models.Target, 0, s.sendBatchSize)
 
 	for {
 		// If empty, wait for the first item or ctx cancel
@@ -1056,7 +1190,7 @@ func (s *SYNScanner) runRetryQueue(ctx context.Context) {
 
 				pending = append(pending, it.target)
 
-				if len(pending) >= sendBatchSize {
+				if len(pending) >= s.sendBatchSize {
 					s.sendPendingWithLimiter(ctx, &pending)
 				}
 			}
@@ -1316,7 +1450,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 // worker sends SYN packets to targets from the work channel
 func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
-	pending := make([]models.Target, 0, sendBatchSize)
+	pending := make([]models.Target, 0, s.sendBatchSize)
 
 	for {
 		// If we have nothing pending, block for one item or exit
@@ -1335,7 +1469,7 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 
 		// Non-blocking drain to fill the batch
 	drain:
-		for len(pending) < sendBatchSize {
+		for len(pending) < s.sendBatchSize {
 			select {
 			case t, ok := <-workCh:
 				if !ok { // channel closed: stop draining now
@@ -1776,10 +1910,31 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		return
 	}
 
-	// Prepare arrays for sendmmsg: one RawSockaddrInet4, one Iovec, one Mmsghdr per entry
-	addrs := make([]unix.RawSockaddrInet4, len(entries))
-	iovecs := make([]unix.Iovec, len(entries))
-	hdrs := make([]Mmsghdr, len(entries))
+	// Get pooled arrays for sendmmsg to reduce allocations
+	ba := s.batchPool.Get().(*batchArrays)
+	defer func() {
+		// Reset slices for reuse
+		ba.addrs = ba.addrs[:0]
+		ba.iovecs = ba.iovecs[:0]
+		ba.hdrs = ba.hdrs[:0]
+		s.batchPool.Put(ba)
+	}()
+
+	// Resize arrays if needed
+	if cap(ba.addrs) < len(entries) {
+		ba.addrs = make([]unix.RawSockaddrInet4, len(entries))
+		ba.iovecs = make([]unix.Iovec, len(entries))
+		ba.hdrs = make([]Mmsghdr, len(entries))
+	} else {
+		ba.addrs = ba.addrs[:len(entries)]
+		ba.iovecs = ba.iovecs[:len(entries)]
+		ba.hdrs = ba.hdrs[:len(entries)]
+	}
+
+	// Use the pooled arrays
+	addrs := ba.addrs
+	iovecs := ba.iovecs
+	hdrs := ba.hdrs
 
 	// Fill descriptors
 	for i := range entries {
