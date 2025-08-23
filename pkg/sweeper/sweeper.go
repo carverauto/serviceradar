@@ -1387,8 +1387,9 @@ func (s *NetworkSweeper) processAggregatedResults(_ context.Context, aggregator 
 	defer aggregator.mu.Unlock()
 
 	if len(aggregator.Results) == 0 {
-		s.logger.Warn().
+		s.logger.Debug().
 			Str("groupKey", aggregator.DeviceID).
+			Int("expectedIPs", len(aggregator.ExpectedIPs)).
 			Msg("No results collected for device aggregator")
 
 		return

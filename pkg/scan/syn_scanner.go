@@ -748,6 +748,33 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	s.mu.Unlock()
 
+	// Stream results immediately to resultCh (deduped so the final pass won't resend)
+	emitted := make(map[string]struct{}, len(tcpTargets))
+	var emittedMu sync.Mutex
+	var cbWG sync.WaitGroup
+	
+	s.mu.Lock()
+	s.resultCallback = func(r models.Result) {
+		key := fmt.Sprintf("%s:%d", r.Target.Host, r.Target.Port)
+
+		emittedMu.Lock()
+		if _, seen := emitted[key]; seen {
+			emittedMu.Unlock()
+			return
+		}
+		emitted[key] = struct{}{}
+		emittedMu.Unlock()
+
+		cbWG.Add(1)
+		go func() {
+			defer cbWG.Done()
+			// Channel is buffered to len(targets) and dedupe guarantees ≤1 send/target,
+			// so a direct send will not deadlock.
+			resultCh <- r
+		}()
+	}
+	s.mu.Unlock()
+
 	// Start ring readers (one goroutine per ring) — manage with scanner-level WG
 
 	go func() {
@@ -786,18 +813,52 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	go func() {
 		senderWg.Wait()
 
-		// grace period for late replies
-		time.Sleep(s.timeout)
+		// Shorter grace for late replies
+		grace := s.timeout / 4
+		if grace > 200*time.Millisecond {
+			grace = 200 * time.Millisecond
+		}
+		time.Sleep(grace)
+
 		cancel()
-
 		s.readersWG.Wait()
-		s.processResults(tcpTargets, resultCh)
 
+		// Fallback: emit anything not yet streamed
+		s.mu.Lock()
+		for _, t := range tcpTargets {
+			key := fmt.Sprintf("%s:%d", t.Host, t.Port)
+			emittedMu.Lock()
+			if _, seen := emitted[key]; seen {
+				emittedMu.Unlock()
+				continue
+			}
+			emitted[key] = struct{}{}
+			emittedMu.Unlock()
+			
+			r, ok := s.results[key]
+			if !ok {
+				r = models.Result{
+					Target:    t,
+					Available: false,
+					Error:     fmt.Errorf("scan timed out"),
+					FirstSeen: time.Now(),
+					LastSeen:  time.Now(),
+				}
+			} else if !r.Available && r.Error == nil {
+				r.Error = fmt.Errorf("scan timed out")
+			}
+			s.mu.Unlock()
+			resultCh <- r
+			s.mu.Lock()
+		}
+		s.resultCallback = nil // stop creating new callback goroutines
+		s.mu.Unlock()
+
+		cbWG.Wait()       // wait for any in-flight callback sends
 		close(resultCh)
 
-		// Clear cancel after normal completion
 		s.mu.Lock()
-		if s.cancel != nil { // avoid clobbering if Stop() already cleared it
+		if s.cancel != nil {
 			s.cancel = nil
 		}
 		s.mu.Unlock()
@@ -1031,6 +1092,8 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 			r := s.results[targetKey]
 			if !r.Available && r.Error == nil {
 				r.Error = fmt.Errorf("scan timed out")
+				r.RespTime = time.Since(r.FirstSeen)
+				r.LastSeen = time.Now()
 			}
 			s.emitResult(targetKey, r)
 			delete(s.portTargetMap, srcPort)
@@ -1101,10 +1164,10 @@ func (s *SYNScanner) emitResult(targetKey string, result models.Result) {
 	
 	// Emit immediately if callback is set and result is definitive (Available=true or has Error)
 	if s.resultCallback != nil && (result.Available || result.Error != nil) {
-		// Call callback without holding the lock to avoid potential deadlocks
-		callback := s.resultCallback
-		resultCopy := result
-		go callback(resultCopy)
+		cb := s.resultCallback
+		// NOTE: emitResult is called with s.mu held by callers;
+		// cb returns immediately after spawning its own goroutine to send.
+		cb(result)
 	}
 }
 
