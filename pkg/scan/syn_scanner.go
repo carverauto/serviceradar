@@ -1023,7 +1023,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 
 	// Free the port used by this successful attempt
 	delete(s.portTargetMap, tcp.DstPort)
-	s.portAlloc.Release(tcp.DstPort)
+	toFree = append(toFree, tcp.DstPort)
 
 	// If we retried, there may be other pending src ports mapped to the same target—release them too.
 	for sp, key := range s.portTargetMap {
@@ -1031,9 +1031,8 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 			toFree = append(toFree, sp)
 		}
 	}
-	for _, sp := range toFree {
+	for _, sp := range toFree[1:] { // Skip the first one (tcp.DstPort) since we already added it
 		delete(s.portTargetMap, sp)
-		s.portAlloc.Release(sp)
 	}
 
 	// If we want to emit, capture the callback and a copy of the result *under the lock*,
@@ -1043,6 +1042,11 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 		cb = s.resultCallback
 	}
 	s.mu.Unlock()
+
+	// Release ports outside the lock
+	for _, sp := range toFree {
+		s.portAlloc.Release(sp)
+	}
 
 	if emit && cb != nil {
 		cb(toEmit)
@@ -1147,6 +1151,12 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	// Ensure we don't hold the source port forever if the target never replies.
 	// After s.timeout, mark timed out (if still undecided) and free the port.
 	time.AfterFunc(s.timeout, func() {
+		var (
+			shouldEmit bool
+			toEmit     models.Result
+			toRelease  uint16
+		)
+		
 		s.mu.Lock()
 		if key, ok := s.portTargetMap[srcPort]; ok && key == targetKey {
 			r := s.results[targetKey]
@@ -1154,12 +1164,22 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 				r.Error = fmt.Errorf("scan timed out")
 				r.RespTime = time.Since(r.FirstSeen)
 				r.LastSeen = time.Now()
+				s.results[targetKey] = r
+				shouldEmit = true
+				toEmit = r
 			}
-			s.emitResult(targetKey, r)
 			delete(s.portTargetMap, srcPort)
-			s.portAlloc.Release(srcPort)
+			toRelease = srcPort
 		}
 		s.mu.Unlock()
+		
+		// Do the potentially blocking work outside the lock
+		if shouldEmit {
+			s.emitResult(targetKey, toEmit)
+		}
+		if toRelease != 0 {
+			s.portAlloc.Release(toRelease)
+		}
 	})
 
 	if target.Port > maxPortNumber {
@@ -1180,14 +1200,24 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 }
 
 func (s *SYNScanner) processResults(targets []models.Target, ch chan<- models.Result) {
+	var toRelease []uint16
+	
 	s.mu.Lock()
 
-	// Release any still-held source ports (timed out)
+	// Collect ports to release (but don't release them under lock)
 	for src := range s.portTargetMap {
-		s.portAlloc.Release(src)
+		toRelease = append(toRelease, src)
 	}
 
 	s.portTargetMap = make(map[uint16]string) // reset for safety
+	s.mu.Unlock()
+	
+	// Release ports outside the lock
+	for _, src := range toRelease {
+		s.portAlloc.Release(src)
+	}
+	
+	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for _, target := range targets {
@@ -1218,15 +1248,20 @@ func (s *SYNScanner) SetResultCallback(callback func(models.Result)) {
 	s.resultCallback = callback
 }
 
-// emitResult stores the result and immediately calls the callback if available and result is definitive
+// emitResult stores the result and, if definitive, calls the callback *after* releasing s.mu.
+// Safe to call with or without the caller holding s.mu.
 func (s *SYNScanner) emitResult(targetKey string, result models.Result) {
+	var cb func(models.Result)
+	s.mu.Lock()
+	if s.results == nil {
+		s.results = make(map[string]models.Result)
+	}
 	s.results[targetKey] = result
-	
-	// Emit immediately if callback is set and result is definitive (Available=true or has Error)
 	if s.resultCallback != nil && (result.Available || result.Error != nil) {
-		cb := s.resultCallback
-		// NOTE: emitResult is called with s.mu held by callers;
-		// cb returns immediately after spawning its own goroutine to send.
+		cb = s.resultCallback
+	}
+	s.mu.Unlock()
+	if cb != nil {
 		cb(result)
 	}
 }
