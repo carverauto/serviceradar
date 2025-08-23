@@ -29,6 +29,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -43,6 +44,17 @@ import (
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
+}
+
+// getRetireTovMs returns the configurable retire timeout in milliseconds.
+// Checks TPACKET_RETIRE_TOV_MS environment variable, falls back to defaultRetireTovMs.
+func getRetireTovMs() uint32 {
+	if env := os.Getenv("TPACKET_RETIRE_TOV_MS"); env != "" {
+		if ms, err := strconv.ParseUint(env, 10, 32); err == nil && ms >= 1 && ms <= 100 {
+			return uint32(ms)
+		}
+	}
+	return defaultRetireTovMs
 }
 
 const (
@@ -69,7 +81,7 @@ const (
 	defaultBlockSize   = 1 << 20 // 1 MiB per block
 	defaultBlockCount  = 8       // 8 MiB total ring (was 64 - overkill)
 	defaultFrameSize   = 2048    // alignment hint
-	defaultRetireTovMs = 5       // flush block to user within 5ms (lower latency, slightly more CPU)
+	defaultRetireTovMs = 10      // flush block to user within 10ms (configurable via env or constructor)
 
 	// tpacket v3 block ownership
 	tpStatusUser = 1 // TP_STATUS_USER
@@ -193,7 +205,7 @@ func (tb *tokenBucket) AllowN(n int) int {
 //
 // This implementation sniffs replies via AF_PACKET + TPACKET_V3 ring (zero-copy),
 // uses classic BPF to reduce userland traffic, and PACKET_FANOUT to scale across cores.
-// Packet crafting uses raw IPv4+TCP with IP_HDRINCL (no unsafe, big-endian writes).
+// Packet crafting uses raw IPv4+TCP with IP_HDRINCL (unsafe only for ring setup, not packet crafting).
 //
 // Linux-only.
 // https://www.kernel.org/doc/Documentation/networking/packet_mmap.txt
@@ -210,6 +222,7 @@ type SYNScanner struct {
 	iface    string // Network interface name
 
 	fanoutGroup int
+	retireTovMs uint32 // configurable retire timeout in milliseconds
 
 	mu            sync.Mutex
 	portTargetMap map[uint16]string  // Maps source port -> target key ("ip:port")
@@ -240,12 +253,6 @@ type SYNScanner struct {
 
 var _ Scanner = (*SYNScanner)(nil)
 
-// Ethernet
-type EthHdr struct {
-	DstMAC    [6]byte
-	SrcMAC    [6]byte
-	EtherType uint16
-}
 
 
 // IPv4
@@ -262,6 +269,9 @@ func parseIPv4(b []byte) (*IPv4Hdr, int, error) {
 	}
 
 	vihl := b[0]
+	if vihl>>4 != 4 {
+		return nil, 0, fmt.Errorf("not IPv4")
+	}
 
 	ihl := vihl & 0x0F
 
@@ -617,7 +627,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 		}
 
 		// Nothing ready; block in poll
-		_, err := unix.Poll(pfd, int(defaultRetireTovMs)) // align with retire tov
+		_, err := unix.Poll(pfd, int(s.retireTovMs)) // align with retire tov
 		if err != nil {
 			// EINTR and EAGAIN are fine; anything else, exit this reader
 			if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
@@ -759,9 +769,10 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		}
 
 		log.Info().Msg("DEBUG: Packet fanout enabled successfully")
-		log.Info().Uint32("blockSize", defaultBlockSize).Uint32("blockCount", defaultBlockCount).Uint32("frameSize", defaultFrameSize).Uint32("retireMs", defaultRetireTovMs).Msg("DEBUG: Setting up TPACKET_V3")
+		retireTov := getRetireTovMs()
+		log.Info().Uint32("blockSize", defaultBlockSize).Uint32("blockCount", defaultBlockCount).Uint32("frameSize", defaultFrameSize).Uint32("retireMs", retireTov).Msg("DEBUG: Setting up TPACKET_V3")
 
-		r, err := setupTPacketV3(fd, defaultBlockSize, defaultBlockCount, defaultFrameSize, defaultRetireTovMs)
+		r, err := setupTPacketV3(fd, defaultBlockSize, defaultBlockCount, defaultFrameSize, retireTov)
 		if err != nil {
 			log.Error().Err(err).Msg("DEBUG: Failed to setup TPACKET_V3")
 			_ = unix.Close(fd)
@@ -783,6 +794,9 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 	log.Info().Int("ringCount", len(rings)).Msg("DEBUG: All ring buffers created successfully")
 
+	retireTov := getRetireTovMs()
+	log.Info().Uint32("retireTovMs", retireTov).Msg("DEBUG: Using configurable retire TOV")
+
 	scanner := &SYNScanner{
 		timeout:        timeout,
 		concurrency:    concurrency,
@@ -792,6 +806,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		sourceIP:       sourceIP,
 		iface:          iface,
 		fanoutGroup:    fanoutGroup,
+		retireTovMs:    retireTov,
 		portAlloc:      NewPortAllocator(ephemeralPortStart, ephemeralPortEnd),
 		retryAttempts:  2,
 		retryMinJitter: 20 * time.Millisecond,
@@ -1422,15 +1437,18 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	s.results[targetKey] = result
 
 	// Remove all src-port mappings for this target and free them after unlock.
-	toFree = append(toFree, tcp.DstPort)
-	delete(s.portTargetMap, tcp.DstPort)
-
+	// Collect all source ports mapped to this target, then delete them.
+	ports := make([]uint16, 0, 4)
+	ports = append(ports, tcp.DstPort)
 	for sp, key := range s.portTargetMap {
-		if key == targetKey {
-			delete(s.portTargetMap, sp)
-			toFree = append(toFree, sp)
+		if key == targetKey && sp != tcp.DstPort {
+			ports = append(ports, sp)
 		}
 	}
+	for _, sp := range ports {
+		delete(s.portTargetMap, sp)
+	}
+	toFree = append(toFree, ports...)
 
 	// If we want to emit, capture the callback and a copy of the result *under the lock*,
 	// then invoke it after unlocking to avoid holding s.mu during a possibly blocking send.
@@ -1559,16 +1577,18 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		grace = 200 * time.Millisecond
 	}
 
+	sp := srcPort
+	k := targetKey
 	time.AfterFunc(s.timeout+grace, func() {
 		s.mu.Lock()
 
-		if key, ok := s.portTargetMap[srcPort]; ok && key == targetKey {
-			delete(s.portTargetMap, srcPort)
+		if cur, ok := s.portTargetMap[sp]; ok && cur == k {
+			delete(s.portTargetMap, sp)
 
 			// Do not modify s.results here.
 			// End-of-scan fallback will set timeout if still undecided.
 			s.mu.Unlock()
-			s.portAlloc.Release(srcPort)
+			s.portAlloc.Release(sp)
 
 			return
 		}
@@ -1834,6 +1854,7 @@ func (s *SYNScanner) Stop(_ context.Context) error {
 
 	// Now it is safe to unmap/close the ring and socket resources.
 	s.mu.Lock()
+	s.retryCh = nil // prevent accidental future sends
 
 	toRelease := make([]uint16, 0, len(s.portTargetMap))
 
