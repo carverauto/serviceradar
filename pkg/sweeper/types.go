@@ -50,9 +50,10 @@ type unmarshalConfig struct {
 		MaxBatch  int             `json:"max_batch"`
 	} `json:"icmp_settings"`
 	TCPSettings struct {
-		Concurrency int             `json:"concurrency"`
-		Timeout     durationWrapper `json:"timeout,omitempty"`
-		MaxBatch    int             `json:"max_batch"`
+		Concurrency        int             `json:"concurrency"`
+		Timeout            durationWrapper `json:"timeout,omitempty"`
+		MaxBatch           int             `json:"max_batch"`
+		RouteDiscoveryHost string          `json:"route_discovery_host,omitempty"`
 	} `json:"tcp_settings"`
 	EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`

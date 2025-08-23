@@ -57,9 +57,10 @@ type Config struct {
 		MaxBatch  int
 	}
 	TCPSettings struct {
-		Concurrency int
-		Timeout     time.Duration
-		MaxBatch    int
+		Concurrency        int
+		Timeout            time.Duration
+		MaxBatch           int
+		RouteDiscoveryHost string `json:"route_discovery_host,omitempty"` // Target for local IP discovery (default: "8.8.8.8:80")
 	}
 	EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`

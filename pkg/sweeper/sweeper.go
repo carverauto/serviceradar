@@ -164,30 +164,42 @@ func needsICMPScanning(config *models.Config) bool {
 	return false
 }
 
-// initializeTCPScanner creates and configures the TCP scanner
+// initializeTCPScanner creates and configures the TCP scanner with graceful fallback
 func initializeTCPScanner(config *models.Config, log logger.Logger) (scan.Scanner, error) {
 	effectiveConcurrency := calculateEffectiveConcurrency(config, log)
 
-	// Prepare options from config
+	// Try SYN scanner first for optimal performance
 	opts := &scan.SYNScannerOptions{}
 	
 	// Use TCPSettings.MaxBatch if configured
 	if config.TCPSettings.MaxBatch > 0 {
 		opts.SendBatchSize = config.TCPSettings.MaxBatch
-		log.Info().Int("tcp_max_batch", config.TCPSettings.MaxBatch).Msg("Using configured TCP max batch size")
+		log.Debug().Int("tcp_max_batch", config.TCPSettings.MaxBatch).Msg("Using configured TCP max batch size for SYN scanner")
+	}
+	
+	// Use configured route discovery host for locked-down environments
+	if config.TCPSettings.RouteDiscoveryHost != "" {
+		opts.RouteDiscoveryHost = config.TCPSettings.RouteDiscoveryHost
+		log.Debug().Str("route_discovery_host", config.TCPSettings.RouteDiscoveryHost).Msg("Using configured route discovery host for local IP detection")
 	}
 	
 	// Note: RateLimit can be set here too if needed in the future
 	// opts.RateLimit = config.TCPSettings.RateLimit
 
 	synScanner, err := scan.NewSYNScannerWithOptions(config.Timeout, effectiveConcurrency, log, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SYN scanner: %w", err)
+	if err == nil {
+		log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
+		return synScanner, nil
 	}
 
-	log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
-
-	return synScanner, nil
+	// SYN scanner failed (non-Linux, container without CAP_NET_RAW, etc.)
+	// Gracefully fall back to TCP connect() scanner
+	log.Warn().Err(err).Msg("SYN scanner unavailable; falling back to TCP connect() scanner")
+	
+	tcpScanner := scan.NewTCPSweeper(config.Timeout, effectiveConcurrency, log)
+	log.Info().Msg("Using TCP connect() scanning (slower but more compatible)")
+	
+	return tcpScanner, nil
 }
 
 // calculateEffectiveConcurrency adjusts concurrency based on target count
@@ -775,13 +787,15 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			MaxBatch:  temp.ICMPSettings.MaxBatch,
 		},
 		TCPSettings: struct {
-			Concurrency int
-			Timeout     time.Duration
-			MaxBatch    int
+			Concurrency        int
+			Timeout            time.Duration
+			MaxBatch           int
+			RouteDiscoveryHost string `json:"route_discovery_host,omitempty"`
 		}{
-			Concurrency: temp.TCPSettings.Concurrency,
-			Timeout:     time.Duration(temp.TCPSettings.Timeout),
-			MaxBatch:    temp.TCPSettings.MaxBatch,
+			Concurrency:        temp.TCPSettings.Concurrency,
+			Timeout:            time.Duration(temp.TCPSettings.Timeout),
+			MaxBatch:           temp.TCPSettings.MaxBatch,
+			RouteDiscoveryHost: temp.TCPSettings.RouteDiscoveryHost,
 		},
 		EnableHighPerformanceICMP: temp.EnableHighPerformanceICMP,
 		ICMPRateLimit:             temp.ICMPRateLimit,
