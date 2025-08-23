@@ -269,12 +269,16 @@ func (s *NetworkSweeper) Stop() error {
 	close(s.done)
 	<-s.watchDone // Wait for KV watching to stop
 
-	if err := s.icmpScanner.Stop(context.Background()); err != nil {
-		s.logger.Error().Err(err).Msg("Failed to stop ICMP scanner")
+	if s.icmpScanner != nil {
+		if err := s.icmpScanner.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop ICMP scanner")
+		}
 	}
 
-	if err := s.tcpScanner.Stop(context.Background()); err != nil {
-		s.logger.Error().Err(err).Msg("Failed to stop TCP scanner")
+	if s.tcpScanner != nil {
+		if err := s.tcpScanner.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop TCP scanner")
+		}
 	}
 
 	return nil
