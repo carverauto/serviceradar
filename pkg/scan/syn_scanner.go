@@ -55,9 +55,8 @@ const (
 	ephemeralPortEnd   = 61000
 
 	// Network constants
-	maxEthernetFrameSize = 65536
-	defaultTCPWindow     = 65535
-	maxPortNumber        = 65535
+	defaultTCPWindow = 65535
+	maxPortNumber    = 65535
 
 	// Ethernet type
 	etherTypeIPv4 = 0x0800
@@ -296,25 +295,29 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
 
 		// ---- VLAN path (single tag; IPv4 at L2+18) ----
-		// 16: proto @ [27]
+		// 16: inner EtherType @ [16]
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 16},
+		// 17: if inner EtherType != IPv4 -> drop (jf=9 to 27)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x0800, Jt: 0, Jf: 9},
+		// 18: proto @ [27]
 		{Code: unix.BPF_LD | unix.BPF_B | unix.BPF_ABS, K: 27},
-		// 17: if proto != TCP -> drop (jf=7 to 25)
+		// 19: if proto != TCP -> drop (jf=7 to 27)
 		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 6, Jt: 0, Jf: 7},
-		// 18: dst ip @ [34]
+		// 20: dst ip @ [34]
 		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 34},
-		// 19: if dst != local -> drop (jf=5 to 25)
+		// 21: if dst != local -> drop (jf=5 to 27)
 		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipK, Jt: 0, Jf: 5},
-		// 20: X = 4*(IHL) @ [18]
+		// 22: X = 4*(IHL) @ [18]
 		{Code: unix.BPF_LDX | unix.BPF_MSH | unix.BPF_B | unix.BPF_ABS, K: 18},
-		// 21: tcp dport @ [20+X]  (18 + 2 + X)
+		// 23: tcp dport @ [20+X]  (18 + 2 + X)
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_IND, K: 20},
-		// 22: if dport < lo -> drop (jf=2 to 25)
+		// 24: if dport < lo -> drop (jf=2 to 27)
 		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 2},
-		// 23: if dport > hi -> drop (jt=1 to 25)
+		// 25: if dport > hi -> drop (jt=1 to 27)
 		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 1, Jf: 0},
-		// 24: accept
+		// 26: accept
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
-		// 25: drop
+		// 27: drop
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
 	}
 
@@ -1184,7 +1187,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		s.mu.Unlock()
 	})
 
-	if target.Port > maxPortNumber {
+	if target.Port <= 0 || target.Port > maxPortNumber {
 		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
 		release()
 		return
