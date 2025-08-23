@@ -39,6 +39,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+func init() { 
+	rand.Seed(time.Now().UnixNano()) 
+}
+
 const (
 	// TCP flags
 	synFlag = 0x02
@@ -783,12 +787,17 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	}()
 
 	s.mu.Lock()
+	userCb := s.resultCallback // snapshot any user callback set before Scan
 	s.resultCallback = func(r models.Result) {
 		key := fmt.Sprintf("%s:%d", r.Target.Host, r.Target.Port)
 
 		emittedMu.Lock()
 		if _, seen := emitted[key]; seen {
 			emittedMu.Unlock()
+			// Still forward to user callback if present
+			if userCb != nil {
+				userCb(r)
+			}
 			return
 		}
 		emitted[key] = struct{}{}
@@ -796,6 +805,9 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 		// Non-blocking in practice: emitCh capacity == len(tcpTargets) and we enqueue ≤1 per target.
 		emitCh <- r
+		if userCb != nil {
+			userCb(r)
+		}
 	}
 	s.mu.Unlock()
 
@@ -1129,10 +1141,15 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 
 	s.portTargetMap[srcPort] = targetKey
 	s.targetIP[targetKey] = want
-	s.results[targetKey] = models.Result{
-		Target:    target,
-		FirstSeen: time.Now(),
-		LastSeen:  time.Now(),
+	if existing, ok := s.results[targetKey]; ok && !existing.FirstSeen.IsZero() {
+		existing.LastSeen = time.Now()
+		s.results[targetKey] = existing
+	} else {
+		s.results[targetKey] = models.Result{
+			Target:    target,
+			FirstSeen: time.Now(),
+			LastSeen:  time.Now(),
+		}
 	}
 
 	s.mu.Unlock()
