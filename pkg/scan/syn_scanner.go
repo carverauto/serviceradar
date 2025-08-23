@@ -42,6 +42,41 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const SYS_SENDMMSG = unix.SYS_SENDMMSG
+
+// Mmsghdr represents the Linux mmsghdr structure for sendmmsg
+type Mmsghdr struct {
+	Hdr    unix.Msghdr
+	MsgLen uint32
+	_      uint32 // required padding on amd64 so sizeof matches C's struct mmsghdr
+}
+
+// Sendmmsg sends multiple messages on a socket using the sendmmsg syscall
+func Sendmmsg(fd int, msgs []Mmsghdr, flags int) (int, error) {
+	if len(msgs) == 0 {
+		return 0, nil
+	}
+
+	// Use the sendmmsg syscall directly - available in Linux kernel 3.0+
+	n, _, errno := syscall.RawSyscall6(
+		SYS_SENDMMSG,
+		uintptr(fd),
+		uintptr(unsafe.Pointer(&msgs[0])),
+		uintptr(len(msgs)),
+		uintptr(flags),
+		0,
+		0,
+	)
+
+	runtime.KeepAlive(msgs)
+
+	if errno != 0 {
+		return int(n), errno
+	}
+
+	return int(n), nil
+}
+
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
@@ -252,8 +287,6 @@ type SYNScanner struct {
 }
 
 var _ Scanner = (*SYNScanner)(nil)
-
-
 
 // IPv4
 type IPv4Hdr struct {
@@ -1746,7 +1779,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 	// Prepare arrays for sendmmsg: one RawSockaddrInet4, one Iovec, one Mmsghdr per entry
 	addrs := make([]unix.RawSockaddrInet4, len(entries))
 	iovecs := make([]unix.Iovec, len(entries))
-	hdrs := make([]unix.Mmsghdr, len(entries))
+	hdrs := make([]Mmsghdr, len(entries))
 
 	// Fill descriptors
 	for i := range entries {
@@ -1772,7 +1805,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 	off := 0
 
 	for off < len(hdrs) {
-		n, err := unix.Sendmmsg(s.sendSocket, hdrs[off:], 0)
+		n, err := Sendmmsg(s.sendSocket, hdrs[off:], 0)
 		if n > 0 {
 			off += n
 		}
@@ -1908,7 +1941,6 @@ func (s *SYNScanner) Stop(_ context.Context) error {
 
 // Packet Crafting and Utility Functions
 
-
 // Checksum helpers
 
 func ChecksumNew(data []byte) uint16 {
@@ -2010,5 +2042,12 @@ func getLocalIP() (net.IP, error) {
 }
 
 // Host to network short/long byte order conversions
-func htons(n uint16) uint16 { return (n << 8) | (n >> 8) }
+func htons(n uint16) uint16 {
+	if hostEndian == binary.LittleEndian {
+		return (n << 8) | (n >> 8)
+	}
+
+	return n
+}
+
 func ntohs(n uint16) uint16 { return htons(n) }
