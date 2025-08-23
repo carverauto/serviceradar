@@ -22,6 +22,7 @@ package scan
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -99,7 +100,7 @@ func storeU32(b []byte, off int, v uint32) {
 }
 
 // Host-endian detector for tpacket headers (host-endian on Linux)
-var host = func() binary.ByteOrder {
+var hostEndian = func() binary.ByteOrder {
 	var x uint16 = 0x0102
 
 	b := *(*[2]byte)(unsafe.Pointer(&x))
@@ -155,8 +156,10 @@ type SYNScanner struct {
 
 	readersWG sync.WaitGroup // tracks the outer listener, which itself waits for all ring readers
 
-	// Streaming results callback for immediate result emission
-	resultCallback func(models.Result)
+	// Internal enqueue callback (set by Scan) and user callback (settable anytime).
+	// Do NOT call user callback from ring threads; tee it in the emitter goroutine.
+	resultCallback func(models.Result) // internal, owned by Scan
+	userCallback   atomic.Value        // of type func(models.Result)
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -499,8 +502,8 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			}
 
 			// process one ready block
-			numPkts := host.Uint32(blk[h1_num_pkts_off : h1_num_pkts_off+4])
-			first := host.Uint32(blk[h1_first_pkt_off : h1_first_pkt_off+4])
+			numPkts := hostEndian.Uint32(blk[h1_num_pkts_off : h1_num_pkts_off+4])
+			first := hostEndian.Uint32(blk[h1_first_pkt_off : h1_first_pkt_off+4])
 
 			if int(first) >= 0 && int(first) < len(blk) && numPkts > 0 {
 				off := int(first)
@@ -516,14 +519,14 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 						break
 					}
 
-					snap := int(host.Uint32(ph[pkt_snaplen_off : pkt_snaplen_off+4]))
-					mac := int(host.Uint16(ph[pkt_mac_off : pkt_mac_off+2]))
+					snap := int(hostEndian.Uint32(ph[pkt_snaplen_off : pkt_snaplen_off+4]))
+					mac := int(hostEndian.Uint16(ph[pkt_mac_off : pkt_mac_off+2]))
 
 					if mac >= 0 && snap >= 0 && mac+snap <= len(ph) {
 						s.processEthernetFrame(ph[mac : mac+snap])
 					}
 
-					next := int(host.Uint32(ph[pkt_next_off : pkt_next_off+4]))
+					next := int(hostEndian.Uint32(ph[pkt_next_off : pkt_next_off+4]))
 					if next <= 0 || off+next > len(blk) {
 						break
 					}
@@ -544,8 +547,8 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 		// Nothing ready; block in poll
 		_, err := unix.Poll(pfd, int(defaultRetireTovMs)) // align with retire tov
 		if err != nil {
-			// EINTR is fine; anything else, exit this reader
-			if err == unix.EINTR {
+			// EINTR and EAGAIN are fine; anything else, exit this reader
+			if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
 				continue
 			}
 			return
@@ -768,15 +771,25 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		for {
 			select {
 			case r := <-emitCh:
-				// Forward to consumer (sweeper); this may block if the consumer is slow,
-				// but it does not happen under s.mu and there is only one writer here.
+				// Forward to consumer
 				resultCh <- r
+				// Tee to user callback here (not in ring threads)
+				if cbAny := s.userCallback.Load(); cbAny != nil {
+					if cb, _ := cbAny.(func(models.Result)); cb != nil {
+						cb(r)
+					}
+				}
 			case <-stopEmit:
 				// Drain any residual items and close the results channel exactly once.
 				for {
 					select {
 					case r := <-emitCh:
 						resultCh <- r
+						if cbAny := s.userCallback.Load(); cbAny != nil {
+							if cb, _ := cbAny.(func(models.Result)); cb != nil {
+								cb(r)
+							}
+						}
 					default:
 						close(resultCh)
 						return
@@ -787,17 +800,12 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	}()
 
 	s.mu.Lock()
-	userCb := s.resultCallback // snapshot any user callback set before Scan
 	s.resultCallback = func(r models.Result) {
 		key := fmt.Sprintf("%s:%d", r.Target.Host, r.Target.Port)
 
 		emittedMu.Lock()
 		if _, seen := emitted[key]; seen {
 			emittedMu.Unlock()
-			// Still forward to user callback if present
-			if userCb != nil {
-				userCb(r)
-			}
 			return
 		}
 		emitted[key] = struct{}{}
@@ -805,9 +813,6 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 		// Non-blocking in practice: emitCh capacity == len(tcpTargets) and we enqueue ≤1 per target.
 		emitCh <- r
-		if userCb != nil {
-			userCb(r)
-		}
 	}
 	s.mu.Unlock()
 
@@ -1155,8 +1160,12 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	s.mu.Unlock()
 
 	// Ensure we don't hold the source port forever if the target never replies.
-	// After s.timeout, just free the port (do NOT finalize result here).
-	time.AfterFunc(s.timeout, func() {
+	// Free the mapping after timeout + grace to still accept late replies.
+	grace := s.timeout / 4
+	if grace > 200*time.Millisecond {
+		grace = 200 * time.Millisecond
+	}
+	time.AfterFunc(s.timeout+grace, func() {
 		s.mu.Lock()
 		if key, ok := s.portTargetMap[srcPort]; ok && key == targetKey {
 			delete(s.portTargetMap, srcPort)
@@ -1186,53 +1195,11 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	}
 }
 
-func (s *SYNScanner) processResults(targets []models.Target, ch chan<- models.Result) {
-	var toRelease []uint16
-	
-	s.mu.Lock()
-
-	// Collect ports to release (but don't release them under lock)
-	for src := range s.portTargetMap {
-		toRelease = append(toRelease, src)
-	}
-
-	s.portTargetMap = make(map[uint16]string) // reset for safety
-	s.mu.Unlock()
-	
-	// Release ports outside the lock
-	for _, src := range toRelease {
-		s.portAlloc.Release(src)
-	}
-	
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, target := range targets {
-		key := fmt.Sprintf("%s:%d", target.Host, target.Port)
-
-		if result, ok := s.results[key]; ok {
-			if !result.Available && result.Error == nil {
-				result.Error = fmt.Errorf("scan timed out")
-			}
-
-			ch <- result
-		} else {
-			ch <- models.Result{
-				Target:    target,
-				Available: false,
-				Error:     fmt.Errorf("target was not processed"),
-				FirstSeen: time.Now(),
-				LastSeen:  time.Now(),
-			}
-		}
-	}
-}
 
 // SetResultCallback sets a callback function that will be called immediately when a result becomes available
 func (s *SYNScanner) SetResultCallback(callback func(models.Result)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.resultCallback = callback
+	// Allow changing user callback at any time without touching the internal one.
+	s.userCallback.Store(callback)
 }
 
 // emitResult stores the result and, if definitive, calls the callback *after* releasing s.mu.
