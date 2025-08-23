@@ -30,6 +30,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -109,9 +110,10 @@ const (
 	rstFlag = 0x04
 	ackFlag = 0x10
 
-	// Ephemeral port range start/end for source ports (dedicated range)
-	ephemeralPortStart = 32768
-	ephemeralPortEnd   = 61000
+	// Default ephemeral port range (will be replaced by dynamic detection)
+	// Keep these only as absolute fallbacks
+	defaultEphemeralPortStart = 32768
+	defaultEphemeralPortEnd   = 61000
 
 	// Network constants
 	defaultTCPWindow = 65535
@@ -301,6 +303,10 @@ type SYNScanner struct {
 
 	// Pool for sendmmsg batch arrays to reduce allocations
 	batchPool sync.Pool
+
+	// Dynamic port range for scanning (avoiding system ephemeral ports)
+	scanPortStart uint16
+	scanPortEnd   uint16
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -723,10 +729,15 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 // NewSYNScannerWithOptions creates a new SYN scanner with custom options
 //
+// The scanner automatically detects a safe port range that doesn't conflict with 
+// the system's ephemeral ports or other local applications by reading:
+// - /proc/sys/net/ipv4/ip_local_port_range (system ephemeral range)
+// - /proc/sys/net/ipv4/ip_local_reserved_ports (reserved ports)
+//
 // Rate limiting guidance:
-// Set rate limit to avoid source-port exhaustion. Ephemeral window is ~28,233 ports
-// (32768-61000). Each port is in-flight for ~timeout+grace (~1.2s with 1s timeout).
-// Safe starting rate: pps ≈ window/(timeout+grace) ≈ 28233/1.2 ≈ 20-23k pps
+// Set rate limit to avoid source-port exhaustion. The available window depends
+// on the detected safe range. Each port is in-flight for ~timeout+grace.
+// Safe starting rate: pps ≈ window/(timeout+grace)
 //
 // Configure rate limit before starting a scan for best results, though SetRateLimit
 // uses atomic.Value and is safe to call anytime, including during active scans.
@@ -781,6 +792,19 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		return nil, fmt.Errorf("non-IPv4 source IP")
 	}
 
+	// Detect safe port range for scanning
+	log.Info().Msg("DEBUG: Detecting safe port range for scanning")
+	scanPortStart, scanPortEnd, err := findSafeScannerPortRange(log)
+	if err != nil {
+		// This shouldn't happen as findSafeScannerPortRange always returns something
+		// but handle it just in case
+		log.Error().Err(err).Msg("Failed to find safe port range, using defaults")
+		scanPortStart = defaultEphemeralPortStart
+		scanPortEnd = defaultEphemeralPortEnd
+	}
+	log.Info().Uint16("scanPortStart", scanPortStart).Uint16("scanPortEnd", scanPortEnd).
+		Msg("DEBUG: Using port range for scanning")
+
 	log.Info().Msg("DEBUG: Setting up ring buffers")
 
 	// Build NumCPU ring readers with BPF + FANOUT
@@ -812,7 +836,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		log.Info().Int("fd", fd).Msg("DEBUG: Sniffer opened successfully")
 		log.Info().Msg("DEBUG: Attaching BPF filter")
 
-		if err := attachBPF(fd, sourceIP, ephemeralPortStart, ephemeralPortEnd); err != nil {
+		if err := attachBPF(fd, sourceIP, scanPortStart, scanPortEnd); err != nil {
 			log.Error().Err(err).Msg("DEBUG: Failed to attach BPF filter")
 
 			_ = unix.Close(fd)
@@ -893,7 +917,9 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		iface:          iface,
 		fanoutGroup:    fanoutGroup,
 		retireTovMs:    retireTov,
-		portAlloc:      NewPortAllocator(ephemeralPortStart, ephemeralPortEnd),
+		portAlloc:      NewPortAllocator(scanPortStart, scanPortEnd),
+		scanPortStart:  scanPortStart,
+		scanPortEnd:    scanPortEnd,
 		retryAttempts:  2,
 		retryMinJitter: 20 * time.Millisecond,
 		retryMaxJitter: 40 * time.Millisecond,
@@ -930,8 +956,8 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		}
 	} else {
 		// Calculate safe default to prevent source port exhaustion
-		window := int(ephemeralPortEnd - ephemeralPortStart + 1) // ~28k ports
-		hold := timeout + timeout/4                              // timeout + grace period
+		window := int(scanPortEnd - scanPortStart + 1) // actual available ports
+		hold := timeout + timeout/4                    // timeout + grace period
 		if hold <= 0 {
 			hold = 1 * time.Second
 		}
@@ -2133,6 +2159,154 @@ func TCPChecksumNew(src, dst net.IP, tcpHdr, payload []byte) uint16 {
 	copy(psh[12+len(tcpHdr):], payload)
 
 	return ChecksumNew(psh)
+}
+
+// readLocalPortRange reads the system's ephemeral port range from /proc
+func readLocalPortRange() (uint16, uint16, error) {
+	b, err := os.ReadFile("/proc/sys/net/ipv4/ip_local_port_range")
+	if err != nil {
+		return 0, 0, err
+	}
+	var lo, hi uint16
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(b)), "%d %d", &lo, &hi); err != nil {
+		return 0, 0, fmt.Errorf("failed to parse ip_local_port_range: %w", err)
+	}
+	return lo, hi, nil
+}
+
+// readReservedPorts reads the reserved ports from /proc
+func readReservedPorts() map[uint16]struct{} {
+	ports := map[uint16]struct{}{}
+	b, err := os.ReadFile("/proc/sys/net/ipv4/ip_local_reserved_ports")
+	if err != nil || len(b) == 0 {
+		return ports // return empty map if file doesn't exist or is empty
+	}
+	
+	// Parse comma-separated list of ports and ranges
+	for _, tok := range strings.Split(strings.TrimSpace(string(b)), ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		
+		if strings.Contains(tok, "-") {
+			// Handle range like "32768-61000"
+			var a, z int
+			if _, err := fmt.Sscanf(tok, "%d-%d", &a, &z); err == nil {
+				for p := a; p <= z && p <= 65535; p++ {
+					ports[uint16(p)] = struct{}{}
+				}
+			}
+		} else {
+			// Handle single port
+			if v, err := strconv.Atoi(tok); err == nil && v >= 0 && v <= 65535 {
+				ports[uint16(v)] = struct{}{}
+			}
+		}
+	}
+	return ports
+}
+
+// findSafeScannerPortRange finds a safe port range for scanning that doesn't
+// conflict with the system's ephemeral ports or other local applications.
+// Returns the start and end of the range, or an error if no safe range found.
+func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
+	// Default fallback range (what we were using before)
+	const (
+		fallbackStart = 32768
+		fallbackEnd   = 61000
+	)
+	
+	// Try to read system ephemeral range
+	sysStart, sysEnd, err := readLocalPortRange()
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to read system ephemeral port range, using fallback")
+		log.Warn().Uint16("start", fallbackStart).Uint16("end", fallbackEnd).
+			Msg("WARNING: Using default range that may conflict with local applications!")
+		return fallbackStart, fallbackEnd, nil
+	}
+	
+	log.Info().Uint16("sysStart", sysStart).Uint16("sysEnd", sysEnd).
+		Msg("System ephemeral port range detected")
+	
+	// Read reserved ports
+	reserved := readReservedPorts()
+	
+	// Strategy: Find a range that doesn't overlap with system ephemeral range
+	// Prefer ranges that are marked as reserved (to prevent other apps from using them)
+	
+	// Option 1: Use ports below the system range (if there's enough space)
+	if sysStart > 20000 {
+		// We can use 10000-19999 or similar
+		scanStart := uint16(10000)
+		scanEnd := sysStart - 1
+		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
+			// Check if this range is reserved
+			rangeReserved := true
+			for p := scanStart; p <= scanEnd && p <= scanStart+100; p++ { // Sample check
+				if _, ok := reserved[p]; !ok {
+					rangeReserved = false
+					break
+				}
+			}
+			
+			if !rangeReserved {
+				log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
+					Msg("WARNING: Scanner port range not reserved! Consider adding to ip_local_reserved_ports")
+			} else {
+				log.Info().Uint16("start", scanStart).Uint16("end", scanEnd).
+					Msg("Using reserved port range for scanning")
+			}
+			return scanStart, scanEnd, nil
+		}
+	}
+	
+	// Option 2: Use ports above the system range (if there's enough space)
+	if sysEnd < 60000 {
+		scanStart := sysEnd + 1
+		scanEnd := uint16(65000) // Leave some ports at the top
+		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
+			// Check if this range is reserved
+			rangeReserved := true
+			for p := scanStart; p <= scanEnd && p <= scanStart+100; p++ { // Sample check
+				if _, ok := reserved[p]; !ok {
+					rangeReserved = false
+					break
+				}
+			}
+			
+			if !rangeReserved {
+				log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
+					Msg("WARNING: Scanner port range not reserved! Consider adding to ip_local_reserved_ports")
+			} else {
+				log.Info().Uint16("start", scanStart).Uint16("end", scanEnd).
+					Msg("Using reserved port range for scanning")
+			}
+			return scanStart, scanEnd, nil
+		}
+	}
+	
+	// Option 3: If we can't find a non-overlapping range, try to use reserved ports within the range
+	// This is less ideal but better than nothing
+	reservedInRange := 0
+	for p := sysStart; p <= sysEnd; p++ {
+		if _, ok := reserved[p]; ok {
+			reservedInRange++
+		}
+	}
+	
+	if reservedInRange >= 5000 {
+		log.Warn().Uint16("start", sysStart).Uint16("end", sysEnd).Int("reserved", reservedInRange).
+			Msg("WARNING: Using system ephemeral range but with reserved ports")
+		return sysStart, sysEnd, nil
+	}
+	
+	// Last resort: Use the fallback range with a loud warning
+	log.Error().Uint16("start", fallbackStart).Uint16("end", fallbackEnd).
+		Msg("ERROR: Could not find safe port range! Using fallback that WILL conflict with local applications!")
+	log.Error().Msg("RECOMMENDATION: Reserve ports via 'echo 32768-61000 > /proc/sys/net/ipv4/ip_local_reserved_ports'")
+	
+	return fallbackStart, fallbackEnd, nil
 }
 
 func getLocalIPAndInterface() (net.IP, string, error) {
