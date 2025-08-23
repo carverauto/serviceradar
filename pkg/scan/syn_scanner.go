@@ -962,48 +962,70 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Precompute inexpensive bits *outside* the lock.
+	now := time.Now()
 
+	// We minimize time under s.mu. All map mutation stays inside; any potentially
+	// blocking work (callback -> channel send) happens after we unlock.
+	var (
+		emit       bool
+		toEmit     models.Result
+		cb         func(models.Result)
+		targetKey  string
+		toFree     []uint16
+	)
+
+	s.mu.Lock()
 	targetKey, ok := s.portTargetMap[tcp.DstPort]
 	if !ok {
+		s.mu.Unlock()
 		return
 	}
 
 	src4 := ip.SrcIP.To4()
 	if src4 == nil {
+		s.mu.Unlock()
 		return
 	}
 
 	want := s.targetIP[targetKey]
 	if src4[0] != want[0] || src4[1] != want[1] || src4[2] != want[2] || src4[3] != want[3] {
+		s.mu.Unlock()
 		return
 	}
 
 	result := s.results[targetKey]
 	if result.Available || result.Error != nil {
+		s.mu.Unlock()
 		return
 	}
 
+	// Decide if this packet makes the port state "definitive".
+	// We keep this simple and conservative: any SYN/ACK or RST is definitive.
 	if tcp.Flags&(synFlag|ackFlag) == (synFlag | ackFlag) {
 		result.Available = true
+		result.Error = nil
+		emit = true
 	} else if tcp.Flags&rstFlag != 0 {
 		result.Available = false
 		result.Error = fmt.Errorf("port closed (RST)")
+		emit = true
 	} else {
+		s.mu.Unlock()
 		return
 	}
 
 	result.RespTime = time.Since(result.FirstSeen)
-	result.LastSeen = time.Now()
-	s.emitResult(targetKey, result)
+	result.LastSeen = now
+
+	// Persist the updated result.
+	s.results[targetKey] = result
 
 	// Free the port used by this successful attempt
 	delete(s.portTargetMap, tcp.DstPort)
 	s.portAlloc.Release(tcp.DstPort)
 
 	// If we retried, there may be other pending src ports mapped to the same target—release them too.
-	var toFree []uint16
 	for sp, key := range s.portTargetMap {
 		if key == targetKey {
 			toFree = append(toFree, sp)
@@ -1012,6 +1034,18 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	for _, sp := range toFree {
 		delete(s.portTargetMap, sp)
 		s.portAlloc.Release(sp)
+	}
+
+	// If we want to emit, capture the callback and a copy of the result *under the lock*,
+	// then invoke it after unlocking to avoid holding s.mu during a possibly blocking send.
+	if emit && s.resultCallback != nil {
+		toEmit = result
+		cb = s.resultCallback
+	}
+	s.mu.Unlock()
+
+	if emit && cb != nil {
+		cb(toEmit)
 	}
 }
 
