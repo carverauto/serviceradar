@@ -751,8 +751,37 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	// Stream results immediately to resultCh (deduped so the final pass won't resend)
 	emitted := make(map[string]struct{}, len(tcpTargets))
 	var emittedMu sync.Mutex
-	var cbWG sync.WaitGroup
-	
+
+	// Dedicated emitter to avoid per-result goroutines.
+	// Buffered to the exact number of TCP targets; the callback enqueues at most once per target.
+	emitCh := make(chan models.Result, len(tcpTargets))
+	stopEmit := make(chan struct{})
+	emitterDone := make(chan struct{})
+
+	// Single goroutine drains emitCh -> resultCh, then closes resultCh after a stop signal + drain.
+	go func() {
+		defer close(emitterDone)
+		for {
+			select {
+			case r := <-emitCh:
+				// Forward to consumer (sweeper); this may block if the consumer is slow,
+				// but it does not happen under s.mu and there is only one writer here.
+				resultCh <- r
+			case <-stopEmit:
+				// Drain any residual items and close the results channel exactly once.
+				for {
+					select {
+					case r := <-emitCh:
+						resultCh <- r
+					default:
+						close(resultCh)
+						return
+					}
+				}
+			}
+		}
+	}()
+
 	s.mu.Lock()
 	s.resultCallback = func(r models.Result) {
 		key := fmt.Sprintf("%s:%d", r.Target.Host, r.Target.Port)
@@ -765,13 +794,8 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		emitted[key] = struct{}{}
 		emittedMu.Unlock()
 
-		cbWG.Add(1)
-		go func() {
-			defer cbWG.Done()
-			// Channel is buffered to len(targets) and dedupe guarantees ≤1 send/target,
-			// so a direct send will not deadlock.
-			resultCh <- r
-		}()
+		// Non-blocking in practice: emitCh capacity == len(tcpTargets) and we enqueue ≤1 per target.
+		emitCh <- r
 	}
 	s.mu.Unlock()
 
@@ -847,15 +871,17 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			} else if !r.Available && r.Error == nil {
 				r.Error = fmt.Errorf("scan timed out")
 			}
+			// Release lock while sending to avoid holding s.mu on a potentially slow consumer.
 			s.mu.Unlock()
 			resultCh <- r
 			s.mu.Lock()
 		}
-		s.resultCallback = nil // stop creating new callback goroutines
+		// Stop future callback enqueues and finish the emitter cleanly.
+		s.resultCallback = nil
 		s.mu.Unlock()
 
-		cbWG.Wait()       // wait for any in-flight callback sends
-		close(resultCh)
+		close(stopEmit)   // signal emitter to drain and close resultCh
+		<-emitterDone     // wait for emitter to finish
 
 		s.mu.Lock()
 		if s.cancel != nil {
