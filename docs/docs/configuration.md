@@ -532,9 +532,110 @@ For network scanning, edit `/etc/serviceradar/checkers/sweep/sweep.json`:
   "sweep_modes": ["icmp", "tcp"],
   "interval": "5m",
   "concurrency": 100,
-  "timeout": "10s"
+  "timeout": "10s",
+  "icmp_settings": {
+    "rate_limit": 1000,
+    "timeout": "5s",
+    "max_batch": 64
+  },
+  "tcp_settings": {
+    "concurrency": 256,
+    "timeout": "3s",
+    "max_batch": 32,
+    "route_discovery_host": "8.8.8.8:80"
+  },
+  "high_perf_icmp": true,
+  "icmp_rate_limit": 5000
 }
 ```
+
+#### Configuration Options:
+
+**Basic Settings:**
+- `networks`: List of CIDR networks or individual IP addresses to scan
+- `ports`: List of TCP ports to scan when using "tcp" sweep mode
+- `sweep_modes`: List of scanning methods ("icmp" for ping, "tcp" for port scanning)
+- `interval`: How often to perform sweeps (Go duration format, e.g., "5m", "1h")
+- `concurrency`: Number of concurrent scan operations (affects memory usage and scan speed)
+- `timeout`: Maximum time to wait for responses (Go duration format)
+
+**ICMP Settings** (`icmp_settings`):
+- `rate_limit`: Maximum ICMP packets per second (prevents overwhelming networks)
+- `timeout`: Timeout for individual ICMP ping attempts
+- `max_batch`: Number of ICMP packets to batch together for efficiency
+
+**TCP Settings** (`tcp_settings`):
+- `concurrency`: Number of concurrent TCP connections for port scanning
+- `timeout`: Timeout for individual TCP connection attempts
+- `max_batch`: Number of SYN packets to send per sendmmsg() call (Linux only, improves performance)
+- `route_discovery_host`: Target address for local IP discovery (default: "8.8.8.8:80")
+
+**Performance Options:**
+- `high_perf_icmp`: Enable high-performance ICMP scanning with raw sockets (requires root privileges)
+- `icmp_rate_limit`: Global ICMP rate limit in packets per second
+
+#### TCP Scanner Performance
+
+ServiceRadar uses an optimized SYN scanner on Linux systems with raw socket capabilities, providing significant performance improvements over traditional connect() scanning:
+
+**Performance Features:**
+- **Raw SYN Scanning**: Uses raw sockets with custom IP headers for faster scanning
+- **Batch Packet Transmission**: Uses sendmmsg() system calls to send multiple packets efficiently
+- **Automatic Rate Limiting**: Prevents source port exhaustion with intelligent rate limiting
+- **Zero-Copy Packet Capture**: Uses AF_PACKET with TPACKET_V3 ring buffers for high-performance capture
+- **Graceful Fallback**: Automatically falls back to connect() scanning when SYN scanning is unavailable
+
+**Configuration for Locked-Down Environments:**
+
+For air-gapped networks, corporate firewalls, or environments where external connectivity is blocked, configure a local target for route discovery:
+
+```json
+{
+  "tcp_settings": {
+    "route_discovery_host": "192.168.1.1:80"
+  }
+}
+```
+
+**Common route discovery targets:**
+- `"10.0.0.1:53"` - Internal DNS server
+- `"192.168.1.1:80"` - Default gateway
+- `"127.0.0.1:53"` - Local DNS resolver
+- `""` - Uses interface enumeration fallback (no network connectivity required)
+
+**Performance Tuning:**
+
+For high-throughput scanning environments:
+```json
+{
+  "tcp_settings": {
+    "max_batch": 64,
+    "concurrency": 512
+  },
+  "icmp_settings": {
+    "rate_limit": 10000,
+    "max_batch": 128
+  }
+}
+```
+
+For resource-constrained environments:
+```json
+{
+  "tcp_settings": {
+    "max_batch": 8,
+    "concurrency": 64
+  },
+  "concurrency": 50
+}
+```
+
+#### Security and Privileges
+
+- **SYN Scanner**: Requires root privileges and CAP_NET_RAW capability for raw socket access
+- **Connect Scanner**: Used as fallback when raw sockets are unavailable (containers, non-root)
+- **Rate Limiting**: Automatically prevents network flooding and source port exhaustion
+- **Port Range Safety**: Automatically detects and avoids system ephemeral port ranges
 
 ### rperf Network Checker
 
