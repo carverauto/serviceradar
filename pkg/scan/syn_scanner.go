@@ -222,7 +222,7 @@ type SYNScanner struct {
 	retryMinJitter time.Duration // e.g., 20 * time.Millisecond
 	retryMaxJitter time.Duration // e.g., 40 * time.Millisecond
 
-	rl *tokenBucket
+	rl atomic.Value // stores *tokenBucket
 
 	// Batched retry queue
 	retryCh chan retryItem
@@ -247,20 +247,6 @@ type EthHdr struct {
 	EtherType uint16
 }
 
-func parseEthernet(b []byte) (*EthHdr, error) {
-	if len(b) < 14 {
-		return nil, fmt.Errorf("short ethernet frame")
-	}
-
-	h := &EthHdr{}
-
-	copy(h.DstMAC[:], b[0:6])
-	copy(h.SrcMAC[:], b[6:12])
-
-	h.EtherType = binary.BigEndian.Uint16(b[12:14])
-
-	return h, nil
-}
 
 // IPv4
 type IPv4Hdr struct {
@@ -656,6 +642,9 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 // (32768-61000). Each port is in-flight for ~timeout+grace (~1.2s with 1s timeout).
 // Safe starting rate: pps ≈ window/(timeout+grace) ≈ 28233/1.2 ≈ 20-23k pps
 //
+// Configure rate limit before starting a scan for best results, though SetRateLimit
+// uses atomic.Value and is safe to call anytime, including during active scans.
+//
 // Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
 func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*SYNScanner, error) {
 	log.Info().Msg("DEBUG: Starting SYN scanner initialization")
@@ -891,22 +880,21 @@ func (s *SYNScanner) hasFinalResult(targetKey string) bool {
 
 // SetRateLimit installs a global rate limit (packets/sec) with a burst.
 // Pass pps<=0 to disable. If burst<=0, burst defaults to pps.
+// Safe to call anytime, including during active scans.
 func (s *SYNScanner) SetRateLimit(pps, burst int) {
 	if pps <= 0 {
-		s.rl = nil
+		s.rl.Store((*tokenBucket)(nil))
 		return
 	}
-
-	s.rl = newTokenBucket(pps, burst)
+	s.rl.Store(newTokenBucket(pps, burst))
 }
 
 // allowN applies the limiter if present; otherwise returns n.
 func (s *SYNScanner) allowN(n int) int {
-	if s.rl == nil {
-		return n
+	if tb, _ := s.rl.Load().(*tokenBucket); tb != nil {
+		return tb.AllowN(n)
 	}
-
-	return s.rl.AllowN(n)
+	return n
 }
 
 type retryItem struct {
@@ -1601,9 +1589,14 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	copy(addr.Addr[:], destIP)
 
 	if err := syscall.Sendto(s.sendSocket, packet, 0, &addr); err != nil {
+		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK || err == syscall.EINTR {
+			runtime.Gosched()
+			if err2 := syscall.Sendto(s.sendSocket, packet, 0, &addr); err2 == nil {
+				return
+			}
+		}
 		s.logger.Debug().Err(err).Str("host", target.Host).Msg("Failed to send SYN packet")
 		release()
-
 		return
 	}
 }
@@ -1894,49 +1887,6 @@ func (s *SYNScanner) Stop(_ context.Context) error {
 
 // Packet Crafting and Utility Functions
 
-func buildSynPacket(srcIP, destIP net.IP, srcPort, destPort uint16) []byte {
-	return buildIPv4TCPSYN(srcIP, destIP, srcPort, destPort, uint16(rand.Intn(65535)))
-}
-
-// buildIPv4TCPSYN creates a complete IPv4+TCP SYN packet with proper checksums
-func buildIPv4TCPSYN(srcIP, dstIP net.IP, srcPort, dstPort uint16, id uint16) []byte {
-	// IPv4 header (20 bytes)
-	ip := make([]byte, 20)
-	ip[0] = 0x45 // version=4, ihl=5
-	ip[1] = 0    // TOS
-
-	binary.BigEndian.PutUint16(ip[2:], 40) // total length (20 IP + 20 TCP)
-	binary.BigEndian.PutUint16(ip[4:], id) // ID
-	binary.BigEndian.PutUint16(ip[6:], 0)  // flags+frag
-
-	ip[8] = 64 // TTL
-	ip[9] = syscall.IPPROTO_TCP
-
-	copy(ip[12:16], srcIP.To4())
-	copy(ip[16:20], dstIP.To4())
-
-	binary.BigEndian.PutUint16(ip[10:], ChecksumNew(ip))
-
-	// TCP header (20 bytes)
-	tcp := make([]byte, 20)
-
-	binary.BigEndian.PutUint16(tcp[0:], srcPort)
-	binary.BigEndian.PutUint16(tcp[2:], dstPort)
-	binary.BigEndian.PutUint32(tcp[4:], rand.Uint32()) // random Seq
-	binary.BigEndian.PutUint32(tcp[8:], 0)             // Ack
-
-	tcp[12] = (5 << 4) // data offset=5
-	tcp[13] = 0x02     // SYN
-
-	binary.BigEndian.PutUint16(tcp[14:], defaultTCPWindow)
-
-	tcp[16], tcp[17] = 0, 0 // checksum (to be filled)
-
-	binary.BigEndian.PutUint16(tcp[18:], 0) // Urgent ptr
-	binary.BigEndian.PutUint16(tcp[16:], TCPChecksumNew(srcIP, dstIP, tcp, nil))
-
-	return append(ip, tcp...)
-}
 
 // Checksum helpers
 
