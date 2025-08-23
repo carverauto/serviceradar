@@ -77,6 +77,9 @@ const (
 	// Max number of SYNs to send per sendmmsg() call.
 	// 32–128 is typically a sweet spot; 64 is a safe default.
 	sendBatchSize = 64
+
+	// Size of the retry queue channel (enough for large scans with a couple of attempts).
+	retryQueueSize = 1 << 17 // 131072
 )
 
 // u32ptr gets a pointer to a uint32 at a specific offset in a byte slice.
@@ -91,6 +94,7 @@ func loadU32(b []byte, off int) uint32 {
 	if off < 0 || off+4 > len(b) {
 		return 0
 	}
+
 	return atomic.LoadUint32(u32ptr(b, off))
 }
 
@@ -100,6 +104,7 @@ func storeU32(b []byte, off int, v uint32) {
 	if off < 0 || off+4 > len(b) {
 		return
 	}
+
 	atomic.StoreUint32(u32ptr(b, off), v)
 }
 
@@ -115,6 +120,65 @@ var hostEndian = func() binary.ByteOrder {
 
 	return binary.LittleEndian
 }()
+
+// tokenBucket is a tiny global limiter (tokens/sec with a burst).
+type tokenBucket struct {
+	rate  float64 // tokens per second
+	burst float64 // max tokens
+	mu    sync.Mutex
+	toks  float64
+	last  time.Time
+}
+
+func newTokenBucket(pps, burst int) *tokenBucket {
+	if pps <= 0 {
+		return nil
+	}
+
+	if burst <= 0 {
+		burst = pps
+	}
+
+	return &tokenBucket{
+		rate:  float64(pps),
+		burst: float64(burst),
+		toks:  float64(burst),
+		last:  time.Now(),
+	}
+}
+
+// AllowN returns how many tokens can be spent immediately (<= n).
+func (tb *tokenBucket) AllowN(n int) int {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+
+	now := time.Now()
+
+	dt := now.Sub(tb.last).Seconds()
+
+	if dt > 0 {
+		tb.toks += dt * tb.rate
+		if tb.toks > tb.burst {
+			tb.toks = tb.burst
+		}
+
+		tb.last = now
+	}
+
+	if tb.toks < 1 {
+		return 0
+	}
+
+	want := float64(n)
+
+	if tb.toks < want {
+		n = int(tb.toks)
+	}
+
+	tb.toks -= float64(n)
+
+	return n
+}
 
 // SYNScanner performs SYN scanning (half-open scanning) for faster TCP port detection.
 //
@@ -157,6 +221,11 @@ type SYNScanner struct {
 	retryAttempts  int           // e.g., 2
 	retryMinJitter time.Duration // e.g., 20 * time.Millisecond
 	retryMaxJitter time.Duration // e.g., 40 * time.Millisecond
+
+	rl *tokenBucket
+
+	// Batched retry queue
+	retryCh chan retryItem
 
 	readersWG sync.WaitGroup // tracks the outer listener, which itself waits for all ring readers
 
@@ -581,6 +650,13 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 }
 
 // NewSYNScanner creates a new SYN scanner (with TPACKETv3 ring readers)
+//
+// Rate limiting guidance:
+// Set rate limit to avoid source-port exhaustion. Ephemeral window is ~28,233 ports
+// (32768-61000). Each port is in-flight for ~timeout+grace (~1.2s with 1s timeout).
+// Safe starting rate: pps ≈ window/(timeout+grace) ≈ 28233/1.2 ≈ 20-23k pps
+//
+// Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
 func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*SYNScanner, error) {
 	log.Info().Msg("DEBUG: Starting SYN scanner initialization")
 
@@ -742,15 +818,19 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 // initPacketTemplate initializes the reusable packet template with static fields
 func (s *SYNScanner) initPacketTemplate() {
 	// IPv4 header template (20 bytes)
-	s.packetTemplate[0] = 0x45  // version=4, ihl=5
-	s.packetTemplate[1] = 0     // TOS
+	s.packetTemplate[0] = 0x45 // version=4, ihl=5
+	s.packetTemplate[1] = 0    // TOS
+
 	binary.BigEndian.PutUint16(s.packetTemplate[2:], 40) // total length (20 IP + 20 TCP)
+
 	// ID will be set per packet: s.packetTemplate[4:6]
 	binary.BigEndian.PutUint16(s.packetTemplate[6:], 0) // flags+frag
+
 	s.packetTemplate[8] = 64 // TTL
 	s.packetTemplate[9] = syscall.IPPROTO_TCP
+
 	// checksum will be set per packet: s.packetTemplate[10:12]
-	// src IP will be set per packet: s.packetTemplate[12:16] 
+	// src IP will be set per packet: s.packetTemplate[12:16]
 	// dst IP will be set per packet: s.packetTemplate[16:20]
 
 	// TCP header template (20 bytes)
@@ -758,9 +838,12 @@ func (s *SYNScanner) initPacketTemplate() {
 	// dst port will be set per packet: s.packetTemplate[22:24]
 	// seq will be set per packet: s.packetTemplate[24:28]
 	binary.BigEndian.PutUint32(s.packetTemplate[28:], 0) // ack
+
 	s.packetTemplate[32] = (5 << 4) // data offset=5
 	s.packetTemplate[33] = 0x02     // SYN flag
+
 	binary.BigEndian.PutUint16(s.packetTemplate[34:], defaultTCPWindow) // window
+
 	// checksum will be set per packet: s.packetTemplate[36:38]
 	binary.BigEndian.PutUint16(s.packetTemplate[38:], 0) // urgent ptr
 }
@@ -774,16 +857,16 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 	// Set variable IPv4 fields
 	id := uint16(rand.Intn(65535))
 	binary.BigEndian.PutUint16(packet[4:], id) // IP ID
-	copy(packet[12:16], srcIP.To4()) // src IP
-	copy(packet[16:20], destIP.To4()) // dst IP
+	copy(packet[12:16], srcIP.To4())           // src IP
+	copy(packet[16:20], destIP.To4())          // dst IP
 
 	// Calculate and set IPv4 checksum
 	binary.BigEndian.PutUint16(packet[10:], 0) // clear checksum
 	binary.BigEndian.PutUint16(packet[10:], ChecksumNew(packet[:20]))
 
 	// Set variable TCP fields
-	binary.BigEndian.PutUint16(packet[20:], srcPort) // src port
-	binary.BigEndian.PutUint16(packet[22:], destPort) // dst port
+	binary.BigEndian.PutUint16(packet[20:], srcPort)       // src port
+	binary.BigEndian.PutUint16(packet[22:], destPort)      // dst port
 	binary.BigEndian.PutUint32(packet[24:], rand.Uint32()) // seq
 
 	// Calculate and set TCP checksum
@@ -802,6 +885,177 @@ func (s *SYNScanner) hasFinalResult(targetKey string) bool {
 	return ok && (r.Available || r.Error != nil)
 }
 
+// SetRateLimit installs a global rate limit (packets/sec) with a burst.
+// Pass pps<=0 to disable. If burst<=0, burst defaults to pps.
+func (s *SYNScanner) SetRateLimit(pps, burst int) {
+	if pps <= 0 {
+		s.rl = nil
+		return
+	}
+
+	s.rl = newTokenBucket(pps, burst)
+}
+
+// allowN applies the limiter if present; otherwise returns n.
+func (s *SYNScanner) allowN(n int) int {
+	if s.rl == nil {
+		return n
+	}
+
+	return s.rl.AllowN(n)
+}
+
+type retryItem struct {
+	due    time.Time
+	target models.Target
+	key    string
+}
+
+type retryHeap []retryItem
+
+func (h retryHeap) Len() int           { return len(h) }
+func (h retryHeap) Less(i, j int) bool { return h[i].due.Before(h[j].due) }
+func (h retryHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *retryHeap) Push(x any)        { *h = append(*h, x.(retryItem)) }
+func (h *retryHeap) Pop() any {
+	old := *h
+
+	n := len(old)
+	x := old[n-1]
+
+	*h = old[:n-1]
+
+	return x
+}
+
+// sendPendingWithLimiter uses the global limiter; it may send in chunks until *pending is empty.
+func (s *SYNScanner) sendPendingWithLimiter(ctx context.Context, pending *[]models.Target) {
+	for len(*pending) > 0 {
+		allowed := s.allowN(len(*pending))
+
+		if allowed == 0 {
+			// tiny sleep to avoid busy spinning
+			time.Sleep(200 * time.Microsecond)
+
+			continue
+		}
+
+		s.sendSynBatch(ctx, (*pending)[:allowed])
+		*pending = (*pending)[allowed:]
+	}
+}
+
+// runRetryQueue collects retry requests, wakes up when they're due, and sends them in batches via sendmmsg().
+func (s *SYNScanner) runRetryQueue(ctx context.Context) {
+	var pq retryHeap
+
+	heap.Init(&pq)
+
+	timer := time.NewTimer(time.Hour)
+	if !timer.Stop() {
+		<-timer.C
+	}
+
+	pending := make([]models.Target, 0, sendBatchSize)
+
+	for {
+		// If empty, wait for the first item or ctx cancel
+		if pq.Len() == 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case it := <-s.retryCh:
+				if s.hasFinalResult(it.key) {
+					continue
+				}
+
+				heap.Push(&pq, it)
+			}
+
+			continue
+		}
+
+		// Wait until the earliest item is due
+		next := pq[0].due
+		wait := time.Until(next)
+
+		if wait < 0 {
+			wait = 0
+		}
+
+		timer.Reset(wait)
+
+		select {
+		case <-ctx.Done():
+			return
+
+		case it := <-s.retryCh:
+			if !s.hasFinalResult(it.key) {
+				heap.Push(&pq, it)
+			}
+
+		case <-timer.C:
+			// Pop due items and batch-send with limiter
+			now := time.Now()
+
+			pending = pending[:0]
+
+			for pq.Len() > 0 {
+				it := heap.Pop(&pq).(retryItem)
+
+				if it.due.After(now) {
+					// Not due; put back and stop
+					heap.Push(&pq, it)
+
+					break
+				}
+
+				if s.hasFinalResult(it.key) {
+					continue
+				}
+
+				pending = append(pending, it.target)
+
+				if len(pending) >= sendBatchSize {
+					s.sendPendingWithLimiter(ctx, &pending)
+				}
+			}
+
+			s.sendPendingWithLimiter(ctx, &pending)
+		}
+	}
+}
+
+func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
+	if s.retryAttempts <= 1 {
+		return
+	}
+
+	now := time.Now()
+	span := s.retryMaxJitter - s.retryMinJitter
+
+	for _, t := range batch {
+		key := fmt.Sprintf("%s:%d", t.Host, t.Port)
+
+		for attempt := 1; attempt < s.retryAttempts; attempt++ {
+			d := s.retryMinJitter
+
+			if span > 0 {
+				d += time.Duration(rand.Int63n(int64(span)))
+			}
+
+			due := now.Add(time.Duration(attempt) * d)
+			it := retryItem{due: due, target: t, key: key}
+
+			select {
+			case s.retryCh <- it:
+			case <-time.After(2 * time.Millisecond):
+				// backpressure: block rather than dropping
+				s.retryCh <- it
+			}
+		}
+	}
+}
 
 // Scan performs SYN scanning on the given targets
 func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
@@ -824,6 +1078,16 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	s.cancel = cancel
 	s.readersWG.Add(1) // MUST come before Stop() can see non-nil cancel
+
+	// init retry queue for this scan
+	s.retryCh = make(chan retryItem, retryQueueSize)
+
+	// start retry scheduler (and wait for it in teardown)
+	s.readersWG.Add(1)
+	go func() {
+		defer s.readersWG.Done()
+		s.runRetryQueue(scanCtx)
+	}()
 
 	s.results = make(map[string]models.Result, len(tcpTargets))
 	s.portTargetMap = make(map[uint16]string, len(tcpTargets))
@@ -1001,66 +1265,51 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 // worker sends SYN packets to targets from the work channel
 func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
-	batch := make([]models.Target, 0, sendBatchSize)
+	pending := make([]models.Target, 0, sendBatchSize)
 
 	for {
-		select {
-		case first, ok := <-workCh:
-			if !ok {
+		// If we have nothing pending, block for one item or exit
+		if len(pending) == 0 {
+			select {
+			case <-ctx.Done():
 				return
-			}
-
-			// Start a new batch with the first item
-			batch = batch[:0]
-			batch = append(batch, first)
-
-			// Non‑blocking drain to fill the batch
-			for len(batch) < sendBatchSize {
-				select {
-				case t := <-workCh:
-					batch = append(batch, t)
-				default:
-					// channel empty for now; ship what we have
-					break
+			case first, ok := <-workCh:
+				if !ok {
+					return
 				}
-				if len(batch) >= sendBatchSize {
-					break
-				}
+
+				pending = append(pending, first)
 			}
-
-			// First attempt: fast path via sendmmsg()
-			s.sendSynBatch(ctx, batch)
-
-			// Schedule additional attempts asynchronously (unchanged logic)
-			if s.retryAttempts > 1 {
-				for _, t := range batch {
-					tt := t // capture
-					key := fmt.Sprintf("%s:%d", tt.Host, tt.Port)
-
-					for attempt := 1; attempt < s.retryAttempts; attempt++ {
-						// jitter per attempt
-						span := s.retryMaxJitter - s.retryMinJitter
-						d := s.retryMinJitter
-						if span > 0 {
-							d += time.Duration(rand.Int63n(int64(span)))
-						}
-						delay := time.Duration(attempt) * d
-
-						time.AfterFunc(delay, func() {
-							if ctx.Err() != nil {
-								return
-							}
-							if !s.hasFinalResult(key) {
-								s.sendSyn(ctx, tt) // reuse existing single‑packet path
-							}
-						})
-					}
-				}
-			}
-
-		case <-ctx.Done():
-			return
 		}
+
+		// Non-blocking drain to fill the batch
+	drain:
+		for len(pending) < sendBatchSize {
+			select {
+			case t := <-workCh:
+				pending = append(pending, t)
+			default:
+				break drain
+			}
+		}
+
+		// Rate-limited send using sendmmsg (first attempts only)
+		allowed := s.allowN(len(pending))
+		if allowed == 0 {
+			// tiny nap to let tokens accrue
+			time.Sleep(200 * time.Microsecond)
+			continue
+		}
+
+		// Slice to send now
+		toSend := pending[:allowed]
+		s.sendSynBatch(ctx, toSend)
+
+		// Enqueue retries for what we *actually* sent now
+		s.enqueueRetriesForBatch(toSend)
+
+		// Remove the sent prefix; keep remainder for next loop
+		pending = pending[allowed:]
 	}
 }
 
@@ -1125,6 +1374,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	)
 
 	s.mu.Lock()
+
 	targetKey, ok := s.portTargetMap[tcp.DstPort]
 	if !ok {
 		s.mu.Unlock()
@@ -1132,6 +1382,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	}
 
 	want := s.targetIP[targetKey]
+
 	if src4[0] != want[0] || src4[1] != want[1] || src4[2] != want[2] || src4[3] != want[3] {
 		s.mu.Unlock()
 		return
@@ -1265,6 +1516,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	copy(want[:], ip4b)
 
 	s.mu.Lock()
+
 	// Defensive check to ensure maps are initialized
 	if s.portTargetMap == nil {
 		s.portTargetMap = make(map[uint16]string)
@@ -1280,6 +1532,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 
 	s.portTargetMap[srcPort] = targetKey
 	s.targetIP[targetKey] = want
+
 	if existing, ok := s.results[targetKey]; ok && !existing.FirstSeen.IsZero() {
 		existing.LastSeen = time.Now()
 		s.results[targetKey] = existing
@@ -1313,6 +1566,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 
 			return
 		}
+
 		s.mu.Unlock()
 	})
 
@@ -1357,55 +1611,59 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 	}
 
 	for _, t := range targets {
-		// Validate target port early
 		if t.Port <= 0 || t.Port > maxPortNumber {
-			s.logger.Debug().Int("port", t.Port).Msg("Skipping invalid target port")
 			continue
 		}
 
 		dst := net.ParseIP(t.Host)
 		if dst == nil {
-			s.logger.Debug().Str("host", t.Host).Msg("Skipping invalid target host")
 			continue
 		}
+
 		dst4 := dst.To4()
 		if dst4 == nil {
-			s.logger.Debug().Str("host", t.Host).Msg("Skipping non-IPv4 host")
 			continue
 		}
 
-		// Loopback? Use the simple connect path right away.
 		if net.IP(dst4).IsLoopback() {
+			// loopback: use connect path immediately
 			s.handleLoopbackTarget(ctx, t)
-			continue
-		}
 
-		// Reserve an ephemeral source port for this probe
-		srcPort, err := s.portAlloc.Reserve(ctx)
-		if err != nil {
-			s.logger.Debug().Err(err).Str("host", t.Host).Msg("No source port available for batch entry")
 			continue
 		}
 
 		key := fmt.Sprintf("%s:%d", t.Host, t.Port)
+		if s.hasFinalResult(key) {
+			continue // no need to probe again
+		}
+
+		// Reserve source port
+		srcPort, err := s.portAlloc.Reserve(ctx)
+		if err != nil {
+			continue
+		}
 
 		// Update maps under lock (same as sendSyn)
 		var want [4]byte
+
 		copy(want[:], dst4)
 
 		s.mu.Lock()
 		if s.portTargetMap == nil {
 			s.portTargetMap = make(map[uint16]string)
 		}
+
 		if s.targetIP == nil {
 			s.targetIP = make(map[string][4]byte)
 		}
+
 		if s.results == nil {
 			s.results = make(map[string]models.Result)
 		}
 
 		s.portTargetMap[srcPort] = key
 		s.targetIP[key] = want
+
 		if existing, ok := s.results[key]; ok && !existing.FirstSeen.IsZero() {
 			existing.LastSeen = time.Now()
 			s.results[key] = existing
@@ -1416,6 +1674,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 				LastSeen:  time.Now(),
 			}
 		}
+
 		s.mu.Unlock()
 
 		// Schedule auto‑release of the mapping if nothing definitive happens
@@ -1425,15 +1684,18 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 				delete(s.portTargetMap, srcPort)
 				s.mu.Unlock()
 				s.portAlloc.Release(srcPort)
+
 				return
 			}
+
 			s.mu.Unlock()
 		})
 
-		// Build the packet using template
-		pkt := s.buildSynPacketFromTemplate(s.sourceIP, dst4, srcPort, uint16(t.Port)) // 40 bytes
+		// Build packet
+		pkt := s.buildSynPacketFromTemplate(s.sourceIP, dst4, srcPort, uint16(t.Port))
 
 		var addr4 [4]byte
+
 		copy(addr4[:], dst4)
 
 		entries = append(entries, entry{
@@ -1476,18 +1738,22 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 
 	// Send in a loop to handle partial sends; kernel will send them in order.
 	off := 0
+
 	for off < len(hdrs) {
 		n, err := unix.Sendmmsg(s.sendSocket, hdrs[off:], 0)
 		if n > 0 {
 			off += n
 		}
+
 		if err == nil {
 			continue
 		}
+
 		// Retry the same offset on transient errors
 		if err == unix.EAGAIN || err == unix.EWOULDBLOCK || err == unix.EINTR {
 			// tiny backoff; keep pressure high
 			runtime.Gosched()
+
 			continue
 		}
 
@@ -1500,9 +1766,11 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 	// The AfterFunc will see the missing mapping and will not release a second time.
 	for i := off; i < len(entries); i++ {
 		sp := entries[i].srcPort
+
 		s.mu.Lock()
 		delete(s.portTargetMap, sp)
 		s.mu.Unlock()
+
 		s.portAlloc.Release(sp)
 	}
 }
