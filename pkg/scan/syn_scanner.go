@@ -64,7 +64,7 @@ const (
 	defaultBlockSize   = 1 << 20 // 1 MiB per block
 	defaultBlockCount  = 8       // 8 MiB total ring (was 64 - overkill)
 	defaultFrameSize   = 2048    // alignment hint
-	defaultRetireTovMs = 200     // flush block to user within 200ms (was 10)
+	defaultRetireTovMs = 30      // flush block to user within 30ms (optimized for low latency)
 
 	// tpacket v3 block ownership
 	tpStatusUser = 1 // TP_STATUS_USER
@@ -150,6 +150,9 @@ type SYNScanner struct {
 	retryMaxJitter time.Duration // e.g., 40 * time.Millisecond
 
 	readersWG sync.WaitGroup // tracks the outer listener, which itself waits for all ring readers
+
+	// Streaming results callback for immediate result emission
+	resultCallback func(models.Result)
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -491,7 +494,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 				break // no more ready blocks
 			}
 
-			// === process one ready block ===
+			// process one ready block
 			numPkts := host.Uint32(blk[h1_num_pkts_off : h1_num_pkts_off+4])
 			first := host.Uint32(blk[h1_first_pkt_off : h1_first_pkt_off+4])
 
@@ -906,7 +909,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 
 	result.RespTime = time.Since(result.FirstSeen)
 	result.LastSeen = time.Now()
-	s.results[targetKey] = result
+	s.emitResult(targetKey, result)
 
 	// Free the port used by this successful attempt
 	delete(s.portTargetMap, tcp.DstPort)
@@ -928,7 +931,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 // handleLoopbackTarget handles TCP scanning for loopback addresses using connect()
 func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Target) {
 	targetKey := fmt.Sprintf("%s:%d", target.Host, target.Port)
-	
+
 	result := models.Result{
 		Target:    target,
 		FirstSeen: time.Now(),
@@ -938,7 +941,7 @@ func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Tar
 	// Use simple connect() for loopback targets
 	d := net.Dialer{Timeout: s.timeout}
 	addr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
-	
+
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		result.Available = false
@@ -947,7 +950,7 @@ func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Tar
 		result.Available = true
 		conn.Close()
 	}
-	
+
 	result.RespTime = time.Since(result.FirstSeen)
 	result.LastSeen = time.Now()
 
@@ -956,7 +959,7 @@ func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Tar
 	if s.results == nil {
 		s.results = make(map[string]models.Result)
 	}
-	s.results[targetKey] = result
+	s.emitResult(targetKey, result)
 	s.mu.Unlock()
 }
 
@@ -975,7 +978,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		return
 	}
 
-	// === Reserve a unique source port ===
+	// Reserve a unique source port
 	srcPort, err := s.portAlloc.Reserve(ctx)
 	if err != nil {
 		s.logger.Debug().Err(err).Str("host", target.Host).Msg("No source port available")
@@ -1029,7 +1032,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 			if !r.Available && r.Error == nil {
 				r.Error = fmt.Errorf("scan timed out")
 			}
-			s.results[targetKey] = r
+			s.emitResult(targetKey, r)
 			delete(s.portTargetMap, srcPort)
 			s.portAlloc.Release(srcPort)
 		}
@@ -1082,6 +1085,26 @@ func (s *SYNScanner) processResults(targets []models.Target, ch chan<- models.Re
 				LastSeen:  time.Now(),
 			}
 		}
+	}
+}
+
+// SetResultCallback sets a callback function that will be called immediately when a result becomes available
+func (s *SYNScanner) SetResultCallback(callback func(models.Result)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resultCallback = callback
+}
+
+// emitResult stores the result and immediately calls the callback if available and result is definitive
+func (s *SYNScanner) emitResult(targetKey string, result models.Result) {
+	s.results[targetKey] = result
+	
+	// Emit immediately if callback is set and result is definitive (Available=true or has Error)
+	if s.resultCallback != nil && (result.Available || result.Error != nil) {
+		// Call callback without holding the lock to avoid potential deadlocks
+		callback := s.resultCallback
+		resultCopy := result
+		go callback(resultCopy)
 	}
 }
 
