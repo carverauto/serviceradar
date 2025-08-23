@@ -69,7 +69,7 @@ const (
 	defaultBlockSize   = 1 << 20 // 1 MiB per block
 	defaultBlockCount  = 8       // 8 MiB total ring (was 64 - overkill)
 	defaultFrameSize   = 2048    // alignment hint
-	defaultRetireTovMs = 30      // flush block to user within 30ms (optimized for low latency)
+	defaultRetireTovMs = 5       // flush block to user within 5ms (lower latency, slightly more CPU)
 
 	// tpacket v3 block ownership
 	tpStatusUser = 1 // TP_STATUS_USER
@@ -684,6 +684,10 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 		return nil, fmt.Errorf("cannot set IP_HDRINCL (requires root): %w", err)
 	}
 
+	// Optional performance optimizations
+	_ = unix.SetNonblock(sendSocket, true)
+	_ = syscall.SetsockoptInt(sendSocket, syscall.SOL_SOCKET, syscall.SO_SNDBUF, 8<<20) // 8MB send buffer
+
 	log.Info().Msg("DEBUG: IP_HDRINCL set successfully")
 	log.Info().Msg("DEBUG: Getting local IP and interface")
 
@@ -983,7 +987,7 @@ func (s *SYNScanner) runRetryQueue(ctx context.Context) {
 			wait = 0
 		}
 
-		timer.Reset(wait)
+		safeTimerReset(timer, wait)
 
 		select {
 		case <-ctx.Done():
@@ -1024,6 +1028,17 @@ func (s *SYNScanner) runRetryQueue(ctx context.Context) {
 			s.sendPendingWithLimiter(ctx, &pending)
 		}
 	}
+}
+
+// safeTimerReset stops t (draining if needed) then resets it to d.
+func safeTimerReset(t *time.Timer, d time.Duration) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
+	t.Reset(d)
 }
 
 func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
@@ -1286,7 +1301,10 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 	drain:
 		for len(pending) < sendBatchSize {
 			select {
-			case t := <-workCh:
+			case t, ok := <-workCh:
+				if !ok { // channel closed: stop draining now
+					break drain
+				}
 				pending = append(pending, t)
 			default:
 				break drain
@@ -1677,17 +1695,18 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 
 		s.mu.Unlock()
 
-		// Schedule auto‑release of the mapping if nothing definitive happens
+		// Schedule auto‑release of the mapping if nothing definitive happens.
+		// IMPORTANT: capture loop vars by value.
+		sp := srcPort
+		k := key
 		time.AfterFunc(s.timeout+grace, func() {
 			s.mu.Lock()
-			if k, ok := s.portTargetMap[srcPort]; ok && k == key {
-				delete(s.portTargetMap, srcPort)
+			if cur, ok := s.portTargetMap[sp]; ok && cur == k {
+				delete(s.portTargetMap, sp)
 				s.mu.Unlock()
-				s.portAlloc.Release(srcPort)
-
+				s.portAlloc.Release(sp)
 				return
 			}
-
 			s.mu.Unlock()
 		})
 
