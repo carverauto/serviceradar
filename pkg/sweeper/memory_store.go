@@ -26,6 +26,13 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// resultKey uniquely identifies a stored result
+type resultKey struct {
+	host string
+	port int
+	mode models.SweepMode
+}
+
 const (
 	defaultCleanupInterval = 10 * time.Minute
 	defaultMaxResults      = 100000 // Increased to handle larger networks (was 10000)
@@ -35,6 +42,7 @@ const (
 type InMemoryStore struct {
 	mu          sync.RWMutex
 	results     []models.Result
+	index       map[resultKey]int // O(1) lookup/update by (host,port,mode)
 	processor   ResultProcessor
 	maxResults  int
 	cleanupDone chan struct{}
@@ -46,6 +54,7 @@ type InMemoryStore struct {
 func NewInMemoryStore(processor ResultProcessor, log logger.Logger) Store {
 	store := &InMemoryStore{
 		results:     make([]models.Result, 0),
+		index:       make(map[resultKey]int),
 		processor:   processor,
 		maxResults:  defaultMaxResults,
 		cleanupDone: make(chan struct{}),
@@ -91,6 +100,12 @@ func (s *InMemoryStore) cleanOldResults() {
 
 		// Keep the most recent results (which are at the end)
 		s.results = s.results[removeCount:]
+		// Rebuild index after slicing
+		s.index = make(map[resultKey]int, len(s.results))
+		for i := range s.results {
+			r := &s.results[i]
+			s.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = i
+		}
 		s.lastCleanup = time.Now()
 	}
 }
@@ -350,19 +365,15 @@ func (s *InMemoryStore) SaveResult(_ context.Context, result *models.Result) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Find existing result for this host and mode
-	for i := range s.results {
-		if s.results[i].Target.Host == result.Target.Host &&
-			s.results[i].Target.Mode == result.Target.Mode &&
-			s.results[i].Target.Port == result.Target.Port {
-			// Update existing result
-			s.results[i] = *result
-			return nil
-		}
+	key := resultKey{host: result.Target.Host, port: result.Target.Port, mode: result.Target.Mode}
+	if idx, ok := s.index[key]; ok {
+		// Update existing result
+		s.results[idx] = *result
+		return nil
 	}
-
-	// If no existing result found, append new one
+	// Append new
 	s.results = append(s.results, *result)
+	s.index[key] = len(s.results) - 1
 
 	return nil
 }
@@ -400,6 +411,12 @@ func (s *InMemoryStore) PruneResults(_ context.Context, age time.Duration) error
 	}
 
 	s.results = newResults
+	// Rebuild index after pruning
+	s.index = make(map[resultKey]int, len(s.results))
+	for i := range s.results {
+		r := &s.results[i]
+		s.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = i
+	}
 
 	return nil
 }
