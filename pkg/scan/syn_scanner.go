@@ -553,6 +553,12 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			}
 			return
 		}
+
+		// Check for socket errors after successful poll
+		if pfd[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
+			// Socket is in error state, exit this reader
+			return
+		}
 	}
 }
 
@@ -864,7 +870,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		cancel()
 		s.readersWG.Wait()
 
-		// Fallback: emit anything not yet streamed
+		// Fallback: emit anything not yet streamed (via emitter so user callback is tee'd)
 		s.mu.Lock()
 		for _, t := range tcpTargets {
 			key := fmt.Sprintf("%s:%d", t.Host, t.Port)
@@ -888,9 +894,9 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			} else if !r.Available && r.Error == nil {
 				r.Error = fmt.Errorf("scan timed out")
 			}
-			// Release lock while sending to avoid holding s.mu on a potentially slow consumer.
+			// Release lock while enqueueing; emitter handles backpressure and user callback tee.
 			s.mu.Unlock()
-			resultCh <- r
+			emitCh <- r
 			s.mu.Lock()
 		}
 		// Stop future callback enqueues and finish the emitter cleanly.
