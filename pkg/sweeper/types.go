@@ -64,6 +64,9 @@ type unmarshalConfig struct {
 
 		// Advanced NAT/firewall compatibility options
 		SuppressRSTReply bool `json:"suppress_rst_reply,omitempty"` // Suppress RST packet generation (optional)
+
+		// Global ring buffer memory cap (in MB) to be distributed across all CPU cores
+		GlobalRingMemoryMB int `json:"global_ring_memory_mb,omitempty"`
 	} `json:"tcp_settings"`
 	EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`

@@ -853,6 +853,9 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 
 			// Advanced NAT/firewall compatibility options
 			SuppressRSTReply bool `json:"suppress_rst_reply,omitempty"` // Suppress RST packet generation (optional)
+
+			// Global ring buffer memory cap (in MB) to be distributed across all CPU cores
+			GlobalRingMemoryMB int `json:"global_ring_memory_mb,omitempty"`
 		}{
 			Concurrency:        temp.TCPSettings.Concurrency,
 			Timeout:            time.Duration(temp.TCPSettings.Timeout),
@@ -862,6 +865,7 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			RingBlockCount:     temp.TCPSettings.RingBlockCount,
 			Interface:          temp.TCPSettings.Interface,
 			SuppressRSTReply:   temp.TCPSettings.SuppressRSTReply,
+			GlobalRingMemoryMB: temp.TCPSettings.GlobalRingMemoryMB,
 		},
 		EnableHighPerformanceICMP: temp.EnableHighPerformanceICMP,
 		ICMPRateLimit:             temp.ICMPRateLimit,
