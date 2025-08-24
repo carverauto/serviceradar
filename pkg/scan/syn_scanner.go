@@ -200,11 +200,20 @@ func (s *SYNScanner) sampleKernelStats() {
 			continue
 		}
 
-		// getsockopt(SOL_PACKET, PACKET_STATISTICS) resets counters on read
-		stats, err := unix.GetsockoptTpacketStats(ring.fd, unix.SOL_PACKET, unix.PACKET_STATISTICS)
-		if err == nil {
+		var st unix.TpacketStats
+		optlen := int(unsafe.Sizeof(st))
+		
+		// Use unix.Syscall with proper getsockopt call
+		r1, _, errno := unix.Syscall6(unix.SYS_GETSOCKOPT, 
+			uintptr(ring.fd), 
+			uintptr(unix.SOL_PACKET), 
+			uintptr(unix.PACKET_STATISTICS),
+			uintptr(unsafe.Pointer(&st)), 
+			uintptr(unsafe.Pointer(&optlen)), 
+			0)
+		if errno == 0 && r1 == 0 {
 			// PACKET_STATISTICS resets on read; just accumulate drops
-			atomic.AddUint64(&s.stats.PacketsDropped, uint64(stats.Drops))
+			atomic.AddUint64(&s.stats.PacketsDropped, uint64(st.Drops))
 		}
 	}
 }
