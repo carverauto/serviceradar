@@ -243,6 +243,7 @@ type SYNScanner struct {
 
 	mu            sync.Mutex
 	portTargetMap map[uint16]string  // Maps source port -> target key ("ip:port")
+	targetPorts   map[string][]uint16 // Maps target key -> source ports (reverse index)
 	targetIP      map[string][4]byte // target key -> dest IPv4 bytes
 	results       map[string]models.Result
 
@@ -906,6 +907,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		sendBatchSize:  batchSize,
 		// Initialize maps to prevent nil pointer dereference
 		portTargetMap: make(map[uint16]string),
+		targetPorts:   make(map[string][]uint16),
 		targetIP:      make(map[string][4]byte),
 		results:       make(map[string]models.Result),
 	}
@@ -1066,6 +1068,20 @@ func (s *SYNScanner) tryReleaseMapping(sp uint16, k string) {
 	}
 	if cur, ok := s.portTargetMap[sp]; ok && cur == k {
 		delete(s.portTargetMap, sp)
+		// Also remove from reverse index
+		if ports, exists := s.targetPorts[k]; exists {
+			// Remove sp from the slice
+			for i, p := range ports {
+				if p == sp {
+					s.targetPorts[k] = append(ports[:i], ports[i+1:]...)
+					// If slice is now empty, delete the entry to avoid memory leaks
+					if len(s.targetPorts[k]) == 0 {
+						delete(s.targetPorts, k)
+					}
+					break
+				}
+			}
+		}
 		// release outside the lock to keep lock hold times small
 		go s.portAlloc.Release(sp)
 	}
@@ -1296,6 +1312,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	s.results = make(map[string]models.Result, len(tcpTargets))
 	s.portTargetMap = make(map[uint16]string, len(tcpTargets))
+	s.targetPorts = make(map[string][]uint16, len(tcpTargets))
 	s.targetIP = make(map[string][4]byte, len(tcpTargets))
 
 	s.mu.Unlock()
@@ -1624,14 +1641,9 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	s.results[targetKey] = result
 
 	// Remove all src-port mappings for this target and free them after unlock.
-	// Collect all source ports mapped to this target, then delete them.
-	ports := make([]uint16, 0, 4)
-	ports = append(ports, tcp.DstPort)
-	for sp, key := range s.portTargetMap {
-		if key == targetKey && sp != tcp.DstPort {
-			ports = append(ports, sp)
-		}
-	}
+	// Use reverse index for O(k) lookup instead of O(N) scan
+	ports := append([]uint16{tcp.DstPort}, s.targetPorts[targetKey]...)
+	delete(s.targetPorts, targetKey)
 	for _, sp := range ports {
 		delete(s.portTargetMap, sp)
 	}
@@ -1733,6 +1745,10 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		s.portTargetMap = make(map[uint16]string)
 	}
 
+	if s.targetPorts == nil {
+		s.targetPorts = make(map[string][]uint16)
+	}
+
 	if s.targetIP == nil {
 		s.targetIP = make(map[string][4]byte)
 	}
@@ -1742,6 +1758,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	}
 
 	s.portTargetMap[srcPort] = targetKey
+	s.targetPorts[targetKey] = append(s.targetPorts[targetKey], srcPort)
 	s.targetIP[targetKey] = want
 
 	if existing, ok := s.results[targetKey]; ok && !existing.FirstSeen.IsZero() {
@@ -1856,6 +1873,10 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 			s.portTargetMap = make(map[uint16]string)
 		}
 
+		if s.targetPorts == nil {
+			s.targetPorts = make(map[string][]uint16)
+		}
+
 		if s.targetIP == nil {
 			s.targetIP = make(map[string][4]byte)
 		}
@@ -1865,6 +1886,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		}
 
 		s.portTargetMap[srcPort] = key
+		s.targetPorts[key] = append(s.targetPorts[key], srcPort)
 		s.targetIP[key] = want
 
 		if existing, ok := s.results[key]; ok && !existing.FirstSeen.IsZero() {
@@ -2054,6 +2076,7 @@ func (s *SYNScanner) Stop() error {
 
 	// keep non-nil to avoid AfterFunc panics
 	s.portTargetMap = make(map[uint16]string)
+	s.targetPorts = make(map[string][]uint16)
 
 	s.mu.Unlock()
 
