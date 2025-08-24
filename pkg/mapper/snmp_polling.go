@@ -1551,12 +1551,12 @@ func pingHost(ctx context.Context, host string) error {
 	if err != nil {
 		return err
 	}
-	defer func(sweeper *scan.ICMPSweeper, ctx context.Context) {
-		err = sweeper.Stop(ctx)
+	defer func(sweeper *scan.ICMPSweeper) {
+		err = sweeper.Stop()
 		if err != nil {
 			log.Error().Err(err).Msg("Error stopping sweeper")
 		}
-	}(sweeper, ctx)
+	}(sweeper)
 
 	ctx, cancel := context.WithTimeout(ctx, defaultTimeoutDuration)
 	defer cancel()

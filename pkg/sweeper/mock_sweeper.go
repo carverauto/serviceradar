@@ -86,17 +86,17 @@ func (mr *MockSweeperMockRecorder) Start(arg0 any) *gomock.Call {
 }
 
 // Stop mocks base method.
-func (m *MockSweeper) Stop(ctx context.Context) error {
+func (m *MockSweeper) Stop() error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Stop", ctx)
+	ret := m.ctrl.Call(m, "Stop")
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Stop indicates an expected call of Stop.
-func (mr *MockSweeperMockRecorder) Stop(ctx any) *gomock.Call {
+func (mr *MockSweeperMockRecorder) Stop() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockSweeper)(nil).Stop), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockSweeper)(nil).Stop))
 }
 
 // UpdateConfig mocks base method.

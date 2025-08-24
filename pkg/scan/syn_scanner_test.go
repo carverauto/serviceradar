@@ -82,7 +82,7 @@ func TestNewSYNScanner(t *testing.T) {
 			assert.Equal(t, tt.wantConc, scanner.concurrency)
 
 			// Clean up
-			err = scanner.Stop(context.Background())
+			err = scanner.Stop()
 			require.NoError(t, err)
 		})
 	}
@@ -97,7 +97,7 @@ func TestSYNScanner_Scan_EmptyTargets(t *testing.T) {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
 	}
-	defer scanner.Stop(context.Background())
+	defer scanner.Stop()
 
 	ctx := context.Background()
 	targets := []models.Target{}
@@ -120,7 +120,7 @@ func TestSYNScanner_Scan_NonTCPTargets(t *testing.T) {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
 	}
-	defer scanner.Stop(context.Background())
+	defer scanner.Stop()
 
 	ctx := context.Background()
 	targets := []models.Target{
@@ -150,7 +150,7 @@ func TestSYNScanner_Scan_TCPTargets(t *testing.T) {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
 	}
-	defer scanner.Stop(context.Background())
+	defer scanner.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -190,7 +190,7 @@ func TestSYNScanner_ConcurrentScanning(t *testing.T) {
 		t.Skip("SYN scanner requires root privileges")
 		return
 	}
-	defer scanner.Stop(context.Background())
+	defer scanner.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -235,7 +235,7 @@ func TestSYNScanner_ContextCancellation(t *testing.T) {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
 	}
-	defer scanner.Stop(context.Background())
+	defer scanner.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()

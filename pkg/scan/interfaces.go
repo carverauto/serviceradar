@@ -29,7 +29,7 @@ type Scanner interface {
 	// Scan performs the sweep and returns results through the channel
 	Scan(context.Context, []models.Target) (<-chan models.Result, error)
 	// Stop gracefully stops any ongoing scans
-	Stop(ctx context.Context) error
+	Stop() error
 }
 
 // ResultProcessor defines how to process and aggregate sweep results.

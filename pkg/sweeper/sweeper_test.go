@@ -47,10 +47,10 @@ func TestMockSweeper(t *testing.T) {
 
 		// Test Stop
 		mockSweeper.EXPECT().
-			Stop(ctx).
+			Stop().
 			Return(nil)
 
-		err = mockSweeper.Stop(ctx)
+		err = mockSweeper.Stop()
 		assert.NoError(t, err)
 	})
 

@@ -150,7 +150,7 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 	return true, time.Since(start), nil
 }
 
-func (s *TCPSweeper) Stop(_ context.Context) error {
+func (s *TCPSweeper) Stop() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
