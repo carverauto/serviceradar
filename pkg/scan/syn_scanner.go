@@ -46,6 +46,14 @@ import (
 // Using architecture-specific sendmmsg implementation and Mmsghdr struct
 // This ensures correct ABI/struct layout across all supported architectures
 // Definitions are provided in separate files with build tags for each architecture
+//
+// TODO: IPv6 Support - implement separate v6 scanner with RAWv6 + eBPF/XDP or cBPF on ETH_P_IPV6
+// This would require:
+// - Separate IPv6 packet templates and header construction
+// - IPv6-aware BPF filters (etherType 0x86DD, ICMPv6 handling)
+// - AF_INET6 raw sockets with IPV6_HDRINCL equivalent
+// - Neighbor discovery for L2 address resolution
+// - Consider eBPF/XDP for better performance with IPv6 extension headers
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
@@ -242,9 +250,9 @@ type SYNScanner struct {
 	retireTovMs uint32 // configurable retire timeout in milliseconds
 
 	mu            sync.Mutex
-	portTargetMap map[uint16]string  // Maps source port -> target key ("ip:port")
+	portTargetMap map[uint16]string   // Maps source port -> target key ("ip:port")
 	targetPorts   map[string][]uint16 // Maps target key -> source ports (reverse index)
-	targetIP      map[string][4]byte // target key -> dest IPv4 bytes
+	targetIP      map[string][4]byte  // target key -> dest IPv4 bytes
 	results       map[string]models.Result
 
 	portAlloc *PortAllocator
@@ -273,7 +281,7 @@ type SYNScanner struct {
 
 	// Pool for sendmmsg batch arrays to reduce allocations
 	batchPool sync.Pool
-	
+
 	// Pool for 40-byte packet buffers to reduce GC churn in hot path
 	packetPool sync.Pool
 
@@ -298,6 +306,17 @@ type SYNScannerOptions struct {
 	// RouteDiscoveryHost is the target address for local IP discovery
 	// If empty, defaults to "8.8.8.8:80"
 	RouteDiscoveryHost string
+
+	// Ring buffer tuning options for memory vs latency tradeoffs
+	// RingBlockSize is the size of each ring buffer block in bytes
+	// If 0, defaults to defaultBlockSize (1 MiB)
+	RingBlockSize uint32
+	// RingBlockCount is the number of blocks in the ring buffer
+	// If 0, defaults to defaultBlockCount (8 blocks = 8 MiB total)
+	RingBlockCount uint32
+	// RingFrameSize is the frame size hint for packet alignment
+	// If 0, defaults to defaultFrameSize (2048 bytes)
+	RingFrameSize uint32
 }
 
 // batchArrays holds reusable arrays for sendmmsg batching
@@ -864,9 +883,27 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 
 		log.Debug().Msg("Packet fanout enabled successfully")
 		retireTov := getRetireTovMs()
-		log.Debug().Uint32("blockSize", defaultBlockSize).Uint32("blockCount", defaultBlockCount).Uint32("frameSize", defaultFrameSize).Uint32("retireMs", retireTov).Msg("Setting up TPACKET_V3")
 
-		r, err := setupTPacketV3(fd, defaultBlockSize, defaultBlockCount, defaultFrameSize, retireTov)
+		// Use ring buffer options from SYNScannerOptions or defaults
+		blockSize := uint32(defaultBlockSize)
+		blockCount := uint32(defaultBlockCount)
+		frameSize := uint32(defaultFrameSize)
+		
+		if opts != nil {
+			if opts.RingBlockSize > 0 {
+				blockSize = opts.RingBlockSize
+			}
+			if opts.RingBlockCount > 0 {
+				blockCount = opts.RingBlockCount
+			}
+			if opts.RingFrameSize > 0 {
+				frameSize = opts.RingFrameSize
+			}
+		}
+
+		log.Debug().Uint32("blockSize", blockSize).Uint32("blockCount", blockCount).Uint32("frameSize", frameSize).Uint32("retireMs", retireTov).Msg("Setting up TPACKET_V3")
+
+		r, err := setupTPacketV3(fd, blockSize, blockCount, frameSize, retireTov)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to setup TPACKET_V3")
 			_ = unix.Close(fd)
@@ -935,7 +972,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			}
 		},
 	}
-	
+
 	// Initialize packet buffer pool to reduce GC churn in hot path
 	scanner.packetPool = sync.Pool{
 		New: func() interface{} {
@@ -1118,7 +1155,7 @@ func (s *SYNScanner) tryReleaseMapping(sp uint16, k string) {
 		}
 	}
 	s.mu.Unlock()
-	
+
 	// Release synchronously outside the lock to avoid goroutine-per-release overhead
 	if shouldRelease {
 		s.portAlloc.Release(sp)
@@ -1796,23 +1833,6 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 
 	s.mu.Lock()
 
-	// Defensive check to ensure maps are initialized
-	if s.portTargetMap == nil {
-		s.portTargetMap = make(map[uint16]string)
-	}
-
-	if s.targetPorts == nil {
-		s.targetPorts = make(map[string][]uint16)
-	}
-
-	if s.targetIP == nil {
-		s.targetIP = make(map[string][4]byte)
-	}
-
-	if s.results == nil {
-		s.results = make(map[string]models.Result)
-	}
-
 	s.portTargetMap[srcPort] = targetKey
 	s.targetPorts[targetKey] = append(s.targetPorts[targetKey], srcPort)
 	s.targetIP[targetKey] = want
@@ -1860,15 +1880,20 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 				// Return packet buffer to pool after successful send
 				s.packetPool.Put(packet)
 				return
+			} else {
+				// Only log after retry fails to reduce noise on transient EAGAIN
+				s.logger.Debug().Err(err2).Str("host", target.Host).Msg("Failed to send SYN packet after retry")
 			}
+		} else {
+			// Log non-transient errors immediately
+			s.logger.Debug().Err(err).Str("host", target.Host).Msg("Failed to send SYN packet")
 		}
-		s.logger.Debug().Err(err).Str("host", target.Host).Msg("Failed to send SYN packet")
 		// Return packet buffer to pool even on error
 		s.packetPool.Put(packet)
 		release()
 		return
 	}
-	
+
 	// Return packet buffer to pool after successful send
 	s.packetPool.Put(packet)
 }
