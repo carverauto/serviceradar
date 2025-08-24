@@ -939,6 +939,30 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 
 	log.Debug().Str("sourceIP", sourceIP.String()).Str("interface", iface).Msg("Local IP and interface found")
 
+	// Honor SYNScannerOptions.Interface - override auto-discovered interface if specified
+	if opts != nil && opts.Interface != "" {
+		ifi, err := net.InterfaceByName(opts.Interface)
+		if err != nil {
+			syscall.Close(sendSocket)
+			return nil, fmt.Errorf("interface %q: %w", opts.Interface, err)
+		}
+		addrs, _ := ifi.Addrs()
+		var ip4 net.IP
+		for _, a := range addrs {
+			if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+				ip4 = ipnet.IP.To4()
+				break
+			}
+		}
+		if ip4 == nil {
+			syscall.Close(sendSocket)
+			return nil, fmt.Errorf("interface %q has no IPv4 address", opts.Interface)
+		}
+		sourceIP = ip4
+		iface = ifi.Name
+		log.Info().Str("sourceIP", sourceIP.String()).Str("interface", iface).Msg("Using user-specified interface")
+	}
+
 	sourceIP = sourceIP.To4()
 	if sourceIP == nil {
 		syscall.Close(sendSocket)
