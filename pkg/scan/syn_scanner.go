@@ -949,6 +949,14 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 	// Set rate limit from options or calculate safe default
 	var rateLimitPPS, rateLimitBurst int
 
+	// Calculate safe default capacity to prevent source port exhaustion
+	window := int(scanPortEnd - scanPortStart + 1) // actual available ports
+	hold := timeout + timeout/4                    // timeout + grace period
+	if hold <= 0 {
+		hold = 1 * time.Second
+	}
+	safeCapacityPPS := int(float64(window) / hold.Seconds())
+
 	if opts != nil && opts.RateLimit > 0 {
 		// Use explicitly provided rate limit
 		rateLimitPPS = opts.RateLimit
@@ -956,14 +964,19 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		if rateLimitBurst <= 0 {
 			rateLimitBurst = rateLimitPPS
 		}
-	} else {
-		// Calculate safe default to prevent source port exhaustion
-		window := int(scanPortEnd - scanPortStart + 1) // actual available ports
-		hold := timeout + timeout/4                    // timeout + grace period
-		if hold <= 0 {
-			hold = 1 * time.Second
+
+		// Warn if user rate limit exceeds safe window/hold capacity
+		if rateLimitPPS > safeCapacityPPS {
+			log.Warn().
+				Int("userRateLimit", rateLimitPPS).
+				Int("safeCapacity", safeCapacityPPS).
+				Int("windowSize", window).
+				Dur("holdDuration", hold).
+				Msg("User rate limit exceeds safe window/hold capacity - may cause port allocator starvation")
 		}
-		rateLimitPPS = int(float64(window) / hold.Seconds())
+	} else {
+		// Use calculated safe default
+		rateLimitPPS = safeCapacityPPS
 
 		// Apply reasonable bounds
 		if rateLimitPPS < 1000 {
