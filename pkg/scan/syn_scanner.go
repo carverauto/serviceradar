@@ -273,6 +273,9 @@ type SYNScanner struct {
 
 	// Pool for sendmmsg batch arrays to reduce allocations
 	batchPool sync.Pool
+	
+	// Pool for 40-byte packet buffers to reduce GC churn in hot path
+	packetPool sync.Pool
 
 	// Dynamic port range for scanning (avoiding system ephemeral ports)
 	scanPortStart uint16
@@ -932,6 +935,13 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			}
 		},
 	}
+	
+	// Initialize packet buffer pool to reduce GC churn in hot path
+	scanner.packetPool = sync.Pool{
+		New: func() interface{} {
+			return make([]byte, 40)
+		},
+	}
 
 	// Initialize packet template for reuse
 	scanner.initPacketTemplate()
@@ -1006,8 +1016,8 @@ func (s *SYNScanner) initPacketTemplate() {
 
 // buildSynPacketFromTemplate efficiently builds a SYN packet using the pre-allocated template
 func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, destPort uint16) []byte {
-	// Create a copy of the template
-	packet := make([]byte, 40)
+	// Get packet buffer from pool to reduce allocations
+	packet := s.packetPool.Get().([]byte)
 	copy(packet, s.packetTemplate[:])
 
 	// Set variable IPv4 fields
@@ -1834,13 +1844,20 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK || err == syscall.EINTR {
 			runtime.Gosched()
 			if err2 := syscall.Sendto(s.sendSocket, packet, 0, &addr); err2 == nil {
+				// Return packet buffer to pool after successful send
+				s.packetPool.Put(packet)
 				return
 			}
 		}
 		s.logger.Debug().Err(err).Str("host", target.Host).Msg("Failed to send SYN packet")
+		// Return packet buffer to pool even on error
+		s.packetPool.Put(packet)
 		release()
 		return
 	}
+	
+	// Return packet buffer to pool after successful send
+	s.packetPool.Put(packet)
 }
 
 // sendSynBatch crafts and sends SYNs for a slice of targets using sendmmsg().
@@ -2038,6 +2055,11 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 	runtime.KeepAlive(iovecs)
 	runtime.KeepAlive(addrs)
 	runtime.KeepAlive(entries)
+
+	// Return all packet buffers to pool after sendmmsg completes
+	for i := range entries {
+		s.packetPool.Put(entries[i].packet)
+	}
 
 	// Release *unsent* ports immediately, since their SYN never left the machine.
 	// The AfterFunc will see the missing mapping and will not release a second time.
