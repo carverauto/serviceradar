@@ -2323,10 +2323,10 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 		}
 	}
 
-	if reservedInRange >= 5000 {
-		log.Warn().Uint16("start", sysStart).Uint16("end", sysEnd).Int("reserved", reservedInRange).
-			Msg("WARNING: Using system ephemeral range but with reserved ports")
-		return sysStart, sysEnd, nil
+	if lo, hi, ok := largestContiguous(reserved, 1024, 65535); ok && hi-lo+1 >= 5000 {
+		log.Warn().Uint16("start", lo).Uint16("end", hi).
+			Msg("Using largest contiguous reserved block for scanner ports")
+		return lo, hi, nil
 	}
 
 	// Last resort: Use the fallback range with a loud warning
@@ -2335,6 +2335,37 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 	log.Error().Msg("RECOMMENDATION: Reserve ports via 'echo 32768-61000 > /proc/sys/net/ipv4/ip_local_reserved_ports'")
 
 	return fallbackStart, fallbackEnd, nil
+}
+
+// largestContiguous finds the largest contiguous block of reserved ports in the range [lo, hi]
+func largestContiguous(res map[uint16]struct{}, lo, hi uint16) (uint16, uint16, bool) {
+	var bestLo, bestHi uint16
+	found := false
+	inRun := false
+	var curLo, curHi uint16
+	for p := lo; p <= hi; p++ {
+		if _, ok := res[p]; ok {
+			if !inRun {
+				curLo = p
+				inRun = true
+			}
+			curHi = p
+		} else if inRun {
+			if !found || curHi-curLo > bestHi-bestLo {
+				bestLo, bestHi = curLo, curHi
+				found = true
+			}
+			inRun = false
+		}
+	}
+	if inRun && (!found || curHi-curLo > bestHi-bestLo) {
+		bestLo, bestHi = curLo, curHi
+		found = true
+	}
+	if found {
+		return bestLo, bestHi, true
+	}
+	return 0, 0, false
 }
 
 func getLocalIPAndInterface() (net.IP, string, error) {
