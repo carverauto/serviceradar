@@ -991,6 +991,13 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			Msg("Using default port range for scanning")
 	}
 
+	// Document SuppressRSTReply option with actionable guidance
+	if opts != nil && opts.SuppressRSTReply {
+		log.Warn().Msg("SuppressRSTReply requested. Consider applying:\n" +
+			"  nft add rule inet filter output tcp flags rst tcp sport " +
+			fmt.Sprintf("%d-%d", scanPortStart, scanPortEnd) + " drop")
+	}
+
 	log.Debug().Msg("Setting up ring buffers")
 
 	// Build NumCPU ring readers with BPF + FANOUT
