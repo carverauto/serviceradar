@@ -2162,7 +2162,8 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 
 	s.mu.Lock()
 
-	targetKey, ok := s.portTargetMap[tcp.DstPort]
+	var ok bool
+	targetKey, ok = s.portTargetMap[tcp.DstPort]
 	if !ok {
 		s.mu.Unlock()
 		return
