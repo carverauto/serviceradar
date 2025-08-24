@@ -107,9 +107,9 @@ const (
 	defaultRetireTovMs = 10      // flush block to user within 10ms (configurable via env or constructor)
 
 	// Memory limits to prevent excessive allocation on large SMP systems
-	maxRingMemoryMB = 64      // Maximum total ring buffer memory in MB
-	maxBlockSize    = 8 << 20 // Maximum block size: 8 MiB
-	maxBlockCount   = 32      // Maximum number of blocks
+	defaultGlobalRingMemoryMB = 64      // Default global ring buffer memory cap in MB (distributed across CPUs)
+	maxBlockSize              = 8 << 20 // Maximum block size: 8 MiB
+	maxBlockCount             = 32      // Maximum number of blocks
 
 	// tpacket v3 block ownership
 	tpStatusUser = 1 // TP_STATUS_USER
@@ -444,6 +444,11 @@ type SYNScannerOptions struct {
 	// This helps in environments where firewall rules might interfere
 	// Note: This is optional and most environments don't need it
 	SuppressRSTReply bool
+
+	// GlobalRingMemoryMB is the total memory cap (in MB) for all ring buffers
+	// across all CPU cores. If 0, defaults to 64MB total. This prevents
+	// excessive memory usage on high-CPU systems by distributing the cap.
+	GlobalRingMemoryMB int
 }
 
 // batchArrays holds reusable arrays for sendmmsg batching
@@ -1047,7 +1052,28 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			}
 		}
 
-		// Apply memory limits to prevent excessive allocation
+		// Compute global memory cap and distribute across CPUs
+		globalRingMemoryMB := defaultGlobalRingMemoryMB
+		if opts != nil && opts.GlobalRingMemoryMB > 0 {
+			globalRingMemoryMB = opts.GlobalRingMemoryMB
+		}
+
+		totalRings := runtime.NumCPU()
+		perRingBytes := uint32((globalRingMemoryMB * 1024 * 1024) / totalRings)
+
+		// Ensure minimum per-ring memory (at least 1MB per ring)
+		minPerRingBytes := uint32(1024 * 1024) // 1MB
+		if perRingBytes < minPerRingBytes {
+			perRingBytes = minPerRingBytes
+			log.Warn().
+				Uint32("globalCapMB", uint32(globalRingMemoryMB)).
+				Int("totalRings", totalRings).
+				Uint32("computedPerRing", uint32((globalRingMemoryMB*1024*1024)/totalRings)).
+				Uint32("minPerRingBytes", minPerRingBytes).
+				Msg("Global ring memory cap too low for CPU count, using minimum per-ring size")
+		}
+
+		// Apply individual block limits first
 		originalBlockSize := blockSize
 		originalBlockCount := blockCount
 
@@ -1059,22 +1085,32 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			blockCount = maxBlockCount
 		}
 
-		// Ensure total memory doesn't exceed limit
-		totalMemoryMB := (blockSize * blockCount) / (1024 * 1024)
-		if totalMemoryMB > maxRingMemoryMB {
-			// Proportionally reduce block count to fit within memory limit
-			blockCount = uint32((maxRingMemoryMB * 1024 * 1024) / blockSize)
-			if blockCount < 1 {
+		// Distribute global cap: adjust blockSize*blockCount to fit perRingBytes
+		currentRingBytes := blockSize * blockCount
+		if currentRingBytes > perRingBytes {
+			// Try to maintain the requested block size if possible
+			targetBlockCount := perRingBytes / blockSize
+			if targetBlockCount >= 1 {
+				blockCount = targetBlockCount
+			} else {
+				// Block size too large, reduce it and set minimum block count
+				blockSize = perRingBytes
+				if blockSize > maxBlockSize {
+					blockSize = maxBlockSize
+				}
 				blockCount = 1
 			}
 
 			log.Info().
 				Uint32("originalBlockSize", originalBlockSize).
 				Uint32("originalBlockCount", originalBlockCount).
-				Uint32("clampedBlockSize", blockSize).
-				Uint32("clampedBlockCount", blockCount).
-				Uint32("totalMemoryMB", (blockSize*blockCount)/(1024*1024)).
-				Msg("Clamped ring buffer memory to prevent excessive allocation")
+				Uint32("globalCapMB", uint32(globalRingMemoryMB)).
+				Int("totalRings", totalRings).
+				Uint32("perRingBytes", perRingBytes).
+				Uint32("finalBlockSize", blockSize).
+				Uint32("finalBlockCount", blockCount).
+				Uint32("finalRingMemoryMB", (blockSize*blockCount)/(1024*1024)).
+				Msg("Applied global ring memory cap distributed across CPUs")
 		}
 
 		log.Debug().Uint32("blockSize", blockSize).Uint32("blockCount", blockCount).Uint32("frameSize", frameSize).Uint32("retireMs", retireTov).Msg("Setting up TPACKET_V3")
@@ -1299,8 +1335,8 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 	binary.BigEndian.PutUint16(packet[10:], ^uint16(ipSum))
 
 	// Set variable TCP fields
-	binary.BigEndian.PutUint16(packet[20:], srcPort)       // src port
-	binary.BigEndian.PutUint16(packet[22:], destPort)      // dst port
+	binary.BigEndian.PutUint16(packet[20:], srcPort)        // src port
+	binary.BigEndian.PutUint16(packet[22:], destPort)       // dst port
 	binary.BigEndian.PutUint32(packet[24:], s.randUint32()) // seq
 
 	// Calculate and set TCP checksum inline for hot path optimization
@@ -1959,7 +1995,9 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	// Use reverse index for O(k) lookup and dedupe to avoid double release.
 	ports := s.targetPorts[targetKey]
 	uniq := make(map[uint16]struct{}, len(ports))
+
 	delete(s.targetPorts, targetKey)
+
 	for _, sp := range ports {
 		if _, seen := uniq[sp]; seen {
 			continue
@@ -1967,6 +2005,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 		uniq[sp] = struct{}{}
 		delete(s.portTargetMap, sp)
 	}
+
 	for sp := range uniq {
 		toFree = append(toFree, sp)
 	}
@@ -2043,6 +2082,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		// Update port exhaustion counter
 		atomic.AddUint64(&s.stats.PortExhaustion, 1)
 		s.logger.Debug().Err(err).Str("host", target.Host).Msg("No source port available")
+
 		return
 	}
 
@@ -2095,6 +2135,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 
 	// Record deadline for reaper instead of per-port timer
 	deadline := time.Now().Add(s.timeout + grace)
+
 	s.mu.Lock()
 	s.portDeadline[srcPort] = deadline
 	s.mu.Unlock()
@@ -2332,6 +2373,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 
 		// Hard error: release the remaining unsent src ports and drop mappings
 		s.logger.Debug().Err(err).Int("remaining", len(hdrs)-off).Msg("sendmmsg failed; releasing unsent ports")
+
 		break
 	}
 
@@ -2357,6 +2399,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		s.mu.Unlock()
 
 		s.portAlloc.Release(sp)
+
 		atomic.AddUint64(&s.stats.PortsReleased, 1)
 	}
 }
@@ -2667,9 +2710,11 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 		// We can use 10000-19999 or similar
 		scanStart := uint16(10000)
 		scanEnd := sysStart - 1
+
 		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
 			// Check if this range is reserved
 			rangeReserved := true
+
 			for p := scanStart; p <= scanEnd && p <= scanStart+100; p++ { // Sample check
 				if _, ok := reserved[p]; !ok {
 					rangeReserved = false
@@ -2692,7 +2737,8 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 	// Option 2: Use ports above the system range (if there's enough space)
 	if sysEnd < 60000 {
 		scanStart := sysEnd + 1
-		scanEnd := uint16(65000)       // Leave some ports at the top
+		scanEnd := uint16(65000) // Leave some ports at the top
+
 		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
 			// Check if this range is reserved
 			rangeReserved := true
@@ -2741,7 +2787,9 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 // largestContiguous finds the largest contiguous block of reserved ports in the range [lo, hi]
 func largestContiguous(res map[uint16]struct{}, lo, hi uint16) (uint16, uint16, bool) {
 	var bestLo, bestHi uint16
+
 	found, inRun := false, false
+
 	var curLo, curHi uint16
 
 	for pi := int(lo); pi <= int(hi); pi++ {
@@ -2751,14 +2799,17 @@ func largestContiguous(res map[uint16]struct{}, lo, hi uint16) (uint16, uint16, 
 				curLo = p
 				inRun = true
 			}
+
 			curHi = p
 		} else if inRun {
 			if !found || int(curHi-curLo) > int(bestHi-bestLo) {
 				bestLo, bestHi, found = curLo, curHi, true
 			}
+
 			inRun = false
 		}
 	}
+
 	if inRun && (!found || int(curHi-curLo) > int(bestHi-bestLo)) {
 		bestLo, bestHi, found = curLo, curHi, true
 	}
