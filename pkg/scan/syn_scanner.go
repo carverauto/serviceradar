@@ -815,8 +815,15 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		scanPortStart = defaultEphemeralPortStart
 		scanPortEnd = defaultEphemeralPortEnd
 	}
-	log.Debug().Uint16("scanPortStart", scanPortStart).Uint16("scanPortEnd", scanPortEnd).
-		Msg("Using port range for scanning")
+	// Log at Info level if non-default range chosen (ops folks want to see the actual window)
+	if scanPortStart != defaultEphemeralPortStart || scanPortEnd != defaultEphemeralPortEnd {
+		log.Info().Uint16("start", scanPortStart).Uint16("end", scanPortEnd).
+			Int("windowSize", int(scanPortEnd-scanPortStart+1)).
+			Msg("Scanner using dynamically selected port range")
+	} else {
+		log.Debug().Uint16("scanPortStart", scanPortStart).Uint16("scanPortEnd", scanPortEnd).
+			Msg("Using default port range for scanning")
+	}
 
 	log.Debug().Msg("Setting up ring buffers")
 
