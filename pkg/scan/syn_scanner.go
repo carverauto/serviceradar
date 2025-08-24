@@ -104,6 +104,11 @@ const (
 	defaultFrameSize   = 2048    // alignment hint
 	defaultRetireTovMs = 10      // flush block to user within 10ms (configurable via env or constructor)
 
+	// Memory limits to prevent excessive allocation on large SMP systems
+	maxRingMemoryMB = 64               // Maximum total ring buffer memory in MB
+	maxBlockSize    = 8 << 20          // Maximum block size: 8 MiB
+	maxBlockCount   = 32               // Maximum number of blocks
+
 	// tpacket v3 block ownership
 	tpStatusUser = 1 // TP_STATUS_USER
 
@@ -114,6 +119,104 @@ const (
 	// Size of the retry queue channel (enough for large scans with a couple of attempts).
 	retryQueueSize = 1 << 17 // 131072
 )
+
+// ScannerStats holds performance and diagnostic counters
+type ScannerStats struct {
+	// Packet statistics
+	PacketsSent    uint64 // Total SYN packets sent
+	PacketsRecv    uint64 // Total packets received (SYN-ACK, RST, etc.)
+	PacketsDropped uint64 // Packets dropped by kernel (ring buffer full)
+	
+	// Ring buffer statistics  
+	RingBlocksProcessed uint64 // TPACKET_V3 blocks processed
+	RingBlocksDropped   uint64 // TPACKET_V3 blocks lost due to buffer overruns
+	
+	// Retry statistics
+	RetriesAttempted  uint64 // Number of retry attempts made
+	RetriesSuccessful uint64 // Number of successful retries
+	
+	// Port allocation statistics
+	PortsAllocated   uint64 // Total port allocations
+	PortsReleased    uint64 // Total port releases
+	PortExhaustion   uint64 // Number of times port allocator was exhausted
+	
+	// Rate limiting statistics  
+	RateLimitDropped uint64 // Packets dropped due to rate limiting
+	
+	// Timing statistics (in nanoseconds, for precision)
+	LastStatsReset int64 // Timestamp of last stats reset (UnixNano)
+}
+
+// GetStats returns a snapshot of scanner performance statistics
+// Safe to call concurrently during scans
+func (s *SYNScanner) GetStats() ScannerStats {
+	// Use atomic loads to ensure consistent snapshot
+	return ScannerStats{
+		PacketsSent:         atomic.LoadUint64(&s.stats.PacketsSent),
+		PacketsRecv:         atomic.LoadUint64(&s.stats.PacketsRecv),
+		PacketsDropped:      atomic.LoadUint64(&s.stats.PacketsDropped),
+		RingBlocksProcessed: atomic.LoadUint64(&s.stats.RingBlocksProcessed),
+		RingBlocksDropped:   atomic.LoadUint64(&s.stats.RingBlocksDropped),
+		RetriesAttempted:    atomic.LoadUint64(&s.stats.RetriesAttempted),
+		RetriesSuccessful:   atomic.LoadUint64(&s.stats.RetriesSuccessful),
+		PortsAllocated:      atomic.LoadUint64(&s.stats.PortsAllocated),
+		PortsReleased:       atomic.LoadUint64(&s.stats.PortsReleased),
+		PortExhaustion:      atomic.LoadUint64(&s.stats.PortExhaustion),
+		RateLimitDropped:    atomic.LoadUint64(&s.stats.RateLimitDropped),
+		LastStatsReset:      atomic.LoadInt64(&s.stats.LastStatsReset),
+	}
+}
+
+// ResetStats clears all performance counters and updates the reset timestamp
+func (s *SYNScanner) ResetStats() {
+	atomic.StoreUint64(&s.stats.PacketsSent, 0)
+	atomic.StoreUint64(&s.stats.PacketsRecv, 0)
+	atomic.StoreUint64(&s.stats.PacketsDropped, 0)
+	atomic.StoreUint64(&s.stats.RingBlocksProcessed, 0)
+	atomic.StoreUint64(&s.stats.RingBlocksDropped, 0)
+	atomic.StoreUint64(&s.stats.RetriesAttempted, 0)
+	atomic.StoreUint64(&s.stats.RetriesSuccessful, 0)
+	atomic.StoreUint64(&s.stats.PortsAllocated, 0)
+	atomic.StoreUint64(&s.stats.PortsReleased, 0)
+	atomic.StoreUint64(&s.stats.PortExhaustion, 0)
+	atomic.StoreUint64(&s.stats.RateLimitDropped, 0)
+	atomic.StoreInt64(&s.stats.LastStatsReset, time.Now().UnixNano())
+}
+
+// logTelemetry periodically logs scanner performance statistics 
+// to detect silent performance regressions
+func (s *SYNScanner) logTelemetry(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second) // Log every 30s during active scans
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			stats := s.GetStats()
+			
+			// Only log if there's been activity
+			if stats.PacketsSent > 0 || stats.PacketsRecv > 0 {
+				dropRate := float64(0)
+				if stats.PacketsSent > 0 {
+					dropRate = float64(stats.PacketsDropped) / float64(stats.PacketsSent) * 100
+				}
+				
+				s.logger.Info().
+					Uint64("packets_sent", stats.PacketsSent).
+					Uint64("packets_recv", stats.PacketsRecv).
+					Uint64("packets_dropped", stats.PacketsDropped).
+					Float64("drop_rate_percent", dropRate).
+					Uint64("ring_blocks_processed", stats.RingBlocksProcessed).
+					Uint64("retries_attempted", stats.RetriesAttempted).
+					Uint64("ports_allocated", stats.PortsAllocated).
+					Uint64("rate_limit_dropped", stats.RateLimitDropped).
+					Msg("SYN scanner telemetry")
+			}
+		}
+	}
+}
 
 // u32ptr gets a pointer to a uint32 at a specific offset in a byte slice.
 // mmap'd memory is shared; use atomics to enforce ordering with the kernel.
@@ -295,6 +398,9 @@ type SYNScanner struct {
 	// Thread-safe random source for IP ID generation
 	randMu sync.Mutex
 	rand   *rand.Rand
+
+	// Observability counters for performance monitoring
+	stats ScannerStats
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -324,6 +430,18 @@ type SYNScannerOptions struct {
 	// RingFrameSize is the frame size hint for packet alignment
 	// If 0, defaults to defaultFrameSize (2048 bytes)
 	RingFrameSize uint32
+
+	// Interface specifies which network interface to use for scanning
+	// If empty, the interface will be auto-detected based on routing table
+	// Examples: "eth0", "wlan0", "enp0s3"
+	// Useful for multi-homed hosts or container environments
+	Interface string
+
+	// NAT/Firewall options for advanced environments
+	// SuppressRSTReply can be set to true to avoid generating RST packets
+	// This helps in environments where firewall rules might interfere
+	// Note: This is optional and most environments don't need it
+	SuppressRSTReply bool
 }
 
 // batchArrays holds reusable arrays for sendmmsg batching
@@ -913,6 +1031,34 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			if opts.RingFrameSize > 0 {
 				frameSize = opts.RingFrameSize
 			}
+		}
+
+		// Apply memory limits to prevent excessive allocation
+		originalBlockSize := blockSize
+		originalBlockCount := blockCount
+		
+		if blockSize > maxBlockSize {
+			blockSize = maxBlockSize
+		}
+		if blockCount > maxBlockCount {
+			blockCount = maxBlockCount
+		}
+		
+		// Ensure total memory doesn't exceed limit
+		totalMemoryMB := (blockSize * blockCount) / (1024 * 1024)
+		if totalMemoryMB > maxRingMemoryMB {
+			// Proportionally reduce block count to fit within memory limit
+			blockCount = uint32((maxRingMemoryMB * 1024 * 1024) / blockSize)
+			if blockCount < 1 {
+				blockCount = 1
+			}
+			log.Info().
+				Uint32("originalBlockSize", originalBlockSize).
+				Uint32("originalBlockCount", originalBlockCount).
+				Uint32("clampedBlockSize", blockSize).
+				Uint32("clampedBlockCount", blockCount).
+				Uint32("totalMemoryMB", (blockSize*blockCount)/(1024*1024)).
+				Msg("Clamped ring buffer memory to prevent excessive allocation")
 		}
 
 		log.Debug().Uint32("blockSize", blockSize).Uint32("blockCount", blockCount).Uint32("frameSize", frameSize).Uint32("retireMs", retireTov).Msg("Setting up TPACKET_V3")
