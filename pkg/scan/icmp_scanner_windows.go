@@ -305,9 +305,9 @@ func (s *ICMPSweeper) recordInitialResult(target models.Target) {
 		LastSeen:   now,
 		PacketLoss: 100,
 	}
-	s.emitResult(target.Host, result)
+	s.emitResult(target.Host, &result)
 
-	fmt.Println(s.results[target.Host])
+	// no-op
 }
 
 const (
@@ -412,7 +412,7 @@ func (s *ICMPSweeper) processReply(reply struct {
 		result.RespTime = time.Since(result.FirstSeen)
 		result.PacketLoss = 0
 		result.LastSeen = time.Now()
-		s.emitResult(ip, result)
+		s.emitResult(ip, &result)
 	}
 
 	return nil
@@ -449,15 +449,14 @@ func (s *ICMPSweeper) SetResultCallback(callback func(models.Result)) {
 }
 
 // emitResult stores the result and immediately calls the callback if available and result is definitive
-func (s *ICMPSweeper) emitResult(host string, result models.Result) {
-	s.results[host] = result
+func (s *ICMPSweeper) emitResult(host string, result *models.Result) {
+	s.results[host] = *result
 	
 	// Emit immediately if callback is set and result is definitive (Available=true or has Error)
 	if s.resultCallback != nil && (result.Available || result.Error != nil) {
-		// Call callback without holding the lock to avoid potential deadlocks
-		callback := s.resultCallback
-		resultCopy := result
-		go callback(resultCopy)
+		cb := s.resultCallback
+		res := *result
+		go cb(res)
 	}
 }
 
