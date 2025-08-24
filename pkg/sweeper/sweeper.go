@@ -83,6 +83,10 @@ var (
 const (
 	defaultTotalTargetLimitPercentage = 10
 	defaultEffectiveConcurrency       = 5
+	
+	// Concurrency upper bounds to prevent resource exhaustion
+	maxSYNConcurrency     = 2048  // SYN scanning can handle higher concurrency efficiently  
+	maxConnectConcurrency = 500   // TCP connect() is more resource intensive
 )
 
 // NewNetworkSweeper creates a new scanner for network sweeping.
@@ -166,7 +170,7 @@ func needsICMPScanning(config *models.Config) bool {
 
 // initializeTCPScanner creates and configures the TCP scanner with graceful fallback
 func initializeTCPScanner(config *models.Config, log logger.Logger) (scan.Scanner, error) {
-	effectiveConcurrency := calculateEffectiveConcurrency(config, log)
+	baseConcurrency := calculateEffectiveConcurrency(config, log)
 
 	// Try SYN scanner first for optimal performance
 	opts := &scan.SYNScannerOptions{}
@@ -183,12 +187,43 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) (scan.Scanne
 		log.Debug().Str("route_discovery_host", config.TCPSettings.RouteDiscoveryHost).Msg("Using configured route discovery host for local IP detection")
 	}
 	
+	// Configure ring buffer settings if specified
+	// Note: These will be clamped to safe limits automatically
+	if config.TCPSettings.RingBlockSize > 0 {
+		opts.RingBlockSize = uint32(config.TCPSettings.RingBlockSize)
+		log.Debug().Uint32("ring_block_size", opts.RingBlockSize).Msg("Using configured ring buffer block size")
+	}
+	if config.TCPSettings.RingBlockCount > 0 {
+		opts.RingBlockCount = uint32(config.TCPSettings.RingBlockCount)
+		log.Debug().Uint32("ring_block_count", opts.RingBlockCount).Msg("Using configured ring buffer block count")
+	}
+	
+	// Configure network interface for multi-homed hosts
+	if config.TCPSettings.Interface != "" {
+		opts.Interface = config.TCPSettings.Interface
+		log.Debug().Str("interface", opts.Interface).Msg("Using configured network interface")
+	}
+	
+	// Configure NAT/firewall compatibility options
+	if config.TCPSettings.SuppressRSTReply {
+		opts.SuppressRSTReply = true
+		log.Debug().Msg("RST reply suppression enabled for firewall compatibility")
+	}
+	
 	// Note: RateLimit can be set here too if needed in the future
 	// opts.RateLimit = config.TCPSettings.RateLimit
 
-	synScanner, err := scan.NewSYNScannerWithOptions(config.Timeout, effectiveConcurrency, log, opts)
+	// Apply SYN concurrency upper bound
+	synConcurrency := baseConcurrency
+	if synConcurrency > maxSYNConcurrency {
+		synConcurrency = maxSYNConcurrency
+		log.Info().Int("originalConcurrency", baseConcurrency).Int("clampedConcurrency", synConcurrency).
+			Msg("Clamped SYN scanner concurrency to prevent resource exhaustion")
+	}
+
+	synScanner, err := scan.NewSYNScannerWithOptions(config.Timeout, synConcurrency, log, opts)
 	if err == nil {
-		log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
+		log.Info().Int("concurrency", synConcurrency).Msg("Using SYN scanning for improved TCP port detection performance")
 		return synScanner, nil
 	}
 
@@ -196,8 +231,16 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) (scan.Scanne
 	// Gracefully fall back to TCP connect() scanner
 	log.Warn().Err(err).Msg("SYN scanner unavailable; falling back to TCP connect() scanner")
 	
-	tcpScanner := scan.NewTCPSweeper(config.Timeout, effectiveConcurrency, log)
-	log.Info().Msg("Using TCP connect() scanning (slower but more compatible)")
+	// Apply connect scanner concurrency upper bound (more restrictive)
+	connectConcurrency := baseConcurrency
+	if connectConcurrency > maxConnectConcurrency {
+		connectConcurrency = maxConnectConcurrency
+		log.Info().Int("originalConcurrency", baseConcurrency).Int("clampedConcurrency", connectConcurrency).
+			Msg("Clamped TCP connect scanner concurrency to prevent resource exhaustion")
+	}
+	
+	tcpScanner := scan.NewTCPSweeper(config.Timeout, connectConcurrency, log)
+	log.Info().Int("concurrency", connectConcurrency).Msg("Using TCP connect() scanning (slower but more compatible)")
 	
 	return tcpScanner, nil
 }
@@ -791,11 +834,25 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			Timeout            time.Duration
 			MaxBatch           int
 			RouteDiscoveryHost string `json:"route_discovery_host,omitempty"`
+			
+			// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
+			RingBlockSize  int `json:"ring_block_size,omitempty"`  // Block size in bytes (default: 1MB, max: 8MB)
+			RingBlockCount int `json:"ring_block_count,omitempty"` // Number of blocks (default: 8, max: 32, total max: 64MB)
+			
+			// Network interface selection for multi-homed hosts
+			Interface string `json:"interface,omitempty"` // Network interface (e.g., "eth0", "wlan0") - auto-detected if empty
+			
+			// Advanced NAT/firewall compatibility options
+			SuppressRSTReply bool `json:"suppress_rst_reply,omitempty"` // Suppress RST packet generation (optional)
 		}{
 			Concurrency:        temp.TCPSettings.Concurrency,
 			Timeout:            time.Duration(temp.TCPSettings.Timeout),
 			MaxBatch:           temp.TCPSettings.MaxBatch,
 			RouteDiscoveryHost: temp.TCPSettings.RouteDiscoveryHost,
+			RingBlockSize:      temp.TCPSettings.RingBlockSize,
+			RingBlockCount:     temp.TCPSettings.RingBlockCount,
+			Interface:          temp.TCPSettings.Interface,
+			SuppressRSTReply:   temp.TCPSettings.SuppressRSTReply,
 		},
 		EnableHighPerformanceICMP: temp.EnableHighPerformanceICMP,
 		ICMPRateLimit:             temp.ICMPRateLimit,

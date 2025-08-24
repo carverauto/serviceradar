@@ -41,6 +41,17 @@ type SYNScannerOptions struct {
 	RateLimitBurst int
 	// RouteDiscoveryHost is the target address for local IP discovery
 	RouteDiscoveryHost string
+
+	// Ring buffer tuning options (not used in stub but kept for API compatibility)
+	RingBlockSize  uint32
+	RingBlockCount uint32
+	RingFrameSize  uint32
+
+	// Interface selection (not used in stub but kept for API compatibility)
+	Interface string
+
+	// NAT/Firewall options (not used in stub but kept for API compatibility)
+	SuppressRSTReply bool
 }
 
 var _ Scanner = (*SYNScanner)(nil)
