@@ -1370,7 +1370,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		portAlloc:      NewPortAllocator(scanPortStart, scanPortEnd),
 		scanPortStart:  scanPortStart,
 		scanPortEnd:    scanPortEnd,
-		retryAttempts:  2,
+		retryAttempts:  1,
 		retryMinJitter: 20 * time.Millisecond,
 		retryMaxJitter: 40 * time.Millisecond,
 		sendBatchSize:  batchSize,
@@ -1485,6 +1485,15 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 	// Initialize LastStatsReset so first telemetry log has meaningful baseline
 	scanner.ResetStats()
+
+	log.Info().
+		Dur("tcp_timeout", scanner.timeout).
+		Uint16("scanPortStart", scanner.scanPortStart).
+		Uint16("scanPortEnd", scanner.scanPortEnd).
+		Int("windowSize", int(scanner.scanPortEnd - scanner.scanPortStart + 1)).
+		Int("rateLimitPPS", rateLimitPPS).
+		Int("rateLimitBurst", rateLimitBurst).
+		Msg("SYN scanner configuration")
 
 	return scanner, nil
 }
