@@ -970,6 +970,8 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 	log.Debug().Msg("Setting up ring buffers")
 
 	// Build NumCPU ring readers with BPF + FANOUT
+	// Setup order: open → fanout → BPF → TPACKET_V3 → mmap
+	// This order is preferred by most codebases and avoids potential PACKET_RX_RING EINVAL issues.
 	fanoutGroup := (os.Getpid() * 131) & 0xFFFF
 
 	n := runtime.NumCPU()
@@ -996,6 +998,23 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		}
 
 		log.Debug().Int("fd", fd).Msg("Sniffer opened successfully")
+		
+		log.Debug().Int("fanoutGroup", fanoutGroup).Msg("Enabling packet fanout")
+		if err := enableFanout(fd, fanoutGroup); err != nil {
+			log.Error().Err(err).Msg("Failed to enable packet fanout")
+			_ = unix.Close(fd)
+
+			for _, r := range rings {
+				_ = unix.Munmap(r.mem)
+				_ = unix.Close(r.fd)
+			}
+
+			syscall.Close(sendSocket)
+
+			return nil, fmt.Errorf("enableFanout failed: %w", err)
+		}
+
+		log.Debug().Msg("Packet fanout enabled successfully")
 		log.Debug().Msg("Attaching BPF filter")
 
 		if err := attachBPF(fd, sourceIP, scanPortStart, scanPortEnd); err != nil {
@@ -1014,23 +1033,6 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		}
 
 		log.Debug().Msg("BPF filter attached successfully")
-
-		log.Debug().Int("fanoutGroup", fanoutGroup).Msg("Enabling packet fanout")
-		if err := enableFanout(fd, fanoutGroup); err != nil {
-			log.Error().Err(err).Msg("Failed to enable packet fanout")
-			_ = unix.Close(fd)
-
-			for _, r := range rings {
-				_ = unix.Munmap(r.mem)
-				_ = unix.Close(r.fd)
-			}
-
-			syscall.Close(sendSocket)
-
-			return nil, fmt.Errorf("enableFanout failed: %w", err)
-		}
-
-		log.Debug().Msg("Packet fanout enabled successfully")
 		retireTov := getRetireTovMs()
 
 		// Use ring buffer options from SYNScannerOptions or defaults
