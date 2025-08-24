@@ -2326,7 +2326,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	}
 
 	packet := s.buildSynPacketFromTemplate(s.sourceIP, destIP, srcPort, uint16(target.Port)) //nolint:gosec
-	addr := syscall.SockaddrInet4{Port: target.Port}
+	addr := syscall.SockaddrInet4{Port: 0} // ignored by kernel for raw sockets with IP_HDRINCL
 
 	copy(addr.Addr[:], destIP)
 
@@ -2516,7 +2516,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		// sockaddr_in
 		addrs[i] = unix.RawSockaddrInet4{
 			Family: unix.AF_INET,
-			Port:   htons(uint16(entries[i].tgt.Port)), // kernel expects network byte order
+			Port:   0, // ignored by kernel for raw sockets with IP_HDRINCL
 			Addr:   entries[i].dst4,
 		}
 
