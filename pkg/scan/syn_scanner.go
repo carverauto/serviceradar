@@ -201,17 +201,12 @@ func (s *SYNScanner) sampleKernelStats() {
 			continue
 		}
 		
-		// Define tpacket_stats struct matching kernel layout
-		type tpacketStats struct {
-			Recv, Drop, Freeze uint32
-		}
-		var st tpacketStats
-		
 		// getsockopt(SOL_PACKET, PACKET_STATISTICS) resets counters on read
-		if err := unix.GetsockoptTpacketStats(ring.fd, unix.SOL_PACKET, unix.PACKET_STATISTICS, (*unix.TpacketStats)(unsafe.Pointer(&st))); err == nil {
+		stats, err := unix.GetsockoptTpacketStats(ring.fd, unix.SOL_PACKET, unix.PACKET_STATISTICS)
+		if err == nil {
 			// Add kernel counters to our stats (these are incremental since last read)
-			atomic.AddUint64(&s.stats.PacketsDropped, uint64(st.Drop))
-			atomic.AddUint64(&s.stats.RingBlocksDropped, uint64(st.Drop)) // Use drop count for blocks as well
+			atomic.AddUint64(&s.stats.PacketsDropped, uint64(stats.Drops))
+			atomic.AddUint64(&s.stats.RingBlocksDropped, uint64(stats.Drops)) // Use drop count for blocks as well
 		}
 	}
 }

@@ -106,6 +106,10 @@ func NewLoggerImpl(ctx context.Context, config *logger.Config) (*LoggerImpl, err
 	return &LoggerImpl{logger: zlog}, nil
 }
 
+func (l *LoggerImpl) Trace() *zerolog.Event {
+	return l.logger.Trace()
+}
+
 func (l *LoggerImpl) Debug() *zerolog.Event {
 	return l.logger.Debug()
 }

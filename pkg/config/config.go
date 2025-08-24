@@ -82,6 +82,10 @@ func createBasicLogger() logger.Logger {
 	return &basicLogger{logger: zlog}
 }
 
+func (b *basicLogger) Trace() *zerolog.Event {
+	return b.logger.Trace()
+}
+
 func (b *basicLogger) Debug() *zerolog.Event {
 	return b.logger.Debug()
 }
