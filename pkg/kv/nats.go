@@ -224,6 +224,7 @@ func (n *NATSStore) handleWatchWithReconnect(ctx context.Context, key string, ch
 // Returns true if context was canceled, false if watcher closed unexpectedly
 func (n *NATSStore) attemptWatch(ctx context.Context, key string, ch chan<- []byte, backoff *time.Duration) bool {
 	const initialBackoff = 1 * time.Second
+
 	watcher, err := n.kv.Watch(ctx, key)
 	if err != nil {
 		log.Printf("Failed to create watch for key %s: %v", key, err)
@@ -237,6 +238,7 @@ func (n *NATSStore) attemptWatch(ctx context.Context, key string, ch chan<- []by
 	}()
 
 	log.Printf("Established watch for key %s", key)
+
 	*backoff = initialBackoff // Reset backoff on successful connection
 
 	for {
@@ -259,27 +261,6 @@ func (n *NATSStore) attemptWatch(ctx context.Context, key string, ch chan<- []by
 		}
 
 		log.Printf("Successfully sent watch update for key %s (length: %d bytes)", key, len(update.Value()))
-	}
-}
-
-func (n *NATSStore) handleWatchUpdates(ctx context.Context, key string, watcher jetstream.KeyWatcher, ch chan<- []byte) {
-	defer func() {
-		if err := watcher.Stop(); err != nil {
-			log.Printf("failed to stop watcher for key %s: %v", key, err)
-		}
-
-		close(ch)
-	}()
-
-	for {
-		update := n.waitForUpdate(ctx, watcher)
-		if update == nil {
-			return
-		}
-
-		if !n.sendUpdate(ctx, ch, update.Value()) {
-			return
-		}
 	}
 }
 
