@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +35,12 @@ const (
 	defaultInterval      = 5 * time.Minute
 	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
 	defaultResultTimeout = 500 * time.Millisecond
+	
+	// KV Watch auto-reconnect parameters
+	kvWatchInitialBackoff = 1 * time.Second
+	kvWatchMaxBackoff     = 5 * time.Minute
+	kvWatchBackoffFactor  = 2.0
+	kvWatchJitterFactor   = 0.1 // 10% jitter
 )
 
 // DeviceRegistryService interface for device registry operations
@@ -565,67 +573,163 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 }
 
 // watchConfigWithInitialSignal watches the KV store for config updates and signals when first config is received.
+// Implements auto-reconnect with exponential backoff and jitter to handle spurious channel closures.
 func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, configReady chan<- struct{}) {
 	defer close(s.watchDone)
 
 	if s.kvStore == nil {
 		s.logger.Debug().Msg("No KV store configured, skipping config watch")
 		close(configReady) // Signal immediately since there's no KV config to wait for
-
 		return
 	}
 
-	ch, err := s.kvStore.Watch(ctx, s.configKey)
-	if err != nil {
-		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to watch KV key")
-		close(configReady) // Signal to proceed with file config
-
-		return
-	}
-
-	s.logger.Info().Str("configKey", s.configKey).Msg("Watching KV key for config updates")
-
+	s.logger.Info().Str("configKey", s.configKey).Msg("Starting KV watch with auto-reconnect")
+	
 	initialConfigReceived := false
-
+	backoff := kvWatchInitialBackoff
+	
+	// Auto-reconnect loop with exponential backoff and jitter
 	for {
 		select {
 		case <-ctx.Done():
 			s.logger.Debug().Msg("Context canceled, stopping config watch")
-
 			if !initialConfigReceived {
 				close(configReady)
 			}
-
 			return
 		case <-s.done:
 			s.logger.Debug().Msg("Sweep service closed, stopping config watch")
-
 			if !initialConfigReceived {
 				close(configReady)
 			}
-
 			return
-		case value, ok := <-ch:
-			if !ok {
-				s.logger.Debug().Str("configKey", s.configKey).Msg("Watch channel closed for key")
-
+		default:
+			// Continue to establish/re-establish watch
+		}
+		
+		// Establish watch connection
+		watchResult := s.performKVWatch(ctx, &initialConfigReceived, configReady)
+		
+		// If watch returned due to context cancellation or sweeper shutdown, exit
+		if watchResult == watchResultCanceled {
+			return
+		}
+		
+		// If this was an error establishing the watch, exit (no retry for connection failures)
+		if watchResult == watchResultError {
+			return
+		}
+		
+		// If this was a channel closure, implement backoff before retrying
+		if watchResult == watchResultChannelClosed {
+			// Reset backoff on successful initial config to avoid long delays on subsequent reconnects
+			if initialConfigReceived {
+				backoff = kvWatchInitialBackoff
+			}
+			
+			// Add jitter to prevent thundering herd
+			jitterDelay := s.addJitter(backoff)
+			
+			s.logger.Info().
+				Dur("delay", jitterDelay).
+				Dur("baseBackoff", backoff).
+				Msg("KV watch channel closed, retrying after backoff")
+			
+			// Wait for backoff duration or context cancellation
+			select {
+			case <-ctx.Done():
+				s.logger.Debug().Msg("Context canceled during backoff, stopping config watch")
 				if !initialConfigReceived {
 					close(configReady)
 				}
-
 				return
+			case <-s.done:
+				s.logger.Debug().Msg("Sweep service closed during backoff, stopping config watch")
+				if !initialConfigReceived {
+					close(configReady)
+				}
+				return
+			case <-time.After(jitterDelay):
+				// Continue to next iteration
+			}
+			
+			// Exponentially increase backoff, capped at maximum
+			backoff = time.Duration(math.Min(
+				float64(backoff) * kvWatchBackoffFactor,
+				float64(kvWatchMaxBackoff),
+			))
+		}
+	}
+}
+
+// watchResult represents the outcome of a KV watch attempt
+type watchResult int
+
+const (
+	watchResultChannelClosed watchResult = iota
+	watchResultCanceled
+	watchResultError
+)
+
+// performKVWatch performs a single KV watch session and returns the reason it ended
+func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceived *bool, configReady chan<- struct{}) watchResult {
+	ch, err := s.kvStore.Watch(ctx, s.configKey)
+	if err != nil {
+		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to watch KV key")
+		// If we can't establish the watch and haven't received initial config, signal to proceed with file config
+		if !*initialConfigReceived {
+			close(configReady)
+		}
+		return watchResultError
+	}
+
+	s.logger.Debug().Str("configKey", s.configKey).Msg("KV watch established")
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Debug().Msg("Context canceled during watch")
+			if !*initialConfigReceived {
+				close(configReady)
+			}
+			return watchResultCanceled
+			
+		case <-s.done:
+			s.logger.Debug().Msg("Sweep service closed during watch")
+			if !*initialConfigReceived {
+				close(configReady)
+			}
+			return watchResultCanceled
+			
+		case value, ok := <-ch:
+			if !ok {
+				s.logger.Debug().Str("configKey", s.configKey).Msg("Watch channel closed, will retry")
+				return watchResultChannelClosed
 			}
 
 			s.processConfigUpdate(value)
 
 			// Signal that initial config has been received
-			if !initialConfigReceived {
-				initialConfigReceived = true
-
+			if !*initialConfigReceived {
+				*initialConfigReceived = true
 				close(configReady)
+				s.logger.Info().Str("configKey", s.configKey).Msg("Initial KV config received")
 			}
 		}
 	}
+}
+
+// addJitter adds random jitter to backoff duration to prevent thundering herd
+func (s *NetworkSweeper) addJitter(backoff time.Duration) time.Duration {
+	jitter := time.Duration(float64(backoff) * kvWatchJitterFactor * (rand.Float64() * 2 - 1))
+	jitteredBackoff := backoff + jitter
+	
+	// Ensure jittered backoff is positive
+	if jitteredBackoff < 0 {
+		jitteredBackoff = backoff
+	}
+	
+	return jitteredBackoff
 }
 
 // processConfigUpdate processes a config update from the KV store.
