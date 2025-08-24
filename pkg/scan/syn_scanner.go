@@ -43,40 +43,9 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-const SYS_SENDMMSG = unix.SYS_SENDMMSG
-
-// Mmsghdr represents the Linux mmsghdr structure for sendmmsg
-type Mmsghdr struct {
-	Hdr    unix.Msghdr
-	MsgLen uint32
-	_      uint32 // required padding on amd64 so sizeof matches C's struct mmsghdr
-}
-
-// Sendmmsg sends multiple messages on a socket using the sendmmsg syscall
-func Sendmmsg(fd int, msgs []Mmsghdr, flags int) (int, error) {
-	if len(msgs) == 0 {
-		return 0, nil
-	}
-
-	// Use the sendmmsg syscall directly - available in Linux kernel 3.0+
-	n, _, errno := syscall.RawSyscall6(
-		SYS_SENDMMSG,
-		uintptr(fd),
-		uintptr(unsafe.Pointer(&msgs[0])),
-		uintptr(len(msgs)),
-		uintptr(flags),
-		0,
-		0,
-	)
-
-	runtime.KeepAlive(msgs)
-
-	if errno != 0 {
-		return int(n), errno
-	}
-
-	return int(n), nil
-}
+// Using architecture-specific sendmmsg implementation and Mmsghdr struct
+// This ensures correct ABI/struct layout across all supported architectures
+// Definitions are provided in separate files with build tags for each architecture
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
@@ -323,7 +292,7 @@ type SYNScannerOptions struct {
 	// If 0, defaults to RateLimit
 	RateLimitBurst int
 	// RouteDiscoveryHost is the target address for local IP discovery
-	// If empty, defaults to "8.8.8.8:80" 
+	// If empty, defaults to "8.8.8.8:80"
 	RouteDiscoveryHost string
 }
 
@@ -732,7 +701,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 
 // NewSYNScannerWithOptions creates a new SYN scanner with custom options
 //
-// The scanner automatically detects a safe port range that doesn't conflict with 
+// The scanner automatically detects a safe port range that doesn't conflict with
 // the system's ephemeral ports or other local applications by reading:
 // - /proc/sys/net/ipv4/ip_local_port_range (system ephemeral range)
 // - /proc/sys/net/ipv4/ip_local_reserved_ports (reserved ports)
@@ -747,7 +716,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 //
 // Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
 func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger.Logger, opts *SYNScannerOptions) (*SYNScanner, error) {
-	log.Info().Msg("DEBUG: Starting SYN scanner initialization")
+	log.Debug().Msg("Starting SYN scanner initialization")
 
 	if timeout == 0 {
 		timeout = 1 * time.Second // SYN scans can be faster
@@ -757,7 +726,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		concurrency = 256 // Reasonable default to avoid port exhaustion
 	}
 
-	log.Info().Msg("DEBUG: Creating raw socket for sending")
+	log.Debug().Msg("Creating raw socket for sending")
 
 	// Create raw socket for sending packets with custom IP headers
 	sendSocket, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
@@ -765,8 +734,8 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		return nil, fmt.Errorf("cannot create raw send socket (requires root): %w", err)
 	}
 
-	log.Info().Int("socket", sendSocket).Msg("DEBUG: Raw socket created successfully")
-	log.Info().Msg("DEBUG: Setting IP_HDRINCL socket option")
+	log.Debug().Int("socket", sendSocket).Msg("Raw socket created successfully")
+	log.Debug().Msg("Setting IP_HDRINCL socket option")
 
 	if err = syscall.SetsockoptInt(sendSocket, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1); err != nil {
 		syscall.Close(sendSocket)
@@ -777,8 +746,8 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 	_ = unix.SetNonblock(sendSocket, true)
 	_ = syscall.SetsockoptInt(sendSocket, syscall.SOL_SOCKET, syscall.SO_SNDBUF, 8<<20) // 8MB send buffer
 
-	log.Info().Msg("DEBUG: IP_HDRINCL set successfully")
-	log.Info().Msg("DEBUG: Getting local IP and interface")
+	log.Debug().Msg("IP_HDRINCL set successfully")
+	log.Debug().Msg("Getting local IP and interface")
 
 	// Find a local IP and interface to use
 	var routeDiscoveryTarget string
@@ -788,14 +757,14 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 	} else {
 		routeDiscoveryTarget = "8.8.8.8:80"
 	}
-	
+
 	sourceIP, iface, err := getLocalIPAndInterfaceWithTarget(routeDiscoveryTarget)
 	if err != nil {
 		syscall.Close(sendSocket)
 		return nil, fmt.Errorf("failed to get local IP and interface: %w", err)
 	}
 
-	log.Info().Str("sourceIP", sourceIP.String()).Str("interface", iface).Msg("DEBUG: Local IP and interface found")
+	log.Debug().Str("sourceIP", sourceIP.String()).Str("interface", iface).Msg("Local IP and interface found")
 
 	sourceIP = sourceIP.To4()
 	if sourceIP == nil {
@@ -804,7 +773,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 	}
 
 	// Detect safe port range for scanning
-	log.Info().Msg("DEBUG: Detecting safe port range for scanning")
+	log.Debug().Msg("Detecting safe port range for scanning")
 	scanPortStart, scanPortEnd, err := findSafeScannerPortRange(log)
 	if err != nil {
 		// This shouldn't happen as findSafeScannerPortRange always returns something
@@ -813,26 +782,26 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		scanPortStart = defaultEphemeralPortStart
 		scanPortEnd = defaultEphemeralPortEnd
 	}
-	log.Info().Uint16("scanPortStart", scanPortStart).Uint16("scanPortEnd", scanPortEnd).
-		Msg("DEBUG: Using port range for scanning")
+	log.Debug().Uint16("scanPortStart", scanPortStart).Uint16("scanPortEnd", scanPortEnd).
+		Msg("Using port range for scanning")
 
-	log.Info().Msg("DEBUG: Setting up ring buffers")
+	log.Debug().Msg("Setting up ring buffers")
 
 	// Build NumCPU ring readers with BPF + FANOUT
 	fanoutGroup := (os.Getpid() * 131) & 0xFFFF
 
 	n := runtime.NumCPU()
-	log.Info().Int("numCPU", n).Int("fanoutGroup", fanoutGroup).Msg("DEBUG: Ring setup parameters")
+	log.Debug().Int("numCPU", n).Int("fanoutGroup", fanoutGroup).Msg("Ring setup parameters")
 
 	rings := make([]*ringBuf, 0, n)
 
 	for i := 0; i < n; i++ {
-		log.Info().Int("ringIndex", i).Msg("DEBUG: Creating ring buffer")
-		log.Info().Str("interface", iface).Msg("DEBUG: Opening sniffer on interface")
+		log.Debug().Int("ringIndex", i).Msg("Creating ring buffer")
+		log.Debug().Str("interface", iface).Msg("Opening sniffer on interface")
 
 		fd, err := openSnifferOnInterface(iface)
 		if err != nil {
-			log.Error().Err(err).Msg("DEBUG: Failed to open sniffer on interface")
+			log.Error().Err(err).Msg("Failed to open sniffer on interface")
 
 			for _, r := range rings {
 				_ = unix.Munmap(r.mem)
@@ -844,11 +813,11 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			return nil, fmt.Errorf("openSnifferOnInterface failed: %w", err)
 		}
 
-		log.Info().Int("fd", fd).Msg("DEBUG: Sniffer opened successfully")
-		log.Info().Msg("DEBUG: Attaching BPF filter")
+		log.Debug().Int("fd", fd).Msg("Sniffer opened successfully")
+		log.Debug().Msg("Attaching BPF filter")
 
 		if err := attachBPF(fd, sourceIP, scanPortStart, scanPortEnd); err != nil {
-			log.Error().Err(err).Msg("DEBUG: Failed to attach BPF filter")
+			log.Error().Err(err).Msg("Failed to attach BPF filter")
 
 			_ = unix.Close(fd)
 
@@ -862,11 +831,11 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			return nil, fmt.Errorf("BPF filter attachment failed: %w", err)
 		}
 
-		log.Info().Msg("DEBUG: BPF filter attached successfully")
+		log.Debug().Msg("BPF filter attached successfully")
 
-		log.Info().Int("fanoutGroup", fanoutGroup).Msg("DEBUG: Enabling packet fanout")
+		log.Debug().Int("fanoutGroup", fanoutGroup).Msg("Enabling packet fanout")
 		if err := enableFanout(fd, fanoutGroup); err != nil {
-			log.Error().Err(err).Msg("DEBUG: Failed to enable packet fanout")
+			log.Error().Err(err).Msg("Failed to enable packet fanout")
 			_ = unix.Close(fd)
 
 			for _, r := range rings {
@@ -879,13 +848,13 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			return nil, fmt.Errorf("enableFanout failed: %w", err)
 		}
 
-		log.Info().Msg("DEBUG: Packet fanout enabled successfully")
+		log.Debug().Msg("Packet fanout enabled successfully")
 		retireTov := getRetireTovMs()
-		log.Info().Uint32("blockSize", defaultBlockSize).Uint32("blockCount", defaultBlockCount).Uint32("frameSize", defaultFrameSize).Uint32("retireMs", retireTov).Msg("DEBUG: Setting up TPACKET_V3")
+		log.Debug().Uint32("blockSize", defaultBlockSize).Uint32("blockCount", defaultBlockCount).Uint32("frameSize", defaultFrameSize).Uint32("retireMs", retireTov).Msg("Setting up TPACKET_V3")
 
 		r, err := setupTPacketV3(fd, defaultBlockSize, defaultBlockCount, defaultFrameSize, retireTov)
 		if err != nil {
-			log.Error().Err(err).Msg("DEBUG: Failed to setup TPACKET_V3")
+			log.Error().Err(err).Msg("Failed to setup TPACKET_V3")
 			_ = unix.Close(fd)
 
 			for _, r := range rings {
@@ -898,15 +867,15 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			return nil, fmt.Errorf("setupTPacketV3 failed: %w", err)
 		}
 
-		log.Info().Msg("DEBUG: TPACKET_V3 setup successfully")
+		log.Debug().Msg("TPACKET_V3 setup successfully")
 
 		rings = append(rings, r)
 	}
 
-	log.Info().Int("ringCount", len(rings)).Msg("DEBUG: All ring buffers created successfully")
+	log.Debug().Int("ringCount", len(rings)).Msg("All ring buffers created successfully")
 
 	retireTov := getRetireTovMs()
-	log.Info().Uint32("retireTovMs", retireTov).Msg("DEBUG: Using configurable retire TOV")
+	log.Debug().Uint32("retireTovMs", retireTov).Msg("Using configurable retire TOV")
 
 	// Determine batch size from options, env var, or default
 	batchSize := defaultSendBatchSize
@@ -916,7 +885,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		// Fall back to env var if no option provided
 		batchSize = getSendBatchSize()
 	}
-	log.Info().Int("sendBatchSize", batchSize).Msg("DEBUG: Using configurable sendmmsg batch size")
+	log.Debug().Int("sendBatchSize", batchSize).Msg("Using configurable sendmmsg batch size")
 
 	scanner := &SYNScanner{
 		timeout:        timeout,
@@ -957,7 +926,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 
 	// Set rate limit from options or calculate safe default
 	var rateLimitPPS, rateLimitBurst int
-	
+
 	if opts != nil && opts.RateLimit > 0 {
 		// Use explicitly provided rate limit
 		rateLimitPPS = opts.RateLimit
@@ -973,7 +942,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			hold = 1 * time.Second
 		}
 		rateLimitPPS = int(float64(window) / hold.Seconds())
-		
+
 		// Apply reasonable bounds
 		if rateLimitPPS < 1000 {
 			rateLimitPPS = 1000 // minimum 1k pps
@@ -983,9 +952,9 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		}
 		rateLimitBurst = rateLimitPPS
 	}
-	
+
 	scanner.SetRateLimit(rateLimitPPS, rateLimitBurst)
-	log.Info().Int("rateLimit", rateLimitPPS).Int("burst", rateLimitBurst).Msg("DEBUG: Set rate limit to prevent port exhaustion")
+	log.Debug().Int("rateLimit", rateLimitPPS).Int("burst", rateLimitBurst).Msg("Set rate limit to prevent port exhaustion")
 
 	return scanner, nil
 }
@@ -1054,35 +1023,35 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 
 	// Calculate and set TCP checksum inline for hot path optimization
 	binary.BigEndian.PutUint16(packet[36:], 0) // clear checksum
-	
+
 	// Build pseudo-header inline to avoid allocation
 	tcpSum := uint32(0)
-	
+
 	// Add source IP (4 bytes as 2 uint16s)
 	src4 := srcIP.To4()
 	tcpSum += uint32(src4[0])<<8 | uint32(src4[1])
 	tcpSum += uint32(src4[2])<<8 | uint32(src4[3])
-	
+
 	// Add destination IP (4 bytes as 2 uint16s)
 	dst4 := destIP.To4()
 	tcpSum += uint32(dst4[0])<<8 | uint32(dst4[1])
 	tcpSum += uint32(dst4[2])<<8 | uint32(dst4[3])
-	
+
 	// Add protocol (TCP = 6) and TCP length (20 bytes)
 	tcpSum += uint32(syscall.IPPROTO_TCP)
 	tcpSum += 20 // TCP header length
-	
+
 	// Add TCP header (20 bytes as 10 uint16s)
 	tcpHdr := packet[20:40]
 	for i := 0; i < 20; i += 2 {
 		tcpSum += uint32(binary.BigEndian.Uint16(tcpHdr[i:]))
 	}
-	
+
 	// Fold carries
 	for (tcpSum >> 16) > 0 {
 		tcpSum = (tcpSum & 0xFFFF) + (tcpSum >> 16)
 	}
-	
+
 	binary.BigEndian.PutUint16(packet[36:], ^uint16(tcpSum))
 
 	return packet
@@ -1997,7 +1966,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 	off := 0
 
 	for off < len(hdrs) {
-		n, err := Sendmmsg(s.sendSocket, hdrs[off:], 0)
+		n, err := sendmmsg(s.sendSocket, hdrs[off:], 0)
 		if n > 0 {
 			off += n
 		}
@@ -2018,6 +1987,12 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		s.logger.Debug().Err(err).Int("remaining", len(hdrs)-off).Msg("sendmmsg failed; releasing unsent ports")
 		break
 	}
+
+	// Ensure GC liveness across the syscall
+	runtime.KeepAlive(hdrs)
+	runtime.KeepAlive(iovecs)
+	runtime.KeepAlive(addrs)
+	runtime.KeepAlive(entries)
 
 	// Release *unsent* ports immediately, since their SYN never left the machine.
 	// The AfterFunc will see the missing mapping and will not release a second time.
@@ -2192,14 +2167,14 @@ func readReservedPorts() map[uint16]struct{} {
 	if err != nil || len(b) == 0 {
 		return ports // return empty map if file doesn't exist or is empty
 	}
-	
+
 	// Parse comma-separated list of ports and ranges
 	for _, tok := range strings.Split(strings.TrimSpace(string(b)), ",") {
 		tok = strings.TrimSpace(tok)
 		if tok == "" {
 			continue
 		}
-		
+
 		if strings.Contains(tok, "-") {
 			// Handle range like "32768-61000"
 			var a, z int
@@ -2227,7 +2202,7 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 		fallbackStart = 32768
 		fallbackEnd   = 61000
 	)
-	
+
 	// Try to read system ephemeral range
 	sysStart, sysEnd, err := readLocalPortRange()
 	if err != nil {
@@ -2236,16 +2211,16 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 			Msg("WARNING: Using default range that may conflict with local applications!")
 		return fallbackStart, fallbackEnd, nil
 	}
-	
+
 	log.Info().Uint16("sysStart", sysStart).Uint16("sysEnd", sysEnd).
 		Msg("System ephemeral port range detected")
-	
+
 	// Read reserved ports
 	reserved := readReservedPorts()
-	
+
 	// Strategy: Find a range that doesn't overlap with system ephemeral range
 	// Prefer ranges that are marked as reserved (to prevent other apps from using them)
-	
+
 	// Option 1: Use ports below the system range (if there's enough space)
 	if sysStart > 20000 {
 		// We can use 10000-19999 or similar
@@ -2260,7 +2235,7 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 					break
 				}
 			}
-			
+
 			if !rangeReserved {
 				log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
 					Msg("WARNING: Scanner port range not reserved! Consider adding to ip_local_reserved_ports")
@@ -2271,11 +2246,11 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 			return scanStart, scanEnd, nil
 		}
 	}
-	
+
 	// Option 2: Use ports above the system range (if there's enough space)
 	if sysEnd < 60000 {
 		scanStart := sysEnd + 1
-		scanEnd := uint16(65000) // Leave some ports at the top
+		scanEnd := uint16(65000)       // Leave some ports at the top
 		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
 			// Check if this range is reserved
 			rangeReserved := true
@@ -2285,7 +2260,7 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 					break
 				}
 			}
-			
+
 			if !rangeReserved {
 				log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
 					Msg("WARNING: Scanner port range not reserved! Consider adding to ip_local_reserved_ports")
@@ -2296,7 +2271,7 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 			return scanStart, scanEnd, nil
 		}
 	}
-	
+
 	// Option 3: If we can't find a non-overlapping range, try to use reserved ports within the range
 	// This is less ideal but better than nothing
 	reservedInRange := 0
@@ -2305,18 +2280,18 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 			reservedInRange++
 		}
 	}
-	
+
 	if reservedInRange >= 5000 {
 		log.Warn().Uint16("start", sysStart).Uint16("end", sysEnd).Int("reserved", reservedInRange).
 			Msg("WARNING: Using system ephemeral range but with reserved ports")
 		return sysStart, sysEnd, nil
 	}
-	
+
 	// Last resort: Use the fallback range with a loud warning
 	log.Error().Uint16("start", fallbackStart).Uint16("end", fallbackEnd).
 		Msg("ERROR: Could not find safe port range! Using fallback that WILL conflict with local applications!")
 	log.Error().Msg("RECOMMENDATION: Reserve ports via 'echo 32768-61000 > /proc/sys/net/ipv4/ip_local_reserved_ports'")
-	
+
 	return fallbackStart, fallbackEnd, nil
 }
 
@@ -2328,7 +2303,7 @@ func getLocalIPAndInterfaceWithTarget(target string) (net.IP, string, error) {
 	if target == "" {
 		target = "8.8.8.8:80"
 	}
-	
+
 	conn, err := net.Dial("udp", target)
 	if err != nil {
 		// Fallback for environments without internet access or blocked targets
