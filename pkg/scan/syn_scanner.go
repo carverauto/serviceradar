@@ -1276,6 +1276,9 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 	// Start the coarse port cleanup reaper
 	scanner.startReaper()
 
+	// Initialize LastStatsReset so first telemetry log has meaningful baseline
+	scanner.ResetStats()
+
 	return scanner, nil
 }
 
