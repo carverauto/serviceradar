@@ -2755,46 +2755,36 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 		scanEnd := sysStart - 1
 
 		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
-			// Check if this range is reserved with better sampling and minimum density check
-			rangeReserved := true
 			rangeSize := int(scanEnd - scanStart + 1)
-			sampleSize := rangeSize / 20 // Sample 5% of the range
-			if sampleSize < 100 {
-				sampleSize = rangeSize // Sample all if range is small
+			samples := rangeSize / 20 // 5%
+			if samples < 100 {
+				samples = rangeSize // sample all if small
 			}
-			
+			if samples < 1 {
+				samples = 1
+			}
+
 			reservedCount := 0
-			sampleCount := 0
-			
-			for i := 0; i < sampleSize; i++ {
-				// Distribute samples evenly across the range
-				p := scanStart + uint16((i*rangeSize)/sampleSize)
+			for i := 0; i < samples; i++ {
+				p := scanStart + uint16((i*rangeSize)/samples)
 				if p > scanEnd {
 					break
 				}
-				sampleCount++
-				
 				if _, ok := reserved[p]; ok {
 					reservedCount++
-				} else {
-					rangeReserved = false
 				}
 			}
-			
-			// Require at least 50% density of reserved ports for safety
-			reservedDensity := float64(reservedCount) / float64(sampleCount)
-			if reservedDensity < 0.5 {
-				rangeReserved = false
-			}
+			reservedDensity := float64(reservedCount) / float64(samples)
 
-			if !rangeReserved {
-				log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
-					Msg("WARNING: Scanner port range not reserved! Consider adding to ip_local_reserved_ports")
-			} else {
+			if reservedDensity >= 0.5 {
 				log.Info().Uint16("start", scanStart).Uint16("end", scanEnd).
-					Msg("Using reserved port range for scanning")
+					Float64("reservedDensity", reservedDensity).
+					Msg("Using mostly-reserved port range for scanning")
+			} else {
+				log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
+					Float64("reservedDensity", reservedDensity).
+					Msg("Scanner port range not reserved densely; consider ip_local_reserved_ports")
 			}
-
 			return scanStart, scanEnd, nil
 		}
 	}
@@ -2805,46 +2795,36 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 		scanEnd := uint16(65000) // Leave some ports at the top
 
 		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
-			// Check if this range is reserved with better sampling and minimum density check
-			rangeReserved := true
 			rangeSize := int(scanEnd - scanStart + 1)
-			sampleSize := rangeSize / 20 // Sample 5% of the range
-			if sampleSize < 100 {
-				sampleSize = rangeSize // Sample all if range is small
+			samples := rangeSize / 20 // 5%
+			if samples < 100 {
+				samples = rangeSize // sample all if small
 			}
-			
+			if samples < 1 {
+				samples = 1
+			}
+
 			reservedCount := 0
-			sampleCount := 0
-			
-			for i := 0; i < sampleSize; i++ {
-				// Distribute samples evenly across the range
-				p := scanStart + uint16((i*rangeSize)/sampleSize)
+			for i := 0; i < samples; i++ {
+				p := scanStart + uint16((i*rangeSize)/samples)
 				if p > scanEnd {
 					break
 				}
-				sampleCount++
-				
 				if _, ok := reserved[p]; ok {
 					reservedCount++
-				} else {
-					rangeReserved = false
 				}
 			}
-			
-			// Require at least 50% density of reserved ports for safety
-			reservedDensity := float64(reservedCount) / float64(sampleCount)
-			if reservedDensity < 0.5 {
-				rangeReserved = false
-			}
+			reservedDensity := float64(reservedCount) / float64(samples)
 
-			if !rangeReserved {
-				log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
-					Msg("WARNING: Scanner port range not reserved! Consider adding to ip_local_reserved_ports")
-			} else {
+			if reservedDensity >= 0.5 {
 				log.Info().Uint16("start", scanStart).Uint16("end", scanEnd).
-					Msg("Using reserved port range for scanning")
+					Float64("reservedDensity", reservedDensity).
+					Msg("Using mostly-reserved port range for scanning")
+			} else {
+				log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
+					Float64("reservedDensity", reservedDensity).
+					Msg("Scanner port range not reserved densely; consider ip_local_reserved_ports")
 			}
-
 			return scanStart, scanEnd, nil
 		}
 	}
