@@ -1197,31 +1197,57 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		}
 
 		// Distribute global cap: adjust blockSize*blockCount to fit perRingBytes
+		// Ensure blockSize obeys kernel constraints before using it
+		page := uint32(os.Getpagesize())
+		// lcm(frameSize, page)
+		gcd := func(a, b uint32) uint32 { for b != 0 { a, b = b, a%b }; return a }
+		lcm := func(a, b uint32) uint32 { return a / gcd(a, b) * b }
+		align := lcm(frameSize, page)
+
+		// Round blockSize up to satisfy (multiple of frameSize and page size)
+		if blockSize%frameSize != 0 || blockSize%page != 0 {
+			bs := ((blockSize + align - 1) / align) * align
+			if bs > maxBlockSize {
+				bs = (maxBlockSize / align) * align
+			}
+			if bs == 0 {
+				bs = align
+			}
+			blockSize = bs
+		}
+
 		currentRingBytes := blockSize * blockCount
 		if currentRingBytes > perRingBytes {
-			// Try to maintain the requested block size if possible
-			targetBlockCount := perRingBytes / blockSize
-			if targetBlockCount >= 1 {
+			// First, try to reduce blockCount while keeping a valid blockSize
+			if blockSize <= perRingBytes {
+				targetBlockCount := perRingBytes / blockSize
+				if targetBlockCount < 1 {
+					targetBlockCount = 1
+				}
 				blockCount = targetBlockCount
 			} else {
-				// Block size too large, reduce it and set minimum block count
-				blockSize = perRingBytes
-				if blockSize > maxBlockSize {
-					blockSize = maxBlockSize
-				}
+				// blockSize itself is too large: shrink it to fit at least one block
 				blockCount = 1
+				// Largest aligned blockSize that fits
+				blockSize = (perRingBytes / align) * align
+				if blockSize < align {
+					// fall back to minimum legal aligned size
+					blockSize = align
+				}
 			}
+		}
 
+		if currentRingBytes > perRingBytes {
 			log.Info().
-				Uint32("originalBlockSize", originalBlockSize).
-				Uint32("originalBlockCount", originalBlockCount).
-				Uint32("globalCapMB", uint32(globalRingMemoryMB)).
-				Int("totalRings", totalRings).
-				Uint32("perRingBytes", perRingBytes).
-				Uint32("finalBlockSize", blockSize).
-				Uint32("finalBlockCount", blockCount).
-				Uint32("finalRingMemoryMB", (blockSize*blockCount)/(1024*1024)).
-				Msg("Applied global ring memory cap distributed across CPUs")
+					Uint32("originalBlockSize", originalBlockSize).
+					Uint32("originalBlockCount", originalBlockCount).
+					Uint32("globalCapMB", uint32(globalRingMemoryMB)).
+					Int("totalRings", totalRings).
+					Uint32("perRingBytes", perRingBytes).
+					Uint32("finalBlockSize", blockSize).
+					Uint32("finalBlockCount", blockCount).
+					Uint32("finalRingMemoryMB", (blockSize*blockCount)/(1024*1024)).
+					Msg("Applied global ring memory cap distributed across CPUs")
 		}
 
 		log.Debug().Uint32("blockSize", blockSize).Uint32("blockCount", blockCount).Uint32("frameSize", frameSize).Uint32("retireMs", ringRetireTov).Msg("Setting up TPACKET_V3")
