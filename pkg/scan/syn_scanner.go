@@ -1057,6 +1057,20 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 	return packet
 }
 
+// tryReleaseMapping safely releases a src port mapping if it still belongs to key k.
+func (s *SYNScanner) tryReleaseMapping(sp uint16, k string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.portTargetMap == nil {
+		return
+	}
+	if cur, ok := s.portTargetMap[sp]; ok && cur == k {
+		delete(s.portTargetMap, sp)
+		// release outside the lock to keep lock hold times small
+		go s.portAlloc.Release(sp)
+	}
+}
+
 func (s *SYNScanner) hasFinalResult(targetKey string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1752,22 +1766,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 
 	sp := srcPort
 	k := targetKey
-	time.AfterFunc(s.timeout+grace, func() {
-		s.mu.Lock()
-
-		if cur, ok := s.portTargetMap[sp]; ok && cur == k {
-			delete(s.portTargetMap, sp)
-
-			// Do not modify s.results here.
-			// End-of-scan fallback will set timeout if still undecided.
-			s.mu.Unlock()
-			s.portAlloc.Release(sp)
-
-			return
-		}
-
-		s.mu.Unlock()
-	})
+	time.AfterFunc(s.timeout+grace, func() { s.tryReleaseMapping(sp, k) })
 
 	if target.Port <= 0 || target.Port > maxPortNumber {
 		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
@@ -1885,16 +1884,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		// IMPORTANT: capture loop vars by value.
 		sp := srcPort
 		k := key
-		time.AfterFunc(s.timeout+grace, func() {
-			s.mu.Lock()
-			if cur, ok := s.portTargetMap[sp]; ok && cur == k {
-				delete(s.portTargetMap, sp)
-				s.mu.Unlock()
-				s.portAlloc.Release(sp)
-				return
-			}
-			s.mu.Unlock()
-		})
+		time.AfterFunc(s.timeout+grace, func() { s.tryReleaseMapping(sp, k) })
 
 		// Build packet
 		pkt := s.buildSynPacketFromTemplate(s.sourceIP, dst4, srcPort, uint16(t.Port))
@@ -2062,7 +2052,8 @@ func (s *SYNScanner) Stop(_ context.Context) error {
 		toRelease = append(toRelease, src)
 	}
 
-	s.portTargetMap = nil
+	// keep non-nil to avoid AfterFunc panics
+	s.portTargetMap = make(map[uint16]string)
 
 	s.mu.Unlock()
 
