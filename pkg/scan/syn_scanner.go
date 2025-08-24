@@ -1641,13 +1641,20 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	s.results[targetKey] = result
 
 	// Remove all src-port mappings for this target and free them after unlock.
-	// Use reverse index for O(k) lookup instead of O(N) scan
-	ports := append([]uint16{tcp.DstPort}, s.targetPorts[targetKey]...)
+	// Use reverse index for O(k) lookup and dedupe to avoid double release.
+	ports := s.targetPorts[targetKey]
+	uniq := make(map[uint16]struct{}, len(ports))
 	delete(s.targetPorts, targetKey)
 	for _, sp := range ports {
+		if _, seen := uniq[sp]; seen {
+			continue
+		}
+		uniq[sp] = struct{}{}
 		delete(s.portTargetMap, sp)
 	}
-	toFree = append(toFree, ports...)
+	for sp := range uniq {
+		toFree = append(toFree, sp)
+	}
 
 	// If we want to emit, capture the callback and a copy of the result *under the lock*,
 	// then invoke it after unlocking to avoid holding s.mu during a possibly blocking send.
