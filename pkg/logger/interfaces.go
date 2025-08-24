@@ -25,6 +25,7 @@ import (
 )
 
 type Logger interface {
+	Trace() *zerolog.Event
 	Debug() *zerolog.Event
 	Info() *zerolog.Event
 	Warn() *zerolog.Event
@@ -42,6 +43,7 @@ type FieldLogger interface {
 	WithField(key string, value interface{}) FieldLogger
 	WithFields(fields map[string]interface{}) FieldLogger
 	WithError(err error) FieldLogger
+	Trace(msg string)
 	Debug(msg string)
 	Info(msg string)
 	Warn(msg string)
@@ -73,6 +75,10 @@ func (f *fieldLogger) WithFields(fields map[string]interface{}) FieldLogger {
 
 func (f *fieldLogger) WithError(err error) FieldLogger {
 	return &fieldLogger{logger: f.logger.With().Err(err).Logger()}
+}
+
+func (f *fieldLogger) Trace(msg string) {
+	f.logger.Trace().Msg(msg)
 }
 
 func (f *fieldLogger) Debug(msg string) {
@@ -110,6 +116,7 @@ type testLogger struct {
 	nop zerolog.Logger
 }
 
+func (t *testLogger) Trace() *zerolog.Event { return t.nop.Trace() }
 func (t *testLogger) Debug() *zerolog.Event { return t.nop.Debug() }
 func (t *testLogger) Info() *zerolog.Event  { return t.nop.Info() }
 func (t *testLogger) Warn() *zerolog.Event  { return t.nop.Warn() }

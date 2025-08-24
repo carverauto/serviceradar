@@ -288,6 +288,8 @@ type loggerWrapper struct {
 	logger zerolog.Logger
 }
 
+func (l *loggerWrapper) Trace() *zerolog.Event { return l.logger.Trace() }
+
 func (l *loggerWrapper) Debug() *zerolog.Event { return l.logger.Debug() }
 
 func (l *loggerWrapper) Info() *zerolog.Event { return l.logger.Info() }
