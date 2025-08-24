@@ -1987,6 +1987,8 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 		// Log final telemetry for scan completion (especially useful for short scans)
 		scanDuration := time.Since(scanStartTime)
+		// One last PACKET_STATISTICS read so drops are up-to-date
+		s.sampleKernelStats()
 		stats := s.GetStats()
 		s.logger.Info().
 			Dur("scanDuration", scanDuration).
