@@ -57,17 +57,17 @@ func (mr *MockScannerMockRecorder) Scan(arg0, arg1 any) *gomock.Call {
 }
 
 // Stop mocks base method.
-func (m *MockScanner) Stop(ctx context.Context) error {
+func (m *MockScanner) Stop() error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Stop", ctx)
+	ret := m.ctrl.Call(m, "Stop")
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Stop indicates an expected call of Stop.
-func (mr *MockScannerMockRecorder) Stop(ctx any) *gomock.Call {
+func (mr *MockScannerMockRecorder) Stop() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockScanner)(nil).Stop), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockScanner)(nil).Stop))
 }
 
 // MockResultProcessor is a mock of ResultProcessor interface.

@@ -49,6 +49,9 @@ type ICMPSweeper struct {
 	results     map[string]models.Result
 	cancel      context.CancelFunc
 	logger      logger.Logger
+
+	// Streaming results callback for immediate result emission
+	resultCallback func(models.Result)
 }
 
 var _ Scanner = (*ICMPSweeper)(nil)
@@ -315,15 +318,14 @@ func (s *ICMPSweeper) recordInitialResult(target models.Target) {
 	defer s.mu.Unlock()
 
 	now := time.Now()
-	s.results[target.Host] = models.Result{
+	result := models.Result{
 		Target:     target,
 		Available:  false,
 		FirstSeen:  now,
 		LastSeen:   now,
 		PacketLoss: 100,
 	}
-
-	fmt.Println(s.results[target.Host])
+	s.emitResult(target.Host, &result)
 }
 
 const (
@@ -428,7 +430,7 @@ func (s *ICMPSweeper) processReply(reply struct {
 		result.RespTime = time.Since(result.FirstSeen)
 		result.PacketLoss = 0
 		result.LastSeen = time.Now()
-		s.results[ip] = result
+		s.emitResult(ip, &result)
 	}
 
 	return nil
@@ -457,7 +459,27 @@ func (s *ICMPSweeper) processResults(targets []models.Target, ch chan<- models.R
 }
 
 // Stop stops the scanner and releases resources.
-func (s *ICMPSweeper) Stop(_ context.Context) error {
+// SetResultCallback sets a callback function that will be called immediately when a result becomes available
+func (s *ICMPSweeper) SetResultCallback(callback func(models.Result)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resultCallback = callback
+}
+
+// emitResult stores the result and immediately calls the callback if available and result is definitive
+func (s *ICMPSweeper) emitResult(host string, result *models.Result) {
+	s.results[host] = *result
+
+	// Emit immediately if callback is set and result is definitive (Available=true or has Error)
+	if s.resultCallback != nil && (result.Available || result.Error != nil) {
+		cb := s.resultCallback
+		res := *result
+
+		go cb(res)
+	}
+}
+
+func (s *ICMPSweeper) Stop() error {
 	if s.cancel != nil {
 		s.cancel()
 	}

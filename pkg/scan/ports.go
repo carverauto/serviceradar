@@ -33,7 +33,8 @@ var (
 )
 
 const (
-	spinMaxBackoff = 200 * time.Microsecond
+	// Allow the allocator to back off to a few milliseconds when fully saturated.
+	spinMaxBackoff = 5 * time.Millisecond
 	cursorSeed     = 997 // prime number for cursor initialization
 )
 

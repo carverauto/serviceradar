@@ -185,7 +185,7 @@ func TestTCPSweeper_Stop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 
-	err := s.Stop(ctx)
+	err := s.Stop()
 	if err != nil {
 		t.Errorf("Stop() error = %v", err)
 	}
@@ -253,7 +253,7 @@ func TestTCPSweeper_checkPort_Mocked(t *testing.T) {
 		{
 			name: "connection refused",
 			dialer: func(_, _ string, _ time.Duration) (net.Conn, error) {
-				return nil, errConnnectionRefused
+				return nil, errConnectionRefused
 			},
 			wantAvail: false,
 			wantErr:   true,

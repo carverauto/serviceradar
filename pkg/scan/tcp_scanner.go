@@ -129,19 +129,28 @@ func (s *TCPSweeper) worker(ctx context.Context, workCh <-chan models.Target, re
 }
 
 func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool, time.Duration, error) {
-	_, cancel := context.WithTimeout(ctx, s.timeout)
+	// Create per-probe timeout context that respects both parent context and timeout
+	probeCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	start := time.Now()
 
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), s.timeout)
+	// Use context-aware Dial instead of DialTimeout
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(probeCtx, "tcp", fmt.Sprintf("%s:%d", host, port))
+
 	if err != nil {
-		return false, 0, err
+		// Enhanced error handling with context awareness
+		if probeCtx.Err() != nil {
+			// Context error (timeout or cancellation)
+			return false, time.Since(start), probeCtx.Err()
+		}
+		// Network error
+		return false, time.Since(start), err
 	}
 
 	defer func(conn net.Conn) {
 		err := conn.Close()
-
 		if err != nil {
 			s.logger.Error().Err(err).Msg("failed to close connection")
 		}
@@ -150,7 +159,7 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 	return true, time.Since(start), nil
 }
 
-func (s *TCPSweeper) Stop(_ context.Context) error {
+func (s *TCPSweeper) Stop() error {
 	if s.cancel != nil {
 		s.cancel()
 	}

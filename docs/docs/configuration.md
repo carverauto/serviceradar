@@ -532,9 +532,195 @@ For network scanning, edit `/etc/serviceradar/checkers/sweep/sweep.json`:
   "sweep_modes": ["icmp", "tcp"],
   "interval": "5m",
   "concurrency": 100,
-  "timeout": "10s"
+  "timeout": "10s",
+  "icmp_settings": {
+    "rate_limit": 1000,
+    "timeout": "5s",
+    "max_batch": 64
+  },
+  "tcp_settings": {
+    "concurrency": 256,
+    "timeout": "3s",
+    "max_batch": 32,
+    "route_discovery_host": "8.8.8.8:80",
+    "ring_block_size": 2097152,
+    "ring_block_count": 16,
+    "interface": "eth0",
+    "suppress_rst_reply": false
+  },
+  "high_perf_icmp": true,
+  "icmp_rate_limit": 5000
 }
 ```
+
+#### Configuration Options:
+
+**Basic Settings:**
+- `networks`: List of CIDR networks or individual IP addresses to scan
+- `ports`: List of TCP ports to scan when using "tcp" sweep mode
+- `sweep_modes`: List of scanning methods ("icmp" for ping, "tcp" for port scanning)
+- `interval`: How often to perform sweeps (Go duration format, e.g., "5m", "1h")
+- `concurrency`: Number of concurrent scan operations (affects memory usage and scan speed)
+- `timeout`: Maximum time to wait for responses (Go duration format)
+
+**ICMP Settings** (`icmp_settings`):
+- `rate_limit`: Maximum ICMP packets per second (prevents overwhelming networks)
+- `timeout`: Timeout for individual ICMP ping attempts
+- `max_batch`: Number of ICMP packets to batch together for efficiency
+
+**TCP Settings** (`tcp_settings`):
+- `concurrency`: Number of concurrent TCP connections for port scanning (automatically clamped: max 2048 for SYN, max 500 for connect)
+- `timeout`: Timeout for individual TCP connection attempts
+- `max_batch`: Number of SYN packets to send per sendmmsg() call (Linux only, improves performance)
+- `route_discovery_host`: Target address for local IP discovery (default: "8.8.8.8:80")
+- `ring_block_size`: TPACKET_V3 ring buffer block size in bytes (default: 1MB, max: 8MB)
+- `ring_block_count`: Number of ring buffer blocks (default: 8, max: 32, total max: 64MB)
+- `interface`: Network interface for multi-homed hosts (e.g., "eth0", "wlan0", auto-detected if empty)
+- `suppress_rst_reply`: Suppress RST packet generation for NAT/firewall compatibility (optional)
+
+**Performance Options:**
+- `high_perf_icmp`: Enable high-performance ICMP scanning with raw sockets (requires root privileges)
+- `icmp_rate_limit`: Global ICMP rate limit in packets per second
+
+#### TCP Scanner Performance
+
+ServiceRadar uses an optimized SYN scanner on Linux systems with raw socket capabilities, providing significant performance improvements over traditional connect() scanning:
+
+**Performance Features:**
+- **Raw SYN Scanning**: Uses raw sockets with custom IP headers for faster scanning
+- **Batch Packet Transmission**: Uses sendmmsg() system calls to send multiple packets efficiently
+- **Automatic Rate Limiting**: Prevents source port exhaustion with intelligent rate limiting
+- **Zero-Copy Packet Capture**: Uses AF_PACKET with TPACKET_V3 ring buffers for high-performance capture
+- **Graceful Fallback**: Automatically falls back to connect() scanning when SYN scanning is unavailable
+- **Memory Management**: Ring buffer memory is automatically capped at 64MB total to prevent resource exhaustion
+- **Interface Selection**: Automatically detects optimal network interface or allows manual specification for multi-homed hosts
+- **Observability**: Comprehensive performance counters and telemetry logging every 30 seconds to prevent silent regressions
+
+**Configuration for Locked-Down Environments:**
+
+For air-gapped networks, corporate firewalls, or environments where external connectivity is blocked, configure a local target for route discovery:
+
+```json
+{
+  "tcp_settings": {
+    "route_discovery_host": "192.168.1.1:80"
+  }
+}
+```
+
+**Common route discovery targets:**
+- `"10.0.0.1:53"` - Internal DNS server
+- `"192.168.1.1:80"` - Default gateway
+- `"127.0.0.1:53"` - Local DNS resolver
+- `""` - Uses interface enumeration fallback (no network connectivity required)
+
+**Ring Buffer Tuning:**
+
+The SYN scanner uses TPACKET_V3 ring buffers for high-performance packet capture. These settings control memory vs. performance tradeoffs:
+
+For high-throughput environments (servers with abundant memory):
+```json
+{
+  "tcp_settings": {
+    "max_batch": 64,
+    "concurrency": 1024,
+    "ring_block_size": 4194304,
+    "ring_block_count": 16,
+    "interface": ""
+  }
+}
+```
+
+For resource-constrained environments (embedded systems, containers):
+```json
+{
+  "tcp_settings": {
+    "max_batch": 8,
+    "concurrency": 64,
+    "ring_block_size": 1048576,
+    "ring_block_count": 4,
+    "interface": ""
+  }
+}
+```
+
+For multi-homed hosts or NAT/firewall environments:
+```json
+{
+  "tcp_settings": {
+    "interface": "eth0",
+    "suppress_rst_reply": true,
+    "route_discovery_host": "192.168.1.1:80"
+  }
+}
+```
+
+**Ring Buffer Guidelines:**
+- Total ring memory = `ring_block_size` × `ring_block_count`
+- Maximum total memory is automatically capped at 64MB
+- Block size is clamped between 1MB and 8MB
+- Block count is clamped between 1 and 32 blocks
+- Higher values improve performance but consume more memory
+- Lower values reduce memory usage but may increase packet drops under high load
+
+**Performance Tuning:**
+
+For high-throughput scanning environments:
+```json
+{
+  "tcp_settings": {
+    "max_batch": 64,
+    "concurrency": 512
+  },
+  "icmp_settings": {
+    "rate_limit": 10000,
+    "max_batch": 128
+  }
+}
+```
+
+For resource-constrained environments:
+```json
+{
+  "tcp_settings": {
+    "max_batch": 8,
+    "concurrency": 64
+  },
+  "concurrency": 50
+}
+```
+
+#### Security and Privileges
+
+- **SYN Scanner**: Requires root privileges and CAP_NET_RAW capability for raw socket access
+- **Connect Scanner**: Used as fallback when raw sockets are unavailable (containers, non-root)
+- **Rate Limiting**: Automatically prevents network flooding and source port exhaustion
+- **Port Range Safety**: Automatically detects and avoids system ephemeral port ranges
+
+#### Performance Monitoring and Observability
+
+The SYN scanner includes comprehensive telemetry to prevent "silent performance regressions":
+
+**Automatically Logged Metrics (every 30 seconds):**
+- **Packet Statistics**: Packets sent/received, drop rates, send/receive rates (packets per second)
+- **Ring Buffer Health**: Blocks processed/dropped, buffer utilization
+- **Port Allocation**: Active ports, allocation/release counts, exhaustion events
+- **Retry Statistics**: Attempt counts and success rates
+- **Rate Limiting**: Packets dropped due to rate limiting
+
+**Log Example:**
+```
+INFO SYN scanner telemetry packets_sent=145623 packets_recv=89234 send_rate_pps=4854 recv_rate_pps=2974 drop_rate_percent=1.2 ring_blocks_processed=892 ring_blocks_dropped=0 retry_attempts=234 retry_success_rate_percent=87.5 active_ports=156 port_exhaustions=0 rate_limit_drops=45 elapsed_seconds=30
+```
+
+**Performance Health Indicators:**
+- **Drop Rate**: Should be <5% under normal load; higher values indicate memory or network congestion
+- **Ring Block Drops**: Should be 0; non-zero values indicate ring buffer exhaustion
+- **Port Exhaustions**: Should be 0; indicates need to reduce concurrency or increase ephemeral port range
+- **Retry Success Rate**: Should be >90%; lower values may indicate network issues or timeouts too aggressive
+- **Rate Limit Drops**: Expected under high load; tune `max_batch` and `rate_limit` if excessive
+
+This telemetry helps identify performance bottlenecks, memory issues, and network problems before they impact scanning effectiveness.
 
 ### rperf Network Checker
 

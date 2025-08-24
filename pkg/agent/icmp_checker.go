@@ -85,6 +85,6 @@ func (p *ICMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAc
 	return result.Available, data
 }
 
-func (p *ICMPChecker) Close(ctx context.Context) error {
-	return p.scanner.Stop(ctx)
+func (p *ICMPChecker) Close(_ context.Context) error {
+	return p.scanner.Stop()
 }

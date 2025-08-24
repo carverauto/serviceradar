@@ -37,7 +37,7 @@ type RBACRule struct {
 // Config holds the configuration for the KV service.
 type Config struct {
 	ListenAddr string                 `json:"listen_addr"`
-	NatsURL    string                 `json:"nats_url"`
+	NATSURL    string                 `json:"nat_surl"`
 	Security   *models.SecurityConfig `json:"security"`
 	RBAC       struct {
 		Roles []RBACRule `json:"roles"`
