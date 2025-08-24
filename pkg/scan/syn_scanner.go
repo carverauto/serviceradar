@@ -1117,7 +1117,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 
 		log.Debug().Uint32("blockSize", blockSize).Uint32("blockCount", blockCount).Uint32("frameSize", frameSize).Uint32("retireMs", retireTov).Msg("Setting up TPACKET_V3")
 
-		r, err := setupTPacketV3(fd, blockSize, blockCount, frameSize, retireTov)
+		rb, err := setupTPacketV3(fd, blockSize, blockCount, frameSize, retireTov)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to setup TPACKET_V3")
 			_ = unix.Close(fd)
@@ -1134,7 +1134,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 
 		log.Debug().Msg("TPACKET_V3 setup successfully")
 
-		rings = append(rings, r)
+		rings = append(rings, rb)
 	}
 
 	log.Debug().Int("ringCount", len(rings)).Msg("All ring buffers created successfully")
@@ -1213,6 +1213,29 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 	}
 
 	safeCapacityPPS := int(float64(window) / hold.Seconds())
+
+	// Auto-trim safeCapacityPPS when falling back to default ephemeral window
+	// The fallback range 32768-61000 conflicts with system ephemeral ports, so we need to be more conservative
+	const (
+		fallbackStart = 32768
+		fallbackEnd   = 61000
+	)
+	
+	isFallbackRange := scanPortStart == fallbackStart && scanPortEnd == fallbackEnd
+	if isFallbackRange {
+		// Apply conservative multiplier when using risky fallback range
+		// This reduces contention with system ephemeral port allocation
+		originalSafeCapacity := safeCapacityPPS
+		safeCapacityPPS = safeCapacityPPS / 4 // Reduce to 25% of calculated capacity
+		if safeCapacityPPS < 500 {
+			safeCapacityPPS = 500 // Minimum viable rate
+		}
+		
+		log.Warn().
+			Int("originalCapacity", originalSafeCapacity).
+			Int("trimmedCapacity", safeCapacityPPS).
+			Msg("Auto-trimmed safeCapacityPPS due to fallback to conflicting ephemeral window")
+	}
 
 	if opts != nil && opts.RateLimit > 0 {
 		// Use explicitly provided rate limit
@@ -1635,6 +1658,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	}
 
 	scanCtx, cancel := context.WithCancel(ctx)
+	scanStartTime := time.Now()
 
 	// Start telemetry logging tied to scan lifecycle
 	go s.logTelemetry(scanCtx)
@@ -1819,6 +1843,18 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		// Stop future callback enqueues and finish the emitter cleanly.
 		s.resultCallback = nil
 		s.mu.Unlock()
+
+		// Log final telemetry for scan completion (especially useful for short scans)
+		scanDuration := time.Since(scanStartTime)
+		stats := s.GetStats()
+		s.logger.Info().
+			Dur("scanDuration", scanDuration).
+			Int("targetCount", len(tcpTargets)).
+			Uint64("packetsSent", stats.PacketsSent).
+			Uint64("packetsRecv", stats.PacketsRecv).
+			Uint64("packetsDropped", stats.PacketsDropped).
+			Uint64("rateLimitDeferrals", stats.RateLimitDeferrals).
+			Msg("Scan completed")
 
 		close(stopEmit) // signal emitter to drain and close resultCh
 		<-emitterDone   // wait for emitter to finish
@@ -2156,13 +2192,16 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 
 	if err := syscall.Sendto(s.sendSocket, packet, 0, &addr); err != nil {
 		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK || err == syscall.EINTR {
+			// TRACE level for first EAGAIN - very common and usually transient
+			s.logger.Trace().Err(err).Str("host", target.Host).Msg("Transient send error, retrying")
+			
 			runtime.Gosched()
 			if err2 := syscall.Sendto(s.sendSocket, packet, 0, &addr); err2 == nil {
 				// Return packet buffer to pool after successful send
 				s.packetPool.Put(packet)
 				return
 			} else {
-				// Only log after retry fails to reduce noise on transient EAGAIN
+				// DEBUG level for retry failure - indicates potential system pressure
 				s.logger.Debug().Err(err2).Str("host", target.Host).Msg("Failed to send SYN packet after retry")
 			}
 		} else {
@@ -2714,14 +2753,36 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 		scanEnd := sysStart - 1
 
 		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
-			// Check if this range is reserved
+			// Check if this range is reserved with better sampling and minimum density check
 			rangeReserved := true
-
-			for p := scanStart; p <= scanEnd && p <= scanStart+100; p++ { // Sample check
-				if _, ok := reserved[p]; !ok {
-					rangeReserved = false
+			rangeSize := int(scanEnd - scanStart + 1)
+			sampleSize := rangeSize / 20 // Sample 5% of the range
+			if sampleSize < 100 {
+				sampleSize = rangeSize // Sample all if range is small
+			}
+			
+			reservedCount := 0
+			sampleCount := 0
+			
+			for i := 0; i < sampleSize; i++ {
+				// Distribute samples evenly across the range
+				p := scanStart + uint16((i*rangeSize)/sampleSize)
+				if p > scanEnd {
 					break
 				}
+				sampleCount++
+				
+				if _, ok := reserved[p]; ok {
+					reservedCount++
+				} else {
+					rangeReserved = false
+				}
+			}
+			
+			// Require at least 50% density of reserved ports for safety
+			reservedDensity := float64(reservedCount) / float64(sampleCount)
+			if reservedDensity < 0.5 {
+				rangeReserved = false
 			}
 
 			if !rangeReserved {
@@ -2742,13 +2803,36 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 		scanEnd := uint16(65000) // Leave some ports at the top
 
 		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
-			// Check if this range is reserved
+			// Check if this range is reserved with better sampling and minimum density check
 			rangeReserved := true
-			for p := scanStart; p <= scanEnd && p <= scanStart+100; p++ { // Sample check
-				if _, ok := reserved[p]; !ok {
-					rangeReserved = false
+			rangeSize := int(scanEnd - scanStart + 1)
+			sampleSize := rangeSize / 20 // Sample 5% of the range
+			if sampleSize < 100 {
+				sampleSize = rangeSize // Sample all if range is small
+			}
+			
+			reservedCount := 0
+			sampleCount := 0
+			
+			for i := 0; i < sampleSize; i++ {
+				// Distribute samples evenly across the range
+				p := scanStart + uint16((i*rangeSize)/sampleSize)
+				if p > scanEnd {
 					break
 				}
+				sampleCount++
+				
+				if _, ok := reserved[p]; ok {
+					reservedCount++
+				} else {
+					rangeReserved = false
+				}
+			}
+			
+			// Require at least 50% density of reserved ports for safety
+			reservedDensity := float64(reservedCount) / float64(sampleCount)
+			if reservedDensity < 0.5 {
+				rangeReserved = false
 			}
 
 			if !rangeReserved {
