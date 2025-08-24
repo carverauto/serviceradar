@@ -432,7 +432,12 @@ func (s *InMemoryStore) PruneResults(_ context.Context, age time.Duration) error
 }
 
 // matchesFilter checks if a Result matches the provided filter.
+// If filter is nil, matches all results.
 func (*InMemoryStore) matchesFilter(result *models.Result, filter *models.ResultFilter) bool {
+	if filter == nil {
+		return true
+	}
+
 	checks := []func(*models.Result, *models.ResultFilter) bool{
 		checkTimeRange,
 		checkHost,
@@ -451,6 +456,10 @@ func (*InMemoryStore) matchesFilter(result *models.Result, filter *models.Result
 
 // checkTimeRange verifies if the result falls within the specified time range.
 func checkTimeRange(result *models.Result, filter *models.ResultFilter) bool {
+	if filter == nil {
+		return true
+	}
+
 	if !filter.StartTime.IsZero() && result.LastSeen.Before(filter.StartTime) {
 		return false
 	}
@@ -464,15 +473,24 @@ func checkTimeRange(result *models.Result, filter *models.ResultFilter) bool {
 
 // checkHost verifies if the result matches the specified host.
 func checkHost(result *models.Result, filter *models.ResultFilter) bool {
+	if filter == nil {
+		return true
+	}
 	return filter.Host == "" || result.Target.Host == filter.Host
 }
 
 // checkPort verifies if the result matches the specified port.
 func checkPort(result *models.Result, filter *models.ResultFilter) bool {
+	if filter == nil {
+		return true
+	}
 	return filter.Port == 0 || result.Target.Port == filter.Port
 }
 
 // checkAvailability verifies if the result matches the specified availability.
 func checkAvailability(result *models.Result, filter *models.ResultFilter) bool {
+	if filter == nil {
+		return true
+	}
 	return filter.Available == nil || result.Available == *filter.Available
 }
