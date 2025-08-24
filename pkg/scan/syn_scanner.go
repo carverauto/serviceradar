@@ -112,8 +112,8 @@ const (
 	maxBlockCount             = 32      // Maximum number of blocks
 
 	// tpacket v3 block ownership
-	tpStatusUser   = 1  // TP_STATUS_USER
-	tpStatusLosing = 32 // TP_STATUS_LOSING - indicates buffer overrun/block dropped
+	tpStatusUser   = 0x0001 // TP_STATUS_USER
+	tpStatusLosing = 0x0004 // TP_STATUS_LOSING (see linux/if_packet.h)
 
 	// Max number of SYNs to send per sendmmsg() call.
 	// 32–128 is typically a sweet spot; 64 is a safe default.
@@ -2215,17 +2215,13 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	// Update successful port allocation counter
 	atomic.AddUint64(&s.stats.PortsAllocated, 1)
 
+	targetKey := fmt.Sprintf("%s:%d", target.Host, target.Port)
+
 	// Ensure cleanup on any early return
 	release := func() {
-		s.mu.Lock()
-		delete(s.portTargetMap, srcPort)
-		s.mu.Unlock()
-
-		s.portAlloc.Release(srcPort)
-		atomic.AddUint64(&s.stats.PortsReleased, 1)
+		// Also removes from targetPorts and guards against double release
+		s.tryReleaseMapping(srcPort, targetKey)
 	}
-
-	targetKey := fmt.Sprintf("%s:%d", target.Host, target.Port)
 
 	ip4b := destIP.To4()
 
@@ -2520,18 +2516,10 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 	}
 
 	// Release *unsent* ports immediately, since their SYN never left the machine.
-	// The reaper will see the missing mapping and will not release a second time.
+	// Use tryReleaseMapping to keep all mappings in sync.
 	for i := off; i < len(entries); i++ {
 		sp := entries[i].srcPort
-
-		s.mu.Lock()
-		delete(s.portTargetMap, sp)
-		delete(s.portDeadline, sp) // Clean up deadline entry
-		s.mu.Unlock()
-
-		s.portAlloc.Release(sp)
-
-		atomic.AddUint64(&s.stats.PortsReleased, 1)
+		s.tryReleaseMapping(sp, entries[i].targetKey)
 	}
 }
 
