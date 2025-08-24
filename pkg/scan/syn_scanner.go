@@ -190,23 +190,20 @@ func (s *SYNScanner) sampleKernelStats() {
 	s.mu.Lock()
 	rings := s.rings
 	s.mu.Unlock()
-	
 	if rings == nil {
 		return
 	}
-	
-	// Sample kernel stats from each ring buffer
+
 	for _, ring := range rings {
 		if ring == nil {
 			continue
 		}
-		
+
 		// getsockopt(SOL_PACKET, PACKET_STATISTICS) resets counters on read
 		stats, err := unix.GetsockoptTpacketStats(ring.fd, unix.SOL_PACKET, unix.PACKET_STATISTICS)
 		if err == nil {
-			// Add kernel counters to our stats (these are incremental since last read)
+			// PACKET_STATISTICS resets on read; just accumulate drops
 			atomic.AddUint64(&s.stats.PacketsDropped, uint64(stats.Drops))
-			atomic.AddUint64(&s.stats.RingBlocksDropped, uint64(stats.Drops)) // Use drop count for blocks as well
 		}
 	}
 }
