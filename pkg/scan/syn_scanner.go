@@ -1231,7 +1231,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 			}
 		}
 
-		if currentRingBytes > perRingBytes {
+		if blockSize != originalBlockSize || blockCount != originalBlockCount {
 			log.Info().
 					Uint32("originalBlockSize", originalBlockSize).
 					Uint32("originalBlockCount", originalBlockCount).
