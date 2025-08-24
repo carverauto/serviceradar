@@ -236,16 +236,18 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 
 			// Only log if there's been activity
 			if stats.PacketsSent > 0 || stats.PacketsRecv > 0 {
-				dropRate := float64(0)
-				if stats.PacketsSent > 0 {
-					dropRate = float64(stats.PacketsDropped) / float64(stats.PacketsSent) * 100
+				// Compute RX drop rate (ring buffer drops vs total packets that could be received)
+				rxDropRate := float64(0)
+				rxDropDen := stats.PacketsRecv + stats.PacketsDropped
+				if rxDropDen > 0 {
+					rxDropRate = 100 * float64(stats.PacketsDropped) / float64(rxDropDen)
 				}
 
 				s.logger.Info().
 					Uint64("packets_sent", stats.PacketsSent).
 					Uint64("packets_recv", stats.PacketsRecv).
 					Uint64("packets_dropped", stats.PacketsDropped).
-					Float64("drop_rate_percent", dropRate).
+					Float64("rx_drop_rate_percent", rxDropRate).
 					Uint64("ring_blocks_processed", stats.RingBlocksProcessed).
 					Uint64("ring_blocks_dropped", stats.RingBlocksDropped).
 					Uint64("retries_attempted", stats.RetriesAttempted).
@@ -2129,7 +2131,6 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 			continue
 		}
 		uniq[sp] = struct{}{}
-		delete(s.portTargetMap, sp)
 	}
 
 	for sp := range uniq {
@@ -2145,10 +2146,9 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 
 	s.mu.Unlock()
 
-	// Release ports outside the lock
+	// Release ports outside the lock, using tryReleaseMapping to maintain data structure consistency
 	for _, sp := range toFree {
-		s.portAlloc.Release(sp)
-		atomic.AddUint64(&s.stats.PortsReleased, 1)
+		s.tryReleaseMapping(sp, targetKey)
 	}
 
 	if emit && cb != nil {
