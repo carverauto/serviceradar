@@ -27,7 +27,7 @@ func (c *Config) validateRequiredFields() error {
 		return errListenAddrRequired
 	}
 
-	if c.NatsURL == "" {
+	if c.NATSURL == "" {
 		return errNatsURLRequired
 	}
 

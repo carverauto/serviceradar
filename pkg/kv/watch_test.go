@@ -62,7 +62,7 @@ func TestNatsStoreWatch_ForwardUpdates(t *testing.T) {
 	watcher := &fakeKeyWatcher{updates: updates}
 
 	kv := &fakeKV{watcher: watcher}
-	ns := &NatsStore{kv: kv, ctx: context.Background()}
+	ns := &NATSStore{kv: kv, ctx: context.Background()}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -91,7 +91,7 @@ func TestNatsStoreWatch_ContextCancel(t *testing.T) {
 	watcher := &fakeKeyWatcher{updates: updates}
 
 	kv := &fakeKV{watcher: watcher}
-	ns := &NatsStore{kv: kv, ctx: context.Background()}
+	ns := &NATSStore{kv: kv, ctx: context.Background()}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ch, err := ns.Watch(ctx, "test-key")

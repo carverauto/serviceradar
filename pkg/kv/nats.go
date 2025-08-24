@@ -32,13 +32,13 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-type NatsStore struct {
+type NATSStore struct {
 	nc  *nats.Conn
 	kv  jetstream.KeyValue
 	ctx context.Context
 }
 
-func NewNatsStore(ctx context.Context, cfg *Config) (*NatsStore, error) {
+func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -48,7 +48,7 @@ func NewNatsStore(ctx context.Context, cfg *Config) (*NatsStore, error) {
 		return nil, fmt.Errorf("failed to configure TLS: %w", err)
 	}
 
-	nc, err := nats.Connect(cfg.NatsURL,
+	nc, err := nats.Connect(cfg.NATSURL,
 		nats.Secure(tlsConfig),
 		nats.RootCAs(cfg.Security.TLS.CAFile),
 		nats.ClientCert(cfg.Security.TLS.CertFile, cfg.Security.TLS.KeyFile),
@@ -81,7 +81,7 @@ func NewNatsStore(ctx context.Context, cfg *Config) (*NatsStore, error) {
 		return nil, fmt.Errorf("failed to create KV bucket: %w", err)
 	}
 
-	return &NatsStore{
+	return &NATSStore{
 		nc:  nc,
 		kv:  kv,
 		ctx: ctx,
@@ -121,7 +121,7 @@ func getTLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
 	}, nil
 }
 
-func (n *NatsStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
+func (n *NATSStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
 	entry, err := n.kv.Get(ctx, key)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		return nil, false, nil
@@ -136,7 +136,7 @@ func (n *NatsStore) Get(ctx context.Context, key string) (value []byte, found bo
 
 // Put stores a key-value pair in the NATS key-value store. It accepts a context, key, value, and TTL.
 // The TTL is not used in this implementation, as it is handled at the bucket level.
-func (n *NatsStore) Put(ctx context.Context, key string, value []byte, _ time.Duration) error {
+func (n *NATSStore) Put(ctx context.Context, key string, value []byte, _ time.Duration) error {
 	_, err := n.kv.Put(ctx, key, value) // TTL handled at bucket level in this implementation
 	if err != nil {
 		return fmt.Errorf("failed to put key %s: %w", key, err)
@@ -146,7 +146,7 @@ func (n *NatsStore) Put(ctx context.Context, key string, value []byte, _ time.Du
 }
 
 // PutMany stores multiple key/value pairs. TTL is ignored in this implementation.
-func (n *NatsStore) PutMany(ctx context.Context, entries []KeyValueEntry, _ time.Duration) error {
+func (n *NATSStore) PutMany(ctx context.Context, entries []KeyValueEntry, _ time.Duration) error {
 	for _, e := range entries {
 		if _, err := n.kv.Put(ctx, e.Key, e.Value); err != nil {
 			return fmt.Errorf("failed to put key %s: %w", e.Key, err)
@@ -156,7 +156,7 @@ func (n *NatsStore) PutMany(ctx context.Context, entries []KeyValueEntry, _ time
 	return nil
 }
 
-func (n *NatsStore) Delete(ctx context.Context, key string) error {
+func (n *NATSStore) Delete(ctx context.Context, key string) error {
 	err := n.kv.Delete(ctx, key)
 	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return fmt.Errorf("failed to delete key %s: %w", key, err)
@@ -165,7 +165,7 @@ func (n *NatsStore) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-func (n *NatsStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
+func (n *NATSStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
 	ch := make(chan []byte, 1)
 
 	go n.handleWatchWithReconnect(ctx, key, ch)
@@ -174,7 +174,7 @@ func (n *NatsStore) Watch(ctx context.Context, key string) (<-chan []byte, error
 }
 
 // handleWatchWithReconnect handles watch operations with automatic reconnection
-func (n *NatsStore) handleWatchWithReconnect(ctx context.Context, key string, ch chan<- []byte) {
+func (n *NATSStore) handleWatchWithReconnect(ctx context.Context, key string, ch chan<- []byte) {
 	defer close(ch)
 
 	const (
@@ -191,7 +191,7 @@ func (n *NatsStore) handleWatchWithReconnect(ctx context.Context, key string, ch
 			log.Printf("Context canceled, stopping watch for key %s", key)
 			return
 		case <-n.ctx.Done():
-			log.Printf("NatsStore context canceled, stopping watch for key %s", key)
+			log.Printf("NATSStore context canceled, stopping watch for key %s", key)
 			return
 		default:
 			// Try to establish watch
@@ -201,7 +201,7 @@ func (n *NatsStore) handleWatchWithReconnect(ctx context.Context, key string, ch
 
 			// If we reach here, the watcher closed unexpectedly, wait before retry
 			log.Printf("Watch for key %s closed unexpectedly, retrying after %v", key, backoff)
-			
+
 			select {
 			case <-ctx.Done():
 				return
@@ -222,7 +222,7 @@ func (n *NatsStore) handleWatchWithReconnect(ctx context.Context, key string, ch
 
 // attemptWatch attempts to establish a single watch session
 // Returns true if context was canceled, false if watcher closed unexpectedly
-func (n *NatsStore) attemptWatch(ctx context.Context, key string, ch chan<- []byte, backoff *time.Duration) bool {
+func (n *NATSStore) attemptWatch(ctx context.Context, key string, ch chan<- []byte, backoff *time.Duration) bool {
 	const initialBackoff = 1 * time.Second
 	watcher, err := n.kv.Watch(ctx, key)
 	if err != nil {
@@ -262,7 +262,7 @@ func (n *NatsStore) attemptWatch(ctx context.Context, key string, ch chan<- []by
 	}
 }
 
-func (n *NatsStore) handleWatchUpdates(ctx context.Context, key string, watcher jetstream.KeyWatcher, ch chan<- []byte) {
+func (n *NATSStore) handleWatchUpdates(ctx context.Context, key string, watcher jetstream.KeyWatcher, ch chan<- []byte) {
 	defer func() {
 		if err := watcher.Stop(); err != nil {
 			log.Printf("failed to stop watcher for key %s: %v", key, err)
@@ -283,7 +283,7 @@ func (n *NatsStore) handleWatchUpdates(ctx context.Context, key string, watcher 
 	}
 }
 
-func (n *NatsStore) waitForUpdate(ctx context.Context, watcher jetstream.KeyWatcher) jetstream.KeyValueEntry {
+func (n *NATSStore) waitForUpdate(ctx context.Context, watcher jetstream.KeyWatcher) jetstream.KeyValueEntry {
 	select {
 	case <-ctx.Done():
 		return nil
@@ -298,7 +298,7 @@ func (n *NatsStore) waitForUpdate(ctx context.Context, watcher jetstream.KeyWatc
 	}
 }
 
-func (n *NatsStore) sendUpdate(ctx context.Context, ch chan<- []byte, value []byte) bool {
+func (n *NATSStore) sendUpdate(ctx context.Context, ch chan<- []byte, value []byte) bool {
 	select {
 	case ch <- value:
 		return true
@@ -309,12 +309,12 @@ func (n *NatsStore) sendUpdate(ctx context.Context, ch chan<- []byte, value []by
 	}
 }
 
-func (n *NatsStore) Close() error {
+func (n *NATSStore) Close() error {
 	n.nc.Close()
 
 	return nil
 }
 
-// Ensure NatsStore implements both interfaces.
-var _ configkv.KVStore = (*NatsStore)(nil)
-var _ KVStore = (*NatsStore)(nil)
+// Ensure NATSStore implements both interfaces.
+var _ configkv.KVStore = (*NATSStore)(nil)
+var _ KVStore = (*NATSStore)(nil)
