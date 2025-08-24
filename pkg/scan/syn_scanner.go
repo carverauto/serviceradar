@@ -63,6 +63,7 @@ func getRetireTovMs() uint32 {
 			return uint32(ms)
 		}
 	}
+
 	return defaultRetireTovMs
 }
 
@@ -74,6 +75,7 @@ func getSendBatchSize() int {
 			return size
 		}
 	}
+
 	return defaultSendBatchSize
 }
 
@@ -105,9 +107,9 @@ const (
 	defaultRetireTovMs = 10      // flush block to user within 10ms (configurable via env or constructor)
 
 	// Memory limits to prevent excessive allocation on large SMP systems
-	maxRingMemoryMB = 64               // Maximum total ring buffer memory in MB
-	maxBlockSize    = 8 << 20          // Maximum block size: 8 MiB
-	maxBlockCount   = 32               // Maximum number of blocks
+	maxRingMemoryMB = 64      // Maximum total ring buffer memory in MB
+	maxBlockSize    = 8 << 20 // Maximum block size: 8 MiB
+	maxBlockCount   = 32      // Maximum number of blocks
 
 	// tpacket v3 block ownership
 	tpStatusUser = 1 // TP_STATUS_USER
@@ -126,23 +128,23 @@ type ScannerStats struct {
 	PacketsSent    uint64 // Total SYN packets sent
 	PacketsRecv    uint64 // Total packets received (SYN-ACK, RST, etc.)
 	PacketsDropped uint64 // Packets dropped by kernel (ring buffer full)
-	
-	// Ring buffer statistics  
+
+	// Ring buffer statistics
 	RingBlocksProcessed uint64 // TPACKET_V3 blocks processed
 	RingBlocksDropped   uint64 // TPACKET_V3 blocks lost due to buffer overruns
-	
+
 	// Retry statistics
 	RetriesAttempted  uint64 // Number of retry attempts made
 	RetriesSuccessful uint64 // Number of successful retries
-	
+
 	// Port allocation statistics
-	PortsAllocated   uint64 // Total port allocations
-	PortsReleased    uint64 // Total port releases
-	PortExhaustion   uint64 // Number of times port allocator was exhausted
-	
-	// Rate limiting statistics  
+	PortsAllocated uint64 // Total port allocations
+	PortsReleased  uint64 // Total port releases
+	PortExhaustion uint64 // Number of times port allocator was exhausted
+
+	// Rate limiting statistics
 	RateLimitDropped uint64 // Packets dropped due to rate limiting
-	
+
 	// Timing statistics (in nanoseconds, for precision)
 	LastStatsReset int64 // Timestamp of last stats reset (UnixNano)
 }
@@ -183,26 +185,26 @@ func (s *SYNScanner) ResetStats() {
 	atomic.StoreInt64(&s.stats.LastStatsReset, time.Now().UnixNano())
 }
 
-// logTelemetry periodically logs scanner performance statistics 
+// logTelemetry periodically logs scanner performance statistics
 // to detect silent performance regressions
 func (s *SYNScanner) logTelemetry(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second) // Log every 30s during active scans
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			stats := s.GetStats()
-			
+
 			// Only log if there's been activity
 			if stats.PacketsSent > 0 || stats.PacketsRecv > 0 {
 				dropRate := float64(0)
 				if stats.PacketsSent > 0 {
 					dropRate = float64(stats.PacketsDropped) / float64(stats.PacketsSent) * 100
 				}
-				
+
 				s.logger.Info().
 					Uint64("packets_sent", stats.PacketsSent).
 					Uint64("packets_recv", stats.PacketsRecv).
@@ -526,6 +528,7 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 	// Precompute BE16 halves for robust compares across host endianness
 	ipHi := uint32(binary.BigEndian.Uint16(ip4[0:2]))
 	ipLo := uint32(binary.BigEndian.Uint16(ip4[2:4]))
+
 	lo := uint32(sportLo)
 	hi := uint32(sportHi)
 
@@ -909,6 +912,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 
 	// Find a local IP and interface to use
 	var routeDiscoveryTarget string
+
 	if opts != nil && opts.RouteDiscoveryHost != "" {
 		routeDiscoveryTarget = opts.RouteDiscoveryHost
 		log.Debug().Str("target", routeDiscoveryTarget).Msg("Using configured route discovery target")
@@ -919,6 +923,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 	sourceIP, iface, err := getLocalIPAndInterfaceWithTarget(routeDiscoveryTarget)
 	if err != nil {
 		syscall.Close(sendSocket)
+
 		return nil, fmt.Errorf("failed to get local IP and interface: %w", err)
 	}
 
@@ -927,11 +932,13 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 	sourceIP = sourceIP.To4()
 	if sourceIP == nil {
 		syscall.Close(sendSocket)
+
 		return nil, fmt.Errorf("non-IPv4 source IP")
 	}
 
 	// Detect safe port range for scanning
 	log.Debug().Msg("Detecting safe port range for scanning")
+
 	scanPortStart, scanPortEnd, err := findSafeScannerPortRange(log)
 	if err != nil {
 		// This shouldn't happen as findSafeScannerPortRange always returns something
@@ -1020,14 +1027,16 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		blockSize := uint32(defaultBlockSize)
 		blockCount := uint32(defaultBlockCount)
 		frameSize := uint32(defaultFrameSize)
-		
+
 		if opts != nil {
 			if opts.RingBlockSize > 0 {
 				blockSize = opts.RingBlockSize
 			}
+
 			if opts.RingBlockCount > 0 {
 				blockCount = opts.RingBlockCount
 			}
+
 			if opts.RingFrameSize > 0 {
 				frameSize = opts.RingFrameSize
 			}
@@ -1036,14 +1045,15 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		// Apply memory limits to prevent excessive allocation
 		originalBlockSize := blockSize
 		originalBlockCount := blockCount
-		
+
 		if blockSize > maxBlockSize {
 			blockSize = maxBlockSize
 		}
+
 		if blockCount > maxBlockCount {
 			blockCount = maxBlockCount
 		}
-		
+
 		// Ensure total memory doesn't exceed limit
 		totalMemoryMB := (blockSize * blockCount) / (1024 * 1024)
 		if totalMemoryMB > maxRingMemoryMB {
@@ -1052,6 +1062,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 			if blockCount < 1 {
 				blockCount = 1
 			}
+
 			log.Info().
 				Uint32("originalBlockSize", originalBlockSize).
 				Uint32("originalBlockCount", originalBlockCount).
@@ -1151,10 +1162,13 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 
 	// Calculate safe default capacity to prevent source port exhaustion
 	window := int(scanPortEnd - scanPortStart + 1) // actual available ports
-	hold := timeout + timeout/4                    // timeout + grace period
+
+	hold := timeout + timeout/4 // timeout + grace period
+
 	if hold <= 0 {
 		hold = 1 * time.Second
 	}
+
 	safeCapacityPPS := int(float64(window) / hold.Seconds())
 
 	if opts != nil && opts.RateLimit > 0 {
@@ -1182,9 +1196,11 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		if rateLimitPPS < 1000 {
 			rateLimitPPS = 1000 // minimum 1k pps
 		}
+
 		if rateLimitPPS > 25000 {
 			rateLimitPPS = 25000 // conservative cap at 25k pps
 		}
+
 		rateLimitBurst = rateLimitPPS
 	}
 
@@ -1235,6 +1251,7 @@ func (s *SYNScanner) generateRandomID() uint16 {
 	s.randMu.Lock()
 	id := uint16(s.rand.Intn(65535))
 	s.randMu.Unlock()
+
 	return id
 }
 
@@ -1246,20 +1263,26 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 
 	// Set variable IPv4 fields
 	id := s.generateRandomID()
+
 	binary.BigEndian.PutUint16(packet[4:], id) // IP ID
-	copy(packet[12:16], srcIP.To4())           // src IP
-	copy(packet[16:20], destIP.To4())          // dst IP
+
+	copy(packet[12:16], srcIP.To4())  // src IP
+	copy(packet[16:20], destIP.To4()) // dst IP
 
 	// Calculate and set IPv4 checksum inline for hot path optimization
 	binary.BigEndian.PutUint16(packet[10:], 0) // clear checksum
+
 	ipSum := uint32(0)
 	ipHdr := packet[:20]
+
 	for i := 0; i < 20; i += 2 {
 		ipSum += uint32(binary.BigEndian.Uint16(ipHdr[i:]))
 	}
+
 	for (ipSum >> 16) > 0 {
 		ipSum = (ipSum & 0xFFFF) + (ipSum >> 16)
 	}
+
 	binary.BigEndian.PutUint16(packet[10:], ^uint16(ipSum))
 
 	// Set variable TCP fields
@@ -1308,27 +1331,33 @@ func (s *SYNScanner) tryReleaseMapping(sp uint16, k string) {
 	// Determine whether to release by checking mappings while holding lock
 	s.mu.Lock()
 	shouldRelease := false
+
 	if s.portTargetMap != nil {
 		if cur, ok := s.portTargetMap[sp]; ok && cur == k {
 			delete(s.portTargetMap, sp)
 			delete(s.portDeadline, sp) // Clean up deadline entry
+
 			shouldRelease = true
+
 			// Also remove from reverse index
 			if ports, exists := s.targetPorts[k]; exists {
 				// Remove sp from the slice
 				for i, p := range ports {
 					if p == sp {
 						s.targetPorts[k] = append(ports[:i], ports[i+1:]...)
+
 						// If slice is now empty, delete the entry to avoid memory leaks
 						if len(s.targetPorts[k]) == 0 {
 							delete(s.targetPorts, k)
 						}
+
 						break
 					}
 				}
 			}
 		}
 	}
+
 	s.mu.Unlock()
 
 	// Release synchronously outside the lock to avoid goroutine-per-release overhead
@@ -1354,6 +1383,7 @@ func (s *SYNScanner) SetRateLimit(pps, burst int) {
 		s.rl.Store((*tokenBucket)(nil))
 		return
 	}
+
 	s.rl.Store(newTokenBucket(pps, burst))
 }
 
@@ -1362,6 +1392,7 @@ func (s *SYNScanner) allowN(n int) int {
 	if tb, _ := s.rl.Load().(*tokenBucket); tb != nil {
 		return tb.AllowN(n)
 	}
+
 	return n
 }
 
@@ -1494,6 +1525,7 @@ func safeTimerReset(t *time.Timer, d time.Duration) {
 		default:
 		}
 	}
+
 	t.Reset(d)
 }
 
@@ -2065,9 +2097,11 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 			// Log non-transient errors immediately
 			s.logger.Debug().Err(err).Str("host", target.Host).Msg("Failed to send SYN packet")
 		}
+
 		// Return packet buffer to pool even on error
 		s.packetPool.Put(packet)
 		release()
+
 		return
 	}
 
@@ -2322,56 +2356,61 @@ func (s *SYNScanner) startReaper() {
 	if s.reaperCancel != nil {
 		return // already running
 	}
-	
+
 	// Calculate dynamic reaper interval based on scan timeout
 	// Use min(50ms, scanTimeout/10) with bounds [5ms, 100ms]
 	interval := s.timeout / 10
 	if interval > 50*time.Millisecond {
 		interval = 50 * time.Millisecond
 	}
+
 	if interval < 5*time.Millisecond {
 		interval = 5 * time.Millisecond
 	}
+
 	if interval > 100*time.Millisecond {
 		interval = 100 * time.Millisecond
 	}
-	
+
 	s.logger.Debug().Dur("interval", interval).Dur("timeout", s.timeout).
 		Msg("Starting reaper with dynamic interval")
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
 	s.reaperCancel = cancel
 	s.reaperWG.Add(1)
-	
+
 	go func() {
 		defer s.reaperWG.Done()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				now := time.Now()
-				
+
 				// Gather candidates outside the lock
 				type pair struct {
 					sp  uint16
 					key string
 				}
+
 				var victims []pair
-				
+
 				s.mu.Lock()
 				for sp, dl := range s.portDeadline {
 					if now.After(dl) {
 						key := s.portTargetMap[sp]
 						victims = append(victims, pair{sp, key})
+
 						delete(s.portDeadline, sp)
 					}
 				}
+
 				s.mu.Unlock()
-				
+
 				// Release expired mappings
 				for _, v := range victims {
 					s.tryReleaseMapping(v.sp, v.key)
@@ -2510,16 +2549,20 @@ func readLocalPortRange() (uint16, uint16, error) {
 	if err != nil {
 		return 0, 0, err
 	}
+
 	var lo, hi uint16
+
 	if _, err := fmt.Sscanf(strings.TrimSpace(string(b)), "%d %d", &lo, &hi); err != nil {
 		return 0, 0, fmt.Errorf("failed to parse ip_local_port_range: %w", err)
 	}
+
 	return lo, hi, nil
 }
 
 // readReservedPorts reads the reserved ports from /proc
 func readReservedPorts() map[uint16]struct{} {
 	ports := map[uint16]struct{}{}
+
 	b, err := os.ReadFile("/proc/sys/net/ipv4/ip_local_reserved_ports")
 	if err != nil || len(b) == 0 {
 		return ports // return empty map if file doesn't exist or is empty
@@ -2535,6 +2578,7 @@ func readReservedPorts() map[uint16]struct{} {
 		if strings.Contains(tok, "-") {
 			// Handle range like "32768-61000"
 			var a, z int
+
 			if _, err := fmt.Sscanf(tok, "%d-%d", &a, &z); err == nil {
 				for p := a; p <= z && p <= 65535; p++ {
 					ports[uint16(p)] = struct{}{}
@@ -2547,6 +2591,7 @@ func readReservedPorts() map[uint16]struct{} {
 			}
 		}
 	}
+
 	return ports
 }
 
@@ -2566,6 +2611,7 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 		log.Warn().Err(err).Msg("Failed to read system ephemeral port range, using fallback")
 		log.Warn().Uint16("start", fallbackStart).Uint16("end", fallbackEnd).
 			Msg("WARNING: Using default range that may conflict with local applications!")
+
 		return fallbackStart, fallbackEnd, nil
 	}
 
@@ -2600,6 +2646,7 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 				log.Info().Uint16("start", scanStart).Uint16("end", scanEnd).
 					Msg("Using reserved port range for scanning")
 			}
+
 			return scanStart, scanEnd, nil
 		}
 	}
@@ -2625,6 +2672,7 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 				log.Info().Uint16("start", scanStart).Uint16("end", scanEnd).
 					Msg("Using reserved port range for scanning")
 			}
+
 			return scanStart, scanEnd, nil
 		}
 	}
@@ -2655,9 +2703,12 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 // largestContiguous finds the largest contiguous block of reserved ports in the range [lo, hi]
 func largestContiguous(res map[uint16]struct{}, lo, hi uint16) (uint16, uint16, bool) {
 	var bestLo, bestHi uint16
+
 	found := false
 	inRun := false
+
 	var curLo, curHi uint16
+
 	for p := lo; p <= hi; p++ {
 		if _, ok := res[p]; ok {
 			if !inRun {
@@ -2670,16 +2721,20 @@ func largestContiguous(res map[uint16]struct{}, lo, hi uint16) (uint16, uint16, 
 				bestLo, bestHi = curLo, curHi
 				found = true
 			}
+
 			inRun = false
 		}
 	}
+
 	if inRun && (!found || curHi-curLo > bestHi-bestLo) {
 		bestLo, bestHi = curLo, curHi
 		found = true
 	}
+
 	if found {
 		return bestLo, bestHi, true
 	}
+
 	return 0, 0, false
 }
 
