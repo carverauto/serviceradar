@@ -327,7 +327,7 @@ func (s *ICMPSweeper) recordInitialResult(target models.Target) {
 	}
 	s.emitResult(target.Host, &result)
 
-	fmt.Println(s.results[target.Host])
+	// no-op
 }
 
 const (
@@ -474,11 +474,9 @@ func (s *ICMPSweeper) emitResult(host string, result *models.Result) {
 
 	// Emit immediately if callback is set and result is definitive (Available=true or has Error)
 	if s.resultCallback != nil && (result.Available || result.Error != nil) {
-		// Call callback without holding the lock to avoid potential deadlocks
-		callback := s.resultCallback
-		resultCopy := *result
-
-		go callback(resultCopy)
+		cb := s.resultCallback
+		res := *result
+		go cb(res)
 	}
 }
 
