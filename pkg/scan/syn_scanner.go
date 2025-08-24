@@ -1252,6 +1252,13 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 		return
 	}
 
+	s.mu.Lock()
+	rc := s.retryCh
+	s.mu.Unlock()
+	if rc == nil {
+		return
+	}
+
 	now := time.Now()
 	span := s.retryMaxJitter - s.retryMinJitter
 
@@ -1269,10 +1276,14 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 			it := retryItem{due: due, target: t, key: key}
 
 			select {
-			case s.retryCh <- it:
+			case rc <- it:
 			case <-time.After(2 * time.Millisecond):
-				// backpressure: block rather than dropping
-				s.retryCh <- it
+				// slow path: best-effort, do not deadlock if rc drains slowly
+				select {
+				case rc <- it:
+				default:
+					// drop this retry rather than risk a stall
+				}
 			}
 		}
 	}
