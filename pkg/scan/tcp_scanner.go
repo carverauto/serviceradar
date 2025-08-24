@@ -138,6 +138,7 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 	// Use context-aware Dial instead of DialTimeout
 	var dialer net.Dialer
 	conn, err := dialer.DialContext(probeCtx, "tcp", fmt.Sprintf("%s:%d", host, port))
+
 	if err != nil {
 		// Enhanced error handling with context awareness
 		if probeCtx.Err() != nil {

@@ -83,7 +83,7 @@ func TestICMPSweeper_Scan(t *testing.T) {
 		return
 	}
 
-	defer func(sweeper *ICMPSweeper, ctx context.Context) {
+	defer func(sweeper *ICMPSweeper, _ context.Context) {
 		err = sweeper.Stop()
 		if err != nil {
 			t.Errorf("Failed to stop ICMPSweeper: %v", err)

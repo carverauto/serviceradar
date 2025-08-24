@@ -88,26 +88,26 @@ func (s *InMemoryStore) cleanOldResults() {
 	// Time-aware cleanup: keep items seen in the last N minutes
 	const keepWindow = 30 * time.Minute
 	cutoff := time.Now().Add(-keepWindow)
-	
+
 	originalCount := len(s.results)
 	filtered := s.results[:0] // reuse underlying array for efficiency
-	
+
 	for i := range s.results {
 		if s.results[i].LastSeen.After(cutoff) {
 			filtered = append(filtered, s.results[i])
 		}
 	}
-	
+
 	s.results = filtered
 	removedCount := originalCount - len(s.results)
-	
+
 	// Rebuild index after filtering
 	s.index = make(map[resultKey]int, len(s.results))
 	for i := range s.results {
 		r := &s.results[i]
 		s.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = i
 	}
-	
+
 	if removedCount > 0 {
 		s.logger.Debug().
 			Int("originalCount", originalCount).
@@ -116,7 +116,7 @@ func (s *InMemoryStore) cleanOldResults() {
 			Dur("keepWindow", keepWindow).
 			Msg("Cleaned old results by LastSeen")
 	}
-	
+
 	s.lastCleanup = time.Now()
 }
 

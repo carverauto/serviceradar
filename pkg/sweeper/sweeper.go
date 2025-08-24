@@ -83,10 +83,10 @@ var (
 const (
 	defaultTotalTargetLimitPercentage = 10
 	defaultEffectiveConcurrency       = 5
-	
+
 	// Concurrency upper bounds to prevent resource exhaustion
-	maxSYNConcurrency     = 2048  // SYN scanning can handle higher concurrency efficiently  
-	maxConnectConcurrency = 500   // TCP connect() is more resource intensive
+	maxSYNConcurrency     = 2048 // SYN scanning can handle higher concurrency efficiently
+	maxConnectConcurrency = 500  // TCP connect() is more resource intensive
 )
 
 // NewNetworkSweeper creates a new scanner for network sweeping.
@@ -103,11 +103,7 @@ func NewNetworkSweeper(
 	}
 
 	icmpScanner := initializeICMPScanner(config, log)
-	tcpScanner, err := initializeTCPScanner(config, log)
-
-	if err != nil {
-		return nil, err
-	}
+	tcpScanner := initializeTCPScanner(config, log)
 
 	// Default interval if not set
 	if config.Interval == 0 {
@@ -169,47 +165,60 @@ func needsICMPScanning(config *models.Config) bool {
 }
 
 // initializeTCPScanner creates and configures the TCP scanner with graceful fallback
-func initializeTCPScanner(config *models.Config, log logger.Logger) (scan.Scanner, error) {
+func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner {
 	baseConcurrency := calculateEffectiveConcurrency(config, log)
 
 	// Try SYN scanner first for optimal performance
 	opts := &scan.SYNScannerOptions{}
-	
+
 	// Use TCPSettings.MaxBatch if configured
 	if config.TCPSettings.MaxBatch > 0 {
 		opts.SendBatchSize = config.TCPSettings.MaxBatch
 		log.Debug().Int("tcp_max_batch", config.TCPSettings.MaxBatch).Msg("Using configured TCP max batch size for SYN scanner")
 	}
-	
+
 	// Use configured route discovery host for locked-down environments
 	if config.TCPSettings.RouteDiscoveryHost != "" {
 		opts.RouteDiscoveryHost = config.TCPSettings.RouteDiscoveryHost
-		log.Debug().Str("route_discovery_host", config.TCPSettings.RouteDiscoveryHost).Msg("Using configured route discovery host for local IP detection")
+		log.Debug().Str("route_discovery_host", config.TCPSettings.RouteDiscoveryHost).
+			Msg("Using configured route discovery host for local IP detection")
 	}
-	
+
 	// Configure ring buffer settings if specified
 	// Note: These will be clamped to safe limits automatically
 	if config.TCPSettings.RingBlockSize > 0 {
-		opts.RingBlockSize = uint32(config.TCPSettings.RingBlockSize)
+		if config.TCPSettings.RingBlockSize <= int(^uint32(0)) {
+			opts.RingBlockSize = uint32(config.TCPSettings.RingBlockSize) // #nosec G115 - bounds check above ensures no overflow
+		} else {
+			opts.RingBlockSize = ^uint32(0) // Use max uint32 value if overflow would occur
+		}
+
 		log.Debug().Uint32("ring_block_size", opts.RingBlockSize).Msg("Using configured ring buffer block size")
 	}
+
 	if config.TCPSettings.RingBlockCount > 0 {
-		opts.RingBlockCount = uint32(config.TCPSettings.RingBlockCount)
+		if config.TCPSettings.RingBlockCount <= int(^uint32(0)) {
+			opts.RingBlockCount = uint32(config.TCPSettings.RingBlockCount) // #nosec G115 - bounds check above ensures no overflow
+		} else {
+			opts.RingBlockCount = ^uint32(0) // Use max uint32 value if overflow would occur
+		}
+
 		log.Debug().Uint32("ring_block_count", opts.RingBlockCount).Msg("Using configured ring buffer block count")
 	}
-	
+
 	// Configure network interface for multi-homed hosts
 	if config.TCPSettings.Interface != "" {
 		opts.Interface = config.TCPSettings.Interface
 		log.Debug().Str("interface", opts.Interface).Msg("Using configured network interface")
 	}
-	
+
 	// Configure NAT/firewall compatibility options
 	if config.TCPSettings.SuppressRSTReply {
 		opts.SuppressRSTReply = true
+
 		log.Debug().Msg("RST reply suppression enabled for firewall compatibility")
 	}
-	
+
 	// Note: RateLimit can be set here too if needed in the future
 	// opts.RateLimit = config.TCPSettings.RateLimit
 
@@ -224,13 +233,13 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) (scan.Scanne
 	synScanner, err := scan.NewSYNScannerWithOptions(config.Timeout, synConcurrency, log, opts)
 	if err == nil {
 		log.Info().Int("concurrency", synConcurrency).Msg("Using SYN scanning for improved TCP port detection performance")
-		return synScanner, nil
+		return synScanner
 	}
 
 	// SYN scanner failed (non-Linux, container without CAP_NET_RAW, etc.)
 	// Gracefully fall back to TCP connect() scanner
 	log.Warn().Err(err).Msg("SYN scanner unavailable; falling back to TCP connect() scanner")
-	
+
 	// Apply connect scanner concurrency upper bound (more restrictive)
 	connectConcurrency := baseConcurrency
 	if connectConcurrency > maxConnectConcurrency {
@@ -238,11 +247,11 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) (scan.Scanne
 		log.Info().Int("originalConcurrency", baseConcurrency).Int("clampedConcurrency", connectConcurrency).
 			Msg("Clamped TCP connect scanner concurrency to prevent resource exhaustion")
 	}
-	
+
 	tcpScanner := scan.NewTCPSweeper(config.Timeout, connectConcurrency, log)
 	log.Info().Int("concurrency", connectConcurrency).Msg("Using TCP connect() scanning (slower but more compatible)")
-	
-	return tcpScanner, nil
+
+	return tcpScanner
 }
 
 // calculateEffectiveConcurrency adjusts concurrency based on target count
@@ -834,14 +843,14 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			Timeout            time.Duration
 			MaxBatch           int
 			RouteDiscoveryHost string `json:"route_discovery_host,omitempty"`
-			
+
 			// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
 			RingBlockSize  int `json:"ring_block_size,omitempty"`  // Block size in bytes (default: 1MB, max: 8MB)
 			RingBlockCount int `json:"ring_block_count,omitempty"` // Number of blocks (default: 8, max: 32, total max: 64MB)
-			
+
 			// Network interface selection for multi-homed hosts
 			Interface string `json:"interface,omitempty"` // Network interface (e.g., "eth0", "wlan0") - auto-detected if empty
-			
+
 			// Advanced NAT/firewall compatibility options
 			SuppressRSTReply bool `json:"suppress_rst_reply,omitempty"` // Suppress RST packet generation (optional)
 		}{
