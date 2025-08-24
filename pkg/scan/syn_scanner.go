@@ -288,6 +288,13 @@ type SYNScanner struct {
 	// Dynamic port range for scanning (avoiding system ephemeral ports)
 	scanPortStart uint16
 	scanPortEnd   uint16
+
+	// Port deadline tracking for reaper (replaces per-port time.AfterFunc)
+	portDeadline map[uint16]time.Time
+
+	// Reaper for coarse port cleanup sweeps
+	reaperWG     sync.WaitGroup
+	reaperCancel context.CancelFunc
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -967,6 +974,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		targetPorts:   make(map[string][]uint16),
 		targetIP:      make(map[string][4]byte),
 		results:       make(map[string]models.Result),
+		portDeadline:  make(map[uint16]time.Time),
 	}
 
 	// Initialize batch pool for sendmmsg arrays
@@ -1034,6 +1042,9 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 
 	scanner.SetRateLimit(rateLimitPPS, rateLimitBurst)
 	log.Debug().Int("rateLimit", rateLimitPPS).Int("burst", rateLimitBurst).Msg("Set rate limit to prevent port exhaustion")
+
+	// Start the coarse port cleanup reaper
+	scanner.startReaper()
 
 	return scanner, nil
 }
@@ -1144,6 +1155,7 @@ func (s *SYNScanner) tryReleaseMapping(sp uint16, k string) {
 	if s.portTargetMap != nil {
 		if cur, ok := s.portTargetMap[sp]; ok && cur == k {
 			delete(s.portTargetMap, sp)
+			delete(s.portDeadline, sp) // Clean up deadline entry
 			shouldRelease = true
 			// Also remove from reverse index
 			if ports, exists := s.targetPorts[k]; exists {
@@ -1864,9 +1876,11 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		grace = 200 * time.Millisecond
 	}
 
-	sp := srcPort
-	k := targetKey
-	time.AfterFunc(s.timeout+grace, func() { s.tryReleaseMapping(sp, k) })
+	// Record deadline for reaper instead of per-port timer
+	deadline := time.Now().Add(s.timeout + grace)
+	s.mu.Lock()
+	s.portDeadline[srcPort] = deadline
+	s.mu.Unlock()
 
 	if target.Port <= 0 || target.Port > maxPortNumber {
 		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
@@ -1997,11 +2011,11 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 
 		s.mu.Unlock()
 
-		// Schedule auto‑release of the mapping if nothing definitive happens.
-		// IMPORTANT: capture loop vars by value.
-		sp := srcPort
-		k := key
-		time.AfterFunc(s.timeout+grace, func() { s.tryReleaseMapping(sp, k) })
+		// Record deadline for reaper instead of per-port timer
+		deadline := time.Now().Add(s.timeout + grace)
+		s.mu.Lock()
+		s.portDeadline[srcPort] = deadline
+		s.mu.Unlock()
 
 		// Build packet
 		pkt := s.buildSynPacketFromTemplate(s.sourceIP, dst4, srcPort, uint16(t.Port))
@@ -2107,12 +2121,13 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 	}
 
 	// Release *unsent* ports immediately, since their SYN never left the machine.
-	// The AfterFunc will see the missing mapping and will not release a second time.
+	// The reaper will see the missing mapping and will not release a second time.
 	for i := off; i < len(entries); i++ {
 		sp := entries[i].srcPort
 
 		s.mu.Lock()
 		delete(s.portTargetMap, sp)
+		delete(s.portDeadline, sp) // Clean up deadline entry
 		s.mu.Unlock()
 
 		s.portAlloc.Release(sp)
@@ -2146,6 +2161,54 @@ func (s *SYNScanner) emitResult(targetKey string, result models.Result) {
 	}
 }
 
+// startReaper begins the coarse port cleanup sweeper that replaces per-port timers
+func (s *SYNScanner) startReaper() {
+	if s.reaperCancel != nil {
+		return // already running
+	}
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	s.reaperCancel = cancel
+	s.reaperWG.Add(1)
+	
+	go func() {
+		defer s.reaperWG.Done()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				now := time.Now()
+				
+				// Gather candidates outside the lock
+				type pair struct {
+					sp  uint16
+					key string
+				}
+				var victims []pair
+				
+				s.mu.Lock()
+				for sp, dl := range s.portDeadline {
+					if now.After(dl) {
+						key := s.portTargetMap[sp]
+						victims = append(victims, pair{sp, key})
+						delete(s.portDeadline, sp)
+					}
+				}
+				s.mu.Unlock()
+				
+				// Release expired mappings
+				for _, v := range victims {
+					s.tryReleaseMapping(v.sp, v.key)
+				}
+			}
+		}
+	}()
+}
+
 // Stop gracefully stops the scanner
 func (s *SYNScanner) Stop() error {
 	// Grab and clear the cancel func WITHOUT holding the lock while we wait
@@ -2174,11 +2237,19 @@ func (s *SYNScanner) Stop() error {
 		toRelease = append(toRelease, src)
 	}
 
-	// keep non-nil to avoid AfterFunc panics
+	// keep non-nil to avoid panics
 	s.portTargetMap = make(map[uint16]string)
 	s.targetPorts = make(map[string][]uint16)
+	s.portDeadline = make(map[uint16]time.Time) // clear deadline map
 
 	s.mu.Unlock()
+
+	// Stop the reaper if it's running
+	if s.reaperCancel != nil {
+		s.reaperCancel()
+		s.reaperWG.Wait()
+		s.reaperCancel = nil
+	}
 
 	for _, src := range toRelease {
 		s.portAlloc.Release(src)
