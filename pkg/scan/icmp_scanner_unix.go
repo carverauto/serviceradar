@@ -326,8 +326,6 @@ func (s *ICMPSweeper) recordInitialResult(target models.Target) {
 		PacketLoss: 100,
 	}
 	s.emitResult(target.Host, &result)
-
-	// no-op
 }
 
 const (
@@ -476,6 +474,7 @@ func (s *ICMPSweeper) emitResult(host string, result *models.Result) {
 	if s.resultCallback != nil && (result.Available || result.Error != nil) {
 		cb := s.resultCallback
 		res := *result
+
 		go cb(res)
 	}
 }
