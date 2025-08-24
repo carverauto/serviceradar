@@ -2705,13 +2705,11 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 // largestContiguous finds the largest contiguous block of reserved ports in the range [lo, hi]
 func largestContiguous(res map[uint16]struct{}, lo, hi uint16) (uint16, uint16, bool) {
 	var bestLo, bestHi uint16
-
-	found := false
-	inRun := false
-
+	found, inRun := false, false
 	var curLo, curHi uint16
 
-	for p := lo; p <= hi; p++ {
+	for pi := int(lo); pi <= int(hi); pi++ {
+		p := uint16(pi)
 		if _, ok := res[p]; ok {
 			if !inRun {
 				curLo = p
@@ -2719,18 +2717,14 @@ func largestContiguous(res map[uint16]struct{}, lo, hi uint16) (uint16, uint16, 
 			}
 			curHi = p
 		} else if inRun {
-			if !found || curHi-curLo > bestHi-bestLo {
-				bestLo, bestHi = curLo, curHi
-				found = true
+			if !found || int(curHi-curLo) > int(bestHi-bestLo) {
+				bestLo, bestHi, found = curLo, curHi, true
 			}
-
 			inRun = false
 		}
 	}
-
-	if inRun && (!found || curHi-curLo > bestHi-bestLo) {
-		bestLo, bestHi = curLo, curHi
-		found = true
+	if inRun && (!found || int(curHi-curLo) > int(bestHi-bestLo)) {
+		bestLo, bestHi, found = curLo, curHi, true
 	}
 
 	if found {
