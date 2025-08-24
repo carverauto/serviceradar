@@ -560,12 +560,13 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 		return fmt.Errorf("attachBPF: non-IPv4 local IP")
 	}
 
-	// Precompute BE16 halves for robust compares across host endianness
+	// Precompute BE16 halves of local IP for comparisons
 	ipHi := uint32(binary.BigEndian.Uint16(ip4[0:2]))
 	ipLo := uint32(binary.BigEndian.Uint16(ip4[2:4]))
 
-	lo := uint32(sportLo)
-	hi := uint32(sportHi)
+	// IMPORTANT: compare dport (loaded in network order) with network-order bounds
+	lo := uint32(htons(sportLo))
+	hi := uint32(htons(sportHi))
 
 	// Instruction indices shown at left for sanity.
 	prog := []unix.SockFilter{
