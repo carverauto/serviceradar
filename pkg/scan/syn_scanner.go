@@ -1071,29 +1071,34 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 
 // tryReleaseMapping safely releases a src port mapping if it still belongs to key k.
 func (s *SYNScanner) tryReleaseMapping(sp uint16, k string) {
+	// Determine whether to release by checking mappings while holding lock
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.portTargetMap == nil {
-		return
-	}
-	if cur, ok := s.portTargetMap[sp]; ok && cur == k {
-		delete(s.portTargetMap, sp)
-		// Also remove from reverse index
-		if ports, exists := s.targetPorts[k]; exists {
-			// Remove sp from the slice
-			for i, p := range ports {
-				if p == sp {
-					s.targetPorts[k] = append(ports[:i], ports[i+1:]...)
-					// If slice is now empty, delete the entry to avoid memory leaks
-					if len(s.targetPorts[k]) == 0 {
-						delete(s.targetPorts, k)
+	shouldRelease := false
+	if s.portTargetMap != nil {
+		if cur, ok := s.portTargetMap[sp]; ok && cur == k {
+			delete(s.portTargetMap, sp)
+			shouldRelease = true
+			// Also remove from reverse index
+			if ports, exists := s.targetPorts[k]; exists {
+				// Remove sp from the slice
+				for i, p := range ports {
+					if p == sp {
+						s.targetPorts[k] = append(ports[:i], ports[i+1:]...)
+						// If slice is now empty, delete the entry to avoid memory leaks
+						if len(s.targetPorts[k]) == 0 {
+							delete(s.targetPorts, k)
+						}
+						break
 					}
-					break
 				}
 			}
 		}
-		// release outside the lock to keep lock hold times small
-		go s.portAlloc.Release(sp)
+	}
+	s.mu.Unlock()
+	
+	// Release synchronously outside the lock to avoid goroutine-per-release overhead
+	if shouldRelease {
+		s.portAlloc.Release(sp)
 	}
 }
 
