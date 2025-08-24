@@ -166,7 +166,19 @@ func needsICMPScanning(config *models.Config) bool {
 
 // initializeTCPScanner creates and configures the TCP scanner with graceful fallback
 func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner {
-	baseConcurrency := calculateEffectiveConcurrency(config, log)
+	// Prefer TCP-specific settings if set; otherwise fall back to global settings
+	baseTimeout := config.TCPSettings.Timeout
+	if baseTimeout == 0 {
+		baseTimeout = config.Timeout
+	}
+
+	baseConcurrency := config.TCPSettings.Concurrency
+	if baseConcurrency <= 0 {
+		baseConcurrency = calculateEffectiveConcurrency(config, log)
+	}
+
+	log.Debug().Dur("baseTimeout", baseTimeout).Int("baseConcurrency", baseConcurrency).
+		Msg("Using TCP-specific settings for scanner initialization")
 
 	// Try SYN scanner first for optimal performance
 	opts := &scan.SYNScannerOptions{}
@@ -219,6 +231,13 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner
 		log.Debug().Msg("RST reply suppression enabled for firewall compatibility")
 	}
 
+	// Configure global memory limit for ring buffers
+	if config.TCPSettings.GlobalRingMemoryMB > 0 {
+		opts.GlobalRingMemoryMB = config.TCPSettings.GlobalRingMemoryMB
+		log.Debug().Int("global_ring_memory_mb", opts.GlobalRingMemoryMB).
+			Msg("Using configured global ring buffer memory limit")
+	}
+
 	// Note: RateLimit can be set here too if needed in the future
 	// opts.RateLimit = config.TCPSettings.RateLimit
 
@@ -230,7 +249,7 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner
 			Msg("Clamped SYN scanner concurrency to prevent resource exhaustion")
 	}
 
-	synScanner, err := scan.NewSYNScanner(config.Timeout, synConcurrency, log, opts)
+	synScanner, err := scan.NewSYNScanner(baseTimeout, synConcurrency, log, opts)
 	if err == nil {
 		log.Info().Int("concurrency", synConcurrency).Msg("Using SYN scanning for improved TCP port detection performance")
 		return synScanner
@@ -248,7 +267,7 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner
 			Msg("Clamped TCP connect scanner concurrency to prevent resource exhaustion")
 	}
 
-	tcpScanner := scan.NewTCPSweeper(config.Timeout, connectConcurrency, log)
+	tcpScanner := scan.NewTCPSweeper(baseTimeout, connectConcurrency, log)
 	log.Info().Int("concurrency", connectConcurrency).Msg("Using TCP connect() scanning (slower but more compatible)")
 
 	return tcpScanner
@@ -873,9 +892,11 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 }
 
 // estimateTargetCount calculates the total number of targets.
+// Includes both global networks/modes and device-specific targets.
 func estimateTargetCount(config *models.Config) int {
 	total := 0
 
+	// Count targets from global networks and sweep modes
 	for _, network := range config.Networks {
 		ips, err := scan.ExpandCIDR(network)
 		if err != nil {
@@ -887,6 +908,29 @@ func estimateTargetCount(config *models.Config) int {
 		}
 
 		if containsMode(config.SweepModes, models.ModeTCP) {
+			total += len(ips) * len(config.Ports)
+		}
+	}
+
+	// Count targets from device-specific configurations
+	for _, deviceTarget := range config.DeviceTargets {
+		ips, err := scan.ExpandCIDR(deviceTarget.Network)
+		if err != nil {
+			continue
+		}
+
+		// Use device-specific sweep modes if available, otherwise fall back to global
+		sweepModes := deviceTarget.SweepModes
+		if len(sweepModes) == 0 {
+			sweepModes = config.SweepModes
+		}
+
+		if containsMode(sweepModes, models.ModeICMP) {
+			total += len(ips)
+		}
+
+		if containsMode(sweepModes, models.ModeTCP) {
+			// DeviceTarget doesn't have its own ports, use global ports
 			total += len(ips) * len(config.Ports)
 		}
 	}

@@ -52,6 +52,10 @@ type SYNScannerOptions struct {
 
 	// NAT/Firewall options (not used in stub but kept for API compatibility)
 	SuppressRSTReply bool
+	
+	// GlobalRingMemoryMB is the total memory cap (in MB) for all ring buffers
+	// (not used in stub but kept for API compatibility)
+	GlobalRingMemoryMB int
 }
 
 var _ Scanner = (*SYNScanner)(nil)
