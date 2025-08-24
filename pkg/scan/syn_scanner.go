@@ -55,10 +55,6 @@ import (
 // - Neighbor discovery for L2 address resolution
 // - Consider eBPF/XDP for better performance with IPv6 extension headers
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
 // getRetireTovMs returns the configurable retire timeout in milliseconds.
 // Checks TPACKET_RETIRE_TOV_MS environment variable, falls back to defaultRetireTovMs.
 func getRetireTovMs() uint32 {
@@ -295,6 +291,10 @@ type SYNScanner struct {
 	// Reaper for coarse port cleanup sweeps
 	reaperWG     sync.WaitGroup
 	reaperCancel context.CancelFunc
+
+	// Thread-safe random source for IP ID generation
+	randMu sync.Mutex
+	rand   *rand.Rand
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -975,6 +975,8 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		targetIP:      make(map[string][4]byte),
 		results:       make(map[string]models.Result),
 		portDeadline:  make(map[uint16]time.Time),
+		// Initialize thread-safe random source for IP ID generation
+		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
 	// Initialize batch pool for sendmmsg arrays
@@ -1082,6 +1084,14 @@ func (s *SYNScanner) initPacketTemplate() {
 	binary.BigEndian.PutUint16(s.packetTemplate[38:], 0) // urgent ptr
 }
 
+// generateRandomID returns a thread-safe random IP header ID
+func (s *SYNScanner) generateRandomID() uint16 {
+	s.randMu.Lock()
+	id := uint16(s.rand.Intn(65535))
+	s.randMu.Unlock()
+	return id
+}
+
 // buildSynPacketFromTemplate efficiently builds a SYN packet using the pre-allocated template
 func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, destPort uint16) []byte {
 	// Get packet buffer from pool to reduce allocations
@@ -1089,7 +1099,7 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 	copy(packet, s.packetTemplate[:])
 
 	// Set variable IPv4 fields
-	id := uint16(rand.Intn(65535))
+	id := s.generateRandomID()
 	binary.BigEndian.PutUint16(packet[4:], id) // IP ID
 	copy(packet[12:16], srcIP.To4())           // src IP
 	copy(packet[16:20], destIP.To4())          // dst IP
@@ -2167,13 +2177,29 @@ func (s *SYNScanner) startReaper() {
 		return // already running
 	}
 	
+	// Calculate dynamic reaper interval based on scan timeout
+	// Use min(50ms, scanTimeout/10) with bounds [5ms, 100ms]
+	interval := s.timeout / 10
+	if interval > 50*time.Millisecond {
+		interval = 50 * time.Millisecond
+	}
+	if interval < 5*time.Millisecond {
+		interval = 5 * time.Millisecond
+	}
+	if interval > 100*time.Millisecond {
+		interval = 100 * time.Millisecond
+	}
+	
+	s.logger.Debug().Dur("interval", interval).Dur("timeout", s.timeout).
+		Msg("Starting reaper with dynamic interval")
+	
 	ctx, cancel := context.WithCancel(context.Background())
 	s.reaperCancel = cancel
 	s.reaperWG.Add(1)
 	
 	go func() {
 		defer s.reaperWG.Done()
-		ticker := time.NewTicker(50 * time.Millisecond)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		
 		for {
