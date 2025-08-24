@@ -202,14 +202,14 @@ func (s *SYNScanner) sampleKernelStats() {
 
 		var st unix.TpacketStats
 		optlen := int(unsafe.Sizeof(st))
-		
+
 		// Use unix.Syscall with proper getsockopt call
-		r1, _, errno := unix.Syscall6(unix.SYS_GETSOCKOPT, 
-			uintptr(ring.fd), 
-			uintptr(unix.SOL_PACKET), 
+		r1, _, errno := unix.Syscall6(unix.SYS_GETSOCKOPT,
+			uintptr(ring.fd),
+			uintptr(unix.SOL_PACKET),
 			uintptr(unix.PACKET_STATISTICS),
-			uintptr(unsafe.Pointer(&st)), 
-			uintptr(unsafe.Pointer(&optlen)), 
+			uintptr(unsafe.Pointer(&st)),
+			uintptr(unsafe.Pointer(&optlen)),
 			0)
 		if errno == 0 && r1 == 0 {
 			// PACKET_STATISTICS resets on read; just accumulate drops
@@ -231,7 +231,7 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 		case <-ticker.C:
 			// Sample kernel drop stats from all ring buffers
 			s.sampleKernelStats()
-			
+
 			stats := s.GetStats()
 
 			// Only log if there's been activity
@@ -578,6 +578,35 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 	lo := uint32(htons(sportLo))
 	hi := uint32(htons(sportHi))
 
+	/* 
+	 * BPF FILTER LOGIC OVERVIEW:
+	 * 
+	 * This classic BPF program filters incoming packets to only accept TCP responses
+	 * to our SYN scanner that are destined for our local IP and source port range.
+	 * 
+	 * HIGH-LEVEL FLOW:
+	 * 1. Check EtherType at offset 12 to detect VLAN tags (0x8100, 0x88A8, 0x9100)
+	 * 2. Branch into two paths:
+	 *    
+	 *    NON-VLAN PATH (IPv4 header at L2+14):
+	 *    - Verify EtherType == IPv4 (0x0800)
+	 *    - Verify IP protocol == TCP (6)
+	 *    - Verify destination IP matches our local IP (both upper and lower 16 bits)
+	 *    - Calculate TCP header offset using IP header length (IHL field)
+	 *    - Extract TCP destination port (which is our source port)
+	 *    - Verify port is within our allocated range [sportLo, sportHi]
+	 *    - Accept packet if all checks pass
+	 *    
+	 *    VLAN PATH (IPv4 header at L2+18 due to 4-byte VLAN tag):
+	 *    - Verify inner EtherType == IPv4 (0x0800)
+	 *    - Same TCP protocol, IP, and port checks as non-VLAN path
+	 *    - But with 4-byte offset adjustment for all field positions
+	 * 
+	 * 3. Drop packet if any check fails
+	 * 
+	 * This filter significantly reduces CPU load by rejecting irrelevant traffic
+	 * in kernel space before it reaches userspace packet processing.
+	 */
 	// Instruction indices shown at left for sanity.
 	prog := []unix.SockFilter{
 		//  0: EtherType @ [12]
@@ -900,6 +929,8 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 				continue
 			}
 
+			s.logger.Error().Err(err).Int("ring_fd", r.fd).Msg("Ring reader poll error, terminating reader.")
+
 			return
 		}
 
@@ -1076,7 +1107,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		}
 
 		log.Debug().Int("fd", fd).Msg("Sniffer opened successfully")
-		
+
 		log.Debug().Int("fanoutGroup", fanoutGroup).Msg("Enabling packet fanout")
 		if err := enableFanout(fd, fanoutGroup); err != nil {
 			log.Error().Err(err).Msg("Failed to enable packet fanout")
@@ -1298,7 +1329,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		fallbackStart = 32768
 		fallbackEnd   = 61000
 	)
-	
+
 	isFallbackRange := scanPortStart == fallbackStart && scanPortEnd == fallbackEnd
 	if isFallbackRange {
 		// Apply conservative multiplier when using risky fallback range
@@ -1308,7 +1339,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		if safeCapacityPPS < 500 {
 			safeCapacityPPS = 500 // Minimum viable rate
 		}
-		
+
 		log.Warn().
 			Int("originalCapacity", originalSafeCapacity).
 			Int("trimmedCapacity", safeCapacityPPS).
@@ -1713,7 +1744,7 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 
 			due := now.Add(time.Duration(attempt) * d)
 			it := retryItem{due: due, target: t, key: key}
-			
+
 			// Track retry attempts
 			atomic.AddUint64(&s.stats.RetriesAttempted, 1)
 
@@ -2116,12 +2147,12 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	// Remove all src-port mappings for this target and free them after unlock.
 	// Use reverse index for O(k) lookup and dedupe to avoid double release.
 	ports := s.targetPorts[targetKey]
-	
+
 	// Track successful retries: if more than one source port was used, a retry succeeded
 	if emit && len(ports) > 1 {
 		atomic.AddUint64(&s.stats.RetriesSuccessful, 1)
 	}
-	
+
 	uniq := make(map[uint16]struct{}, len(ports))
 
 	delete(s.targetPorts, targetKey)
@@ -2278,7 +2309,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK || err == syscall.EINTR {
 			// TRACE level for first EAGAIN - very common and usually transient
 			s.logger.Trace().Err(err).Str("host", target.Host).Msg("Transient send error, retrying")
-			
+
 			runtime.Gosched()
 			if err2 := syscall.Sendto(s.sendSocket, packet, 0, &addr); err2 == nil {
 				// Return packet buffer to pool after successful send
