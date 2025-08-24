@@ -182,14 +182,11 @@ func TestNetworkSweeper_UpdateConfig_IntervalPreservation(t *testing.T) {
 }
 
 func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
-	// Note: Each subtest creates its own mock to avoid interference
-
 	t.Run("WatchConfig with initial KV config", func(t *testing.T) {
 		// Create fresh controller and mock for this test
 		subCtrl := gomock.NewController(t)
 		defer subCtrl.Finish()
 		subMockKVStore := NewMockKVStore(subCtrl)
-		
 		// Create fresh config for this test
 		initialConfig := &models.Config{
 			Networks: []string{"192.168.1.0/24"},
@@ -282,7 +279,6 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 		subCtrl := gomock.NewController(t)
 		defer subCtrl.Finish()
 		subMockKVStore := NewMockKVStore(subCtrl)
-		
 		// Create fresh config for this test
 		initialConfig := &models.Config{
 			Networks: []string{"192.168.1.0/24"},
@@ -851,7 +847,7 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping auto-reconnect test in short mode due to backoff timing requirements")
 	}
-	
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -874,6 +870,7 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 
 	configReady := make(chan struct{})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+
 	defer cancel()
 
 	// Set up mock expectations for auto-reconnect behavior
@@ -904,6 +901,7 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 	// After the backoff delay, send a config update on the second channel
 	go func() {
 		time.Sleep(50 * time.Millisecond) // Very minimal wait - test environment doesn't need full backoff
+
 		configData := []byte(`{"networks": ["10.0.0.0/24"], "ports": [443], "sweep_modes": ["icmp"]}`)
 		select {
 		case watchCh2 <- configData:
@@ -946,6 +944,7 @@ func TestKVWatchJitterDistribution(t *testing.T) {
 	maxJitter := baseBackoff + time.Duration(float64(baseBackoff)*kvWatchJitterFactor)
 
 	allWithinRange := true
+
 	for _, jittered := range jitteredBackoffs {
 		if jittered < minJitter || jittered > maxJitter {
 			allWithinRange = false
@@ -954,16 +953,17 @@ func TestKVWatchJitterDistribution(t *testing.T) {
 	}
 
 	assert.True(t, allWithinRange, "All jittered backoffs should be within expected range")
-	
+
 	// Check that we have some variance (not all the same)
 	firstValue := jitteredBackoffs[0]
 	hasVariance := false
+
 	for i := 1; i < samples; i++ {
 		if jitteredBackoffs[i] != firstValue {
 			hasVariance = true
 			break
 		}
 	}
-	
+
 	assert.True(t, hasVariance, "Jittered backoffs should show variance")
 }
