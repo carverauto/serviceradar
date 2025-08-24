@@ -942,13 +942,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 	}
 }
 
-// NewSYNScanner creates a new SYN scanner with default options
-// Deprecated: Use NewSYNScannerWithOptions for more control
-func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*SYNScanner, error) {
-	return NewSYNScannerWithOptions(timeout, concurrency, log, nil)
-}
-
-// NewSYNScannerWithOptions creates a new SYN scanner with custom options
+// NewSYNScanner creates a new SYN scanner with custom options
 //
 // The scanner automatically detects a safe port range that doesn't conflict with
 // the system's ephemeral ports or other local applications by reading:
@@ -964,7 +958,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger) (*
 // uses atomic.Value and is safe to call anytime, including during active scans.
 //
 // Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
-func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger.Logger, opts *SYNScannerOptions) (*SYNScanner, error) {
+func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, opts *SYNScannerOptions) (*SYNScanner, error) {
 	log.Debug().Msg("Starting SYN scanner initialization")
 
 	if timeout == 0 {
