@@ -203,7 +203,7 @@ func (s *SYNScanner) sampleKernelStats() {
 
 		var st unix.TpacketStats
 
-		optlen := int(unsafe.Sizeof(st))
+		optlen := uint32(unsafe.Sizeof(st))
 
 		// Use unix.Syscall with proper getsockopt call
 		r1, _, errno := unix.Syscall6(unix.SYS_GETSOCKOPT,
