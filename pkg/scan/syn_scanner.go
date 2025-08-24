@@ -1260,6 +1260,14 @@ func (s *SYNScanner) generateRandomID() uint16 {
 	return id
 }
 
+// randUint32 returns a thread-safe random uint32 using the scanner's RNG
+func (s *SYNScanner) randUint32() uint32 {
+	s.randMu.Lock()
+	v := s.rand.Uint32()
+	s.randMu.Unlock()
+	return v
+}
+
 // buildSynPacketFromTemplate efficiently builds a SYN packet using the pre-allocated template
 func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, destPort uint16) []byte {
 	// Get packet buffer from pool to reduce allocations
@@ -1293,7 +1301,7 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 	// Set variable TCP fields
 	binary.BigEndian.PutUint16(packet[20:], srcPort)       // src port
 	binary.BigEndian.PutUint16(packet[22:], destPort)      // dst port
-	binary.BigEndian.PutUint32(packet[24:], rand.Uint32()) // seq
+	binary.BigEndian.PutUint32(packet[24:], s.randUint32()) // seq
 
 	// Calculate and set TCP checksum inline for hot path optimization
 	binary.BigEndian.PutUint16(packet[36:], 0) // clear checksum
