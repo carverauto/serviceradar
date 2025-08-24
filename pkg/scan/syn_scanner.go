@@ -2320,11 +2320,9 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		s.tryReleaseMapping(srcPort, targetKey)
 	}
 
-	ip4b := destIP.To4()
-
 	var want [4]byte
 
-	copy(want[:], ip4b)
+	copy(want[:], destIP)
 
 	s.mu.Lock()
 
