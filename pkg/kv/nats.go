@@ -166,16 +166,100 @@ func (n *NatsStore) Delete(ctx context.Context, key string) error {
 }
 
 func (n *NatsStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
-	watcher, err := n.kv.Watch(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to watch key %s: %w", key, err)
-	}
-
 	ch := make(chan []byte, 1)
 
-	go n.handleWatchUpdates(ctx, key, watcher, ch)
+	go n.handleWatchWithReconnect(ctx, key, ch)
 
 	return ch, nil
+}
+
+// handleWatchWithReconnect handles watch operations with automatic reconnection
+func (n *NatsStore) handleWatchWithReconnect(ctx context.Context, key string, ch chan<- []byte) {
+	defer close(ch)
+
+	const (
+		initialBackoff = 1 * time.Second
+		maxBackoff     = 30 * time.Second
+		backoffFactor  = 2.0
+	)
+
+	backoff := initialBackoff
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Context canceled, stopping watch for key %s", key)
+			return
+		case <-n.ctx.Done():
+			log.Printf("NatsStore context canceled, stopping watch for key %s", key)
+			return
+		default:
+			// Try to establish watch
+			if n.attemptWatch(ctx, key, ch, &backoff) {
+				return // Context was canceled
+			}
+
+			// If we reach here, the watcher closed unexpectedly, wait before retry
+			log.Printf("Watch for key %s closed unexpectedly, retrying after %v", key, backoff)
+			
+			select {
+			case <-ctx.Done():
+				return
+			case <-n.ctx.Done():
+				return
+			case <-time.After(backoff):
+				// Increase backoff for next attempt
+				if backoff < maxBackoff {
+					backoff = time.Duration(float64(backoff) * backoffFactor)
+					if backoff > maxBackoff {
+						backoff = maxBackoff
+					}
+				}
+			}
+		}
+	}
+}
+
+// attemptWatch attempts to establish a single watch session
+// Returns true if context was canceled, false if watcher closed unexpectedly
+func (n *NatsStore) attemptWatch(ctx context.Context, key string, ch chan<- []byte, backoff *time.Duration) bool {
+	const initialBackoff = 1 * time.Second
+	watcher, err := n.kv.Watch(ctx, key)
+	if err != nil {
+		log.Printf("Failed to create watch for key %s: %v", key, err)
+		return false // Will retry
+	}
+
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			log.Printf("Failed to stop watcher for key %s: %v", key, err)
+		}
+	}()
+
+	log.Printf("Established watch for key %s", key)
+	*backoff = initialBackoff // Reset backoff on successful connection
+
+	for {
+		update := n.waitForUpdate(ctx, watcher)
+		if update == nil {
+			// Check if this was due to context cancellation
+			select {
+			case <-ctx.Done():
+				return true // Context canceled
+			case <-n.ctx.Done():
+				return true // Store context canceled
+			default:
+				log.Printf("Watch update channel closed for key %s, will reconnect", key)
+				return false // Will retry
+			}
+		}
+
+		if !n.sendUpdate(ctx, ch, update.Value()) {
+			return true // Context canceled during send
+		}
+
+		log.Printf("Successfully sent watch update for key %s (length: %d bytes)", key, len(update.Value()))
+	}
 }
 
 func (n *NatsStore) handleWatchUpdates(ctx context.Context, key string, watcher jetstream.KeyWatcher, ch chan<- []byte) {

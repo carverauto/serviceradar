@@ -18,6 +18,7 @@ package sweeper
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -66,6 +67,9 @@ type NetworkSweeper struct {
 	done           chan struct{}
 	watchDone      chan struct{}
 	lastSweep      time.Time
+	// KV change detection
+	lastConfigTimestamp string
+	lastConfigHash      [32]byte
 	// Device result aggregation for multi-IP devices
 	deviceResults map[string]*DeviceResultAggregator
 	resultsMu     sync.Mutex
@@ -607,7 +611,7 @@ func (s *NetworkSweeper) handleBackoffWait(
 	// Add jitter to prevent thundering herd
 	jitterDelay := s.addJitter(backoff)
 
-	s.logger.Info().
+	s.logger.Debug().
 		Dur("delay", jitterDelay).
 		Dur("baseBackoff", backoff).
 		Msg("KV watch channel closed, retrying after backoff")
@@ -769,6 +773,18 @@ func (s *NetworkSweeper) processConfigUpdate(value []byte) {
 		Int("valueLength", len(value)).
 		Msg("Processing KV config update")
 
+	// Calculate hash of the incoming config to detect changes
+	configHash := sha256.Sum256(value)
+
+	// Check if we've already processed this exact configuration
+	s.mu.Lock()
+	if s.lastConfigHash == configHash {
+		s.mu.Unlock()
+		s.logger.Debug().Msg("Configuration unchanged, skipping processing")
+		return
+	}
+	s.mu.Unlock()
+
 	// First check if this is a metadata file indicating chunked config
 	var metadataCheck map[string]interface{}
 	if err := json.Unmarshal(value, &metadataCheck); err != nil {
@@ -778,11 +794,32 @@ func (s *NetworkSweeper) processConfigUpdate(value []byte) {
 
 	// Check if this is a metadata file with chunk information
 	if chunkCount, exists := metadataCheck["chunk_count"]; exists {
+		// For chunked config, also check timestamp
+		timestamp, timestampExists := metadataCheck["timestamp"].(string)
+		if timestampExists {
+			s.mu.Lock()
+			if s.lastConfigTimestamp == timestamp {
+				s.mu.Unlock()
+				s.logger.Debug().
+					Str("timestamp", timestamp).
+					Msg("Chunked configuration timestamp unchanged, skipping processing")
+				return
+			}
+			s.lastConfigTimestamp = timestamp
+			s.mu.Unlock()
+		}
+
 		s.logger.Info().
 			Int("chunkCount", int(chunkCount.(float64))).
-			Msg("Detected chunked sweep config, reading chunks")
+			Str("timestamp", timestamp).
+			Msg("Detected new chunked sweep config, reading chunks")
 
 		s.processChunkedConfig(metadataCheck)
+
+		// Update hash after successful processing
+		s.mu.Lock()
+		s.lastConfigHash = configHash
+		s.mu.Unlock()
 
 		return
 	}
@@ -790,11 +827,11 @@ func (s *NetworkSweeper) processConfigUpdate(value []byte) {
 	s.logger.Debug().Msg("Processing as single config file")
 
 	// Process as single file (legacy format)
-	s.processSingleConfig(value)
+	s.processSingleConfig(value, configHash)
 }
 
 // processSingleConfig handles the original single-file config format
-func (s *NetworkSweeper) processSingleConfig(value []byte) {
+func (s *NetworkSweeper) processSingleConfig(value []byte, configHash [32]byte) {
 	var temp unmarshalConfig
 	if err := json.Unmarshal(value, &temp); err != nil {
 		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to unmarshal single config")
@@ -806,6 +843,11 @@ func (s *NetworkSweeper) processSingleConfig(value []byte) {
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply single config update")
 	} else {
+		// Update hash after successful processing
+		s.mu.Lock()
+		s.lastConfigHash = configHash
+		s.mu.Unlock()
+
 		s.logger.Info().
 			Int("networks", len(newConfig.Networks)).
 			Int("deviceTargets", len(newConfig.DeviceTargets)).
@@ -939,7 +981,7 @@ func (s *NetworkSweeper) applyChunkedConfig(
 	baseConfig.Networks = combinedNetworks
 	baseConfig.DeviceTargets = combinedDeviceTargets
 
-	s.logger.Info().
+	s.logger.Debug().
 		Int("totalChunks", chunkCount).
 		Int("totalNetworks", len(combinedNetworks)).
 		Int("totalDeviceTargets", len(combinedDeviceTargets)).
@@ -950,7 +992,7 @@ func (s *NetworkSweeper) applyChunkedConfig(
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply chunked config update")
 	} else {
-		s.logger.Info().
+		s.logger.Debug().
 			Int("totalChunks", chunkCount).
 			Int("networks", len(newConfig.Networks)).
 			Int("deviceTargets", len(newConfig.DeviceTargets)).
