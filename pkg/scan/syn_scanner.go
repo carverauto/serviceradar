@@ -2710,6 +2710,8 @@ func (s *SYNScanner) Stop() error {
 	s.portTargetMap = make(map[uint16]string)
 	s.targetPorts = make(map[string][]uint16)
 	s.portDeadline = make(map[uint16]time.Time) // clear deadline map
+	s.targetIP = nil     // drop memory faster (re-init on next Scan())
+	s.results = nil      // drop memory faster (re-init on next Scan())
 
 	s.mu.Unlock()
 
