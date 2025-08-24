@@ -831,6 +831,9 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			storeU32(blk, h1_status_off, 0)
 			cur = (cur + 1) % r.blockNr
 			drained = true
+
+			// Update stats counter for each processed block
+			atomic.AddUint64(&s.stats.RingBlocksProcessed, 1)
 		}
 
 		if drained {
@@ -1365,6 +1368,7 @@ func (s *SYNScanner) tryReleaseMapping(sp uint16, k string) {
 	// Release synchronously outside the lock to avoid goroutine-per-release overhead
 	if shouldRelease {
 		s.portAlloc.Release(sp)
+		atomic.AddUint64(&s.stats.PortsReleased, 1)
 	}
 }
 
@@ -1584,6 +1588,9 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	}
 
 	scanCtx, cancel := context.WithCancel(ctx)
+
+	// Start telemetry logging tied to scan lifecycle
+	go s.logTelemetry(scanCtx)
 
 	// Initialize state for the new scan and atomically set up the scan
 	s.mu.Lock()
@@ -1875,6 +1882,9 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 		return
 	}
 
+	// Update stats counter for each parsed packet
+	atomic.AddUint64(&s.stats.PacketsRecv, 1)
+
 	// Precompute inexpensive bits *outside* the lock.
 	now := time.Now()
 
@@ -1963,6 +1973,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	// Release ports outside the lock
 	for _, sp := range toFree {
 		s.portAlloc.Release(sp)
+		atomic.AddUint64(&s.stats.PortsReleased, 1)
 	}
 
 	if emit && cb != nil {
@@ -2019,9 +2030,14 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	// Reserve a unique source port
 	srcPort, err := s.portAlloc.Reserve(ctx)
 	if err != nil {
+		// Update port exhaustion counter
+		atomic.AddUint64(&s.stats.PortExhaustion, 1)
 		s.logger.Debug().Err(err).Str("host", target.Host).Msg("No source port available")
 		return
 	}
+
+	// Update successful port allocation counter
+	atomic.AddUint64(&s.stats.PortsAllocated, 1)
 
 	// Ensure cleanup on any early return
 	release := func() {
@@ -2030,6 +2046,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		s.mu.Unlock()
 
 		s.portAlloc.Release(srcPort)
+		atomic.AddUint64(&s.stats.PortsReleased, 1)
 	}
 
 	targetKey := fmt.Sprintf("%s:%d", target.Host, target.Port)
@@ -2161,8 +2178,13 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		// Reserve source port
 		srcPort, err := s.portAlloc.Reserve(ctx)
 		if err != nil {
+			// Update port exhaustion counter
+			atomic.AddUint64(&s.stats.PortExhaustion, 1)
 			continue
 		}
+
+		// Update successful port allocation counter
+		atomic.AddUint64(&s.stats.PortsAllocated, 1)
 
 		// Update maps under lock (same as sendSyn)
 		var want [4]byte
@@ -2282,6 +2304,8 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		n, err := sendmmsg(s.sendSocket, hdrs[off:], 0)
 		if n > 0 {
 			off += n
+			// Update stats counter after successful send
+			atomic.AddUint64(&s.stats.PacketsSent, uint64(n))
 		}
 
 		if err == nil {
@@ -2323,6 +2347,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		s.mu.Unlock()
 
 		s.portAlloc.Release(sp)
+		atomic.AddUint64(&s.stats.PortsReleased, 1)
 	}
 }
 
@@ -2466,6 +2491,7 @@ func (s *SYNScanner) Stop() error {
 
 	for _, src := range toRelease {
 		s.portAlloc.Release(src)
+		atomic.AddUint64(&s.stats.PortsReleased, 1)
 	}
 
 	s.mu.Lock()
