@@ -35,7 +35,7 @@ type ICMPSweeper struct {
 	results     map[string]models.Result
 	cancel      context.CancelFunc
 	logger      logger.Logger
-	
+
 	// Streaming results callback for immediate result emission
 	resultCallback func(models.Result)
 }
@@ -451,7 +451,7 @@ func (s *ICMPSweeper) SetResultCallback(callback func(models.Result)) {
 // emitResult stores the result and immediately calls the callback if available and result is definitive
 func (s *ICMPSweeper) emitResult(host string, result *models.Result) {
 	s.results[host] = *result
-	
+
 	// Emit immediately if callback is set and result is definitive (Available=true or has Error)
 	if s.resultCallback != nil && (result.Available || result.Error != nil) {
 		cb := s.resultCallback

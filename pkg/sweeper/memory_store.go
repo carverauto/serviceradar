@@ -476,6 +476,7 @@ func checkHost(result *models.Result, filter *models.ResultFilter) bool {
 	if filter == nil {
 		return true
 	}
+
 	return filter.Host == "" || result.Target.Host == filter.Host
 }
 
@@ -484,6 +485,7 @@ func checkPort(result *models.Result, filter *models.ResultFilter) bool {
 	if filter == nil {
 		return true
 	}
+
 	return filter.Port == 0 || result.Target.Port == filter.Port
 }
 
@@ -492,5 +494,6 @@ func checkAvailability(result *models.Result, filter *models.ResultFilter) bool 
 	if filter == nil {
 		return true
 	}
+
 	return filter.Available == nil || result.Available == *filter.Available
 }
