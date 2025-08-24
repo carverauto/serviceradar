@@ -230,7 +230,7 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner
 			Msg("Clamped SYN scanner concurrency to prevent resource exhaustion")
 	}
 
-	synScanner, err := scan.NewSYNScannerWithOptions(config.Timeout, synConcurrency, log, opts)
+	synScanner, err := scan.NewSYNScanner(config.Timeout, synConcurrency, log, opts)
 	if err == nil {
 		log.Info().Int("concurrency", synConcurrency).Msg("Using SYN scanning for improved TCP port detection performance")
 		return synScanner
