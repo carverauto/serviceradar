@@ -185,6 +185,37 @@ func (s *SYNScanner) ResetStats() {
 	atomic.StoreInt64(&s.stats.LastStatsReset, time.Now().UnixNano())
 }
 
+// sampleKernelStats samples PACKET_STATISTICS from all ring buffers to track kernel drops
+func (s *SYNScanner) sampleKernelStats() {
+	s.mu.Lock()
+	rings := s.rings
+	s.mu.Unlock()
+	
+	if rings == nil {
+		return
+	}
+	
+	// Sample kernel stats from each ring buffer
+	for _, ring := range rings {
+		if ring == nil {
+			continue
+		}
+		
+		// Define tpacket_stats struct matching kernel layout
+		type tpacketStats struct {
+			Recv, Drop, Freeze uint32
+		}
+		var st tpacketStats
+		
+		// getsockopt(SOL_PACKET, PACKET_STATISTICS) resets counters on read
+		if err := unix.GetsockoptTpacketStats(ring.fd, unix.SOL_PACKET, unix.PACKET_STATISTICS, (*unix.TpacketStats)(unsafe.Pointer(&st))); err == nil {
+			// Add kernel counters to our stats (these are incremental since last read)
+			atomic.AddUint64(&s.stats.PacketsDropped, uint64(st.Drop))
+			atomic.AddUint64(&s.stats.RingBlocksDropped, uint64(st.Drop)) // Use drop count for blocks as well
+		}
+	}
+}
+
 // logTelemetry periodically logs scanner performance statistics
 // to detect silent performance regressions
 func (s *SYNScanner) logTelemetry(ctx context.Context) {
@@ -196,6 +227,9 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Sample kernel drop stats from all ring buffers
+			s.sampleKernelStats()
+			
 			stats := s.GetStats()
 
 			// Only log if there's been activity
@@ -212,6 +246,7 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 					Float64("drop_rate_percent", dropRate).
 					Uint64("ring_blocks_processed", stats.RingBlocksProcessed).
 					Uint64("retries_attempted", stats.RetriesAttempted).
+					Uint64("retries_successful", stats.RetriesSuccessful).
 					Uint64("ports_allocated", stats.PortsAllocated).
 					Uint64("rate_limit_deferrals", stats.RateLimitDeferrals).
 					Msg("SYN scanner telemetry")
@@ -1666,6 +1701,9 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 
 			due := now.Add(time.Duration(attempt) * d)
 			it := retryItem{due: due, target: t, key: key}
+			
+			// Track retry attempts
+			atomic.AddUint64(&s.stats.RetriesAttempted, 1)
 
 			select {
 			case rc <- it:
@@ -2066,6 +2104,12 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	// Remove all src-port mappings for this target and free them after unlock.
 	// Use reverse index for O(k) lookup and dedupe to avoid double release.
 	ports := s.targetPorts[targetKey]
+	
+	// Track successful retries: if more than one source port was used, a retry succeeded
+	if emit && len(ports) > 1 {
+		atomic.AddUint64(&s.stats.RetriesSuccessful, 1)
+	}
+	
 	uniq := make(map[uint16]struct{}, len(ports))
 
 	delete(s.targetPorts, targetKey)
