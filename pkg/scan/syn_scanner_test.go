@@ -64,7 +64,7 @@ func TestNewSYNScanner(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logger.NewTestLogger()
-			scanner, err := NewSYNScanner(tt.timeout, tt.concurrency, log)
+			scanner, err := NewSYNScanner(tt.timeout, tt.concurrency, log, nil)
 
 			if !isRoot {
 				// Without root privileges, should fail
@@ -92,7 +92,7 @@ func TestSYNScanner_Scan_EmptyTargets(t *testing.T) {
 	log := logger.NewTestLogger()
 
 	// Create SYN scanner (may require root)
-	scanner, err := NewSYNScanner(1*time.Second, 10, log)
+	scanner, err := NewSYNScanner(1*time.Second, 10, log, nil)
 	if err != nil {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
@@ -115,7 +115,7 @@ func TestSYNScanner_Scan_NonTCPTargets(t *testing.T) {
 	log := logger.NewTestLogger()
 
 	// Create SYN scanner (may require root)
-	scanner, err := NewSYNScanner(1*time.Second, 10, log)
+	scanner, err := NewSYNScanner(1*time.Second, 10, log, nil)
 	if err != nil {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
@@ -145,7 +145,7 @@ func TestSYNScanner_Scan_TCPTargets(t *testing.T) {
 	log := logger.NewTestLogger()
 
 	// Create SYN scanner (may require root)
-	scanner, err := NewSYNScanner(1*time.Second, 10, log)
+	scanner, err := NewSYNScanner(1*time.Second, 10, log, nil)
 	if err != nil {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
@@ -185,7 +185,7 @@ func TestSYNScanner_ConcurrentScanning(t *testing.T) {
 	log := logger.NewTestLogger()
 
 	// Create SYN scanner (should work with root)
-	scanner, err := NewSYNScanner(100*time.Millisecond, 50, log)
+	scanner, err := NewSYNScanner(100*time.Millisecond, 50, log, nil)
 	if err != nil {
 		t.Skip("SYN scanner requires root privileges")
 		return
@@ -230,7 +230,7 @@ func TestSYNScanner_ContextCancellation(t *testing.T) {
 	log := logger.NewTestLogger()
 
 	// Create SYN scanner with very short timeout for faster cancellation
-	scanner, err := NewSYNScanner(100*time.Millisecond, 10, log)
+	scanner, err := NewSYNScanner(100*time.Millisecond, 10, log, nil)
 	if err != nil {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
