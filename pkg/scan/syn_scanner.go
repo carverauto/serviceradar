@@ -143,7 +143,7 @@ type ScannerStats struct {
 	PortExhaustion uint64 // Number of times port allocator was exhausted
 
 	// Rate limiting statistics
-	RateLimitDropped uint64 // Packets dropped due to rate limiting
+	RateLimitDeferrals uint64 // Packet send operations deferred due to rate limiting
 
 	// Timing statistics (in nanoseconds, for precision)
 	LastStatsReset int64 // Timestamp of last stats reset (UnixNano)
@@ -164,7 +164,7 @@ func (s *SYNScanner) GetStats() ScannerStats {
 		PortsAllocated:      atomic.LoadUint64(&s.stats.PortsAllocated),
 		PortsReleased:       atomic.LoadUint64(&s.stats.PortsReleased),
 		PortExhaustion:      atomic.LoadUint64(&s.stats.PortExhaustion),
-		RateLimitDropped:    atomic.LoadUint64(&s.stats.RateLimitDropped),
+		RateLimitDeferrals:  atomic.LoadUint64(&s.stats.RateLimitDeferrals),
 		LastStatsReset:      atomic.LoadInt64(&s.stats.LastStatsReset),
 	}
 }
@@ -181,7 +181,7 @@ func (s *SYNScanner) ResetStats() {
 	atomic.StoreUint64(&s.stats.PortsAllocated, 0)
 	atomic.StoreUint64(&s.stats.PortsReleased, 0)
 	atomic.StoreUint64(&s.stats.PortExhaustion, 0)
-	atomic.StoreUint64(&s.stats.RateLimitDropped, 0)
+	atomic.StoreUint64(&s.stats.RateLimitDeferrals, 0)
 	atomic.StoreInt64(&s.stats.LastStatsReset, time.Now().UnixNano())
 }
 
@@ -213,7 +213,7 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 					Uint64("ring_blocks_processed", stats.RingBlocksProcessed).
 					Uint64("retries_attempted", stats.RetriesAttempted).
 					Uint64("ports_allocated", stats.PortsAllocated).
-					Uint64("rate_limit_dropped", stats.RateLimitDropped).
+					Uint64("rate_limit_deferrals", stats.RateLimitDeferrals).
 					Msg("SYN scanner telemetry")
 			}
 		}
@@ -1440,6 +1440,7 @@ func (s *SYNScanner) sendPendingWithLimiter(ctx context.Context, pending *[]mode
 
 		if allowed == 0 {
 			// tiny sleep to avoid busy spinning
+			atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
 			time.Sleep(200 * time.Microsecond)
 
 			continue
@@ -1832,6 +1833,7 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 		allowed := s.allowN(len(pending))
 		if allowed == 0 {
 			// tiny nap to let tokens accrue
+			atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
 			time.Sleep(200 * time.Microsecond)
 			continue
 		}
