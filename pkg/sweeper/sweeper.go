@@ -778,17 +778,22 @@ func (s *NetworkSweeper) processConfigUpdate(value []byte) {
 
 	// Check if we've already processed this exact configuration
 	s.mu.Lock()
+
 	if s.lastConfigHash == configHash {
 		s.mu.Unlock()
 		s.logger.Debug().Msg("Configuration unchanged, skipping processing")
+
 		return
 	}
+
 	s.mu.Unlock()
 
 	// First check if this is a metadata file indicating chunked config
 	var metadataCheck map[string]interface{}
+
 	if err := json.Unmarshal(value, &metadataCheck); err != nil {
 		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to unmarshal config")
+
 		return
 	}
 
@@ -803,8 +808,10 @@ func (s *NetworkSweeper) processConfigUpdate(value []byte) {
 				s.logger.Debug().
 					Str("timestamp", timestamp).
 					Msg("Chunked configuration timestamp unchanged, skipping processing")
+
 				return
 			}
+
 			s.lastConfigTimestamp = timestamp
 			s.mu.Unlock()
 		}
