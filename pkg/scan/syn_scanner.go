@@ -1759,7 +1759,10 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 			d := s.retryMinJitter
 
 			if span > 0 {
-				d += time.Duration(rand.Int63n(int64(span)))
+				s.randMu.Lock()
+				j := s.rand.Int63n(int64(span))
+				s.randMu.Unlock()
+				d += time.Duration(j)
 			}
 
 			due := now.Add(time.Duration(attempt) * d)
