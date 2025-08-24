@@ -57,12 +57,7 @@ type SYNScannerOptions struct {
 var _ Scanner = (*SYNScanner)(nil)
 
 // NewSYNScanner creates a new SYN scanner stub that returns an error on non-Linux platforms
-func NewSYNScanner(_ time.Duration, _ int, _ logger.Logger) (*SYNScanner, error) {
-	return nil, fmt.Errorf("SYN scanning is only supported on Linux")
-}
-
-// NewSYNScannerWithOptions creates a new SYN scanner stub with options that returns an error on non-Linux platforms
-func NewSYNScannerWithOptions(_ time.Duration, _ int, _ logger.Logger, _ *SYNScannerOptions) (*SYNScanner, error) {
+func NewSYNScanner(_ time.Duration, _ int, _ logger.Logger, _ *SYNScannerOptions) (*SYNScanner, error) {
 	return nil, fmt.Errorf("SYN scanning is only supported on Linux")
 }
 
