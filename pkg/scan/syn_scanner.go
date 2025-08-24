@@ -573,49 +573,18 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 		return fmt.Errorf("attachBPF: non-IPv4 local IP")
 	}
 
-	// Precompute BE16 halves of local IP for comparisons
+	// Compare IP halves as host-order 16-bit values (cBPF ldh returns host-order).
 	ipHi := uint32(binary.BigEndian.Uint16(ip4[0:2]))
 	ipLo := uint32(binary.BigEndian.Uint16(ip4[2:4]))
 
-	// IMPORTANT: compare dport (loaded in network order) with network-order bounds
-	lo := uint32(htons(sportLo))
-	hi := uint32(htons(sportHi))
+	// IMPORTANT: cBPF 'ldh' loads are host-endian; do NOT htons() these.
+	lo := uint32(sportLo)
+	hi := uint32(sportHi)
 
-	/*
-	 * BPF FILTER LOGIC OVERVIEW:
-	 *
-	 * This classic BPF program filters incoming packets to only accept TCP responses
-	 * to our SYN scanner that are destined for our local IP and source port range.
-	 *
-	 * HIGH-LEVEL FLOW:
-	 * 1. Check EtherType at offset 12 to detect VLAN tags (0x8100, 0x88A8, 0x9100)
-	 * 2. Branch into two paths:
-	 *
-	 *    NON-VLAN PATH (IPv4 header at L2+14):
-	 *    - Verify EtherType == IPv4 (0x0800)
-	 *    - Verify IP protocol == TCP (6)
-	 *    - Verify destination IP matches our local IP (both upper and lower 16 bits)
-	 *    - Calculate TCP header offset using IP header length (IHL field)
-	 *    - Extract TCP destination port (which is our source port)
-	 *    - Verify port is within our allocated range [sportLo, sportHi]
-	 *    - Accept packet if all checks pass
-	 *
-	 *    VLAN PATH (IPv4 header at L2+18 due to 4-byte VLAN tag):
-	 *    - Verify inner EtherType == IPv4 (0x0800)
-	 *    - Same TCP protocol, IP, and port checks as non-VLAN path
-	 *    - But with 4-byte offset adjustment for all field positions
-	 *
-	 * 3. Drop packet if any check fails
-	 *
-	 * This filter significantly reduces CPU load by rejecting irrelevant traffic
-	 * in kernel space before it reaches userspace packet processing.
-	 */
-
-	// Instruction indices shown at left for sanity.
 	prog := []unix.SockFilter{
 		//  0: EtherType @ [12]
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 12},
-		//  1: vlan? (0x8100) -> jump to VLAN block @18
+		//  1: vlan? (0x8100) -> VLAN block @18
 		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x8100, Jt: 16, Jf: 0},
 		//  2: vlan? (0x88a8) -> VLAN block @18
 		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x88A8, Jt: 15, Jf: 0},
@@ -629,24 +598,24 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
 		//  6: proto @ [23]
 		{Code: unix.BPF_LD | unix.BPF_B | unix.BPF_ABS, K: 23},
-		//  7: if proto != TCP -> drop (jf=9 to instr 17)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 6, Jt: 0, Jf: 9},
+		//  7: if proto != TCP -> drop (jf=10 to instr 17)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 6, Jt: 0, Jf: 10},
 		//  8: dst ip upper 16 @ [30]
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 30},
-		//  9: if upper != local -> drop (jf=7 to 17)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipHi, Jt: 0, Jf: 7},
+		//  9: if upper != local -> drop (jf=8 to 17)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipHi, Jt: 0, Jf: 8},
 		// 10: dst ip lower 16 @ [32]
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 32},
-		// 11: if lower != local -> drop (jf=5 to 17)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipLo, Jt: 0, Jf: 5},
+		// 11: if lower != local -> drop (jf=6 to 17)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipLo, Jt: 0, Jf: 6},
 		// 12: X = 4*(IHL) @ [14]
 		{Code: unix.BPF_LDX | unix.BPF_MSH | unix.BPF_B | unix.BPF_ABS, K: 14},
 		// 13: tcp dport @ [16+X]
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_IND, K: 16},
-		// 14: if dport < lo -> drop (jf=2 to 17)
-		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 2},
-		// 15: if dport > hi -> drop (jt=1 to 17)
-		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 1, Jf: 0},
+		// 14: if dport < lo -> drop (jf=3 to 17)
+		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 3},
+		// 15: if dport > hi -> drop (jt=2 to 17)
+		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 2, Jf: 0},
 		// 16: accept
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
 		// 17: drop
@@ -655,28 +624,28 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 		// VLAN path (single tag; IPv4 at L2+18)
 		// 18: inner EtherType @ [16]
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 16},
-		// 19: if inner EtherType != IPv4 -> drop (jf=11 to 31)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x0800, Jt: 0, Jf: 11},
+		// 19: if inner EtherType != IPv4 -> drop (jf=12 to 31)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 0x0800, Jt: 0, Jf: 12},
 		// 20: proto @ [27]
 		{Code: unix.BPF_LD | unix.BPF_B | unix.BPF_ABS, K: 27},
-		// 21: if proto != TCP -> drop (jf=9 to 31)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 6, Jt: 0, Jf: 9},
+		// 21: if proto != TCP -> drop (jf=10 to 31)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: 6, Jt: 0, Jf: 10},
 		// 22: dst ip upper 16 @ [34]
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 34},
-		// 23: if upper != local -> drop (jf=7 to 31)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipHi, Jt: 0, Jf: 7},
+		// 23: if upper != local -> drop (jf=8 to 31)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipHi, Jt: 0, Jf: 8},
 		// 24: dst ip lower 16 @ [36]
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 36},
-		// 25: if lower != local -> drop (jf=5 to 31)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipLo, Jt: 0, Jf: 5},
+		// 25: if lower != local -> drop (jf=6 to 31)
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipLo, Jt: 0, Jf: 6},
 		// 26: X = 4*(IHL) @ [18]
 		{Code: unix.BPF_LDX | unix.BPF_MSH | unix.BPF_B | unix.BPF_ABS, K: 18},
 		// 27: tcp dport @ [20+X]  (18 + 2 + X)
 		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_IND, K: 20},
-		// 28: if dport < lo -> drop (jf=2 to 31)
-		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 2},
-		// 29: if dport > hi -> drop (jt=1 to 31)
-		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 1, Jf: 0},
+		// 28: if dport < lo -> drop (jf=3 to 31)
+		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 3},
+		// 29: if dport > hi -> drop (jt=2 to 31)
+		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 2, Jf: 0},
 		// 30: accept
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
 		// 31: drop
