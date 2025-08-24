@@ -2258,6 +2258,12 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 		return
 	}
 
+	// Fast reject for invalid ports before reserving source port
+	if target.Port <= 0 || target.Port > maxPortNumber {
+		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
+		return
+	}
+
 	// Reserve a unique source port
 	srcPort, err := s.portAlloc.Reserve(ctx)
 	if err != nil {
@@ -2318,12 +2324,6 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 	s.portDeadline[srcPort] = deadline
 	s.mu.Unlock()
 
-	if target.Port <= 0 || target.Port > maxPortNumber {
-		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
-		release()
-
-		return
-	}
 
 	packet := s.buildSynPacketFromTemplate(s.sourceIP, destIP, srcPort, uint16(target.Port)) //nolint:gosec
 	addr := syscall.SockaddrInet4{Port: 0} // ignored by kernel for raw sockets with IP_HDRINCL
