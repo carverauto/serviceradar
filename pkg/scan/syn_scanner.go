@@ -2851,13 +2851,6 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 
 	// Option 3: If we can't find a non-overlapping range, try to use reserved ports within the range
 	// This is less ideal but better than nothing
-	reservedInRange := 0
-	for p := sysStart; p <= sysEnd; p++ {
-		if _, ok := reserved[p]; ok {
-			reservedInRange++
-		}
-	}
-
 	if lo, hi, ok := largestContiguous(reserved, 1024, 65535); ok && hi-lo+1 >= 5000 {
 		log.Warn().Uint16("start", lo).Uint16("end", hi).
 			Msg("Using largest contiguous reserved block for scanner ports")
