@@ -85,30 +85,39 @@ func (s *InMemoryStore) cleanOldResults() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	resultCount := len(s.results)
-	// Only clean if we exceed the threshold by a significant margin
-	if resultCount > s.maxResults*2 {
-		// Calculate how many to remove - keep 75% of max
-		targetCount := s.maxResults * 3 / 4
-		removeCount := resultCount - targetCount
-
-		s.logger.Debug().
-			Int("currentCount", resultCount).
-			Int("targetCount", targetCount).
-			Int("removingCount", removeCount).
-			Msg("Cleaning old results")
-
-		// Keep the most recent results (which are at the end)
-		s.results = s.results[removeCount:]
-		// Rebuild index after slicing
-		s.index = make(map[resultKey]int, len(s.results))
-		for i := range s.results {
-			r := &s.results[i]
-			s.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = i
+	// Time-aware cleanup: keep items seen in the last N minutes
+	const keepWindow = 30 * time.Minute
+	cutoff := time.Now().Add(-keepWindow)
+	
+	originalCount := len(s.results)
+	filtered := s.results[:0] // reuse underlying array for efficiency
+	
+	for i := range s.results {
+		if s.results[i].LastSeen.After(cutoff) {
+			filtered = append(filtered, s.results[i])
 		}
-
-		s.lastCleanup = time.Now()
 	}
+	
+	s.results = filtered
+	removedCount := originalCount - len(s.results)
+	
+	// Rebuild index after filtering
+	s.index = make(map[resultKey]int, len(s.results))
+	for i := range s.results {
+		r := &s.results[i]
+		s.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = i
+	}
+	
+	if removedCount > 0 {
+		s.logger.Debug().
+			Int("originalCount", originalCount).
+			Int("removedCount", removedCount).
+			Int("remainingCount", len(s.results)).
+			Dur("keepWindow", keepWindow).
+			Msg("Cleaned old results by LastSeen")
+	}
+	
+	s.lastCleanup = time.Now()
 }
 
 func (s *InMemoryStore) Close() error {
