@@ -2199,6 +2199,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 			if err2 := syscall.Sendto(s.sendSocket, packet, 0, &addr); err2 == nil {
 				// Return packet buffer to pool after successful send
 				s.packetPool.Put(packet)
+				atomic.AddUint64(&s.stats.PacketsSent, 1)
 				return
 			} else {
 				// DEBUG level for retry failure - indicates potential system pressure
@@ -2218,6 +2219,7 @@ func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
 
 	// Return packet buffer to pool after successful send
 	s.packetPool.Put(packet)
+	atomic.AddUint64(&s.stats.PacketsSent, 1)
 }
 
 // sendSynBatch crafts and sends SYNs for a slice of targets using sendmmsg().
