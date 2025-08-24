@@ -461,7 +461,7 @@ func (s *ICMPSweeper) emitResult(host string, result models.Result) {
 	}
 }
 
-func (s *ICMPSweeper) Stop(_ context.Context) error {
+func (s *ICMPSweeper) Stop() error {
 	if s.cancel != nil {
 		s.cancel()
 	}

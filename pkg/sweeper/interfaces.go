@@ -40,7 +40,7 @@ type Sweeper interface {
 	Start(context.Context) error
 
 	// Stop gracefully stops sweeping
-	Stop(ctx context.Context) error
+	Stop() error
 
 	// GetResults retrieves sweep results based on filter
 	GetResults(context.Context, *models.ResultFilter) ([]models.Result, error)

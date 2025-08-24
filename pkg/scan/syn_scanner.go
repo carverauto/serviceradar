@@ -2025,7 +2025,7 @@ func (s *SYNScanner) emitResult(targetKey string, result models.Result) {
 }
 
 // Stop gracefully stops the scanner
-func (s *SYNScanner) Stop(_ context.Context) error {
+func (s *SYNScanner) Stop() error {
 	// Grab and clear the cancel func WITHOUT holding the lock while we wait
 	var cancel context.CancelFunc
 

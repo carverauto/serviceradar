@@ -64,7 +64,7 @@ func TestNewICMPSweeper(t *testing.T) {
 				t.Errorf("rateLimit = %v, want %v", s.rateLimit, expectedRateLimit)
 			}
 
-			_ = s.Stop(context.Background())
+			_ = s.Stop()
 		})
 	}
 }
@@ -84,7 +84,7 @@ func TestICMPSweeper_Scan(t *testing.T) {
 	}
 
 	defer func(sweeper *ICMPSweeper, ctx context.Context) {
-		err = sweeper.Stop(ctx)
+		err = sweeper.Stop()
 		if err != nil {
 			t.Errorf("Failed to stop ICMPSweeper: %v", err)
 		}
@@ -134,7 +134,7 @@ func TestICMPSweeper_Stop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sweeper.cancel = cancel
 
-	err = sweeper.Stop(context.Background())
+	err = sweeper.Stop()
 	if err != nil {
 		t.Errorf("Stop() error = %v", err)
 	}

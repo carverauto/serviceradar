@@ -185,7 +185,7 @@ func TestTCPSweeper_Stop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 
-	err := s.Stop(ctx)
+	err := s.Stop()
 	if err != nil {
 		t.Errorf("Stop() error = %v", err)
 	}
