@@ -50,7 +50,7 @@ type KVStore interface {
 	Close() error
 }
 
-// KeyValueEntry represents a key-value update with metadata (used internally by NatsStore).
+// KeyValueEntry represents a key-value update with metadata (used internally by NATSStore).
 type KeyValueEntry struct {
 	Key   string
 	Value []byte

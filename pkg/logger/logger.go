@@ -123,6 +123,11 @@ func GetLogger() zerolog.Logger {
 	return instance.logger
 }
 
+func Trace() *zerolog.Event {
+	initDefaults()
+	return instance.logger.Trace()
+}
+
 func Debug() *zerolog.Event {
 	initDefaults()
 	return instance.logger.Debug()

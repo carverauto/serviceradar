@@ -31,10 +31,36 @@ import (
 // SYNScanner is a stub implementation for non-Linux platforms
 type SYNScanner struct{}
 
+// SYNScannerOptions contains optional configuration for the SYN scanner
+type SYNScannerOptions struct {
+	// SendBatchSize is the number of packets to send per sendmmsg call
+	SendBatchSize int
+	// RateLimit is the packets per second limit
+	RateLimit int
+	// RateLimitBurst is the burst size for rate limiting
+	RateLimitBurst int
+	// RouteDiscoveryHost is the target address for local IP discovery
+	RouteDiscoveryHost string
+
+	// Ring buffer tuning options (not used in stub but kept for API compatibility)
+	RingBlockSize  uint32
+	RingBlockCount uint32
+	RingFrameSize  uint32
+
+	// Interface selection (not used in stub but kept for API compatibility)
+	Interface string
+
+	// NAT/Firewall options (not used in stub but kept for API compatibility)
+	SuppressRSTReply bool
+	// GlobalRingMemoryMB is the total memory cap (in MB) for all ring buffers
+	// (not used in stub but kept for API compatibility)
+	GlobalRingMemoryMB int
+}
+
 var _ Scanner = (*SYNScanner)(nil)
 
 // NewSYNScanner creates a new SYN scanner stub that returns an error on non-Linux platforms
-func NewSYNScanner(_ time.Duration, _ int, _ logger.Logger) (*SYNScanner, error) {
+func NewSYNScanner(_ time.Duration, _ int, _ logger.Logger, _ *SYNScannerOptions) (*SYNScanner, error) {
 	return nil, fmt.Errorf("SYN scanning is only supported on Linux")
 }
 
@@ -44,6 +70,6 @@ func (*SYNScanner) Scan(_ context.Context, _ []models.Target) (<-chan models.Res
 }
 
 // Stop returns an error indicating SYN scanning is not supported on this platform
-func (*SYNScanner) Stop(_ context.Context) error {
+func (*SYNScanner) Stop() error {
 	return fmt.Errorf("SYN scanning is only supported on Linux")
 }

@@ -26,6 +26,13 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// resultKey uniquely identifies a stored result
+type resultKey struct {
+	host string
+	port int
+	mode models.SweepMode
+}
+
 const (
 	defaultCleanupInterval = 10 * time.Minute
 	defaultMaxResults      = 100000 // Increased to handle larger networks (was 10000)
@@ -35,6 +42,7 @@ const (
 type InMemoryStore struct {
 	mu          sync.RWMutex
 	results     []models.Result
+	index       map[resultKey]int // O(1) lookup/update by (host,port,mode)
 	processor   ResultProcessor
 	maxResults  int
 	cleanupDone chan struct{}
@@ -46,6 +54,7 @@ type InMemoryStore struct {
 func NewInMemoryStore(processor ResultProcessor, log logger.Logger) Store {
 	store := &InMemoryStore{
 		results:     make([]models.Result, 0),
+		index:       make(map[resultKey]int),
 		processor:   processor,
 		maxResults:  defaultMaxResults,
 		cleanupDone: make(chan struct{}),
@@ -76,23 +85,39 @@ func (s *InMemoryStore) cleanOldResults() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	resultCount := len(s.results)
-	// Only clean if we exceed the threshold by a significant margin
-	if resultCount > s.maxResults*2 {
-		// Calculate how many to remove - keep 75% of max
-		targetCount := s.maxResults * 3 / 4
-		removeCount := resultCount - targetCount
+	// Time-aware cleanup: keep items seen in the last N minutes
+	const keepWindow = 30 * time.Minute
+	cutoff := time.Now().Add(-keepWindow)
 
-		s.logger.Debug().
-			Int("currentCount", resultCount).
-			Int("targetCount", targetCount).
-			Int("removingCount", removeCount).
-			Msg("Cleaning old results")
+	originalCount := len(s.results)
+	filtered := s.results[:0] // reuse underlying array for efficiency
 
-		// Keep the most recent results (which are at the end)
-		s.results = s.results[removeCount:]
-		s.lastCleanup = time.Now()
+	for i := range s.results {
+		if s.results[i].LastSeen.After(cutoff) {
+			filtered = append(filtered, s.results[i])
+		}
 	}
+
+	s.results = filtered
+	removedCount := originalCount - len(s.results)
+
+	// Rebuild index after filtering
+	s.index = make(map[resultKey]int, len(s.results))
+	for i := range s.results {
+		r := &s.results[i]
+		s.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = i
+	}
+
+	if removedCount > 0 {
+		s.logger.Debug().
+			Int("originalCount", originalCount).
+			Int("removedCount", removedCount).
+			Int("remainingCount", len(s.results)).
+			Dur("keepWindow", keepWindow).
+			Msg("Cleaned old results by LastSeen")
+	}
+
+	s.lastCleanup = time.Now()
 }
 
 func (s *InMemoryStore) Close() error {
@@ -350,19 +375,15 @@ func (s *InMemoryStore) SaveResult(_ context.Context, result *models.Result) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Find existing result for this host and mode
-	for i := range s.results {
-		if s.results[i].Target.Host == result.Target.Host &&
-			s.results[i].Target.Mode == result.Target.Mode &&
-			s.results[i].Target.Port == result.Target.Port {
-			// Update existing result
-			s.results[i] = *result
-			return nil
-		}
+	key := resultKey{host: result.Target.Host, port: result.Target.Port, mode: result.Target.Mode}
+	if idx, ok := s.index[key]; ok {
+		// Update existing result
+		s.results[idx] = *result
+		return nil
 	}
-
-	// If no existing result found, append new one
+	// Append new
 	s.results = append(s.results, *result)
+	s.index[key] = len(s.results) - 1
 
 	return nil
 }
@@ -400,12 +421,23 @@ func (s *InMemoryStore) PruneResults(_ context.Context, age time.Duration) error
 	}
 
 	s.results = newResults
+	// Rebuild index after pruning
+	s.index = make(map[resultKey]int, len(s.results))
+	for i := range s.results {
+		r := &s.results[i]
+		s.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = i
+	}
 
 	return nil
 }
 
 // matchesFilter checks if a Result matches the provided filter.
+// If filter is nil, matches all results.
 func (*InMemoryStore) matchesFilter(result *models.Result, filter *models.ResultFilter) bool {
+	if filter == nil {
+		return true
+	}
+
 	checks := []func(*models.Result, *models.ResultFilter) bool{
 		checkTimeRange,
 		checkHost,
@@ -424,6 +456,10 @@ func (*InMemoryStore) matchesFilter(result *models.Result, filter *models.Result
 
 // checkTimeRange verifies if the result falls within the specified time range.
 func checkTimeRange(result *models.Result, filter *models.ResultFilter) bool {
+	if filter == nil {
+		return true
+	}
+
 	if !filter.StartTime.IsZero() && result.LastSeen.Before(filter.StartTime) {
 		return false
 	}
@@ -437,15 +473,27 @@ func checkTimeRange(result *models.Result, filter *models.ResultFilter) bool {
 
 // checkHost verifies if the result matches the specified host.
 func checkHost(result *models.Result, filter *models.ResultFilter) bool {
+	if filter == nil {
+		return true
+	}
+
 	return filter.Host == "" || result.Target.Host == filter.Host
 }
 
 // checkPort verifies if the result matches the specified port.
 func checkPort(result *models.Result, filter *models.ResultFilter) bool {
+	if filter == nil {
+		return true
+	}
+
 	return filter.Port == 0 || result.Target.Port == filter.Port
 }
 
 // checkAvailability verifies if the result matches the specified availability.
 func checkAvailability(result *models.Result, filter *models.ResultFilter) bool {
+	if filter == nil {
+		return true
+	}
+
 	return filter.Available == nil || result.Available == *filter.Available
 }

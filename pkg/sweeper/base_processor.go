@@ -613,7 +613,7 @@ func (p *BaseProcessor) updateNetworkTotal(result *models.Result, totalHosts int
 	p.processedNetworksMu.Unlock()
 
 	p.totalHostsMu.Lock()
-	p.totalHosts = totalHosts
+	p.totalHosts += totalHosts // Fixed: accumulate instead of overwrite
 	p.totalHostsMu.Unlock()
 }
 

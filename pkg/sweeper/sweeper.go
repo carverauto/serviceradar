@@ -18,8 +18,11 @@ package sweeper
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +36,11 @@ const (
 	defaultInterval      = 5 * time.Minute
 	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
 	defaultResultTimeout = 500 * time.Millisecond
+	// KV Watch auto-reconnect parameters
+	kvWatchInitialBackoff = 1 * time.Second
+	kvWatchMaxBackoff     = 5 * time.Minute
+	kvWatchBackoffFactor  = 2.0
+	kvWatchJitterFactor   = 0.1 // 10% jitter
 )
 
 // DeviceRegistryService interface for device registry operations
@@ -59,6 +67,9 @@ type NetworkSweeper struct {
 	done           chan struct{}
 	watchDone      chan struct{}
 	lastSweep      time.Time
+	// KV change detection
+	lastConfigTimestamp string
+	lastConfigHash      [32]byte
 	// Device result aggregation for multi-IP devices
 	deviceResults map[string]*DeviceResultAggregator
 	resultsMu     sync.Mutex
@@ -83,6 +94,10 @@ var (
 const (
 	defaultTotalTargetLimitPercentage = 10
 	defaultEffectiveConcurrency       = 5
+
+	// Concurrency upper bounds to prevent resource exhaustion
+	maxSYNConcurrency     = 2048 // SYN scanning can handle higher concurrency efficiently
+	maxConnectConcurrency = 500  // TCP connect() is more resource intensive
 )
 
 // NewNetworkSweeper creates a new scanner for network sweeping.
@@ -98,49 +113,8 @@ func NewNetworkSweeper(
 		return nil, errNilConfig
 	}
 
-	// Initialize ICMP scanner only if needed
-	var icmpScanner scan.Scanner
-
-	needsICMP := false
-
-	for _, mode := range config.SweepModes {
-		if mode == models.ModeICMP {
-			needsICMP = true
-			break
-		}
-	}
-
-	if needsICMP {
-		var err error
-
-		icmpScanner, err = scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log)
-
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to create ICMP scanner, ICMP scanning will be disabled")
-		}
-	}
-
-	totalTargets := estimateTargetCount(config)
-	effectiveConcurrency := config.Concurrency
-
-	if totalTargets > 0 && effectiveConcurrency > totalTargets/10 {
-		effectiveConcurrency = totalTargets / defaultTotalTargetLimitPercentage // Limit to 10% of targets
-		if effectiveConcurrency < defaultEffectiveConcurrency {
-			effectiveConcurrency = defaultEffectiveConcurrency // Minimum concurrency
-		}
-
-		log.Debug().Int("adjustedConcurrency", effectiveConcurrency).Int("totalTargets", totalTargets).Msg("Adjusted concurrency for targets")
-	}
-
-	// Use SYN scanner for better performance
-	synScanner, err := scan.NewSYNScanner(config.Timeout, effectiveConcurrency, log)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SYN scanner: %w", err)
-	}
-
-	log.Info().Msg("Using SYN scanning for improved TCP port detection performance")
-
-	tcpScanner := synScanner
+	icmpScanner := initializeICMPScanner(config, log)
+	tcpScanner := initializeTCPScanner(config, log)
 
 	// Default interval if not set
 	if config.Interval == 0 {
@@ -163,6 +137,168 @@ func NewNetworkSweeper(
 		watchDone:      make(chan struct{}),
 		deviceResults:  make(map[string]*DeviceResultAggregator),
 	}, nil
+}
+
+// initializeICMPScanner creates an ICMP scanner if needed based on config
+func initializeICMPScanner(config *models.Config, log logger.Logger) scan.Scanner {
+	if !needsICMPScanning(config) {
+		return nil
+	}
+
+	icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to create ICMP scanner, ICMP scanning will be disabled")
+		return nil
+	}
+
+	return icmpScanner
+}
+
+// needsICMPScanning checks if ICMP scanning is needed based on config
+func needsICMPScanning(config *models.Config) bool {
+	// Check global sweep modes
+	for _, mode := range config.SweepModes {
+		if mode == models.ModeICMP {
+			return true
+		}
+	}
+
+	// Check device target sweep modes
+	for _, deviceTarget := range config.DeviceTargets {
+		for _, mode := range deviceTarget.SweepModes {
+			if mode == models.ModeICMP {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// initializeTCPScanner creates and configures the TCP scanner with graceful fallback
+func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner {
+	// Prefer TCP-specific settings if set; otherwise fall back to global settings
+	baseTimeout := config.TCPSettings.Timeout
+	if baseTimeout == 0 {
+		baseTimeout = config.Timeout
+	}
+
+	baseConcurrency := config.TCPSettings.Concurrency
+	if baseConcurrency <= 0 {
+		baseConcurrency = calculateEffectiveConcurrency(config, log)
+	}
+
+	log.Debug().Dur("baseTimeout", baseTimeout).Int("baseConcurrency", baseConcurrency).
+		Msg("Using TCP-specific settings for scanner initialization")
+
+	// Try SYN scanner first for optimal performance
+	opts := &scan.SYNScannerOptions{}
+
+	// Use TCPSettings.MaxBatch if configured
+	if config.TCPSettings.MaxBatch > 0 {
+		opts.SendBatchSize = config.TCPSettings.MaxBatch
+		log.Debug().Int("tcp_max_batch", config.TCPSettings.MaxBatch).Msg("Using configured TCP max batch size for SYN scanner")
+	}
+
+	// Use configured route discovery host for locked-down environments
+	if config.TCPSettings.RouteDiscoveryHost != "" {
+		opts.RouteDiscoveryHost = config.TCPSettings.RouteDiscoveryHost
+		log.Debug().Str("route_discovery_host", config.TCPSettings.RouteDiscoveryHost).
+			Msg("Using configured route discovery host for local IP detection")
+	}
+
+	// Configure ring buffer settings if specified
+	// Note: These will be clamped to safe limits automatically
+	if config.TCPSettings.RingBlockSize > 0 {
+		if config.TCPSettings.RingBlockSize <= int(^uint32(0)) {
+			opts.RingBlockSize = uint32(config.TCPSettings.RingBlockSize) // #nosec G115 - bounds check above ensures no overflow
+		} else {
+			opts.RingBlockSize = ^uint32(0) // Use max uint32 value if overflow would occur
+		}
+
+		log.Debug().Uint32("ring_block_size", opts.RingBlockSize).Msg("Using configured ring buffer block size")
+	}
+
+	if config.TCPSettings.RingBlockCount > 0 {
+		if config.TCPSettings.RingBlockCount <= int(^uint32(0)) {
+			opts.RingBlockCount = uint32(config.TCPSettings.RingBlockCount) // #nosec G115 - bounds check above ensures no overflow
+		} else {
+			opts.RingBlockCount = ^uint32(0) // Use max uint32 value if overflow would occur
+		}
+
+		log.Debug().Uint32("ring_block_count", opts.RingBlockCount).Msg("Using configured ring buffer block count")
+	}
+
+	// Configure network interface for multi-homed hosts
+	if config.TCPSettings.Interface != "" {
+		opts.Interface = config.TCPSettings.Interface
+		log.Debug().Str("interface", opts.Interface).Msg("Using configured network interface")
+	}
+
+	// Configure NAT/firewall compatibility options
+	if config.TCPSettings.SuppressRSTReply {
+		opts.SuppressRSTReply = true
+
+		log.Debug().Msg("RST reply suppression enabled for firewall compatibility")
+	}
+
+	// Configure global memory limit for ring buffers
+	if config.TCPSettings.GlobalRingMemoryMB > 0 {
+		opts.GlobalRingMemoryMB = config.TCPSettings.GlobalRingMemoryMB
+		log.Debug().Int("global_ring_memory_mb", opts.GlobalRingMemoryMB).
+			Msg("Using configured global ring buffer memory limit")
+	}
+
+	// Note: RateLimit can be set here too if needed in the future
+	// opts.RateLimit = config.TCPSettings.RateLimit
+
+	// Apply SYN concurrency upper bound
+	synConcurrency := baseConcurrency
+	if synConcurrency > maxSYNConcurrency {
+		synConcurrency = maxSYNConcurrency
+		log.Info().Int("originalConcurrency", baseConcurrency).Int("clampedConcurrency", synConcurrency).
+			Msg("Clamped SYN scanner concurrency to prevent resource exhaustion")
+	}
+
+	synScanner, err := scan.NewSYNScanner(config.TCPSettings.Timeout, synConcurrency, log, opts)
+	if err == nil {
+		log.Info().Int("concurrency", synConcurrency).Msg("Using SYN scanning for improved TCP port detection performance")
+		return synScanner
+	}
+
+	// SYN scanner failed (non-Linux, container without CAP_NET_RAW, etc.)
+	// Gracefully fall back to TCP connect() scanner
+	log.Warn().Err(err).Msg("SYN scanner unavailable; falling back to TCP connect() scanner")
+
+	// Apply connect scanner concurrency upper bound (more restrictive)
+	connectConcurrency := baseConcurrency
+	if connectConcurrency > maxConnectConcurrency {
+		connectConcurrency = maxConnectConcurrency
+		log.Info().Int("originalConcurrency", baseConcurrency).Int("clampedConcurrency", connectConcurrency).
+			Msg("Clamped TCP connect scanner concurrency to prevent resource exhaustion")
+	}
+
+	tcpScanner := scan.NewTCPSweeper(baseTimeout, connectConcurrency, log)
+	log.Info().Int("concurrency", connectConcurrency).Msg("Using TCP connect() scanning (slower but more compatible)")
+
+	return tcpScanner
+}
+
+// calculateEffectiveConcurrency adjusts concurrency based on target count
+func calculateEffectiveConcurrency(config *models.Config, log logger.Logger) int {
+	totalTargets := estimateTargetCount(config)
+	effectiveConcurrency := config.Concurrency
+
+	if totalTargets > 0 && effectiveConcurrency > totalTargets/10 {
+		effectiveConcurrency = totalTargets / defaultTotalTargetLimitPercentage // Limit to 10% of targets
+		if effectiveConcurrency < defaultEffectiveConcurrency {
+			effectiveConcurrency = defaultEffectiveConcurrency // Minimum concurrency
+		}
+
+		log.Debug().Int("adjustedConcurrency", effectiveConcurrency).Int("totalTargets", totalTargets).Msg("Adjusted concurrency for targets")
+	}
+
+	return effectiveConcurrency
 }
 
 // Start begins periodic sweeping and KV watching.
@@ -239,12 +375,16 @@ func (s *NetworkSweeper) Stop() error {
 	close(s.done)
 	<-s.watchDone // Wait for KV watching to stop
 
-	if err := s.icmpScanner.Stop(context.Background()); err != nil {
-		s.logger.Error().Err(err).Msg("Failed to stop ICMP scanner")
+	if s.icmpScanner != nil {
+		if err := s.icmpScanner.Stop(); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop ICMP scanner")
+		}
 	}
 
-	if err := s.tcpScanner.Stop(context.Background()); err != nil {
-		s.logger.Error().Err(err).Msg("Failed to stop TCP scanner")
+	if s.tcpScanner != nil {
+		if err := s.tcpScanner.Stop(); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop TCP scanner")
+		}
 	}
 
 	return nil
@@ -334,7 +474,11 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.logger.Info().Interface("config", config).Msg("Updating sweeper config")
+	s.logger.Info().
+		Int("networks", len(config.Networks)).
+		Int("deviceTargets", len(config.DeviceTargets)).
+		Int("ports", len(config.Ports)).
+		Msg("Updating sweeper config")
 
 	// Preserve existing non-zero values when new config has zero values
 	// This allows minimal configs from sync service (with only networks) to work properly
@@ -390,10 +534,114 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 
 	s.config = config
 
+	// Re-check if we need ICMP scanner based on updated config
+	needsICMP := false
+
+	// Check global sweep modes
+	for _, mode := range config.SweepModes {
+		if mode == models.ModeICMP {
+			needsICMP = true
+			break
+		}
+	}
+
+	// Also check device target sweep modes
+	if !needsICMP {
+		for _, deviceTarget := range config.DeviceTargets {
+			for _, mode := range deviceTarget.SweepModes {
+				if mode == models.ModeICMP {
+					needsICMP = true
+					break
+				}
+			}
+
+			if needsICMP {
+				break
+			}
+		}
+	}
+
+	// Initialize ICMP scanner if needed and not already initialized
+	if needsICMP && s.icmpScanner == nil {
+		icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, s.logger)
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to create ICMP scanner during config update, ICMP scanning will be disabled")
+		} else {
+			s.icmpScanner = icmpScanner
+			s.logger.Info().Msg("Initialized ICMP scanner based on updated config")
+		}
+	}
+
 	return nil
 }
 
+// handleCancellation checks for context cancellation or sweeper shutdown and closes configReady if needed
+func (s *NetworkSweeper) handleCancellation(ctx context.Context, initialConfigReceived bool, configReady chan<- struct{}) bool {
+	select {
+	case <-ctx.Done():
+		s.logger.Debug().Msg("Context canceled, stopping config watch")
+
+		if !initialConfigReceived {
+			close(configReady)
+		}
+
+		return true
+	case <-s.done:
+		s.logger.Debug().Msg("Sweep service closed, stopping config watch")
+
+		if !initialConfigReceived {
+			close(configReady)
+		}
+
+		return true
+	default:
+		return false
+	}
+}
+
+// handleBackoffWait implements the backoff logic with cancellation checks
+func (s *NetworkSweeper) handleBackoffWait(
+	ctx context.Context, backoff time.Duration, initialConfigReceived bool, configReady chan<- struct{},
+) bool {
+	// Reset backoff on successful initial config to avoid long delays on subsequent reconnects
+	if initialConfigReceived {
+		backoff = kvWatchInitialBackoff
+	}
+
+	// Add jitter to prevent thundering herd
+	jitterDelay := s.addJitter(backoff)
+
+	s.logger.Debug().
+		Dur("delay", jitterDelay).
+		Dur("baseBackoff", backoff).
+		Msg("KV watch channel closed, retrying after backoff")
+
+	// Wait for backoff duration or context cancellation
+	select {
+	case <-ctx.Done():
+		s.logger.Debug().Msg("Context canceled during backoff, stopping config watch")
+
+		if !initialConfigReceived {
+			close(configReady)
+		}
+
+		return true
+	case <-s.done:
+		s.logger.Debug().Msg("Sweep service closed during backoff, stopping config watch")
+
+		if !initialConfigReceived {
+			close(configReady)
+		}
+
+		return true
+	case <-time.After(jitterDelay):
+		// Continue to next iteration
+		return false
+	}
+}
+
 // watchConfigWithInitialSignal watches the KV store for config updates and signals when first config is received.
+// Implements auto-reconnect with exponential backoff and jitter to handle spurious channel closures.
 func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, configReady chan<- struct{}) {
 	defer close(s.watchDone)
 
@@ -404,95 +652,193 @@ func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, confi
 		return
 	}
 
+	s.logger.Info().Str("configKey", s.configKey).Msg("Starting KV watch with auto-reconnect")
+
+	initialConfigReceived := false
+	backoff := kvWatchInitialBackoff
+	// Auto-reconnect loop with exponential backoff and jitter
+	for {
+		// Check for cancellation
+		if s.handleCancellation(ctx, initialConfigReceived, configReady) {
+			return
+		}
+
+		// Establish watch connection
+		watchResult := s.performKVWatch(ctx, &initialConfigReceived, configReady)
+
+		// If watch returned due to context cancellation or sweeper shutdown, exit
+		if watchResult == watchResultCanceled {
+			return
+		}
+
+		// If this was an error establishing the watch, exit (no retry for connection failures)
+		if watchResult == watchResultError {
+			return
+		}
+
+		// If this was a channel closure, implement backoff before retrying
+		if watchResult == watchResultChannelClosed {
+			if s.handleBackoffWait(ctx, backoff, initialConfigReceived, configReady) {
+				return
+			}
+
+			// Exponentially increase backoff, capped at maximum
+			backoff = time.Duration(math.Min(
+				float64(backoff)*kvWatchBackoffFactor,
+				float64(kvWatchMaxBackoff),
+			))
+		}
+	}
+}
+
+// watchResult represents the outcome of a KV watch attempt
+type watchResult int
+
+const (
+	watchResultChannelClosed watchResult = iota
+	watchResultCanceled
+	watchResultError
+)
+
+// performKVWatch performs a single KV watch session and returns the reason it ended
+func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceived *bool, configReady chan<- struct{}) watchResult {
 	ch, err := s.kvStore.Watch(ctx, s.configKey)
 	if err != nil {
 		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to watch KV key")
-		close(configReady) // Signal to proceed with file config
+		// If we can't establish the watch and haven't received initial config, signal to proceed with file config
+		if !*initialConfigReceived {
+			close(configReady)
+		}
 
-		return
+		return watchResultError
 	}
 
-	s.logger.Info().Str("configKey", s.configKey).Msg("Watching KV key for config updates")
-
-	initialConfigReceived := false
+	s.logger.Debug().Str("configKey", s.configKey).Msg("KV watch established")
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Debug().Msg("Context canceled, stopping config watch")
+			s.logger.Debug().Msg("Context canceled during watch")
 
-			if !initialConfigReceived {
+			if !*initialConfigReceived {
 				close(configReady)
 			}
 
-			return
+			return watchResultCanceled
+
 		case <-s.done:
-			s.logger.Debug().Msg("Sweep service closed, stopping config watch")
+			s.logger.Debug().Msg("Sweep service closed during watch")
 
-			if !initialConfigReceived {
+			if !*initialConfigReceived {
 				close(configReady)
 			}
 
-			return
+			return watchResultCanceled
+
 		case value, ok := <-ch:
 			if !ok {
-				s.logger.Debug().Str("configKey", s.configKey).Msg("Watch channel closed for key")
-
-				if !initialConfigReceived {
-					close(configReady)
-				}
-
-				return
+				s.logger.Debug().Str("configKey", s.configKey).Msg("Watch channel closed, will retry")
+				return watchResultChannelClosed
 			}
 
 			s.processConfigUpdate(value)
 
 			// Signal that initial config has been received
-			if !initialConfigReceived {
-				initialConfigReceived = true
+			if !*initialConfigReceived {
+				*initialConfigReceived = true
 
 				close(configReady)
+				s.logger.Info().Str("configKey", s.configKey).Msg("Initial KV config received")
 			}
 		}
 	}
 }
 
+// addJitter adds random jitter to backoff duration to prevent thundering herd
+func (*NetworkSweeper) addJitter(backoff time.Duration) time.Duration {
+	jitter := time.Duration(float64(backoff) * kvWatchJitterFactor * (rand.Float64()*2 - 1))
+	jitteredBackoff := backoff + jitter
+
+	// Ensure jittered backoff is positive
+	if jitteredBackoff < 0 {
+		jitteredBackoff = backoff
+	}
+
+	return jitteredBackoff
+}
+
 // processConfigUpdate processes a config update from the KV store.
 func (s *NetworkSweeper) processConfigUpdate(value []byte) {
-	s.logger.Info().
+	s.logger.Debug().
 		Int("valueLength", len(value)).
-		Str("valueString", string(value)).
-		Msg("DETAILED DEBUG: processConfigUpdate called with value")
+		Msg("Processing KV config update")
+
+	// Calculate hash of the incoming config to detect changes
+	configHash := sha256.Sum256(value)
+
+	// Check if we've already processed this exact configuration
+	s.mu.Lock()
+
+	if s.lastConfigHash == configHash {
+		s.mu.Unlock()
+		s.logger.Debug().Msg("Configuration unchanged, skipping processing")
+
+		return
+	}
+
+	s.mu.Unlock()
 
 	// First check if this is a metadata file indicating chunked config
 	var metadataCheck map[string]interface{}
+
 	if err := json.Unmarshal(value, &metadataCheck); err != nil {
-		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("DETAILED DEBUG: Failed to unmarshal config")
+		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to unmarshal config")
+
 		return
 	}
-
-	s.logger.Info().Interface("metadataCheck", metadataCheck).Msg("DETAILED DEBUG: Successfully unmarshaled config value")
 
 	// Check if this is a metadata file with chunk information
 	if chunkCount, exists := metadataCheck["chunk_count"]; exists {
+		// For chunked config, also check timestamp
+		timestamp, timestampExists := metadataCheck["timestamp"].(string)
+		if timestampExists {
+			s.mu.Lock()
+			if s.lastConfigTimestamp == timestamp {
+				s.mu.Unlock()
+				s.logger.Debug().
+					Str("timestamp", timestamp).
+					Msg("Chunked configuration timestamp unchanged, skipping processing")
+
+				return
+			}
+
+			s.lastConfigTimestamp = timestamp
+			s.mu.Unlock()
+		}
+
 		s.logger.Info().
-			Interface("metadata", metadataCheck).
-			Interface("chunkCount", chunkCount).
-			Msg("DETAILED DEBUG: Detected chunked sweep config, reading chunks")
+			Int("chunkCount", int(chunkCount.(float64))).
+			Str("timestamp", timestamp).
+			Msg("Detected new chunked sweep config, reading chunks")
 
 		s.processChunkedConfig(metadataCheck)
+
+		// Update hash after successful processing
+		s.mu.Lock()
+		s.lastConfigHash = configHash
+		s.mu.Unlock()
 
 		return
 	}
 
-	s.logger.Info().Interface("metadataCheck", metadataCheck).Msg("DETAILED DEBUG: No chunk_count found, processing as single config")
+	s.logger.Debug().Msg("Processing as single config file")
 
 	// Process as single file (legacy format)
-	s.processSingleConfig(value)
+	s.processSingleConfig(value, configHash)
 }
 
 // processSingleConfig handles the original single-file config format
-func (s *NetworkSweeper) processSingleConfig(value []byte) {
+func (s *NetworkSweeper) processSingleConfig(value []byte, configHash [32]byte) {
 	var temp unmarshalConfig
 	if err := json.Unmarshal(value, &temp); err != nil {
 		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to unmarshal single config")
@@ -504,7 +850,15 @@ func (s *NetworkSweeper) processSingleConfig(value []byte) {
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply single config update")
 	} else {
-		s.logger.Info().Interface("newConfig", newConfig).Msg("Successfully updated sweep config from single KV file")
+		// Update hash after successful processing
+		s.mu.Lock()
+		s.lastConfigHash = configHash
+		s.mu.Unlock()
+
+		s.logger.Info().
+			Int("networks", len(newConfig.Networks)).
+			Int("deviceTargets", len(newConfig.DeviceTargets)).
+			Msg("Successfully updated sweep config from single KV file")
 	}
 }
 
@@ -515,21 +869,38 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 		return
 	}
 
-	// Extract chunk information
-	chunkCountFloat, ok := metadata["chunk_count"].(float64)
+	chunkCount, ok := s.extractChunkCount(metadata)
 	if !ok {
-		s.logger.Error().Msg("Invalid chunk_count in metadata")
 		return
 	}
 
-	chunkCount := int(chunkCountFloat)
+	baseConfig, combinedNetworks, combinedDeviceTargets, ok := s.readAndParseChunks(chunkCount)
+	if !ok {
+		return
+	}
 
+	s.applyChunkedConfig(&baseConfig, combinedNetworks, combinedDeviceTargets, chunkCount)
+}
+
+// extractChunkCount extracts and validates chunk count from metadata
+func (s *NetworkSweeper) extractChunkCount(metadata map[string]interface{}) (int, bool) {
+	chunkCountFloat, ok := metadata["chunk_count"].(float64)
+	if !ok {
+		s.logger.Error().Msg("Invalid chunk_count in metadata")
+		return 0, false
+	}
+
+	chunkCount := int(chunkCountFloat)
 	s.logger.Info().
 		Int("chunkCount", chunkCount).
 		Str("baseConfigKey", s.getBaseConfigKey()).
-		Msg("DETAILED DEBUG: Reading chunked sweep configuration")
+		Msg("Reading chunked sweep configuration")
 
-	// Read and parse all chunks
+	return chunkCount, true
+}
+
+// readAndParseChunks reads all chunks and combines their data
+func (s *NetworkSweeper) readAndParseChunks(chunkCount int) (unmarshalConfig, []string, []models.DeviceTarget, bool) {
 	var combinedNetworks []string
 
 	var combinedDeviceTargets []models.DeviceTarget
@@ -543,48 +914,24 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 
 	for i := 0; i < chunkCount; i++ {
 		chunkKey := fmt.Sprintf("%s_chunk_%d.json", s.getBaseConfigKey(), i)
+		chunkConfig, ok := s.readSingleChunk(ctx, chunkKey, i)
 
-		s.logger.Info().Str("chunkKey", chunkKey).Int("chunkIndex", i).Msg("DETAILED DEBUG: Attempting to read chunk")
-
-		// Get the chunk data directly
-		chunkData, found, err := s.kvStore.Get(ctx, chunkKey)
-		if err != nil {
-			s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("DETAILED DEBUG: Failed to get chunk data")
-			return
-		}
-
-		if !found {
-			s.logger.Warn().Str("chunkKey", chunkKey).Msg("DETAILED DEBUG: Chunk data not found")
+		if !ok {
 			continue
 		}
 
-		if len(chunkData) == 0 {
-			s.logger.Warn().Str("chunkKey", chunkKey).Msg("DETAILED DEBUG: Empty chunk data")
-			continue
-		}
-
-		s.logger.Info().Str("chunkKey", chunkKey).Int("dataLength", len(chunkData)).Msg("DETAILED DEBUG: Successfully retrieved chunk data")
-
-		// Parse this chunk as a separate SweepConfig
-		var chunkConfig unmarshalConfig
-		if err := json.Unmarshal(chunkData, &chunkConfig); err != nil {
-			s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("Failed to unmarshal chunk config")
-			return
-		}
-
-		// Use first chunk for base configuration (ports, intervals, etc.)
+		// Use first chunk for base configuration
 		if !configSet {
 			baseConfig = chunkConfig
 			configSet = true
 		}
 
-		// Accumulate networks and device targets from this chunk
+		// Accumulate networks and device targets
 		combinedNetworks = append(combinedNetworks, chunkConfig.Networks...)
 		combinedDeviceTargets = append(combinedDeviceTargets, chunkConfig.DeviceTargets...)
 
 		s.logger.Debug().
 			Str("chunkKey", chunkKey).
-			Int("chunkSize", len(chunkData)).
 			Int("networks", len(chunkConfig.Networks)).
 			Int("deviceTargets", len(chunkConfig.DeviceTargets)).
 			Int("totalNetworks", len(combinedNetworks)).
@@ -594,26 +941,69 @@ func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
 
 	if !configSet {
 		s.logger.Error().Msg("No valid chunks found")
-		return
+		return unmarshalConfig{}, nil, nil, false
 	}
 
-	// Create final combined configuration
+	return baseConfig, combinedNetworks, combinedDeviceTargets, true
+}
+
+// readSingleChunk reads and parses a single chunk
+func (s *NetworkSweeper) readSingleChunk(ctx context.Context, chunkKey string, chunkIndex int) (unmarshalConfig, bool) {
+	s.logger.Debug().Str("chunkKey", chunkKey).Int("chunkIndex", chunkIndex).Msg("Reading config chunk")
+
+	chunkData, found, err := s.kvStore.Get(ctx, chunkKey)
+	if err != nil {
+		s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("Failed to get chunk data")
+		return unmarshalConfig{}, false
+	}
+
+	if !found {
+		s.logger.Warn().Str("chunkKey", chunkKey).Msg("Chunk data not found")
+		return unmarshalConfig{}, false
+	}
+
+	if len(chunkData) == 0 {
+		s.logger.Warn().Str("chunkKey", chunkKey).Msg("Empty chunk data")
+		return unmarshalConfig{}, false
+	}
+
+	s.logger.Debug().Str("chunkKey", chunkKey).Int("dataLength", len(chunkData)).Msg("Successfully retrieved chunk data")
+
+	var chunkConfig unmarshalConfig
+	if err := json.Unmarshal(chunkData, &chunkConfig); err != nil {
+		s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("Failed to unmarshal chunk config")
+		return unmarshalConfig{}, false
+	}
+
+	return chunkConfig, true
+}
+
+// applyChunkedConfig creates and applies the final combined configuration
+func (s *NetworkSweeper) applyChunkedConfig(
+	baseConfig *unmarshalConfig,
+	combinedNetworks []string,
+	combinedDeviceTargets []models.DeviceTarget,
+	chunkCount int,
+) {
 	baseConfig.Networks = combinedNetworks
 	baseConfig.DeviceTargets = combinedDeviceTargets
 
-	s.logger.Info().
+	s.logger.Debug().
 		Int("totalChunks", chunkCount).
 		Int("totalNetworks", len(combinedNetworks)).
 		Int("totalDeviceTargets", len(combinedDeviceTargets)).
 		Msg("Successfully assembled chunked sweep configuration")
 
-	// Convert to models.Config and apply
-	newConfig := s.createConfigFromUnmarshal(&baseConfig)
+	newConfig := s.createConfigFromUnmarshal(baseConfig)
 
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply chunked config update")
 	} else {
-		s.logger.Info().Interface("newConfig", newConfig).Msg("Successfully updated sweep config from chunked KV data")
+		s.logger.Debug().
+			Int("totalChunks", chunkCount).
+			Int("networks", len(newConfig.Networks)).
+			Int("deviceTargets", len(newConfig.DeviceTargets)).
+			Msg("Successfully updated sweep config from chunked KV data")
 	}
 }
 
@@ -652,13 +1042,33 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			MaxBatch:  temp.ICMPSettings.MaxBatch,
 		},
 		TCPSettings: struct {
-			Concurrency int
-			Timeout     time.Duration
-			MaxBatch    int
+			Concurrency        int
+			Timeout            time.Duration
+			MaxBatch           int
+			RouteDiscoveryHost string `json:"route_discovery_host,omitempty"`
+
+			// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
+			RingBlockSize  int `json:"ring_block_size,omitempty"`  // Block size in bytes (default: 1MB, max: 8MB)
+			RingBlockCount int `json:"ring_block_count,omitempty"` // Number of blocks (default: 8, max: 32, total max: 64MB)
+
+			// Network interface selection for multi-homed hosts
+			Interface string `json:"interface,omitempty"` // Network interface (e.g., "eth0", "wlan0") - auto-detected if empty
+
+			// Advanced NAT/firewall compatibility options
+			SuppressRSTReply bool `json:"suppress_rst_reply,omitempty"` // Suppress RST packet generation (optional)
+
+			// Global ring buffer memory cap (in MB) to be distributed across all CPU cores
+			GlobalRingMemoryMB int `json:"global_ring_memory_mb,omitempty"`
 		}{
-			Concurrency: temp.TCPSettings.Concurrency,
-			Timeout:     time.Duration(temp.TCPSettings.Timeout),
-			MaxBatch:    temp.TCPSettings.MaxBatch,
+			Concurrency:        temp.TCPSettings.Concurrency,
+			Timeout:            time.Duration(temp.TCPSettings.Timeout),
+			MaxBatch:           temp.TCPSettings.MaxBatch,
+			RouteDiscoveryHost: temp.TCPSettings.RouteDiscoveryHost,
+			RingBlockSize:      temp.TCPSettings.RingBlockSize,
+			RingBlockCount:     temp.TCPSettings.RingBlockCount,
+			Interface:          temp.TCPSettings.Interface,
+			SuppressRSTReply:   temp.TCPSettings.SuppressRSTReply,
+			GlobalRingMemoryMB: temp.TCPSettings.GlobalRingMemoryMB,
 		},
 		EnableHighPerformanceICMP: temp.EnableHighPerformanceICMP,
 		ICMPRateLimit:             temp.ICMPRateLimit,
@@ -666,9 +1076,11 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 }
 
 // estimateTargetCount calculates the total number of targets.
+// Includes both global networks/modes and device-specific targets.
 func estimateTargetCount(config *models.Config) int {
 	total := 0
 
+	// Count targets from global networks and sweep modes
 	for _, network := range config.Networks {
 		ips, err := scan.ExpandCIDR(network)
 		if err != nil {
@@ -680,6 +1092,29 @@ func estimateTargetCount(config *models.Config) int {
 		}
 
 		if containsMode(config.SweepModes, models.ModeTCP) {
+			total += len(ips) * len(config.Ports)
+		}
+	}
+
+	// Count targets from device-specific configurations
+	for _, deviceTarget := range config.DeviceTargets {
+		ips, err := scan.ExpandCIDR(deviceTarget.Network)
+		if err != nil {
+			continue
+		}
+
+		// Use device-specific sweep modes if available, otherwise fall back to global
+		sweepModes := deviceTarget.SweepModes
+		if len(sweepModes) == 0 {
+			sweepModes = config.SweepModes
+		}
+
+		if containsMode(sweepModes, models.ModeICMP) {
+			total += len(ips)
+		}
+
+		if containsMode(sweepModes, models.ModeTCP) {
+			// DeviceTarget doesn't have its own ports, use global ports
 			total += len(ips) * len(config.Ports)
 		}
 	}
@@ -763,13 +1198,18 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		}
 	}
 
-	s.logger.Info().Int("icmpTargets", len(icmpTargets)).Int("tcpTargets", len(tcpTargets)).Msg("Starting sweep")
+	s.logger.Info().
+		Int("icmpTargets", len(icmpTargets)).
+		Int("tcpTargets", len(tcpTargets)).
+		Bool("icmpScannerAvailable", s.icmpScanner != nil).
+		Bool("tcpScannerAvailable", s.tcpScanner != nil).
+		Msg("Starting sweep")
 
 	var wg sync.WaitGroup
 
 	errChan := make(chan error, 2) // Buffer for both ICMP and TCP errors
 
-	if len(icmpTargets) > 0 {
+	if len(icmpTargets) > 0 && s.icmpScanner != nil {
 		wg.Add(1)
 
 		go func() {
@@ -777,9 +1217,11 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 				errChan <- err
 			}
 		}()
+	} else if len(icmpTargets) > 0 {
+		s.logger.Warn().Int("icmpTargets", len(icmpTargets)).Msg("ICMP targets found but ICMP scanner is not available, skipping ICMP scan")
 	}
 
-	if len(tcpTargets) > 0 {
+	if len(tcpTargets) > 0 && s.tcpScanner != nil {
 		wg.Add(1)
 
 		go func() {
@@ -787,6 +1229,8 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 				errChan <- err
 			}
 		}()
+	} else if len(tcpTargets) > 0 {
+		s.logger.Warn().Int("tcpTargets", len(tcpTargets)).Msg("TCP targets found but TCP scanner is not available, skipping TCP scan")
 	}
 
 	wg.Wait()
@@ -1190,15 +1634,33 @@ func (*NetworkSweeper) extractDeviceID(target models.Target) string {
 
 	// Try armis_device_id first
 	if armisID, ok := target.Metadata["armis_device_id"]; ok {
-		if str, ok := armisID.(string); ok && str != "" {
-			return "armis:" + str
+		switch v := armisID.(type) {
+		case string:
+			if v != "" {
+				return "armis:" + v
+			}
+		case int:
+			return fmt.Sprintf("armis:%d", v)
+		case int64:
+			return fmt.Sprintf("armis:%d", v)
+		case float64:
+			return fmt.Sprintf("armis:%d", int64(v))
 		}
 	}
 
 	// Try integration_id
 	if integrationID, ok := target.Metadata["integration_id"]; ok {
-		if str, ok := integrationID.(string); ok && str != "" {
-			return "integration:" + str
+		switch v := integrationID.(type) {
+		case string:
+			if v != "" {
+				return "integration:" + v
+			}
+		case int:
+			return fmt.Sprintf("integration:%d", v)
+		case int64:
+			return fmt.Sprintf("integration:%d", v)
+		case float64:
+			return fmt.Sprintf("integration:%d", int64(v))
 		}
 	}
 
@@ -1300,8 +1762,9 @@ func (s *NetworkSweeper) processAggregatedResults(_ context.Context, aggregator 
 	defer aggregator.mu.Unlock()
 
 	if len(aggregator.Results) == 0 {
-		s.logger.Warn().
-			Str("deviceID", aggregator.DeviceID).
+		s.logger.Debug().
+			Str("groupKey", aggregator.DeviceID).
+			Int("expectedIPs", len(aggregator.ExpectedIPs)).
 			Msg("No results collected for device aggregator")
 
 		return

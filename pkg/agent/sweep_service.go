@@ -219,7 +219,7 @@ func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Resu
 	}
 
 	defer func() {
-		if stopErr := icmpScanner.Stop(ctx); stopErr != nil {
+		if stopErr := icmpScanner.Stop(); stopErr != nil {
 			s.logger.Error().Err(stopErr).Msg("Failed to stop ICMP scanner")
 		}
 	}()

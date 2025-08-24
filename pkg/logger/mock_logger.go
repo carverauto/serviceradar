@@ -134,6 +134,20 @@ func (mr *MockLoggerMockRecorder) SetLevel(level any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLevel", reflect.TypeOf((*MockLogger)(nil).SetLevel), level)
 }
 
+// Trace mocks base method.
+func (m *MockLogger) Trace() *zerolog.Event {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Trace")
+	ret0, _ := ret[0].(*zerolog.Event)
+	return ret0
+}
+
+// Trace indicates an expected call of Trace.
+func (mr *MockLoggerMockRecorder) Trace() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Trace", reflect.TypeOf((*MockLogger)(nil).Trace))
+}
+
 // Warn mocks base method.
 func (m *MockLogger) Warn() *zerolog.Event {
 	m.ctrl.T.Helper()
@@ -272,6 +286,18 @@ func (m *MockFieldLogger) Panic(msg string) {
 func (mr *MockFieldLoggerMockRecorder) Panic(msg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Panic", reflect.TypeOf((*MockFieldLogger)(nil).Panic), msg)
+}
+
+// Trace mocks base method.
+func (m *MockFieldLogger) Trace(msg string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Trace", msg)
+}
+
+// Trace indicates an expected call of Trace.
+func (mr *MockFieldLoggerMockRecorder) Trace(msg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Trace", reflect.TypeOf((*MockFieldLogger)(nil).Trace), msg)
 }
 
 // Warn mocks base method.

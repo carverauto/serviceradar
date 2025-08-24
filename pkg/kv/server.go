@@ -40,7 +40,7 @@ func NewServer(ctx context.Context, cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	store, err := NewNatsStore(ctx, cfg)
+	store, err := NewNATSStore(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create NATS store: %w", err)
 	}

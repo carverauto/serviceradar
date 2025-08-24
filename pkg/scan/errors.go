@@ -19,5 +19,5 @@ package scan
 import "errors"
 
 var (
-	errConnnectionRefused = errors.New("connection refused")
+	errConnectionRefused = errors.New("connection refused")
 )
