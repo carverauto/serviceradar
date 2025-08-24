@@ -610,7 +610,9 @@ func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 }
 
 func enableFanout(fd int, groupID int) error {
-	val := ((unix.PACKET_FANOUT_HASH | unix.PACKET_FANOUT_FLAG_DEFRAG) << 16) | (groupID & 0xFFFF)
+	// Correct: (groupID << 16) | (type | flags)
+	val := (groupID & 0xFFFF) << 16
+	val |= unix.PACKET_FANOUT_HASH | unix.PACKET_FANOUT_FLAG_DEFRAG
 
 	return unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_FANOUT, val)
 }
