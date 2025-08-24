@@ -112,7 +112,8 @@ const (
 	maxBlockCount             = 32      // Maximum number of blocks
 
 	// tpacket v3 block ownership
-	tpStatusUser = 1 // TP_STATUS_USER
+	tpStatusUser   = 1  // TP_STATUS_USER
+	tpStatusLosing = 32 // TP_STATUS_LOSING - indicates buffer overrun/block dropped
 
 	// Max number of SYNs to send per sendmmsg() call.
 	// 32–128 is typically a sweet spot; 64 is a safe default.
@@ -131,7 +132,7 @@ type ScannerStats struct {
 
 	// Ring buffer statistics
 	RingBlocksProcessed uint64 // TPACKET_V3 blocks processed
-	RingBlocksDropped   uint64 // TPACKET_V3 blocks lost due to buffer overruns
+	RingBlocksDropped   uint64 // TPACKET_V3 blocks lost due to buffer overruns (TP_STATUS_LOSING)
 
 	// Retry statistics
 	RetriesAttempted  uint64 // Number of retry attempts made
@@ -237,6 +238,7 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 					Uint64("packets_dropped", stats.PacketsDropped).
 					Float64("drop_rate_percent", dropRate).
 					Uint64("ring_blocks_processed", stats.RingBlocksProcessed).
+					Uint64("ring_blocks_dropped", stats.RingBlocksDropped).
 					Uint64("retries_attempted", stats.RetriesAttempted).
 					Uint64("retries_successful", stats.RetriesSuccessful).
 					Uint64("ports_allocated", stats.PortsAllocated).
@@ -819,8 +821,14 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 				break
 			}
 
-			if loadU32(blk, h1_status_off)&tpStatusUser == 0 {
+			status := loadU32(blk, h1_status_off)
+			if status&tpStatusUser == 0 {
 				break // no more ready blocks
+			}
+
+			// Check for TP_STATUS_LOSING - indicates buffer overrun/dropped block
+			if status&tpStatusLosing != 0 {
+				atomic.AddUint64(&s.stats.RingBlocksDropped, 1)
 			}
 
 			// process one ready block
@@ -1092,7 +1100,7 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 		}
 
 		log.Debug().Msg("BPF filter attached successfully")
-		retireTov := getRetireTovMs()
+		ringRetireTov := getRetireTovMs()
 
 		// Use ring buffer options from SYNScannerOptions or defaults
 		blockSize := uint32(defaultBlockSize)
@@ -1174,9 +1182,9 @@ func NewSYNScannerWithOptions(timeout time.Duration, concurrency int, log logger
 				Msg("Applied global ring memory cap distributed across CPUs")
 		}
 
-		log.Debug().Uint32("blockSize", blockSize).Uint32("blockCount", blockCount).Uint32("frameSize", frameSize).Uint32("retireMs", retireTov).Msg("Setting up TPACKET_V3")
+		log.Debug().Uint32("blockSize", blockSize).Uint32("blockCount", blockCount).Uint32("frameSize", frameSize).Uint32("retireMs", ringRetireTov).Msg("Setting up TPACKET_V3")
 
-		rb, err := setupTPacketV3(fd, blockSize, blockCount, frameSize, retireTov)
+		rb, err := setupTPacketV3(fd, blockSize, blockCount, frameSize, ringRetireTov)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to setup TPACKET_V3")
 			_ = unix.Close(fd)
