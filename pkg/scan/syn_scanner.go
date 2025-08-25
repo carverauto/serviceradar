@@ -41,6 +41,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/internal/fastsum"
 )
 
 // Using architecture-specific sendmmsg implementation and Mmsghdr struct
@@ -1489,59 +1490,22 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 	copy(packet[12:16], srcIP.To4())  // src IP
 	copy(packet[16:20], destIP.To4()) // dst IP
 
-	// Calculate and set IPv4 checksum inline for hot path optimization
-	binary.BigEndian.PutUint16(packet[10:], 0) // clear checksum
-
-	ipSum := uint32(0)
-	ipHdr := packet[:20]
-
-	for i := 0; i < 20; i += 2 {
-		ipSum += uint32(binary.BigEndian.Uint16(ipHdr[i:]))
-	}
-
-	for (ipSum >> 16) > 0 {
-		ipSum = (ipSum & 0xFFFF) + (ipSum >> 16)
-	}
-
-	binary.BigEndian.PutUint16(packet[10:], ^uint16(ipSum))
+	// Calculate and set IPv4 checksum using fast path
+	binary.BigEndian.PutUint16(packet[10:], 0)
+	binary.BigEndian.PutUint16(packet[10:], fastsum.Checksum(packet[:20]))
 
 	// Set variable TCP fields
 	binary.BigEndian.PutUint16(packet[20:], srcPort)        // src port
 	binary.BigEndian.PutUint16(packet[22:], destPort)       // dst port
 	binary.BigEndian.PutUint32(packet[24:], s.randUint32()) // seq
 
-	// Calculate and set TCP checksum inline for hot path optimization
-	binary.BigEndian.PutUint16(packet[36:], 0) // clear checksum
-
-	// Build pseudo-header inline to avoid allocation
-	tcpSum := uint32(0)
-
-	// Add source IP (4 bytes as 2 uint16s)
-	src4 := srcIP.To4()
-	tcpSum += uint32(src4[0])<<8 | uint32(src4[1])
-	tcpSum += uint32(src4[2])<<8 | uint32(src4[3])
-
-	// Add destination IP (4 bytes as 2 uint16s)
-	dst4 := destIP.To4()
-	tcpSum += uint32(dst4[0])<<8 | uint32(dst4[1])
-	tcpSum += uint32(dst4[2])<<8 | uint32(dst4[3])
-
-	// Add protocol (TCP = 6) and TCP length (20 bytes)
-	tcpSum += uint32(syscall.IPPROTO_TCP)
-	tcpSum += 20 // TCP header length
-
-	// Add TCP header (20 bytes as 10 uint16s)
-	tcpHdr := packet[20:40]
-	for i := 0; i < 20; i += 2 {
-		tcpSum += uint32(binary.BigEndian.Uint16(tcpHdr[i:]))
-	}
-
-	// Fold carries
-	for (tcpSum >> 16) > 0 {
-		tcpSum = (tcpSum & 0xFFFF) + (tcpSum >> 16)
-	}
-
-	binary.BigEndian.PutUint16(packet[36:], ^uint16(tcpSum))
+	// Calculate and set TCP checksum using fast path (no payload)
+	binary.BigEndian.PutUint16(packet[36:], 0)
+	var src4, dst4 [4]byte
+	copy(src4[:], srcIP.To4())
+	copy(dst4[:], destIP.To4())
+	tcpCS := fastsum.TCPv4(src4, dst4, packet[20:40], nil)
+	binary.BigEndian.PutUint16(packet[36:], tcpCS)
 
 	return packet
 }
@@ -2784,41 +2748,14 @@ func (s *SYNScanner) Stop() error {
 
 // Checksum helpers
 
-func ChecksumNew(data []byte) uint16 {
-	sum := uint32(0)
-
-	for len(data) > 1 {
-		sum += uint32(binary.BigEndian.Uint16(data))
-		data = data[2:]
-	}
-
-	if len(data) > 0 {
-		sum += uint32(data[0]) << 8
-	}
-
-	for (sum >> 16) > 0 {
-		sum = (sum & 0xFFFF) + (sum >> 16)
-	}
-
-	return ^uint16(sum)
-}
+func ChecksumNew(data []byte) uint16 { return fastsum.Checksum(data) }
 
 // TCP checksum with IPv4 pseudo-header
 func TCPChecksumNew(src, dst net.IP, tcpHdr, payload []byte) uint16 {
-	psh := make([]byte, 12+len(tcpHdr)+len(payload))
-
-	copy(psh[0:4], src.To4())
-	copy(psh[4:8], dst.To4())
-
-	psh[8] = 0
-	psh[9] = syscall.IPPROTO_TCP
-
-	binary.BigEndian.PutUint16(psh[10:12], uint16(len(tcpHdr)+len(payload)))
-
-	copy(psh[12:], tcpHdr)
-	copy(psh[12+len(tcpHdr):], payload)
-
-	return ChecksumNew(psh)
+    var src4, dst4 [4]byte
+    copy(src4[:], src.To4())
+    copy(dst4[:], dst.To4())
+    return fastsum.TCPv4(src4, dst4, tcpHdr, payload)
 }
 
 // readLocalPortRange reads the system's ephemeral port range from /proc
