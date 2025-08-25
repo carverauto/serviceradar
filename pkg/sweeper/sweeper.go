@@ -1409,10 +1409,10 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 	const batchSize = 1000
 	resultBatch := make([]models.Result, 0, batchSize)
 
-	// Process results as they arrive, respecting context timeout
-	for {
-		select {
-		case result, ok := <-results:
+    // Process results as they arrive, respecting context timeout
+    for {
+        select {
+        case result, ok := <-results:
 			if !ok {
 				// Channel closed, process final batch if any
 				if len(resultBatch) > 0 {
@@ -1438,19 +1438,18 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 			// Add to batch
 			resultBatch = append(resultBatch, result)
 
-			// Process batch when it's full
-			if len(resultBatch) >= batchSize {
-				if err := s.processBatchedResults(ctx, resultBatch); err != nil {
-					s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process result batch")
-				}
+            // Process batch when it's full
+            if len(resultBatch) >= batchSize {
+                if err := s.processBatchedResults(ctx, resultBatch); err != nil {
+                    s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process result batch")
+                }
 
-				// Reset batch slice but keep capacity to avoid reallocation
-				resultBatch = resultBatch[:0]
+                // Reset batch slice but keep capacity to avoid reallocation
+                resultBatch = resultBatch[:0]
 
-
-				// Log progress periodically (every batch)
-				s.logger.Info().Str("scanType", scanType).Int("processed", count).Int("successful", success).Msg("Scan progress")
-			}
+                // Progress logging is noisy at scale; keep at debug level only
+                s.logger.Debug().Str("scanType", scanType).Int("processed", count).Int("successful", success).Msg("Scan progress")
+            }
 
 		case <-ctx.Done():
 			// Timeout reached, process any remaining batch
@@ -1910,15 +1909,15 @@ func (s *NetworkSweeper) processBatchedResults(ctx context.Context, batch []mode
 		}
 	}
 
-	// Log batch processing statistics for errors or periodically for large batches
-	if errors > 0 || len(batch) >= 1000 {
-		s.logger.Info().
-			Int("batchSize", len(batch)).
-			Int("errors", errors).
-			Int("aggregated", aggregated).
-			Int("deviceRegistryUpdates", deviceRegistryUpdates).
-			Msg("Batch result processing completed")
-	}
+    // Log only on errors to reduce log volume at scale
+    if errors > 0 {
+        s.logger.Warn().
+            Int("batchSize", len(batch)).
+            Int("errors", errors).
+            Int("aggregated", aggregated).
+            Int("deviceRegistryUpdates", deviceRegistryUpdates).
+            Msg("Batch result processing completed with errors")
+    }
 
 	return nil
 }
