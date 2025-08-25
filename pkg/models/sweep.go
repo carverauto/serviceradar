@@ -78,8 +78,8 @@ type Config struct {
 		GlobalRingMemoryMB int `json:"global_ring_memory_mb,omitempty"`
 
 		// Ring readers and poll timeout tuning
-		RingReaders       int `json:"ring_readers,omitempty"`           // number of AF_PACKET ring readers
-		RingPollTimeoutMs int `json:"ring_poll_timeout_ms,omitempty"`   // poll() timeout per reader in ms
+		RingReaders       int `json:"ring_readers,omitempty"`         // number of AF_PACKET ring readers
+		RingPollTimeoutMs int `json:"ring_poll_timeout_ms,omitempty"` // poll() timeout per reader in ms
 	}
 	EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`
