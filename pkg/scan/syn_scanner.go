@@ -392,7 +392,10 @@ type SYNScanner struct {
 	iface    string // Network interface name
 
 	fanoutGroup int
-	retireTovMs uint32 // configurable retire timeout in milliseconds
+    retireTovMs uint32 // configurable retire timeout in milliseconds
+    // ringPollTimeoutMs controls how long ring readers block in poll().
+    // If <=0, defaults to max(retireTovMs, 50ms) to avoid busy wakeups.
+    ringPollTimeoutMs int
 
 	mu            sync.Mutex
 	portTargetMap map[uint16]string   // Maps source port -> target key ("ip:port")
@@ -445,8 +448,12 @@ type SYNScanner struct {
 	randMu sync.Mutex
 	rand   *rand.Rand
 
-	// Observability counters for performance monitoring
-	stats ScannerStats
+    // Observability counters for performance monitoring
+    stats ScannerStats
+
+    // wakeFD is an eventfd used to wake ring readers from blocking poll
+    // on scan cancellation, eliminating periodic poll timeouts and syscalls.
+    wakeFD int
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -489,10 +496,20 @@ type SYNScannerOptions struct {
 	// Note: This is optional and most environments don't need it
 	SuppressRSTReply bool
 
-	// GlobalRingMemoryMB is the total memory cap (in MB) for all ring buffers
-	// across all CPU cores. If 0, defaults to 64MB total. This prevents
-	// excessive memory usage on high-CPU systems by distributing the cap.
-	GlobalRingMemoryMB int
+    // GlobalRingMemoryMB is the total memory cap (in MB) for all ring buffers
+    // across all CPU cores. If 0, defaults to 64MB total. This prevents
+    // excessive memory usage on high-CPU systems by distributing the cap.
+    GlobalRingMemoryMB int
+
+    // RingReaders limits the number of AF_PACKET ring readers (and rings).
+    // If 0, defaults to min(4, runtime.NumCPU()). More readers can increase
+    // wakeups on low-reply scans without benefit.
+    RingReaders int
+
+    // RingPollTimeoutMs sets the poll() timeout in milliseconds for ring readers.
+    // If 0, defaults to max(TPACKET_RETIRE_TOV_MS, 50). Raising this reduces
+    // wakeups when traffic is sparse, cutting CPU in listenForReplies.
+    RingPollTimeoutMs int
 }
 
 // batchArrays holds reusable arrays for sendmmsg batching
@@ -822,8 +839,17 @@ func (r *ringBuf) block(i uint32) []byte {
 }
 
 func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
-	pfd := []unix.PollFd{{Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL}}
-	cur := uint32(0)
+    // Build pollfd set: ring FD + optional wake FD for cancellation
+    var pfd []unix.PollFd
+    if s.wakeFD > 0 {
+        pfd = []unix.PollFd{
+            {Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL},
+            {Fd: int32(s.wakeFD), Events: unix.POLLIN},
+        }
+    } else {
+        pfd = []unix.PollFd{{Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL}}
+    }
+    cur := uint32(0)
 
 	for {
 		// First, drain any ready blocks without polling
@@ -900,25 +926,44 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			continue // see if more blocks are ready without poll
 		}
 
-		// Nothing ready; block in poll
-		_, err := unix.Poll(pfd, int(s.retireTovMs)) // align with retire tov
-		if err != nil {
-			// EINTR and EAGAIN are fine; anything else, exit this reader
-			if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
-				continue
-			}
+        // Nothing ready; block in poll. If wakeFD is present, block indefinitely
+        // and wake via eventfd on cancellation. Otherwise, use configured timeout.
+        to := -1
+        if s.wakeFD <= 0 {
+            to = s.ringPollTimeoutMs
+            if to <= 0 {
+                to = int(s.retireTovMs)
+                if to < 50 {
+                    to = 50
+                }
+            }
+        }
+
+        _, err := unix.Poll(pfd, to)
+        if err != nil {
+            // EINTR and EAGAIN are fine; anything else, exit this reader
+            if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
+                continue
+            }
 
 			s.logger.Error().Err(err).Int("ring_fd", r.fd).Msg("Ring reader poll error, terminating reader.")
 
 			return
 		}
 
-		// Check for socket errors after successful poll
-		if pfd[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
-			// Socket is in error state, exit this reader
-			return
-		}
-	}
+        // If wakeFD fired, drain it and exit (context likely canceled)
+        if s.wakeFD > 0 && len(pfd) > 1 && (pfd[1].Revents&unix.POLLIN) != 0 {
+            var buf [8]byte
+            _, _ = unix.Read(s.wakeFD, buf[:])
+            return
+        }
+
+        // Check for socket errors after successful poll
+        if pfd[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
+            // Socket is in error state, exit this reader
+            return
+        }
+    }
 }
 
 // NewSYNScanner creates a new SYN scanner with custom options
@@ -1063,14 +1108,22 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	// This order is preferred by most codebases and avoids potential PACKET_RX_RING EINVAL issues.
 	fanoutGroup := (os.Getpid() * 131) & 0xFFFF
 
-	n := runtime.NumCPU()
-	log.Debug().Int("numCPU", n).Int("fanoutGroup", fanoutGroup).Msg("Ring setup parameters")
+    // Determine ring reader count
+    ringCount := runtime.NumCPU()
+    if opts != nil && opts.RingReaders > 0 && opts.RingReaders < ringCount {
+        ringCount = opts.RingReaders
+    }
+    if ringCount > 4 { // default cap to avoid excessive idle wakeups
+        ringCount = 4
+    }
 
-	rings := make([]*ringBuf, 0, n)
+    log.Debug().Int("ringCount", ringCount).Int("fanoutGroup", fanoutGroup).Msg("Ring setup parameters")
 
-	for i := 0; i < n; i++ {
-		log.Debug().Int("ringIndex", i).Msg("Creating ring buffer")
-		log.Debug().Str("interface", iface).Msg("Opening sniffer on interface")
+    rings := make([]*ringBuf, 0, ringCount)
+
+    for i := 0; i < ringCount; i++ {
+        log.Debug().Int("ringIndex", i).Msg("Creating ring buffer")
+        log.Debug().Str("interface", iface).Msg("Opening sniffer on interface")
 
 		fd, err := openSnifferOnInterface(iface)
 		if err != nil {
@@ -1267,7 +1320,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		rings = append(rings, rb)
 	}
 
-	log.Debug().Int("ringCount", len(rings)).Msg("All ring buffers created successfully")
+    log.Debug().Int("ringCount", len(rings)).Msg("All ring buffers created successfully")
 
 	retireTov := getRetireTovMs()
 	log.Debug().Uint32("retireTovMs", retireTov).Msg("Using configurable retire TOV")
@@ -1284,32 +1337,43 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 	log.Debug().Int("sendBatchSize", batchSize).Msg("Using configurable sendmmsg batch size")
 
-	scanner := &SYNScanner{
-		timeout:        timeout,
-		concurrency:    concurrency,
-		logger:         log,
-		sendSocket:     sendSocket,
-		rings:          rings,
+    scanner := &SYNScanner{
+        timeout:        timeout,
+        concurrency:    concurrency,
+        logger:         log,
+        sendSocket:     sendSocket,
+        rings:          rings,
 		sourceIP:       sourceIP,
 		iface:          iface,
 		fanoutGroup:    fanoutGroup,
-		retireTovMs:    retireTov,
-		portAlloc:      NewPortAllocator(scanPortStart, scanPortEnd),
-		scanPortStart:  scanPortStart,
-		scanPortEnd:    scanPortEnd,
-		retryAttempts:  1,
-		retryMinJitter: 20 * time.Millisecond,
-		retryMaxJitter: 40 * time.Millisecond,
-		sendBatchSize:  batchSize,
-		// Initialize maps to prevent nil pointer dereference
-		portTargetMap: make(map[uint16]string),
-		targetPorts:   make(map[string][]uint16),
-		targetIP:      make(map[string][4]byte),
-		results:       make(map[string]models.Result),
-		portDeadline:  make(map[uint16]time.Time),
-		// Initialize thread-safe random source for IP ID generation
-		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
-	}
+        retireTovMs:    retireTov,
+        portAlloc:      NewPortAllocator(scanPortStart, scanPortEnd),
+        scanPortStart:  scanPortStart,
+        scanPortEnd:    scanPortEnd,
+        retryAttempts:  1,
+        retryMinJitter: 20 * time.Millisecond,
+        retryMaxJitter: 40 * time.Millisecond,
+        sendBatchSize:  batchSize,
+        // Initialize maps to prevent nil pointer dereference
+        portTargetMap: make(map[uint16]string),
+        targetPorts:   make(map[string][]uint16),
+        targetIP:      make(map[string][4]byte),
+        results:       make(map[string]models.Result),
+        portDeadline:  make(map[uint16]time.Time),
+        // Initialize thread-safe random source for IP ID generation
+        rand: rand.New(rand.NewSource(time.Now().UnixNano())),
+    }
+
+    // Configure ring poll timeout: default to max(retireTovMs, 50ms) unless overridden
+    if opts != nil && opts.RingPollTimeoutMs > 0 {
+        scanner.ringPollTimeoutMs = opts.RingPollTimeoutMs
+    } else {
+        pollMs := int(retireTov)
+        if pollMs < 50 {
+            pollMs = 50
+        }
+        scanner.ringPollTimeoutMs = pollMs
+    }
 
 	// Initialize batch pool for sendmmsg arrays
 	scanner.batchPool = sync.Pool{
@@ -1606,8 +1670,21 @@ func (h *retryHeap) Pop() any {
 
 // sendPendingWithLimiter uses the global limiter; it may send in chunks until *pending is empty.
 func (s *SYNScanner) sendPendingWithLimiter(ctx context.Context, pending *[]models.Target) {
-	for len(*pending) > 0 {
-		allowed := s.allowN(len(*pending))
+    for len(*pending) > 0 {
+        allowed := s.allowN(len(*pending))
+
+        // Also cap by number of free source ports to avoid hot spinning
+        if s.portAlloc != nil {
+            free := s.portAlloc.Free()
+            if free <= 0 {
+                atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+                time.Sleep(200 * time.Microsecond)
+                continue
+            }
+            if allowed > free {
+                allowed = free
+            }
+        }
 
 		if allowed == 0 {
 			// tiny sleep to avoid busy spinning
@@ -1774,7 +1851,21 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		return resultCh, nil
 	}
 
-	scanCtx, cancel := context.WithCancel(ctx)
+    scanCtx, cancel := context.WithCancel(ctx)
+    // Create wake eventfd (optional, gated by env SR_SYN_USE_EVENTFD=1)
+    if s.wakeFD == 0 {
+        if os.Getenv("SR_SYN_USE_EVENTFD") == "1" {
+            fd, err := unix.Eventfd(0, 0)
+            if err == nil {
+                _ = unix.SetNonblock(fd, true)
+                s.wakeFD = fd
+                s.logger.Debug().Msg("Using eventfd for ring wakeups")
+            } else {
+                // Fall back to timeout-based poll
+                s.logger.Debug().Err(err).Msg("eventfd unavailable; using timeout-based ring polling")
+            }
+        }
+    }
 	scanStartTime := time.Now()
 
 	// Start telemetry logging tied to scan lifecycle
@@ -1920,8 +2011,14 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 		time.Sleep(grace)
 
-		cancel()
-		s.readersWG.Wait()
+        cancel()
+        // Wake any blocking ring readers once after cancel
+        if s.wakeFD > 0 {
+            var one [8]byte
+            one[7] = 1
+            _, _ = unix.Write(s.wakeFD, one[:])
+        }
+        s.readersWG.Wait()
 
 		// Fallback: emit anything not yet streamed (via emitter so user callback is tee'd)
 		s.mu.Lock()
@@ -1957,9 +2054,9 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			s.mu.Lock()
 		}
 
-		// Stop future callback enqueues and finish the emitter cleanly.
-		s.resultCallback = nil
-		s.mu.Unlock()
+        // Stop future callback enqueues and finish the emitter cleanly.
+        s.resultCallback = nil
+        s.mu.Unlock()
 
 		// Log final telemetry for scan completion (especially useful for short scans)
 		scanDuration := time.Since(scanStartTime)
@@ -1978,12 +2075,36 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		close(stopEmit) // signal emitter to drain and close resultCh
 		<-emitterDone   // wait for emitter to finish
 
-		s.mu.Lock()
-		if s.cancel != nil {
-			s.cancel = nil
-		}
+        s.mu.Lock()
+        if s.cancel != nil {
+            s.cancel = nil
+        }
 
-		s.mu.Unlock()
+        // Proactively release any leftover port mappings and clear per-scan maps
+        toRelease := make([]uint16, 0, len(s.portTargetMap))
+        for sp := range s.portTargetMap {
+            toRelease = append(toRelease, sp)
+        }
+
+		// Reset maps to allow GC of large per-scan state
+		s.portTargetMap = make(map[uint16]string)
+		s.targetPorts = make(map[string][]uint16)
+		s.targetIP = make(map[string][4]byte)
+		s.results = make(map[string]models.Result)
+		s.portDeadline = make(map[uint16]time.Time)
+        s.retryCh = nil
+        // Close wakeFD now that readers have exited
+        if s.wakeFD > 0 {
+            _ = unix.Close(s.wakeFD)
+            s.wakeFD = 0
+        }
+        s.mu.Unlock()
+
+		// Release ports outside the lock
+		for _, sp := range toRelease {
+			s.portAlloc.Release(sp)
+			atomic.AddUint64(&s.stats.PortsReleased, 1)
+		}
 	}()
 
 	return resultCh, nil

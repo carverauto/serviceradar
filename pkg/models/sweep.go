@@ -76,6 +76,10 @@ type Config struct {
 		// Global ring buffer memory cap (in MB) to be distributed across all CPU cores
 		// If 0, defaults to 64MB total. This prevents excessive memory usage on high-CPU systems.
 		GlobalRingMemoryMB int `json:"global_ring_memory_mb,omitempty"`
+
+		// Ring readers and poll timeout tuning
+		RingReaders       int `json:"ring_readers,omitempty"`           // number of AF_PACKET ring readers
+		RingPollTimeoutMs int `json:"ring_poll_timeout_ms,omitempty"`   // poll() timeout per reader in ms
 	}
 	EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`
