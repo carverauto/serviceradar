@@ -20,6 +20,7 @@ package main
 import (
 	cryptoRand "crypto/rand"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"math/big"
@@ -27,6 +28,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -34,6 +36,7 @@ type ArmisDevice struct {
 	ID               int         `json:"id"`
 	IPAddress        string      `json:"ipAddress"`
 	MacAddress       string      `json:"macAddress"`
+	MacAddresses     []string    `json:"-"` // Internal representation, ignored by JSON marshaller
 	Name             string      `json:"name"`
 	Type             string      `json:"type"`
 	Category         string      `json:"category"`
@@ -70,6 +73,42 @@ type AccessTokenResponse struct {
 	Success bool `json:"success"`
 }
 
+// Config holds the configuration for the faker service
+type Config struct {
+	Service struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Version     string `json:"version"`
+	} `json:"service"`
+	Server struct {
+		ListenAddress string `json:"listen_address"`
+		ReadTimeout   string `json:"read_timeout"`
+		WriteTimeout  string `json:"write_timeout"`
+		IdleTimeout   string `json:"idle_timeout"`
+	} `json:"server"`
+	Simulation struct {
+		TotalDevices int `json:"total_devices"`
+		IPShuffle    struct {
+			Enabled     bool   `json:"enabled"`
+			Interval    string `json:"interval"`
+			Percentage  int    `json:"percentage"`
+			LogChanges  bool   `json:"log_changes"`
+		} `json:"ip_shuffle"`
+	} `json:"simulation"`
+	Storage struct {
+		DataDir        string `json:"data_dir"`
+		DevicesFile    string `json:"devices_file"`
+		PersistChanges bool   `json:"persist_changes"`
+	} `json:"storage"`
+	Logging struct {
+		Level      string `json:"level"`
+		File       string `json:"file"`
+		MaxSize    string `json:"max_size"`
+		MaxBackups int    `json:"max_backups"`
+		MaxAge     int    `json:"max_age"`
+	} `json:"logging"`
+}
+
 const (
 	totalDevices = 50000
 	// File permission constants
@@ -93,6 +132,7 @@ type DeviceGenerator struct {
 	deviceTypes   []string
 	osTypes       []string
 	manufacturers []string
+	mu            sync.RWMutex // Add this mutex for safe concurrent access
 }
 
 // NewDeviceGenerator creates a new device generator with predefined data
@@ -132,7 +172,10 @@ func NewDeviceGenerator() *DeviceGenerator {
 }
 
 //nolint:gochecknoglobals // Required for HTTP handlers
-var deviceGen *DeviceGenerator
+var (
+	deviceGen *DeviceGenerator
+	config    *Config
+)
 
 // Initialize sets up the device generator and loads or generates device data
 func Initialize() {
@@ -153,9 +196,120 @@ func Initialize() {
 	deviceGen.saveToStorage()
 }
 
+// shuffleIPs runs as a background goroutine to simulate devices changing their IP addresses.
+func shuffleIPs() {
+	log.Println("Starting IP address shuffle simulation...")
+	
+	// Parse interval from config
+	interval, err := time.ParseDuration(config.Simulation.IPShuffle.Interval)
+	if err != nil {
+		interval = 60 * time.Second
+		log.Printf("Invalid shuffle interval in config, using default: %v", interval)
+	}
+	
+	// Shuffle IPs on a regular interval
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// Acquire a full write lock to modify the device list
+		deviceGen.mu.Lock()
+
+		// Select a random percentage of devices to update based on config
+		percentage := float64(config.Simulation.IPShuffle.Percentage) / 100.0
+		numToShuffle := int(float64(len(deviceGen.allDevices)) * percentage)
+		
+		if config.Simulation.IPShuffle.LogChanges {
+			log.Printf("--> SIMULATING IP CHANGE: Shuffling IPs for %d devices (%.1f%%)...", 
+				numToShuffle, percentage*100)
+		}
+
+		for i := 0; i < numToShuffle; i++ {
+			// Pick a random device to modify
+			deviceIndex := randInt(0, len(deviceGen.allDevices)-1)
+			device := &deviceGen.allDevices[deviceIndex]
+
+			// Generate a new primary IP address.
+			// We use the current nanosecond as an offset to ensure the IP is different.
+			newPrimaryIP := generateSingleIP(deviceIndex, int(time.Now().Nanosecond()))
+
+			// Update the device's IP address list
+			ipList := strings.Split(device.IPAddress, ",")
+			oldPrimaryIP := ipList[0]
+			ipList[0] = newPrimaryIP
+			device.IPAddress = strings.Join(ipList, ",")
+			device.LastSeen = time.Now() // Update LastSeen to reflect the change
+
+			if config.Simulation.IPShuffle.LogChanges {
+				log.Printf("    Device ID %d (Name: %s) IP changed from %s to %s", 
+					device.ID, device.Name, oldPrimaryIP, newPrimaryIP)
+			}
+		}
+
+		// Release the lock
+		deviceGen.mu.Unlock()
+
+		// Persist the changes if configured
+		if config.Storage.PersistChanges {
+			deviceGen.saveToStorage()
+		}
+	}
+}
+
+// loadConfig loads configuration from file
+func loadConfig(configPath string) (*Config, error) {
+	cfg := &Config{}
+	
+	// Set defaults
+	cfg.Server.ListenAddress = ":8080"
+	cfg.Server.ReadTimeout = "10s"
+	cfg.Server.WriteTimeout = "30s"
+	cfg.Server.IdleTimeout = "30s"
+	cfg.Simulation.TotalDevices = totalDevices
+	cfg.Simulation.IPShuffle.Enabled = true
+	cfg.Simulation.IPShuffle.Interval = "60s"
+	cfg.Simulation.IPShuffle.Percentage = 5
+	cfg.Simulation.IPShuffle.LogChanges = true
+	cfg.Storage.DataDir = "/var/lib/serviceradar/faker"
+	cfg.Storage.DevicesFile = "fake_armis_devices.json"
+	cfg.Storage.PersistChanges = true
+	
+	if configPath != "" {
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
+		
+		if err := json.Unmarshal(data, cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse config file: %w", err)
+		}
+	}
+	
+	return cfg, nil
+}
+
 func main() {
+	var configPath string
+	flag.StringVar(&configPath, "config", "/etc/serviceradar/faker.json", "Path to configuration file")
+	flag.Parse()
+
+	// Load configuration
+	var err error
+	config, err = loadConfig(configPath)
+	if err != nil {
+		log.Printf("Warning: Could not load config file: %v. Using defaults.", err)
+		config, _ = loadConfig("") // Load with defaults
+	}
+
+	log.Printf("ServiceRadar Faker %s starting...", config.Service.Version)
+
 	// Initialize the device generator
 	Initialize()
+
+	// Start the background process to simulate IP changes if enabled
+	if config.Simulation.IPShuffle.Enabled {
+		go shuffleIPs()
+	}
 
 	mux := http.NewServeMux()
 	// Armis API endpoints
@@ -164,16 +318,26 @@ func main() {
 	// Legacy endpoint if needed
 	mux.HandleFunc("/v1/devices", devicesHandler)
 
+	// Parse durations
+	readTimeout, _ := time.ParseDuration(config.Server.ReadTimeout)
+	writeTimeout, _ := time.ParseDuration(config.Server.WriteTimeout)
+	idleTimeout, _ := time.ParseDuration(config.Server.IdleTimeout)
+
 	server := &http.Server{
-		Addr:         ":8080",
+		Addr:         config.Server.ListenAddress,
 		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  30 * time.Second,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
 	}
 
-	log.Println("Fake Armis API starting on :8080")
-	log.Printf("Total devices available: %d", totalDevices)
+	log.Printf("Fake Armis API starting on %s", config.Server.ListenAddress)
+	log.Printf("Total devices available: %d", config.Simulation.TotalDevices)
+	if config.Simulation.IPShuffle.Enabled {
+		log.Printf("IP shuffle enabled: %d%% of devices every %s", 
+			config.Simulation.IPShuffle.Percentage, 
+			config.Simulation.IPShuffle.Interval)
+	}
 
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed: %v", err)
@@ -231,6 +395,10 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Search request - AQL: %s, from: %d, length: %d", aql, from, length)
 
+	// Acquire a read lock before accessing the shared device list
+	deviceGen.mu.RLock()
+	defer deviceGen.mu.RUnlock() // Defer the unlock to ensure it's always released
+
 	// Calculate pagination
 	end := from + length
 	if end > totalDevices {
@@ -240,7 +408,10 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	// Get the slice of devices
 	var results []ArmisDevice
 	if from < totalDevices {
-		results = deviceGen.allDevices[from:end]
+		// Create a copy of the data slice to release the lock faster
+		paginatedDevices := deviceGen.allDevices[from:end]
+		results = make([]ArmisDevice, len(paginatedDevices))
+		copy(results, paginatedDevices)
 	}
 
 	// Determine next page
@@ -299,7 +470,8 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 		devices[i] = ArmisDevice{
 			ID:              i + 1,
 			IPAddress:       ips,
-			MacAddress:      strings.Join(macAddresses, ","),
+			MacAddress:      strings.Join(macAddresses, ","), // Create the comma-separated string for JSON
+			MacAddresses:    macAddresses,                    // Store the internal slice
 			Name:            generateDeviceName(deviceType, manufacturer, i),
 			Type:            deviceType,
 			Category:        generateCategory(deviceType),
@@ -861,7 +1033,13 @@ func (dg *DeviceGenerator) loadFromStorage() bool {
 func (dg *DeviceGenerator) saveToStorage() {
 	storageFile := getStorageFilePath()
 
-	data, err := json.Marshal(dg.allDevices)
+	// Create a copy of the devices while holding the read lock
+	dg.mu.RLock()
+	devicesCopy := make([]ArmisDevice, len(dg.allDevices))
+	copy(devicesCopy, dg.allDevices)
+	dg.mu.RUnlock()
+
+	data, err := json.Marshal(devicesCopy)
 	if err != nil {
 		log.Printf("Failed to marshal device data for storage: %v", err)
 		return
@@ -872,11 +1050,17 @@ func (dg *DeviceGenerator) saveToStorage() {
 		return
 	}
 
-	log.Printf("Successfully saved %d devices to persistent storage at %s", len(dg.allDevices), storageFile)
+	log.Printf("Successfully saved %d devices to persistent storage at %s", len(devicesCopy), storageFile)
 }
 
 // getStorageFilePath returns the path where device data should be stored
 func getStorageFilePath() string {
+	if config != nil && config.Storage.DataDir != "" {
+		// Ensure directory exists
+		os.MkdirAll(config.Storage.DataDir, 0755)
+		return fmt.Sprintf("%s/%s", config.Storage.DataDir, config.Storage.DevicesFile)
+	}
+	
 	// Check if we're running in Docker with a volume mount
 	if _, err := os.Stat("/data"); err == nil {
 		return "/data/fake_armis_devices.json"
