@@ -39,8 +39,6 @@ type NATSStore struct {
 }
 
 func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
-	log.Println("Config: ", cfg)
-
 	tlsConfig, err := getTLSConfig(cfg.Security)
 	if err != nil {
 		return nil, fmt.Errorf("failed to configure TLS: %w", err)
@@ -234,8 +232,6 @@ func (n *NATSStore) handleWatchWithReconnect(ctx context.Context, key string, ch
 	}
 }
 
-// attemptWatch attempts to establish a single watch session
-// Returns true if context was canceled, false if watcher closed unexpectedly
 // attemptWatch attempts to establish a single watch session
 // Returns true if context was canceled, false if watcher closed unexpectedly and we should retry.
 func (n *NATSStore) attemptWatch(ctx context.Context, key string, ch chan<- []byte, backoff *time.Duration) bool {
