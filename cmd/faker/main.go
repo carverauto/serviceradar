@@ -32,6 +32,10 @@ import (
 	"time"
 )
 
+const (
+	dataDirPerms = 0o755
+)
+
 type ArmisDevice struct {
 	ID               int         `json:"id"`
 	IPAddress        string      `json:"ipAddress"`
@@ -89,10 +93,10 @@ type Config struct {
 	Simulation struct {
 		TotalDevices int `json:"total_devices"`
 		IPShuffle    struct {
-			Enabled     bool   `json:"enabled"`
-			Interval    string `json:"interval"`
-			Percentage  int    `json:"percentage"`
-			LogChanges  bool   `json:"log_changes"`
+			Enabled    bool   `json:"enabled"`
+			Interval   string `json:"interval"`
+			Percentage int    `json:"percentage"`
+			LogChanges bool   `json:"log_changes"`
 		} `json:"ip_shuffle"`
 	} `json:"simulation"`
 	Storage struct {
@@ -199,14 +203,14 @@ func Initialize() {
 // shuffleIPs runs as a background goroutine to simulate devices changing their IP addresses.
 func shuffleIPs() {
 	log.Println("Starting IP address shuffle simulation...")
-	
+
 	// Parse interval from config
 	interval, err := time.ParseDuration(config.Simulation.IPShuffle.Interval)
 	if err != nil {
 		interval = 60 * time.Second
 		log.Printf("Invalid shuffle interval in config, using default: %v", interval)
 	}
-	
+
 	// Shuffle IPs on a regular interval
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -218,9 +222,9 @@ func shuffleIPs() {
 		// Select a random percentage of devices to update based on config
 		percentage := float64(config.Simulation.IPShuffle.Percentage) / 100.0
 		numToShuffle := int(float64(len(deviceGen.allDevices)) * percentage)
-		
+
 		if config.Simulation.IPShuffle.LogChanges {
-			log.Printf("--> SIMULATING IP CHANGE: Shuffling IPs for %d devices (%.1f%%)...", 
+			log.Printf("--> SIMULATING IP CHANGE: Shuffling IPs for %d devices (%.1f%%)...",
 				numToShuffle, percentage*100)
 		}
 
@@ -231,7 +235,7 @@ func shuffleIPs() {
 
 			// Generate a new primary IP address.
 			// We use the current nanosecond as an offset to ensure the IP is different.
-			newPrimaryIP := generateSingleIP(deviceIndex, int(time.Now().Nanosecond()))
+			newPrimaryIP := generateSingleIP(deviceIndex, time.Now().Nanosecond())
 
 			// Update the device's IP address list
 			ipList := strings.Split(device.IPAddress, ",")
@@ -241,7 +245,7 @@ func shuffleIPs() {
 			device.LastSeen = time.Now() // Update LastSeen to reflect the change
 
 			if config.Simulation.IPShuffle.LogChanges {
-				log.Printf("    Device ID %d (Name: %s) IP changed from %s to %s", 
+				log.Printf("    Device ID %d (Name: %s) IP changed from %s to %s",
 					device.ID, device.Name, oldPrimaryIP, newPrimaryIP)
 			}
 		}
@@ -259,7 +263,7 @@ func shuffleIPs() {
 // loadConfig loads configuration from file
 func loadConfig(configPath string) (*Config, error) {
 	cfg := &Config{}
-	
+
 	// Set defaults
 	cfg.Server.ListenAddress = ":8080"
 	cfg.Server.ReadTimeout = "10s"
@@ -273,31 +277,34 @@ func loadConfig(configPath string) (*Config, error) {
 	cfg.Storage.DataDir = "/var/lib/serviceradar/faker"
 	cfg.Storage.DevicesFile = "fake_armis_devices.json"
 	cfg.Storage.PersistChanges = true
-	
+
 	if configPath != "" {
 		data, err := os.ReadFile(configPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read config file: %w", err)
 		}
-		
+
 		if err := json.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("failed to parse config file: %w", err)
 		}
 	}
-	
+
 	return cfg, nil
 }
 
 func main() {
 	var configPath string
+
 	flag.StringVar(&configPath, "config", "/etc/serviceradar/faker.json", "Path to configuration file")
 	flag.Parse()
 
 	// Load configuration
 	var err error
 	config, err = loadConfig(configPath)
+
 	if err != nil {
 		log.Printf("Warning: Could not load config file: %v. Using defaults.", err)
+
 		config, _ = loadConfig("") // Load with defaults
 	}
 
@@ -333,9 +340,10 @@ func main() {
 
 	log.Printf("Fake Armis API starting on %s", config.Server.ListenAddress)
 	log.Printf("Total devices available: %d", config.Simulation.TotalDevices)
+
 	if config.Simulation.IPShuffle.Enabled {
-		log.Printf("IP shuffle enabled: %d%% of devices every %s", 
-			config.Simulation.IPShuffle.Percentage, 
+		log.Printf("IP shuffle enabled: %d%% of devices every %s",
+			config.Simulation.IPShuffle.Percentage,
 			config.Simulation.IPShuffle.Interval)
 	}
 
@@ -407,6 +415,7 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Get the slice of devices
 	var results []ArmisDevice
+
 	if from < totalDevices {
 		// Create a copy of the data slice to release the lock faster
 		paginatedDevices := deviceGen.allDevices[from:end]
@@ -1057,10 +1066,13 @@ func (dg *DeviceGenerator) saveToStorage() {
 func getStorageFilePath() string {
 	if config != nil && config.Storage.DataDir != "" {
 		// Ensure directory exists
-		os.MkdirAll(config.Storage.DataDir, 0755)
+		if err := os.MkdirAll(config.Storage.DataDir, dataDirPerms); err != nil {
+			log.Printf("Warning: Failed to create data directory %s: %v", config.Storage.DataDir, err)
+		}
+
 		return fmt.Sprintf("%s/%s", config.Storage.DataDir, config.Storage.DevicesFile)
 	}
-	
+
 	// Check if we're running in Docker with a volume mount
 	if _, err := os.Stat("/data"); err == nil {
 		return "/data/fake_armis_devices.json"
