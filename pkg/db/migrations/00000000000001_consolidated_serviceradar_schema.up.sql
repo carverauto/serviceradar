@@ -1,15 +1,20 @@
 -- =================================================================
--- == ServiceRadar Complete Database Schema - Consolidated Migration
+-- == ServiceRadar Complete Database Schema - Rebuild w/ TTL plan
 -- =================================================================
--- This migration creates the COMPLETE ServiceRadar database schema
--- from the original working main branch plus OTEL fixes.
--- Based on the working schema from main branch.
+-- TTL policy:
+--   • 3d: logs, traces, otel metrics, raw runtime metrics, flows, events
+--   • 7d: topology discovery, poller_history, poller_statuses
+--   • 30d: everything else EXCEPT users (no TTL)
+-- Notes:
+--   • Timeplus/ClickHouse enforces TTL during background merges (not instant).
+--   • _tp_time is the ingestion/version time; we prefer domain timestamps
+--     when present, and fall back to _tp_time.
 
 -- =================================================================
 -- == Core Data Streams
 -- =================================================================
 
--- Versioned sweep host states - latest status per host with rich metadata
+-- Latest sweep host states (versioned_kv) – 30d TTL
 CREATE STREAM IF NOT EXISTS sweep_host_states (
     host_ip           string,
     poller_id         string,
@@ -21,21 +26,22 @@ CREATE STREAM IF NOT EXISTS sweep_host_states (
     icmp_available    bool,
     icmp_response_time_ns nullable(int64),
     icmp_packet_loss  nullable(float64),
-    tcp_ports_scanned string,  -- JSON array of scanned ports
-    tcp_ports_open    string,  -- JSON array of open ports with service info
-    port_scan_results string,  -- JSON encoded PortResult array
+    tcp_ports_scanned string,
+    tcp_ports_open    string,
+    port_scan_results string,
     last_sweep_time   DateTime64(3),
     first_seen        DateTime64(3),
-    metadata          string    -- Additional sweep metadata
+    metadata          string
 ) PRIMARY KEY (host_ip, poller_id, partition)
+  TTL to_start_of_day(coalesce(last_sweep_time, _tp_time)) + INTERVAL 30 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Raw device updates from discovery sources
+-- Raw device updates (firehose) – 3d TTL
 CREATE STREAM IF NOT EXISTS device_updates (
     agent_id string,
-    poller_id string, 
+    poller_id string,
     partition string,
-    device_id string,  -- Canonical device ID to prevent duplicates
+    device_id string,
     discovery_source string,
     ip string,
     mac nullable(string),
@@ -43,9 +49,13 @@ CREATE STREAM IF NOT EXISTS device_updates (
     timestamp DateTime64(3),
     available boolean,
     metadata map(string, string)
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, device_id, poller_id)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
--- Current device inventory - aggregated device state
+-- Current device inventory (versioned_kv) – 30d TTL
 CREATE STREAM IF NOT EXISTS unified_devices (
     device_id string,
     ip string,
@@ -65,9 +75,10 @@ CREATE STREAM IF NOT EXISTS unified_devices (
     os_info nullable(string),
     version_info nullable(string)
 ) PRIMARY KEY (device_id)
+  TTL to_start_of_day(coalesce(last_seen, _tp_time)) + INTERVAL 30 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Create the unified_devices_registry stream that device-mgr expects
+-- Registry expected by device-mgr (versioned_kv) – 30d TTL
 CREATE STREAM IF NOT EXISTS unified_devices_registry (
     device_id string,
     ip string,
@@ -87,47 +98,45 @@ CREATE STREAM IF NOT EXISTS unified_devices_registry (
     os_info nullable(string),
     version_info nullable(string)
 ) PRIMARY KEY (device_id)
+  TTL to_start_of_day(coalesce(last_seen, _tp_time)) + INTERVAL 30 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Materialized view with proper discovery source aggregation (WORKING VERSION)
+-- Aggregation pipeline MV
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
 INTO unified_devices
 AS SELECT
-    s.device_id AS device_id,
-    s.ip,
-    s.poller_id,
-    if(s.hostname IS NOT NULL AND s.hostname != '', s.hostname, u.hostname) AS hostname,
-    if(s.mac IS NOT NULL AND s.mac != '', s.mac, u.mac) AS mac,
-    if(index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0,
-       u.discovery_sources,
-       array_push_back(if_null(u.discovery_sources, []), s.discovery_source)) AS discovery_sources,
-    -- For passive sources (netbox, armis) that don't perform availability checks,
-    -- preserve the existing availability status. For active sources (sweep, snmp, etc),
-    -- use their availability status.
-    coalesce(
-        if(s.discovery_source IN ('netbox', 'armis'), u.is_available, s.available), 
-        s.available
-    ) AS is_available,
-    coalesce(u.first_seen, s.timestamp) AS first_seen,
-    s.timestamp AS last_seen,
-    if(s.metadata IS NOT NULL,
-       if(u.metadata IS NULL, s.metadata, map_update(u.metadata, s.metadata)),
-       u.metadata) AS metadata,
-    s.agent_id,
-    if(u.device_id IS NULL, 'network_device', u.device_type) AS device_type,
-    u.service_type,
-    u.service_status,
-    u.last_heartbeat,
-    u.os_info,
-    u.version_info
-FROM device_updates AS s
-LEFT JOIN unified_devices AS u ON s.device_id = u.device_id;
+                                          s.device_id AS device_id,
+                                          s.ip,
+                                          s.poller_id,
+                                          if(s.hostname IS NOT NULL AND s.hostname != '', s.hostname, u.hostname) AS hostname,
+                                          if(s.mac IS NOT NULL AND s.mac != '', s.mac, u.mac) AS mac,
+                                          if(index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0,
+                                             u.discovery_sources,
+                                             array_push_back(if_null(u.discovery_sources, []), s.discovery_source)) AS discovery_sources,
+                                          coalesce(
+                                                  if(s.discovery_source IN ('netbox', 'armis'), u.is_available, s.available),
+                                                  s.available
+                                          ) AS is_available,
+                                          coalesce(u.first_seen, s.timestamp) AS first_seen,
+                                          s.timestamp AS last_seen,
+                                          if(s.metadata IS NOT NULL,
+                                             if(u.metadata IS NULL, s.metadata, map_update(u.metadata, s.metadata)),
+                                             u.metadata) AS metadata,
+                                          s.agent_id,
+                                          if(u.device_id IS NULL, 'network_device', u.device_type) AS device_type,
+                                          u.service_type,
+                                          u.service_status,
+                                          u.last_heartbeat,
+                                          u.os_info,
+                                          u.version_info
+   FROM device_updates AS s
+            LEFT JOIN unified_devices AS u ON s.device_id = u.device_id;
 
 -- =================================================================
 -- == Network Discovery Streams
 -- =================================================================
 
--- SNMP discovery results (versioned key-value to prevent duplicates)
+-- Discovered interfaces (versioned_kv) – 30d TTL
 CREATE STREAM IF NOT EXISTS discovered_interfaces (
     timestamp         DateTime64(3),
     agent_id          string,
@@ -145,9 +154,10 @@ CREATE STREAM IF NOT EXISTS discovered_interfaces (
     if_oper_status    int32,
     metadata          string
 ) PRIMARY KEY (device_id, if_index)
+  TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 30 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Network topology discovery
+-- Topology discovery (LLDP/CDP/BGP/etc.) – 7d TTL
 CREATE STREAM IF NOT EXISTS topology_discovery_events (
     timestamp                  DateTime64(3),
     agent_id                   string,
@@ -167,13 +177,16 @@ CREATE STREAM IF NOT EXISTS topology_discovery_events (
     neighbor_as                uint32,
     bgp_session_state          string,
     metadata                   string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, local_device_id, local_if_index)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 7 DAY
+SETTINGS index_granularity = 8192;
 
 -- =================================================================
--- == Metrics and Monitoring Streams
+-- == Metrics and Monitoring Streams (3d TTL)
 -- =================================================================
 
--- Time-series metrics (SNMP, ICMP, etc.)
 CREATE STREAM IF NOT EXISTS timeseries_metrics (
     timestamp         DateTime64(3),
     poller_id         string,
@@ -190,9 +203,12 @@ CREATE STREAM IF NOT EXISTS timeseries_metrics (
     target_device_ip  nullable(string),
     ifIndex           nullable(int32),
     metadata          string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, device_id, metric_name)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
--- System monitoring metrics
 CREATE STREAM IF NOT EXISTS cpu_metrics (
     timestamp         DateTime64(3),
     poller_id         string,
@@ -202,7 +218,11 @@ CREATE STREAM IF NOT EXISTS cpu_metrics (
     usage_percent     float64,
     device_id         string,
     partition         string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, device_id, host_id, core_id)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
 CREATE STREAM IF NOT EXISTS disk_metrics (
     timestamp         DateTime64(3),
@@ -217,7 +237,11 @@ CREATE STREAM IF NOT EXISTS disk_metrics (
     usage_percent     float64,
     device_id         string,
     partition         string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, device_id, host_id, mount_point)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
 CREATE STREAM IF NOT EXISTS memory_metrics (
     timestamp         DateTime64(3),
@@ -230,9 +254,12 @@ CREATE STREAM IF NOT EXISTS memory_metrics (
     usage_percent     float64,
     device_id         string,
     partition         string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, device_id, host_id)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
--- Process metrics (12 columns as expected by Go code)
 CREATE STREAM IF NOT EXISTS process_metrics (
     timestamp         DateTime64(3),
     poller_id         string,
@@ -246,13 +273,17 @@ CREATE STREAM IF NOT EXISTS process_metrics (
     start_time        string,
     device_id         string,
     partition         string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, device_id, host_id, pid)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
 -- =================================================================
 -- == Service Management Streams
 -- =================================================================
 
--- Service status tracking
+-- 3d TTL on status events
 CREATE STREAM IF NOT EXISTS service_statuses (
     timestamp         DateTime64(3),
     poller_id         string,
@@ -263,9 +294,12 @@ CREATE STREAM IF NOT EXISTS service_statuses (
     message           string,
     details           string,
     partition         string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, service_name, poller_id)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
--- Service status (legacy name for backward compatibility)
 CREATE STREAM IF NOT EXISTS service_status (
     timestamp         DateTime64(3),
     poller_id         string,
@@ -276,9 +310,13 @@ CREATE STREAM IF NOT EXISTS service_status (
     message           string,
     details           string,
     partition         string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, service_name, poller_id)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
--- Service definitions (7 columns)
+-- Service definitions (configuration) – 30d TTL
 CREATE STREAM IF NOT EXISTS services (
     timestamp         DateTime64(3),
     poller_id         string,
@@ -287,25 +325,34 @@ CREATE STREAM IF NOT EXISTS services (
     service_type      string,
     config            map(string, string),
     partition         string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, service_name, poller_id)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 30 DAY
+SETTINGS index_granularity = 8192;
 
--- Poller registry - current state (4 columns)
+-- Poller registry (versioned_kv) – 30d TTL
 CREATE STREAM IF NOT EXISTS pollers (
     poller_id         string,
     first_seen        DateTime64(3),
     last_seen         DateTime64(3),
     is_healthy        bool
 ) PRIMARY KEY (poller_id)
+  TTL to_start_of_day(coalesce(last_seen, _tp_time)) + INTERVAL 30 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Poller health tracking history
+-- Poller history – 7d TTL
 CREATE STREAM IF NOT EXISTS poller_history (
     timestamp         DateTime64(3),
     poller_id         string,
     is_healthy        bool
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, poller_id)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 7 DAY
+SETTINGS index_granularity = 8192;
 
--- Poller health tracking events
+-- Poller status events – 7d TTL
 CREATE STREAM IF NOT EXISTS poller_statuses (
     timestamp         DateTime64(3),
     poller_id         string,
@@ -315,23 +362,24 @@ CREATE STREAM IF NOT EXISTS poller_statuses (
     last_seen         DateTime64(3),
     uptime_seconds    uint64,
     partition         string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, poller_id)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 7 DAY
+SETTINGS index_granularity = 8192;
 
 -- =================================================================
 -- == Events and Alerting Streams
 -- =================================================================
 
--- Recreate events stream with CloudEvents schema
+-- CloudEvents – 3d TTL (short)
 CREATE STREAM IF NOT EXISTS events (
-    -- CloudEvents standard fields
     specversion       string,
     id                string,
     source            string,
     type              string,
     datacontenttype   string,
     subject           string,
-
-    -- Event data fields
     remote_addr       string,
     host              string,
     level             int32,
@@ -339,17 +387,15 @@ CREATE STREAM IF NOT EXISTS events (
     short_message     string,
     event_timestamp   DateTime64(3),
     version           string,
-
-    -- Raw data for debugging
     raw_data          string
 ) PRIMARY KEY (id)
+  TTL to_start_of_day(coalesce(event_timestamp, _tp_time)) + INTERVAL 3 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 -- =================================================================
--- == Network Flow and Security Streams
+-- == Network Flow and Security Streams (3d TTL)
 -- =================================================================
 
--- NetFlow data
 CREATE STREAM IF NOT EXISTS netflow_metrics (
     timestamp         DateTime64(3),
     agent_id          string,
@@ -365,21 +411,28 @@ CREATE STREAM IF NOT EXISTS netflow_metrics (
     tcp_flags         uint8,
     tos               uint8,
     partition         string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, src_ip, dst_ip, src_port, dst_port)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
--- Performance testing results
 CREATE STREAM IF NOT EXISTS rperf_metrics (
     timestamp         DateTime64(3),
     poller_id         string,
     service_name      string,
     message           string
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, poller_id, service_name)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
 -- =================================================================
 -- == User Management
 -- =================================================================
 
--- User accounts and authentication
+-- Users (versioned_kv) – NO TTL per request
 CREATE STREAM IF NOT EXISTS users (
     id                string,
     username          string,
@@ -393,10 +446,10 @@ CREATE STREAM IF NOT EXISTS users (
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 -- =================================================================
--- == Performance Optimization Views
+-- == Performance Optimization Streams / MVs
 -- =================================================================
 
--- Device aggregates for fast queries (replaces legacy materialized views)
+-- Aggregated device metrics – 3d TTL (derived)
 CREATE STREAM IF NOT EXISTS device_metrics_summary (
     window_time       DateTime64(3),
     device_id         string,
@@ -409,9 +462,12 @@ CREATE STREAM IF NOT EXISTS device_metrics_summary (
     total_memory_bytes uint64,
     used_memory_bytes  uint64,
     metric_count      uint64
-);
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(window_time), 3600)
+ORDER BY (window_time, device_id, poller_id)
+TTL to_start_of_day(coalesce(window_time, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
--- Create materialized view for device metrics aggregation
 CREATE MATERIALIZED VIEW IF NOT EXISTS device_metrics_aggregator_mv
 INTO device_metrics_summary AS
 SELECT
@@ -438,10 +494,9 @@ FROM hop(cpu_metrics, timestamp, 10s, 60s) AS c
 GROUP BY c.window_start, c.device_id, c.poller_id, c.agent_id, c.partition;
 
 -- =================================================================
--- == Observability Tables (Logs, Metrics, Traces)
+-- == Observability (Logs, Metrics, Traces) – all 3d TTL
 -- =================================================================
 
--- Application and system logs (7 day TTL)
 CREATE STREAM IF NOT EXISTS logs (
     timestamp          DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     trace_id           string CODEC(ZSTD(1)),
@@ -456,15 +511,12 @@ CREATE STREAM IF NOT EXISTS logs (
     scope_version      string CODEC(ZSTD(1)),
     attributes         string CODEC(ZSTD(1)),
     resource_attributes string CODEC(ZSTD(1))
-    -- Note: removed raw_data field to save storage space
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, trace_id)
-TTL to_start_of_day(_tp_time) + INTERVAL 7 DAY
-SETTINGS 
-    index_granularity = 8192;
+TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
 
--- OpenTelemetry metrics (3 day TTL)
 CREATE STREAM IF NOT EXISTS otel_metrics (
     timestamp       DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     trace_id        string CODEC(ZSTD(1)),
@@ -484,65 +536,39 @@ CREATE STREAM IF NOT EXISTS otel_metrics (
     is_slow         bool CODEC(ZSTD(1)),
     component       string CODEC(ZSTD(1)),
     level           string CODEC(ZSTD(1))
-    -- Note: removed raw_data field to save storage space
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, span_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
-SETTINGS 
-    index_granularity = 8192;
+SETTINGS index_granularity = 8192;
 
--- OpenTelemetry traces (3 day TTL, no raw_data to save storage)
 CREATE STREAM IF NOT EXISTS otel_traces (
-    -- Core span identifiers
-    timestamp         DateTime64(9) CODEC(Delta(8), ZSTD(1)),  -- start_time_unix_nano
+    timestamp         DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     trace_id          string CODEC(ZSTD(1)),
     span_id           string CODEC(ZSTD(1)),
     parent_span_id    string CODEC(ZSTD(1)),
-    
-    -- Span details
     name              string CODEC(ZSTD(1)),
-    kind              int32 CODEC(ZSTD(1)),  -- SpanKind enum value
+    kind              int32 CODEC(ZSTD(1)),
     start_time_unix_nano uint64 CODEC(Delta(8), ZSTD(1)),
     end_time_unix_nano   uint64 CODEC(Delta(8), ZSTD(1)),
-    
-    -- Service identification
     service_name      string CODEC(ZSTD(1)),
     service_version   string CODEC(ZSTD(1)),
     service_instance  string CODEC(ZSTD(1)),
-    
-    -- Instrumentation scope
     scope_name        string CODEC(ZSTD(1)),
     scope_version     string CODEC(ZSTD(1)),
-    
-    -- Status
-    status_code       int32 CODEC(ZSTD(1)),   -- Status code enum
+    status_code       int32 CODEC(ZSTD(1)),
     status_message    string CODEC(ZSTD(1)),
-    
-    -- Attributes as comma-separated key=value pairs
     attributes        string CODEC(ZSTD(1)),
     resource_attributes string CODEC(ZSTD(1)),
-    
-    -- Events (JSON array)
     events            string CODEC(ZSTD(1)),
-    
-    -- Links (JSON array)
     links             string CODEC(ZSTD(1))
-    
-    -- Note: removed raw_data field to save storage space
-    
 ) ENGINE = Stream(1, 1, rand())
-PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)  -- Hourly partitions
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (service_name, timestamp, trace_id, span_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
-SETTINGS 
-    index_granularity = 8192;
+SETTINGS index_granularity = 8192;
 
--- =================================================================
--- == TRACE SUMMARIES - EFFICIENT IMPLEMENTATION
--- =================================================================
-
--- Trace summaries stream - aggregated trace information
+-- Trace summaries + helper (3d TTL)
 CREATE STREAM IF NOT EXISTS otel_trace_summaries (
     timestamp         DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     trace_id          string CODEC(ZSTD(1)),
@@ -561,10 +587,8 @@ CREATE STREAM IF NOT EXISTS otel_trace_summaries (
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, trace_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
-SETTINGS 
-    index_granularity = 8192;
+SETTINGS index_granularity = 8192;
 
--- Step 1: Create an intermediate enriched spans stream
 CREATE STREAM IF NOT EXISTS otel_spans_enriched (
   timestamp             DateTime64(9),
   trace_id              string,
@@ -582,88 +606,69 @@ CREATE STREAM IF NOT EXISTS otel_spans_enriched (
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (trace_id, span_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
-SETTINGS 
-    index_granularity = 8192;
+SETTINGS index_granularity = 8192;
 
--- Step 1 MV: Enrich spans with duration calculation
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_spans_enriched_mv
 INTO otel_spans_enriched AS
 SELECT
-  timestamp,
-  trace_id,
-  span_id,
-  parent_span_id,
-  name,
-  kind,
-  start_time_unix_nano,
-  end_time_unix_nano,
-  service_name,
-  status_code,
-  (end_time_unix_nano - start_time_unix_nano) / 1e6 AS duration_ms,
-  (parent_span_id = '' OR parent_span_id = '0000000000000000' OR length(parent_span_id) = 0) AS is_root
+    timestamp,
+    trace_id,
+    span_id,
+    parent_span_id,
+    name,
+    kind,
+    start_time_unix_nano,
+    end_time_unix_nano,
+    service_name,
+    status_code,
+    (end_time_unix_nano - start_time_unix_nano) / 1e6 AS duration_ms,
+    (parent_span_id = '' OR parent_span_id = '0000000000000000' OR length(parent_span_id) = 0) AS is_root
 FROM otel_traces;
 
--- Step 2: Create the final trace summaries materialized view
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_summaries_mv
 INTO otel_trace_summaries AS
 SELECT
-  min(timestamp) AS timestamp,
-  trace_id,
-  
-  -- Root span detection using the enriched data
-  any_if(span_id, is_root) AS root_span_id,
-  any_if(name, is_root) AS root_span_name,
-  any_if(service_name, is_root) AS root_service_name,
-  any_if(kind, is_root) AS root_span_kind,
-  
-  -- Store raw timing values (let views calculate duration)
-  min(start_time_unix_nano) AS start_time_unix_nano,
-  max(end_time_unix_nano) AS end_time_unix_nano,
-  any_if(duration_ms, is_root) AS duration_ms,  -- Use span-level duration from root span
-  
-  -- Status
-  max(status_code) AS status_code,
-  
-  -- Aggregations  
-  group_uniq_array(service_name) AS service_set,
-  count() AS span_count,
-  0 AS error_count  -- Placeholder for now
-
+    min(timestamp) AS timestamp,
+    trace_id,
+    any_if(span_id, is_root) AS root_span_id,
+    any_if(name, is_root) AS root_span_name,
+    any_if(service_name, is_root) AS root_service_name,
+    any_if(kind, is_root) AS root_span_kind,
+    min(start_time_unix_nano) AS start_time_unix_nano,
+    max(end_time_unix_nano) AS end_time_unix_nano,
+    any_if(duration_ms, is_root) AS duration_ms,
+    max(status_code) AS status_code,
+    group_uniq_array(service_name) AS service_set,
+    count() AS span_count,
+    0 AS error_count
 FROM otel_spans_enriched
 GROUP BY trace_id;
 
 -- =================================================================
--- == UI COMPATIBILITY VIEWS
+-- == UI Compatibility Views
 -- =================================================================
 
--- Deduplication view with _tp_time for Timeplus compatibility
 CREATE VIEW IF NOT EXISTS otel_trace_summaries_dedup AS
-SELECT 
-  trace_id,
-  timestamp,
-  timestamp as _tp_time,  -- Add _tp_time for Timeplus compatibility
-  root_span_id,
-  root_span_name,
-  root_service_name,
-  root_span_kind,
-  start_time_unix_nano,
-  end_time_unix_nano,
-  duration_ms,
-  span_count,
-  error_count,
-  status_code,
-  service_set
+SELECT
+    trace_id,
+    timestamp,
+    timestamp as _tp_time,
+    root_span_id,
+    root_span_name,
+    root_service_name,
+    root_span_kind,
+    start_time_unix_nano,
+    end_time_unix_nano,
+    duration_ms,
+    span_count,
+    error_count,
+    status_code,
+    service_set
 FROM otel_trace_summaries;
 
--- UI compatibility aliases
-CREATE VIEW otel_trace_summaries_final AS 
-SELECT * FROM otel_trace_summaries_dedup;
-
-CREATE VIEW otel_trace_summaries_final_v2 AS 
-SELECT * FROM otel_trace_summaries_dedup;
-
-CREATE VIEW otel_trace_summaries_deduplicated AS 
-SELECT * FROM otel_trace_summaries_dedup;
+CREATE VIEW otel_trace_summaries_final       AS SELECT * FROM otel_trace_summaries_dedup;
+CREATE VIEW otel_trace_summaries_final_v2    AS SELECT * FROM otel_trace_summaries_dedup;
+CREATE VIEW otel_trace_summaries_deduplicated AS SELECT * FROM otel_trace_summaries_dedup;
 
 -- =================================================================
 -- == PERFORMANCE INDEXES
@@ -687,7 +692,7 @@ ALTER STREAM logs ADD INDEX IF NOT EXISTS idx_service service_name TYPE bloom_fi
 ALTER STREAM logs ADD INDEX IF NOT EXISTS idx_trace_id trace_id TYPE bloom_filter GRANULARITY 1;
 ALTER STREAM logs ADD INDEX IF NOT EXISTS idx_severity severity_text TYPE bloom_filter GRANULARITY 1;
 
--- Metrics indexes  
+-- Metrics indexes
 ALTER STREAM process_metrics ADD INDEX IF NOT EXISTS idx_timestamp timestamp TYPE minmax GRANULARITY 1;
 ALTER STREAM process_metrics ADD INDEX IF NOT EXISTS idx_device device_id TYPE bloom_filter GRANULARITY 1;
 ALTER STREAM process_metrics ADD INDEX IF NOT EXISTS idx_poller poller_id TYPE bloom_filter GRANULARITY 1;
