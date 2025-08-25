@@ -175,23 +175,8 @@ func needsICMPScanning(config *models.Config) bool {
 	return false
 }
 
-// initializeTCPScanner creates and configures the TCP scanner with graceful fallback
-func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner {
-	// Prefer TCP-specific settings if set; otherwise fall back to global settings
-	baseTimeout := config.TCPSettings.Timeout
-	if baseTimeout == 0 {
-		baseTimeout = config.Timeout
-	}
-
-	baseConcurrency := config.TCPSettings.Concurrency
-	if baseConcurrency <= 0 {
-		baseConcurrency = calculateEffectiveConcurrency(config, log)
-	}
-
-	log.Debug().Dur("baseTimeout", baseTimeout).Int("baseConcurrency", baseConcurrency).
-		Msg("Using TCP-specific settings for scanner initialization")
-
-	// Try SYN scanner first for optimal performance
+// configureSYNScannerOptions configures SYN scanner options from config
+func configureSYNScannerOptions(config *models.Config, log logger.Logger) *scan.SYNScannerOptions {
 	opts := &scan.SYNScannerOptions{}
 
 	// Use TCPSettings.MaxBatch if configured
@@ -207,38 +192,8 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner
 			Msg("Using configured route discovery host for local IP detection")
 	}
 
-	// Configure ring buffer settings if specified
-	// Note: These will be clamped to safe limits automatically
-	if config.TCPSettings.RingBlockSize > 0 {
-		if config.TCPSettings.RingBlockSize <= int(^uint32(0)) {
-			opts.RingBlockSize = uint32(config.TCPSettings.RingBlockSize) // #nosec G115 - bounds check above ensures no overflow
-		} else {
-			opts.RingBlockSize = ^uint32(0) // Use max uint32 value if overflow would occur
-		}
-
-		log.Debug().Uint32("ring_block_size", opts.RingBlockSize).Msg("Using configured ring buffer block size")
-	}
-
-	// Configure ring readers and poll timeout tunables
-	if config.TCPSettings.RingReaders > 0 {
-		opts.RingReaders = config.TCPSettings.RingReaders
-		log.Debug().Int("ring_readers", opts.RingReaders).Msg("Using configured ring reader count")
-	}
-
-	if config.TCPSettings.RingPollTimeoutMs > 0 {
-		opts.RingPollTimeoutMs = config.TCPSettings.RingPollTimeoutMs
-		log.Debug().Int("ring_poll_timeout_ms", opts.RingPollTimeoutMs).Msg("Using configured ring poll timeout")
-	}
-
-	if config.TCPSettings.RingBlockCount > 0 {
-		if config.TCPSettings.RingBlockCount <= int(^uint32(0)) {
-			opts.RingBlockCount = uint32(config.TCPSettings.RingBlockCount) // #nosec G115 - bounds check above ensures no overflow
-		} else {
-			opts.RingBlockCount = ^uint32(0) // Use max uint32 value if overflow would occur
-		}
-
-		log.Debug().Uint32("ring_block_count", opts.RingBlockCount).Msg("Using configured ring buffer block count")
-	}
+	// Configure ring buffer settings
+	configureRingBufferSettings(config, opts, log)
 
 	// Configure network interface for multi-homed hosts
 	if config.TCPSettings.Interface != "" {
@@ -260,8 +215,63 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner
 			Msg("Using configured global ring buffer memory limit")
 	}
 
-	// Note: RateLimit can be set here too if needed in the future
-	// opts.RateLimit = config.TCPSettings.RateLimit
+	return opts
+}
+
+// configureRingBufferSettings configures ring buffer settings for SYN scanner
+func configureRingBufferSettings(config *models.Config, opts *scan.SYNScannerOptions, log logger.Logger) {
+	// Configure ring buffer block size
+	if config.TCPSettings.RingBlockSize > 0 {
+		if config.TCPSettings.RingBlockSize <= int(^uint32(0)) {
+			opts.RingBlockSize = uint32(config.TCPSettings.RingBlockSize) // #nosec G115 - bounds check above ensures no overflow
+		} else {
+			opts.RingBlockSize = ^uint32(0) // Use max uint32 value if overflow would occur
+		}
+
+		log.Debug().Uint32("ring_block_size", opts.RingBlockSize).Msg("Using configured ring buffer block size")
+	}
+
+	// Configure ring readers and poll timeout tunables
+	if config.TCPSettings.RingReaders > 0 {
+		opts.RingReaders = config.TCPSettings.RingReaders
+		log.Debug().Int("ring_readers", opts.RingReaders).Msg("Using configured ring reader count")
+	}
+
+	if config.TCPSettings.RingPollTimeoutMs > 0 {
+		opts.RingPollTimeoutMs = config.TCPSettings.RingPollTimeoutMs
+		log.Debug().Int("ring_poll_timeout_ms", opts.RingPollTimeoutMs).Msg("Using configured ring poll timeout")
+	}
+
+	// Configure ring buffer block count
+	if config.TCPSettings.RingBlockCount > 0 {
+		if config.TCPSettings.RingBlockCount <= int(^uint32(0)) {
+			opts.RingBlockCount = uint32(config.TCPSettings.RingBlockCount) // #nosec G115 - bounds check above ensures no overflow
+		} else {
+			opts.RingBlockCount = ^uint32(0) // Use max uint32 value if overflow would occur
+		}
+
+		log.Debug().Uint32("ring_block_count", opts.RingBlockCount).Msg("Using configured ring buffer block count")
+	}
+}
+
+// initializeTCPScanner creates and configures the TCP scanner with graceful fallback
+func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner {
+	// Prefer TCP-specific settings if set; otherwise fall back to global settings
+	baseTimeout := config.TCPSettings.Timeout
+	if baseTimeout == 0 {
+		baseTimeout = config.Timeout
+	}
+
+	baseConcurrency := config.TCPSettings.Concurrency
+	if baseConcurrency <= 0 {
+		baseConcurrency = calculateEffectiveConcurrency(config, log)
+	}
+
+	log.Debug().Dur("baseTimeout", baseTimeout).Int("baseConcurrency", baseConcurrency).
+		Msg("Using TCP-specific settings for scanner initialization")
+
+	// Try SYN scanner first for optimal performance
+	opts := configureSYNScannerOptions(config, log)
 
 	// Apply SYN concurrency upper bound
 	synConcurrency := baseConcurrency
@@ -1849,77 +1859,87 @@ func (s *NetworkSweeper) processAggregatedResults(_ context.Context, aggregator 
 
 // addAggregatedScanResults adds scan results for all IPs to device metadata
 func (*NetworkSweeper) addAggregatedScanResults(deviceUpdate *models.DeviceUpdate, results []*models.Result) {
-    // For very large result sets, avoid building heavy string metadata to reduce CPU and GC pressure.
-    const aggDetailThreshold = 100 // keep tests with small sets passing; production large sets skip details
+	// For very large result sets, avoid building heavy string metadata to reduce CPU and GC pressure.
+	const aggDetailThreshold = 100 // keep tests with small sets passing; production large sets skip details
 
-    total := len(results)
-    if total == 0 {
-        deviceUpdate.Metadata["scan_result_count"] = "0"
-        deviceUpdate.Metadata["scan_available_count"] = "0"
-        deviceUpdate.Metadata["scan_unavailable_count"] = "0"
-        deviceUpdate.Metadata["scan_availability_percent"] = "0.0"
-        deviceUpdate.IsAvailable = false
-        return
-    }
+	total := len(results)
+	if total == 0 {
+		deviceUpdate.Metadata["scan_result_count"] = "0"
+		deviceUpdate.Metadata["scan_available_count"] = "0"
+		deviceUpdate.Metadata["scan_unavailable_count"] = "0"
+		deviceUpdate.Metadata["scan_availability_percent"] = "0.0"
+		deviceUpdate.IsAvailable = false
 
-    if total > aggDetailThreshold {
-        // Counts only path
-        availableCount := 0
-        for _, r := range results {
-            if r.Available {
-                availableCount++
-            }
-        }
-        unavailableCount := total - availableCount
-        deviceUpdate.Metadata["scan_result_count"] = fmt.Sprintf("%d", total)
-        deviceUpdate.Metadata["scan_available_count"] = fmt.Sprintf("%d", availableCount)
-        deviceUpdate.Metadata["scan_unavailable_count"] = fmt.Sprintf("%d", unavailableCount)
-        deviceUpdate.Metadata["scan_detail_truncated"] = "true"
-        deviceUpdate.Metadata["scan_availability_percent"] = fmt.Sprintf("%.1f", float64(availableCount)/float64(total)*100)
-        deviceUpdate.IsAvailable = availableCount > 0
-        return
-    }
+		return
+	}
 
-    // Detailed path for small sets (retains existing behavior for tests and small batches)
-    allIPs := make([]string, 0, total)
-    availableIPs := make([]string, 0, total)
-    unavailableIPs := make([]string, 0, total)
-    icmpResults := make([]string, 0, total)
-    tcpResults := make([]string, 0, total)
+	if total > aggDetailThreshold {
+		// Counts only path
+		availableCount := 0
 
-    for _, result := range results {
-        allIPs = append(allIPs, result.Target.Host)
-        if result.Available {
-            availableIPs = append(availableIPs, result.Target.Host)
-        } else {
-            unavailableIPs = append(unavailableIPs, result.Target.Host)
-        }
-        scanDetail := fmt.Sprintf("%s:%s:available=%t:response_time=%s:packet_loss=%.2f",
-            result.Target.Host,
-            string(result.Target.Mode),
-            result.Available,
-            result.RespTime.String(),
-            result.PacketLoss)
-        switch result.Target.Mode {
-        case models.ModeICMP:
-            icmpResults = append(icmpResults, scanDetail)
-        case models.ModeTCP:
-            tcpResults = append(tcpResults, scanDetail)
-        }
-    }
+		for _, r := range results {
+			if r.Available {
+				availableCount++
+			}
+		}
 
-    deviceUpdate.Metadata["scan_all_ips"] = strings.Join(allIPs, ",")
-    deviceUpdate.Metadata["scan_available_ips"] = strings.Join(availableIPs, ",")
-    deviceUpdate.Metadata["scan_unavailable_ips"] = strings.Join(unavailableIPs, ",")
-    deviceUpdate.Metadata["scan_result_count"] = fmt.Sprintf("%d", total)
-    deviceUpdate.Metadata["scan_available_count"] = fmt.Sprintf("%d", len(availableIPs))
-    deviceUpdate.Metadata["scan_unavailable_count"] = fmt.Sprintf("%d", len(unavailableIPs))
-    if len(icmpResults) > 0 {
-        deviceUpdate.Metadata["scan_icmp_results"] = strings.Join(icmpResults, ";")
-    }
-    if len(tcpResults) > 0 {
-        deviceUpdate.Metadata["scan_tcp_results"] = strings.Join(tcpResults, ";")
-    }
-    deviceUpdate.Metadata["scan_availability_percent"] = fmt.Sprintf("%.1f", float64(len(availableIPs))/float64(total)*100)
-    deviceUpdate.IsAvailable = len(availableIPs) > 0
+		unavailableCount := total - availableCount
+		deviceUpdate.Metadata["scan_result_count"] = fmt.Sprintf("%d", total)
+		deviceUpdate.Metadata["scan_available_count"] = fmt.Sprintf("%d", availableCount)
+		deviceUpdate.Metadata["scan_unavailable_count"] = fmt.Sprintf("%d", unavailableCount)
+		deviceUpdate.Metadata["scan_detail_truncated"] = "true"
+		deviceUpdate.Metadata["scan_availability_percent"] = fmt.Sprintf("%.1f", float64(availableCount)/float64(total)*100)
+		deviceUpdate.IsAvailable = availableCount > 0
+
+		return
+	}
+
+	// Detailed path for small sets (retains existing behavior for tests and small batches)
+	allIPs := make([]string, 0, total)
+	availableIPs := make([]string, 0, total)
+	unavailableIPs := make([]string, 0, total)
+	icmpResults := make([]string, 0, total)
+	tcpResults := make([]string, 0, total)
+
+	for _, result := range results {
+		allIPs = append(allIPs, result.Target.Host)
+
+		if result.Available {
+			availableIPs = append(availableIPs, result.Target.Host)
+		} else {
+			unavailableIPs = append(unavailableIPs, result.Target.Host)
+		}
+
+		scanDetail := fmt.Sprintf("%s:%s:available=%t:response_time=%s:packet_loss=%.2f",
+			result.Target.Host,
+			string(result.Target.Mode),
+			result.Available,
+			result.RespTime.String(),
+			result.PacketLoss)
+
+		switch result.Target.Mode {
+		case models.ModeICMP:
+			icmpResults = append(icmpResults, scanDetail)
+		case models.ModeTCP:
+			tcpResults = append(tcpResults, scanDetail)
+		}
+	}
+
+	deviceUpdate.Metadata["scan_all_ips"] = strings.Join(allIPs, ",")
+	deviceUpdate.Metadata["scan_available_ips"] = strings.Join(availableIPs, ",")
+	deviceUpdate.Metadata["scan_unavailable_ips"] = strings.Join(unavailableIPs, ",")
+	deviceUpdate.Metadata["scan_result_count"] = fmt.Sprintf("%d", total)
+	deviceUpdate.Metadata["scan_available_count"] = fmt.Sprintf("%d", len(availableIPs))
+	deviceUpdate.Metadata["scan_unavailable_count"] = fmt.Sprintf("%d", len(unavailableIPs))
+
+	if len(icmpResults) > 0 {
+		deviceUpdate.Metadata["scan_icmp_results"] = strings.Join(icmpResults, ";")
+	}
+
+	if len(tcpResults) > 0 {
+		deviceUpdate.Metadata["scan_tcp_results"] = strings.Join(tcpResults, ";")
+	}
+
+	deviceUpdate.Metadata["scan_availability_percent"] = fmt.Sprintf("%.1f", float64(len(availableIPs))/float64(total)*100)
+	deviceUpdate.IsAvailable = len(availableIPs) > 0
 }
