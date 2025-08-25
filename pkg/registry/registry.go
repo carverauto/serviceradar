@@ -53,9 +53,9 @@ func (r *DeviceRegistry) ProcessDeviceUpdate(ctx context.Context, update *models
 // ProcessBatchDeviceUpdates processes a batch of discovery events (DeviceUpdates).
 // It publishes them directly to the device_updates stream for the materialized view.
 func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
-	if len(updates) == 0 {
-		return nil
-	}
+    if len(updates) == 0 {
+        return nil
+    }
 
 	processingStart := time.Now()
 	defer func() {
@@ -65,21 +65,31 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 			Msg("ProcessBatchDeviceUpdates completed")
 	}()
 
-	// Normalize updates to ensure required fields are populated
-	for _, u := range updates {
-		r.normalizeUpdate(u)
-	}
+    // Normalize and filter out invalid updates (e.g., empty IP)
+    valid := make([]*models.DeviceUpdate, 0, len(updates))
+    for _, u := range updates {
+        r.normalizeUpdate(u)
+        if u.IP == "" {
+            r.logger.Warn().Str("device_id", u.DeviceID).Msg("Dropping update with empty IP")
+            continue
+        }
+        valid = append(valid, u)
+    }
 
-	// Publish directly to the device_updates stream
-	if err := r.db.PublishBatchDeviceUpdates(ctx, updates); err != nil {
-		return fmt.Errorf("failed to publish device updates: %w", err)
-	}
+    if len(valid) == 0 {
+        return nil
+    }
 
-	r.logger.Debug().
-		Int("update_count", len(updates)).
-		Msg("Successfully processed and published device updates")
+    // Publish directly to the device_updates stream
+    if err := r.db.PublishBatchDeviceUpdates(ctx, valid); err != nil {
+        return fmt.Errorf("failed to publish device updates: %w", err)
+    }
 
-	return nil
+    r.logger.Debug().
+        Int("update_count", len(valid)).
+        Msg("Successfully processed and published device updates")
+
+    return nil
 }
 
 // normalizeUpdate ensures a DeviceUpdate has the minimum required information.

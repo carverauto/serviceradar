@@ -17,11 +17,12 @@
 package core
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"net"
-	"strings"
+    "bytes"
+    "context"
+    "encoding/json"
+    "fmt"
+    "net"
+    "strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -144,7 +145,7 @@ func (s *discoveryService) parseSyncDeviceUpdates(details json.RawMessage, polle
 			Err(err).
 			Msg("Single array parse failed, trying multiple arrays")
 
-		decoder := json.NewDecoder(strings.NewReader(string(details)))
+        decoder := json.NewDecoder(bytes.NewReader(details))
 
 		var allSightings []*models.DeviceUpdate
 
@@ -624,18 +625,18 @@ func (s *discoveryService) createCorrelationSighting(
 		metadata = make(map[string]string)
 	}
 
-	// Add alternate IPs to metadata if available
-	if len(alternateIPs) > 0 {
-		alternateIPsJSON, err := json.Marshal(alternateIPs)
-		if err != nil {
-			s.logger.Error().
-				Err(err).
-				Str("device_ip", deviceIP).
-				Msg("Error marshaling alternate IPs for device")
-		} else {
-			metadata["alternate_ips"] = string(alternateIPsJSON)
-		}
-	}
+    // Add alternate IPs to metadata as exact-match keys for reliable lookup
+    if len(alternateIPs) > 0 {
+        if metadata == nil { // safety, though ensured above
+            metadata = make(map[string]string)
+        }
+        for _, ip := range alternateIPs {
+            if ip == "" || isLoopbackIP(ip) {
+                continue
+            }
+            metadata["alt_ip:"+ip] = "1"
+        }
+    }
 
 	// Create the single, enriched sighting for this device.
 	return &models.DeviceUpdate{
