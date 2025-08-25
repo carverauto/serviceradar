@@ -17,17 +17,18 @@
 package core
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"strings"
-	"time"
+    "bytes"
+    "context"
+    "encoding/json"
+    "fmt"
+    "strings"
+    "time"
 
-	"github.com/carverauto/serviceradar/pkg/core/api"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
+    "github.com/carverauto/serviceradar/pkg/core/api"
+    "github.com/carverauto/serviceradar/pkg/models"
+    "github.com/carverauto/serviceradar/proto"
+    "go.opentelemetry.io/otel/attribute"
+    "go.opentelemetry.io/otel/trace"
 )
 
 func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, partition string, now time.Time) error {
@@ -257,8 +258,8 @@ func (s *Server) parseConcatenatedSweepJSON(_ context.Context, sweepMessage []by
 			Str("service_name", serviceName).
 			Msg("CORE_DEBUG: Single object parse failed for sweep data, trying to parse concatenated objects")
 
-		// Try to parse as concatenated JSON objects
-		decoder := json.NewDecoder(strings.NewReader(string(sweepMessage)))
+        // Try to parse as concatenated JSON objects
+        decoder := json.NewDecoder(bytes.NewReader(sweepMessage))
 
 		var allHosts []models.HostResult
 

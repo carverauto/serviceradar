@@ -1420,39 +1420,20 @@ func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Tar
 
 // generateTargetsForDeviceTarget creates targets for a device target configuration
 func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.DeviceTarget) (targets []models.Target, hostCount int) {
-	// Check if this device target has multiple IPs specified in metadata
-	var targetIPs []string
+    // Always expand and use the primary network (e.g., a single /32).
+    // We intentionally ignore any additional IP lists in metadata (e.g., "all_ips").
+    ips, err := scan.ExpandCIDR(deviceTarget.Network)
+    if err != nil {
+        s.logger.Warn().
+            Err(err).
+            Str("network", deviceTarget.Network).
+            Str("query_label", deviceTarget.QueryLabel).
+            Msg("Failed to expand device target CIDR, skipping")
 
-	if allIPsStr, hasAllIPs := deviceTarget.Metadata["all_ips"]; hasAllIPs {
-		// Parse comma-separated list of IPs
-		allIPs := strings.Split(allIPsStr, ",")
-		for _, ip := range allIPs {
-			trimmed := strings.TrimSpace(ip)
-			if trimmed != "" {
-				targetIPs = append(targetIPs, trimmed)
-			}
-		}
+        return targets, hostCount
+    }
 
-		s.logger.Debug().
-			Str("device_target", deviceTarget.Network).
-			Strs("all_ips", targetIPs).
-			Str("armis_device_id", deviceTarget.Metadata["armis_device_id"]).
-			Msg("Device target has multiple IPs - will scan all of them")
-	} else {
-		// Fall back to expanding the CIDR normally
-		ips, err := scan.ExpandCIDR(deviceTarget.Network)
-		if err != nil {
-			s.logger.Warn().
-				Err(err).
-				Str("network", deviceTarget.Network).
-				Str("query_label", deviceTarget.QueryLabel).
-				Msg("Failed to expand device target CIDR, skipping")
-
-			return targets, hostCount
-		}
-
-		targetIPs = ips
-	}
+    targetIPs := ips
 
 	metadata := map[string]interface{}{
 		"network":     deviceTarget.Network,
@@ -1461,10 +1442,10 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 		"query_label": deviceTarget.QueryLabel,
 	}
 
-	// Add device target metadata to the scan metadata
-	for k, v := range deviceTarget.Metadata {
-		metadata[k] = v
-	}
+    // Add device target metadata to the scan metadata (for tracking only)
+    for k, v := range deviceTarget.Metadata {
+        metadata[k] = v
+    }
 
 	// Use device-specific sweep modes if available, otherwise fall back to global
 	sweepModes := deviceTarget.SweepModes

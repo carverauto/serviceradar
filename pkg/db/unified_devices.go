@@ -98,7 +98,7 @@ func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.U
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
-    WHERE ip = $1 OR has(map_keys(metadata), 'alternate_ips') AND position(metadata['alternate_ips'], $2) > 0
+    WHERE ip = $1 OR has(map_keys(metadata), concat('alt_ip:', $2))
     ORDER BY _tp_time DESC`
 
 	return db.queryUnifiedDevicesWithArgs(ctx, query, ip, ip)
@@ -241,12 +241,11 @@ func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []
 
 		conditions = append(conditions, fmt.Sprintf("ip IN (%s)", strings.Join(ipList, ",")))
 
-		// Also check if any of the incoming IPs exist in the 'alternate_ips' metadata
-		for _, ip := range ips {
-			conditions = append(conditions,
-				fmt.Sprintf("has(map_keys(metadata), 'alternate_ips') "+
-					"AND position(metadata['alternate_ips'], '%s') > 0", ip))
-		}
+        // Also check if any of the incoming IPs exist as exact alt_ip keys in metadata
+        for _, ip := range ips {
+            conditions = append(conditions,
+                fmt.Sprintf("has(map_keys(metadata), concat('alt_ip:', '%s'))", ip))
+        }
 	}
 
 	query := fmt.Sprintf(`SELECT
