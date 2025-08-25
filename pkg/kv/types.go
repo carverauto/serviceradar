@@ -37,10 +37,11 @@ type RBACRule struct {
 // Config holds the configuration for the KV service.
 type Config struct {
 	ListenAddr string                 `json:"listen_addr"`
-	NATSURL    string                 `json:"nat_surl"`
+	NATSURL    string                 `json:"nats_url"`
 	Security   *models.SecurityConfig `json:"security"`
 	RBAC       struct {
 		Roles []RBACRule `json:"roles"`
 	} `json:"rbac"`
 	Bucket string `json:"bucket,omitempty"` // Added for NATS KV bucket
+	Domain string `json:"domain,omitempty"`
 }
