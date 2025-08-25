@@ -85,15 +85,14 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 		}
 	}
 
-	config := jetstream.KeyValueConfig{
-		Bucket: cfg.Bucket,
-	}
-
-	kv, err := js.CreateKeyValue(ctx, config)
+	kv, err := js.KeyValue(ctx, cfg.Bucket)
 	if err != nil {
-		nc.Close()
+		kv, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: cfg.Bucket})
+		if err != nil {
+			nc.Close()
 
-		return nil, fmt.Errorf("failed to create KV bucket: %w", err)
+			return nil, fmt.Errorf("failed to create KV bucket: %w", err)
+		}
 	}
 
 	return &NATSStore{
@@ -245,8 +244,10 @@ func (n *NATSStore) attemptWatch(ctx context.Context, key string, ch chan<- []by
 	watcher, err := n.kv.Watch(ctx, key /* you can add options like jetstream.UpdatesOnly() here if desired */)
 	if err != nil {
 		log.Printf("Failed to create watch for key %s: %v", key, err)
+
 		return false // Will retry
 	}
+
 	defer func() {
 		if err := watcher.Stop(); err != nil {
 			log.Printf("Failed to stop watcher for key %s: %v", key, err)
@@ -254,6 +255,7 @@ func (n *NATSStore) attemptWatch(ctx context.Context, key string, ch chan<- []by
 	}()
 
 	log.Printf("Established watch for key %s", key)
+
 	*backoff = initialBackoff // reset backoff on success
 
 	for {
@@ -266,36 +268,25 @@ func (n *NATSStore) attemptWatch(ctx context.Context, key string, ch chan<- []by
 			if !ok {
 				// Channel actually closed -> retry
 				log.Printf("Watcher updates channel closed for key %s, will reconnect", key)
+
 				return false
 			}
+
 			if upd == nil {
 				// This is NORMAL: end-of-initial-snapshot sentinel. Keep watching.
 				// See: "Watch will send a nil entry when it has received all initial values."
 				// https://pkg.go.dev/github.com/nats-io/nats.go/jetstream
 				log.Printf("Initial snapshot complete for key %s", key)
+
 				continue
 			}
 
 			if !n.sendUpdate(ctx, ch, upd.Value()) {
 				return true // context canceled during send
 			}
+
 			log.Printf("Successfully sent watch update for key %s (length: %d bytes)", key, len(upd.Value()))
 		}
-	}
-}
-
-func (n *NATSStore) waitForUpdate(ctx context.Context, watcher jetstream.KeyWatcher) jetstream.KeyValueEntry {
-	select {
-	case <-ctx.Done():
-		return nil
-	case <-n.ctx.Done():
-		return nil
-	case update, ok := <-watcher.Updates():
-		if !ok || update == nil {
-			return nil
-		}
-
-		return update
 	}
 }
 
