@@ -43,6 +43,14 @@ const (
 	kvWatchJitterFactor   = 0.1 // 10% jitter
 )
 
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // DeviceRegistryService interface for device registry operations
 type DeviceRegistryService interface {
 	ProcessSweepResult(ctx context.Context, result *models.SweepResult) error
@@ -920,28 +928,117 @@ func (s *NetworkSweeper) extractChunkCount(metadata map[string]interface{}) (int
 	return chunkCount, true
 }
 
-// readAndParseChunks reads all chunks and combines their data
-func (s *NetworkSweeper) readAndParseChunks(chunkCount int) (unmarshalConfig, []string, []models.DeviceTarget, bool) {
-	var combinedNetworks []string
+// chunkResult holds the result of reading and parsing a single chunk
+type chunkResult struct {
+	config unmarshalConfig
+	index  int
+	err    error
+}
 
-	var combinedDeviceTargets []models.DeviceTarget
+// readAndParseChunks reads all chunks in parallel and combines their data
+func (s *NetworkSweeper) readAndParseChunks(chunkCount int) (unmarshalConfig, []string, []models.DeviceTarget, bool) {
+	// Pre-allocate slices with estimated capacity to reduce allocations
+	const estimatedDevicesPerChunk = 1000 // Adjust based on your chunk size
+	estimatedTotalDevices := chunkCount * estimatedDevicesPerChunk
+	
+	combinedNetworks := make([]string, 0, estimatedTotalDevices)
+	combinedDeviceTargets := make([]models.DeviceTarget, 0, estimatedTotalDevices)
 
 	var baseConfig unmarshalConfig
-
 	var configSet bool
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Increased timeout for parallel processing
 	defer cancel()
 
-	for i := 0; i < chunkCount; i++ {
-		chunkKey := fmt.Sprintf("%s_chunk_%d.json", s.getBaseConfigKey(), i)
-		chunkConfig, ok := s.readSingleChunk(ctx, chunkKey, i)
+	// Use buffered channel to collect results
+	results := make(chan chunkResult, chunkCount)
+	var wg sync.WaitGroup
 
-		if !ok {
+	// Start time for performance logging
+	startTime := time.Now()
+
+	// Launch parallel workers to read chunks
+	workerCount := min(chunkCount, 10) // Limit concurrent KV operations to prevent overwhelming the store
+	chunkJobs := make(chan int, chunkCount)
+
+	// Start workers
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for chunkIndex := range chunkJobs {
+				chunkKey := fmt.Sprintf("%s_chunk_%d.json", s.getBaseConfigKey(), chunkIndex)
+				
+				chunkConfig, ok := s.readSingleChunk(ctx, chunkKey, chunkIndex)
+				if ok {
+					results <- chunkResult{
+						config: chunkConfig,
+						index:  chunkIndex,
+						err:    nil,
+					}
+				} else {
+					results <- chunkResult{
+						index: chunkIndex,
+						err:   fmt.Errorf("failed to read chunk %d", chunkIndex),
+					}
+				}
+			}
+		}()
+	}
+
+	// Send jobs to workers
+	go func() {
+		defer close(chunkJobs)
+		for i := 0; i < chunkCount; i++ {
+			select {
+			case chunkJobs <- i:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Close results channel when all workers are done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results and sort by index to maintain order
+	chunkConfigs := make([]unmarshalConfig, chunkCount)
+	validChunks := make([]bool, chunkCount)
+	successCount := 0
+
+	for result := range results {
+		if result.err == nil {
+			chunkConfigs[result.index] = result.config
+			validChunks[result.index] = true
+			successCount++
+		} else {
+			s.logger.Warn().
+				Err(result.err).
+				Int("chunkIndex", result.index).
+				Msg("Failed to read chunk")
+		}
+	}
+
+	if successCount == 0 {
+		s.logger.Error().
+			Int("chunkCount", chunkCount).
+			Dur("duration", time.Since(startTime)).
+			Msg("No valid chunks found")
+		return unmarshalConfig{}, nil, nil, false
+	}
+
+	// Combine results in order
+	for i := 0; i < chunkCount; i++ {
+		if !validChunks[i] {
 			continue
 		}
 
-		// Use first chunk for base configuration
+		chunkConfig := chunkConfigs[i]
+
+		// Use first valid chunk for base configuration
 		if !configSet {
 			baseConfig = chunkConfig
 			configSet = true
@@ -952,18 +1049,21 @@ func (s *NetworkSweeper) readAndParseChunks(chunkCount int) (unmarshalConfig, []
 		combinedDeviceTargets = append(combinedDeviceTargets, chunkConfig.DeviceTargets...)
 
 		s.logger.Debug().
-			Str("chunkKey", chunkKey).
+			Int("chunkIndex", i).
 			Int("networks", len(chunkConfig.Networks)).
 			Int("deviceTargets", len(chunkConfig.DeviceTargets)).
 			Int("totalNetworks", len(combinedNetworks)).
 			Int("totalDeviceTargets", len(combinedDeviceTargets)).
-			Msg("Read and parsed config chunk")
+			Msg("Combined config chunk")
 	}
 
-	if !configSet {
-		s.logger.Error().Msg("No valid chunks found")
-		return unmarshalConfig{}, nil, nil, false
-	}
+	s.logger.Info().
+		Int("chunkCount", chunkCount).
+		Int("successCount", successCount).
+		Int("totalNetworks", len(combinedNetworks)).
+		Int("totalDeviceTargets", len(combinedDeviceTargets)).
+		Dur("duration", time.Since(startTime)).
+		Msg("Parallel chunk processing completed")
 
 	return baseConfig, combinedNetworks, combinedDeviceTargets, true
 }
@@ -1016,6 +1116,9 @@ func (s *NetworkSweeper) applyChunkedConfig(
 		Msg("Successfully assembled chunked sweep configuration")
 
 	newConfig := s.createConfigFromUnmarshal(baseConfig)
+	
+	// Apply adaptive configuration based on target count
+	s.applyAdaptiveConfiguration(&newConfig, combinedNetworks, combinedDeviceTargets)
 
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply chunked config update")
@@ -1024,9 +1127,145 @@ func (s *NetworkSweeper) applyChunkedConfig(
 			Int("totalChunks", chunkCount).
 			Int("networks", len(newConfig.Networks)).
 			Int("deviceTargets", len(newConfig.DeviceTargets)).
-			Msg("Successfully updated sweep config from chunked KV data")
+			Int("adaptedConcurrency", newConfig.Concurrency).
+			Int("adaptedICMPRateLimit", newConfig.ICMPRateLimit).
+			Msg("Successfully updated sweep config from chunked KV data with adaptive settings")
 	}
 }
+
+// applyAdaptiveConfiguration adjusts configuration parameters based on target count
+func (s *NetworkSweeper) applyAdaptiveConfiguration(
+	config *models.Config,
+	networks []string,
+	deviceTargets []models.DeviceTarget,
+) {
+	// Calculate total targets for adaptive scaling
+	totalDeviceTargets := len(deviceTargets)
+	totalNetworkHosts := s.estimateNetworkHosts(networks)
+	totalPorts := len(config.Ports)
+	
+	// Estimate total scanning targets
+	totalTargets := (totalDeviceTargets + totalNetworkHosts) * totalPorts
+	
+	s.logger.Info().
+		Int("deviceTargets", totalDeviceTargets).
+		Int("networkHosts", totalNetworkHosts).
+		Int("ports", totalPorts).
+		Int("estimatedTotalTargets", totalTargets).
+		Msg("Calculating adaptive configuration based on target count")
+	
+	// Define scaling tiers based on target count
+	switch {
+	case totalTargets <= 100: // Small deployment (< 100 targets)
+		s.applySmallScaleConfig(config, totalTargets)
+	case totalTargets <= 10000: // Medium deployment (100 - 10k targets)  
+		s.applyMediumScaleConfig(config, totalTargets)
+	case totalTargets <= 100000: // Large deployment (10k - 100k targets)
+		s.applyLargeScaleConfig(config, totalTargets)
+	default: // Extra large deployment (> 100k targets)
+		s.applyExtraLargeScaleConfig(config, totalTargets)
+	}
+}
+
+// estimateNetworkHosts estimates the number of hosts from network CIDR blocks
+func (s *NetworkSweeper) estimateNetworkHosts(networks []string) int {
+	totalHosts := 0
+	for _, network := range networks {
+		// Simple CIDR parsing to estimate host count
+		if strings.Contains(network, "/32") {
+			totalHosts += 1 // Single host
+		} else if strings.Contains(network, "/31") {
+			totalHosts += 2
+		} else if strings.Contains(network, "/30") {
+			totalHosts += 4
+		} else if strings.Contains(network, "/24") {
+			totalHosts += 254 // Standard /24 subnet
+		} else if strings.Contains(network, "/16") {
+			totalHosts += 65534 // /16 network
+		} else {
+			// Default estimate for unknown CIDR - assume /24
+			totalHosts += 254
+		}
+	}
+	return totalHosts
+}
+
+// applySmallScaleConfig optimizes for small deployments (< 100 targets)
+func (s *NetworkSweeper) applySmallScaleConfig(config *models.Config, totalTargets int) {
+	config.Concurrency = min(8, totalTargets) // Very low concurrency
+	config.ICMPRateLimit = min(100, totalTargets*2) // Conservative rate limiting
+	config.ICMPSettings.RateLimit = min(50, totalTargets)
+	config.ICMPSettings.MaxBatch = min(8, totalTargets)
+	config.TCPSettings.Concurrency = min(8, totalTargets)
+	config.TCPSettings.MaxBatch = min(8, totalTargets)
+	config.TCPSettings.GlobalRingMemoryMB = 4 // Minimal memory usage
+	config.TCPSettings.RingReaders = 1
+	config.TCPSettings.RingPollTimeoutMs = 100
+	
+	s.logger.Info().
+		Int("totalTargets", totalTargets).
+		Int("concurrency", config.Concurrency).
+		Int("icmpRateLimit", config.ICMPRateLimit).
+		Msg("Applied small-scale adaptive configuration")
+}
+
+// applyMediumScaleConfig optimizes for medium deployments (100 - 10k targets)
+func (s *NetworkSweeper) applyMediumScaleConfig(config *models.Config, totalTargets int) {
+	config.Concurrency = min(64, totalTargets/10) // Moderate concurrency
+	config.ICMPRateLimit = min(1000, totalTargets/2)
+	config.ICMPSettings.RateLimit = min(500, totalTargets/5)
+	config.ICMPSettings.MaxBatch = min(32, totalTargets/20)
+	config.TCPSettings.Concurrency = min(64, totalTargets/10)
+	config.TCPSettings.MaxBatch = min(32, totalTargets/20)
+	config.TCPSettings.GlobalRingMemoryMB = min(32, totalTargets/200) // Scale memory with targets
+	config.TCPSettings.RingReaders = min(2, totalTargets/1000)
+	config.TCPSettings.RingPollTimeoutMs = 50
+	
+	s.logger.Info().
+		Int("totalTargets", totalTargets).
+		Int("concurrency", config.Concurrency).
+		Int("icmpRateLimit", config.ICMPRateLimit).
+		Msg("Applied medium-scale adaptive configuration")
+}
+
+// applyLargeScaleConfig optimizes for large deployments (10k - 100k targets)
+func (s *NetworkSweeper) applyLargeScaleConfig(config *models.Config, totalTargets int) {
+	config.Concurrency = min(512, totalTargets/50) // High concurrency
+	config.ICMPRateLimit = min(5000, totalTargets/10)
+	config.ICMPSettings.RateLimit = min(2500, totalTargets/20)
+	config.ICMPSettings.MaxBatch = min(64, totalTargets/100)
+	config.TCPSettings.Concurrency = min(512, totalTargets/50)
+	config.TCPSettings.MaxBatch = min(64, totalTargets/100)
+	config.TCPSettings.GlobalRingMemoryMB = min(128, totalTargets/500) // More memory for large scale
+	config.TCPSettings.RingReaders = min(4, totalTargets/5000)
+	config.TCPSettings.RingPollTimeoutMs = 25
+	
+	s.logger.Info().
+		Int("totalTargets", totalTargets).
+		Int("concurrency", config.Concurrency).
+		Int("icmpRateLimit", config.ICMPRateLimit).
+		Msg("Applied large-scale adaptive configuration")
+}
+
+// applyExtraLargeScaleConfig optimizes for extra large deployments (> 100k targets)
+func (s *NetworkSweeper) applyExtraLargeScaleConfig(config *models.Config, totalTargets int) {
+	config.Concurrency = min(1024, totalTargets/100) // Maximum concurrency
+	config.ICMPRateLimit = min(10000, totalTargets/20)
+	config.ICMPSettings.RateLimit = min(5000, totalTargets/50)
+	config.ICMPSettings.MaxBatch = min(128, totalTargets/500)
+	config.TCPSettings.Concurrency = min(1024, totalTargets/100)
+	config.TCPSettings.MaxBatch = min(128, totalTargets/500)
+	config.TCPSettings.GlobalRingMemoryMB = min(256, totalTargets/1000) // Maximum memory allocation
+	config.TCPSettings.RingReaders = min(8, totalTargets/10000)
+	config.TCPSettings.RingPollTimeoutMs = 10 // Most aggressive polling
+	
+	s.logger.Info().
+		Int("totalTargets", totalTargets).
+		Int("concurrency", config.Concurrency).
+		Int("icmpRateLimit", config.ICMPRateLimit).
+		Msg("Applied extra-large-scale adaptive configuration")
+}
+
 
 // getBaseConfigKey extracts the base config key without the file extension
 func (s *NetworkSweeper) getBaseConfigKey() string {
@@ -1166,12 +1405,22 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 	count := 0
 	success := 0
 
+	// Batch processing configuration
+	const batchSize = 1000
+	resultBatch := make([]models.Result, 0, batchSize)
+
 	// Process results as they arrive, respecting context timeout
 	for {
 		select {
 		case result, ok := <-results:
 			if !ok {
-				// Channel closed, all results received
+				// Channel closed, process final batch if any
+				if len(resultBatch) > 0 {
+					if err := s.processBatchedResults(ctx, resultBatch); err != nil {
+						s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process final result batch")
+					}
+				}
+
 				s.logger.Info().
 					Str("scanType", scanType).
 					Int("totalResults", count).
@@ -1182,23 +1431,35 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 			}
 
 			count++
-
-			if err := s.processResult(ctx, &result); err != nil {
-				s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process result")
-				continue
-			}
-
 			if result.Available {
 				success++
 			}
 
-			// Log progress periodically
-			if count%1000 == 0 {
+			// Add to batch
+			resultBatch = append(resultBatch, result)
+
+			// Process batch when it's full
+			if len(resultBatch) >= batchSize {
+				if err := s.processBatchedResults(ctx, resultBatch); err != nil {
+					s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process result batch")
+				}
+
+				// Reset batch slice but keep capacity to avoid reallocation
+				resultBatch = resultBatch[:0]
+
+
+				// Log progress periodically (every batch)
 				s.logger.Info().Str("scanType", scanType).Int("processed", count).Int("successful", success).Msg("Scan progress")
 			}
 
 		case <-ctx.Done():
-			// Timeout reached, return results collected so far
+			// Timeout reached, process any remaining batch
+			if len(resultBatch) > 0 {
+				if err := s.processBatchedResults(ctx, resultBatch); err != nil {
+					s.logger.Error().Err(err).Str("scanType", scanType).Msg("Failed to process remaining result batch")
+				}
+			}
+
 			s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete - timeout reached")
 			return nil
 		}
@@ -1240,10 +1501,11 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		wg.Add(1)
 
 		go func() {
-			if err := s.scanAndProcess(ctx, &wg, s.icmpScanner, icmpTargets, "ICMP"); err != nil {
+			if err := s.scanAndProcess(ctx, &wg, s.icmpScanner, icmpTargets, "icmp"); err != nil {
 				errChan <- err
 			}
 		}()
+		
 	} else if len(icmpTargets) > 0 {
 		s.logger.Warn().Int("icmpTargets", len(icmpTargets)).Msg("ICMP targets found but ICMP scanner is not available, skipping ICMP scan")
 	}
@@ -1252,7 +1514,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		wg.Add(1)
 
 		go func() {
-			if err := s.scanAndProcess(ctx, &wg, s.tcpScanner, tcpTargets, "TCP"); err != nil {
+			if err := s.scanAndProcess(ctx, &wg, s.tcpScanner, tcpTargets, "tcp"); err != nil {
 				errChan <- err
 			}
 		}()
@@ -1600,6 +1862,67 @@ func containsMode(modes []models.SweepMode, mode models.SweepMode) bool {
 	return false
 }
 
+// processBatchedResults processes a batch of results efficiently
+func (s *NetworkSweeper) processBatchedResults(ctx context.Context, batch []models.Result) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	// Pre-allocate context with timeout for the entire batch
+	batchCtx, cancel := context.WithTimeout(ctx, time.Duration(len(batch))*defaultResultTimeout)
+	defer cancel()
+
+	// Track batch statistics
+	errors := 0
+	aggregated := 0
+	deviceRegistryUpdates := 0
+
+	// Process each result in the batch
+	for i := range batch {
+		result := &batch[i]
+
+		// Process basic result handling (store, processor)
+		if err := s.processBasicResult(batchCtx, result); err != nil {
+			s.logger.Error().Err(err).
+				Str("host", result.Target.Host).
+				Msg("Failed to process basic result in batch")
+			errors++
+			continue
+		}
+
+		// Check if this result should be aggregated for a multi-IP device
+		if s.shouldAggregateResult(result) {
+			s.addResultToAggregator(result)
+			aggregated++
+			continue // Don't process immediately through device registry
+		}
+
+		// Process through unified device registry for non-aggregated results
+		if s.deviceRegistry != nil {
+			if err := s.processDeviceRegistry(result); err != nil {
+				s.logger.Error().Err(err).
+					Str("host", result.Target.Host).
+					Msg("Failed to process result through device registry in batch")
+				errors++
+				continue
+			}
+			deviceRegistryUpdates++
+		}
+	}
+
+	// Log batch processing statistics for errors or periodically for large batches
+	if errors > 0 || len(batch) >= 1000 {
+		s.logger.Info().
+			Int("batchSize", len(batch)).
+			Int("errors", errors).
+			Int("aggregated", aggregated).
+			Int("deviceRegistryUpdates", deviceRegistryUpdates).
+			Msg("Batch result processing completed")
+	}
+
+	return nil
+}
+
 // prepareDeviceAggregators initializes result aggregators for devices with multiple IPs
 func (s *NetworkSweeper) prepareDeviceAggregators(targets []models.Target) {
 	s.resultsMu.Lock()
@@ -1895,51 +2218,106 @@ func (*NetworkSweeper) addAggregatedScanResults(deviceUpdate *models.DeviceUpdat
 	}
 
 	// Detailed path for small sets (retains existing behavior for tests and small batches)
-	allIPs := make([]string, 0, total)
-	availableIPs := make([]string, 0, total)
-	unavailableIPs := make([]string, 0, total)
-	icmpResults := make([]string, 0, total)
-	tcpResults := make([]string, 0, total)
+	// Use strings.Builder for efficient string concatenation
+	var allIPsBuilder, availableIPsBuilder, unavailableIPsBuilder strings.Builder
+	var icmpResultsBuilder, tcpResultsBuilder strings.Builder
+	
+	// Pre-allocate builders with estimated capacity to reduce allocations
+	// Estimate: average IP length ~12 bytes, + separator = 13 bytes per IP
+	allIPsBuilder.Grow(total * 13)
+	availableIPsBuilder.Grow(total * 13 / 2) // Assume ~50% available
+	unavailableIPsBuilder.Grow(total * 13 / 2) // Assume ~50% unavailable
+	
+	// For scan details, estimate ~60 bytes per result
+	icmpResultsBuilder.Grow(total * 60 / 2) // Assume ~50% ICMP
+	tcpResultsBuilder.Grow(total * 60 / 2)  // Assume ~50% TCP
+
+	availableCount := 0
+	firstIP := true
+	firstAvailable := true
+	firstUnavailable := true
+	firstICMP := true
+	firstTCP := true
 
 	for _, result := range results {
-		allIPs = append(allIPs, result.Target.Host)
+		// Build all IPs list
+		if !firstIP {
+			allIPsBuilder.WriteByte(',')
+		}
+		allIPsBuilder.WriteString(result.Target.Host)
+		firstIP = false
 
 		if result.Available {
-			availableIPs = append(availableIPs, result.Target.Host)
+			availableCount++
+			// Build available IPs list
+			if !firstAvailable {
+				availableIPsBuilder.WriteByte(',')
+			}
+			availableIPsBuilder.WriteString(result.Target.Host)
+			firstAvailable = false
 		} else {
-			unavailableIPs = append(unavailableIPs, result.Target.Host)
+			// Build unavailable IPs list
+			if !firstUnavailable {
+				unavailableIPsBuilder.WriteByte(',')
+			}
+			unavailableIPsBuilder.WriteString(result.Target.Host)
+			firstUnavailable = false
 		}
 
-		scanDetail := fmt.Sprintf("%s:%s:available=%t:response_time=%s:packet_loss=%.2f",
-			result.Target.Host,
-			string(result.Target.Mode),
-			result.Available,
-			result.RespTime.String(),
-			result.PacketLoss)
-
+		// Build scan detail strings more efficiently
 		switch result.Target.Mode {
 		case models.ModeICMP:
-			icmpResults = append(icmpResults, scanDetail)
+			if !firstICMP {
+				icmpResultsBuilder.WriteByte(';')
+			}
+			// Use more efficient string building
+			icmpResultsBuilder.WriteString(result.Target.Host)
+			icmpResultsBuilder.WriteString(":icmp:available=")
+			if result.Available {
+				icmpResultsBuilder.WriteString("true")
+			} else {
+				icmpResultsBuilder.WriteString("false")
+			}
+			icmpResultsBuilder.WriteString(":response_time=")
+			icmpResultsBuilder.WriteString(result.RespTime.String())
+			icmpResultsBuilder.WriteString(":packet_loss=")
+			icmpResultsBuilder.WriteString(fmt.Sprintf("%.2f", result.PacketLoss))
+			firstICMP = false
 		case models.ModeTCP:
-			tcpResults = append(tcpResults, scanDetail)
+			if !firstTCP {
+				tcpResultsBuilder.WriteByte(';')
+			}
+			tcpResultsBuilder.WriteString(result.Target.Host)
+			tcpResultsBuilder.WriteString(":tcp:available=")
+			if result.Available {
+				tcpResultsBuilder.WriteString("true")
+			} else {
+				tcpResultsBuilder.WriteString("false")
+			}
+			tcpResultsBuilder.WriteString(":response_time=")
+			tcpResultsBuilder.WriteString(result.RespTime.String())
+			tcpResultsBuilder.WriteString(":packet_loss=")
+			tcpResultsBuilder.WriteString(fmt.Sprintf("%.2f", result.PacketLoss))
+			firstTCP = false
 		}
 	}
 
-	deviceUpdate.Metadata["scan_all_ips"] = strings.Join(allIPs, ",")
-	deviceUpdate.Metadata["scan_available_ips"] = strings.Join(availableIPs, ",")
-	deviceUpdate.Metadata["scan_unavailable_ips"] = strings.Join(unavailableIPs, ",")
+	// Assign the built strings to metadata
+	deviceUpdate.Metadata["scan_all_ips"] = allIPsBuilder.String()
+	deviceUpdate.Metadata["scan_available_ips"] = availableIPsBuilder.String()
+	deviceUpdate.Metadata["scan_unavailable_ips"] = unavailableIPsBuilder.String()
 	deviceUpdate.Metadata["scan_result_count"] = fmt.Sprintf("%d", total)
-	deviceUpdate.Metadata["scan_available_count"] = fmt.Sprintf("%d", len(availableIPs))
-	deviceUpdate.Metadata["scan_unavailable_count"] = fmt.Sprintf("%d", len(unavailableIPs))
+	deviceUpdate.Metadata["scan_available_count"] = fmt.Sprintf("%d", availableCount)
+	deviceUpdate.Metadata["scan_unavailable_count"] = fmt.Sprintf("%d", total-availableCount)
 
-	if len(icmpResults) > 0 {
-		deviceUpdate.Metadata["scan_icmp_results"] = strings.Join(icmpResults, ";")
+	if icmpResultsBuilder.Len() > 0 {
+		deviceUpdate.Metadata["scan_icmp_results"] = icmpResultsBuilder.String()
 	}
 
-	if len(tcpResults) > 0 {
-		deviceUpdate.Metadata["scan_tcp_results"] = strings.Join(tcpResults, ";")
+	if tcpResultsBuilder.Len() > 0 {
+		deviceUpdate.Metadata["scan_tcp_results"] = tcpResultsBuilder.String()
 	}
 
-	deviceUpdate.Metadata["scan_availability_percent"] = fmt.Sprintf("%.1f", float64(len(availableIPs))/float64(total)*100)
-	deviceUpdate.IsAvailable = len(availableIPs) > 0
+	deviceUpdate.Metadata["scan_availability_percent"] = fmt.Sprintf("%.1f", float64(availableCount)/float64(total)*100)
+	deviceUpdate.IsAvailable = availableCount > 0
 }
