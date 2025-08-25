@@ -93,15 +93,15 @@ func (db *DB) queryUnifiedDevicesWithArgs(ctx context.Context, query string, arg
 // GetUnifiedDevicesByIP retrieves unified devices with a specific IP address
 // Searches both primary IP field and alternate IPs in metadata using materialized view approach
 func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
-	query := `SELECT
+    query := `SELECT
         device_id, ip, poller_id, hostname, mac, discovery_sources,
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
-    WHERE ip = $1 OR has(map_keys(metadata), concat('alt_ip:', $2))
+    WHERE ip = $1
     ORDER BY _tp_time DESC`
 
-	return db.queryUnifiedDevicesWithArgs(ctx, query, ip, ip)
+    return db.queryUnifiedDevicesWithArgs(ctx, query, ip)
 }
 
 // ListUnifiedDevices returns a list of unified devices with pagination using materialized view approach
@@ -241,11 +241,8 @@ func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []
 
 		conditions = append(conditions, fmt.Sprintf("ip IN (%s)", strings.Join(ipList, ",")))
 
-        // Also check if any of the incoming IPs exist as exact alt_ip keys in metadata
-        for _, ip := range ips {
-            conditions = append(conditions,
-                fmt.Sprintf("has(map_keys(metadata), concat('alt_ip:', '%s'))", ip))
-        }
+        // Note: We intentionally do not include metadata alt_ip:* matches here
+        // to avoid conflating historical/alternate IPs with primary identity.
 	}
 
 	query := fmt.Sprintf(`SELECT
