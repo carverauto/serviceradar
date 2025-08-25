@@ -449,27 +449,12 @@ func (s *Server) processSweepService(
 	_ *proto.ServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
-	s.logger.Debug().
-		Str("component", "core").
-		Str("service_name", "network_sweep").
-		Bool("has_enhanced_payload", true).
-		Int("sweep_message_length", len(serviceData)).
-		Str("sweep_message_preview", func() string {
-			if len(serviceData) > 200 {
-				return string(serviceData[:200]) + "..."
-			}
-			return string(serviceData)
-		}()).
-		Msg("CORE_DEBUG: Extracted sweep message payload")
+    // Avoid logging full payloads; keep a short summary only
+    s.logger.Debug().Str("service_name", "network_sweep").Int("sweep_message_length", len(serviceData)).Msg("Sweep payload received")
 
-	s.logger.Debug().
-		Str("context_poller_id", pollerID).
-		Str("context_partition", partition).
-		Str("context_agent_id", agentID).
-		Msg("CORE_DEBUG: Extracted context information")
+    s.logger.Debug().Str("poller_id", pollerID).Str("partition", partition).Msg("Sweep context extracted")
 
-	s.logger.Debug().
-		Msg("CORE_DEBUG: Attempting to parse sweep data as single JSON object")
+    s.logger.Debug().Msg("Parsing sweep data")
 
 	// Unmarshal as SweepSummary which contains HostResults
 	var sweepSummary models.SweepSummary
@@ -482,24 +467,15 @@ func (s *Server) processSweepService(
 		return nil
 	}
 
-	s.logger.Debug().
-		Int("host_count", len(sweepSummary.Hosts)).
-		Str("network", sweepSummary.Network).
-		Int("total_hosts", sweepSummary.TotalHosts).
-		Int("available_hosts", sweepSummary.AvailableHosts).
-		Msg("CORE_DEBUG: Successfully parsed sweep data as single JSON object")
+    s.logger.Info().Int("host_count", len(sweepSummary.Hosts)).Str("network", sweepSummary.Network).Int("total_hosts", sweepSummary.TotalHosts).Int("available_hosts", sweepSummary.AvailableHosts).Msg("Sweep parsed")
 
-	s.logger.Debug().
-		Int("host_count", len(sweepSummary.Hosts)).
-		Msg("CORE_DEBUG: About to process host results for device updates")
+    s.logger.Debug().Int("host_count", len(sweepSummary.Hosts)).Msg("Processing hosts for device updates")
 
 	// Use the result processor to convert HostResults to DeviceUpdates
 	// This ensures ICMP metadata is properly extracted and availability is correctly set
 	deviceUpdates := s.processHostResults(sweepSummary.Hosts, pollerID, partition, agentID, now)
 
-	s.logger.Debug().
-		Int("device_updates_count", len(deviceUpdates)).
-		Msg("CORE_DEBUG: Generated device updates from sweep data")
+    s.logger.Info().Int("hosts", len(sweepSummary.Hosts)).Int("updates", len(deviceUpdates)).Msg("Sweep processed")
 
 	// Directly process the device updates without redundant JSON marshaling
 	if len(deviceUpdates) > 0 {
@@ -511,12 +487,10 @@ func (s *Server) processSweepService(
 			return err
 		}
 	} else {
-		s.logger.Debug().
-			Msg("CORE_DEBUG: No device updates to process from sweep data")
+    s.logger.Debug().Msg("No device updates from sweep data")
 	}
 
-	s.logger.Debug().
-		Msg("CORE_DEBUG: processSweepData completed successfully")
+    // Done
 
 	return nil
 }

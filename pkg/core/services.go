@@ -44,13 +44,8 @@ func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, part
 		attribute.Int("message_length", len(svc.Message)),
 	)
 
-	s.logger.Debug().
-		Str("service_name", svc.Name).
-		Str("service_type", svc.Type).
-		Str("partition", partition).
-		Bool("available", svc.Available).
-		Int("message_length", len(svc.Message)).
-		Msg("CORE_DEBUG: handleService called")
+    // Reduce noisy per-request logging; trace manages details
+    s.logger.Debug().Str("service", svc.Name).Str("type", svc.Type).Str("partition", partition).Bool("available", svc.Available).Msg("handleService")
 
 	if svc.Type == sweepService {
 		span.AddEvent("Processing sweep service", trace.WithAttributes(
@@ -62,11 +57,7 @@ func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, part
 			span.AddEvent("Sweep data processing failed", trace.WithAttributes(
 				attribute.String("error", err.Error()),
 			))
-			s.logger.Error().
-				Err(err).
-				Str("service_name", svc.Name).
-				Str("service_type", svc.Type).
-				Msg("CORE_DEBUG: processSweepData failed")
+        s.logger.Error().Err(err).Str("service_name", svc.Name).Str("service_type", svc.Type).Msg("processSweepData failed")
 
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
@@ -114,38 +105,21 @@ func (s *Server) initSweepProcessingTrace(span trace.Span, svc *api.ServiceStatu
 		attribute.Int("message_size", len(svc.Message)),
 	)
 
-	s.logger.Debug().
-		Str("service_name", svc.Name).
-		Str("partition", partition).
-		Int("message_length", len(svc.Message)).
-		Msg("CORE_DEBUG: processSweepData started")
+    // Reduced log noise: initial sweep processing marker
+    s.logger.Debug().Str("service_name", svc.Name).Str("partition", partition).Msg("Sweep processing started")
 }
 
 // logSweepPayloadInfo logs information about the extracted sweep payload
 func (s *Server) logSweepPayloadInfo(serviceName string, enhancedPayload *models.ServiceMetricsPayload, sweepMessage []byte) {
 	const maxPreviewLength = 300
 
-	s.logger.Debug().
-		Str("service_name", serviceName).
-		Bool("has_enhanced_payload", enhancedPayload != nil).
-		Int("sweep_message_length", len(sweepMessage)).
-		Str("sweep_message_preview", func() string {
-			if len(sweepMessage) > maxPreviewLength {
-				return string(sweepMessage)[:maxPreviewLength] + "..."
-			}
-			return string(sweepMessage)
-		}()).
-		Msg("CORE_DEBUG: Extracted sweep message payload")
+    // Avoid logging full payloads in production; keep a short summary only
+    s.logger.Debug().Str("service_name", serviceName).Int("sweep_message_length", len(sweepMessage)).Msg("Sweep payload received")
 }
 
 // logContextInfo logs the extracted context information
 func (s *Server) logContextInfo(serviceName, pollerID, partition, agentID string) {
-	s.logger.Debug().
-		Str("service_name", serviceName).
-		Str("context_poller_id", pollerID).
-		Str("context_partition", partition).
-		Str("context_agent_id", agentID).
-		Msg("CORE_DEBUG: Extracted context information")
+    s.logger.Debug().Str("service_name", serviceName).Str("poller_id", pollerID).Str("partition", partition).Msg("Sweep context extracted")
 }
 
 // prepareSweepData parses, validates and prepares the sweep data for processing
@@ -158,9 +132,7 @@ func (s *Server) prepareSweepData(ctx context.Context, sweepMessage []byte, svc 
 		Hosts []models.HostResult `json:"hosts"`
 	}
 
-	s.logger.Debug().
-		Str("service_name", svc.Name).
-		Msg("CORE_DEBUG: Attempting to parse sweep data as single JSON object")
+    s.logger.Debug().Str("service_name", svc.Name).Msg("Parsing sweep data")
 
 	parsedData, err := s.parseConcatenatedSweepJSON(ctx, sweepMessage, svc.Name)
 	if err != nil {
@@ -187,10 +159,7 @@ func (s *Server) processSweepHostUpdates(ctx context.Context, span trace.Span, s
 	proto.SweepServiceStatus
 	Hosts []models.HostResult `json:"hosts"`
 }, contextPollerID, contextPartition, contextAgentID string, now time.Time) error {
-	s.logger.Debug().
-		Str("service_name", serviceName).
-		Int("host_count", len(sweepData.Hosts)).
-		Msg("CORE_DEBUG: About to process host results for device updates")
+    s.logger.Debug().Str("service_name", serviceName).Int("host_count", len(sweepData.Hosts)).Msg("Processing hosts for device updates")
 
 	updatesToStore := s.processHostResults(sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
 
@@ -202,10 +171,7 @@ func (s *Server) processSweepHostUpdates(ctx context.Context, span trace.Span, s
 		attribute.String("agent_id", contextAgentID),
 	)
 
-	s.logger.Debug().
-		Str("service_name", serviceName).
-		Int("device_updates_count", len(updatesToStore)).
-		Msg("CORE_DEBUG: Generated device updates from sweep data")
+    s.logger.Info().Str("service_name", serviceName).Int("hosts", len(sweepData.Hosts)).Int("updates", len(updatesToStore)).Msg("Sweep processed")
 
 	if len(updatesToStore) > 0 {
 		span.AddEvent("Processing device updates", trace.WithAttributes(
@@ -233,9 +199,7 @@ func (s *Server) processSweepHostUpdates(ctx context.Context, span trace.Span, s
 		span.AddEvent("No device updates to process")
 	}
 
-	s.logger.Debug().
-		Str("service_name", serviceName).
-		Msg("CORE_DEBUG: processSweepData completed successfully")
+    // Done
 
 	return nil
 }
