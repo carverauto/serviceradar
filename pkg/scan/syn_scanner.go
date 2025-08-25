@@ -235,7 +235,7 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 			// Sample kernel drop stats from all ring buffers
 			s.sampleKernelStats()
 
-			stats := s.GetStats()
+            stats := s.GetStats()
 
 			// Only log if there's been activity
 			if stats.PacketsSent > 0 || stats.PacketsRecv > 0 {
@@ -247,18 +247,30 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 					rxDropRate = 100 * float64(stats.PacketsDropped) / float64(rxDropDen)
 				}
 
-				s.logger.Info().
-					Uint64("packets_sent", stats.PacketsSent).
-					Uint64("packets_recv", stats.PacketsRecv).
-					Uint64("packets_dropped", stats.PacketsDropped).
-					Float64("rx_drop_rate_percent", rxDropRate).
-					Uint64("ring_blocks_processed", stats.RingBlocksProcessed).
-					Uint64("ring_blocks_dropped", stats.RingBlocksDropped).
-					Uint64("retries_attempted", stats.RetriesAttempted).
-					Uint64("retries_successful", stats.RetriesSuccessful).
-					Uint64("ports_allocated", stats.PortsAllocated).
-					Uint64("rate_limit_deferrals", stats.RateLimitDeferrals).
-					Msg("SYN scanner telemetry")
+                // Include limiter shard count for visibility
+                rlShards := 1
+                if v := s.rl.Load(); v != nil {
+                    switch lim := v.(type) {
+                    case *shardedTokenBucket:
+                        rlShards = lim.shards
+                    case *tokenBucket:
+                        rlShards = 1
+                    }
+                }
+
+                s.logger.Info().
+                    Uint64("packets_sent", stats.PacketsSent).
+                    Uint64("packets_recv", stats.PacketsRecv).
+                    Uint64("packets_dropped", stats.PacketsDropped).
+                    Float64("rx_drop_rate_percent", rxDropRate).
+                    Uint64("ring_blocks_processed", stats.RingBlocksProcessed).
+                    Uint64("ring_blocks_dropped", stats.RingBlocksDropped).
+                    Uint64("retries_attempted", stats.RetriesAttempted).
+                    Uint64("retries_successful", stats.RetriesSuccessful).
+                    Uint64("ports_allocated", stats.PortsAllocated).
+                    Uint64("rate_limit_deferrals", stats.RateLimitDeferrals).
+                    Int("rl_shards", rlShards).
+                    Msg("SYN scanner telemetry")
 			}
 		}
 	}
@@ -303,13 +315,18 @@ var hostEndian = func() binary.ByteOrder {
 	return binary.LittleEndian
 }()
 
-// tokenBucket is a tiny global limiter (tokens/sec with a burst).
+// rateLimiter abstracts the AllowN interface for different limiter impls.
+type rateLimiter interface {
+    AllowN(n int) int
+}
+
+// tokenBucket is a tiny limiter (tokens/sec with a burst).
 type tokenBucket struct {
-	rate  float64 // tokens per second
-	burst float64 // max tokens
-	mu    sync.Mutex
-	toks  float64
-	last  time.Time
+    rate  float64 // tokens per second
+    burst float64 // max tokens
+    mu    sync.Mutex
+    toks  float64
+    last  time.Time
 }
 
 func newTokenBucket(pps, burst int) *tokenBucket {
@@ -331,8 +348,8 @@ func newTokenBucket(pps, burst int) *tokenBucket {
 
 // AllowN returns how many tokens can be spent immediately (<= n).
 func (tb *tokenBucket) AllowN(n int) int {
-	tb.mu.Lock()
-	defer tb.mu.Unlock()
+    tb.mu.Lock()
+    defer tb.mu.Unlock()
 
 	now := time.Now()
 
@@ -359,7 +376,68 @@ func (tb *tokenBucket) AllowN(n int) int {
 
 	tb.toks -= float64(n)
 
-	return n
+    return n
+}
+
+// shardedTokenBucket reduces lock contention by distributing the total rate
+// across several independent token buckets. Each AllowN selects a shard
+// using a fast pseudo-random counter to spread callers across shards.
+type shardedTokenBucket struct {
+    shards  int
+    buckets []*tokenBucket
+    ctr     uint64 // atomically incremented to spread calls
+}
+
+func newShardedTokenBucket(shards, pps, burst int) *shardedTokenBucket {
+    if shards <= 1 {
+        return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(pps, burst)}}
+    }
+
+    if pps <= 0 {
+        // Disabled case still needs a non-nil implementation
+        return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(pps, burst)}}
+    }
+
+    if burst <= 0 {
+        burst = pps
+    }
+
+    // Divide rate and burst roughly evenly across shards
+    perRate := pps / shards
+    rateRemainder := pps % shards
+    perBurst := burst / shards
+    burstRemainder := burst % shards
+
+    b := make([]*tokenBucket, shards)
+    for i := 0; i < shards; i++ {
+        r := perRate
+        if i < rateRemainder {
+            r++
+        }
+        bs := perBurst
+        if i < burstRemainder {
+            bs++
+        }
+        if r <= 0 {
+            r = 1
+        }
+        if bs <= 0 {
+            bs = r
+        }
+        b[i] = newTokenBucket(r, bs)
+    }
+    return &shardedTokenBucket{shards: shards, buckets: b}
+}
+
+func (s *shardedTokenBucket) AllowN(n int) int {
+    // Round-robin across shards by incrementing a counter.
+    idx := int(atomic.AddUint64(&s.ctr, 1))
+    if s.shards > 0 {
+        idx %= s.shards
+    } else {
+        idx = 0
+    }
+    return s.buckets[idx].AllowN(n)
 }
 
 // SYNScanner performs SYN scanning (half-open scanning) for faster TCP port detection.
@@ -409,7 +487,7 @@ type SYNScanner struct {
 	retryMinJitter time.Duration // e.g., 20 * time.Millisecond
 	retryMaxJitter time.Duration // e.g., 40 * time.Millisecond
 
-	rl atomic.Value // stores *tokenBucket
+    rl atomic.Value // stores rateLimiter (never nil after initialization)
 
 	// Batched retry queue
 	retryCh chan retryItem
@@ -1196,13 +1274,16 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 			}
 		}
 
-		// Compute global memory cap and distribute across CPUs
+		// Compute global memory cap and distribute across the *actual* number of rings
 		globalRingMemoryMB := defaultGlobalRingMemoryMB
 		if opts != nil && opts.GlobalRingMemoryMB > 0 {
 			globalRingMemoryMB = opts.GlobalRingMemoryMB
 		}
 
-		totalRings := runtime.NumCPU()
+		totalRings := ringCount
+		if totalRings <= 0 { 
+			totalRings = 1 
+		}
 		perRingBytes := uint32((globalRingMemoryMB * 1024 * 1024) / totalRings)
 
 		// Ensure minimum per-ring memory (at least 1MB per ring)
@@ -1281,6 +1362,18 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				if blockSize < align {
 					// fall back to minimum legal aligned size
 					blockSize = align
+				}
+			}
+		}
+
+		// TPACKET_V3 behaves poorly with a single block: enforce a minimum
+		if blockCount < 2 {
+			// Prefer shrinking blockSize a bit rather than blockCount=1
+			blockCount = 2
+			for blockSize*blockCount > perRingBytes {
+				blockSize = (blockSize / align) * align // shrink to next valid size
+				if blockSize < align { 
+					break 
 				}
 			}
 		}
@@ -1628,21 +1721,34 @@ func (s *SYNScanner) hasFinalResult(targetKey string) bool {
 // Pass pps<=0 to disable. If burst<=0, burst defaults to pps.
 // Safe to call anytime, including during active scans.
 func (s *SYNScanner) SetRateLimit(pps, burst int) {
-	if pps <= 0 {
-		s.rl.Store((*tokenBucket)(nil))
-		return
-	}
+    // Determine shard count to reduce lock contention at high concurrency.
+    // Scale with scanner concurrency and CPU count, clamp to sensible bounds.
+    // Using a power-of-two-ish upper bound keeps modulo cheap.
+    shards := runtime.GOMAXPROCS(0)
+    if s.concurrency > 0 && s.concurrency < shards {
+        shards = s.concurrency
+    }
+    if shards < 4 {
+        shards = 4
+    }
+    if shards > 32 {
+        shards = 32
+    }
 
-	s.rl.Store(newTokenBucket(pps, burst))
+    // Always store a non-nil rateLimiter to keep atomic.Value type stable and avoid nil checks.
+    // For disabled case (pps<=0), create a single bucket with zero rate (acts like allow-all).
+    limiter := rateLimiter(newShardedTokenBucket(shards, pps, burst))
+    s.rl.Store(limiter)
 }
 
 // allowN applies the limiter if present; otherwise returns n.
 func (s *SYNScanner) allowN(n int) int {
-	if tb, _ := s.rl.Load().(*tokenBucket); tb != nil {
-		return tb.AllowN(n)
-	}
-
-	return n
+    if v := s.rl.Load(); v != nil {
+        if lim, ok := v.(rateLimiter); ok && lim != nil {
+            return lim.AllowN(n)
+        }
+    }
+    return n
 }
 
 type retryItem struct {
