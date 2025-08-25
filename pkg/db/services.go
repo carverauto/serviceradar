@@ -1,10 +1,10 @@
 package db
 
 import (
-	"context"
-	"fmt"
+    "context"
+    "fmt"
 
-	"github.com/carverauto/serviceradar/pkg/models"
+    "github.com/carverauto/serviceradar/pkg/models"
 )
 
 // UpdateServiceStatuses updates multiple service statuses in a single batch.
@@ -18,22 +18,22 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*models.Serv
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
 
-	for _, status := range statuses {
-		err = batch.Append(
-			status.Timestamp,   // timestamp
-			status.PollerID,    // poller_id
-			status.AgentID,     // agent_id
-			status.ServiceName, // service_name
-			status.ServiceType, // service_type
-			status.Available,   // available
-			"",                 // message
-			status.Details,     // details
-			status.Partition,   // partition
-		)
-		if err != nil {
-			return fmt.Errorf("failed to append service status for %s: %w", status.ServiceName, err)
-		}
-	}
+    for _, status := range statuses {
+        err = batch.Append(
+            status.Timestamp,   // timestamp
+            status.PollerID,    // poller_id
+            status.AgentID,     // agent_id
+            status.ServiceName, // service_name
+            status.ServiceType, // service_type
+            status.Available,   // available
+            "",                 // message
+            "",                 // details (dropped)
+            status.Partition,   // partition
+        )
+        if err != nil {
+            return fmt.Errorf("failed to append service status for %s: %w", status.ServiceName, err)
+        }
+    }
 
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("%w service statuses: %w", ErrFailedToInsert, err)
@@ -49,17 +49,17 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *models.ServiceSta
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
 
-	err = batch.Append(
-		status.Timestamp,   // timestamp
-		status.PollerID,    // poller_id
-		status.AgentID,     // agent_id
-		status.ServiceName, // service_name
-		status.ServiceType, // service_type
-		status.Available,   // available
-		"",                 // message
-		status.Details,     // details
-		status.Partition,   // partition
-	)
+    err = batch.Append(
+        status.Timestamp,   // timestamp
+        status.PollerID,    // poller_id
+        status.AgentID,     // agent_id
+        status.ServiceName, // service_name
+        status.ServiceType, // service_type
+        status.Available,   // available
+        "",                 // message
+        "",                 // details (dropped)
+        status.Partition,   // partition
+    )
 	if err != nil {
 		return fmt.Errorf("failed to append service status: %w", err)
 	}
@@ -73,13 +73,13 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *models.ServiceSta
 
 // GetServiceHistory retrieves the recent history for a service.
 func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error) {
-	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, available, details
-		FROM table(service_status)
-		WHERE poller_id = $1 AND service_name = $2
-		ORDER BY timestamp DESC
-		LIMIT $3`,
-		pollerID, serviceName, limit)
+    rows, err := db.Conn.Query(ctx, `
+        SELECT timestamp, available
+        FROM table(service_status)
+        WHERE poller_id = $1 AND service_name = $2
+        ORDER BY timestamp DESC
+        LIMIT $3`,
+        pollerID, serviceName, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w service history: %w", ErrFailedToQuery, err)
 	}
@@ -93,9 +93,9 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 		s.PollerID = pollerID
 		s.ServiceName = serviceName
 
-		if err := rows.Scan(&s.Timestamp, &s.Available, &s.Details); err != nil {
-			return nil, fmt.Errorf("%w service history row: %w", ErrFailedToScan, err)
-		}
+        if err := rows.Scan(&s.Timestamp, &s.Available); err != nil {
+            return nil, fmt.Errorf("%w service history row: %w", ErrFailedToScan, err)
+        }
 
 		history = append(history, s)
 	}

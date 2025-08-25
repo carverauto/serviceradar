@@ -541,29 +541,17 @@ func (s *APIServer) processMAC(result map[string]interface{}) {
 // processHostname handles the hostname field in different formats
 func (s *APIServer) processHostname(result map[string]interface{}) {
 	// Handle hostname field - in new schema it's nullable(string), in old schema it might be JSON
-	if hostnameStr, ok := result["hostname"].(string); ok && hostnameStr != "" {
-		// New schema: hostname is direct string from unified_devices
-		s.logger.Debug().
-			Interface("device_id", result["device_id"]).
-			Str("hostname", hostnameStr).
-			Msg("Device has hostname from direct string field")
+    if hostnameStr, ok := result["hostname"].(string); ok && hostnameStr != "" {
+        // New schema: hostname is direct string from unified_devices
+        result["hostname"] = hostnameStr
+        return
+    }
 
-		result["hostname"] = hostnameStr
-
-		return
-	}
-
-	if hostnamePtr, ok := result["hostname"].(*string); ok && hostnamePtr != nil && *hostnamePtr != "" {
-		// New schema: hostname is nullable string (*string) from unified_devices
-		s.logger.Debug().
-			Interface("device_id", result["device_id"]).
-			Str("hostname", *hostnamePtr).
-			Msg("Device has hostname from pointer field")
-
-		result["hostname"] = *hostnamePtr
-
-		return
-	}
+    if hostnamePtr, ok := result["hostname"].(*string); ok && hostnamePtr != nil && *hostnamePtr != "" {
+        // New schema: hostname is nullable string (*string) from unified_devices
+        result["hostname"] = *hostnamePtr
+        return
+    }
 
 	if hostnameFieldStr, ok :=
 		result["hostname_field"].(string); ok && hostnameFieldStr != "" && hostnameFieldStr != "{}" {
@@ -574,26 +562,15 @@ func (s *APIServer) processHostname(result map[string]interface{}) {
 			s.logger.Warn().Err(err).Msg("Failed to unmarshal hostname_field for device")
 
 			result["hostname"] = nil
-		} else {
-			s.logger.Debug().
-				Interface("device_id", result["device_id"]).
-				Str("hostname", hostnameField.Value).
-				Msg("Device has hostname from JSON field")
-
-			result["hostname"] = hostnameField.Value
-		}
+        } else {
+            result["hostname"] = hostnameField.Value
+        }
 
 		return
 	}
 
 	// Default case
-	s.logger.Debug().
-		Interface("device_id", result["device_id"]).
-		Interface("hostname", result["hostname"]).
-		Interface("hostname_field", result["hostname_field"]).
-		Msg("Device has NO hostname")
-
-	result["hostname"] = nil
+    result["hostname"] = nil
 }
 
 // processStringDiscoverySources handles the case where discovery_sources is a string
@@ -633,26 +610,15 @@ func (s *APIServer) processStringDiscoverySources(result map[string]interface{},
 // processDiscoverySources handles the discovery_sources field in different formats
 func (s *APIServer) processDiscoverySources(result map[string]interface{}) {
 	// Handle discovery_sources field - in new schema it's array(string), in old schema it might be JSON
-	if discoverySourcesArray, ok := result["discovery_sources"].([]string); ok && len(discoverySourcesArray) > 0 {
-		// New schema: discovery_sources is already []string from unified_devices
-		s.logger.Debug().
-			Interface("device_id", result["device_id"]).
-			Interface("discovery_sources", discoverySourcesArray).
-			Msg("Device has discovery_sources from string array")
+    if discoverySourcesArray, ok := result["discovery_sources"].([]string); ok && len(discoverySourcesArray) > 0 {
+        // New schema: discovery_sources is already []string from unified_devices
+        result["discovery_sources"] = discoverySourcesArray
+        return
+    }
 
-		result["discovery_sources"] = discoverySourcesArray
-
-		return
-	}
-
-	if discoverySourcesArray, ok := result["discovery_sources"].([]interface{}); ok {
-		// Fallback: discovery_sources as []interface{}
-		s.logger.Debug().
-			Interface("device_id", result["device_id"]).
-			Interface("discovery_sources", discoverySourcesArray).
-			Msg("Device has discovery_sources from interface array")
-
-		sources := make([]string, len(discoverySourcesArray))
+    if discoverySourcesArray, ok := result["discovery_sources"].([]interface{}); ok {
+        // Fallback: discovery_sources as []interface{}
+        sources := make([]string, len(discoverySourcesArray))
 
 		for i, source := range discoverySourcesArray {
 			if sourceStr, ok := source.(string); ok {
@@ -660,10 +626,9 @@ func (s *APIServer) processDiscoverySources(result map[string]interface{}) {
 			}
 		}
 
-		result["discovery_sources"] = sources
-
-		return
-	}
+        result["discovery_sources"] = sources
+        return
+    }
 
 	if discoverySourcesStr, ok := result["discovery_sources"].(string); ok && discoverySourcesStr != "" {
 		s.processStringDiscoverySources(result, discoverySourcesStr)
