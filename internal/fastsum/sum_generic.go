@@ -1,5 +1,6 @@
 //go:build !(linux && amd64) && !(linux && arm64)
-// +build !linux,amd64 !linux,arm64
+// +build !linux
+// +build !amd64,!arm64
 
 package fastsum
 
@@ -28,4 +29,3 @@ func SumBE16(b []byte) uint32 {
     }
     return sum
 }
-
