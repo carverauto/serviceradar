@@ -216,30 +216,97 @@ func (db *DB) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces [
 	// Process in smaller batches to avoid overwhelming the database
 	batchSize := defaultBatchSize
 
-	var lastErr error
+    var lastErr error
 
-	for i := 0; i < len(interfaces); i += batchSize {
-		end := i + batchSize
+    for i := 0; i < len(interfaces); i += batchSize {
+        end := i + batchSize
+        if end > len(interfaces) {
+            end = len(interfaces)
+        }
 
-		if end > len(interfaces) {
-			end = len(interfaces)
-		}
+        chunk := interfaces[i:end]
 
-		batch := interfaces[i:end]
-		for _, iface := range batch {
-			if err := db.PublishDiscoveredInterface(batchCtx, iface); err != nil {
-				db.logger.Error().
-					Err(err).
-					Str("interface_name", iface.IfName).
-					Int("interface_index", int(iface.IfIndex)).
-					Msg("Error publishing interface")
+        // Prepare one DB batch for the chunk
+        batch, err := db.Conn.PrepareBatch(batchCtx, "INSERT INTO discovered_interfaces (* except _tp_time)")
+        if err != nil {
+            db.logger.Error().Err(err).Msg("Failed to prepare batch for discovered interfaces chunk")
+            lastErr = err
+            continue
+        }
 
-				lastErr = err
-			}
-		}
-	}
+        for _, iface := range chunk {
+            // Validate minimal required fields
+            if iface.DeviceIP == "" || iface.AgentID == "" {
+                // mirror single insert validation
+                db.logger.Warn().
+                    Str("device_ip", iface.DeviceIP).
+                    Str("agent_id", iface.AgentID).
+                    Msg("Skipping discovered interface with missing required fields")
+                continue
+            }
 
-	return lastErr
+            // Ensure timestamp
+            if iface.Timestamp.IsZero() {
+                iface.Timestamp = time.Now()
+            }
+
+            ipAddresses := iface.IPAddresses
+            if ipAddresses == nil {
+                ipAddresses = []string{}
+            }
+
+            var metadata map[string]string
+            if len(iface.Metadata) > 0 {
+                if err := json.Unmarshal(iface.Metadata, &metadata); err != nil {
+                    db.logger.Warn().Err(err).Msg("Unable to parse interface metadata in batch; using empty map")
+                    metadata = make(map[string]string)
+                }
+            } else {
+                metadata = make(map[string]string)
+            }
+
+            metadataBytes, err := json.Marshal(metadata)
+            if err != nil {
+                db.logger.Error().Err(err).Msg("Failed to marshal interface metadata in batch")
+                lastErr = err
+                continue
+            }
+
+            if err := batch.Append(
+                iface.Timestamp,
+                iface.AgentID,
+                iface.PollerID,
+                iface.DeviceIP,
+                iface.DeviceID,
+                iface.IfIndex,
+                iface.IfName,
+                iface.IfDescr,
+                iface.IfAlias,
+                iface.IfSpeed,
+                iface.IfPhysAddress,
+                ipAddresses,
+                iface.IfAdminStatus,
+                iface.IfOperStatus,
+                string(metadataBytes),
+            ); err != nil {
+                db.logger.Error().
+                    Err(err).
+                    Str("interface_name", iface.IfName).
+                    Int("interface_index", int(iface.IfIndex)).
+                    Msg("Failed to append interface to batch")
+                lastErr = err
+                continue
+            }
+        }
+
+        if err := batch.Send(); err != nil {
+            db.logger.Error().Err(err).Msg("Failed to send discovered interfaces batch")
+            lastErr = err
+            continue
+        }
+    }
+
+    return lastErr
 }
 
 // PublishBatchTopologyDiscoveryEvents publishes multiple topology events in a batch

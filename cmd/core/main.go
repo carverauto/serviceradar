@@ -67,9 +67,12 @@ func main() {
 }
 
 func run() error {
-	// Parse command line flags
-	configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
-	flag.Parse()
+    // Parse command line flags
+    configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
+    backfill := flag.Bool("backfill-identities", false, "Run one-time identity backfill (Armis/NetBox) and exit")
+    backfillDryRun := flag.Bool("backfill-dry-run", false, "If set with --backfill-identities, only log actions without writing")
+    backfillIPs := flag.Bool("backfill-ips", true, "Also backfill sweep-only device IDs by IP aliasing into canonical identities")
+    flag.Parse()
 
 	// Load configuration
 	cfg, err := core.LoadConfig(*configPath)
@@ -118,10 +121,24 @@ func run() error {
 		return err
 	}
 
-	// Create API server with Swagger support
-	apiServer := api.NewAPIServer(
-		cfg.CORS,
-		api.WithMetricsManager(server.GetMetricsManager()),
+    // If running backfill only, run job and exit
+    if *backfill {
+        if *backfillDryRun { mainLogger.Info().Msg("Starting identity backfill (Armis/NetBox) in DRY-RUN mode ...") } else { mainLogger.Info().Msg("Starting identity backfill (Armis/NetBox) ...") }
+        if err := core.BackfillIdentityTombstones(ctx, server.DB, mainLogger, *backfillDryRun); err != nil {
+            return err
+        }
+        if *backfillIPs {
+            if *backfillDryRun { mainLogger.Info().Msg("Starting IP alias backfill (DRY-RUN) ...") } else { mainLogger.Info().Msg("Starting IP alias backfill ...") }
+            if err := core.BackfillIPAliasTombstones(ctx, server.DB, mainLogger, *backfillDryRun); err != nil { return err }
+        }
+        if *backfillDryRun { mainLogger.Info().Msg("Backfill DRY-RUN completed. Exiting.") } else { mainLogger.Info().Msg("Backfill completed. Exiting.") }
+        return nil
+    }
+
+    // Create API server with Swagger support
+    apiServer := api.NewAPIServer(
+        cfg.CORS,
+        api.WithMetricsManager(server.GetMetricsManager()),
 		api.WithSNMPManager(server.GetSNMPManager()),
 		api.WithAuthService(server.GetAuth()),
 		api.WithRperfManager(server.GetRperfManager()),

@@ -818,27 +818,21 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 		Time("timestamp", time.Now()).
 		Msg("Received status report")
 
-	// DEBUG: Log all services received and their types
-	for _, svc := range req.Services {
-		s.logger.Debug().
-			Str("poller_id", req.PollerId).
-			Str("service_name", svc.ServiceName).
-			Str("service_type", svc.ServiceType).
-			Bool("available", svc.Available).
-			Int("message_length", len(svc.Message)).
-			Str("source", svc.Source).
-			Msg("CORE_DEBUG: Received service in ReportStatus")
-
-		// Log actual message content for sweep services
-		if svc.ServiceType == sweepService {
-			s.logger.Debug().
-				Str("poller_id", req.PollerId).
-				Str("service_name", svc.ServiceName).
-				Str("service_type", svc.ServiceType).
-				Str("message_content", string(svc.Message)).
-				Msg("CORE_DEBUG: Sweep service message content")
-		}
-	}
+    // Summarize services received to avoid log spam
+    var totalBytes int
+    var sweepCount int
+    for _, svc := range req.Services {
+        totalBytes += len(svc.Message)
+        if svc.ServiceType == sweepService {
+            sweepCount++
+        }
+    }
+    s.logger.Info().
+        Str("poller_id", req.PollerId).
+        Int("services", len(req.Services)).
+        Int("sweep_services", sweepCount).
+        Int("payload_bytes", totalBytes).
+        Msg("Status report summary")
 
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
@@ -914,26 +908,21 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 		Int("total_service_count", len(allServices)).
 		Msg("Completed streaming reception")
 
-	// DEBUG: Log all services received via streaming and their types
-	for _, svc := range allServices {
-		s.logger.Debug().
-			Str("poller_id", metadata.pollerID).
-			Str("service_name", svc.ServiceName).
-			Str("service_type", svc.ServiceType).
-			Bool("available", svc.Available).
-			Int("message_length", len(svc.Message)).
-			Msg("CORE_DEBUG: Received service in StreamStatus")
-
-		// Log actual message content for sweep services
-		if svc.ServiceType == sweepService {
-			s.logger.Debug().
-				Str("poller_id", metadata.pollerID).
-				Str("service_name", svc.ServiceName).
-				Str("service_type", svc.ServiceType).
-				Str("message_content", string(svc.Message)).
-				Msg("CORE_DEBUG: Sweep service message content from streaming")
-		}
-	}
+    // Summarize services received via streaming
+    var streamBytes int
+    var streamSweepCount int
+    for _, svc := range allServices {
+        streamBytes += len(svc.Message)
+        if svc.ServiceType == sweepService {
+            streamSweepCount++
+        }
+    }
+    s.logger.Info().
+        Str("poller_id", metadata.pollerID).
+        Int("services", len(allServices)).
+        Int("sweep_services", streamSweepCount).
+        Int("payload_bytes", streamBytes).
+        Msg("StreamStatus summary")
 
 	// Validate and process the assembled data
 	return s.processStreamedStatus(ctx, stream, allServices, metadata)
