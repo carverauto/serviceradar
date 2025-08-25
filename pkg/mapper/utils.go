@@ -18,7 +18,6 @@ package mapper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -370,19 +369,19 @@ func contains(slice []string, item string) bool {
 // "alternate_ips" key as a JSON array. The updated map is returned for
 // convenience.
 func addAlternateIP(metadata map[string]string, ip string) map[string]string {
-    if ip == "" {
-        return metadata
-    }
+	if ip == "" {
+		return metadata
+	}
 
-    if metadata == nil {
-        metadata = make(map[string]string)
-    }
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
 
-    // Use exact-match metadata key for alt IPs
-    key := "alt_ip:" + ip
-    if _, exists := metadata[key]; !exists {
-        metadata[key] = "1"
-    }
+	// Use exact-match metadata key for alt IPs
+	key := "alt_ip:" + ip
+	if _, exists := metadata[key]; !exists {
+		metadata[key] = "1"
+	}
 
-    return metadata
+	return metadata
 }
