@@ -1,3 +1,6 @@
+//go:build fastsumtest
+// +build fastsumtest
+
 package fastsum
 
 import (
