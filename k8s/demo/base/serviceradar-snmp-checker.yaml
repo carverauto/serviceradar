@@ -17,7 +17,7 @@ spec:
         - name: ghcr-io-cred
       containers:
       - name: snmp-checker
-        image: ghcr.io/carverauto/serviceradar/serviceradar-snmp-checker:latest
+        image: ghcr.io/carverauto/serviceradar-snmp-checker:latest
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar

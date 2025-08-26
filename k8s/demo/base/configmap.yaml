@@ -164,3 +164,36 @@ data:
         }
       ]
     }
+
+  proton-logger.xml: |
+    <?xml version="1.0"?>
+    <proton>
+        <logger>
+            <level>error</level>
+            <console>1</console>
+            <log remove="remove"/>
+            <errorlog remove="remove"/>
+        </logger>
+    </proton>
+
+  proton-k8s-init.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "[Proton K8s Init] Starting Kubernetes-specific initialization"
+    
+    # Run only the setup parts of the original init script  
+    cp /usr/local/bin/proton-init.sh /tmp/proton-init-original.sh
+    sed -i '/^ulimit/d' /tmp/proton-init-original.sh
+    sed -i '/exec.*proton/d' /tmp/proton-init-original.sh
+    chmod +x /tmp/proton-init-original.sh
+    
+    echo "[Proton K8s Init] Running setup portions only (no server start)"
+    /tmp/proton-init-original.sh
+    
+    echo "[Proton K8s Init] Fixing ownership and starting Proton as proton user"
+    chown -R proton:proton /var/lib/proton
+    find /etc/proton-server/ -type f ! -path "*/config.d/logger.xml" -exec chown proton:proton {} \;
+    find /etc/proton-server/ -type d -exec chown proton:proton {} \;
+    
+    exec su -s /bin/bash proton -c "/usr/bin/proton server --config-file=/etc/proton-server/config.yaml"

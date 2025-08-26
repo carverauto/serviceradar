@@ -1,0 +1,22 @@
+# prod/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: serviceradar-cloud
+  annotations:
+    cert-manager.io/cluster-issuer: "carverauto-issuer"
+    external-dns.alpha.kubernetes.io/hostname: "demo.serviceradar.cloud"
+    metallb.universe.tf/allow-shared-ip: "true"
+    metallb.universe.tf/address-pool: k3s-pool
+spec:
+  rules:
+  - host: demo.serviceradar.cloud
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-cloud
+            port:
+              name: http

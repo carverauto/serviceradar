@@ -30,7 +30,7 @@ spec:
               mountPath: /etc/serviceradar/checkers
       containers:
         - name: agent
-          image: ghcr.io/carverauto/serviceradar/serviceradar-agent:latest
+          image: ghcr.io/carverauto/serviceradar-agent:latest
           volumeMounts:
             - name: serviceradar-config
               mountPath: /etc/serviceradar
