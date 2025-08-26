@@ -1,0 +1,22 @@
+# overlays/demo/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: serviceradar-staging
+
+resources:
+  - ../base
+
+images:
+  - name: ghcr.io/carverauto/serviceradar-proton
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-core
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-web
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-agent
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-poller
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-snmp-checker
+    newTag: latest

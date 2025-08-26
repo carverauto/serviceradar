@@ -17,7 +17,7 @@ spec:
         - name: ghcr-io-cred
       containers:
       - name: poller
-        image: ghcr.io/carverauto/serviceradar/serviceradar-poller:latest
+        image: ghcr.io/carverauto/serviceradar-poller:latest
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar
