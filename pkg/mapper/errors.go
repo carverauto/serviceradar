@@ -40,4 +40,14 @@ var (
 	ErrNoCDPNeighborsFound     = errors.New("no CDP neighbors found")
 	ErrNoICMPResponse          = errors.New("no ICMP response")
 	ErrInt32RangeExceeded      = errors.New("value exceeds int32 range")
+
+	// Discovery validation errors
+	ErrNoSeedsProvided         = errors.New("no seeds provided")
+	ErrJobQueueFull            = errors.New("job queue full, cannot enqueue discovery job")
+	ErrScheduledJobMissingName = errors.New("scheduled job missing name")
+	ErrJobHasNoSeeds           = errors.New("job has no seeds")
+	ErrJobMissingType          = errors.New("job missing type")
+	ErrJobInvalidType          = errors.New("job has invalid type")
+	ErrJobInvalidConcurrency   = errors.New("job has invalid concurrency")
+	ErrJobInvalidRetries       = errors.New("job has invalid retries")
 )

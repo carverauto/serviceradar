@@ -25,10 +25,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gorilla/mux"
+
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/gorilla/mux"
 )
 
 //go:embed srql-mcp-prompt.md

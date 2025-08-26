@@ -182,6 +182,7 @@ func (p *Poller) Close() error {
 
 	p.closeOnce.Do(func() { close(p.done) })
 	p.mu.Lock()
+
 	defer p.mu.Unlock()
 
 	if p.grpcClient != nil {
@@ -654,7 +655,6 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 		errorWrapper := map[string]string{"message": originalMessage}
 
 		wrappedJSON, err := json.Marshal(errorWrapper)
-
 		if err != nil {
 			return "", fmt.Errorf("failed to wrap non-JSON message: %w", err)
 		}

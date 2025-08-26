@@ -40,8 +40,8 @@ type discoveryService struct {
 }
 
 // NewDiscoveryService creates a new DiscoveryService instance.
-func NewDiscoveryService(db db.Service, reg registry.Manager, log logger.Logger) DiscoveryService {
-	return &discoveryService{db: db, reg: reg, logger: log}
+func NewDiscoveryService(dbSvc db.Service, reg registry.Manager, log logger.Logger) DiscoveryService {
+	return &discoveryService{db: dbSvc, reg: reg, logger: log}
 }
 
 // ProcessSyncResults processes the results of a sync discovery operation.

@@ -694,10 +694,12 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 
 func (c *CheckerConnection) EnsureConnected(ctx context.Context) (*grpc.Client, error) {
 	c.mu.RLock()
+
 	if c.healthy && c.client != nil {
 		c.mu.RUnlock()
 		return c.client, nil
 	}
+
 	c.mu.RUnlock()
 
 	c.mu.Lock()

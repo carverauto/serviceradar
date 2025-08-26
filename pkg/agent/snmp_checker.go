@@ -149,6 +149,7 @@ func (c *SNMPChecker) Stop(ctx context.Context) error {
 	close(c.done)
 
 	done := make(chan struct{})
+
 	go func() {
 		c.wg.Wait()
 		close(done)

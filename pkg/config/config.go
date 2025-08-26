@@ -152,7 +152,6 @@ func ValidateConfig(cfg interface{}) error {
 // LoadAndValidate loads a configuration, normalizes SecurityConfig paths if present, and validates it.
 func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface{}) error {
 	err := c.loadAndValidateWithSource(ctx, path, cfg)
-
 	if err != nil {
 		return err
 	}

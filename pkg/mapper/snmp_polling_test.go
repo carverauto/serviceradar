@@ -881,14 +881,15 @@ func TestUpdateIfPhysAddress(t *testing.T) {
 	}
 }
 
-func TestUpdateIfAdminStatus(t *testing.T) {
+// testStatusHelper is a helper for status update tests
+func testStatusHelper(t *testing.T, statusType string, updateFunc func(*DiscoveryEngine, *DiscoveredInterface, gosnmp.SnmpPDU), getStatus func(*DiscoveredInterface) int32) {
 	tests := []struct {
 		name     string
 		pdu      gosnmp.SnmpPDU
 		expected int32
 	}{
 		{
-			name: "admin status up",
+			name: statusType + " up",
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 1, // up
@@ -896,7 +897,7 @@ func TestUpdateIfAdminStatus(t *testing.T) {
 			expected: 1,
 		},
 		{
-			name: "admin status down",
+			name: statusType + " down",
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 2, // down
@@ -904,7 +905,7 @@ func TestUpdateIfAdminStatus(t *testing.T) {
 			expected: 2,
 		},
 		{
-			name: "admin status testing",
+			name: statusType + " testing",
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 3, // testing
@@ -929,64 +930,22 @@ func TestUpdateIfAdminStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			iface := &DiscoveredInterface{}
 
-			engine.updateIfAdminStatus(iface, tt.pdu)
-			assert.Equal(t, tt.expected, iface.IfAdminStatus)
+			updateFunc(engine, iface, tt.pdu)
+			assert.Equal(t, tt.expected, getStatus(iface))
 		})
 	}
 }
 
+func TestUpdateIfAdminStatus(t *testing.T) {
+	testStatusHelper(t, "admin status",
+		(*DiscoveryEngine).updateIfAdminStatus,
+		func(iface *DiscoveredInterface) int32 { return iface.IfAdminStatus })
+}
+
 func TestUpdateIfOperStatus(t *testing.T) {
-	tests := []struct {
-		name     string
-		pdu      gosnmp.SnmpPDU
-		expected int32
-	}{
-		{
-			name: "oper status up",
-			pdu: gosnmp.SnmpPDU{
-				Type:  gosnmp.Integer,
-				Value: 1, // up
-			},
-			expected: 1,
-		},
-		{
-			name: "oper status down",
-			pdu: gosnmp.SnmpPDU{
-				Type:  gosnmp.Integer,
-				Value: 2, // down
-			},
-			expected: 2,
-		},
-		{
-			name: "oper status testing",
-			pdu: gosnmp.SnmpPDU{
-				Type:  gosnmp.Integer,
-				Value: 3, // testing
-			},
-			expected: 3,
-		},
-		{
-			name: "wrong type",
-			pdu: gosnmp.SnmpPDU{
-				Type:  gosnmp.OctetString,
-				Value: []byte("not an integer"),
-			},
-			expected: 0, // Should not change from default
-		},
-	}
-
-	engine := &DiscoveryEngine{
-		logger: logger.NewTestLogger(),
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			iface := &DiscoveredInterface{}
-
-			engine.updateIfOperStatus(iface, tt.pdu)
-			assert.Equal(t, tt.expected, iface.IfOperStatus)
-		})
-	}
+	testStatusHelper(t, "oper status",
+		(*DiscoveryEngine).updateIfOperStatus,
+		func(iface *DiscoveredInterface) int32 { return iface.IfOperStatus })
 }
 
 func TestUpdateInterfaceHighSpeed(t *testing.T) {

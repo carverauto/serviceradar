@@ -84,7 +84,7 @@ func TestBaseProcessor_MemoryManagement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping memory management tests in short mode - they require more time than 3s timeout")
 	}
-	
+
 	config := createLargePortConfig()
 
 	t.Run("Memory Usage with Many Hosts Few Ports", func(t *testing.T) {
@@ -356,7 +356,7 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping resource cleanup tests in short mode - they require more time than 3s timeout")
 	}
-	
+
 	config := &models.Config{
 		Ports: make([]int, 2300),
 	}
@@ -472,7 +472,7 @@ func TestBaseProcessor_ConfigurationUpdates(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping configuration update tests in short mode - they require more time than 3s timeout")
 	}
-	
+
 	initialConfig := &models.Config{
 		Ports: make([]int, 100), // Start with fewer ports
 	}
@@ -563,7 +563,7 @@ func TestBaseProcessor_GetSummaryStream(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping summary stream tests in short mode - they require more time than 3s timeout")
 	}
-	
+
 	config := &models.Config{
 		Ports: []int{22, 80, 443, 8080},
 	}

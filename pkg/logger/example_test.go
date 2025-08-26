@@ -24,6 +24,12 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+// Test errors - static errors for err113 compliance
+var (
+	errDatabaseConnection = errors.New("database connection failed")
+	errInvalidUserID      = errors.New("invalid user ID")
+)
+
 func ExampleInit() {
 	config := &logger.Config{
 		Level:      "debug",
@@ -76,7 +82,7 @@ func ExampleFieldLogger() {
 	userLogger := fieldLogger.WithField("user_id", 12345)
 	userLogger.Info("User authenticated")
 
-	err := errors.New("database connection failed")
+	err := errDatabaseConnection
 	userLogger.WithError(err).Error("Failed to save user data")
 }
 
@@ -114,7 +120,7 @@ func Example_usageInService() {
 
 func processUser(userID int) error {
 	if userID <= 0 {
-		return fmt.Errorf("invalid user ID: %d", userID)
+		return fmt.Errorf("invalid user ID: %d: %w", userID, errInvalidUserID)
 	}
 
 	return nil

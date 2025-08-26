@@ -409,8 +409,8 @@ func (s *SNMPService) handleDataPoint(targetName string, point *DataPoint, aggre
 // defaultCollectorFactory implements CollectorFactory.
 type defaultCollectorFactory struct{}
 
-func (*defaultCollectorFactory) CreateCollector(target *Target, logger logger.Logger) (Collector, error) {
-	return NewCollector(target, logger)
+func (*defaultCollectorFactory) CreateCollector(target *Target, log logger.Logger) (Collector, error) {
+	return NewCollector(target, log)
 }
 
 // defaultAggregatorFactory implements AggregatorFactory.

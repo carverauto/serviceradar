@@ -66,13 +66,17 @@ type storeShard struct {
 // NewInMemoryStore creates a new in-memory store for sweep results.
 func NewInMemoryStore(processor ResultProcessor, log logger.Logger) Store {
 	// Choose shard count based on CPUs for better parallel writes.
+	const (
+		minShards = 4  // Minimum shards for decent parallelism
+		maxShards = 16 // Maximum shards to avoid excessive overhead
+	)
 	shards := runtime.GOMAXPROCS(0)
-	if shards < 4 {
-		shards = 4
+	if shards < minShards {
+		shards = minShards
 	}
 
-	if shards > 16 {
-		shards = 16
+	if shards > maxShards {
+		shards = maxShards
 	}
 
 	s := &InMemoryStore{

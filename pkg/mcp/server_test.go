@@ -20,10 +20,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/stretchr/testify/assert"
 )
 
 // mockQueryExecutor implements api.SRQLQueryExecutor for testing

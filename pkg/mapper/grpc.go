@@ -324,8 +324,8 @@ func protoToSNMPCredentials(creds *proto.SNMPCredentials) *SNMPCredentials {
 }
 
 // statusTypeToString converts an internal status type to a string
-func statusTypeToString(status DiscoveryStatusType) string {
-	return string(status)
+func statusTypeToString(statusType DiscoveryStatusType) string {
+	return string(statusType)
 }
 
 // statusTypeToProtoStatus converts an internal status type to a proto status enum
