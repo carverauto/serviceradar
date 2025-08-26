@@ -37,6 +37,7 @@ var (
 	errFetchFailed      = errors.New("fetch failed")
 	errFetch1Failed     = errors.New("fetch1 failed")
 	errFetch2Failed     = errors.New("fetch2 failed")
+	errTestSequence     = errors.New("test sequence error")
 	errKVWriteFailed    = errors.New("kv write failed")
 	errReconcile1Failed = errors.New("reconcile1 failed")
 	errReconcile2Failed = errors.New("reconcile2 failed")
@@ -452,7 +453,7 @@ func TestErrorChannelOverflow(t *testing.T) {
 
 	// Fill the error channel
 	for i := 0; i < cap(s.errorChan); i++ {
-		var testErr = fmt.Errorf("error %d", i)
+		var testErr = fmt.Errorf("error %d: %w", i, errTestSequence)
 		s.sendError(testErr)
 	}
 

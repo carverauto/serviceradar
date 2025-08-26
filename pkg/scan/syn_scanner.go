@@ -2470,15 +2470,16 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 
 	// Decide if this packet makes the port state "definitive".
 	// We keep this simple and conservative: any SYN/ACK or RST is definitive.
-	if tcp.Flags&(synFlag|ackFlag) == (synFlag | ackFlag) {
+	switch {
+	case tcp.Flags&(synFlag|ackFlag) == (synFlag | ackFlag):
 		result.Available = true
 		result.Error = nil
 		emit = true
-	} else if tcp.Flags&rstFlag != 0 {
+	case tcp.Flags&rstFlag != 0:
 		result.Available = false
 		result.Error = ErrPortClosed
 		emit = true
-	} else {
+	default:
 		s.mu.Unlock()
 		return
 	}

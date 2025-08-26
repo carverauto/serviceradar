@@ -37,6 +37,10 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+var (
+	errStreamSend = errors.New("stream send error")
+)
+
 func TestSafeIntToInt32(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -789,7 +793,7 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 			ServiceType: "sync",
 		}
 
-		expectedErr := errors.New("stream send error")
+		expectedErr := errStreamSend
 		stream := &MockResultsStream{ctx: ctx, sendErr: expectedErr}
 
 		err := service.StreamResults(req, stream)
