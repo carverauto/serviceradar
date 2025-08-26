@@ -50,7 +50,7 @@ func TestNewSYNScanner(t *testing.T) {
 			timeout:     0,
 			concurrency: 0,
 			wantTimeout: 1 * time.Second,
-			wantConc:    1000,
+			wantConc:    256,
 		},
 		{
 			name:        "custom values",
