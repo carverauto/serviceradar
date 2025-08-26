@@ -1,0 +1,139 @@
+# base/serviceradar-proton.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-proton
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-proton
+  template:
+    metadata:
+      labels:
+        app: serviceradar-proton
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      securityContext:
+        runAsUser: 0
+      containers:
+      - name: proton
+        image: ghcr.io/carverauto/serviceradar-proton:latest
+        securityContext:
+          privileged: true
+        command: ["/bin/bash"]
+        args: 
+        - -c
+        - |
+          cp /etc/serviceradar/proton-k8s-init.sh /tmp/proton-k8s-init.sh
+          chmod +x /tmp/proton-k8s-init.sh
+          exec /tmp/proton-k8s-init.sh
+        ports:
+        - containerPort: 8123
+          name: http
+        - containerPort: 8463
+          name: tcp
+        - containerPort: 8443
+          name: https
+        - containerPort: 9440
+          name: tcp-secure
+        volumeMounts:
+        - name: proton-data
+          mountPath: /var/lib/proton
+        - name: proton-config
+          mountPath: /etc/proton-server/config.d/logger.xml
+          subPath: proton-logger.xml
+        - name: proton-config
+          mountPath: /etc/serviceradar/proton-k8s-init.sh
+          subPath: proton-k8s-init.sh
+        - name: proton-config
+          mountPath: /etc/proton-server/config.d/openssl.xml
+          subPath: openssl.xml
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: credentials
+          mountPath: /etc/serviceradar/credentials
+        env:
+        - name: PROTON_LOG_LEVEL
+          value: "error"
+        - name: PROTON_ULIMIT_SKIP
+          value: "true"
+        resources:
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+          requests:
+            cpu: "1"
+            memory: "4Gi"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - |
+              curl -sf "http://localhost:8123/?query=SELECT%201" || 
+              curl -sf "http://default:$(cat /etc/proton-server/generated_password.txt)@localhost:8123/?query=SELECT%201" ||
+              exit 1
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 15
+          failureThreshold: 5
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - |
+              curl -sf "http://localhost:8123/?query=SELECT%201" || 
+              curl -sf "http://default:$(cat /etc/proton-server/generated_password.txt)@localhost:8123/?query=SELECT%201" ||
+              exit 1
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 15
+          failureThreshold: 5
+      volumes:
+      - name: proton-data
+        persistentVolumeClaim:
+          claimName: serviceradar-proton-data
+      - name: proton-config
+        configMap:
+          name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: credentials
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-proton
+spec:
+  selector:
+    app: serviceradar-proton
+  ports:
+  - name: http
+    port: 8123
+    targetPort: http
+  - name: tcp
+    port: 8463
+    targetPort: tcp
+  - name: https
+    port: 8443
+    targetPort: https
+  - name: tcp-secure
+    port: 9440
+    targetPort: tcp-secure
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-proton-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
