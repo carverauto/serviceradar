@@ -4,11 +4,34 @@ kind: ConfigMap
 metadata:
   name: serviceradar-config
 data:
-  cloud.json: |
+  core.json: |
     {
       "listen_addr": ":8090",
       "grpc_addr": ":50052",
-      "db_path": "/var/lib/serviceradar/serviceradar.db",
+      "database": {
+        "addresses": [
+          "serviceradar-proton:9440"
+        ],
+        "name": "default",
+        "username": "default",
+        "password": "0ee256102419f7ee77b2c52467d22f94",
+        "max_conns": 10,
+        "idle_conns": 5,
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/core.pem",
+          "key_file": "/etc/serviceradar/certs/core-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem",
+          "server_name": "proton.serviceradar"
+        },
+        "settings": {
+          "max_execution_time": 60,
+          "output_format_json_quote_64bit_int": 0,
+          "allow_experimental_live_view": 1,
+          "idle_connection_timeout": 600,
+          "join_use_nulls": 1,
+          "input_format_defaults_for_omitted_fields": 1
+        }
+      },
       "alert_threshold": "5m",
       "known_pollers": ["demo-poller"],
       "metrics": {
@@ -19,7 +42,61 @@ data:
         "security": {
           "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "cloud"
+          "role": "core",
+          "server_name": "proton.serviceradar",
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/core.pem",
+            "key_file": "/etc/serviceradar/certs/core-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "client_ca_file": "/etc/serviceradar/certs/root.pem",
+            "skip_verify": false
+          }
+        },
+        "cors": {
+          "allowed_origins": [
+            "*"
+          ],
+          "allow_credentials": true
+        },
+        "auth": {
+          "jwt_secret": "PLACEHOLDER_WILL_BE_REPLACED",
+          "jwt_expiration": "24h",
+          "local_users": {
+            "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
+          }
+        },
+        "nats": {
+          "url": "nats://serviceradar-nats:4222",
+          "max_reconnects": 10,
+          "reconnect_wait": "2s",
+          "drain_timeout": "30s"
+        },
+        "snmp": {
+          "enabled": false,
+          "listen_addr": ":161",
+          "community": "public",
+          "timeout": "5s",
+          "retries": 3
+        },
+        "write_buffer": {
+          "size": 10000,
+          "flush_interval": "5s",
+          "max_retries": 3,
+          "retry_delay": "1s"
+        },
+        "logging": {
+          "level": "info",
+          "debug": false,
+          "output": "stdout",
+          "time_format": "",
+          "otel": {
+            "enabled": false,
+            "endpoint": "127.0.0.1:4317",
+            "service_name": "serviceradar-core",
+            "batch_timeout": "5s",
+            "insecure": true,
+            "headers": {}
+          }
         },
         "webhooks": [
           {
@@ -34,8 +111,8 @@ data:
             ]
           },
           {
-            "enabled": true,
-            "url": "https://discord.com/api/webhooks/1328806609710878730/hquu9vJUHZ9n1EaYQG8fqec6eHrLckXmzp8u0VjTzuE_gRXhArTuiX1ROrpw6MFlICLy",
+            "enabled": false,
+            "url": "https://discord.com/api/webhooks/PLACEHOLDER_WEBHOOK_URL",
             "cooldown": "15m",
             "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
           }
@@ -75,7 +152,7 @@ data:
           ]
         }
       },
-      "cloud_address": "demo.serviceradar.cloud:50052",
+      "cloud_address": "serviceradar-core:8090",
       "listen_addr": "localhost:50053",
       "poll_interval": "30s",
       "poller_id": "demo-poller",
@@ -180,7 +257,28 @@ data:
     #!/bin/bash
     set -e
     
-    echo "[Proton K8s Init] Starting Kubernetes-specific initialization"
+    echo "[Proton K8s Init] Starting Kubernetes-specific initialization with TLS"
+    
+    # Wait for certificates to be available
+    echo "[Proton K8s Init] Waiting for TLS certificates..."
+    timeout=300
+    count=0
+    while [ ! -f /etc/serviceradar/certs/proton.pem ] || [ ! -f /etc/serviceradar/certs/root.pem ]; do
+      if [ $count -ge $timeout ]; then
+        echo "[Proton K8s Init] ERROR: Timeout waiting for certificates"
+        exit 1
+      fi
+      echo "[Proton K8s Init] Waiting for certificates... ($count/$timeout)"
+      sleep 1
+      count=$((count + 1))
+    done
+    echo "[Proton K8s Init] Certificates found!"
+    
+    # Create proton-server certs directory and link certificates  
+    mkdir -p /etc/proton-server/certs
+    ln -sf /etc/serviceradar/certs/proton.pem /etc/proton-server/certs/proton.pem
+    ln -sf /etc/serviceradar/certs/proton-key.pem /etc/proton-server/certs/proton-key.pem
+    ln -sf /etc/serviceradar/certs/root.pem /etc/proton-server/certs/root.pem
     
     # Run only the setup parts of the original init script  
     cp /usr/local/bin/proton-init.sh /tmp/proton-init-original.sh
@@ -191,9 +289,206 @@ data:
     echo "[Proton K8s Init] Running setup portions only (no server start)"
     /tmp/proton-init-original.sh
     
+    # Generate password if not provided
+    if [ -z "$PROTON_PASSWORD" ]; then
+        echo "[Proton K8s Init] Generating random password..."
+        PROTON_PASSWORD=$(openssl rand -hex 16)
+        echo "$PROTON_PASSWORD" > /etc/proton-server/generated_password.txt
+        chmod 600 /etc/proton-server/generated_password.txt
+        echo "[Proton K8s Init] Generated password saved to /etc/proton-server/generated_password.txt"
+        
+        # Also save to shared credentials volume for other services
+        if [ -d "/etc/serviceradar/credentials" ]; then
+            echo "$PROTON_PASSWORD" > /etc/serviceradar/credentials/proton-password
+            chmod 644 /etc/serviceradar/credentials/proton-password
+            echo "[Proton K8s Init] Password also saved to shared credentials volume"
+        fi
+    fi
+    
+    # Create password hash for user config
+    PASSWORD_HASH=$(echo -n "$PROTON_PASSWORD" | sha256sum | awk '{print $1}')
+    
+    # Create user configuration
+    echo "[Proton K8s Init] Configuring default user password..."
+    mkdir -p /etc/proton-server/users.d
+    cat > /etc/proton-server/users.d/default-password.xml << END_OF_XML
+    <proton>
+        <users>
+            <default>
+                <password remove='1' />
+                <password_sha256_hex>${PASSWORD_HASH}</password_sha256_hex>
+                <networks>
+                    <ip>0.0.0.0/0</ip>
+                </networks>
+            </default>
+        </users>
+    </proton>
+    END_OF_XML
+    chmod 600 /etc/proton-server/users.d/default-password.xml
+    
     echo "[Proton K8s Init] Fixing ownership and starting Proton as proton user"
     chown -R proton:proton /var/lib/proton
     find /etc/proton-server/ -type f ! -path "*/config.d/logger.xml" -exec chown proton:proton {} \;
     find /etc/proton-server/ -type d -exec chown proton:proton {} \;
     
     exec su -s /bin/bash proton -c "/usr/bin/proton server --config-file=/etc/proton-server/config.yaml"
+
+  config.yaml: |
+    # Proton Server Configuration for Kubernetes
+    logger:
+      level: error
+      log: /var/log/proton-server/proton-server.log
+      errorlog: /var/log/proton-server/proton-server.err.log
+      size: 1000M
+      count: 10
+
+    # Listen on all interfaces for Kubernetes
+    listen_host: 0.0.0.0
+
+    # HTTP port for queries
+    snapshot_server_http_port: 8123
+
+    # Native TCP port (non-secure)
+    snapshot_server_tcp_port: 8463
+
+    # HTTPS port with TLS
+    https_port: 8443
+
+    # Native TCP port with TLS - this is what serviceradar-core connects to
+    tcp_port_secure: 9440
+
+    # Enable telemetry (required for MetaStoreServer)
+    telemetry_enabled: true
+    telemetry_interval_ms: 300000
+
+    # Server settings
+    max_connections: 4096
+    keep_alive_timeout: 3
+    max_thread_pool_size: 10000
+    max_server_memory_usage_to_ram_ratio: 0.9
+
+    # Cache settings
+    uncompressed_cache_size: 8589934592
+    mark_cache_size: 5368709120
+    mmap_cache_size: 1000
+    compiled_expression_cache_size: 134217728
+
+    # TLS Configuration
+    openSSL:
+      server:
+        # Proton server certificates
+        certificateFile: /etc/proton-server/certs/proton.pem
+        privateKeyFile: /etc/proton-server/certs/proton-key.pem
+        caConfig: /etc/proton-server/certs/root.pem
+        verificationMode: relaxed
+        loadDefaultCAFile: false
+        cacheSessions: false
+        disableProtocols: 'sslv2,sslv3'
+        preferServerCiphers: true
+      client:
+        loadDefaultCAFile: true
+        cacheSessions: true
+        disableProtocols: 'sslv2,sslv3'
+        preferServerCiphers: true
+        invalidCertificateHandler:
+          name: AcceptCertificateHandler
+
+    # Path configuration
+    path: /var/lib/proton
+
+    # Users and access control
+    user_directories:
+      users_xml:
+        path: /etc/proton-server/users.d/default-password.xml
+
+  openssl.xml: |
+    <?xml version="1.0"?>
+    <proton>
+        <openSSL>
+            <server>
+                <certificateFile>/etc/proton-server/certs/proton.pem</certificateFile>
+                <privateKeyFile>/etc/proton-server/certs/proton-key.pem</privateKeyFile>
+                <caConfig>/etc/proton-server/certs/root.pem</caConfig>
+                <verificationMode>relaxed</verificationMode>
+                <loadDefaultCAFile>false</loadDefaultCAFile>
+                <cacheSessions>false</cacheSessions>
+                <disableProtocols>sslv2,sslv3</disableProtocols>
+                <preferServerCiphers>true</preferServerCiphers>
+            </server>
+            <client>
+                <loadDefaultCAFile>true</loadDefaultCAFile>
+                <cacheSessions>true</cacheSessions>
+                <disableProtocols>sslv2,sslv3</disableProtocols>
+                <preferServerCiphers>true</preferServerCiphers>
+                <invalidCertificateHandler>
+                    <name>AcceptCertificateHandler</name>
+                </invalidCertificateHandler>
+            </client>
+        </openSSL>
+    </proton>
+
+  core-k8s-init.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "🔑 Using API_KEY: ${API_KEY:0:8}... (${#API_KEY} chars)"
+    echo "🔐 Using JWT_SECRET: ${JWT_SECRET:0:8}... (${#JWT_SECRET} chars)"
+    
+    # Default configuration path
+    CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/core.json}"
+    echo "Using configuration from $CONFIG_PATH"
+    
+    # Get Proton password from Kubernetes secret (loaded as env var)
+    if [ -n "$PROTON_PASSWORD" ]; then
+        echo "Found Proton password from Kubernetes secret"
+    else
+        echo "Warning: PROTON_PASSWORD environment variable not found"
+    fi
+    
+    # If PROTON_PASSWORD is available, update the config file
+    if [ -n "$PROTON_PASSWORD" ] && [ -f "$CONFIG_PATH" ]; then
+        echo "Updating configuration with Proton password..."
+        # Create a copy of the config with the password injected
+        cp "$CONFIG_PATH" /tmp/core-original.json
+        jq --arg pwd "$PROTON_PASSWORD" '.database.password = $pwd' /tmp/core-original.json > /tmp/core.json
+        CONFIG_PATH="/tmp/core.json"
+    fi
+    
+    # Wait for Proton to be ready
+    if [ "${WAIT_FOR_PROTON:-false}" = "true" ]; then
+        PROTON_TLS_ADDR="${PROTON_HOST:-serviceradar-proton}:9440"
+        PROTON_HTTP_ADDR="${PROTON_HOST:-serviceradar-proton}:8123"
+        echo "Waiting for Proton TLS port at $PROTON_TLS_ADDR..."
+        for i in {1..30}; do
+            # First check if TLS port is listening (using openssl to test TLS connectivity)
+            if echo "QUIT" | openssl s_client -connect $PROTON_TLS_ADDR -cert /etc/serviceradar/certs/core.pem -key /etc/serviceradar/certs/core-key.pem -CAfile /etc/serviceradar/certs/root.pem -servername proton.serviceradar -quiet > /dev/null 2>&1; then
+                echo "Proton TLS port is ready!"
+                # Also verify HTTP for initialization queries (optional)
+                if [ -n "$PROTON_PASSWORD" ]; then
+                    if curl -sf "http://default:${PROTON_PASSWORD}@$PROTON_HTTP_ADDR/?query=SELECT%201" > /dev/null 2>&1; then
+                        echo "Proton HTTP authentication is working!"
+                    else
+                        echo "TLS is working, HTTP auth may not be ready yet but proceeding..."
+                    fi
+                else
+                    echo "Warning: No password found for Proton authentication"
+                fi
+                break
+            fi
+            echo "Waiting for Proton TLS... ($i/30)"
+            sleep 2
+        done
+    fi
+    
+    # Initialize database if requested
+    if [ "${INIT_DB:-false}" = "true" ]; then
+        echo "Initializing database tables..."
+    fi
+    
+    echo "🔍 Final environment check:"
+    echo "  API_KEY: ${API_KEY:0:8}... (${#API_KEY} chars)"
+    echo "  JWT_SECRET: ${JWT_SECRET:0:8}... (${#JWT_SECRET} chars)"
+    echo "  AUTH_ENABLED: ${AUTH_ENABLED:-true}"
+    
+    # Start the core service
+    exec /usr/local/bin/serviceradar-core --config="$CONFIG_PATH"

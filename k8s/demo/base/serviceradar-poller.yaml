@@ -25,7 +25,7 @@ spec:
         - name: SERVICERADAR_CONFIG_PATH
           value: "/etc/serviceradar/poller.json"
         - name: SERVICERADAR_CLOUD_ADDR
-          value: "serviceradar-cloud:50051"
+          value: "serviceradar-core:8090"
         - name: SERVICERADAR_NODE_ID
           valueFrom:
             fieldRef:
