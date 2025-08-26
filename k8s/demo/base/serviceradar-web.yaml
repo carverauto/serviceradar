@@ -1,0 +1,95 @@
+# base/serviceradar-web.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-web
+  template:
+    metadata:
+      labels:
+        app: serviceradar-web
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      initContainers:
+      # Wait for Core to be ready
+      - name: wait-for-core
+        image: busybox:1.36
+        command: ['sh', '-c']
+        args:
+          - |
+            echo "Waiting for Core to be ready..."
+            until nc -z serviceradar-core 8090; do
+              echo "Core not ready, waiting..."
+              sleep 5
+            done
+            echo "Core is ready!"
+      containers:
+      - name: web
+        image: ghcr.io/carverauto/serviceradar-web:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: NEXT_PUBLIC_API_URL
+          value: "http://serviceradar-nginx/api"
+        - name: NEXT_INTERNAL_API_URL
+          value: "http://serviceradar-core:8090"
+        - name: AUTH_ENABLED
+          value: "true"
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: jwt-secret
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-certs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-web
+spec:
+  selector:
+    app: serviceradar-web
+  ports:
+  - name: http
+    port: 3000
+    targetPort: http
