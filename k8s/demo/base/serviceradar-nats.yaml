@@ -1,0 +1,123 @@
+# base/serviceradar-nats.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-nats
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-nats
+  template:
+    metadata:
+      labels:
+        app: serviceradar-nats
+    spec:
+      containers:
+      - name: nats
+        image: nats:latest
+        ports:
+        - containerPort: 4222
+          name: client
+        - containerPort: 8222
+          name: monitoring
+        - containerPort: 6222
+          name: cluster
+        command: ["nats-server", "--config", "/etc/nats/nats-server.conf"]
+        volumeMounts:
+        - name: nats-config
+          mountPath: /etc/nats
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: nats-data
+          mountPath: /data
+        resources:
+          limits:
+            memory: "2Gi"
+            cpu: "1"
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /varz
+            port: 8222
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      initContainers:
+      # Wait for certificates to be available
+      - name: wait-for-certs
+        image: busybox:1.36
+        command: ['sh', '-c']
+        args:
+          - |
+            echo "Waiting for certificates from proton pod..."
+            while [ ! -f /certs/root.pem ]; do
+              echo "Certificates not found, waiting..."
+              sleep 5
+            done
+            echo "Certificates found, copying to shared volume..."
+            cp -r /certs/* /etc/serviceradar/certs/
+        volumeMounts:
+        - name: proton-certs
+          mountPath: /certs
+          readOnly: true
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+      volumes:
+      - name: nats-config
+        configMap:
+          name: serviceradar-config
+          items:
+          - key: nats.conf
+            path: nats-server.conf
+      - name: cert-data
+        emptyDir: {}
+      - name: proton-certs
+        persistentVolumeClaim:
+          claimName: serviceradar-certs-pvc
+      - name: nats-data
+        persistentVolumeClaim:
+          claimName: serviceradar-nats-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-nats
+spec:
+  selector:
+    app: serviceradar-nats
+  ports:
+  - name: client
+    port: 4222
+    targetPort: client
+  - name: monitoring
+    port: 8222
+    targetPort: monitoring
+  - name: cluster
+    port: 6222
+    targetPort: cluster
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-nats-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Shared certificates PVC for all services
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-certs-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi

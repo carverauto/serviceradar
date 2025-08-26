@@ -2,21 +2,102 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: serviceradar-cloud
+  name: serviceradar-ingress
   annotations:
     cert-manager.io/cluster-issuer: "carverauto-issuer"
-    external-dns.alpha.kubernetes.io/hostname: "demo.serviceradar.cloud"
+    external-dns.alpha.kubernetes.io/hostname: "demo-staging.serviceradar.cloud"
     metallb.universe.tf/allow-shared-ip: "true"
     metallb.universe.tf/address-pool: k3s-pool
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+    nginx.ingress.kubernetes.io/proxy-busy-buffers-size: "256k"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
 spec:
   rules:
-  - host: demo.serviceradar.cloud
+  - host: demo-staging.serviceradar.cloud
     http:
       paths:
+      # Static assets from Next.js
+      - path: /_next
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      
+      # WebSocket streaming endpoint
+      - path: /api/stream
+        pathType: Exact
+        backend:
+          service:
+            name: serviceradar-core
+            port:
+              number: 8090
+      
+      # API routes handled by Next.js
+      - path: /api/auth
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/nodes
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/status
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/pollers
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/devices
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      
+      # Backend API routes (catch-all for core service)
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-core
+            port:
+              number: 8090
+      
+      # Auth API routes
+      - path: /auth
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-core
+            port:
+              number: 8090
+      
+      # Main app (default)
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-cloud
+            name: serviceradar-web
             port:
-              name: http
+              number: 3000
