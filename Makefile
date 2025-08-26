@@ -15,8 +15,8 @@
 # Go configuration
 GO ?= go
 GOBIN ?= $$($(GO) env GOPATH)/bin
-GOLANGCI_LINT ?= $(GOBIN)/golangci-lint
-GOLANGCI_LINT_VERSION ?= v2.0.2
+GOLANGCI_LINT ?= golangci-lint
+GOLANGCI_LINT_VERSION ?= v2.4.0
 
 # Rust configuration
 CARGO ?= cargo
@@ -66,8 +66,8 @@ tidy: ## Tidy and format Go code
 
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
-	@echo "$(COLOR_BOLD)Installing golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"
-	@test -f $(GOLANGCI_LINT) || curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$($(GO) env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
+	@echo "$(COLOR_BOLD)Checking golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"
+	@which $(GOLANGCI_LINT) > /dev/null || (echo "golangci-lint not found, please install it" && exit 1)
 
 .PHONY: lint
 lint: get-golangcilint ## Run linting checks
