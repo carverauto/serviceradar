@@ -1,0 +1,147 @@
+# base/serviceradar-proton.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-proton
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-proton
+  template:
+    metadata:
+      labels:
+        app: serviceradar-proton
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      initContainers:
+      # Init container to generate certificates
+      - name: cert-generator
+        image: alpine:3.20
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            apk add --no-cache openssl bash
+            mkdir -p /certs
+            cd /certs
+            
+            # Generate Root CA
+            openssl genrsa -out root-key.pem 4096
+            openssl req -new -x509 -sha256 -key root-key.pem -out root.pem \
+              -days 3650 -subj "/C=US/ST=CA/L=San Francisco/O=ServiceRadar/OU=K8s/CN=ServiceRadar Root CA"
+            
+            # Generate Proton certificate
+            openssl genrsa -out proton-key.pem 2048
+            openssl req -new -sha256 -key proton-key.pem -out proton.csr \
+              -subj "/C=US/ST=CA/L=San Francisco/O=ServiceRadar/OU=K8s/CN=proton.serviceradar"
+            openssl x509 -req -in proton.csr -CA root.pem -CAkey root-key.pem \
+              -CAcreateserial -out proton.pem -days 3650 -sha256
+            
+            # Generate Core certificate
+            openssl genrsa -out core-key.pem 2048
+            openssl req -new -sha256 -key core-key.pem -out core.csr \
+              -subj "/C=US/ST=CA/L=San Francisco/O=ServiceRadar/OU=K8s/CN=core.serviceradar"
+            openssl x509 -req -in core.csr -CA root.pem -CAkey root-key.pem \
+              -CAcreateserial -out core.pem -days 3650 -sha256
+            
+            # Generate NATS certificate
+            openssl genrsa -out nats-key.pem 2048
+            openssl req -new -sha256 -key nats-key.pem -out nats.csr \
+              -subj "/C=US/ST=CA/L=San Francisco/O=ServiceRadar/OU=K8s/CN=nats.serviceradar"
+            openssl x509 -req -in nats.csr -CA root.pem -CAkey root-key.pem \
+              -CAcreateserial -out nats.pem -days 3650 -sha256
+            
+            # Set permissions
+            chmod 644 *.pem
+            rm *.csr
+        volumeMounts:
+        - name: cert-data
+          mountPath: /certs
+      containers:
+      - name: proton
+        image: ghcr.io/carverauto/serviceradar-proton:latest
+        ports:
+        - containerPort: 8123
+          name: http
+        - containerPort: 8463
+          name: native
+        - containerPort: 8443
+          name: https
+        - containerPort: 9440
+          name: native-tls
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: cert-data
+          mountPath: /etc/proton-server/certs
+          readOnly: true
+        - name: proton-data
+          mountPath: /var/lib/proton
+        - name: credentials
+          mountPath: /etc/serviceradar/credentials
+        env:
+        - name: PROTON_LOG_LEVEL
+          value: "error"
+        resources:
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN
+            - IPC_LOCK
+            - SYS_NICE
+        livenessProbe:
+          httpGet:
+            path: /?query=SELECT%201
+            port: 8123
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 10
+      volumes:
+      - name: cert-data
+        emptyDir: {}
+      - name: credentials
+        emptyDir: {}
+      - name: proton-data
+        persistentVolumeClaim:
+          claimName: serviceradar-proton-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-proton
+spec:
+  selector:
+    app: serviceradar-proton
+  ports:
+  - name: http
+    port: 8123
+    targetPort: http
+  - name: native
+    port: 8463
+    targetPort: native
+  - name: https
+    port: 8443
+    targetPort: https
+  - name: native-tls
+    port: 9440
+    targetPort: native-tls
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-proton-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
