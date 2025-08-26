@@ -27,10 +27,11 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // Static errors for err113 compliance
@@ -264,6 +265,7 @@ func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interfac
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
+
 	defer func() { _ = rows.Close() }()
 
 	columnTypes := rows.ColumnTypes()

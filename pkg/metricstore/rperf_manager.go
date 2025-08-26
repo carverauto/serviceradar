@@ -51,6 +51,7 @@ func (m *rperfManagerImpl) StoreRperfMetric(
 	if !rperfResult.Success {
 		log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
 			rperfResult.Target, pollerID, rperfResult.Error)
+
 		return nil
 	}
 

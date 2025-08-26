@@ -21,6 +21,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
@@ -34,8 +37,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
-	"github.com/nats-io/nats.go"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // sysmonMetricBuffer holds sysmon metrics with their associated partition

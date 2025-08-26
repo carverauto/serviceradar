@@ -20,9 +20,10 @@ import (
 	"math"
 	"testing"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/gosnmp/gosnmp"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 func TestSafeInt32(t *testing.T) {

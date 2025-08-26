@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package config provides configuration loading and management utilities with support for file and KV store backends.
 package config
 
 import (
@@ -25,10 +26,11 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/rs/zerolog"
+
 	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/rs/zerolog"
 )
 
 var (

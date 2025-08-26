@@ -270,7 +270,6 @@ func (c *CircuitBreakerHTTPClient) Do(req *http.Request) (*http.Response, error)
 
 		return nil
 	})
-
 	if execErr != nil {
 		// Close response body if we have one but are returning an error
 		if resp != nil {

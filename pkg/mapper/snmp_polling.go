@@ -26,10 +26,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gosnmp/gosnmp"
+
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
-	"github.com/gosnmp/gosnmp"
 )
 
 // safeInt32 safely converts an int to int32, preventing overflow
@@ -102,6 +103,7 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 	if err != nil {
 		e.logger.Error().Str("job_id", job.ID).Str("target", target).Err(err).
 			Msg("Failed to query interfaces")
+
 		return
 	}
 
@@ -705,8 +707,8 @@ func (e *DiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[int]*
 		}
 
 		ifIndexStr := parts[len(parts)-1]
-		ifIndex, err := strconv.Atoi(ifIndexStr)
 
+		ifIndex, err := strconv.Atoi(ifIndexStr)
 		if err != nil {
 			return nil
 		}
@@ -717,7 +719,6 @@ func (e *DiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[int]*
 
 		return nil
 	})
-
 	if err != nil {
 		e.logger.Debug().Err(err).Msg("Failed to walk ifHighSpeed")
 	}
@@ -746,7 +747,6 @@ func (e *DiscoveryEngine) walkIfTable(
 
 		return e.processIfTablePDU(pdu, target, deviceID, ifMap)
 	})
-
 	if err != nil {
 		return fmt.Errorf("failed to walk ifTable: %w", err)
 	}
@@ -759,7 +759,6 @@ func (e *DiscoveryEngine) walkIfTable(
 		err := client.BulkWalk(ifSpeedOIDPrefix, func(pdu gosnmp.SnmpPDU) error {
 			return e.processIfSpeedPDU(pdu, target, ifMap)
 		})
-
 		if err != nil {
 			e.logger.Debug().Err(err).Msg("Specific ifSpeed walk failed")
 		}
@@ -777,8 +776,8 @@ func (e *DiscoveryEngine) processIfSpeedPDU(
 	}
 
 	ifIndexStr := parts[len(parts)-1]
-	ifIndexInt, err := strconv.Atoi(ifIndexStr)
 
+	ifIndexInt, err := strconv.Atoi(ifIndexStr)
 	if err != nil {
 		e.logger.Warn().Str("oid", pdu.Name).Err(err).Msg("Failed to parse ifIndex from OID")
 
@@ -1016,11 +1015,13 @@ func (e *DiscoveryEngine) connectSNMPClient(
 		if err != nil {
 			e.logger.Error().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
 				Msg("Failed to connect SNMP")
+
 			return err
 		}
 	case <-connectCtx.Done():
 		e.logger.Warn().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).
 			Msg("SNMP connect timeout, skipping")
+
 		return fmt.Errorf("connection timeout")
 	}
 
@@ -1098,6 +1099,7 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	if err != nil {
 		e.logger.Error().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
 			Msg("Failed to setup SNMP client")
+
 		return
 	}
 
@@ -1120,6 +1122,7 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	if err != nil {
 		e.logger.Warn().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
 			Msg("Failed to query system info via SNMP, skipping")
+
 		return
 	}
 
@@ -1152,7 +1155,6 @@ func (*DiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, 
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk ipAddrTable: %w", err)
 	}
@@ -1335,7 +1337,6 @@ func (e *DiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, targetIP string, job 
 	err := client.BulkWalk(oidLLDPRemTable, func(pdu gosnmp.SnmpPDU) error {
 		return e.processLLDPRemoteTableEntry(pdu, linkMap, targetIP, job)
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk LLDP table: %w", err)
 	}
@@ -1508,7 +1509,6 @@ func (e *DiscoveryEngine) queryCDP(client *gosnmp.GoSNMP, targetIP string, job *
 	err := client.BulkWalk(oidCDPCacheTable, func(pdu gosnmp.SnmpPDU) error {
 		return e.processCDPPDU(pdu, linkMap, targetIP, job)
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk CDP table: %w", err)
 	}

@@ -84,6 +84,7 @@ func InitializeTracing(ctx context.Context, config TracingConfig) (*trace.Tracer
 
 	// Create TracerProvider options
 	var tpOptions []trace.TracerProviderOption
+
 	tpOptions = append(tpOptions, trace.WithResource(res))
 
 	// Add trace exporter if OTel config is provided

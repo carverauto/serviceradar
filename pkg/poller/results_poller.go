@@ -25,9 +25,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // executeGetResults now routes to the correct method based on service type.
@@ -96,8 +97,8 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 	}
 
 	startTime := time.Now()
-	mergedDevices, finalChunk, metadata, err := rp.processStreamChunks(ctx, stream, req.ServiceName)
 
+	mergedDevices, finalChunk, metadata, err := rp.processStreamChunks(ctx, stream, req.ServiceName)
 	if err != nil {
 		return nil, err
 	}

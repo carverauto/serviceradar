@@ -140,7 +140,9 @@ func (s *Server) processSNMPMetrics(
 }
 
 // parseSNMPTargetStatus parses SNMP target status from JSON details
-func (s *Server) parseSNMPTargetStatus(details json.RawMessage, pollerID string) (map[string]*snmp.TargetStatus, error) {
+func (s *Server) parseSNMPTargetStatus(
+	details json.RawMessage, pollerID string,
+) (map[string]*snmp.TargetStatus, error) {
 	var targetStatusMap map[string]*snmp.TargetStatus
 
 	if err := json.Unmarshal(details, &targetStatusMap); err != nil {
@@ -353,6 +355,7 @@ func (*Server) processRperfResult(result *struct {
 	metadataStr := string(metadataBytes)
 
 	const expectedMetricsCount = 4
+
 	var timeseriesMetrics = make([]*models.TimeseriesMetric, 0, expectedMetricsCount) // Pre-allocate for expected metrics
 
 	const (

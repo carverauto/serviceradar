@@ -31,6 +31,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
+	httpSwagger "github.com/swaggo/http-swagger"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
@@ -41,11 +47,6 @@ import (
 	srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/carverauto/serviceradar/pkg/swagger"
-	"github.com/gorilla/mux"
-	httpSwagger "github.com/swaggo/http-swagger"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -1199,9 +1200,10 @@ func buildDeviceSRQLQuery(params map[string]interface{}) string {
 
 	// Add status filter
 	status := params["status"].(string)
-	if status == "online" {
+	switch status {
+	case "online":
 		whereClauses = append(whereClauses, "is_available = true")
-	} else if status == "offline" {
+	case "offline":
 		whereClauses = append(whereClauses, "is_available = false")
 	}
 

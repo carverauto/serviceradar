@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/mock/gomock"
+
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"go.uber.org/mock/gomock"
 )
 
 func TestNewICMPSweeper(t *testing.T) {

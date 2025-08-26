@@ -19,8 +19,9 @@ package auth
 import (
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/golang-jwt/jwt/v4"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 type Claims struct {

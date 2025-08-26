@@ -70,6 +70,7 @@ func NewInMemoryStore(processor ResultProcessor, log logger.Logger) Store {
 		minShards = 4  // Minimum shards for decent parallelism
 		maxShards = 16 // Maximum shards to avoid excessive overhead
 	)
+
 	shards := runtime.GOMAXPROCS(0)
 	if shards < minShards {
 		shards = minShards
@@ -136,6 +137,7 @@ func (s *InMemoryStore) logShardMetrics() {
 		sizes[i] = len(sh.results)
 		caps[i] = cap(sh.results)
 		total += sizes[i]
+
 		sh.mu.RUnlock()
 	}
 
@@ -150,6 +152,7 @@ func (s *InMemoryStore) logShardMetrics() {
 func (s *InMemoryStore) cleanOldResults() {
 	// Time-aware cleanup: keep items seen in the last N minutes
 	const keepWindow = 30 * time.Minute
+
 	cutoff := time.Now().Add(-keepWindow)
 
 	totalOrig := 0
@@ -209,6 +212,7 @@ func (s *InMemoryStore) SaveHostResult(_ context.Context, result *models.HostRes
 	for i := 0; i < s.shardCount; i++ {
 		sh := s.shards[i]
 		sh.mu.Lock()
+
 		for j := range sh.results {
 			existing := &sh.results[j]
 			if existing.Target.Host != result.Host {
@@ -220,6 +224,7 @@ func (s *InMemoryStore) SaveHostResult(_ context.Context, result *models.HostRes
 				existing.Available = true
 			}
 		}
+
 		sh.mu.Unlock()
 	}
 
@@ -234,6 +239,7 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultF
 	for i := 0; i < s.shardCount; i++ {
 		sh := s.shards[i]
 		sh.mu.RLock()
+
 		for j := range sh.results {
 			r := &sh.results[j]
 			if !s.matchesFilter(r, filter) {
@@ -242,6 +248,7 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultF
 
 			s.processHostResult(r, hostMap)
 		}
+
 		sh.mu.RUnlock()
 	}
 
@@ -347,11 +354,13 @@ func (s *InMemoryStore) processResults() (hostResults map[string]*models.HostRes
 	for i := 0; i < s.shardCount; i++ {
 		sh := s.shards[i]
 		sh.mu.RLock()
+
 		for j := range sh.results {
 			r := &sh.results[j]
 			s.updateLastSweep(r, &lastSweep)
 			s.updateHostAndPortResults(r, hostResults, portCounts)
 		}
+
 		sh.mu.RUnlock()
 	}
 
@@ -450,6 +459,7 @@ func (*InMemoryStore) buildSummary(
 func (s *InMemoryStore) SaveResult(_ context.Context, result *models.Result) error {
 	sh := s.selectShard(result.Target.Host, result.Target.Port, result.Target.Mode)
 	sh.mu.Lock()
+
 	key := resultKey{host: result.Target.Host, port: result.Target.Port, mode: result.Target.Mode}
 
 	if idx, ok := sh.index[key]; ok {
@@ -479,12 +489,14 @@ func (s *InMemoryStore) GetResults(_ context.Context, filter *models.ResultFilte
 	for i := 0; i < s.shardCount; i++ {
 		sh := s.shards[i]
 		sh.mu.RLock()
+
 		for j := range sh.results {
 			r := &sh.results[j]
 			if s.matchesFilter(r, filter) {
 				filtered = append(filtered, *r)
 			}
 		}
+
 		sh.mu.RUnlock()
 	}
 
@@ -514,6 +526,7 @@ func (s *InMemoryStore) PruneResults(_ context.Context, age time.Duration) error
 			r := &sh.results[j]
 			sh.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = j
 		}
+
 		sh.mu.Unlock()
 	}
 

@@ -12,5 +12,6 @@ func SumBE16(b []byte) uint32 {
 	if len(b) == 0 {
 		return 0
 	}
+
 	return sumBE16Ptr(&b[0], len(b))
 }

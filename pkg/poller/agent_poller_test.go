@@ -23,12 +23,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func TestNewAgentPoller(t *testing.T) {
@@ -250,9 +251,10 @@ func TestAgentPoller_ExecuteChecks_WithErrors(t *testing.T) {
 	var workingStatus, failingStatus *proto.ServiceStatus
 
 	for _, status := range statuses {
-		if status.ServiceName == "working-service" {
+		switch status.ServiceName {
+		case "working-service":
 			workingStatus = status
-		} else if status.ServiceName == "failing-service" {
+		case "failing-service":
 			failingStatus = status
 		}
 	}
@@ -306,9 +308,10 @@ func TestAgentPoller_ExecuteResults(t *testing.T) {
 	now := time.Now()
 
 	for _, rp := range ap.resultsPollers {
-		if rp.check.Name == "sweep-service" {
+		switch rp.check.Name {
+		case "sweep-service":
 			rp.lastResults = now // Recent, should not execute
-		} else if rp.check.Name == "sync-service" {
+		case "sync-service":
 			rp.lastResults = now.Add(-time.Hour) // Old, should execute
 		}
 	}

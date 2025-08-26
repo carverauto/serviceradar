@@ -50,21 +50,25 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 
 	go func() {
 		defer wg.Done()
+
 		s.flushMetrics(ctx)
 	}()
 
 	go func() {
 		defer wg.Done()
+
 		s.flushServiceStatuses(ctx)
 	}()
 
 	go func() {
 		defer wg.Done()
+
 		s.flushServices(ctx)
 	}()
 
 	go func() {
 		defer wg.Done()
+
 		s.flushSysmonMetrics(ctx)
 	}()
 

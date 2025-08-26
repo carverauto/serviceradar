@@ -26,9 +26,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/gorilla/mux"
+
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/gorilla/mux"
 )
 
 // fetchMetrics is a generic helper to fetch metrics and handle errors.

@@ -58,6 +58,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	}
 
 	processingStart := time.Now()
+
 	defer func() {
 		r.logger.Debug().
 			Dur("duration", time.Since(processingStart)).

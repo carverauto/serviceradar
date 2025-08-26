@@ -838,6 +838,7 @@ func (s *NetworkSweeper) processConfigUpdate(value []byte) {
 		timestamp, timestampExists := metadataCheck["timestamp"].(string)
 		if timestampExists {
 			s.mu.Lock()
+
 			if s.lastConfigTimestamp == timestamp {
 				s.mu.Unlock()
 				s.logger.Debug().
@@ -1081,6 +1082,7 @@ func (s *NetworkSweeper) combineChunkConfigs(chunkConfigs []unmarshalConfig, chu
 	unmarshalConfig, []string, []models.DeviceTarget) {
 	// Pre-allocate slices with estimated capacity to reduce allocations
 	const estimatedDevicesPerChunk = 1000
+
 	estimatedTotalDevices := chunkCount * estimatedDevicesPerChunk
 
 	combinedNetworks := make([]string, 0, estimatedTotalDevices)
@@ -1512,6 +1514,7 @@ func (s *NetworkSweeper) processResultsStream(ctx context.Context, results <-cha
 
 	// Batch processing configuration
 	const batchSize = 1000
+
 	resultBatch := make([]models.Result, 0, batchSize)
 
 	// Process results as they arrive, respecting context timeout
@@ -2241,6 +2244,7 @@ func (s *NetworkSweeper) finalizeDeviceAggregators(ctx context.Context) {
 	for _, aggregator := range s.deviceResults {
 		aggregators = append(aggregators, aggregator)
 	}
+
 	s.resultsMu.Unlock()
 
 	for _, aggregator := range aggregators {

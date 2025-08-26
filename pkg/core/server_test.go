@@ -25,6 +25,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.uber.org/mock/gomock"
+
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
@@ -35,10 +40,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel"
-	"go.uber.org/mock/gomock"
 )
 
 func TestNewServer(t *testing.T) {
@@ -415,6 +416,7 @@ func verifySweepTestCase(ctx context.Context, t *testing.T, server *Server, svc 
 	require.NoError(t, err)
 
 	var sweepData proto.SweepServiceStatus
+
 	err = json.Unmarshal(svc.Message, &sweepData)
 	require.NoError(t, err)
 
@@ -469,6 +471,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 }`
 
 	var details json.RawMessage
+
 	err := json.Unmarshal([]byte(detailsJSON), &details)
 	require.NoError(t, err)
 

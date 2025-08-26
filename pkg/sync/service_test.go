@@ -17,6 +17,7 @@
 package sync
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,14 +26,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func TestSafeIntToInt32(t *testing.T) {
@@ -222,6 +224,7 @@ func TestSimpleSyncService_GetStatus(t *testing.T) {
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+
 	defer service.Stop(context.Background())
 
 	req := &proto.StatusRequest{
@@ -278,6 +281,7 @@ func TestSimpleSyncService_GetResults(t *testing.T) {
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+
 	defer service.Stop(context.Background())
 
 	devices := []*models.DeviceUpdate{
@@ -366,6 +370,7 @@ func TestSimpleSyncService_writeToKV(t *testing.T) {
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+
 	defer service.Stop(context.Background())
 
 	data := map[string][]byte{
@@ -388,7 +393,7 @@ func TestSimpleSyncService_writeToKV(t *testing.T) {
 			for _, entry := range req.Entries {
 				expectedValue, exists := expectedEntries[entry.Key]
 
-				if !exists || string(entry.Value) != string(expectedValue) {
+				if !exists || !bytes.Equal(entry.Value, expectedValue) {
 					t.Fatalf("unexpected entry: key=%s, value=%s", entry.Key, string(entry.Value))
 				}
 			}
@@ -433,6 +438,7 @@ func TestSimpleSyncService_writeToKV_WithDefaultPrefix(t *testing.T) {
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+
 	defer service.Stop(context.Background())
 
 	data := map[string][]byte{
@@ -487,6 +493,7 @@ func TestSimpleSyncService_writeToKV_EmptyData(t *testing.T) {
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+
 	defer service.Stop(context.Background())
 
 	err = service.writeToKV(ctx, "test-source", map[string][]byte{})
@@ -516,6 +523,7 @@ func TestSimpleSyncService_writeToKV_NilKVClient(t *testing.T) {
 
 	service, err := NewSimpleSyncService(ctx, config, nil, registry, nil, log)
 	require.NoError(t, err)
+
 	defer service.Stop(context.Background())
 
 	data := map[string][]byte{
@@ -561,6 +569,7 @@ func TestSimpleSyncService_createIntegration(t *testing.T) {
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+
 	defer service.Stop(context.Background())
 
 	mockIntegration := NewMockIntegration(ctrl)
@@ -612,6 +621,7 @@ func TestSimpleSyncService_createIntegration_WithExistingValues(t *testing.T) {
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+
 	defer service.Stop(context.Background())
 
 	mockIntegration := NewMockIntegration(ctrl)
@@ -689,6 +699,7 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
+
 	defer service.Stop(context.Background())
 
 	t.Run("empty results", func(t *testing.T) {
@@ -843,6 +854,7 @@ func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 		logger.NewTestLogger(),
 	)
 	require.NoError(t, err)
+
 	defer service.Stop(context.Background())
 
 	// Run discovery

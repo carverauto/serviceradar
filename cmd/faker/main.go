@@ -80,9 +80,7 @@ const (
 	minManyIPs       = 6
 	maxManyIPs       = 10
 
-	// Random string lengths
-	shortRandomLength  = 7
-	mediumRandomLength = 13
+	// Random string lengths (removed unused constants)
 
 	// MacBook models
 	baseMacBookSize      = 13

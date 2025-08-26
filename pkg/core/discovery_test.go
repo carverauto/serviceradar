@@ -53,7 +53,7 @@ func TestNewDiscoveryService(t *testing.T) {
 	assert.NotNil(t, svc)
 
 	// Verify it implements the interface
-	var _ DiscoveryService = svc
+	var _ = svc
 }
 
 func TestProcessSyncResults(t *testing.T) {
@@ -578,6 +578,7 @@ func TestPrepareInterfaceMetadata(t *testing.T) {
 			assert.NotNil(t, result)
 
 			var metadata map[string]string
+
 			err := json.Unmarshal(result, &metadata)
 			require.NoError(t, err)
 
