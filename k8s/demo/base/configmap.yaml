@@ -4,42 +4,81 @@ kind: ConfigMap
 metadata:
   name: serviceradar-config
 data:
-  cloud.json: |
+  # Core service configuration (replaces cloud.json)
+  core.json: |
     {
       "listen_addr": ":8090",
       "grpc_addr": ":50052",
-      "db_path": "/var/lib/serviceradar/serviceradar.db",
       "alert_threshold": "5m",
-      "known_pollers": ["demo-poller"],
+      "known_pollers": ["k8s-poller"],
       "metrics": {
-      "enabled": true,
-      "retention": 100,
-      "max_nodes": 10000
+        "enabled": true,
+        "retention": 100,
+        "max_pollers": 10000
+      },
+      "database": {
+        "addresses": ["serviceradar-proton:9440"],
+        "name": "default",
+        "username": "default",
+        "password": "",
+        "max_conns": 10,
+        "idle_conns": 5,
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/core.pem",
+          "key_file": "/etc/serviceradar/certs/core-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem",
+          "server_name": "proton.serviceradar"
         },
-        "security": {
-          "mode": "mtls",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "cloud"
-        },
-        "webhooks": [
-          {
-            "enabled": false,
-            "url": "https://your-webhook-url",
-            "cooldown": "15m",
-            "headers": [
-              {
-                "key": "Authorization",
-                "value": "Bearer your-token"
-              }
-            ]
-          },
-          {
-            "enabled": true,
-            "url": "https://discord.com/api/webhooks/1328806609710878730/hquu9vJUHZ9n1EaYQG8fqec6eHrLckXmzp8u0VjTzuE_gRXhArTuiX1ROrpw6MFlICLy",
-            "cooldown": "15m",
-            "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
-          }
-        ]
+        "settings": {
+          "max_execution_time": 60,
+          "output_format_json_quote_64bit_int": 0,
+          "allow_experimental_live_view": 1,
+          "idle_connection_timeout": 600,
+          "join_use_nulls": 1,
+          "input_format_defaults_for_omitted_fields": 1
+        }
+      },
+      "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "core",
+        "server_name": "core.serviceradar",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/core.pem",
+          "key_file": "/etc/serviceradar/certs/core-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem",
+          "client_ca_file": "/etc/serviceradar/certs/root.pem",
+          "skip_verify": false
+        }
+      },
+      "cors": {
+        "allowed_origins": ["*"],
+        "allow_credentials": true
+      },
+      "auth": {
+        "jwt_secret": "PLACEHOLDER_WILL_BE_REPLACED",
+        "jwt_expiration": "24h",
+        "local_users": {
+          "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
+        }
+      },
+      "nats": {
+        "url": "nats://serviceradar-nats:4222",
+        "max_reconnects": 10,
+        "reconnect_wait": "2s",
+        "drain_timeout": "30s"
+      },
+      "write_buffer": {
+        "size": 10000,
+        "flush_interval": "5s",
+        "max_retries": 3,
+        "retry_delay": "1s"
+      },
+      "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout"
+      }
     }
 
   poller.json: |
@@ -163,4 +202,123 @@ data:
           ]
         }
       ]
+    }
+
+  # NATS configuration
+  nats.conf: |
+    server_name: nats-serviceradar-k8s
+    listen: 0.0.0.0:4222
+    http: 0.0.0.0:8222
+    
+    jetstream {
+      store_dir: /data/jetstream
+      max_memory_store: 1G
+      max_file_store: 10G
+    }
+    
+    tls {
+      cert_file: "/etc/serviceradar/certs/nats.pem"
+      key_file: "/etc/serviceradar/certs/nats-key.pem"
+      ca_file: "/etc/serviceradar/certs/root.pem"
+      verify: true
+      verify_and_map: true
+    }
+    
+    authorization {
+      users: [
+        {
+          user: "CN=core.serviceradar,OU=K8s,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: { allow: [">"] }
+            subscribe: { allow: [">"] }
+          }
+        }
+      ]
+    }
+    
+    debug: true
+    trace: false
+
+  # Nginx configuration for ingress
+  nginx.conf: |
+    resolver kube-dns.kube-system.svc.cluster.local valid=10s ipv6=off;
+    
+    server {
+        listen 80;
+        server_name _;
+        
+        client_max_body_size 100M;
+        proxy_buffer_size 128k;
+        proxy_buffers 4 256k;
+        proxy_busy_buffers_size 256k;
+        
+        location /_next/ {
+            proxy_pass http://serviceradar-web:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+        
+        location /api/stream {
+            proxy_pass http://serviceradar-core:8090;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Authorization $http_authorization;
+            proxy_set_header X-API-Key $http_x_api_key;
+            proxy_set_header Cookie $http_cookie;
+            
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_read_timeout 86400;
+            proxy_send_timeout 86400;
+            proxy_connect_timeout 60;
+            proxy_buffering off;
+            proxy_cache off;
+        }
+        
+        location ~ ^/api/(auth|nodes|status|pollers|devices|mcp) {
+            proxy_pass http://serviceradar-web:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+        
+        location /api/ {
+            proxy_pass http://serviceradar-core:8090;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Authorization $http_authorization;
+            proxy_set_header X-API-Key $http_x_api_key;
+            proxy_set_header Cookie $http_cookie;
+            
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_cache_bypass $http_upgrade;
+            proxy_read_timeout 86400;
+        }
+        
+        location /auth/ {
+            proxy_pass http://serviceradar-core:8090;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Cookie $http_cookie;
+        }
+        
+        location / {
+            proxy_pass http://serviceradar-web:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
     }
