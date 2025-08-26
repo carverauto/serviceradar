@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"errors"
+	"os"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -20,6 +21,15 @@ type PortAllocator struct {
 
 	// one entry per port; index 0 -> start, index cnt-1 -> end
 	slots []portSlot
+
+	// freeCount tracks how many ports are currently free to avoid O(n)
+	// scans when fully saturated. It is updated on successful Reserve/Release.
+	freeCount atomic.Uint32
+
+	// ports is a buffered channel holding currently-free ports. This becomes
+	// the primary fast path for Reserve/Release under contention, avoiding
+	// full-ring CAS scans.
+	ports chan uint16
 }
 
 type portSlot struct {
@@ -62,6 +72,25 @@ func NewPortAllocator(start, end uint16) *PortAllocator {
 		slots: slots,
 	}
 
+	// Initially, all ports are free
+	a.freeCount.Store(cnt)
+
+	// Mode control via env: SR_PORT_ALLOCATOR=cas|chan (default: chan)
+	mode := os.Getenv("SR_PORT_ALLOCATOR")
+	if mode == "cas" {
+		// CAS mode: do not create channel; Reserve will use CAS scan.
+		a.ports = nil
+	} else {
+		// Channel mode (default)
+		a.ports = make(chan uint16, cnt)
+		for i := uint32(0); i < cnt; i++ {
+			// enqueue all ports as free
+			// Safe conversion: i < cnt where cnt = end - start + 1, so i fits in uint16
+			// #nosec G115 - conversion is safe within port range
+			a.ports <- start + uint16(i)
+		}
+	}
+
 	// seed cursor with randomish value derived from GOMAXPROCS
 	gomaxprocs := runtime.GOMAXPROCS(0)
 	if gomaxprocs < 0 {
@@ -80,44 +109,59 @@ func (a *PortAllocator) Reserve(ctx context.Context) (uint16, error) {
 		return 0, ErrNoPorts
 	}
 
-	// Fast path: one pass over the ring starting at a cursor
-	tryOnce := func() (uint16, bool) {
-		startIdx := a.cursor.Add(1) - 1
+	// If channel mode is disabled, use CAS scan
+	if a.ports == nil {
+		tryOnce := func() (uint16, bool) {
+			startIdx := a.cursor.Add(1) - 1
+			for i := uint32(0); i < a.cnt; i++ {
+				idx := (startIdx + i) % a.cnt
+				s := &a.slots[idx]
 
-		for i := uint32(0); i < a.cnt; i++ {
-			idx := (startIdx + i) % a.cnt
-			s := &a.slots[idx]
-
-			// Claim if free
-			if s.state.CompareAndSwap(0, 1) {
-				return s.port, true
+				if s.state.CompareAndSwap(0, 1) {
+					a.freeCount.Add(^uint32(0)) // -1
+					return s.port, true
+				}
 			}
+
+			return 0, false
 		}
 
-		return 0, false
+		backoff := time.Microsecond
+
+		for {
+			if p, ok := tryOnce(); ok {
+				return p, nil
+			}
+
+			if ctx != nil {
+				select {
+				case <-ctx.Done():
+					return 0, errCtxDone
+				default:
+				}
+			}
+
+			time.Sleep(backoff)
+
+			if backoff < spinMaxBackoff {
+				backoff *= 2
+			}
+		}
 	}
 
-	// Loop with tiny backoff on full contention
-	backoff := time.Microsecond
-
+	// Channel mode
 	for {
-		if p, ok := tryOnce(); ok {
-			return p, nil
-		}
-
-		// nothing free right now
-		if ctx != nil {
-			select {
-			case <-ctx.Done():
-				return 0, errCtxDone
-			default:
+		select {
+		case p := <-a.ports:
+			// Mark slot as used; guard against any accidental duplicates
+			idx := uint32(p - a.start)
+			if a.slots[idx].state.Swap(1) == 0 {
+				a.freeCount.Add(^uint32(0)) // -1
+				return p, nil
 			}
-		}
-
-		time.Sleep(backoff)
-
-		if backoff < spinMaxBackoff {
-			backoff *= 2
+			// If it was already 1, get another port
+		case <-ctx.Done():
+			return 0, errCtxDone
 		}
 	}
 }
@@ -129,7 +173,16 @@ func (a *PortAllocator) Release(port uint16) {
 	}
 
 	idx := uint32(port - a.start)
-	a.slots[idx].state.Store(0)
+	// Only increment freeCount if we actually transitioned from used->free
+	if a.slots[idx].state.Swap(0) == 1 {
+		a.freeCount.Add(1)
+
+		// Return to free list; non-blocking because capacity == cnt
+		select {
+		case a.ports <- port:
+		default:
+		}
+	}
 }
 
 // Available is a heuristic count of currently free ports (O(n)).
@@ -143,4 +196,10 @@ func (a *PortAllocator) Available() int {
 	}
 
 	return free
+}
+
+// Free returns a fast, approximate count of free ports using the atomic
+// counter. It does not scan the slots and is safe for concurrent use.
+func (a *PortAllocator) Free() int {
+	return int(a.freeCount.Load())
 }

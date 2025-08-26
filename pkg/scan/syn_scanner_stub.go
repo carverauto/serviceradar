@@ -55,6 +55,10 @@ type SYNScannerOptions struct {
 	// GlobalRingMemoryMB is the total memory cap (in MB) for all ring buffers
 	// (not used in stub but kept for API compatibility)
 	GlobalRingMemoryMB int
+
+	// Ring tuning (not used in stub but kept for API compatibility)
+	RingReaders       int
+	RingPollTimeoutMs int
 }
 
 var _ Scanner = (*SYNScanner)(nil)

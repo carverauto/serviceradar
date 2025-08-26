@@ -19,6 +19,8 @@ package sweeper
 
 import (
 	"context"
+	"hash/fnv"
+	"runtime"
 	"sync"
 	"time"
 
@@ -35,14 +37,18 @@ type resultKey struct {
 
 const (
 	defaultCleanupInterval = 10 * time.Minute
-	defaultMaxResults      = 100000 // Increased to handle larger networks (was 10000)
+	// Preallocation hint for total results across all shards.
+	// For 60-100k hosts x ~10 ports, expect ~600k-1M entries.
+	defaultMaxResults = 1000000
+	// Minimum per-shard capacity to avoid too-small initial allocations
+	minShardCapacity = 1024
 )
 
 // InMemoryStore implements Store interface for temporary storage.
 type InMemoryStore struct {
-	mu          sync.RWMutex
-	results     []models.Result
-	index       map[resultKey]int // O(1) lookup/update by (host,port,mode)
+	// Sharded to reduce lock contention under high write rates
+	shards      []*storeShard
+	shardCount  int
 	processor   ResultProcessor
 	maxResults  int
 	cleanupDone chan struct{}
@@ -50,21 +56,52 @@ type InMemoryStore struct {
 	logger      logger.Logger
 }
 
+// storeShard holds a partition of results and its own lock.
+type storeShard struct {
+	mu      sync.RWMutex
+	results []models.Result
+	index   map[resultKey]int
+}
+
 // NewInMemoryStore creates a new in-memory store for sweep results.
 func NewInMemoryStore(processor ResultProcessor, log logger.Logger) Store {
-	store := &InMemoryStore{
-		results:     make([]models.Result, 0),
-		index:       make(map[resultKey]int),
+	// Choose shard count based on CPUs for better parallel writes.
+	shards := runtime.GOMAXPROCS(0)
+	if shards < 4 {
+		shards = 4
+	}
+
+	if shards > 16 {
+		shards = 16
+	}
+
+	s := &InMemoryStore{
+		shards:      make([]*storeShard, shards),
+		shardCount:  shards,
 		processor:   processor,
 		maxResults:  defaultMaxResults,
 		cleanupDone: make(chan struct{}),
 		logger:      log,
 	}
 
-	// Start cleanup goroutine
-	go store.periodicCleanup()
+	// Pre-allocate per-shard capacity to reduce growslice.
+	// We divide the max across shards; this is a hint, not a hard cap.
+	perCap := defaultMaxResults / shards
+	if perCap < minShardCapacity {
+		perCap = minShardCapacity
+	}
 
-	return store
+	for i := 0; i < shards; i++ {
+		s.shards[i] = &storeShard{
+			results: make([]models.Result, 0, perCap),
+			index:   make(map[resultKey]int, perCap),
+		}
+	}
+
+	// Start cleanup goroutine
+	go s.periodicCleanup()
+
+	return s
 }
 
 func (s *InMemoryStore) periodicCleanup() {
@@ -76,43 +113,77 @@ func (s *InMemoryStore) periodicCleanup() {
 		case <-s.cleanupDone:
 			return
 		case <-ticker.C:
+			// Emit shard metrics before/after cleanup to observe load and retention
+			s.logShardMetrics()
 			s.cleanOldResults()
 		}
 	}
 }
 
-func (s *InMemoryStore) cleanOldResults() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// logShardMetrics logs per-shard sizes and capacities for visibility under load.
+func (s *InMemoryStore) logShardMetrics() {
+	sizes := make([]int, s.shardCount)
+	caps := make([]int, s.shardCount)
+	total := 0
 
+	for i := 0; i < s.shardCount; i++ {
+		sh := s.shards[i]
+		sh.mu.RLock()
+		sizes[i] = len(sh.results)
+		caps[i] = cap(sh.results)
+		total += sizes[i]
+		sh.mu.RUnlock()
+	}
+
+	s.logger.Debug().
+		Int("shards", s.shardCount).
+		Int("total_results", total).
+		Ints("shard_sizes", sizes).
+		Ints("shard_caps", caps).
+		Msg("InMemoryStore shard metrics")
+}
+
+func (s *InMemoryStore) cleanOldResults() {
 	// Time-aware cleanup: keep items seen in the last N minutes
 	const keepWindow = 30 * time.Minute
 	cutoff := time.Now().Add(-keepWindow)
 
-	originalCount := len(s.results)
-	filtered := s.results[:0] // reuse underlying array for efficiency
+	totalOrig := 0
+	totalRemoved := 0
 
-	for i := range s.results {
-		if s.results[i].LastSeen.After(cutoff) {
-			filtered = append(filtered, s.results[i])
+	for i := 0; i < s.shardCount; i++ {
+		sh := s.shards[i]
+		sh.mu.Lock()
+
+		originalCount := len(sh.results)
+		totalOrig += originalCount
+		filtered := sh.results[:0]
+
+		for j := range sh.results {
+			if sh.results[j].LastSeen.After(cutoff) {
+				filtered = append(filtered, sh.results[j])
+			}
 		}
+
+		sh.results = filtered
+		removed := originalCount - len(sh.results)
+		totalRemoved += removed
+
+		// Rebuild index after filtering
+		sh.index = make(map[resultKey]int, len(sh.results))
+		for j := range sh.results {
+			r := &sh.results[j]
+			sh.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = j
+		}
+
+		sh.mu.Unlock()
 	}
 
-	s.results = filtered
-	removedCount := originalCount - len(s.results)
-
-	// Rebuild index after filtering
-	s.index = make(map[resultKey]int, len(s.results))
-	for i := range s.results {
-		r := &s.results[i]
-		s.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = i
-	}
-
-	if removedCount > 0 {
+	if totalRemoved > 0 {
 		s.logger.Debug().
-			Int("originalCount", originalCount).
-			Int("removedCount", removedCount).
-			Int("remainingCount", len(s.results)).
+			Int("originalCount", totalOrig).
+			Int("removedCount", totalRemoved).
+			Int("remainingCount", totalOrig-totalRemoved).
 			Dur("keepWindow", keepWindow).
 			Msg("Cleaned old results by LastSeen")
 	}
@@ -130,25 +201,22 @@ func (s *InMemoryStore) Close() error {
 // for the given host. For in-memory store, we'll store the latest host
 // result for each host.
 func (s *InMemoryStore) SaveHostResult(_ context.Context, result *models.HostResult) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Rare path; scan all shards for matching host entries and update timestamps.
+	for i := 0; i < s.shardCount; i++ {
+		sh := s.shards[i]
+		sh.mu.Lock()
+		for j := range sh.results {
+			existing := &sh.results[j]
+			if existing.Target.Host != result.Host {
+				continue
+			}
 
-	for i := range s.results {
-		// use index to avoid copying the entire Result struct
-		existing := &s.results[i]
-
-		// guard clause to skip non-matching hosts
-		if existing.Target.Host != result.Host {
-			continue
+			existing.LastSeen = result.LastSeen
+			if result.Available {
+				existing.Available = true
+			}
 		}
-
-		// Found matching host; update LastSeen and availability
-		existing.LastSeen = result.LastSeen
-		if result.Available {
-			existing.Available = true
-		}
-
-		return nil
+		sh.mu.Unlock()
 	}
 
 	return nil
@@ -156,19 +224,21 @@ func (s *InMemoryStore) SaveHostResult(_ context.Context, result *models.HostRes
 
 // GetHostResults returns a slice of HostResult based on the provided filter.
 func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultFilter) ([]models.HostResult, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	hostMap := make(map[string]*models.HostResult)
 
-	// First pass: collect base host information
-	for i := range s.results {
-		r := &s.results[i]
-		if !s.matchesFilter(r, filter) {
-			continue
-		}
+	// First pass: collect base host information across shards
+	for i := 0; i < s.shardCount; i++ {
+		sh := s.shards[i]
+		sh.mu.RLock()
+		for j := range sh.results {
+			r := &sh.results[j]
+			if !s.matchesFilter(r, filter) {
+				continue
+			}
 
-		s.processHostResult(r, hostMap)
+			s.processHostResult(r, hostMap)
+		}
+		sh.mu.RUnlock()
 	}
 
 	return s.convertToSlice(hostMap), nil
@@ -259,9 +329,6 @@ func (*InMemoryStore) convertToSlice(hostMap map[string]*models.HostResult) []mo
 
 // GetSweepSummary gathers high-level sweep information.
 func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*models.SweepSummary, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	hostMap, portCounts, lastSweep := s.processResults()
 
 	summary := s.buildSummary(hostMap, portCounts, lastSweep)
@@ -273,10 +340,15 @@ func (s *InMemoryStore) processResults() (hostResults map[string]*models.HostRes
 	hostResults = make(map[string]*models.HostResult)
 	portCounts = make(map[int]int)
 
-	for i := range s.results {
-		r := &s.results[i]
-		s.updateLastSweep(r, &lastSweep)
-		s.updateHostAndPortResults(r, hostResults, portCounts)
+	for i := 0; i < s.shardCount; i++ {
+		sh := s.shards[i]
+		sh.mu.RLock()
+		for j := range sh.results {
+			r := &sh.results[j]
+			s.updateLastSweep(r, &lastSweep)
+			s.updateHostAndPortResults(r, hostResults, portCounts)
+		}
+		sh.mu.RUnlock()
 	}
 
 	return hostResults, portCounts, lastSweep
@@ -372,34 +444,44 @@ func (*InMemoryStore) buildSummary(
 
 // SaveResult stores (or updates) a Result in memory.
 func (s *InMemoryStore) SaveResult(_ context.Context, result *models.Result) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	sh := s.selectShard(result.Target.Host, result.Target.Port, result.Target.Mode)
+	sh.mu.Lock()
 	key := resultKey{host: result.Target.Host, port: result.Target.Port, mode: result.Target.Mode}
-	if idx, ok := s.index[key]; ok {
-		// Update existing result
-		s.results[idx] = *result
+
+	if idx, ok := sh.index[key]; ok {
+		sh.results[idx] = *result
+		sh.mu.Unlock()
+
 		return nil
 	}
-	// Append new
-	s.results = append(s.results, *result)
-	s.index[key] = len(s.results) - 1
+
+	sh.results = append(sh.results, *result)
+	sh.index[key] = len(sh.results) - 1
+	sh.mu.Unlock()
 
 	return nil
 }
 
 // GetResults returns a list of Results that match the filter.
 func (s *InMemoryStore) GetResults(_ context.Context, filter *models.ResultFilter) ([]models.Result, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// Estimate capacity by summing per-shard lengths (racy but only for hinting)
+	est := 0
+	for i := 0; i < s.shardCount; i++ {
+		est += len(s.shards[i].results)
+	}
 
-	filtered := make([]models.Result, 0, len(s.results))
-
-	for i := range s.results {
-		r := &s.results[i]
-		if s.matchesFilter(r, filter) {
-			filtered = append(filtered, *r)
+	filtered := make([]models.Result, 0, est)
+	// Iterate shards
+	for i := 0; i < s.shardCount; i++ {
+		sh := s.shards[i]
+		sh.mu.RLock()
+		for j := range sh.results {
+			r := &sh.results[j]
+			if s.matchesFilter(r, filter) {
+				filtered = append(filtered, *r)
+			}
 		}
+		sh.mu.RUnlock()
 	}
 
 	return filtered, nil
@@ -407,25 +489,28 @@ func (s *InMemoryStore) GetResults(_ context.Context, filter *models.ResultFilte
 
 // PruneResults removes old results that haven't been seen since 'age' ago.
 func (s *InMemoryStore) PruneResults(_ context.Context, age time.Duration) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	cutoff := time.Now().Add(-age)
-	newResults := make([]models.Result, 0, len(s.results))
 
-	for i := range s.results {
-		r := &s.results[i]
-		if r.LastSeen.After(cutoff) {
-			newResults = append(newResults, *r)
+	for i := 0; i < s.shardCount; i++ {
+		sh := s.shards[i]
+		sh.mu.Lock()
+		newResults := make([]models.Result, 0, len(sh.results))
+
+		for j := range sh.results {
+			r := &sh.results[j]
+			if r.LastSeen.After(cutoff) {
+				newResults = append(newResults, *r)
+			}
 		}
-	}
 
-	s.results = newResults
-	// Rebuild index after pruning
-	s.index = make(map[resultKey]int, len(s.results))
-	for i := range s.results {
-		r := &s.results[i]
-		s.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = i
+		sh.results = newResults
+		sh.index = make(map[resultKey]int, len(sh.results))
+
+		for j := range sh.results {
+			r := &sh.results[j]
+			sh.index[resultKey{host: r.Target.Host, port: r.Target.Port, mode: r.Target.Mode}] = j
+		}
+		sh.mu.Unlock()
 	}
 
 	return nil
@@ -496,4 +581,34 @@ func checkAvailability(result *models.Result, filter *models.ResultFilter) bool 
 	}
 
 	return filter.Available == nil || result.Available == *filter.Available
+}
+
+// selectShard hashes the key to a shard index.
+func (s *InMemoryStore) selectShard(host string, port int, mode models.SweepMode) *storeShard {
+	// FNV-1a over host | mode | port
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(host))
+	_, _ = h.Write([]byte(string(mode)))
+	// mix in port (2 bytes) to avoid collisions across same host/mode
+	var b [2]byte
+	// Safe conversion: network ports are 0-65535, fits in uint16
+	var u uint16
+	if port < 0 || port > 65535 {
+		u = 0 // Default to port 0 for invalid ports
+	} else {
+		u = uint16(port) // #nosec G115 - port is validated to be within uint16 range
+	}
+
+	b[0] = byte(u)
+	b[1] = byte(u >> 8)
+	_, _ = h.Write(b[:])
+
+	// Safe conversion: shardCount should be positive and reasonable
+	if s.shardCount <= 0 {
+		return s.shards[0] // Default to first shard if invalid count
+	}
+
+	idx := int(h.Sum32() % uint32(s.shardCount)) // #nosec G115 - shardCount is validated to be positive
+
+	return s.shards[idx]
 }
