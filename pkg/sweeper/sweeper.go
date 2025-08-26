@@ -2371,7 +2371,13 @@ func setCountsOnlyResults(deviceUpdate *models.DeviceUpdate, results []*models.R
 // setDetailedResults sets detailed metadata for small result sets
 func setDetailedResults(deviceUpdate *models.DeviceUpdate, results []*models.Result, total int) {
 	builders := initializeBuilders(total)
-	states := &buildStates{}
+	states := &buildStates{
+		firstIP:          true,
+		firstAvailable:   true,
+		firstUnavailable: true,
+		firstICMP:        true,
+		firstTCP:         true,
+	}
 	availableCount := 0
 
 	for _, result := range results {
@@ -2426,7 +2432,9 @@ func processIPLists(result *models.Result, builders *scanBuilders, states *build
 
 	builders.allIPs.WriteString(result.Target.Host)
 
-	states.firstIP = false
+	if states.firstIP {
+		states.firstIP = false
+	}
 
 	if result.Available {
 		if !states.firstAvailable {
@@ -2435,7 +2443,9 @@ func processIPLists(result *models.Result, builders *scanBuilders, states *build
 
 		builders.availableIPs.WriteString(result.Target.Host)
 
-		states.firstAvailable = false
+		if states.firstAvailable {
+			states.firstAvailable = false
+		}
 	} else {
 		if !states.firstUnavailable {
 			builders.unavailableIPs.WriteByte(',')
@@ -2443,7 +2453,9 @@ func processIPLists(result *models.Result, builders *scanBuilders, states *build
 
 		builders.unavailableIPs.WriteString(result.Target.Host)
 
-		states.firstUnavailable = false
+		if states.firstUnavailable {
+			states.firstUnavailable = false
+		}
 	}
 }
 
@@ -2479,7 +2491,9 @@ func buildScanDetails(result *models.Result, builder *strings.Builder, protocol 
 	builder.WriteString(":packet_loss=")
 	fmt.Fprintf(builder, "%.2f", result.PacketLoss)
 
-	*firstFlag = false
+	if *firstFlag {
+		*firstFlag = false
+	}
 }
 
 // buildICMPDetails builds ICMP scan details
