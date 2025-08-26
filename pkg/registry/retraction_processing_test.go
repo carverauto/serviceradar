@@ -21,12 +21,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // testRetractionEvent helper function to test retraction events for different sources

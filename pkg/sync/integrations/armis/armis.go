@@ -54,6 +54,7 @@ func (d *DefaultArmisIntegration) GetAccessToken(ctx context.Context) (string, e
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
+
 		return "", fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode,
 			resp.StatusCode, string(bodyBytes))
 	}

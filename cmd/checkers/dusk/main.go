@@ -22,11 +22,12 @@ import (
 	"fmt"
 	"log"
 
+	"google.golang.org/grpc" // For the underlying gRPC server type
+
 	"github.com/carverauto/serviceradar/pkg/checker/dusk"
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc" // For the underlying gRPC server type
 )
 
 var (

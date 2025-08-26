@@ -30,12 +30,14 @@ import (
 type Interval string
 
 const (
+	// Minute represents a one-minute aggregation interval.
 	Minute Interval = "minute"
 	Hour   Interval = "hour"
 	Day    Interval = "day"
 )
 
 // SNMPCollector implements the Collector interface.
+// SNMPCollector implements the Collector interface for SNMP data collection.
 type SNMPCollector struct {
 	target     *Target
 	client     SNMPClient
@@ -50,9 +52,11 @@ type SNMPCollector struct {
 }
 
 // SNMPVersion represents supported SNMP versions.
+// SNMPVersion represents the supported SNMP protocol versions.
 type SNMPVersion string
 
 const (
+	// Version1 represents SNMP version 1.
 	Version1  SNMPVersion = "v1"
 	Version2c SNMPVersion = "v2c"
 	Version3  SNMPVersion = "v3"
@@ -62,6 +66,7 @@ const (
 type DataType string
 
 const (
+	// TypeCounter represents a monotonically increasing counter value.
 	TypeCounter DataType = "counter"
 	TypeGauge   DataType = "gauge"
 	TypeBoolean DataType = "boolean"
@@ -73,6 +78,7 @@ const (
 // Duration is a wrapper for time.Duration that implements JSON marshaling.
 type Duration time.Duration
 
+// UnmarshalJSON implements the json.Unmarshaler interface for Duration.
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
 
@@ -132,6 +138,7 @@ type OIDConfig struct {
 	Delta    bool     `json:"delta,omitempty"` // Calculate change between samples
 }
 
+// SNMPService implements both the Service interface and proto.AgentServiceServer.
 // SNMPService implements both the Service interface and proto.AgentServiceServer.
 type SNMPService struct {
 	proto.UnimplementedAgentServiceServer

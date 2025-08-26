@@ -27,11 +27,12 @@ import (
 	"syscall"
 	"time"
 
+	ggrpc "google.golang.org/grpc" // Alias for Google's gRPC
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	ggrpc "google.golang.org/grpc" // Alias for Google's gRPC
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 // Static errors for err113 compliance

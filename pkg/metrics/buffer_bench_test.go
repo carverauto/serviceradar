@@ -83,6 +83,7 @@ func (b *ChannelBuffer) GetPoints() []models.MetricPoint {
 // benchmarkBuffer is a helper for buffer benchmarks
 func benchmarkBuffer(b *testing.B, buffer MetricStore) {
 	b.Helper()
+
 	now := time.Now()
 
 	b.Run("Add", func(b *testing.B) {

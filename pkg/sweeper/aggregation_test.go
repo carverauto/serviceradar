@@ -21,11 +21,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // Test helper function to create a test sweeper with mocks
@@ -63,7 +64,7 @@ func createTestSweeper(t *testing.T) (*NetworkSweeper, *MockStore, *MockResultPr
 }
 
 func TestExtractDeviceID(t *testing.T) {
-	sweeper, _, _, _, ctrl := createTestSweeper(t)
+	sweeper, _, _, _, ctrl := createTestSweeper(t) //nolint:dogsled // test helper returns many values
 	defer ctrl.Finish()
 
 	tests := []struct {
@@ -119,7 +120,7 @@ func TestExtractDeviceID(t *testing.T) {
 }
 
 func TestPrepareDeviceAggregators(t *testing.T) {
-	sweeper, _, _, _, ctrl := createTestSweeper(t)
+	sweeper, _, _, _, ctrl := createTestSweeper(t) //nolint:dogsled // test helper returns many values
 	defer ctrl.Finish()
 
 	targets := []models.Target{
@@ -188,7 +189,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 }
 
 func TestShouldAggregateResult(t *testing.T) {
-	sweeper, _, _, _, ctrl := createTestSweeper(t)
+	sweeper, _, _, _, ctrl := createTestSweeper(t) //nolint:dogsled // test helper returns many values
 	defer ctrl.Finish()
 
 	// Set up aggregator for device 123
@@ -246,7 +247,7 @@ func TestShouldAggregateResult(t *testing.T) {
 }
 
 func TestAddResultToAggregator(t *testing.T) {
-	sweeper, _, _, _, ctrl := createTestSweeper(t)
+	sweeper, _, _, _, ctrl := createTestSweeper(t) //nolint:dogsled // test helper returns many values
 	defer ctrl.Finish()
 
 	// Set up aggregator
@@ -277,7 +278,7 @@ func TestAddResultToAggregator(t *testing.T) {
 }
 
 func TestAddAggregatedScanResults(t *testing.T) {
-	sweeper, _, _, _, ctrl := createTestSweeper(t)
+	sweeper, _, _, _, ctrl := createTestSweeper(t) //nolint:dogsled // test helper returns many values
 	defer ctrl.Finish()
 
 	results := []*models.Result{

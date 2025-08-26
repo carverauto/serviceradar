@@ -52,7 +52,7 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 		page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, query.Query, nextPage, a.PageSize)
 		if err != nil {
 			// Check if this is a 401 error and retry with a fresh token
-			if !(strings.Contains(err.Error(), "401") && strings.Contains(err.Error(), "Invalid access token")) {
+			if !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "Invalid access token") {
 				a.Logger.Error().
 					Err(err).
 					Str("query_label", query.Label).

@@ -77,7 +77,7 @@ func (m *MCPServer) registerDeviceTools() {
 			}
 
 			if deviceIDArgs.DeviceID == "" {
-				return nil, fmt.Errorf("device_id is required")
+				return nil, errDeviceIDRequired
 			}
 
 			// Build SRQL query for specific device

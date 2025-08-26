@@ -24,11 +24,12 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // Static errors for err113 compliance
@@ -108,7 +109,9 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	}
 
 	// Process host results and update devices
-	return s.processSweepHostUpdates(ctx, span, svc.Name, sweepData, contextPollerID, contextPartition, contextAgentID, now)
+	return s.processSweepHostUpdates(
+		ctx, span, svc.Name, sweepData, contextPollerID, contextPartition, contextAgentID, now,
+	)
 }
 
 // initSweepProcessingTrace initializes tracing attributes for sweep data processing
@@ -780,13 +783,14 @@ func (s *Server) registerServiceDevice(
 
 	var primaryServiceID string
 
-	if agentID == "" {
+	switch agentID {
+	case "":
 		serviceTypes = []string{"poller"}
 		primaryServiceID = pollerID
-	} else if agentID == pollerID {
+	case pollerID:
 		serviceTypes = []string{"poller", "agent"}
 		primaryServiceID = pollerID
-	} else {
+	default:
 		serviceTypes = []string{"agent"}
 		primaryServiceID = agentID
 	}

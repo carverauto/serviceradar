@@ -8,9 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	v1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
@@ -22,6 +19,10 @@ import (
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepbv1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 const (

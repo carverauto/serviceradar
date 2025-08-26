@@ -3,10 +3,11 @@ package srql_test
 import (
 	"testing"
 
-	"github.com/carverauto/serviceradar/pkg/srql/models"
-	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/srql/models"
+	"github.com/carverauto/serviceradar/pkg/srql/parser"
 )
 
 // testSimpleQuery helper function for testing simple show device queries
@@ -586,6 +587,7 @@ func TestTimeClauseSupport(t *testing.T) {
 			expectedProton:     "SELECT * FROM table(logs) WHERE timestamp >= NOW() - INTERVAL 5 DAYS",
 			expectedClickHouse: "SELECT * FROM logs WHERE timestamp >= NOW() - INTERVAL 5 DAYS",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
 				validateLastTimeClause(t, query, err, models.Show, models.Logs, 5, models.UnitDays)
 			},
 		},
@@ -595,6 +597,7 @@ func TestTimeClauseSupport(t *testing.T) {
 			expectedProton:     "SELECT * FROM table(events) WHERE timestamp >= NOW() - INTERVAL 2 HOURS",
 			expectedClickHouse: "SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 2 HOURS",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
 				validateLastTimeClause(t, query, err, models.Show, models.Events, 2, models.UnitHours)
 			},
 		},

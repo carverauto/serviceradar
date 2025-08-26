@@ -22,9 +22,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 func TestCircuitBreaker_BasicFunctionality(t *testing.T) {

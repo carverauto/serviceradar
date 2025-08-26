@@ -19,8 +19,9 @@ package auth
 import (
 	"context"
 
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/markbates/goth"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 //go:generate mockgen -destination=mock_auth.go -package=auth github.com/carverauto/serviceradar/pkg/core/auth AuthService

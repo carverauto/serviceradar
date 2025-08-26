@@ -105,12 +105,14 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 
 	// Check cache
 	job.mu.RLock()
+
 	if sites, exists := job.uniFiSiteCache[apiConfig.BaseURL]; exists {
 		job.mu.RUnlock()
 		e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).Msg("Using cached sites")
 
 		return sites, nil
 	}
+
 	job.mu.RUnlock()
 
 	client := e.createUniFiClient(apiConfig)
@@ -135,7 +137,11 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch sites from %s: %w", apiConfig.Name, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			// Log error but don't return it since we're in defer
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("sites request for %s failed with status: %d", apiConfig.Name, resp.StatusCode)
@@ -155,6 +161,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 
 	// Cache sites
 	job.mu.Lock()
+
 	if job.uniFiSiteCache == nil {
 		job.uniFiSiteCache = make(map[string][]UniFiSite)
 	}
@@ -177,6 +184,7 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
 			e.logger.Warn().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
 				Msg("Skipping incomplete UniFi API config")
+
 			continue
 		}
 
@@ -184,6 +192,7 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 		if err != nil {
 			e.logger.Error().Str("job_id", job.ID).Str("api_name", apiConfig.Name).Err(err).
 				Msg("Failed to fetch sites")
+
 			continue
 		}
 
@@ -192,6 +201,7 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 			if err != nil {
 				e.logger.Error().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
 					Str("site_name", site.Name).Err(err).Msg("Failed to query UniFi API")
+
 				continue
 			}
 
@@ -639,6 +649,7 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body) // Read body for error context
+
 		return nil, fmt.Errorf("devices request for %s, site %s failed with status: %d, body: %s",
 			apiConfig.Name, site.Name, resp.StatusCode, string(bodyBytes))
 	}

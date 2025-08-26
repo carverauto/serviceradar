@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
+
 	"github.com/carverauto/serviceradar/pkg/srql/models"
 	gen "github.com/carverauto/serviceradar/pkg/srql/parser/gen/antlr"
 )

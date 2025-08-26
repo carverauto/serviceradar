@@ -68,13 +68,13 @@ func (kw *DefaultKVWriter) canWriteAsSingleFile(configJSON []byte) bool {
 // writeSingleConfig writes the config as a single file
 func (kw *DefaultKVWriter) writeSingleConfig(ctx context.Context, configJSON []byte) error {
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.AgentID)
+
 	_, err := kw.KVClient.PutMany(ctx, &proto.PutManyRequest{
 		Entries: []*proto.KeyValueEntry{{
 			Key:   configKey,
 			Value: configJSON,
 		}},
 	})
-
 	if err != nil {
 		return fmt.Errorf("failed to write sweep config to %s: %w", configKey, err)
 	}
@@ -160,13 +160,13 @@ func (kw *DefaultKVWriter) writeConfigChunk(
 	}
 
 	chunkKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep_chunk_%d.json", kw.AgentID, chunkIndex)
+
 	_, err := kw.KVClient.PutMany(ctx, &proto.PutManyRequest{
 		Entries: []*proto.KeyValueEntry{{
 			Key:   chunkKey,
 			Value: chunkJSON,
 		}},
 	})
-
 	if err != nil {
 		return fmt.Errorf("failed to write sweep config chunk %d to %s: %w", chunkIndex, chunkKey, err)
 	}
@@ -198,7 +198,6 @@ func (kw *DefaultKVWriter) writeChunkMetadata(ctx context.Context, totalChunks, 
 			Value: metadataJSON,
 		}},
 	})
-
 	if err != nil {
 		kw.Logger.Warn().
 			Err(err).

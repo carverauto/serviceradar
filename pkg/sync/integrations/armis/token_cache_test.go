@@ -80,7 +80,7 @@ func TestCachedTokenProvider_GetAccessToken(t *testing.T) {
 
 		token, err := cached.GetAccessToken(ctx)
 		require.Error(t, err)
-		assert.Equal(t, "", token)
+		assert.Empty(t, token)
 		assert.Contains(t, err.Error(), "auth failed")
 	})
 

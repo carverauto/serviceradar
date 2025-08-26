@@ -26,10 +26,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 func TestBaseProcessor_Cleanup(t *testing.T) {
@@ -810,7 +811,7 @@ func TestBaseProcessor_GetSummaryStream(t *testing.T) {
 		// Compare summaries (excluding hosts slice)
 		assert.Equal(t, regularSummary.TotalHosts, streamingSummary.TotalHosts)
 		assert.Equal(t, regularSummary.AvailableHosts, streamingSummary.AvailableHosts)
-		assert.Equal(t, len(regularSummary.Ports), len(streamingSummary.Ports))
+		assert.Len(t, streamingSummary.Ports, len(regularSummary.Ports))
 
 		// Compare port counts
 		regularPortMap := make(map[int]int)
@@ -841,14 +842,14 @@ func TestBaseProcessor_GetSummaryStream(t *testing.T) {
 			streamedHostMap[host.Host] = host
 		}
 
-		assert.Equal(t, len(regularHostMap), len(streamedHostMap))
+		assert.Len(t, streamedHostMap, len(regularHostMap))
 
 		// Verify each host matches
 		for hostIP, regularHost := range regularHostMap {
 			streamedHost, exists := streamedHostMap[hostIP]
 			assert.True(t, exists, "Host %s should exist in streamed results", hostIP)
 			assert.Equal(t, regularHost.Available, streamedHost.Available)
-			assert.Equal(t, len(regularHost.PortResults), len(streamedHost.PortResults))
+			assert.Len(t, streamedHost.PortResults, len(regularHost.PortResults))
 		}
 	})
 }

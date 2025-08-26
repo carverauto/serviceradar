@@ -27,11 +27,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
+	"github.com/timeplus-io/proton-go-driver/v2"
+
 	"github.com/carverauto/serviceradar/pkg/srql"
 	"github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
-	"github.com/gorilla/websocket"
-	"github.com/timeplus-io/proton-go-driver/v2"
 )
 
 var (
@@ -178,6 +179,7 @@ func reader(conn *websocket.Conn, cancel context.CancelFunc) {
 	defer func() {
 		_ = conn.Close() // Ignore error in cleanup
 	}()
+
 	conn.SetReadLimit(WebSocketReadLimit)
 
 	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {

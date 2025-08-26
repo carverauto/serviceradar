@@ -21,8 +21,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 type contextKey string

@@ -23,6 +23,8 @@ import (
 	"os"
 	"time"
 
+	"go.opentelemetry.io/otel"
+
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
@@ -34,7 +36,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
-	"go.opentelemetry.io/otel"
 )
 
 const (

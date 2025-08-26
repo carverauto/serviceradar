@@ -24,11 +24,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // TestRunDiscoveryErrorAggregation validates that runDiscovery properly aggregates errors
@@ -148,6 +149,7 @@ func TestRunDiscoveryErrorAggregation(t *testing.T) {
 				logger.NewTestLogger(),
 			)
 			require.NoError(t, err)
+
 			defer s.Stop(context.Background())
 
 			// Setup mocks
@@ -353,6 +355,7 @@ func TestSafelyRunTask(t *testing.T) {
 
 			go func() {
 				s.safelyRunTask(context.Background(), "test task", tt.task)
+
 				done <- true
 			}()
 
@@ -430,8 +433,10 @@ func TestErrorChannelOverflow(t *testing.T) {
 
 	// Try to send one more error - should not block
 	done := make(chan bool)
+
 	go func() {
 		s.sendError(errors.New("overflow error"))
+
 		done <- true
 	}()
 
@@ -517,10 +522,12 @@ func TestGracefulShutdown(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Task did not start in time")
 	}
+
 	assert.True(t, taskStarted.Load(), "Task should have started")
 
 	// Stop the service with a timeout to prevent test hanging
 	stopDone := make(chan error, 1)
+
 	go func() {
 		stopDone <- s.Stop(context.Background())
 	}()

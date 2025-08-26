@@ -20,6 +20,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +32,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	discovery "github.com/carverauto/serviceradar/proto/discovery"
+)
+
+var (
+	// ErrMapperAddressEmpty indicates mapper address configuration is missing
+	ErrMapperAddressEmpty = errors.New("mapper address cannot be empty")
 )
 
 // MapperConfig represents the configuration for the mapper service
@@ -118,7 +124,7 @@ func loadMapperConfig(ctx context.Context, log logger.Logger) (*MapperConfig, er
 	}
 
 	if cfg.Address == "" {
-		return nil, fmt.Errorf("mapper address cannot be empty")
+		return nil, ErrMapperAddressEmpty
 	}
 
 	log.Info().Str("configPath", configPath).Str("address", cfg.Address).Msg("Loaded mapper config")

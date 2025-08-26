@@ -39,6 +39,10 @@ const (
 	checkTypeGRPC    = "grpc"
 )
 
+var (
+	errStreamStatusNotReceived = fmt.Errorf("core indicated streaming status report was not received")
+)
+
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
 func safeIntToInt32(val int) int32 {
 	if val > math.MaxInt32 {
@@ -109,6 +113,7 @@ func (p *Poller) Start(ctx context.Context) error {
 	ticker := p.clock.Ticker(interval)
 
 	defer ticker.Stop()
+
 	p.logger.Info().Dur("interval", interval).Msg("Starting poller")
 
 	p.startWg.Add(1)
@@ -622,7 +627,7 @@ func (p *Poller) handleStreamResponse(stream proto.PollerService_StreamStatusCli
 	}
 
 	if !response.Received {
-		return fmt.Errorf("core indicated streaming status report was not received")
+		return errStreamStatusNotReceived
 	}
 
 	p.logger.Info().
@@ -672,7 +677,6 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 	}
 
 	enhancedJSON, err := json.Marshal(enhancedPayload)
-
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal enhanced service payload: %w", err)
 	}

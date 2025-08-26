@@ -28,13 +28,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // TestArmisIntegration_Fetch_NoUpdater tests the fetch logic when no updater is configured.
@@ -1133,6 +1134,7 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 
 	// Create test data with 2500 devices (should be split into 5 batches of 500 each)
 	const totalDevices = 2500
+
 	devices := make([]Device, totalDevices)
 	sweepResults := make([]SweepResult, totalDevices)
 
@@ -1181,6 +1183,7 @@ func TestBatchUpdateDeviceAttributes_SingleBatch(t *testing.T) {
 
 	// Create test data with 100 devices (single batch)
 	const totalDevices = 100
+
 	devices := make([]Device, totalDevices)
 	sweepResults := make([]SweepResult, totalDevices)
 
@@ -1230,6 +1233,7 @@ func TestBatchUpdateDeviceAttributes_WithCustomBatchSize(t *testing.T) {
 
 	// Create test data with 750 devices (should be split into 3 batches of 250 each)
 	const totalDevices = 750
+
 	devices := make([]Device, totalDevices)
 	sweepResults := make([]SweepResult, totalDevices)
 

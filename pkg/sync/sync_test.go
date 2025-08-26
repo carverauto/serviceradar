@@ -23,14 +23,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // Mock implementation for proto.KVServiceClient

@@ -27,6 +27,7 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+// Check implements the checker interface by returning the overall status of all SNMP targets.
 func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -105,6 +106,7 @@ func (s *SNMPService) Start(ctx context.Context) error {
 	return nil
 }
 
+// Stop shuts down the SNMP service and all its collectors.
 func (s *SNMPService) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

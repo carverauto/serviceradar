@@ -21,13 +21,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	proto "github.com/carverauto/serviceradar/proto/discovery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	proto "github.com/carverauto/serviceradar/proto/discovery"
 )
 
 func TestNewGRPCDiscoveryService(t *testing.T) {

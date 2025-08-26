@@ -61,7 +61,7 @@ func TestGetDefaultConfig(t *testing.T) {
 
 	assert.NotNil(t, config)
 	assert.True(t, config.Enabled)
-	assert.Equal(t, "", config.APIKey)
+	assert.Empty(t, config.APIKey)
 }
 
 func TestMCPServerStop(t *testing.T) {

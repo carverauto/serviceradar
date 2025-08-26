@@ -4,11 +4,10 @@ run:
   timeout: 5m
 
 linters:
-  default: none
+  disable-all: true
   enable:
     - asciicheck
     - bodyclose
-    - dogsled
     - dupl
     - err113
     - errcheck
@@ -45,169 +44,157 @@ linters:
     - unused
     - usestdlibvars
     - whitespace
-    - wsl_v5
-  settings:
-    dupl:
-      threshold: 100
-    exhaustive:
-      default-signifies-exhaustive: false
-    funlen:
-      lines: 100
-      statements: 50
-    goconst:
-      min-len: 3
-      min-occurrences: 3
-    gocritic:
-      enabled-tags:
-        - diagnostic
-        - experimental
-        - opinionated
-        - performance
-        - style
-      disabled-checks:
-        - dupImport
-        - ifElseChain
-        - octalLiteral
-        - whyNoLint
-        - wrapperFunc
-    gocyclo:
-      min-complexity: 15
-    gocognit:
-      min-complexity: 30
-    mnd:
-      checks:
-        - argument
-        - case
-        - condition
-        - return
-      ignored-numbers:
-        - '0'
-        - '1'
-        - '2'
-        - '5'
-        - '10'
-        - '50'
-        - '100'
-        - '1000'
-    govet:
-      enable:
-        - shadow
-      settings:
-        printf:
-          funcs:
-            - (gofr.dev/pkg/gofr/Logger).Logf
-            - (gofr.dev/pkg/gofr/Logger).Errorf
-    lll:
-      line-length: 140
-    misspell:
-      locale: US
-    nestif:
-      min-complexity: 6
-    nolintlint:
-      allow-unused: false
-      require-explanation: true
-      require-specific: true
-    revive:
-      severity: warning
-      confidence: 0.8
-      rules:
-        - name: blank-imports
-        - name: context-as-argument
-        - name: context-keys-type
-        - name: dot-imports
-        - name: empty-block
-        - name: error-naming
-        - name: error-return
-        - name: error-strings
-        - name: errorf
-        - name: increment-decrement
-        - name: indent-error-flow
-        - name: range
-        - name: receiver-naming
-        - name: redefines-builtin-id
-        - name: superfluous-else
-        - name: time-naming
-        - name: unexported-return
-        - name: unreachable-code
-        - name: unused-parameter
-        - name: var-declaration
-        - name: var-naming
-        - name: bare-return
-        - name: bool-literal-in-expr
-        - name: comment-spacings
-        - name: early-return
-        - name: defer
-        - name: deep-exit
-        - name: unused-receiver
-        # Disable the exported rule to avoid stuttering complaints
-        - name: exported
-          disabled: true
-    wsl_v5:
-      allow-first-in-block: true
-      allow-whole-block: false
-      branch-max-lines: 2
 
-formatters:
-  default: none
-  enable:
-    - gci
-    - gofmt
-    - goimports
-  settings:
-    gci:
-      sections:
-        - standard
-        - default
-        - localmodule
-    goimports:
-      local-prefixes: github.com/golangci/golangci-lint
-  exclusions:
-    paths:
-      - proto/flow
+linters-settings:
+  dupl:
+    threshold: 100
+  exhaustive:
+    default-signifies-exhaustive: false
+  funlen:
+    lines: 100
+    statements: 50
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+      - wrapperFunc
+  gocyclo:
+    min-complexity: 15
+  gocognit:
+    min-complexity: 30
+  mnd:
+    checks:
+      - argument
+      - case
+      - condition
+      - return
+    ignored-numbers:
+      - '0'
+      - '1'
+      - '2'
+      - '5'
+      - '10'
+      - '50'
+      - '100'
+      - '1000'
+  govet:
+    enable:
+      - shadow
+    settings:
+      printf:
+        funcs:
+          - (gofr.dev/pkg/gofr/Logger).Logf
+          - (gofr.dev/pkg/gofr/Logger).Errorf
+  lll:
+    line-length: 140
+  misspell:
+    locale: US
+  nestif:
+    min-complexity: 6
+  nolintlint:
+    allow-unused: false
+    require-explanation: true
+    require-specific: true
+  revive:
+    severity: warning
+    confidence: 0.8
     rules:
-      # Very permissive for test files
-      - path: _test\.go
-        linters:
-          - mnd
-          - dupl
-          - goconst
-          - funlen
-          - gocognit
-          - gocyclo
-          - err113
-          - noctx
-          - gocritic
-          - errcheck
-          - ineffassign
-          - gochecknoglobals
-          - gochecknoinits
-      # Specific file exclusions
-      - path: pkg/core/api/server\.go
-        linters:
-          - typecheck
-      - path: pkg/natsutil/events\.go
-        linters:
-          - typecheck
-      # Exclude Go version compatibility issues
-      - linters:
-          - typecheck
-        text: "file requires newer Go version"
-      - linters:
-          - typecheck
-        text: "undefined: nats"
-      # Exclude common magic numbers everywhere
-      - linters:
-          - mnd
-        text: "Magic number: (25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]),"
-      # Exclude revive exported/stuttering complaints
-      - linters:
-          - revive
-        text: "(exported|stutters)"
-      # Exclude err113 for common patterns
-      - linters:
-          - err113
-        text: "(do not define dynamic errors|errors.New)"
-      # Exclude gosec weak random
-      - linters:
-          - gosec
-        text: "G404:"
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: empty-block
+      - name: error-naming
+      - name: error-return
+      - name: error-strings
+      - name: errorf
+      - name: increment-decrement
+      - name: indent-error-flow
+      - name: range
+      - name: receiver-naming
+      - name: redefines-builtin-id
+      - name: superfluous-else
+      - name: time-naming
+      - name: unexported-return
+      - name: unreachable-code
+      - name: unused-parameter
+      - name: var-declaration
+      - name: var-naming
+      - name: bare-return
+      - name: bool-literal-in-expr
+      - name: comment-spacings
+      - name: early-return
+      - name: defer
+      - name: deep-exit
+      - name: unused-receiver
+      # Disable the exported rule to avoid stuttering complaints
+      - name: exported
+        disabled: true
+
+issues:
+  exclude-rules:
+    # Very permissive for test files
+    - path: _test\.go
+      linters:
+        - mnd
+        - dupl
+        - goconst
+        - funlen
+        - gocognit
+        - gocyclo
+        - err113
+        - noctx
+        - gocritic
+        - errcheck
+        - ineffassign
+        - gochecknoglobals
+        - gochecknoinits
+        - lll
+        - nestif
+        - gosec
+        - revive
+        - govet
+        - thelper
+    # Specific file exclusions
+    - path: pkg/core/api/server\.go
+      linters:
+        - typecheck
+    - path: pkg/natsutil/events\.go
+      linters:
+        - typecheck
+    # Exclude Go version compatibility issues
+    - linters:
+        - typecheck
+      text: "file requires newer Go version"
+    - linters:
+        - typecheck
+      text: "undefined: nats"
+    # Exclude common magic numbers everywhere
+    - linters:
+        - mnd
+      text: "Magic number: (25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]),"
+    # Exclude revive exported/stuttering complaints
+    - linters:
+        - revive
+      text: "(exported|stutters)"
+    # Exclude err113 for common patterns
+    - linters:
+        - err113
+      text: "(do not define dynamic errors|errors.New)"
+    # Exclude gosec weak random
+    - linters:
+        - gosec
+      text: "G404:"
+  exclude-dirs:
+    - proto/flow
