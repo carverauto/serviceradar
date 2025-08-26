@@ -3211,9 +3211,6 @@ func largestContiguous(res map[uint16]struct{}, lo, hi uint16) (uint16, uint16, 
 	return 0, 0, false
 }
 
-func getLocalIPAndInterface() (net.IP, string, error) {
-	return getLocalIPAndInterfaceWithTarget("8.8.8.8:80")
-}
 
 func getLocalIPAndInterfaceWithTarget(target string) (net.IP, string, error) {
 	if target == "" {
@@ -3274,11 +3271,6 @@ func getLocalIPAndInterfaceWithTarget(target string) (net.IP, string, error) {
 	return nil, "", fmt.Errorf("could not find interface for local IP %s", localIP)
 }
 
-func getLocalIP() (net.IP, error) {
-	ip, _, err := getLocalIPAndInterface()
-
-	return ip, err
-}
 
 // Host to network short/long byte order conversions
 func htons(n uint16) uint16 {
@@ -3289,4 +3281,3 @@ func htons(n uint16) uint16 {
 	return n
 }
 
-func ntohs(n uint16) uint16 { return htons(n) }
