@@ -17,6 +17,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -786,14 +787,14 @@ func randSerial() (*big.Int, error) {
 
 // userExists checks if a user exists.
 func userExists(username string) bool {
-	_, err := exec.Command("getent", "passwd", username).Output()
+	_, err := exec.CommandContext(context.Background(), "getent", "passwd", username).Output()
 
 	return err == nil
 }
 
 // getUID retrieves user UID.
 func getUID(username string) int {
-	cmd := exec.Command("id", "-u", username)
+	cmd := exec.CommandContext(context.Background(), "id", "-u", username)
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -810,7 +811,7 @@ func getUID(username string) int {
 
 // getGID retrieves user GID.
 func getGID(username string) int {
-	cmd := exec.Command("id", "-g", username)
+	cmd := exec.CommandContext(context.Background(), "id", "-g", username)
 
 	output, err := cmd.Output()
 	if err != nil {

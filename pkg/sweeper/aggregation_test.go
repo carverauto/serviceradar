@@ -30,7 +30,7 @@ import (
 )
 
 // Test helper function to create a test sweeper with mocks
-func createTestSweeper(t *testing.T) (*NetworkSweeper, *MockStore, *MockResultProcessor, *MockDeviceRegistryService, *gomock.Controller) {
+func createTestSweeper(t *testing.T) (*NetworkSweeper, *MockStore, *MockResultProcessor, *MockDeviceRegistryService, *gomock.Controller) { //nolint:unparam
 	t.Helper()
 	ctrl := gomock.NewController(t)
 

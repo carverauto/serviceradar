@@ -147,7 +147,7 @@ func TestNewSimpleSyncService(t *testing.T) {
 				require.NoError(t, err)
 				assert.NotNil(t, service)
 
-				defer service.Stop(context.Background())
+				defer func() { _ = service.Stop(context.Background()) }()
 
 				assert.Equal(t, tt.config.AgentID, service.config.AgentID)
 				assert.Equal(t, tt.config.PollerID, service.config.PollerID)
@@ -225,7 +225,7 @@ func TestSimpleSyncService_GetStatus(t *testing.T) {
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	req := &proto.StatusRequest{
 		ServiceName: "test-service",
@@ -282,7 +282,7 @@ func TestSimpleSyncService_GetResults(t *testing.T) {
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	devices := []*models.DeviceUpdate{
 		{
@@ -371,7 +371,7 @@ func TestSimpleSyncService_writeToKV(t *testing.T) {
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	data := map[string][]byte{
 		"key1": []byte("value1"),
@@ -439,7 +439,7 @@ func TestSimpleSyncService_writeToKV_WithDefaultPrefix(t *testing.T) {
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	data := map[string][]byte{
 		"key1": []byte("value1"),
@@ -494,7 +494,7 @@ func TestSimpleSyncService_writeToKV_EmptyData(t *testing.T) {
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	err = service.writeToKV(ctx, "test-source", map[string][]byte{})
 	assert.NoError(t, err)
@@ -524,7 +524,7 @@ func TestSimpleSyncService_writeToKV_NilKVClient(t *testing.T) {
 	service, err := NewSimpleSyncService(ctx, config, nil, registry, nil, log)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	data := map[string][]byte{
 		"key1": []byte("value1"),
@@ -570,7 +570,7 @@ func TestSimpleSyncService_createIntegration(t *testing.T) {
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	mockIntegration := NewMockIntegration(ctrl)
 	factory := func(_ context.Context, cfg *models.SourceConfig, _ logger.Logger) Integration {
@@ -622,7 +622,7 @@ func TestSimpleSyncService_createIntegration_WithExistingValues(t *testing.T) {
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	mockIntegration := NewMockIntegration(ctrl)
 	factory := func(_ context.Context, cfg *models.SourceConfig, _ logger.Logger) Integration {
@@ -700,7 +700,7 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	t.Run("empty results", func(t *testing.T) {
 		req := &proto.ResultsRequest{
@@ -789,7 +789,7 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 			ServiceType: "sync",
 		}
 
-		var expectedErr = errors.New("stream send error")
+		expectedErr := errors.New("stream send error")
 		stream := &MockResultsStream{ctx: ctx, sendErr: expectedErr}
 
 		err := service.StreamResults(req, stream)
@@ -855,7 +855,7 @@ func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	// Run discovery
 	ctx := context.Background()
@@ -917,7 +917,7 @@ func TestSimpleSyncService_runArmisUpdates_OverlapPrevention(t *testing.T) {
 	service, err := NewSimpleSyncService(ctx, config, mockKVClient, registry, mockGRPCClient, log)
 	require.NoError(t, err)
 
-	defer service.Stop(context.Background())
+	defer func() { _ = service.Stop(context.Background()) }()
 
 	reconcileCallCount := 0
 	reconcileStarted := make(chan struct{})

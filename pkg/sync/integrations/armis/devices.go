@@ -568,7 +568,7 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Log full response
 	bodyBytes, err := io.ReadAll(resp.Body)

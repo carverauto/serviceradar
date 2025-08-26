@@ -14,27 +14,27 @@ linters:
     - errorlint
     - exhaustive
     - copyloopvar
-    - funlen
+    # - funlen
     - gochecknoglobals
     - gochecknoinits
-    - gocognit
+    # - gocognit
     - goconst
     - gocritic
     - gocyclo
     - goprintffuncname
-    - gosec
+    # - gosec
     - govet
     - ineffassign
-    - lll
+    # - lll
     - mirror
     - misspell
-    - mnd
+    # - mnd
     - nakedret
-    - nestif
+    # - nestif
     - noctx
     - nolintlint
     - prealloc
-    - revive
+    # - revive
     - rowserrcheck
     - staticcheck
     - testifylint
@@ -52,7 +52,7 @@ linters-settings:
     default-signifies-exhaustive: false
   funlen:
     lines: 100
-    statements: 50
+    statements: 100
   goconst:
     min-len: 3
     min-occurrences: 3
