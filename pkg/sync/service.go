@@ -41,6 +41,10 @@ const (
 	MaxBatchSize = 500
 )
 
+var (
+	errTaskPanic = errors.New("panic in sync task")
+)
+
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
 func safeIntToInt32(val int) int32 {
 	if val > math.MaxInt32 {
@@ -152,7 +156,7 @@ func (s *SimpleSyncService) safelyRunTask(ctx context.Context, taskName string, 
 	defer s.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			var panicErr = fmt.Errorf("panic in %s: %v", taskName, r)
+			var panicErr = fmt.Errorf("panic in %s: %v: %w", taskName, r, errTaskPanic)
 			s.logger.Error().Err(panicErr).Msg("Recovered from panic")
 			s.sendError(panicErr)
 		}

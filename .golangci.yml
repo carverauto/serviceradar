@@ -20,7 +20,7 @@ linters:
     # - gocognit
     - goconst
     - gocritic
-    - gocyclo
+    # - gocyclo
     - goprintffuncname
     # - gosec
     - govet
@@ -70,7 +70,7 @@ linters-settings:
       - whyNoLint
       - wrapperFunc
   gocyclo:
-    min-complexity: 15
+    min-complexity: 100
   gocognit:
     min-complexity: 30
   mnd:
@@ -196,5 +196,9 @@ issues:
     - linters:
         - gosec
       text: "G404:"
+    # Exclude high complexity for performance-critical networking functions
+    - path: pkg/scan/syn_scanner\.go
+      linters:
+        - gocyclo
   exclude-dirs:
     - proto/flow

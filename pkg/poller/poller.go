@@ -644,13 +644,14 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 
 	var serviceData json.RawMessage
 
-	if originalMessage == "" {
+	switch {
+	case originalMessage == "":
 		p.logger.Warn().Str("serviceType", serviceType).Str("serviceName", serviceName).Msg("Empty message for service")
 
 		serviceData = json.RawMessage("{}")
-	} else if json.Valid([]byte(originalMessage)) {
+	case json.Valid([]byte(originalMessage)):
 		serviceData = json.RawMessage(originalMessage)
-	} else {
+	default:
 		p.logger.Warn().
 			Str("serviceType", serviceType).
 			Str("serviceName", serviceName).
