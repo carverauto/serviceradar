@@ -24,11 +24,12 @@ import (
 	"net"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 	flowpb "github.com/carverauto/serviceradar/proto/flow"
-	"github.com/nats-io/nats.go/jetstream"
-	"google.golang.org/protobuf/proto"
 )
 
 // Processor errors

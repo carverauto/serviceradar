@@ -28,9 +28,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestDeviceResultAggregation(t *testing.T) {
+// Test helper function to create a test sweeper with mocks
+func createTestSweeper(t *testing.T) (*NetworkSweeper, *MockStore, *MockResultProcessor, *MockDeviceRegistryService, *gomock.Controller) {
+	t.Helper()
 	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
 
 	// Create test sweeper with mocks
 	mockStore := NewMockStore(ctrl)
@@ -58,216 +59,303 @@ func TestDeviceResultAggregation(t *testing.T) {
 		deviceResults:  make(map[string]*DeviceResultAggregator),
 	}
 
-	t.Run("extractDeviceID", func(t *testing.T) {
-		tests := []struct {
-			name     string
-			target   models.Target
-			expected string
-		}{
-			{
-				name: "armis device ID",
-				target: models.Target{
+	return sweeper, mockStore, mockProcessor, mockDeviceRegistry, ctrl
+}
+
+func TestExtractDeviceID(t *testing.T) {
+	sweeper, _, _, _, ctrl := createTestSweeper(t)
+	defer ctrl.Finish()
+
+	tests := []struct {
+		name     string
+		target   models.Target
+		expected string
+	}{
+		{
+			name: "armis device ID",
+			target: models.Target{
+				Host: "192.168.1.1",
+				Metadata: map[string]interface{}{
+					"armis_device_id": "12345",
+					"integration_id":  "67890",
+				},
+			},
+			expected: "armis:12345",
+		},
+		{
+			name: "integration ID fallback",
+			target: models.Target{
+				Host: "192.168.1.2",
+				Metadata: map[string]interface{}{
+					"integration_id": "67890",
+				},
+			},
+			expected: "integration:67890",
+		},
+		{
+			name: "no device ID",
+			target: models.Target{
+				Host:     "192.168.1.3",
+				Metadata: map[string]interface{}{},
+			},
+			expected: "",
+		},
+		{
+			name: "nil metadata",
+			target: models.Target{
+				Host:     "192.168.1.4",
+				Metadata: nil,
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sweeper.extractDeviceID(tt.target)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestPrepareDeviceAggregators(t *testing.T) {
+	sweeper, _, _, _, ctrl := createTestSweeper(t)
+	defer ctrl.Finish()
+
+	targets := []models.Target{
+		// Device with multiple IPs (should create aggregator)
+		{
+			Host: "192.168.1.1",
+			Mode: models.ModeICMP,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "123",
+				"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
+				"agent_id":        "test-agent",
+				"poller_id":       "test-poller",
+				"partition":       "test-partition",
+			},
+		},
+		{
+			Host: "192.168.1.2",
+			Mode: models.ModeICMP,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "123",
+				"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
+				"agent_id":        "test-agent",
+				"poller_id":       "test-poller",
+				"partition":       "test-partition",
+			},
+		},
+		{
+			Host: "192.168.1.3",
+			Mode: models.ModeTCP,
+			Port: 80,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "123",
+				"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
+				"agent_id":        "test-agent",
+				"poller_id":       "test-poller",
+				"partition":       "test-partition",
+			},
+		},
+		// Single IP device (should not create aggregator)
+		{
+			Host: "192.168.1.10",
+			Mode: models.ModeICMP,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "456",
+				"all_ips":         "192.168.1.10",
+				"agent_id":        "test-agent",
+				"poller_id":       "test-poller",
+				"partition":       "test-partition",
+			},
+		},
+	}
+
+	sweeper.prepareDeviceAggregators(targets)
+
+	// Should have created aggregator for device 123 (3 targets)
+	assert.Contains(t, sweeper.deviceResults, "armis:123")
+	aggregator := sweeper.deviceResults["armis:123"]
+	assert.Equal(t, "armis:123", aggregator.DeviceID)
+	assert.Equal(t, []string{"192.168.1.1", "192.168.1.2", "192.168.1.3"}, aggregator.ExpectedIPs)
+	assert.Equal(t, "test-agent", aggregator.AgentID)
+	assert.Equal(t, "test-poller", aggregator.PollerID)
+	assert.Equal(t, "test-partition", aggregator.Partition)
+
+	// Should not have created aggregator for device 456 (1 target)
+	assert.NotContains(t, sweeper.deviceResults, "armis:456")
+}
+
+func TestShouldAggregateResult(t *testing.T) {
+	sweeper, _, _, _, ctrl := createTestSweeper(t)
+	defer ctrl.Finish()
+
+	// Set up aggregator for device 123
+	sweeper.deviceResults["armis:123"] = &DeviceResultAggregator{
+		DeviceID: "armis:123",
+	}
+
+	tests := []struct {
+		name     string
+		result   *models.Result
+		expected bool
+	}{
+		{
+			name: "should aggregate - device has aggregator",
+			result: &models.Result{
+				Target: models.Target{
 					Host: "192.168.1.1",
 					Metadata: map[string]interface{}{
-						"armis_device_id": "12345",
-						"integration_id":  "67890",
+						"armis_device_id": "123",
 					},
 				},
-				expected: "armis:12345",
 			},
-			{
-				name: "integration ID fallback",
-				target: models.Target{
-					Host: "192.168.1.2",
+			expected: true,
+		},
+		{
+			name: "should not aggregate - no aggregator",
+			result: &models.Result{
+				Target: models.Target{
+					Host: "192.168.1.10",
 					Metadata: map[string]interface{}{
-						"integration_id": "67890",
+						"armis_device_id": "456",
 					},
 				},
-				expected: "integration:67890",
 			},
-			{
-				name: "no device ID",
-				target: models.Target{
-					Host:     "192.168.1.3",
+			expected: false,
+		},
+		{
+			name: "should not aggregate - no device ID",
+			result: &models.Result{
+				Target: models.Target{
+					Host:     "192.168.1.20",
 					Metadata: map[string]interface{}{},
 				},
-				expected: "",
 			},
-			{
-				name: "nil metadata",
-				target: models.Target{
-					Host:     "192.168.1.4",
-					Metadata: nil,
-				},
-				expected: "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sweeper.shouldAggregateResult(tt.result)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestAddResultToAggregator(t *testing.T) {
+	sweeper, _, _, _, ctrl := createTestSweeper(t)
+	defer ctrl.Finish()
+
+	// Set up aggregator
+	aggregator := &DeviceResultAggregator{
+		DeviceID: "armis:123",
+		Results:  []*models.Result{},
+	}
+	sweeper.deviceResults["armis:123"] = aggregator
+
+	result := &models.Result{
+		Target: models.Target{
+			Host: "192.168.1.1",
+			Mode: models.ModeICMP,
+			Metadata: map[string]interface{}{
+				"armis_device_id": "123",
 			},
-		}
+		},
+		Available:  true,
+		LastSeen:   time.Now(),
+		RespTime:   time.Millisecond * 50,
+		PacketLoss: 0.0,
+	}
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				result := sweeper.extractDeviceID(tt.target)
-				assert.Equal(t, tt.expected, result)
-			})
-		}
-	})
+	sweeper.addResultToAggregator(result)
 
-	t.Run("prepareDeviceAggregators", func(t *testing.T) {
-		targets := []models.Target{
-			// Device with multiple IPs (should create aggregator)
-			{
-				Host: "192.168.1.1",
-				Mode: models.ModeICMP,
-				Metadata: map[string]interface{}{
-					"armis_device_id": "123",
-					"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
-					"agent_id":        "test-agent",
-					"poller_id":       "test-poller",
-					"partition":       "test-partition",
-				},
-			},
-			{
-				Host: "192.168.1.2",
-				Mode: models.ModeICMP,
-				Metadata: map[string]interface{}{
-					"armis_device_id": "123",
-					"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
-					"agent_id":        "test-agent",
-					"poller_id":       "test-poller",
-					"partition":       "test-partition",
-				},
-			},
-			{
-				Host: "192.168.1.3",
-				Mode: models.ModeTCP,
-				Port: 80,
-				Metadata: map[string]interface{}{
-					"armis_device_id": "123",
-					"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
-					"agent_id":        "test-agent",
-					"poller_id":       "test-poller",
-					"partition":       "test-partition",
-				},
-			},
-			// Single IP device (should not create aggregator)
-			{
-				Host: "192.168.1.10",
-				Mode: models.ModeICMP,
-				Metadata: map[string]interface{}{
-					"armis_device_id": "456",
-					"all_ips":         "192.168.1.10",
-					"agent_id":        "test-agent",
-					"poller_id":       "test-poller",
-					"partition":       "test-partition",
-				},
-			},
-		}
+	assert.Len(t, aggregator.Results, 1)
+	assert.Equal(t, result, aggregator.Results[0])
+}
 
-		sweeper.prepareDeviceAggregators(targets)
+func TestAddAggregatedScanResults(t *testing.T) {
+	sweeper, _, _, _, ctrl := createTestSweeper(t)
+	defer ctrl.Finish()
 
-		// Should have created aggregator for device 123 (3 targets)
-		assert.Contains(t, sweeper.deviceResults, "armis:123")
-		aggregator := sweeper.deviceResults["armis:123"]
-		assert.Equal(t, "armis:123", aggregator.DeviceID)
-		assert.Equal(t, []string{"192.168.1.1", "192.168.1.2", "192.168.1.3"}, aggregator.ExpectedIPs)
-		assert.Equal(t, "test-agent", aggregator.AgentID)
-		assert.Equal(t, "test-poller", aggregator.PollerID)
-		assert.Equal(t, "test-partition", aggregator.Partition)
-
-		// Should not have created aggregator for device 456 (1 target)
-		assert.NotContains(t, sweeper.deviceResults, "armis:456")
-	})
-
-	t.Run("shouldAggregateResult", func(t *testing.T) {
-		// Set up aggregator for device 123
-		sweeper.deviceResults["armis:123"] = &DeviceResultAggregator{
-			DeviceID: "armis:123",
-		}
-
-		tests := []struct {
-			name     string
-			result   *models.Result
-			expected bool
-		}{
-			{
-				name: "should aggregate - device has aggregator",
-				result: &models.Result{
-					Target: models.Target{
-						Host: "192.168.1.1",
-						Metadata: map[string]interface{}{
-							"armis_device_id": "123",
-						},
-					},
-				},
-				expected: true,
-			},
-			{
-				name: "should not aggregate - no aggregator",
-				result: &models.Result{
-					Target: models.Target{
-						Host: "192.168.1.10",
-						Metadata: map[string]interface{}{
-							"armis_device_id": "456",
-						},
-					},
-				},
-				expected: false,
-			},
-			{
-				name: "should not aggregate - no device ID",
-				result: &models.Result{
-					Target: models.Target{
-						Host:     "192.168.1.20",
-						Metadata: map[string]interface{}{},
-					},
-				},
-				expected: false,
-			},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				result := sweeper.shouldAggregateResult(tt.result)
-				assert.Equal(t, tt.expected, result)
-			})
-		}
-	})
-
-	t.Run("addResultToAggregator", func(t *testing.T) {
-		// Set up aggregator
-		aggregator := &DeviceResultAggregator{
-			DeviceID: "armis:123",
-			Results:  []*models.Result{},
-		}
-		sweeper.deviceResults["armis:123"] = aggregator
-
-		result := &models.Result{
+	results := []*models.Result{
+		{
 			Target: models.Target{
 				Host: "192.168.1.1",
 				Mode: models.ModeICMP,
-				Metadata: map[string]interface{}{
-					"armis_device_id": "123",
-				},
 			},
 			Available:  true,
-			LastSeen:   time.Now(),
 			RespTime:   time.Millisecond * 50,
 			PacketLoss: 0.0,
-		}
+		},
+		{
+			Target: models.Target{
+				Host: "192.168.1.2",
+				Mode: models.ModeICMP,
+			},
+			Available:  false,
+			RespTime:   0,
+			PacketLoss: 100.0,
+		},
+		{
+			Target: models.Target{
+				Host: "192.168.1.3",
+				Mode: models.ModeTCP,
+				Port: 80,
+			},
+			Available:  true,
+			RespTime:   time.Millisecond * 25,
+			PacketLoss: 0.0,
+		},
+	}
 
-		sweeper.addResultToAggregator(result)
+	deviceUpdate := &models.DeviceUpdate{
+		Metadata: make(map[string]string),
+	}
 
-		assert.Len(t, aggregator.Results, 1)
-		assert.Equal(t, result, aggregator.Results[0])
-	})
+	sweeper.addAggregatedScanResults(deviceUpdate, results)
 
-	t.Run("addAggregatedScanResults", func(t *testing.T) {
-		results := []*models.Result{
+	// Check aggregated metadata
+	assert.Equal(t, "192.168.1.1,192.168.1.2,192.168.1.3", deviceUpdate.Metadata["scan_all_ips"])
+	assert.Equal(t, "192.168.1.1,192.168.1.3", deviceUpdate.Metadata["scan_available_ips"])
+	assert.Equal(t, "192.168.1.2", deviceUpdate.Metadata["scan_unavailable_ips"])
+	assert.Equal(t, "3", deviceUpdate.Metadata["scan_result_count"])
+	assert.Equal(t, "2", deviceUpdate.Metadata["scan_available_count"])
+	assert.Equal(t, "1", deviceUpdate.Metadata["scan_unavailable_count"])
+	assert.Equal(t, "66.7", deviceUpdate.Metadata["scan_availability_percent"])
+
+	// Check detailed results
+	assert.Contains(t, deviceUpdate.Metadata["scan_icmp_results"], "192.168.1.1:icmp:available=true")
+	assert.Contains(t, deviceUpdate.Metadata["scan_icmp_results"], "192.168.1.2:icmp:available=false")
+	assert.Contains(t, deviceUpdate.Metadata["scan_tcp_results"], "192.168.1.3:tcp:available=true")
+
+	// Device should be available if any IP is available
+	assert.True(t, deviceUpdate.IsAvailable)
+}
+
+func TestProcessAggregatedResults(t *testing.T) {
+	sweeper, _, _, mockDeviceRegistry, ctrl := createTestSweeper(t)
+	defer ctrl.Finish()
+
+	aggregator := &DeviceResultAggregator{
+		DeviceID:  "armis:123",
+		AgentID:   "test-agent",
+		PollerID:  "test-poller",
+		Partition: "test-partition",
+		Metadata: map[string]interface{}{
+			"armis_device_id": "123",
+			"device_name":     "Test Device",
+		},
+		Results: []*models.Result{
 			{
 				Target: models.Target{
 					Host: "192.168.1.1",
 					Mode: models.ModeICMP,
 				},
 				Available:  true,
+				LastSeen:   time.Now(),
 				RespTime:   time.Millisecond * 50,
 				PacketLoss: 0.0,
 			},
@@ -277,99 +365,32 @@ func TestDeviceResultAggregation(t *testing.T) {
 					Mode: models.ModeICMP,
 				},
 				Available:  false,
+				LastSeen:   time.Now(),
 				RespTime:   0,
 				PacketLoss: 100.0,
 			},
-			{
-				Target: models.Target{
-					Host: "192.168.1.3",
-					Mode: models.ModeTCP,
-					Port: 80,
-				},
-				Available:  true,
-				RespTime:   time.Millisecond * 25,
-				PacketLoss: 0.0,
-			},
-		}
+		},
+	}
 
-		deviceUpdate := &models.DeviceUpdate{
-			Metadata: make(map[string]string),
-		}
+	mockDeviceRegistry.EXPECT().
+		UpdateDevice(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, update *models.DeviceUpdate) error {
+			// Verify the device update contains aggregated scan results
+			assert.Equal(t, "test-partition:192.168.1.1", update.DeviceID)
+			assert.Equal(t, "192.168.1.1", update.IP)
+			assert.True(t, update.IsAvailable) // Device available because first IP is available
+			assert.Equal(t, models.DiscoverySourceSweep, update.Source)
 
-		sweeper.addAggregatedScanResults(deviceUpdate, results)
+			// Check aggregated metadata
+			assert.Equal(t, "192.168.1.1,192.168.1.2", update.Metadata["scan_all_ips"])
+			assert.Equal(t, "192.168.1.1", update.Metadata["scan_available_ips"])
+			assert.Equal(t, "192.168.1.2", update.Metadata["scan_unavailable_ips"])
+			assert.Equal(t, "50.0", update.Metadata["scan_availability_percent"])
 
-		// Check aggregated metadata
-		assert.Equal(t, "192.168.1.1,192.168.1.2,192.168.1.3", deviceUpdate.Metadata["scan_all_ips"])
-		assert.Equal(t, "192.168.1.1,192.168.1.3", deviceUpdate.Metadata["scan_available_ips"])
-		assert.Equal(t, "192.168.1.2", deviceUpdate.Metadata["scan_unavailable_ips"])
-		assert.Equal(t, "3", deviceUpdate.Metadata["scan_result_count"])
-		assert.Equal(t, "2", deviceUpdate.Metadata["scan_available_count"])
-		assert.Equal(t, "1", deviceUpdate.Metadata["scan_unavailable_count"])
-		assert.Equal(t, "66.7", deviceUpdate.Metadata["scan_availability_percent"])
+			return nil
+		})
 
-		// Check detailed results
-		assert.Contains(t, deviceUpdate.Metadata["scan_icmp_results"], "192.168.1.1:icmp:available=true")
-		assert.Contains(t, deviceUpdate.Metadata["scan_icmp_results"], "192.168.1.2:icmp:available=false")
-		assert.Contains(t, deviceUpdate.Metadata["scan_tcp_results"], "192.168.1.3:tcp:available=true")
-
-		// Device should be available if any IP is available
-		assert.True(t, deviceUpdate.IsAvailable)
-	})
-
-	t.Run("processAggregatedResults", func(t *testing.T) {
-		aggregator := &DeviceResultAggregator{
-			DeviceID:  "armis:123",
-			AgentID:   "test-agent",
-			PollerID:  "test-poller",
-			Partition: "test-partition",
-			Metadata: map[string]interface{}{
-				"armis_device_id": "123",
-				"device_name":     "Test Device",
-			},
-			Results: []*models.Result{
-				{
-					Target: models.Target{
-						Host: "192.168.1.1",
-						Mode: models.ModeICMP,
-					},
-					Available:  true,
-					LastSeen:   time.Now(),
-					RespTime:   time.Millisecond * 50,
-					PacketLoss: 0.0,
-				},
-				{
-					Target: models.Target{
-						Host: "192.168.1.2",
-						Mode: models.ModeICMP,
-					},
-					Available:  false,
-					LastSeen:   time.Now(),
-					RespTime:   0,
-					PacketLoss: 100.0,
-				},
-			},
-		}
-
-		mockDeviceRegistry.EXPECT().
-			UpdateDevice(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, update *models.DeviceUpdate) error {
-				// Verify the device update contains aggregated scan results
-				assert.Equal(t, "test-partition:192.168.1.1", update.DeviceID)
-				assert.Equal(t, "192.168.1.1", update.IP)
-				assert.True(t, update.IsAvailable) // Device available because first IP is available
-				assert.Equal(t, models.DiscoverySourceSweep, update.Source)
-
-				// Check aggregated metadata
-				assert.Equal(t, "192.168.1.1,192.168.1.2", update.Metadata["scan_all_ips"])
-				assert.Equal(t, "192.168.1.1", update.Metadata["scan_available_ips"])
-				assert.Equal(t, "192.168.1.2", update.Metadata["scan_unavailable_ips"])
-				assert.Equal(t, "50.0", update.Metadata["scan_availability_percent"])
-
-				return nil
-			})
-
-		sweeper.processAggregatedResults(context.Background(), aggregator)
-	})
+	sweeper.processAggregatedResults(context.Background(), aggregator)
 }
 
 func TestMultiIPScanFlow(t *testing.T) {
@@ -657,7 +678,7 @@ func TestEdgeCases(t *testing.T) {
 
 		sweeper.addAggregatedScanResults(deviceUpdate, results)
 
-		assert.Equal(t, "", deviceUpdate.Metadata["scan_available_ips"])
+		assert.Empty(t, deviceUpdate.Metadata["scan_available_ips"])
 		assert.Equal(t, "192.168.1.1,192.168.1.2", deviceUpdate.Metadata["scan_unavailable_ips"])
 		assert.Equal(t, "0.0", deviceUpdate.Metadata["scan_availability_percent"])
 		assert.False(t, deviceUpdate.IsAvailable)

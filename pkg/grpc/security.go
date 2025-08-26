@@ -321,7 +321,6 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log l
 		ctx,
 		workloadapi.WithAddr(config.WorkloadSocket),
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedWorkloadAPIClient, err)
 	}
@@ -330,7 +329,6 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log l
 		ctx,
 		workloadapi.WithClient(client),
 	)
-
 	if err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("%w: %w", errFailedToCreateX509Source, err)

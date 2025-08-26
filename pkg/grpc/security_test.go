@@ -109,6 +109,7 @@ func TestMTLSProvider(t *testing.T) {
 	t.Run("GetClientCredentials", func(t *testing.T) {
 		provider, err := NewMTLSProvider(config, createTestLogger(t))
 		require.NoError(t, err)
+
 		defer func(provider *MTLSProvider) {
 			err = provider.Close()
 			if err != nil {

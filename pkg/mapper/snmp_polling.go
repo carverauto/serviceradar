@@ -349,6 +349,7 @@ func (e *DiscoveryEngine) queryInterfaces(
 	var deviceID string
 
 	job.mu.RLock()
+
 	for _, device := range job.Results.Devices {
 		if device.IP == target {
 			deviceID = device.DeviceID
@@ -870,6 +871,7 @@ func updateInterfaceHighSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	}
 
 	var mbps uint64
+
 	switch v := pdu.Value.(type) {
 	case uint:
 		mbps = uint64(v)
@@ -1004,6 +1006,7 @@ func (e *DiscoveryEngine) connectSNMPClient(
 	defer connectCancel()
 
 	connectDone := make(chan error, 1)
+
 	go func() {
 		connectDone <- client.Connect()
 	}()
@@ -1036,6 +1039,7 @@ func (e *DiscoveryEngine) performDiscoveryWithTimeout(
 ) {
 	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == requiredType {
 		done := make(chan struct{})
+
 		go func() {
 			handlerFunc(job, client, snmpTargetIP)
 			close(done)

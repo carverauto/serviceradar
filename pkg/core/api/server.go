@@ -21,6 +21,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -45,6 +46,13 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+)
+
+var (
+	// ErrResponseWriterNotHijacker indicates that the response writer does not implement http.Hijacker.
+	ErrResponseWriterNotHijacker = errors.New("responseWriter does not implement http.Hijacker")
+	// ErrInvalidQueryRequest indicates that the query request is invalid.
+	ErrInvalidQueryRequest = errors.New("invalid query request")
 )
 
 // NewAPIServer creates a new API server instance with the given configuration
@@ -133,9 +141,9 @@ func WithRperfManager(m metricstore.RperfManager) func(server *APIServer) {
 }
 
 // WithDBService adds a database service to the API server
-func WithDBService(db db.Service) func(server *APIServer) {
+func WithDBService(dbSvc db.Service) func(server *APIServer) {
 	return func(server *APIServer) {
-		server.dbService = db
+		server.dbService = dbSvc
 	}
 }
 
@@ -238,7 +246,7 @@ func (w *responseWriterWrapper) WriteHeader(statusCode int) {
 func (w *responseWriterWrapper) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hijacker, ok := w.ResponseWriter.(http.Hijacker)
 	if !ok {
-		return nil, nil, fmt.Errorf("responseWriter does not implement http.Hijacker")
+		return nil, nil, ErrResponseWriterNotHijacker
 	}
 
 	return hijacker.Hijack()
@@ -1537,7 +1545,7 @@ func (s *APIServer) ExecuteSRQLQuery(ctx context.Context, query string, limit in
 
 	// Validate the request
 	if errMsg, _, ok := validateQueryRequest(req); !ok {
-		return nil, fmt.Errorf("invalid query request: %s", errMsg)
+		return nil, fmt.Errorf("%w: %s", ErrInvalidQueryRequest, errMsg)
 	}
 
 	// Prepare the query

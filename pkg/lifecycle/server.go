@@ -34,6 +34,11 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
+// Static errors for err113 compliance
+var (
+	ErrInvalidSizeFormat = errors.New("invalid size format")
+)
+
 const (
 	// Default max message sizes - can be overridden via environment variables
 	DefaultMaxRecvSize = 4 * 1024 * 1024 // 4MB
@@ -254,7 +259,7 @@ func parseSize(s string) (int, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("invalid size format: %s", s)
+	return 0, fmt.Errorf("invalid size format: %s: %w", s, ErrInvalidSizeFormat)
 }
 
 // configureServerOptions sets up gRPC server options including security.

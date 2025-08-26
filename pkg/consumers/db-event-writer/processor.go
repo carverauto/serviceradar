@@ -3,6 +3,7 @@ package dbeventwriter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -26,6 +27,16 @@ import (
 const (
 	maxInt64      = 9223372036854775807
 	unknownString = "unknown"
+
+	// GELF log levels (RFC 3164)
+	gelfLevelError  = 3 // Error
+	gelfLevelNotice = 5 // Notice
+	gelfLevelInfo   = 6 // Info
+)
+
+var (
+	// ErrFailedToParseCloudEvent indicates that data could not be parsed as a CloudEvent wrapper.
+	ErrFailedToParseCloudEvent = errors.New("failed to parse as CloudEvent wrapper")
 )
 
 // safeUint64ToInt64 safely converts uint64 to int64, capping at maxInt64 if needed
@@ -455,13 +466,13 @@ func buildEventRow(b []byte, subject string) models.EventRow {
 func getLogLevelForState(state string) int32 {
 	switch state {
 	case "unhealthy":
-		return 3 // Error
+		return gelfLevelError // Error
 	case "healthy":
-		return 6 // Info
+		return gelfLevelInfo // Info
 	case unknownString:
-		return 5 // Notice
+		return gelfLevelNotice // Notice
 	default:
-		return 6 // Info
+		return gelfLevelInfo // Info
 	}
 }
 
@@ -1008,7 +1019,7 @@ func (p *Processor) parseOTELRequest(msgData []byte, req proto.Message, requestT
 	// Try to parse as CloudEvent wrapper
 	data, ok := parseCloudEvent(msgData)
 	if !ok {
-		return fmt.Errorf("failed to parse as CloudEvent wrapper")
+		return ErrFailedToParseCloudEvent
 	}
 
 	// Try to unmarshal the extracted data

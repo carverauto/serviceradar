@@ -28,7 +28,7 @@ func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryDevice, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var devices []*models.Device
 
@@ -83,7 +83,7 @@ func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Devic
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryDevice, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("%w: %s", errDeviceNotFound, deviceID)

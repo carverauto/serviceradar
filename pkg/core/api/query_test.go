@@ -103,8 +103,24 @@ func TestValidateQueryRequest(t *testing.T) {
 	}
 }
 
-// TestPrepareQuery tests the prepareQuery method
-func TestPrepareQuery(t *testing.T) {
+// validateQueryOrdering is a helper to validate common query ordering patterns
+func validateQueryOrdering(t *testing.T, query *models.Query, entity models.EntityType, limit int, _, secondaryField string) {
+	t.Helper()
+	assert.Equal(t, entity, query.Entity)
+	assert.Equal(t, limit, query.Limit)
+	assert.True(t, query.HasLimit)
+	assert.Len(t, query.OrderBy, 2)
+	assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
+	assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
+
+	if secondaryField != "" {
+		assert.Equal(t, secondaryField, query.OrderBy[1].Field)
+		assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
+	}
+}
+
+// TestPrepareQueryDevicesAndServices tests the prepareQuery method with devices and services
+func TestPrepareQueryDevicesAndServices(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -139,50 +155,6 @@ func TestPrepareQuery(t *testing.T) {
 			},
 		},
 		{
-			name: "Valid query for interfaces",
-			req: &QueryRequest{
-				Query: "show interfaces",
-				Limit: 20,
-			},
-			dbType:      parser.Proton,
-			expectError: false,
-			setupMock:   func(*APIServer) {},
-			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
-				t.Helper()
-
-				assert.Equal(t, models.Interfaces, query.Entity)
-				assert.Equal(t, 20, query.Limit)
-				assert.True(t, query.HasLimit)
-				assert.Len(t, query.OrderBy, 2) // Now includes tie-breaker
-				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
-				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
-				assert.Equal(t, "device_ip", query.OrderBy[1].Field)
-				assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
-			},
-		},
-		{
-			name: "Valid query for events",
-			req: &QueryRequest{
-				Query: "show events",
-				Limit: 5,
-			},
-			dbType:      parser.Proton,
-			expectError: false,
-			setupMock:   func(*APIServer) {},
-			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
-				t.Helper()
-
-				assert.Equal(t, models.Events, query.Entity)
-				assert.Equal(t, 5, query.Limit)
-				assert.True(t, query.HasLimit)
-				assert.Len(t, query.OrderBy, 2) // Now includes tie-breaker
-				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
-				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
-				assert.Equal(t, "id", query.OrderBy[1].Field)
-				assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
-			},
-		},
-		{
 			name: "Valid query for services",
 			req: &QueryRequest{
 				Query: "show services",
@@ -214,16 +186,109 @@ func TestPrepareQuery(t *testing.T) {
 			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
 				t.Helper()
 
-				assert.Equal(t, models.Pollers, query.Entity)
-				assert.Equal(t, 5, query.Limit)
-				assert.True(t, query.HasLimit)
-				assert.Len(t, query.OrderBy, 2) // Now includes tie-breaker
-				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
-				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
-				assert.Equal(t, "poller_id", query.OrderBy[1].Field)
-				assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
+				validateQueryOrdering(t, query, models.Pollers, 5, "_tp_time", "poller_id")
 			},
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &APIServer{
+				dbType: tt.dbType,
+			}
+
+			tt.setupMock(s)
+
+			query, cursorData, err := s.prepareQuery(tt.req)
+			require.NoError(t, err)
+			require.NotNil(t, query)
+
+			if tt.validateQuery != nil {
+				tt.validateQuery(t, query, cursorData)
+			}
+		})
+	}
+}
+
+// TestPrepareQueryNetworkEntities tests the prepareQuery method with network-related entities
+func TestPrepareQueryNetworkEntities(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tests := []struct {
+		name          string
+		req           *QueryRequest
+		dbType        parser.DatabaseType
+		expectError   bool
+		errorContains string
+		setupMock     func(*APIServer)
+		validateQuery func(*testing.T, *models.Query, map[string]interface{})
+	}{
+		{
+			name: "Valid query for interfaces",
+			req: &QueryRequest{
+				Query: "show interfaces",
+				Limit: 20,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				validateQueryOrdering(t, query, models.Interfaces, 20, "_tp_time", "device_ip")
+			},
+		},
+		{
+			name: "Valid query for events",
+			req: &QueryRequest{
+				Query: "show events",
+				Limit: 5,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				validateQueryOrdering(t, query, models.Events, 5, "_tp_time", "id")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &APIServer{
+				dbType: tt.dbType,
+			}
+
+			tt.setupMock(s)
+
+			query, cursorData, err := s.prepareQuery(tt.req)
+			require.NoError(t, err)
+			require.NotNil(t, query)
+
+			if tt.validateQuery != nil {
+				tt.validateQuery(t, query, cursorData)
+			}
+		})
+	}
+}
+
+// TestPrepareQueryMetricsEntities tests the prepareQuery method with metrics entity types
+func TestPrepareQueryMetricsEntities(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tests := []struct {
+		name          string
+		req           *QueryRequest
+		dbType        parser.DatabaseType
+		expectError   bool
+		errorContains string
+		setupMock     func(*APIServer)
+		validateQuery func(*testing.T, *models.Query, map[string]interface{})
+	}{
 		{
 			name: "Valid query for cpu_metrics",
 			req: &QueryRequest{
@@ -236,14 +301,7 @@ func TestPrepareQuery(t *testing.T) {
 			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
 				t.Helper()
 
-				assert.Equal(t, models.CPUMetrics, query.Entity)
-				assert.Equal(t, 20, query.Limit)
-				assert.True(t, query.HasLimit)
-				assert.Len(t, query.OrderBy, 2)
-				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
-				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
-				assert.Equal(t, "core_id", query.OrderBy[1].Field)
-				assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
+				validateQueryOrdering(t, query, models.CPUMetrics, 20, "_tp_time", "core_id")
 			},
 		},
 		{
@@ -258,14 +316,7 @@ func TestPrepareQuery(t *testing.T) {
 			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
 				t.Helper()
 
-				assert.Equal(t, models.DiskMetrics, query.Entity)
-				assert.Equal(t, 15, query.Limit)
-				assert.True(t, query.HasLimit)
-				assert.Len(t, query.OrderBy, 2)
-				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
-				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
-				assert.Equal(t, "mount_point", query.OrderBy[1].Field)
-				assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
+				validateQueryOrdering(t, query, models.DiskMetrics, 15, "_tp_time", "mount_point")
 			},
 		},
 		{
@@ -288,6 +339,41 @@ func TestPrepareQuery(t *testing.T) {
 				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
 			},
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &APIServer{
+				dbType: tt.dbType,
+			}
+
+			tt.setupMock(s)
+
+			query, cursorData, err := s.prepareQuery(tt.req)
+			require.NoError(t, err)
+			require.NotNil(t, query)
+
+			if tt.validateQuery != nil {
+				tt.validateQuery(t, query, cursorData)
+			}
+		})
+	}
+}
+
+// TestPrepareQuerySpecialCases tests the prepareQuery method with special cases
+func TestPrepareQuerySpecialCases(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tests := []struct {
+		name          string
+		req           *QueryRequest
+		dbType        parser.DatabaseType
+		expectError   bool
+		errorContains string
+		setupMock     func(*APIServer)
+		validateQuery func(*testing.T, *models.Query, map[string]interface{})
+	}{
 		{
 			name: "Count devices should skip pagination",
 			req: &QueryRequest{
@@ -326,6 +412,40 @@ func TestPrepareQuery(t *testing.T) {
 				assert.Equal(t, "192.168.1.1", cursorData["ip"])
 			},
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &APIServer{
+				dbType: tt.dbType,
+			}
+
+			tt.setupMock(s)
+
+			query, cursorData, err := s.prepareQuery(tt.req)
+			require.NoError(t, err)
+			require.NotNil(t, query)
+
+			if tt.validateQuery != nil {
+				tt.validateQuery(t, query, cursorData)
+			}
+		})
+	}
+}
+
+// TestPrepareQueryErrorCases tests the prepareQuery method with error cases
+func TestPrepareQueryErrorCases(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tests := []struct {
+		name          string
+		req           *QueryRequest
+		dbType        parser.DatabaseType
+		expectError   bool
+		errorContains string
+		setupMock     func(*APIServer)
+	}{
 		{
 			name: "Invalid entity",
 			req: &QueryRequest{
@@ -336,7 +456,6 @@ func TestPrepareQuery(t *testing.T) {
 			expectError:   true,
 			errorContains: "pagination is only supported for", // Adjusted error message check
 			setupMock:     func(*APIServer) {},
-			validateQuery: nil,
 		},
 		{
 			name: "Parse error",
@@ -348,7 +467,6 @@ func TestPrepareQuery(t *testing.T) {
 			expectError:   true,
 			errorContains: "failed to parse query",
 			setupMock:     func(*APIServer) {},
-			validateQuery: nil,
 		},
 		{
 			name: "Invalid cursor",
@@ -362,7 +480,6 @@ func TestPrepareQuery(t *testing.T) {
 			expectError:   true,
 			errorContains: "invalid cursor",
 			setupMock:     func(*APIServer) {},
-			validateQuery: nil,
 		},
 	}
 
@@ -374,29 +491,18 @@ func TestPrepareQuery(t *testing.T) {
 
 			tt.setupMock(s)
 
-			query, cursorData, err := s.prepareQuery(tt.req)
-			if tt.expectError {
-				require.Error(t, err)
+			_, _, err := s.prepareQuery(tt.req)
+			require.Error(t, err)
 
-				if tt.errorContains != "" {
-					assert.Contains(t, err.Error(), tt.errorContains)
-				}
-
-				return
-			}
-
-			require.NoError(t, err)
-			require.NotNil(t, query)
-
-			if tt.validateQuery != nil {
-				tt.validateQuery(t, query, cursorData)
+			if tt.errorContains != "" {
+				assert.Contains(t, err.Error(), tt.errorContains)
 			}
 		})
 	}
 }
 
-// TestExecuteQueryAndBuildResponse tests the executeQueryAndBuildResponse method
-func TestExecuteQueryAndBuildResponse(t *testing.T) {
+// TestExecuteQueryAndBuildResponseSuccess tests successful execution scenarios
+func TestExecuteQueryAndBuildResponseSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -476,6 +582,45 @@ func TestExecuteQueryAndBuildResponse(t *testing.T) {
 				assert.NotEmpty(t, resp.Pagination.PrevCursor)
 			},
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &APIServer{
+				dbType:        tt.dbType,
+				queryExecutor: mockQueryExecutor,
+				logger:        logger.NewTestLogger(),
+			}
+
+			tt.setupMock()
+
+			resp, err := s.executeQueryAndBuildResponse(context.Background(), tt.query, tt.req)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+
+			if tt.validateResp != nil {
+				tt.validateResp(t, resp)
+			}
+		})
+	}
+}
+
+// TestExecuteQueryAndBuildResponseError tests error scenarios
+func TestExecuteQueryAndBuildResponseError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockQueryExecutor := db.NewMockQueryExecutor(ctrl)
+
+	tests := []struct {
+		name          string
+		query         *models.Query
+		req           *QueryRequest
+		dbType        parser.DatabaseType
+		expectError   bool
+		errorContains string
+		setupMock     func()
+	}{
 		{
 			name: "Query execution error",
 			query: &models.Query{
@@ -496,7 +641,6 @@ func TestExecuteQueryAndBuildResponse(t *testing.T) {
 					ExecuteQuery(gomock.Any(), gomock.Any()).
 					Return(nil, assert.AnError)
 			},
-			validateResp: nil,
 		},
 	}
 
@@ -510,29 +654,18 @@ func TestExecuteQueryAndBuildResponse(t *testing.T) {
 
 			tt.setupMock()
 
-			resp, err := s.executeQueryAndBuildResponse(context.Background(), tt.query, tt.req)
-			if tt.expectError {
-				require.Error(t, err)
+			_, err := s.executeQueryAndBuildResponse(context.Background(), tt.query, tt.req)
+			require.Error(t, err)
 
-				if tt.errorContains != "" {
-					assert.Contains(t, err.Error(), tt.errorContains)
-				}
-
-				return
-			}
-
-			require.NoError(t, err)
-			require.NotNil(t, resp)
-
-			if tt.validateResp != nil {
-				tt.validateResp(t, resp)
+			if tt.errorContains != "" {
+				assert.Contains(t, err.Error(), tt.errorContains)
 			}
 		})
 	}
 }
 
-// TestHandleSRQLQuery tests the handleSRQLQuery method
-func TestHandleSRQLQuery(t *testing.T) {
+// TestHandleSRQLQuerySuccess tests successful handleSRQLQuery scenarios
+func TestHandleSRQLQuerySuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -573,6 +706,43 @@ func TestHandleSRQLQuery(t *testing.T) {
 				assert.Equal(t, 10, resp.Pagination.Limit)
 			},
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &APIServer{
+				dbType:        tt.dbType,
+				queryExecutor: mockQueryExecutor,
+				logger:        logger.NewTestLogger(),
+			}
+
+			tt.setupMock()
+
+			req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(tt.requestBody))
+			req.Header.Set("Content-Type", "application/json")
+
+			w := httptest.NewRecorder()
+			s.handleSRQLQuery(w, req)
+			tt.validateResp(t, w)
+		})
+	}
+}
+
+// TestHandleSRQLQueryError tests error cases for handleSRQLQuery
+func TestHandleSRQLQueryError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockQueryExecutor := db.NewMockQueryExecutor(ctrl)
+
+	tests := []struct {
+		name           string
+		requestBody    string
+		dbType         parser.DatabaseType
+		expectedStatus int
+		setupMock      func()
+		validateResp   func(*testing.T, *httptest.ResponseRecorder)
+	}{
 		{
 			name:           "Invalid JSON",
 			requestBody:    `{"query": "show devices", "limit": }`,
@@ -646,187 +816,184 @@ func TestHandleSRQLQuery(t *testing.T) {
 	}
 }
 
-// TestCursorFunctions tests the cursor-related functions
-func TestCursorFunctions(t *testing.T) {
-	// Test decodeCursor
-	t.Run("decodeCursor", func(t *testing.T) {
-		cursor := "eyJpcCI6IjE5Mi4xNjguMS4xIiwibGFzdF9zZWVuIjoiMjAyNS0wNS0zMFQxMjowMDowMFoifQ=="
-		decoded, err := decodeCursor(cursor)
-		require.NoError(t, err)
+// TestDecodeCursor tests the decodeCursor function
+func TestDecodeCursor(t *testing.T) {
+	cursor := "eyJpcCI6IjE5Mi4xNjguMS4xIiwibGFzdF9zZWVuIjoiMjAyNS0wNS0zMFQxMjowMDowMFoifQ=="
+	decoded, err := decodeCursor(cursor)
+	require.NoError(t, err)
 
-		assert.Equal(t, "192.168.1.1", decoded["ip"])
-		assert.Equal(t, "2025-05-30T12:00:00Z", decoded["last_seen"])
+	assert.Equal(t, "192.168.1.1", decoded["ip"])
+	assert.Equal(t, "2025-05-30T12:00:00Z", decoded["last_seen"])
 
-		_, err = decodeCursor("invalid-cursor")
-		assert.Error(t, err)
-	})
+	_, err = decodeCursor("invalid-cursor")
+	assert.Error(t, err)
+}
 
-	// Test determineOperator
-	t.Run("determineOperator", func(t *testing.T) {
-		assert.Equal(t, models.LessThan, determineOperator(DirectionNext, models.Descending))
-		assert.Equal(t, models.GreaterThan, determineOperator(DirectionPrev, models.Descending))
-		assert.Equal(t, models.GreaterThan, determineOperator(DirectionNext, models.Ascending))
-		assert.Equal(t, models.LessThan, determineOperator(DirectionPrev, models.Ascending))
-	})
+// TestDetermineOperator tests the determineOperator function
+func TestDetermineOperator(t *testing.T) {
+	assert.Equal(t, models.LessThan, determineOperator(DirectionNext, models.Descending))
+	assert.Equal(t, models.GreaterThan, determineOperator(DirectionPrev, models.Descending))
+	assert.Equal(t, models.GreaterThan, determineOperator(DirectionNext, models.Ascending))
+	assert.Equal(t, models.LessThan, determineOperator(DirectionPrev, models.Ascending))
+}
 
-	// Test buildCursorConditions
-	t.Run("buildCursorConditions with multi-key sort", func(t *testing.T) {
-		query := &models.Query{
-			Entity: models.Devices,
-			OrderBy: []models.OrderByItem{
-				{Field: "last_seen", Direction: models.Descending},
-				{Field: "ip", Direction: models.Descending}, // Secondary sort key
-			},
-		}
+// TestBuildCursorConditions tests the buildCursorConditions function
+func TestBuildCursorConditions(t *testing.T) {
+	query := &models.Query{
+		Entity: models.Devices,
+		OrderBy: []models.OrderByItem{
+			{Field: "last_seen", Direction: models.Descending},
+			{Field: "ip", Direction: models.Descending}, // Secondary sort key
+		},
+	}
 
-		cursorData := map[string]interface{}{
-			"ip":        "192.168.1.1",
-			"last_seen": "2025-05-30T12:00:00Z",
-		}
+	cursorData := map[string]interface{}{
+		"ip":        "192.168.1.1",
+		"last_seen": "2025-05-30T12:00:00Z",
+	}
 
-		conditions := buildCursorConditions(query, cursorData, DirectionNext)
+	conditions := buildCursorConditions(query, cursorData, DirectionNext)
 
-		// Expect one top-level complex AND condition
-		require.Len(t, conditions, 1)
-		assert.True(t, conditions[0].IsComplex)
-		assert.Equal(t, models.And, conditions[0].LogicalOp)
+	// Expect one top-level complex AND condition
+	require.Len(t, conditions, 1)
+	assert.True(t, conditions[0].IsComplex)
+	assert.Equal(t, models.And, conditions[0].LogicalOp)
 
-		// This top-level condition should contain the OR groups
-		outerOrConditions := conditions[0].Complex
-		require.Len(t, outerOrConditions, 2)
+	// This top-level condition should contain the OR groups
+	outerOrConditions := conditions[0].Complex
+	require.Len(t, outerOrConditions, 2)
 
-		// -- Check the first OR group: (last_seen < 'value') --
-		firstGroup := outerOrConditions[0]
-		assert.True(t, firstGroup.IsComplex)
-		assert.Equal(t, models.Or, firstGroup.LogicalOp)
-		require.Len(t, firstGroup.Complex, 1)
+	// -- Check the first OR group: (last_seen < 'value') --
+	firstGroup := outerOrConditions[0]
+	assert.True(t, firstGroup.IsComplex)
+	assert.Equal(t, models.Or, firstGroup.LogicalOp)
+	require.Len(t, firstGroup.Complex, 1)
 
-		firstGroupCond := firstGroup.Complex[0]
-		assert.Equal(t, "last_seen", firstGroupCond.Field)
-		assert.Equal(t, models.LessThan, firstGroupCond.Operator)
-		// Check if the value is a time.Time (since it gets converted from string)
-		if timeVal, isTime := firstGroupCond.Value.(time.Time); isTime {
-			assert.Equal(t, "2025-05-30T12:00:00Z", timeVal.Format(time.RFC3339))
-		} else {
-			assert.Equal(t, "2025-05-30T12:00:00Z", firstGroupCond.Value)
-		}
+	firstGroupCond := firstGroup.Complex[0]
+	assert.Equal(t, "last_seen", firstGroupCond.Field)
+	assert.Equal(t, models.LessThan, firstGroupCond.Operator)
+	// Check if the value is a time.Time (since it gets converted from string)
+	if timeVal, isTime := firstGroupCond.Value.(time.Time); isTime {
+		assert.Equal(t, "2025-05-30T12:00:00Z", timeVal.Format(time.RFC3339))
+	} else {
+		assert.Equal(t, "2025-05-30T12:00:00Z", firstGroupCond.Value)
+	}
 
-		// -- Check the second OR group: (last_seen = 'value' AND ip < 'value') --
-		secondGroup := outerOrConditions[1]
-		assert.True(t, secondGroup.IsComplex)
-		assert.Equal(t, models.Or, secondGroup.LogicalOp)
-		require.Len(t, secondGroup.Complex, 2)
+	// -- Check the second OR group: (last_seen = 'value' AND ip < 'value') --
+	secondGroup := outerOrConditions[1]
+	assert.True(t, secondGroup.IsComplex)
+	assert.Equal(t, models.Or, secondGroup.LogicalOp)
+	require.Len(t, secondGroup.Complex, 2)
 
-		// last_seen = 'value'
-		secondGroupCond1 := secondGroup.Complex[0]
-		assert.Equal(t, "last_seen", secondGroupCond1.Field)
-		assert.Equal(t, models.Equals, secondGroupCond1.Operator)
-		// Check if the value is a time.Time (since it gets converted from string)
-		if timeVal, isTime := secondGroupCond1.Value.(time.Time); isTime {
-			assert.Equal(t, "2025-05-30T12:00:00Z", timeVal.Format(time.RFC3339))
-		} else {
-			assert.Equal(t, "2025-05-30T12:00:00Z", secondGroupCond1.Value)
-		}
+	// last_seen = 'value'
+	secondGroupCond1 := secondGroup.Complex[0]
+	assert.Equal(t, "last_seen", secondGroupCond1.Field)
+	assert.Equal(t, models.Equals, secondGroupCond1.Operator)
+	// Check if the value is a time.Time (since it gets converted from string)
+	if timeVal, isTime := secondGroupCond1.Value.(time.Time); isTime {
+		assert.Equal(t, "2025-05-30T12:00:00Z", timeVal.Format(time.RFC3339))
+	} else {
+		assert.Equal(t, "2025-05-30T12:00:00Z", secondGroupCond1.Value)
+	}
 
-		assert.Equal(t, models.And, secondGroupCond1.LogicalOp)
+	assert.Equal(t, models.And, secondGroupCond1.LogicalOp)
 
-		// ip < 'value'
-		secondGroupCond2 := secondGroup.Complex[1]
-		assert.Equal(t, "ip", secondGroupCond2.Field)
-		assert.Equal(t, models.LessThan, secondGroupCond2.Operator)
-		assert.Equal(t, "192.168.1.1", secondGroupCond2.Value)
-		assert.Equal(t, models.And, secondGroupCond2.LogicalOp)
-	})
+	// ip < 'value'
+	secondGroupCond2 := secondGroup.Complex[1]
+	assert.Equal(t, "ip", secondGroupCond2.Field)
+	assert.Equal(t, models.LessThan, secondGroupCond2.Operator)
+	assert.Equal(t, "192.168.1.1", secondGroupCond2.Value)
+	assert.Equal(t, models.And, secondGroupCond2.LogicalOp)
+}
 
-	// Test createCursorData
-	t.Run("createCursorData", func(t *testing.T) {
-		now := time.Now()
+// TestCreateCursorData tests the createCursorData function
+func TestCreateCursorData(t *testing.T) {
+	now := time.Now()
 
-		result := map[string]interface{}{
-			"ip":        "192.168.1.1",
-			"last_seen": now,
-		}
+	result := map[string]interface{}{
+		"ip":        "192.168.1.1",
+		"last_seen": now,
+	}
 
-		cursorData := createCursorData(result, []models.OrderByItem{{Field: "last_seen", Direction: models.Descending}})
-		assert.Equal(t, now.Format(time.RFC3339Nano), cursorData["last_seen"])
-	})
+	cursorData := createCursorData(result, []models.OrderByItem{{Field: "last_seen", Direction: models.Descending}})
+	assert.Equal(t, now.Format(time.RFC3339Nano), cursorData["last_seen"])
+}
 
-	// Test addEntityFields
-	t.Run("addEntityFields", func(t *testing.T) {
-		cursorData := make(map[string]interface{})
-		result := map[string]interface{}{"ip": "192.168.1.1"}
+// TestAddEntityFields tests the addEntityFields function
+func TestAddEntityFields(t *testing.T) {
+	cursorData := make(map[string]interface{})
+	result := map[string]interface{}{"ip": "192.168.1.1"}
 
-		addEntityFields(cursorData, result, models.Devices)
-		assert.Equal(t, "192.168.1.1", cursorData["ip"])
+	addEntityFields(cursorData, result, models.Devices)
+	assert.Equal(t, "192.168.1.1", cursorData["ip"])
 
-		// Test for Pollers entity
-		cursorData = make(map[string]interface{})
-		result = map[string]interface{}{"poller_id": "test-poller-1"}
-		addEntityFields(cursorData, result, models.Pollers)
-		assert.Equal(t, "test-poller-1", cursorData["poller_id"])
-	})
+	// Test for Pollers entity
+	cursorData = make(map[string]interface{})
+	result = map[string]interface{}{"poller_id": "test-poller-1"}
+	addEntityFields(cursorData, result, models.Pollers)
+	assert.Equal(t, "test-poller-1", cursorData["poller_id"])
+}
 
-	// Test encodeCursor
-	t.Run("encodeCursor", func(t *testing.T) {
-		cursorData := map[string]interface{}{
-			"ip":        "192.168.1.1",
-			"last_seen": "2025-05-30T12:00:00Z",
-		}
-		cursor := encodeCursor(cursorData)
-		assert.NotEmpty(t, cursor)
-	})
+// TestEncodeCursor tests the encodeCursor function
+func TestEncodeCursor(t *testing.T) {
+	cursorData := map[string]interface{}{
+		"ip":        "192.168.1.1",
+		"last_seen": "2025-05-30T12:00:00Z",
+	}
+	cursor := encodeCursor(cursorData)
+	assert.NotEmpty(t, cursor)
+}
 
-	// Test generateCursors
-	t.Run("generateCursors", func(t *testing.T) {
-		query := &models.Query{
-			Entity:   models.Devices,
-			HasLimit: true,
-			Limit:    2,
-			OrderBy: []models.OrderByItem{
-				{Field: "last_seen", Direction: models.Descending},
-			},
-		}
+// TestGenerateCursors tests the generateCursors function
+func TestGenerateCursors(t *testing.T) {
+	query := &models.Query{
+		Entity:   models.Devices,
+		HasLimit: true,
+		Limit:    2,
+		OrderBy: []models.OrderByItem{
+			{Field: "last_seen", Direction: models.Descending},
+		},
+	}
 
-		results := []map[string]interface{}{
-			{"ip": "192.168.1.1", "last_seen": "2025-05-30T12:00:00Z"},
-			{"ip": "192.168.1.2", "last_seen": "2025-05-29T12:00:00Z"},
-		}
+	results := []map[string]interface{}{
+		{"ip": "192.168.1.1", "last_seen": "2025-05-30T12:00:00Z"},
+		{"ip": "192.168.1.2", "last_seen": "2025-05-29T12:00:00Z"},
+	}
 
-		nextCursor, prevCursor := generateCursors(query, results, parser.Proton)
+	nextCursor, prevCursor := generateCursors(query, results, parser.Proton)
 
-		assert.NotEmpty(t, nextCursor, "Next cursor should be present on a full page")
-		assert.NotEmpty(t, prevCursor)
+	assert.NotEmpty(t, nextCursor, "Next cursor should be present on a full page")
+	assert.NotEmpty(t, prevCursor)
 
-		// Test with fewer results than limit
-		query.Limit = 5
-		nextCursor, prevCursor = generateCursors(query, results, parser.Proton)
+	// Test with fewer results than limit
+	query.Limit = 5
+	nextCursor, prevCursor = generateCursors(query, results, parser.Proton)
 
-		assert.Empty(t, nextCursor, "Next cursor should be empty when results are less than limit")
-		assert.NotEmpty(t, prevCursor)
+	assert.Empty(t, nextCursor, "Next cursor should be empty when results are less than limit")
+	assert.NotEmpty(t, prevCursor)
 
-		// Test with empty results
-		nextCursor, prevCursor = generateCursors(query, []map[string]interface{}{}, parser.Proton)
+	// Test with empty results
+	nextCursor, prevCursor = generateCursors(query, []map[string]interface{}{}, parser.Proton)
 
-		assert.Empty(t, nextCursor)
-		assert.Empty(t, prevCursor)
-	})
+	assert.Empty(t, nextCursor)
+	assert.Empty(t, prevCursor)
+}
 
-	// generateCursors should return empty cursors for COUNT queries
-	t.Run("generateCursors_count_query", func(t *testing.T) {
-		query := &models.Query{
-			Type:   models.Count,
-			Entity: models.Events,
-		}
+// TestGenerateCursorsCountQuery tests generateCursors with count queries
+func TestGenerateCursorsCountQuery(t *testing.T) {
+	query := &models.Query{
+		Type:   models.Count,
+		Entity: models.Events,
+	}
 
-		results := []map[string]interface{}{
-			{"count": 5},
-		}
+	results := []map[string]interface{}{
+		{"count": 5},
+	}
 
-		nextCursor, prevCursor := generateCursors(query, results, parser.Proton)
+	nextCursor, prevCursor := generateCursors(query, results, parser.Proton)
 
-		assert.Empty(t, nextCursor)
-		assert.Empty(t, prevCursor)
-	})
+	assert.Empty(t, nextCursor)
+	assert.Empty(t, prevCursor)
 }
 
 // TestPostProcessDeviceResults tests the postProcessDeviceResults function
