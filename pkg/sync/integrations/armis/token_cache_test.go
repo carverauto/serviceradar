@@ -75,7 +75,8 @@ func TestCachedTokenProvider_GetAccessToken(t *testing.T) {
 	})
 
 	t.Run("handles provider errors", func(t *testing.T) {
-		mock := &mockTokenProvider{err: errors.New("auth failed")}
+		authFailedErr := errors.New("auth failed")
+		mock := &mockTokenProvider{err: authFailedErr}
 		cached := NewCachedTokenProvider(mock)
 
 		token, err := cached.GetAccessToken(ctx)

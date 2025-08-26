@@ -34,6 +34,10 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const (
+	testServer = "test-server"
+)
+
 // Mock implementation for proto.KVServiceClient
 type mockProtoKVClient struct{}
 
@@ -163,10 +167,10 @@ func TestGetServerName(t *testing.T) {
 			name: "with security config",
 			config: &Config{
 				Security: &models.SecurityConfig{
-					ServerName: "test-server",
+					ServerName: testServer,
 				},
 			},
-			expected: "test-server",
+			expected: testServer,
 		},
 		{
 			name:     "without security config",
@@ -197,7 +201,7 @@ func TestDefaultIntegrationRegistry(t *testing.T) {
 	// Create a mock that satisfies proto.KVServiceClient interface
 	kvClient := &mockProtoKVClient{}
 	grpcClient := NewMockGRPCClient(ctrl)
-	serverName := "test-server"
+	serverName := testServer
 
 	// Mock gRPC connection
 	conn := &grpc.ClientConn{}
@@ -244,7 +248,7 @@ func TestNewArmisIntegration(t *testing.T) {
 	kvClient := &mockProtoKVClient{}
 
 	conn := &grpc.ClientConn{}
-	serverName := "test-server"
+	serverName := testServer
 
 	tests := []struct {
 		name     string
@@ -346,7 +350,7 @@ func TestNewNetboxIntegration(t *testing.T) {
 	kvClient := &mockProtoKVClient{}
 	conn := &grpc.ClientConn{}
 
-	serverName := "test-server"
+	serverName := testServer
 
 	tests := []struct {
 		name               string
@@ -414,7 +418,7 @@ func TestNetboxIntegrationFactory(t *testing.T) {
 
 	kvClient := &mockProtoKVClient{}
 	grpcClient := NewMockGRPCClient(ctrl)
-	serverName := "test-server"
+	serverName := testServer
 
 	// Mock gRPC connection
 	conn := &grpc.ClientConn{}
@@ -698,7 +702,7 @@ func BenchmarkDefaultIntegrationRegistry(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_ = defaultIntegrationRegistry(kvClient, grpcClient, "test-server")
+		_ = defaultIntegrationRegistry(kvClient, grpcClient, testServer)
 	}
 }
 
@@ -721,7 +725,7 @@ func BenchmarkNewArmisIntegration(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		log := logger.NewTestLogger()
-		_ = NewArmisIntegration(ctx, config, kvClient, conn, "test-server", log)
+		_ = NewArmisIntegration(ctx, config, kvClient, conn, testServer, log)
 	}
 }
 

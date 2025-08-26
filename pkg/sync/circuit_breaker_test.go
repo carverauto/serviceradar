@@ -28,6 +28,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+var (
+	// errTestError is used in tests to simulate errors
+	errTestError = errors.New("test error")
+)
+
 func TestCircuitBreaker_BasicFunctionality(t *testing.T) {
 	config := CircuitBreakerConfig{
 		FailureThreshold: 2,
@@ -48,12 +53,12 @@ func TestCircuitBreaker_BasicFunctionality(t *testing.T) {
 	assert.Equal(t, StateClosed, cb.GetState())
 
 	// First failure
-	err = cb.Execute(context.Background(), func() error { return errors.New("test error") })
+	err = cb.Execute(context.Background(), func() error { return errTestError })
 	require.Error(t, err)
 	assert.Equal(t, StateClosed, cb.GetState())
 
 	// Second failure should open the circuit
-	err = cb.Execute(context.Background(), func() error { return errors.New("test error") })
+	err = cb.Execute(context.Background(), func() error { return errTestError })
 	require.Error(t, err)
 	assert.Equal(t, StateOpen, cb.GetState())
 

@@ -49,7 +49,11 @@ func (d *DefaultArmisIntegration) GetAccessToken(ctx context.Context) (string, e
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			d.Logger.Warn().Err(err).Msg("Failed to close response body")
+		}
+	}()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {

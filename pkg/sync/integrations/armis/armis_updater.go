@@ -278,7 +278,11 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 		return err
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			u.Logger.Warn().Err(err).Msg("Failed to close response body")
+		}
+	}()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	duration := time.Since(startTime)
@@ -361,7 +365,11 @@ func (u *DefaultArmisUpdater) UpdateMultipleDeviceCustomAttributes(ctx context.C
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			u.Logger.Warn().Err(err).Msg("Failed to close response body")
+		}
+	}()
 
 	respBody, _ := io.ReadAll(resp.Body)
 
@@ -428,7 +436,11 @@ func (u *DefaultArmisUpdater) UpdateDeviceCustomAttributes(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			u.Logger.Warn().Err(err).Msg("Failed to close response body")
+		}
+	}()
 
 	respBody, _ := io.ReadAll(resp.Body)
 

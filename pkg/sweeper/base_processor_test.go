@@ -261,11 +261,12 @@ func testMemoryReleaseAfterCleanup(t *testing.T, config *models.Config) {
 	// Memory growth assertions - be more lenient due to GC timing variability
 	maxAllowedGrowth := big.NewInt(5 * 1024 * 1024) // Allow 5MB growth
 
-	if memDiff.Cmp(big.NewInt(0)) <= 0 {
+	switch {
+	case memDiff.Cmp(big.NewInt(0)) <= 0:
 		t.Logf("Memory was released successfully (negative or zero growth)")
-	} else if memDiff.Cmp(maxAllowedGrowth) <= 0 {
+	case memDiff.Cmp(maxAllowedGrowth) <= 0:
 		t.Logf("Memory growth within acceptable limits: %s bytes", memDiff.String())
-	} else {
+	default:
 		t.Errorf("Memory growth too high: %s bytes (limit: 5MB)", memDiff.String())
 	}
 }

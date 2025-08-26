@@ -145,7 +145,10 @@ func TestFetchUniFiSites(t *testing.T) {
 					}{
 						Data: tt.serverResponse,
 					}
-					json.NewEncoder(w).Encode(response)
+					if err := json.NewEncoder(w).Encode(response); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
 				}
 			}))
 			defer server.Close()
@@ -256,7 +259,10 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 					}{
 						Data: tt.serverResponse,
 					}
-					json.NewEncoder(w).Encode(response)
+					if err := json.NewEncoder(w).Encode(response); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
 				}
 			}))
 			defer server.Close()

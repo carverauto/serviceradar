@@ -61,7 +61,11 @@ func Example_otelEnvironmentVariables() {
 		panic(err)
 	}
 
-	defer logger.Shutdown()
+	defer func() {
+		if err := logger.Shutdown(); err != nil {
+			panic(err)
+		}
+	}()
 
 	logger.Info().
 		Str("user_id", "12345").

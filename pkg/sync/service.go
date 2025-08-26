@@ -152,9 +152,9 @@ func (s *SimpleSyncService) safelyRunTask(ctx context.Context, taskName string, 
 	defer s.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			err := fmt.Errorf("panic in %s: %v", taskName, r)
-			s.logger.Error().Err(err).Msg("Recovered from panic")
-			s.sendError(err)
+			panicErr := fmt.Errorf("panic in %s: %v", taskName, r)
+			s.logger.Error().Err(panicErr).Msg("Recovered from panic")
+			s.sendError(panicErr)
 		}
 	}()
 

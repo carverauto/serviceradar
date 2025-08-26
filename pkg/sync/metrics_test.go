@@ -27,14 +27,18 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+const (
+	testSource = "test-source"
+)
+
 func TestInMemoryMetrics_DiscoveryMetrics(t *testing.T) {
 	log := logger.NewTestLogger()
 	metrics := NewInMemoryMetrics(log)
 
-	source := "test-source"
+	source := testSource
 	deviceCount := 10
 	duration := 100 * time.Millisecond
-	testErr := errors.New("test error")
+	var testErr = errors.New("test error")
 
 	// Record attempt
 	metrics.RecordDiscoveryAttempt(source)
@@ -73,10 +77,10 @@ func TestInMemoryMetrics_ReconciliationMetrics(t *testing.T) {
 	log := logger.NewTestLogger()
 	metrics := NewInMemoryMetrics(log)
 
-	source := "test-source"
+	source := testSource
 	updateCount := 5
 	duration := 200 * time.Millisecond
-	testErr := errors.New("reconciliation error")
+	var testErr = errors.New("reconciliation error")
 
 	// Record attempt and success
 	metrics.RecordReconciliationAttempt(source)
@@ -193,10 +197,12 @@ func TestNoOpMetrics(t *testing.T) {
 	// Should not panic
 	metrics.RecordDiscoveryAttempt("test")
 	metrics.RecordDiscoverySuccess("test", 10, time.Second)
-	metrics.RecordDiscoveryFailure("test", errors.New("test"), time.Second)
+	testErr2 := errors.New("test")
+	metrics.RecordDiscoveryFailure("test", testErr2, time.Second)
 	metrics.RecordReconciliationAttempt("test")
 	metrics.RecordReconciliationSuccess("test", 5, time.Second)
-	metrics.RecordReconciliationFailure("test", errors.New("test"), time.Second)
+	testErr3 := errors.New("test")
+	metrics.RecordReconciliationFailure("test", testErr3, time.Second)
 	metrics.RecordAPICall("test", "endpoint")
 	metrics.RecordAPISuccess("test", "endpoint", time.Second)
 	metrics.RecordAPIFailure("test", "endpoint", 500, time.Second)

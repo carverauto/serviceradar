@@ -31,6 +31,10 @@ import (
 	proto "github.com/carverauto/serviceradar/proto/discovery"
 )
 
+const (
+	testDiscoveryID = "test-discovery-id"
+)
+
 func TestNewGRPCDiscoveryService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -54,7 +58,7 @@ func TestGetStatus(t *testing.T) {
 	ctx := context.Background()
 
 	// Test with discovery ID
-	discoveryID := "test-discovery-id"
+	discoveryID := testDiscoveryID
 	mockMapper.EXPECT().GetDiscoveryStatus(ctx, discoveryID).Return(&DiscoveryStatus{
 		Status: DiscoveryStatusRunning,
 	}, nil)
@@ -87,7 +91,7 @@ func TestGRPCStartDiscovery(t *testing.T) {
 	service := NewGRPCDiscoveryService(mockMapper, mockLogger)
 
 	ctx := context.Background()
-	discoveryID := "test-discovery-id"
+	discoveryID := testDiscoveryID
 
 	// Test with valid request
 	req := &proto.DiscoveryRequest{
@@ -144,7 +148,7 @@ func TestGRPCGetDiscoveryResults(t *testing.T) {
 	service := NewGRPCDiscoveryService(mockMapper, mockLogger)
 
 	ctx := context.Background()
-	discoveryID := "test-discovery-id"
+	discoveryID := testDiscoveryID
 	includeRawData := true
 
 	// Create test results
@@ -231,7 +235,7 @@ func TestGetLatestCachedResults(t *testing.T) {
 	ctx := context.Background()
 
 	// Add a completed job to the engine
-	discoveryID := "test-discovery-id"
+	discoveryID := testDiscoveryID
 	discoveryEngine := engine.(*DiscoveryEngine)
 	discoveryEngine.completedJobs = map[string]*DiscoveryResults{
 		discoveryID: {
@@ -363,7 +367,7 @@ func TestConvertTopologyLinkToProto(t *testing.T) {
 }
 
 func TestConvertResultsToProto(t *testing.T) {
-	discoveryID := "test-discovery-id"
+	discoveryID := testDiscoveryID
 	includeRawData := true
 
 	results := &DiscoveryResults{

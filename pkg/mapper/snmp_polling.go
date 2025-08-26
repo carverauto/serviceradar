@@ -270,7 +270,7 @@ func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID str
 			formattedMAC := formatMACAddress(pdu.Value.([]byte))
 			if formattedMAC != "" {
 				mac = formattedMAC
-				return fmt.Errorf("found MAC, stopping walk")
+				return ErrFoundMACStoppingWalk
 			}
 		}
 
@@ -1022,7 +1022,7 @@ func (e *DiscoveryEngine) connectSNMPClient(
 		e.logger.Warn().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).
 			Msg("SNMP connect timeout, skipping")
 
-		return fmt.Errorf("connection timeout")
+		return ErrConnectionTimeout
 	}
 
 	return nil

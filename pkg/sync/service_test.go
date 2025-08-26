@@ -789,7 +789,7 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 			ServiceType: "sync",
 		}
 
-		expectedErr := errors.New("stream send error")
+		var expectedErr = errors.New("stream send error")
 		stream := &MockResultsStream{ctx: ctx, sendErr: expectedErr}
 
 		err := service.StreamResults(req, stream)

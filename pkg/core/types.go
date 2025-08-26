@@ -45,6 +45,7 @@ type sysmonMetricBuffer struct {
 	Partition string
 }
 
+// Server represents the core ServiceRadar server instance with all its dependencies and configuration.
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu                      sync.RWMutex
