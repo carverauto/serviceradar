@@ -71,6 +71,7 @@ func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
 				Timeout:     2 * time.Second,
 			}
 
+
 			log := logger.NewTestLogger()
 			ctrl := gomock.NewController(t)
 			mockStore := NewMockStore(ctrl)
