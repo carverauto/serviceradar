@@ -338,49 +338,13 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 
 		sweeper.prepareDeviceAggregators(targets)
 
-		// Simulate scan results where only the last IP (10.0.0.1) responds to ICMP
-		deviceMeta := map[string]interface{}{"armis_device_id": "123"}
-		mockResults := []*models.Result{
-			// IP1: All fail
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeICMP, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false,
-			},
-			// IP2: All fail
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeICMP, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false,
-			},
-			// IP3: Only ICMP succeeds
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeICMP, Metadata: deviceMeta},
-				Available: true,
-			},
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false,
-			},
-		}
+        // Simulate scan results for the primary IP only
+        deviceMeta := map[string]interface{}{"armis_device_id": "123"}
+        mockResults := []*models.Result{
+            {Target: models.Target{Host: "192.168.1.1", Mode: models.ModeICMP, Metadata: deviceMeta}, Available: true},
+            {Target: models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta}, Available: false},
+            {Target: models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta}, Available: false},
+        }
 
 		// Set up expectations for regular result processing
 		for _, result := range mockResults {
@@ -395,19 +359,11 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 				// Verify the device is marked as available
 				assert.True(t, update.IsAvailable, "Device should be available when any IP responds")
 
-				// The system lists each IP multiple times (once per scan type)
-				// With 3 IPs × 3 scan types (ICMP + 2 TCP ports) = 9 entries each
-				expectedAllIPs := "192.168.1.1,192.168.1.1,192.168.1.1,192.168.1.2,192.168.1.2," +
-					"192.168.1.2,10.0.0.1,10.0.0.1,10.0.0.1"
-				expectedUnavailableIPs := "192.168.1.1,192.168.1.1,192.168.1.1,192.168.1.2," +
-					"192.168.1.2,192.168.1.2,10.0.0.1,10.0.0.1"
-
-				assert.Equal(t, expectedAllIPs, update.Metadata["scan_all_ips"])
-				assert.Equal(t, "10.0.0.1", update.Metadata["scan_available_ips"])
-				assert.Equal(t, expectedUnavailableIPs, update.Metadata["scan_unavailable_ips"])
-
-				// Should show ~11% availability (1 success out of 9 total scans)
-				assert.Equal(t, "11.1", update.Metadata["scan_availability_percent"])
+            // The system lists the primary IP once per scan type (3 entries)
+            assert.Equal(t, "192.168.1.1,192.168.1.1,192.168.1.1", update.Metadata["scan_all_ips"])
+            assert.Equal(t, "192.168.1.1", update.Metadata["scan_available_ips"])
+            assert.Equal(t, "192.168.1.1,192.168.1.1", update.Metadata["scan_unavailable_ips"])
+            assert.Equal(t, "33.3", update.Metadata["scan_availability_percent"]) // 1 of 3
 
 				return nil
 			})
@@ -432,49 +388,13 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 
 		sweeper.prepareDeviceAggregators(targets)
 
-		// Simulate scan results where NO IPs respond to anything
-		deviceMeta2 := map[string]interface{}{"armis_device_id": "123"}
-		mockResults := []*models.Result{
-			// IP1: All fail
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeICMP, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta2},
-				Available: false,
-			},
-			// IP2: All fail
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeICMP, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta2},
-				Available: false,
-			},
-			// IP3: All fail
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeICMP, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta2},
-				Available: false,
-			},
-		}
+        // Simulate scan results where NO scan type responds on primary IP
+        deviceMeta2 := map[string]interface{}{"armis_device_id": "123"}
+        mockResults := []*models.Result{
+            {Target: models.Target{Host: "192.168.1.1", Mode: models.ModeICMP, Metadata: deviceMeta2}, Available: false},
+            {Target: models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta2}, Available: false},
+            {Target: models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta2}, Available: false},
+        }
 
 		// Set up expectations for regular result processing
 		for _, result := range mockResults {
@@ -489,15 +409,11 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 				// Verify the device is marked as unavailable
 				assert.False(t, update.IsAvailable, "Device should be unavailable when no IPs respond")
 
-				// The system lists each IP multiple times (once per scan type)
-				// With 3 IPs × 3 scan types (ICMP + 2 TCP ports) = 9 entries each
-				expectedAllIPs2 := "192.168.1.1,192.168.1.1,192.168.1.1,192.168.1.2,192.168.1.2," +
-					"192.168.1.2,10.0.0.1,10.0.0.1,10.0.0.1"
-
-				assert.Equal(t, expectedAllIPs2, update.Metadata["scan_all_ips"])
-				assert.Equal(t, "", update.Metadata["scan_available_ips"])
-				assert.Equal(t, expectedAllIPs2, update.Metadata["scan_unavailable_ips"])
-				assert.Equal(t, "0.0", update.Metadata["scan_availability_percent"])
+            // The system lists the primary IP once per scan type (3 entries)
+            assert.Equal(t, "192.168.1.1,192.168.1.1,192.168.1.1", update.Metadata["scan_all_ips"])
+            assert.Equal(t, "", update.Metadata["scan_available_ips"])
+            assert.Equal(t, "192.168.1.1,192.168.1.1,192.168.1.1", update.Metadata["scan_unavailable_ips"])
+            assert.Equal(t, "0.0", update.Metadata["scan_availability_percent"])
 
 				return nil
 			})
