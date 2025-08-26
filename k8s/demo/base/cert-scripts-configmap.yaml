@@ -1,0 +1,127 @@
+# base/cert-scripts-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-cert-scripts
+data:
+  generate-certs.sh: |
+    #!/bin/sh
+    set -e
+    
+    # Configuration
+    CERT_DIR="${CERT_DIR:-./certs}"
+    DAYS_VALID=3650
+    COUNTRY="US"
+    STATE="CA"
+    LOCALITY="San Francisco"
+    ORGANIZATION="ServiceRadar"
+    ORG_UNIT="Kubernetes"
+    
+    # Create certificate directory
+    mkdir -p "$CERT_DIR"
+    chmod 755 "$CERT_DIR"
+    
+    # Generate Root CA
+    if [ ! -f "$CERT_DIR/root.pem" ]; then
+        echo "Generating Root CA..."
+        openssl genrsa -out "$CERT_DIR/root-key.pem" 4096
+        openssl req -new -x509 -sha256 -key "$CERT_DIR/root-key.pem" -out "$CERT_DIR/root.pem" \
+            -days $DAYS_VALID -subj "/C=$COUNTRY/ST=$STATE/L=$LOCALITY/O=$ORGANIZATION/OU=$ORG_UNIT/CN=ServiceRadar Root CA"
+        
+        chmod 644 "$CERT_DIR/root.pem"
+        chmod 640 "$CERT_DIR/root-key.pem"
+        
+        echo "Root CA generated."
+    else
+        echo "Root CA already exists."
+    fi
+    
+    # Function to generate certificate for a component
+    generate_cert() {
+        local component=$1
+        local cn=$2
+        local san=$3
+        
+        if [ -f "$CERT_DIR/$component.pem" ]; then
+            echo "Certificate for $component already exists, skipping."
+            return
+        fi
+        
+        echo "Generating certificate for $component..."
+        
+        # Generate private key
+        openssl genrsa -out "$CERT_DIR/$component-key.pem" 2048
+        
+        # Create config file with SAN
+        cat > "$CERT_DIR/$component.conf" <<EOF
+    [req]
+    distinguished_name = req_distinguished_name
+    req_extensions = v3_req
+    prompt = no
+    
+    [req_distinguished_name]
+    C = $COUNTRY
+    ST = $STATE
+    L = $LOCALITY
+    O = $ORGANIZATION
+    OU = $ORG_UNIT
+    CN = $cn
+    
+    [v3_req]
+    keyUsage = keyEncipherment, dataEncipherment, digitalSignature
+    extendedKeyUsage = serverAuth, clientAuth
+    subjectAltName = $san
+    EOF
+        
+        # Generate CSR
+        openssl req -new -sha256 -key "$CERT_DIR/$component-key.pem" \
+            -out "$CERT_DIR/$component.csr" -config "$CERT_DIR/$component.conf"
+        
+        # Sign certificate
+        openssl x509 -req -in "$CERT_DIR/$component.csr" -CA "$CERT_DIR/root.pem" \
+            -CAkey "$CERT_DIR/root-key.pem" -CAcreateserial -out "$CERT_DIR/$component.pem" \
+            -days $DAYS_VALID -sha256 -extensions v3_req -extfile "$CERT_DIR/$component.conf"
+        
+        # Clean up
+        rm "$CERT_DIR/$component.csr" "$CERT_DIR/$component.conf"
+        
+        chmod 644 "$CERT_DIR/$component.pem"
+        chmod 644 "$CERT_DIR/$component-key.pem"
+        
+        echo "Certificate for $component generated."
+    }
+    
+    # Generate certificates for key services - focus on what we need for Proton first
+    generate_cert "proton" "serviceradar-proton" "DNS:serviceradar-proton,DNS:proton,DNS:proton.serviceradar,DNS:localhost,IP:127.0.0.1"
+    generate_cert "core" "serviceradar-core" "DNS:serviceradar-core,DNS:core,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
+    generate_cert "web" "serviceradar-web" "DNS:serviceradar-web,DNS:web,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
+    generate_cert "agent" "serviceradar-agent" "DNS:serviceradar-agent,DNS:agent,DNS:agent.serviceradar,DNS:localhost,IP:127.0.0.1"
+    generate_cert "poller" "serviceradar-poller" "DNS:serviceradar-poller,DNS:poller,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
+    generate_cert "snmp-checker" "serviceradar-snmp-checker" "DNS:serviceradar-snmp-checker,DNS:snmp-checker,DNS:snmp-checker.serviceradar,DNS:localhost,IP:127.0.0.1"
+    
+    # Generate JWT secret for authentication
+    JWT_SECRET_FILE="$CERT_DIR/jwt-secret"
+    if [ ! -f "$JWT_SECRET_FILE" ]; then
+        echo "Generating JWT secret..."
+        openssl rand -hex 32 > "$JWT_SECRET_FILE"
+        chmod 640 "$JWT_SECRET_FILE"
+        echo "JWT secret generated."
+    else
+        echo "JWT secret already exists."
+    fi
+    
+    # Generate API key
+    API_KEY_FILE="$CERT_DIR/api-key" 
+    if [ ! -f "$API_KEY_FILE" ]; then
+        echo "Generating API key..."
+        openssl rand -hex 32 > "$API_KEY_FILE"
+        chmod 640 "$API_KEY_FILE"
+        echo "API key generated."
+    else
+        echo "API key already exists."
+    fi
+    
+    echo "All certificates and secrets generated successfully in $CERT_DIR"
+    echo ""
+    echo "Files generated:"
+    ls -la "$CERT_DIR"/ | grep -E '\.(pem|secret|key)$'
