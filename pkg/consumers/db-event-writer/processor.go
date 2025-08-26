@@ -143,17 +143,18 @@ func parseCloudEvent(b []byte) (string, bool) {
 
 // extractAttributeValue extracts a string value from an attribute based on its type
 func extractAttributeValue(attr *commonv1.KeyValue) string {
-	if attr.Value.GetStringValue() != "" {
+	switch {
+	case attr.Value.GetStringValue() != "":
 		return attr.Value.GetStringValue()
-	} else if attr.Value.GetBoolValue() {
+	case attr.Value.GetBoolValue():
 		return "true"
-	} else if attr.Value.GetIntValue() != 0 {
+	case attr.Value.GetIntValue() != 0:
 		return fmt.Sprintf("%d", attr.Value.GetIntValue())
-	} else if attr.Value.GetDoubleValue() != 0 {
+	case attr.Value.GetDoubleValue() != 0:
 		return fmt.Sprintf("%f", attr.Value.GetDoubleValue())
+	default:
+		return ""
 	}
-
-	return ""
 }
 
 // processResourceAttributes processes resource attributes and extracts service information

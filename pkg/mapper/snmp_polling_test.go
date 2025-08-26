@@ -26,6 +26,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+const (
+	wrongTypeError = "wrong type"
+	originalValue  = "original"
+)
+
 func TestSafeInt32(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -136,7 +141,7 @@ func TestGetInt32FromPDU(t *testing.T) {
 			ok:        true,
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.OctetString,
 				Value: "not an integer",
@@ -318,7 +323,7 @@ func TestExtractSpeedFromGauge32(t *testing.T) {
 			expected: 0,                  // Should return 0 for max uint32 as it indicates we need to check ifHighSpeed
 		},
 		{
-			name:     "wrong type",
+			name:     wrongTypeError,
 			input:    "not a number",
 			expected: 0,
 		},
@@ -353,7 +358,7 @@ func TestExtractSpeedFromCounter32(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name:     "wrong type",
+			name:     wrongTypeError,
 			input:    "not a number",
 			expected: 0,
 		},
@@ -390,7 +395,7 @@ func TestUpdateIfDescr(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 42,
@@ -431,7 +436,7 @@ func TestUpdateIfType(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.OctetString,
 				Value: []byte("not an integer"),
@@ -702,12 +707,12 @@ func TestSetStringValue(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 42,
 			},
-			expected: "original", // Should not change
+			expected: originalValue, // Should not change
 		},
 	}
 
@@ -719,8 +724,8 @@ func TestSetStringValue(t *testing.T) {
 
 			var target string
 
-			if tt.name == "wrong type" {
-				target = "original"
+			if tt.name == wrongTypeError {
+				target = originalValue
 			}
 
 			engine.setStringValue(&target, tt.pdu)
@@ -752,12 +757,12 @@ func TestSetObjectIDValue(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 42,
 			},
-			expected: "original", // Should not change
+			expected: originalValue, // Should not change
 		},
 	}
 
@@ -769,8 +774,8 @@ func TestSetObjectIDValue(t *testing.T) {
 
 			var target string
 
-			if tt.name == "wrong type" {
-				target = "original"
+			if tt.name == wrongTypeError {
+				target = originalValue
 			}
 
 			engine.setObjectIDValue(&target, tt.pdu)
@@ -802,7 +807,7 @@ func TestSetUptimeValue(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 42,
@@ -819,7 +824,7 @@ func TestSetUptimeValue(t *testing.T) {
 
 			var target int64
 
-			if tt.name == "wrong type" {
+			if tt.name == wrongTypeError {
 				target = 9999
 			}
 
@@ -860,20 +865,20 @@ func TestUpdateIfPhysAddress(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 42,
 			},
-			expected: "original", // Should not change
+			expected: originalValue, // Should not change
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			iface := &DiscoveredInterface{}
-			if tt.name == "wrong type" {
-				iface.IfPhysAddress = "original"
+			if tt.name == wrongTypeError {
+				iface.IfPhysAddress = originalValue
 			}
 
 			updateIfPhysAddress(iface, tt.pdu)
@@ -914,7 +919,7 @@ func testStatusHelper(t *testing.T, statusType string, updateFunc func(*Discover
 			expected: 3,
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.OctetString,
 				Value: []byte("not an integer"),
@@ -972,7 +977,7 @@ func TestUpdateInterfaceHighSpeed(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.OctetString,
 				Value: []byte("not an integer"),

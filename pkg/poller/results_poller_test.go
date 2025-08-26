@@ -18,7 +18,7 @@ package poller
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,6 +29,15 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	// errConnectionFailedTest is used in tests to simulate connection failures
+	errConnectionFailedTest = errors.New("connection failed")
+	// errStreamCreationFailed is used in tests to simulate stream creation failures
+	errStreamCreationFailed = errors.New("stream creation failed")
+	// errStreamErrorTest is used in tests to simulate stream errors
+	errStreamErrorTest = errors.New("stream error")
 )
 
 // createTestResultsPoller creates a ResultsPoller for testing with the given service name and type
@@ -115,7 +124,7 @@ func TestResultsPoller_handleGetResultsError(t *testing.T) {
 		},
 		{
 			name:      "other error returns service status",
-			err:       fmt.Errorf("connection failed"),
+			err:       errConnectionFailedTest,
 			expectNil: false,
 			expectedStatus: &proto.ServiceStatus{
 				ServiceName: "test-service",
@@ -334,7 +343,7 @@ func TestResultsPoller_executeGetResults_Unary(t *testing.T) {
 
 func TestResultsPoller_executeGetResults_Error(t *testing.T) {
 	setupMockAndTestGetResults(t, "test-service", "grpc", func(mock *proto.MockAgentServiceClient) {
-		expectedErr := fmt.Errorf("connection failed")
+		expectedErr := errConnectionFailedTest
 		mock.EXPECT().
 			GetResults(gomock.Any(), gomock.Any()).
 			Return(nil, expectedErr)
@@ -391,7 +400,7 @@ func TestResultsPoller_executeStreamResults_StreamError(t *testing.T) {
 		ServiceType: "sync",
 	}
 
-	expectedErr := fmt.Errorf("stream creation failed")
+	expectedErr := errStreamCreationFailed
 	mockClient.EXPECT().
 		StreamResults(gomock.Any(), gomock.Eq(req)).
 		Return(nil, expectedErr)
@@ -406,7 +415,7 @@ func TestResultsPoller_executeStreamResults_StreamError(t *testing.T) {
 func TestResultsPoller_executeGetResults_StreamingRoute(t *testing.T) {
 	setupMockAndTestGetResults(t, "sync-service", "sync", func(mock *proto.MockAgentServiceClient) {
 		// Test that it calls StreamResults instead of GetResults for sync type
-		expectedErr := fmt.Errorf("stream error")
+		expectedErr := errStreamErrorTest
 		mock.EXPECT().
 			StreamResults(gomock.Any(), gomock.Any()).
 			Return(nil, expectedErr)

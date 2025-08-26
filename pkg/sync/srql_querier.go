@@ -4,12 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
+)
+
+// Static errors
+var (
+	ErrAPIBadStatus = errors.New("API returned bad status")
+	ErrQueryFailed  = errors.New("query failed")
 )
 
 // SweepResultsQuery handles querying sweep results via SRQL
@@ -190,7 +197,7 @@ func (s *SweepResultsQuery) executeQuery(ctx context.Context, queryReq QueryRequ
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("%w: status %d: %s", ErrAPIBadStatus, resp.StatusCode, string(body))
 	}
 
 	// Parse the response
@@ -201,7 +208,7 @@ func (s *SweepResultsQuery) executeQuery(ctx context.Context, queryReq QueryRequ
 	}
 
 	if queryResp.Error != "" {
-		return nil, fmt.Errorf("query error: %s", queryResp.Error)
+		return nil, fmt.Errorf("%w: %s", ErrQueryFailed, queryResp.Error)
 	}
 
 	return &queryResp, nil

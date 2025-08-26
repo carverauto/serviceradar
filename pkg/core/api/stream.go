@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"reflect"
@@ -214,7 +215,11 @@ func (s *APIServer) streamQueryResults(ctx context.Context, sqlQuery string, sen
 		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Failed to execute query: %v", err), Timestamp: time.Now()}
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("failed to close rows", "error", err)
+		}
+	}()
 
 	columnTypes := rows.ColumnTypes()
 	columns := make([]string, len(columnTypes))

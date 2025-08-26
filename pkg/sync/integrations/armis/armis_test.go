@@ -38,6 +38,10 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const (
+	testAccessToken = "test-access-token"
+)
+
 // TestArmisIntegration_Fetch_NoUpdater tests the fetch logic when no updater is configured.
 func TestArmisIntegration_Fetch_NoUpdater(t *testing.T) {
 	integration, mocks := setupArmisIntegration(t)
@@ -102,7 +106,7 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	}
 
 	// 2. Test Fetch (Discovery) - should NOT perform reconciliation
-	testAccessToken := "test-access-token"
+	testAccessToken := testAccessToken
 	expectedQuery := "in:devices orderBy=id boundaries:\"Corporate\""
 
 	// Expectations for the initial device fetch only
@@ -244,7 +248,7 @@ func getFirstPageResponse(devices []Device) *SearchResponse {
 func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, _ *models.SweepConfig) {
 	t.Helper()
 
-	testAccessToken := "test-access-token"
+	testAccessToken := testAccessToken
 	expectedQuery := "in:devices orderBy=id boundaries:\"Corporate\""
 
 	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
@@ -333,7 +337,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 		Logger:       logger.NewTestLogger(),
 	}
 
-	testAccessToken := "test-access-token"
+	testAccessToken := testAccessToken
 	firstPageDevices := []Device{{ID: 1, IPAddress: "192.168.1.1", Name: "Device 1"}, {ID: 2, IPAddress: "192.168.1.2", Name: "Device 2"}}
 	secondPageDevices := []Device{{ID: 3, IPAddress: "192.168.1.3", Name: "Device 3"}, {ID: 4, IPAddress: "192.168.1.4", Name: "Device 4"}}
 	firstPageResp := &SearchResponse{Data: struct {
@@ -515,7 +519,7 @@ func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
 		{ID: 4, Name: "guest-tablet-1", IPAddress: "192.168.2.101", MacAddress: "00:11:22:33:44:58"},
 	}
 
-	testAccessToken := "test-access-token"
+	testAccessToken := testAccessToken
 
 	// Set up expectations for token provider
 	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
@@ -646,7 +650,11 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 			// Create the response inside the test loop
 			mockResponse := createSuccessResponse(t)
 			if mockResponse != nil {
-				defer mockResponse.Body.Close()
+				defer func() {
+					if err := mockResponse.Body.Close(); err != nil {
+						t.Logf("Failed to close response body: %v", err)
+					}
+				}()
 			}
 
 			impl := setupDefaultArmisIntegration(t, mockResponse, tc.mockError)
@@ -724,10 +732,10 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 					StatusCode: http.StatusOK,
 					Body: io.NopCloser(
 						strings.NewReader(
-							`{"data": {"access_token": "test-access-token", "expiration_utc": "2023-10-11T09:49:00.818613+00:00"}, "success": true}`)),
+							`{"data": {"access_token": testAccessToken, "expiration_utc": "2023-10-11T09:49:00.818613+00:00"}, "success": true}`)),
 				}, nil)
 			},
-			expectedToken: "test-access-token",
+			expectedToken: testAccessToken,
 			expectedError: "",
 		},
 		{

@@ -15,7 +15,6 @@
  */
 
 // Package snmp pkg/checker/snmp/client.go
-
 package snmp
 
 import (

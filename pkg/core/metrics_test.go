@@ -32,6 +32,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+const (
+	testPollerID = "test-poller"
+)
+
 func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -50,7 +54,7 @@ func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pollerID := "test-poller"
+	pollerID := testPollerID
 	partition := "test-partition"
 	sourceIP := "192.168.1.100"
 	timestamp := time.Now()
@@ -227,7 +231,7 @@ func TestProcessServicePayload_SyncService_HealthCheckNotProcessed(t *testing.T)
 	}
 
 	ctx := context.Background()
-	pollerID := "test-poller"
+	pollerID := testPollerID
 	partition := "test-partition"
 	sourceIP := "192.168.1.100"
 	timestamp := time.Now()

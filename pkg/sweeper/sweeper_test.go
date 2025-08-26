@@ -30,6 +30,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var (
+	// errKVConnectionFailed is used in tests to simulate KV connection failures
+	errKVConnectionFailed = errors.New("KV connection failed")
+)
+
 func TestMockSweeper(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -301,7 +306,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 
 		subMockKVStore.EXPECT().
 			Watch(gomock.Any(), "test-config-key").
-			Return(nil, errors.New("KV connection failed")).
+			Return(nil, errKVConnectionFailed).
 			AnyTimes()
 
 		configReady := make(chan struct{})

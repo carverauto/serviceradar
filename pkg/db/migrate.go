@@ -277,7 +277,9 @@ func getAppliedMigrations(ctx context.Context, conn proton.Conn) (map[string]str
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	applied := make(map[string]struct{})
 

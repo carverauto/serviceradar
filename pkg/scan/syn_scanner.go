@@ -1597,7 +1597,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		// Apply conservative multiplier when using risky fallback range
 		// This reduces contention with system ephemeral port allocation
 		originalSafeCapacity := safeCapacityPPS
-		safeCapacityPPS = safeCapacityPPS / capacityReduction // Reduce to 25% of calculated capacity
+		safeCapacityPPS /= capacityReduction // Reduce to 25% of calculated capacity
 
 		if safeCapacityPPS < minSafeRatePPS {
 			safeCapacityPPS = minSafeRatePPS // Minimum viable rate
@@ -2074,6 +2074,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	if s.cancel != nil {
 		s.mu.Unlock()
+		cancel() // Ensure we don't leak the context
 		return nil, ErrScanAlreadyRunning
 	}
 

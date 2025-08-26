@@ -31,6 +31,15 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+var (
+	// ErrStreamCompletedWithoutFinalChunk is returned when stream completes without final chunk
+	ErrStreamCompletedWithoutFinalChunk = errors.New("stream completed without a final chunk")
+	// ErrNoHostsFieldFound is returned when no hosts field is found in chunk data
+	ErrNoHostsFieldFound = errors.New("no hosts field found in chunk data")
+	// ErrHostsFieldNotArray is returned when hosts field is not an array
+	ErrHostsFieldNotArray = errors.New("hosts field is not an array in chunk data")
+)
+
 // executeGetResults now routes to the correct method based on service type.
 func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceStatus {
 	req := rp.buildResultsRequest()
@@ -178,7 +187,7 @@ func (rp *ResultsPoller) processStreamChunks(
 			Int("chunks_received", chunksReceived).
 			Msg("Stream completed without a final chunk")
 
-		err = fmt.Errorf("stream completed without a final chunk")
+		err = ErrStreamCompletedWithoutFinalChunk
 
 		return mergedDevices, finalChunk, metadata, err
 	}
@@ -209,13 +218,13 @@ func (rp *ResultsPoller) parseChunkData(
 		// Extract hosts from the object
 		hostsInterface, ok := chunkData["hosts"]
 		if !ok {
-			err = fmt.Errorf("no hosts field found in chunk data")
+			err = ErrNoHostsFieldFound
 			return devices, metadata, err
 		}
 
 		hosts, ok := hostsInterface.([]interface{})
 		if !ok {
-			err = fmt.Errorf("hosts field is not an array in chunk data")
+			err = ErrHostsFieldNotArray
 			return devices, metadata, err
 		}
 

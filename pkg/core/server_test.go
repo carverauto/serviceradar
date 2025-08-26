@@ -42,6 +42,7 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+
 func TestNewServer(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -447,7 +448,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 		tracer:        otel.Tracer("serviceradar-core-test"),
 	}
 
-	pollerID := "test-poller"
+	pollerID := testPollerID
 	now := time.Now()
 
 	// Test data
@@ -524,7 +525,7 @@ func TestHandlePollerRecovery(t *testing.T) {
 		tracer:   otel.Tracer("serviceradar-core-test"),
 	}
 
-	pollerID := "test-poller"
+	pollerID := testPollerID
 	apiStatus := &api.PollerStatus{
 		PollerID:   pollerID,
 		IsHealthy:  true,
@@ -557,7 +558,7 @@ func TestHandlePollerDown(t *testing.T) {
 		tracer:                  otel.Tracer("serviceradar-core-test"),
 	}
 
-	pollerID := "test-poller"
+	pollerID := testPollerID
 	lastSeen := time.Now().Add(-10 * time.Minute)
 	firstSeen := lastSeen.Add(-1 * time.Hour)
 
@@ -794,7 +795,7 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	pollerID := "test-poller"
+	pollerID := testPollerID
 	agentID := "agent-123"
 	now := time.Now()
 

@@ -211,14 +211,17 @@ func (s *Server) Stop(ctx context.Context) error {
 	return nil
 }
 
+// GetMetricsManager returns the metrics collector instance.
 func (s *Server) GetMetricsManager() metrics.MetricCollector {
 	return s.metrics
 }
 
+// GetSNMPManager returns the SNMP manager instance.
 func (s *Server) GetSNMPManager() metricstore.SNMPManager {
 	return s.snmpManager
 }
 
+// GetDeviceRegistry returns the device registry manager.
 func (s *Server) GetDeviceRegistry() registry.Manager {
 	return s.DeviceRegistry
 }
@@ -241,6 +244,7 @@ func (s *Server) runMetricsCleanup(ctx context.Context) {
 	}
 }
 
+// Shutdown gracefully shuts down the server and its components.
 func (s *Server) Shutdown(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 	defer cancel()
@@ -278,6 +282,7 @@ const (
 	defaultShortTimeout = 10 * time.Second
 )
 
+// SetAPIServer sets the API server instance for the core server.
 func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -338,6 +343,7 @@ func (s *Server) updateAPIState(pollerID string, apiStatus *api.PollerStatus) {
 	s.logger.Debug().Str("poller_id", pollerID).Msg("Updated API server state for poller")
 }
 
+// GetRperfManager returns the rperf manager instance.
 func (s *Server) GetRperfManager() metricstore.RperfManager {
 	return s.rperfManager
 }

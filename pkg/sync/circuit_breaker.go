@@ -18,12 +18,20 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
+)
+
+var (
+	// ErrCircuitBreakerOpen is returned when circuit breaker is open
+	ErrCircuitBreakerOpen = errors.New("circuit breaker is open")
+	// ErrServerError is returned for server errors
+	ErrServerError = errors.New("server error")
 )
 
 const (
@@ -92,7 +100,7 @@ func NewCircuitBreaker(name string, config CircuitBreakerConfig, log logger.Logg
 // Execute executes a function call through the circuit breaker
 func (cb *CircuitBreaker) Execute(_ context.Context, fn func() error) error {
 	if !cb.allowRequest() {
-		return fmt.Errorf("circuit breaker %s is open", cb.name)
+		return fmt.Errorf("%w: %s", ErrCircuitBreakerOpen, cb.name)
 	}
 
 	err := fn()
@@ -265,7 +273,7 @@ func (c *CircuitBreakerHTTPClient) Do(req *http.Request) (*http.Response, error)
 		}()
 
 		if resp.StatusCode >= HTTPStatusInternalServer {
-			return fmt.Errorf("server error: %d", resp.StatusCode)
+			return fmt.Errorf("%w: %d", ErrServerError, resp.StatusCode)
 		}
 
 		return nil

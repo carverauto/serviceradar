@@ -46,9 +46,13 @@ type DiscoveryEngine struct {
 type DiscoveryType string
 
 const (
+	// DiscoveryTypeFull performs comprehensive device discovery including all data.
 	DiscoveryTypeFull       DiscoveryType = "full"
+	// DiscoveryTypeBasic performs basic device discovery without detailed topology.
 	DiscoveryTypeBasic      DiscoveryType = "basic"
+	// DiscoveryTypeInterfaces discovers network interfaces for devices.
 	DiscoveryTypeInterfaces DiscoveryType = "interfaces"
+	// DiscoveryTypeTopology discovers network topology relationships between devices.
 	DiscoveryTypeTopology   DiscoveryType = "topology"
 )
 
@@ -56,8 +60,11 @@ const (
 type SNMPVersion string
 
 const (
+	// SNMPVersion1 represents SNMP protocol version 1.
 	SNMPVersion1  SNMPVersion = "v1"
+	// SNMPVersion2c represents SNMP protocol version 2c.
 	SNMPVersion2c SNMPVersion = "v2c"
+	// SNMPVersion3 represents SNMP protocol version 3.
 	SNMPVersion3  SNMPVersion = "v3"
 )
 
@@ -90,11 +97,17 @@ type SNMPCredentials struct {
 type DiscoveryStatusType string
 
 const (
+	// DiscoveryStatusUnknown indicates the discovery status is not determined.
 	DiscoveryStatusUnknown   DiscoveryStatusType = "unknown"
+	// DiscoveryStatusPending indicates the discovery job is queued but not started.
 	DiscoveryStatusPending   DiscoveryStatusType = "pending"
+	// DiscoveryStatusRunning indicates the discovery job is currently executing.
 	DiscoveryStatusRunning   DiscoveryStatusType = "running"
+	// DiscoveryStatusCompleted indicates the discovery job finished successfully.
 	DiscoveryStatusCompleted DiscoveryStatusType = "completed"
+	// DiscoveryStatusFailed indicates the discovery job encountered an error.
 	DiscoveryStatusFailed    DiscoveryStatusType = "failed"
+	// DiscoverStatusCanceled indicates the discovery job was canceled.
 	DiscoverStatusCanceled   DiscoveryStatusType = "canceled"
 )
 
@@ -210,6 +223,7 @@ type ScheduledJob struct {
 	Options     map[string]string `json:"options"`
 }
 
+// Config defines the configuration settings for the mapper service.
 type Config struct {
 	Workers            int                        `json:"workers"`
 	Timeout            time.Duration              `json:"timeout"`
@@ -227,6 +241,7 @@ type Config struct {
 	Logging            *logger.Config             `json:"logging"`
 }
 
+// UniFiAPIConfig contains configuration for connecting to a UniFi controller API.
 type UniFiAPIConfig struct {
 	BaseURL            string `json:"base_url"`
 	APIKey             string `json:"api_key"`
@@ -234,6 +249,7 @@ type UniFiAPIConfig struct {
 	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"` // Skip TLS verification
 }
 
+// UnmarshalJSON provides custom JSON unmarshaling for Config with validation and defaults.
 func (c *Config) UnmarshalJSON(data []byte) error {
 	type Alias Config
 
@@ -338,6 +354,7 @@ type StreamConfig struct {
 	PublishRetryInterval time.Duration
 }
 
+// DeviceInterfaceMap represents a consolidated view of a device with all its interfaces and associated network identifiers.
 type DeviceInterfaceMap struct {
 	DeviceID   string              // Primary DeviceID (based on primary MAC)
 	MACs       map[string]struct{} // All MACs associated with this device

@@ -37,6 +37,7 @@ type UniFiSite struct {
 	Name              string `json:"name"`
 }
 
+// UniFiDevice represents a network device managed by a UniFi controller.
 type UniFiDevice struct {
 	ID        string   `json:"id"`
 	IPAddress string   `json:"ipAddress"`
@@ -144,7 +145,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("sites request for %s failed with status: %d", apiConfig.Name, resp.StatusCode)
+		return nil, fmt.Errorf("%w for %s with status: %d", ErrUniFiSitesRequestFailed, apiConfig.Name, resp.StatusCode)
 	}
 
 	var sitesResp struct {
@@ -156,7 +157,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 	}
 
 	if len(sitesResp.Data) == 0 {
-		return nil, fmt.Errorf("no sites found for %s", apiConfig.Name)
+		return nil, fmt.Errorf("%w for %s", ErrNoUniFiSitesFound, apiConfig.Name)
 	}
 
 	// Cache sites
@@ -225,6 +226,7 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 }
 
 var (
+	// ErrNoUniFiNeighborsFound indicates that no neighboring devices were found during UniFi discovery.
 	ErrNoUniFiNeighborsFound = errors.New("no UniFi neighbors found")
 )
 
@@ -261,8 +263,8 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("devices request for %s, site %s failed with status: %d",
-			apiConfig.Name, site.Name, resp.StatusCode)
+		return nil, nil, fmt.Errorf("%w for %s, site %s with status: %d",
+			ErrUniFiDevicesRequestFailed, apiConfig.Name, site.Name, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -335,8 +337,8 @@ func (*DiscoveryEngine) fetchDeviceDetails(
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("details request for device %s failed with status: %d",
-			deviceID, resp.StatusCode)
+		return nil, fmt.Errorf("%w for device %s with status: %d",
+			ErrUniFiDeviceDetailsFailed, deviceID, resp.StatusCode)
 	}
 
 	var details UniFiDeviceDetails
@@ -606,7 +608,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 
 	if len(allDevices) == 0 {
 		if errorsEncountered == len(e.config.UniFiAPIs) {
-			return nil, nil, fmt.Errorf("no UniFi devices found; all %d API attempts failed", errorsEncountered)
+			return nil, nil, fmt.Errorf("%w: all %d API attempts failed", ErrNoUniFiDevicesFound, errorsEncountered)
 		}
 
 		e.logger.Info().Str("job_id", job.ID).Str("target_ip", targetIP).
@@ -650,8 +652,8 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body) // Read body for error context
 
-		return nil, fmt.Errorf("devices request for %s, site %s failed with status: %d, body: %s",
-			apiConfig.Name, site.Name, resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("%w for %s, site %s with status: %d, body: %s",
+			ErrUniFiDevicesRequestFailed, apiConfig.Name, site.Name, resp.StatusCode, string(bodyBytes))
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -921,6 +923,6 @@ func (e *DiscoveryEngine) querySysInfoWithTimeout(
 	case result := <-done:
 		return result.device, result.err
 	case <-time.After(timeout):
-		return nil, fmt.Errorf("SNMP query timeout for %s", target)
+		return nil, fmt.Errorf("%w for %s", ErrSNMPQueryTimeout, target)
 	}
 }

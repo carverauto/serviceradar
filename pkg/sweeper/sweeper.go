@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -30,6 +31,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
+)
+
+var (
+	// ErrFailedToReadChunk is returned when a chunk cannot be read
+	ErrFailedToReadChunk = errors.New("failed to read chunk")
 )
 
 const (
@@ -1019,7 +1025,7 @@ func (s *NetworkSweeper) startChunkWorkers(ctx context.Context, wg *sync.WaitGro
 				} else {
 					results <- chunkResult{
 						index: chunkIndex,
-						err:   fmt.Errorf("failed to read chunk %d", chunkIndex),
+						err:   fmt.Errorf("%w %d", ErrFailedToReadChunk, chunkIndex),
 					}
 				}
 			}
@@ -1222,17 +1228,18 @@ func (*NetworkSweeper) estimateNetworkHosts(networks []string) int {
 
 	for _, network := range networks {
 		// Simple CIDR parsing to estimate host count
-		if strings.Contains(network, "/32") {
+		switch {
+		case strings.Contains(network, "/32"):
 			totalHosts++ // Single host
-		} else if strings.Contains(network, "/31") {
+		case strings.Contains(network, "/31"):
 			totalHosts += 2
-		} else if strings.Contains(network, "/30") {
+		case strings.Contains(network, "/30"):
 			totalHosts += 4
-		} else if strings.Contains(network, "/24") {
+		case strings.Contains(network, "/24"):
 			totalHosts += 254 // Standard /24 subnet
-		} else if strings.Contains(network, "/16") {
+		case strings.Contains(network, "/16"):
 			totalHosts += 65534 // /16 network
-		} else {
+		default:
 			// Default estimate for unknown CIDR - assume /24
 			totalHosts += 254
 		}

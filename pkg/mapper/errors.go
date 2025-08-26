@@ -19,6 +19,7 @@ package mapper
 import "errors"
 
 var (
+	// ErrDiscoveryStopTimeout occurs when the discovery engine fails to stop within the timeout period.
 	ErrDiscoveryStopTimeout     = errors.New("discovery engine stop timed out")
 	ErrDiscoveryAtCapacity      = errors.New("discovery engine at capacity, please try again later")
 	ErrDiscoveryShuttingDown    = errors.New("discovery engine is shutting down")
@@ -33,6 +34,7 @@ var (
 	ErrUnsupportedSNMPVersion   = errors.New("unsupported SNMP version")
 
 	ErrDatabaseServiceRequired = errors.New("database service is required")
+	ErrDeviceRegistryRequired  = errors.New("device registry is required")
 	ErrSNMPGetFailed           = errors.New("SNMP GET failed")
 	ErrSNMPError               = errors.New("SNMP error occurred")
 	ErrNoSNMPDataReturned      = errors.New("no SNMP data returned")
@@ -40,8 +42,18 @@ var (
 	ErrNoCDPNeighborsFound     = errors.New("no CDP neighbors found")
 	ErrNoICMPResponse          = errors.New("no ICMP response")
 	ErrInt32RangeExceeded      = errors.New("value exceeds int32 range")
+	ErrFoundMACStoppingWalk    = errors.New("found MAC, stopping walk")
+	ErrConnectionTimeout       = errors.New("connection timeout")
+	
+	// UniFi/UBNT specific errors
+	ErrUniFiSitesRequestFailed  = errors.New("UniFi sites request failed")
+	ErrNoUniFiSitesFound        = errors.New("no UniFi sites found")
+	ErrUniFiDevicesRequestFailed = errors.New("UniFi devices request failed")
+	ErrUniFiDeviceDetailsFailed = errors.New("UniFi device details request failed")
+	ErrNoUniFiDevicesFound      = errors.New("no UniFi devices found; all API attempts failed")
+	ErrSNMPQueryTimeout         = errors.New("SNMP query timeout")
 
-	// Discovery validation errors
+	// ErrNoSeedsProvided occurs when no discovery seeds are provided for a job.
 	ErrNoSeedsProvided         = errors.New("no seeds provided")
 	ErrJobQueueFull            = errors.New("job queue full, cannot enqueue discovery job")
 	ErrScheduledJobMissingName = errors.New("scheduled job missing name")

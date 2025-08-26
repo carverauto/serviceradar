@@ -334,6 +334,7 @@ func (e *DiscoveryEngine) expandCIDR(cidr string, seen map[string]bool) []string
 	return targets
 }
 
+// GenerateDeviceID creates a device identifier from a MAC address.
 func GenerateDeviceID(mac string) string {
 	if mac == "" {
 		return ""
@@ -342,6 +343,7 @@ func GenerateDeviceID(mac string) string {
 	return mac // Use raw MAC as DeviceID, no normalization for now
 }
 
+// GenerateDeviceIDFromIP creates a device identifier from an IP address when MAC is not available.
 func GenerateDeviceIDFromIP(ip string) string {
 	if ip == "" {
 		return ""

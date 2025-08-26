@@ -19,6 +19,7 @@ package poller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -30,6 +31,15 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	// errServiceUnavailable is used in tests to simulate service unavailability
+	errServiceUnavailable = errors.New("service unavailable")
+	// errStreamError is used in tests to simulate stream errors
+	errStreamError = errors.New("stream error")
+	// errConnectionFailed is used in tests to simulate connection failures
+	errConnectionFailed = errors.New("connection failed")
 )
 
 func TestNewAgentPoller(t *testing.T) {
@@ -238,7 +248,7 @@ func TestAgentPoller_ExecuteChecks_WithErrors(t *testing.T) {
 					AgentId:   "test-agent",
 				}, nil
 			}
-			return nil, fmt.Errorf("service unavailable")
+			return nil, errServiceUnavailable
 		}).
 		Times(2)
 
@@ -319,7 +329,7 @@ func TestAgentPoller_ExecuteResults(t *testing.T) {
 	// Only expect one call for the sync service (sweep should be skipped due to interval)
 	mockClient.EXPECT().
 		StreamResults(gomock.Any(), gomock.Any()).
-		Return(nil, fmt.Errorf("stream error")).
+		Return(nil, errStreamError).
 		Times(1)
 
 	ctx := context.Background()
@@ -467,7 +477,7 @@ func TestServiceCheck_Execute_Error(t *testing.T) {
 
 	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", mockLogger)
 
-	expectedErr := fmt.Errorf("connection failed")
+	expectedErr := errConnectionFailed
 	mockClient.EXPECT().
 		GetStatus(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, expectedErr)
@@ -505,7 +515,7 @@ func TestServiceCheck_Execute_JSONMarshalError(t *testing.T) {
 
 	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", mockLogger)
 
-	expectedErr := fmt.Errorf("connection failed")
+	expectedErr := errConnectionFailed
 	mockClient.EXPECT().
 		GetStatus(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, expectedErr)

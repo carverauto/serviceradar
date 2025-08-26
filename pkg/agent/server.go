@@ -412,7 +412,7 @@ func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *
 		// Process chunked configuration by reading all chunks and combining them
 		chunkCountInt, ok := chunkCount.(float64)
 		if !ok {
-			return nil, fmt.Errorf("invalid chunk_count format in metadata: %v", chunkCount)
+			return nil, fmt.Errorf("%w: %v", errInvalidChunkCountFormat, chunkCount)
 		}
 
 		return s.processChunkedSweepConfig(ctx, kvPath, int(chunkCountInt), fileConfig)
@@ -1319,7 +1319,7 @@ func (s *Server) handleDefaultChecker(
 
 	if !json.Valid(message) {
 		s.logger.Error().Str("serviceName", req.ServiceName).RawJSON("message", message).Msg("Invalid JSON from checker")
-		return nil, fmt.Errorf("invalid JSON response from checker")
+		return nil, errInvalidJSONResponse
 	}
 
 	return &proto.StatusResponse{
