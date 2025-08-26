@@ -974,6 +974,7 @@ func (r *ringBuf) block(i uint32) []byte {
 	return r.mem[base:end]
 }
 
+//nolint:gocyclo // Complex packet processing logic with inherent branching
 func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 	// Build pollfd set: ring FD + optional wake FD for cancellation
 	var pfd []unix.PollFd
@@ -1122,6 +1123,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 // uses atomic.Value and is safe to call anytime, including during active scans.
 //
 // Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
+//nolint:gocyclo // Complex initialization with many configuration options and platform-specific setup
 func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, opts *SYNScannerOptions) (*SYNScanner, error) {
 	log.Debug().Msg("Starting SYN scanner initialization")
 
@@ -2039,6 +2041,7 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 }
 
 // Scan performs SYN scanning on the given targets
+//nolint:gocyclo // Complex scanning logic with multiple execution paths and error handling
 func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	tcpTargets := filterTCPTargets(targets)
 	resultCh := make(chan models.Result, len(tcpTargets))
