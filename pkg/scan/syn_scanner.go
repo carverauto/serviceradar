@@ -2442,7 +2442,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 		toEmit    models.Result
 		cb        func(models.Result)
 		targetKey string
-		toFree    []uint16
+		toFree    = make([]uint16, 0, 8) // Pre-allocate with reasonable capacity
 	)
 
 	s.mu.Lock()
@@ -2499,7 +2499,6 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	}
 
 	uniq := make(map[uint16]struct{}, len(ports))
-	toFree = make([]uint16, 0, len(ports))
 
 	delete(s.targetPorts, targetKey)
 
@@ -3192,7 +3191,8 @@ func getLocalIPAndInterfaceWithTarget(target string) (net.IP, string, error) {
 		target = "8.8.8.8:80"
 	}
 
-	conn, err := net.Dial("udp", target)
+	dialer := &net.Dialer{}
+	conn, err := dialer.DialContext(context.Background(), "udp", target)
 	if err != nil {
 		// Fallback for environments without internet access or blocked targets
 		interfaces, err := net.Interfaces()
@@ -3221,9 +3221,7 @@ func getLocalIPAndInterfaceWithTarget(target string) (net.IP, string, error) {
 	}
 
 	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
-			// Connection errors during close are typically benign
-		}
+		_ = conn.Close() // Ignore close error in defer
 	}()
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)

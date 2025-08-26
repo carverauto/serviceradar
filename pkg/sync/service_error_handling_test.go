@@ -448,11 +448,11 @@ func TestErrorChannelOverflow(t *testing.T) {
 
 	require.NoError(t, err)
 
-	defer s.Stop(context.Background())
+	defer func() { _ = s.Stop(context.Background()) }()
 
 	// Fill the error channel
 	for i := 0; i < cap(s.errorChan); i++ {
-		testErr := fmt.Errorf("error %d", i)
+		var testErr = fmt.Errorf("error %d", i)
 		s.sendError(testErr)
 	}
 

@@ -889,6 +889,7 @@ func TestUpdateIfPhysAddress(t *testing.T) {
 
 // testStatusHelper is a helper for status update tests
 func testStatusHelper(t *testing.T, statusType string, updateFunc func(*DiscoveryEngine, *DiscoveredInterface, gosnmp.SnmpPDU), getStatus func(*DiscoveredInterface) int32) {
+	t.Helper()
 	tests := []struct {
 		name     string
 		pdu      gosnmp.SnmpPDU

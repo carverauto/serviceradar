@@ -75,9 +75,7 @@ func (db *DB) queryTimeseriesMetrics(
 		return nil, err
 	}
 	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			// Log error but don't return it since we're in defer
-		}
+		_ = rows.Close() // Ignore close error in defer
 	}()
 
 	var metrics []models.TimeseriesMetric
@@ -314,9 +312,7 @@ func (db *DB) GetCPUMetrics(
 		return nil, fmt.Errorf("failed to query CPU metrics: %w", err)
 	}
 	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			// Log error but don't return it since we're in defer
-		}
+		_ = rows.Close() // Ignore close error in defer
 	}()
 
 	var metrics []models.CPUMetric
@@ -1020,9 +1016,7 @@ func (db *DB) getTimeseriesMetricsByFilters(
 		return nil, fmt.Errorf("failed to query metrics with filters %v: %w", filters, err)
 	}
 	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			// Log error but don't return it since we're in defer
-		}
+		_ = rows.Close() // Ignore close error in defer
 	}()
 
 	var metrics []models.TimeseriesMetric

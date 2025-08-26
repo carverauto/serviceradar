@@ -194,7 +194,8 @@ func (s *Server) Start() error {
 		}
 	}
 
-	lis, err := net.Listen("tcp", s.addr)
+	lc := &net.ListenConfig{}
+	lis, err := lc.Listen(context.Background(), "tcp", s.addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}

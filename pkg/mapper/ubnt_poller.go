@@ -139,9 +139,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 		return nil, fmt.Errorf("failed to fetch sites from %s: %w", apiConfig.Name, err)
 	}
 	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			// Log error but don't return it since we're in defer
-		}
+		_ = resp.Body.Close() // Ignore close error in defer
 	}()
 
 	if resp.StatusCode != http.StatusOK {
@@ -260,7 +258,7 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 		return nil, nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w",
 			apiConfig.Name, site.Name, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, nil, fmt.Errorf("%w for %s, site %s with status: %d",
@@ -334,7 +332,7 @@ func (*DiscoveryEngine) fetchDeviceDetails(
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch details for device %s: %w", deviceID, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w for device %s with status: %d",
@@ -647,7 +645,7 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 		return nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w",
 			apiConfig.Name, site.Name, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body) // Read body for error context

@@ -38,7 +38,7 @@ func TestInMemoryMetrics_DiscoveryMetrics(t *testing.T) {
 	source := testSource
 	deviceCount := 10
 	duration := 100 * time.Millisecond
-	var testErr = errors.New("test error")
+	testErr := errors.New("test error")
 
 	// Record attempt
 	metrics.RecordDiscoveryAttempt(source)
@@ -80,7 +80,7 @@ func TestInMemoryMetrics_ReconciliationMetrics(t *testing.T) {
 	source := testSource
 	updateCount := 5
 	duration := 200 * time.Millisecond
-	var testErr = errors.New("reconciliation error")
+	testErr := errors.New("reconciliation error")
 
 	// Record attempt and success
 	metrics.RecordReconciliationAttempt(source)
@@ -197,11 +197,11 @@ func TestNoOpMetrics(t *testing.T) {
 	// Should not panic
 	metrics.RecordDiscoveryAttempt("test")
 	metrics.RecordDiscoverySuccess("test", 10, time.Second)
-	testErr2 := errors.New("test")
+	var testErr2 = errors.New("test")
 	metrics.RecordDiscoveryFailure("test", testErr2, time.Second)
 	metrics.RecordReconciliationAttempt("test")
 	metrics.RecordReconciliationSuccess("test", 5, time.Second)
-	testErr3 := errors.New("test")
+	var testErr3 = errors.New("test")
 	metrics.RecordReconciliationFailure("test", testErr3, time.Second)
 	metrics.RecordAPICall("test", "endpoint")
 	metrics.RecordAPISuccess("test", "endpoint", time.Second)
