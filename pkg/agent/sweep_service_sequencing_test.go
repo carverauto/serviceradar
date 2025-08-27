@@ -22,9 +22,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // Note: mockSweeper is defined in server_test.go to avoid duplication
@@ -73,6 +74,7 @@ func TestSweepService_GetSweepResults_InitialCall(t *testing.T) {
 
 	// Verify data is correctly marshaled
 	var unmarshaledData models.SweepSummary
+
 	err = json.Unmarshal(response.Data, &unmarshaledData)
 	require.NoError(t, err)
 	assert.Equal(t, 10, unmarshaledData.TotalHosts)
@@ -171,6 +173,7 @@ func TestSweepService_GetSweepResults_NewDataAvailable(t *testing.T) {
 
 	// Verify updated data
 	var unmarshaledData models.SweepSummary
+
 	err = json.Unmarshal(response.Data, &unmarshaledData)
 	require.NoError(t, err)
 	assert.Equal(t, 15, unmarshaledData.TotalHosts)
@@ -269,6 +272,7 @@ func TestSweepService_GetStatus_LightweightResponse(t *testing.T) {
 
 	// Parse the status message
 	var statusData map[string]interface{}
+
 	err = json.Unmarshal(response.Message, &statusData)
 	require.NoError(t, err)
 

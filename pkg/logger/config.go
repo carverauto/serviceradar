@@ -19,10 +19,16 @@ package logger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
+)
+
+// Static errors for err113 compliance
+var (
+	ErrInvalidDurationType = errors.New("invalid duration type")
 )
 
 func DefaultConfig() *Config {
@@ -108,7 +114,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 		return nil
 	default:
-		return fmt.Errorf("invalid duration type: %T", value)
+		return fmt.Errorf("invalid duration type: %T: %w", value, ErrInvalidDurationType)
 	}
 }
 

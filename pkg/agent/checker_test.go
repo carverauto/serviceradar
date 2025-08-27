@@ -23,10 +23,11 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/carverauto/serviceradar/pkg/grpc"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 func TestProcessChecker_ValidateProcessName(t *testing.T) {
@@ -242,7 +243,12 @@ func TestExternalChecker(t *testing.T) {
 	// Create a temporary directory for certificates
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Generate test certificates
 	err = grpc.GenerateTestCertificates(tmpDir)
@@ -316,7 +322,12 @@ func TestSNMPChecker(t *testing.T) {
 	// Create a temporary directory for certificates
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Generate test certificates
 	err = grpc.GenerateTestCertificates(tmpDir)

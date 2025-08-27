@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package core pkg/core/interfaces.go
+// Package core provides the core service interfaces and types for ServiceRadar.
 //go:generate mockgen -destination=mock_server.go -package=core github.com/carverauto/serviceradar/pkg/core NodeService,CoreService,DiscoveryService
 
 package core

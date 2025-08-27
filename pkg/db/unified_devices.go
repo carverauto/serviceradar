@@ -50,7 +50,7 @@ func (db *DB) GetUnifiedDevice(ctx context.Context, deviceID string) (*models.Un
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("%w: %s", errUnifiedDeviceNotFound, deviceID)
@@ -70,7 +70,7 @@ func (db *DB) queryUnifiedDevicesWithArgs(ctx context.Context, query string, arg
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var devices []*models.UnifiedDevice
 
@@ -262,7 +262,7 @@ func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []
 	if err != nil {
 		return nil, fmt.Errorf("failed to batch query unified devices: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var devices []*models.UnifiedDevice
 

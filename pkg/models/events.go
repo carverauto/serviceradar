@@ -21,6 +21,10 @@ import (
 	"time"
 )
 
+var (
+	errNATSURLRequired = fmt.Errorf("nats url is required")
+)
+
 // NATSConfig configures NATS connectivity
 type NATSConfig struct {
 	URL      string          `json:"url"`
@@ -31,7 +35,7 @@ type NATSConfig struct {
 // Validate ensures the NATS configuration is valid
 func (c *NATSConfig) Validate() error {
 	if c.URL == "" {
-		return fmt.Errorf("nats url is required")
+		return errNATSURLRequired
 	}
 
 	return nil

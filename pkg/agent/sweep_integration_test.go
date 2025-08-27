@@ -23,10 +23,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // Integration test that demonstrates the complete sequencing flow
@@ -94,6 +95,7 @@ func TestSweepSequencing_EndToEndIntegration(t *testing.T) {
 
 	// Verify the data structure
 	var initialData models.SweepSummary
+
 	err = json.Unmarshal(response1.Data, &initialData)
 	require.NoError(t, err)
 	assert.Equal(t, 100, initialData.TotalHosts)
@@ -167,6 +169,7 @@ func TestSweepSequencing_EndToEndIntegration(t *testing.T) {
 
 	// Verify the updated data
 	var updatedData models.SweepSummary
+
 	err = json.Unmarshal(response3.Data, &updatedData)
 	require.NoError(t, err)
 	assert.Equal(t, 120, updatedData.TotalHosts, "Should reflect updated host count")

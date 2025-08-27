@@ -38,6 +38,7 @@ var (
 	errNoDefaultDetails     = errors.New("no default details for service type %s")
 	errServiceTypeRequired  = errors.New("service type is required (use -type)")
 	errCheckerNotFound      = errors.New("checker %s no found for agent %s")
+	// ErrInvalidIPFormat indicates an invalid IP address format was provided.
 	ErrInvalidIPFormat      = errors.New("invalid IP address format")
 	ErrRootCAExists         = errors.New("root CA already exists")
 	ErrInvalidIPAddress     = errors.New("invalid IP address")

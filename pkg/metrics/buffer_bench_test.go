@@ -59,6 +59,7 @@ func (b *ChannelBuffer) Add(
 	default:
 		// Drop the oldest point if the buffer is full
 		<-b.points
+
 		b.points <- point
 	}
 }
@@ -79,9 +80,10 @@ func (b *ChannelBuffer) GetPoints() []models.MetricPoint {
 	return points
 }
 
-// BenchmarkRingBuffer benchmarks the RingBuffer implementation.
-func BenchmarkRingBuffer(b *testing.B) {
-	buffer := NewBuffer(1000)
+// benchmarkBuffer is a helper for buffer benchmarks
+func benchmarkBuffer(b *testing.B, buffer MetricStore) {
+	b.Helper()
+
 	now := time.Now()
 
 	b.Run("Add", func(b *testing.B) {
@@ -103,58 +105,24 @@ func BenchmarkRingBuffer(b *testing.B) {
 			_ = buffer.GetPoints()
 		}
 	})
+}
+
+// BenchmarkRingBuffer benchmarks the RingBuffer implementation.
+func BenchmarkRingBuffer(b *testing.B) {
+	buffer := NewBuffer(1000)
+	benchmarkBuffer(b, buffer)
 }
 
 // BenchmarkLockFreeRingBuffer benchmarks the LockFreeRingBuffer implementation.
 func BenchmarkLockFreeRingBuffer(b *testing.B) {
 	buffer := NewLockFreeBuffer(1000)
-	now := time.Now()
-
-	b.Run("Add", func(b *testing.B) {
-		b.ResetTimer()
-
-		for i := 0; i < b.N; i++ {
-			buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "poller-1")
-		}
-	})
-
-	b.Run("GetPoints", func(b *testing.B) {
-		for i := 0; i < 1000; i++ {
-			buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "poller-1")
-		}
-
-		b.ResetTimer()
-
-		for i := 0; i < b.N; i++ {
-			_ = buffer.GetPoints()
-		}
-	})
+	benchmarkBuffer(b, buffer)
 }
 
 // BenchmarkChannelBuffer benchmarks the ChannelBuffer implementation.
 func BenchmarkChannelBuffer(b *testing.B) {
 	buffer := NewChannelBuffer(1000)
-	now := time.Now()
-
-	b.Run("Add", func(b *testing.B) {
-		b.ResetTimer()
-
-		for i := 0; i < b.N; i++ {
-			buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "poller-1")
-		}
-	})
-
-	b.Run("GetPoints", func(b *testing.B) {
-		for i := 0; i < 1000; i++ {
-			buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "poller-1")
-		}
-
-		b.ResetTimer()
-
-		for i := 0; i < b.N; i++ {
-			_ = buffer.GetPoints()
-		}
-	})
+	benchmarkBuffer(b, buffer)
 }
 
 // BenchmarkImplementations compares the performance of all implementations.

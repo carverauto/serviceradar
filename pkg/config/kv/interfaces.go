@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package kv provides interfaces for key-value store configuration management.
 package kv
 
 import (

@@ -3,53 +3,39 @@ package srql_test
 import (
 	"testing"
 
-	"github.com/carverauto/serviceradar/pkg/srql/models"
-	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/srql/models"
+	"github.com/carverauto/serviceradar/pkg/srql/parser"
 )
 
-func TestParseTimestamp(t *testing.T) {
-	// p := srql.NewParser() // If srql.NewParser wraps parser.NewParser
-	p := parser.NewParser() // Or use the direct parser
-	query := "show devices where timestamp = '2023-12-25 14:30:00'"
+// testSimpleQuery helper function for testing simple show device queries
+func testSimpleQuery(t *testing.T, query, expectedField, expectedValue string) {
+	t.Helper()
+
+	p := parser.NewParser()
 	parsed, err := p.Parse(query)
 	require.NoError(t, err)
 	assert.NotNil(t, parsed)
 	assert.Equal(t, models.Show, parsed.Type)
-	assert.Equal(t, models.Devices, parsed.Entity) // Ensure this EntityType is correct
+	assert.Equal(t, models.Devices, parsed.Entity)
 	require.Len(t, parsed.Conditions, 1)
-	assert.Equal(t, "timestamp", parsed.Conditions[0].Field)
+	assert.Equal(t, expectedField, parsed.Conditions[0].Field)
 	assert.Equal(t, models.Equals, parsed.Conditions[0].Operator)
-	assert.Equal(t, "2023-12-25 14:30:00", parsed.Conditions[0].Value)
+	assert.Equal(t, expectedValue, parsed.Conditions[0].Value)
+}
+
+func TestParseTimestamp(t *testing.T) {
+	testSimpleQuery(t, "show devices where timestamp = '2023-12-25 14:30:00'", "timestamp", "2023-12-25 14:30:00")
 }
 
 func TestParseIPAddress(t *testing.T) {
-	p := parser.NewParser()
-	query := "show devices where ip = '192.168.1.1'"
-	parsed, err := p.Parse(query)
-	require.NoError(t, err)
-	assert.NotNil(t, parsed)
-	assert.Equal(t, models.Show, parsed.Type)
-	assert.Equal(t, models.Devices, parsed.Entity)
-	require.Len(t, parsed.Conditions, 1)
-	assert.Equal(t, "ip", parsed.Conditions[0].Field)
-	assert.Equal(t, models.Equals, parsed.Conditions[0].Operator)
-	assert.Equal(t, "192.168.1.1", parsed.Conditions[0].Value)
+	testSimpleQuery(t, "show devices where ip = '192.168.1.1'", "ip", "192.168.1.1")
 }
 
 func TestParseMACAddress(t *testing.T) {
-	p := parser.NewParser()
-	query := "show devices where mac = '00:1A:2B:3C:4D:5E'"
-	parsed, err := p.Parse(query)
-	require.NoError(t, err)
-	assert.NotNil(t, parsed)
-	assert.Equal(t, models.Show, parsed.Type)
-	assert.Equal(t, models.Devices, parsed.Entity)
-	require.Len(t, parsed.Conditions, 1)
-	assert.Equal(t, "mac", parsed.Conditions[0].Field)
-	assert.Equal(t, models.Equals, parsed.Conditions[0].Operator)
-	assert.Equal(t, "00:1A:2B:3C:4D:5E", parsed.Conditions[0].Value)
+	testSimpleQuery(t, "show devices where mac = '00:1A:2B:3C:4D:5E'", "mac", "00:1A:2B:3C:4D:5E")
 }
 
 func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
@@ -272,84 +258,84 @@ func TestSRQLEdgeCases(t *testing.T) {
 	assert.Equal(t, "SELECT * FROM devices WHERE ip = '192.168.1.1' ORDER BY ip ASC", sqlMixed)
 }
 
+// validateTodayYesterdayQuery is a helper function to validate TODAY/YESTERDAY queries
+func validateTodayYesterdayQuery(
+	t *testing.T,
+	query *models.Query,
+	err error,
+	expectedType models.QueryType,
+	expectedEntity models.EntityType,
+	expectedField string,
+	expectedOperator models.OperatorType,
+	expectedValue string,
+) {
+	t.Helper()
+	require.NoError(t, err)
+	assert.Equal(t, expectedType, query.Type)
+	assert.Equal(t, expectedEntity, query.Entity)
+	require.Len(t, query.Conditions, 1)
+	assert.Equal(t, expectedField, query.Conditions[0].Field)
+	assert.Equal(t, expectedOperator, query.Conditions[0].Operator)
+	assert.Equal(t, expectedValue, query.Conditions[0].Value)
+}
+
 func TestTodayYesterdayParsing(t *testing.T) {
 	p := parser.NewParser()
 
 	testCases := []struct {
-		name          string
-		query         string
-		expectedError bool
-		validate      func(t *testing.T, query *models.Query, err error)
+		name             string
+		query            string
+		expectedError    bool
+		expectedType     models.QueryType
+		expectedEntity   models.EntityType
+		expectedField    string
+		expectedOperator models.OperatorType
+		expectedValue    string
 	}{
 		{
-			name:  "COUNT with TODAY comparison",
-			query: "COUNT events WHERE _tp_time > TODAY",
-			validate: func(t *testing.T, query *models.Query, err error) {
-				t.Helper()
-				require.NoError(t, err)
-				assert.Equal(t, models.Count, query.Type)
-				assert.Equal(t, models.Events, query.Entity)
-				require.Len(t, query.Conditions, 1)
-				assert.Equal(t, "_tp_time", query.Conditions[0].Field)
-				assert.Equal(t, models.GreaterThan, query.Conditions[0].Operator)
-				assert.Equal(t, "TODAY", query.Conditions[0].Value)
-			},
+			name:             "COUNT with TODAY comparison",
+			query:            "COUNT events WHERE _tp_time > TODAY",
+			expectedType:     models.Count,
+			expectedEntity:   models.Events,
+			expectedField:    "_tp_time",
+			expectedOperator: models.GreaterThan,
+			expectedValue:    "TODAY",
 		},
 		{
-			name:  "SHOW with TODAY equals",
-			query: "SHOW events WHERE _tp_time = TODAY",
-			validate: func(t *testing.T, query *models.Query, err error) {
-				t.Helper()
-				require.NoError(t, err)
-				assert.Equal(t, models.Show, query.Type)
-				assert.Equal(t, models.Events, query.Entity)
-				require.Len(t, query.Conditions, 1)
-				assert.Equal(t, "_tp_time", query.Conditions[0].Field)
-				assert.Equal(t, models.Equals, query.Conditions[0].Operator)
-				assert.Equal(t, "TODAY", query.Conditions[0].Value)
-			},
+			name:             "SHOW with TODAY equals",
+			query:            "SHOW events WHERE _tp_time = TODAY",
+			expectedType:     models.Show,
+			expectedEntity:   models.Events,
+			expectedField:    "_tp_time",
+			expectedOperator: models.Equals,
+			expectedValue:    "TODAY",
 		},
 		{
-			name:  "SHOW with YESTERDAY comparison",
-			query: "SHOW cpu_metrics WHERE _tp_time >= YESTERDAY",
-			validate: func(t *testing.T, query *models.Query, err error) {
-				t.Helper()
-				require.NoError(t, err)
-				assert.Equal(t, models.Show, query.Type)
-				assert.Equal(t, models.CPUMetrics, query.Entity)
-				require.Len(t, query.Conditions, 1)
-				assert.Equal(t, "_tp_time", query.Conditions[0].Field)
-				assert.Equal(t, models.GreaterThanOrEquals, query.Conditions[0].Operator)
-				assert.Equal(t, "YESTERDAY", query.Conditions[0].Value)
-			},
+			name:             "SHOW with YESTERDAY comparison",
+			query:            "SHOW cpu_metrics WHERE _tp_time >= YESTERDAY",
+			expectedType:     models.Show,
+			expectedEntity:   models.CPUMetrics,
+			expectedField:    "_tp_time",
+			expectedOperator: models.GreaterThanOrEquals,
+			expectedValue:    "YESTERDAY",
 		},
 		{
-			name:  "date() function with TODAY",
-			query: "COUNT events WHERE date(_tp_time) = TODAY",
-			validate: func(t *testing.T, query *models.Query, err error) {
-				t.Helper()
-				require.NoError(t, err)
-				assert.Equal(t, models.Count, query.Type)
-				assert.Equal(t, models.Events, query.Entity)
-				require.Len(t, query.Conditions, 1)
-				assert.Equal(t, "date(_tp_time)", query.Conditions[0].Field)
-				assert.Equal(t, models.Equals, query.Conditions[0].Operator)
-				assert.Equal(t, "TODAY", query.Conditions[0].Value)
-			},
+			name:             "date() function with TODAY",
+			query:            "COUNT events WHERE date(_tp_time) = TODAY",
+			expectedType:     models.Count,
+			expectedEntity:   models.Events,
+			expectedField:    "date(_tp_time)",
+			expectedOperator: models.Equals,
+			expectedValue:    "TODAY",
 		},
 		{
-			name:  "timestamp field with TODAY",
-			query: "SHOW cpu_metrics WHERE timestamp > TODAY",
-			validate: func(t *testing.T, query *models.Query, err error) {
-				t.Helper()
-				require.NoError(t, err)
-				assert.Equal(t, models.Show, query.Type)
-				assert.Equal(t, models.CPUMetrics, query.Entity)
-				require.Len(t, query.Conditions, 1)
-				assert.Equal(t, "timestamp", query.Conditions[0].Field)
-				assert.Equal(t, models.GreaterThan, query.Conditions[0].Operator)
-				assert.Equal(t, "TODAY", query.Conditions[0].Value)
-			},
+			name:             "timestamp field with TODAY",
+			query:            "SHOW cpu_metrics WHERE timestamp > TODAY",
+			expectedType:     models.Show,
+			expectedEntity:   models.CPUMetrics,
+			expectedField:    "timestamp",
+			expectedOperator: models.GreaterThan,
+			expectedValue:    "TODAY",
 		},
 	}
 
@@ -359,10 +345,8 @@ func TestTodayYesterdayParsing(t *testing.T) {
 			if tc.expectedError {
 				require.Error(t, err)
 			} else {
-				require.NoError(t, err, "Query parsing failed unexpectedly")
+				validateTodayYesterdayQuery(t, parsedQuery, err, tc.expectedType, tc.expectedEntity, tc.expectedField, tc.expectedOperator, tc.expectedValue)
 			}
-
-			tc.validate(t, parsedQuery, err)
 		})
 	}
 }
@@ -515,6 +499,26 @@ func TestLogsSeverityFieldMapping(t *testing.T) {
 	}
 }
 
+// validateLastTimeClause is a helper function to validate LAST time clause queries
+func validateLastTimeClause(
+	t *testing.T,
+	query *models.Query,
+	err error,
+	expectedType models.QueryType,
+	expectedEntity models.EntityType,
+	expectedAmount int,
+	expectedUnit models.TimeUnit,
+) {
+	t.Helper()
+	require.NoError(t, err)
+	assert.Equal(t, expectedType, query.Type)
+	assert.Equal(t, expectedEntity, query.Entity)
+	require.NotNil(t, query.TimeClause)
+	assert.Equal(t, models.TimeLast, query.TimeClause.Type)
+	assert.Equal(t, expectedAmount, query.TimeClause.Amount)
+	assert.Equal(t, expectedUnit, query.TimeClause.Unit)
+}
+
 func TestTimeClauseSupport(t *testing.T) {
 	p := parser.NewParser()
 	protonTranslator := parser.NewTranslator(parser.Proton)
@@ -584,13 +588,7 @@ func TestTimeClauseSupport(t *testing.T) {
 			expectedClickHouse: "SELECT * FROM logs WHERE timestamp >= NOW() - INTERVAL 5 DAYS",
 			validate: func(t *testing.T, query *models.Query, err error) {
 				t.Helper()
-				require.NoError(t, err)
-				assert.Equal(t, models.Show, query.Type)
-				assert.Equal(t, models.Logs, query.Entity)
-				require.NotNil(t, query.TimeClause)
-				assert.Equal(t, models.TimeLast, query.TimeClause.Type)
-				assert.Equal(t, 5, query.TimeClause.Amount)
-				assert.Equal(t, models.UnitDays, query.TimeClause.Unit)
+				validateLastTimeClause(t, query, err, models.Show, models.Logs, 5, models.UnitDays)
 			},
 		},
 		{
@@ -600,13 +598,7 @@ func TestTimeClauseSupport(t *testing.T) {
 			expectedClickHouse: "SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 2 HOURS",
 			validate: func(t *testing.T, query *models.Query, err error) {
 				t.Helper()
-				require.NoError(t, err)
-				assert.Equal(t, models.Show, query.Type)
-				assert.Equal(t, models.Events, query.Entity)
-				require.NotNil(t, query.TimeClause)
-				assert.Equal(t, models.TimeLast, query.TimeClause.Type)
-				assert.Equal(t, 2, query.TimeClause.Amount)
-				assert.Equal(t, models.UnitHours, query.TimeClause.Unit)
+				validateLastTimeClause(t, query, err, models.Show, models.Events, 2, models.UnitHours)
 			},
 		},
 	}

@@ -26,10 +26,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 func TestBaseProcessor_Cleanup(t *testing.T) {
@@ -84,7 +85,7 @@ func TestBaseProcessor_MemoryManagement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping memory management tests in short mode - they require more time than 3s timeout")
 	}
-	
+
 	config := createLargePortConfig()
 
 	t.Run("Memory Usage with Many Hosts Few Ports", func(t *testing.T) {
@@ -260,11 +261,12 @@ func testMemoryReleaseAfterCleanup(t *testing.T, config *models.Config) {
 	// Memory growth assertions - be more lenient due to GC timing variability
 	maxAllowedGrowth := big.NewInt(5 * 1024 * 1024) // Allow 5MB growth
 
-	if memDiff.Cmp(big.NewInt(0)) <= 0 {
+	switch {
+	case memDiff.Cmp(big.NewInt(0)) <= 0:
 		t.Logf("Memory was released successfully (negative or zero growth)")
-	} else if memDiff.Cmp(maxAllowedGrowth) <= 0 {
+	case memDiff.Cmp(maxAllowedGrowth) <= 0:
 		t.Logf("Memory growth within acceptable limits: %s bytes", memDiff.String())
-	} else {
+	default:
 		t.Errorf("Memory growth too high: %s bytes (limit: 5MB)", memDiff.String())
 	}
 }
@@ -356,7 +358,7 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping resource cleanup tests in short mode - they require more time than 3s timeout")
 	}
-	
+
 	config := &models.Config{
 		Ports: make([]int, 2300),
 	}
@@ -472,7 +474,7 @@ func TestBaseProcessor_ConfigurationUpdates(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping configuration update tests in short mode - they require more time than 3s timeout")
 	}
-	
+
 	initialConfig := &models.Config{
 		Ports: make([]int, 100), // Start with fewer ports
 	}
@@ -563,7 +565,7 @@ func TestBaseProcessor_GetSummaryStream(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping summary stream tests in short mode - they require more time than 3s timeout")
 	}
-	
+
 	config := &models.Config{
 		Ports: []int{22, 80, 443, 8080},
 	}
@@ -810,7 +812,7 @@ func TestBaseProcessor_GetSummaryStream(t *testing.T) {
 		// Compare summaries (excluding hosts slice)
 		assert.Equal(t, regularSummary.TotalHosts, streamingSummary.TotalHosts)
 		assert.Equal(t, regularSummary.AvailableHosts, streamingSummary.AvailableHosts)
-		assert.Equal(t, len(regularSummary.Ports), len(streamingSummary.Ports))
+		assert.Len(t, streamingSummary.Ports, len(regularSummary.Ports))
 
 		// Compare port counts
 		regularPortMap := make(map[int]int)
@@ -841,14 +843,14 @@ func TestBaseProcessor_GetSummaryStream(t *testing.T) {
 			streamedHostMap[host.Host] = host
 		}
 
-		assert.Equal(t, len(regularHostMap), len(streamedHostMap))
+		assert.Len(t, streamedHostMap, len(regularHostMap))
 
 		// Verify each host matches
 		for hostIP, regularHost := range regularHostMap {
 			streamedHost, exists := streamedHostMap[hostIP]
 			assert.True(t, exists, "Host %s should exist in streamed results", hostIP)
 			assert.Equal(t, regularHost.Available, streamedHost.Available)
-			assert.Equal(t, len(regularHost.PortResults), len(streamedHost.PortResults))
+			assert.Len(t, streamedHost.PortResults, len(regularHost.PortResults))
 		}
 	})
 }

@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,6 +36,12 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.31.0"
 	"google.golang.org/grpc/credentials"
+)
+
+// Static errors for err113 compliance
+var (
+	ErrOTelLoggingDisabled  = errors.New("OTel logging is disabled")
+	ErrOTelEndpointRequired = errors.New("OTel endpoint is required when enabled")
 )
 
 type OTelWriter struct {
@@ -67,11 +74,11 @@ var otelProvider *sdklog.LoggerProvider
 
 func NewOTELWriter(ctx context.Context, config OTelConfig) (*OTelWriter, error) {
 	if !config.Enabled {
-		return nil, fmt.Errorf("OTel logging is disabled")
+		return nil, ErrOTelLoggingDisabled
 	}
 
 	if config.Endpoint == "" {
-		return nil, fmt.Errorf("OTel endpoint is required when enabled")
+		return nil, ErrOTelEndpointRequired
 	}
 
 	opts := []otlploggrpc.Option{
@@ -261,7 +268,7 @@ func setupTLSConfig(tlsConfig *TLSConfig) (*tls.Config, error) {
 
 		caCertPool := x509.NewCertPool()
 		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to parse CA certificate")
+			return nil, errFailedToParseCACert
 		}
 
 		config.RootCAs = caCertPool

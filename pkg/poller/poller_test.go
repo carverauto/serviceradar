@@ -25,10 +25,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func TestResultsPoller_SyncServiceStreamingDecisionLogic(t *testing.T) {

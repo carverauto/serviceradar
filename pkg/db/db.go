@@ -20,16 +20,23 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+// Static errors for err113 compliance
+var (
+	ErrDatabaseNotInitialized = errors.New("database connection not initialized")
 )
 
 // DB represents the database connection for Timeplus Proton.
@@ -46,7 +53,7 @@ type DB struct {
 // GetStreamingConnection returns the underlying proton connection for streaming queries
 func (db *DB) GetStreamingConnection() (interface{}, error) {
 	if db.Conn == nil {
-		return nil, fmt.Errorf("database connection not initialized")
+		return nil, ErrDatabaseNotInitialized
 	}
 
 	return db.Conn, nil
@@ -201,7 +208,6 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 		MaxIdleConns:    5,
 		ConnMaxLifetime: time.Hour,
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrFailedOpenDB, err)
 	}
@@ -259,7 +265,8 @@ func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interfac
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	columnTypes := rows.ColumnTypes()
 

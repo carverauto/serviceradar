@@ -25,7 +25,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace"
@@ -34,6 +33,8 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 // ServerOption is a function type that modifies Server configuration.
@@ -193,7 +194,8 @@ func (s *Server) Start() error {
 		}
 	}
 
-	lis, err := net.Listen("tcp", s.addr)
+	lc := &net.ListenConfig{}
+	lis, err := lc.Listen(context.Background(), "tcp", s.addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
@@ -225,6 +227,7 @@ func (s *Server) Stop(ctx context.Context) {
 
 	// Give some time for graceful shutdown
 	stopped := make(chan struct{})
+
 	go func() {
 		s.srv.GracefulStop()
 		close(stopped)

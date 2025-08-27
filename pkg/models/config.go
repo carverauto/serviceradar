@@ -108,7 +108,12 @@ type CloudConfig struct {
 }
 
 var (
-	errInvalidDuration = fmt.Errorf("invalid duration")
+	errInvalidDuration         = fmt.Errorf("invalid duration")
+	errLoggingConfigRequired   = fmt.Errorf("logging configuration is required")
+	errDatabaseNameRequired    = fmt.Errorf("database name is required")
+	errDatabaseAddressRequired = fmt.Errorf("database address is required")
+	errListenAddrRequired      = fmt.Errorf("listen address is required")
+	errGRPCAddrRequired        = fmt.Errorf("grpc address is required")
 )
 
 // MCPConfigRef represents MCP configuration to avoid circular imports
@@ -240,23 +245,23 @@ func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 
 func (c *CoreServiceConfig) Validate() error {
 	if c.Logging == nil {
-		return fmt.Errorf("logging configuration is required")
+		return errLoggingConfigRequired
 	}
 
 	if c.Database.Name == "" && c.DBName == "" {
-		return fmt.Errorf("database name is required")
+		return errDatabaseNameRequired
 	}
 
 	if len(c.Database.Addresses) == 0 && c.DBAddr == "" {
-		return fmt.Errorf("database address is required")
+		return errDatabaseAddressRequired
 	}
 
 	if c.ListenAddr == "" {
-		return fmt.Errorf("listen address is required")
+		return errListenAddrRequired
 	}
 
 	if c.GrpcAddr == "" {
-		return fmt.Errorf("grpc address is required")
+		return errGRPCAddrRequired
 	}
 
 	return nil

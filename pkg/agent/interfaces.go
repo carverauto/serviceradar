@@ -26,6 +26,7 @@ import (
 
 //go:generate mockgen -destination=mock_agent.go -package=agent github.com/carverauto/serviceradar/pkg/agent Service,SweepStatusProvider,KVStore
 
+// Service defines the interface for agent services that can be started, stopped, and configured.
 type Service interface {
 	Start(context.Context) error
 	Stop(ctx context.Context) error

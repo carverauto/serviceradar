@@ -19,10 +19,11 @@ package sync
 import (
 	"testing"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 func TestNewNetworkBlacklist(t *testing.T) {
@@ -73,7 +74,7 @@ func TestNewNetworkBlacklist(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.NotNil(t, nb)
-				assert.Equal(t, len(tt.cidrs), len(nb.networks))
+				assert.Len(t, nb.networks, len(tt.cidrs))
 			}
 		})
 	}
@@ -175,7 +176,7 @@ func TestFilterDevicesEmptyBlacklist(t *testing.T) {
 	filtered := nb.FilterDevices(devices)
 
 	// Should not filter any devices
-	assert.Equal(t, len(devices), len(filtered))
+	assert.Len(t, filtered, len(devices))
 	assert.Equal(t, devices, filtered)
 }
 
@@ -218,7 +219,7 @@ func TestFilterKVData(t *testing.T) {
 		"agent2/172.16.0.1",
 	}
 
-	assert.Equal(t, len(expectedKeys), len(filtered))
+	assert.Len(t, filtered, len(expectedKeys))
 
 	for _, key := range expectedKeys {
 		_, exists := filtered[key]
@@ -259,7 +260,7 @@ func TestFilterKVDataEmptyBlacklist(t *testing.T) {
 	filtered := nb.FilterKVData(kvData, devices)
 
 	// Should not filter any data
-	assert.Equal(t, len(kvData), len(filtered))
+	assert.Len(t, filtered, len(kvData))
 
 	for key := range kvData {
 		_, exists := filtered[key]

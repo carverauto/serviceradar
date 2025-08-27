@@ -31,6 +31,7 @@ func getEntityTimestampField(entity string) string {
 	}
 }
 
+// LogQueryParams defines parameters for querying log entries.
 type LogQueryParams struct {
 	Filter    string `json:"filter,omitempty"`
 	StartTime string `json:"start_time,omitempty"`
@@ -38,17 +39,20 @@ type LogQueryParams struct {
 	Limit     int    `json:"limit,omitempty"`
 }
 
+// RecentLogsParams defines parameters for retrieving recent log entries.
 type RecentLogsParams struct {
 	Limit    int    `json:"limit,omitempty"`
 	PollerID string `json:"poller_id,omitempty"`
 }
 
+// ListDevicesParams defines parameters for listing devices.
 type ListDevicesParams struct {
 	Limit  int    `json:"limit,omitempty"`
 	Type   string `json:"type,omitempty"`
 	Status string `json:"status,omitempty"`
 }
 
+// QueryExecutor defines the interface for executing SRQL queries.
 type QueryExecutor interface {
 	ExecuteSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error)
 }

@@ -28,6 +28,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+const (
+	testHostID = "test-host"
+)
+
 func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -100,7 +104,7 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 			mgr := &PollerRecoveryManager{
 				db:          mockDB,
 				alerter:     mockAlerter,
-				getHostname: func() string { return "test-host" },
+				getHostname: func() string { return testHostID },
 			}
 
 			err := mgr.processRecovery(context.Background(), tt.pollerID, tt.lastSeen)
@@ -173,7 +177,7 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 			mgr := &PollerRecoveryManager{
 				db:          mockDB,
 				alerter:     mockAlerter,
-				getHostname: func() string { return "test-host" },
+				getHostname: func() string { return testHostID },
 			}
 
 			err := mgr.processRecovery(context.Background(), tt.pollerID, time.Now())
@@ -194,7 +198,7 @@ func TestPollerRecoveryManager_SendRecoveryAlert(t *testing.T) {
 	mockAlerter := alerts.NewMockAlertService(ctrl)
 	mgr := &PollerRecoveryManager{
 		alerter:     mockAlerter,
-		getHostname: func() string { return "test-host" },
+		getHostname: func() string { return testHostID },
 	}
 
 	// Verify alert properties
@@ -204,7 +208,7 @@ func TestPollerRecoveryManager_SendRecoveryAlert(t *testing.T) {
 			assert.Equal(t, alerts.Info, alert.Level)
 			assert.Equal(t, "Poller Recovered", alert.Title)
 			assert.Equal(t, "test-poller", alert.PollerID)
-			assert.Equal(t, "test-host", alert.Details["hostname"])
+			assert.Equal(t, testHostID, alert.Details["hostname"])
 			assert.Contains(t, alert.Message, "test-poller")
 
 			return nil
