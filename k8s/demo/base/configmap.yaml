@@ -90,12 +90,17 @@ data:
           "output": "stdout",
           "time_format": "",
           "otel": {
-            "enabled": false,
-            "endpoint": "127.0.0.1:4317",
+            "enabled": true,
+            "endpoint": "serviceradar-otel:4317",
             "service_name": "serviceradar-core",
             "batch_timeout": "5s",
-            "insecure": true,
-            "headers": {}
+            "insecure": false,
+            "headers": {},
+            "tls": {
+              "cert_file": "/etc/serviceradar/certs/core.pem",
+              "key_file": "/etc/serviceradar/certs/core-key.pem",
+              "ca_file": "/etc/serviceradar/certs/root.pem"
+            }
           }
         },
         "webhooks": [
@@ -193,11 +198,11 @@ data:
         "output": "stdout",
         "time_format": "",
         "otel": {
-          "enabled": false,
-          "endpoint": "otel:4317",
+          "enabled": true,
+          "endpoint": "serviceradar-otel:4317",
           "service_name": "serviceradar-poller",
           "batch_timeout": "5s",
-          "insecure": true,
+          "insecure": false,
           "headers": {
             "x-api-key": "your-collector-api-key"
           },
@@ -249,8 +254,8 @@ data:
         "output": "stdout",
         "time_format": "",
         "otel": {
-          "enabled": false,
-          "endpoint": "",
+          "enabled": true,
+          "endpoint": "serviceradar-otel:4317",
           "service_name": "serviceradar-agent",
           "batch_timeout": "5s",
           "insecure": false,
@@ -350,6 +355,25 @@ data:
           "cert_file": "zen.pem",
           "key_file": "zen-key.pem",
           "ca_file": "root.pem"
+        }
+      },
+      "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+          "enabled": true,
+          "endpoint": "serviceradar-otel:4317",
+          "service_name": "serviceradar-zen",
+          "batch_timeout": "5s",
+          "insecure": false,
+          "headers": {},
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/zen.pem",
+            "key_file": "/etc/serviceradar/certs/zen-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem"
+          }
         }
       }
     }
@@ -752,6 +776,17 @@ data:
           }
         },
         {
+          user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: ["events.otel.>", "$JS.API.>"]
+            }
+            subscribe: {
+              allow: ["$JS.API.>", "_INBOX.>"]
+            }
+          }
+        },
+        {
           user: "O=ServiceRadar"
           permissions: {
             publish: {
@@ -768,3 +803,36 @@ data:
     # Logging settings
     debug: true
     trace: false
+
+  otel.toml: |
+    # ServiceRadar OTEL Collector Configuration for Kubernetes Deployment
+    
+    [server]
+    # Address to bind the OTEL collector to
+    bind_address = "0.0.0.0"
+    # Port to listen on for OTEL traces
+    port = 4317
+    
+    [nats]
+    # NATS server URL with mTLS (Kubernetes deployment)
+    url = "tls://serviceradar-nats:4222"
+    
+    # Subject to publish traces to (default: events.otel)
+    subject = "events.otel"
+    
+    # JetStream stream name (default: events)
+    stream = "events"
+    
+    # Timeout for NATS operations in seconds (default: 30)
+    timeout_secs = 30
+    
+    # mTLS configuration for NATS
+    [nats.tls]
+    cert_file = "/etc/serviceradar/certs/otel.pem"
+    key_file = "/etc/serviceradar/certs/otel-key.pem"
+    ca_file = "/etc/serviceradar/certs/root.pem"
+    
+    [grpc_tls]
+    cert_file = "/etc/serviceradar/certs/otel.pem"
+    key_file = "/etc/serviceradar/certs/otel-key.pem"
+    ca_file = "/etc/serviceradar/certs/root.pem"
