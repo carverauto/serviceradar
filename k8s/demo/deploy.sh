@@ -448,6 +448,131 @@ data:
       }
     }
 
+  nats.conf: |
+    # NATS Server Configuration for ServiceRadar Kubernetes Deployment
+    server_name: nats-serviceradar-k8s
+
+    # Listen on all interfaces for Kubernetes networking
+    listen: 0.0.0.0:4222
+
+    # HTTP monitoring
+    http: 0.0.0.0:8222
+
+    # Enable JetStream for KV store
+    jetstream {
+      # Directory to store JetStream data
+      store_dir: /data/jetstream
+      # Maximum storage size
+      max_memory_store: 1G
+      # Maximum disk storage
+      max_file_store: 10G
+    }
+
+    # Enable mTLS for secure communication
+    tls {
+      # Path to the server certificate
+      cert_file: "/etc/serviceradar/certs/nats.pem"
+      # Path to the server private key
+      key_file: "/etc/serviceradar/certs/nats-key.pem"
+      # Path to the root CA certificate for verifying clients
+      ca_file: "/etc/serviceradar/certs/root.pem"
+
+      # Require client certificates (enables mTLS)
+      verify: true
+      # Require and verify client certificates
+      verify_and_map: true
+    }
+
+    # Authorization for ServiceRadar components
+    authorization {
+      users: [
+        {
+          user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
+          user: "CN=serviceradar-kv,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
+          user: "CN=serviceradar-poller,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
+          user: "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
+          user: "O=ServiceRadar"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        }
+      ]
+    }
+
+    # Logging settings
+    debug: true
+    trace: false
+
+  kv.json: |
+    {
+      "listen_addr": ":50057",
+      "nats_url": "tls://serviceradar-nats:4222",
+      "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "nats.serviceradar",
+        "role": "kv",
+        "tls": {
+          "cert_file": "kv.pem",
+          "key_file": "kv-key.pem",
+          "ca_file": "root.pem"
+        }
+      },
+      "rbac": {
+        "roles": [
+          {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "admin"},
+          {"identity": "CN=serviceradar-poller,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
+          {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
+        ]
+      },
+      "bucket": "serviceradar-kv"
+    }
+
   agent.json: |
     {
       "checkers_dir": "/etc/serviceradar/checkers",
@@ -705,6 +830,9 @@ kubectl wait --for=condition=available --timeout=300s deployment/serviceradar-pr
 
 # Wait for NATS
 kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-nats -n $NAMESPACE
+
+# Wait for KV
+kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-kv -n $NAMESPACE
 
 # Wait for Core
 kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-core -n $NAMESPACE
