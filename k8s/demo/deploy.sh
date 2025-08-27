@@ -542,6 +542,17 @@ data:
           }
         },
         {
+          user: "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
           user: "O=ServiceRadar"
           permissions: {
             publish: {
