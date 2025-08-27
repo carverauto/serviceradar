@@ -81,7 +81,7 @@ func TestCachedTokenProvider_GetAccessToken(t *testing.T) {
 		token, err := cached.GetAccessToken(ctx)
 		require.Error(t, err)
 		assert.Empty(t, token)
-		assert.Contains(t, err.Error(), "auth failed")
+		assert.Contains(t, err.Error(), "authentication failed")
 	})
 
 	t.Run("invalidate clears cache", func(t *testing.T) {
