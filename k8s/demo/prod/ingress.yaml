@@ -9,6 +9,10 @@ metadata:
     metallb.universe.tf/allow-shared-ip: "true"
     metallb.universe.tf/address-pool: k3s-pool
 spec:
+  tls:
+  - hosts:
+    - demo.serviceradar.cloud
+    secretName: serviceradar-prod-tls
   rules:
   - host: demo.serviceradar.cloud
     http:
@@ -17,6 +21,6 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-cloud
+            name: serviceradar-web
             port:
               name: http

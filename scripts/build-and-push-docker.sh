@@ -44,9 +44,10 @@ Build and push ServiceRadar Docker images to GitHub Container Registry (GHCR)
 OPTIONS:
   -t, --tag TAG        Tag for the images (default: $DEFAULT_TAG)
   -p, --push           Push images after building (requires docker login)
-  -a, --all            Build all images (core, proton, cert-generator)
+  -a, --all            Build all images (core, proton, web, cert-generator)
   -c, --core           Build only core image
   -d, --proton         Build only proton image
+  -w, --web            Build only web image
   -g, --cert-gen       Build only cert-generator image
   --platform PLATFORM  Target platform (default: linux/amd64,linux/arm64)
   --no-cache           Build without cache
@@ -58,6 +59,9 @@ EXAMPLES:
 
   # Build and push core image
   $0 --core --push --tag latest
+
+  # Build and push web image
+  $0 --web --push --tag latest
 
   # Build for specific platform
   $0 --all --platform linux/amd64
@@ -75,6 +79,7 @@ PUSH=false
 BUILD_ALL=false
 BUILD_CORE=false
 BUILD_PROTON=false
+BUILD_WEB=false
 BUILD_CERT_GEN=false
 PLATFORM="linux/amd64,linux/arm64"
 NO_CACHE=""
@@ -99,6 +104,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -d|--proton)
             BUILD_PROTON=true
+            shift
+            ;;
+        -w|--web)
+            BUILD_WEB=true
             shift
             ;;
         -g|--cert-gen)
@@ -126,7 +135,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # If no specific image is selected, build all
-if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == false && "$BUILD_CERT_GEN" == false ]]; then
+if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == false && "$BUILD_WEB" == false && "$BUILD_CERT_GEN" == false ]]; then
     BUILD_ALL=true
 fi
 
@@ -224,6 +233,11 @@ fi
 # Build Proton database
 if [[ "$BUILD_ALL" == true || "$BUILD_PROTON" == true ]]; then
     build_image "proton" "docker/compose/Dockerfile.proton" ""
+fi
+
+# Build Web service
+if [[ "$BUILD_ALL" == true || "$BUILD_WEB" == true ]]; then
+    build_image "web" "docker/compose/Dockerfile.web" "--build-arg VERSION=$VERSION"
 fi
 
 # Build cert-generator

@@ -1,22 +1,26 @@
-# prod/ingress.yaml
+# staging/ingress.yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: serviceradar-cloud
+  name: serviceradar-staging
   annotations:
     cert-manager.io/cluster-issuer: "carverauto-issuer"
-    external-dns.alpha.kubernetes.io/hostname: "demo.serviceradar.cloud"
+    external-dns.alpha.kubernetes.io/hostname: "staging.serviceradar.cloud"
     metallb.universe.tf/allow-shared-ip: "true"
     metallb.universe.tf/address-pool: k3s-pool
 spec:
+  tls:
+  - hosts:
+    - staging.serviceradar.cloud
+    secretName: serviceradar-staging-tls
   rules:
-  - host: demo.serviceradar.cloud
+  - host: staging.serviceradar.cloud
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-cloud
+            name: serviceradar-web
             port:
               name: http
