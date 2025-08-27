@@ -1,9 +1,12 @@
 # base/serviceradar-agent.yaml
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
   name: serviceradar-agent
 spec:
+  replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: serviceradar-agent
@@ -36,12 +39,14 @@ spec:
               mountPath: /etc/serviceradar
             - name: checkers-dir
               mountPath: /etc/serviceradar/checkers
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
           env:
-            - name: SERVICERADAR_CONFIG_PATH
+            - name: CONFIG_PATH
               value: "/etc/serviceradar/agent.json"
-            - name: SERVICERADAR_POLLER_ADDR
-              value: "serviceradar-poller:8080"
-            - name: SERVICERADAR_NODE_ID
+            - name: LOG_LEVEL
+              value: "info"
+            - name: NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
@@ -60,3 +65,18 @@ spec:
             name: serviceradar-config
         - name: checkers-dir
           emptyDir: {}
+        - name: cert-data
+          persistentVolumeClaim:
+            claimName: serviceradar-cert-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-agent
+spec:
+  selector:
+    app: serviceradar-agent
+  ports:
+  - name: grpc
+    port: 50051
+    targetPort: 50051

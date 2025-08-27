@@ -21,15 +21,13 @@ spec:
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
         env:
-        - name: SERVICERADAR_CONFIG_PATH
+        - name: CONFIG_PATH
           value: "/etc/serviceradar/poller.json"
-        - name: SERVICERADAR_CLOUD_ADDR
-          value: "serviceradar-core:8090"
-        - name: SERVICERADAR_NODE_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+        - name: LOG_LEVEL
+          value: "info"
         resources:
           limits:
             cpu: "500m"
@@ -37,7 +35,32 @@ spec:
           requests:
             cpu: "100m"
             memory: "128Mi"
+        livenessProbe:
+          exec:
+            command:
+            - nc
+            - -z
+            - localhost
+            - "50053"
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - nc
+            - -z
+            - localhost
+            - "50053"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
       volumes:
       - name: serviceradar-config
         configMap:
           name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data

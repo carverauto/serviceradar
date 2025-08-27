@@ -33,7 +33,7 @@ data:
         }
       },
       "alert_threshold": "5m",
-      "known_pollers": ["demo-poller"],
+      "known_pollers": ["k8s-poller"],
       "metrics": {
       "enabled": true,
       "retention": 100,
@@ -122,22 +122,25 @@ data:
   poller.json: |
     {
       "agents": {
-        "local-agent": {
-          "address": "localhost:50051",
+        "k8s-agent": {
+          "address": "serviceradar-agent:50051",
           "security": {
-            "server_name": "demo.serviceradar.cloud",
-            "mode": "none"
+            "server_name": "agent.serviceradar",
+            "mode": "mtls",
+            "cert_dir": "/etc/serviceradar/certs",
+            "role": "poller",
+            "tls": {
+              "cert_file": "poller.pem",
+              "key_file": "poller-key.pem",
+              "ca_file": "root.pem",
+              "client_ca_file": "root.pem"
+            }
           },
           "checks": [
             {
               "service_type": "port",
               "service_name": "SSH",
-              "details": "127.0.0.1:22"
-            },
-            {
-              "service_type": "snmp",
-              "service_name": "snmp",
-              "details": "localhost:50054"
+              "details": "serviceradar-agent:22"
             },
             {
               "service_type": "icmp",
@@ -147,23 +150,64 @@ data:
             {
               "service_type": "sweep",
               "service_name": "network_sweep",
-              "details": ""
+              "details": "",
+              "results_interval": "2m"
             }
           ]
         }
       },
-      "cloud_address": "serviceradar-core:8090",
-      "listen_addr": "localhost:50053",
+      "core_address": "serviceradar-core:50052",
+      "core_security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "core.serviceradar",
+        "role": "poller",
+        "tls": {
+          "cert_file": "poller.pem",
+          "key_file": "poller-key.pem",
+          "ca_file": "root.pem"
+        }
+      },
+      "listen_addr": ":50053",
       "poll_interval": "30s",
-      "poller_id": "demo-poller",
+      "poller_id": "k8s-poller",
+      "partition": "default",
+      "source_ip": "poller",
       "service_name": "PollerService",
       "service_type": "grpc",
-          "security": {
-            "mode": "none",
-            "cert_dir": "/etc/serviceradar/certs",
-            "server_name": "demo.serviceradar.cloud",
-            "role": "poller"
+      "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "poller.serviceradar",
+        "role": "poller",
+        "tls": {
+          "cert_file": "poller.pem",
+          "key_file": "poller-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      },
+      "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+          "enabled": false,
+          "endpoint": "otel:4317",
+          "service_name": "serviceradar-poller",
+          "batch_timeout": "5s",
+          "insecure": true,
+          "headers": {
+            "x-api-key": "your-collector-api-key"
+          },
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/poller.pem",
+            "key_file": "/etc/serviceradar/certs/poller-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem"
           }
+        }
+      }
     }
 
   agent.json: |
@@ -172,11 +216,50 @@ data:
       "listen_addr": ":50051",
       "service_type": "grpc",
       "service_name": "AgentService",
-      "security": {
-        "mode": "none",
+      "agent_id": "k8s-agent",
+      "agent_name": "agent",
+      "host_ip": "agent",
+      "partition": "default",
+      "kv_address": "serviceradar-kv:50057",
+      "kv_security": {
+        "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "demo.serviceradar.cloud",
-        "role": "agent"
+        "server_name": "kv.serviceradar",
+        "role": "agent",
+        "tls": {
+          "cert_file": "agent.pem",
+          "key_file": "agent-key.pem",
+          "ca_file": "root.pem"
+        }
+      },
+      "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "agent.serviceradar",
+        "role": "agent",
+        "tls": {
+          "cert_file": "agent.pem",
+          "key_file": "agent-key.pem",
+          "ca_file": "root.pem"
+        }
+      },
+      "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+          "enabled": false,
+          "endpoint": "",
+          "service_name": "serviceradar-agent",
+          "batch_timeout": "5s",
+          "insecure": false,
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/agent.pem",
+            "key_file": "/etc/serviceradar/certs/agent-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem"
+          }
+        }
       }
     }
 

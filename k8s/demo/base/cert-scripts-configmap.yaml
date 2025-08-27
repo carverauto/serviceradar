@@ -93,7 +93,7 @@ data:
     
     # Generate certificates for key services - focus on what we need for Proton first
     generate_cert "proton" "serviceradar-proton" "DNS:serviceradar-proton,DNS:proton,DNS:proton.serviceradar,DNS:localhost,IP:127.0.0.1"
-    generate_cert "core" "serviceradar-core" "DNS:serviceradar-core,DNS:core,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
+    generate_cert "core" "serviceradar-core" "DNS:serviceradar-core,DNS:core,DNS:core.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
     generate_cert "web" "serviceradar-web" "DNS:serviceradar-web,DNS:web,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
     generate_cert "agent" "serviceradar-agent" "DNS:serviceradar-agent,DNS:agent,DNS:agent.serviceradar,DNS:localhost,IP:127.0.0.1"
     generate_cert "poller" "serviceradar-poller" "DNS:serviceradar-poller,DNS:poller,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
