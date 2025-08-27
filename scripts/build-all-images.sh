@@ -56,6 +56,7 @@ SERVICES BUILT:
   Data Services: kv, sync, db-event-writer
   Observability: otel, flowgger, trapd, zen
   Checkers: mapper, snmp-checker, rperf-client
+  Debugging: tools
 
 EXAMPLES:
   # Build all images and push with latest tag
@@ -245,6 +246,10 @@ log "=== Building Checker Services ==="
 build_image "mapper" "docker/compose/Dockerfile.mapper" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
 build_image "snmp-checker" "docker/compose/Dockerfile.snmp-checker" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
 build_image "rperf-client" "docker/compose/Dockerfile.rperf-client" ""
+
+# Debugging Tools
+log "=== Building Debugging Tools ==="
+build_image "tools" "docker/compose/Dockerfile.tools" ""
 
 success "ALL ServiceRadar images built successfully!"
 
