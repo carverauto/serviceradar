@@ -798,6 +798,28 @@ data:
           }
         },
         {
+          user: "CN=serviceradar-trapd,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: ["snmp.traps", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+            }
+            subscribe: {
+              allow: ["$JS.API.>", "_INBOX.>"]
+            }
+          }
+        },
+        {
+          user: "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
           user: "O=ServiceRadar"
           permissions: {
             publish: {
@@ -847,6 +869,31 @@ data:
     cert_file = "/etc/serviceradar/certs/otel.pem"
     key_file = "/etc/serviceradar/certs/otel-key.pem"
     ca_file = "/etc/serviceradar/certs/root.pem"
+
+  trapd.json: |
+    {
+      "listen_addr": "0.0.0.0:162",
+      "nats_url": "tls://serviceradar-nats:4222",
+      "nats_domain": "edge",
+      "stream_name": "events",
+      "subject": "snmp.traps",
+      "nats_security": {
+        "cert_file": "/etc/serviceradar/certs/trapd.pem",
+        "key_file": "/etc/serviceradar/certs/trapd-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      },
+      "grpc_listen_addr": "0.0.0.0:50043",
+      "grpc_security": {
+        "cert_file": "/etc/serviceradar/certs/trapd.pem",
+        "key_file": "/etc/serviceradar/certs/trapd-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      },
+      "otel": {
+        "enabled": true,
+        "endpoint": "serviceradar-otel:4317",
+        "service_name": "serviceradar-trapd"
+      }
+    }
 
   mapper.json: |
     {

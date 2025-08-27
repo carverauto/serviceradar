@@ -1,0 +1,202 @@
+# base/serviceradar-tools.yaml - Debugging container with comprehensive tooling
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-tools
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-tools
+  template:
+    metadata:
+      labels:
+        app: serviceradar-tools
+    spec:
+      containers:
+      - name: tools
+        image: serviceradar/tools:latest
+        imagePullPolicy: Always
+        command: ["/bin/bash", "-c", "tail -f /dev/null"]
+        env:
+        - name: NATS_URL
+          value: "tls://serviceradar-nats:4222"
+        - name: NATS_CREDS_FILE
+          value: "/etc/serviceradar/nats/client.creds"
+        - name: API_URL
+          value: "https://serviceradar-core:8090"
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: nats-context-config
+          mountPath: /etc/serviceradar/nats/serviceradar.json
+          subPath: serviceradar.json
+          readOnly: true
+        - name: tools-config
+          mountPath: /etc/serviceradar/nats/setup-nats-context.sh
+          subPath: setup-nats-context.sh
+          readOnly: true
+        - name: tools-config
+          mountPath: /etc/motd
+          subPath: motd
+          readOnly: true
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN
+            - NET_RAW
+      volumes:
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: nats-context-config
+        configMap:
+          name: serviceradar-nats-context
+      - name: tools-config
+        configMap:
+          name: serviceradar-tools-config
+          defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-tools
+spec:
+  selector:
+    app: serviceradar-tools
+  ports:
+  - name: debug-port
+    port: 22
+    targetPort: 22
+  type: ClusterIP
+---
+# ConfigMap for NATS context configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-nats-context
+data:
+  # NATS context configuration for debugging
+  serviceradar.json: |
+    {
+      "description": "ServiceRadar NATS Context for Debugging",
+      "url": "tls://serviceradar-nats:4222",
+      "user": "",
+      "password": "",
+      "token": "",
+      "nsc": "",
+      "creds": "",
+      "nkey": "",
+      "cert": "/etc/serviceradar/certs/client.pem",
+      "key": "/etc/serviceradar/certs/client-key.pem",
+      "ca": "/etc/serviceradar/certs/root.pem",
+      "nats_ca": "",
+      "inbox_prefix": "_INBOX",
+      "user_jwt": "",
+      "color_scheme": "",
+      "tls_first": false
+    }
+---
+# Additional configuration for serviceradar-tools
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-tools-config
+data:
+  motd: |
+
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║                          ServiceRadar Debug Tools                           ║
+    ╠══════════════════════════════════════════════════════════════════════════════╣
+    ║                                                                              ║
+    ║  🔧 DEBUGGING COMMANDS:                                                      ║
+    ║    test-connectivity    - Test all service connectivity                     ║
+    ║    nats-js-status      - Show NATS JetStream status                        ║
+    ║    test-grpc           - Health check all gRPC services                    ║
+    ║                                                                              ║
+    ║  📡 NATS ALIASES:                                                            ║
+    ║    nats-info           - Show NATS server information                       ║
+    ║    nats-streams        - List all JetStream streams                         ║
+    ║    nats-events         - Show events stream details                         ║
+    ║    nats-kv             - Show KV store stream details                       ║
+    ║                                                                              ║
+    ║  🔌 gRPC ALIASES:                                                            ║
+    ║    grpc-core           - Connect to core gRPC (add method after)            ║
+    ║    grpc-agent          - Connect to agent gRPC                              ║
+    ║    grpc-mapper         - Connect to mapper gRPC                             ║
+    ║    grpc-trapd          - Connect to trapd gRPC                              ║
+    ║                                                                              ║
+    ║  🏃 QUICK TESTS:                                                             ║
+    ║    nc-nats             - Test NATS TCP connectivity                         ║
+    ║    ping-nats           - Ping NATS server                                   ║
+    ║    sr-devices          - List devices via ServiceRadar CLI                  ║
+    ║                                                                              ║
+    ║  📁 CERT LOCATIONS:                                                          ║
+    ║    /etc/serviceradar/certs/root.pem       - Root CA                         ║
+    ║    /etc/serviceradar/certs/client.pem     - Client certificate              ║
+    ║    /etc/serviceradar/certs/client-key.pem - Client private key              ║
+    ║                                                                              ║
+    ║  🎯 NATS CONTEXT: Configured for serviceradar-nats:4222 with mTLS           ║
+    ║                                                                              ║
+    ║  💡 TO GET STARTED:                                                          ║
+    ║    kubectl exec -it deployment/serviceradar-tools -- /bin/bash              ║
+    ║                                                                              ║
+    ║    # Setup NATS context                                                      ║
+    ║    cp /etc/serviceradar/nats/serviceradar.json ~/.config/nats/context/      ║
+    ║    nats context select serviceradar                                          ║
+    ║                                                                              ║
+    ║    # Test NATS connectivity                                                  ║
+    ║    test-connectivity                                                         ║
+    ║    nats-js-status                                                            ║
+    ║                                                                              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+  # Initialization script to setup NATS context automatically
+  setup-nats-context.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "Setting up NATS context for debugging..."
+    
+    # Create context directory if it doesn't exist
+    mkdir -p /root/.config/nats/context
+    
+    # Copy context configuration
+    if [ -f /etc/serviceradar/nats/serviceradar.json ]; then
+        cp /etc/serviceradar/nats/serviceradar.json /root/.config/nats/context/
+        echo "NATS context configuration copied."
+        
+        # Set as default context
+        if command -v nats >/dev/null 2>&1; then
+            nats context select serviceradar 2>/dev/null || echo "Context selection failed, but config is available"
+            echo "NATS context ready for debugging!"
+        else
+            echo "NATS CLI not found, but context config is available."
+        fi
+    else
+        echo "Warning: NATS context configuration not found at /etc/serviceradar/nats/serviceradar.json"
+    fi
+    
+    # Test basic connectivity
+    echo ""
+    echo "Testing basic connectivity..."
+    if nc -zv serviceradar-nats 4222 2>/dev/null; then
+        echo "✓ NATS connection successful"
+    else
+        echo "✗ NATS connection failed"
+    fi
+    
+    echo ""
+    echo "🔧 ServiceRadar debugging tools are ready!"
+    echo "   Run 'test-connectivity' to test all services"
+    echo "   Run 'nats-js-status' to check JetStream"
+    echo "   Run 'test-grpc' to test all gRPC services"
+    echo ""
