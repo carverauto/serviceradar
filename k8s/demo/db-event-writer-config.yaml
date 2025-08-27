@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-db-event-writer-config
+data:
+  db-event-writer.json: |
+    {
+      "listen_addr": "0.0.0.0:50041",
+      "nats_url": "tls://serviceradar-nats:4222",
+      "partition": "k8s",
+      "stream_name": "events",
+      "consumer_name": "db-event-writer",
+      "agent_id": "k8s-db-event-writer",
+      "poller_id": "k8s-poller",
+      "streams": [
+        {
+          "subject": "events.poller.health",
+          "table": "events"
+        },
+        {
+          "subject": "events.syslog.processed", 
+          "table": "events"
+        },
+        {
+          "subject": "events.snmp.processed",
+          "table": "events" 
+        },
+        {
+          "subject": "events.otel.logs",
+          "table": "logs"
+        },
+        {
+          "subject": "events.otel.traces",
+          "table": "otel_traces"
+        },
+        {
+          "subject": "events.otel.metrics", 
+          "table": "otel_metrics"
+        }
+      ],
+      "database": {
+        "addresses": [
+          "serviceradar-proton:9440"
+        ],
+        "name": "default",
+        "username": "default",
+        "password": ""
+      },
+      "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "localhost",
+        "role": "core",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+          "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem"
+        }
+      },
+      "nats_security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "nats.serviceradar",
+        "role": "client",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+          "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem"
+        }
+      },
+      "db_security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "proton.serviceradar",
+        "role": "client",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+          "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem"
+        }
+      },
+      "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+          "enabled": false,
+          "endpoint": "otel:4317",
+          "service_name": "serviceradar-db-event-writer",
+          "batch_timeout": "5s",
+          "insecure": false,
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+            "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem"
+          }
+        }
+      }
+    }
