@@ -66,7 +66,7 @@ data:
           }
         },
         "nats": {
-          "url": "nats://serviceradar-nats:4222",
+          "url": "tls://serviceradar-nats:4222",
           "max_reconnects": 10,
           "reconnect_wait": "2s",
           "drain_timeout": "30s"
@@ -765,6 +765,17 @@ data:
           }
         },
         {
+          user: "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
           user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
           permissions: {
             publish: {
@@ -805,17 +816,6 @@ data:
             }
             subscribe: {
               allow: ["$JS.API.>", "_INBOX.>"]
-            }
-          }
-        },
-        {
-          user: "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
-          permissions: {
-            publish: {
-              allow: [">"]
-            }
-            subscribe: {
-              allow: [">"]
             }
           }
         },
