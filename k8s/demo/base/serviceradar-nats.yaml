@@ -16,6 +16,7 @@ spec:
       containers:
       - name: nats
         image: nats:latest
+        command: ["/nats-server", "--config", "/etc/nats/nats-server.conf", "--jetstream"]
         ports:
         - containerPort: 4222
           name: client
@@ -26,6 +27,12 @@ spec:
         volumeMounts:
         - name: nats-data
           mountPath: /data
+        - name: serviceradar-config
+          mountPath: /etc/nats/nats-server.conf
+          subPath: nats.conf
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
         resources:
           limits:
             cpu: "1"
@@ -49,6 +56,12 @@ spec:
       - name: nats-data
         persistentVolumeClaim:
           claimName: serviceradar-nats-data
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
 ---
 apiVersion: v1
 kind: Service
