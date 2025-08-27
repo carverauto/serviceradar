@@ -10,9 +10,9 @@ resources:
 - serviceradar-agent.yaml
 - serviceradar-poller.yaml
 - serviceradar-snmp-checker.yaml
-- configmap.yaml
 - cert-scripts-configmap.yaml
 - cert-generator-job.yaml
+# Note: configmap.yaml removed - now created dynamically by deploy.sh with proper bcrypt hash
 
 labels:
 - includeSelectors: true

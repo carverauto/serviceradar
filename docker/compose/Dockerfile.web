@@ -57,8 +57,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install jq for JSON parsing in entrypoint
-RUN apk add --no-cache jq
+# Install jq for JSON parsing in entrypoint and wget for health checks
+RUN apk add --no-cache jq wget
 
 # Install runtime dependencies only
 COPY --from=builder /app/package*.json ./
@@ -104,8 +104,8 @@ ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://0.0.0.0:3000/ || exit 1
 
 # Use entrypoint script
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

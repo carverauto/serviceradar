@@ -6,6 +6,7 @@ namespace: serviceradar-staging
 
 resources:
   - ../base
+  - ingress.yaml
 
 images:
   - name: ghcr.io/carverauto/serviceradar-proton
