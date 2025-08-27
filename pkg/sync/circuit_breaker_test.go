@@ -65,7 +65,7 @@ func TestCircuitBreaker_BasicFunctionality(t *testing.T) {
 	// Subsequent calls should be rejected
 	err = cb.Execute(context.Background(), func() error { return nil })
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "circuit breaker test is open")
+	assert.Contains(t, err.Error(), "circuit breaker is open: test")
 
 	// Wait for timeout to transition to half-open - retry approach for robustness
 	var finalErr error

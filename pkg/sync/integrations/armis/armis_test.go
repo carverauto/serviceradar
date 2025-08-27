@@ -732,7 +732,7 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 					StatusCode: http.StatusOK,
 					Body: io.NopCloser(
 						strings.NewReader(
-							`{"data": {"access_token": testAccessToken, "expiration_utc": "2023-10-11T09:49:00.818613+00:00"}, "success": true}`)),
+							`{"data": {"access_token": "test-access-token", "expiration_utc": "2023-10-11T09:49:00.818613+00:00"}, "success": true}`)),
 				}, nil)
 			},
 			expectedToken: testAccessToken,
