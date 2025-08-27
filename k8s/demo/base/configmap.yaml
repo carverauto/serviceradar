@@ -636,3 +636,135 @@ data:
     
     # Start the core service
     exec /usr/local/bin/serviceradar-core --config="$CONFIG_PATH"
+  nats.conf: |
+    # NATS Server Configuration for ServiceRadar Kubernetes Deployment
+    server_name: nats-serviceradar-k8s
+
+    # Listen on all interfaces for Kubernetes networking
+    listen: 0.0.0.0:4222
+
+    # HTTP monitoring
+    http: 0.0.0.0:8222
+
+    # Enable JetStream for KV store
+    jetstream {
+      # Directory to store JetStream data
+      store_dir: /data/jetstream
+      # Maximum storage size
+      max_memory_store: 1G
+      # Maximum disk storage
+      max_file_store: 10G
+    }
+
+    # Enable mTLS for secure communication
+    tls {
+      # Path to the server certificate
+      cert_file: "/etc/serviceradar/certs/nats.pem"
+      # Path to the server private key
+      key_file: "/etc/serviceradar/certs/nats-key.pem"
+      # Path to the root CA certificate for verifying clients
+      ca_file: "/etc/serviceradar/certs/root.pem"
+
+      # Require client certificates (enables mTLS)
+      verify: true
+      # Require and verify client certificates
+      verify_and_map: true
+    }
+
+    # Authorization for ServiceRadar components
+    authorization {
+      users: [
+        {
+          user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
+          user: "CN=serviceradar-kv,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
+          user: "CN=serviceradar-poller,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
+          user: "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
+          user: "CN=serviceradar-db-event-writer,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
+          user: "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
+        {
+          user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: ["events.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+            }
+            subscribe: {
+              allow: ["$JS.API.>", "_INBOX.>"]
+            }
+          }
+        },
+        {
+          user: "O=ServiceRadar"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        }
+      ]
+    }
+
+    # Logging settings
+    debug: true
+    trace: false

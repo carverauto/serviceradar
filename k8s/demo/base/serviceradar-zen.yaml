@@ -25,6 +25,8 @@ spec:
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar
+        - name: zen-rules
+          mountPath: /etc/serviceradar/rules
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
@@ -53,45 +55,26 @@ spec:
             cpu: "100m"
             memory: "128Mi"
         livenessProbe:
-          exec:
-            command:
-            - grpcurl
-            - -cacert
-            - /etc/serviceradar/certs/root.pem
-            - -cert
-            - /etc/serviceradar/certs/zen.pem
-            - -key
-            - /etc/serviceradar/certs/zen-key.pem
-            - -servername
-            - zen.serviceradar
-            - localhost:50040
-            - grpc.health.v1.Health/Check
+          tcpSocket:
+            port: 50040
           initialDelaySeconds: 60
           periodSeconds: 30
-          timeoutSeconds: 10
+          timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - grpcurl
-            - -cacert
-            - /etc/serviceradar/certs/root.pem
-            - -cert
-            - /etc/serviceradar/certs/zen.pem
-            - -key
-            - /etc/serviceradar/certs/zen-key.pem
-            - -servername
-            - zen.serviceradar
-            - localhost:50040
-            - grpc.health.v1.Health/Check
+          tcpSocket:
+            port: 50040
           initialDelaySeconds: 30
           periodSeconds: 15
-          timeoutSeconds: 10
+          timeoutSeconds: 5
           failureThreshold: 3
       volumes:
       - name: serviceradar-config
         configMap:
-          name: serviceradar-zen-config
+          name: serviceradar-config
+      - name: zen-rules
+        configMap:
+          name: serviceradar-zen-rules
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
