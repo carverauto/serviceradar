@@ -22,6 +22,16 @@ GOLANGCI_LINT_VERSION ?= v2.4.0
 CARGO ?= cargo
 RUSTFMT ?= rustfmt
 
+# Set up Rust environment - use original user's paths when running with sudo
+ifdef SUDO_USER
+	ORIGINAL_HOME := $(shell getent passwd $(SUDO_USER) | cut -d: -f6)
+	RUSTUP_HOME ?= $(ORIGINAL_HOME)/.rustup
+	CARGO_HOME ?= $(ORIGINAL_HOME)/.cargo
+else
+	RUSTUP_HOME ?= $(HOME)/.rustup
+	CARGO_HOME ?= $(HOME)/.cargo
+endif
+
 RPERF_CLIENT_BUILD_DIR ?= cmd/checkers/rperf-client/target/release
 RPERF_CLIENT_BIN ?= serviceradar-rperf-checker
 RPERF_SERVER_BUILD_DIR ?= cmd/checkers/rperf-server/target/release
@@ -74,12 +84,12 @@ lint: get-golangcilint ## Run linting checks
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
 	@$(GOLANGCI_LINT) run ./...
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
-	@cd cmd/checkers/rperf-client && $(CARGO) clippy -- -D warnings
-	@cd cmd/checkers/sysmon && $(CARGO) clippy -- -D warnings
-	@cd cmd/trapd && $(CARGO) clippy -- -D warnings
-	@cd cmd/consumers/zen && $(CARGO) clippy -- -D warnings
-	@cd cmd/otel && $(CARGO) clippy -- -D warnings
-	@cd cmd/flowgger && $(CARGO) clippy -- -D warnings
+	@cd cmd/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd cmd/checkers/sysmon && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd cmd/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd cmd/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd cmd/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd cmd/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 
 .PHONY: test
 test: ## Run all tests with coverage
@@ -88,12 +98,12 @@ test: ## Run all tests with coverage
 	@echo "$(COLOR_BOLD)Running Go long tests$(COLOR_RESET)"
 	@$(GO) test -timeout=10s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
-	@cd cmd/checkers/rperf-client && $(CARGO) test
-	@cd cmd/checkers/sysmon && $(CARGO) test
-	@cd cmd/trapd && $(CARGO) test
-	@cd cmd/consumers/zen && $(CARGO) test
-	@cd cmd/otel && $(CARGO) test
-	@cd cmd/flowgger && $(CARGO) test
+	@cd cmd/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd cmd/checkers/sysmon && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd cmd/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd cmd/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd cmd/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd cmd/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
