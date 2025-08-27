@@ -1,0 +1,141 @@
+# ServiceRadar Flowgger Service
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-flowgger-config
+data:
+  flowgger.toml: |
+    [input]
+    type = "syslog"
+    listen = "0.0.0.0:514"
+    format = "rfc3164"
+
+    [filter]
+    type = "cef"
+
+    [output]
+    type = "nats"
+    nats_url = "tls://serviceradar-nats:4222"
+    nats_subject = "events.syslog"
+    nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
+    nats_tls_cert = "/etc/serviceradar/certs/flowgger.pem"
+    nats_tls_key = "/etc/serviceradar/certs/flowgger-key.pem"
+    nats_tls_skip_verify = false
+
+    [logging]
+    level = "info"
+    format = "json"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-flowgger-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-flowgger
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-flowgger
+  template:
+    metadata:
+      labels:
+        app: serviceradar-flowgger
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      containers:
+      - name: flowgger
+        image: ghcr.io/carverauto/serviceradar-flowgger:latest
+        imagePullPolicy: Always
+        ports:
+        - name: syslog
+          containerPort: 514
+          protocol: UDP
+        env:
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/flowgger.toml"
+        - name: RUST_LOG
+          value: "info"
+        # Process-based health checks since flowgger doesn't expose health endpoints
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f flowgger > /dev/null"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f flowgger > /dev/null"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        securityContext:
+          capabilities:
+            add:
+            - NET_BIND_SERVICE
+        volumeMounts:
+        - name: flowgger-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: flowgger-data
+          mountPath: /var/lib/serviceradar
+        - name: logs
+          mountPath: /var/log/serviceradar
+      volumes:
+      - name: flowgger-config
+        configMap:
+          name: serviceradar-flowgger-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: flowgger-data
+        persistentVolumeClaim:
+          claimName: serviceradar-flowgger-data
+      - name: logs
+        emptyDir: {}
+      imagePullSecrets:
+      - name: ghcr-io-cred
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-flowgger
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  selector:
+    app: serviceradar-flowgger
+  ports:
+  - name: syslog
+    port: 514
+    targetPort: 514
+    protocol: UDP
+  type: ClusterIP
