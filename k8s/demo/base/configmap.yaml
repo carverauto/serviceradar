@@ -14,7 +14,7 @@ data:
         ],
         "name": "default",
         "username": "default",
-        "password": "0ee256102419f7ee77b2c52467d22f94",
+        "password": "",
         "max_conns": 10,
         "idle_conns": 5,
         "tls": {

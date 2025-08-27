@@ -18,7 +18,6 @@ kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f 
 # Generate secrets if not already present
 if ! kubectl get secret serviceradar-secrets -n $NAMESPACE >/dev/null 2>&1; then
     echo "⚠️  Secrets not found. Creating from template..."
-    echo "Please update the secrets with actual values!"
     
     # Generate random secrets
     JWT_SECRET_RAW=$(openssl rand -hex 32)
@@ -53,9 +52,28 @@ data:
   admin-password: $ADMIN_PASSWORD
 EOF
 
-    # Create/update the configmap with the generated bcrypt hash
-    echo "📝 Creating dynamic configmap with generated credentials..."
-    cat <<EOF | kubectl apply -n $NAMESPACE -f -
+    echo "✅ Secrets created successfully"
+else
+    echo "✅ Secrets already exist, extracting values..."
+    # Extract existing values for configmap generation
+    ADMIN_PASSWORD_RAW=$(kubectl get secret serviceradar-secrets -n $NAMESPACE -o jsonpath='{.data.admin-password}' | base64 -d)
+    JWT_SECRET_RAW=$(kubectl get secret serviceradar-secrets -n $NAMESPACE -o jsonpath='{.data.jwt-secret}' | base64 -d)
+    
+    # Generate bcrypt hash for existing admin password
+    echo "🔐 Generating bcrypt hash for existing admin password..."
+    if command -v htpasswd >/dev/null 2>&1; then
+        ADMIN_BCRYPT_HASH=$(htpasswd -nbB admin "$ADMIN_PASSWORD_RAW" | cut -d: -f2)
+    elif command -v python3 >/dev/null 2>&1; then
+        ADMIN_BCRYPT_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('$ADMIN_PASSWORD_RAW'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'))")
+    else
+        echo "❌ Error: Neither htpasswd nor python3 found for bcrypt hashing"
+        exit 1
+    fi
+fi
+
+# Always create/update the complete configmap with all required components
+echo "📝 Creating complete configmap with all required components..."
+cat <<EOF | kubectl apply -n $NAMESPACE -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -64,6 +82,10 @@ data:
   core-k8s-init.sh: |
     #!/bin/bash
     set -e
+    
+    # Use the correct environment variable names (with dashes as loaded from secret)
+    API_KEY=\$(env | grep '^api-key=' | cut -d'=' -f2-)
+    JWT_SECRET=\$(env | grep '^jwt-secret=' | cut -d'=' -f2-)
     
     echo "🔑 Using API_KEY: \${API_KEY:0:8}... (\${#API_KEY} chars)"
     echo "🔐 Using JWT_SECRET: \${JWT_SECRET:0:8}... (\${#JWT_SECRET} chars)"
@@ -243,12 +265,411 @@ data:
         "enabled": true
       }
     }
+
+  proton-k8s-init.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "[Proton K8s Init] Starting Kubernetes-specific initialization with TLS"
+    
+    # Wait for certificates to be available
+    echo "[Proton K8s Init] Waiting for TLS certificates..."
+    timeout=300
+    count=0
+    while [ ! -f /etc/serviceradar/certs/proton.pem ] || [ ! -f /etc/serviceradar/certs/root.pem ]; do
+      if [ \$count -ge \$timeout ]; then
+        echo "[Proton K8s Init] ERROR: Timeout waiting for certificates"
+        exit 1
+      fi
+      echo "[Proton K8s Init] Waiting for certificates... (\$count/\$timeout)"
+      sleep 1
+      count=\$((count + 1))
+    done
+    echo "[Proton K8s Init] Certificates found!"
+    
+    # Create proton-server certs directory and link certificates  
+    mkdir -p /etc/proton-server/certs
+    ln -sf /etc/serviceradar/certs/proton.pem /etc/proton-server/certs/proton.pem
+    ln -sf /etc/serviceradar/certs/proton-key.pem /etc/proton-server/certs/proton-key.pem
+    ln -sf /etc/serviceradar/certs/root.pem /etc/proton-server/certs/root.pem
+    
+    # Skip the original proton-init.sh and do minimal setup directly
+    echo "[Proton K8s Init] Setting up minimal proton environment"
+    
+    # Create required directories
+    mkdir -p /var/lib/proton
+    mkdir -p /etc/proton-server/users.d
+    mkdir -p /var/log/proton-server
+    
+    # Clean up any existing lock files from previous instances
+    echo "[Proton K8s Init] Cleaning up any existing lock files..."
+    rm -f /var/lib/proton/status
+    rm -f /var/lib/proton/*.lock
+    rm -f /var/lib/proton/tmp_*
+    
+    # Set permissions
+    chown -R proton:proton /var/lib/proton
+    chown -R proton:proton /var/log/proton-server
+    
+    # Use password from Kubernetes secret (loaded as environment variable)
+    if [ -n "\$PROTON_PASSWORD" ]; then
+        echo "[Proton K8s Init] Using password from Kubernetes secret"
+        echo "\$PROTON_PASSWORD" > /etc/proton-server/generated_password.txt
+        chmod 600 /etc/proton-server/generated_password.txt
+        
+        # Also save to shared credentials volume for other services
+        if [ -d "/etc/serviceradar/credentials" ]; then
+            echo "\$PROTON_PASSWORD" > /etc/serviceradar/credentials/proton-password
+            chmod 644 /etc/serviceradar/credentials/proton-password
+            echo "[Proton K8s Init] Password also saved to shared credentials volume"
+        fi
+    else
+        echo "[Proton K8s Init] ERROR: PROTON_PASSWORD environment variable not found"
+        echo "[Proton K8s Init] Cannot start Proton without password from Kubernetes secret"
+        exit 1
+    fi
+    
+    # Create password hash for user config
+    PASSWORD_HASH=\$(echo -n "\$PROTON_PASSWORD" | sha256sum | awk '{print \$1}')
+    
+    # Create user configuration
+    echo "[Proton K8s Init] Configuring default user password..."
+    mkdir -p /etc/proton-server/users.d
+    cat > /etc/proton-server/users.d/default-password.xml << END_OF_XML
+    <proton>
+        <users>
+            <default>
+                <password remove='1' />
+                <password_sha256_hex>\${PASSWORD_HASH}</password_sha256_hex>
+                <networks>
+                    <ip>0.0.0.0/0</ip>
+                </networks>
+            </default>
+        </users>
+    </proton>
+    END_OF_XML
+    chmod 600 /etc/proton-server/users.d/default-password.xml
+    
+    echo "[Proton K8s Init] Fixing ownership and starting Proton as proton user"
+    chown -R proton:proton /var/lib/proton
+    find /etc/proton-server/ -type f ! -path "*/config.d/logger.xml" -exec chown proton:proton {} \;
+    find /etc/proton-server/ -type d -exec chown proton:proton {} \;
+    
+    exec su -s /bin/bash proton -c "/usr/bin/proton server --config-file=/etc/proton-server/config.yaml"
+
+  poller.json: |
+    {
+      "agents": {
+        "k8s-agent": {
+          "address": "serviceradar-agent:50051",
+          "security": {
+            "server_name": "agent.serviceradar",
+            "mode": "mtls",
+            "cert_dir": "/etc/serviceradar/certs",
+            "role": "poller",
+            "tls": {
+              "cert_file": "poller.pem",
+              "key_file": "poller-key.pem",
+              "ca_file": "root.pem",
+              "client_ca_file": "root.pem"
+            }
+          },
+          "checks": [
+            {
+              "service_type": "port",
+              "service_name": "SSH",
+              "details": "serviceradar-agent:22"
+            },
+            {
+              "service_type": "icmp",
+              "service_name": "ping",
+              "details": "8.8.8.8"
+            },
+            {
+              "service_type": "sweep",
+              "service_name": "network_sweep",
+              "details": "",
+              "results_interval": "2m"
+            }
+          ]
+        }
+      },
+      "core_address": "serviceradar-core:50052",
+      "core_security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "core.serviceradar",
+        "role": "poller",
+        "tls": {
+          "cert_file": "poller.pem",
+          "key_file": "poller-key.pem",
+          "ca_file": "root.pem"
+        }
+      },
+      "listen_addr": ":50053",
+      "poll_interval": "30s",
+      "poller_id": "k8s-poller",
+      "partition": "default",
+      "source_ip": "poller",
+      "service_name": "PollerService",
+      "service_type": "grpc",
+      "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "poller.serviceradar",
+        "role": "poller",
+        "tls": {
+          "cert_file": "poller.pem",
+          "key_file": "poller-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      },
+      "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+          "enabled": false,
+          "endpoint": "otel:4317",
+          "service_name": "serviceradar-poller",
+          "batch_timeout": "5s",
+          "insecure": true,
+          "headers": {
+            "x-api-key": "your-collector-api-key"
+          },
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/poller.pem",
+            "key_file": "/etc/serviceradar/certs/poller-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem"
+          }
+        }
+      }
+    }
+
+  agent.json: |
+    {
+      "checkers_dir": "/etc/serviceradar/checkers",
+      "listen_addr": ":50051",
+      "service_type": "grpc",
+      "service_name": "AgentService",
+      "agent_id": "k8s-agent",
+      "agent_name": "agent",
+      "host_ip": "agent",
+      "partition": "default",
+      "kv_address": "serviceradar-kv:50057",
+      "kv_security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "kv.serviceradar",
+        "role": "agent",
+        "tls": {
+          "cert_file": "agent.pem",
+          "key_file": "agent-key.pem",
+          "ca_file": "root.pem"
+        }
+      },
+      "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "agent.serviceradar",
+        "role": "agent",
+        "tls": {
+          "cert_file": "agent.pem",
+          "key_file": "agent-key.pem",
+          "ca_file": "root.pem"
+        }
+      },
+      "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+          "enabled": false,
+          "endpoint": "",
+          "service_name": "serviceradar-agent",
+          "batch_timeout": "5s",
+          "insecure": false,
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/agent.pem",
+            "key_file": "/etc/serviceradar/certs/agent-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem"
+          }
+        }
+      }
+    }
+
+  sweep.json: |
+    {
+      "networks": [
+          "192.168.2.0/24",
+          "192.168.3.1/32"
+      ],
+      "ports": [
+        22,
+        80,
+        443,
+        3306,
+        5432,
+        6379,
+        8080,
+        8443
+      ],
+      "sweep_modes": [
+        "icmp",
+        "tcp"
+      ],
+      "interval": "5m",
+      "concurrency": 100,
+      "timeout": "10s"
+    } 
+
+  external.json: |
+    {
+      "enabled": true
+    }
+
+  snmp.json: |
+    {
+      "node_address": "localhost:50051",
+      "listen_addr": ":50054",
+      "security": {
+        "server_name": "serviceradar-demo",
+        "mode": "none",
+        "role": "checker",
+        "cert_dir": "/etc/serviceradar/certs"
+      },
+      "timeout": "30s",
+      "targets": [
+        {
+          "name": "test-router",
+          "host": "192.168.1.1",
+          "port": 161,
+          "community": "public",
+          "version": "v2c",
+          "interval": "30s",
+          "retries": 2,
+          "oids": [
+            {
+              "oid": ".1.3.6.1.2.1.2.2.1.10.4",
+              "name": "ifInOctets_4",
+              "type": "counter",
+              "scale": 1.0
+            }
+          ]
+        }
+      ]
+    }
+
+  proton-logger.xml: |
+    <?xml version="1.0"?>
+    <proton>
+        <logger>
+            <level>error</level>
+            <console>1</console>
+            <log remove="remove"/>
+            <errorlog remove="remove"/>
+        </logger>
+    </proton>
+
+  config.yaml: |
+    # Proton Server Configuration for Kubernetes
+    logger:
+      level: error
+      log: /var/log/proton-server/proton-server.log
+      errorlog: /var/log/proton-server/proton-server.err.log
+      size: 1000M
+      count: 10
+
+    # Listen on all interfaces for Kubernetes
+    listen_host: 0.0.0.0
+
+    # HTTP port for queries
+    snapshot_server_http_port: 8123
+
+    # Native TCP port (non-secure)
+    snapshot_server_tcp_port: 8463
+
+    # HTTPS port with TLS
+    https_port: 8443
+
+    # Native TCP port with TLS - this is what serviceradar-core connects to
+    tcp_port_secure: 9440
+
+    # Enable telemetry (required for MetaStoreServer)
+    telemetry_enabled: true
+    telemetry_interval_ms: 300000
+
+    # Server settings
+    max_connections: 4096
+    keep_alive_timeout: 3
+    max_thread_pool_size: 10000
+    max_server_memory_usage_to_ram_ratio: 0.9
+
+    # Cache settings
+    uncompressed_cache_size: 8589934592
+    mark_cache_size: 5368709120
+    mmap_cache_size: 1000
+    compiled_expression_cache_size: 134217728
+
+    # TLS Configuration
+    openSSL:
+      server:
+        # Proton server certificates
+        certificateFile: /etc/proton-server/certs/proton.pem
+        privateKeyFile: /etc/proton-server/certs/proton-key.pem
+        caConfig: /etc/proton-server/certs/root.pem
+        verificationMode: relaxed
+        loadDefaultCAFile: false
+        cacheSessions: false
+        disableProtocols: 'sslv2,sslv3'
+        preferServerCiphers: true
+      client:
+        loadDefaultCAFile: true
+        cacheSessions: true
+        disableProtocols: 'sslv2,sslv3'
+        preferServerCiphers: true
+        invalidCertificateHandler:
+          name: AcceptCertificateHandler
+
+    # Path configuration
+    path: /var/lib/proton
+
+    # Users and access control
+    user_directories:
+      users_xml:
+        path: /etc/proton-server/users.d/default-password.xml
+
+  openssl.xml: |
+    <?xml version="1.0"?>
+    <proton>
+        <openSSL>
+            <server>
+                <certificateFile>/etc/proton-server/certs/proton.pem</certificateFile>
+                <privateKeyFile>/etc/proton-server/certs/proton-key.pem</privateKeyFile>
+                <caConfig>/etc/proton-server/certs/root.pem</caConfig>
+                <verificationMode>relaxed</verificationMode>
+                <loadDefaultCAFile>false</loadDefaultCAFile>
+                <cacheSessions>false</cacheSessions>
+                <disableProtocols>sslv2,sslv3</disableProtocols>
+                <preferServerCiphers>true</preferServerCiphers>
+            </server>
+            <client>
+                <loadDefaultCAFile>true</loadDefaultCAFile>
+                <cacheSessions>true</cacheSessions>
+                <disableProtocols>sslv2,sslv3</disableProtocols>
+                <preferServerCiphers>true</preferServerCiphers>
+                <invalidCertificateHandler>
+                    <name>AcceptCertificateHandler</name>
+                </invalidCertificateHandler>
+            </client>
+        </openSSL>
+    </proton>
 EOF
 
-    echo "✅ Dynamic configmap created with bcrypt hash"
-else
-    echo "✅ Secrets already exist, skipping generation"
-fi
+echo "✅ Complete configmap created with all required components"
 
 # Check if ghcr.io credentials exist
 if ! kubectl get secret ghcr-io-cred -n $NAMESPACE >/dev/null 2>&1; then
