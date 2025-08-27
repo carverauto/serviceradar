@@ -1,0 +1,123 @@
+# base/serviceradar-zen.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-zen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-zen
+  template:
+    metadata:
+      labels:
+        app: serviceradar-zen
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      containers:
+      - name: zen
+        image: ghcr.io/carverauto/serviceradar-zen:latest
+        ports:
+        - containerPort: 50040
+          name: grpc
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: zen-data
+          mountPath: /var/lib/serviceradar
+        env:
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/zen.json"
+        - name: WAIT_FOR_NATS
+          value: "false"
+        - name: WAIT_FOR_KV
+          value: "false"
+        - name: SKIP_WAIT
+          value: "true"
+        - name: NATS_TLS
+          value: "true"
+        - name: USE_TLS
+          value: "true"
+        - name: RUST_LOG
+          value: "info"
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        livenessProbe:
+          exec:
+            command:
+            - grpcurl
+            - -cacert
+            - /etc/serviceradar/certs/root.pem
+            - -cert
+            - /etc/serviceradar/certs/zen.pem
+            - -key
+            - /etc/serviceradar/certs/zen-key.pem
+            - -servername
+            - zen.serviceradar
+            - localhost:50040
+            - grpc.health.v1.Health/Check
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - grpcurl
+            - -cacert
+            - /etc/serviceradar/certs/root.pem
+            - -cert
+            - /etc/serviceradar/certs/zen.pem
+            - -key
+            - /etc/serviceradar/certs/zen-key.pem
+            - -servername
+            - zen.serviceradar
+            - localhost:50040
+            - grpc.health.v1.Health/Check
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 3
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-zen-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: zen-data
+        persistentVolumeClaim:
+          claimName: serviceradar-zen-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-zen
+spec:
+  selector:
+    app: serviceradar-zen
+  ports:
+  - name: grpc
+    port: 50040
+    targetPort: grpc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-zen-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

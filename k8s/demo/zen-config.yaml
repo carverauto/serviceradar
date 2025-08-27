@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-zen-config
+data:
+  zen.json: |
+    {
+      "nats_url": "tls://serviceradar-nats:4222",
+      "stream_name": "events",
+      "consumer_name": "zen-consumer",
+      "subjects": ["events.syslog", "events.snmp", "events.otel.logs"],
+      "decision_groups": [
+        {
+          "name": "syslog",
+          "subjects": ["events.syslog"],
+          "rules": [
+            {"order": 1, "key": "strip_full_message"},
+            {"order": 2, "key": "cef_severity"}
+          ],
+          "format": "json"
+        },
+        {
+          "name": "snmp",
+          "subjects": ["events.snmp"],
+          "rules": [
+            {"order": 1, "key": "snmp_severity"}
+          ],
+          "format": "json"
+        },
+        {
+          "name": "otel_logs",
+          "subjects": ["events.otel.logs"],
+          "rules": [
+            {"order": 1, "key": "passthrough"}
+          ],
+          "format": "protobuf"
+        }
+      ],
+      "agent_id": "k8s-zen-consumer",
+      "kv_bucket": "serviceradar-kv",
+      "listen_addr": "0.0.0.0:50040",
+      "result_subject_suffix": ".processed",
+      "security": {
+        "cert_file": "/etc/serviceradar/certs/zen.pem",
+        "key_file": "/etc/serviceradar/certs/zen-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      },
+      "grpc_security": {
+        "cert_file": "/etc/serviceradar/certs/zen.pem",
+        "key_file": "/etc/serviceradar/certs/zen-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      }
+    }
