@@ -533,13 +533,19 @@ data:
 
   snmp.json: |
     {
-      "node_address": "localhost:50051",
+      "node_address": "serviceradar-core:50052",
       "listen_addr": ":50054",
+      "partition": "default",
       "security": {
-        "server_name": "serviceradar-demo",
-        "mode": "none",
+        "server_name": "serviceradar-core",
+        "mode": "mtls",
         "role": "checker",
-        "cert_dir": "/etc/serviceradar/certs"
+        "cert_dir": "/etc/serviceradar/certs",
+        "tls": {
+          "cert_file": "snmp-checker.pem",
+          "key_file": "snmp-checker-key.pem",
+          "ca_file": "root.pem"
+        }
       },
       "timeout": "30s",
       "targets": [
