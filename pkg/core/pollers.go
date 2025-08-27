@@ -23,15 +23,16 @@ import (
 	"os"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 func (s *Server) MonitorPollers(ctx context.Context) {
@@ -248,6 +249,7 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 	firstSeen := lastSeen
 
 	s.cacheMutex.RLock()
+
 	if ps, ok := s.pollerStatusCache[pollerID]; ok {
 		firstSeen = ps.FirstSeen
 	}

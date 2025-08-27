@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/stretchr/testify/require"
 )
 
 func TestProcessDevices_UsesIDs(t *testing.T) {
@@ -43,6 +44,7 @@ func TestProcessDevices_UsesIDs(t *testing.T) {
 	require.True(t, ok)
 
 	var event models.SweepResult
+
 	err := json.Unmarshal(b, &event)
 	require.NoError(t, err)
 

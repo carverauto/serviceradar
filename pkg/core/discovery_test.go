@@ -36,6 +36,11 @@ import (
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
 
+// Test errors - static errors for err113 compliance
+var (
+	errRegistryTest = errors.New("registry error")
+)
+
 func TestNewDiscoveryService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -48,7 +53,7 @@ func TestNewDiscoveryService(t *testing.T) {
 	assert.NotNil(t, svc)
 
 	// Verify it implements the interface
-	var _ DiscoveryService = svc
+	var _ = svc
 }
 
 func TestProcessSyncResults(t *testing.T) {
@@ -116,7 +121,7 @@ func TestProcessSyncResults(t *testing.T) {
 			name: "registry error",
 			setupMocks: func(_ *db.MockService, mockReg *registry.MockManager) {
 				mockReg.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).
-					Return(errors.New("registry error"))
+					Return(errRegistryTest)
 			},
 			sightings: []*models.SweepResult{
 				{
@@ -573,6 +578,7 @@ func TestPrepareInterfaceMetadata(t *testing.T) {
 			assert.NotNil(t, result)
 
 			var metadata map[string]string
+
 			err := json.Unmarshal(result, &metadata)
 			require.NoError(t, err)
 

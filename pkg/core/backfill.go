@@ -23,7 +23,7 @@ type identityRow struct {
 // a strong identity (Armis ID or NetBox ID) and emits tombstones for non-canonical IDs.
 // Canonical selection is the most recent (_tp_time) device row per identity key.
 //
-//nolint:gocognit,gocyclo,funlen // Complex legacy backfill logic
+//nolint:gocognit,funlen // Complex legacy backfill logic
 func BackfillIdentityTombstones(ctx context.Context, database db.Service, log logger.Logger, dryRun bool) error {
 	totalCandidates := 0
 	totalGroups := 0
@@ -287,8 +287,8 @@ func BackfillIPAliasTombstones(ctx context.Context, database db.Service, log log
               WHERE device_id IN (` + list + `)
                 AND NOT has(map_keys(metadata),'_merged_into')
               ORDER BY _tp_time DESC`
-		res, err := database.ExecuteQuery(ctx, q)
 
+		res, err := database.ExecuteQuery(ctx, q)
 		if err != nil {
 			return fmt.Errorf("query existing targets failed: %w", err)
 		}

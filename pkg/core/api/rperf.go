@@ -22,8 +22,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // @Summary Get rperf metrics

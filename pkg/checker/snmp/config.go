@@ -19,6 +19,7 @@
 package snmp
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -163,7 +164,9 @@ func validateHostAddress(host string) error {
 	}
 
 	// Try to resolve hostname
-	if _, err := net.LookupHost(host); err != nil {
+	ctx := context.Background()
+	resolver := &net.Resolver{}
+	if _, err := resolver.LookupHost(ctx, host); err != nil {
 		return fmt.Errorf("%w: %s", errInvalidHostAddress, host)
 	}
 

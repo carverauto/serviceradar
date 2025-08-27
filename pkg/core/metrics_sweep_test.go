@@ -21,8 +21,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // TestSweepJSONParsing tests the core JSON parsing logic that our fix implements

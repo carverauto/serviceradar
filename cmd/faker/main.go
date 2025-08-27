@@ -34,6 +34,72 @@ import (
 
 const (
 	dataDirPerms = 0o755
+
+	// Token generation constants
+	tokenStringLength    = 32
+	tokenExpirationHours = 24
+
+	// Device distribution percentages
+	singleIPPercent   = 60
+	doubleIPPercent   = 85
+	multipleIPPercent = 95
+
+	// MAC address generation constants
+	maxRetryAttempts = 3
+	maxByteValue     = 255
+
+	// Random generation ranges
+	minRandomRange = 0
+	maxRandomRange = 4
+	ipRangeOffset  = 1000
+
+	// Percentage distribution thresholds
+	percentageBase           = 100
+	lowPercentThreshold      = 60
+	midPercentThreshold      = 85
+	highPercentThreshold     = 95
+	veryHighPercentThreshold = 99
+
+	// MAC address count ranges
+	minMACsEndUser        = 1
+	maxMACsEndUser        = 5
+	minMACsMultiInterface = 6
+	maxMACsMultiInterface = 20
+	minMACsServer         = 21
+	maxMACsServer         = 50
+	minMACsInfra          = 51
+	maxMACsInfra          = 100
+	minMACsEnterprise     = 101
+	maxMACsEnterprise     = 200
+
+	// IP count ranges
+	minAdditionalIPs = 2
+	maxAdditionalIPs = 3
+	minMultipleIPs   = 4
+	maxMultipleIPs   = 5
+	minManyIPs       = 6
+	maxManyIPs       = 10
+
+	// Random string lengths (removed unused constants)
+
+	// MacBook models
+	baseMacBookSize      = 13
+	macBookSizeIncrement = 3
+	macBookVariants      = 3
+
+	// Risk level ranges
+	serverRiskMin  = 7
+	serverRiskMax  = 10
+	medicalRiskMin = 8
+	medicalRiskMax = 10
+	iotRiskMin     = 5
+	iotRiskMax     = 8
+	mobileRiskMin  = 3
+	mobileRiskMax  = 6
+	networkRiskMin = 6
+	networkRiskMax = 9
+	generalRiskMin = 1
+	generalRiskMax = 5
 )
 
 type ArmisDevice struct {
@@ -300,8 +366,8 @@ func main() {
 
 	// Load configuration
 	var err error
-	config, err = loadConfig(configPath)
 
+	config, err = loadConfig(configPath)
 	if err != nil {
 		log.Printf("Warning: Could not load config file: %v. Using defaults.", err)
 
@@ -365,8 +431,8 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 			AccessToken   string    `json:"access_token"`
 			ExpirationUTC time.Time `json:"expiration_utc"`
 		}{
-			AccessToken:   "fake-token-" + generateRandomString(32),
-			ExpirationUTC: time.Now().Add(24 * time.Hour),
+			AccessToken:   "fake-token-" + generateRandomString(tokenStringLength),
+			ExpirationUTC: time.Now().Add(tokenExpirationHours * time.Hour),
 		},
 		Success: true,
 	}
@@ -508,19 +574,19 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 func generateUniqueIPs(index int) string {
 	// Determine how many IPs this device should have
 	// 60% have 1 IP, 25% have 2-3 IPs, 10% have 4-5 IPs, 5% have 6+ IPs
-	mod := index % 100
+	mod := index % percentageBase
 
 	var numIPs int
 
 	switch {
-	case mod < 60:
+	case mod < singleIPPercent:
 		numIPs = 1
-	case mod < 85:
-		numIPs = 2 + randInt(0, 1) // 2-3 IPs
-	case mod < 95:
-		numIPs = 4 + randInt(0, 1) // 4-5 IPs
+	case mod < doubleIPPercent:
+		numIPs = minAdditionalIPs + randInt(minRandomRange, 1) // 2-3 IPs
+	case mod < multipleIPPercent:
+		numIPs = minMultipleIPs + randInt(minRandomRange, 1) // 4-5 IPs
 	default:
-		numIPs = 6 + randInt(0, 4) // 6-10 IPs
+		numIPs = minManyIPs + randInt(minRandomRange, maxRandomRange) // 6-10 IPs
 	}
 
 	ips := make([]string, numIPs)
@@ -530,7 +596,7 @@ func generateUniqueIPs(index int) string {
 	// Generate additional IPs for multi-homed devices
 	for i := 1; i < numIPs; i++ {
 		// Use a different offset to get IPs from different ranges
-		ips[i] = generateSingleIP(index, i*1000)
+		ips[i] = generateSingleIP(index, i*ipRangeOffset)
 	}
 
 	return strings.Join(ips, ",")
@@ -598,25 +664,24 @@ func generateMACCount(deviceIndex int) int {
 	// 10% of devices have 21-50 MACs
 	// 4% of devices have 51-100 MACs
 	// 1% of devices have 101-200 MACs (busy servers, switches, etc.)
-
-	mod := deviceIndex % 100
+	mod := deviceIndex % percentageBase
 
 	switch {
-	case mod < 60:
+	case mod < lowPercentThreshold:
 		// 60% - typical end user devices
-		return randInt(1, 5)
-	case mod < 85:
+		return randInt(minMACsEndUser, maxMACsEndUser)
+	case mod < midPercentThreshold:
 		// 25% - devices with multiple network interfaces
-		return randInt(6, 20)
-	case mod < 95:
+		return randInt(minMACsMultiInterface, maxMACsMultiInterface)
+	case mod < highPercentThreshold:
 		// 10% - servers or devices that change networks frequently
-		return randInt(21, 50)
-	case mod < 99:
+		return randInt(minMACsServer, maxMACsServer)
+	case mod < veryHighPercentThreshold:
 		// 4% - network infrastructure or very active devices
-		return randInt(51, 100)
+		return randInt(minMACsInfra, maxMACsInfra)
 	default:
 		// 1% - enterprise switches, routers, or servers with extensive history
-		return randInt(101, 200)
+		return randInt(minMACsEnterprise, maxMACsEnterprise)
 	}
 }
 
@@ -662,23 +727,23 @@ func generateMACAddresses(seed, count int) []string {
 					(seed+i)&byteMaxValue)
 			} else {
 				// Subsequent MACs are historical - more variation
-				if attempts < 3 {
+				if attempts < maxRetryAttempts {
 					// Try with real OUI prefixes first
 					oui := ouiPrefixes[(seed+i)%len(ouiPrefixes)]
 					mac = fmt.Sprintf("%s:%02x:%02x:%02x",
 						oui,
-						randInt(0, 255),
-						randInt(0, 255),
-						randInt(0, 255))
+						randInt(minRandomRange, maxByteValue),
+						randInt(minRandomRange, maxByteValue),
+						randInt(minRandomRange, maxByteValue))
 				} else {
 					// Fallback to fully random MAC
 					mac = fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x",
-						randInt(0, 255),
-						randInt(0, 255),
-						randInt(0, 255),
-						randInt(0, 255),
-						randInt(0, 255),
-						randInt(0, 255))
+						randInt(minRandomRange, maxByteValue),
+						randInt(minRandomRange, maxByteValue),
+						randInt(minRandomRange, maxByteValue),
+						randInt(minRandomRange, maxByteValue),
+						randInt(minRandomRange, maxByteValue),
+						randInt(minRandomRange, maxByteValue))
 				}
 			}
 
@@ -698,7 +763,7 @@ func generateMACAddresses(seed, count int) []string {
 					seed&byteMaxValue,
 					(i>>hexByteShift)&byteMaxValue,
 					i&byteMaxValue,
-					randInt(0, 255),
+					randInt(minRandomRange, maxByteValue),
 					(seed+i+attempts)&byteMaxValue)
 				macs[i] = mac
 
@@ -854,7 +919,7 @@ func generateModel(manufacturer, deviceType string, index int) string {
 			return models[index%len(models)]
 		}
 
-		return fmt.Sprintf("MacBook Pro %d", 13+(index%3)*3) // 13, 16, 19
+		return fmt.Sprintf("MacBook Pro %d", baseMacBookSize+(index%macBookVariants)*macBookSizeIncrement) // 13, 16, 19
 
 	default:
 		return fmt.Sprintf("Model-%d", (index%1000)+1)
@@ -929,17 +994,17 @@ func getEndpointOS(manufacturer string, index int) string {
 func generateRiskLevel(deviceType string) int {
 	switch {
 	case strings.Contains(deviceType, "Server") || strings.Contains(deviceType, "Domain Controller"):
-		return randInt(7, 10) // Servers are high risk
+		return randInt(serverRiskMin, serverRiskMax) // Servers are high risk
 	case strings.Contains(deviceType, "Medical") || strings.Contains(deviceType, "Industrial"):
-		return randInt(8, 10) // Critical infrastructure
+		return randInt(medicalRiskMin, medicalRiskMax) // Critical infrastructure
 	case strings.Contains(deviceType, "IoT") || strings.Contains(deviceType, "Smart"):
-		return randInt(5, 8) // IoT devices often have vulnerabilities
+		return randInt(iotRiskMin, iotRiskMax) // IoT devices often have vulnerabilities
 	case strings.Contains(deviceType, "Mobile") || strings.Contains(deviceType, "Tablet"):
-		return randInt(3, 6) // Mobile devices moderate risk
+		return randInt(mobileRiskMin, mobileRiskMax) // Mobile devices moderate risk
 	case strings.Contains(deviceType, "Router") || strings.Contains(deviceType, "Firewall"):
-		return randInt(6, 9) // Network infrastructure is important
+		return randInt(networkRiskMin, networkRiskMax) // Network infrastructure is important
 	default:
-		return randInt(1, 5) // General devices lower risk
+		return randInt(generalRiskMin, generalRiskMax) // General devices lower risk
 	}
 }
 

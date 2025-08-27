@@ -18,7 +18,6 @@ package armis
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"testing"
 
@@ -75,13 +74,14 @@ func TestCachedTokenProvider_GetAccessToken(t *testing.T) {
 	})
 
 	t.Run("handles provider errors", func(t *testing.T) {
-		mock := &mockTokenProvider{err: errors.New("auth failed")}
+		var authFailedErr = errAuthFailed
+		mock := &mockTokenProvider{err: authFailedErr}
 		cached := NewCachedTokenProvider(mock)
 
 		token, err := cached.GetAccessToken(ctx)
 		require.Error(t, err)
-		assert.Equal(t, "", token)
-		assert.Contains(t, err.Error(), "auth failed")
+		assert.Empty(t, token)
+		assert.Contains(t, err.Error(), "authentication failed")
 	})
 
 	t.Run("invalidate clears cache", func(t *testing.T) {

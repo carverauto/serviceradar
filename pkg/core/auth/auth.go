@@ -25,12 +25,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/providers/github"
 	"github.com/markbates/goth/providers/google"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 var (

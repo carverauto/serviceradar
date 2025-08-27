@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package cli provides command-line interface utilities for ServiceRadar configuration management.
 package cli
 
 import (

@@ -54,7 +54,7 @@ func (m *MCPServer) registerSRQLQueryTool() {
 			}
 
 			if strings.TrimSpace(srqlArgs.Query) == "" {
-				return nil, fmt.Errorf("query is required")
+				return nil, errQueryRequired
 			}
 
 			m.logger.Debug().Str("query", srqlArgs.Query).Msg("Executing raw SRQL query")
@@ -87,7 +87,7 @@ func (m *MCPServer) registerSRQLValidateTool() {
 			}
 
 			if strings.TrimSpace(srqlArgs.Query) == "" {
-				return nil, fmt.Errorf("query is required")
+				return nil, errQueryRequired
 			}
 
 			m.logger.Debug().Str("query", srqlArgs.Query).Msg("Validating SRQL query")

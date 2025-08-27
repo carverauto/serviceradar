@@ -20,9 +20,15 @@ import (
 	"math"
 	"testing"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/gosnmp/gosnmp"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+)
+
+const (
+	wrongTypeError = "wrong type"
+	originalValue  = "original"
 )
 
 func TestSafeInt32(t *testing.T) {
@@ -135,7 +141,7 @@ func TestGetInt32FromPDU(t *testing.T) {
 			ok:        true,
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.OctetString,
 				Value: "not an integer",
@@ -317,7 +323,7 @@ func TestExtractSpeedFromGauge32(t *testing.T) {
 			expected: 0,                  // Should return 0 for max uint32 as it indicates we need to check ifHighSpeed
 		},
 		{
-			name:     "wrong type",
+			name:     wrongTypeError,
 			input:    "not a number",
 			expected: 0,
 		},
@@ -352,7 +358,7 @@ func TestExtractSpeedFromCounter32(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name:     "wrong type",
+			name:     wrongTypeError,
 			input:    "not a number",
 			expected: 0,
 		},
@@ -389,7 +395,7 @@ func TestUpdateIfDescr(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 42,
@@ -430,7 +436,7 @@ func TestUpdateIfType(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.OctetString,
 				Value: []byte("not an integer"),
@@ -701,12 +707,12 @@ func TestSetStringValue(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 42,
 			},
-			expected: "original", // Should not change
+			expected: originalValue, // Should not change
 		},
 	}
 
@@ -718,8 +724,8 @@ func TestSetStringValue(t *testing.T) {
 
 			var target string
 
-			if tt.name == "wrong type" {
-				target = "original"
+			if tt.name == wrongTypeError {
+				target = originalValue
 			}
 
 			engine.setStringValue(&target, tt.pdu)
@@ -751,12 +757,12 @@ func TestSetObjectIDValue(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 42,
 			},
-			expected: "original", // Should not change
+			expected: originalValue, // Should not change
 		},
 	}
 
@@ -768,8 +774,8 @@ func TestSetObjectIDValue(t *testing.T) {
 
 			var target string
 
-			if tt.name == "wrong type" {
-				target = "original"
+			if tt.name == wrongTypeError {
+				target = originalValue
 			}
 
 			engine.setObjectIDValue(&target, tt.pdu)
@@ -801,7 +807,7 @@ func TestSetUptimeValue(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 42,
@@ -818,7 +824,7 @@ func TestSetUptimeValue(t *testing.T) {
 
 			var target int64
 
-			if tt.name == "wrong type" {
+			if tt.name == wrongTypeError {
 				target = 9999
 			}
 
@@ -859,20 +865,20 @@ func TestUpdateIfPhysAddress(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 42,
 			},
-			expected: "original", // Should not change
+			expected: originalValue, // Should not change
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			iface := &DiscoveredInterface{}
-			if tt.name == "wrong type" {
-				iface.IfPhysAddress = "original"
+			if tt.name == wrongTypeError {
+				iface.IfPhysAddress = originalValue
 			}
 
 			updateIfPhysAddress(iface, tt.pdu)
@@ -881,14 +887,16 @@ func TestUpdateIfPhysAddress(t *testing.T) {
 	}
 }
 
-func TestUpdateIfAdminStatus(t *testing.T) {
+// testStatusHelper is a helper for status update tests
+func testStatusHelper(t *testing.T, statusType string, updateFunc func(*DiscoveryEngine, *DiscoveredInterface, gosnmp.SnmpPDU), getStatus func(*DiscoveredInterface) int32) {
+	t.Helper()
 	tests := []struct {
 		name     string
 		pdu      gosnmp.SnmpPDU
 		expected int32
 	}{
 		{
-			name: "admin status up",
+			name: statusType + " up",
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 1, // up
@@ -896,7 +904,7 @@ func TestUpdateIfAdminStatus(t *testing.T) {
 			expected: 1,
 		},
 		{
-			name: "admin status down",
+			name: statusType + " down",
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 2, // down
@@ -904,7 +912,7 @@ func TestUpdateIfAdminStatus(t *testing.T) {
 			expected: 2,
 		},
 		{
-			name: "admin status testing",
+			name: statusType + " testing",
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
 				Value: 3, // testing
@@ -912,7 +920,7 @@ func TestUpdateIfAdminStatus(t *testing.T) {
 			expected: 3,
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.OctetString,
 				Value: []byte("not an integer"),
@@ -929,64 +937,22 @@ func TestUpdateIfAdminStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			iface := &DiscoveredInterface{}
 
-			engine.updateIfAdminStatus(iface, tt.pdu)
-			assert.Equal(t, tt.expected, iface.IfAdminStatus)
+			updateFunc(engine, iface, tt.pdu)
+			assert.Equal(t, tt.expected, getStatus(iface))
 		})
 	}
 }
 
+func TestUpdateIfAdminStatus(t *testing.T) {
+	testStatusHelper(t, "admin status",
+		(*DiscoveryEngine).updateIfAdminStatus,
+		func(iface *DiscoveredInterface) int32 { return iface.IfAdminStatus })
+}
+
 func TestUpdateIfOperStatus(t *testing.T) {
-	tests := []struct {
-		name     string
-		pdu      gosnmp.SnmpPDU
-		expected int32
-	}{
-		{
-			name: "oper status up",
-			pdu: gosnmp.SnmpPDU{
-				Type:  gosnmp.Integer,
-				Value: 1, // up
-			},
-			expected: 1,
-		},
-		{
-			name: "oper status down",
-			pdu: gosnmp.SnmpPDU{
-				Type:  gosnmp.Integer,
-				Value: 2, // down
-			},
-			expected: 2,
-		},
-		{
-			name: "oper status testing",
-			pdu: gosnmp.SnmpPDU{
-				Type:  gosnmp.Integer,
-				Value: 3, // testing
-			},
-			expected: 3,
-		},
-		{
-			name: "wrong type",
-			pdu: gosnmp.SnmpPDU{
-				Type:  gosnmp.OctetString,
-				Value: []byte("not an integer"),
-			},
-			expected: 0, // Should not change from default
-		},
-	}
-
-	engine := &DiscoveryEngine{
-		logger: logger.NewTestLogger(),
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			iface := &DiscoveredInterface{}
-
-			engine.updateIfOperStatus(iface, tt.pdu)
-			assert.Equal(t, tt.expected, iface.IfOperStatus)
-		})
-	}
+	testStatusHelper(t, "oper status",
+		(*DiscoveryEngine).updateIfOperStatus,
+		func(iface *DiscoveredInterface) int32 { return iface.IfOperStatus })
 }
 
 func TestUpdateInterfaceHighSpeed(t *testing.T) {
@@ -1012,7 +978,7 @@ func TestUpdateInterfaceHighSpeed(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name: "wrong type",
+			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.OctetString,
 				Value: []byte("not an integer"),

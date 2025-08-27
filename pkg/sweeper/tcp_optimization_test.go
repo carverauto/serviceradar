@@ -23,11 +23,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // skipIfNotLinuxRoot skips the test if not running on Linux or without root privileges
@@ -77,6 +78,7 @@ func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
 			mockProcessor := NewMockResultProcessor(ctrl)
 
 			defer ctrl.Finish()
+
 			mockKVStore := NewMockKVStore(ctrl)
 
 			sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
@@ -113,6 +115,7 @@ func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	defer ctrl.Finish()
+
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
@@ -181,6 +184,7 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	defer ctrl.Finish()
+
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
@@ -199,9 +203,10 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 	for _, target := range targets {
 		deviceIPs[target.Host] = true
 
-		if target.Mode == models.ModeTCP {
+		switch target.Mode {
+		case models.ModeTCP:
 			tcpTargets++
-		} else if target.Mode == models.ModeICMP {
+		case models.ModeICMP:
 			icmpTargets++
 		}
 
@@ -239,6 +244,7 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	defer ctrl.Finish()
+
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
@@ -288,6 +294,7 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	defer ctrl.Finish()
+
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
@@ -342,6 +349,7 @@ func BenchmarkNetworkSweeper_OptimizedTCPScan(b *testing.B) {
 	ctrl := gomock.NewController(b)
 
 	defer ctrl.Finish()
+
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)

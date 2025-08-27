@@ -25,7 +25,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -35,6 +34,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func TestGetRoleForIdentity(t *testing.T) {

@@ -19,12 +19,18 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+// Static errors for err113 compliance
+var (
+	ErrRperfTestFailed = errors.New("rperf test failed")
 )
 
 // createSNMPMetric creates a new timeseries metric from SNMP data
@@ -134,7 +140,9 @@ func (s *Server) processSNMPMetrics(
 }
 
 // parseSNMPTargetStatus parses SNMP target status from JSON details
-func (s *Server) parseSNMPTargetStatus(details json.RawMessage, pollerID string) (map[string]*snmp.TargetStatus, error) {
+func (s *Server) parseSNMPTargetStatus(
+	details json.RawMessage, pollerID string,
+) (map[string]*snmp.TargetStatus, error) {
 	var targetStatusMap map[string]*snmp.TargetStatus
 
 	if err := json.Unmarshal(details, &targetStatusMap); err != nil {
@@ -318,7 +326,7 @@ func (*Server) processRperfResult(result *struct {
 	Status  models.RperfMetric `json:"status"`
 }, pollerID string, partition string, responseTime int64, pollerTimestamp time.Time) ([]*models.TimeseriesMetric, error) {
 	if !result.Success {
-		return nil, fmt.Errorf("skipping failed rperf test (Target: %s). Error: %v", result.Target, result.Error)
+		return nil, fmt.Errorf("skipping failed rperf test (Target: %s). Error: %v: %w", result.Target, result.Error, ErrRperfTestFailed)
 	}
 
 	// Create RperfMetric for metadata
@@ -346,7 +354,9 @@ func (*Server) processRperfResult(result *struct {
 
 	metadataStr := string(metadataBytes)
 
-	var timeseriesMetrics = make([]*models.TimeseriesMetric, 0, 4) // Pre-allocate for 4 metrics
+	const expectedMetricsCount = 4
+
+	var timeseriesMetrics = make([]*models.TimeseriesMetric, 0, expectedMetricsCount) // Pre-allocate for expected metrics
 
 	const (
 		defaultFmt                  = "%.2f"
@@ -455,8 +465,9 @@ func (s *Server) processSweepService(
 		Bool("has_enhanced_payload", true).
 		Int("sweep_message_length", len(serviceData)).
 		Str("sweep_message_preview", func() string {
-			if len(serviceData) > 200 {
-				return string(serviceData[:200]) + "..."
+			const maxPreviewLength = 200
+			if len(serviceData) > maxPreviewLength {
+				return string(serviceData[:maxPreviewLength]) + "..."
 			}
 			return string(serviceData)
 		}()).

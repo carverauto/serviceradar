@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 
+	"google.golang.org/grpc"
+
 	"github.com/carverauto/serviceradar/pkg/config"
 	dbeventwriter "github.com/carverauto/serviceradar/pkg/consumers/db-event-writer"
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -11,7 +13,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	monitoringpb "github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc"
 )
 
 func main() {

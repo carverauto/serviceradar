@@ -39,9 +39,9 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/carverauto/serviceradar/internal/fastsum"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/internal/fastsum"
 )
 
 // Using architecture-specific sendmmsg implementation and Mmsghdr struct
@@ -122,6 +122,55 @@ const (
 
 	// Size of the retry queue channel (enough for large scans with a couple of attempts).
 	retryQueueSize = 1 << 17 // 131072
+
+	// Timing constants
+	telemetryLogInterval = 30 * time.Second       // Log telemetry every 30s during active scans
+	rateLimitBackoff     = 200 * time.Microsecond // Backoff when rate limited
+	defaultGracePeriod   = 200 * time.Millisecond // Maximum grace period
+
+	// Network packet size constants
+	ipv4HeaderMinSize  = 20   // Minimum IPv4 header size
+	tcpHeaderMinSize   = 20   // Minimum TCP header size
+	ethernetHeaderSize = 14   // Ethernet header size
+	ipv4TcpPacketSize  = 40   // Combined IPv4 (20) + TCP (20) header size
+	ipv4Version        = 4    // IPv4 version number
+	ipv4ProtocolCheck  = 0x01 // IPv4 protocol check value
+
+	// Buffer and memory constants
+	sendBufferSizeMB    = 8     // Send buffer size in MB (8MB = 8<<20)
+	minRingMemoryMB     = 1     // Minimum ring memory per ring (1MB = 1024*1024)
+	minSafeRatePPS      = 500   // Minimum safe packet rate (packets per second)
+	maxConservativeRate = 25000 // Conservative maximum rate limit (25k pps)
+	defaultTTL          = 64    // Default IP TTL value
+	maxRandomID         = 65535 // Maximum random ID value
+	tcpWindowSize       = 65535 // TCP window size
+
+	// Performance and concurrency constants
+	minShardCount        = 4  // Minimum number of shards
+	maxShardCount        = 32 // Maximum number of shards
+	defaultRingCount     = 4  // Default ring count cap
+	memoryAllocationHint = 16 // Memory allocation hint for shards
+
+	// Port range management constants
+	highPortThreshold    = 20000 // Threshold for high port numbers
+	lowPortFallback      = 10000 // Fallback start for low port range
+	minPortRange         = 5000  // Minimum required port range size
+	highPortUpperBound   = 60000 // Upper bound for high port detection
+	safePortUpperBound   = 65000 // Safe upper bound for port allocation
+	portDensitySampleDiv = 20    // Divisor for port density sampling (5% = 1/20)
+	portSearchStart      = 1024  // Start of port search range
+	reservedDensityLimit = 0.5   // Maximum allowed reserved port density
+
+	// Rate calculation constants
+	capacityReduction   = 4  // Capacity reduction factor for conservative estimation
+	burstCapacityHint   = 4  // Hint for burst capacity allocation
+	timeoutGraceDivisor = 4  // Timeout grace period divisor
+	growthMultiplier    = 13 // Growth multiplier for IP allocation
+
+	// Binary constants
+	bytesPerKB   = 1024 // Bytes per kilobyte
+	bitsPerShift = 20   // Bit shift for MB conversion (1MB = 1<<20)
+	uint32Size   = 4    // Size of uint32 in bytes
 )
 
 // ScannerStats holds performance and diagnostic counters
@@ -224,7 +273,7 @@ func (s *SYNScanner) sampleKernelStats() {
 // logTelemetry periodically logs scanner performance statistics
 // to detect silent performance regressions
 func (s *SYNScanner) logTelemetry(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second) // Log every 30s during active scans
+	ticker := time.NewTicker(telemetryLogInterval) // Log every 30s during active scans
 	defer ticker.Stop()
 
 	for {
@@ -235,7 +284,7 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 			// Sample kernel drop stats from all ring buffers
 			s.sampleKernelStats()
 
-            stats := s.GetStats()
+			stats := s.GetStats()
 
 			// Only log if there's been activity
 			if stats.PacketsSent > 0 || stats.PacketsRecv > 0 {
@@ -247,30 +296,31 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 					rxDropRate = 100 * float64(stats.PacketsDropped) / float64(rxDropDen)
 				}
 
-                // Include limiter shard count for visibility
-                rlShards := 1
-                if v := s.rl.Load(); v != nil {
-                    switch lim := v.(type) {
-                    case *shardedTokenBucket:
-                        rlShards = lim.shards
-                    case *tokenBucket:
-                        rlShards = 1
-                    }
-                }
+				// Include limiter shard count for visibility
+				rlShards := 1
 
-                s.logger.Info().
-                    Uint64("packets_sent", stats.PacketsSent).
-                    Uint64("packets_recv", stats.PacketsRecv).
-                    Uint64("packets_dropped", stats.PacketsDropped).
-                    Float64("rx_drop_rate_percent", rxDropRate).
-                    Uint64("ring_blocks_processed", stats.RingBlocksProcessed).
-                    Uint64("ring_blocks_dropped", stats.RingBlocksDropped).
-                    Uint64("retries_attempted", stats.RetriesAttempted).
-                    Uint64("retries_successful", stats.RetriesSuccessful).
-                    Uint64("ports_allocated", stats.PortsAllocated).
-                    Uint64("rate_limit_deferrals", stats.RateLimitDeferrals).
-                    Int("rl_shards", rlShards).
-                    Msg("SYN scanner telemetry")
+				if v := s.rl.Load(); v != nil {
+					switch lim := v.(type) {
+					case *shardedTokenBucket:
+						rlShards = lim.shards
+					case *tokenBucket:
+						rlShards = 1
+					}
+				}
+
+				s.logger.Info().
+					Uint64("packets_sent", stats.PacketsSent).
+					Uint64("packets_recv", stats.PacketsRecv).
+					Uint64("packets_dropped", stats.PacketsDropped).
+					Float64("rx_drop_rate_percent", rxDropRate).
+					Uint64("ring_blocks_processed", stats.RingBlocksProcessed).
+					Uint64("ring_blocks_dropped", stats.RingBlocksDropped).
+					Uint64("retries_attempted", stats.RetriesAttempted).
+					Uint64("retries_successful", stats.RetriesSuccessful).
+					Uint64("ports_allocated", stats.PortsAllocated).
+					Uint64("rate_limit_deferrals", stats.RateLimitDeferrals).
+					Int("rl_shards", rlShards).
+					Msg("SYN scanner telemetry")
 			}
 		}
 	}
@@ -303,12 +353,14 @@ func storeU32(b []byte, off int, v uint32) {
 }
 
 // Host-endian detector for tpacket headers (host-endian on Linux)
+//
+//nolint:gochecknoglobals // performance optimization, computed once at startup
 var hostEndian = func() binary.ByteOrder {
 	var x uint16 = 0x0102
 
 	b := *(*[2]byte)(unsafe.Pointer(&x))
 
-	if b[0] == 0x01 {
+	if b[0] == ipv4ProtocolCheck {
 		return binary.BigEndian
 	}
 
@@ -317,16 +369,16 @@ var hostEndian = func() binary.ByteOrder {
 
 // rateLimiter abstracts the AllowN interface for different limiter impls.
 type rateLimiter interface {
-    AllowN(n int) int
+	AllowN(n int) int
 }
 
 // tokenBucket is a tiny limiter (tokens/sec with a burst).
 type tokenBucket struct {
-    rate  float64 // tokens per second
-    burst float64 // max tokens
-    mu    sync.Mutex
-    toks  float64
-    last  time.Time
+	rate  float64 // tokens per second
+	burst float64 // max tokens
+	mu    sync.Mutex
+	toks  float64
+	last  time.Time
 }
 
 func newTokenBucket(pps, burst int) *tokenBucket {
@@ -348,8 +400,8 @@ func newTokenBucket(pps, burst int) *tokenBucket {
 
 // AllowN returns how many tokens can be spent immediately (<= n).
 func (tb *tokenBucket) AllowN(n int) int {
-    tb.mu.Lock()
-    defer tb.mu.Unlock()
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 
 	now := time.Now()
 
@@ -376,68 +428,74 @@ func (tb *tokenBucket) AllowN(n int) int {
 
 	tb.toks -= float64(n)
 
-    return n
+	return n
 }
 
 // shardedTokenBucket reduces lock contention by distributing the total rate
 // across several independent token buckets. Each AllowN selects a shard
 // using a fast pseudo-random counter to spread callers across shards.
 type shardedTokenBucket struct {
-    shards  int
-    buckets []*tokenBucket
-    ctr     uint64 // atomically incremented to spread calls
+	shards  int
+	buckets []*tokenBucket
+	ctr     uint64 // atomically incremented to spread calls
 }
 
 func newShardedTokenBucket(shards, pps, burst int) *shardedTokenBucket {
-    if shards <= 1 {
-        return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(pps, burst)}}
-    }
+	if shards <= 1 {
+		return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(pps, burst)}}
+	}
 
-    if pps <= 0 {
-        // Disabled case still needs a non-nil implementation
-        return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(pps, burst)}}
-    }
+	if pps <= 0 {
+		// Disabled case still needs a non-nil implementation
+		return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(pps, burst)}}
+	}
 
-    if burst <= 0 {
-        burst = pps
-    }
+	if burst <= 0 {
+		burst = pps
+	}
 
-    // Divide rate and burst roughly evenly across shards
-    perRate := pps / shards
-    rateRemainder := pps % shards
-    perBurst := burst / shards
-    burstRemainder := burst % shards
+	// Divide rate and burst roughly evenly across shards
+	perRate := pps / shards
+	rateRemainder := pps % shards
+	perBurst := burst / shards
+	burstRemainder := burst % shards
 
-    b := make([]*tokenBucket, shards)
-    for i := 0; i < shards; i++ {
-        r := perRate
-        if i < rateRemainder {
-            r++
-        }
-        bs := perBurst
-        if i < burstRemainder {
-            bs++
-        }
-        if r <= 0 {
-            r = 1
-        }
-        if bs <= 0 {
-            bs = r
-        }
-        b[i] = newTokenBucket(r, bs)
-    }
-    return &shardedTokenBucket{shards: shards, buckets: b}
+	b := make([]*tokenBucket, shards)
+	for i := 0; i < shards; i++ {
+		r := perRate
+		if i < rateRemainder {
+			r++
+		}
+
+		bs := perBurst
+		if i < burstRemainder {
+			bs++
+		}
+
+		if r <= 0 {
+			r = 1
+		}
+
+		if bs <= 0 {
+			bs = r
+		}
+
+		b[i] = newTokenBucket(r, bs)
+	}
+
+	return &shardedTokenBucket{shards: shards, buckets: b}
 }
 
 func (s *shardedTokenBucket) AllowN(n int) int {
-    // Round-robin across shards by incrementing a counter.
-    idx := int(atomic.AddUint64(&s.ctr, 1))
-    if s.shards > 0 {
-        idx %= s.shards
-    } else {
-        idx = 0
-    }
-    return s.buckets[idx].AllowN(n)
+	// Round-robin across shards by incrementing a counter.
+	idx := int(atomic.AddUint64(&s.ctr, 1))
+	if s.shards > 0 {
+		idx %= s.shards
+	} else {
+		idx = 0
+	}
+
+	return s.buckets[idx].AllowN(n)
 }
 
 // SYNScanner performs SYN scanning (half-open scanning) for faster TCP port detection.
@@ -470,10 +528,10 @@ type SYNScanner struct {
 	iface    string // Network interface name
 
 	fanoutGroup int
-    retireTovMs uint32 // configurable retire timeout in milliseconds
-    // ringPollTimeoutMs controls how long ring readers block in poll().
-    // If <=0, defaults to max(retireTovMs, 50ms) to avoid busy wakeups.
-    ringPollTimeoutMs int
+	retireTovMs uint32 // configurable retire timeout in milliseconds
+	// ringPollTimeoutMs controls how long ring readers block in poll().
+	// If <=0, defaults to max(retireTovMs, 50ms) to avoid busy wakeups.
+	ringPollTimeoutMs int
 
 	mu            sync.Mutex
 	portTargetMap map[uint16]string   // Maps source port -> target key ("ip:port")
@@ -487,7 +545,7 @@ type SYNScanner struct {
 	retryMinJitter time.Duration // e.g., 20 * time.Millisecond
 	retryMaxJitter time.Duration // e.g., 40 * time.Millisecond
 
-    rl atomic.Value // stores rateLimiter (never nil after initialization)
+	rl atomic.Value // stores rateLimiter (never nil after initialization)
 
 	// Batched retry queue
 	retryCh chan retryItem
@@ -526,12 +584,12 @@ type SYNScanner struct {
 	randMu sync.Mutex
 	rand   *rand.Rand
 
-    // Observability counters for performance monitoring
-    stats ScannerStats
+	// Observability counters for performance monitoring
+	stats ScannerStats
 
-    // wakeFD is an eventfd used to wake ring readers from blocking poll
-    // on scan cancellation, eliminating periodic poll timeouts and syscalls.
-    wakeFD int
+	// wakeFD is an eventfd used to wake ring readers from blocking poll
+	// on scan cancellation, eliminating periodic poll timeouts and syscalls.
+	wakeFD int
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -574,20 +632,20 @@ type SYNScannerOptions struct {
 	// Note: This is optional and most environments don't need it
 	SuppressRSTReply bool
 
-    // GlobalRingMemoryMB is the total memory cap (in MB) for all ring buffers
-    // across all CPU cores. If 0, defaults to 64MB total. This prevents
-    // excessive memory usage on high-CPU systems by distributing the cap.
-    GlobalRingMemoryMB int
+	// GlobalRingMemoryMB is the total memory cap (in MB) for all ring buffers
+	// across all CPU cores. If 0, defaults to 64MB total. This prevents
+	// excessive memory usage on high-CPU systems by distributing the cap.
+	GlobalRingMemoryMB int
 
-    // RingReaders limits the number of AF_PACKET ring readers (and rings).
-    // If 0, defaults to min(4, runtime.NumCPU()). More readers can increase
-    // wakeups on low-reply scans without benefit.
-    RingReaders int
+	// RingReaders limits the number of AF_PACKET ring readers (and rings).
+	// If 0, defaults to min(4, runtime.NumCPU()). More readers can increase
+	// wakeups on low-reply scans without benefit.
+	RingReaders int
 
-    // RingPollTimeoutMs sets the poll() timeout in milliseconds for ring readers.
-    // If 0, defaults to max(TPACKET_RETIRE_TOV_MS, 50). Raising this reduces
-    // wakeups when traffic is sparse, cutting CPU in listenForReplies.
-    RingPollTimeoutMs int
+	// RingPollTimeoutMs sets the poll() timeout in milliseconds for ring readers.
+	// If 0, defaults to max(TPACKET_RETIRE_TOV_MS, 50). Raising this reduces
+	// wakeups when traffic is sparse, cutting CPU in listenForReplies.
+	RingPollTimeoutMs int
 }
 
 // batchArrays holds reusable arrays for sendmmsg batching
@@ -606,21 +664,21 @@ type IPv4Hdr struct {
 }
 
 func parseIPv4(b []byte) (*IPv4Hdr, int, error) {
-	if len(b) < 20 {
-		return nil, 0, fmt.Errorf("short IPv4 header")
+	if len(b) < ipv4HeaderMinSize {
+		return nil, 0, ErrShortIPv4Header
 	}
 
 	vihl := b[0]
-	if vihl>>4 != 4 {
-		return nil, 0, fmt.Errorf("not IPv4")
+	if vihl>>4 != ipv4Version {
+		return nil, 0, ErrNotIPv4
 	}
 
 	ihl := vihl & 0x0F
 
 	hdrLen := int(ihl) * 4
 
-	if hdrLen < 20 || len(b) < hdrLen {
-		return nil, 0, fmt.Errorf("bad IPv4 header length")
+	if hdrLen < ipv4HeaderMinSize || len(b) < hdrLen {
+		return nil, 0, ErrBadIPv4HeaderLength
 	}
 
 	return &IPv4Hdr{
@@ -641,15 +699,15 @@ type TCPHdr struct {
 }
 
 func parseTCP(b []byte) (*TCPHdr, int, error) {
-	if len(b) < 20 {
-		return nil, 0, fmt.Errorf("short TCP header")
+	if len(b) < tcpHeaderMinSize {
+		return nil, 0, ErrShortTCPHeader
 	}
 
 	dataOff := (b[12] >> 4) & 0x0F
 	hdrLen := int(dataOff) * 4
 
-	if hdrLen < 20 || len(b) < hdrLen {
-		return nil, 0, fmt.Errorf("bad TCP header length")
+	if hdrLen < tcpHeaderMinSize || len(b) < hdrLen {
+		return nil, 0, ErrBadTCPHeaderLength
 	}
 
 	return &TCPHdr{
@@ -666,7 +724,7 @@ func parseTCP(b []byte) (*TCPHdr, int, error) {
 func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 	ip4 := localIP.To4()
 	if ip4 == nil {
-		return fmt.Errorf("attachBPF: non-IPv4 local IP")
+		return ErrNonIPv4LocalIP
 	}
 
 	// Compare IP halves as host-order 16-bit values (cBPF ldh returns host-order).
@@ -794,8 +852,8 @@ func openSnifferOnInterface(iFace string) (int, error) {
 // VLAN-aware L2/L3 parsing + cBPF
 
 func ethernetL3(b []byte) (eth uint16, l3off int, err error) {
-	if len(b) < 14 {
-		return 0, 0, fmt.Errorf("short ethernet")
+	if len(b) < ethernetHeaderSize {
+		return 0, 0, ErrShortEthernet
 	}
 
 	off := 12
@@ -806,7 +864,7 @@ func ethernetL3(b []byte) (eth uint16, l3off int, err error) {
 	for i := 0; i < 2; i++ {
 		if eth == etherTypeVLAN || eth == etherTypeQinQ || eth == etherType9100 {
 			if len(b) < l3off+4 {
-				return 0, 0, fmt.Errorf("short vlan header")
+				return 0, 0, ErrShortVLANHeader
 			}
 
 			// skip TCI (2 bytes) and read inner ethertype
@@ -857,7 +915,7 @@ func setupTPacketV3(fd int, blockSize, blockNr, frameSize, retireMs uint32) (*ri
 		uintptr(unix.SOL_PACKET),
 		uintptr(unix.PACKET_RX_RING),
 		uintptr(unsafe.Pointer(&req)),
-		uintptr(unsafe.Sizeof(req)),
+		unsafe.Sizeof(req),
 		0,
 	)
 
@@ -916,22 +974,25 @@ func (r *ringBuf) block(i uint32) []byte {
 	return r.mem[base:end]
 }
 
+//nolint:gocyclo // Complex packet processing logic with inherent branching
 func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
-    // Build pollfd set: ring FD + optional wake FD for cancellation
-    var pfd []unix.PollFd
-    if s.wakeFD > 0 {
-        pfd = []unix.PollFd{
-            {Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL},
-            {Fd: int32(s.wakeFD), Events: unix.POLLIN},
-        }
-    } else {
-        pfd = []unix.PollFd{{Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL}}
-    }
-    cur := uint32(0)
+	// Build pollfd set: ring FD + optional wake FD for cancellation
+	var pfd []unix.PollFd
+	if s.wakeFD > 0 {
+		pfd = []unix.PollFd{
+			{Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL},
+			{Fd: int32(s.wakeFD), Events: unix.POLLIN},
+		}
+	} else {
+		pfd = []unix.PollFd{{Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL}}
+	}
+
+	cur := uint32(0)
 
 	for {
 		// First, drain any ready blocks without polling
 		drained := false
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -940,7 +1001,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			}
 
 			blk := r.block(cur)
-			if blk == nil || len(blk) < int(h1_first_pkt_off+4) {
+			if blk == nil || len(blk) < int(h1_first_pkt_off+uint32Size) {
 				break
 			}
 
@@ -968,10 +1029,9 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 
 					ph := blk[off:]
 
-					if int(pkt_next_off+4) > len(ph) ||
-						int(pkt_snaplen_off+4) > len(ph) ||
+					if int(pkt_next_off+uint32Size) > len(ph) ||
+						int(pkt_snaplen_off+uint32Size) > len(ph) ||
 						int(pkt_mac_off+2) > len(ph) {
-
 						break
 					}
 
@@ -993,6 +1053,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 
 			// hand ownership back
 			storeU32(blk, h1_status_off, 0)
+
 			cur = (cur + 1) % r.blockNr
 			drained = true
 
@@ -1004,44 +1065,46 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			continue // see if more blocks are ready without poll
 		}
 
-        // Nothing ready; block in poll. If wakeFD is present, block indefinitely
-        // and wake via eventfd on cancellation. Otherwise, use configured timeout.
-        to := -1
-        if s.wakeFD <= 0 {
-            to = s.ringPollTimeoutMs
-            if to <= 0 {
-                to = int(s.retireTovMs)
-                if to < 50 {
-                    to = 50
-                }
-            }
-        }
+		// Nothing ready; block in poll. If wakeFD is present, block indefinitely
+		// and wake via eventfd on cancellation. Otherwise, use configured timeout.
+		to := -1
+		if s.wakeFD <= 0 {
+			to = s.ringPollTimeoutMs
+			if to <= 0 {
+				to = int(s.retireTovMs)
+				if to < 50 {
+					to = 50
+				}
+			}
+		}
 
-        _, err := unix.Poll(pfd, to)
-        if err != nil {
-            // EINTR and EAGAIN are fine; anything else, exit this reader
-            if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
-                continue
-            }
+		_, err := unix.Poll(pfd, to)
+		if err != nil {
+			// EINTR and EAGAIN are fine; anything else, exit this reader
+			if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
+				continue
+			}
 
 			s.logger.Error().Err(err).Int("ring_fd", r.fd).Msg("Ring reader poll error, terminating reader.")
 
 			return
 		}
 
-        // If wakeFD fired, drain it and exit (context likely canceled)
-        if s.wakeFD > 0 && len(pfd) > 1 && (pfd[1].Revents&unix.POLLIN) != 0 {
-            var buf [8]byte
-            _, _ = unix.Read(s.wakeFD, buf[:])
-            return
-        }
+		// If wakeFD fired, drain it and exit (context likely canceled)
+		if s.wakeFD > 0 && len(pfd) > 1 && (pfd[1].Revents&unix.POLLIN) != 0 {
+			var buf [8]byte
 
-        // Check for socket errors after successful poll
-        if pfd[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
-            // Socket is in error state, exit this reader
-            return
-        }
-    }
+			_, _ = unix.Read(s.wakeFD, buf[:])
+
+			return
+		}
+
+		// Check for socket errors after successful poll
+		if pfd[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
+			// Socket is in error state, exit this reader
+			return
+		}
+	}
 }
 
 // NewSYNScanner creates a new SYN scanner with custom options
@@ -1060,6 +1123,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 // uses atomic.Value and is safe to call anytime, including during active scans.
 //
 // Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
+//nolint:gocyclo // Complex initialization with many configuration options and platform-specific setup
 func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, opts *SYNScannerOptions) (*SYNScanner, error) {
 	log.Debug().Msg("Starting SYN scanner initialization")
 
@@ -1083,13 +1147,16 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	log.Debug().Msg("Setting IP_HDRINCL socket option")
 
 	if err = syscall.SetsockoptInt(sendSocket, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1); err != nil {
-		syscall.Close(sendSocket)
+		if closeErr := syscall.Close(sendSocket); closeErr != nil {
+			log.Warn().Err(closeErr).Msg("Failed to close socket")
+		}
+
 		return nil, fmt.Errorf("cannot set IP_HDRINCL (requires root): %w", err)
 	}
 
 	// Optional performance optimizations
 	_ = unix.SetNonblock(sendSocket, true)
-	_ = syscall.SetsockoptInt(sendSocket, syscall.SOL_SOCKET, syscall.SO_SNDBUF, 8<<20) // 8MB send buffer
+	_ = syscall.SetsockoptInt(sendSocket, syscall.SOL_SOCKET, syscall.SO_SNDBUF, sendBufferSizeMB<<bitsPerShift) // 8MB send buffer
 
 	log.Debug().Msg("IP_HDRINCL set successfully")
 	log.Debug().Msg("Getting local IP and interface")
@@ -1106,7 +1173,9 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 	sourceIP, iface, err := getLocalIPAndInterfaceWithTarget(routeDiscoveryTarget)
 	if err != nil {
-		syscall.Close(sendSocket)
+		if closeErr := syscall.Close(sendSocket); closeErr != nil {
+			log.Warn().Err(closeErr).Msg("Failed to close socket")
+		}
 
 		return nil, fmt.Errorf("failed to get local IP and interface: %w", err)
 	}
@@ -1117,7 +1186,10 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	if opts != nil && opts.Interface != "" {
 		ifi, err := net.InterfaceByName(opts.Interface)
 		if err != nil {
-			syscall.Close(sendSocket)
+			if closeErr := syscall.Close(sendSocket); closeErr != nil {
+				log.Warn().Err(closeErr).Msg("Failed to close socket")
+			}
+
 			return nil, fmt.Errorf("interface %q: %w", opts.Interface, err)
 		}
 
@@ -1133,8 +1205,11 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		}
 
 		if ip4 == nil {
-			syscall.Close(sendSocket)
-			return nil, fmt.Errorf("interface %q has no IPv4 address", opts.Interface)
+			if closeErr := syscall.Close(sendSocket); closeErr != nil {
+				log.Warn().Err(closeErr).Msg("Failed to close socket")
+			}
+
+			return nil, fmt.Errorf("%w: %q", ErrInterfaceNoIPv4, opts.Interface)
 		}
 
 		sourceIP = ip4
@@ -1145,23 +1220,17 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 	sourceIP = sourceIP.To4()
 	if sourceIP == nil {
-		syscall.Close(sendSocket)
+		if closeErr := syscall.Close(sendSocket); closeErr != nil {
+			log.Warn().Err(closeErr).Msg("Failed to close socket")
+		}
 
-		return nil, fmt.Errorf("non-IPv4 source IP")
+		return nil, ErrNonIPv4SourceIP
 	}
 
 	// Detect safe port range for scanning
 	log.Debug().Msg("Detecting safe port range for scanning")
 
-	scanPortStart, scanPortEnd, err := findSafeScannerPortRange(log)
-	if err != nil {
-		// This shouldn't happen as findSafeScannerPortRange always returns something
-		// but handle it just in case
-		log.Error().Err(err).Msg("Failed to find safe port range, using defaults")
-
-		scanPortStart = defaultEphemeralPortStart
-		scanPortEnd = defaultEphemeralPortEnd
-	}
+	scanPortStart, scanPortEnd := findSafeScannerPortRange(log)
 	// Log at Info level if non-default range chosen (ops folks want to see the actual window)
 	if scanPortStart != defaultEphemeralPortStart || scanPortEnd != defaultEphemeralPortEnd {
 		log.Info().Uint16("start", scanPortStart).Uint16("end", scanPortEnd).
@@ -1186,22 +1255,23 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	// This order is preferred by most codebases and avoids potential PACKET_RX_RING EINVAL issues.
 	fanoutGroup := (os.Getpid() * 131) & 0xFFFF
 
-    // Determine ring reader count
-    ringCount := runtime.NumCPU()
-    if opts != nil && opts.RingReaders > 0 && opts.RingReaders < ringCount {
-        ringCount = opts.RingReaders
-    }
-    if ringCount > 4 { // default cap to avoid excessive idle wakeups
-        ringCount = 4
-    }
+	// Determine ring reader count
+	ringCount := runtime.NumCPU()
+	if opts != nil && opts.RingReaders > 0 && opts.RingReaders < ringCount {
+		ringCount = opts.RingReaders
+	}
 
-    log.Debug().Int("ringCount", ringCount).Int("fanoutGroup", fanoutGroup).Msg("Ring setup parameters")
+	if ringCount > defaultRingCount { // default cap to avoid excessive idle wakeups
+		ringCount = defaultRingCount
+	}
 
-    rings := make([]*ringBuf, 0, ringCount)
+	log.Debug().Int("ringCount", ringCount).Int("fanoutGroup", fanoutGroup).Msg("Ring setup parameters")
 
-    for i := 0; i < ringCount; i++ {
-        log.Debug().Int("ringIndex", i).Msg("Creating ring buffer")
-        log.Debug().Str("interface", iface).Msg("Opening sniffer on interface")
+	rings := make([]*ringBuf, 0, ringCount)
+
+	for i := 0; i < ringCount; i++ {
+		log.Debug().Int("ringIndex", i).Msg("Creating ring buffer")
+		log.Debug().Str("interface", iface).Msg("Opening sniffer on interface")
 
 		fd, err := openSnifferOnInterface(iface)
 		if err != nil {
@@ -1212,7 +1282,9 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				_ = unix.Close(r.fd)
 			}
 
-			syscall.Close(sendSocket)
+			if closeErr := syscall.Close(sendSocket); closeErr != nil {
+				log.Warn().Err(closeErr).Msg("Failed to close socket")
+			}
 
 			return nil, fmt.Errorf("openSnifferOnInterface failed: %w", err)
 		}
@@ -1220,8 +1292,10 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		log.Debug().Int("fd", fd).Msg("Sniffer opened successfully")
 
 		log.Debug().Int("fanoutGroup", fanoutGroup).Msg("Enabling packet fanout")
+
 		if err := enableFanout(fd, fanoutGroup); err != nil {
 			log.Error().Err(err).Msg("Failed to enable packet fanout")
+
 			_ = unix.Close(fd)
 
 			for _, r := range rings {
@@ -1229,7 +1303,9 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				_ = unix.Close(r.fd)
 			}
 
-			syscall.Close(sendSocket)
+			if closeErr := syscall.Close(sendSocket); closeErr != nil {
+				log.Warn().Err(closeErr).Msg("Failed to close socket")
+			}
 
 			return nil, fmt.Errorf("enableFanout failed: %w", err)
 		}
@@ -1247,12 +1323,15 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				_ = unix.Close(r.fd)
 			}
 
-			syscall.Close(sendSocket)
+			if closeErr := syscall.Close(sendSocket); closeErr != nil {
+				log.Warn().Err(closeErr).Msg("Failed to close socket")
+			}
 
 			return nil, fmt.Errorf("BPF filter attachment failed: %w", err)
 		}
 
 		log.Debug().Msg("BPF filter attached successfully")
+
 		ringRetireTov := getRetireTovMs()
 
 		// Use ring buffer options from SYNScannerOptions or defaults
@@ -1281,13 +1360,14 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		}
 
 		totalRings := ringCount
-		if totalRings <= 0 { 
-			totalRings = 1 
+		if totalRings <= 0 {
+			totalRings = 1
 		}
+
 		perRingBytes := uint32((globalRingMemoryMB * 1024 * 1024) / totalRings)
 
 		// Ensure minimum per-ring memory (at least 1MB per ring)
-		minPerRingBytes := uint32(1024 * 1024) // 1MB
+		minPerRingBytes := uint32(minRingMemoryMB * bytesPerKB * bytesPerKB) // 1MB
 		if perRingBytes < minPerRingBytes {
 			perRingBytes = minPerRingBytes
 			log.Warn().
@@ -1372,8 +1452,8 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 			blockCount = 2
 			for blockSize*blockCount > perRingBytes {
 				blockSize = (blockSize / align) * align // shrink to next valid size
-				if blockSize < align { 
-					break 
+				if blockSize < align {
+					break
 				}
 			}
 		}
@@ -1396,6 +1476,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		rb, err := setupTPacketV3(fd, blockSize, blockCount, frameSize, ringRetireTov)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to setup TPACKET_V3")
+
 			_ = unix.Close(fd)
 
 			for _, r := range rings {
@@ -1403,7 +1484,9 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				_ = unix.Close(r.fd)
 			}
 
-			syscall.Close(sendSocket)
+			if closeErr := syscall.Close(sendSocket); closeErr != nil {
+				log.Warn().Err(closeErr).Msg("Failed to close socket")
+			}
 
 			return nil, fmt.Errorf("setupTPacketV3 failed: %w", err)
 		}
@@ -1413,7 +1496,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		rings = append(rings, rb)
 	}
 
-    log.Debug().Int("ringCount", len(rings)).Msg("All ring buffers created successfully")
+	log.Debug().Int("ringCount", len(rings)).Msg("All ring buffers created successfully")
 
 	retireTov := getRetireTovMs()
 	log.Debug().Uint32("retireTovMs", retireTov).Msg("Using configurable retire TOV")
@@ -1430,43 +1513,44 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 	log.Debug().Int("sendBatchSize", batchSize).Msg("Using configurable sendmmsg batch size")
 
-    scanner := &SYNScanner{
-        timeout:        timeout,
-        concurrency:    concurrency,
-        logger:         log,
-        sendSocket:     sendSocket,
-        rings:          rings,
+	scanner := &SYNScanner{
+		timeout:        timeout,
+		concurrency:    concurrency,
+		logger:         log,
+		sendSocket:     sendSocket,
+		rings:          rings,
 		sourceIP:       sourceIP,
 		iface:          iface,
 		fanoutGroup:    fanoutGroup,
-        retireTovMs:    retireTov,
-        portAlloc:      NewPortAllocator(scanPortStart, scanPortEnd),
-        scanPortStart:  scanPortStart,
-        scanPortEnd:    scanPortEnd,
-        retryAttempts:  1,
-        retryMinJitter: 20 * time.Millisecond,
-        retryMaxJitter: 40 * time.Millisecond,
-        sendBatchSize:  batchSize,
-        // Initialize maps to prevent nil pointer dereference
-        portTargetMap: make(map[uint16]string),
-        targetPorts:   make(map[string][]uint16),
-        targetIP:      make(map[string][4]byte),
-        results:       make(map[string]models.Result),
-        portDeadline:  make(map[uint16]time.Time),
-        // Initialize thread-safe random source for IP ID generation
-        rand: rand.New(rand.NewSource(time.Now().UnixNano())),
-    }
+		retireTovMs:    retireTov,
+		portAlloc:      NewPortAllocator(scanPortStart, scanPortEnd),
+		scanPortStart:  scanPortStart,
+		scanPortEnd:    scanPortEnd,
+		retryAttempts:  1,
+		retryMinJitter: 20 * time.Millisecond,
+		retryMaxJitter: 40 * time.Millisecond,
+		sendBatchSize:  batchSize,
+		// Initialize maps to prevent nil pointer dereference
+		portTargetMap: make(map[uint16]string),
+		targetPorts:   make(map[string][]uint16),
+		targetIP:      make(map[string][4]byte),
+		results:       make(map[string]models.Result),
+		portDeadline:  make(map[uint16]time.Time),
+		// Initialize thread-safe random source for IP ID generation
+		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
 
-    // Configure ring poll timeout: default to max(retireTovMs, 50ms) unless overridden
-    if opts != nil && opts.RingPollTimeoutMs > 0 {
-        scanner.ringPollTimeoutMs = opts.RingPollTimeoutMs
-    } else {
-        pollMs := int(retireTov)
-        if pollMs < 50 {
-            pollMs = 50
-        }
-        scanner.ringPollTimeoutMs = pollMs
-    }
+	// Configure ring poll timeout: default to max(retireTovMs, 50ms) unless overridden
+	if opts != nil && opts.RingPollTimeoutMs > 0 {
+		scanner.ringPollTimeoutMs = opts.RingPollTimeoutMs
+	} else {
+		pollMs := int(retireTov)
+		if pollMs < 50 {
+			pollMs = 50
+		}
+
+		scanner.ringPollTimeoutMs = pollMs
+	}
 
 	// Initialize batch pool for sendmmsg arrays
 	scanner.batchPool = sync.Pool{
@@ -1482,7 +1566,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	// Initialize packet buffer pool to reduce GC churn in hot path
 	scanner.packetPool = sync.Pool{
 		New: func() interface{} {
-			return make([]byte, 40)
+			return make([]byte, ipv4TcpPacketSize)
 		},
 	}
 
@@ -1515,10 +1599,10 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		// Apply conservative multiplier when using risky fallback range
 		// This reduces contention with system ephemeral port allocation
 		originalSafeCapacity := safeCapacityPPS
-		safeCapacityPPS = safeCapacityPPS / 4 // Reduce to 25% of calculated capacity
+		safeCapacityPPS /= capacityReduction // Reduce to 25% of calculated capacity
 
-		if safeCapacityPPS < 500 {
-			safeCapacityPPS = 500 // Minimum viable rate
+		if safeCapacityPPS < minSafeRatePPS {
+			safeCapacityPPS = minSafeRatePPS // Minimum viable rate
 		}
 
 		log.Warn().
@@ -1530,6 +1614,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	if opts != nil && opts.RateLimit > 0 {
 		// Use explicitly provided rate limit
 		rateLimitPPS = opts.RateLimit
+
 		rateLimitBurst = opts.RateLimitBurst
 		if rateLimitBurst <= 0 {
 			rateLimitBurst = rateLimitPPS
@@ -1553,8 +1638,8 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 			rateLimitPPS = 1000 // minimum 1k pps
 		}
 
-		if rateLimitPPS > 25000 {
-			rateLimitPPS = 25000 // conservative cap at 25k pps
+		if rateLimitPPS > maxConservativeRate {
+			rateLimitPPS = maxConservativeRate // conservative cap at 25k pps
 		}
 
 		rateLimitBurst = rateLimitPPS
@@ -1588,12 +1673,12 @@ func (s *SYNScanner) initPacketTemplate() {
 	s.packetTemplate[0] = 0x45 // version=4, ihl=5
 	s.packetTemplate[1] = 0    // TOS
 
-	binary.BigEndian.PutUint16(s.packetTemplate[2:], 40) // total length (20 IP + 20 TCP)
+	binary.BigEndian.PutUint16(s.packetTemplate[2:], ipv4TcpPacketSize) // total length (20 IP + 20 TCP)
 
 	// ID will be set per packet: s.packetTemplate[4:6]
 	binary.BigEndian.PutUint16(s.packetTemplate[6:], 0) // flags+frag
 
-	s.packetTemplate[8] = 64 // TTL
+	s.packetTemplate[8] = defaultTTL // TTL
 	s.packetTemplate[9] = syscall.IPPROTO_TCP
 
 	// checksum will be set per packet: s.packetTemplate[10:12]
@@ -1618,7 +1703,7 @@ func (s *SYNScanner) initPacketTemplate() {
 // generateRandomID returns a thread-safe random IP header ID
 func (s *SYNScanner) generateRandomID() uint16 {
 	s.randMu.Lock()
-	id := uint16(s.rand.Intn(65535))
+	id := uint16(s.rand.Intn(maxRandomID))
 	s.randMu.Unlock()
 
 	return id
@@ -1658,6 +1743,7 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 
 	// Calculate and set TCP checksum using fast path (no payload)
 	binary.BigEndian.PutUint16(packet[36:], 0)
+
 	var src4, dst4 [4]byte
 	copy(src4[:], srcIP.To4())
 	copy(dst4[:], destIP.To4())
@@ -1671,6 +1757,7 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 func (s *SYNScanner) tryReleaseMapping(sp uint16, k string) {
 	// Determine whether to release by checking mappings while holding lock
 	s.mu.Lock()
+
 	shouldRelease := false
 
 	if s.portTargetMap != nil {
@@ -1721,34 +1808,37 @@ func (s *SYNScanner) hasFinalResult(targetKey string) bool {
 // Pass pps<=0 to disable. If burst<=0, burst defaults to pps.
 // Safe to call anytime, including during active scans.
 func (s *SYNScanner) SetRateLimit(pps, burst int) {
-    // Determine shard count to reduce lock contention at high concurrency.
-    // Scale with scanner concurrency and CPU count, clamp to sensible bounds.
-    // Using a power-of-two-ish upper bound keeps modulo cheap.
-    shards := runtime.GOMAXPROCS(0)
-    if s.concurrency > 0 && s.concurrency < shards {
-        shards = s.concurrency
-    }
-    if shards < 4 {
-        shards = 4
-    }
-    if shards > 32 {
-        shards = 32
-    }
+	// Determine shard count to reduce lock contention at high concurrency.
+	// Scale with scanner concurrency and CPU count, clamp to sensible bounds.
+	// Using a power-of-two-ish upper bound keeps modulo cheap.
+	shards := runtime.GOMAXPROCS(0)
+	if s.concurrency > 0 && s.concurrency < shards {
+		shards = s.concurrency
+	}
 
-    // Always store a non-nil rateLimiter to keep atomic.Value type stable and avoid nil checks.
-    // For disabled case (pps<=0), create a single bucket with zero rate (acts like allow-all).
-    limiter := rateLimiter(newShardedTokenBucket(shards, pps, burst))
-    s.rl.Store(limiter)
+	if shards < minShardCount {
+		shards = minShardCount
+	}
+
+	if shards > maxShardCount {
+		shards = maxShardCount
+	}
+
+	// Always store a non-nil rateLimiter to keep atomic.Value type stable and avoid nil checks.
+	// For disabled case (pps<=0), create a single bucket with zero rate (acts like allow-all).
+	limiter := rateLimiter(newShardedTokenBucket(shards, pps, burst))
+	s.rl.Store(limiter)
 }
 
 // allowN applies the limiter if present; otherwise returns n.
 func (s *SYNScanner) allowN(n int) int {
-    if v := s.rl.Load(); v != nil {
-        if lim, ok := v.(rateLimiter); ok && lim != nil {
-            return lim.AllowN(n)
-        }
-    }
-    return n
+	if v := s.rl.Load(); v != nil {
+		if lim, ok := v.(rateLimiter); ok && lim != nil {
+			return lim.AllowN(n)
+		}
+	}
+
+	return n
 }
 
 type retryItem struct {
@@ -1776,26 +1866,28 @@ func (h *retryHeap) Pop() any {
 
 // sendPendingWithLimiter uses the global limiter; it may send in chunks until *pending is empty.
 func (s *SYNScanner) sendPendingWithLimiter(ctx context.Context, pending *[]models.Target) {
-    for len(*pending) > 0 {
-        allowed := s.allowN(len(*pending))
+	for len(*pending) > 0 {
+		allowed := s.allowN(len(*pending))
 
-        // Also cap by number of free source ports to avoid hot spinning
-        if s.portAlloc != nil {
-            free := s.portAlloc.Free()
-            if free <= 0 {
-                atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
-                time.Sleep(200 * time.Microsecond)
-                continue
-            }
-            if allowed > free {
-                allowed = free
-            }
-        }
+		// Also cap by number of free source ports to avoid hot spinning
+		if s.portAlloc != nil {
+			free := s.portAlloc.Free()
+			if free <= 0 {
+				atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+				time.Sleep(rateLimitBackoff)
+
+				continue
+			}
+
+			if allowed > free {
+				allowed = free
+			}
+		}
 
 		if allowed == 0 {
 			// tiny sleep to avoid busy spinning
 			atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
-			time.Sleep(200 * time.Microsecond)
+			time.Sleep(rateLimitBackoff)
 
 			continue
 		}
@@ -1924,6 +2016,7 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 				s.randMu.Lock()
 				j := s.rand.Int63n(int64(span))
 				s.randMu.Unlock()
+
 				d += time.Duration(j)
 			}
 
@@ -1948,6 +2041,7 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 }
 
 // Scan performs SYN scanning on the given targets
+//nolint:gocyclo // Complex scanning logic with multiple execution paths and error handling
 func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	tcpTargets := filterTCPTargets(targets)
 	resultCh := make(chan models.Result, len(tcpTargets))
@@ -1957,21 +2051,22 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		return resultCh, nil
 	}
 
-    scanCtx, cancel := context.WithCancel(ctx)
-    // Create wake eventfd (optional, gated by env SR_SYN_USE_EVENTFD=1)
-    if s.wakeFD == 0 {
-        if os.Getenv("SR_SYN_USE_EVENTFD") == "1" {
-            fd, err := unix.Eventfd(0, 0)
-            if err == nil {
-                _ = unix.SetNonblock(fd, true)
-                s.wakeFD = fd
-                s.logger.Debug().Msg("Using eventfd for ring wakeups")
-            } else {
-                // Fall back to timeout-based poll
-                s.logger.Debug().Err(err).Msg("eventfd unavailable; using timeout-based ring polling")
-            }
-        }
-    }
+	scanCtx, cancel := context.WithCancel(ctx)
+	// Create wake eventfd (optional, gated by env SR_SYN_USE_EVENTFD=1)
+	if s.wakeFD == 0 {
+		if os.Getenv("SR_SYN_USE_EVENTFD") == "1" {
+			fd, err := unix.Eventfd(0, 0)
+			if err == nil {
+				_ = unix.SetNonblock(fd, true)
+				s.wakeFD = fd
+				s.logger.Debug().Msg("Using eventfd for ring wakeups")
+			} else {
+				// Fall back to timeout-based poll
+				s.logger.Debug().Err(err).Msg("eventfd unavailable; using timeout-based ring polling")
+			}
+		}
+	}
+
 	scanStartTime := time.Now()
 
 	// Start telemetry logging tied to scan lifecycle
@@ -1979,9 +2074,11 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	// Initialize state for the new scan and atomically set up the scan
 	s.mu.Lock()
+
 	if s.cancel != nil {
 		s.mu.Unlock()
-		return nil, fmt.Errorf("scan already running")
+		cancel() // Ensure we don't leak the context
+		return nil, ErrScanAlreadyRunning
 	}
 
 	s.cancel = cancel
@@ -1992,8 +2089,10 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	// start retry scheduler (and wait for it in teardown)
 	s.readersWG.Add(1)
+
 	go func() {
 		defer s.readersWG.Done()
+
 		s.runRetryQueue(scanCtx)
 	}()
 
@@ -2018,6 +2117,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	// Single goroutine drains emitCh -> resultCh, then closes resultCh after a stop signal + drain.
 	go func() {
 		defer close(emitterDone)
+
 		for {
 			select {
 			case r := <-emitCh:
@@ -2057,12 +2157,14 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		key := fmt.Sprintf("%s:%d", r.Target.Host, r.Target.Port)
 
 		emittedMu.Lock()
+
 		if _, seen := emitted[key]; seen {
 			emittedMu.Unlock()
 			return
 		}
 
 		emitted[key] = struct{}{}
+
 		emittedMu.Unlock()
 
 		// Non-blocking in practice: emitCh capacity == len(tcpTargets) and we enqueue ≤1 per target.
@@ -2075,6 +2177,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	go func() {
 		defer s.readersWG.Done()
+
 		s.listenForReplies(scanCtx)
 	}()
 
@@ -2088,6 +2191,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 		go func() {
 			defer senderWg.Done()
+
 			s.worker(scanCtx, workCh)
 		}()
 	}
@@ -2110,27 +2214,30 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		senderWg.Wait()
 
 		// Shorter grace for late replies
-		grace := s.timeout / 4
-		if grace > 200*time.Millisecond {
-			grace = 200 * time.Millisecond
+		grace := s.timeout / timeoutGraceDivisor
+		if grace > defaultGracePeriod {
+			grace = defaultGracePeriod
 		}
 
 		time.Sleep(grace)
 
-        cancel()
-        // Wake any blocking ring readers once after cancel
-        if s.wakeFD > 0 {
-            var one [8]byte
-            one[7] = 1
-            _, _ = unix.Write(s.wakeFD, one[:])
-        }
-        s.readersWG.Wait()
+		cancel()
+		// Wake any blocking ring readers once after cancel
+		if s.wakeFD > 0 {
+			var one [8]byte
+
+			one[7] = 1
+			_, _ = unix.Write(s.wakeFD, one[:])
+		}
+
+		s.readersWG.Wait()
 
 		// Fallback: emit anything not yet streamed (via emitter so user callback is tee'd)
 		s.mu.Lock()
 
 		for _, t := range tcpTargets {
 			key := fmt.Sprintf("%s:%d", t.Host, t.Port)
+
 			emittedMu.Lock()
 
 			if _, seen := emitted[key]; seen {
@@ -2139,6 +2246,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			}
 
 			emitted[key] = struct{}{}
+
 			emittedMu.Unlock()
 
 			r, ok := s.results[key]
@@ -2146,23 +2254,25 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 				r = models.Result{
 					Target:    t,
 					Available: false,
-					Error:     fmt.Errorf("scan timed out"),
+					Error:     ErrScanTimedOut,
 					FirstSeen: time.Now(),
 					LastSeen:  time.Now(),
 				}
 			} else if !r.Available && r.Error == nil {
-				r.Error = fmt.Errorf("scan timed out")
+				r.Error = ErrScanTimedOut
 			}
 
 			// Release lock while enqueueing; emitter handles backpressure and user callback tee.
 			s.mu.Unlock()
+
 			emitCh <- r
+
 			s.mu.Lock()
 		}
 
-        // Stop future callback enqueues and finish the emitter cleanly.
-        s.resultCallback = nil
-        s.mu.Unlock()
+		// Stop future callback enqueues and finish the emitter cleanly.
+		s.resultCallback = nil
+		s.mu.Unlock()
 
 		// Log final telemetry for scan completion (especially useful for short scans)
 		scanDuration := time.Since(scanStartTime)
@@ -2181,16 +2291,17 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		close(stopEmit) // signal emitter to drain and close resultCh
 		<-emitterDone   // wait for emitter to finish
 
-        s.mu.Lock()
-        if s.cancel != nil {
-            s.cancel = nil
-        }
+		s.mu.Lock()
 
-        // Proactively release any leftover port mappings and clear per-scan maps
-        toRelease := make([]uint16, 0, len(s.portTargetMap))
-        for sp := range s.portTargetMap {
-            toRelease = append(toRelease, sp)
-        }
+		if s.cancel != nil {
+			s.cancel = nil
+		}
+
+		// Proactively release any leftover port mappings and clear per-scan maps
+		toRelease := make([]uint16, 0, len(s.portTargetMap))
+		for sp := range s.portTargetMap {
+			toRelease = append(toRelease, sp)
+		}
 
 		// Reset maps to allow GC of large per-scan state
 		s.portTargetMap = make(map[uint16]string)
@@ -2198,13 +2309,14 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		s.targetIP = make(map[string][4]byte)
 		s.results = make(map[string]models.Result)
 		s.portDeadline = make(map[uint16]time.Time)
-        s.retryCh = nil
-        // Close wakeFD now that readers have exited
-        if s.wakeFD > 0 {
-            _ = unix.Close(s.wakeFD)
-            s.wakeFD = 0
-        }
-        s.mu.Unlock()
+		s.retryCh = nil
+		// Close wakeFD now that readers have exited
+		if s.wakeFD > 0 {
+			_ = unix.Close(s.wakeFD)
+			s.wakeFD = 0
+		}
+
+		s.mu.Unlock()
 
 		// Release ports outside the lock
 		for _, sp := range toRelease {
@@ -2243,6 +2355,7 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 				if !ok { // channel closed: stop draining now
 					break drain
 				}
+
 				pending = append(pending, t)
 			default:
 				break drain
@@ -2254,7 +2367,7 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 		if allowed == 0 {
 			// tiny nap to let tokens accrue
 			atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
-			time.Sleep(200 * time.Microsecond)
+			time.Sleep(rateLimitBackoff)
 
 			continue
 		}
@@ -2280,6 +2393,7 @@ func (s *SYNScanner) listenForReplies(ctx context.Context) {
 
 		go func(rr *ringBuf) {
 			defer wg.Done()
+
 			s.runRingReader(ctx, rr)
 		}(r)
 	}
@@ -2331,12 +2445,13 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 		toEmit    models.Result
 		cb        func(models.Result)
 		targetKey string
-		toFree    []uint16
+		toFree    = make([]uint16, 0, 8) // Pre-allocate with reasonable capacity
 	)
 
 	s.mu.Lock()
 
 	var ok bool
+
 	targetKey, ok = s.portTargetMap[tcp.DstPort]
 	if !ok {
 		s.mu.Unlock()
@@ -2358,15 +2473,16 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 
 	// Decide if this packet makes the port state "definitive".
 	// We keep this simple and conservative: any SYN/ACK or RST is definitive.
-	if tcp.Flags&(synFlag|ackFlag) == (synFlag | ackFlag) {
+	switch {
+	case tcp.Flags&(synFlag|ackFlag) == (synFlag | ackFlag):
 		result.Available = true
 		result.Error = nil
 		emit = true
-	} else if tcp.Flags&rstFlag != 0 {
+	case tcp.Flags&rstFlag != 0:
 		result.Available = false
-		result.Error = fmt.Errorf("port closed (RST)")
+		result.Error = ErrPortClosed
 		emit = true
-	} else {
+	default:
 		s.mu.Unlock()
 		return
 	}
@@ -2433,6 +2549,7 @@ func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Tar
 
 	// Use simple connect() for loopback targets
 	d := net.Dialer{Timeout: s.timeout}
+
 	addr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
 
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -2441,7 +2558,10 @@ func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Tar
 		result.Error = err
 	} else {
 		result.Available = true
-		conn.Close()
+
+		if closeErr := conn.Close(); closeErr != nil {
+			s.logger.Debug().Err(closeErr).Msg("Failed to close connection")
+		}
 	}
 
 	result.RespTime = time.Since(result.FirstSeen)
@@ -2449,125 +2569,6 @@ func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Tar
 
 	// Store & emit without holding s.mu inside the callback.
 	s.emitResult(targetKey, result)
-}
-
-// sendSyn crafts and sends a single SYN packet to the target.
-func (s *SYNScanner) sendSyn(ctx context.Context, target models.Target) {
-	destIP := net.ParseIP(target.Host)
-	if destIP == nil || destIP.To4() == nil {
-		s.logger.Warn().Str("host", target.Host).Msg("Invalid/Non-IPv4 target host")
-		return
-	}
-
-	destIP = destIP.To4()
-
-	// Special case for loopback targets - use simple connect() check
-	if destIP.IsLoopback() {
-		s.handleLoopbackTarget(ctx, target)
-		return
-	}
-
-	// Fast reject for invalid ports before reserving source port
-	if target.Port <= 0 || target.Port > maxPortNumber {
-		s.logger.Warn().Int("port", target.Port).Msg("Invalid target port")
-		return
-	}
-
-	// Reserve a unique source port
-	srcPort, err := s.portAlloc.Reserve(ctx)
-	if err != nil {
-		// Update port exhaustion counter
-		atomic.AddUint64(&s.stats.PortExhaustion, 1)
-		s.logger.Debug().Err(err).Str("host", target.Host).Msg("No source port available")
-
-		return
-	}
-
-	// Update successful port allocation counter
-	atomic.AddUint64(&s.stats.PortsAllocated, 1)
-
-	targetKey := fmt.Sprintf("%s:%d", target.Host, target.Port)
-
-	// Ensure cleanup on any early return
-	release := func() {
-		// Also removes from targetPorts and guards against double release
-		s.tryReleaseMapping(srcPort, targetKey)
-	}
-
-	var want [4]byte
-
-	copy(want[:], destIP)
-
-	s.mu.Lock()
-
-	s.portTargetMap[srcPort] = targetKey
-	s.targetPorts[targetKey] = append(s.targetPorts[targetKey], srcPort)
-	s.targetIP[targetKey] = want
-
-	if existing, ok := s.results[targetKey]; ok && !existing.FirstSeen.IsZero() {
-		existing.LastSeen = time.Now()
-		s.results[targetKey] = existing
-	} else {
-		s.results[targetKey] = models.Result{
-			Target:    target,
-			FirstSeen: time.Now(),
-			LastSeen:  time.Now(),
-		}
-	}
-
-	s.mu.Unlock()
-
-	// Ensure we don't hold the source port forever if the target never replies.
-	// Free the mapping after timeout + grace to still accept late replies.
-	grace := s.timeout / 4
-
-	if grace > 200*time.Millisecond {
-		grace = 200 * time.Millisecond
-	}
-
-	// Record deadline for reaper instead of per-port timer
-	deadline := time.Now().Add(s.timeout + grace)
-
-	s.mu.Lock()
-	s.portDeadline[srcPort] = deadline
-	s.mu.Unlock()
-
-	packet := s.buildSynPacketFromTemplate(s.sourceIP, destIP, srcPort, uint16(target.Port)) //nolint:gosec
-	addr := syscall.SockaddrInet4{Port: 0}                                                   // ignored by kernel for raw sockets with IP_HDRINCL
-
-	copy(addr.Addr[:], destIP)
-
-	if err := syscall.Sendto(s.sendSocket, packet, 0, &addr); err != nil {
-		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK || err == syscall.EINTR {
-			// TRACE level for first EAGAIN - very common and usually transient
-			s.logger.Trace().Err(err).Str("host", target.Host).Msg("Transient send error, retrying")
-
-			runtime.Gosched()
-			if err2 := syscall.Sendto(s.sendSocket, packet, 0, &addr); err2 == nil {
-				// Return packet buffer to pool after successful send
-				s.packetPool.Put(packet)
-				atomic.AddUint64(&s.stats.PacketsSent, 1)
-
-				return
-			} else {
-				// DEBUG level for retry failure - indicates potential system pressure
-				s.logger.Debug().Err(err2).Str("host", target.Host).Msg("Failed to send SYN packet after retry")
-			}
-		} else {
-			// Log non-transient errors immediately
-			s.logger.Debug().Err(err).Str("host", target.Host).Msg("Failed to send SYN packet")
-		}
-
-		// Return packet buffer to pool even on error
-		s.packetPool.Put(packet)
-		release()
-
-		return
-	}
-
-	// Return packet buffer to pool after successful send
-	s.packetPool.Put(packet)
-	atomic.AddUint64(&s.stats.PacketsSent, 1)
 }
 
 // sendSynBatch crafts and sends SYNs for a slice of targets using sendmmsg().
@@ -2605,7 +2606,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 			continue
 		}
 
-		if net.IP(dst4).IsLoopback() {
+		if dst4.IsLoopback() {
 			// loopback: use connect path immediately
 			s.handleLoopbackTarget(ctx, t)
 
@@ -2634,6 +2635,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		copy(want[:], dst4)
 
 		s.mu.Lock()
+
 		if s.portTargetMap == nil {
 			s.portTargetMap = make(map[uint16]string)
 		}
@@ -2758,7 +2760,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		}
 
 		// Retry the same offset on transient errors
-		if err == unix.EAGAIN || err == unix.EWOULDBLOCK || err == unix.EINTR {
+		if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EINTR) {
 			// tiny backoff; keep pressure high
 			runtime.Gosched()
 
@@ -2779,7 +2781,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 
 	// Return all packet buffers to pool after sendmmsg completes
 	for i := range entries {
-		s.packetPool.Put(entries[i].packet)
+		s.packetPool.Put(entries[i].packet) //nolint:staticcheck // slice is reference type, Put accepts interface{}
 	}
 
 	// Release *unsent* ports immediately, since their SYN never left the machine.
@@ -2802,6 +2804,7 @@ func (s *SYNScanner) emitResult(targetKey string, result models.Result) {
 	var cb func(models.Result)
 
 	s.mu.Lock()
+
 	if s.results == nil {
 		s.results = make(map[string]models.Result)
 	}
@@ -2812,6 +2815,7 @@ func (s *SYNScanner) emitResult(targetKey string, result models.Result) {
 	}
 
 	s.mu.Unlock()
+
 	if cb != nil {
 		cb(result)
 	}
@@ -2847,6 +2851,7 @@ func (s *SYNScanner) startReaper() {
 
 	go func() {
 		defer s.reaperWG.Done()
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
@@ -2866,6 +2871,7 @@ func (s *SYNScanner) startReaper() {
 				var victims []pair
 
 				s.mu.Lock()
+
 				for sp, dl := range s.portDeadline {
 					if now.After(dl) {
 						key := s.portTargetMap[sp]
@@ -2979,10 +2985,11 @@ func ChecksumNew(data []byte) uint16 { return fastsum.Checksum(data) }
 
 // TCP checksum with IPv4 pseudo-header
 func TCPChecksumNew(src, dst net.IP, tcpHdr, payload []byte) uint16 {
-    var src4, dst4 [4]byte
-    copy(src4[:], src.To4())
-    copy(dst4[:], dst.To4())
-    return fastsum.TCPv4(src4, dst4, tcpHdr, payload)
+	var src4, dst4 [4]byte
+	copy(src4[:], src.To4())
+	copy(dst4[:], dst.To4())
+
+	return fastsum.TCPv4(src4, dst4, tcpHdr, payload)
 }
 
 // readLocalPortRange reads the system's ephemeral port range from /proc
@@ -3037,10 +3044,50 @@ func readReservedPorts() map[uint16]struct{} {
 	return ports
 }
 
+// checkPortRangeDensity calculates the reserved port density for a given range
+// and logs appropriate messages.
+func checkPortRangeDensity(scanStart, scanEnd uint16, reserved map[uint16]struct{}, log logger.Logger) {
+	rangeSize := int(scanEnd - scanStart + 1)
+	samples := rangeSize / portDensitySampleDiv // 5%
+
+	if samples < 100 {
+		samples = rangeSize // sample all if small
+	}
+
+	if samples < 1 {
+		samples = 1
+	}
+
+	reservedCount := 0
+
+	for i := 0; i < samples; i++ {
+		p := scanStart + uint16((i*rangeSize)/samples)
+		if p > scanEnd {
+			break
+		}
+
+		if _, ok := reserved[p]; ok {
+			reservedCount++
+		}
+	}
+
+	reservedDensity := float64(reservedCount) / float64(samples)
+
+	if reservedDensity >= reservedDensityLimit {
+		log.Info().Uint16("start", scanStart).Uint16("end", scanEnd).
+			Float64("reservedDensity", reservedDensity).
+			Msg("Using mostly-reserved port range for scanning")
+	} else {
+		log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
+			Float64("reservedDensity", reservedDensity).
+			Msg("Scanner port range not reserved densely; consider ip_local_reserved_ports")
+	}
+}
+
 // findSafeScannerPortRange finds a safe port range for scanning that doesn't
 // conflict with the system's ephemeral ports or other local applications.
-// Returns the start and end of the range, or an error if no safe range found.
-func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
+// Returns the start and end of the range. Always succeeds using fallback if needed.
+func findSafeScannerPortRange(log logger.Logger) (uint16, uint16) {
 	// Default fallback range (what we were using before)
 	const (
 		fallbackStart = 32768
@@ -3054,7 +3101,7 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 		log.Warn().Uint16("start", fallbackStart).Uint16("end", fallbackEnd).
 			Msg("WARNING: Using default range that may conflict with local applications!")
 
-		return fallbackStart, fallbackEnd, nil
+		return fallbackStart, fallbackEnd
 	}
 
 	log.Info().Uint16("sysStart", sysStart).Uint16("sysEnd", sysEnd).
@@ -3067,103 +3114,35 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 	// Prefer ranges that are marked as reserved (to prevent other apps from using them)
 
 	// Option 1: Use ports below the system range (if there's enough space)
-	if sysStart > 20000 {
+	if sysStart > highPortThreshold {
 		// We can use 10000-19999 or similar
-		scanStart := uint16(10000)
+		scanStart := uint16(lowPortFallback)
 		scanEnd := sysStart - 1
 
-		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
-			rangeSize := int(scanEnd - scanStart + 1)
-			samples := rangeSize / 20 // 5%
-
-			if samples < 100 {
-				samples = rangeSize // sample all if small
-			}
-
-			if samples < 1 {
-				samples = 1
-			}
-
-			reservedCount := 0
-			for i := 0; i < samples; i++ {
-				p := scanStart + uint16((i*rangeSize)/samples)
-				if p > scanEnd {
-					break
-				}
-
-				if _, ok := reserved[p]; ok {
-					reservedCount++
-				}
-			}
-
-			reservedDensity := float64(reservedCount) / float64(samples)
-
-			if reservedDensity >= 0.5 {
-				log.Info().Uint16("start", scanStart).Uint16("end", scanEnd).
-					Float64("reservedDensity", reservedDensity).
-					Msg("Using mostly-reserved port range for scanning")
-			} else {
-				log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
-					Float64("reservedDensity", reservedDensity).
-					Msg("Scanner port range not reserved densely; consider ip_local_reserved_ports")
-			}
-
-			return scanStart, scanEnd, nil
+		if scanEnd-scanStart >= minPortRange { // Need at least 5000 ports
+			checkPortRangeDensity(scanStart, scanEnd, reserved, log)
+			return scanStart, scanEnd
 		}
 	}
 
 	// Option 2: Use ports above the system range (if there's enough space)
-	if sysEnd < 60000 {
+	if sysEnd < highPortUpperBound {
 		scanStart := sysEnd + 1
-		scanEnd := uint16(65000) // Leave some ports at the top
+		scanEnd := uint16(safePortUpperBound) // Leave some ports at the top
 
-		if scanEnd-scanStart >= 5000 { // Need at least 5000 ports
-			rangeSize := int(scanEnd - scanStart + 1)
-			samples := rangeSize / 20 // 5%
-
-			if samples < 100 {
-				samples = rangeSize // sample all if small
-			}
-
-			if samples < 1 {
-				samples = 1
-			}
-
-			reservedCount := 0
-			for i := 0; i < samples; i++ {
-				p := scanStart + uint16((i*rangeSize)/samples)
-
-				if p > scanEnd {
-					break
-				}
-
-				if _, ok := reserved[p]; ok {
-					reservedCount++
-				}
-			}
-
-			reservedDensity := float64(reservedCount) / float64(samples)
-
-			if reservedDensity >= 0.5 {
-				log.Info().Uint16("start", scanStart).Uint16("end", scanEnd).
-					Float64("reservedDensity", reservedDensity).
-					Msg("Using mostly-reserved port range for scanning")
-			} else {
-				log.Warn().Uint16("start", scanStart).Uint16("end", scanEnd).
-					Float64("reservedDensity", reservedDensity).
-					Msg("Scanner port range not reserved densely; consider ip_local_reserved_ports")
-			}
-
-			return scanStart, scanEnd, nil
+		if scanEnd-scanStart >= minPortRange { // Need at least 5000 ports
+			checkPortRangeDensity(scanStart, scanEnd, reserved, log)
+			return scanStart, scanEnd
 		}
 	}
 
 	// Option 3: If we can't find a non-overlapping range, try to use reserved ports within the range
 	// This is less ideal but better than nothing
-	if lo, hi, ok := largestContiguous(reserved, 1024, 65535); ok && hi-lo+1 >= 5000 {
+	if lo, hi, ok := largestContiguous(reserved, portSearchStart, maxPortNumber); ok && hi-lo+1 >= minPortRange {
 		log.Warn().Uint16("start", lo).Uint16("end", hi).
 			Msg("Using largest contiguous reserved block for scanner ports")
-		return lo, hi, nil
+
+		return lo, hi
 	}
 
 	// Last resort: Use the fallback range with a loud warning
@@ -3171,7 +3150,7 @@ func findSafeScannerPortRange(log logger.Logger) (uint16, uint16, error) {
 		Msg("ERROR: Could not find safe port range! Using fallback that WILL conflict with local applications!")
 	log.Error().Msg("RECOMMENDATION: Reserve ports via 'echo 32768-61000 > /proc/sys/net/ipv4/ip_local_reserved_ports'")
 
-	return fallbackStart, fallbackEnd, nil
+	return fallbackStart, fallbackEnd
 }
 
 // largestContiguous finds the largest contiguous block of reserved ports in the range [lo, hi]
@@ -3211,13 +3190,13 @@ func largestContiguous(res map[uint16]struct{}, lo, hi uint16) (uint16, uint16, 
 	return 0, 0, false
 }
 
-
 func getLocalIPAndInterfaceWithTarget(target string) (net.IP, string, error) {
 	if target == "" {
 		target = "8.8.8.8:80"
 	}
 
-	conn, err := net.Dial("udp", target)
+	dialer := &net.Dialer{}
+	conn, err := dialer.DialContext(context.Background(), "udp", target)
 	if err != nil {
 		// Fallback for environments without internet access or blocked targets
 		interfaces, err := net.Interfaces()
@@ -3242,10 +3221,12 @@ func getLocalIPAndInterfaceWithTarget(target string) (net.IP, string, error) {
 			}
 		}
 
-		return nil, "", fmt.Errorf("no suitable local IP address and interface found (target %s blocked)", target)
+		return nil, "", fmt.Errorf("%w (target %s blocked)", ErrNoSuitableInterface, target)
 	}
 
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close() // Ignore close error in defer
+	}()
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	localIP := localAddr.IP.To4()
@@ -3268,9 +3249,8 @@ func getLocalIPAndInterfaceWithTarget(target string) (net.IP, string, error) {
 		}
 	}
 
-	return nil, "", fmt.Errorf("could not find interface for local IP %s", localIP)
+	return nil, "", fmt.Errorf("%w %s", ErrInterfaceNotFound, localIP)
 }
-
 
 // Host to network short/long byte order conversions
 func htons(n uint16) uint16 {
@@ -3280,4 +3260,3 @@ func htons(n uint16) uint16 {
 
 	return n
 }
-

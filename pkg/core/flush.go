@@ -45,25 +45,30 @@ func (s *Server) flushBuffers(ctx context.Context) {
 func (s *Server) flushAllBuffers(ctx context.Context) {
 	var wg sync.WaitGroup
 
-	wg.Add(4)
+	const numBufferTypes = 4 // metrics, service statuses, availability metrics, and trace data
+	wg.Add(numBufferTypes)
 
 	go func() {
 		defer wg.Done()
+
 		s.flushMetrics(ctx)
 	}()
 
 	go func() {
 		defer wg.Done()
+
 		s.flushServiceStatuses(ctx)
 	}()
 
 	go func() {
 		defer wg.Done()
+
 		s.flushServices(ctx)
 	}()
 
 	go func() {
 		defer wg.Done()
+
 		s.flushSysmonMetrics(ctx)
 	}()
 

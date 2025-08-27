@@ -14,18 +14,11 @@
  * limitations under the License.
  */
 
-package config
+package mcp
 
-import (
-	"context"
+import "errors"
+
+var (
+	// Device errors.
+	errDeviceNotFound = errors.New("device not found")
 )
-
-// Validator interface for configurations that need validation.
-type Validator interface {
-	Validate() error
-}
-
-// Loader interface for loading configurations from various sources.
-type ConfigLoader interface {
-	Load(ctx context.Context, path string, dst interface{}) error
-}

@@ -22,12 +22,13 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/grpc" // For the underlying gRPC server type
+
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc" // For the underlying gRPC server type
 )
 
 const (

@@ -22,9 +22,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+)
+
+var (
+	// errTestError is used in tests to simulate errors
+	errTestError = errors.New("test error")
 )
 
 func TestCircuitBreaker_BasicFunctionality(t *testing.T) {
@@ -47,19 +53,19 @@ func TestCircuitBreaker_BasicFunctionality(t *testing.T) {
 	assert.Equal(t, StateClosed, cb.GetState())
 
 	// First failure
-	err = cb.Execute(context.Background(), func() error { return errors.New("test error") })
+	err = cb.Execute(context.Background(), func() error { return errTestError })
 	require.Error(t, err)
 	assert.Equal(t, StateClosed, cb.GetState())
 
 	// Second failure should open the circuit
-	err = cb.Execute(context.Background(), func() error { return errors.New("test error") })
+	err = cb.Execute(context.Background(), func() error { return errTestError })
 	require.Error(t, err)
 	assert.Equal(t, StateOpen, cb.GetState())
 
 	// Subsequent calls should be rejected
 	err = cb.Execute(context.Background(), func() error { return nil })
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "circuit breaker test is open")
+	assert.Contains(t, err.Error(), "circuit breaker is open: test")
 
 	// Wait for timeout to transition to half-open - retry approach for robustness
 	var finalErr error

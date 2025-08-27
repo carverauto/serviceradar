@@ -22,12 +22,13 @@ import (
 	"fmt"
 	"log"
 
+	"google.golang.org/grpc"
+
 	"github.com/carverauto/serviceradar/pkg/agent"
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc"
 )
 
 func main() {

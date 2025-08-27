@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
+
 	"github.com/carverauto/serviceradar/pkg/srql/models"
 	gen "github.com/carverauto/serviceradar/pkg/srql/parser/gen/antlr"
 )
@@ -88,13 +89,14 @@ func (v *QueryVisitor) VisitExpressionSelectItem(ctx *gen.ExpressionSelectItemCo
 
 // VisitQuery visits the query rule
 func (v *QueryVisitor) VisitQuery(ctx *gen.QueryContext) interface{} {
-	if ctx.ShowStatement() != nil {
+	switch {
+	case ctx.ShowStatement() != nil:
 		return v.VisitShowStatement(ctx.ShowStatement().(*gen.ShowStatementContext))
-	} else if ctx.FindStatement() != nil {
+	case ctx.FindStatement() != nil:
 		return v.VisitFindStatement(ctx.FindStatement().(*gen.FindStatementContext))
-	} else if ctx.CountStatement() != nil {
+	case ctx.CountStatement() != nil:
 		return v.VisitCountStatement(ctx.CountStatement().(*gen.CountStatementContext))
-	} else if ctx.StreamStatement() != nil {
+	case ctx.StreamStatement() != nil:
 		return v.VisitStreamStatement(ctx.StreamStatement().(*gen.StreamStatementContext))
 	}
 
@@ -778,15 +780,16 @@ func (v *QueryVisitor) parseTimeRange(ctx *gen.TimeSpecContext, timeClause *mode
 
 // VisitTimeUnit visits the timeUnit rule
 func (*QueryVisitor) VisitTimeUnit(ctx *gen.TimeUnitContext) interface{} {
-	if ctx.MINUTES() != nil {
+	switch {
+	case ctx.MINUTES() != nil:
 		return models.UnitMinutes
-	} else if ctx.HOURS() != nil {
+	case ctx.HOURS() != nil:
 		return models.UnitHours
-	} else if ctx.DAYS() != nil {
+	case ctx.DAYS() != nil:
 		return models.UnitDays
-	} else if ctx.WEEKS() != nil {
+	case ctx.WEEKS() != nil:
 		return models.UnitWeeks
-	} else if ctx.MONTHS() != nil {
+	case ctx.MONTHS() != nil:
 		return models.UnitMonths
 	}
 

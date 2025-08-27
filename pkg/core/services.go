@@ -19,15 +19,22 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
+)
+
+// Static errors for err113 compliance
+var (
+	ErrMissingLocationData = errors.New("missing required location data for device registration")
 )
 
 func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, partition string, now time.Time) error {
@@ -102,7 +109,9 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	}
 
 	// Process host results and update devices
-	return s.processSweepHostUpdates(ctx, span, svc.Name, sweepData, contextPollerID, contextPartition, contextAgentID, now)
+	return s.processSweepHostUpdates(
+		ctx, span, svc.Name, sweepData, contextPollerID, contextPartition, contextAgentID, now,
+	)
 }
 
 // initSweepProcessingTrace initializes tracing attributes for sweep data processing
@@ -764,8 +773,8 @@ func (s *Server) registerServiceDevice(
 	ctx context.Context, pollerID, agentID, partition, sourceIP string, timestamp time.Time) error {
 	if partition == "" || sourceIP == "" {
 		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - "+
-			"missing required location data (partition=%q, source_ip=%q)",
-			pollerID, partition, sourceIP)
+			"missing required location data (partition=%q, source_ip=%q): %w",
+			pollerID, partition, sourceIP, ErrMissingLocationData)
 	}
 
 	deviceID := fmt.Sprintf("%s:%s", partition, sourceIP)
@@ -774,13 +783,14 @@ func (s *Server) registerServiceDevice(
 
 	var primaryServiceID string
 
-	if agentID == "" {
+	switch agentID {
+	case "":
 		serviceTypes = []string{"poller"}
 		primaryServiceID = pollerID
-	} else if agentID == pollerID {
+	case pollerID:
 		serviceTypes = []string{"poller", "agent"}
 		primaryServiceID = pollerID
-	} else {
+	default:
 		serviceTypes = []string{"agent"}
 		primaryServiceID = agentID
 	}
