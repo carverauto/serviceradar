@@ -15,6 +15,7 @@ resources:
 - serviceradar-zen.yaml
 - serviceradar-zen-rules.yaml
 - serviceradar-flowgger.yaml
+- serviceradar-otel.yaml
 - configmap.yaml
 - cert-scripts-configmap.yaml
 - cert-generator-job.yaml

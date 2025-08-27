@@ -85,11 +85,12 @@ data:
         "output": "stdout",
         "time_format": "",
         "otel": {
-          "enabled": false,
-          "endpoint": "otel:4317",
+          "enabled": true,
+          "endpoint": "serviceradar-otel:4317",
           "service_name": "serviceradar-db-event-writer",
           "batch_timeout": "5s",
           "insecure": false,
+          "headers": {},
           "tls": {
             "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
             "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
