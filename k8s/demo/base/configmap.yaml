@@ -695,9 +695,28 @@ data:
       verify_and_map: true
     }
 
-    # Authorization for ServiceRadar components
-    authorization {
-      users: [
+    # Account-based authorization for ServiceRadar components
+    accounts {
+      # System account with full privileges  
+      SYS: {
+        users: []
+      }
+      
+      # ServiceRadar services account
+      SERVICERADAR: {
+        jetstream: enabled
+        users: [
+        {
+          user: "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          permissions: {
+            publish: {
+              allow: [">"]
+            }
+            subscribe: {
+              allow: [">"]
+            }
+          }
+        },
         {
           user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
           permissions: {
@@ -765,17 +784,6 @@ data:
           }
         },
         {
-          user: "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
-          permissions: {
-            publish: {
-              allow: [">"]
-            }
-            subscribe: {
-              allow: [">"]
-            }
-          }
-        },
-        {
           user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
           permissions: {
             publish: {
@@ -830,8 +838,12 @@ data:
             }
           }
         }
-      ]
+        ]
+      }
     }
+    
+    # Set system account
+    system_account: "SYS"
 
     # Logging settings
     debug: true
@@ -994,4 +1006,32 @@ data:
           }
         }
       }
+    }
+
+  # KV Service Configuration
+  kv.json: |
+    {
+      "listen_addr": "0.0.0.0:50057",
+      "nats_url": "tls://serviceradar-nats:4222",
+      "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "serviceradar-nats",
+        "role": "kv",
+        "tls": {
+          "cert_file": "kv.pem",
+          "key_file": "kv-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      },
+      "rbac": {
+        "roles": [
+          {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
+          {"identity": "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
+          {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "admin"},
+          {"identity": "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
+        ]
+      },
+      "bucket": "serviceradar-kv"
     }
