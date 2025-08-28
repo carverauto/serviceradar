@@ -25,9 +25,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 func TestCreateUniFiClient(t *testing.T) {
@@ -144,7 +145,10 @@ func TestFetchUniFiSites(t *testing.T) {
 					}{
 						Data: tt.serverResponse,
 					}
-					json.NewEncoder(w).Encode(response)
+					if err := json.NewEncoder(w).Encode(response); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
 				}
 			}))
 			defer server.Close()
@@ -179,14 +183,14 @@ func TestFetchUniFiSites(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.NotNil(t, sites)
-				assert.Equal(t, len(tt.serverResponse), len(sites))
+				assert.Len(t, sites, len(tt.serverResponse))
 
 				// Check cache
 				job.mu.RLock()
 				cachedSites, exists := job.uniFiSiteCache[apiConfig.BaseURL]
 				job.mu.RUnlock()
 				assert.True(t, exists)
-				assert.Equal(t, len(tt.serverResponse), len(cachedSites))
+				assert.Len(t, cachedSites, len(tt.serverResponse))
 			}
 		})
 	}
@@ -255,7 +259,10 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 					}{
 						Data: tt.serverResponse,
 					}
-					json.NewEncoder(w).Encode(response)
+					if err := json.NewEncoder(w).Encode(response); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
 				}
 			}))
 			defer server.Close()
@@ -309,11 +316,11 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.NotNil(t, devices)
-				assert.Equal(t, len(tt.serverResponse), len(devices))
+				assert.Len(t, devices, len(tt.serverResponse))
 
 				// Check device cache
 				assert.NotNil(t, deviceCache)
-				assert.Equal(t, len(tt.serverResponse), len(deviceCache))
+				assert.Len(t, deviceCache, len(tt.serverResponse))
 
 				// Verify cache entries
 				for _, device := range tt.serverResponse {

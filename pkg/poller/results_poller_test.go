@@ -18,17 +18,64 @@ package poller
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
 )
+
+var (
+	// errConnectionFailedTest is used in tests to simulate connection failures
+	errConnectionFailedTest = errors.New("connection failed")
+	// errStreamCreationFailed is used in tests to simulate stream creation failures
+	errStreamCreationFailed = errors.New("stream creation failed")
+	// errStreamErrorTest is used in tests to simulate stream errors
+	errStreamErrorTest = errors.New("stream error")
+)
+
+// createTestResultsPoller creates a ResultsPoller for testing with the given service name and type
+func createTestResultsPoller(mockClient proto.AgentServiceClient, serviceName, serviceType string) *ResultsPoller {
+	return &ResultsPoller{
+		client: mockClient,
+		check: Check{
+			Name: serviceName,
+			Type: serviceType,
+		},
+		agentName: "test-agent",
+		pollerID:  "test-poller",
+		logger:    logger.NewTestLogger(),
+	}
+}
+
+// setupMockAndTestGetResults helper function for common test patterns
+func setupMockAndTestGetResults(t *testing.T, serviceName, serviceType string, mockSetup func(mock *proto.MockAgentServiceClient), assertions func(status *proto.ServiceStatus)) {
+	t.Helper()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := proto.NewMockAgentServiceClient(ctrl)
+	rp := createTestResultsPoller(mockClient, serviceName, serviceType)
+
+	mockSetup(mockClient)
+
+	ctx := context.Background()
+	status := rp.executeGetResults(ctx)
+
+	require.NotNil(t, status)
+	assert.Equal(t, serviceName, status.ServiceName)
+
+	if assertions != nil {
+		assertions(status)
+	}
+}
 
 func TestResultsPoller_buildResultsRequest(t *testing.T) {
 	rp := &ResultsPoller{
@@ -77,7 +124,7 @@ func TestResultsPoller_handleGetResultsError(t *testing.T) {
 		},
 		{
 			name:      "other error returns service status",
-			err:       fmt.Errorf("connection failed"),
+			err:       errConnectionFailedTest,
 			expectNil: false,
 			expectedStatus: &proto.ServiceStatus{
 				ServiceName: "test-service",
@@ -295,34 +342,15 @@ func TestResultsPoller_executeGetResults_Unary(t *testing.T) {
 }
 
 func TestResultsPoller_executeGetResults_Error(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockClient := proto.NewMockAgentServiceClient(ctrl)
-
-	rp := &ResultsPoller{
-		client: mockClient,
-		check: Check{
-			Name: "test-service",
-			Type: "grpc",
-		},
-		agentName: "test-agent",
-		pollerID:  "test-poller",
-		logger:    logger.NewTestLogger(),
-	}
-
-	expectedErr := fmt.Errorf("connection failed")
-	mockClient.EXPECT().
-		GetResults(gomock.Any(), gomock.Any()).
-		Return(nil, expectedErr)
-
-	ctx := context.Background()
-	status := rp.executeGetResults(ctx)
-
-	require.NotNil(t, status)
-	assert.Equal(t, "test-service", status.ServiceName)
-	assert.False(t, status.Available)
-	assert.Contains(t, string(status.Message), "GetResults failed")
+	setupMockAndTestGetResults(t, "test-service", "grpc", func(mock *proto.MockAgentServiceClient) {
+		expectedErr := errConnectionFailedTest
+		mock.EXPECT().
+			GetResults(gomock.Any(), gomock.Any()).
+			Return(nil, expectedErr)
+	}, func(status *proto.ServiceStatus) {
+		assert.False(t, status.Available)
+		assert.Contains(t, string(status.Message), "GetResults failed")
+	})
 }
 
 func TestResultsPoller_executeGetResults_NilResponse(t *testing.T) {
@@ -372,7 +400,7 @@ func TestResultsPoller_executeStreamResults_StreamError(t *testing.T) {
 		ServiceType: "sync",
 	}
 
-	expectedErr := fmt.Errorf("stream creation failed")
+	expectedErr := errStreamCreationFailed
 	mockClient.EXPECT().
 		StreamResults(gomock.Any(), gomock.Eq(req)).
 		Return(nil, expectedErr)
@@ -385,35 +413,16 @@ func TestResultsPoller_executeStreamResults_StreamError(t *testing.T) {
 }
 
 func TestResultsPoller_executeGetResults_StreamingRoute(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockClient := proto.NewMockAgentServiceClient(ctrl)
-
-	rp := &ResultsPoller{
-		client: mockClient,
-		check: Check{
-			Name: "sync-service",
-			Type: "sync", // Should trigger streaming route
-		},
-		agentName: "test-agent",
-		pollerID:  "test-poller",
-		logger:    logger.NewTestLogger(),
-	}
-
-	// Test that it calls StreamResults instead of GetResults for sync type
-	expectedErr := fmt.Errorf("stream error")
-	mockClient.EXPECT().
-		StreamResults(gomock.Any(), gomock.Any()).
-		Return(nil, expectedErr)
-
-	ctx := context.Background()
-	status := rp.executeGetResults(ctx)
-
-	require.NotNil(t, status)
-	assert.Equal(t, "sync-service", status.ServiceName)
-	assert.False(t, status.Available)
-	assert.Contains(t, string(status.Message), "stream error")
+	setupMockAndTestGetResults(t, "sync-service", "sync", func(mock *proto.MockAgentServiceClient) {
+		// Test that it calls StreamResults instead of GetResults for sync type
+		expectedErr := errStreamErrorTest
+		mock.EXPECT().
+			StreamResults(gomock.Any(), gomock.Any()).
+			Return(nil, expectedErr)
+	}, func(status *proto.ServiceStatus) {
+		assert.False(t, status.Available)
+		assert.Contains(t, string(status.Message), "stream error")
+	})
 }
 
 func TestResultsPoller_executeGetResults_WithSubmission(t *testing.T) {

@@ -27,17 +27,22 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
 	// MaxBatchSize defines the maximum number of entries to write to KV in a single batch
 	MaxBatchSize = 500
+)
+
+var (
+	errTaskPanic = errors.New("panic in sync task")
 )
 
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
@@ -151,9 +156,9 @@ func (s *SimpleSyncService) safelyRunTask(ctx context.Context, taskName string, 
 	defer s.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			err := fmt.Errorf("panic in %s: %v", taskName, r)
-			s.logger.Error().Err(err).Msg("Recovered from panic")
-			s.sendError(err)
+			var panicErr = fmt.Errorf("panic in %s: %v: %w", taskName, r, errTaskPanic)
+			s.logger.Error().Err(panicErr).Msg("Recovered from panic")
+			s.sendError(panicErr)
 		}
 	}()
 
@@ -223,6 +228,7 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 
 	// Wait for all goroutines to finish with a timeout
 	done := make(chan struct{})
+
 	go func() {
 		s.wg.Wait()
 		close(done)
@@ -272,7 +278,6 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 
 		// Fetch devices from integration. `devices` is now `[]*models.DeviceUpdate`.
 		kvData, devices, err := integration.Fetch(ctx)
-
 		if err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Discovery failed for source")
 			s.metrics.RecordDiscoveryFailure(sourceName, err, time.Since(sourceStart))

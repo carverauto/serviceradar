@@ -45,12 +45,13 @@ const (
 func (m *rperfManagerImpl) StoreRperfMetric(
 	ctx context.Context, pollerID string, rperfResult *models.RperfMetric, timestamp time.Time) error {
 	if rperfResult == nil {
-		return fmt.Errorf("rperf metric is nil")
+		return errRperfMetricNil
 	}
 
 	if !rperfResult.Success {
 		log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
 			rperfResult.Target, pollerID, rperfResult.Error)
+
 		return nil
 	}
 

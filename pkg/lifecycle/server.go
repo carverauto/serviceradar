@@ -27,11 +27,17 @@ import (
 	"syscall"
 	"time"
 
+	ggrpc "google.golang.org/grpc" // Alias for Google's gRPC
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	ggrpc "google.golang.org/grpc" // Alias for Google's gRPC
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+)
+
+// Static errors for err113 compliance
+var (
+	ErrInvalidSizeFormat = errors.New("invalid size format")
 )
 
 const (
@@ -254,7 +260,7 @@ func parseSize(s string) (int, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("invalid size format: %s", s)
+	return 0, fmt.Errorf("invalid size format: %s: %w", s, ErrInvalidSizeFormat)
 }
 
 // configureServerOptions sets up gRPC server options including security.

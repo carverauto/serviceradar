@@ -60,16 +60,16 @@ func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interfa
 func (s *snmpManagerImpl) StoreSNMPMetric(
 	ctx context.Context, pollerID string, metric *models.SNMPMetric, timestamp time.Time) error {
 	if metric == nil {
-		return fmt.Errorf("SNMP metric is nil")
+		return errSNMPMetricNil
 	}
 
 	// Validate required fields
 	if metric.OIDName == "" {
-		return fmt.Errorf("SNMP metric OIDName is empty")
+		return errSNMPMetricOIDNameEmpty
 	}
 
 	if metric.ValueType == "" {
-		return fmt.Errorf("SNMP metric ValueType is empty")
+		return errSNMPMetricValueTypeEmpty
 	}
 
 	// Convert Value to string

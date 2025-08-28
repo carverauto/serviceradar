@@ -48,11 +48,11 @@ func Example_otelConfiguration() {
 }
 
 func Example_otelEnvironmentVariables() {
-	os.Setenv("OTEL_LOGS_ENABLED", "true")
-	os.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "localhost:4317")
-	os.Setenv("OTEL_SERVICE_NAME", "serviceradar")
-	os.Setenv("OTEL_EXPORTER_OTLP_LOGS_HEADERS", "Authorization=Bearer token123,X-API-Key=abc123")
-	os.Setenv("OTEL_EXPORTER_OTLP_LOGS_INSECURE", "true")
+	_ = os.Setenv("OTEL_LOGS_ENABLED", "true")
+	_ = os.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "localhost:4317")
+	_ = os.Setenv("OTEL_SERVICE_NAME", "serviceradar")
+	_ = os.Setenv("OTEL_EXPORTER_OTLP_LOGS_HEADERS", "Authorization=Bearer token123,X-API-Key=abc123")
+	_ = os.Setenv("OTEL_EXPORTER_OTLP_LOGS_INSECURE", "true")
 
 	config := logger.DefaultConfig()
 
@@ -61,7 +61,11 @@ func Example_otelEnvironmentVariables() {
 		panic(err)
 	}
 
-	defer logger.Shutdown()
+	defer func() {
+		if err := logger.Shutdown(); err != nil {
+			panic(err)
+		}
+	}()
 
 	logger.Info().
 		Str("user_id", "12345").

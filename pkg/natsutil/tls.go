@@ -3,6 +3,7 @@ package natsutil
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 
@@ -10,10 +11,17 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var (
+	// ErrMTLSRequired is returned when mTLS security is required but not configured
+	ErrMTLSRequired = errors.New("mtls security required")
+	// ErrCAParsingFailed is returned when CA certificate cannot be parsed
+	ErrCAParsingFailed = errors.New("failed to parse CA certificate")
+)
+
 // TLSConfig builds a tls.Config for connecting to NATS using mTLS.
 func TLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
 	if sec == nil || sec.Mode != "mtls" {
-		return nil, fmt.Errorf("mtls security required")
+		return nil, ErrMTLSRequired
 	}
 
 	// Use the existing config package to normalize TLS paths
@@ -31,7 +39,7 @@ func TLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
 
 	caPool := x509.NewCertPool()
 	if !caPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to parse CA certificate")
+		return nil, ErrCAParsingFailed
 	}
 
 	return &tls.Config{

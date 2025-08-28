@@ -22,6 +22,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/mux"
+
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -30,7 +32,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
-	"github.com/gorilla/mux"
 )
 
 type ServiceStatus struct {

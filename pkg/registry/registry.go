@@ -18,6 +18,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,6 +26,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+var (
+	// ErrDeviceNotFound is returned when a device is not found
+	ErrDeviceNotFound = errors.New("device not found")
 )
 
 const (
@@ -58,6 +64,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	}
 
 	processingStart := time.Now()
+
 	defer func() {
 		r.logger.Debug().
 			Dur("duration", time.Since(processingStart)).
@@ -140,7 +147,7 @@ func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*model
 	}
 
 	if len(devices) == 0 {
-		return nil, fmt.Errorf("device %s not found", deviceID)
+		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, deviceID)
 	}
 
 	return devices[0], nil
@@ -171,7 +178,7 @@ func (r *DeviceRegistry) GetMergedDevice(ctx context.Context, deviceIDOrIP strin
 	}
 
 	if len(devices) == 0 {
-		return nil, fmt.Errorf("device %s not found", deviceIDOrIP)
+		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, deviceIDOrIP)
 	}
 
 	return devices[0], nil

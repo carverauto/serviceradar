@@ -462,17 +462,22 @@ data:
         }
       },
       "logging": {
-        "level": "info",
-        "debug": false,
+        "level": "debug",
+        "debug": true,
         "output": "stdout",
         "time_format": "",
         "otel": {
-          "enabled": false,
+          "enabled": true,
           "endpoint": "serviceradar-otel:4317",
           "service_name": "serviceradar-sync",
           "batch_timeout": "5s",
-          "insecure": true,
-          "headers": {}
+          "insecure": false,
+          "headers": {},
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/sync.pem",
+            "key_file": "/etc/serviceradar/certs/sync-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem"
+          }
         }
       }
     }

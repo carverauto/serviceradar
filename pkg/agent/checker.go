@@ -78,6 +78,7 @@ func (p *ProcessChecker) Check(ctx context.Context, req *proto.StatusRequest) (i
 	// Use the validated process name which is guaranteed to be safe
 	// as it only contains alphanumeric chars, hyphens, underscores, and periods
 	validatedProcessName := p.ProcessName
+	// #nosec G204 - processName is validated to contain only safe characters
 	cmd := exec.CommandContext(ctx, "systemctl", "is-active", validatedProcessName)
 	p.logger.Debug().Strs("cmd", cmd.Args).Msg("Running command")
 

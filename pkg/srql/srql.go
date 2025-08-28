@@ -1,3 +1,4 @@
+// Package srql provides the ServiceRadar Query Language parser and utilities.
 package srql
 
 import (

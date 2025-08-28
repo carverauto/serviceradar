@@ -15,7 +15,6 @@
  */
 
 // Package snmp pkg/checker/snmp/client.go
-
 package snmp
 
 import (
@@ -107,6 +106,7 @@ func (s *SNMPClientImpl) Connect() error {
 // Get implements SNMPClient interface.
 func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
 	s.mu.Lock()
+
 	if !s.connected {
 		if err := s.client.Connect(); err != nil {
 			s.mu.Unlock()

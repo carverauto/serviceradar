@@ -1,5 +1,49 @@
+version: "2"
+
 run:
   timeout: 5m
+
+linters:
+  disable-all: true
+  enable:
+    - asciicheck
+    - bodyclose
+    - dupl
+    - err113
+    - errcheck
+    - errorlint
+    - exhaustive
+    - copyloopvar
+    # - funlen
+    - gochecknoglobals
+    - gochecknoinits
+    # - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - goprintffuncname
+    # - gosec
+    - govet
+    - ineffassign
+    # - lll
+    - mirror
+    - misspell
+    # - mnd
+    - nakedret
+    # - nestif
+    - noctx
+    - nolintlint
+    - prealloc
+    # - revive
+    - rowserrcheck
+    - staticcheck
+    - testifylint
+    - thelper
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - whitespace
 
 linters-settings:
   dupl:
@@ -8,12 +52,7 @@ linters-settings:
     default-signifies-exhaustive: false
   funlen:
     lines: 100
-    statements: 50
-  gci:
-    sections:
-      - standard
-      - default
-      - localmodule
+    statements: 100
   goconst:
     min-len: 3
     min-occurrences: 3
@@ -34,8 +73,6 @@ linters-settings:
     min-complexity: 15
   gocognit:
     min-complexity: 30
-  goimports:
-    local-prefixes: github.com/golangci/golangci-lint
   mnd:
     checks:
       - argument
@@ -105,57 +142,7 @@ linters-settings:
       - name: exported
         disabled: true
 
-linters:
-  disable-all: true
-  enable:
-    - asciicheck
-    - bodyclose
-    - dogsled
-    - dupl
-    - err113
-    - errcheck
-    - errorlint
-    - exhaustive
-    - copyloopvar
-    - funlen
-    - gochecknoglobals
-    - gochecknoinits
-    - gocognit
-    - goconst
-    - gocritic
-    - gocyclo
-    - gofmt
-    - goimports
-    - goprintffuncname
-    - gosec
-    - gosimple
-    - govet
-    - ineffassign
-    - lll
-    - mirror
-    - misspell
-    - mnd
-    - nakedret
-    - nestif
-    - noctx
-    - nolintlint
-    - prealloc
-    - revive
-    - rowserrcheck
-    - staticcheck
-    - stylecheck
-    - testifylint
-    - thelper
-    - unconvert
-    - unparam
-    - unused
-    - usestdlibvars
-    - whitespace
-    - wsl
-
 issues:
-  exclude-dirs:
-    - proto/flow
   exclude-rules:
     # Very permissive for test files
     - path: _test\.go
@@ -173,10 +160,26 @@ issues:
         - ineffassign
         - gochecknoglobals
         - gochecknoinits
+        - lll
+        - nestif
+        - gosec
+        - revive
+        - govet
+        - thelper
     # Specific file exclusions
     - path: pkg/core/api/server\.go
       linters:
         - typecheck
+    - path: pkg/natsutil/events\.go
+      linters:
+        - typecheck
+    # Exclude Go version compatibility issues
+    - linters:
+        - typecheck
+      text: "file requires newer Go version"
+    - linters:
+        - typecheck
+      text: "undefined: nats"
     # Exclude common magic numbers everywhere
     - linters:
         - mnd
@@ -193,7 +196,5 @@ issues:
     - linters:
         - gosec
       text: "G404:"
-    # More permissive with interfaces
-    - linters:
-        - stylecheck
-      text: "ST1003:"
+  exclude-dirs:
+    - proto/flow

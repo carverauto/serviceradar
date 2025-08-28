@@ -21,10 +21,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 func TestConfig_OTelConfiguration(t *testing.T) {
@@ -64,6 +65,7 @@ func TestConfig_OTelConfiguration(t *testing.T) {
 		}`
 
 		var cfg Config
+
 		err := json.Unmarshal([]byte(jsonConfig), &cfg)
 		require.NoError(t, err)
 
@@ -115,6 +117,7 @@ func TestConfig_OTelConfiguration(t *testing.T) {
 		}`
 
 		var cfg Config
+
 		err := json.Unmarshal([]byte(jsonConfig), &cfg)
 		require.NoError(t, err)
 
@@ -153,6 +156,7 @@ func TestConfig_OTelConfiguration(t *testing.T) {
 		}`
 
 		var cfg Config
+
 		err := json.Unmarshal([]byte(jsonConfig), &cfg)
 		require.NoError(t, err)
 

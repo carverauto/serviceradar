@@ -31,6 +31,14 @@ import (
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 )
 
+var (
+	// ErrInvalidCursor indicates that the provided cursor is invalid.
+	ErrInvalidCursor = errors.New("invalid cursor")
+	// ErrPaginationNotSupported indicates that pagination is only supported for specific entity types.
+	ErrPaginationNotSupported = errors.New("pagination is only supported for devices, services, interfaces, " +
+		"sweep_results, device_updates, events, logs, pollers, and metric types")
+)
+
 // Direction constants
 const (
 	DirectionNext = "next"
@@ -204,7 +212,7 @@ func (*APIServer) processCursorAndLimit(query *models.Query, req *QueryRequest) 
 	if req.Cursor != "" {
 		cursorData, err = decodeCursor(req.Cursor)
 		if err != nil {
-			return nil, errors.New("invalid cursor")
+			return nil, ErrInvalidCursor
 		}
 
 		query.Conditions = append(query.Conditions, buildCursorConditions(query, cursorData, req.Direction)...)
@@ -270,8 +278,7 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 
 	// Validate entity for pagination. COUNT queries don't need pagination support.
 	if query.Type != models.Count && !isValidPaginationEntity(query.Entity) {
-		return nil, nil, errors.New("pagination is only supported for devices, services, interfaces, " +
-			"sweep_results, device_updates, events, logs, pollers, and metric types")
+		return nil, nil, ErrPaginationNotSupported
 	}
 
 	// For COUNT queries, pagination ordering is unnecessary and may generate

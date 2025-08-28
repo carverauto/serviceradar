@@ -23,9 +23,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // Server implements the KVService gRPC interface and lifecycle.Service.

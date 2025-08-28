@@ -1,11 +1,19 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/srql/models"
+)
+
+var (
+	// ErrLatestNotSupportedWithoutPrimaryKey is returned when LATEST is used without a primary key
+	ErrLatestNotSupportedWithoutPrimaryKey = errors.New("latest keyword not supported for entity without a defined primary key for Proton using ROW_NUMBER() method")
+	// ErrCountWithLatestNotSupported is returned when COUNT with LATEST is used for non-versioned streams
+	ErrCountWithLatestNotSupported = errors.New("count with LATEST is not supported for non-versioned streams; consider 'SELECT count() FROM (SHOW <entity> LATEST)' in client side")
 )
 
 // DatabaseType defines the type of database we're translating to
@@ -422,13 +430,11 @@ func (t *Translator) validateLatestQuery(
 	// For non-versioned_kv streams (like 'discovered_interfaces'), use ROW_NUMBER()
 	primaryKey, ok := t.getEntityPrimaryKey(entity)
 	if !ok {
-		return "", false, fmt.Errorf("latest keyword not supported for entity '%s' "+
-			"without a defined primary key for Proton using ROW_NUMBER() method", entity)
+		return "", false, fmt.Errorf("%w: %s", ErrLatestNotSupportedWithoutPrimaryKey, entity)
 	}
 
 	if queryType == models.Count {
-		return "", false, fmt.Errorf("count with LATEST is not supported for " +
-			"non-versioned streams; consider 'SELECT count() FROM (SHOW <entity> LATEST)' in client side")
+		return "", false, ErrCountWithLatestNotSupported
 	}
 
 	return primaryKey, true, nil

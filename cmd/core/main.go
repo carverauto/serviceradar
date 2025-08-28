@@ -49,15 +49,15 @@ import (
 	"flag"
 	"log"
 
+	"google.golang.org/grpc"
+
 	"github.com/carverauto/serviceradar/pkg/core"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
-	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc"
-
 	_ "github.com/carverauto/serviceradar/pkg/swagger"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func main() {

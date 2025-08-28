@@ -38,7 +38,8 @@ func (db *DB) getUserByField(ctx context.Context, field, value string) (*models.
 	if err != nil {
 		return nil, fmt.Errorf("failed to query user by %s: %w", field, err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	if !rows.Next() {
 		return nil, ErrUserNotFound

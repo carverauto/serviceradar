@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 // Consumer wraps a JetStream pull consumer.

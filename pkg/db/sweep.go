@@ -129,7 +129,9 @@ func (db *DB) GetSweepHostStates(ctx context.Context, pollerID string, limit int
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sweep host states: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var states []*models.SweepHostState
 
