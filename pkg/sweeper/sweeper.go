@@ -74,15 +74,16 @@ type DeviceRegistryService interface {
 
 // NetworkSweeper implements both Sweeper and SweepService interfaces.
 type NetworkSweeper struct {
-	config         *models.Config
-	icmpScanner    scan.Scanner
-	tcpScanner     scan.Scanner
-	store          Store
-	processor      ResultProcessor
-	kvStore        KVStore
-	deviceRegistry DeviceRegistryService
-	configKey      string
-	logger         logger.Logger
+	config            *models.Config
+	icmpScanner       scan.Scanner
+	tcpScanner        scan.Scanner      // SYN scanner (fast but breaks conntrack)
+	tcpConnectScanner scan.Scanner      // TCP connect scanner (safe for conntrack)
+	store             Store
+	processor         ResultProcessor
+	kvStore           KVStore
+	deviceRegistry    DeviceRegistryService
+	configKey         string
+	logger            logger.Logger
 	mu             sync.RWMutex
 	done           chan struct{}
 	watchDone      chan struct{}
@@ -135,6 +136,7 @@ func NewNetworkSweeper(
 
 	icmpScanner := initializeICMPScanner(config, log)
 	tcpScanner := initializeTCPScanner(config, log)
+	tcpConnectScanner := initializeTCPConnectScanner(config, log)
 
 	// Default interval if not set
 	if config.Interval == 0 {
@@ -144,13 +146,14 @@ func NewNetworkSweeper(
 	log.Info().Dur("interval", config.Interval).Msg("Creating NetworkSweeper")
 
 	return &NetworkSweeper{
-		config:         config,
-		icmpScanner:    icmpScanner,
-		tcpScanner:     tcpScanner,
-		store:          store,
-		processor:      processor,
-		kvStore:        kvStore,
-		deviceRegistry: deviceRegistry,
+		config:            config,
+		icmpScanner:       icmpScanner,
+		tcpScanner:        tcpScanner,
+		tcpConnectScanner: tcpConnectScanner,
+		store:             store,
+		processor:         processor,
+		kvStore:           kvStore,
+		deviceRegistry:    deviceRegistry,
 		configKey:      configKey,
 		logger:         log,
 		done:           make(chan struct{}),
@@ -187,6 +190,27 @@ func needsICMPScanning(config *models.Config) bool {
 	for _, deviceTarget := range config.DeviceTargets {
 		for _, mode := range deviceTarget.SweepModes {
 			if mode == models.ModeICMP {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// needsTCPConnectScanning checks if TCP connect scanning is needed based on config
+func needsTCPConnectScanning(config *models.Config) bool {
+	// Check global sweep modes
+	for _, mode := range config.SweepModes {
+		if mode == models.ModeTCPConnect {
+			return true
+		}
+	}
+
+	// Check device target sweep modes
+	for _, deviceTarget := range config.DeviceTargets {
+		for _, mode := range deviceTarget.SweepModes {
+			if mode == models.ModeTCPConnect {
 				return true
 			}
 		}
@@ -235,18 +259,6 @@ func configureSYNScannerOptions(config *models.Config, log logger.Logger) *scan.
             Msg("Using configured global ring buffer memory limit")
     }
 
-    // Configure SYN scanner rate limiting (pps and optional burst)
-    if config.TCPSettings.RateLimit > 0 {
-        opts.RateLimit = config.TCPSettings.RateLimit
-        // If burst is not set or <=0, the scanner will default it to RateLimit
-        if config.TCPSettings.RateLimitBurst > 0 {
-            opts.RateLimitBurst = config.TCPSettings.RateLimitBurst
-        }
-
-        log.Info().Int("rate_limit_pps", opts.RateLimit).
-            Int("rate_limit_burst", opts.RateLimitBurst).
-            Msg("Configured SYN scanner rate limit from tcp_settings")
-    }
 
     return opts
 }
@@ -336,6 +348,37 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner
 	log.Info().Int("concurrency", connectConcurrency).Msg("Using TCP connect() scanning (slower but more compatible)")
 
 	return tcpScanner
+}
+
+// initializeTCPConnectScanner creates a TCP connect scanner for safe scanning
+func initializeTCPConnectScanner(config *models.Config, log logger.Logger) scan.Scanner {
+	if !needsTCPConnectScanning(config) {
+		return nil
+	}
+
+	// Prefer TCP-specific settings if set; otherwise fall back to global settings
+	baseTimeout := config.TCPSettings.Timeout
+	if baseTimeout == 0 {
+		baseTimeout = config.Timeout
+	}
+
+	baseConcurrency := config.TCPSettings.Concurrency
+	if baseConcurrency <= 0 {
+		baseConcurrency = calculateEffectiveConcurrency(config, log)
+	}
+
+	// Apply connect scanner concurrency upper bound (more restrictive than SYN)
+	connectConcurrency := baseConcurrency
+	if connectConcurrency > maxConnectConcurrency {
+		connectConcurrency = maxConnectConcurrency
+		log.Info().Int("originalConcurrency", baseConcurrency).Int("clampedConcurrency", connectConcurrency).
+			Msg("Clamped TCP connect scanner concurrency to prevent resource exhaustion")
+	}
+
+	tcpConnectScanner := scan.NewTCPSweeper(baseTimeout, connectConcurrency, log)
+	log.Info().Int("concurrency", connectConcurrency).Msg("Using TCP connect() scanning (safe for conntrack)")
+
+	return tcpConnectScanner
 }
 
 // calculateEffectiveConcurrency adjusts concurrency based on target count
@@ -438,6 +481,12 @@ func (s *NetworkSweeper) Stop() error {
 	if s.tcpScanner != nil {
 		if err := s.tcpScanner.Stop(); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop TCP scanner")
+		}
+	}
+
+	if s.tcpConnectScanner != nil {
+		if err := s.tcpConnectScanner.Stop(); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop TCP connect scanner")
 		}
 	}
 
@@ -1427,8 +1476,6 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			Concurrency        int
 			Timeout            time.Duration
 			MaxBatch           int
-			RateLimit          int `json:"rate_limit,omitempty"`
-			RateLimitBurst     int `json:"rate_limit_burst,omitempty"`
 			RouteDiscoveryHost string `json:"route_discovery_host,omitempty"`
 
 			// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
@@ -1451,8 +1498,6 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			Concurrency:        temp.TCPSettings.Concurrency,
 			Timeout:            time.Duration(temp.TCPSettings.Timeout),
 			MaxBatch:           temp.TCPSettings.MaxBatch,
-			RateLimit:          temp.TCPSettings.RateLimit,
-			RateLimitBurst:     temp.TCPSettings.RateLimitBurst,
 			RouteDiscoveryHost: temp.TCPSettings.RouteDiscoveryHost,
 			RingBlockSize:      temp.TCPSettings.RingBlockSize,
 			RingBlockCount:     temp.TCPSettings.RingBlockCount,
@@ -1486,6 +1531,10 @@ func estimateTargetCount(config *models.Config) int {
 		if containsMode(config.SweepModes, models.ModeTCP) {
 			total += len(ips) * len(config.Ports)
 		}
+
+		if containsMode(config.SweepModes, models.ModeTCPConnect) {
+			total += len(ips) * len(config.Ports)
+		}
 	}
 
 	// Count targets from device-specific configurations
@@ -1506,6 +1555,11 @@ func estimateTargetCount(config *models.Config) int {
 		}
 
 		if containsMode(sweepModes, models.ModeTCP) {
+			// DeviceTarget doesn't have its own ports, use global ports
+			total += len(ips) * len(config.Ports)
+		}
+
+		if containsMode(sweepModes, models.ModeTCPConnect) {
 			// DeviceTarget doesn't have its own ports, use global ports
 			total += len(ips) * len(config.Ports)
 		}
@@ -1638,7 +1692,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	// Prepare device result aggregators for multi-IP devices
 	s.prepareDeviceAggregators(targets)
 
-	var icmpTargets, tcpTargets []models.Target
+	var icmpTargets, tcpTargets, tcpConnectTargets []models.Target
 
 	for _, t := range targets {
 		switch t.Mode {
@@ -1646,19 +1700,23 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 			icmpTargets = append(icmpTargets, t)
 		case models.ModeTCP:
 			tcpTargets = append(tcpTargets, t)
+		case models.ModeTCPConnect:
+			tcpConnectTargets = append(tcpConnectTargets, t)
 		}
 	}
 
 	s.logger.Info().
 		Int("icmpTargets", len(icmpTargets)).
 		Int("tcpTargets", len(tcpTargets)).
+		Int("tcpConnectTargets", len(tcpConnectTargets)).
 		Bool("icmpScannerAvailable", s.icmpScanner != nil).
 		Bool("tcpScannerAvailable", s.tcpScanner != nil).
+		Bool("tcpConnectScannerAvailable", s.tcpConnectScanner != nil).
 		Msg("Starting sweep")
 
 	var wg sync.WaitGroup
 
-	errChan := make(chan error, 2) // Buffer for both ICMP and TCP errors
+	errChan := make(chan error, 3) // Buffer for ICMP, TCP, and TCP connect errors
 
 	if len(icmpTargets) > 0 && s.icmpScanner != nil {
 		wg.Add(1)
@@ -1682,6 +1740,18 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		}()
 	} else if len(tcpTargets) > 0 {
 		s.logger.Warn().Int("tcpTargets", len(tcpTargets)).Msg("TCP targets found but TCP scanner is not available, skipping TCP scan")
+	}
+
+	if len(tcpConnectTargets) > 0 && s.tcpConnectScanner != nil {
+		wg.Add(1)
+
+		go func() {
+			if err := s.scanAndProcess(ctx, &wg, s.tcpConnectScanner, tcpConnectTargets, "tcp_connect"); err != nil {
+				errChan <- err
+			}
+		}()
+	} else if len(tcpConnectTargets) > 0 {
+		s.logger.Warn().Int("tcpConnectTargets", len(tcpConnectTargets)).Msg("TCP connect targets found but TCP connect scanner is not available, skipping TCP connect scan")
 	}
 
 	wg.Wait()
@@ -1962,6 +2032,14 @@ func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.Sweep
 	if containsMode(sweepModes, models.ModeTCP) {
 		for _, port := range s.config.Ports {
 			target := scan.TargetFromIP(ip, models.ModeTCP, port)
+			target.Metadata = metadata
+			targets = append(targets, target)
+		}
+	}
+
+	if containsMode(sweepModes, models.ModeTCPConnect) {
+		for _, port := range s.config.Ports {
+			target := scan.TargetFromIP(ip, models.ModeTCPConnect, port)
 			target.Metadata = metadata
 			targets = append(targets, target)
 		}
@@ -2493,6 +2571,8 @@ func processScanDetails(result *models.Result, builders *scanBuilders, states *b
 	case models.ModeICMP:
 		buildICMPDetails(result, builders.icmp, &states.firstICMP)
 	case models.ModeTCP:
+		buildTCPDetails(result, builders.tcp, &states.firstTCP)
+	case models.ModeTCPConnect:
 		buildTCPDetails(result, builders.tcp, &states.firstTCP)
 	}
 }

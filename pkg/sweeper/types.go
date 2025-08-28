@@ -53,9 +53,6 @@ type unmarshalConfig struct {
 		Concurrency        int             `json:"concurrency"`
 		Timeout            durationWrapper `json:"timeout,omitempty"`
 		MaxBatch           int             `json:"max_batch"`
-		// Rate limiting (packets per second and optional burst)
-		RateLimit      int `json:"rate_limit,omitempty"`
-		RateLimitBurst int `json:"rate_limit_burst,omitempty"`
 		RouteDiscoveryHost string          `json:"route_discovery_host,omitempty"`
 
 		// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
