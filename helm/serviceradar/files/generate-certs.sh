@@ -47,6 +47,8 @@ generate_cert "kv" "serviceradar-kv" "DNS:serviceradar-kv,DNS:kv,DNS:kv.servicer
 generate_cert "agent" "serviceradar-agent" "DNS:serviceradar-agent,DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "poller" "serviceradar-poller" "DNS:serviceradar-poller,DNS:poller,DNS:poller.serviceradar,DNS:serviceradar-poller.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "snmp-checker" "serviceradar-snmp-checker" "DNS:serviceradar-snmp-checker,DNS:snmp-checker,DNS:snmp-checker.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "sync" "serviceradar-sync" "DNS:serviceradar-sync,DNS:sync,DNS:sync.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "rperf-client" "serviceradar-rperf-client" "DNS:serviceradar-rperf-client,DNS:rperf-client,DNS:serviceradar-rperf,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "serviceradar-db-event-writer" "DNS:serviceradar-db-event-writer,DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "zen" "serviceradar-zen" "DNS:serviceradar-zen,DNS:zen,DNS:zen.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "flowgger" "serviceradar-flowgger" "DNS:serviceradar-flowgger,DNS:flowgger,DNS:flowgger.serviceradar,DNS:localhost,IP:127.0.0.1"

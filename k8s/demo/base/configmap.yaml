@@ -405,6 +405,73 @@ data:
       ]
     }
 
+  sync.json: |
+    {
+      "kv_address": "serviceradar-kv:50057",
+      "listen_addr": ":50058",
+      "poll_interval": "30m",
+      "discovery_interval": "18h",
+      "update_interval": "18h30m",
+      "agent_id": "k8s-agent",
+      "poller_id": "k8s-poller",
+      "nats_url": "tls://serviceradar-nats:4222",
+      "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "nats.serviceradar",
+        "role": "poller",
+        "tls": {
+          "cert_file": "sync.pem",
+          "key_file": "sync-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      },
+      "nats_security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "nats.serviceradar",
+        "role": "poller",
+        "tls": {
+          "cert_file": "sync.pem",
+          "key_file": "sync-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      },
+      "sources": {},
+      "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+          "enabled": true,
+          "endpoint": "serviceradar-otel:4317",
+          "service_name": "serviceradar-sync",
+          "batch_timeout": "5s",
+          "insecure": false,
+          "headers": {}
+        }
+      }
+    }
+
+  rperf.json: |
+    {
+      "listen_addr": "0.0.0.0:50081",
+      "name": "rperf-checker",
+      "type": "grpc",
+      "timeout": "30s",
+      "security": {
+        "tls_enabled": true,
+        "cert_file": "/etc/serviceradar/certs/rperf-client.pem",
+        "key_file": "/etc/serviceradar/certs/rperf-client-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      },
+      "default_poll_interval": 300,
+      "targets": []
+    }
+
   proton-logger.xml: |
     <?xml version="1.0"?>
     <proton>

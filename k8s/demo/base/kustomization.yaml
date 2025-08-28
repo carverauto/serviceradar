@@ -19,6 +19,8 @@ resources:
 - serviceradar-mapper.yaml
 - serviceradar-trapd.yaml
 - serviceradar-tools.yaml
+- serviceradar-sync.yaml
+- serviceradar-rperf-checker.yaml
 - configmap.yaml
 - cert-scripts-configmap.yaml
 - cert-generator-job.yaml
