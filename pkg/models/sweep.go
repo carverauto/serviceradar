@@ -60,9 +60,6 @@ type Config struct {
 		Concurrency        int
 		Timeout            time.Duration
 		MaxBatch           int
-		// Rate limiting for SYN scanner (packets per second and optional burst)
-		RateLimit       int `json:"rate_limit,omitempty"`
-		RateLimitBurst  int `json:"rate_limit_burst,omitempty"`
 		RouteDiscoveryHost string `json:"route_discovery_host,omitempty"` // Target for local IP discovery (default: "8.8.8.8:80")
 
 		// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
@@ -91,8 +88,9 @@ type Config struct {
 type SweepMode string
 
 const (
-	ModeTCP  SweepMode = "tcp"
-	ModeICMP SweepMode = "icmp"
+	ModeTCP        SweepMode = "tcp"        // SYN scanning (fast but breaks conntrack)
+	ModeTCPConnect SweepMode = "tcp_connect" // TCP connect scanning (safe for conntrack)
+	ModeICMP       SweepMode = "icmp"
 )
 
 // Target represents a network target to be scanned.

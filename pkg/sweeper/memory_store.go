@@ -273,6 +273,8 @@ func (s *InMemoryStore) processHostResult(r *models.Result, hostMap map[string]*
 		s.updateICMPStatus(host, r)
 	case models.ModeTCP:
 		s.processPortResult(host, r)
+	case models.ModeTCPConnect:
+		s.processPortResult(host, r)
 	}
 
 	s.updateHostTimestamps(host, r)
