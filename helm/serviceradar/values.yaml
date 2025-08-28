@@ -17,6 +17,9 @@ image:
     trapd: latest
     flowgger: latest
     zen: latest
+    sync: latest
+    rperfClient: latest
+    rperfChecker: latest
 
 ingress:
   enabled: true
