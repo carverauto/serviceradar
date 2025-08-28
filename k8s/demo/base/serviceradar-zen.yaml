@@ -8,6 +8,7 @@ spec:
   selector:
     matchLabels:
       app: serviceradar-zen
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
@@ -35,12 +36,18 @@ spec:
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/zen.json"
+        - name: NATS_URL
+          value: "tls://serviceradar-nats:4222"
         - name: WAIT_FOR_NATS
           value: "false"
         - name: WAIT_FOR_KV
           value: "false"
         - name: SKIP_WAIT
           value: "true"
+        - name: NO_WAIT
+          value: "true"
+        - name: KV_URL
+          value: "serviceradar-kv:50057"
         - name: NATS_TLS
           value: "true"
         - name: USE_TLS
