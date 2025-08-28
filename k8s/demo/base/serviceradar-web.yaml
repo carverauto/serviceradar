@@ -30,6 +30,16 @@ spec:
           value: "http://serviceradar-core:8090"
         - name: AUTH_ENABLED
           value: "true"
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: jwt-secret
         envFrom:
         - secretRef:
             name: serviceradar-secrets
