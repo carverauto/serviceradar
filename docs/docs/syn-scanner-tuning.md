@@ -13,6 +13,8 @@ Scanner-side controls
 - tcp_settings.rate_limit: Global packets-per-second cap for SYN packets. Start conservative (e.g., 5,000 pps) and increase while monitoring.
 - tcp_settings.rate_limit_burst: Optional burst size. Defaults to rate_limit if omitted.
 
+Using Helm? Set these under `sweep.tcp` values (see [Helm Deployment and Configuration](./helm-configuration.md)).
+
 Upstream device tuning (Linux netfilter)
 - Prefer NOTRACK for scanner traffic so SYNs don’t enter conntrack:
   - nftables (recommended):
@@ -48,6 +50,8 @@ Operational guidance
 - Prefer per-source-IP NOTRACK/BYPASS so normal traffic remains protected by conntrack.
 - Consider segmenting scanning from production NAT/firewall devices when feasible.
 
+See also: [Network Sweep](./configuration.md#network-sweep) for the full sweep.json reference and [Helm Deployment and Configuration](./helm-configuration.md) for setting values via Helm.
+
 Related agent settings
 - tcp_settings.max_batch: Larger batches improve efficiency but can amplify bursts.
 - tcp_settings.concurrency: High concurrency speeds things up but increases the number of in-flight ports. Balance with `rate_limit` to avoid local source-port pressure and upstream state.
@@ -56,4 +60,3 @@ Troubleshooting checklist
 - Conntrack drops grow during scans: lower `rate_limit` and reduce timeouts for SYN-SENT/SYN-RECV.
 - Router CPU spikes: use NOTRACK for scanner IP; cut `rate_limit`.
 - Local port exhaustion logs: reduce `concurrency` or `rate_limit`, or increase timeout; ensure ephemeral port range isn’t overlapping.
-

@@ -7,6 +7,8 @@ title: Configuration Basics
 
 ServiceRadar components are configured via JSON files in `/etc/serviceradar/`. This guide covers the essential configurations needed to get your monitoring system up and running.
 
+If you deploy with Helm, most of these settings can be set via chart values without editing files in containers. See Helm Deployment and Configuration for value keys and safe defaults.
+
 ## Agent Configuration
 
 The agent runs on each monitored host and collects status information from services.
@@ -522,6 +524,8 @@ For monitoring Dusk nodes, edit `/etc/serviceradar/checkers/dusk.json`:
 ```
 
 ### Network Sweep
+
+> Using Helm? You can configure everything in `sweep.json` via chart values instead of editing files. See Helm Deployment and Configuration for keys and examples.
 
 For network scanning, edit `/etc/serviceradar/checkers/sweep/sweep.json`:
 
