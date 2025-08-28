@@ -88,8 +88,9 @@ type Config struct {
 type SweepMode string
 
 const (
-	ModeTCP  SweepMode = "tcp"
-	ModeICMP SweepMode = "icmp"
+	ModeTCP        SweepMode = "tcp"        // SYN scanning (fast but breaks conntrack)
+	ModeTCPConnect SweepMode = "tcp_connect" // TCP connect scanning (safe for conntrack)
+	ModeICMP       SweepMode = "icmp"
 )
 
 // Target represents a network target to be scanned.
