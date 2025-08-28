@@ -1,0 +1,31 @@
+namespace: serviceradar-staging
+
+image:
+  registryPullSecret: ghcr-io-cred
+  tags:
+    core: latest
+    web: latest
+    proton: latest
+    nats: latest
+    kv: latest
+    agent: latest
+    poller: latest
+    snmpChecker: latest
+    dbEventWriter: latest
+    otel: latest
+    mapper: latest
+    trapd: latest
+    flowgger: latest
+    zen: latest
+
+ingress:
+  enabled: true
+  host: staging.serviceradar.cloud
+  tls:
+    enabled: true
+    secretName: serviceradar-staging-tls
+
+secrets:
+  existingSecretName: serviceradar-secrets
+  # Provide adminBcryptHash to avoid in-cluster generation.
+  adminBcryptHash: ""
