@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-cert-generator
+spec:
+  template:
+    metadata:
+      labels:
+        app: serviceradar-cert-generator
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: cert-generator
+        image: alpine/openssl:latest
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          cp /scripts/generate-certs.sh /tmp/generate-certs.sh
+          chmod +x /tmp/generate-certs.sh
+          cd /certs
+          /bin/sh /tmp/generate-certs.sh
+        volumeMounts:
+        - name: cert-scripts
+          mountPath: /scripts
+        - name: cert-data
+          mountPath: /certs
+        env:
+        - name: CERT_DIR
+          value: "/certs"
+      volumes:
+      - name: cert-scripts
+        configMap:
+          name: serviceradar-cert-scripts
+          defaultMode: 0755
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-cert-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
