@@ -1,0 +1,152 @@
+# Alternative serviceradar-tools using a base image and init setup
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-tools
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-tools
+  template:
+    metadata:
+      labels:
+        app: serviceradar-tools
+    spec:
+      initContainers:
+      # Setup container to install tools
+      - name: setup-tools
+        image: ubuntu:22.04
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          echo "Setting up debugging tools..."
+          
+          # Update and install packages
+          apt-get update
+          apt-get install -y \
+            curl wget jq netcat telnet dnsutils iputils-ping \
+            traceroute tcpdump strace htop vim nano less tree \
+            git openssl ca-certificates bash-completion
+            
+          # Install Go 1.23.4
+          wget -q https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
+          tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz
+          rm go1.23.4.linux-amd64.tar.gz
+          
+          # Set Go environment
+          export PATH="/usr/local/go/bin:$PATH"
+          export GOPATH="/go"
+          export GOBIN="/go/bin"
+          
+          # Create go directories
+          mkdir -p /go/bin /go/src /go/pkg
+          
+          # Install Go tools
+          go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+          go install github.com/nats-io/natscli/nats@latest
+          
+          # Copy tools to shared volume
+          cp /usr/local/go/bin/go /shared/
+          cp /go/bin/grpcurl /shared/
+          cp /go/bin/nats /shared/
+          
+          # Copy serviceradar-cli if available
+          if [ -f /usr/local/bin/serviceradar-cli ]; then
+            cp /usr/local/bin/serviceradar-cli /shared/
+          fi
+          
+          echo "Tools setup complete!"
+        volumeMounts:
+        - name: shared-tools
+          mountPath: /shared
+        - name: serviceradar-cli
+          mountPath: /usr/local/bin/serviceradar-cli
+          subPath: serviceradar-cli
+          readOnly: true
+      containers:
+      - name: tools
+        image: ubuntu:22.04
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          # Copy tools from shared volume
+          cp /shared/* /usr/local/bin/ 2>/dev/null || true
+          chmod +x /usr/local/bin/* 2>/dev/null || true
+          
+          # Setup PATH
+          export PATH="/usr/local/bin:$PATH"
+          
+          # Display MOTD
+          if [ -f /etc/motd ]; then
+            cat /etc/motd
+          fi
+          
+          # Setup NATS context if available
+          if [ -f /etc/serviceradar/nats/setup-nats-context.sh ]; then
+            bash /etc/serviceradar/nats/setup-nats-context.sh
+          fi
+          
+          # Keep container running
+          tail -f /dev/null
+        env:
+        - name: NATS_URL
+          value: "tls://serviceradar-nats:4222"
+        - name: API_URL
+          value: "https://serviceradar-core:8090"
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: shared-tools
+          mountPath: /shared
+        - name: nats-context-config
+          mountPath: /etc/serviceradar/nats/serviceradar.json
+          subPath: serviceradar.json
+          readOnly: true
+        - name: tools-config
+          mountPath: /etc/serviceradar/nats/setup-nats-context.sh
+          subPath: setup-nats-context.sh
+          readOnly: true
+        - name: tools-config
+          mountPath: /etc/motd
+          subPath: motd
+          readOnly: true
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN
+            - NET_RAW
+      volumes:
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: shared-tools
+        emptyDir: {}
+      - name: serviceradar-cli
+        configMap:
+          name: serviceradar-cli-binary
+          defaultMode: 0755
+      - name: nats-context-config
+        configMap:
+          name: serviceradar-nats-context
+      - name: tools-config
+        configMap:
+          name: serviceradar-tools-config
+          defaultMode: 0755
+---
+# ConfigMap to store the serviceradar-cli binary
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-cli-binary
+binaryData:
+  serviceradar-cli: |

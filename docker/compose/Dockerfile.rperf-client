@@ -1,12 +1,27 @@
 # Build stage
-FROM rust:latest AS builder
+FROM --platform=$BUILDPLATFORM rust:latest AS builder
+
+# Add build arguments for cross-compilation
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /usr/src/serviceradar-rperf-checker
 
 # Install dependencies for building
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
+    gcc-aarch64-linux-gnu \
+    gcc-x86-64-linux-gnu \
     && rm -rf /var/lib/apt/lists/*
+
+# Setup Rust cross-compilation targets based on platform
+RUN case "$TARGETARCH" in \
+    amd64) rustup target add x86_64-unknown-linux-gnu ;; \
+    arm64) rustup target add aarch64-unknown-linux-gnu ;; \
+    *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+    esac
 
 # Copy project files
 COPY cmd/checkers/rperf-client/Cargo.toml cmd/checkers/rperf-client/Cargo.lock* ./
@@ -14,8 +29,18 @@ COPY cmd/checkers/rperf-client/src ./src/
 COPY proto ./proto/
 COPY cmd/checkers/rperf-client/build.rs ./
 
-# Build for native architecture
-RUN cargo build --release
+# Set environment variables for cross-compilation
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
+
+# Build based on target architecture
+RUN case "$TARGETARCH" in \
+    amd64) cargo build --release --target x86_64-unknown-linux-gnu && \
+           cp target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker target/release/serviceradar-rperf-checker ;; \
+    arm64) cargo build --release --target aarch64-unknown-linux-gnu && \
+           cp target/aarch64-unknown-linux-gnu/release/serviceradar-rperf-checker target/release/serviceradar-rperf-checker ;; \
+    *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+    esac
 
 # Runtime stage
 FROM debian:bookworm-slim

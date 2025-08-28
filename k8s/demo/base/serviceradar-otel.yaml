@@ -1,0 +1,107 @@
+# base/serviceradar-otel.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-otel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-otel
+  template:
+    metadata:
+      labels:
+        app: serviceradar-otel
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      containers:
+      - name: otel-collector
+        image: ghcr.io/carverauto/serviceradar-otel:latest
+        ports:
+        - containerPort: 4317
+          name: grpc
+        - containerPort: 4318
+          name: http
+        - containerPort: 8889
+          name: prometheus
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: otel-data
+          mountPath: /var/lib/serviceradar
+        env:
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/otel.toml"
+        - name: WAIT_FOR_NATS
+          value: "true"
+        - name: NATS_HOST
+          value: "serviceradar-nats"
+        - name: NATS_PORT
+          value: "4222"
+        - name: RUST_LOG
+          value: "info"
+        resources:
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+        livenessProbe:
+          tcpSocket:
+            port: 4317
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 4317
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: otel-data
+        persistentVolumeClaim:
+          claimName: serviceradar-otel-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-otel
+spec:
+  selector:
+    app: serviceradar-otel
+  ports:
+  - name: grpc
+    port: 4317
+    targetPort: grpc
+  - name: http
+    port: 4318
+    targetPort: http
+  - name: prometheus
+    port: 8889
+    targetPort: prometheus
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-otel-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

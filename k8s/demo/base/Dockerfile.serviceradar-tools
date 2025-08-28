@@ -1,0 +1,229 @@
+# Dockerfile.serviceradar-tools - Debugging utilities for ServiceRadar
+
+# Build stage for serviceradar-cli
+FROM golang:1.24-bullseye AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Build serviceradar-cli for Linux/amd64
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -o serviceradar-cli ./cmd/cli
+
+# Runtime stage
+FROM ubuntu:22.04
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system packages and debugging utilities
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    jq \
+    netcat \
+    telnet \
+    dnsutils \
+    iputils-ping \
+    traceroute \
+    tcpdump \
+    strace \
+    htop \
+    vim \
+    nano \
+    less \
+    tree \
+    git \
+    openssl \
+    ca-certificates \
+    bash-completion \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go 1.23 (latest stable)
+RUN wget -q https://go.dev/dl/go1.23.4.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz && \
+    rm go1.23.4.linux-amd64.tar.gz
+
+# Set Go environment variables
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/go"
+ENV GOBIN="/go/bin"
+ENV PATH="${GOBIN}:${PATH}"
+
+# Create go directories
+RUN mkdir -p /go/bin /go/src /go/pkg
+
+# Install Go-based debugging tools
+RUN go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest && \
+    go install github.com/nats-io/natscli/nats@latest
+
+# Copy serviceradar-cli from builder stage
+COPY --from=builder /src/serviceradar-cli /usr/local/bin/serviceradar-cli
+RUN chmod +x /usr/local/bin/serviceradar-cli
+
+# Create helpful aliases and functions
+RUN cat > /root/.bashrc << 'EOF'
+# Default bashrc content
+[ -z "$PS1" ] && return
+export PS1='\[\033[01;32m\]\u@serviceradar-tools\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+export TERM=xterm-256color
+
+# Load bash completion
+if [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+fi
+
+# Useful aliases for ServiceRadar debugging
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+
+# NATS debugging aliases (will use default context)
+alias nats-info='nats server info'
+alias nats-streams='nats stream ls'
+alias nats-consumers='nats consumer ls'
+alias nats-events='nats stream info events'
+alias nats-kv='nats stream info KV_serviceradar-kv'
+
+# gRPC debugging aliases
+alias grpc-core='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core:50052'
+alias grpc-agent='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051'
+alias grpc-poller='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-poller:50053'
+alias grpc-kv='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-kv:50057'
+alias grpc-mapper='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper:50056'
+alias grpc-trapd='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043'
+
+# ServiceRadar CLI aliases
+alias sr='serviceradar-cli'
+alias sr-devices='serviceradar-cli devices list'
+alias sr-events='serviceradar-cli events list'
+
+# Quick connectivity tests
+alias ping-nats='ping -c 3 serviceradar-nats'
+alias ping-core='ping -c 3 serviceradar-core'
+alias telnet-nats='telnet serviceradar-nats 4222'
+alias nc-nats='nc -zv serviceradar-nats 4222'
+
+# Function to test all service connectivity
+test-connectivity() {
+    echo "=== ServiceRadar Service Connectivity Test ==="
+    echo "Testing NATS..."
+    nc -zv serviceradar-nats 4222 || echo "  NATS connection failed"
+    echo "Testing Core API..."
+    nc -zv serviceradar-core 8090 || echo "  Core API connection failed"
+    echo "Testing Core gRPC..."
+    nc -zv serviceradar-core 50052 || echo "  Core gRPC connection failed"
+    echo "Testing Proton..."
+    nc -zv serviceradar-proton 9440 || echo "  Proton TLS connection failed"
+    nc -zv serviceradar-proton 8123 || echo "  Proton HTTP connection failed"
+}
+
+# Function to show NATS JetStream status
+nats-js-status() {
+    echo "=== NATS JetStream Status ==="
+    nats server info --json | jq '.jetstream // "JetStream not available"'
+    echo ""
+    echo "=== Streams ==="
+    nats stream ls
+    echo ""
+    echo "=== Events Stream Info ==="
+    nats stream info events 2>/dev/null || echo "Events stream not found"
+}
+
+# Function to test gRPC services
+test-grpc() {
+    echo "=== gRPC Service Health Checks ==="
+    for service in core:50052 agent:50051 poller:50053 kv:50057 mapper:50056 trapd:50043; do
+        host=$(echo $service | cut -d: -f1)
+        port=$(echo $service | cut -d: -f2)
+        echo "Testing serviceradar-$service..."
+        grpcurl -cacert /etc/serviceradar/certs/root.pem \
+                -cert /etc/serviceradar/certs/client.pem \
+                -key /etc/serviceradar/certs/client-key.pem \
+                "serviceradar-$service" grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"
+    done
+}
+
+EOF
+
+# Create MOTD with helpful information
+RUN cat > /etc/motd << 'EOF'
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          ServiceRadar Debug Tools                           ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  🔧 DEBUGGING COMMANDS:                                                      ║
+║    test-connectivity    - Test all service connectivity                     ║
+║    nats-js-status      - Show NATS JetStream status                        ║
+║    test-grpc           - Health check all gRPC services                    ║
+║                                                                              ║
+║  📡 NATS ALIASES:                                                            ║
+║    nats-info           - Show NATS server information                       ║
+║    nats-streams        - List all JetStream streams                         ║
+║    nats-events         - Show events stream details                         ║
+║    nats-kv             - Show KV store stream details                       ║
+║                                                                              ║
+║  🔌 gRPC ALIASES:                                                            ║
+║    grpc-core           - Connect to core gRPC (add method after)            ║
+║    grpc-agent          - Connect to agent gRPC                              ║
+║    grpc-mapper         - Connect to mapper gRPC                             ║
+║    grpc-trapd          - Connect to trapd gRPC                              ║
+║                                                                              ║
+║  🏃 QUICK TESTS:                                                             ║
+║    nc-nats             - Test NATS TCP connectivity                         ║
+║    ping-nats           - Ping NATS server                                   ║
+║    sr-devices          - List devices via ServiceRadar CLI                  ║
+║                                                                              ║
+║  📁 CERT LOCATIONS:                                                          ║
+║    /etc/serviceradar/certs/root.pem       - Root CA                         ║
+║    /etc/serviceradar/certs/client.pem     - Client certificate              ║
+║    /etc/serviceradar/certs/client-key.pem - Client private key              ║
+║                                                                              ║
+║  🎯 NATS CONTEXT: Configured for serviceradar-nats:4222 with mTLS           ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+EOF
+
+# Create directory for NATS context
+RUN mkdir -p /root/.config/nats/context
+
+# Create entrypoint script that sets up NATS context automatically
+RUN cat > /entrypoint.sh << 'EOF'
+#!/bin/bash
+
+# Display MOTD if it exists
+if [ -f /etc/motd ]; then
+    cat /etc/motd
+fi
+
+# Auto-setup NATS context if available
+if [ -f /etc/serviceradar/nats/setup-nats-context.sh ]; then
+    echo "Setting up NATS debugging context..."
+    bash /etc/serviceradar/nats/setup-nats-context.sh
+fi
+
+# If arguments provided, execute them
+if [ $# -gt 0 ]; then
+    exec "$@"
+else
+    # Default to interactive bash
+    exec /bin/bash
+fi
+EOF
+
+# Make entrypoint executable
+RUN chmod +x /entrypoint.sh
+
+# Set working directory
+WORKDIR /root
+
+# Use custom entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Default command
+CMD ["/bin/bash"]

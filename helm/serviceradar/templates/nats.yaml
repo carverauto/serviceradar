@@ -1,4 +1,3 @@
-# base/serviceradar-nats.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,7 +14,7 @@ spec:
     spec:
       containers:
       - name: nats
-        image: nats:latest
+        image: nats:{{ .Values.image.tags.nats | default "latest" }}
         command: ["/nats-server", "--config", "/etc/nats/nats-server.conf", "--jetstream"]
         ports:
         - containerPort: 4222

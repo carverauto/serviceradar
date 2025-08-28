@@ -43,8 +43,8 @@ ARG BUILD_ID=docker
 RUN cargo build --release
 RUN cargo build --release --bin zen-put-rule
 
-# Runtime stage - using Ubuntu for better compatibility
-FROM ubuntu:22.04
+# Runtime stage - using Ubuntu 24.04 for GLIBC 2.39 compatibility
+FROM ubuntu:24.04
 
 # Install runtime dependencies including grpcurl for health checks
 RUN apt-get update && \
@@ -60,8 +60,8 @@ RUN apt-get update && \
         | tar -xz -C /usr/local/bin grpcurl \
     && chmod +x /usr/local/bin/grpcurl
 
-# Create non-root user
-RUN useradd -m -u 1000 serviceradar
+# Create non-root user (let system assign UID automatically)
+RUN useradd -m -s /bin/bash serviceradar
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \

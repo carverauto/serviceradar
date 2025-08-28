@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-cert-regenerator
+spec:
+  template:
+    metadata:
+      labels:
+        app: serviceradar-cert-regenerator
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: cert-regenerator
+        image: alpine/openssl:latest
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          cp /scripts/generate-certs.sh /tmp/generate-certs.sh
+          chmod +x /tmp/generate-certs.sh
+          cd /certs
+          FORCE_REGENERATE=true /bin/sh /tmp/generate-certs.sh
+        volumeMounts:
+        - name: cert-scripts
+          mountPath: /scripts
+        - name: cert-data
+          mountPath: /certs
+        env:
+        - name: CERT_DIR
+          value: "/certs"
+        - name: FORCE_REGENERATE
+          value: "true"
+      volumes:
+      - name: cert-scripts
+        configMap:
+          name: serviceradar-cert-scripts
+          defaultMode: 0755
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data

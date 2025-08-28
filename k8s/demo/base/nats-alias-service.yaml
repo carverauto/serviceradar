@@ -1,0 +1,12 @@
+# Service alias for NATS to support legacy naming
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+spec:
+  selector:
+    app: serviceradar-nats
+  ports:
+  - name: client
+    port: 4222
+    targetPort: 4222
