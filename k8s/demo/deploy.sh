@@ -50,6 +50,7 @@ data:
   api-key: $API_KEY
   proton-password: $PROTON_PASSWORD
   admin-password: $ADMIN_PASSWORD
+  admin-bcrypt-hash: $(echo -n "$ADMIN_BCRYPT_HASH" | base64 -w 0)
 EOF
 
     echo "✅ Secrets created successfully"
