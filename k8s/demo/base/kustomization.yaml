@@ -3,16 +3,33 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - configmap.yaml
-  - secrets.yaml
-  - serviceradar-proton.yaml
-  - serviceradar-nats.yaml
-  - serviceradar-core.yaml
-  - serviceradar-web.yaml
-  - serviceradar-nginx.yaml
-  - serviceradar-agent.yaml
-  - serviceradar-poller.yaml
-  - serviceradar-snmp-checker.yaml
+- serviceradar-proton.yaml
+- serviceradar-nats.yaml
+- serviceradar-kv.yaml
+- serviceradar-core.yaml
+- serviceradar-web.yaml
+- serviceradar-agent.yaml
+- serviceradar-poller.yaml
+- serviceradar-snmp-checker.yaml
+- serviceradar-db-event-writer.yaml
+- serviceradar-zen.yaml
+- serviceradar-zen-rules.yaml
+- serviceradar-flowgger.yaml
+- serviceradar-otel.yaml
+- serviceradar-mapper.yaml
+- serviceradar-trapd.yaml
+- serviceradar-tools.yaml
+- serviceradar-sync.yaml
+- serviceradar-rperf-checker.yaml
+- serviceradar-faker.yaml
+- configmap.yaml
+- cert-scripts-configmap.yaml
+- cert-generator-job.yaml
+# Aliases for legacy service DNS names
+- service-aliases.yaml
+# Note: configmap.yaml now includes NATS configuration with proper authorization
 
-commonLabels:
-  app.kubernetes.io/part-of: serviceradar
+labels:
+- includeSelectors: true
+  pairs:
+    app.kubernetes.io/part-of: serviceradar

@@ -1,4 +1,3 @@
-# base/serviceradar-core.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,11 +14,10 @@ spec:
       labels:
         app: serviceradar-core
     spec:
-      imagePullSecrets:
-        - name: ghcr-io-cred
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: core
-        image: ghcr.io/carverauto/serviceradar-core:latest
+        image: ghcr.io/carverauto/serviceradar-core:{{ .Values.image.tags.core }}
         command: ["/bin/bash"]
         args:
         - -c
@@ -151,14 +149,3 @@ spec:
   - name: metrics
     port: 9090
     targetPort: metrics
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: serviceradar-core-data
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi

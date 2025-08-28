@@ -1,61 +1,57 @@
-# base/serviceradar-poller.yaml
+# base/serviceradar-sync.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: serviceradar-poller
+  name: serviceradar-sync
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: serviceradar-poller
+      app: serviceradar-sync
   template:
     metadata:
       labels:
-        app: serviceradar-poller
+        app: serviceradar-sync
     spec:
       imagePullSecrets:
         - name: ghcr-io-cred
       containers:
-      - name: poller
-        image: ghcr.io/carverauto/serviceradar-poller:latest
+      - name: sync
+        image: ghcr.io/carverauto/serviceradar-sync:latest
+        ports:
+        - containerPort: 50058
+          name: grpc
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
+          readOnly: true
         env:
         - name: CONFIG_PATH
-          value: "/etc/serviceradar/poller.json"
+          value: "/etc/serviceradar/sync.json"
         - name: LOG_LEVEL
           value: "info"
         resources:
-          limits:
-            cpu: "500m"
-            memory: "256Mi"
           requests:
             cpu: "100m"
             memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
         livenessProbe:
-          exec:
-            command:
-            - nc
-            - -z
-            - localhost
-            - "50053"
+          tcpSocket:
+            port: 50058
           initialDelaySeconds: 60
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - nc
-            - -z
-            - localhost
-            - "50053"
+          tcpSocket:
+            port: 50058
           initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 3
+          periodSeconds: 15
+          timeoutSeconds: 5
           failureThreshold: 3
       volumes:
       - name: serviceradar-config
@@ -64,3 +60,15 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-sync
+spec:
+  selector:
+    app: serviceradar-sync
+  ports:
+  - name: grpc
+    port: 50058
+    targetPort: grpc

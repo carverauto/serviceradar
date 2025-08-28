@@ -16,6 +16,10 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
 spec:
+  tls:
+  - hosts:
+    - demo.serviceradar.cloud
+    secretName: serviceradar-prod-tls
   rules:
   - host: demo-staging.serviceradar.cloud
     http:

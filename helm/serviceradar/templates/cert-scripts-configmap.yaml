@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-cert-scripts
+data:
+  generate-certs.sh: |
+    {{ tpl (.Files.Get "files/generate-certs.sh") . | nindent 4 }}

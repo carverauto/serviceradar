@@ -1,0 +1,2 @@
+{{- /* Emit the base serviceradar-config ConfigMap verbatim from files/ */ -}}
+{{ .Files.Get "files/serviceradar-config.yaml" }}

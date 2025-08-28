@@ -1,4 +1,3 @@
-# base/serviceradar-agent.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,16 +15,11 @@ spec:
         app: serviceradar-agent
     spec:
       hostNetwork: true
-      imagePullSecrets:
-        - name: ghcr-io-cred
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
         - name: init-checkers
           image: busybox:1.36
-          command: ['sh', '-c', '
-          mkdir -p /etc/serviceradar/checkers/sweep && 
-          cp /config/snmp.json /etc/serviceradar/checkers/snmp.json &&
-          cp /config/external.json /etc/serviceradar/checkers/external.json
-        ']
+          command: ['sh', '-c', 'mkdir -p /etc/serviceradar/checkers && cp /config/snmp.json /etc/serviceradar/checkers/snmp.json && cp /config/external.json /etc/serviceradar/checkers/external.json']
           volumeMounts:
             - name: serviceradar-config
               mountPath: /config
@@ -33,7 +27,7 @@ spec:
               mountPath: /etc/serviceradar/checkers
       containers:
         - name: agent
-          image: ghcr.io/carverauto/serviceradar-agent:latest
+          image: ghcr.io/carverauto/serviceradar-agent:{{ .Values.image.tags.agent }}
           volumeMounts:
             - name: serviceradar-config
               mountPath: /etc/serviceradar

@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-trapd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-trapd
+  template:
+    metadata:
+      labels:
+        app: serviceradar-trapd
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: trapd
+        image: ghcr.io/carverauto/serviceradar-trapd:{{ .Values.image.tags.trapd }}
+        ports:
+        - containerPort: 162
+          name: snmp
+          protocol: UDP
+        - containerPort: 50043
+          name: grpc
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        env:
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/trapd.json"
+        - name: WAIT_FOR_NATS
+          value: "true"
+        - name: NATS_HOST
+          value: "serviceradar-nats"
+        - name: NATS_PORT
+          value: "4222"
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        securityContext:
+          capabilities:
+            add:
+              - NET_BIND_SERVICE
+        livenessProbe:
+          tcpSocket:
+            port: 50043
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 50043
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-trapd
+spec:
+  selector:
+    app: serviceradar-trapd
+  ports:
+  - name: snmp
+    port: 162
+    targetPort: snmp
+    protocol: UDP
+  - name: grpc
+    port: 50043
+    targetPort: grpc

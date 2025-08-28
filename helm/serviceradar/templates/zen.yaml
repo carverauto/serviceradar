@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-zen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-zen
+      app.kubernetes.io/part-of: serviceradar
+  template:
+    metadata:
+      labels:
+        app: serviceradar-zen
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: zen
+        image: ghcr.io/carverauto/serviceradar-zen:{{ .Values.image.tags.zen }}
+        ports:
+        - containerPort: 50040
+          name: grpc
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        - name: zen-rules
+          mountPath: /etc/serviceradar/rules
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: zen-data
+          mountPath: /var/lib/serviceradar
+        env:
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/zen.json"
+        - name: NATS_URL
+          value: "tls://serviceradar-nats:4222"
+        - name: WAIT_FOR_NATS
+          value: "false"
+        - name: WAIT_FOR_KV
+          value: "false"
+        - name: SKIP_WAIT
+          value: "true"
+        - name: NO_WAIT
+          value: "true"
+        - name: KV_URL
+          value: "serviceradar-kv:50057"
+        - name: NATS_TLS
+          value: "true"
+        - name: USE_TLS
+          value: "true"
+        - name: RUST_LOG
+          value: "info"
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        livenessProbe:
+          tcpSocket:
+            port: 50040
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 50040
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: zen-rules
+        configMap:
+          name: serviceradar-zen-rules
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: zen-data
+        persistentVolumeClaim:
+          claimName: serviceradar-zen-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-zen
+spec:
+  selector:
+    app: serviceradar-zen
+  ports:
+  - name: grpc
+    port: 50040
+    targetPort: grpc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-zen-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

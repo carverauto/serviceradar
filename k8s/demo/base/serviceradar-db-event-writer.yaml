@@ -1,0 +1,141 @@
+# base/serviceradar-db-event-writer.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-db-event-writer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-db-event-writer
+  template:
+    metadata:
+      labels:
+        app: serviceradar-db-event-writer
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      initContainers:
+      - name: setup-config
+        image: alpine:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          mkdir -p /etc/serviceradar/templates
+          mkdir -p /etc/serviceradar/consumers
+          cp /tmp/config/db-event-writer.json /etc/serviceradar/templates/db-event-writer.json
+          chmod 777 /etc/serviceradar/consumers
+          ls -la /etc/serviceradar/templates/
+          ls -la /etc/serviceradar/consumers/
+        volumeMounts:
+        - name: db-event-writer-config
+          mountPath: /tmp/config
+        - name: shared-config
+          mountPath: /etc/serviceradar
+      containers:
+      - name: db-event-writer
+        image: ghcr.io/carverauto/serviceradar-db-event-writer:latest
+        ports:
+        - containerPort: 50041
+          name: grpc
+        volumeMounts:
+        - name: shared-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: db-event-writer-data
+          mountPath: /var/lib/serviceradar
+        env:
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/templates/db-event-writer.json"
+        - name: WAIT_FOR_NATS
+          value: "true"
+        - name: WAIT_FOR_PROTON
+          value: "true"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: PROTON_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: proton-password
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        livenessProbe:
+          exec:
+            command:
+            - grpcurl
+            - -cacert
+            - /etc/serviceradar/certs/root.pem
+            - -cert
+            - /etc/serviceradar/certs/db-event-writer.pem
+            - -key
+            - /etc/serviceradar/certs/db-event-writer-key.pem
+            - -servername
+            - db-event-writer.serviceradar
+            - localhost:50041
+            - grpc.health.v1.Health/Check
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - grpcurl
+            - -cacert
+            - /etc/serviceradar/certs/root.pem
+            - -cert
+            - /etc/serviceradar/certs/db-event-writer.pem
+            - -key
+            - /etc/serviceradar/certs/db-event-writer-key.pem
+            - -servername
+            - db-event-writer.serviceradar
+            - localhost:50041
+            - grpc.health.v1.Health/Check
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 3
+      volumes:
+      - name: db-event-writer-config
+        configMap:
+          name: serviceradar-db-event-writer-config
+      - name: shared-config
+        emptyDir: {}
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: db-event-writer-data
+        persistentVolumeClaim:
+          claimName: serviceradar-db-event-writer-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-db-event-writer
+spec:
+  selector:
+    app: serviceradar-db-event-writer
+  ports:
+  - name: grpc
+    port: 50041
+    targetPort: grpc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-db-event-writer-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

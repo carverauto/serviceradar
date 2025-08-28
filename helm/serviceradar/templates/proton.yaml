@@ -1,4 +1,4 @@
-# base/serviceradar-proton.yaml
+# ServiceRadar Proton (ClickHouse) Deployment, Service, PVC
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,17 +15,16 @@ spec:
       labels:
         app: serviceradar-proton
     spec:
-      imagePullSecrets:
-        - name: ghcr-io-cred
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       securityContext:
         runAsUser: 0
       containers:
       - name: proton
-        image: ghcr.io/carverauto/serviceradar-proton:latest
+        image: ghcr.io/carverauto/serviceradar-proton:{{ .Values.image.tags.proton }}
         securityContext:
           privileged: true
         command: ["/bin/bash"]
-        args: 
+        args:
         - -c
         - |
           cp /etc/serviceradar/proton-k8s-init.sh /tmp/proton-k8s-init.sh
