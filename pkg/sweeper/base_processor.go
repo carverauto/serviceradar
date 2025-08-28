@@ -301,6 +301,9 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 
 	case models.ModeTCP:
 		p.processTCPResult(shard, host, result)
+		
+	case models.ModeTCPConnect:
+		p.processTCPResult(shard, host, result)
 	}
 
 	return nil

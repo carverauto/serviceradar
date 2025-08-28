@@ -2572,6 +2572,8 @@ func processScanDetails(result *models.Result, builders *scanBuilders, states *b
 		buildICMPDetails(result, builders.icmp, &states.firstICMP)
 	case models.ModeTCP:
 		buildTCPDetails(result, builders.tcp, &states.firstTCP)
+	case models.ModeTCPConnect:
+		buildTCPDetails(result, builders.tcp, &states.firstTCP)
 	}
 }
 
