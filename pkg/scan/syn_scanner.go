@@ -382,23 +382,8 @@ type tokenBucket struct {
 }
 
 func newTokenBucket(pps, burst int) *tokenBucket {
-	// EMERGENCY FIX: Never allow unlimited rate (pps <= 0)
-	// Force a maximum safe rate to prevent connection tracking exhaustion
-	const emergencyMaxPPS = 1000
-	
 	if pps <= 0 {
-		pps = emergencyMaxPPS
-		burst = pps
-		// Log this emergency intervention for visibility
-		fmt.Printf("[EMERGENCY] Rate limiting was disabled (pps<=0), forcing safe rate: %d pps\n", pps)
-	}
-	
-	// Also cap any excessive rates
-	if pps > 5000 {
-		originalPPS := pps
-		pps = 2000  // Conservative emergency cap
-		burst = pps
-		fmt.Printf("[EMERGENCY] Rate limit too high (%d pps), capping to safe rate: %d pps\n", originalPPS, pps)
+		return nil
 	}
 
 	if burst <= 0 {
@@ -456,23 +441,12 @@ type shardedTokenBucket struct {
 }
 
 func newShardedTokenBucket(shards, pps, burst int) *shardedTokenBucket {
-	// EMERGENCY FIX: Apply the same emergency rate limiting here
-	const emergencyMaxPPS = 1000
-	
-	if pps <= 0 {
-		pps = emergencyMaxPPS
-		burst = pps
-		fmt.Printf("[EMERGENCY] Sharded rate limiting was disabled (pps<=0), forcing safe rate: %d pps\n", pps)
-	}
-	
-	if pps > 5000 {
-		originalPPS := pps
-		pps = 2000
-		burst = pps  
-		fmt.Printf("[EMERGENCY] Sharded rate limit too high (%d pps), capping to safe rate: %d pps\n", originalPPS, pps)
-	}
-	
 	if shards <= 1 {
+		return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(pps, burst)}}
+	}
+
+	if pps <= 0 {
+		// Disabled case still needs a non-nil implementation
 		return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(pps, burst)}}
 	}
 
@@ -1637,9 +1611,6 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 			Msg("Auto-trimmed safeCapacityPPS due to fallback to conflicting ephemeral window")
 	}
 
-	// Check connection tracking capacity to prevent router/firewall exhaustion
-	conntrackCapacity := checkConntrackCapacity(log)
-	
 	if opts != nil && opts.RateLimit > 0 {
 		// Use explicitly provided rate limit
 		rateLimitPPS = opts.RateLimit
@@ -1658,26 +1629,9 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				Dur("holdDuration", hold).
 				Msg("User rate limit exceeds safe window/hold capacity - may cause port allocator starvation")
 		}
-		
-		// Warn if rate exceeds connection tracking capacity
-		if conntrackCapacity > 0 && rateLimitPPS > conntrackCapacity {
-			log.Warn().
-				Int("userRateLimit", rateLimitPPS).
-				Int("conntrackCapacity", conntrackCapacity).
-				Msg("Rate limit may overwhelm connection tracking - consider iptables NOTRACK rules")
-		}
 	} else {
 		// Use calculated safe default
 		rateLimitPPS = safeCapacityPPS
-
-		// Apply connection tracking constraint if available
-		if conntrackCapacity > 0 && rateLimitPPS > conntrackCapacity {
-			log.Info().
-				Int("originalRate", rateLimitPPS).
-				Int("conntrackCapacity", conntrackCapacity).
-				Msg("Reducing rate limit to prevent connection tracking exhaustion")
-			rateLimitPPS = conntrackCapacity
-		}
 
 		// Apply reasonable bounds
 		if rateLimitPPS < 1000 {
@@ -3307,68 +3261,3 @@ func htons(n uint16) uint16 {
 	return n
 }
 
-// checkConntrackCapacity estimates safe packet rate based on connection tracking capacity
-// Returns 0 if connection tracking info is unavailable or unlimited
-func checkConntrackCapacity(log logger.Logger) int {
-	// Read current connection tracking usage
-	maxFile := "/proc/sys/net/netfilter/nf_conntrack_max"
-	countFile := "/proc/sys/net/netfilter/nf_conntrack_count"
-	
-	maxData, err := os.ReadFile(maxFile)
-	if err != nil {
-		// Connection tracking not available or accessible
-		return 0
-	}
-	
-	countData, err := os.ReadFile(countFile)
-	if err != nil {
-		return 0
-	}
-	
-	maxConns, err := strconv.Atoi(strings.TrimSpace(string(maxData)))
-	if err != nil {
-		return 0
-	}
-	
-	currentConns, err := strconv.Atoi(strings.TrimSpace(string(countData)))
-	if err != nil {
-		return 0
-	}
-	
-	// Calculate available capacity
-	availableConns := maxConns - currentConns
-	if availableConns <= 0 {
-		log.Warn().
-			Int("currentConns", currentConns).
-			Int("maxConns", maxConns).
-			Msg("Connection tracking table is full or nearly full")
-		return 50 // Emergency low rate
-	}
-	
-	// Estimate safe rate: each SYN creates a conntrack entry that persists for timeout duration
-	// Use conservative estimate: conntrack entries persist for ~120 seconds (2 minutes)
-	// Safe rate = available_capacity / timeout_duration
-	conntrackTimeoutSec := 120 // Conservative estimate for SYN timeout
-	safeRate := availableConns / conntrackTimeoutSec
-	
-	// Log current status for ops visibility
-	utilizationPercent := float64(currentConns) / float64(maxConns) * 100
-	
-	if utilizationPercent > 80 {
-		log.Warn().
-			Int("currentConns", currentConns).
-			Int("maxConns", maxConns).
-			Float64("utilizationPercent", utilizationPercent).
-			Int("recommendedMaxPPS", safeRate).
-			Msg("Connection tracking utilization high - consider NOTRACK iptables rules")
-	} else {
-		log.Debug().
-			Int("currentConns", currentConns).
-			Int("maxConns", maxConns).
-			Float64("utilizationPercent", utilizationPercent).
-			Int("recommendedMaxPPS", safeRate).
-			Msg("Connection tracking capacity check")
-	}
-	
-	return safeRate
-}
