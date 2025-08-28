@@ -1,0 +1,71 @@
+# base/serviceradar-faker.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-faker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-faker
+  template:
+    metadata:
+      labels:
+        app: serviceradar-faker
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      containers:
+      - name: faker
+        image: ghcr.io/carverauto/serviceradar-faker:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: LOG_LEVEL
+          value: "info"
+        volumeMounts:
+        - name: faker-data
+          mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /api/v1/search/?aql=test&length=1
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /api/v1/search/?aql=test&length=1
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+      volumes:
+      - name: faker-data
+        persistentVolumeClaim:
+          claimName: serviceradar-faker-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-faker
+spec:
+  selector:
+    app: serviceradar-faker
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-faker-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
