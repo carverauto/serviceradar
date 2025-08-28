@@ -33,3 +33,53 @@ secrets:
   existingSecretName: serviceradar-secrets
   # Provide adminBcryptHash to avoid in-cluster generation.
   adminBcryptHash: ""
+
+# Network sweep defaults (can be tuned per-deploy)
+sweep:
+  # Target networks and ports to scan
+  networks:
+    - 192.168.2.0/24
+    - 192.168.3.1/32
+  ports:
+    - 22
+    - 80
+    - 443
+    - 3306
+    - 5432
+    - 6379
+    - 8080
+    - 8443
+  # Sweep modes and pacing
+  modes:
+    - icmp
+    - tcp
+  interval: 5m
+  concurrency: 100
+  timeout: 10s
+  tcp:
+    # SYN packets per second; keep conservative by default
+    rateLimit: 20000
+    rateLimitBurst: 20000
+    # Per-scanner tuning
+    maxBatch: 32
+    concurrency: 256
+    timeout: 3s
+    # Route discovery and ring buffer tuning
+    routeDiscoveryHost: 8.8.8.8:80
+    ringBlockSize: 0
+    ringBlockCount: 0
+    interface: ""
+    suppressRSTReply: false
+    globalRingMemoryMB: 0
+    ringReaders: 0
+    ringPollTimeoutMs: 0
+  icmp:
+    # Enable high performance ICMP (raw sockets) where permitted
+    highPerf: true
+    # Global ICMP rate limit (scanner-level)
+    rateLimit: 5000
+    settings:
+      # Per-batch ICMP settings for fine tuning
+      rateLimit: 1000
+      timeout: 5s
+      maxBatch: 64
