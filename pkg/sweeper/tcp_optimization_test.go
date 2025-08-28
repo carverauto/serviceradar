@@ -206,6 +206,8 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 		switch target.Mode {
 		case models.ModeTCP:
 			tcpTargets++
+		case models.ModeTCPConnect:
+			tcpTargets++
 		case models.ModeICMP:
 			icmpTargets++
 		}
