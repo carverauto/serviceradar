@@ -484,6 +484,12 @@ func (s *NetworkSweeper) Stop() error {
 		}
 	}
 
+	if s.tcpConnectScanner != nil {
+		if err := s.tcpConnectScanner.Stop(); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop TCP connect scanner")
+		}
+	}
+
 	return nil
 }
 
