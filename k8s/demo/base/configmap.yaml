@@ -99,7 +99,9 @@ data:
             "tls": {
               "cert_file": "/etc/serviceradar/certs/core.pem",
               "key_file": "/etc/serviceradar/certs/core-key.pem",
-              "ca_file": "/etc/serviceradar/certs/root.pem"
+              "ca_file": "/etc/serviceradar/certs/root.pem",
+              "server_name": "serviceradar-otel",
+              "skip_verify": false
             }
           }
         },
@@ -183,7 +185,6 @@ data:
       "security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "poller.serviceradar",
         "role": "poller",
         "tls": {
           "cert_file": "poller.pem",
@@ -209,7 +210,8 @@ data:
           "tls": {
             "cert_file": "/etc/serviceradar/certs/poller.pem",
             "key_file": "/etc/serviceradar/certs/poller-key.pem",
-            "ca_file": "/etc/serviceradar/certs/root.pem"
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "server_name": "serviceradar-otel"
           }
         }
       }
@@ -254,16 +256,7 @@ data:
         "output": "stdout",
         "time_format": "",
         "otel": {
-          "enabled": true,
-          "endpoint": "serviceradar-otel:4317",
-          "service_name": "serviceradar-agent",
-          "batch_timeout": "5s",
-          "insecure": false,
-          "tls": {
-            "cert_file": "/etc/serviceradar/certs/agent.pem",
-            "key_file": "/etc/serviceradar/certs/agent-key.pem",
-            "ca_file": "/etc/serviceradar/certs/root.pem"
-          }
+          "enabled": false
         }
       }
     }
@@ -372,7 +365,8 @@ data:
           "tls": {
             "cert_file": "/etc/serviceradar/certs/zen.pem",
             "key_file": "/etc/serviceradar/certs/zen-key.pem",
-            "ca_file": "/etc/serviceradar/certs/root.pem"
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "server_name": "serviceradar-otel"
           }
         }
       }
@@ -886,7 +880,6 @@ data:
     {
       "listen_addr": "0.0.0.0:162",
       "nats_url": "tls://serviceradar-nats:4222",
-      "nats_domain": "edge",
       "stream_name": "events",
       "subject": "snmp.traps",
       "nats_security": {
@@ -903,7 +896,13 @@ data:
       "otel": {
         "enabled": true,
         "endpoint": "serviceradar-otel:4317",
-        "service_name": "serviceradar-trapd"
+        "service_name": "serviceradar-trapd",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/trapd.pem",
+          "key_file": "/etc/serviceradar/certs/trapd-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem",
+          "server_name": "serviceradar-otel"
+        }
       }
     }
 
@@ -1002,7 +1001,8 @@ data:
           "tls": {
             "cert_file": "/etc/serviceradar/certs/mapper.pem",
             "key_file": "/etc/serviceradar/certs/mapper-key.pem",
-            "ca_file": "/etc/serviceradar/certs/root.pem"
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "server_name": "serviceradar-otel"
           }
         }
       }

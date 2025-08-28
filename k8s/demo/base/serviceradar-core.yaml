@@ -46,7 +46,7 @@ spec:
           readOnly: true
         env:
         - name: WAIT_FOR_PROTON
-          value: "true"
+          value: "false"
         - name: INIT_DB
           value: "true"
         - name: CONFIG_SOURCE
