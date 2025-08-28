@@ -1,2 +1,3 @@
-{{- /* Emit the base serviceradar-config ConfigMap verbatim from files/ */ -}}
-{{ .Files.Get "files/serviceradar-config.yaml" }}
+{{- /* Render the base serviceradar-config ConfigMap with templating enabled (tpl) */ -}}
+{{- $cfg := .Files.Get "files/serviceradar-config.yaml" -}}
+{{ tpl $cfg . }}

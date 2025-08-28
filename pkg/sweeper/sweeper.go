@@ -197,7 +197,7 @@ func needsICMPScanning(config *models.Config) bool {
 
 // configureSYNScannerOptions configures SYN scanner options from config
 func configureSYNScannerOptions(config *models.Config, log logger.Logger) *scan.SYNScannerOptions {
-	opts := &scan.SYNScannerOptions{}
+    opts := &scan.SYNScannerOptions{}
 
 	// Use TCPSettings.MaxBatch if configured
 	if config.TCPSettings.MaxBatch > 0 {
@@ -212,8 +212,8 @@ func configureSYNScannerOptions(config *models.Config, log logger.Logger) *scan.
 			Msg("Using configured route discovery host for local IP detection")
 	}
 
-	// Configure ring buffer settings
-	configureRingBufferSettings(config, opts, log)
+    // Configure ring buffer settings
+    configureRingBufferSettings(config, opts, log)
 
 	// Configure network interface for multi-homed hosts
 	if config.TCPSettings.Interface != "" {
@@ -228,14 +228,27 @@ func configureSYNScannerOptions(config *models.Config, log logger.Logger) *scan.
 		log.Debug().Msg("RST reply suppression enabled for firewall compatibility")
 	}
 
-	// Configure global memory limit for ring buffers
-	if config.TCPSettings.GlobalRingMemoryMB > 0 {
-		opts.GlobalRingMemoryMB = config.TCPSettings.GlobalRingMemoryMB
-		log.Debug().Int("global_ring_memory_mb", opts.GlobalRingMemoryMB).
-			Msg("Using configured global ring buffer memory limit")
-	}
+    // Configure global memory limit for ring buffers
+    if config.TCPSettings.GlobalRingMemoryMB > 0 {
+        opts.GlobalRingMemoryMB = config.TCPSettings.GlobalRingMemoryMB
+        log.Debug().Int("global_ring_memory_mb", opts.GlobalRingMemoryMB).
+            Msg("Using configured global ring buffer memory limit")
+    }
 
-	return opts
+    // Configure SYN scanner rate limiting (pps and optional burst)
+    if config.TCPSettings.RateLimit > 0 {
+        opts.RateLimit = config.TCPSettings.RateLimit
+        // If burst is not set or <=0, the scanner will default it to RateLimit
+        if config.TCPSettings.RateLimitBurst > 0 {
+            opts.RateLimitBurst = config.TCPSettings.RateLimitBurst
+        }
+
+        log.Info().Int("rate_limit_pps", opts.RateLimit).
+            Int("rate_limit_burst", opts.RateLimitBurst).
+            Msg("Configured SYN scanner rate limit from tcp_settings")
+    }
+
+    return opts
 }
 
 // configureRingBufferSettings configures ring buffer settings for SYN scanner
@@ -1414,6 +1427,8 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			Concurrency        int
 			Timeout            time.Duration
 			MaxBatch           int
+			RateLimit          int `json:"rate_limit,omitempty"`
+			RateLimitBurst     int `json:"rate_limit_burst,omitempty"`
 			RouteDiscoveryHost string `json:"route_discovery_host,omitempty"`
 
 			// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
@@ -1436,6 +1451,8 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			Concurrency:        temp.TCPSettings.Concurrency,
 			Timeout:            time.Duration(temp.TCPSettings.Timeout),
 			MaxBatch:           temp.TCPSettings.MaxBatch,
+			RateLimit:          temp.TCPSettings.RateLimit,
+			RateLimitBurst:     temp.TCPSettings.RateLimitBurst,
 			RouteDiscoveryHost: temp.TCPSettings.RouteDiscoveryHost,
 			RingBlockSize:      temp.TCPSettings.RingBlockSize,
 			RingBlockCount:     temp.TCPSettings.RingBlockCount,
