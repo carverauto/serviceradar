@@ -1427,6 +1427,8 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			Concurrency        int
 			Timeout            time.Duration
 			MaxBatch           int
+			RateLimit          int `json:"rate_limit,omitempty"`
+			RateLimitBurst     int `json:"rate_limit_burst,omitempty"`
 			RouteDiscoveryHost string `json:"route_discovery_host,omitempty"`
 
 			// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
@@ -1449,6 +1451,8 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			Concurrency:        temp.TCPSettings.Concurrency,
 			Timeout:            time.Duration(temp.TCPSettings.Timeout),
 			MaxBatch:           temp.TCPSettings.MaxBatch,
+			RateLimit:          temp.TCPSettings.RateLimit,
+			RateLimitBurst:     temp.TCPSettings.RateLimitBurst,
 			RouteDiscoveryHost: temp.TCPSettings.RouteDiscoveryHost,
 			RingBlockSize:      temp.TCPSettings.RingBlockSize,
 			RingBlockCount:     temp.TCPSettings.RingBlockCount,
