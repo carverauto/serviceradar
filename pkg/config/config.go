@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package config provides configuration loading and management utilities with support for file and KV store backends.
 package config
 
 import (
@@ -25,10 +26,11 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/rs/zerolog"
+
 	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/rs/zerolog"
 )
 
 var (
@@ -152,7 +154,6 @@ func ValidateConfig(cfg interface{}) error {
 // LoadAndValidate loads a configuration, normalizes SecurityConfig paths if present, and validates it.
 func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface{}) error {
 	err := c.loadAndValidateWithSource(ctx, path, cfg)
-
 	if err != nil {
 		return err
 	}

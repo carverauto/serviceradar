@@ -15,6 +15,8 @@ var (
 	ErrMissingTableName      = errors.New("table is required")
 	ErrMissingDatabaseConfig = errors.New("database configuration is required")
 	ErrInvalidJSON           = errors.New("failed to unmarshal JSON configuration")
+	ErrStreamSubjectRequired = errors.New("stream subject is required")
+	ErrStreamTableRequired   = errors.New("stream table is required")
 )
 
 // StreamConfig holds configuration for a specific stream/table pair
@@ -62,13 +64,13 @@ func (c *DBEventWriterConfig) Validate() error {
 	// Check if using legacy single stream config or new multi-stream config
 	if len(c.Streams) > 0 {
 		// New multi-stream configuration
-		for i, stream := range c.Streams {
+		for _, stream := range c.Streams {
 			if stream.Subject == "" {
-				errs = append(errs, errors.New("stream "+string(rune(i))+" subject is required"))
+				errs = append(errs, ErrStreamSubjectRequired)
 			}
 
 			if stream.Table == "" {
-				errs = append(errs, errors.New("stream "+string(rune(i))+" table is required"))
+				errs = append(errs, ErrStreamTableRequired)
 			}
 		}
 	} else if c.Table == "" {

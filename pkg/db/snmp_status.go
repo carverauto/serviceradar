@@ -57,7 +57,9 @@ func (db *DB) GetDevicesWithRecentSNMPMetrics(ctx context.Context, deviceIDs []s
 	if err != nil {
 		return nil, fmt.Errorf("failed to query for recent snmp metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	// Use a map (acting as a set) for efficient lookup
 	foundIDs := make(map[string]bool)

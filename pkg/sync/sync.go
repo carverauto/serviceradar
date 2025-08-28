@@ -23,13 +23,14 @@ import (
 	"strconv"
 	"time"
 
+	"google.golang.org/grpc"
+
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
 	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc"
 )
 
 const (

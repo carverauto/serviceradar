@@ -7,12 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 // Service implements lifecycle.Service for the DB event writer.
@@ -142,6 +143,7 @@ func (s *Service) Start(ctx context.Context) error {
 
 	go func() {
 		defer s.wg.Done()
+
 		s.consumer.ProcessMessages(ctx, s.processor)
 	}()
 

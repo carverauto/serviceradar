@@ -19,18 +19,28 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"reflect"
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
+	"github.com/timeplus-io/proton-go-driver/v2"
+
 	"github.com/carverauto/serviceradar/pkg/srql"
 	"github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
-	"github.com/gorilla/websocket"
-	"github.com/timeplus-io/proton-go-driver/v2"
+)
+
+var (
+	// ErrDatabaseServiceNotConfigured indicates that the database service is not configured.
+	ErrDatabaseServiceNotConfigured = errors.New("database service not configured")
+	// ErrUnexpectedConnectionType indicates that an unexpected connection type was received.
+	ErrUnexpectedConnectionType = errors.New("unexpected connection type")
 )
 
 // ContextKey is a custom type for context keys to avoid string collisions
@@ -86,7 +96,11 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to close connection")
+		}
+	}()
 
 	if !s.authenticateWebSocketConnection(r) {
 		if writeErr := conn.WriteJSON(StreamMessage{Type: "error", Error: "Authentication required", Timestamp: time.Now()}); writeErr != nil {
@@ -125,7 +139,9 @@ func (s *APIServer) handleStreamQuery(w http.ResponseWriter, r *http.Request) {
 func writer(conn *websocket.Conn, sendCh <-chan StreamMessage) {
 	ticker := time.NewTicker(pingPeriod)
 	defer ticker.Stop()
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close() // Ignore error in cleanup
+	}()
 
 	for {
 		select {
@@ -161,7 +177,10 @@ func writer(conn *websocket.Conn, sendCh <-chan StreamMessage) {
 // reader pumps messages from the WebSocket connection to discard them, handles pong messages, and detects disconnects.
 func reader(conn *websocket.Conn, cancel context.CancelFunc) {
 	defer cancel()
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close() // Ignore error in cleanup
+	}()
+
 	conn.SetReadLimit(WebSocketReadLimit)
 
 	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
@@ -196,7 +215,11 @@ func (s *APIServer) streamQueryResults(ctx context.Context, sqlQuery string, sen
 		sendCh <- StreamMessage{Type: "error", Error: fmt.Sprintf("Failed to execute query: %v", err), Timestamp: time.Now()}
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("failed to close rows", "error", err)
+		}
+	}()
 
 	columnTypes := rows.ColumnTypes()
 	columns := make([]string, len(columnTypes))
@@ -274,7 +297,7 @@ func prepareStreamingQuery(srqlQuery string) (string, models.EntityType, error) 
 // getStreamingDB returns a database connection suitable for streaming
 func (s *APIServer) getStreamingDB() (proton.Conn, error) {
 	if s.dbService == nil {
-		return nil, fmt.Errorf("database service not configured")
+		return nil, ErrDatabaseServiceNotConfigured
 	}
 
 	// Get the streaming connection from the database service
@@ -286,7 +309,7 @@ func (s *APIServer) getStreamingDB() (proton.Conn, error) {
 	// Type assert to proton.Conn
 	protonConn, ok := conn.(proton.Conn)
 	if !ok {
-		return nil, fmt.Errorf("unexpected connection type: %T", conn)
+		return nil, fmt.Errorf("%w: %T", ErrUnexpectedConnectionType, conn)
 	}
 
 	return protonConn, nil

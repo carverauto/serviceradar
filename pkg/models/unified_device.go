@@ -34,6 +34,19 @@ const (
 	DiscoverySourceArmis        DiscoverySource = "armis"
 	DiscoverySourceNetbox       DiscoverySource = "netbox"
 	DiscoverySourceSysmon       DiscoverySource = "sysmon"
+
+	// Confidence levels for discovery sources (1-10 scale)
+	ConfidenceLowUnknown         = 1  // Low confidence - unknown source
+	ConfidenceMediumSweep        = 5  // Medium confidence - network sweep
+	ConfidenceMediumTraffic      = 6  // Medium confidence - traffic analysis
+	ConfidenceMediumMonitoring   = 6  // Medium confidence - system monitoring
+	ConfidenceGoodExternal       = 7  // Good confidence - external system
+	ConfidenceGoodSecurity       = 7  // Good confidence - external security system
+	ConfidenceGoodDocumentation  = 7  // Good confidence - network documentation system
+	ConfidenceHighNetworkMapping = 8  // High confidence - network mapping
+	ConfidenceHighSelfReported   = 8  // High confidence - device reported itself
+	ConfidenceHighSNMP           = 9  // High confidence - active SNMP query
+	ConfidenceHighestManual      = 10 // Highest confidence - human input
 )
 
 // DiscoveredField represents a field value with its discovery source and metadata
@@ -103,27 +116,27 @@ type DeviceUpdate struct {
 func GetSourceConfidence(source DiscoverySource) int {
 	switch source {
 	case DiscoverySourceSNMP:
-		return 9 // High confidence - active SNMP query
+		return ConfidenceHighSNMP // High confidence - active SNMP query
 	case DiscoverySourceMapper:
-		return 8 // High confidence - network mapping
+		return ConfidenceHighNetworkMapping // High confidence - network mapping
 	case DiscoverySourceIntegration:
-		return 7 // Good confidence - external system
+		return ConfidenceGoodExternal // Good confidence - external system
 	case DiscoverySourceArmis:
-		return 7 // Good confidence - external security system
+		return ConfidenceGoodSecurity // Good confidence - external security system
 	case DiscoverySourceNetFlow:
-		return 6 // Medium confidence - traffic analysis
+		return ConfidenceMediumTraffic // Medium confidence - traffic analysis
 	case DiscoverySourceSweep:
-		return 5 // Medium confidence - network sweep
+		return ConfidenceMediumSweep // Medium confidence - network sweep
 	case DiscoverySourceSelfReported:
-		return 8 // High confidence - device reported itself
+		return ConfidenceHighSelfReported // High confidence - device reported itself
 	case DiscoverySourceManual:
-		return 10 // Highest confidence - human input
+		return ConfidenceHighestManual // Highest confidence - human input
 	case DiscoverySourceNetbox:
-		return 7 // Good confidence - network documentation system
+		return ConfidenceGoodDocumentation // Good confidence - network documentation system
 	case DiscoverySourceSysmon:
-		return 6 // Medium confidence - system monitoring
+		return ConfidenceMediumMonitoring // Medium confidence - system monitoring
 	default:
-		return 1 // Low confidence - unknown source
+		return ConfidenceLowUnknown // Low confidence - unknown source
 	}
 }
 

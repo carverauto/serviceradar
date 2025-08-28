@@ -27,10 +27,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 const (
@@ -130,6 +131,7 @@ func (s *ICMPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan
 
 	go func() {
 		defer close(listenerDone)
+
 		s.listenForReplies(scanCtx, icmpTargets)
 	}()
 
@@ -161,6 +163,7 @@ func (s *ICMPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan
 			}
 		case <-scanCtx.Done():
 		}
+
 		cancel()
 		<-listenerDone
 
@@ -463,6 +466,7 @@ func (s *ICMPSweeper) processResults(targets []models.Target, ch chan<- models.R
 func (s *ICMPSweeper) SetResultCallback(callback func(models.Result)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.resultCallback = callback
 }
 

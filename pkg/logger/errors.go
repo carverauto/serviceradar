@@ -14,18 +14,11 @@
  * limitations under the License.
  */
 
-package config
+package logger
 
-import (
-	"context"
+import "errors"
+
+var (
+	// Certificate parsing errors.
+	errFailedToParseCACert = errors.New("failed to parse CA certificate")
 )
-
-// Validator interface for configurations that need validation.
-type Validator interface {
-	Validate() error
-}
-
-// Loader interface for loading configurations from various sources.
-type ConfigLoader interface {
-	Load(ctx context.Context, path string, dst interface{}) error
-}

@@ -25,8 +25,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 const (
@@ -73,7 +74,9 @@ func (db *DB) queryTimeseriesMetrics(
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close() // Ignore close error in defer
+	}()
 
 	var metrics []models.TimeseriesMetric
 
@@ -308,7 +311,9 @@ func (db *DB) GetCPUMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("failed to query CPU metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close() // Ignore close error in defer
+	}()
 
 	var metrics []models.CPUMetric
 
@@ -1010,7 +1015,9 @@ func (db *DB) getTimeseriesMetricsByFilters(
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics with filters %v: %w", filters, err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close() // Ignore close error in defer
+	}()
 
 	var metrics []models.TimeseriesMetric
 

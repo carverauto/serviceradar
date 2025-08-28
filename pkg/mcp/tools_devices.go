@@ -77,7 +77,7 @@ func (m *MCPServer) registerDeviceTools() {
 			}
 
 			if deviceIDArgs.DeviceID == "" {
-				return nil, fmt.Errorf("device_id is required")
+				return nil, errDeviceIDRequired
 			}
 
 			// Build SRQL query for specific device
@@ -93,7 +93,7 @@ func (m *MCPServer) registerDeviceTools() {
 			}
 
 			if len(results) == 0 {
-				return nil, fmt.Errorf("device not found: %s", deviceIDArgs.DeviceID)
+				return nil, fmt.Errorf("%w: %s", errDeviceNotFound, deviceIDArgs.DeviceID)
 			}
 
 			return map[string]interface{}{

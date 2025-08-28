@@ -22,12 +22,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // TestArmisNetBoxStreamResults tests that both Armis and NetBox data is properly streamed through StreamResults
@@ -306,9 +307,10 @@ func TestGetResultsWithArmisAndNetBox(t *testing.T) {
 	hasNetBox := false
 
 	for _, device := range devices {
-		if device.Source == models.DiscoverySourceArmis {
+		switch device.Source { //nolint:exhaustive // only checking specific cases in test
+		case models.DiscoverySourceArmis:
 			hasArmis = true
-		} else if device.Source == models.DiscoverySourceNetbox {
+		case models.DiscoverySourceNetbox:
 			hasNetBox = true
 		}
 	}

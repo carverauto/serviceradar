@@ -26,10 +26,11 @@ import (
 	"os"
 	"time"
 
-	configkv "github.com/carverauto/serviceradar/pkg/config/kv"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	configkv "github.com/carverauto/serviceradar/pkg/config/kv"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 type NATSStore struct {

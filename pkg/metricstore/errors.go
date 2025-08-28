@@ -14,18 +14,16 @@
  * limitations under the License.
  */
 
-package config
+package metricstore
 
-import (
-	"context"
+import "errors"
+
+var (
+	// Rperf metric errors.
+	errRperfMetricNil = errors.New("rperf metric is nil")
+	
+	// SNMP metric errors.
+	errSNMPMetricNil         = errors.New("SNMP metric is nil")
+	errSNMPMetricOIDNameEmpty = errors.New("SNMP metric OIDName is empty")
+	errSNMPMetricValueTypeEmpty = errors.New("SNMP metric ValueType is empty")
 )
-
-// Validator interface for configurations that need validation.
-type Validator interface {
-	Validate() error
-}
-
-// Loader interface for loading configurations from various sources.
-type ConfigLoader interface {
-	Load(ctx context.Context, path string, dst interface{}) error
-}

@@ -21,11 +21,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // TestDeviceAvailabilityLogic tests the core business logic:
@@ -340,7 +341,7 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 
 		// Simulate scan results where only the last IP (10.0.0.1) responds to ICMP
 		deviceMeta := map[string]interface{}{"armis_device_id": "123"}
-		mockResults := []*models.Result{
+		mockResults := []*models.Result{ //nolint:dupl // test data intentionally similar
 			// IP1: All fail
 			{
 				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeICMP, Metadata: deviceMeta},
@@ -434,7 +435,7 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 
 		// Simulate scan results where NO IPs respond to anything
 		deviceMeta2 := map[string]interface{}{"armis_device_id": "123"}
-		mockResults := []*models.Result{
+		mockResults := []*models.Result{ //nolint:dupl // test data intentionally similar
 			// IP1: All fail
 			{
 				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeICMP, Metadata: deviceMeta2},
@@ -495,7 +496,7 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 					"192.168.1.2,10.0.0.1,10.0.0.1,10.0.0.1"
 
 				assert.Equal(t, expectedAllIPs2, update.Metadata["scan_all_ips"])
-				assert.Equal(t, "", update.Metadata["scan_available_ips"])
+				assert.Empty(t, update.Metadata["scan_available_ips"])
 				assert.Equal(t, expectedAllIPs2, update.Metadata["scan_unavailable_ips"])
 				assert.Equal(t, "0.0", update.Metadata["scan_availability_percent"])
 
@@ -568,7 +569,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 
 		// Simulate TCP scan results where only port 22 on IP1 succeeds
 		deviceMeta := map[string]interface{}{"armis_device_id": "tcp-test-device-456"}
-		mockResults := []*models.Result{
+		mockResults := []*models.Result{ //nolint:dupl // test data intentionally similar
 			// IP1: Port 22 succeeds, others fail
 			{
 				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
@@ -645,7 +646,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 
 		// Simulate TCP scan results where ALL TCP ports fail on all IPs
 		deviceMeta := map[string]interface{}{"armis_device_id": "tcp-test-device-456"}
-		mockResults := []*models.Result{
+		mockResults := []*models.Result{ //nolint:dupl // test data intentionally similar
 			// IP1: All TCP ports fail
 			{
 				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
@@ -689,7 +690,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 					"Device should be unavailable in TCP-only scan when all TCP ports fail")
 
 				// Verify metadata shows no available IPs
-				assert.Equal(t, "", update.Metadata["scan_available_ips"])
+				assert.Empty(t, update.Metadata["scan_available_ips"])
 				assert.Equal(t, "0.0", update.Metadata["scan_availability_percent"])
 				assert.Equal(t, "0", update.Metadata["scan_available_count"])
 				assert.Equal(t, "6", update.Metadata["scan_unavailable_count"])
@@ -719,7 +720,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 
 		// Simulate scenario where IP1 has all TCP ports closed but IP2 has one open
 		deviceMeta := map[string]interface{}{"armis_device_id": "tcp-test-device-456"}
-		mockResults := []*models.Result{
+		mockResults := []*models.Result{ //nolint:dupl // test data intentionally similar
 			// IP1: All TCP ports fail (device might be blocking TCP as expected)
 			{
 				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},

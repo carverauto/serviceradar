@@ -24,8 +24,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/timeplus-io/proton-go-driver/v2"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 //go:embed migrations/*.sql
@@ -220,9 +221,10 @@ func (p *sqlStatementParser) updateState(line string) {
 
 	// Count parentheses
 	for _, char := range line {
-		if char == '(' {
+		switch char {
+		case '(':
 			p.parenthesesDepth++
-		} else if char == ')' {
+		case ')':
 			p.parenthesesDepth--
 		}
 	}
@@ -275,7 +277,9 @@ func getAppliedMigrations(ctx context.Context, conn proton.Conn) (map[string]str
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	applied := make(map[string]struct{})
 

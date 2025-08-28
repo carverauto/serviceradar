@@ -20,10 +20,11 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/mock/gomock"
+
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"go.uber.org/mock/gomock"
 )
 
 func TestManager(t *testing.T) {
@@ -93,6 +94,7 @@ func TestManager(t *testing.T) {
 				for j := 0; j < iterations; j++ {
 					_ = manager.AddMetric("node1", time.Now(), int64(id*1000+j), "test", "device1", "partition1", "agent1")
 				}
+
 				done <- true
 			}(i)
 		}

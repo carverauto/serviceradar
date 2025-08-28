@@ -24,7 +24,6 @@ import (
 	"crypto/x509/pkix"
 	"testing"
 
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -32,6 +31,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // dummyAuthInfo is a test implementation of credentials.AuthInfo.

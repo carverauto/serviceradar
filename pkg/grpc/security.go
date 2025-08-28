@@ -26,14 +26,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 const (
@@ -321,7 +322,6 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log l
 		ctx,
 		workloadapi.WithAddr(config.WorkloadSocket),
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedWorkloadAPIClient, err)
 	}
@@ -330,7 +330,6 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log l
 		ctx,
 		workloadapi.WithClient(client),
 	)
-
 	if err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("%w: %w", errFailedToCreateX509Source, err)

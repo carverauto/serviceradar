@@ -40,12 +40,14 @@ func NewCachedTokenProvider(provider TokenProvider) *CachedTokenProvider {
 // GetAccessToken returns a cached token if valid, otherwise fetches a new one
 func (c *CachedTokenProvider) GetAccessToken(ctx context.Context) (string, error) {
 	c.mu.RLock()
+
 	if c.token != "" && time.Now().Before(c.expiry) {
 		token := c.token
 		c.mu.RUnlock()
 
 		return token, nil
 	}
+
 	c.mu.RUnlock()
 
 	// Need to fetch a new token

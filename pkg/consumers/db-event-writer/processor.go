@@ -3,13 +3,11 @@ package dbeventwriter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	v1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
@@ -21,11 +19,25 @@ import (
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepbv1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 const (
 	maxInt64      = 9223372036854775807
 	unknownString = "unknown"
+
+	// GELF log levels (RFC 3164)
+	gelfLevelError  = 3 // Error
+	gelfLevelNotice = 5 // Notice
+	gelfLevelInfo   = 6 // Info
+)
+
+var (
+	// ErrFailedToParseCloudEvent indicates that data could not be parsed as a CloudEvent wrapper.
+	ErrFailedToParseCloudEvent = errors.New("failed to parse as CloudEvent wrapper")
 )
 
 // safeUint64ToInt64 safely converts uint64 to int64, capping at maxInt64 if needed
@@ -131,17 +143,18 @@ func parseCloudEvent(b []byte) (string, bool) {
 
 // extractAttributeValue extracts a string value from an attribute based on its type
 func extractAttributeValue(attr *commonv1.KeyValue) string {
-	if attr.Value.GetStringValue() != "" {
+	switch {
+	case attr.Value.GetStringValue() != "":
 		return attr.Value.GetStringValue()
-	} else if attr.Value.GetBoolValue() {
+	case attr.Value.GetBoolValue():
 		return "true"
-	} else if attr.Value.GetIntValue() != 0 {
+	case attr.Value.GetIntValue() != 0:
 		return fmt.Sprintf("%d", attr.Value.GetIntValue())
-	} else if attr.Value.GetDoubleValue() != 0 {
+	case attr.Value.GetDoubleValue() != 0:
 		return fmt.Sprintf("%f", attr.Value.GetDoubleValue())
+	default:
+		return ""
 	}
-
-	return ""
 }
 
 // processResourceAttributes processes resource attributes and extracts service information
@@ -455,13 +468,13 @@ func buildEventRow(b []byte, subject string) models.EventRow {
 func getLogLevelForState(state string) int32 {
 	switch state {
 	case "unhealthy":
-		return 3 // Error
+		return gelfLevelError // Error
 	case "healthy":
-		return 6 // Info
+		return gelfLevelInfo // Info
 	case unknownString:
-		return 5 // Notice
+		return gelfLevelNotice // Notice
 	default:
-		return 6 // Info
+		return gelfLevelInfo // Info
 	}
 }
 
@@ -1008,7 +1021,7 @@ func (p *Processor) parseOTELRequest(msgData []byte, req proto.Message, requestT
 	// Try to parse as CloudEvent wrapper
 	data, ok := parseCloudEvent(msgData)
 	if !ok {
-		return fmt.Errorf("failed to parse as CloudEvent wrapper")
+		return ErrFailedToParseCloudEvent
 	}
 
 	// Try to unmarshal the extracted data
