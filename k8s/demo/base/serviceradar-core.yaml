@@ -41,9 +41,6 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
-        - name: credentials
-          mountPath: /etc/serviceradar/credentials
-          readOnly: true
         env:
         - name: WAIT_FOR_PROTON
           value: "false"
@@ -64,9 +61,25 @@ spec:
             secretKeyRef:
               name: serviceradar-secrets
               key: proton-password
-        envFrom:
-        - secretRef:
-            name: serviceradar-secrets
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: jwt-secret
+        - name: AUTH_PROVIDER
+          value: "local"
+        - name: OAUTH_ENABLED
+          value: "false"
+        - name: ADMIN_BCRYPT_HASH
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: admin-bcrypt-hash
         resources:
           limits:
             cpu: "2"
@@ -120,8 +133,6 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
-      - name: credentials
-        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

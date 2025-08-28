@@ -607,13 +607,19 @@ data:
         echo "Warning: PROTON_PASSWORD environment variable not found"
     fi
     
-    # If PROTON_PASSWORD is available, update the config file
-    if [ -n "$PROTON_PASSWORD" ] && [ -f "$CONFIG_PATH" ]; then
-        echo "Updating configuration with Proton password..."
-        # Create a copy of the config with the password injected
-        cp "$CONFIG_PATH" /tmp/core-original.json
-        jq --arg pwd "$PROTON_PASSWORD" '.database.password = $pwd' /tmp/core-original.json > /tmp/core.json
-        CONFIG_PATH="/tmp/core.json"
+    # Update the config file with secrets using jq for in-place editing
+    if [ -f "$CONFIG_PATH" ]; then
+        echo "Updating configuration with secrets..."
+        
+        # Use jq to update the existing config - match production auth format exactly  
+        jq --arg pwd "$PROTON_PASSWORD" \
+           --arg jwt "$JWT_SECRET" \
+           --arg api_key "$API_KEY" \
+           --arg bcrypt "$ADMIN_BCRYPT_HASH" \
+           '.database.password = $pwd | .auth.jwt_secret = $jwt | .auth.jwt_expiration = "24h" | .auth.local_users.admin = $bcrypt | .api_key = $api_key' \
+           "$CONFIG_PATH" > /var/lib/serviceradar/core.json
+        CONFIG_PATH="/var/lib/serviceradar/core.json"
+        echo "Configuration updated with all secrets and saved to $CONFIG_PATH"
     fi
     
     # Wait for Proton to be ready
