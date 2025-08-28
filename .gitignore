@@ -211,3 +211,6 @@ target/
 
 # Docker generated certificates
 docker/compose/certs/
+
+.gobuildcache/
+.gocache/
