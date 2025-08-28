@@ -671,7 +671,21 @@ data:
       ],
       "interval": "5m",
       "concurrency": 100,
-      "timeout": "10s"
+      "timeout": "10s",
+      "tcp_settings": {
+        "rate_limit": 20000,
+        "rate_limit_burst": 20000,
+        "max_batch": 32,
+        "concurrency": 256,
+        "timeout": "3s"
+      },
+      "high_perf_icmp": true,
+      "icmp_rate_limit": 5000,
+      "icmp_settings": {
+        "rate_limit": 1000,
+        "timeout": "5s",
+        "max_batch": 64
+      }
     } 
 
   external.json: |

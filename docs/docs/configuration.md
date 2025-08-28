@@ -7,6 +7,8 @@ title: Configuration Basics
 
 ServiceRadar components are configured via JSON files in `/etc/serviceradar/`. This guide covers the essential configurations needed to get your monitoring system up and running.
 
+If you deploy with Helm, most of these settings can be set via chart values without editing files in containers. See Helm Deployment and Configuration for value keys and safe defaults.
+
 ## Agent Configuration
 
 The agent runs on each monitored host and collects status information from services.
@@ -523,6 +525,8 @@ For monitoring Dusk nodes, edit `/etc/serviceradar/checkers/dusk.json`:
 
 ### Network Sweep
 
+> Using Helm? You can configure everything in `sweep.json` via chart values instead of editing files. See Helm Deployment and Configuration for keys and examples.
+
 For network scanning, edit `/etc/serviceradar/checkers/sweep/sweep.json`:
 
 ```json
@@ -542,6 +546,8 @@ For network scanning, edit `/etc/serviceradar/checkers/sweep/sweep.json`:
     "concurrency": 256,
     "timeout": "3s",
     "max_batch": 32,
+    "rate_limit": 10000,
+    "rate_limit_burst": 20000,
     "route_discovery_host": "8.8.8.8:80",
     "ring_block_size": 2097152,
     "ring_block_count": 16,
@@ -572,6 +578,8 @@ For network scanning, edit `/etc/serviceradar/checkers/sweep/sweep.json`:
 - `concurrency`: Number of concurrent TCP connections for port scanning (automatically clamped: max 2048 for SYN, max 500 for connect)
 - `timeout`: Timeout for individual TCP connection attempts
 - `max_batch`: Number of SYN packets to send per sendmmsg() call (Linux only, improves performance)
+- `rate_limit`: Global SYN packet rate limit in packets per second (pps). Use this to slow scans to avoid overwhelming upstream connection tracking.
+- `rate_limit_burst`: Optional burst size for the rate limiter. If omitted or 0, it defaults to `rate_limit`.
 - `route_discovery_host`: Target address for local IP discovery (default: "8.8.8.8:80")
 - `ring_block_size`: TPACKET_V3 ring buffer block size in bytes (default: 1MB, max: 8MB)
 - `ring_block_count`: Number of ring buffer blocks (default: 8, max: 32, total max: 64MB)
@@ -689,6 +697,13 @@ For resource-constrained environments:
   "concurrency": 50
 }
 ```
+
+#### SYN Scanner Rate Limiting and Router Tuning
+
+If your upstream firewall/router maintains connection tracking state (most do), high-speed SYN scans can pressure its conntrack tables. You now have two mitigation paths:
+
+- Scanner knob: set `tcp_settings.rate_limit` (and optional `rate_limit_burst`) to reduce SYN pps from the agent.
+- Network knob: if you control the upstream device and want to keep scans fast, apply targeted conntrack tuning and NOTRACK rules. See the dedicated guide: [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
 
 #### Security and Privileges
 

@@ -263,27 +263,34 @@ data:
 
   sweep.json: |
     {
-      "networks": [
-          "192.168.2.0/24",
-          "192.168.3.1/32"
-      ],
-      "ports": [
-        22,
-        80,
-        443,
-        3306,
-        5432,
-        6379,
-        8080,
-        8443
-      ],
-      "sweep_modes": [
-        "icmp",
-        "tcp"
-      ],
-      "interval": "5m",
-      "concurrency": 100,
-      "timeout": "10s"
+      "networks": {{ (.Values.sweep.networks | default (list "192.168.2.0/24" "192.168.3.1/32")) | toJson }},
+      "ports": {{ (.Values.sweep.ports | default (list 22 80 443 3306 5432 6379 8080 8443)) | toJson }},
+      "sweep_modes": {{ (.Values.sweep.modes | default (list "icmp" "tcp")) | toJson }},
+      "interval": "{{ .Values.sweep.interval | default "5m" }}",
+      "concurrency": {{ .Values.sweep.concurrency | default 100 }},
+      "timeout": "{{ .Values.sweep.timeout | default "10s" }}",
+      "tcp_settings": {
+        "rate_limit": {{ .Values.sweep.tcp.rateLimit | default 20000 }},
+        "rate_limit_burst": {{ .Values.sweep.tcp.rateLimitBurst | default 20000 }},
+        "max_batch": {{ .Values.sweep.tcp.maxBatch | default 32 }},
+        "concurrency": {{ .Values.sweep.tcp.concurrency | default 256 }},
+        "timeout": "{{ .Values.sweep.tcp.timeout | default "3s" }}",
+        "route_discovery_host": "{{ .Values.sweep.tcp.routeDiscoveryHost | default "8.8.8.8:80" }}",
+        "ring_block_size": {{ .Values.sweep.tcp.ringBlockSize | default 0 }},
+        "ring_block_count": {{ .Values.sweep.tcp.ringBlockCount | default 0 }},
+        "interface": "{{ .Values.sweep.tcp.interface | default "" }}",
+        "suppress_rst_reply": {{ .Values.sweep.tcp.suppressRSTReply | default false }},
+        "global_ring_memory_mb": {{ .Values.sweep.tcp.globalRingMemoryMB | default 0 }},
+        "ring_readers": {{ .Values.sweep.tcp.ringReaders | default 0 }},
+        "ring_poll_timeout_ms": {{ .Values.sweep.tcp.ringPollTimeoutMs | default 0 }}
+      },
+      "high_perf_icmp": {{ .Values.sweep.icmp.highPerf | default true }},
+      "icmp_rate_limit": {{ .Values.sweep.icmp.rateLimit | default 5000 }},
+      "icmp_settings": {
+        "rate_limit": {{ .Values.sweep.icmp.settings.rateLimit | default 1000 }},
+        "timeout": "{{ .Values.sweep.icmp.settings.timeout | default "5s" }}",
+        "max_batch": {{ .Values.sweep.icmp.settings.maxBatch | default 64 }}
+      }
     } 
 
   external.json: |
