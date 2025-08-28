@@ -26,3 +26,17 @@ spec:
   - port: 50057
     targetPort: 50057
     name: grpc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core
+  namespace: serviceradar-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-core.serviceradar-staging.svc.cluster.local
+  ports:
+  - port: 8090
+    targetPort: 8090
+    name: http

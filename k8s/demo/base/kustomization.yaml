@@ -22,6 +22,8 @@ resources:
 - configmap.yaml
 - cert-scripts-configmap.yaml
 - cert-generator-job.yaml
+# Aliases for legacy service DNS names
+- service-aliases.yaml
 # Note: configmap.yaml now includes NATS configuration with proper authorization
 
 labels:

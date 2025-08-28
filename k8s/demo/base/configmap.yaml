@@ -376,6 +376,7 @@ data:
     {
       "node_address": "localhost:50051",
       "listen_addr": ":50054",
+      "partition": "k8s",
       "security": {
         "server_name": "serviceradar-demo",
         "mode": "none",
