@@ -34,6 +34,18 @@ secrets:
   # Provide adminBcryptHash to avoid in-cluster generation.
   adminBcryptHash: ""
 
+# Proton (TimeStream DB) configuration
+proton:
+  resources:
+    requests:
+      cpu: "1"
+      memory: "8Gi"
+    limits:
+      cpu: "4"
+      memory: "16Gi"
+  storage:
+    size: "150Gi"
+
 # Network sweep defaults (can be tuned per-deploy)
 sweep:
   # Target networks and ports to scan
