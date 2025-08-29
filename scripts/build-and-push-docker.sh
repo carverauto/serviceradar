@@ -44,11 +44,26 @@ Build and push ServiceRadar Docker images to GitHub Container Registry (GHCR)
 OPTIONS:
   -t, --tag TAG        Tag for the images (default: $DEFAULT_TAG)
   -p, --push           Push images after building (requires docker login)
-  -a, --all            Build all images (core, proton, web, cert-generator)
+  -a, --all            Build all images
   -c, --core           Build only core image
   -d, --proton         Build only proton image
   -w, --web            Build only web image
   -g, --cert-gen       Build only cert-generator image
+  --agent              Build only agent image
+  --config-updater     Build only config-updater image
+  --db-event-writer    Build only db-event-writer image
+  --flowgger           Build only flowgger image
+  --kv                 Build only kv image
+  --mapper             Build only mapper image
+  --nginx              Build only nginx image
+  --otel               Build only otel image
+  --poller             Build only poller image
+  --rperf-client       Build only rperf-client image
+  --snmp-checker       Build only snmp-checker image
+  --sync               Build only sync image
+  --tools              Build only tools image
+  --trapd              Build only trapd image
+  --zen                Build only zen image
   --platform PLATFORM  Target platform (default: auto-detected based on --push)
   --force-multiplatform Force multi-platform build even without --push
   --no-cache           Build without cache
@@ -85,6 +100,21 @@ BUILD_CORE=false
 BUILD_PROTON=false
 BUILD_WEB=false
 BUILD_CERT_GEN=false
+BUILD_AGENT=false
+BUILD_CONFIG_UPDATER=false
+BUILD_DB_EVENT_WRITER=false
+BUILD_FLOWGGER=false
+BUILD_KV=false
+BUILD_MAPPER=false
+BUILD_NGINX=false
+BUILD_OTEL=false
+BUILD_POLLER=false
+BUILD_RPERF_CLIENT=false
+BUILD_SNMP_CHECKER=false
+BUILD_SYNC=false
+BUILD_TOOLS=false
+BUILD_TRAPD=false
+BUILD_ZEN=false
 PLATFORM=""  # Will be set based on push flag
 NO_CACHE=""
 FORCE_MULTIPLATFORM=false
@@ -119,6 +149,66 @@ while [[ $# -gt 0 ]]; do
             BUILD_CERT_GEN=true
             shift
             ;;
+        --agent)
+            BUILD_AGENT=true
+            shift
+            ;;
+        --config-updater)
+            BUILD_CONFIG_UPDATER=true
+            shift
+            ;;
+        --db-event-writer)
+            BUILD_DB_EVENT_WRITER=true
+            shift
+            ;;
+        --flowgger)
+            BUILD_FLOWGGER=true
+            shift
+            ;;
+        --kv)
+            BUILD_KV=true
+            shift
+            ;;
+        --mapper)
+            BUILD_MAPPER=true
+            shift
+            ;;
+        --nginx)
+            BUILD_NGINX=true
+            shift
+            ;;
+        --otel)
+            BUILD_OTEL=true
+            shift
+            ;;
+        --poller)
+            BUILD_POLLER=true
+            shift
+            ;;
+        --rperf-client)
+            BUILD_RPERF_CLIENT=true
+            shift
+            ;;
+        --snmp-checker)
+            BUILD_SNMP_CHECKER=true
+            shift
+            ;;
+        --sync)
+            BUILD_SYNC=true
+            shift
+            ;;
+        --tools)
+            BUILD_TOOLS=true
+            shift
+            ;;
+        --trapd)
+            BUILD_TRAPD=true
+            shift
+            ;;
+        --zen)
+            BUILD_ZEN=true
+            shift
+            ;;
         --platform)
             PLATFORM="$2"
             shift 2
@@ -144,7 +234,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 # If no specific image is selected, build all
-if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == false && "$BUILD_WEB" == false && "$BUILD_CERT_GEN" == false ]]; then
+if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == false && "$BUILD_WEB" == false && "$BUILD_CERT_GEN" == false && \
+      "$BUILD_AGENT" == false && "$BUILD_CONFIG_UPDATER" == false && "$BUILD_DB_EVENT_WRITER" == false && "$BUILD_FLOWGGER" == false && \
+      "$BUILD_KV" == false && "$BUILD_MAPPER" == false && "$BUILD_NGINX" == false && "$BUILD_OTEL" == false && "$BUILD_POLLER" == false && \
+      "$BUILD_RPERF_CLIENT" == false && "$BUILD_SNMP_CHECKER" == false && "$BUILD_SYNC" == false && "$BUILD_TOOLS" == false && \
+      "$BUILD_TRAPD" == false && "$BUILD_ZEN" == false ]]; then
     BUILD_ALL=true
 fi
 
@@ -327,6 +421,81 @@ EOF
     
     # Clean up temporary Dockerfile
     rm -f docker/compose/Dockerfile.cert-generator
+fi
+
+# Build Agent service
+if [[ "$BUILD_ALL" == true || "$BUILD_AGENT" == true ]]; then
+    build_image "agent" "docker/compose/Dockerfile.agent" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Config Updater service
+if [[ "$BUILD_ALL" == true || "$BUILD_CONFIG_UPDATER" == true ]]; then
+    build_image "config-updater" "docker/compose/Dockerfile.config-updater" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build DB Event Writer service
+if [[ "$BUILD_ALL" == true || "$BUILD_DB_EVENT_WRITER" == true ]]; then
+    build_image "db-event-writer" "docker/compose/Dockerfile.db-event-writer" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Flowgger service
+if [[ "$BUILD_ALL" == true || "$BUILD_FLOWGGER" == true ]]; then
+    build_image "flowgger" "docker/compose/Dockerfile.flowgger" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build KV service
+if [[ "$BUILD_ALL" == true || "$BUILD_KV" == true ]]; then
+    build_image "kv" "docker/compose/Dockerfile.kv" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Mapper service
+if [[ "$BUILD_ALL" == true || "$BUILD_MAPPER" == true ]]; then
+    build_image "mapper" "docker/compose/Dockerfile.mapper" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Nginx service
+if [[ "$BUILD_ALL" == true || "$BUILD_NGINX" == true ]]; then
+    build_image "nginx" "docker/compose/Dockerfile.nginx" ""
+fi
+
+# Build OTEL service
+if [[ "$BUILD_ALL" == true || "$BUILD_OTEL" == true ]]; then
+    build_image "otel" "docker/compose/Dockerfile.otel" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Poller service
+if [[ "$BUILD_ALL" == true || "$BUILD_POLLER" == true ]]; then
+    build_image "poller" "docker/compose/Dockerfile.poller" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build RPerf Client service
+if [[ "$BUILD_ALL" == true || "$BUILD_RPERF_CLIENT" == true ]]; then
+    build_image "rperf-client" "docker/compose/Dockerfile.rperf-client" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build SNMP Checker service
+if [[ "$BUILD_ALL" == true || "$BUILD_SNMP_CHECKER" == true ]]; then
+    build_image "snmp-checker" "docker/compose/Dockerfile.snmp-checker" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Sync service
+if [[ "$BUILD_ALL" == true || "$BUILD_SYNC" == true ]]; then
+    build_image "sync" "docker/compose/Dockerfile.sync" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Tools service
+if [[ "$BUILD_ALL" == true || "$BUILD_TOOLS" == true ]]; then
+    build_image "tools" "docker/compose/Dockerfile.tools" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Trapd service
+if [[ "$BUILD_ALL" == true || "$BUILD_TRAPD" == true ]]; then
+    build_image "trapd" "docker/compose/Dockerfile.trapd" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Zen service
+if [[ "$BUILD_ALL" == true || "$BUILD_ZEN" == true ]]; then
+    build_image "zen" "docker/compose/Dockerfile.zen" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
 fi
 
 log "Build process completed!"
