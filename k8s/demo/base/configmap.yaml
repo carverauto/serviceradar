@@ -550,6 +550,17 @@ data:
     ln -sf /etc/serviceradar/certs/proton-key.pem /etc/proton-server/certs/proton-key.pem
     ln -sf /etc/serviceradar/certs/root.pem /etc/proton-server/certs/root.pem
     
+    # Generate DH parameters if not present (for SSL security)
+    echo "[Proton K8s Init] Checking DH parameters..."
+    if [ ! -f "/etc/proton-server/dhparam.pem" ]; then
+        echo "[Proton K8s Init] Generating DH parameters (this may take a few minutes for security)..."
+        openssl dhparam -out /etc/proton-server/dhparam.pem 2048
+        chmod 644 /etc/proton-server/dhparam.pem
+        echo "[Proton K8s Init] DH parameters generated successfully"
+    else
+        echo "[Proton K8s Init] DH parameters already exist"
+    fi
+    
     # Run only the setup parts of the original init script  
     cp /usr/local/bin/proton-init.sh /tmp/proton-init-original.sh
     sed -i '/^ulimit/d' /tmp/proton-init-original.sh
