@@ -14,7 +14,7 @@ env:
 
 jobs:
   prepare:
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
     outputs:
@@ -39,7 +39,7 @@ jobs:
   # Infrastructure Services
   build-cert-generator:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -103,7 +103,7 @@ jobs:
 
   build-config-updater:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -152,7 +152,7 @@ jobs:
 
   build-proton:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -199,7 +199,7 @@ jobs:
   # Core Services
   build-core:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -248,7 +248,7 @@ jobs:
 
   build-web:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -297,7 +297,7 @@ jobs:
 
   build-poller:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -346,7 +346,7 @@ jobs:
 
   build-agent:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -396,7 +396,7 @@ jobs:
   # Data Services
   build-kv:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -445,7 +445,7 @@ jobs:
 
   build-sync:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -494,7 +494,7 @@ jobs:
 
   build-db-event-writer:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -544,7 +544,7 @@ jobs:
   # Observability Services (Rust)
   build-otel:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -593,7 +593,7 @@ jobs:
 
   build-flowgger:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -642,7 +642,7 @@ jobs:
 
   build-trapd:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -691,7 +691,7 @@ jobs:
 
   build-zen:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -741,7 +741,7 @@ jobs:
   # Checker Services
   build-mapper:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -790,7 +790,7 @@ jobs:
 
   build-snmp-checker:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
@@ -839,7 +839,7 @@ jobs:
 
   build-rperf-client:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: ubuntu
     permissions:
       contents: read
       packages: write
