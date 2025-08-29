@@ -71,11 +71,11 @@ spec:
             name: serviceradar-secrets
         resources:
           limits:
-            cpu: "4"
-            memory: "8Gi"
+            cpu: {{ .Values.proton.resources.limits.cpu | quote }}
+            memory: {{ .Values.proton.resources.limits.memory | quote }}
           requests:
-            cpu: "1"
-            memory: "4Gi"
+            cpu: {{ .Values.proton.resources.requests.cpu | quote }}
+            memory: {{ .Values.proton.resources.requests.memory | quote }}
         livenessProbe:
           tcpSocket:
             port: 8123
@@ -133,4 +133,4 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 20Gi
+      storage: {{ .Values.proton.storage.size }}
