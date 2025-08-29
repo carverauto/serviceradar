@@ -18,8 +18,40 @@ duplicate device handling and other edge cases in device discovery.
 # Nothing to build, binary is already built
 
 %install
-# Copy files from buildroot
-cp -a %{buildroot}/* %{buildroot}/
+# Create necessary directories
+mkdir -p %{buildroot}/usr/local/bin
+mkdir -p %{buildroot}/usr/share/serviceradar/faker/config
+mkdir -p %{buildroot}/usr/share/serviceradar/faker/systemd
+mkdir -p %{buildroot}/usr/share/serviceradar/faker/scripts
+mkdir -p %{buildroot}/var/lib/serviceradar/faker
+mkdir -p %{buildroot}/var/log/serviceradar
+mkdir -p %{buildroot}/etc/serviceradar
+
+# Install the binary
+install -m 755 %{_builddir}/serviceradar-faker %{buildroot}/usr/local/bin/
+
+# Install config file
+install -m 644 %{_sourcedir}/config/faker.json %{buildroot}/usr/share/serviceradar/faker/config/
+
+# Install systemd service file
+install -m 644 %{_sourcedir}/systemd/serviceradar-faker.service %{buildroot}/usr/share/serviceradar/faker/systemd/
+
+# Install scripts (create dummy scripts if they don't exist)
+cat > %{buildroot}/usr/share/serviceradar/faker/scripts/postinstall.sh << 'EOF'
+#!/bin/bash
+# Post-install script for serviceradar-faker
+systemctl daemon-reload
+systemctl enable serviceradar-faker.service
+EOF
+chmod 755 %{buildroot}/usr/share/serviceradar/faker/scripts/postinstall.sh
+
+cat > %{buildroot}/usr/share/serviceradar/faker/scripts/preremove.sh << 'EOF'
+#!/bin/bash
+# Pre-remove script for serviceradar-faker
+systemctl stop serviceradar-faker.service
+systemctl disable serviceradar-faker.service
+EOF
+chmod 755 %{buildroot}/usr/share/serviceradar/faker/scripts/preremove.sh
 
 %files
 %defattr(-,root,root,-)
