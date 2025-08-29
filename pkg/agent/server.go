@@ -182,18 +182,48 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 		return nil, ErrAgentIDRequired
 	}
 
-	c := &models.Config{
-		Networks:      sweepConfig.Networks,
-		Ports:         sweepConfig.Ports,
-		SweepModes:    sweepConfig.SweepModes,
-		DeviceTargets: sweepConfig.DeviceTargets,
-		Interval:      time.Duration(sweepConfig.Interval),
-		Concurrency:   sweepConfig.Concurrency,
-		Timeout:       time.Duration(sweepConfig.Timeout),
-		AgentID:       cfg.AgentID,
-		PollerID:      cfg.AgentID, // Use AgentID as PollerID for now
-		Partition:     cfg.Partition,
-	}
+    c := &models.Config{
+        Networks:      sweepConfig.Networks,
+        Ports:         sweepConfig.Ports,
+        SweepModes:    sweepConfig.SweepModes,
+        DeviceTargets: sweepConfig.DeviceTargets,
+        Interval:      time.Duration(sweepConfig.Interval),
+        Concurrency:   sweepConfig.Concurrency,
+        Timeout:       time.Duration(sweepConfig.Timeout),
+        AgentID:       cfg.AgentID,
+        PollerID:      cfg.AgentID, // Use AgentID as PollerID for now
+        Partition:     cfg.Partition,
+        // ICMP settings
+        EnableHighPerformanceICMP: sweepConfig.HighPerfICMP,
+        ICMPRateLimit:             sweepConfig.ICMPRateLimit,
+    }
+
+    // Pass-through detailed ICMP settings if present
+    c.ICMPSettings.RateLimit = sweepConfig.ICMPSettings.RateLimit
+    if sweepConfig.ICMPSettings.Timeout > 0 {
+        c.ICMPSettings.Timeout = time.Duration(sweepConfig.ICMPSettings.Timeout)
+    }
+    c.ICMPSettings.MaxBatch = sweepConfig.ICMPSettings.MaxBatch
+
+    // Pass-through TCP SYN scanner settings if present
+    c.TCPSettings.Concurrency = sweepConfig.TCPSettings.Concurrency
+    if sweepConfig.TCPSettings.Timeout > 0 {
+        c.TCPSettings.Timeout = time.Duration(sweepConfig.TCPSettings.Timeout)
+    }
+    c.TCPSettings.MaxBatch = sweepConfig.TCPSettings.MaxBatch
+    c.TCPSettings.RouteDiscoveryHost = sweepConfig.TCPSettings.RouteDiscoveryHost
+    c.TCPSettings.RateLimit = sweepConfig.TCPSettings.RateLimit
+    c.TCPSettings.RateLimitBurst = sweepConfig.TCPSettings.RateLimitBurst
+    c.TCPSettings.RingBlockSize = sweepConfig.TCPSettings.RingBlockSize
+    c.TCPSettings.RingBlockCount = sweepConfig.TCPSettings.RingBlockCount
+    c.TCPSettings.Interface = sweepConfig.TCPSettings.Interface
+    c.TCPSettings.SuppressRSTReply = sweepConfig.TCPSettings.SuppressRSTReply
+    c.TCPSettings.GlobalRingMemoryMB = sweepConfig.TCPSettings.GlobalRingMemoryMB
+    c.TCPSettings.RingReaders = sweepConfig.TCPSettings.RingReaders
+    c.TCPSettings.RingPollTimeoutMs = sweepConfig.TCPSettings.RingPollTimeoutMs
+    c.TCPSettings.ConntrackTableSize = sweepConfig.TCPSettings.ConntrackTableSize
+    c.TCPSettings.ConntrackTimeoutSec = sweepConfig.TCPSettings.ConntrackTimeoutSec
+    c.TCPSettings.ConntrackSafetyFactor = sweepConfig.TCPSettings.ConntrackSafetyFactor
 
 	// Prioritize AgentID as the unique identifier for the KV path.
 	// Fall back to AgentName if AgentID is not set.

@@ -259,6 +259,34 @@ func configureSYNScannerOptions(config *models.Config, log logger.Logger) *scan.
             Msg("Using configured global ring buffer memory limit")
     }
 
+    // Configure rate limiting for connection tracking protection
+    if config.TCPSettings.RateLimit > 0 {
+        opts.RateLimit = config.TCPSettings.RateLimit
+        log.Debug().Int("rate_limit", opts.RateLimit).
+            Msg("Using configured rate limit for SYN scanner")
+    }
+    if config.TCPSettings.RateLimitBurst > 0 {
+        opts.RateLimitBurst = config.TCPSettings.RateLimitBurst
+        log.Debug().Int("rate_limit_burst", opts.RateLimitBurst).
+            Msg("Using configured rate limit burst for SYN scanner")
+    }
+
+    // Configure connection tracking table protection settings
+    if config.TCPSettings.ConntrackTableSize > 0 {
+        opts.ConntrackTableSize = config.TCPSettings.ConntrackTableSize
+        log.Debug().Uint32("conntrack_table_size", opts.ConntrackTableSize).
+            Msg("Using configured connection tracking table size")
+    }
+    if config.TCPSettings.ConntrackTimeoutSec > 0 {
+        opts.ConntrackTimeoutSec = config.TCPSettings.ConntrackTimeoutSec
+        log.Debug().Uint32("conntrack_timeout_sec", opts.ConntrackTimeoutSec).
+            Msg("Using configured connection tracking timeout")
+    }
+    if config.TCPSettings.ConntrackSafetyFactor > 0 {
+        opts.ConntrackSafetyFactor = config.TCPSettings.ConntrackSafetyFactor
+        log.Debug().Float64("conntrack_safety_factor", opts.ConntrackSafetyFactor).
+            Msg("Using configured connection tracking safety factor")
+    }
 
     return opts
 }
@@ -1478,6 +1506,10 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			MaxBatch           int
 			RouteDiscoveryHost string `json:"route_discovery_host,omitempty"`
 
+			// Rate limiting for SYN scanning (enforced by connection tracking protection)
+			RateLimit      int `json:"rate_limit,omitempty"`       // SYN packets per second limit
+			RateLimitBurst int `json:"rate_limit_burst,omitempty"` // Burst size for rate limiting
+
 			// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
 			RingBlockSize  int `json:"ring_block_size,omitempty"`  // Block size in bytes (default: 1MB, max: 8MB)
 			RingBlockCount int `json:"ring_block_count,omitempty"` // Number of blocks (default: 8, max: 32, total max: 64MB)
@@ -1494,18 +1526,28 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 			// Ring readers and poll timeout tuning
 			RingReaders       int `json:"ring_readers,omitempty"`
 			RingPollTimeoutMs int `json:"ring_poll_timeout_ms,omitempty"`
+
+			// Connection tracking table protection for stateful firewalls/routers
+			ConntrackTableSize    uint32  `json:"conntrack_table_size,omitempty"`    // Max conntrack entries (default: 65536)
+			ConntrackTimeoutSec   uint32  `json:"conntrack_timeout_sec,omitempty"`   // SYN timeout in seconds (default: 60)
+			ConntrackSafetyFactor float64 `json:"conntrack_safety_factor,omitempty"` // Safety margin 0.0-1.0 (default: 0.8)
 		}{
-			Concurrency:        temp.TCPSettings.Concurrency,
-			Timeout:            time.Duration(temp.TCPSettings.Timeout),
-			MaxBatch:           temp.TCPSettings.MaxBatch,
-			RouteDiscoveryHost: temp.TCPSettings.RouteDiscoveryHost,
-			RingBlockSize:      temp.TCPSettings.RingBlockSize,
-			RingBlockCount:     temp.TCPSettings.RingBlockCount,
-			Interface:          temp.TCPSettings.Interface,
-			SuppressRSTReply:   temp.TCPSettings.SuppressRSTReply,
-			GlobalRingMemoryMB: temp.TCPSettings.GlobalRingMemoryMB,
-			RingReaders:        temp.TCPSettings.RingReaders,
-			RingPollTimeoutMs:  temp.TCPSettings.RingPollTimeoutMs,
+			Concurrency:           temp.TCPSettings.Concurrency,
+			Timeout:               time.Duration(temp.TCPSettings.Timeout),
+			MaxBatch:              temp.TCPSettings.MaxBatch,
+			RouteDiscoveryHost:    temp.TCPSettings.RouteDiscoveryHost,
+			RateLimit:             temp.TCPSettings.RateLimit,
+			RateLimitBurst:        temp.TCPSettings.RateLimitBurst,
+			RingBlockSize:         temp.TCPSettings.RingBlockSize,
+			RingBlockCount:        temp.TCPSettings.RingBlockCount,
+			Interface:             temp.TCPSettings.Interface,
+			SuppressRSTReply:      temp.TCPSettings.SuppressRSTReply,
+			GlobalRingMemoryMB:    temp.TCPSettings.GlobalRingMemoryMB,
+			RingReaders:           temp.TCPSettings.RingReaders,
+			RingPollTimeoutMs:     temp.TCPSettings.RingPollTimeoutMs,
+			ConntrackTableSize:    temp.TCPSettings.ConntrackTableSize,
+			ConntrackTimeoutSec:   temp.TCPSettings.ConntrackTimeoutSec,
+			ConntrackSafetyFactor: temp.TCPSettings.ConntrackSafetyFactor,
 		},
 		EnableHighPerformanceICMP: temp.EnableHighPerformanceICMP,
 		ICMPRateLimit:             temp.ICMPRateLimit,

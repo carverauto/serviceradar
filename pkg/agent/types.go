@@ -56,17 +56,56 @@ type Duration time.Duration
 
 // SweepConfig defines configuration parameters for network sweep operations.
 type SweepConfig struct {
-	MaxTargets    int
-	MaxGoroutines int
-	BatchSize     int
-	MemoryLimit   int64
-	Networks      []string              `json:"networks"`
-	Ports         []int                 `json:"ports"`
-	SweepModes    []models.SweepMode    `json:"sweep_modes"`
-	DeviceTargets []models.DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
-	Interval      Duration              `json:"interval"`
-	Concurrency   int                   `json:"concurrency"`
-	Timeout       Duration              `json:"timeout"`
+    MaxTargets    int
+    MaxGoroutines int
+    BatchSize     int
+    MemoryLimit   int64
+    Networks      []string              `json:"networks"`
+    Ports         []int                 `json:"ports"`
+    SweepModes    []models.SweepMode    `json:"sweep_modes"`
+    DeviceTargets []models.DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+    Interval      Duration              `json:"interval"`
+    Concurrency   int                   `json:"concurrency"`
+    Timeout       Duration              `json:"timeout"`
+    // ICMP knobs (mirrors models.Config fields for pass-through)
+    HighPerfICMP  bool `json:"high_perf_icmp,omitempty"`
+    ICMPRateLimit int  `json:"icmp_rate_limit,omitempty"`
+    ICMPSettings  struct {
+        RateLimit int      `json:"rate_limit"`
+        Timeout   Duration `json:"timeout,omitempty"`
+        MaxBatch  int      `json:"max_batch"`
+    } `json:"icmp_settings,omitempty"`
+    // TCP SYN scanner knobs (mirrors models.Config TCPSettings for pass-through)
+    TCPSettings struct {
+        Concurrency        int      `json:"concurrency"`
+        Timeout            Duration `json:"timeout,omitempty"`
+        MaxBatch           int      `json:"max_batch"`
+        RouteDiscoveryHost string   `json:"route_discovery_host,omitempty"`
+
+        // Rate limiting (pps and optional burst)
+        RateLimit      int `json:"rate_limit,omitempty"`
+        RateLimitBurst int `json:"rate_limit_burst,omitempty"`
+
+        // Ring buffer tuning
+        RingBlockSize  int `json:"ring_block_size,omitempty"`
+        RingBlockCount int `json:"ring_block_count,omitempty"`
+
+        // Interface selection
+        Interface string `json:"interface,omitempty"`
+
+        // Advanced NAT/firewall compatibility
+        SuppressRSTReply bool `json:"suppress_rst_reply,omitempty"`
+
+        // Global ring memory cap (MB), ring readers, and poll timeout
+        GlobalRingMemoryMB int `json:"global_ring_memory_mb,omitempty"`
+        RingReaders        int `json:"ring_readers,omitempty"`
+        RingPollTimeoutMs  int `json:"ring_poll_timeout_ms,omitempty"`
+
+        // Conntrack protection
+        ConntrackTableSize    uint32  `json:"conntrack_table_size,omitempty"`
+        ConntrackTimeoutSec   uint32  `json:"conntrack_timeout_sec,omitempty"`
+        ConntrackSafetyFactor float64 `json:"conntrack_safety_factor,omitempty"`
+    } `json:"tcp_settings,omitempty"`
 }
 
 // CheckerConfig defines the configuration for individual checker services.

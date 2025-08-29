@@ -80,6 +80,38 @@ func getSendBatchSize() int {
 	return defaultSendBatchSize
 }
 
+// calculateConntrackSafeRate computes the maximum safe SYN rate to avoid overwhelming
+// the connection tracking table on stateful firewalls/routers.
+//
+// Formula: maxRate = (tableSize * safetyFactor) / timeoutSeconds
+//
+// This ensures we never have more than (tableSize * safetyFactor) concurrent
+// SYN entries in the conntrack table at any given time.
+func calculateConntrackSafeRate(tableSize uint32, timeoutSec uint32, safetyFactor float64) int {
+	if tableSize == 0 {
+		tableSize = defaultConntrackTableSize
+	}
+	if timeoutSec == 0 {
+		timeoutSec = defaultConntrackTimeout
+	}
+	if safetyFactor <= 0 || safetyFactor > 1.0 {
+		safetyFactor = defaultConntrackSafety
+	}
+
+	// Calculate max concurrent entries we can safely use
+	maxConcurrent := float64(tableSize) * safetyFactor
+	
+	// Rate = concurrent entries / time they live in the table
+	safeRate := int(maxConcurrent / float64(timeoutSec))
+
+	// Ensure minimum viable rate
+	if safeRate < minSafeRatePPS {
+		safeRate = minSafeRatePPS
+	}
+
+	return safeRate
+}
+
 const (
 	// TCP flags
 	synFlag = 0x02
@@ -139,7 +171,7 @@ const (
 	// Buffer and memory constants
 	sendBufferSizeMB    = 8     // Send buffer size in MB (8MB = 8<<20)
 	minRingMemoryMB     = 1     // Minimum ring memory per ring (1MB = 1024*1024)
-	minSafeRatePPS      = 500   // Minimum safe packet rate (packets per second)
+	minSafeRatePPS      = 100   // Minimum safe packet rate (packets per second) - lowered for router protection
 	maxConservativeRate = 25000 // Conservative maximum rate limit (25k pps)
 	defaultTTL          = 64    // Default IP TTL value
 	maxRandomID         = 65535 // Maximum random ID value
@@ -171,6 +203,11 @@ const (
 	bytesPerKB   = 1024 // Bytes per kilobyte
 	bitsPerShift = 20   // Bit shift for MB conversion (1MB = 1<<20)
 	uint32Size   = 4    // Size of uint32 in bytes
+
+	// Connection tracking defaults (Linux netfilter)
+	defaultConntrackTableSize = 65536 // Default conntrack table size
+	defaultConntrackTimeout   = 60    // Default SYN timeout in seconds  
+	defaultConntrackSafety    = 0.4   // Use 40% of table capacity (conservative for router stability)
 )
 
 // ScannerStats holds performance and diagnostic counters
@@ -646,6 +683,18 @@ type SYNScannerOptions struct {
 	// If 0, defaults to max(TPACKET_RETIRE_TOV_MS, 50). Raising this reduces
 	// wakeups when traffic is sparse, cutting CPU in listenForReplies.
 	RingPollTimeoutMs int
+
+	// Connection tracking table protection for stateful firewalls/routers
+	// ConntrackTableSize is the maximum number of connection tracking entries
+	// If 0, defaults to 65536 (common Linux default). Used to calculate safe SYN rate.
+	ConntrackTableSize uint32
+	// ConntrackTimeoutSec is the SYN timeout in the connection tracking table
+	// If 0, defaults to 60 seconds (common Linux default for TCP SYN tracking).
+	ConntrackTimeoutSec uint32
+	// ConntrackSafetyFactor is the safety margin for conntrack usage (0.0-1.0)
+	// If 0, defaults to 0.8 (use 80% of conntrack table to leave headroom).
+	// Set to 1.0 to use full table capacity (not recommended).
+	ConntrackSafetyFactor float64
 }
 
 // batchArrays holds reusable arrays for sendmmsg batching
@@ -1611,8 +1660,36 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 			Msg("Auto-trimmed safeCapacityPPS due to fallback to conflicting ephemeral window")
 	}
 
+	// Calculate connection tracking safe rate to protect router/firewall conntrack tables
+	var conntrackSafeRate int
+	if opts != nil {
+		conntrackSafeRate = calculateConntrackSafeRate(opts.ConntrackTableSize, opts.ConntrackTimeoutSec, opts.ConntrackSafetyFactor)
+	} else {
+		conntrackSafeRate = calculateConntrackSafeRate(0, 0, 0) // use defaults
+	}
+
+	log.Debug().
+		Int("portCapacityRate", safeCapacityPPS).
+		Int("conntrackSafeRate", conntrackSafeRate).
+		Msg("Calculated safe rates for port allocation and connection tracking")
+
+	// Use the most restrictive rate to ensure we don't exceed any limits
+	effectiveSafeRate := safeCapacityPPS
+	var limitingFactor string = "port_allocation"
+	
+	if conntrackSafeRate < safeCapacityPPS {
+		effectiveSafeRate = conntrackSafeRate
+		limitingFactor = "connection_tracking"
+		
+		log.Info().
+			Int("portCapacityRate", safeCapacityPPS).
+			Int("conntrackSafeRate", conntrackSafeRate).
+			Int("effectiveRate", effectiveSafeRate).
+			Msg("Connection tracking limit is more restrictive than port allocation limit")
+	}
+
 	if opts != nil && opts.RateLimit > 0 {
-		// Use explicitly provided rate limit
+		// Use explicitly provided rate limit, BUT enforce connection tracking safety
 		rateLimitPPS = opts.RateLimit
 
 		rateLimitBurst = opts.RateLimitBurst
@@ -1620,34 +1697,62 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 			rateLimitBurst = rateLimitPPS
 		}
 
-		// Warn if user rate limit exceeds safe window/hold capacity
-		if rateLimitPPS > safeCapacityPPS {
+		// ENFORCE connection tracking protection by capping user rate limit
+		originalUserRate := rateLimitPPS
+		
+		// Cap at the most restrictive safe rate to protect infrastructure
+		if rateLimitPPS > effectiveSafeRate {
+			rateLimitPPS = effectiveSafeRate
+			rateLimitBurst = rateLimitPPS // Also cap burst to match
+			
 			log.Warn().
-				Int("userRateLimit", rateLimitPPS).
-				Int("safeCapacity", safeCapacityPPS).
+				Int("requestedRateLimit", originalUserRate).
+				Int("enforcedRateLimit", rateLimitPPS).
+				Str("limitingFactor", limitingFactor).
+				Msg("ENFORCED connection tracking protection: User rate limit exceeds safe infrastructure limits")
+		}
+		
+		// Also warn about specific constraint violations for visibility
+		if originalUserRate > safeCapacityPPS {
+			log.Warn().
+				Int("requestedRate", originalUserRate).
+				Int("portSafeCapacity", safeCapacityPPS).
 				Int("windowSize", window).
 				Dur("holdDuration", hold).
-				Msg("User rate limit exceeds safe window/hold capacity - may cause port allocator starvation")
+				Msg("User rate limit would exceed port allocation capacity")
 		}
-	} else {
-		// Use calculated safe default
-		rateLimitPPS = safeCapacityPPS
-
-		// Apply reasonable bounds
-		if rateLimitPPS < 1000 {
-			rateLimitPPS = 1000 // minimum 1k pps
+		
+		if originalUserRate > conntrackSafeRate {
+			log.Warn().
+				Int("requestedRate", originalUserRate).
+				Int("conntrackSafeRate", conntrackSafeRate).
+				Msg("User rate limit would overflow connection tracking table")
 		}
+    } else {
+        // Use calculated safe default (most restrictive)
+        rateLimitPPS = effectiveSafeRate
 
-		if rateLimitPPS > maxConservativeRate {
-			rateLimitPPS = maxConservativeRate // conservative cap at 25k pps
-		}
+        // Apply reasonable bounds
+        if rateLimitPPS < minSafeRatePPS {
+            // Honor very low safe rates (e.g., constrained routers); don't force 1k pps
+            rateLimitPPS = minSafeRatePPS
+        }
 
-		rateLimitBurst = rateLimitPPS
-	}
+        if rateLimitPPS > maxConservativeRate {
+            rateLimitPPS = maxConservativeRate // conservative cap at 25k pps
+        }
+
+        rateLimitBurst = rateLimitPPS
+        
+        log.Info().
+            Int("finalRateLimit", rateLimitPPS).
+            Str("limitingFactor", limitingFactor).
+            Msg("Applied automatic rate limit based on most restrictive constraint")
+    }
 
 	scanner.SetRateLimit(rateLimitPPS, rateLimitBurst)
 
-	log.Debug().Int("rateLimit", rateLimitPPS).Int("burst", rateLimitBurst).Msg("Set rate limit to prevent port exhaustion")
+	log.Debug().Int("rateLimit", rateLimitPPS).Int("burst", rateLimitBurst).Msg("Set rate limit to prevent port exhaustion and connection tracking overflow")
 
 	// Start the coarse port cleanup reaper
 	scanner.startReaper()
@@ -1662,7 +1767,10 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		Int("windowSize", int(scanner.scanPortEnd-scanner.scanPortStart+1)).
 		Int("rateLimitPPS", rateLimitPPS).
 		Int("rateLimitBurst", rateLimitBurst).
-		Msg("SYN scanner configuration")
+		Int("portSafeCapacity", safeCapacityPPS).
+		Int("conntrackSafeRate", conntrackSafeRate).
+		Str("activeLimitingFactor", limitingFactor).
+		Msg("SYN scanner configuration with connection tracking protection")
 
 	return scanner, nil
 }
@@ -3260,4 +3368,3 @@ func htons(n uint16) uint16 {
 
 	return n
 }
-

@@ -55,6 +55,10 @@ type unmarshalConfig struct {
 		MaxBatch           int             `json:"max_batch"`
 		RouteDiscoveryHost string          `json:"route_discovery_host,omitempty"`
 
+		// Rate limiting for SYN scanning (enforced by connection tracking protection)
+		RateLimit      int `json:"rate_limit,omitempty"`       // SYN packets per second limit
+		RateLimitBurst int `json:"rate_limit_burst,omitempty"` // Burst size for rate limiting
+
 		// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
 		RingBlockSize  int `json:"ring_block_size,omitempty"`  // Block size in bytes (default: 1MB, max: 8MB)
 		RingBlockCount int `json:"ring_block_count,omitempty"` // Number of blocks (default: 8, max: 32, total max: 64MB)
@@ -71,6 +75,11 @@ type unmarshalConfig struct {
 		// Ring readers and poll timeout tuning
 		RingReaders       int `json:"ring_readers,omitempty"`
 		RingPollTimeoutMs int `json:"ring_poll_timeout_ms,omitempty"`
+
+		// Connection tracking table protection for stateful firewalls/routers
+		ConntrackTableSize    uint32  `json:"conntrack_table_size,omitempty"`    // Max conntrack entries (default: 65536)
+		ConntrackTimeoutSec   uint32  `json:"conntrack_timeout_sec,omitempty"`   // SYN timeout in seconds (default: 60)
+		ConntrackSafetyFactor float64 `json:"conntrack_safety_factor,omitempty"` // Safety margin 0.0-1.0 (default: 0.8)
 	} `json:"tcp_settings"`
 	EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`
