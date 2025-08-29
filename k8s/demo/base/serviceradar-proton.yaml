@@ -73,10 +73,10 @@ spec:
         resources:
           limits:
             cpu: "4"
-            memory: "8Gi"
+            memory: "16Gi"
           requests:
             cpu: "1"
-            memory: "4Gi"
+            memory: "8Gi"
         livenessProbe:
           tcpSocket:
             port: 8123
@@ -134,4 +134,4 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 20Gi
+      storage: 150Gi
