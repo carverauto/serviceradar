@@ -46,7 +46,7 @@ jobs:
         - name: Set up Go
           uses: actions/setup-go@v5
           with:
-            go-version: '1.24'
+            go-version: '1.25'
         - name: Set up Docker Buildx
           uses: docker/setup-buildx-action@v3
           with:
@@ -64,12 +64,6 @@ jobs:
             chmod 600 ~/.docker/config.json
             # Verify credentials file was created
             cat ~/.docker/config.json
-        - name: Install dependencies
-          run: |
-            sudo apt-get update
-            sudo apt-get install -y build-essential protobuf-compiler jq golang-go
-            go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-            go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
         - name: Pull required base images
           run: |
             # Pre-pull any required base images to ensure authentication works
@@ -125,12 +119,6 @@ jobs:
             chmod 600 ~/.docker/config.json
             # Verify credentials file was created
             cat ~/.docker/config.json
-        - name: Install dependencies
-          run: |
-            sudo apt-get update
-            sudo apt-get install -y jq protobuf-compiler golang-go
-            go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-            go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
         - name: Create output directory
           run: |
             mkdir -p ./release-artifacts/rpm
@@ -215,7 +203,7 @@ jobs:
           echo "Logged in as: ${{ github.actor }}"
           
           # Simple approach - just use the default buildx
-          ./scripts/build-all-images.sh --push --tag "$TAG"
+          ./scripts/build-images.sh --push --tag "$TAG"
           
           # Also tag as latest for releases  
-          ./scripts/build-all-images.sh --push --tag latest
+          ./scripts/build-images.sh --push --tag latest
