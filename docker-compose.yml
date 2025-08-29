@@ -82,7 +82,7 @@ services:
       - IPC_LOCK
       - SYS_NICE
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8123/?query=SELECT%201 || curl -sf http://default:$(cat /etc/proton-server/generated_password.txt)@localhost:8123/?query=SELECT%201 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8123/?query=SELECT%201 || curl -sf http://default:$$(cat /etc/proton-server/generated_password.txt)@localhost:8123/?query=SELECT%201 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -101,7 +101,7 @@ services:
     build:
       context: .
       dockerfile: docker/compose/Dockerfile.core
-    image: serviceradar-core:local
+    image: ghcr.io/carverauto/serviceradar-core:latest
     container_name: serviceradar-core
     # Expose core ports for debugging authentication
     ports:

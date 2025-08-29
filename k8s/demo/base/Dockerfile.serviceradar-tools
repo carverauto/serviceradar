@@ -1,7 +1,7 @@
 # Dockerfile.serviceradar-tools - Debugging utilities for ServiceRadar
 
 # Build stage for serviceradar-cli
-FROM golang:1.24-bullseye AS builder
+FROM golang:latest AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./

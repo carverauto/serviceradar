@@ -1,4 +1,24 @@
-# Dockerfile.serviceradar-tools - Debugging utilities for ServiceRadar
+# Multi-stage build for ServiceRadar debugging tools
+# Stage 1: Build the CLI tool
+FROM golang:1.25.0 AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy only necessary source files for CLI
+COPY pkg ./pkg
+COPY cmd/cli ./cmd/cli
+
+# Build serviceradar-cli
+ARG VERSION=dev
+ARG BUILD_ID=docker
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=${VERSION} -X github.com/carverauto/serviceradar/pkg/version.buildID=${BUILD_ID}" \
+    -o /usr/local/bin/serviceradar-cli \
+    ./cmd/cli
+
+# Stage 2: Final tools image
 FROM ubuntu:22.04
 
 # Avoid interactive prompts during package installation
@@ -45,8 +65,8 @@ RUN mkdir -p /go/bin /go/src /go/pkg
 RUN go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest && \
     go install github.com/nats-io/natscli/nats@latest
 
-# Copy serviceradar-cli (assuming it's built separately)
-COPY serviceradar-cli /usr/local/bin/serviceradar-cli
+# Copy serviceradar-cli from builder stage
+COPY --from=builder /usr/local/bin/serviceradar-cli /usr/local/bin/serviceradar-cli
 RUN chmod +x /usr/local/bin/serviceradar-cli
 
 # Create helpful aliases and functions

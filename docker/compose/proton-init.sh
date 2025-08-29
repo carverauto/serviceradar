@@ -90,6 +90,17 @@ for dir in /var/lib/proton/tmp /var/lib/proton/checkpoint /var/lib/proton/native
     chown proton:proton "$dir"
 done
 
+# Generate DH parameters if not present (for SSL security)
+log_info "Checking DH parameters..."
+if [ ! -f "/etc/proton-server/dhparam.pem" ]; then
+    log_info "Generating DH parameters (this may take a few minutes for security)..."
+    openssl dhparam -out /etc/proton-server/dhparam.pem 2048
+    chmod 644 /etc/proton-server/dhparam.pem
+    log_info "DH parameters generated successfully"
+else
+    log_info "DH parameters already exist"
+fi
+
 # Verify certificate access
 log_info "Verifying certificate access..."
 if [ -d "/etc/proton-server/certs" ]; then
