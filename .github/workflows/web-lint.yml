@@ -15,8 +15,7 @@
 name: Web Lint
 permissions:
   contents: read
-  metadata: read
-  pull_requests: write
+  pull-requests: write
   statuses: write
 
 on:
