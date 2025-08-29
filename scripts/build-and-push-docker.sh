@@ -49,22 +49,26 @@ OPTIONS:
   -d, --proton         Build only proton image
   -w, --web            Build only web image
   -g, --cert-gen       Build only cert-generator image
-  --platform PLATFORM  Target platform (default: linux/amd64,linux/arm64)
+  --platform PLATFORM  Target platform (default: auto-detected based on --push)
+  --force-multiplatform Force multi-platform build even without --push
   --no-cache           Build without cache
   -h, --help           Show this help
 
 EXAMPLES:
-  # Build all images locally
+  # Build all images locally (single platform)
   $0 --all --tag v1.2.3
 
-  # Build and push core image
+  # Build and push core image (multi-platform)
   $0 --core --push --tag latest
 
-  # Build and push web image
-  $0 --web --push --tag latest
+  # Build and push all images for multi-platform
+  $0 --all --push --tag latest
 
   # Build for specific platform
   $0 --all --platform linux/amd64
+  
+  # Force multi-platform build without push (for CI/CD)
+  $0 --all --force-multiplatform --tag latest
 
 AUTHENTICATION:
   Before pushing, login to GHCR:
@@ -81,8 +85,9 @@ BUILD_CORE=false
 BUILD_PROTON=false
 BUILD_WEB=false
 BUILD_CERT_GEN=false
-PLATFORM="linux/amd64,linux/arm64"
+PLATFORM=""  # Will be set based on push flag
 NO_CACHE=""
+FORCE_MULTIPLATFORM=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -118,6 +123,10 @@ while [[ $# -gt 0 ]]; do
             PLATFORM="$2"
             shift 2
             ;;
+        --force-multiplatform)
+            FORCE_MULTIPLATFORM=true
+            shift
+            ;;
         --no-cache)
             NO_CACHE="--no-cache"
             shift
@@ -137,6 +146,19 @@ done
 # If no specific image is selected, build all
 if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == false && "$BUILD_WEB" == false && "$BUILD_CERT_GEN" == false ]]; then
     BUILD_ALL=true
+fi
+
+# Set platform based on push flag and options
+if [[ -z "$PLATFORM" ]]; then
+    if [[ "$PUSH" == true ]] || [[ "$FORCE_MULTIPLATFORM" == true ]]; then
+        PLATFORM="linux/amd64,linux/arm64"
+        log "Auto-detected platform: Multi-platform ($PLATFORM)"
+    else
+        PLATFORM="linux/amd64"
+        log "Auto-detected platform: Single platform ($PLATFORM) for local build"
+    fi
+else
+    log "Using specified platform: $PLATFORM"
 fi
 
 # Get version info
@@ -170,10 +192,16 @@ fi
 BUILDER_NAME="serviceradar-builder"
 if ! docker buildx inspect "$BUILDER_NAME" >/dev/null 2>&1; then
     log "Creating buildx builder: $BUILDER_NAME"
-    docker buildx create --name "$BUILDER_NAME" --use
+    docker buildx create --name "$BUILDER_NAME" --use --driver docker-container
 else
     log "Using existing buildx builder: $BUILDER_NAME"
     docker buildx use "$BUILDER_NAME"
+fi
+
+# Bootstrap builder for multi-platform support if needed
+if [[ "$PLATFORM" == *","* ]]; then
+    log "Bootstrapping builder for multi-platform support..."
+    docker buildx inspect --bootstrap "$BUILDER_NAME" >/dev/null 2>&1
 fi
 
 # Build function
@@ -188,14 +216,21 @@ build_image() {
     log "Building $full_image_name"
     
     local push_flag=""
+    local build_platform="$PLATFORM"
+    
     if [[ "$PUSH" == true ]]; then
         push_flag="--push"
+    elif [[ "$FORCE_MULTIPLATFORM" == true ]]; then
+        # Multi-platform build without push - just build and cache
+        push_flag=""
+        log "Building multi-platform image without local load (use --push to push to registry)"
     else
         push_flag="--load"
-        # For multi-platform builds without push, we need to use --load with single platform
+        # For local load, we can only use single platform
         if [[ "$PLATFORM" == *","* ]]; then
-            warn "Multi-platform builds require --push flag. Using linux/amd64 only for local load."
-            PLATFORM="linux/amd64"
+            build_platform="linux/amd64"
+            warn "Multi-platform images cannot be loaded locally. Using $build_platform for local load."
+            warn "Use --push to build and push multi-platform, or --force-multiplatform to build without load."
         fi
     fi
     
@@ -206,22 +241,50 @@ build_image() {
         tags="$tags --tag $latest_image_name"
     fi
     
-    docker buildx build \
-        --platform "$PLATFORM" \
-        --file "$dockerfile" \
-        $tags \
-        $build_args \
-        $NO_CACHE \
-        $push_flag \
-        .
+    # Split build_args for proper expansion
+    local build_cmd=(docker buildx build)
+    build_cmd+=(--platform "$build_platform")
+    build_cmd+=(--file "$dockerfile")
+    
+    # Add tags
+    if [[ -n "$tags" ]]; then
+        read -ra tag_array <<< "$tags"
+        for tag in "${tag_array[@]}"; do
+            build_cmd+=("$tag")
+        done
+    fi
+    
+    # Add build args
+    if [[ -n "$build_args" ]]; then
+        read -ra arg_array <<< "$build_args"
+        for arg in "${arg_array[@]}"; do
+            build_cmd+=("$arg")
+        done
+    fi
+    
+    # Add other flags
+    if [[ -n "$NO_CACHE" ]]; then
+        build_cmd+=("$NO_CACHE")
+    fi
+    
+    if [[ -n "$push_flag" ]]; then
+        build_cmd+=("$push_flag")
+    fi
+    
+    build_cmd+=(.)
+    
+    # Execute the build command
+    "${build_cmd[@]}"
     
     if [[ "$PUSH" == true ]]; then
-        success "Built and pushed: $full_image_name"
+        success "Built and pushed: $full_image_name ($build_platform)"
         if [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             success "Also pushed as: $latest_image_name"
         fi
+    elif [[ "$FORCE_MULTIPLATFORM" == true ]]; then
+        success "Built (cached): $full_image_name ($build_platform)"
     else
-        success "Built: $full_image_name"
+        success "Built and loaded: $full_image_name ($build_platform)"
     fi
 }
 
@@ -270,10 +333,16 @@ log "Build process completed!"
 
 if [[ "$PUSH" == false ]]; then
     echo ""
-    warn "Images were built locally but not pushed."
-    log "To push images, run with --push flag after logging in:"
-    log "  echo \$GITHUB_TOKEN | docker login ghcr.io -u \$GITHUB_USERNAME --password-stdin"
-    log "  $0 --push --tag $TAG"
+    if [[ "$FORCE_MULTIPLATFORM" == true ]]; then
+        warn "Multi-platform images were built and cached but not pushed or loaded locally."
+        log "Images are stored in buildx cache and can be pushed later with:"
+        log "  $0 --push --tag $TAG"
+    else
+        warn "Images were built locally but not pushed."
+        log "To push multi-platform images, run with --push flag after logging in:"
+        log "  echo \$GITHUB_TOKEN | docker login ghcr.io -u \$GITHUB_USERNAME --password-stdin"
+        log "  $0 --push --tag $TAG"
+    fi
 fi
 
 echo ""

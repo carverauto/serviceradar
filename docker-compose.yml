@@ -101,7 +101,7 @@ services:
     build:
       context: .
       dockerfile: docker/compose/Dockerfile.core
-    image: serviceradar-core:local
+    image: ghcr.io/carverauto/serviceradar-core:latest
     container_name: serviceradar-core
     # Expose core ports for debugging authentication
     ports:
