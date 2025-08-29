@@ -164,17 +164,23 @@ func NewNetworkSweeper(
 
 // initializeICMPScanner creates an ICMP scanner if needed based on config
 func initializeICMPScanner(config *models.Config, log logger.Logger) scan.Scanner {
-	if !needsICMPScanning(config) {
-		return nil
-	}
+    // Hard-disable ICMP unless explicitly enabled and requested by sweep modes
+    if !config.EnableHighPerformanceICMP {
+        log.Info().Msg("ICMP scanning disabled by configuration (high_perf_icmp=false)")
+        return nil
+    }
 
-	icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to create ICMP scanner, ICMP scanning will be disabled")
-		return nil
-	}
+    if !needsICMPScanning(config) {
+        return nil
+    }
 
-	return icmpScanner
+    icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log)
+    if err != nil {
+        log.Warn().Err(err).Msg("Failed to create ICMP scanner, ICMP scanning will be disabled")
+        return nil
+    }
+
+    return icmpScanner
 }
 
 // needsICMPScanning checks if ICMP scanning is needed based on config
@@ -1747,30 +1753,33 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		}
 	}
 
-	s.logger.Info().
-		Int("icmpTargets", len(icmpTargets)).
-		Int("tcpTargets", len(tcpTargets)).
-		Int("tcpConnectTargets", len(tcpConnectTargets)).
-		Bool("icmpScannerAvailable", s.icmpScanner != nil).
-		Bool("tcpScannerAvailable", s.tcpScanner != nil).
-		Bool("tcpConnectScannerAvailable", s.tcpConnectScanner != nil).
-		Msg("Starting sweep")
+    s.logger.Info().
+        Int("icmpTargets", len(icmpTargets)).
+        Int("tcpTargets", len(tcpTargets)).
+        Int("tcpConnectTargets", len(tcpConnectTargets)).
+        Bool("icmpScannerAvailable", s.icmpScanner != nil).
+        Bool("tcpScannerAvailable", s.tcpScanner != nil).
+        Bool("tcpConnectScannerAvailable", s.tcpConnectScanner != nil).
+        Bool("icmpEnabled", s.config.EnableHighPerformanceICMP).
+        Msg("Starting sweep")
 
 	var wg sync.WaitGroup
 
 	errChan := make(chan error, 3) // Buffer for ICMP, TCP, and TCP connect errors
 
-	if len(icmpTargets) > 0 && s.icmpScanner != nil {
-		wg.Add(1)
+    if len(icmpTargets) > 0 && s.icmpScanner != nil && s.config.EnableHighPerformanceICMP {
+        wg.Add(1)
 
-		go func() {
-			if err := s.scanAndProcess(ctx, &wg, s.icmpScanner, icmpTargets, "icmp"); err != nil {
-				errChan <- err
-			}
-		}()
-	} else if len(icmpTargets) > 0 {
-		s.logger.Warn().Int("icmpTargets", len(icmpTargets)).Msg("ICMP targets found but ICMP scanner is not available, skipping ICMP scan")
-	}
+        go func() {
+            if err := s.scanAndProcess(ctx, &wg, s.icmpScanner, icmpTargets, "icmp"); err != nil {
+                errChan <- err
+            }
+        }()
+    } else if len(icmpTargets) > 0 && !s.config.EnableHighPerformanceICMP {
+        s.logger.Warn().Int("icmpTargets", len(icmpTargets)).Msg("ICMP targets found but ICMP is disabled by configuration (high_perf_icmp=false), skipping ICMP scan")
+    } else if len(icmpTargets) > 0 {
+        s.logger.Warn().Int("icmpTargets", len(icmpTargets)).Msg("ICMP targets found but ICMP scanner is not available, skipping ICMP scan")
+    }
 
 	if len(tcpTargets) > 0 && s.tcpScanner != nil {
 		wg.Add(1)
