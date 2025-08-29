@@ -48,6 +48,9 @@ docker-compose ps
 
 # View logs
 docker-compose logs -f web
+
+# Get Random Generated Admin Password
+docker-compose logs config-updater
 ```
 
 **Access ServiceRadar:**
