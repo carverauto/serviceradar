@@ -1,3 +1,15 @@
+# ServiceRadar Docker Compose Configuration
+#
+# Usage:
+#   Standard deployment (without testing services):
+#     docker-compose up -d
+#   
+#   Include testing services (faker):
+#     docker-compose --profile testing up -d
+#
+# Available profiles:
+#   - testing: Includes the faker service for API testing/development
+
 services:
   # Certificate Generation Service (runs once to generate mTLS certs)
   cert-generator:
@@ -673,12 +685,16 @@ services:
     restart: unless-stopped
 
   # Faker Service - Armis API Emulator for Testing
+  # This service is disabled by default. To enable it, use the 'testing' profile:
+  # docker-compose --profile testing up -d
   faker:
     image: ghcr.io/carverauto/serviceradar-faker:latest
     container_name: serviceradar-faker
     build:
       context: .
       dockerfile: cmd/faker/Dockerfile
+    profiles:
+      - testing
     ports:
       - "8080:8080"  # Armis API emulator port
     environment:
