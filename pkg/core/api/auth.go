@@ -183,3 +183,75 @@ func (s *APIServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
+// @Summary Get configuration
+// @Description Retrieves configuration for a specific service
+// @Tags Admin
+// @Accept json
+// @Produce json
+// @Param service path string true "Service name (core, sync, poller, agent)"
+// @Param kvStore query string false "KV store identifier (default: local)"
+// @Success 200 {object} map[string]interface{} "Service configuration"
+// @Failure 400 {object} models.ErrorResponse "Invalid service"
+// @Failure 403 {object} models.ErrorResponse "Access denied"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/admin/config/{service} [get]
+func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	service := vars["service"]
+
+	// For now, return a placeholder response
+	// TODO: Implement actual configuration retrieval from KV store
+	user, _ := auth.GetUserFromContext(r.Context())
+	config := map[string]interface{}{
+		"service": service,
+		"message": "Configuration retrieval not yet implemented",
+		"user":    user,
+	}
+
+	if err := s.encodeJSONResponse(w, config); err != nil {
+		s.logger.Error().Err(err).Msg("Error encoding config response")
+		http.Error(w, "Failed to retrieve configuration", http.StatusInternalServerError)
+		return
+	}
+}
+
+// @Summary Update configuration
+// @Description Updates configuration for a specific service
+// @Tags Admin
+// @Accept json
+// @Produce json
+// @Param service path string true "Service name (core, sync, poller, agent)"
+// @Param kvStore query string false "KV store identifier (default: local)"
+// @Param config body map[string]interface{} true "Configuration object"
+// @Success 200 {object} map[string]interface{} "Update result"
+// @Failure 400 {object} models.ErrorResponse "Invalid request"
+// @Failure 403 {object} models.ErrorResponse "Access denied"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/admin/config/{service} [put]
+func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	service := vars["service"]
+
+	var configData map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&configData); err != nil {
+		http.Error(w, "Invalid configuration data", http.StatusBadRequest)
+		return
+	}
+
+	// For now, return a placeholder response
+	// TODO: Implement actual configuration update to KV store
+	user, _ := auth.GetUserFromContext(r.Context())
+	result := map[string]interface{}{
+		"service": service,
+		"message": "Configuration update not yet implemented",
+		"received_config": configData,
+		"user": user,
+	}
+
+	if err := s.encodeJSONResponse(w, result); err != nil {
+		s.logger.Error().Err(err).Msg("Error encoding config update response")
+		http.Error(w, "Failed to update configuration", http.StatusInternalServerError)
+		return
+	}
+}
