@@ -18,7 +18,7 @@
 
 import React, { useState, Fragment, useMemo } from 'react';
 import { CheckCircle, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
-import ReactJson from '@microlink/react-json-view';
+import ReactJson from '@/components/Common/DynamicReactJson';
 
 export interface NetworkInterface {
     name?: string; // Preferred display name (if_name or if_descr)
