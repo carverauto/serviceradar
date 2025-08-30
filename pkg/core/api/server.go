@@ -561,6 +561,21 @@ func (s *APIServer) setupProtectedRoutes() {
 
 	// Store reference to protected router for MCP routes
 	s.protectedRouter = protected
+
+	// Admin routes with RBAC protection
+	// These routes use the route protection configuration from core.json
+	// The RBAC middleware will check if the user has the required roles
+	adminRoutes := protected.PathPrefix("/admin").Subrouter()
+	
+	// Apply RBAC middleware based on route protection config
+	if s.authService != nil {
+		// For now, we'll use a simple role check for admin routes
+		// In production, this would use RouteProtectionMiddleware with full config
+		adminRoutes.Use(auth.RBACMiddleware("admin"))
+	}
+	
+	adminRoutes.HandleFunc("/config/{service}", s.handleGetConfig).Methods("GET")
+	adminRoutes.HandleFunc("/config/{service}", s.handleUpdateConfig).Methods("PUT")
 }
 
 // @Summary Get SNMP data
