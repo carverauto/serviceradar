@@ -80,6 +80,7 @@ func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*mode
 		Email:    username, // Or fetch from DB if we decide to store emails.
 		Name:     username,
 		Provider: "local",
+		Roles:    a.getUserRoles(username),
 	}
 
 	return a.generateAndStoreToken(ctx, user)
@@ -114,6 +115,7 @@ func (a *Auth) CompleteOAuth(ctx context.Context, provider string, gothUser *got
 		Email:    gothUser.Email,
 		Name:     gothUser.Name,
 		Provider: provider,
+		Roles:    a.getUserRoles(gothUser.Email), // Use email for OAuth users
 	}
 
 	return a.generateAndStoreToken(ctx, user)
@@ -144,6 +146,7 @@ func (a *Auth) VerifyToken(_ context.Context, token string) (*models.User, error
 		ID:       claims.UserID,
 		Email:    claims.Email,
 		Provider: claims.Provider,
+		Roles:    claims.Roles,
 	}, nil
 }
 
@@ -169,6 +172,19 @@ func generateUserID(username string) string {
 	hash := sha256.Sum256([]byte(username))
 
 	return base64.URLEncoding.EncodeToString(hash[:])
+}
+
+func (a *Auth) getUserRoles(username string) []string {
+	if a.config.RBAC.UserRoles == nil {
+		return []string{}
+	}
+	
+	roles, exists := a.config.RBAC.UserRoles[username]
+	if !exists {
+		return []string{}
+	}
+	
+	return roles
 }
 
 func randString(n int) string {

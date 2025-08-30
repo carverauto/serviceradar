@@ -78,6 +78,15 @@
         "jwt_expiration": "24h",
         "local_users": {
             "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
+        },
+        "rbac": {
+            "user_roles": {
+                "admin": ["admin", "user"]
+            },
+            "role_permissions": {
+                "admin": ["config:read", "config:write", "config:delete", "admin:*"],
+                "user": ["config:read"]
+            }
         }
     },
     "webhooks": [
