@@ -31,6 +31,10 @@ type User struct {
 	Name string `json:"name" example:"John Doe"`
 	// Authentication provider (e.g., "local", "google", "github")
 	Provider string `json:"provider" example:"google"`
+	// User roles for RBAC
+	Roles []string `json:"roles" example:"admin,user"`
+	// User permissions for fine-grained access control
+	Permissions []string `json:"permissions" example:"config:read,config:write"`
 	// When the user account was created
 	CreatedAt time.Time `json:"created_at" example:"2025-01-01T00:00:00Z"`
 	// When the user account was last updated
@@ -61,6 +65,16 @@ type AuthConfig struct {
 	LocalUsers map[string]string `json:"local_users"`
 	// Configuration for SSO providers like Google, GitHub, etc.
 	SSOProviders map[string]SSOConfig `json:"sso_providers"`
+	// RBAC configuration for users
+	RBAC RBACConfig `json:"rbac"`
+}
+
+// RBACConfig contains role-based access control configuration.
+type RBACConfig struct {
+	// Map of usernames to their roles
+	UserRoles map[string][]string `json:"user_roles" example:"admin:[admin,user],user1:[user]"`
+	// Map of roles to their permissions
+	RolePermissions map[string][]string `json:"role_permissions" example:"admin:[config:read,config:write,config:delete],user:[config:read]"`
 }
 
 // SSOConfig contains configuration for a single SSO provider.
