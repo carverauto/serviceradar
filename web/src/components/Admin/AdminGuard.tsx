@@ -33,7 +33,12 @@ export default function AdminGuard({ children }: AdminGuardProps) {
 
   const checkAdminAccess = async () => {
     try {
-      const token = localStorage.getItem('token');
+      // Get token from cookie instead of localStorage
+      const token = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("accessToken="))
+        ?.split("=")[1];
+        
       if (!token) {
         setIsAdmin(false);
         setLoading(false);
@@ -54,14 +59,18 @@ export default function AdminGuard({ children }: AdminGuardProps) {
             console.log('User does not have admin role:', payload.roles);
           }
         } else {
-          // Token is expired
+          // Token is expired - clear cookies
           setIsAdmin(false);
-          localStorage.removeItem('token');
+          const cookieFlags = '; path=/; SameSite=Strict';
+          document.cookie = `accessToken=${cookieFlags}; Max-Age=0`;
+          document.cookie = `refreshToken=${cookieFlags}; Max-Age=0`;
         }
       } catch (parseError) {
-        // Invalid token format
+        // Invalid token format - clear cookies
         setIsAdmin(false);
-        localStorage.removeItem('token');
+        const cookieFlags = '; path=/; SameSite=Strict';
+        document.cookie = `accessToken=${cookieFlags}; Max-Age=0`;
+        document.cookie = `refreshToken=${cookieFlags}; Max-Age=0`;
       }
     } catch (error) {
       console.error('Admin access check failed:', error);

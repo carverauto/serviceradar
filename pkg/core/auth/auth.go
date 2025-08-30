@@ -175,15 +175,24 @@ func generateUserID(username string) string {
 }
 
 func (a *Auth) getUserRoles(username string) []string {
+	// Debug logging
+	fmt.Printf("DEBUG: Getting roles for user: %s\n", username)
+	fmt.Printf("DEBUG: RBAC config is nil: %v\n", a.config.RBAC.UserRoles == nil)
+	
 	if a.config.RBAC.UserRoles == nil {
+		fmt.Println("DEBUG: UserRoles map is nil, returning empty array")
 		return []string{}
 	}
+	
+	fmt.Printf("DEBUG: UserRoles map contents: %+v\n", a.config.RBAC.UserRoles)
 	
 	roles, exists := a.config.RBAC.UserRoles[username]
 	if !exists {
+		fmt.Printf("DEBUG: No roles found for user %s\n", username)
 		return []string{}
 	}
 	
+	fmt.Printf("DEBUG: Found roles for %s: %v\n", username, roles)
 	return roles
 }
 

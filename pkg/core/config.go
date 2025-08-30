@@ -40,8 +40,30 @@ func LoadConfig(path string) (models.CoreServiceConfig, error) {
 
 	var config models.CoreServiceConfig
 
+	// Debug: show raw JSON before parsing
+	fmt.Printf("DEBUG: Raw JSON length: %d bytes\n", len(data))
+	
+	// Find and print just the auth section
+	var jsonMap map[string]interface{}
+	if err := json.Unmarshal(data, &jsonMap); err == nil {
+		if authSection, ok := jsonMap["auth"].(map[string]interface{}); ok {
+			if rbacSection, ok := authSection["rbac"].(map[string]interface{}); ok {
+				fmt.Printf("DEBUG: Raw RBAC section: %+v\n", rbacSection)
+			} else {
+				fmt.Println("DEBUG: No RBAC section found in auth")
+			}
+		}
+	}
+
 	if err := json.Unmarshal(data, &config); err != nil {
 		return models.CoreServiceConfig{}, fmt.Errorf("failed to parse config: %w", err)
+	}
+	
+	// Debug the loaded config
+	fmt.Printf("DEBUG: Loaded config.Auth: %+v\n", config.Auth)
+	if config.Auth != nil {
+		fmt.Printf("DEBUG: config.Auth.RBAC: %+v\n", config.Auth.RBAC)
+		fmt.Printf("DEBUG: config.Auth.RBAC.UserRoles: %+v\n", config.Auth.RBAC.UserRoles)
 	}
 
 	if err := config.Validate(); err != nil {
@@ -124,6 +146,20 @@ func applyAuthOverrides(authConfig, configAuth *models.AuthConfig) {
 
 	if len(configAuth.LocalUsers) > 0 {
 		authConfig.LocalUsers = configAuth.LocalUsers
+	}
+	
+	// Copy RBAC configuration
+	fmt.Printf("DEBUG: configAuth.RBAC: %+v\n", configAuth.RBAC)
+	fmt.Printf("DEBUG: configAuth.RBAC.UserRoles: %+v\n", configAuth.RBAC.UserRoles)
+	
+	// Always copy RBAC if any part of it is configured
+	if configAuth.RBAC.UserRoles != nil || configAuth.RBAC.RolePermissions != nil || configAuth.RBAC.RouteProtection != nil {
+		authConfig.RBAC = configAuth.RBAC
+		fmt.Printf("DEBUG: Copied RBAC config. UserRoles: %+v\n", authConfig.RBAC.UserRoles)
+	} else {
+		// Even if the check fails, try to copy it anyway
+		authConfig.RBAC = configAuth.RBAC
+		fmt.Printf("DEBUG: Copied RBAC config anyway. UserRoles: %+v\n", authConfig.RBAC.UserRoles)
 	}
 }
 

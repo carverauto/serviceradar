@@ -17,6 +17,7 @@
 package auth
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -33,6 +34,10 @@ type Claims struct {
 }
 
 func GenerateJWT(user *models.User, secret string, expiration time.Duration) (string, error) {
+	// Debug logging
+	fmt.Printf("DEBUG: GenerateJWT - User ID: %s, Email: %s, Provider: %s\n", user.ID, user.Email, user.Provider)
+	fmt.Printf("DEBUG: GenerateJWT - User Roles: %+v\n", user.Roles)
+
 	claims := Claims{
 		UserID:   user.ID,
 		Email:    user.Email,
@@ -43,6 +48,8 @@ func GenerateJWT(user *models.User, secret string, expiration time.Duration) (st
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
+
+	fmt.Printf("DEBUG: GenerateJWT - Claims Roles: %+v\n", claims.Roles)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
