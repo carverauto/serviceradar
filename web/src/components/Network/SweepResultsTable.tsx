@@ -18,7 +18,7 @@
 
 import React, { useState, Fragment } from 'react';
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, Clock, Server } from 'lucide-react';
-import ReactJson from '@microlink/react-json-view';
+import ReactJson from '@/components/Common/DynamicReactJson';
 
 export interface SweepResult {
     _tp_time: string;

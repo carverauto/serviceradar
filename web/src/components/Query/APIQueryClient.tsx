@@ -21,8 +21,8 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {Loader2, AlertTriangle, Eye, EyeOff, FileJson, Table} from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
-import ReactJson from '@microlink/react-json-view';
 import { fetchAPI } from '@/lib/client-api';
+import ReactJson from '@/components/Common/DynamicReactJson';
 import { Device } from '@/types/devices';
 import { Event } from '@/types/events';
 import { Log } from '@/types/logs';
@@ -142,6 +142,9 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
     }, [query, handleSubmit]); // Re-run when query changes
 
     useEffect(() => {
+        // Only run on client side
+        if (typeof document === 'undefined') return;
+        
         const updateTheme = () => {
             if (document.documentElement.classList.contains('dark')) {
                 setJsonViewTheme('pop');
