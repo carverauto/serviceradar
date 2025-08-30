@@ -20,7 +20,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronRight, ChevronDown, Server, Database, Settings2, RefreshCw } from 'lucide-react';
 import ConfigEditor from '@/components/Admin/ConfigEditor';
 import KVTreeNavigation from '@/components/Admin/KVTreeNavigation';
-import AdminGuard from '@/components/Admin/AdminGuard';
+import RoleGuard from '@/components/Auth/RoleGuard';
 
 interface KVStore {
   id: string;
@@ -105,7 +105,7 @@ export default function AdminPage() {
   }
 
   return (
-    <AdminGuard>
+    <RoleGuard requiredRoles={['admin']}>
       <div className="flex h-full">
         <div className="w-80 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-y-auto">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -140,6 +140,6 @@ export default function AdminPage() {
           )}
         </div>
       </div>
-    </AdminGuard>
+    </RoleGuard>
   );
 }

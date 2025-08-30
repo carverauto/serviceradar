@@ -75,6 +75,8 @@ type RBACConfig struct {
 	UserRoles map[string][]string `json:"user_roles" example:"admin:[admin,user],user1:[user]"`
 	// Map of roles to their permissions
 	RolePermissions map[string][]string `json:"role_permissions" example:"admin:[config:read,config:write,config:delete],user:[config:read]"`
+	// Map of routes to required roles (can be string array or map of methods to roles)
+	RouteProtection map[string]interface{} `json:"route_protection"`
 }
 
 // SSOConfig contains configuration for a single SSO provider.
