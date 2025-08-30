@@ -25,9 +25,10 @@ import (
 )
 
 type Claims struct {
-	UserID   string `json:"user_id"`
-	Email    string `json:"email"`
-	Provider string `json:"provider"`
+	UserID   string   `json:"user_id"`
+	Email    string   `json:"email"`
+	Provider string   `json:"provider"`
+	Roles    []string `json:"roles"`
 	jwt.RegisteredClaims
 }
 
@@ -36,6 +37,7 @@ func GenerateJWT(user *models.User, secret string, expiration time.Duration) (st
 		UserID:   user.ID,
 		Email:    user.Email,
 		Provider: user.Provider,
+		Roles:    user.Roles,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
