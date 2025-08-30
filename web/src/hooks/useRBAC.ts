@@ -39,7 +39,12 @@ export function useRBAC() {
 
   const checkAuth = () => {
     try {
-      const token = localStorage.getItem('token');
+      // Get token from cookie instead of localStorage
+      const token = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("accessToken="))
+        ?.split("=")[1];
+        
       if (!token) {
         setState({
           roles: [],

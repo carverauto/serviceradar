@@ -160,6 +160,7 @@ func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
 			LocalUsers    map[string]string    `json:"local_users"`
 			CallbackURL   string               `json:"callback_url,omitempty"`
 			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+			RBAC          RBACConfig           `json:"rbac,omitempty"`
 		} `json:"auth,omitempty"`
 		*Alias
 	}{
@@ -177,11 +178,13 @@ func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
 			LocalUsers    map[string]string    `json:"local_users"`
 			CallbackURL   string               `json:"callback_url,omitempty"`
 			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+			RBAC          RBACConfig           `json:"rbac,omitempty"`
 		}{
 			JWTSecret:    c.Auth.JWTSecret,
 			LocalUsers:   c.Auth.LocalUsers,
 			CallbackURL:  c.Auth.CallbackURL,
 			SSOProviders: c.Auth.SSOProviders,
+			RBAC:         c.Auth.RBAC,
 		}
 
 		if c.Auth.JWTExpiration != 0 {
@@ -203,6 +206,7 @@ func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 			LocalUsers    map[string]string    `json:"local_users"`
 			CallbackURL   string               `json:"callback_url,omitempty"`
 			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+			RBAC          RBACConfig           `json:"rbac,omitempty"`
 		} `json:"auth"`
 		*Alias
 	}{
@@ -228,6 +232,7 @@ func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 			LocalUsers:   aux.Auth.LocalUsers,
 			CallbackURL:  aux.Auth.CallbackURL,
 			SSOProviders: aux.Auth.SSOProviders,
+			RBAC:         aux.Auth.RBAC,
 		}
 
 		if aux.Auth.JWTExpiration != "" {

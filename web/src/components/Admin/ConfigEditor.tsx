@@ -55,9 +55,15 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`/api/config/${service.type}?kvStore=${kvStore}`, {
+      // Get token from cookie instead of localStorage
+      const token = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("accessToken="))
+        ?.split("=")[1];
+      
+      const response = await fetch(`/api/admin/config/${service.type}?kvStore=${kvStore}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
         },
       });
 
@@ -164,11 +170,17 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
 
       const configToSave = jsonMode ? JSON.parse(jsonValue) : config;
 
-      const response = await fetch(`/api/config/${service.type}?kvStore=${kvStore}`, {
+      // Get token from cookie instead of localStorage
+      const token = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("accessToken="))
+        ?.split("=")[1];
+        
+      const response = await fetch(`/api/admin/config/${service.type}?kvStore=${kvStore}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(configToSave),
       });
@@ -209,6 +221,17 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
   };
 
   const renderConfigForm = () => {
+    // Don't render form if config is not loaded yet
+    if (!config) {
+      return (
+        <div className="flex items-center justify-center p-8">
+          <div className="text-gray-500 dark:text-gray-400">
+            {loading ? 'Loading configuration...' : 'No configuration loaded'}
+          </div>
+        </div>
+      );
+    }
+
     switch (service.type) {
       case 'core':
         return <CoreConfigForm config={config} onChange={handleConfigChange} />;

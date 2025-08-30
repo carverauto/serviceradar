@@ -38,11 +38,18 @@ export default function RoleGuard({
 
   useEffect(() => {
     checkAccess();
-  }, [requiredRoles, requiredPermissions]);
+    // Only run once on mount and when required roles/permissions actually change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(requiredRoles), JSON.stringify(requiredPermissions)]);
 
   const checkAccess = async () => {
     try {
-      const token = localStorage.getItem('token');
+      // Get token from cookie instead of localStorage
+      const token = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("accessToken="))
+        ?.split("=")[1];
+      
       if (!token) {
         setHasAccess(false);
         setLoading(false);
@@ -68,7 +75,8 @@ export default function RoleGuard({
           // an API call to get the full permission set
           setHasAccess(roleAccess);
           
-          if (!roleAccess) {
+          // Only log once, not repeatedly
+          if (!roleAccess && !hasAccess) {
             console.log('Access denied. User roles:', roles, 'Required:', requiredRoles);
           }
         } else {

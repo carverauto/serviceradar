@@ -201,13 +201,11 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	service := vars["service"]
 
-	// For now, return a placeholder response
-	// TODO: Implement actual configuration retrieval from KV store
-	user, _ := auth.GetUserFromContext(r.Context())
-	config := map[string]interface{}{
-		"service": service,
-		"message": "Configuration retrieval not yet implemented",
-		"user":    user,
+	// Return default configuration based on service type
+	config := s.getDefaultServiceConfig(service)
+	if config == nil {
+		http.Error(w, "Unknown service type", http.StatusBadRequest)
+		return
 	}
 
 	if err := s.encodeJSONResponse(w, config); err != nil {
@@ -240,19 +238,100 @@ func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For now, return a placeholder response
-	// TODO: Implement actual configuration update to KV store
+	// Basic validation that the service type is known
+	if s.getDefaultServiceConfig(service) == nil {
+		http.Error(w, "Unknown service type", http.StatusBadRequest)
+		return
+	}
+
+	// For now, just acknowledge the update (TODO: Implement actual KV store update)
 	user, _ := auth.GetUserFromContext(r.Context())
 	result := map[string]interface{}{
 		"service": service,
-		"message": "Configuration update not yet implemented",
-		"received_config": configData,
-		"user": user,
+		"message": "Configuration update received (placeholder - not yet persisted)",
+		"status":  "acknowledged",
+		"user":    user.Email,
 	}
 
 	if err := s.encodeJSONResponse(w, result); err != nil {
 		s.logger.Error().Err(err).Msg("Error encoding config update response")
 		http.Error(w, "Failed to update configuration", http.StatusInternalServerError)
 		return
+	}
+}
+
+// getDefaultServiceConfig returns default configuration templates for different services
+func (s *APIServer) getDefaultServiceConfig(serviceType string) map[string]interface{} {
+	switch serviceType {
+	case "core":
+		return map[string]interface{}{
+			"listen_addr":      ":8090",
+			"grpc_addr":       ":50052", 
+			"alert_threshold": "5m",
+			"known_pollers":   []string{"default-poller"},
+			"metrics": map[string]interface{}{
+				"enabled":     true,
+				"retention":   100,
+				"max_pollers": 10000,
+			},
+			"database": map[string]interface{}{
+				"addresses":  []string{"proton:9440"},
+				"name":       "default",
+				"username":   "default",
+				"password":   "",
+				"max_conns":  10,
+				"idle_conns": 5,
+			},
+			"nats": map[string]interface{}{
+				"url": "nats://127.0.0.1:4222",
+			},
+			"auth": map[string]interface{}{
+				"jwt_secret":     "",
+				"jwt_expiration": "24h",
+				"local_users": map[string]string{
+					"admin": "",
+				},
+			},
+		}
+	case "sync":
+		return map[string]interface{}{
+			"listen_addr": ":8091",
+			"database": map[string]interface{}{
+				"addresses":  []string{"proton:9440"},
+				"name":       "default", 
+				"username":   "default",
+				"password":   "",
+				"max_conns":  10,
+				"idle_conns": 5,
+			},
+			"nats": map[string]interface{}{
+				"url": "nats://127.0.0.1:4222",
+			},
+		}
+	case "poller":
+		return map[string]interface{}{
+			"listen_addr": ":8092",
+			"scan": map[string]interface{}{
+				"subnet":   "192.168.1.0/24",
+				"timeout":  "5s",
+				"interval": "30s",
+			},
+			"nats": map[string]interface{}{
+				"url": "nats://127.0.0.1:4222",
+			},
+		}
+	case "agent":
+		return map[string]interface{}{
+			"listen_addr": ":8093",
+			"collection": map[string]interface{}{
+				"interval": "10s",
+				"timeout":  "5s",
+			},
+			"nats": map[string]interface{}{
+				"url": "nats://127.0.0.1:4222",
+			},
+		}
+	default:
+		return nil
 	}
 }
