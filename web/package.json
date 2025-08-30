@@ -14,7 +14,7 @@
     "knip": "^5.57.2",
     "lodash": "^4.17.21",
     "lucide-react": "^0.476.0",
-    "next": "15.2.4",
+    "next": "15.4.7",
     "next-runtime-env": "^3.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
