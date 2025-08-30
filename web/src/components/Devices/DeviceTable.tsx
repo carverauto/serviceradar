@@ -18,7 +18,7 @@
 
 import React, { useState, Fragment, useEffect, useMemo } from 'react';
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
-import ReactJson from '@microlink/react-json-view';
+import ReactJson from '@/components/Common/DynamicReactJson';
 import { Device } from '@/types/devices';
 import SysmonStatusIndicator from './SysmonStatusIndicator';
 import SNMPStatusIndicator from './SNMPStatusIndicator';

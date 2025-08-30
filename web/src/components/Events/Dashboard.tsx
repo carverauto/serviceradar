@@ -16,7 +16,7 @@ import {
     ArrowDown,
     Activity
 } from 'lucide-react';
-import ReactJson from '@microlink/react-json-view';
+import ReactJson from '@/components/Common/DynamicReactJson';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
 
