@@ -63,6 +63,7 @@ type Config struct {
 	SourceIP     string                 `json:"source_ip"`
 	Security     *models.SecurityConfig `json:"security"`
 	Logging      *logger.Config         `json:"logging,omitempty"` // Logger configuration
+	KVAddress    string                 `json:"kv_address,omitempty"` // Optional KV store address
 }
 
 // Validate implements config.Validator interface.

@@ -653,9 +653,20 @@ func (s *Server) bufferServiceData(
 	}
 
 	if len(bufferedServiceList) > 0 {
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Int("services_to_buffer", len(bufferedServiceList)).
+			Msg("Buffering services for storage")
+		
 		s.serviceListBufferMu.Lock()
 		s.serviceListBuffers[pollerID] = append(s.serviceListBuffers[pollerID], bufferedServiceList...)
+		totalBuffered := len(s.serviceListBuffers[pollerID])
 		s.serviceListBufferMu.Unlock()
+		
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Int("total_buffered_services", totalBuffered).
+			Msg("Services buffered, waiting for flush")
 	}
 }
 
@@ -686,6 +697,8 @@ func (s *Server) createServiceRecords(
 		serviceStatus.Details = []byte(`{"status":"processed"}`)
 	}
 
+	kvMetadata := s.extractSafeKVMetadata(svc)
+	
 	serviceRecord := &models.Service{
 		PollerID:    pollerID,
 		ServiceName: svc.ServiceName,
@@ -694,9 +707,40 @@ func (s *Server) createServiceRecords(
 		DeviceID:    deviceID,
 		Partition:   devicePartition,
 		Timestamp:   now,
+		Config:      kvMetadata,
 	}
 
+	// Debug log service creation
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("service.name", serviceRecord.ServiceName),
+		attribute.String("service.type", serviceRecord.ServiceType),
+		attribute.String("service.kv_enabled", kvMetadata["kv_enabled"]),
+		attribute.String("service.kv_store_id", kvMetadata["kv_store_id"]),
+	)
+
 	return serviceStatus, serviceRecord
+}
+
+// extractSafeKVMetadata extracts safe, non-sensitive KV metadata for storage
+// This function ensures no secrets, passwords, or sensitive data is stored
+func (s *Server) extractSafeKVMetadata(svc *proto.ServiceStatus) map[string]string {
+	metadata := make(map[string]string)
+	
+	// Set service type for context
+	metadata["service_type"] = svc.ServiceType
+	
+	// Extract KV store information from the service status (safe, no secrets)
+	if svc.KvStoreId != "" {
+		metadata["kv_store_id"] = svc.KvStoreId
+		metadata["kv_enabled"] = "true"
+		metadata["kv_configured"] = "true"
+	} else {
+		metadata["kv_enabled"] = "false"
+		metadata["kv_configured"] = "false"
+	}
+	
+	return metadata
 }
 
 func (s *Server) processServiceDetails(

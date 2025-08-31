@@ -57,11 +57,12 @@ type Poller struct {
 
 // ServiceCheck manages a single service check operation.
 type ServiceCheck struct {
-	client    proto.AgentServiceClient
-	check     Check
-	pollerID  string
-	agentName string
-	logger    logger.Logger
+	client     proto.AgentServiceClient
+	check      Check
+	pollerID   string
+	agentName  string
+	logger     logger.Logger
+	kvStoreId  string // KV store identifier for this service
 }
 
 // ResultsPoller manages GetResults polling for services that support it.
@@ -75,6 +76,7 @@ type ResultsPoller struct {
 	lastSequence string  // Track last sequence received from service
 	poller       *Poller // Reference to parent poller for completion aggregation
 	logger       logger.Logger
+	kvStoreId    string  // KV store identifier for this service
 }
 
 // Duration is a wrapper around time.Duration for JSON unmarshaling.

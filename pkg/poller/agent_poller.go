@@ -57,6 +57,7 @@ func newAgentPoller(
 				interval:  time.Duration(*check.ResultsInterval),
 				poller:    poller,
 				logger:    poller.logger,
+				kvStoreId: poller.config.KVAddress,
 			}
 			ap.resultsPollers = append(ap.resultsPollers, resultsPoller)
 		} else {
@@ -91,7 +92,7 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 		go func(check Check) {
 			defer wg.Done()
 
-			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID, ap.name, ap.poller.logger)
+			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID, ap.name, ap.poller.config.KVAddress, ap.poller.logger)
 
 			results <- svcCheck.execute(checkCtx)
 		}(check)
@@ -171,13 +172,14 @@ func (ap *AgentPoller) ExecuteResults(ctx context.Context) []*proto.ServiceStatu
 	return statuses
 }
 
-func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID, agentName string, logger logger.Logger) *ServiceCheck {
+func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID, agentName, kvStoreId string, logger logger.Logger) *ServiceCheck {
 	return &ServiceCheck{
 		client:    client,
 		check:     check,
 		pollerID:  pollerID,
 		agentName: agentName,
 		logger:    logger,
+		kvStoreId: kvStoreId,
 	}
 }
 
@@ -226,6 +228,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 			ServiceType: sc.check.Type,
 			PollerId:    sc.pollerID,
 			Source:      "getStatus",
+			KvStoreId:   sc.kvStoreId,
 		}
 	}
 
@@ -245,5 +248,6 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		AgentId:      getStatus.AgentId,
 		PollerId:     sc.pollerID,
 		Source:       "getStatus",
+		KvStoreId:    sc.kvStoreId,
 	}
 }
