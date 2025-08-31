@@ -201,8 +201,8 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 			"max_result_rows":            0,       // Disable row limit for streaming
 			"result_overflow_mode":       "break", // Allow unlimited results
 			"max_rows_to_read":           0,       // Disable read limit
-			"stream_flush_interval_ms":   100,     // Flush streaming results frequently
-		},
+            "stream_flush_interval_ms":   100,     // Flush streaming results frequently
+        },
 		DialTimeout:     5 * time.Second,
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,
