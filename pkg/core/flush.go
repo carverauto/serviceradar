@@ -283,11 +283,32 @@ func (s *Server) flushServices(ctx context.Context) {
 			continue
 		}
 
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Int("service_count", len(services)).
+			Msg("Flushing services to database")
+
+		for i, service := range services {
+			s.logger.Debug().
+				Str("poller_id", pollerID).
+				Int("service_index", i).
+				Str("service_name", service.ServiceName).
+				Str("service_type", service.ServiceType).
+				Interface("config", service.Config).
+				Msg("Service being stored")
+		}
+
 		if err := s.DB.StoreServices(ctx, services); err != nil {
 			s.logger.Error().
 				Err(err).
 				Str("poller_id", pollerID).
+				Int("service_count", len(services)).
 				Msg("Failed to flush services")
+		} else {
+			s.logger.Info().
+				Str("poller_id", pollerID).
+				Int("service_count", len(services)).
+				Msg("Successfully flushed services to database")
 		}
 
 		s.serviceListBuffers[pollerID] = nil

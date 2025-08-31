@@ -268,13 +268,11 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
           </div>
           <div>
             <label className="block text-sm font-medium mb-2">JWT Secret</label>
-            <input
-              type="password"
-              value={config.auth?.jwt_secret || ''}
-              onChange={(e) => updateConfig('auth.jwt_secret', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="Enter JWT secret"
-            />
+            <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-md border border-gray-300 dark:border-gray-600">
+              <span className="text-sm text-gray-600 dark:text-gray-400 italic">
+                Configured manually in JSON file for security
+              </span>
+            </div>
           </div>
         </div>
       </div>

@@ -55,16 +55,16 @@ type Token struct {
 // AuthConfig contains authentication configuration.
 // @Description Authentication and authorization configuration settings.
 type AuthConfig struct {
-	// Secret key used for signing JWT tokens
-	JWTSecret string `json:"jwt_secret" example:"very-secret-key-do-not-share"`
+	// Secret key used for signing JWT tokens (SENSITIVE: never store in DB or display in UI)
+	JWTSecret string `json:"jwt_secret" example:"very-secret-key-do-not-share" sensitive:"true"`
 	// How long JWT tokens are valid
 	JWTExpiration time.Duration `json:"jwt_expiration" example:"24h"`
 	// OAuth callback URL
 	CallbackURL string `json:"callback_url" example:"https://api.example.com/auth/callback"`
-	// Map of local usernames to password hashes
-	LocalUsers map[string]string `json:"local_users"`
-	// Configuration for SSO providers like Google, GitHub, etc.
-	SSOProviders map[string]SSOConfig `json:"sso_providers"`
+	// Map of local usernames to password hashes (SENSITIVE: never store in DB or display in UI)
+	LocalUsers map[string]string `json:"local_users" sensitive:"true"`
+	// Configuration for SSO providers like Google, GitHub, etc. (SENSITIVE: may contain secrets)
+	SSOProviders map[string]SSOConfig `json:"sso_providers" sensitive:"true"`
 	// RBAC configuration for users
 	RBAC RBACConfig `json:"rbac"`
 }
