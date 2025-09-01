@@ -17,14 +17,24 @@
 package api
 
 import (
-	"encoding/json"
-	"net/http"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "os"
 
-	"github.com/carverauto/serviceradar/pkg/core/auth"
-	"github.com/gorilla/mux"
-	"github.com/markbates/goth"
-	"github.com/markbates/goth/gothic"
+    "github.com/carverauto/serviceradar/pkg/core/auth"
+    "github.com/gorilla/mux"
+    "github.com/markbates/goth"
+    "github.com/markbates/goth/gothic"
 )
+
+// envOr returns the environment var value or a default if not set.
+func envOr(key, def string) string {
+    if v := os.Getenv(key); v != "" {
+        return v
+    }
+    return def
+}
 
 // @Summary Authenticate with username and password
 // @Description Logs in a user with username and password and returns authentication tokens
@@ -229,35 +239,112 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Router /api/admin/config/{service} [put]
 func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	service := vars["service"]
+    vars := mux.Vars(r)
+    service := vars["service"]
 
-	var configData map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&configData); err != nil {
-		http.Error(w, "Invalid configuration data", http.StatusBadRequest)
-		return
-	}
+    var configData map[string]interface{}
+    if err := json.NewDecoder(r.Body).Decode(&configData); err != nil {
+        http.Error(w, "Invalid configuration data", http.StatusBadRequest)
+        return
+    }
 
-	// Basic validation that the service type is known
-	if s.getDefaultServiceConfig(service) == nil {
-		http.Error(w, "Unknown service type", http.StatusBadRequest)
-		return
-	}
+    // Basic validation that the service type is known
+    if s.getDefaultServiceConfig(service) == nil {
+        http.Error(w, "Unknown service type", http.StatusBadRequest)
+        return
+    }
 
-	// For now, just acknowledge the update (TODO: Implement actual KV store update)
-	user, _ := auth.GetUserFromContext(r.Context())
-	result := map[string]interface{}{
-		"service": service,
-		"message": "Configuration update received (placeholder - not yet persisted)",
-		"status":  "acknowledged",
-		"user":    user.Email,
-	}
+    // Preferred: client supplies full KV key via ?key=...
+    // Otherwise, construct from agent_id + well-known service patterns.
+    key := r.URL.Query().Get("key")
+    agentID := r.URL.Query().Get("agent_id")
+    serviceType := r.URL.Query().Get("service_type")
+    kvStoreID := r.URL.Query().Get("kv_store_id")
 
-	if err := s.encodeJSONResponse(w, result); err != nil {
-		s.logger.Error().Err(err).Msg("Error encoding config update response")
-		http.Error(w, "Failed to update configuration", http.StatusInternalServerError)
-		return
-	}
+    // Marshal the provided config as JSON bytes
+    configBytes, err := json.Marshal(configData)
+    if err != nil {
+        http.Error(w, "Failed to encode configuration", http.StatusBadRequest)
+        return
+    }
+
+    // Determine final KV key using helper mapping or explicit key
+    if key == "" {
+        if k, ok := defaultKVKeyForService(service, serviceType, agentID); ok {
+            key = k
+        } else {
+            http.Error(w, "key is required for this service (no default path)", http.StatusBadRequest)
+            return
+        }
+    }
+
+    // Perform KV write via injected function (dialing and security handled internally)
+    if s.kvPutFn == nil {
+        http.Error(w, "KV client not initialized", http.StatusInternalServerError)
+        return
+    }
+    if err := s.kvPutFn(r.Context(), key, configBytes, 0); err != nil {
+        s.logger.Error().Err(err).Str("key", key).Msg("KV Put failed")
+        http.Error(w, "Failed to write configuration to KV", http.StatusInternalServerError)
+        return
+    }
+
+    user, _ := auth.GetUserFromContext(r.Context())
+    userEmail := ""
+    if user != nil {
+        userEmail = user.Email
+    }
+    result := map[string]interface{}{
+        "service":     service,
+        "service_type": serviceType,
+        "kv_store_id": kvStoreID,
+        "key":         key,
+        "status":      "updated",
+        "bytes":       len(configBytes),
+        "user":        userEmail,
+    }
+
+    if err := s.encodeJSONResponse(w, result); err != nil {
+        s.logger.Error().Err(err).Msg("Error encoding config update response")
+        http.Error(w, "Failed to update configuration", http.StatusInternalServerError)
+        return
+    }
+}
+
+// defaultKVKeyForService returns a conventional KV key for known services.
+// Returns (key, true) if a default exists, otherwise ("", false).
+func defaultKVKeyForService(service, serviceType, agentID string) (string, bool) {
+    // Sweep config matches sync convention
+    if service == "sweep" || serviceType == "sweep" {
+        if agentID == "" {
+            return "", false
+        }
+        return fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentID), true
+    }
+
+    // Common checker mappings
+    if service == "snmp" || serviceType == "snmp" || service == "snmp-checker" {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/snmp/snmp.json", agentID), true
+    }
+    if service == "mapper" || serviceType == "mapper" || service == "serviceradar-mapper" {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/mapper/mapper.json", agentID), true
+    }
+    if service == "trapd" || serviceType == "trapd" || service == "serviceradar-trapd" {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/trapd/trapd.json", agentID), true
+    }
+    if service == "rperf" || serviceType == "rperf" || service == "rperf-checker" {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/rperf/rperf.json", agentID), true
+    }
+    if service == "sysmon" || serviceType == "sysmon" {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/sysmon/sysmon.json", agentID), true
+    }
+
+    return "", false
 }
 
 // getDefaultServiceConfig returns default configuration templates for different services
@@ -330,6 +417,16 @@ func (s *APIServer) getDefaultServiceConfig(serviceType string) map[string]inter
 			"nats": map[string]interface{}{
 				"url": "nats://127.0.0.1:4222",
 			},
+		}
+	case "sweep":
+		return map[string]interface{}{
+			"networks": []string{},
+			"interval": "60s",
+			"timeout":  "5s",
+		}
+	case "custom":
+		return map[string]interface{}{
+			"enabled": true,
 		}
 	default:
 		return nil

@@ -1,12 +1,12 @@
 package dbeventwriter
 
 import (
-	"context"
-	"encoding/json"
-	"time"
+    "context"
+    "encoding/json"
+    "time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/proto"
+    "github.com/carverauto/serviceradar/pkg/logger"
+    "github.com/carverauto/serviceradar/proto"
 )
 
 // AgentService implements monitoring.AgentService for the db-event-writer.
@@ -72,4 +72,46 @@ func (s *AgentService) GetResults(_ context.Context, req *proto.ResultsRequest) 
 		PollerId:    req.PollerId,
 		Timestamp:   time.Now().Unix(),
 	}, nil
+}
+
+// GetConfig returns the DB event writer configuration as JSON for admin/config ingestion.
+func (s *AgentService) GetConfig(_ context.Context, req *proto.ConfigRequest) (*proto.ConfigResponse, error) {
+    cfg := s.svc.cfg
+    var cfgBytes []byte
+    var err error
+    if cfg != nil {
+        cfgBytes, err = json.Marshal(cfg)
+        if err != nil {
+            s.logger.Error().Err(err).Msg("Failed to marshal db-event-writer config")
+            return nil, err
+        }
+    } else {
+        cfgBytes = []byte("{}")
+    }
+
+    return &proto.ConfigResponse{
+        Config:      cfgBytes,
+        ServiceName: req.ServiceName,
+        ServiceType: req.ServiceType,
+        AgentId:     "db-event-writer-monitor",
+        PollerId:    req.PollerId,
+        KvStoreId:   "",
+        Timestamp:   time.Now().Unix(),
+    }, nil
+}
+
+// StreamConfig streams the DB event writer configuration (single chunk).
+func (s *AgentService) StreamConfig(req *proto.ConfigRequest, stream proto.AgentService_StreamConfigServer) error {
+    resp, err := s.GetConfig(stream.Context(), req)
+    if err != nil {
+        return err
+    }
+    return stream.Send(&proto.ConfigChunk{
+        Data:        resp.Config,
+        IsFinal:     true,
+        ChunkIndex:  0,
+        TotalChunks: 1,
+        KvStoreId:   resp.KvStoreId,
+        Timestamp:   resp.Timestamp,
+    })
 }

@@ -15,7 +15,7 @@ func TestStoreServices_WithJSONConfig(t *testing.T) {
 	// This test verifies that service config is properly stored as JSON
 	// It's a mock test showing the expected behavior
 	
-	services := []*models.Service{
+    services := []*models.Service{
 		{
 			PollerID:    "test-poller",
 			ServiceName: "auth-service",
@@ -23,30 +23,30 @@ func TestStoreServices_WithJSONConfig(t *testing.T) {
 			AgentID:     "agent-1",
 			Partition:   "default",
 			Timestamp:   time.Now(),
-			Config: map[string]string{
-				"service_type":     "grpc",
-				"kv_store_id":      "redis-cluster-1",
-				"kv_enabled":       "true",
-				"kv_configured":    "true",
-				"rbac_configured":  "true",
-				"tls_configured":   "true",
-			},
-		},
-		{
+            Config: map[string]interface{}{
+                "service_type":     "grpc",
+                "kv_store_id":      "redis-cluster-1",
+                "kv_enabled":       "true",
+                "kv_configured":    "true",
+                "rbac_configured":  "true",
+                "tls_configured":   "true",
+            },
+        },
+        {
 			PollerID:    "test-poller",
 			ServiceName: "legacy-service",
 			ServiceType: "http",
 			AgentID:     "agent-2",
 			Partition:   "default",
 			Timestamp:   time.Now(),
-			Config: map[string]string{
-				"service_type":    "http",
-				"kv_enabled":      "false",
-				"kv_configured":   "false",
-				"rbac_configured": "false",
-			},
-		},
-	}
+            Config: map[string]interface{}{
+                "service_type":    "http",
+                "kv_enabled":      "false",
+                "kv_configured":   "false",
+                "rbac_configured": "false",
+            },
+        },
+    }
 
 	// Verify that config is properly marshaled to JSON
 	for _, svc := range services {
@@ -54,12 +54,12 @@ func TestStoreServices_WithJSONConfig(t *testing.T) {
 		require.NoError(t, err)
 		
 		// Verify JSON is valid
-		var parsedConfig map[string]string
-		err = json.Unmarshal(configJSON, &parsedConfig)
-		require.NoError(t, err)
+        var parsedConfig map[string]interface{}
+        err = json.Unmarshal(configJSON, &parsedConfig)
+        require.NoError(t, err)
 		
 		// Verify config roundtrip
-		assert.Equal(t, svc.Config, parsedConfig)
+        assert.Equal(t, svc.Config, parsedConfig)
 		
 		// Log example JSON for documentation
 		t.Logf("Service %s config JSON: %s", svc.ServiceName, string(configJSON))
