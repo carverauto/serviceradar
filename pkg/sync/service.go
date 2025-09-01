@@ -67,7 +67,7 @@ type StreamingResultsStore struct {
 
 // SimpleSyncService manages discovery and serves results via streaming gRPC interface
 type SimpleSyncService struct {
-	proto.UnimplementedAgentServiceServer
+    proto.UnimplementedAgentServiceServer
 
 	config     Config
 	kvClient   KVClient
@@ -696,6 +696,41 @@ func (s *SimpleSyncService) sendSingleChunk(
 	}
 
 	return nil
+}
+
+// GetConfig returns the Sync service configuration as JSON for admin/config ingestion.
+func (s *SimpleSyncService) GetConfig(_ context.Context, req *proto.ConfigRequest) (*proto.ConfigResponse, error) { // nolint:unparam
+    cfgBytes, err := json.Marshal(s.config)
+    if err != nil {
+        return nil, status.Errorf(codes.Internal, "failed to marshal sync config: %v", err)
+    }
+    // Note: KvStoreId can be populated if the service uses a specific KV identifier; using address is optional.
+    return &proto.ConfigResponse{
+        Config:      cfgBytes,
+        ServiceName: req.ServiceName,
+        ServiceType: req.ServiceType,
+        AgentId:     req.AgentId,
+        PollerId:    req.PollerId,
+        KvStoreId:   "",
+        Timestamp:   time.Now().Unix(),
+    }, nil
+}
+
+// StreamConfig streams the Sync service configuration (single chunk for now).
+func (s *SimpleSyncService) StreamConfig(req *proto.ConfigRequest, stream proto.AgentService_StreamConfigServer) error {
+    cfgBytes, err := json.Marshal(s.config)
+    if err != nil {
+        return status.Errorf(codes.Internal, "failed to marshal sync config: %v", err)
+    }
+    chunk := &proto.ConfigChunk{
+        Data:        cfgBytes,
+        IsFinal:     true,
+        ChunkIndex:  0,
+        TotalChunks: 1,
+        KvStoreId:   "",
+        Timestamp:   time.Now().Unix(),
+    }
+    return stream.Send(chunk)
 }
 
 // StreamResults implements streaming interface for large datasets

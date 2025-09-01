@@ -1065,21 +1065,23 @@ func (s *Server) mergeSyncServiceChunks(existingData, newChunk []byte) []byte {
 
 // assembleServices creates the final service list from reassembled messages
 func (s *Server) assembleServices(
-	serviceMessages map[string][]byte, serviceMetadata map[string]*proto.ServiceStatus) []*proto.ServiceStatus {
-	var allServices []*proto.ServiceStatus
+    serviceMessages map[string][]byte, serviceMetadata map[string]*proto.ServiceStatus) []*proto.ServiceStatus {
+    var allServices []*proto.ServiceStatus
 
-	for key, message := range serviceMessages {
-		if metadata, ok := serviceMetadata[key]; ok {
-			service := &proto.ServiceStatus{
-				ServiceName:  metadata.ServiceName,
-				ServiceType:  metadata.ServiceType,
-				Message:      message,
-				Available:    metadata.Available,
-				ResponseTime: metadata.ResponseTime,
-				AgentId:      metadata.AgentId,
-				PollerId:     metadata.PollerId,
-				Partition:    metadata.Partition,
-			}
+    for key, message := range serviceMessages {
+        if metadata, ok := serviceMetadata[key]; ok {
+            service := &proto.ServiceStatus{
+                ServiceName:  metadata.ServiceName,
+                ServiceType:  metadata.ServiceType,
+                Message:      message,
+                Available:    metadata.Available,
+                ResponseTime: metadata.ResponseTime,
+                AgentId:      metadata.AgentId,
+                PollerId:     metadata.PollerId,
+                Partition:    metadata.Partition,
+                Source:       metadata.Source,
+                KvStoreId:    metadata.KvStoreId,
+            }
 
 			allServices = append(allServices, service)
 

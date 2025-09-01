@@ -146,7 +146,15 @@ type CoreServiceConfig struct {
 	NATS           *NATSConfig            `json:"nats,omitempty"`
 	Events         *EventsConfig          `json:"events,omitempty"`
 	Logging        *logger.Config         `json:"logging,omitempty"`
-	MCP            *MCPConfigRef          `json:"mcp,omitempty"`
+    MCP            *MCPConfigRef          `json:"mcp,omitempty"`
+    // KV holds client settings for connecting to the KV service
+    KV             *KVClientConfig        `json:"kv,omitempty"`
+}
+
+// KVClientConfig represents client configuration for accessing the KV service from Core.
+type KVClientConfig struct {
+    Address  string          `json:"address"`
+    Security *SecurityConfig `json:"security,omitempty"`
 }
 
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
