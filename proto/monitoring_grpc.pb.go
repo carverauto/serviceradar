@@ -37,8 +37,6 @@ const (
 	AgentService_GetStatus_FullMethodName     = "/monitoring.AgentService/GetStatus"
 	AgentService_GetResults_FullMethodName    = "/monitoring.AgentService/GetResults"
 	AgentService_StreamResults_FullMethodName = "/monitoring.AgentService/StreamResults"
-	AgentService_GetConfig_FullMethodName     = "/monitoring.AgentService/GetConfig"
-	AgentService_StreamConfig_FullMethodName  = "/monitoring.AgentService/StreamConfig"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -48,9 +46,6 @@ type AgentServiceClient interface {
 	GetStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
 	GetResults(ctx context.Context, in *ResultsRequest, opts ...grpc.CallOption) (*ResultsResponse, error)
 	StreamResults(ctx context.Context, in *ResultsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ResultsChunk], error)
-	// Config RPCs for retrieving service configurations (not status/results)
-	GetConfig(ctx context.Context, in *ConfigRequest, opts ...grpc.CallOption) (*ConfigResponse, error)
-	StreamConfig(ctx context.Context, in *ConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ConfigChunk], error)
 }
 
 type agentServiceClient struct {
@@ -100,35 +95,6 @@ func (c *agentServiceClient) StreamResults(ctx context.Context, in *ResultsReque
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_StreamResultsClient = grpc.ServerStreamingClient[ResultsChunk]
 
-func (c *agentServiceClient) GetConfig(ctx context.Context, in *ConfigRequest, opts ...grpc.CallOption) (*ConfigResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ConfigResponse)
-	err := c.cc.Invoke(ctx, AgentService_GetConfig_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *agentServiceClient) StreamConfig(ctx context.Context, in *ConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ConfigChunk], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[1], AgentService_StreamConfig_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[ConfigRequest, ConfigChunk]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type AgentService_StreamConfigClient = grpc.ServerStreamingClient[ConfigChunk]
-
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -136,9 +102,6 @@ type AgentServiceServer interface {
 	GetStatus(context.Context, *StatusRequest) (*StatusResponse, error)
 	GetResults(context.Context, *ResultsRequest) (*ResultsResponse, error)
 	StreamResults(*ResultsRequest, grpc.ServerStreamingServer[ResultsChunk]) error
-	// Config RPCs for retrieving service configurations (not status/results)
-	GetConfig(context.Context, *ConfigRequest) (*ConfigResponse, error)
-	StreamConfig(*ConfigRequest, grpc.ServerStreamingServer[ConfigChunk]) error
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -157,12 +120,6 @@ func (UnimplementedAgentServiceServer) GetResults(context.Context, *ResultsReque
 }
 func (UnimplementedAgentServiceServer) StreamResults(*ResultsRequest, grpc.ServerStreamingServer[ResultsChunk]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamResults not implemented")
-}
-func (UnimplementedAgentServiceServer) GetConfig(context.Context, *ConfigRequest) (*ConfigResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetConfig not implemented")
-}
-func (UnimplementedAgentServiceServer) StreamConfig(*ConfigRequest, grpc.ServerStreamingServer[ConfigChunk]) error {
-	return status.Errorf(codes.Unimplemented, "method StreamConfig not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -232,35 +189,6 @@ func _AgentService_StreamResults_Handler(srv interface{}, stream grpc.ServerStre
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_StreamResultsServer = grpc.ServerStreamingServer[ResultsChunk]
 
-func _AgentService_GetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ConfigRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AgentServiceServer).GetConfig(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AgentService_GetConfig_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AgentServiceServer).GetConfig(ctx, req.(*ConfigRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AgentService_StreamConfig_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(ConfigRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(AgentServiceServer).StreamConfig(m, &grpc.GenericServerStream[ConfigRequest, ConfigChunk]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type AgentService_StreamConfigServer = grpc.ServerStreamingServer[ConfigChunk]
-
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -276,20 +204,11 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetResults",
 			Handler:    _AgentService_GetResults_Handler,
 		},
-		{
-			MethodName: "GetConfig",
-			Handler:    _AgentService_GetConfig_Handler,
-		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "StreamResults",
 			Handler:       _AgentService_StreamResults_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "StreamConfig",
-			Handler:       _AgentService_StreamConfig_Handler,
 			ServerStreams: true,
 		},
 	},

@@ -45,10 +45,9 @@
 package main
 
 import (
-    "context"
-    "flag"
-    "log"
-    "os"
+	"context"
+	"flag"
+	"log"
 
 	"google.golang.org/grpc"
 
@@ -58,7 +57,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	_ "github.com/carverauto/serviceradar/pkg/swagger"
-    "github.com/carverauto/serviceradar/proto"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func main() {
@@ -120,29 +119,18 @@ func run() error {
 	}
 
 	// Create API server with Swagger support
-    apiServer := api.NewAPIServer(
-        cfg.CORS,
-        api.WithMetricsManager(server.GetMetricsManager()),
-        api.WithSNMPManager(server.GetSNMPManager()),
-        api.WithAuthService(server.GetAuth()),
-        api.WithRperfManager(server.GetRperfManager()),
-        api.WithQueryExecutor(server.DB),
-        api.WithDBService(server.DB),
-        api.WithDeviceRegistry(server.DeviceRegistry),
-        api.WithDatabaseType(parser.Proton),
-        api.WithLogger(mainLogger),
-        // Hook KV address and security for admin config writes from cfg.KV
-        func(s *api.APIServer) {
-            if cfg.KV != nil {
-                api.WithKVAddress(cfg.KV.Address)(s)
-                api.WithKVSecurity(cfg.KV.Security)(s)
-            } else {
-                // Fallback to env if KV not present in config
-                api.WithKVAddress(os.Getenv("SR_KV_ADDRESS"))(s)
-                api.WithKVSecurity(cfg.Security)(s)
-            }
-        },
-    )
+	apiServer := api.NewAPIServer(
+		cfg.CORS,
+		api.WithMetricsManager(server.GetMetricsManager()),
+		api.WithSNMPManager(server.GetSNMPManager()),
+		api.WithAuthService(server.GetAuth()),
+		api.WithRperfManager(server.GetRperfManager()),
+		api.WithQueryExecutor(server.DB),
+		api.WithDBService(server.DB),
+		api.WithDeviceRegistry(server.DeviceRegistry),
+		api.WithDatabaseType(parser.Proton),
+		api.WithLogger(mainLogger),
+	)
 
 	server.SetAPIServer(ctx, apiServer)
 

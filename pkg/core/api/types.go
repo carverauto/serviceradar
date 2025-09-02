@@ -93,11 +93,7 @@ type APIServer struct {
 	corsConfig           models.CORSConfig
 	dbType               parser.DatabaseType
 	entityTableMap       map[srqlmodels.EntityType]string
-    logger               logger.Logger
-    // KV client settings for admin config writes
-    kvAddress            string
-    kvSecurity           *models.SecurityConfig
-    kvPutFn              func(ctx context.Context, key string, value []byte, ttl int64) error
+	logger               logger.Logger
 }
 
 // DeviceRegistryService interface for accessing the device registry

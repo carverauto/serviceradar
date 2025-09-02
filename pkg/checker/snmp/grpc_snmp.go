@@ -18,18 +18,18 @@
 package snmp
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "sync"
-    "time"
+	"context"
+	"encoding/json"
+	"fmt"
+	"sync"
+	"time"
 
-    "google.golang.org/grpc/codes"
-    "google.golang.org/grpc/health/grpc_health_v1"
-    "google.golang.org/grpc/status"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 
-    "github.com/carverauto/serviceradar/pkg/logger"
-    "github.com/carverauto/serviceradar/proto"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 type Poller struct {
@@ -105,48 +105,6 @@ func (s *PollerService) GetStatus(ctx context.Context, req *proto.StatusRequest)
 		ServiceType: "snmp",
 		AgentId:     req.AgentId,
 	}, nil
-}
-
-// GetConfig returns the SNMP checker configuration as JSON for admin/config ingestion.
-func (s *PollerService) GetConfig(_ context.Context, req *proto.ConfigRequest) (*proto.ConfigResponse, error) {
-    s.checker.mu.RLock()
-    defer s.checker.mu.RUnlock()
-
-    cfgBytes, err := json.Marshal(s.checker.Config)
-    if err != nil {
-        return nil, status.Errorf(codes.Internal, "failed to marshal SNMP config: %v", err)
-    }
-
-    return &proto.ConfigResponse{
-        Config:      cfgBytes,
-        ServiceName: req.ServiceName,
-        ServiceType: req.ServiceType,
-        AgentId:     req.AgentId,
-        PollerId:    req.PollerId,
-        KvStoreId:   "",
-        Timestamp:   time.Now().Unix(),
-    }, nil
-}
-
-// StreamConfig streams the SNMP checker configuration (single chunk).
-func (s *PollerService) StreamConfig(req *proto.ConfigRequest, stream proto.AgentService_StreamConfigServer) error {
-    s.checker.mu.RLock()
-    defer s.checker.mu.RUnlock()
-
-    cfgBytes, err := json.Marshal(s.checker.Config)
-    if err != nil {
-        return status.Errorf(codes.Internal, "failed to marshal SNMP config: %v", err)
-    }
-
-    chunk := &proto.ConfigChunk{
-        Data:        cfgBytes,
-        IsFinal:     true,
-        ChunkIndex:  0,
-        TotalChunks: 1,
-        KvStoreId:   "",
-        Timestamp:   time.Now().Unix(),
-    }
-    return stream.Send(chunk)
 }
 
 // Check implements the HealthServer Check method.
