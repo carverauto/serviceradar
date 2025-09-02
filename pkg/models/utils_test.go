@@ -337,7 +337,7 @@ func TestSensitiveFieldDetection(t *testing.T) {
 	assert.Equal(t, "false", field2.Tag.Get("sensitive"))
 	
 	field3, _ := structType.FieldByName("Field3")
-	assert.Equal(t, "", field3.Tag.Get("sensitive"))
+	assert.Empty(t, field3.Tag.Get("sensitive"))
 	
 	field4, _ := structType.FieldByName("Field4")
 	assert.Equal(t, "true", field4.Tag.Get("sensitive"))

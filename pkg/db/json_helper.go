@@ -2,7 +2,13 @@ package db
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+)
+
+var (
+	// ErrCannotScanIntoJSONMap indicates that a value cannot be scanned into JSONMap.
+	ErrCannotScanIntoJSONMap = errors.New("cannot scan value into JSONMap")
 )
 
 // JSONMap is a helper type for ClickHouse JSON columns
@@ -61,7 +67,7 @@ func (j *JSONMap) Scan(value interface{}) error {
 	case []byte:
 		jsonStr = string(v)
 	default:
-		return fmt.Errorf("cannot scan %T into JSONMap", value)
+		return fmt.Errorf("%w: %T", ErrCannotScanIntoJSONMap, value)
 	}
 	
 	var m map[string]string

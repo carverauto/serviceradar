@@ -42,16 +42,20 @@ func main() {
 
 	// Step 1: Load config
     cfgLoader := config.NewConfig(nil)
+    var kvStoreCloser func()
     if os.Getenv("CONFIG_SOURCE") == "kv" && os.Getenv("KV_ADDRESS") != "" {
         if kvStore := dialKVFromEnv(); kvStore != nil {
             cfgLoader.SetKVStore(kvStore)
-            defer func(){ _ = kvStore.Close() }()
+            kvStoreCloser = func() { _ = kvStore.Close() }
         }
     }
 
 	var cfg sync.Config
 
     if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
+        if kvStoreCloser != nil {
+            kvStoreCloser()
+        }
         log.Fatalf("Failed to load config: %v", err)
     }
     if os.Getenv("KV_ADDRESS") != "" {
@@ -61,12 +65,12 @@ func main() {
     // Bootstrap service-level default into KV if missing
     if os.Getenv("KV_ADDRESS") != "" {
         if kvStore := dialKVFromEnv(); kvStore != nil {
-            defer func(){ _ = kvStore.Close() }()
             if data, _ := json.Marshal(cfg); data != nil {
                 if _, found, _ := kvStore.Get(ctx, "config/sync.json"); !found {
                     _ = kvStore.Put(ctx, "config/sync.json", data, 0)
                 }
             }
+            _ = kvStore.Close()
         }
     }
 
@@ -74,6 +78,9 @@ func main() {
 	// Step 2: Create logger from config
 	logger, err := lifecycle.CreateComponentLogger(ctx, "sync", cfg.Logging)
 	if err != nil {
+		if kvStoreCloser != nil {
+			kvStoreCloser()
+		}
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 
@@ -82,6 +89,9 @@ func main() {
 
 	syncer, err := sync.NewDefault(ctx, &cfg, logger)
 	if err != nil {
+		if kvStoreCloser != nil {
+			kvStoreCloser()
+		}
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
 			log.Printf("Failed to shutdown logger: %v", shutdownErr)
 		}
@@ -129,7 +139,14 @@ func main() {
 	}
 
 	if serverErr != nil {
+		if kvStoreCloser != nil {
+			kvStoreCloser()
+		}
 		log.Fatalf("Sync service failed: %v", serverErr)
+	}
+	
+	if kvStoreCloser != nil {
+		kvStoreCloser()
 	}
 }
 

@@ -17,9 +17,20 @@
 package models
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
+)
+
+var (
+	// ErrInputMustBeStruct indicates that the input must be a struct or pointer to struct.
+	ErrInputMustBeStruct = errors.New("input must be a struct or pointer to struct")
+)
+
+const (
+	// TrueString represents the string "true"
+	TrueString = "true"
 )
 
 // FilterSensitiveFields removes fields marked with `sensitive:"true"` tag
@@ -39,7 +50,7 @@ func FilterSensitiveFields(input interface{}) (map[string]interface{}, error) {
 		return resultMap, nil
 	}
 	
-	return nil, fmt.Errorf("input must be a struct or pointer to struct")
+	return nil, ErrInputMustBeStruct
 }
 
 // filterRecursively handles the actual recursive filtering
@@ -76,7 +87,7 @@ func filterRecursively(input interface{}) interface{} {
 			}
 			
 			// Skip fields marked as sensitive
-			if sensitiveTag == "true" {
+			if sensitiveTag == TrueString {
 				continue
 			}
 			
@@ -119,8 +130,15 @@ func filterRecursively(input interface{}) interface{} {
 		}
 		return result
 		
+	case reflect.Invalid, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		 reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		 reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128, reflect.String, 
+		 reflect.Chan, reflect.Func, reflect.Interface, reflect.Pointer, reflect.UnsafePointer:
+		// For basic types and unsupported types, return as-is
+		return input
+		
 	default:
-		// For basic types, return as-is
+		// Fallback for any missed cases
 		return input
 	}
 }
@@ -150,21 +168,21 @@ func ExtractSafeConfigMetadata(config interface{}) map[string]string {
 			case map[string]interface{}:
 				// For nested objects, just mark as configured
 				if len(v) > 0 {
-					metadata[key+"_configured"] = "true"
+					metadata[key+"_configured"] = TrueString
 					// Also recursively process nested maps for their fields
 					for nestedKey, nestedValue := range v {
 						if nestedSlice, ok := nestedValue.([]interface{}); ok && len(nestedSlice) > 0 {
-							metadata[key+"_"+nestedKey+"_configured"] = "true"
+							metadata[key+"_"+nestedKey+"_configured"] = TrueString
 							metadata[key+"_"+nestedKey+"_count"] = fmt.Sprintf("%d", len(nestedSlice))
 						} else if nestedMap, ok := nestedValue.(map[string]interface{}); ok && len(nestedMap) > 0 {
-							metadata[key+"_"+nestedKey+"_configured"] = "true"
+							metadata[key+"_"+nestedKey+"_configured"] = TrueString
 						}
 					}
 				}
 			case []interface{}:
 				// For arrays, just mark as configured and count
 				if len(v) > 0 {
-					metadata[key+"_configured"] = "true"
+					metadata[key+"_configured"] = TrueString
 					metadata[key+"_count"] = fmt.Sprintf("%d", len(v))
 				}
 			default:

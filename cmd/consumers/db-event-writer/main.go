@@ -15,18 +15,26 @@ import (
     "github.com/carverauto/serviceradar/pkg/lifecycle"
     "github.com/carverauto/serviceradar/pkg/logger"
     "github.com/carverauto/serviceradar/pkg/models"
-    monitoringpb "github.com/carverauto/serviceradar/proto"
     "github.com/carverauto/serviceradar/proto"
     "encoding/json"
 )
 
+// cleanupAndExitf calls the kvStoreCloser if provided, then calls log.Fatalf
+func cleanupAndExitf(kvStoreCloser func(), format string, args ...interface{}) {
+    if kvStoreCloser != nil {
+        kvStoreCloser()
+    }
+    log.Fatalf(format, args...)
+}
+
 func main() {
 	ctx := context.Background()
     cfgLoader := config.NewConfig(nil)
+    var kvStoreCloser func()
     if os.Getenv("CONFIG_SOURCE") == "kv" && os.Getenv("KV_ADDRESS") != "" {
         if kvStore := dialKVFromEnv(); kvStore != nil {
             cfgLoader.SetKVStore(kvStore)
-            defer func(){ _ = kvStore.Close() }()
+            kvStoreCloser = func() { _ = kvStore.Close() }
         }
     }
 
@@ -35,7 +43,7 @@ func main() {
 	var cfg dbeventwriter.DBEventWriterConfig
 
     if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {
-        log.Fatalf("Failed to load configuration: %v", err)
+        cleanupAndExitf(kvStoreCloser, "Failed to load configuration: %v", err)
     }
     if os.Getenv("KV_ADDRESS") != "" {
         _ = cfgLoader.OverlayFromKV(ctx, configPath, &cfg)
@@ -44,12 +52,12 @@ func main() {
     // Bootstrap service-level default into KV if missing
     if os.Getenv("KV_ADDRESS") != "" {
         if kvStore := dialKVFromEnv(); kvStore != nil {
-            defer func(){ _ = kvStore.Close() }()
             if data, _ := json.Marshal(cfg); data != nil {
                 if _, found, _ := kvStore.Get(ctx, "config/db-event-writer.json"); !found {
                     _ = kvStore.Put(ctx, "config/db-event-writer.json", data, 0)
                 }
             }
+            _ = kvStore.Close()
         }
     }
 
@@ -65,7 +73,7 @@ func main() {
 	}
 
 	if err := cfg.Validate(); err != nil {
-		log.Fatalf("DB event writer config validation failed: %v", err)
+		cleanupAndExitf(kvStoreCloser, "DB event writer config validation failed: %v", err)
 	}
 
 	dbSecurity := cfg.Security
@@ -92,23 +100,23 @@ func main() {
 	// Initialize logger for database
 	dbLogger, err := lifecycle.CreateComponentLogger(ctx, "db-writer-db", loggerConfig)
 	if err != nil {
-		log.Fatalf("Failed to initialize logger: %v", err)
+		cleanupAndExitf(kvStoreCloser, "Failed to initialize logger: %v", err)
 	}
 
 	// Initialize logger for service
 	serviceLogger, err := lifecycle.CreateComponentLogger(ctx, "db-writer-service", loggerConfig)
 	if err != nil {
-		log.Fatalf("Failed to initialize service logger: %v", err)
+		cleanupAndExitf(kvStoreCloser, "Failed to initialize service logger: %v", err)
 	}
 
 	dbService, err := db.New(ctx, dbConfig, dbLogger)
 	if err != nil {
-		log.Fatalf("Failed to initialize database service: %v", err)
+		cleanupAndExitf(kvStoreCloser, "Failed to initialize database service: %v", err)
 	}
 
 	svc, err := dbeventwriter.NewService(&cfg, dbService, serviceLogger)
 	if err != nil {
-		log.Fatalf("Failed to initialize event writer service: %v", err)
+		cleanupAndExitf(kvStoreCloser, "Failed to initialize event writer service: %v", err)
 	}
 
 	agentService := dbeventwriter.NewAgentService(svc)
@@ -136,7 +144,7 @@ func main() {
 		EnableHealthCheck: true,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
 			func(s *grpc.Server) error {
-				monitoringpb.RegisterAgentServiceServer(s, agentService)
+				proto.RegisterAgentServiceServer(s, agentService)
 				return nil
 			},
 		},
@@ -144,7 +152,11 @@ func main() {
 	}
 
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		cleanupAndExitf(kvStoreCloser, "Server failed: %v", err)
+	}
+	
+	if kvStoreCloser != nil {
+		kvStoreCloser()
 	}
 }
 

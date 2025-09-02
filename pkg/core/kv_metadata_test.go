@@ -33,6 +33,12 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// Test constants
+const (
+	testPartition = "test-partition"
+	testSourceIP  = "192.168.1.100"
+)
+
 func TestExtractSafeKVMetadata(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -109,8 +115,8 @@ func TestCreateServiceRecords_WithKVMetadata(t *testing.T) {
 
 	now := time.Now()
 	pollerID := "test-poller"
-	partition := "test-partition"
-	sourceIP := "192.168.1.100"
+	partition := testPartition
+	sourceIP := testSourceIP
 
 	// Mock device lookup calls
 	mockDB.EXPECT().ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).Return([]map[string]interface{}{}, nil).AnyTimes()
@@ -254,8 +260,8 @@ func TestReportStatus_WithKVStoreId(t *testing.T) {
 	req := &proto.PollerStatusRequest{
 		PollerId:  "test-poller",
 		Timestamp: time.Now().Unix(),
-		Partition: "test-partition",
-		SourceIp:  "192.168.1.100",
+		Partition: testPartition,
+		SourceIp:  testSourceIP,
 		Services: []*proto.ServiceStatus{
 			{
 				ServiceName: "kv-service",
@@ -297,7 +303,7 @@ func TestKVMetadataIntegration(t *testing.T) {
 	now := time.Now()
 	pollerID := "integration-poller"
 	partition := "integration-partition"
-	sourceIP := "192.168.1.100"
+	sourceIP := testSourceIP
 
 	ctx := context.Background()
 
