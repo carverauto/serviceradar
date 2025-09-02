@@ -39,16 +39,14 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
-    srHttp "github.com/carverauto/serviceradar/pkg/http"
-    "github.com/carverauto/serviceradar/pkg/logger"
-    "github.com/carverauto/serviceradar/pkg/metrics"
-    "github.com/carverauto/serviceradar/pkg/metricstore"
-    "github.com/carverauto/serviceradar/pkg/models"
-    srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
-    "github.com/carverauto/serviceradar/pkg/srql/parser"
-    "github.com/carverauto/serviceradar/pkg/swagger"
-    coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
-    "github.com/carverauto/serviceradar/proto"
+	srHttp "github.com/carverauto/serviceradar/pkg/http"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
+	"github.com/carverauto/serviceradar/pkg/models"
+	srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
+	"github.com/carverauto/serviceradar/pkg/srql/parser"
+	"github.com/carverauto/serviceradar/pkg/swagger"
 )
 
 var (
@@ -60,33 +58,11 @@ var (
 
 // NewAPIServer creates a new API server instance with the given configuration
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
-    s := &APIServer{
-        pollers:    make(map[string]*PollerStatus),
-        router:     mux.NewRouter(),
-        corsConfig: config,
-    }
-
-    // Default kvPutFn dials KV and performs a Put
-    s.kvPutFn = func(ctx context.Context, key string, value []byte, ttl int64) error {
-        if s.kvAddress == "" {
-            return fmt.Errorf("KV address not configured")
-        }
-        clientCfg := coregrpc.ClientConfig{ Address: s.kvAddress, MaxRetries: 3, Logger: s.logger }
-        if s.kvSecurity != nil {
-            sec := *s.kvSecurity
-            sec.Role = models.RolePoller
-            provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
-            if err != nil { return err }
-            clientCfg.SecurityProvider = provider
-            defer func(){ _ = provider.Close() }()
-        }
-        c, err := coregrpc.NewClient(ctx, clientCfg)
-        if err != nil { return err }
-        defer func(){ _ = c.Close() }()
-        kv := proto.NewKVServiceClient(c.GetConnection())
-        _, err = kv.Put(ctx, &proto.PutRequest{ Key: key, Value: value, TtlSeconds: ttl })
-        return err
-    }
+	s := &APIServer{
+		pollers:    make(map[string]*PollerStatus),
+		router:     mux.NewRouter(),
+		corsConfig: config,
+	}
 
 	// Initialize with default entity table mapping to match SRQL translator
 	defaultEntityTableMap := map[srqlmodels.EntityType]string{
@@ -118,7 +94,7 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		o(s)
 	}
 
-    s.setupRoutes()
+	s.setupRoutes()
 
 	return s
 }
@@ -183,20 +159,6 @@ func WithLogger(log logger.Logger) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.logger = log
 	}
-}
-
-// WithKVAddress sets the KV address used by admin config endpoints.
-func WithKVAddress(addr string) func(server *APIServer) {
-    return func(server *APIServer) {
-        server.kvAddress = addr
-    }
-}
-
-// WithKVSecurity sets the mTLS security used for KV client connections.
-func WithKVSecurity(sec *models.SecurityConfig) func(server *APIServer) {
-    return func(server *APIServer) {
-        server.kvSecurity = sec
-    }
 }
 
 // setupRoutes configures the HTTP routes for the API server.

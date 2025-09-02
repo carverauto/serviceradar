@@ -24,9 +24,6 @@ service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}
   rpc GetResults(ResultsRequest) returns (ResultsResponse) {}
   rpc StreamResults(ResultsRequest) returns (stream ResultsChunk) {}
-  // Config RPCs for retrieving service configurations (not status/results)
-  rpc GetConfig(ConfigRequest) returns (ConfigResponse) {}
-  rpc StreamConfig(ConfigRequest) returns (stream ConfigChunk) {}
 }
 
 service PollerService {
@@ -128,34 +125,6 @@ message ResultsChunk {
   int32 total_chunks = 4;     // Total number of chunks
   string current_sequence = 5; // Current sequence of this chunk stream
   int64 timestamp = 6;        // When chunk was generated
-}
-
-// ===== Configuration retrieval API =====
-message ConfigRequest {
-  string service_name = 1; // Target service name whose config to fetch
-  string service_type = 2; // Target service type
-  string agent_id = 3;     // Agent ID for traceability
-  string poller_id = 4;    // Poller ID for traceability
-  string selector = 5;     // Optional selector/path within config
-}
-
-message ConfigResponse {
-  bytes config = 1;        // Full configuration as JSON bytes
-  string service_name = 2;
-  string service_type = 3;
-  string agent_id = 4;
-  string poller_id = 5;
-  string kv_store_id = 6;  // KV store identifier if relevant
-  int64 timestamp = 7;     // When config was generated
-}
-
-message ConfigChunk {
-  bytes data = 1;          // Chunk of config data
-  bool is_final = 2;       // Whether this is the last chunk
-  int32 chunk_index = 3;   // Order of this chunk
-  int32 total_chunks = 4;  // Total number of chunks
-  string kv_store_id = 5;  // KV store identifier if relevant
-  int64 timestamp = 6;     // When chunk was generated
 }
 
 message SweepCompletionStatus {

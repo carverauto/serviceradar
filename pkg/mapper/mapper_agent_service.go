@@ -18,11 +18,11 @@
 package mapper
 
 import (
-    "context"
-    "encoding/json"
-    "time"
+	"context"
+	"encoding/json"
+	"time"
 
-    "github.com/carverauto/serviceradar/proto"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // AgentService implements the proto.AgentServiceServer for the mapper's own health.
@@ -82,52 +82,6 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 		ServiceType: "service-instance",
 		AgentId:     "serviceradar-mapper-monitor",
 	}, nil
-}
-
-// GetConfig returns the mapper service configuration as JSON for admin/config ingestion.
-func (s *AgentService) GetConfig(_ context.Context, req *proto.ConfigRequest) (*proto.ConfigResponse, error) {
-    var cfgBytes []byte
-    var err error
-    if s.engine != nil && s.engine.config != nil {
-        cfgBytes, err = json.Marshal(s.engine.config)
-        if err != nil {
-            return nil, err
-        }
-    } else {
-        cfgBytes = []byte("{}")
-    }
-
-    return &proto.ConfigResponse{
-        Config:      cfgBytes,
-        ServiceName: req.ServiceName,
-        ServiceType: req.ServiceType,
-        AgentId:     req.AgentId,
-        PollerId:    req.PollerId,
-        KvStoreId:   "",
-        Timestamp:   time.Now().Unix(),
-    }, nil
-}
-
-// StreamConfig streams the mapper configuration (single chunk).
-func (s *AgentService) StreamConfig(req *proto.ConfigRequest, stream proto.AgentService_StreamConfigServer) error {
-    var cfgBytes []byte
-    var err error
-    if s.engine != nil && s.engine.config != nil {
-        cfgBytes, err = json.Marshal(s.engine.config)
-        if err != nil {
-            return err
-        }
-    } else {
-        cfgBytes = []byte("{}")
-    }
-    return stream.Send(&proto.ConfigChunk{
-        Data:        cfgBytes,
-        IsFinal:     true,
-        ChunkIndex:  0,
-        TotalChunks: 1,
-        KvStoreId:   "",
-        Timestamp:   time.Now().Unix(),
-    })
 }
 
 // GetResults implements the AgentService GetResults method.

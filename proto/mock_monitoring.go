@@ -41,26 +41,6 @@ func (m *MockAgentServiceClient) EXPECT() *MockAgentServiceClientMockRecorder {
 	return m.recorder
 }
 
-// GetConfig mocks base method.
-func (m *MockAgentServiceClient) GetConfig(ctx context.Context, in *ConfigRequest, opts ...grpc.CallOption) (*ConfigResponse, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, in}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "GetConfig", varargs...)
-	ret0, _ := ret[0].(*ConfigResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetConfig indicates an expected call of GetConfig.
-func (mr *MockAgentServiceClientMockRecorder) GetConfig(ctx, in any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, in}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockAgentServiceClient)(nil).GetConfig), varargs...)
-}
-
 // GetResults mocks base method.
 func (m *MockAgentServiceClient) GetResults(ctx context.Context, in *ResultsRequest, opts ...grpc.CallOption) (*ResultsResponse, error) {
 	m.ctrl.T.Helper()
@@ -99,26 +79,6 @@ func (mr *MockAgentServiceClientMockRecorder) GetStatus(ctx, in any, opts ...any
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatus", reflect.TypeOf((*MockAgentServiceClient)(nil).GetStatus), varargs...)
-}
-
-// StreamConfig mocks base method.
-func (m *MockAgentServiceClient) StreamConfig(ctx context.Context, in *ConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ConfigChunk], error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, in}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "StreamConfig", varargs...)
-	ret0, _ := ret[0].(grpc.ServerStreamingClient[ConfigChunk])
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// StreamConfig indicates an expected call of StreamConfig.
-func (mr *MockAgentServiceClientMockRecorder) StreamConfig(ctx, in any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, in}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamConfig", reflect.TypeOf((*MockAgentServiceClient)(nil).StreamConfig), varargs...)
 }
 
 // StreamResults mocks base method.
@@ -165,21 +125,6 @@ func (m *MockAgentServiceServer) EXPECT() *MockAgentServiceServerMockRecorder {
 	return m.recorder
 }
 
-// GetConfig mocks base method.
-func (m *MockAgentServiceServer) GetConfig(arg0 context.Context, arg1 *ConfigRequest) (*ConfigResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetConfig", arg0, arg1)
-	ret0, _ := ret[0].(*ConfigResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetConfig indicates an expected call of GetConfig.
-func (mr *MockAgentServiceServerMockRecorder) GetConfig(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockAgentServiceServer)(nil).GetConfig), arg0, arg1)
-}
-
 // GetResults mocks base method.
 func (m *MockAgentServiceServer) GetResults(arg0 context.Context, arg1 *ResultsRequest) (*ResultsResponse, error) {
 	m.ctrl.T.Helper()
@@ -208,20 +153,6 @@ func (m *MockAgentServiceServer) GetStatus(arg0 context.Context, arg1 *StatusReq
 func (mr *MockAgentServiceServerMockRecorder) GetStatus(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatus", reflect.TypeOf((*MockAgentServiceServer)(nil).GetStatus), arg0, arg1)
-}
-
-// StreamConfig mocks base method.
-func (m *MockAgentServiceServer) StreamConfig(arg0 *ConfigRequest, arg1 grpc.ServerStreamingServer[ConfigChunk]) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StreamConfig", arg0, arg1)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// StreamConfig indicates an expected call of StreamConfig.
-func (mr *MockAgentServiceServerMockRecorder) StreamConfig(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamConfig", reflect.TypeOf((*MockAgentServiceServer)(nil).StreamConfig), arg0, arg1)
 }
 
 // StreamResults mocks base method.

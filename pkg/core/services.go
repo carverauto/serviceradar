@@ -672,11 +672,11 @@ func (s *Server) bufferServiceData(
 
 // createServiceRecords creates service status and service records for a given service
 func (s *Server) createServiceRecords(
-    ctx context.Context,
-    svc *proto.ServiceStatus,
-    apiService *api.ServiceStatus,
-    pollerID, partition, sourceIP string,
-    now time.Time,
+	ctx context.Context,
+	svc *proto.ServiceStatus,
+	apiService *api.ServiceStatus,
+	pollerID, partition, sourceIP string,
+	now time.Time,
 ) (*models.ServiceStatus, *models.Service) {
 	deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, sourceIP, string(apiService.Message))
 
@@ -697,43 +697,18 @@ func (s *Server) createServiceRecords(
 		serviceStatus.Details = []byte(`{"status":"processed"}`)
 	}
 
-    kvMetadata := s.extractSafeKVMetadata(svc)
-
-    // Build JSON-capable config map starting with safe KV metadata, then
-    // merge getStatus JSON payload fields at the top-level when available.
-    configMap := make(map[string]interface{}, len(kvMetadata)+4)
-    for k, v := range kvMetadata {
-        configMap[k] = v
-    }
-    // Only treat payloads explicitly marked as configuration.
-    // Results payloads (e.g., sync/sweep) and generic status are not configuration.
-    if svc.Source == "config" && len(svc.Message) > 0 {
-        var obj map[string]interface{}
-        if err := json.Unmarshal(svc.Message, &obj); err == nil && obj != nil {
-            // Merge service config fields at top-level but keep kv_* authoritative
-            for k, v := range obj {
-                if _, exists := configMap[k]; exists {
-                    // Do not overwrite kv_* or existing reserved keys
-                    continue
-                }
-                configMap[k] = v
-            }
-        } else {
-            // Not a JSON object; preserve the raw content in a side field
-            configMap["raw_config"] = string(svc.Message)
-        }
-    }
+	kvMetadata := s.extractSafeKVMetadata(svc)
 	
-    serviceRecord := &models.Service{
-        PollerID:    pollerID,
-        ServiceName: svc.ServiceName,
-        ServiceType: svc.ServiceType,
-        AgentID:     svc.AgentId,
-        DeviceID:    deviceID,
-        Partition:   devicePartition,
-        Timestamp:   now,
-        Config:      configMap,
-    }
+	serviceRecord := &models.Service{
+		PollerID:    pollerID,
+		ServiceName: svc.ServiceName,
+		ServiceType: svc.ServiceType,
+		AgentID:     svc.AgentId,
+		DeviceID:    deviceID,
+		Partition:   devicePartition,
+		Timestamp:   now,
+		Config:      kvMetadata,
+	}
 
 	// Debug log service creation
 	span := trace.SpanFromContext(ctx)
@@ -746,9 +721,6 @@ func (s *Server) createServiceRecords(
 
 	return serviceStatus, serviceRecord
 }
-
-// Note: config ingestion is now keyed off svc.Source == "config" to avoid
-// maintaining allowlists and to clearly separate config from status/results.
 
 // extractSafeKVMetadata extracts safe, non-sensitive KV metadata for storage
 // This function ensures no secrets, passwords, or sensitive data is stored

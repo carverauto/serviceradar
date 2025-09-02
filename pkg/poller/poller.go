@@ -272,9 +272,6 @@ func (p *Poller) initializeAgentPollers(ctx context.Context) error {
 		agentPoller := newAgentPoller(agentName, &agentConfig, agentServiceClient, p)
 		agentPoller.clientConn = client
 
-		// Initialize optional config pollers (no-op unless built with configrpc)
-		initAgentConfigPollers(agentName, &agentConfig, agentServiceClient, p)
-
 		p.agents[agentName] = agentPoller
 	}
 
@@ -319,11 +316,6 @@ func (p *Poller) poll(ctx context.Context) error {
 			resultsStatuses := ap.ExecuteResults(ctx)
 
 			for _, s := range resultsStatuses {
-				statusChan <- s
-			}
-
-			// Collect configuration statuses from ConfigPollers (if enabled)
-			for _, s := range collectAgentConfigStatuses(ctx, name) {
 				statusChan <- s
 			}
 		}(agentName, agentPoller)
@@ -533,11 +525,11 @@ func (p *Poller) sendChunks(stream proto.PollerService_StreamStatusClient, statu
 
 // sendLargeServiceChunks splits and sends a large service message
 func (p *Poller) sendLargeServiceChunks(
-    stream proto.PollerService_StreamStatusClient,
-    status *proto.ServiceStatus,
-    messageSize int,
-    plan chunkPlan,
-    chunkIndex *int) error {
+	stream proto.PollerService_StreamStatusClient,
+	status *proto.ServiceStatus,
+	messageSize int,
+	plan chunkPlan,
+	chunkIndex *int) error {
 	p.logger.Info().
 		Str("service_name", status.ServiceName).
 		Int("message_size_bytes", messageSize).
@@ -551,18 +543,16 @@ func (p *Poller) sendLargeServiceChunks(
 			end = messageSize
 		}
 
-        partialStatus := &proto.ServiceStatus{
-            ServiceName:  status.ServiceName,
-            Available:    status.Available,
-            Message:      status.Message[offset:end],
-            ServiceType:  status.ServiceType,
-            ResponseTime: status.ResponseTime,
-            AgentId:      status.AgentId,
-            PollerId:     status.PollerId,
-            Partition:    status.Partition,
-            Source:       status.Source,
-            KvStoreId:    status.KvStoreId,
-        }
+		partialStatus := &proto.ServiceStatus{
+			ServiceName:  status.ServiceName,
+			Available:    status.Available,
+			Message:      status.Message[offset:end],
+			ServiceType:  status.ServiceType,
+			ResponseTime: status.ResponseTime,
+			AgentId:      status.AgentId,
+			PollerId:     status.PollerId,
+			Partition:    status.Partition,
+		}
 
 		chunk := p.createChunk([]*proto.ServiceStatus{partialStatus}, plan, *chunkIndex)
 
