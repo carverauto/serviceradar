@@ -30,6 +30,16 @@ import (
     "github.com/carverauto/serviceradar/proto"
 )
 
+// Service name constants
+const (
+	serviceSweep  = "sweep"
+	serviceSNMP   = "snmp"
+	serviceMapper = "mapper"
+	serviceTrapd  = "trapd"
+	serviceRPerf  = "rperf"
+	serviceSysmon = "sysmon"
+)
+
 // @Summary Authenticate with username and password
 // @Description Logs in a user with username and password and returns authentication tokens
 // @Tags Authentication
@@ -403,27 +413,27 @@ func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 // defaultKVKeyForService returns a conventional KV key for known services.
 // Returns (key, true) if a default exists, otherwise ("", false).
 func defaultKVKeyForService(service, serviceType, agentID string) (string, bool) {
-    if service == "sweep" || serviceType == "sweep" {
+    if service == serviceSweep || serviceType == serviceSweep {
         if agentID == "" { return "", false }
         return fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentID), true
     }
-    if service == "snmp" || serviceType == "snmp" || service == "snmp-checker" {
+    if service == serviceSNMP || serviceType == serviceSNMP || service == "snmp-checker" {
         if agentID == "" { return "", false }
         return fmt.Sprintf("agents/%s/checkers/snmp/snmp.json", agentID), true
     }
-    if service == "mapper" || serviceType == "mapper" || service == "serviceradar-mapper" {
+    if service == serviceMapper || serviceType == serviceMapper || service == "serviceradar-mapper" {
         if agentID == "" { return "", false }
         return fmt.Sprintf("agents/%s/checkers/mapper/mapper.json", agentID), true
     }
-    if service == "trapd" || serviceType == "trapd" || service == "serviceradar-trapd" {
+    if service == serviceTrapd || serviceType == serviceTrapd || service == "serviceradar-trapd" {
         if agentID == "" { return "", false }
         return fmt.Sprintf("agents/%s/checkers/trapd/trapd.json", agentID), true
     }
-    if service == "rperf" || serviceType == "rperf" || service == "rperf-checker" {
+    if service == serviceRPerf || serviceType == serviceRPerf || service == "rperf-checker" {
         if agentID == "" { return "", false }
         return fmt.Sprintf("agents/%s/checkers/rperf/rperf.json", agentID), true
     }
-    if service == "sysmon" || serviceType == "sysmon" {
+    if service == serviceSysmon || serviceType == serviceSysmon {
         if agentID == "" { return "", false }
         return fmt.Sprintf("agents/%s/checkers/sysmon/sysmon.json", agentID), true
     }

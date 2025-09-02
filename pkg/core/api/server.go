@@ -56,6 +56,8 @@ var (
 	ErrResponseWriterNotHijacker = errors.New("responseWriter does not implement http.Hijacker")
 	// ErrInvalidQueryRequest indicates that the query request is invalid.
 	ErrInvalidQueryRequest = errors.New("invalid query request")
+	// ErrKVAddressNotConfigured indicates that the KV address is not configured.
+	ErrKVAddressNotConfigured = errors.New("KV address not configured")
 )
 
 // NewAPIServer creates a new API server instance with the given configuration
@@ -70,7 +72,7 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
     // Default kvPutFn dials KV and performs a Put
     s.kvPutFn = func(ctx context.Context, key string, value []byte, ttl int64) error {
         if s.kvAddress == "" {
-            return fmt.Errorf("KV address not configured")
+            return ErrKVAddressNotConfigured
         }
         clientCfg := coregrpc.ClientConfig{ Address: s.kvAddress, MaxRetries: 3, Logger: s.logger }
         if s.kvSecurity != nil {
@@ -92,7 +94,7 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
     // Default kvGetFn dials KV and performs a Get
     s.kvGetFn = func(ctx context.Context, key string) ([]byte, bool, error) {
         if s.kvAddress == "" {
-            return nil, false, fmt.Errorf("KV address not configured")
+            return nil, false, ErrKVAddressNotConfigured
         }
         clientCfg := coregrpc.ClientConfig{ Address: s.kvAddress, MaxRetries: 3, Logger: s.logger }
         if s.kvSecurity != nil {
@@ -229,7 +231,7 @@ func (s *APIServer) getKVClient(ctx context.Context, id string) (proto.KVService
         ep = &KVEndpoint{ ID: "local", Address: s.kvAddress, Security: s.kvSecurity }
     }
     if ep == nil || ep.Address == "" {
-        return nil, func(){}, fmt.Errorf("KV address not configured")
+        return nil, func(){}, ErrKVAddressNotConfigured
     }
     clientCfg := coregrpc.ClientConfig{ Address: ep.Address, MaxRetries: 3, Logger: s.logger }
     var closer func()
@@ -713,140 +715,227 @@ func (s *APIServer) resolveKVDomain(kvID string) string {
     return kvID
 }
 
+// ServiceNode represents a service in the services tree
+type ServiceNode struct {
+    Name      string `json:"name"`
+    Type      string `json:"type"`
+    AgentID   string `json:"agent_id"`
+    KvStoreID string `json:"kv_store_id,omitempty"`
+}
+
+// AgentNode represents an agent in the services tree
+type AgentNode struct {
+    AgentID    string        `json:"agent_id"`
+    KvStoreIDs []string      `json:"kv_store_ids,omitempty"`
+    Services   []ServiceNode `json:"services"`
+}
+
+// PollerNode represents a poller in the services tree
+type PollerNode struct {
+    PollerID   string      `json:"poller_id"`
+    IsHealthy  bool        `json:"is_healthy"`
+    KvStoreIDs []string    `json:"kv_store_ids,omitempty"`
+    Agents     []AgentNode `json:"agents"`
+}
+
+// servicesTreeFilters holds the query filters for the services tree endpoint
+type servicesTreeFilters struct {
+    poller         string
+    agent          string
+    configuredOnly bool
+    limit          int
+    offset         int
+}
+
+// parseServicesTreeFilters parses query parameters for the services tree endpoint
+func (s *APIServer) parseServicesTreeFilters(r *http.Request) servicesTreeFilters {
+    q := r.URL.Query()
+    filters := servicesTreeFilters{
+        poller:         q.Get("poller"),
+        agent:          q.Get("agent"),
+        configuredOnly: strings.EqualFold(q.Get("configured"), "only"),
+    }
+    
+    if v := q.Get("limit"); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 {
+            filters.limit = n
+        }
+    }
+    if v := q.Get("offset"); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+            filters.offset = n
+        }
+    }
+    
+    return filters
+}
+
+// buildAgentServices groups services by agent and builds the agent nodes
+func (s *APIServer) buildAgentServices(services []ServiceStatus, filters servicesTreeFilters, pollerID string) (map[string]*AgentNode, map[string]struct{}) {
+    agentMap := make(map[string]*AgentNode)
+    kvSetPoller := make(map[string]struct{})
+    
+    for _, svc := range services {
+        if filters.agent != "" && svc.AgentID != filters.agent {
+            continue
+        }
+        
+        agentID := svc.AgentID
+        if agentID == "" {
+            agentID = pollerID
+        }
+        
+        if _, ok := agentMap[agentID]; !ok {
+            agentMap[agentID] = &AgentNode{AgentID: agentID}
+        }
+        
+        // Track kv store IDs at agent and poller levels
+        if svc.KvStoreID != "" {
+            kvSetPoller[svc.KvStoreID] = struct{}{}
+        }
+        
+        // Append service
+        node := ServiceNode{
+            Name:      svc.Name,
+            Type:      svc.Type,
+            AgentID:   agentID,
+            KvStoreID: svc.KvStoreID,
+        }
+        agentMap[agentID].Services = append(agentMap[agentID].Services, node)
+    }
+    
+    return agentMap, kvSetPoller
+}
+
+// isServiceConfigured checks if a service is configured in KV store
+func (s *APIServer) isServiceConfigured(ctx context.Context, sn ServiceNode) bool {
+    key, ok := defaultKVKeyForService(sn.Type, sn.Type, sn.AgentID)
+    if !ok {
+        return false
+    }
+    
+    // Map kvID to endpoint ID for getKVClient (allow domain or id)
+    kvID := sn.KvStoreID
+    epID := ""
+    if kvID != "" {
+        if _, ok2 := s.kvEndpoints[kvID]; ok2 {
+            epID = kvID
+        } else {
+            for id, ep := range s.kvEndpoints {
+                if ep.Domain != "" && ep.Domain == kvID {
+                    epID = id
+                    break
+                }
+            }
+        }
+    }
+    if epID == "" && s.kvAddress != "" {
+        epID = "local"
+    }
+    
+    // Build key (domain-prefixed) and query KV
+    if kvID != "" && !strings.HasPrefix(key, "domains/") {
+        if dom := s.resolveKVDomain(kvID); dom != "" {
+            key = fmt.Sprintf("domains/%s/%s", dom, key)
+        }
+    }
+    
+    // Query KV for existence; prefer dialing specific endpoint if available
+    if epID != "" {
+        if kvClient, closeFn, err := s.getKVClient(ctx, epID); err == nil {
+            defer closeFn()
+            if resp, err := kvClient.Get(ctx, &proto.GetRequest{Key: key}); err == nil && resp.GetFound() {
+                return true
+            }
+        }
+    } else if s.kvGetFn != nil {
+        if _, found, err := s.kvGetFn(ctx, key); err == nil && found {
+            return true
+        }
+    }
+    
+    return false
+}
+
+// filterConfiguredServices filters agent services to only configured ones
+func (s *APIServer) filterConfiguredServices(r *http.Request, agent *AgentNode) {
+    filtered := make([]ServiceNode, 0, len(agent.Services))
+    
+    for _, sn := range agent.Services {
+        ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+        if s.isServiceConfigured(ctx, sn) {
+            filtered = append(filtered, sn)
+        }
+        cancel()
+    }
+    
+    agent.Services = filtered
+}
+
+// applyPagination applies offset and limit to agent services
+func (s *APIServer) applyPagination(agent *AgentNode, offset, limit int) {
+    if offset > 0 || limit > 0 {
+        start := offset
+        if start > len(agent.Services) {
+            start = len(agent.Services)
+        }
+        end := len(agent.Services)
+        if limit > 0 && start+limit < end {
+            end = start + limit
+        }
+        agent.Services = agent.Services[start:end]
+    }
+}
+
 // handleServicesTree returns a lightweight tree of pollers -> agents -> services.
 // This uses the in-memory cache (no DB fan-out) to remain responsive and scalable.
 func (s *APIServer) handleServicesTree(w http.ResponseWriter, r *http.Request) {
-    type ServiceNode struct {
-        Name      string `json:"name"`
-        Type      string `json:"type"`
-        AgentID   string `json:"agent_id"`
-        KvStoreID string `json:"kv_store_id,omitempty"`
-    }
-    type AgentNode struct {
-        AgentID    string        `json:"agent_id"`
-        KvStoreIDs []string      `json:"kv_store_ids,omitempty"`
-        Services   []ServiceNode `json:"services"`
-    }
-    type PollerNode struct {
-        PollerID   string      `json:"poller_id"`
-        IsHealthy  bool        `json:"is_healthy"`
-        KvStoreIDs []string    `json:"kv_store_ids,omitempty"`
-        Agents     []AgentNode `json:"agents"`
-    }
-
     s.mu.RLock()
     defer s.mu.RUnlock()
 
-    // Parse filters
-    q := r.URL.Query()
-    filterPoller := q.Get("poller")
-    filterAgent := q.Get("agent")
-    configuredOnly := strings.EqualFold(q.Get("configured"), "only")
-    limit := 0
-    offset := 0
-    if v := q.Get("limit"); v != "" { if n, err := strconv.Atoi(v); err == nil && n > 0 { limit = n } }
-    if v := q.Get("offset"); v != "" { if n, err := strconv.Atoi(v); err == nil && n >= 0 { offset = n } }
-
-    // Optional query params for paging/filtering (basic, non-breaking)
-    // Not fully enforced here; kept for future extension.
+    filters := s.parseServicesTreeFilters(r)
 
     // Build tree
     result := make([]PollerNode, 0, len(s.pollers))
     for pollerID, ps := range s.pollers {
-        if filterPoller != "" && pollerID != filterPoller { continue }
-        // Group services by agent
-        agentMap := make(map[string]*AgentNode)
-        kvSetPoller := make(map[string]struct{})
-        for _, svc := range ps.Services {
-            if filterAgent != "" && svc.AgentID != filterAgent { continue }
-            agentID := svc.AgentID
-            if agentID == "" {
-                agentID = pollerID
-            }
-            if _, ok := agentMap[agentID]; !ok {
-                agentMap[agentID] = &AgentNode{AgentID: agentID}
-            }
-            // Track kv store IDs at agent and poller levels
-            if svc.KvStoreID != "" {
-                kvSetPoller[svc.KvStoreID] = struct{}{}
-            }
-            // Append service
-            agent := agentMap[agentID]
-            // Apply offset/limit at service list granularity per agent (simple approach)
-            node := ServiceNode{
-                Name:      svc.Name,
-                Type:      svc.Type,
-                AgentID:   agentID,
-                KvStoreID: svc.KvStoreID,
-            }
-            agent.Services = append(agent.Services, node)
+        if filters.poller != "" && pollerID != filters.poller {
+            continue
         }
+        
+        agentMap, kvSetPoller := s.buildAgentServices(ps.Services, filters, pollerID)
 
         // Finalize agents: compute kv sets per agent
         pollerNode := PollerNode{PollerID: pollerID, IsHealthy: ps.IsHealthy}
         for _, agent := range agentMap {
             kvSet := make(map[string]struct{})
             for _, sn := range agent.Services {
-                if sn.KvStoreID != "" { kvSet[sn.KvStoreID] = struct{}{} }
+                if sn.KvStoreID != "" {
+                    kvSet[sn.KvStoreID] = struct{}{}
+                }
             }
             if len(kvSet) > 0 {
                 agent.KvStoreIDs = make([]string, 0, len(kvSet))
-                for id := range kvSet { agent.KvStoreIDs = append(agent.KvStoreIDs, id) }
-            }
-            // Optionally filter to only configured services for this agent
-            if configuredOnly {
-                filtered := make([]ServiceNode, 0, len(agent.Services))
-                for _, sn := range agent.Services {
-                    // Derive default KV key for this service under agent
-                    if key, ok := defaultKVKeyForService(sn.Type, sn.Type, sn.AgentID); ok {
-                        // Prefix with domain when kv store id provided
-                        kvID := sn.KvStoreID
-                        // Map kvID to endpoint ID for getKVClient (allow domain or id)
-                        s.mu.RLock()
-                        epID := ""
-                        if kvID != "" {
-                            if _, ok2 := s.kvEndpoints[kvID]; ok2 { epID = kvID } else {
-                                for id, ep := range s.kvEndpoints { if ep.Domain != "" && ep.Domain == kvID { epID = id; break } }
-                            }
-                        }
-                        if epID == "" && s.kvAddress != "" { epID = "local" }
-                        s.mu.RUnlock()
-                        // Build key (domain-prefixed) and query KV
-                        if kvID != "" && !strings.HasPrefix(key, "domains/") {
-                            if dom := s.resolveKVDomain(kvID); dom != "" { key = fmt.Sprintf("domains/%s/%s", dom, key) }
-                        }
-                        // Query KV for existence; prefer dialing specific endpoint if available
-                        ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-                        if epID != "" {
-                            if kvClient, closeFn, err := s.getKVClient(ctx, epID); err == nil {
-                                if resp, err := kvClient.Get(ctx, &proto.GetRequest{ Key: key }); err == nil && resp.GetFound() {
-                                    filtered = append(filtered, sn)
-                                }
-                                closeFn()
-                            }
-                        } else if s.kvGetFn != nil {
-                            if _, found, err := s.kvGetFn(ctx, key); err == nil && found {
-                                filtered = append(filtered, sn)
-                            }
-                        }
-                        cancel()
-                    }
+                for id := range kvSet {
+                    agent.KvStoreIDs = append(agent.KvStoreIDs, id)
                 }
-                agent.Services = filtered
             }
+            
+            // Optionally filter to only configured services for this agent
+            if filters.configuredOnly {
+                s.filterConfiguredServices(r, agent)
+            }
+            
             // Apply offset/limit if requested
-            if offset > 0 || limit > 0 {
-                start := offset
-                if start > len(agent.Services) { start = len(agent.Services) }
-                end := len(agent.Services)
-                if limit > 0 && start+limit < end { end = start + limit }
-                agent.Services = agent.Services[start:end]
-            }
+            s.applyPagination(agent, filters.offset, filters.limit)
+            
             pollerNode.Agents = append(pollerNode.Agents, *agent)
         }
+        
         if len(kvSetPoller) > 0 {
             pollerNode.KvStoreIDs = make([]string, 0, len(kvSetPoller))
-            for id := range kvSetPoller { pollerNode.KvStoreIDs = append(pollerNode.KvStoreIDs, id) }
+            for id := range kvSetPoller {
+                pollerNode.KvStoreIDs = append(pollerNode.KvStoreIDs, id)
+            }
         }
         result = append(result, pollerNode)
     }
