@@ -20,11 +20,12 @@ func main() {
 	
 	// Step 1: Load config with KV support
 	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
-	defer func() {
+	
+	cleanup := func() {
 		if kvMgr != nil {
 			_ = kvMgr.Close()
 		}
-	}()
+	}
 
 	cfgLoader := config.NewConfig(nil)
 	if kvMgr != nil {
@@ -34,9 +35,7 @@ func main() {
 	configPath := "/etc/serviceradar/consumers/db-event-writer.json"
 	var cfg dbeventwriter.DBEventWriterConfig
 
-	if err := kvMgr.LoadAndOverlay(ctx, cfgLoader, configPath, &cfg); err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
+	config.LoadAndOverlayOrExit(ctx, kvMgr, cfgLoader, configPath, &cfg, "Failed to load configuration")
 
 	// Bootstrap service-level default into KV if missing
 	if kvMgr != nil {
@@ -53,6 +52,7 @@ func main() {
 	}
 
 	if err := cfg.Validate(); err != nil {
+		cleanup()
 		log.Fatalf("DB event writer config validation failed: %v", err)
 	}
 
@@ -80,22 +80,26 @@ func main() {
 	// Initialize logger for database
 	dbLogger, err := lifecycle.CreateComponentLogger(ctx, "db-writer-db", loggerConfig)
 	if err != nil {
+		cleanup()
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 
 	// Initialize logger for service
 	serviceLogger, err := lifecycle.CreateComponentLogger(ctx, "db-writer-service", loggerConfig)
 	if err != nil {
+		cleanup()
 		log.Fatalf("Failed to initialize service logger: %v", err)
 	}
 
 	dbService, err := db.New(ctx, dbConfig, dbLogger)
 	if err != nil {
+		cleanup()
 		log.Fatalf("Failed to initialize database service: %v", err)
 	}
 
 	svc, err := dbeventwriter.NewService(&cfg, dbService, serviceLogger)
 	if err != nil {
+		cleanup()
 		log.Fatalf("Failed to initialize event writer service: %v", err)
 	}
 
@@ -123,6 +127,9 @@ func main() {
 	}
 
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
+		cleanup()
 		log.Fatalf("Server failed: %v", err)
 	}
+	
+	cleanup()
 }

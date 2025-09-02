@@ -21,7 +21,6 @@ import (
     "flag"
     "fmt"
     "log"
-    "os"
 
     "google.golang.org/grpc"
 
@@ -30,7 +29,6 @@ import (
     "github.com/carverauto/serviceradar/pkg/logger"
     "github.com/carverauto/serviceradar/pkg/models"
     "github.com/carverauto/serviceradar/pkg/poller"
-    "github.com/carverauto/serviceradar/proto"
 )
 
 var (
@@ -116,3 +114,4 @@ func run() error {
 		EnableHealthCheck:    true,
 		Security:             cfg.Security,
 	})
+}

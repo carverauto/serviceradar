@@ -20,7 +20,6 @@ import (
 	"context"
 	"flag"
 	"log"
-	"os"
 
 	"google.golang.org/grpc"
 
@@ -39,11 +38,12 @@ func main() {
 
 	// Step 1: Load config with KV support
 	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
-	defer func() {
+	
+	cleanup := func() {
 		if kvMgr != nil {
 			_ = kvMgr.Close()
 		}
-	}()
+	}
 
 	cfgLoader := config.NewConfig(nil)
 	if kvMgr != nil {
@@ -51,9 +51,7 @@ func main() {
 	}
 
 	var cfg sync.Config
-	if err := kvMgr.LoadAndOverlay(ctx, cfgLoader, *configPath, &cfg); err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
+	config.LoadAndOverlayOrExit(ctx, kvMgr, cfgLoader, *configPath, &cfg, "Failed to load config")
 
 	// Bootstrap service-level default into KV if missing
 	if kvMgr != nil {
@@ -64,6 +62,7 @@ func main() {
 	// Step 2: Create logger from config
 	logger, err := lifecycle.CreateComponentLogger(ctx, "sync", cfg.Logging)
 	if err != nil {
+		cleanup()
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 
@@ -75,6 +74,7 @@ func main() {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
 			log.Printf("Failed to shutdown logger: %v", shutdownErr)
 		}
+		cleanup()
 		log.Fatalf("Failed to create syncer: %v", err)
 	}
 
@@ -109,6 +109,9 @@ func main() {
 	}
 
 	if serverErr != nil {
+		cleanup()
 		log.Fatalf("Sync service failed: %v", serverErr)
 	}
+	
+	cleanup()
 }
