@@ -210,6 +210,20 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         return { enabled: false, targets: [] };
       case 'sysmon':
         return { enabled: true, interval: '10s' };
+      case 'db-event-writer':
+        return {
+          listen_addr: ':50061',
+          database: { addresses: ['proton:9440'], name: 'default', username: 'default', password: '' },
+          logging: { level: 'info', output: 'stdout' },
+          security: null,
+        };
+      case 'zen-consumer':
+        return {
+          listen_addr: ':50062',
+          nats: { url: 'nats://127.0.0.1:4222', subject: 'events.zen', stream: 'events' },
+          logging: { level: 'info', output: 'stdout' },
+          security: null,
+        };
       case 'otel':
         return `# ServiceRadar OTEL Collector\n[server]\nbind_address = "0.0.0.0"\nport = 4317\n\n[nats]\nurl = "nats://localhost:4222"\nsubject = "events.otel"\nstream = "events"\n`;
       case 'flowgger':

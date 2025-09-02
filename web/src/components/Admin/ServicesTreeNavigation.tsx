@@ -375,6 +375,41 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                 {iconForType('poller')}
                 <span>Configure poller</span>
               </div>
+              {/* Global/non-agent services quick links */}
+              <div className="mt-1 ml-2 space-y-1">
+                <div
+                  className={`flex items-center gap-2 p-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `svc-global:${p.poller_id}:otel` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                  onClick={() => onSelect({ id: `svc-global:${p.poller_id}:otel`, name: 'OTEL Collector', type: 'otel', kvStore: p.kv_store_ids?.[0], pollerId: p.poller_id })}
+                >
+                  <span className="w-3" />
+                  <span>Configure OTEL</span>
+                  {p.kv_store_ids && p.kv_store_ids[0] && <span className="ml-2"><KvInfoBadge kvId={p.kv_store_ids[0]} hoverTrigger /></span>}
+                </div>
+                <div
+                  className={`flex items-center gap-2 p-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `svc-global:${p.poller_id}:flowgger` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                  onClick={() => onSelect({ id: `svc-global:${p.poller_id}:flowgger`, name: 'Flowgger', type: 'flowgger', kvStore: p.kv_store_ids?.[0], pollerId: p.poller_id })}
+                >
+                  <span className="w-3" />
+                  <span>Configure Flowgger</span>
+                  {p.kv_store_ids && p.kv_store_ids[0] && <span className="ml-2"><KvInfoBadge kvId={p.kv_store_ids[0]} hoverTrigger /></span>}
+                </div>
+                <div
+                  className={`flex items-center gap-2 p-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `svc-global:${p.poller_id}:db-event-writer` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                  onClick={() => onSelect({ id: `svc-global:${p.poller_id}:db-event-writer`, name: 'DB Event Writer', type: 'db-event-writer', kvStore: p.kv_store_ids?.[0], pollerId: p.poller_id })}
+                >
+                  <span className="w-3" />
+                  <span>Configure DB Event Writer</span>
+                  {p.kv_store_ids && p.kv_store_ids[0] && <span className="ml-2"><KvInfoBadge kvId={p.kv_store_ids[0]} hoverTrigger /></span>}
+                </div>
+                <div
+                  className={`flex items-center gap-2 p-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `svc-global:${p.poller_id}:zen-consumer` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                  onClick={() => onSelect({ id: `svc-global:${p.poller_id}:zen-consumer`, name: 'Zen Consumer', type: 'zen-consumer', kvStore: p.kv_store_ids?.[0], pollerId: p.poller_id })}
+                >
+                  <span className="w-3" />
+                  <span>Configure Zen Consumer</span>
+                  {p.kv_store_ids && p.kv_store_ids[0] && <span className="ml-2"><KvInfoBadge kvId={p.kv_store_ids[0]} hoverTrigger /></span>}
+                </div>
+              </div>
               {(p.agents || []).filter(a => !filterAgent || a.agent_id.includes(filterAgent)).map((a) => (
                 <div key={`${p.poller_id}:${a.agent_id}`} className="mb-1">
                   <div className="flex items-center gap-2 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer" onClick={() => toggleAgent(p.poller_id, a.agent_id)}>
