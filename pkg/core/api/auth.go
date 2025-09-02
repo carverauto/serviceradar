@@ -449,7 +449,7 @@ func serviceLevelKeyFor(service string) (string, bool) {
         return "config/otel.toml", true
     case "trapd":
         return "config/trapd.json", true
-    case "core", "sync", "poller", "agent", "db-event-writer":
+    case "core", "sync", "poller", "agent", "db-event-writer", "zen-consumer":
         return fmt.Sprintf("config/%s.json", service), true
     default:
         return "", false
