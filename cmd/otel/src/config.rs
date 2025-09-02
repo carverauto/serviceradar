@@ -32,7 +32,7 @@ pub struct MetricsConfig {
     pub port: u16,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GRPCTLSConfig {
     pub cert_file: String,
     pub key_file: String,

@@ -51,10 +51,32 @@ func NewSweepService(config *models.Config, kvStore KVStore, configKey string, l
 	processor := sweeper.NewBaseProcessor(config, log)
 	store := sweeper.NewInMemoryStore(processor, log)
 
-	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, kvStore, nil, configKey, log)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create network sweeper: %w", err)
-	}
+    sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, kvStore, nil, configKey, log)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create network sweeper: %w", err)
+    }
+
+    // Bootstrap: ensure a default config exists in KV at the expected key, if KV is configured.
+    if kvStore != nil && configKey != "" {
+        if data, mErr := json.Marshal(config); mErr == nil {
+            // Prefer atomic PutIfAbsent if supported by KV implementation.
+            type putIfAbsent interface{
+                PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
+            }
+            if pfa, ok := any(kvStore).(putIfAbsent); ok {
+                if err := pfa.PutIfAbsent(context.Background(), configKey, data, 0); err == nil {
+                    log.Info().Str("key", configKey).Msg("Initialized default sweep config in KV (created)")
+                }
+            } else {
+                if _, found, err := kvStore.Get(context.Background(), configKey); err == nil && !found {
+                    _ = kvStore.Put(context.Background(), configKey, data, 0)
+                    log.Info().Str("key", configKey).Msg("Initialized default sweep config in KV (absent before)")
+                }
+            }
+        } else {
+            log.Warn().Err(mErr).Msg("Failed to marshal default sweep config for KV initialization")
+        }
+    }
 
 	return &SweepService{
 		sweeper:            sweeperInstance,

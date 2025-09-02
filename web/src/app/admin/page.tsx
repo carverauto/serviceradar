@@ -19,79 +19,51 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, ChevronDown, Server, Database, Settings2, RefreshCw } from 'lucide-react';
 import ConfigEditor from '@/components/Admin/ConfigEditor';
-import KVTreeNavigation from '@/components/Admin/KVTreeNavigation';
+import ServicesTreeNavigation, { SelectedServiceInfo } from '@/components/Admin/ServicesTreeNavigation';
 import RoleGuard from '@/components/Auth/RoleGuard';
 
-interface KVStore {
-  id: string;
-  name: string;
-  type: 'hub' | 'leaf';
-  services: ServiceInfo[];
-}
-
-interface ServiceInfo {
-  id: string;
-  name: string;
-  type: 'core' | 'sync' | 'poller' | 'agent';
-  kvStore: string;
-  status: 'active' | 'inactive';
-}
+interface ServiceTreePoller { poller_id: string; is_healthy: boolean; agents: any[] }
 
 export default function AdminPage() {
-  const [kvStores, setKvStores] = useState<KVStore[]>([]);
-  const [selectedService, setSelectedService] = useState<ServiceInfo | null>(null);
-  const [selectedKV, setSelectedKV] = useState<string>('');
+  const [pollers, setPollers] = useState<ServiceTreePoller[]>([]);
+  const [selectedService, setSelectedService] = useState<SelectedServiceInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filterPoller, setFilterPoller] = useState('');
+  const [filterAgent, setFilterAgent] = useState('');
+  const [filterService, setFilterService] = useState('');
 
   useEffect(() => {
-    fetchKVStores();
+    fetchServicesTree();
   }, []);
 
-  const fetchKVStores = async () => {
+  const fetchServicesTree = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/config/kv', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
+      // Prefer cookie-based token used across the app
+      const token = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("accessToken="))
+        ?.split("=")[1];
+      const response = await fetch('/api/services/tree', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch KV stores');
+        throw new Error('Failed to fetch services tree');
       }
 
       const data = await response.json();
-      
-      // If no KV stores are returned, create a default local one
-      if (!data || data.length === 0) {
-        setKvStores([{
-          id: 'local',
-          name: 'Local KV',
-          type: 'hub',
-          services: []
-        }]);
-      } else {
-        setKvStores(data);
-      }
+      setPollers(data || []);
     } catch (err) {
-      console.error('Error fetching KV stores:', err);
-      // Set default KV store on error
-      setKvStores([{
-        id: 'local',
-        name: 'Local KV',
-        type: 'hub',
-        services: []
-      }]);
+      console.error('Error fetching services tree:', err);
+      setPollers([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleServiceSelect = (service: ServiceInfo, kvStore: string) => {
-    setSelectedService(service);
-    setSelectedKV(kvStore);
-  };
+  const handleSelect = (sel: SelectedServiceInfo) => setSelectedService(sel);
 
   if (loading) {
     return (
@@ -109,25 +81,43 @@ export default function AdminPage() {
       <div className="flex h-full">
         <div className="w-80 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-y-auto">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
+            <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
               <Database className="h-5 w-5" />
               Configuration Management
             </h2>
+            <div className="flex gap-2">
+              <input
+                placeholder="Filter poller…"
+                className="w-1/2 px-2 py-1 text-sm border rounded bg-white dark:bg-gray-900"
+                value={filterPoller}
+                onChange={(e) => setFilterPoller(e.target.value)}
+              />
+              <input
+                placeholder="Filter agent…"
+                className="w-1/2 px-2 py-1 text-sm border rounded bg-white dark:bg-gray-900"
+                value={filterAgent}
+                onChange={(e) => setFilterAgent(e.target.value)}
+              />
+            </div>
+            <div className="mt-2">
+              <input
+                placeholder="Filter service…"
+                className="w-full px-2 py-1 text-sm border rounded bg-white dark:bg-gray-900"
+                value={filterService}
+                onChange={(e) => setFilterService(e.target.value)}
+              />
+            </div>
           </div>
           
-          <KVTreeNavigation 
-            kvStores={kvStores}
-            onServiceSelect={handleServiceSelect}
-            selectedService={selectedService}
-          />
+          <ServicesTreeNavigation pollers={pollers as any} onSelect={handleSelect} selected={selectedService} filterPoller={filterPoller} filterAgent={filterAgent} filterService={filterService} />
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {selectedService ? (
             <ConfigEditor 
               service={selectedService}
-              kvStore={selectedKV}
-              onSave={() => fetchKVStores()}
+              kvStore={selectedService.kvStore || ''}
+              onSave={() => fetchServicesTree()}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-500">

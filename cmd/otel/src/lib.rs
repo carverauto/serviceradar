@@ -1,4 +1,4 @@
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use tonic::{Request, Response, Status};
 
 pub mod cli;
@@ -91,6 +91,43 @@ impl ServiceRadarCollector {
             nats_output.is_some()
         );
         Ok(Self { nats_output })
+    }
+
+    /// Reconfigure NATS output at runtime. If None, disables output. If Some, rebuilds the output.
+    pub async fn reconfigure_nats(&self, nats_config: Option<nats_output::NATSConfig>) {
+        debug!("Reconfiguring NATS output for collector");
+        match nats_config {
+            Some(cfg) => {
+                match nats_output::NATSOutput::new(cfg).await {
+                    Ok(new_output) => {
+                        if let Some(arc) = &self.nats_output {
+                            {
+                                let mut guard = arc.lock().await;
+                                *guard = new_output;
+                                info!("NATS output reconfigured successfully");
+                            }
+                        } else {
+                            warn!("NATS output not initialized; restart required to enable output");
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to reconfigure NATS output: {e}");
+                    }
+                }
+            }
+            None => {
+                if let Some(arc) = &self.nats_output {
+                    {
+                        let mut guard = arc.lock().await;
+                        // Replace with a disabled output that drops
+                        *guard = nats_output::NATSOutput::disabled();
+                        info!("NATS output disabled via reconfiguration");
+                    }
+                } else {
+                    debug!("NATS output already disabled");
+                }
+            }
+        }
     }
 }
 

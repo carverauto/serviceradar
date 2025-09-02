@@ -17,5 +17,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .file_descriptor_set_path(&descriptor_path)
         .compile(&[proto_path], &[proto_dir])?;
     println!("cargo:rerun-if-changed={proto_path}");
+
+    // Compile KV proto for client usage
+    let kv_proto_path = if Path::new("proto/kv.proto").exists() {
+        "proto/kv.proto"
+    } else {
+        "../../proto/kv.proto"
+    };
+    let kv_proto_dir = Path::new(kv_proto_path).parent().unwrap();
+    tonic_build::configure()
+        .build_server(false)
+        .build_client(true)
+        .compile(&[kv_proto_path], &[kv_proto_dir])?;
+    println!("cargo:rerun-if-changed={kv_proto_path}");
     Ok(())
 }

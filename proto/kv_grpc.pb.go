@@ -34,11 +34,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	KVService_Get_FullMethodName     = "/proto.KVService/Get"
-	KVService_Put_FullMethodName     = "/proto.KVService/Put"
-	KVService_PutMany_FullMethodName = "/proto.KVService/PutMany"
-	KVService_Delete_FullMethodName  = "/proto.KVService/Delete"
-	KVService_Watch_FullMethodName   = "/proto.KVService/Watch"
+	KVService_Get_FullMethodName         = "/proto.KVService/Get"
+	KVService_Put_FullMethodName         = "/proto.KVService/Put"
+	KVService_PutIfAbsent_FullMethodName = "/proto.KVService/PutIfAbsent"
+	KVService_PutMany_FullMethodName     = "/proto.KVService/PutMany"
+	KVService_Delete_FullMethodName      = "/proto.KVService/Delete"
+	KVService_Watch_FullMethodName       = "/proto.KVService/Watch"
+	KVService_Info_FullMethodName        = "/proto.KVService/Info"
 )
 
 // KVServiceClient is the client API for KVService service.
@@ -51,12 +53,17 @@ type KVServiceClient interface {
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
 	// Put stores a value for a given key with an optional TTL.
 	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutResponse, error)
+	// PutIfAbsent stores a value only if the key does not already exist.
+	// This is atomic at the KV store level and returns an error if the key exists.
+	PutIfAbsent(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutResponse, error)
 	// PutMany stores multiple key/value pairs in a single request.
 	PutMany(ctx context.Context, in *PutManyRequest, opts ...grpc.CallOption) (*PutManyResponse, error)
 	// Delete removes a key and its value from the store.
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 	// Watch streams updates for a specific key.
 	Watch(ctx context.Context, in *WatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchResponse], error)
+	// Info returns basic configuration details for this KV server (e.g., JetStream domain and bucket name).
+	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
 }
 
 type kVServiceClient struct {
@@ -81,6 +88,16 @@ func (c *kVServiceClient) Put(ctx context.Context, in *PutRequest, opts ...grpc.
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PutResponse)
 	err := c.cc.Invoke(ctx, KVService_Put_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *kVServiceClient) PutIfAbsent(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PutResponse)
+	err := c.cc.Invoke(ctx, KVService_PutIfAbsent_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +143,16 @@ func (c *kVServiceClient) Watch(ctx context.Context, in *WatchRequest, opts ...g
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type KVService_WatchClient = grpc.ServerStreamingClient[WatchResponse]
 
+func (c *kVServiceClient) Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InfoResponse)
+	err := c.cc.Invoke(ctx, KVService_Info_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KVServiceServer is the server API for KVService service.
 // All implementations must embed UnimplementedKVServiceServer
 // for forward compatibility.
@@ -136,12 +163,17 @@ type KVServiceServer interface {
 	Get(context.Context, *GetRequest) (*GetResponse, error)
 	// Put stores a value for a given key with an optional TTL.
 	Put(context.Context, *PutRequest) (*PutResponse, error)
+	// PutIfAbsent stores a value only if the key does not already exist.
+	// This is atomic at the KV store level and returns an error if the key exists.
+	PutIfAbsent(context.Context, *PutRequest) (*PutResponse, error)
 	// PutMany stores multiple key/value pairs in a single request.
 	PutMany(context.Context, *PutManyRequest) (*PutManyResponse, error)
 	// Delete removes a key and its value from the store.
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	// Watch streams updates for a specific key.
 	Watch(*WatchRequest, grpc.ServerStreamingServer[WatchResponse]) error
+	// Info returns basic configuration details for this KV server (e.g., JetStream domain and bucket name).
+	Info(context.Context, *InfoRequest) (*InfoResponse, error)
 	mustEmbedUnimplementedKVServiceServer()
 }
 
@@ -158,6 +190,9 @@ func (UnimplementedKVServiceServer) Get(context.Context, *GetRequest) (*GetRespo
 func (UnimplementedKVServiceServer) Put(context.Context, *PutRequest) (*PutResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Put not implemented")
 }
+func (UnimplementedKVServiceServer) PutIfAbsent(context.Context, *PutRequest) (*PutResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PutIfAbsent not implemented")
+}
 func (UnimplementedKVServiceServer) PutMany(context.Context, *PutManyRequest) (*PutManyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PutMany not implemented")
 }
@@ -166,6 +201,9 @@ func (UnimplementedKVServiceServer) Delete(context.Context, *DeleteRequest) (*De
 }
 func (UnimplementedKVServiceServer) Watch(*WatchRequest, grpc.ServerStreamingServer[WatchResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method Watch not implemented")
+}
+func (UnimplementedKVServiceServer) Info(context.Context, *InfoRequest) (*InfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
 }
 func (UnimplementedKVServiceServer) mustEmbedUnimplementedKVServiceServer() {}
 func (UnimplementedKVServiceServer) testEmbeddedByValue()                   {}
@@ -224,6 +262,24 @@ func _KVService_Put_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KVService_PutIfAbsent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KVServiceServer).PutIfAbsent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KVService_PutIfAbsent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KVServiceServer).PutIfAbsent(ctx, req.(*PutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _KVService_PutMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PutManyRequest)
 	if err := dec(in); err != nil {
@@ -271,6 +327,24 @@ func _KVService_Watch_Handler(srv interface{}, stream grpc.ServerStream) error {
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type KVService_WatchServer = grpc.ServerStreamingServer[WatchResponse]
 
+func _KVService_Info_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KVServiceServer).Info(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KVService_Info_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KVServiceServer).Info(ctx, req.(*InfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KVService_ServiceDesc is the grpc.ServiceDesc for KVService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -287,12 +361,20 @@ var KVService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _KVService_Put_Handler,
 		},
 		{
+			MethodName: "PutIfAbsent",
+			Handler:    _KVService_PutIfAbsent_Handler,
+		},
+		{
 			MethodName: "PutMany",
 			Handler:    _KVService_PutMany_Handler,
 		},
 		{
 			MethodName: "Delete",
 			Handler:    _KVService_Delete_Handler,
+		},
+		{
+			MethodName: "Info",
+			Handler:    _KVService_Info_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

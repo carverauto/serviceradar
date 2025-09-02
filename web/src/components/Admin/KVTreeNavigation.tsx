@@ -74,7 +74,7 @@ export default function KVTreeNavigation({ kvStores, onServiceSelect, selectedSe
     }
   };
 
-  const serviceTypes = ['core', 'sync', 'poller', 'agent'];
+  const serviceTypes = ['core', 'sync', 'poller', 'agent', 'otel', 'flowgger'];
 
   const createDefaultServices = (kvStore: string) => {
     return serviceTypes.map(type => ({

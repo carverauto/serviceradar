@@ -18,13 +18,14 @@
 package config
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"reflect"
-	"strings"
+    "context"
+    "errors"
+    "fmt"
+    "encoding/json"
+    "os"
+    "path/filepath"
+    "reflect"
+    "strings"
 
 	"github.com/rs/zerolog"
 
@@ -48,9 +49,9 @@ const (
 
 // Config holds the configuration loading dependencies.
 type Config struct {
-	kvStore       kv.KVStore
-	defaultLoader ConfigLoader
-	logger        logger.Logger
+    kvStore       kv.KVStore
+    defaultLoader ConfigLoader
+    logger        logger.Logger
 }
 
 // NewConfig initializes a new Config instance with a default file loader and logger.
@@ -171,7 +172,67 @@ func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface
 
 // SetKVStore sets the KV store to be used when CONFIG_SOURCE=kv.
 func (c *Config) SetKVStore(store kv.KVStore) {
-	c.kvStore = store
+    c.kvStore = store
+}
+
+// OverlayFromKV loads the config from KV and overlays it onto dst (which should already
+// contain the file-loaded configuration). KV values override only the fields present in KV.
+// If KV is not configured or the key is not found, this is a no-op.
+func (c *Config) OverlayFromKV(ctx context.Context, path string, dst interface{}) error {
+    if c.kvStore == nil {
+        return nil
+    }
+
+    // Build KV key the same way as KVConfigLoader does
+    key := "config/" + path[strings.LastIndex(path, "/")+1:]
+
+    data, found, err := c.kvStore.Get(ctx, key)
+    if err != nil || !found {
+        return nil // no overlay if not present or error
+    }
+
+    // Merge: marshal dst -> map, unmarshal KV -> map, deep-merge, decode back into dst
+    baseBytes, err := json.Marshal(dst)
+    if err != nil { return err }
+    var base map[string]interface{}
+    if err := json.Unmarshal(baseBytes, &base); err != nil { return err }
+    var over map[string]interface{}
+    if err := json.Unmarshal(data, &over); err != nil { return err }
+    merged := deepMerge(base, over)
+    mergedBytes, err := json.Marshal(merged)
+    if err != nil { return err }
+    return json.Unmarshal(mergedBytes, dst)
+}
+
+// deepMerge overlays src onto dst recursively.
+func deepMerge(dst, src map[string]interface{}) map[string]interface{} {
+    for k, v := range src {
+        if vm, ok := v.(map[string]interface{}); ok {
+            if dv, ok := dst[k].(map[string]interface{}); ok {
+                dst[k] = deepMerge(dv, vm)
+            } else {
+                dst[k] = vm
+            }
+        } else {
+            dst[k] = v
+        }
+    }
+    return dst
+}
+
+// MergeOverlayBytes deep-merges a JSON document onto an existing config struct in memory.
+// Fields present in overlay override destination; others remain unchanged.
+func MergeOverlayBytes(dst interface{}, overlay []byte) error {
+    var base map[string]interface{}
+    baseBytes, err := json.Marshal(dst)
+    if err != nil { return err }
+    if err := json.Unmarshal(baseBytes, &base); err != nil { return err }
+    var over map[string]interface{}
+    if err := json.Unmarshal(overlay, &over); err != nil { return err }
+    merged := deepMerge(base, over)
+    mergedBytes, err := json.Marshal(merged)
+    if err != nil { return err }
+    return json.Unmarshal(mergedBytes, dst)
 }
 
 // loadAndValidateWithSource loads and validates config using the appropriate loader.

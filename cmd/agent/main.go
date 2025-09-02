@@ -21,14 +21,19 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 
 	"google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/pkg/agent"
 	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/config/kvgrpc"
+	coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"encoding/json"
 )
 
 func main() {
@@ -47,12 +52,22 @@ func run() error {
 
 	// Step 1: Load config
 	cfgLoader := config.NewConfig(nil)
+	if os.Getenv("CONFIG_SOURCE") == "kv" && os.Getenv("KV_ADDRESS") != "" {
+		if kvStore := dialKVFromEnv(); kvStore != nil {
+			cfgLoader.SetKVStore(kvStore)
+			defer func(){ _ = kvStore.Close() }()
+		}
+	}
 
 	var cfg agent.ServerConfig
 
-	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
+    if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
+        return fmt.Errorf("failed to load config: %w", err)
+    }
+    // Overlay KV on top of file-loaded config if KV configured
+    if os.Getenv("KV_ADDRESS") != "" {
+        _ = cfgLoader.OverlayFromKV(ctx, *configPath, &cfg)
+    }
 
 	// Step 2: Create logger from loaded config
 	logConfig := cfg.Logging
@@ -69,7 +84,20 @@ func run() error {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
-	// Step 3: Create agent server with proper logger
+    // Bootstrap service-level default into KV if missing
+    if os.Getenv("KV_ADDRESS") != "" {
+        if kvStore := dialKVFromEnv(); kvStore != nil {
+            defer func(){ _ = kvStore.Close() }()
+            // key: config/agent.json
+            if data, _ := json.Marshal(cfg); data != nil {
+                if _, found, _ := kvStore.Get(ctx, "config/agent.json"); !found {
+                    _ = kvStore.Put(ctx, "config/agent.json", data, 0)
+                }
+            }
+        }
+    }
+
+    // Step 3: Create agent server with proper logger
 	server, err := agent.NewServer(ctx, cfg.CheckersDir, &cfg, agentLogger)
 	if err != nil {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
@@ -77,6 +105,23 @@ func run() error {
 		}
 
 		return fmt.Errorf("failed to create server: %w", err)
+	}
+
+	// KV Watch: overlay and apply hot-reload on relevant changes
+	if os.Getenv("CONFIG_SOURCE") == "kv" && os.Getenv("KV_ADDRESS") != "" {
+		if kvStore := dialKVFromEnv(); kvStore != nil {
+			prev := cfg
+			config.StartKVWatchOverlay(ctx, kvStore, "config/agent.json", &cfg, agentLogger, func(){
+				triggers := map[string]bool{"reload": true, "rebuild": true}
+				changed := config.FieldsChangedByTag(prev, cfg, "hot", triggers)
+				if len(changed) > 0 {
+					agentLogger.Info().Strs("changed_fields", changed).Msg("Applying agent hot-reload")
+					server.UpdateConfig(&cfg)
+					server.RestartServices(ctx)
+					prev = cfg
+				}
+			})
+		}
 	}
 
 	// Create server options
@@ -96,4 +141,23 @@ func run() error {
 
 	// Run server with lifecycle management
 	return lifecycle.RunServer(ctx, opts)
+}
+
+func dialKVFromEnv() *kvgrpc.Client {
+    addr := os.Getenv("KV_ADDRESS")
+    if addr == "" { return nil }
+    secMode := os.Getenv("KV_SEC_MODE")
+    cert := os.Getenv("KV_CERT_FILE")
+    key := os.Getenv("KV_KEY_FILE")
+    ca := os.Getenv("KV_CA_FILE")
+    serverName := os.Getenv("KV_SERVER_NAME")
+    if secMode != "mtls" || cert == "" || key == "" || ca == "" { return nil }
+    ctx := context.Background()
+    sec := &models.SecurityConfig{ Mode: "mtls", TLS: models.TLSConfig{CertFile: cert, KeyFile: key, CAFile: ca}, ServerName: serverName, Role: models.RoleAgent }
+    provider, err := coregrpc.NewSecurityProvider(ctx, sec, nil)
+    if err != nil { return nil }
+    client, err := coregrpc.NewClient(ctx, coregrpc.ClientConfig{ Address: addr, SecurityProvider: provider })
+    if err != nil { _ = provider.Close(); return nil }
+    kvClient := proto.NewKVServiceClient(client.GetConnection())
+    return kvgrpc.New(kvClient, func() error { _ = provider.Close(); return client.Close() })
 }

@@ -41,7 +41,8 @@ type ServiceStatus struct {
 	Available bool            `json:"available"`
 	Message   []byte          `json:"message"`
 	Type      string          `json:"type"`    // e.g., "process", "port", "blockchain", etc.
-	Details   json.RawMessage `json:"details"` // Flexible field for service-specific data
+    Details   json.RawMessage `json:"details"` // Flexible field for service-specific data
+    KvStoreID string          `json:"kv_store_id,omitempty"` // KV store identifier used by this service
 }
 
 type PollerStatus struct {
@@ -92,8 +93,25 @@ type APIServer struct {
 	authService          auth.AuthService
 	corsConfig           models.CORSConfig
 	dbType               parser.DatabaseType
-	entityTableMap       map[srqlmodels.EntityType]string
-	logger               logger.Logger
+    entityTableMap       map[srqlmodels.EntityType]string
+    logger               logger.Logger
+    // KV client settings for admin config writes/reads
+    kvAddress            string
+    kvSecurity           *models.SecurityConfig
+    kvPutFn              func(ctx context.Context, key string, value []byte, ttl int64) error
+    kvGetFn              func(ctx context.Context, key string) ([]byte, bool, error)
+    // Multi-KV support
+    kvEndpoints          map[string]*KVEndpoint
+}
+
+// KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.
+type KVEndpoint struct {
+    ID       string                 `json:"id"`
+    Name     string                 `json:"name"`
+    Address  string                 `json:"address"`   // gRPC address for proto.KVService
+    Domain   string                 `json:"domain"`    // NATS JetStream domain behind this KV
+    Type     string                 `json:"type"`      // hub | leaf | other
+    Security *models.SecurityConfig `json:"security,omitempty"`
 }
 
 // DeviceRegistryService interface for accessing the device registry

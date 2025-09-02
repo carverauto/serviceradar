@@ -38,7 +38,8 @@ impl Default for NATSConfig {
 
 pub struct NATSOutput {
     config: NATSConfig,
-    jetstream: jetstream::Context,
+    jetstream: Option<jetstream::Context>,
+    disabled: bool,
 }
 
 impl NATSOutput {
@@ -129,7 +130,12 @@ impl NATSOutput {
         }
 
         info!("NATS output initialized successfully");
-        Ok(Self { config, jetstream })
+        Ok(Self { config, jetstream: Some(jetstream), disabled: false })
+    }
+
+    pub fn disabled() -> Self {
+        info!("NATS output disabled (no-op)");
+        Self { config: NATSConfig::default(), jetstream: None, disabled: true }
     }
 
     async fn connect(config: &NATSConfig) -> Result<(Client, jetstream::Context)> {
@@ -192,8 +198,12 @@ impl NATSOutput {
         // Publish with acknowledgment - use traces-specific subject
         let traces_subject = format!("{}.traces", self.config.subject); // events.otel.traces
         debug!("Publishing traces to subject: {traces_subject}");
-        let ack: PublishAckFuture = self
-            .jetstream
+        if self.disabled || self.jetstream.is_none() {
+            debug!("NATS output disabled; dropping traces");
+            return Ok(());
+        }
+        let js = self.jetstream.as_ref().unwrap();
+        let ack: PublishAckFuture = js
             .publish(traces_subject, payload.into())
             .await
             .map_err(|e| {
@@ -254,8 +264,12 @@ impl NATSOutput {
         // Publish with acknowledgment - use a different subject for logs
         let logs_subject = format!("{}.logs", self.config.subject);
         debug!("Publishing to subject: {logs_subject}");
-        let ack: PublishAckFuture = self
-            .jetstream
+        if self.disabled || self.jetstream.is_none() {
+            debug!("NATS output disabled; dropping logs");
+            return Ok(());
+        }
+        let js = self.jetstream.as_ref().unwrap();
+        let ack: PublishAckFuture = js
             .publish(logs_subject, payload.into())
             .await
             .map_err(|e| {
@@ -304,8 +318,12 @@ impl NATSOutput {
         let otel_metrics_subject = "events.otel.metrics".to_string();
         debug!("Publishing performance metrics to subject: {otel_metrics_subject}");
         
-        let ack: PublishAckFuture = self
-            .jetstream
+        if self.disabled || self.jetstream.is_none() {
+            debug!("NATS output disabled; dropping metrics");
+            return Ok(());
+        }
+        let js = self.jetstream.as_ref().unwrap();
+        let ack: PublishAckFuture = js
             .publish(otel_metrics_subject, json_payload.into())
             .await
             .map_err(|e| {
