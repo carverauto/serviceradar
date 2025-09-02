@@ -21,7 +21,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 
 	"google.golang.org/grpc"
 
