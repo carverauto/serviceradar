@@ -24,7 +24,13 @@ RUSTFMT ?= rustfmt
 
 # Set up Rust environment - use original user's paths when running with sudo
 ifdef SUDO_USER
-	ORIGINAL_HOME := $(shell getent passwd $(SUDO_USER) | cut -d: -f6)
+	# Use dscl on macOS, getent on Linux
+	UNAME_S := $(shell uname -s)
+	ifeq ($(UNAME_S),Darwin)
+		ORIGINAL_HOME := $(shell dscl . -read /Users/$(SUDO_USER) NFSHomeDirectory | awk '{print $$2}')
+	else
+		ORIGINAL_HOME := $(shell getent passwd $(SUDO_USER) | cut -d: -f6)
+	endif
 	RUSTUP_HOME ?= $(ORIGINAL_HOME)/.rustup
 	CARGO_HOME ?= $(ORIGINAL_HOME)/.cargo
 else

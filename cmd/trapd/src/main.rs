@@ -159,6 +159,7 @@ struct TrapdAgentService;
 #[tonic::async_trait]
 impl AgentService for TrapdAgentService {
     type StreamResultsStream = Pin<Box<dyn Stream<Item = Result<monitoring::ResultsChunk, Status>> + Send + 'static>>;
+    type StreamConfigStream = Pin<Box<dyn Stream<Item = Result<monitoring::ConfigChunk, Status>> + Send + 'static>>;
     async fn get_status(
         &self,
         request: Request<monitoring::StatusRequest>,
@@ -214,6 +215,70 @@ impl AgentService for TrapdAgentService {
         // Create an empty stream for now - in a real implementation this would
         // stream actual results data in chunks
         let stream = futures::stream::empty();
+        
+        Ok(Response::new(Box::pin(stream)))
+    }
+
+    async fn get_config(
+        &self,
+        request: Request<monitoring::ConfigRequest>,
+    ) -> Result<Response<monitoring::ConfigResponse>, Status> {
+        let req = request.into_inner();
+        
+        // Return basic trapd configuration
+        let config = serde_json::json!({
+            "service_name": "trapd",
+            "service_type": "grpc",
+            "listen_addr": "0.0.0.0:162",
+            "community": "public"
+        });
+        
+        let config_bytes = serde_json::to_vec(&config).unwrap_or_default();
+        
+        Ok(Response::new(monitoring::ConfigResponse {
+            config: config_bytes,
+            service_name: req.service_name,
+            service_type: req.service_type,
+            agent_id: req.agent_id,
+            poller_id: req.poller_id,
+            kv_store_id: "".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+        }))
+    }
+
+    async fn stream_config(
+        &self,
+        request: Request<monitoring::ConfigRequest>,
+    ) -> Result<Response<Self::StreamConfigStream>, Status> {
+        let req = request.into_inner();
+        
+        // Get the config data
+        let config = serde_json::json!({
+            "service_name": "trapd",
+            "service_type": "grpc", 
+            "listen_addr": "0.0.0.0:162",
+            "community": "public"
+        });
+        
+        let config_bytes = serde_json::to_vec(&config).unwrap_or_default();
+        
+        // Create a single chunk stream
+        let chunk = monitoring::ConfigChunk {
+            data: config_bytes,
+            is_final: true,
+            chunk_index: 0,
+            total_chunks: 1,
+            kv_store_id: "".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+        };
+        
+        let stream = futures::stream::once(async { Ok(chunk) });
         
         Ok(Response::new(Box::pin(stream)))
     }
