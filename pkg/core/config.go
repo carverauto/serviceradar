@@ -17,6 +17,7 @@
 package core
 
 import (
+    "context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,7 +25,11 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
+	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/config/kvgrpc"
+	coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -33,31 +38,34 @@ const (
 )
 
 func LoadConfig(path string) (models.CoreServiceConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return models.CoreServiceConfig{}, fmt.Errorf("failed to read config: %w", err)
-	}
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return models.CoreServiceConfig{}, fmt.Errorf("failed to read config: %w", err)
+    }
 
-	var config models.CoreServiceConfig
+    var config models.CoreServiceConfig
 
-	// Debug: show raw JSON before parsing
-	fmt.Printf("DEBUG: Raw JSON length: %d bytes\n", len(data))
-	
-	// Find and print just the auth section
-	var jsonMap map[string]interface{}
-	if err := json.Unmarshal(data, &jsonMap); err == nil {
-		if authSection, ok := jsonMap["auth"].(map[string]interface{}); ok {
-			if rbacSection, ok := authSection["rbac"].(map[string]interface{}); ok {
-				fmt.Printf("DEBUG: Raw RBAC section: %+v\n", rbacSection)
-			} else {
-				fmt.Println("DEBUG: No RBAC section found in auth")
-			}
-		}
-	}
+    // Debug: show raw JSON before parsing
+    fmt.Printf("DEBUG: Raw JSON length: %d bytes\n", len(data))
 
-	if err := json.Unmarshal(data, &config); err != nil {
-		return models.CoreServiceConfig{}, fmt.Errorf("failed to parse config: %w", err)
-	}
+    // Find and print just the auth section
+    var jsonMap map[string]interface{}
+    if err := json.Unmarshal(data, &jsonMap); err == nil {
+        if authSection, ok := jsonMap["auth"].(map[string]interface{}); ok {
+            if rbacSection, ok := authSection["rbac"].(map[string]interface{}); ok {
+                fmt.Printf("DEBUG: Raw RBAC section: %+v\n", rbacSection)
+            } else {
+                fmt.Println("DEBUG: No RBAC section found in auth")
+            }
+        }
+    }
+
+    if err := json.Unmarshal(data, &config); err != nil {
+        return models.CoreServiceConfig{}, fmt.Errorf("failed to parse config: %w", err)
+    }
+
+    // Overlay from KV if configured (no-op if KV env is not set or key missing)
+    _ = overlayFromKV(path, &config)
 	
 	// Debug the loaded config
 	fmt.Printf("DEBUG: Loaded config.Auth: %+v\n", config.Auth)
@@ -73,6 +81,45 @@ func LoadConfig(path string) (models.CoreServiceConfig, error) {
 	// Security config logging removed - will be handled by the logger instance in server
 
 	return config, nil
+}
+
+// loadViaConfigPackage loads the core config via pkg/config using the KV gRPC adapter.
+func overlayFromKV(path string, cfg *models.CoreServiceConfig) error {
+    ctx := context.Background()
+    cfgLoader := config.NewConfig(nil)
+
+    // Dial KV using environment-based mTLS settings
+    addr := os.Getenv("KV_ADDRESS")
+    secMode := os.Getenv("KV_SEC_MODE")
+    cert := os.Getenv("KV_CERT_FILE")
+    key := os.Getenv("KV_KEY_FILE")
+    ca := os.Getenv("KV_CA_FILE")
+    serverName := os.Getenv("KV_SERVER_NAME")
+
+    var kvAdapter *kvgrpc.Client
+    if addr != "" && secMode == "mtls" && cert != "" && key != "" && ca != "" {
+        sec := &models.SecurityConfig{
+            Mode: "mtls",
+            TLS: models.TLSConfig{CertFile: cert, KeyFile: key, CAFile: ca},
+            ServerName: serverName,
+            Role: models.RoleCore,
+        }
+        provider, err := coregrpc.NewSecurityProvider(ctx, sec, nil)
+        if err == nil {
+            c, err2 := coregrpc.NewClient(ctx, coregrpc.ClientConfig{Address: addr, SecurityProvider: provider })
+            if err2 == nil {
+                kvClient := proto.NewKVServiceClient(c.GetConnection())
+                kvAdapter = kvgrpc.New(kvClient, func() error { _ = provider.Close(); return c.Close() })
+            }
+        }
+    }
+
+    if kvAdapter == nil {
+        return nil
+    }
+    cfgLoader.SetKVStore(kvAdapter)
+    defer func(){ _ = kvAdapter.Close() }()
+    return cfgLoader.OverlayFromKV(ctx, path, cfg)
 }
 
 func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig {

@@ -372,14 +372,15 @@ func (s *Server) validateAndCorrectTimestamp(sweepData *struct {
 }
 
 func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
-	apiService := api.ServiceStatus{
-		Name:      svc.ServiceName,
-		Type:      svc.ServiceType,
-		Available: svc.Available,
-		Message:   svc.Message,
-		AgentID:   svc.AgentId,
-		PollerID:  svc.PollerId,
-	}
+    apiService := api.ServiceStatus{
+        Name:      svc.ServiceName,
+        Type:      svc.ServiceType,
+        Available: svc.Available,
+        Message:   svc.Message,
+        AgentID:   svc.AgentId,
+        PollerID:  svc.PollerId,
+        KvStoreID: svc.KvStoreId,
+    }
 
 	if len(svc.Message) > 0 {
 		var enhancedPayload models.ServiceMetricsPayload

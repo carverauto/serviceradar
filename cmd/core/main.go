@@ -45,9 +45,10 @@
 package main
 
 import (
-	"context"
-	"flag"
-	"log"
+    "context"
+    "flag"
+    "log"
+    "os"
 
 	"google.golang.org/grpc"
 
@@ -119,18 +120,39 @@ func run() error {
 	}
 
 	// Create API server with Swagger support
-	apiServer := api.NewAPIServer(
-		cfg.CORS,
-		api.WithMetricsManager(server.GetMetricsManager()),
-		api.WithSNMPManager(server.GetSNMPManager()),
-		api.WithAuthService(server.GetAuth()),
-		api.WithRperfManager(server.GetRperfManager()),
-		api.WithQueryExecutor(server.DB),
-		api.WithDBService(server.DB),
-		api.WithDeviceRegistry(server.DeviceRegistry),
-		api.WithDatabaseType(parser.Proton),
-		api.WithLogger(mainLogger),
-	)
+    // Optionally configure KV client for admin config endpoints
+    var apiOptions []func(*api.APIServer)
+    if kvAddr := os.Getenv("KV_ADDRESS"); kvAddr != "" {
+        apiOptions = append(apiOptions, api.WithKVAddress(kvAddr))
+    }
+    if cfg.Security != nil {
+        apiOptions = append(apiOptions, api.WithKVSecurity(cfg.Security))
+    }
+    // Register KV endpoints from core config if provided
+    if len(cfg.KVEndpoints) > 0 {
+        eps := make(map[string]*api.KVEndpoint)
+        for _, e := range cfg.KVEndpoints {
+            eps[e.ID] = &api.KVEndpoint{ ID: e.ID, Name: e.Name, Address: e.Address, Domain: e.Domain, Type: e.Type, Security: cfg.Security }
+        }
+        apiOptions = append(apiOptions, api.WithKVEndpoints(eps))
+    }
+
+    // Combine all API server options
+    allOptions := []func(server *api.APIServer){
+        api.WithMetricsManager(server.GetMetricsManager()),
+        api.WithSNMPManager(server.GetSNMPManager()),
+        api.WithAuthService(server.GetAuth()),
+        api.WithRperfManager(server.GetRperfManager()),
+        api.WithQueryExecutor(server.DB),
+        api.WithDBService(server.DB),
+        api.WithDeviceRegistry(server.DeviceRegistry),
+        api.WithDatabaseType(parser.Proton),
+        api.WithLogger(mainLogger),
+    }
+    // Add KV options at the end so they override defaults
+    allOptions = append(allOptions, apiOptions...)
+    
+    apiServer := api.NewAPIServer(cfg.CORS, allOptions...)
 
 	server.SetAPIServer(ctx, apiServer)
 

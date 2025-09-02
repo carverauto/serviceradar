@@ -22,6 +22,7 @@ prost = "0.11"
 tonic = { version = "0.9", features = ["tls"] }
 tonic-health = "0.9"
 tonic-reflection = "0.9"
+kvutil = { path = "../../rust/kvutil" }
 
 [build-dependencies]
 tonic-build = "0.9"

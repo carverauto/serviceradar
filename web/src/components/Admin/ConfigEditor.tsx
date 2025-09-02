@@ -26,9 +26,10 @@ import AgentConfigForm from './ConfigForms/AgentConfigForm';
 interface ServiceInfo {
   id: string;
   name: string;
-  type: 'core' | 'sync' | 'poller' | 'agent';
-  kvStore: string;
-  status: 'active' | 'inactive';
+  type: string; // 'core' | 'sync' | 'poller' | 'agent' | 'otel' | 'flowgger' | checker types
+  kvStore?: string;
+  pollerId?: string;
+  agentId?: string;
 }
 
 interface ConfigEditorProps {
@@ -45,9 +46,15 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
   const [success, setSuccess] = useState(false);
   const [jsonMode, setJsonMode] = useState(false);
   const [jsonValue, setJsonValue] = useState('');
+  const [isToml, setIsToml] = useState(false);
+  const [rawValue, setRawValue] = useState('');
+  // KV Info state
+  const [kvInfo, setKvInfo] = useState<{ domain: string; bucket: string } | null>(null);
+  const [kvInfoError, setKvInfoError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchConfig();
+    fetchKvInfo();
   }, [service, kvStore]);
 
   const fetchConfig = async () => {
@@ -60,8 +67,8 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         .split("; ")
         .find((row) => row.startsWith("accessToken="))
         ?.split("=")[1];
-      
-      const response = await fetch(`/api/admin/config/${service.type}?kvStore=${kvStore}`, {
+      const extraGet = (service.type !== 'poller' && service.type !== 'agent' && service.agentId) ? `&agent_id=${encodeURIComponent(service.agentId)}&service_type=${encodeURIComponent(service.type)}` : '';
+      const response = await fetch(`/api/admin/config/${service.type}?kv_store_id=${kvStore}${extraGet}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -70,28 +77,62 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       if (!response.ok) {
         if (response.status === 404) {
           // Load default config template
-          setConfig(getDefaultConfig(service.type));
-          setJsonValue(JSON.stringify(getDefaultConfig(service.type), null, 2));
+          const def = getDefaultConfig(service.type);
+          if (typeof def === 'string') {
+            setIsToml(true);
+            setRawValue(def);
+          } else {
+            setIsToml(false);
+            setConfig(def);
+            setJsonValue(JSON.stringify(def, null, 2));
+          }
         } else {
           throw new Error('Failed to fetch configuration');
         }
       } else {
-        const data = await response.json();
-        setConfig(data);
-        setJsonValue(JSON.stringify(data, null, 2));
+        const ct = response.headers.get('content-type') || '';
+        if (ct.includes('text/plain')) {
+          const text = await response.text();
+          setIsToml(true);
+          setRawValue(text);
+        } else {
+          const data = await response.json();
+          setIsToml(false);
+          setConfig(data);
+          setJsonValue(JSON.stringify(data, null, 2));
+        }
       }
     } catch (err: any) {
       setError(err.message);
       // Load default config on error
-      const defaultConfig = getDefaultConfig(service.type);
-      setConfig(defaultConfig);
-      setJsonValue(JSON.stringify(defaultConfig, null, 2));
+      const def = getDefaultConfig(service.type);
+      if (typeof def === 'string') { setIsToml(true); setRawValue(def); }
+      else { setIsToml(false); setConfig(def); setJsonValue(JSON.stringify(def, null, 2)); }
     } finally {
       setLoading(false);
     }
   };
 
-  const getDefaultConfig = (type: string) => {
+  const fetchKvInfo = async () => {
+    try {
+      setKvInfoError(null);
+      const token = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("accessToken="))
+        ?.split("=")[1];
+      const response = await fetch(`/api/kv/info?kv_store_id=${encodeURIComponent(kvStore)}` , {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error('Failed to fetch KV info');
+      const data = await response.json();
+      setKvInfo({ domain: data.domain, bucket: data.bucket });
+    } catch (err: any) {
+      setKvInfo(null);
+      setKvInfoError(err.message || 'KV info unavailable');
+    }
+  };
+
+  const getDefaultConfig = (type: string): any => {
     switch (type) {
       case 'core':
         return {
@@ -157,6 +198,22 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
             url: 'nats://127.0.0.1:4222'
           }
         };
+      case 'sweep':
+        return { networks: [], interval: '60s', timeout: '5s' };
+      case 'snmp':
+        return { enabled: false, listen_addr: ':50043', node_address: 'localhost:50043', partition: 'default', targets: [] };
+      case 'mapper':
+        return { enabled: true, address: 'serviceradar-mapper:50056' };
+      case 'trapd':
+        return { enabled: false, listen_addr: ':50043' };
+      case 'rperf':
+        return { enabled: false, targets: [] };
+      case 'sysmon':
+        return { enabled: true, interval: '10s' };
+      case 'otel':
+        return `# ServiceRadar OTEL Collector\n[server]\nbind_address = "0.0.0.0"\nport = 4317\n\n[nats]\nurl = "nats://localhost:4222"\nsubject = "events.otel"\nstream = "events"\n`;
+      case 'flowgger':
+        return `# Flowgger\n[input]\ntype = "syslog-tls"\nformat = "rfc5424"\n\n[output]\ntype = "tls"\nformat = "gelf"\n`;
       default:
         return {};
     }
@@ -168,7 +225,7 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       setError(null);
       setSuccess(false);
 
-      const configToSave = jsonMode ? JSON.parse(jsonValue) : config;
+      const configToSave = isToml ? rawValue : (jsonMode ? JSON.parse(jsonValue) : config);
 
       // Get token from cookie instead of localStorage
       const token = document.cookie
@@ -176,13 +233,17 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         .find((row) => row.startsWith("accessToken="))
         ?.split("=")[1];
         
-      const response = await fetch(`/api/admin/config/${service.type}?kvStore=${kvStore}`, {
+      const extra = (service.type !== 'poller' && service.type !== 'agent' && service.agentId) ? `&agent_id=${encodeURIComponent(service.agentId)}&service_type=${encodeURIComponent(service.type)}` : '';
+      const response = await fetch(`/api/admin/config/${service.type}?kv_store_id=${kvStore}${extra}`, {
         method: 'PUT',
-        headers: {
+        headers: isToml ? {
+          'Content-Type': 'text/plain',
+          'Authorization': `Bearer ${token}`,
+        } : {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify(configToSave),
+        body: isToml ? (configToSave as string) : JSON.stringify(configToSave),
       });
 
       if (!response.ok) {
@@ -222,6 +283,25 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
 
   const renderConfigForm = () => {
     // Don't render form if config is not loaded yet
+    if (isToml) {
+      return (
+        <div className="h-full">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-gray-600 dark:text-gray-400">TOML Configuration</span>
+            <button onClick={copyToClipboard} className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
+              <Copy className="h-3 w-3" />
+              Copy
+            </button>
+          </div>
+          <textarea
+            value={rawValue}
+            onChange={(e) => setRawValue(e.target.value)}
+            className="w-full h-full font-mono text-sm p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-900"
+            spellCheck={false}
+          />
+        </div>
+      );
+    }
     if (!config) {
       return (
         <div className="flex items-center justify-center p-8">
@@ -266,15 +346,25 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
             <p className="text-sm text-gray-600 dark:text-gray-400">
               KV Store: {kvStore} | Service ID: {service.id}
             </p>
+            <div className="mt-1 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+              {kvInfo ? (
+                <>
+                  <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">Domain: {kvInfo.domain}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">Bucket: {kvInfo.bucket}</span>
+                </>
+              ) : (
+                <span className="opacity-75">{kvInfoError ? `KV info: ${kvInfoError}` : 'Loading KV info…'}</span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            {!isToml && (<button
               onClick={() => setJsonMode(!jsonMode)}
               className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
             >
               <FileJson className="h-4 w-4" />
               {jsonMode ? 'Form View' : 'JSON View'}
-            </button>
+            </button>)}
             <button
               onClick={fetchConfig}
               className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"

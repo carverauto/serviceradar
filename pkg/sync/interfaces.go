@@ -33,11 +33,13 @@ import (
 
 // KVClient defines the interface for interacting with the KV store.
 type KVClient interface {
-	Put(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
-	PutMany(ctx context.Context, in *proto.PutManyRequest, opts ...grpc.CallOption) (*proto.PutManyResponse, error)
-	Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
-	Delete(ctx context.Context, in *proto.DeleteRequest, opts ...grpc.CallOption) (*proto.DeleteResponse, error)
-	Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (proto.KVService_WatchClient, error)
+    Put(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
+    PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
+    PutMany(ctx context.Context, in *proto.PutManyRequest, opts ...grpc.CallOption) (*proto.PutManyResponse, error)
+    Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
+    Delete(ctx context.Context, in *proto.DeleteRequest, opts ...grpc.CallOption) (*proto.DeleteResponse, error)
+    Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (proto.KVService_WatchClient, error)
+    Info(ctx context.Context, in *proto.InfoRequest, opts ...grpc.CallOption) (*proto.InfoResponse, error)
 }
 
 // GRPCClient defines the interface for gRPC client management.

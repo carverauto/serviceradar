@@ -33,8 +33,8 @@ export async function GET(req: NextRequest) {
   const apiUrl = getInternalApiUrl();
 
   try {
-    // Get pollers from the database to understand service distribution
-    const pollersResponse = await fetch(`${apiUrl}/pollers`, {
+    // Get configured KV endpoints from core
+    const epsResponse = await fetch(`${apiUrl}/api/kv/endpoints`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -43,69 +43,25 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    let pollers = [];
-    if (pollersResponse.ok) {
-      pollers = await pollersResponse.json();
+    let eps = [] as any[];
+    if (epsResponse.ok) {
+      eps = await epsResponse.json();
     }
-
-    // Create a default KV store structure
-    // In the future, this should query actual KV stores via NATS
-    const kvStores = [
-      {
-        id: "local",
-        name: "Local KV Store",
-        type: "hub",
-        services: [
-          {
-            id: "core-service",
-            name: "Core API Service",
-            type: "core",
-            kvStore: "local",
-            status: "active"
-          },
-          {
-            id: "sync-service", 
-            name: "Sync Service",
-            type: "sync",
-            kvStore: "local",
-            status: "active"
-          },
-          // Add services based on active pollers
-          ...pollers.map((poller: any) => [
-            {
-              id: `poller-${poller.poller_id}`,
-              name: `Poller: ${poller.poller_id}`,
-              type: "poller",
-              kvStore: poller.kv_store_id || "local",
-              status: poller.is_healthy ? "active" : "inactive"
-            },
-            {
-              id: `agent-${poller.agent_id || poller.poller_id}`,
-              name: `Agent: ${poller.agent_id || poller.poller_id}`, 
-              type: "agent",
-              kvStore: poller.kv_store_id || "local",
-              status: poller.is_healthy ? "active" : "inactive"
-            }
-          ]).flat()
-        ]
-      }
-    ];
-
-    // Group services by KV store if multiple exist
-    const kvStoreMap = new Map();
-    kvStores.forEach(store => {
-      if (!kvStoreMap.has(store.id)) {
-        kvStoreMap.set(store.id, {
-          id: store.id,
-          name: store.name,
-          type: store.type,
-          services: []
-        });
-      }
-      kvStoreMap.get(store.id).services.push(...store.services);
-    });
-
-    return NextResponse.json(Array.from(kvStoreMap.values()));
+    // Transform to UI shape, include basic core/sync service placeholders under each KV
+    const stores = (eps.length ? eps : [{ id: 'local', name: 'Local KV', type: 'hub' }]).map((ep: any) => ({
+      id: ep.id,
+      name: ep.name || ep.id,
+      type: ep.type || 'hub',
+      services: [
+        { id: `core-${ep.id}`, name: 'Core Configuration', type: 'core', kvStore: ep.id, status: 'active' },
+        { id: `sync-${ep.id}`, name: 'Sync Configuration', type: 'sync', kvStore: ep.id, status: 'active' },
+        { id: `poller-${ep.id}`, name: 'Poller Configuration', type: 'poller', kvStore: ep.id, status: 'active' },
+        { id: `agent-${ep.id}`, name: 'Agent Configuration', type: 'agent', kvStore: ep.id, status: 'active' },
+        { id: `otel-${ep.id}`, name: 'OTEL Collector', type: 'otel', kvStore: ep.id, status: 'active' },
+        { id: `flowgger-${ep.id}`, name: 'Flowgger', type: 'flowgger', kvStore: ep.id, status: 'active' },
+      ]
+    }));
+    return NextResponse.json(stores);
   } catch (error) {
     console.error("KV stores fetch error:", error);
     

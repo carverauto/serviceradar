@@ -35,18 +35,20 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
+    "go.opentelemetry.io/otel/trace"
 
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
-	srHttp "github.com/carverauto/serviceradar/pkg/http"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/metrics"
-	"github.com/carverauto/serviceradar/pkg/metricstore"
-	"github.com/carverauto/serviceradar/pkg/models"
-	srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
-	"github.com/carverauto/serviceradar/pkg/srql/parser"
-	"github.com/carverauto/serviceradar/pkg/swagger"
+    srHttp "github.com/carverauto/serviceradar/pkg/http"
+    "github.com/carverauto/serviceradar/pkg/logger"
+    "github.com/carverauto/serviceradar/pkg/metrics"
+    "github.com/carverauto/serviceradar/pkg/metricstore"
+    "github.com/carverauto/serviceradar/pkg/models"
+    srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
+    "github.com/carverauto/serviceradar/pkg/srql/parser"
+    "github.com/carverauto/serviceradar/pkg/swagger"
+    coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
+    "github.com/carverauto/serviceradar/proto"
 )
 
 var (
@@ -58,11 +60,57 @@ var (
 
 // NewAPIServer creates a new API server instance with the given configuration
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
-	s := &APIServer{
-		pollers:    make(map[string]*PollerStatus),
-		router:     mux.NewRouter(),
-		corsConfig: config,
-	}
+    s := &APIServer{
+        pollers:    make(map[string]*PollerStatus),
+        router:     mux.NewRouter(),
+        corsConfig: config,
+        kvEndpoints: make(map[string]*KVEndpoint),
+    }
+
+    // Default kvPutFn dials KV and performs a Put
+    s.kvPutFn = func(ctx context.Context, key string, value []byte, ttl int64) error {
+        if s.kvAddress == "" {
+            return fmt.Errorf("KV address not configured")
+        }
+        clientCfg := coregrpc.ClientConfig{ Address: s.kvAddress, MaxRetries: 3, Logger: s.logger }
+        if s.kvSecurity != nil {
+            sec := *s.kvSecurity
+            sec.Role = models.RolePoller
+            provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
+            if err != nil { return err }
+            clientCfg.SecurityProvider = provider
+            defer func(){ _ = provider.Close() }()
+        }
+        c, err := coregrpc.NewClient(ctx, clientCfg)
+        if err != nil { return err }
+        defer func(){ _ = c.Close() }()
+        kv := proto.NewKVServiceClient(c.GetConnection())
+        _, err = kv.Put(ctx, &proto.PutRequest{ Key: key, Value: value, TtlSeconds: ttl })
+        return err
+    }
+
+    // Default kvGetFn dials KV and performs a Get
+    s.kvGetFn = func(ctx context.Context, key string) ([]byte, bool, error) {
+        if s.kvAddress == "" {
+            return nil, false, fmt.Errorf("KV address not configured")
+        }
+        clientCfg := coregrpc.ClientConfig{ Address: s.kvAddress, MaxRetries: 3, Logger: s.logger }
+        if s.kvSecurity != nil {
+            sec := *s.kvSecurity
+            sec.Role = models.RolePoller
+            provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
+            if err != nil { return nil, false, err }
+            clientCfg.SecurityProvider = provider
+            defer func(){ _ = provider.Close() }()
+        }
+        c, err := coregrpc.NewClient(ctx, clientCfg)
+        if err != nil { return nil, false, err }
+        defer func(){ _ = c.Close() }()
+        kv := proto.NewKVServiceClient(c.GetConnection())
+        resp, err := kv.Get(ctx, &proto.GetRequest{ Key: key })
+        if err != nil { return nil, false, err }
+        return resp.Value, resp.Found, nil
+    }
 
 	// Initialize with default entity table mapping to match SRQL translator
 	defaultEntityTableMap := map[srqlmodels.EntityType]string{
@@ -90,9 +138,14 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 	}
 	s.entityTableMap = defaultEntityTableMap
 
-	for _, o := range options {
-		o(s)
-	}
+    for _, o := range options {
+        o(s)
+    }
+
+    // If only single kvAddress configured and no endpoints registered, register a default 'local'
+    if s.kvAddress != "" && len(s.kvEndpoints) == 0 {
+        s.kvEndpoints["local"] = &KVEndpoint{ ID: "local", Name: "Local KV", Address: s.kvAddress, Type: "hub", Security: s.kvSecurity }
+    }
 
 	s.setupRoutes()
 
@@ -136,9 +189,61 @@ func WithSNMPManager(m metricstore.SNMPManager) func(server *APIServer) {
 
 // WithRperfManager adds an rperf manager to the API server
 func WithRperfManager(m metricstore.RperfManager) func(server *APIServer) {
-	return func(server *APIServer) {
-		server.rperfManager = m
-	}
+    return func(server *APIServer) {
+        server.rperfManager = m
+    }
+}
+
+// WithKVAddress sets the KV address used by admin config endpoints.
+func WithKVAddress(addr string) func(server *APIServer) {
+    return func(server *APIServer) { server.kvAddress = addr }
+}
+
+// WithKVSecurity sets the mTLS security used for KV client connections.
+func WithKVSecurity(sec *models.SecurityConfig) func(server *APIServer) {
+    return func(server *APIServer) { server.kvSecurity = sec }
+}
+
+// WithKVEndpoint registers a KV endpoint by ID.
+func WithKVEndpoint(id, name, address, domain, typ string, sec *models.SecurityConfig) func(server *APIServer) {
+    return func(server *APIServer) {
+        if server.kvEndpoints == nil { server.kvEndpoints = make(map[string]*KVEndpoint) }
+        server.kvEndpoints[id] = &KVEndpoint{ ID: id, Name: name, Address: address, Domain: domain, Type: typ, Security: sec }
+    }
+}
+
+// WithKVEndpoints sets the full KV endpoints map.
+func WithKVEndpoints(eps map[string]*KVEndpoint) func(server *APIServer) {
+    return func(server *APIServer) { server.kvEndpoints = eps }
+}
+
+// getKVClient dials a KV gRPC endpoint by ID; falls back to default kvAddress.
+func (s *APIServer) getKVClient(ctx context.Context, id string) (proto.KVServiceClient, func(), error) {
+    // choose endpoint
+    var ep *KVEndpoint
+    if id != "" {
+        ep = s.kvEndpoints[id]
+    }
+    // fallback
+    if ep == nil && s.kvAddress != "" {
+        ep = &KVEndpoint{ ID: "local", Address: s.kvAddress, Security: s.kvSecurity }
+    }
+    if ep == nil || ep.Address == "" {
+        return nil, func(){}, fmt.Errorf("KV address not configured")
+    }
+    clientCfg := coregrpc.ClientConfig{ Address: ep.Address, MaxRetries: 3, Logger: s.logger }
+    var closer func()
+    if ep.Security != nil {
+        sec := *ep.Security
+        if sec.Role == "" { sec.Role = models.RolePoller }
+        provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
+        if err != nil { return nil, func(){}, err }
+        clientCfg.SecurityProvider = provider
+        closer = func(){ _ = provider.Close() }
+    } else { closer = func(){} }
+    c, err := coregrpc.NewClient(ctx, clientCfg)
+    if err != nil { closer(); return nil, func(){}, err }
+    return proto.NewKVServiceClient(c.GetConnection()), func(){ closer(); _ = c.Close() }, nil
 }
 
 // WithDBService adds a database service to the API server
@@ -525,7 +630,7 @@ func (s *APIServer) setupWebSocketRoutes() {
 
 // setupProtectedRoutes configures protected API routes.
 func (s *APIServer) setupProtectedRoutes() {
-	protected := s.router.PathPrefix("/api").Subrouter()
+    protected := s.router.PathPrefix("/api").Subrouter()
 
 	// Use the new flexible authentication middleware for all protected API routes.
 	protected.Use(s.authenticationMiddleware)
@@ -574,8 +679,242 @@ func (s *APIServer) setupProtectedRoutes() {
 		adminRoutes.Use(auth.RBACMiddleware("admin"))
 	}
 	
-	adminRoutes.HandleFunc("/config/{service}", s.handleGetConfig).Methods("GET")
-	adminRoutes.HandleFunc("/config/{service}", s.handleUpdateConfig).Methods("PUT")
+    adminRoutes.HandleFunc("/config/{service}", s.handleGetConfig).Methods("GET")
+    adminRoutes.HandleFunc("/config/{service}", s.handleUpdateConfig).Methods("PUT")
+
+    // KV endpoints enumeration (optional, for Admin UI)
+    protected.HandleFunc("/kv/endpoints", s.handleListKVEndpoints).Methods("GET")
+    // KV info for selected kv_store_id (endpoint ID or domain)
+    protected.HandleFunc("/kv/info", s.handleKVInfo).Methods("GET")
+
+    // Services tree (poller -> agent -> services) for Admin UI
+    protected.HandleFunc("/services/tree", s.handleServicesTree).Methods("GET")
+}
+
+// resolveKVDomain maps a kv_store_id (id or address) to a JetStream domain for routing through hub.
+// It checks configured kvEndpoints: exact ID match -> .Domain; address match -> .Domain; else returns kv_store_id as-is (assume it's a domain).
+func (s *APIServer) resolveKVDomain(kvID string) string {
+    if kvID == "" { return s.kvEndpoints["local"].Domain }
+    // Exact ID match
+    if ep, ok := s.kvEndpoints[kvID]; ok {
+        if ep.Domain != "" { return ep.Domain }
+        return kvID
+    }
+    // Address match fallback
+    for _, ep := range s.kvEndpoints {
+        if ep.Address == kvID { if ep.Domain != "" { return ep.Domain } }
+    }
+    // If looks like a URL/address and no mapping, default to hub domain if present
+    if strings.Contains(kvID, "://") || strings.Contains(kvID, ":") {
+        if ep, ok := s.kvEndpoints["local"]; ok && ep.Domain != "" { return ep.Domain }
+        return ""
+    }
+    // Otherwise treat kvID as the domain itself
+    return kvID
+}
+
+// handleServicesTree returns a lightweight tree of pollers -> agents -> services.
+// This uses the in-memory cache (no DB fan-out) to remain responsive and scalable.
+func (s *APIServer) handleServicesTree(w http.ResponseWriter, r *http.Request) {
+    type ServiceNode struct {
+        Name      string `json:"name"`
+        Type      string `json:"type"`
+        AgentID   string `json:"agent_id"`
+        KvStoreID string `json:"kv_store_id,omitempty"`
+    }
+    type AgentNode struct {
+        AgentID    string        `json:"agent_id"`
+        KvStoreIDs []string      `json:"kv_store_ids,omitempty"`
+        Services   []ServiceNode `json:"services"`
+    }
+    type PollerNode struct {
+        PollerID   string      `json:"poller_id"`
+        IsHealthy  bool        `json:"is_healthy"`
+        KvStoreIDs []string    `json:"kv_store_ids,omitempty"`
+        Agents     []AgentNode `json:"agents"`
+    }
+
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+
+    // Parse filters
+    q := r.URL.Query()
+    filterPoller := q.Get("poller")
+    filterAgent := q.Get("agent")
+    configuredOnly := strings.EqualFold(q.Get("configured"), "only")
+    limit := 0
+    offset := 0
+    if v := q.Get("limit"); v != "" { if n, err := strconv.Atoi(v); err == nil && n > 0 { limit = n } }
+    if v := q.Get("offset"); v != "" { if n, err := strconv.Atoi(v); err == nil && n >= 0 { offset = n } }
+
+    // Optional query params for paging/filtering (basic, non-breaking)
+    // Not fully enforced here; kept for future extension.
+
+    // Build tree
+    result := make([]PollerNode, 0, len(s.pollers))
+    for pollerID, ps := range s.pollers {
+        if filterPoller != "" && pollerID != filterPoller { continue }
+        // Group services by agent
+        agentMap := make(map[string]*AgentNode)
+        kvSetPoller := make(map[string]struct{})
+        for _, svc := range ps.Services {
+            if filterAgent != "" && svc.AgentID != filterAgent { continue }
+            agentID := svc.AgentID
+            if agentID == "" {
+                agentID = pollerID
+            }
+            if _, ok := agentMap[agentID]; !ok {
+                agentMap[agentID] = &AgentNode{AgentID: agentID}
+            }
+            // Track kv store IDs at agent and poller levels
+            if svc.KvStoreID != "" {
+                kvSetPoller[svc.KvStoreID] = struct{}{}
+            }
+            // Append service
+            agent := agentMap[agentID]
+            // Apply offset/limit at service list granularity per agent (simple approach)
+            node := ServiceNode{
+                Name:      svc.Name,
+                Type:      svc.Type,
+                AgentID:   agentID,
+                KvStoreID: svc.KvStoreID,
+            }
+            agent.Services = append(agent.Services, node)
+        }
+
+        // Finalize agents: compute kv sets per agent
+        pollerNode := PollerNode{PollerID: pollerID, IsHealthy: ps.IsHealthy}
+        for _, agent := range agentMap {
+            kvSet := make(map[string]struct{})
+            for _, sn := range agent.Services {
+                if sn.KvStoreID != "" { kvSet[sn.KvStoreID] = struct{}{} }
+            }
+            if len(kvSet) > 0 {
+                agent.KvStoreIDs = make([]string, 0, len(kvSet))
+                for id := range kvSet { agent.KvStoreIDs = append(agent.KvStoreIDs, id) }
+            }
+            // Optionally filter to only configured services for this agent
+            if configuredOnly {
+                filtered := make([]ServiceNode, 0, len(agent.Services))
+                for _, sn := range agent.Services {
+                    // Derive default KV key for this service under agent
+                    if key, ok := defaultKVKeyForService(sn.Type, sn.Type, sn.AgentID); ok {
+                        // Prefix with domain when kv store id provided
+                        kvID := sn.KvStoreID
+                        // Map kvID to endpoint ID for getKVClient (allow domain or id)
+                        s.mu.RLock()
+                        epID := ""
+                        if kvID != "" {
+                            if _, ok2 := s.kvEndpoints[kvID]; ok2 { epID = kvID } else {
+                                for id, ep := range s.kvEndpoints { if ep.Domain != "" && ep.Domain == kvID { epID = id; break } }
+                            }
+                        }
+                        if epID == "" && s.kvAddress != "" { epID = "local" }
+                        s.mu.RUnlock()
+                        // Build key (domain-prefixed) and query KV
+                        if kvID != "" && !strings.HasPrefix(key, "domains/") {
+                            if dom := s.resolveKVDomain(kvID); dom != "" { key = fmt.Sprintf("domains/%s/%s", dom, key) }
+                        }
+                        // Query KV for existence; prefer dialing specific endpoint if available
+                        ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+                        if epID != "" {
+                            if kvClient, closeFn, err := s.getKVClient(ctx, epID); err == nil {
+                                if resp, err := kvClient.Get(ctx, &proto.GetRequest{ Key: key }); err == nil && resp.GetFound() {
+                                    filtered = append(filtered, sn)
+                                }
+                                closeFn()
+                            }
+                        } else if s.kvGetFn != nil {
+                            if _, found, err := s.kvGetFn(ctx, key); err == nil && found {
+                                filtered = append(filtered, sn)
+                            }
+                        }
+                        cancel()
+                    }
+                }
+                agent.Services = filtered
+            }
+            // Apply offset/limit if requested
+            if offset > 0 || limit > 0 {
+                start := offset
+                if start > len(agent.Services) { start = len(agent.Services) }
+                end := len(agent.Services)
+                if limit > 0 && start+limit < end { end = start + limit }
+                agent.Services = agent.Services[start:end]
+            }
+            pollerNode.Agents = append(pollerNode.Agents, *agent)
+        }
+        if len(kvSetPoller) > 0 {
+            pollerNode.KvStoreIDs = make([]string, 0, len(kvSetPoller))
+            for id := range kvSetPoller { pollerNode.KvStoreIDs = append(pollerNode.KvStoreIDs, id) }
+        }
+        result = append(result, pollerNode)
+    }
+
+    _ = s.encodeJSONResponse(w, result)
+}
+
+// handleListKVEndpoints returns configured KV endpoints (IDs, names, domains, types).
+func (s *APIServer) handleListKVEndpoints(w http.ResponseWriter, _ *http.Request) {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+    eps := make([]*KVEndpoint, 0, len(s.kvEndpoints))
+    for _, ep := range s.kvEndpoints { eps = append(eps, &KVEndpoint{ ID: ep.ID, Name: ep.Name, Address: ep.Address, Domain: ep.Domain, Type: ep.Type }) }
+    if len(eps) == 0 && s.kvAddress != "" {
+        eps = append(eps, &KVEndpoint{ ID: "local", Name: "Local KV", Address: s.kvAddress, Type: "hub" })
+    }
+    _ = s.encodeJSONResponse(w, eps)
+}
+
+// handleKVInfo returns KV server info (domain, bucket) for a given kv_store_id.
+// kv_store_id may be an endpoint ID or a JetStream domain; we try both.
+func (s *APIServer) handleKVInfo(w http.ResponseWriter, r *http.Request) {
+    ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+    defer cancel()
+
+    q := r.URL.Query()
+    kvID := q.Get("kv_store_id")
+
+    // Resolve endpoint ID: prefer direct ID match
+    epID := ""
+    s.mu.RLock()
+    if kvID != "" {
+        if _, ok := s.kvEndpoints[kvID]; ok {
+            epID = kvID
+        } else {
+            // Try domain match => find endpoint whose Domain matches kvID
+            for id, ep := range s.kvEndpoints {
+                if ep.Domain != "" && ep.Domain == kvID {
+                    epID = id
+                    break
+                }
+            }
+        }
+    }
+    // Fallback to local
+    if epID == "" && s.kvAddress != "" {
+        epID = "local"
+    }
+    s.mu.RUnlock()
+
+    kvClient, closer, err := s.getKVClient(ctx, epID)
+    if err != nil {
+        writeError(w, "KV client not available", http.StatusBadGateway)
+        return
+    }
+    defer closer()
+
+    info, err := kvClient.Info(ctx, &proto.InfoRequest{})
+    if err != nil {
+        writeError(w, "Failed to fetch KV info", http.StatusBadGateway)
+        return
+    }
+    type resp struct {
+        Domain string `json:"domain"`
+        Bucket string `json:"bucket"`
+        KvStoreID string `json:"kv_store_id,omitempty"`
+    }
+    _ = s.encodeJSONResponse(w, resp{ Domain: info.GetDomain(), Bucket: info.GetBucket(), KvStoreID: kvID })
 }
 
 // @Summary Get SNMP data
