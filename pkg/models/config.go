@@ -146,7 +146,19 @@ type CoreServiceConfig struct {
 	NATS           *NATSConfig            `json:"nats,omitempty"`
 	Events         *EventsConfig          `json:"events,omitempty"`
 	Logging        *logger.Config         `json:"logging,omitempty"`
-	MCP            *MCPConfigRef          `json:"mcp,omitempty"`
+    MCP            *MCPConfigRef          `json:"mcp,omitempty"`
+    // KV endpoints for admin config operations (hub/leaf mappings)
+    KVEndpoints    []KVEndpoint           `json:"kv_endpoints,omitempty"`
+}
+
+// KVEndpoint describes a reachable KV gRPC endpoint and its JetStream domain.
+type KVEndpoint struct {
+    ID      string          `json:"id"`
+    Name    string          `json:"name"`
+    Address string          `json:"address"`
+    Domain  string          `json:"domain"`
+    Type    string          `json:"type,omitempty"` // hub | leaf | other
+    // Optional security for dialing KV from core (falls back to Core.Security if omitted)
 }
 
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
@@ -160,6 +172,7 @@ func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
 			LocalUsers    map[string]string    `json:"local_users"`
 			CallbackURL   string               `json:"callback_url,omitempty"`
 			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+			RBAC          RBACConfig           `json:"rbac,omitempty"`
 		} `json:"auth,omitempty"`
 		*Alias
 	}{
@@ -177,11 +190,13 @@ func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
 			LocalUsers    map[string]string    `json:"local_users"`
 			CallbackURL   string               `json:"callback_url,omitempty"`
 			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+			RBAC          RBACConfig           `json:"rbac,omitempty"`
 		}{
 			JWTSecret:    c.Auth.JWTSecret,
 			LocalUsers:   c.Auth.LocalUsers,
 			CallbackURL:  c.Auth.CallbackURL,
 			SSOProviders: c.Auth.SSOProviders,
+			RBAC:         c.Auth.RBAC,
 		}
 
 		if c.Auth.JWTExpiration != 0 {
@@ -203,6 +218,7 @@ func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 			LocalUsers    map[string]string    `json:"local_users"`
 			CallbackURL   string               `json:"callback_url,omitempty"`
 			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+			RBAC          RBACConfig           `json:"rbac,omitempty"`
 		} `json:"auth"`
 		*Alias
 	}{
@@ -228,6 +244,7 @@ func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 			LocalUsers:   aux.Auth.LocalUsers,
 			CallbackURL:  aux.Auth.CallbackURL,
 			SSOProviders: aux.Auth.SSOProviders,
+			RBAC:         aux.Auth.RBAC,
 		}
 
 		if aux.Auth.JWTExpiration != "" {

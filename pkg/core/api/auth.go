@@ -17,12 +17,27 @@
 package api
 
 import (
-	"encoding/json"
-	"net/http"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "strings"
+    "io"
 
-	"github.com/gorilla/mux"
-	"github.com/markbates/goth"
-	"github.com/markbates/goth/gothic"
+    "github.com/carverauto/serviceradar/pkg/core/auth"
+    "github.com/gorilla/mux"
+    "github.com/markbates/goth"
+    "github.com/markbates/goth/gothic"
+    "github.com/carverauto/serviceradar/proto"
+)
+
+// Service name constants
+const (
+	serviceSweep  = "sweep"
+	serviceSNMP   = "snmp"
+	serviceMapper = "mapper"
+	serviceTrapd  = "trapd"
+	serviceRPerf  = "rperf"
+	serviceSysmon = "sysmon"
 )
 
 // @Summary Authenticate with username and password
@@ -182,4 +197,247 @@ func (s *APIServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+}
+
+// @Summary Get configuration
+// @Description Retrieves configuration for a specific service
+// @Tags Admin
+// @Accept json
+// @Produce json
+// @Param service path string true "Service name (core, sync, poller, agent)"
+// @Param kvStore query string false "KV store identifier (default: local)"
+// @Success 200 {object} map[string]interface{} "Service configuration"
+// @Failure 400 {object} models.ErrorResponse "Invalid service"
+// @Failure 403 {object} models.ErrorResponse "Access denied"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/admin/config/{service} [get]
+func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    service := vars["service"]
+
+    // Try to read current config from KV if a key is provided or can be derived
+    key := r.URL.Query().Get("key")
+    agentID := r.URL.Query().Get("agent_id")
+    serviceType := r.URL.Query().Get("service_type")
+    kvStoreID := r.URL.Query().Get("kv_store_id")
+    if kvStoreID == "" { kvStoreID = r.URL.Query().Get("kvStore") }
+
+    if key == "" {
+        if k, ok := defaultKVKeyForService(service, serviceType, agentID); ok {
+            key = k
+        } else if k, ok := serviceLevelKeyFor(service); ok {
+            key = k
+        }
+    }
+
+    if key != "" {
+        // Prefix key with domain for leaf KVs when provided (domains/<kv_store_id>/key)
+        if kvStoreID != "" && !strings.HasPrefix(key, "domains/") {
+            domain := s.resolveKVDomain(kvStoreID)
+            if domain != "" { key = fmt.Sprintf("domains/%s/%s", domain, key) }
+        }
+        // Prefer per-request KV store selection if provided
+        if kvStoreID != "" {
+            if kvClient, closeFn, err := s.getKVClient(r.Context(), kvStoreID); err == nil {
+                defer closeFn()
+                if resp, err := kvClient.Get(r.Context(), &proto.GetRequest{ Key: key }); err == nil {
+                    if resp.Found {
+                        if strings.HasSuffix(strings.ToLower(key), ".toml") {
+                            w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+                            _, _ = w.Write(resp.Value)
+                        } else {
+                            w.Header().Set("Content-Type", "application/json")
+                            _, _ = w.Write(resp.Value)
+                        }
+                        return
+                    }
+                    http.Error(w, "configuration not found", http.StatusNotFound)
+                    return
+                }
+            }
+            // Fall through to default KV if specific dial failed
+        }
+        if s.kvGetFn != nil {
+            if data, found, err := s.kvGetFn(r.Context(), key); err == nil {
+                if found {
+                    if strings.HasSuffix(strings.ToLower(key), ".toml") {
+                        w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+                        _, _ = w.Write(data)
+                    } else {
+                        w.Header().Set("Content-Type", "application/json")
+                        _, _ = w.Write(data)
+                    }
+                    return
+                }
+                http.Error(w, "configuration not found", http.StatusNotFound)
+                return
+            } else {
+                s.logger.Warn().Err(err).Str("key", key).Msg("KV Get failed")
+            }
+        }
+    }
+
+    // No KV config found; return 404 without hard-coded defaults
+    http.Error(w, "configuration not found", http.StatusNotFound)
+}
+
+// @Summary Update configuration
+// @Description Updates configuration for a specific service
+// @Tags Admin
+// @Accept json
+// @Produce json
+// @Param service path string true "Service name (core, sync, poller, agent)"
+// @Param kvStore query string false "KV store identifier (default: local)"
+// @Param config body map[string]interface{} true "Configuration object"
+// @Success 200 {object} map[string]interface{} "Update result"
+// @Failure 400 {object} models.ErrorResponse "Invalid request"
+// @Failure 403 {object} models.ErrorResponse "Access denied"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/admin/config/{service} [put]
+func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    service := vars["service"]
+
+    // Do not rely on hard-coded defaults; accept any service and require a concrete key
+
+    // Preferred: explicit KV key via ?key=. Otherwise derive from service_type and agent_id
+    key := r.URL.Query().Get("key")
+    agentID := r.URL.Query().Get("agent_id")
+    serviceType := r.URL.Query().Get("service_type")
+    kvStoreID := r.URL.Query().Get("kv_store_id")
+    if kvStoreID == "" { kvStoreID = r.URL.Query().Get("kvStore") }
+
+    var configBytes []byte
+    var err error
+
+    if key == "" {
+        if k, ok := defaultKVKeyForService(service, serviceType, agentID); ok {
+            key = k
+        } else if k, ok := serviceLevelKeyFor(service); ok {
+            key = k
+        } else {
+            http.Error(w, "key is required for this service (no default path)", http.StatusBadRequest)
+            return
+        }
+    }
+
+    // Determine payload handling based on target key/file type
+    if strings.HasSuffix(strings.ToLower(key), ".toml") || strings.Contains(r.Header.Get("Content-Type"), "text/plain") {
+        // Read raw body for TOML/text
+        raw, readErr := io.ReadAll(r.Body)
+        if readErr != nil {
+            http.Error(w, "Failed to read request body", http.StatusBadRequest)
+            return
+        }
+        configBytes = raw
+    } else {
+        // JSON body: decode/gently re-encode to ensure compact form
+        var configData map[string]interface{}
+        if decodeErr := json.NewDecoder(r.Body).Decode(&configData); decodeErr != nil {
+            http.Error(w, "Invalid configuration data", http.StatusBadRequest)
+            return
+        }
+        configBytes, err = json.Marshal(configData)
+        if err != nil {
+            http.Error(w, "Failed to encode configuration", http.StatusBadRequest)
+            return
+        }
+    }
+
+    // Prefix key with domain for leaf KVs when provided (domains/<kv_store_id>/key)
+    if kvStoreID != "" && !strings.HasPrefix(key, "domains/") {
+        domain := s.resolveKVDomain(kvStoreID)
+        if domain != "" { key = fmt.Sprintf("domains/%s/%s", domain, key) }
+    }
+
+    // Prefer per-request KV if provided
+    if kvStoreID != "" {
+        kvClient, closeFn, err := s.getKVClient(r.Context(), kvStoreID)
+        if err == nil {
+            defer closeFn()
+            if _, err := kvClient.Put(r.Context(), &proto.PutRequest{ Key: key, Value: configBytes, TtlSeconds: 0 }); err != nil {
+                s.logger.Error().Err(err).Str("key", key).Str("kv_store_id", kvStoreID).Msg("KV Put failed")
+                http.Error(w, "Failed to write configuration to KV", http.StatusInternalServerError)
+                return
+            }
+        } else {
+            s.logger.Warn().Err(err).Str("kv_store_id", kvStoreID).Msg("KV dial failed; falling back to default KV")
+        }
+    }
+    if kvStoreID == "" {
+        if s.kvPutFn == nil {
+            http.Error(w, "KV client not initialized", http.StatusInternalServerError)
+            return
+        }
+        if err := s.kvPutFn(r.Context(), key, configBytes, 0); err != nil {
+            s.logger.Error().Err(err).Str("key", key).Msg("KV Put failed")
+            http.Error(w, "Failed to write configuration to KV", http.StatusInternalServerError)
+            return
+        }
+    }
+
+    user, _ := auth.GetUserFromContext(r.Context())
+    userEmail := ""
+    if user != nil { userEmail = user.Email }
+    result := map[string]interface{}{
+        "service":      service,
+        "service_type": serviceType,
+        "kv_store_id":  kvStoreID,
+        "key":          key,
+        "status":       "updated",
+        "bytes":        len(configBytes),
+        "user":         userEmail,
+    }
+
+    if err := s.encodeJSONResponse(w, result); err != nil {
+        s.logger.Error().Err(err).Msg("Error encoding config update response")
+        http.Error(w, "Failed to update configuration", http.StatusInternalServerError)
+        return
+    }
+}
+
+// defaultKVKeyForService returns a conventional KV key for known services.
+// Returns (key, true) if a default exists, otherwise ("", false).
+func defaultKVKeyForService(service, serviceType, agentID string) (string, bool) {
+    if service == serviceSweep || serviceType == serviceSweep {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentID), true
+    }
+    if service == serviceSNMP || serviceType == serviceSNMP || service == "snmp-checker" {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/snmp/snmp.json", agentID), true
+    }
+    if service == serviceMapper || serviceType == serviceMapper || service == "serviceradar-mapper" {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/mapper/mapper.json", agentID), true
+    }
+    if service == serviceTrapd || serviceType == serviceTrapd || service == "serviceradar-trapd" {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/trapd/trapd.json", agentID), true
+    }
+    if service == serviceRPerf || serviceType == serviceRPerf || service == "rperf-checker" {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/rperf/rperf.json", agentID), true
+    }
+    if service == serviceSysmon || serviceType == serviceSysmon {
+        if agentID == "" { return "", false }
+        return fmt.Sprintf("agents/%s/checkers/sysmon/sysmon.json", agentID), true
+    }
+    return "", false
+}
+
+// serviceLevelKeyFor returns a KV key for service-level configuration managed via pkg/config.
+func serviceLevelKeyFor(service string) (string, bool) {
+    switch service {
+    case "flowgger":
+        return "config/flowgger.toml", true
+    case "otel":
+        return "config/otel.toml", true
+    case "trapd":
+        return "config/trapd.json", true
+    case "core", "sync", "poller", "agent", "db-event-writer", "zen-consumer":
+        return fmt.Sprintf("config/%s.json", service), true
+    default:
+        return "", false
+    }
 }

@@ -278,16 +278,52 @@ func (s *Server) flushServices(ctx context.Context) {
 	s.serviceListBufferMu.Lock()
 	defer s.serviceListBufferMu.Unlock()
 
+	// Debug: Log all buffers and their sizes
+	totalServices := 0
+	for pollerID, services := range s.serviceListBuffers {
+		totalServices += len(services)
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Int("buffer_size", len(services)).
+			Msg("DEBUG: Service buffer status")
+	}
+	
+	s.logger.Debug().
+		Int("total_pollers", len(s.serviceListBuffers)).
+		Int("total_services", totalServices).
+		Msg("DEBUG: flushServices called")
+
 	for pollerID, services := range s.serviceListBuffers {
 		if len(services) == 0 {
 			continue
+		}
+
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Int("service_count", len(services)).
+			Msg("Flushing services to database")
+
+		for i, service := range services {
+			s.logger.Debug().
+				Str("poller_id", pollerID).
+				Int("service_index", i).
+				Str("service_name", service.ServiceName).
+				Str("service_type", service.ServiceType).
+				Interface("config", service.Config).
+				Msg("Service being stored")
 		}
 
 		if err := s.DB.StoreServices(ctx, services); err != nil {
 			s.logger.Error().
 				Err(err).
 				Str("poller_id", pollerID).
+				Int("service_count", len(services)).
 				Msg("Failed to flush services")
+		} else {
+			s.logger.Info().
+				Str("poller_id", pollerID).
+				Int("service_count", len(services)).
+				Msg("Successfully flushed services to database")
 		}
 
 		s.serviceListBuffers[pollerID] = nil

@@ -323,7 +323,7 @@ CREATE STREAM IF NOT EXISTS services (
     agent_id          string,
     service_name      string,
     service_type      string,
-    config            map(string, string),
+    config            string,          -- Store JSON as text; still queryable via json_extract_*
     partition         string
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)

@@ -361,6 +361,7 @@ func (rp *ResultsPoller) handleGetResultsError(err error) *proto.ServiceStatus {
 		PollerId:    rp.pollerID,
 		AgentId:     rp.agentName,
 		Source:      "results",
+		KvStoreId:   rp.kvStoreId,
 	}
 }
 
@@ -435,5 +436,6 @@ func (rp *ResultsPoller) convertToServiceStatus(results *proto.ResultsResponse) 
 		AgentId:      results.AgentId,
 		PollerId:     rp.pollerID,
 		Source:       "results",
+		KvStoreId:    rp.kvStoreId,
 	}
 }

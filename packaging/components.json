@@ -201,7 +201,7 @@
     },
     "build_method": "external",
     "external_binary": {
-      "source_url": "https://github.com/timeplus-io/proton/releases/download/v1.6.15/proton-v1.6.15-Linux-x86_64",
+      "source_url": "https://github.com/timeplus-io/proton/releases/download/v1.6.16/proton-v1.6.16-Linux-x86_64",
       "extract_command": "cp ${DOWNLOAD_PATH} ${OUTPUT_PATH} && chmod +x ${OUTPUT_PATH}",
       "binary_is_archive": false,
       "output_path": "/usr/bin/proton"

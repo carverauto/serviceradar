@@ -82,6 +82,8 @@ impl AgentService for ZenAgentService {
         
         Ok(Response::new(Box::pin(stream)))
     }
+
+
 }
 
 pub async fn start_grpc_server(cfg: Config) -> Result<()> {
@@ -94,7 +96,7 @@ pub async fn start_grpc_server(cfg: Config) -> Result<()> {
 
     let reflection_service = ReflectionBuilder::configure()
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
-        .build()?;
+        .build_v1()?;
 
     let mut server_builder = Server::builder();
     if let Some(sec) = &cfg.grpc_security {

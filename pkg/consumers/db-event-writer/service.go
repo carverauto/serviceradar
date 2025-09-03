@@ -18,14 +18,15 @@ import (
 
 // Service implements lifecycle.Service for the DB event writer.
 type Service struct {
-	cfg       *DBEventWriterConfig
-	nc        *nats.Conn
-	js        jetstream.JetStream
-	consumer  *Consumer
-	processor *Processor
-	wg        sync.WaitGroup
-	db        db.Service
-	logger    logger.Logger
+    cfg       *DBEventWriterConfig
+    nc        *nats.Conn
+    js        jetstream.JetStream
+    consumer  *Consumer
+    processor *Processor
+    wg        sync.WaitGroup
+    db        db.Service
+    logger    logger.Logger
+    runCancel context.CancelFunc
 }
 
 // NewService initializes the service.
@@ -133,7 +134,9 @@ func (s *Service) Start(ctx context.Context) error {
 		subjects = []string{s.cfg.Subject}
 	}
 
-	s.consumer, err = NewConsumer(ctx, js, s.cfg.StreamName, s.cfg.ConsumerName, subjects, s.logger)
+    runCtx, cancel := context.WithCancel(ctx)
+    s.runCancel = cancel
+    s.consumer, err = NewConsumer(runCtx, js, s.cfg.StreamName, s.cfg.ConsumerName, subjects, s.logger)
 	if err != nil {
 		nc.Close()
 		return err
@@ -141,11 +144,11 @@ func (s *Service) Start(ctx context.Context) error {
 
 	s.wg.Add(1)
 
-	go func() {
-		defer s.wg.Done()
+    go func() {
+        defer s.wg.Done()
 
-		s.consumer.ProcessMessages(ctx, s.processor)
-	}()
+        s.consumer.ProcessMessages(runCtx, s.processor)
+    }()
 
 	s.logger.Info().
 		Str("stream_name", s.cfg.StreamName).
@@ -166,15 +169,30 @@ func (s *Service) Stop(ctx context.Context) error {
 		_ = s.db.Close()
 	}
 
-	if s.nc != nil {
-		s.nc.Close()
-	}
+    if s.nc != nil {
+        s.nc.Close()
+    }
 
 	s.wg.Wait()
 
 	s.logger.Info().Msg("DB event writer stopped")
 
-	return nil
+    return nil
+}
+
+// UpdateConfig restarts internal consumer and NATS connection using the new configuration.
+func (s *Service) UpdateConfig(ctx context.Context, cfg *DBEventWriterConfig) error {
+    if cfg == nil { return nil }
+    if err := cfg.Validate(); err != nil { return err }
+    // Stop current processing
+    if s.runCancel != nil { s.runCancel() }
+    s.wg.Wait()
+    if s.nc != nil { s.nc.Close(); s.nc = nil }
+    s.js = nil
+    s.consumer = nil
+    s.cfg = cfg
+    // Start again with new configuration
+    return s.Start(ctx)
 }
 
 var _ lifecycle.Service = (*Service)(nil)

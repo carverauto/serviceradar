@@ -30,9 +30,13 @@ type KVStore interface {
 	// Returns the value as a byte slice, a boolean indicating if the key was found, and an error if the operation fails.
 	Get(ctx context.Context, key string) ([]byte, bool, error)
 
-	// Put stores a value under the given key with an optional TTL (time-to-live).
-	// If ttl is zero, the value persists indefinitely (or until explicitly deleted, depending on the backend).
-	Put(ctx context.Context, key string, value []byte, ttl time.Duration) error
+    // Put stores a value under the given key with an optional TTL (time-to-live).
+    // If ttl is zero, the value persists indefinitely (or until explicitly deleted, depending on the backend).
+    Put(ctx context.Context, key string, value []byte, ttl time.Duration) error
+
+    // PutIfAbsent stores a value only if the key does not already exist.
+    // Returns an error if the key exists. TTL semantics mirror Put.
+    PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
 
 	// PutMany stores multiple key/value pairs in a single operation.
 	// The ttl parameter applies to all entries.

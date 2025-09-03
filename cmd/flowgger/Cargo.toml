@@ -23,7 +23,7 @@ coroutines = ["may", "tls"]
 default = ["syslog", "tls", "gelf" ]
 redis-input = ["redis"]
 kafka-output = ["kafka"]
-nats-output = ["async-nats", "tokio"]
+nats-output = ["async-nats"]
 tls = ["openssl"]
 gelf = ["serde", "serde_json"]
 ltsv = []
@@ -36,6 +36,9 @@ file = ["notify", "glob"]
 [build-dependencies.capnpc]
 version = "0.10"
 optional = true
+
+[build-dependencies]
+tonic-build = { workspace = true }
 
 [dependencies]
 capnp = { version = "0.14", optional = true }
@@ -55,16 +58,14 @@ may = { version = "~0.3", optional = true }
 toml = "0.5"
 time = { version = "0.3", features = ["parsing", "formatting"] }
 time-tz = "0.3"
-tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync"], optional = true }
+tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tonic = { workspace = true }
+prost = { workspace = true }
+tempfile = "3"
+kvutil = { path = "../../rust/kvutil" }
 
 [dev-dependencies]
 tempdir = "0.3"
 quickcheck = "1"
 
-[profile.release]
-opt-level = 3
-debug = false
-rpath = false
-lto = true
-debug-assertions = false
-panic = "abort"
+## Release profile now defined at workspace root to avoid non-root profile warning

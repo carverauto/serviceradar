@@ -17,6 +17,7 @@
 package auth
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -25,22 +26,30 @@ import (
 )
 
 type Claims struct {
-	UserID   string `json:"user_id"`
-	Email    string `json:"email"`
-	Provider string `json:"provider"`
+	UserID   string   `json:"user_id"`
+	Email    string   `json:"email"`
+	Provider string   `json:"provider"`
+	Roles    []string `json:"roles"`
 	jwt.RegisteredClaims
 }
 
 func GenerateJWT(user *models.User, secret string, expiration time.Duration) (string, error) {
+	// Debug logging
+	fmt.Printf("DEBUG: GenerateJWT - User ID: %s, Email: %s, Provider: %s\n", user.ID, user.Email, user.Provider)
+	fmt.Printf("DEBUG: GenerateJWT - User Roles: %+v\n", user.Roles)
+
 	claims := Claims{
 		UserID:   user.ID,
 		Email:    user.Email,
 		Provider: user.Provider,
+		Roles:    user.Roles,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
+
+	fmt.Printf("DEBUG: GenerateJWT - Claims Roles: %+v\n", claims.Roles)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
