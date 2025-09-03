@@ -26,10 +26,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/config/kvgrpc"
-	coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -83,42 +80,20 @@ func LoadConfig(path string) (models.CoreServiceConfig, error) {
 	return config, nil
 }
 
-// loadViaConfigPackage loads the core config via pkg/config using the KV gRPC adapter.
+// overlayFromKV uses the config package's KV manager to overlay configuration from KV store
 func overlayFromKV(path string, cfg *models.CoreServiceConfig) error {
     ctx := context.Background()
+    
+    // Use the existing KVManager from pkg/config which handles env vars properly
+    kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
+    if kvMgr == nil {
+        return nil // No KV configured, which is fine
+    }
+    defer kvMgr.Close()
+    
     cfgLoader := config.NewConfig(nil)
-
-    // Dial KV using environment-based mTLS settings
-    addr := os.Getenv("KV_ADDRESS")
-    secMode := os.Getenv("KV_SEC_MODE")
-    cert := os.Getenv("KV_CERT_FILE")
-    key := os.Getenv("KV_KEY_FILE")
-    ca := os.Getenv("KV_CA_FILE")
-    serverName := os.Getenv("KV_SERVER_NAME")
-
-    var kvAdapter *kvgrpc.Client
-    if addr != "" && secMode == "mtls" && cert != "" && key != "" && ca != "" {
-        sec := &models.SecurityConfig{
-            Mode: "mtls",
-            TLS: models.TLSConfig{CertFile: cert, KeyFile: key, CAFile: ca},
-            ServerName: serverName,
-            Role: models.RoleCore,
-        }
-        provider, err := coregrpc.NewSecurityProvider(ctx, sec, nil)
-        if err == nil {
-            c, err2 := coregrpc.NewClient(ctx, coregrpc.ClientConfig{Address: addr, SecurityProvider: provider })
-            if err2 == nil {
-                kvClient := proto.NewKVServiceClient(c.GetConnection())
-                kvAdapter = kvgrpc.New(kvClient, func() error { _ = provider.Close(); return c.Close() })
-            }
-        }
-    }
-
-    if kvAdapter == nil {
-        return nil
-    }
-    cfgLoader.SetKVStore(kvAdapter)
-    defer func(){ _ = kvAdapter.Close() }()
+    kvMgr.SetupConfigLoader(cfgLoader)
+    
     return cfgLoader.OverlayFromKV(ctx, path, cfg)
 }
 
