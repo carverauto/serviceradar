@@ -236,9 +236,17 @@ func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.Co
 		flushInterval = time.Duration(config.WriteBuffer.FlushInterval)
 	}
 
+	// Calculate buffer capacity safely to prevent integer overflow
+	// Cap the buffer size to prevent overflow when multiplying by 2
+	const maxSafeBufferSize = int(^uint(0) >> 2) // Max int / 2
+	bufferCapacity := maxBufferSize * 2
+	if maxBufferSize > maxSafeBufferSize {
+		bufferCapacity = maxSafeBufferSize
+	}
+
 	db := &DB{
 		Conn:          conn,
-		writeBuffer:   make([]*models.SweepResult, 0, maxBufferSize*2), // Pre-allocate with 2x capacity
+		writeBuffer:   make([]*models.SweepResult, 0, bufferCapacity),
 		ctx:           bufferCtx,
 		cancel:        cancel,
 		maxBufferSize: maxBufferSize,
