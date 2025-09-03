@@ -5,4 +5,11 @@ release-artifacts
 *.log
 *.md
 *.lock
+!Cargo.lock
+!cmd/flowgger/Cargo.lock
+!cmd/trapd/Cargo.lock
+!cmd/otel/Cargo.lock
+!cmd/consumers/zen/Cargo.lock
+!cmd/checkers/rperf-client/Cargo.lock
+!cmd/ebpf/profiler/profiler/Cargo.lock
 demo-staging
