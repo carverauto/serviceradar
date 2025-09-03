@@ -9,6 +9,12 @@ members = [
     "cmd/consumers/zen",
 ]
 
+# Exclude independent crates that should not be treated as workspace members
+exclude = [
+    "cmd/checkers/rperf-client",
+    "cmd/checkers/sysmon",
+]
+
 [workspace.dependencies]
 tonic = { version = "0.12", features = ["tls"] }
 prost = "0.13"
