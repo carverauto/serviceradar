@@ -15,27 +15,33 @@
 # Multi-stage build for ServiceRadar Trapd service (Rust)
 FROM rust:latest AS builder
 
-WORKDIR /usr/src/serviceradar-trapd
+# Build from workspace root so workspace dependencies resolve
+WORKDIR /usr/src
 
 # Install dependencies for building
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy proto files first (needed by build.rs)
-COPY proto/ ./proto/
+# Copy workspace manifests first
+COPY Cargo.toml ./
+COPY Cargo.lock ./
 
-# Copy project files for Trapd service
-COPY cmd/trapd/Cargo.toml cmd/trapd/Cargo.lock* ./
-COPY cmd/trapd/src ./src/
-COPY cmd/trapd/build.rs ./
+# Copy workspace members and protos needed for build
+COPY rust/kvutil ./rust/kvutil
+COPY cmd/trapd ./cmd/trapd
+COPY cmd/flowgger ./cmd/flowgger
+COPY cmd/otel ./cmd/otel
+COPY cmd/poller-ng ./cmd/poller-ng
+COPY cmd/consumers/zen ./cmd/consumers/zen
+COPY proto ./proto
 
 # Build arguments for version info (unused in Rust but kept for consistency)
 ARG VERSION=dev
 ARG BUILD_ID=docker
 
 # Build for current architecture (ARM64 or AMD64)
-RUN cargo build --release
+RUN cargo build -p serviceradar-trapd --release
 
 # Runtime stage - using Ubuntu for better compatibility
 FROM ubuntu:22.04
@@ -62,7 +68,7 @@ RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
 
 # Copy binary from builder
-COPY --from=builder /usr/src/serviceradar-trapd/target/release/serviceradar-trapd /usr/local/bin/serviceradar-trapd
+COPY --from=builder /usr/src/target/release/serviceradar-trapd /usr/local/bin/serviceradar-trapd
 RUN chmod +x /usr/local/bin/serviceradar-trapd
 
 # Copy entrypoint script
