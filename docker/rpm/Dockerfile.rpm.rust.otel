@@ -76,3 +76,6 @@ COPY --from=builder /output/*.rpm ./
 RUN ls -la /rpms/
 
 CMD ["ls", "-la", "/rpms/"]
+# Install build dependencies (protoc for tonic-build)
+RUN dnf install -y protobuf-compiler && \
+    dnf clean all
