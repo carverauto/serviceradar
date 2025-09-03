@@ -55,6 +55,15 @@ export default function SyncConfigForm({ config, onChange }: SyncConfigFormProps
     const keys = path.split('.');
     let current: Record<string, unknown> = newConfig as Record<string, unknown>;
     
+    // Validate keys to prevent prototype pollution
+    const dangerousKeys = ['__proto__', 'constructor', 'prototype'];
+    for (const key of keys) {
+      if (dangerousKeys.includes(key)) {
+        console.error(`Attempted to set dangerous property: ${key}`);
+        return;
+      }
+    }
+    
     for (let i = 0; i < keys.length - 1; i++) {
       if (!current[keys[i]]) current[keys[i]] = {};
       current = current[keys[i]] as Record<string, unknown>;
