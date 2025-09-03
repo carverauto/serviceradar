@@ -39,7 +39,7 @@ interface ConfigEditorProps {
 }
 
 export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorProps) {
-  const [config, setConfig] = useState<any>(null);
+  const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,12 +52,7 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
   const [kvInfo, setKvInfo] = useState<{ domain: string; bucket: string } | null>(null);
   const [kvInfoError, setKvInfoError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchConfig();
-    fetchKvInfo();
-  }, [service, kvStore]);
-
-  const fetchConfig = async () => {
+  const fetchConfig = React.useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -102,8 +97,9 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
           setJsonValue(JSON.stringify(data, null, 2));
         }
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setError(message);
       // Load default config on error
       const def = getDefaultConfig(service.type);
       if (typeof def === 'string') { setIsToml(true); setRawValue(def); }
@@ -111,9 +107,9 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
     } finally {
       setLoading(false);
     }
-  };
+  }, [service, kvStore]);
 
-  const fetchKvInfo = async () => {
+  const fetchKvInfo = React.useCallback(async () => {
     try {
       setKvInfoError(null);
       const token = document.cookie
@@ -126,13 +122,20 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       if (!response.ok) throw new Error('Failed to fetch KV info');
       const data = await response.json();
       setKvInfo({ domain: data.domain, bucket: data.bucket });
-    } catch (err: any) {
+    } catch (err: unknown) {
       setKvInfo(null);
-      setKvInfoError(err.message || 'KV info unavailable');
+      const message = err instanceof Error ? err.message : 'KV info unavailable';
+      setKvInfoError(message);
     }
-  };
+  }, [kvStore]);
 
-  const getDefaultConfig = (type: string): any => {
+  useEffect(() => {
+    fetchConfig();
+    fetchKvInfo();
+  }, [fetchConfig, fetchKvInfo]);
+
+
+  const getDefaultConfig = (type: string): Record<string, unknown> | string => {
     switch (type) {
       case 'core':
         return {
@@ -276,14 +279,15 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       onSave();
       
       setTimeout(() => setSuccess(false), 3000);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setError(message);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleConfigChange = (newConfig: any) => {
+  const handleConfigChange = (newConfig: Record<string, unknown>) => {
     setConfig(newConfig);
     setJsonValue(JSON.stringify(newConfig, null, 2));
   };
@@ -294,7 +298,7 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       const parsed = JSON.parse(value);
       setConfig(parsed);
       setError(null);
-    } catch (err) {
+    } catch {
       // JSON is invalid, but allow editing
     }
   };
@@ -336,13 +340,13 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
 
     switch (service.type) {
       case 'core':
-        return <CoreConfigForm config={config} onChange={handleConfigChange} />;
+        return <CoreConfigForm config={config as unknown as Parameters<typeof CoreConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof CoreConfigForm>[0]['onChange']} />;
       case 'sync':
-        return <SyncConfigForm config={config} onChange={handleConfigChange} />;
+        return <SyncConfigForm config={config as unknown as Parameters<typeof SyncConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof SyncConfigForm>[0]['onChange']} />;
       case 'poller':
-        return <PollerConfigForm config={config} onChange={handleConfigChange} />;
+        return <PollerConfigForm config={config as unknown as Parameters<typeof PollerConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof PollerConfigForm>[0]['onChange']} />;
       case 'agent':
-        return <AgentConfigForm config={config} onChange={handleConfigChange} />;
+        return <AgentConfigForm config={config as unknown as Parameters<typeof AgentConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof AgentConfigForm>[0]['onChange']} />;
       default:
         return null;
     }

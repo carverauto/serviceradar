@@ -65,7 +65,7 @@ export default function AdminGuard({ children }: AdminGuardProps) {
           document.cookie = `accessToken=${cookieFlags}; Max-Age=0`;
           document.cookie = `refreshToken=${cookieFlags}; Max-Age=0`;
         }
-      } catch (parseError) {
+      } catch {
         // Invalid token format - clear cookies
         setIsAdmin(false);
         const cookieFlags = '; path=/; SameSite=Strict';

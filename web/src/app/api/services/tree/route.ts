@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     });
     const body = await resp.text();
     return new NextResponse(body, { status: resp.status, headers: { 'Content-Type': 'application/json' } });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Failed to fetch services tree' }, { status: 500 });
   }
 }

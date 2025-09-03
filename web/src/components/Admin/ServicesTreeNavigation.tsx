@@ -64,9 +64,9 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
           .split("; ")
           .find((row) => row.startsWith("accessToken="))
           ?.split("=")[1];
-        const headers = token ? { 'Authorization': `Bearer ${token}` } : {} as any;
+        const headers: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
         const services = ['otel','flowgger','db-event-writer','zen-consumer'];
-        const results: Record<string, 'configured' | 'missing' | 'unknown'> = {} as any;
+        const results: Record<string, 'configured' | 'missing' | 'unknown'> = {};
         await Promise.all(services.map(async (svc) => {
           try {
             const resp = await fetch(`/api/admin/config/${svc}`, { headers });
@@ -81,21 +81,21 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
       const anyUnknown = Object.values(globalStatus).some(v => v === 'unknown');
       if (anyUnknown) loadStatus();
     }
-  }, [globalOpen]);
+  }, [globalOpen, globalStatus]);
 
   // Listen for config saves to update global status indicator immediately
   useEffect(() => {
     const onSaved = (e: Event) => {
-      // @ts-ignore
+      // @ts-expect-error Custom event with detail
       const detail = e.detail || {};
       const t = detail.serviceType as string | undefined;
       if (!t) return;
       if (t === 'otel' || t === 'flowgger' || t === 'db-event-writer' || t === 'zen-consumer') {
-        setGlobalStatus(prev => ({ ...prev, [t]: 'configured' } as any));
+        setGlobalStatus(prev => ({ ...prev, [t]: 'configured' }));
       }
     };
-    window.addEventListener('sr:config-saved', onSaved as any);
-    return () => window.removeEventListener('sr:config-saved', onSaved as any);
+    window.addEventListener('sr:config-saved', onSaved);
+    return () => window.removeEventListener('sr:config-saved', onSaved);
   }, []);
   // Track pagination offsets per agent
   const [agentOffsets, setAgentOffsets] = useState<Record<string, number>>({});
@@ -105,9 +105,9 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   const [listHeight, setListHeight] = useState(560);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
 
-  const debounce = (fn: (...args: any[]) => void, delay: number) => {
-    let t: any;
-    return (...args: any[]) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
+  const debounce = <T extends unknown[]>(fn: (...args: T) => void, delay: number) => {
+    let t: NodeJS.Timeout;
+    return (...args: T) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
   };
 
   useEffect(() => {
@@ -151,7 +151,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
         const data = resp.ok ? await resp.json() : [];
         if (cancelled) return;
         const map: Record<string, ServiceTreePoller> = {};
-        (data || []).forEach((p: any) => { map[p.poller_id] = { poller_id: p.poller_id, is_healthy: p.is_healthy, agents: [] } });
+        (data || []).forEach((p: ServiceTreePoller) => { map[p.poller_id] = { poller_id: p.poller_id, is_healthy: p.is_healthy, agents: [] } });
         setTree(map);
       } finally { setLoadingPollers(false); }
     };
@@ -163,7 +163,11 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
 
   const togglePoller = async (id: string) => {
     const s = new Set(expandedPollers);
-    s.has(id) ? s.delete(id) : s.add(id);
+    if (s.has(id)) {
+      s.delete(id);
+    } else {
+      s.add(id);
+    }
     setExpandedPollers(s);
     // Lazy-load agents/services for this poller if not already loaded
     if (!tree[id] || (tree[id].agents && tree[id].agents.length > 0)) return;
@@ -183,7 +187,11 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   const toggleAgent = async (pollerId: string, agentId: string) => {
     const key = `${pollerId}:${agentId}`;
     const s = new Set(expandedAgents);
-    s.has(key) ? s.delete(key) : s.add(key);
+    if (s.has(key)) {
+      s.delete(key);
+    } else {
+      s.add(key);
+    }
     setExpandedAgents(s);
     // If agent services are empty, fetch first page
     const poller = tree[pollerId];
@@ -206,7 +214,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
     const arr = await resp.json();
     const node = (arr && arr.length) ? arr[0] : null;
     if (!node) return;
-    const freshAgent = (node.agents || []).find((a: any) => a.agent_id === agentId);
+    const freshAgent = (node.agents || []).find((a: ServiceTreeAgent) => a.agent_id === agentId);
     if (!freshAgent) return;
     // Mark hasMore for this agent based on returned page size
     const pageCount = (freshAgent.services || []).length;
@@ -219,7 +227,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
         const merged = { ...agents[idx] } as ServiceTreeAgent;
         // Append while de-duplicating by type+name
         const existing = new Set((merged.services || []).map(s => `${s.type}:${s.name}`));
-        const toAdd = (freshAgent.services || []).filter((s: any) => {
+        const toAdd = (freshAgent.services || []).filter((s: ServiceTreeService) => {
           const key = `${s.type}:${s.name}`;
           if (existing.has(key)) return false;
           existing.add(key);
@@ -262,6 +270,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   };
 
   // Simple virtualization for service lists
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const ServiceList: React.FC<{ items: ServiceTreeService[]; render: (svc: ServiceTreeService) => React.ReactNode; height?: number; itemHeight?: number; }>
     = ({ items, render, height = 320, itemHeight = 28 }) => {
     const [scrollTop, setScrollTop] = useState(0);
@@ -287,6 +296,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   };
 
   // Simple virtualization for agent lists
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const AgentList: React.FC<{ items: ServiceTreeAgent[]; render: (a: ServiceTreeAgent) => React.ReactNode; height?: number; itemHeight?: number; }>
     = ({ items, render, height = 300, itemHeight = 26 }) => {
     const [scrollTop, setScrollTop] = useState(0);

@@ -120,7 +120,7 @@ export default function RoleGuard({
           <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
           <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
           <p className="text-gray-600 dark:text-gray-400 mb-2">
-            You don't have permission to access this section.
+            You don&apos;t have permission to access this section.
           </p>
           {requiredRoles.length > 0 && (
             <p className="text-sm text-gray-500 dark:text-gray-500">

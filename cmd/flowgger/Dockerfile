@@ -3,15 +3,20 @@ FROM rust:latest AS builder
 
 WORKDIR /usr/src/serviceradar-flowgger
 
-# Install dependencies for building
-#RUN apt-get update && apt-get install -y \
-#    protobuf-compiler \
-#    && rm -rf /var/lib/apt/lists/*
+# Install dependencies for building (protoc for tonic-build, and OpenSSL headers)
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
 COPY cmd/flowgger/Cargo.toml cmd/flowgger/Cargo.lock* ./
 COPY cmd/flowgger/src ./src/
 COPY cmd/flowgger/build.rs ./
+COPY cmd/flowgger/proto ./proto/
+COPY cmd/flowgger/kvutil ./kvutil/
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \

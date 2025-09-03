@@ -272,23 +272,13 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
                 http.Error(w, "configuration not found", http.StatusNotFound)
                 return
             } else {
-                s.logger.Warn().Err(err).Str("key", key).Msg("KV Get failed; falling back to defaults")
+                s.logger.Warn().Err(err).Str("key", key).Msg("KV Get failed")
             }
         }
     }
 
-    // Fallback to default configuration based on service type
-    config := s.getDefaultServiceConfig(service)
-    if config == nil {
-        http.Error(w, "Unknown service type", http.StatusBadRequest)
-        return
-    }
-
-    if err := s.encodeJSONResponse(w, config); err != nil {
-        s.logger.Error().Err(err).Msg("Error encoding config response")
-        http.Error(w, "Failed to retrieve configuration", http.StatusInternalServerError)
-        return
-    }
+    // No KV config found; return 404 without hard-coded defaults
+    http.Error(w, "configuration not found", http.StatusNotFound)
 }
 
 // @Summary Update configuration
@@ -308,11 +298,7 @@ func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     service := vars["service"]
 
-    // Basic validation that the service type is known
-    if s.getDefaultServiceConfig(service) == nil && service != "otel" && service != "flowgger" {
-        http.Error(w, "Unknown service type", http.StatusBadRequest)
-        return
-    }
+    // Do not rely on hard-coded defaults; accept any service and require a concrete key
 
     // Preferred: explicit KV key via ?key=. Otherwise derive from service_type and agent_id
     key := r.URL.Query().Get("key")
@@ -453,115 +439,5 @@ func serviceLevelKeyFor(service string) (string, bool) {
         return fmt.Sprintf("config/%s.json", service), true
     default:
         return "", false
-    }
-}
-
-// getDefaultServiceConfig returns default configuration templates for different services
-func (s *APIServer) getDefaultServiceConfig(serviceType string) map[string]interface{} {
-    switch serviceType {
-	case "core":
-		return map[string]interface{}{
-			"listen_addr":      ":8090",
-			"grpc_addr":       ":50052", 
-			"alert_threshold": "5m",
-			"known_pollers":   []string{"default-poller"},
-			"metrics": map[string]interface{}{
-				"enabled":     true,
-				"retention":   100,
-				"max_pollers": 10000,
-			},
-			"database": map[string]interface{}{
-				"addresses":  []string{"proton:9440"},
-				"name":       "default",
-				"username":   "default",
-				"password":   "",
-				"max_conns":  10,
-				"idle_conns": 5,
-			},
-			"nats": map[string]interface{}{
-				"url": "nats://127.0.0.1:4222",
-			},
-			"auth": map[string]interface{}{
-				"jwt_secret":     "",
-				"jwt_expiration": "24h",
-				"local_users": map[string]string{
-					"admin": "",
-				},
-			},
-		}
-	case "sync":
-		return map[string]interface{}{
-			"listen_addr": ":8091",
-			"database": map[string]interface{}{
-				"addresses":  []string{"proton:9440"},
-				"name":       "default", 
-				"username":   "default",
-				"password":   "",
-				"max_conns":  10,
-				"idle_conns": 5,
-			},
-			"nats": map[string]interface{}{
-				"url": "nats://127.0.0.1:4222",
-			},
-		}
-	case "poller":
-		return map[string]interface{}{
-			"listen_addr": ":8092",
-			"scan": map[string]interface{}{
-				"subnet":   "192.168.1.0/24",
-				"timeout":  "5s",
-				"interval": "30s",
-			},
-			"nats": map[string]interface{}{
-				"url": "nats://127.0.0.1:4222",
-			},
-		}
-    case "agent":
-        return map[string]interface{}{
-            "listen_addr": ":8093",
-            "collection": map[string]interface{}{
-                "interval": "10s",
-                "timeout":  "5s",
-            },
-            "nats": map[string]interface{}{
-                "url": "nats://127.0.0.1:4222",
-            },
-        }
-    case "sweep":
-        return map[string]interface{}{
-            "networks": []string{},
-            "interval": "60s",
-            "timeout":  "5s",
-        }
-    case "snmp":
-        return map[string]interface{}{
-            "enabled":      false,
-            "listen_addr":  ":50043",
-            "node_address": "localhost:50043",
-            "partition":    "default",
-            "targets":      []map[string]interface{}{},
-        }
-    case "mapper":
-        return map[string]interface{}{
-            "enabled": true,
-            "address": "serviceradar-mapper:50056",
-        }
-    case "trapd":
-        return map[string]interface{}{
-            "enabled":     false,
-            "listen_addr": ":50043",
-        }
-    case "rperf":
-        return map[string]interface{}{
-            "enabled": false,
-            "targets": []map[string]interface{}{},
-        }
-    case "sysmon":
-        return map[string]interface{}{
-            "enabled":  true,
-            "interval": "10s",
-        }
-    default:
-        return nil
     }
 }

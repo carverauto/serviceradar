@@ -62,7 +62,7 @@ tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sy
 tonic = { version = "0.12", features = ["tls"] }
 prost = "0.13"
 tempfile = "3"
-kvutil = { path = "../../rust/kvutil" }
+kvutil = { path = "kvutil" }
 
 [dev-dependencies]
 tempdir = "0.3"

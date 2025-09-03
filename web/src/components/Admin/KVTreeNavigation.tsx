@@ -172,7 +172,7 @@ export default function KVTreeNavigation({ kvStores, onServiceSelect, selectedSe
                           onClick={() => onServiceSelect({
                             id: `${kv.id}-${type}`,
                             name: `${type.charAt(0).toUpperCase() + type.slice(1)} Configuration`,
-                            type: type as any,
+                            type: type as 'core' | 'sync' | 'poller' | 'agent',
                             kvStore: kv.id,
                             status: 'inactive'
                           }, kv.id)}
