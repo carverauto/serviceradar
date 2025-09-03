@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime"
@@ -62,7 +63,7 @@ func TestSweepService_Creation(t *testing.T) {
 	mockKVStore := NewMockKVStore(ctrl)
 	mockKVStore.EXPECT().Close().Return(nil).AnyTimes()
 
-	service, err := NewSweepService(config, mockKVStore, "test", log)
+	service, err := NewSweepService(context.Background(), config, mockKVStore, "test", log)
 	require.NoError(t, err)
 	assert.NotNil(t, service)
 	assert.Equal(t, "network_sweep", service.Name())
@@ -94,7 +95,7 @@ func TestSweepService_LargeScaleConfig(t *testing.T) {
 	mockKVStore := NewMockKVStore(ctrl)
 	mockKVStore.EXPECT().Close().Return(nil).AnyTimes()
 
-	service, err := NewSweepService(config, mockKVStore, "test", log)
+	service, err := NewSweepService(context.Background(), config, mockKVStore, "test", log)
 	require.NoError(t, err)
 	assert.NotNil(t, service)
 
@@ -144,12 +145,12 @@ func TestSweepService_PerformanceComparison(t *testing.T) {
 	mockKVStore2.EXPECT().Close().Return(nil).AnyTimes()
 
 	// Test old configuration
-	oldService, err := NewSweepService(oldConfig, mockKVStore1, "test_old", log)
+	oldService, err := NewSweepService(context.Background(), oldConfig, mockKVStore1, "test_old", log)
 	require.NoError(t, err)
 	assert.Equal(t, "network_sweep", oldService.Name())
 
 	// Test new configuration (with optimized defaults)
-	newService, err := NewSweepService(newConfig, mockKVStore2, "test_new", log)
+	newService, err := NewSweepService(context.Background(), newConfig, mockKVStore2, "test_new", log)
 	require.NoError(t, err)
 	assert.Equal(t, "network_sweep", newService.Name())
 
@@ -184,7 +185,7 @@ func TestSweepService_RealTimeProgressTracking(t *testing.T) {
 	mockKVStore := NewMockKVStore(ctrl)
 	mockKVStore.EXPECT().Close().Return(nil).AnyTimes()
 
-	service, err := NewSweepService(config, mockKVStore, "test", log)
+	service, err := NewSweepService(context.Background(), config, mockKVStore, "test", log)
 	require.NoError(t, err)
 
 	// The service should initialize without errors
@@ -216,7 +217,7 @@ func TestSweepService_TimeoutHandling(t *testing.T) {
 	mockKVStore := NewMockKVStore(ctrl)
 	mockKVStore.EXPECT().Close().Return(nil).AnyTimes()
 
-	service, err := NewSweepService(config, mockKVStore, "test", log)
+	service, err := NewSweepService(context.Background(), config, mockKVStore, "test", log)
 	require.NoError(t, err)
 
 	// Should not timeout immediately - the 20-minute scan timeout should allow completion
@@ -288,7 +289,7 @@ func BenchmarkSweepService_OptimizedPerformance(b *testing.B) {
 	mockKVStore := NewMockKVStore(ctrl)
 	mockKVStore.EXPECT().Close().Return(nil).AnyTimes()
 
-	service, err := NewSweepService(config, mockKVStore, "benchmark", log)
+	service, err := NewSweepService(context.Background(), config, mockKVStore, "benchmark", log)
 	require.NoError(b, err)
 
 	b.ResetTimer()

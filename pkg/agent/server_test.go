@@ -129,7 +129,7 @@ func TestNewServerBasic(t *testing.T) {
 		return kvStore, nil
 	}
 
-	s.createSweepService = func(_ *SweepConfig, _ KVStore) (Service, error) {
+	s.createSweepService = func(_ context.Context, _ *SweepConfig, _ KVStore) (Service, error) {
 		return nil, errSweepConfigNil // Default behavior for this test
 	}
 
@@ -455,7 +455,7 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 		return kvStore, nil
 	}
 
-	s.createSweepService = func(sweepConfig *SweepConfig, _ KVStore) (Service, error) {
+	s.createSweepService = func(_ context.Context, sweepConfig *SweepConfig, _ KVStore) (Service, error) {
 		t.Logf("Using mock createSweepService for sweep config: %+v", sweepConfig)
 
 		return &mockService{}, nil

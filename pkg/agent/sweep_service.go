@@ -46,7 +46,7 @@ type SweepService struct {
 }
 
 // NewSweepService creates a new SweepService.
-func NewSweepService(config *models.Config, kvStore KVStore, configKey string, log logger.Logger) (Service, error) {
+func NewSweepService(ctx context.Context, config *models.Config, kvStore KVStore, configKey string, log logger.Logger) (Service, error) {
 	config = applyDefaultConfig(config)
 	processor := sweeper.NewBaseProcessor(config, log)
 	store := sweeper.NewInMemoryStore(processor, log)
@@ -64,12 +64,12 @@ func NewSweepService(config *models.Config, kvStore KVStore, configKey string, l
                 PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
             }
             if pfa, ok := any(kvStore).(putIfAbsent); ok {
-                if err := pfa.PutIfAbsent(context.Background(), configKey, data, 0); err == nil {
+                if err := pfa.PutIfAbsent(ctx, configKey, data, 0); err == nil {
                     log.Info().Str("key", configKey).Msg("Initialized default sweep config in KV (created)")
                 }
             } else {
-                if _, found, err := kvStore.Get(context.Background(), configKey); err == nil && !found {
-                    _ = kvStore.Put(context.Background(), configKey, data, 0)
+                if _, found, err := kvStore.Get(ctx, configKey); err == nil && !found {
+                    _ = kvStore.Put(ctx, configKey, data, 0)
                     log.Info().Str("key", configKey).Msg("Initialized default sweep config in KV (absent before)")
                 }
             }

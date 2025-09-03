@@ -48,6 +48,55 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
   const [loadingPollers, setLoadingPollers] = useState(false);
   const [tree, setTree] = useState<Record<string, ServiceTreePoller>>({});
+  // Global services (not scoped to agents/pollers)
+  const [globalOpen, setGlobalOpen] = useState<boolean>(false);
+  const [globalStatus, setGlobalStatus] = useState<Record<string, 'unknown' | 'configured' | 'missing'>>({
+    'otel': 'unknown',
+    'flowgger': 'unknown',
+    'db-event-writer': 'unknown',
+    'zen-consumer': 'unknown',
+  });
+
+  useEffect(() => {
+    const loadStatus = async () => {
+      try {
+        const token = document.cookie
+          .split("; ")
+          .find((row) => row.startsWith("accessToken="))
+          ?.split("=")[1];
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {} as any;
+        const services = ['otel','flowgger','db-event-writer','zen-consumer'];
+        const results: Record<string, 'configured' | 'missing' | 'unknown'> = {} as any;
+        await Promise.all(services.map(async (svc) => {
+          try {
+            const resp = await fetch(`/api/admin/config/${svc}`, { headers });
+            results[svc] = resp.ok ? 'configured' : 'missing';
+          } catch { results[svc] = 'unknown'; }
+        }));
+        setGlobalStatus(prev => ({ ...prev, ...results }));
+      } catch {}
+    };
+    if (globalOpen) {
+      // Only fetch once per session unless user toggles again
+      const anyUnknown = Object.values(globalStatus).some(v => v === 'unknown');
+      if (anyUnknown) loadStatus();
+    }
+  }, [globalOpen]);
+
+  // Listen for config saves to update global status indicator immediately
+  useEffect(() => {
+    const onSaved = (e: Event) => {
+      // @ts-ignore
+      const detail = e.detail || {};
+      const t = detail.serviceType as string | undefined;
+      if (!t) return;
+      if (t === 'otel' || t === 'flowgger' || t === 'db-event-writer' || t === 'zen-consumer') {
+        setGlobalStatus(prev => ({ ...prev, [t]: 'configured' } as any));
+      }
+    };
+    window.addEventListener('sr:config-saved', onSaved as any);
+    return () => window.removeEventListener('sr:config-saved', onSaved as any);
+  }, []);
   // Track pagination offsets per agent
   const [agentOffsets, setAgentOffsets] = useState<Record<string, number>>({});
   const [agentHasMore, setAgentHasMore] = useState<Record<string, boolean>>({});
@@ -109,6 +158,8 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
     fetchPollers();
     return () => { cancelled = true; };
   }, [pollers]);
+
+  // No domain selection here; global services target the default KV (hub) unless overridden in editor.
 
   const togglePoller = async (id: string) => {
     const s = new Set(expandedPollers);
@@ -349,6 +400,42 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
 
   return (
     <div className="p-2 h-full" ref={containerRef}>
+      {/* Global services section (not scoped to agents/pollers) */}
+      <div className="mb-2">
+        <div className="flex items-center gap-2 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer" onClick={() => setGlobalOpen(!globalOpen)}>
+          {globalOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          <Settings className="h-4 w-4" />
+          <span className="font-medium">Global Services</span>
+        </div>
+        {globalOpen && (
+          <div className="ml-4 text-sm">
+            <div className={`flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === 'global::otel' ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                 onClick={() => onSelect({ id: 'global::otel', name: 'OTEL Collector', type: 'otel', kvStore: '' })}>
+              <span className="w-3" />
+              <span>OTEL Collector</span>
+              <span className={`ml-2 w-2 h-2 rounded-full ${globalStatus['otel'] === 'configured' ? 'bg-green-500' : globalStatus['otel'] === 'missing' ? 'bg-gray-400' : 'bg-yellow-400'}`} title={globalStatus['otel'] === 'configured' ? 'Configured' : globalStatus['otel'] === 'missing' ? 'Not configured' : 'Checking…'} />
+            </div>
+            <div className={`flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === 'global::flowgger' ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                 onClick={() => onSelect({ id: 'global::flowgger', name: 'Flowgger', type: 'flowgger', kvStore: '' })}>
+              <span className="w-3" />
+              <span>Flowgger</span>
+              <span className={`ml-2 w-2 h-2 rounded-full ${globalStatus['flowgger'] === 'configured' ? 'bg-green-500' : globalStatus['flowgger'] === 'missing' ? 'bg-gray-400' : 'bg-yellow-400'}`} title={globalStatus['flowgger'] === 'configured' ? 'Configured' : globalStatus['flowgger'] === 'missing' ? 'Not configured' : 'Checking…'} />
+            </div>
+            <div className={`flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === 'global::db-event-writer' ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                 onClick={() => onSelect({ id: 'global::db-event-writer', name: 'DB Event Writer', type: 'db-event-writer', kvStore: '' })}>
+              <span className="w-3" />
+              <span>DB Event Writer</span>
+              <span className={`ml-2 w-2 h-2 rounded-full ${globalStatus['db-event-writer'] === 'configured' ? 'bg-green-500' : globalStatus['db-event-writer'] === 'missing' ? 'bg-gray-400' : 'bg-yellow-400'}`} title={globalStatus['db-event-writer'] === 'configured' ? 'Configured' : globalStatus['db-event-writer'] === 'missing' ? 'Not configured' : 'Checking…'} />
+            </div>
+            <div className={`flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === 'global::zen-consumer' ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                 onClick={() => onSelect({ id: 'global::zen-consumer', name: 'Zen Consumer', type: 'zen-consumer', kvStore: '' })}>
+              <span className="w-3" />
+              <span>Zen Consumer</span>
+              <span className={`ml-2 w-2 h-2 rounded-full ${globalStatus['zen-consumer'] === 'configured' ? 'bg-green-500' : globalStatus['zen-consumer'] === 'missing' ? 'bg-gray-400' : 'bg-yellow-400'}`} title={globalStatus['zen-consumer'] === 'configured' ? 'Configured' : globalStatus['zen-consumer'] === 'missing' ? 'Not configured' : 'Checking…'} />
+            </div>
+          </div>
+        )}
+      </div>
       {loadingPollers && (
         <div className="p-2 text-sm text-gray-500">Loading pollers…</div>
       )}
@@ -374,41 +461,6 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
               >
                 {iconForType('poller')}
                 <span>Configure poller</span>
-              </div>
-              {/* Global/non-agent services quick links */}
-              <div className="mt-1 ml-2 space-y-1">
-                <div
-                  className={`flex items-center gap-2 p-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `svc-global:${p.poller_id}:otel` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                  onClick={() => onSelect({ id: `svc-global:${p.poller_id}:otel`, name: 'OTEL Collector', type: 'otel', kvStore: p.kv_store_ids?.[0], pollerId: p.poller_id })}
-                >
-                  <span className="w-3" />
-                  <span>Configure OTEL</span>
-                  {p.kv_store_ids && p.kv_store_ids[0] && <span className="ml-2"><KvInfoBadge kvId={p.kv_store_ids[0]} hoverTrigger /></span>}
-                </div>
-                <div
-                  className={`flex items-center gap-2 p-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `svc-global:${p.poller_id}:flowgger` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                  onClick={() => onSelect({ id: `svc-global:${p.poller_id}:flowgger`, name: 'Flowgger', type: 'flowgger', kvStore: p.kv_store_ids?.[0], pollerId: p.poller_id })}
-                >
-                  <span className="w-3" />
-                  <span>Configure Flowgger</span>
-                  {p.kv_store_ids && p.kv_store_ids[0] && <span className="ml-2"><KvInfoBadge kvId={p.kv_store_ids[0]} hoverTrigger /></span>}
-                </div>
-                <div
-                  className={`flex items-center gap-2 p-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `svc-global:${p.poller_id}:db-event-writer` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                  onClick={() => onSelect({ id: `svc-global:${p.poller_id}:db-event-writer`, name: 'DB Event Writer', type: 'db-event-writer', kvStore: p.kv_store_ids?.[0], pollerId: p.poller_id })}
-                >
-                  <span className="w-3" />
-                  <span>Configure DB Event Writer</span>
-                  {p.kv_store_ids && p.kv_store_ids[0] && <span className="ml-2"><KvInfoBadge kvId={p.kv_store_ids[0]} hoverTrigger /></span>}
-                </div>
-                <div
-                  className={`flex items-center gap-2 p-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `svc-global:${p.poller_id}:zen-consumer` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                  onClick={() => onSelect({ id: `svc-global:${p.poller_id}:zen-consumer`, name: 'Zen Consumer', type: 'zen-consumer', kvStore: p.kv_store_ids?.[0], pollerId: p.poller_id })}
-                >
-                  <span className="w-3" />
-                  <span>Configure Zen Consumer</span>
-                  {p.kv_store_ids && p.kv_store_ids[0] && <span className="ml-2"><KvInfoBadge kvId={p.kv_store_ids[0]} hoverTrigger /></span>}
-                </div>
               </div>
               {(p.agents || []).filter(a => !filterAgent || a.agent_id.includes(filterAgent)).map((a) => (
                 <div key={`${p.poller_id}:${a.agent_id}`} className="mb-1">
