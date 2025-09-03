@@ -49,7 +49,7 @@ impl KvClient {
     }
 
     pub async fn put_if_absent(&mut self, key: &str, value: Vec<u8>) -> Result<()> {
-        if let Some(_) = self.get(key).await? { return Ok(()); }
+        if self.get(key).await?.is_some() { return Ok(()); }
         self.inner.put(kvproto::PutRequest{ key: key.to_string(), value, ttl_seconds: 0 })
             .await.map_err(|e| KvError::Other(e.into()))?;
         Ok(())

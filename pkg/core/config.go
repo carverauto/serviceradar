@@ -17,15 +17,15 @@
 package core
 
 import (
-    "context"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -35,66 +35,42 @@ const (
 )
 
 func LoadConfig(path string) (models.CoreServiceConfig, error) {
-    data, err := os.ReadFile(path)
-    if err != nil {
-        return models.CoreServiceConfig{}, fmt.Errorf("failed to read config: %w", err)
-    }
-
-    var config models.CoreServiceConfig
-
-    // Debug: show raw JSON before parsing
-    fmt.Printf("DEBUG: Raw JSON length: %d bytes\n", len(data))
-
-    // Find and print just the auth section
-    var jsonMap map[string]interface{}
-    if err := json.Unmarshal(data, &jsonMap); err == nil {
-        if authSection, ok := jsonMap["auth"].(map[string]interface{}); ok {
-            if rbacSection, ok := authSection["rbac"].(map[string]interface{}); ok {
-                fmt.Printf("DEBUG: Raw RBAC section: %+v\n", rbacSection)
-            } else {
-                fmt.Println("DEBUG: No RBAC section found in auth")
-            }
-        }
-    }
-
-    if err := json.Unmarshal(data, &config); err != nil {
-        return models.CoreServiceConfig{}, fmt.Errorf("failed to parse config: %w", err)
-    }
-
-    // Overlay from KV if configured (no-op if KV env is not set or key missing)
-    _ = overlayFromKV(path, &config)
-	
-	// Debug the loaded config
-	fmt.Printf("DEBUG: Loaded config.Auth: %+v\n", config.Auth)
-	if config.Auth != nil {
-		fmt.Printf("DEBUG: config.Auth.RBAC: %+v\n", config.Auth.RBAC)
-		fmt.Printf("DEBUG: config.Auth.RBAC.UserRoles: %+v\n", config.Auth.RBAC.UserRoles)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return models.CoreServiceConfig{}, fmt.Errorf("failed to read coreServiceConfig: %w", err)
 	}
 
-	if err := config.Validate(); err != nil {
+	var coreServiceConfig models.CoreServiceConfig
+
+	if err := json.Unmarshal(data, &coreServiceConfig); err != nil {
+		return models.CoreServiceConfig{}, fmt.Errorf("failed to parse coreServiceConfig: %w", err)
+	}
+
+	// Overlay from KV if configured (no-op if KV env is not set or key missing)
+	_ = overlayFromKV(path, &coreServiceConfig)
+
+	if err := coreServiceConfig.Validate(); err != nil {
 		return models.CoreServiceConfig{}, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Security config logging removed - will be handled by the logger instance in server
-
-	return config, nil
+	return coreServiceConfig, nil
 }
 
 // overlayFromKV uses the config package's KV manager to overlay configuration from KV store
 func overlayFromKV(path string, cfg *models.CoreServiceConfig) error {
-    ctx := context.Background()
-    
-    // Use the existing KVManager from pkg/config which handles env vars properly
-    kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
-    if kvMgr == nil {
-        return nil // No KV configured, which is fine
-    }
-    defer kvMgr.Close()
-    
-    cfgLoader := config.NewConfig(nil)
-    kvMgr.SetupConfigLoader(cfgLoader)
-    
-    return cfgLoader.OverlayFromKV(ctx, path, cfg)
+	ctx := context.Background()
+
+	// Use the existing KVManager from pkg/config which handles env vars properly
+	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
+	if kvMgr == nil {
+		return nil // No KV configured, which is fine
+	}
+	defer func() { _ = kvMgr.Close() }()
+
+	cfgLoader := config.NewConfig(nil)
+	kvMgr.SetupConfigLoader(cfgLoader)
+
+	return cfgLoader.OverlayFromKV(ctx, path, cfg)
 }
 
 func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig {
@@ -169,11 +145,7 @@ func applyAuthOverrides(authConfig, configAuth *models.AuthConfig) {
 	if len(configAuth.LocalUsers) > 0 {
 		authConfig.LocalUsers = configAuth.LocalUsers
 	}
-	
-	// Copy RBAC configuration
-	fmt.Printf("DEBUG: configAuth.RBAC: %+v\n", configAuth.RBAC)
-	fmt.Printf("DEBUG: configAuth.RBAC.UserRoles: %+v\n", configAuth.RBAC.UserRoles)
-	
+
 	// Always copy RBAC if any part of it is configured
 	if configAuth.RBAC.UserRoles != nil || configAuth.RBAC.RolePermissions != nil || configAuth.RBAC.RouteProtection != nil {
 		authConfig.RBAC = configAuth.RBAC
@@ -192,18 +164,18 @@ func applyDefaultAdminUser(authConfig *models.AuthConfig) {
 }
 
 func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
-	for i, config := range configs {
+	for i, webhookConfig := range configs {
 		s.logger.Debug().
 			Int("index", i).
-			Bool("enabled", config.Enabled).
-			Msg("Processing webhook config")
+			Bool("enabled", webhookConfig.Enabled).
+			Msg("Processing webhook webhookConfig")
 
-		if config.Enabled {
-			alerter := alerts.NewWebhookAlerter(config)
+		if webhookConfig.Enabled {
+			alerter := alerts.NewWebhookAlerter(webhookConfig)
 			s.webhooks = append(s.webhooks, alerter)
 
 			s.logger.Info().
-				Str("url", config.URL).
+				Str("url", webhookConfig.URL).
 				Msg("Added webhook alerter")
 		}
 	}
