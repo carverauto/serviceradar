@@ -71,8 +71,12 @@ type AuthConfig struct {
 
 // RBACConfig contains role-based access control configuration.
 type RBACConfig struct {
-	// Map of usernames to their roles
-	UserRoles map[string][]string `json:"user_roles" example:"admin:[admin,user],user1:[user]"`
+    // Map of identities to roles. Keys can be one of:
+    // - "provider:subject" (preferred, e.g., "google:1122334455")
+    // - "provider:email" (lowercased, e.g., "github:admin@company.com")
+    // - legacy "username-or-email" (lowercased)
+    // Example: {"local:admin":["admin"], "google:1122334455":["admin"], "user1":["user"]}
+    UserRoles map[string][]string `json:"user_roles"`
 	// Map of roles to their permissions
 	RolePermissions map[string][]string `json:"role_permissions" example:"admin:[config:read,config:write,config:delete],user:[config:read]"`
 	// Map of routes to required roles (can be string array or map of methods to roles)
