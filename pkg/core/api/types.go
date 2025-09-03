@@ -102,6 +102,8 @@ type APIServer struct {
     kvGetFn              func(ctx context.Context, key string) ([]byte, bool, error)
     // Multi-KV support
     kvEndpoints          map[string]*KVEndpoint
+    // RBAC configuration for route protection
+    rbacConfig           *models.RBACConfig
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.

@@ -170,9 +170,16 @@ func WithQueryExecutor(qe db.QueryExecutor) func(server *APIServer) {
 
 // WithAuthService adds an authentication service to the API server
 func WithAuthService(a auth.AuthService) func(server *APIServer) {
-	return func(server *APIServer) {
-		server.authService = a
-	}
+    return func(server *APIServer) {
+        server.authService = a
+    }
+}
+
+// WithRBACConfig sets the RBAC configuration used for route protection
+func WithRBACConfig(cfg *models.RBACConfig) func(server *APIServer) {
+    return func(server *APIServer) {
+        server.rbacConfig = cfg
+    }
 }
 
 // WithMetricsManager adds a metrics manager to the API server
@@ -634,8 +641,15 @@ func (s *APIServer) setupWebSocketRoutes() {
 func (s *APIServer) setupProtectedRoutes() {
     protected := s.router.PathPrefix("/api").Subrouter()
 
-	// Use the new flexible authentication middleware for all protected API routes.
-	protected.Use(s.authenticationMiddleware)
+    // Use the new flexible authentication middleware for all protected API routes.
+    protected.Use(s.authenticationMiddleware)
+
+    // Apply route-based RBAC protection if available; fallback to admin role guard otherwise
+    if s.authService != nil {
+        if s.rbacConfig != nil && s.rbacConfig.RouteProtection != nil {
+            protected.Use(auth.RouteProtectionMiddleware(s.rbacConfig))
+        }
+    }
 
 	protected.HandleFunc("/pollers", s.getPollers).Methods("GET")
 	protected.HandleFunc("/pollers/{id}", s.getPoller).Methods("GET")
@@ -674,12 +688,10 @@ func (s *APIServer) setupProtectedRoutes() {
 	// The RBAC middleware will check if the user has the required roles
 	adminRoutes := protected.PathPrefix("/admin").Subrouter()
 	
-	// Apply RBAC middleware based on route protection config
-	if s.authService != nil {
-		// For now, we'll use a simple role check for admin routes
-		// In production, this would use RouteProtectionMiddleware with full config
-		adminRoutes.Use(auth.RBACMiddleware("admin"))
-	}
+    // If no route-based RBAC is configured, require admin role for admin routes as a safe fallback
+    if (s.rbacConfig == nil || s.rbacConfig.RouteProtection == nil) && s.authService != nil {
+        adminRoutes.Use(auth.RBACMiddleware("admin"))
+    }
 	
     adminRoutes.HandleFunc("/config/{service}", s.handleGetConfig).Methods("GET")
     adminRoutes.HandleFunc("/config/{service}", s.handleUpdateConfig).Methods("PUT")

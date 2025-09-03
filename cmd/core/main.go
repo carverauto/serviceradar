@@ -149,6 +149,10 @@ func run() error {
         api.WithDatabaseType(parser.Proton),
         api.WithLogger(mainLogger),
     }
+    // Provide RBAC config to API for route protection if configured
+    if cfg.Auth != nil {
+        allOptions = append(allOptions, api.WithRBACConfig(&cfg.Auth.RBAC))
+    }
     // Add KV options at the end so they override defaults
     allOptions = append(allOptions, apiOptions...)
     
