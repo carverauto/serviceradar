@@ -38,7 +38,7 @@ version = "0.10"
 optional = true
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = { workspace = true }
 
 [dependencies]
 capnp = { version = "0.14", optional = true }
@@ -59,10 +59,10 @@ toml = "0.5"
 time = { version = "0.3", features = ["parsing", "formatting"] }
 time-tz = "0.3"
 tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tonic = { version = "0.12", features = ["tls"] }
-prost = "0.13"
+tonic = { workspace = true }
+prost = { workspace = true }
 tempfile = "3"
-kvutil = { path = "kvutil" }
+kvutil = { path = "../../rust/kvutil" }
 
 [dev-dependencies]
 tempdir = "0.3"
