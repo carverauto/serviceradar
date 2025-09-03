@@ -43,8 +43,9 @@ export default function KvInfoBadge({ kvId, compact = true, hoverTrigger = true 
         if (!resp.ok) throw new Error('Failed');
         const json = await resp.json();
         setData({ domain: json.domain, bucket: json.bucket });
-      } catch (e: any) {
-        setError(e.message || 'Unavailable');
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Unavailable';
+        setError(message);
       } finally {
         setLoading(false);
       }

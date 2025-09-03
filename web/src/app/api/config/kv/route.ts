@@ -16,7 +16,6 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getInternalApiUrl, getApiKey } from "@/lib/config";
-import { requirePermission } from "@/middleware/rbac";
 
 // List all KV stores and their services
 export async function GET(req: NextRequest) {
@@ -43,12 +42,12 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    let eps = [] as any[];
+    let eps: Array<{ id: string; name?: string; type?: string }> = [];
     if (epsResponse.ok) {
       eps = await epsResponse.json();
     }
     // Transform to UI shape, include basic core/sync service placeholders under each KV
-    const stores = (eps.length ? eps : [{ id: 'local', name: 'Local KV', type: 'hub' }]).map((ep: any) => ({
+    const stores = (eps.length ? eps : [{ id: 'local', name: 'Local KV', type: 'hub' }]).map((ep) => ({
       id: ep.id,
       name: ep.name || ep.id,
       type: ep.type || 'hub',

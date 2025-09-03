@@ -3,7 +3,7 @@ FROM rust:latest AS builder
 
 WORKDIR /usr/src/serviceradar-trapd
 
-# Install dependencies for building
+# Install dependencies for building (protoc for tonic-build)
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
@@ -13,6 +13,7 @@ COPY cmd/trapd/Cargo.toml cmd/trapd/Cargo.lock* ./
 COPY cmd/trapd/src ./src/
 COPY cmd/trapd/build.rs ./
 COPY proto ./proto/
+COPY cmd/trapd/kvutil ./kvutil/
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \

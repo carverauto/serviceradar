@@ -41,7 +41,7 @@ interface CoreConfig {
       ca_file: string;
       server_name: string;
     };
-    settings?: Record<string, any>;
+    settings?: Record<string, unknown>;
   };
   security?: {
     mode: string;
@@ -122,27 +122,27 @@ interface CoreConfigFormProps {
 }
 
 export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps) {
-  const updateConfig = (path: string, value: any) => {
+  const updateConfig = (path: string, value: unknown) => {
     const newConfig = { ...config };
     const keys = path.split('.');
-    let current: any = newConfig;
+    let current: Record<string, unknown> = newConfig as Record<string, unknown>;
     
     for (let i = 0; i < keys.length - 1; i++) {
       if (!current[keys[i]]) current[keys[i]] = {};
-      current = current[keys[i]];
+      current = current[keys[i]] as Record<string, unknown>;
     }
     
     current[keys[keys.length - 1]] = value;
-    onChange(newConfig);
+    onChange(newConfig as CoreConfig);
   };
 
   const addToArray = (path: string, value: string) => {
-    const current = path.split('.').reduce((obj, key) => obj[key], config) as string[];
+    const current = path.split('.').reduce<unknown>((obj, key) => (obj as Record<string, unknown>)[key], config) as string[];
     updateConfig(path, [...current, value]);
   };
 
   const removeFromArray = (path: string, index: number) => {
-    const current = path.split('.').reduce((obj, key) => obj[key], config) as string[];
+    const current = path.split('.').reduce<unknown>((obj, key) => (obj as Record<string, unknown>)[key], config) as string[];
     updateConfig(path, current.filter((_, i) => i !== index));
   };
 

@@ -16,13 +16,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getInternalApiUrl, getApiKey } from "@/lib/config";
-import { requirePermission } from "@/middleware/rbac";
 
 // Get configuration for a specific service
 export async function GET(
   req: NextRequest,
-  { params }: { params: { service: string } }
+  { params }: { params: Promise<{ service: string }> }
 ) {
+  const { service } = await params;
+  
   // Simple auth check - verify token is present
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
@@ -37,7 +38,7 @@ export async function GET(
   const kvStore = req.nextUrl.searchParams.get("kvStore") || "local";
 
   try {
-    const response = await fetch(`${apiUrl}/config/${params.service}?kvStore=${kvStore}`, {
+    const response = await fetch(`${apiUrl}/config/${service}?kvStore=${kvStore}`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -49,7 +50,7 @@ export async function GET(
     if (!response.ok) {
       const errorText = await response.text();
       return NextResponse.json(
-        { error: `Failed to fetch ${params.service} configuration`, details: errorText },
+        { error: `Failed to fetch ${service} configuration`, details: errorText },
         { status: response.status }
       );
     }
@@ -57,7 +58,7 @@ export async function GET(
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error(`${params.service} config fetch error:`, error);
+    console.error(`${service} config fetch error:`, error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -68,8 +69,10 @@ export async function GET(
 // Update configuration for a specific service
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { service: string } }
+  { params }: { params: Promise<{ service: string }> }
 ) {
+  const { service } = await params;
+  
   // Simple auth check - verify token is present
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
@@ -86,7 +89,7 @@ export async function PUT(
   try {
     const body = await req.json();
 
-    const response = await fetch(`${apiUrl}/config/${params.service}?kvStore=${kvStore}`, {
+    const response = await fetch(`${apiUrl}/config/${service}?kvStore=${kvStore}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -99,7 +102,7 @@ export async function PUT(
     if (!response.ok) {
       const errorText = await response.text();
       return NextResponse.json(
-        { error: `Failed to update ${params.service} configuration`, details: errorText },
+        { error: `Failed to update ${service} configuration`, details: errorText },
         { status: response.status }
       );
     }
@@ -107,7 +110,7 @@ export async function PUT(
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error(`${params.service} config update error:`, error);
+    console.error(`${service} config update error:`, error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -118,8 +121,10 @@ export async function PUT(
 // Delete configuration for a specific service
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { service: string } }
+  { params }: { params: Promise<{ service: string }> }
 ) {
+  const { service } = await params;
+  
   // Simple auth check - verify token is present
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
@@ -134,7 +139,7 @@ export async function DELETE(
   const kvStore = req.nextUrl.searchParams.get("kvStore") || "local";
 
   try {
-    const response = await fetch(`${apiUrl}/config/${params.service}?kvStore=${kvStore}`, {
+    const response = await fetch(`${apiUrl}/config/${service}?kvStore=${kvStore}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
@@ -146,14 +151,14 @@ export async function DELETE(
     if (!response.ok) {
       const errorText = await response.text();
       return NextResponse.json(
-        { error: `Failed to delete ${params.service} configuration`, details: errorText },
+        { error: `Failed to delete ${service} configuration`, details: errorText },
         { status: response.status }
       );
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error(`${params.service} config delete error:`, error);
+    console.error(`${service} config delete error:`, error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

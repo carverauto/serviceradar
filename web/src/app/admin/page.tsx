@@ -17,18 +17,17 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, Server, Database, Settings2, RefreshCw } from 'lucide-react';
+import { Database, Settings2, RefreshCw } from 'lucide-react';
 import ConfigEditor from '@/components/Admin/ConfigEditor';
 import ServicesTreeNavigation, { SelectedServiceInfo } from '@/components/Admin/ServicesTreeNavigation';
 import RoleGuard from '@/components/Auth/RoleGuard';
 
-interface ServiceTreePoller { poller_id: string; is_healthy: boolean; agents: any[] }
+import type { ServiceTreePoller } from '@/components/Admin/ServicesTreeNavigation';
 
 export default function AdminPage() {
   const [pollers, setPollers] = useState<ServiceTreePoller[]>([]);
   const [selectedService, setSelectedService] = useState<SelectedServiceInfo | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [filterPoller, setFilterPoller] = useState('');
   const [filterAgent, setFilterAgent] = useState('');
   const [filterService, setFilterService] = useState('');
@@ -109,7 +108,7 @@ export default function AdminPage() {
             </div>
           </div>
           
-          <ServicesTreeNavigation pollers={pollers as any} onSelect={handleSelect} selected={selectedService} filterPoller={filterPoller} filterAgent={filterAgent} filterService={filterService} />
+          <ServicesTreeNavigation pollers={pollers} onSelect={handleSelect} selected={selectedService} filterPoller={filterPoller} filterAgent={filterAgent} filterService={filterService} />
         </div>
 
         <div className="flex-1 overflow-y-auto">

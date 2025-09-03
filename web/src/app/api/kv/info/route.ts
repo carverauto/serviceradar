@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     const body = await resp.text();
     const contentType = resp.headers.get('content-type') || 'application/json';
     return new NextResponse(body, { status: resp.status, headers: { 'Content-Type': contentType } });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Failed to fetch kv info' }, { status: 500 });
   }
 }
