@@ -31,6 +31,15 @@ COPY ${BINARY_PATH}/profiler-common ./profiler-common/
 COPY ${BINARY_PATH}/profiler-ebpf ./profiler-ebpf/
 COPY ${BINARY_PATH}/xtask ./xtask/
 
+# Build the eBPF program first so include_bytes can find it
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    echo "Installing nightly toolchain for eBPF build..." && \
+    rustup toolchain install nightly --profile minimal --component rust-src && \
+    echo "Building eBPF object (release)..." && \
+    cargo xtask build-ebpf --release && \
+    echo "eBPF object built at ./target/bpfel-unknown-none/release/profiler"
+
 # Build the Rust binary with cache mounts and copy artifacts out
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
