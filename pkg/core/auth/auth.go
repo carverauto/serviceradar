@@ -23,6 +23,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/markbates/goth"
@@ -75,13 +76,13 @@ func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*mode
 		return nil, errInvalidCreds
 	}
 
-	user := &models.User{
-		ID:       generateUserID(username),
-		Email:    username, // Or fetch from DB if we decide to store emails.
-		Name:     username,
-		Provider: "local",
-		Roles:    a.getUserRoles(username),
-	}
+    user := &models.User{
+        ID:       generateUserID(username),
+        Email:    username, // Or fetch from DB if we decide to store emails.
+        Name:     username,
+        Provider: "local",
+        Roles:    a.getUserRolesIdentity("local", "", username),
+    }
 
 	return a.generateAndStoreToken(ctx, user)
 }
@@ -110,13 +111,14 @@ func (*Auth) BeginOAuth(_ context.Context, provider string) (string, error) {
 }
 
 func (a *Auth) CompleteOAuth(ctx context.Context, provider string, gothUser *goth.User) (*models.Token, error) {
-	user := &models.User{
-		ID:       gothUser.UserID,
-		Email:    gothUser.Email,
-		Name:     gothUser.Name,
-		Provider: provider,
-		Roles:    a.getUserRoles(gothUser.Email), // Use email for OAuth users
-	}
+    user := &models.User{
+        ID:       gothUser.UserID,
+        Email:    gothUser.Email,
+        Name:     gothUser.Name,
+        Provider: provider,
+        // Prefer provider+subject mapping; fall back to provider+email; then legacy email/username key
+        Roles:    a.getUserRolesIdentity(provider, gothUser.UserID, gothUser.Email),
+    }
 
 	return a.generateAndStoreToken(ctx, user)
 }
@@ -174,26 +176,35 @@ func generateUserID(username string) string {
 	return base64.URLEncoding.EncodeToString(hash[:])
 }
 
-func (a *Auth) getUserRoles(username string) []string {
-	// Debug logging
-	fmt.Printf("DEBUG: Getting roles for user: %s\n", username)
-	fmt.Printf("DEBUG: RBAC config is nil: %v\n", a.config.RBAC.UserRoles == nil)
-	
-	if a.config.RBAC.UserRoles == nil {
-		fmt.Println("DEBUG: UserRoles map is nil, returning empty array")
-		return []string{}
-	}
-	
-	fmt.Printf("DEBUG: UserRoles map contents: %+v\n", a.config.RBAC.UserRoles)
-	
-	roles, exists := a.config.RBAC.UserRoles[username]
-	if !exists {
-		fmt.Printf("DEBUG: No roles found for user %s\n", username)
-		return []string{}
-	}
-	
-	fmt.Printf("DEBUG: Found roles for %s: %v\n", username, roles)
-	return roles
+// getUserRolesIdentity resolves roles using stable identities to avoid email-only assignment.
+// Lookup precedence:
+//  1) provider:subject (e.g., "google:11223344556677889900")
+//  2) provider:email (lowercased)
+//  3) legacy key by username/email only (lowercased)
+func (a *Auth) getUserRolesIdentity(provider, subject, usernameOrEmail string) []string {
+    if a.config == nil || a.config.RBAC.UserRoles == nil {
+        return []string{}
+    }
+
+    // Build candidate keys
+    lower := strings.ToLower(usernameOrEmail)
+    keys := make([]string, 0, 3)
+    if provider != "" && subject != "" {
+        keys = append(keys, provider+":"+subject)
+    }
+    if provider != "" && lower != "" {
+        keys = append(keys, provider+":"+lower)
+    }
+    if lower != "" {
+        keys = append(keys, lower)
+    }
+
+    for _, k := range keys {
+        if roles, ok := a.config.RBAC.UserRoles[k]; ok {
+            return roles
+        }
+    }
+    return []string{}
 }
 
 func randString(n int) string {
