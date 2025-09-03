@@ -43,10 +43,6 @@ func TestNewICMPSweeper(t *testing.T) {
 				return
 			}
 
-			if s == nil {
-				t.Fatal("NewICMPSweeper() returned nil")
-			}
-
 			expectedTimeout := tt.timeout
 			if expectedTimeout == 0 {
 				expectedTimeout = defaultICMPTimeout

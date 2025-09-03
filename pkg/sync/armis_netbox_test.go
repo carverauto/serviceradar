@@ -307,11 +307,13 @@ func TestGetResultsWithArmisAndNetBox(t *testing.T) {
 	hasNetBox := false
 
 	for _, device := range devices {
-		switch device.Source { //nolint:exhaustive // only checking specific cases in test
+		switch device.Source { //nolint:exhaustive
 		case models.DiscoverySourceArmis:
 			hasArmis = true
 		case models.DiscoverySourceNetbox:
 			hasNetBox = true
+		default:
+			// Other sources are not relevant for this test
 		}
 	}
 
