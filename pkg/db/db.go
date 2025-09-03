@@ -22,6 +22,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -237,15 +238,19 @@ func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.Co
 	}
 
     // Calculate buffer capacity safely to prevent integer overflow
-    // Guard the multiplication so that maxBufferSize*2 never overflows.
-    // maxSafeBufferSize is the largest value where doubling stays within int range.
-    const maxSafeBufferSize = int(^uint(0) >> 2) // Max int / 2
+    // Normalize and guard values. Compute in int64 and clamp to int range.
+    if maxBufferSize < 0 {
+        maxBufferSize = 0
+    }
     var bufferCapacity int
-    if maxBufferSize > maxSafeBufferSize {
+    cap64 := int64(maxBufferSize) * 2 // compute in wider type
+    if cap64 < 0 {                     // defensive: should not happen after clamp above
+        bufferCapacity = 0
+    } else if cap64 > int64(math.MaxInt) {
         // Prevent integer overflow by capping bufferCapacity
-        bufferCapacity = maxSafeBufferSize
+        bufferCapacity = math.MaxInt
     } else {
-        bufferCapacity = maxBufferSize * 2
+        bufferCapacity = int(cap64)
     }
 
 	db := &DB{
