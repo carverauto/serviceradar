@@ -57,8 +57,16 @@ func (*mockProtoKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ..
 	return &proto.DeleteResponse{}, nil
 }
 
+func (*mockProtoKVClient) PutIfAbsent(_ context.Context, _ *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
+    return &proto.PutResponse{}, nil
+}
+
 func (*mockProtoKVClient) Watch(_ context.Context, _ *proto.WatchRequest, _ ...grpc.CallOption) (proto.KVService_WatchClient, error) {
-	return nil, nil
+    return nil, nil
+}
+
+func (*mockProtoKVClient) Info(_ context.Context, _ *proto.InfoRequest, _ ...grpc.CallOption) (*proto.InfoResponse, error) {
+    return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
 }
 
 func TestNew(t *testing.T) {

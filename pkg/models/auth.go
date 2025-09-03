@@ -31,6 +31,10 @@ type User struct {
 	Name string `json:"name" example:"John Doe"`
 	// Authentication provider (e.g., "local", "google", "github")
 	Provider string `json:"provider" example:"google"`
+	// User roles for RBAC
+	Roles []string `json:"roles" example:"admin,user"`
+	// User permissions for fine-grained access control
+	Permissions []string `json:"permissions" example:"config:read,config:write"`
 	// When the user account was created
 	CreatedAt time.Time `json:"created_at" example:"2025-01-01T00:00:00Z"`
 	// When the user account was last updated
@@ -51,16 +55,32 @@ type Token struct {
 // AuthConfig contains authentication configuration.
 // @Description Authentication and authorization configuration settings.
 type AuthConfig struct {
-	// Secret key used for signing JWT tokens
-	JWTSecret string `json:"jwt_secret" example:"very-secret-key-do-not-share"`
+	// Secret key used for signing JWT tokens (SENSITIVE: never store in DB or display in UI)
+	JWTSecret string `json:"jwt_secret" example:"very-secret-key-do-not-share" sensitive:"true"`
 	// How long JWT tokens are valid
 	JWTExpiration time.Duration `json:"jwt_expiration" example:"24h"`
 	// OAuth callback URL
 	CallbackURL string `json:"callback_url" example:"https://api.example.com/auth/callback"`
-	// Map of local usernames to password hashes
-	LocalUsers map[string]string `json:"local_users"`
-	// Configuration for SSO providers like Google, GitHub, etc.
-	SSOProviders map[string]SSOConfig `json:"sso_providers"`
+	// Map of local usernames to password hashes (SENSITIVE: never store in DB or display in UI)
+	LocalUsers map[string]string `json:"local_users" sensitive:"true"`
+	// Configuration for SSO providers like Google, GitHub, etc. (SENSITIVE: may contain secrets)
+	SSOProviders map[string]SSOConfig `json:"sso_providers" sensitive:"true"`
+	// RBAC configuration for users
+	RBAC RBACConfig `json:"rbac"`
+}
+
+// RBACConfig contains role-based access control configuration.
+type RBACConfig struct {
+    // Map of identities to roles. Keys can be one of:
+    // - "provider:subject" (preferred, e.g., "google:1122334455")
+    // - "provider:email" (lowercased, e.g., "github:admin@company.com")
+    // - legacy "username-or-email" (lowercased)
+    // Example: {"local:admin":["admin"], "google:1122334455":["admin"], "user1":["user"]}
+    UserRoles map[string][]string `json:"user_roles"`
+	// Map of roles to their permissions
+	RolePermissions map[string][]string `json:"role_permissions" example:"admin:[config:read,config:write,config:delete],user:[config:read]"`
+	// Map of routes to required roles (can be string array or map of methods to roles)
+	RouteProtection map[string]interface{} `json:"route_protection"`
 }
 
 // SSOConfig contains configuration for a single SSO provider.

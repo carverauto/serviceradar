@@ -18,26 +18,26 @@
 package agent
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"math"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
+    "context"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "io"
+    "math"
+    "os"
+    "path/filepath"
+    "strings"
+    "time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+    "google.golang.org/grpc/codes"
+    "google.golang.org/grpc/status"
 
-	"github.com/carverauto/serviceradar/pkg/checker"
-	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/grpc"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
+    "github.com/carverauto/serviceradar/pkg/checker"
+    "github.com/carverauto/serviceradar/pkg/config"
+    "github.com/carverauto/serviceradar/pkg/grpc"
+    "github.com/carverauto/serviceradar/pkg/logger"
+    "github.com/carverauto/serviceradar/pkg/models"
+    "github.com/carverauto/serviceradar/proto"
 )
 
 var (
@@ -82,17 +82,54 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		return nil, err
 	}
 
-	s.kvStore = kvStore
+    s.kvStore = kvStore
 
-	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
-		return createSweepService(sweepConfig, kvStore, cfg, log)
+	s.createSweepService = func(ctx context.Context, sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
+		return createSweepService(ctx, sweepConfig, kvStore, cfg, log)
 	}
 
-	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
-		return nil, fmt.Errorf("failed to load configurations: %w", err)
-	}
+    if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
+        return nil, fmt.Errorf("failed to load configurations: %w", err)
+    }
+
+    // Bootstrap default configs for common services in KV (PutIfAbsent), best-effort.
+    if s.kvStore != nil && cfg.AgentID != "" {
+        s.bootstrapKVDefaults(ctx, cfg.AgentID)
+    }
 
 	return s, nil
+}
+
+// bootstrapKVDefaults writes minimal default configs for standard services if missing.
+func (s *Server) bootstrapKVDefaults(ctx context.Context, agentID string) {
+    type putIfAbsent interface{
+        PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
+    }
+    pfa, hasPFA := any(s.kvStore).(putIfAbsent)
+    // Conventional keys for agent-local checkers
+    entries := map[string][]byte{
+        fmt.Sprintf("agents/%s/checkers/snmp/snmp.json", agentID):   []byte(`{"enabled": false, "targets": []}`),
+        fmt.Sprintf("agents/%s/checkers/mapper/mapper.json", agentID): []byte(`{"enabled": false, "address": "serviceradar-mapper:50056"}`),
+        fmt.Sprintf("agents/%s/checkers/trapd/trapd.json", agentID):   []byte(`{"enabled": false, "listen_addr": ":50043"}`),
+        fmt.Sprintf("agents/%s/checkers/rperf/rperf.json", agentID):   []byte(`{"enabled": false, "targets": []}`),
+        fmt.Sprintf("agents/%s/checkers/sysmon/sysmon.json", agentID): []byte(`{"enabled": true, "interval": "10s"}`),
+    }
+
+    for key, val := range entries {
+        // Try atomic create first
+        if hasPFA {
+            if err := pfa.PutIfAbsent(ctx, key, val, 0); err == nil {
+                s.logger.Info().Str("key", key).Msg("Bootstrapped default config in KV (created)")
+                continue
+            }
+        }
+        // Fallback: check then put
+        if _, found, err := s.kvStore.Get(ctx, key); err == nil && !found {
+            if err := s.kvStore.Put(ctx, key, val, 0); err == nil {
+                s.logger.Info().Str("key", key).Msg("Bootstrapped default config in KV (fallback)")
+            }
+        }
+    }
 }
 
 // initializeServer creates a new Server struct with default values.
@@ -166,7 +203,7 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 }
 
 // createSweepService constructs a new SweepService instance.
-func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerConfig, log logger.Logger) (Service, error) {
+func createSweepService(ctx context.Context, sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerConfig, log logger.Logger) (Service, error) {
 	if sweepConfig == nil {
 		return nil, errSweepConfigNil
 	}
@@ -204,7 +241,7 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
 
-	return NewSweepService(c, kvStore, configKey, log)
+	return NewSweepService(ctx, c, kvStore, configKey, log)
 }
 
 func (s *Server) loadSweepService(
@@ -237,7 +274,7 @@ func (s *Server) loadSweepService(
 		s.logger.Info().Str("kvPath", kvPath).Msg("Successfully merged KV updates into file config")
 	}
 
-	service, err := s.createSweepService(&sweepConfig, s.kvStore) // Pass s.kvStore
+	service, err := s.createSweepService(ctx, &sweepConfig, s.kvStore) // Pass s.kvStore
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +306,7 @@ func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *
 
 	s.logger.Info().Str("kvPath", kvPath).Msg("Loaded sweep config from KV")
 
-	service, err := s.createSweepService(sweepConfig, s.kvStore) // Pass s.kvStore
+	service, err := s.createSweepService(ctx, sweepConfig, s.kvStore) // Pass s.kvStore
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sweep service from KV config: %w", err)
 	}
@@ -635,6 +672,48 @@ func (s *Server) Stop(_ context.Context) error {
 	close(s.done)
 
 	return nil
+}
+
+// UpdateConfig applies logging/security updates at runtime where possible.
+// Security changes typically require a restart to fully apply to gRPC servers/clients.
+func (s *Server) UpdateConfig(newCfg *ServerConfig) {
+    if newCfg == nil { return }
+    // Apply logging level changes if provided
+    if newCfg.Logging != nil {
+        lvl := strings.ToLower(newCfg.Logging.Level)
+        switch lvl {
+        case "debug":
+            s.logger.SetDebug(true)
+        case "info", "":
+            s.logger.SetDebug(false)
+        }
+        s.logger.Info().Str("level", newCfg.Logging.Level).Msg("Agent logger level updated")
+    }
+    // Security changes: log advisory; full restart may be required
+    if newCfg.Security != nil && s.config.Security != nil {
+        // naive compare of cert paths
+        if newCfg.Security.TLS != s.config.Security.TLS || newCfg.Security.Mode != s.config.Security.Mode {
+            s.logger.Warn().Msg("Security config changed; restart recommended to apply TLS changes")
+        }
+    }
+    s.config = newCfg
+}
+
+// RestartServices stops and starts all managed services using the current configuration.
+func (s *Server) RestartServices(ctx context.Context) {
+    s.logger.Info().Msg("Restarting agent services due to config changes")
+    for _, svc := range s.services {
+        if err := svc.Stop(ctx); err != nil {
+            s.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to stop service during restart")
+        }
+    }
+    for _, svc := range s.services {
+        if err := svc.Start(ctx); err != nil {
+            s.logger.Error().Err(err).Str("service", svc.Name()).Msg("Failed to start service during restart")
+        } else {
+            s.logger.Info().Str("service", svc.Name()).Msg("Service restarted")
+        }
+    }
 }
 
 // ListenAddr returns the server's listening address.

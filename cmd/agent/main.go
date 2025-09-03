@@ -28,6 +28,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -45,12 +46,21 @@ func run() error {
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
 
-	// Step 1: Load config
+	// Step 1: Load config with KV support
+	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleAgent)
+	defer func() {
+		if kvMgr != nil {
+			_ = kvMgr.Close()
+		}
+	}()
+
 	cfgLoader := config.NewConfig(nil)
+	if kvMgr != nil {
+		kvMgr.SetupConfigLoader(cfgLoader)
+	}
 
 	var cfg agent.ServerConfig
-
-	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
+	if err := kvMgr.LoadAndOverlay(ctx, cfgLoader, *configPath, &cfg); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
@@ -69,7 +79,12 @@ func run() error {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
-	// Step 3: Create agent server with proper logger
+	// Bootstrap service-level default into KV if missing
+	if kvMgr != nil {
+		kvMgr.BootstrapConfig(ctx, "config/agent.json", cfg)
+	}
+
+    // Step 3: Create agent server with proper logger
 	server, err := agent.NewServer(ctx, cfg.CheckersDir, &cfg, agentLogger)
 	if err != nil {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
@@ -77,6 +92,14 @@ func run() error {
 		}
 
 		return fmt.Errorf("failed to create server: %w", err)
+	}
+
+	// KV Watch: overlay and apply hot-reload on relevant changes
+	if kvMgr != nil {
+		kvMgr.StartWatch(ctx, "config/agent.json", &cfg, agentLogger, func() {
+			server.UpdateConfig(&cfg)
+			server.RestartServices(ctx)
+		})
 	}
 
 	// Create server options

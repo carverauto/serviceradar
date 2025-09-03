@@ -17,14 +17,16 @@
 package kv
 
 import (
-	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"errors"
-	"fmt"
-	"log"
-	"os"
-	"time"
+    "context"
+    "crypto/tls"
+    "crypto/x509"
+    "errors"
+    "fmt"
+    "log"
+    "os"
+    "strings"
+    "sync"
+    "time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -34,9 +36,13 @@ import (
 )
 
 type NATSStore struct {
-	nc  *nats.Conn
-	kv  jetstream.KeyValue
-	ctx context.Context
+    nc            *nats.Conn
+    ctx           context.Context
+    bucket        string
+    defaultDomain string
+    jsByDomain    map[string]jetstream.JetStream
+    kvByDomain    map[string]jetstream.KeyValue
+    mu            sync.Mutex
 }
 
 func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
@@ -60,45 +66,22 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
 
-	// if you are using a specific JetStream domain, use NewWithDomain
-	// otherwise, use New
-	var js jetstream.JetStream
+    store := &NATSStore{
+        nc:            nc,
+        ctx:           ctx,
+        bucket:        cfg.Bucket,
+        defaultDomain: cfg.Domain,
+        jsByDomain:    make(map[string]jetstream.JetStream),
+        kvByDomain:    make(map[string]jetstream.KeyValue),
+    }
 
-	if cfg.Domain == "" {
-		log.Println("No JS Domain configured")
+    // Warm default domain (may be empty => global)
+    if _, err := store.getKVForDomain(ctx, cfg.Domain); err != nil {
+        nc.Close()
+        return nil, err
+    }
 
-		js, err = jetstream.New(nc)
-		if err != nil {
-			nc.Close()
-
-			return nil, fmt.Errorf("failed to create JetStream context: %w", err)
-		}
-	} else {
-		log.Println("Configuring with JS Domain", cfg.Domain)
-
-		js, err = jetstream.NewWithDomain(nc, cfg.Domain) // e.g. "edge"
-		if err != nil {
-			nc.Close()
-
-			return nil, fmt.Errorf("failed to create JetStream context: %w", err)
-		}
-	}
-
-	kv, err := js.KeyValue(ctx, cfg.Bucket)
-	if err != nil {
-		kv, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: cfg.Bucket})
-		if err != nil {
-			nc.Close()
-
-			return nil, fmt.Errorf("failed to create KV bucket: %w", err)
-		}
-	}
-
-	return &NATSStore{
-		nc:  nc,
-		kv:  kv,
-		ctx: ctx,
-	}, nil
+    return store, nil
 }
 
 const (
@@ -135,10 +118,13 @@ func getTLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
 }
 
 func (n *NATSStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
-	entry, err := n.kv.Get(ctx, key)
-	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return nil, false, nil
-	}
+    domain, realKey := n.extractDomain(key)
+    kv, err := n.getKVForDomain(ctx, domain)
+    if err != nil { return nil, false, err }
+    entry, err := kv.Get(ctx, realKey)
+    if errors.Is(err, jetstream.ErrKeyNotFound) {
+        return nil, false, nil
+    }
 
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get key %s: %w", key, err)
@@ -150,32 +136,54 @@ func (n *NATSStore) Get(ctx context.Context, key string) (value []byte, found bo
 // Put stores a key-value pair in the NATS key-value store. It accepts a context, key, value, and TTL.
 // The TTL is not used in this implementation, as it is handled at the bucket level.
 func (n *NATSStore) Put(ctx context.Context, key string, value []byte, _ time.Duration) error {
-	_, err := n.kv.Put(ctx, key, value) // TTL handled at bucket level in this implementation
-	if err != nil {
-		return fmt.Errorf("failed to put key %s: %w", key, err)
-	}
+    domain, realKey := n.extractDomain(key)
+    kv, err := n.getKVForDomain(ctx, domain)
+    if err != nil { return err }
+    _, err = kv.Put(ctx, realKey, value)
+    if err != nil {
+        return fmt.Errorf("failed to put key %s: %w", realKey, err)
+    }
 
-	return nil
+    return nil
+}
+
+// PutIfAbsent stores a key-value pair only if it doesn't already exist.
+func (n *NATSStore) PutIfAbsent(ctx context.Context, key string, value []byte, _ time.Duration) error {
+    domain, realKey := n.extractDomain(key)
+    kv, err := n.getKVForDomain(ctx, domain)
+    if err != nil { return err }
+    _, err = kv.Create(ctx, realKey, value)
+    if err != nil {
+        return fmt.Errorf("failed to create key %s: %w", realKey, err)
+    }
+
+    return nil
 }
 
 // PutMany stores multiple key/value pairs. TTL is ignored in this implementation.
 func (n *NATSStore) PutMany(ctx context.Context, entries []KeyValueEntry, _ time.Duration) error {
-	for _, e := range entries {
-		if _, err := n.kv.Put(ctx, e.Key, e.Value); err != nil {
-			return fmt.Errorf("failed to put key %s: %w", e.Key, err)
-		}
-	}
+    for _, e := range entries {
+        domain, realKey := n.extractDomain(e.Key)
+        kv, err := n.getKVForDomain(ctx, domain)
+        if err != nil { return err }
+        if _, err := kv.Put(ctx, realKey, e.Value); err != nil {
+            return fmt.Errorf("failed to put key %s: %w", realKey, err)
+        }
+    }
 
-	return nil
+    return nil
 }
 
 func (n *NATSStore) Delete(ctx context.Context, key string) error {
-	err := n.kv.Delete(ctx, key)
-	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
-		return fmt.Errorf("failed to delete key %s: %w", key, err)
-	}
+    domain, realKey := n.extractDomain(key)
+    kv, err := n.getKVForDomain(ctx, domain)
+    if err != nil { return err }
+    err = kv.Delete(ctx, realKey)
+    if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
+        return fmt.Errorf("failed to delete key %s: %w", realKey, err)
+    }
 
-	return nil
+    return nil
 }
 
 func (n *NATSStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
@@ -236,13 +244,20 @@ func (n *NATSStore) handleWatchWithReconnect(ctx context.Context, key string, ch
 // attemptWatch attempts to establish a single watch session
 // Returns true if context was canceled, false if watcher closed unexpectedly and we should retry.
 func (n *NATSStore) attemptWatch(ctx context.Context, key string, ch chan<- []byte, backoff *time.Duration) bool {
-	const initialBackoff = 1 * time.Second
+    const initialBackoff = 1 * time.Second
 
-	watcher, err := n.kv.Watch(ctx, key /* you can add options like jetstream.UpdatesOnly() here if desired */)
-	if err != nil {
-		log.Printf("Failed to create watch for key %s: %v", key, err)
+    domain, realKey := n.extractDomain(key)
+    kv, err := n.getKVForDomain(ctx, domain)
+    if err != nil {
+        log.Printf("Failed to get KV for domain %s: %v", domain, err)
+        return false
+    }
 
-		return false // Will retry
+    watcher, err := kv.Watch(ctx, realKey /* you can add options like jetstream.UpdatesOnly() here if desired */)
+    if err != nil {
+        log.Printf("Failed to create watch for key %s: %v", key, err)
+
+        return false // Will retry
 	}
 
 	defer func() {
@@ -307,3 +322,44 @@ func (n *NATSStore) Close() error {
 // Ensure NATSStore implements both interfaces.
 var _ configkv.KVStore = (*NATSStore)(nil)
 var _ KVStore = (*NATSStore)(nil)
+
+// Helpers for domain-aware keys.
+// keys may be provided as: "domains/<domain>/<realKey>" to route to a JS domain.
+func (n *NATSStore) extractDomain(key string) (string, string) {
+    const p = "domains/"
+    if strings.HasPrefix(key, p) {
+        rest := key[len(p):]
+        if idx := strings.IndexByte(rest, '/'); idx > 0 {
+            return rest[:idx], rest[idx+1:]
+        }
+    }
+    return n.defaultDomain, key
+}
+
+func (n *NATSStore) getKVForDomain(ctx context.Context, domain string) (jetstream.KeyValue, error) {
+    n.mu.Lock()
+    defer n.mu.Unlock()
+    d := domain
+    js, ok := n.jsByDomain[d]
+    if !ok {
+        var err error
+        if d == "" {
+            js, err = jetstream.New(n.nc)
+        } else {
+            js, err = jetstream.NewWithDomain(n.nc, d)
+        }
+        if err != nil { return nil, fmt.Errorf("jetstream init failed for domain %q: %w", d, err) }
+        n.jsByDomain[d] = js
+    }
+    kv, ok := n.kvByDomain[d]
+    if !ok {
+        var err error
+        kv, err = js.KeyValue(ctx, n.bucket)
+        if err != nil {
+            kv, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: n.bucket})
+            if err != nil { return nil, fmt.Errorf("kv bucket init failed for domain %q: %w", d, err) }
+        }
+        n.kvByDomain[d] = kv
+    }
+    return kv, nil
+}

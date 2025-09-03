@@ -37,9 +37,9 @@ const (
 
 // AgentConfig represents configuration for a single agent.
 type AgentConfig struct {
-	Address  string                 `json:"address"`
-	Checks   []Check                `json:"checks"`
-	Security *models.SecurityConfig `json:"security"` // Per-agent security config
+    Address  string                 `json:"address" hot:"rebuild"`
+    Checks   []Check                `json:"checks" hot:"rebuild"`
+    Security *models.SecurityConfig `json:"security" hot:"rebuild"` // Per-agent security config
 }
 
 // Check represents a service check configuration.
@@ -53,16 +53,18 @@ type Check struct {
 
 // Config represents poller configuration.
 type Config struct {
-	Agents       map[string]AgentConfig `json:"agents"`
-	ListenAddr   string                 `json:"listen_addr"`
-	ServiceName  string                 `json:"service_name"`
-	CoreAddress  string                 `json:"core_address"`
-	PollInterval models.Duration        `json:"poll_interval"`
-	PollerID     string                 `json:"poller_id"`
-	Partition    string                 `json:"partition"`
-	SourceIP     string                 `json:"source_ip"`
-	Security     *models.SecurityConfig `json:"security"`
-	Logging      *logger.Config         `json:"logging,omitempty"` // Logger configuration
+    Agents       map[string]AgentConfig `json:"agents" hot:"rebuild"`
+    ListenAddr   string                 `json:"listen_addr"`
+    ServiceName  string                 `json:"service_name"`
+    CoreAddress  string                 `json:"core_address" hot:"rebuild"`
+    PollInterval models.Duration        `json:"poll_interval" hot:"reload"`
+    PollerID     string                 `json:"poller_id"`
+    Partition    string                 `json:"partition"`
+    SourceIP     string                 `json:"source_ip"`
+    Security     *models.SecurityConfig `json:"security" hot:"rebuild"`
+    Logging      *logger.Config         `json:"logging,omitempty"` // Logger configuration
+    KVAddress    string                 `json:"kv_address,omitempty"` // Optional KV store address (deprecated for ID/domain)
+    KVDomain     string                 `json:"kv_domain,omitempty"`  // JetStream domain for KV (e.g., "hub", "leaf-001")
 }
 
 // Validate implements config.Validator interface.

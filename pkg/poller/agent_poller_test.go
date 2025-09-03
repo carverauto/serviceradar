@@ -386,7 +386,7 @@ func TestServiceCheck_Execute_Success(t *testing.T) {
 		Details: "test-details",
 	}
 
-	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", mockLogger)
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", mockLogger)
 
 	expectedReq := &proto.StatusRequest{
 		ServiceName: "test-service",
@@ -434,7 +434,7 @@ func TestServiceCheck_Execute_PortType(t *testing.T) {
 		Port: 8080,
 	}
 
-	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", mockLogger)
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", mockLogger)
 
 	expectedReq := &proto.StatusRequest{
 		ServiceName: "port-service",
@@ -475,7 +475,7 @@ func TestServiceCheck_Execute_Error(t *testing.T) {
 		Name: "failing-service",
 	}
 
-	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", mockLogger)
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", mockLogger)
 
 	expectedErr := errConnectionFailed
 	mockClient.EXPECT().
@@ -513,7 +513,7 @@ func TestServiceCheck_Execute_JSONMarshalError(t *testing.T) {
 		Name: "failing-service",
 	}
 
-	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", mockLogger)
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", mockLogger)
 
 	expectedErr := errConnectionFailed
 	mockClient.EXPECT().
@@ -538,6 +538,123 @@ func TestServiceCheck_Execute_JSONMarshalError(t *testing.T) {
 	} else {
 		assert.Equal(t, []byte("Service check failed"), status.Message)
 	}
+}
+
+func TestServiceCheck_WithKVStoreId(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := proto.NewMockAgentServiceClient(ctrl)
+	mockLogger := logger.NewTestLogger()
+
+	check := Check{
+		Type:    "grpc",
+		Name:    "kv-service",
+		Details: "service with KV store",
+	}
+
+	kvStoreId := "kv-store-123"
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", kvStoreId, mockLogger)
+
+	expectedResp := &proto.StatusResponse{
+		Available:    true,
+		Message:      []byte(`{"status": "healthy"}`),
+		ResponseTime: 5000000,
+		AgentId:      "test-agent",
+	}
+
+	mockClient.EXPECT().
+		GetStatus(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(expectedResp, nil)
+
+	ctx := context.Background()
+	status := sc.execute(ctx)
+
+	require.NotNil(t, status)
+	assert.Equal(t, "kv-service", status.ServiceName)
+	assert.Equal(t, "grpc", status.ServiceType)
+	assert.True(t, status.Available)
+	assert.Equal(t, kvStoreId, status.KvStoreId) // Verify KV store ID is set
+	assert.Equal(t, "test-agent", status.AgentId)
+	assert.Equal(t, "test-poller", status.PollerId)
+	assert.JSONEq(t, `{"status": "healthy"}`, string(status.Message))
+}
+
+func TestAgentPoller_WithKVAddress(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := proto.NewMockAgentServiceClient(ctrl)
+	mockLogger := logger.NewTestLogger()
+
+	kvAddress := "localhost:6379"
+	poller := &Poller{
+		config: Config{
+			PollerID:  "kv-poller",
+			KVAddress: kvAddress,
+		},
+		logger: mockLogger,
+	}
+
+	config := &AgentConfig{
+		Address: "localhost:8080",
+		Checks: []Check{
+			{Type: "grpc", Name: "kv-aware-service"},
+			{Type: "http", Name: "legacy-service"},
+		},
+	}
+
+	ap := newAgentPoller("kv-agent", config, mockClient, poller)
+
+	// Set up mock expectations for both services
+	mockClient.EXPECT().
+		GetStatus(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req *proto.StatusRequest, _ ...interface{}) (*proto.StatusResponse, error) {
+			return &proto.StatusResponse{
+				Available:    true,
+				Message:      []byte(fmt.Sprintf(`{"service": "%s"}`, req.ServiceName)),
+				ResponseTime: 1000000,
+				AgentId:      "kv-agent",
+			}, nil
+		}).
+		Times(2)
+
+	ctx := context.Background()
+	statuses := ap.ExecuteChecks(ctx)
+
+	assert.Len(t, statuses, 2)
+
+	// Verify both services have KV store ID populated from poller config
+	for _, status := range statuses {
+		assert.Equal(t, kvAddress, status.KvStoreId)
+		assert.Equal(t, "kv-poller", status.PollerId)
+		assert.Equal(t, "kv-agent", status.AgentId)
+		assert.True(t, status.Available)
+	}
+}
+
+func TestNewServiceCheck_WithKVStoreId(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := proto.NewMockAgentServiceClient(ctrl)
+	mockLogger := logger.NewTestLogger()
+
+	check := Check{
+		Type: "grpc",
+		Name: "test-service",
+	}
+
+	kvStoreId := "test-kv-store"
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", kvStoreId, mockLogger)
+
+	// Verify the service check is properly configured with KV store ID
+	assert.Equal(t, mockClient, sc.client)
+	assert.Equal(t, check, sc.check)
+	assert.Equal(t, "test-poller", sc.pollerID)
+	assert.Equal(t, "test-agent", sc.agentName)
+	assert.Equal(t, kvStoreId, sc.kvStoreId)
+	assert.Equal(t, mockLogger, sc.logger)
 }
 
 func TestAgentPoller_ExecuteResults_IntervalLogic(t *testing.T) {
