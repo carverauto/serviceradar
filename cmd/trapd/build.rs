@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(false)
         .file_descriptor_set_path(&descriptor_path)
-        .compile(&[proto_path], &[proto_dir])?;
+        .compile_protos(&[proto_path], &[proto_dir])?;
     println!("cargo:rerun-if-changed={proto_path}");
 
     // Compile KV proto for client usage
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::configure()
         .build_server(false)
         .build_client(true)
-        .compile(&[kv_proto_path], &[kv_proto_dir])?;
+        .compile_protos(&[kv_proto_path], &[kv_proto_dir])?;
     println!("cargo:rerun-if-changed={kv_proto_path}");
     Ok(())
 }

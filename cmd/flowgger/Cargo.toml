@@ -68,10 +68,4 @@ kvutil = { path = "../../rust/kvutil" }
 tempdir = "0.3"
 quickcheck = "1"
 
-[profile.release]
-opt-level = 3
-debug = false
-rpath = false
-lto = true
-debug-assertions = false
-panic = "abort"
+## Release profile now defined at workspace root to avoid non-root profile warning
