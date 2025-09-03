@@ -61,26 +61,40 @@ interface PollerConfigFormProps {
 }
 
 export default function PollerConfigForm({ config, onChange }: PollerConfigFormProps) {
+  const dangerousKeys = ['__proto__', 'constructor', 'prototype'];
+  const isSafeKey = (key: string) => !dangerousKeys.includes(key);
+
   const updateConfig = (path: string, value: unknown) => {
     const newConfig = { ...config };
     const keys = path.split('.');
     let current: Record<string, unknown> = newConfig as Record<string, unknown>;
-    
-    // Validate keys to prevent prototype pollution
-    const dangerousKeys = ['__proto__', 'constructor', 'prototype'];
+
+    // Validate all keys in the chain to prevent prototype pollution
     for (const key of keys) {
-      if (dangerousKeys.includes(key)) {
+      if (!isSafeKey(key)) {
         console.error(`Attempted to set dangerous property: ${key}`);
         return;
       }
     }
-    
+
     for (let i = 0; i < keys.length - 1; i++) {
-      if (!current[keys[i]]) current[keys[i]] = {};
-      current = current[keys[i]] as Record<string, unknown>;
+      const k = keys[i];
+      if (!isSafeKey(k)) {
+        console.error(`Attempted to set dangerous nested property: ${k}`);
+        return;
+      }
+      if (typeof current[k] !== 'object' || current[k] === null) {
+        current[k] = {};
+      }
+      current = current[k] as Record<string, unknown>;
     }
-    
-    current[keys[keys.length - 1]] = value;
+
+    const lastKey = keys[keys.length - 1];
+    if (!isSafeKey(lastKey)) {
+      console.error(`Attempted to set dangerous property: ${lastKey}`);
+      return;
+    }
+    current[lastKey] = value;
     onChange(newConfig as PollerConfig);
   };
 
