@@ -6,6 +6,7 @@ members = [
     "cmd/trapd",
     "cmd/otel",
     "cmd/poller-ng",
+    "cmd/consumers/zen",
 ]
 
 [workspace.dependencies]
