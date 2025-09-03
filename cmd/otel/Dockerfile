@@ -1,22 +1,40 @@
 # Build stage
 FROM rust:latest AS builder
 
-WORKDIR /usr/src/serviceradar-otel
+# Build from workspace root so path deps resolve (../../rust/kvutil)
+WORKDIR /usr/src/serviceradar
 
 # Install dependencies for building
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project files
-COPY cmd/otel/Cargo.toml cmd/otel/Cargo.lock* ./
-COPY cmd/otel/src ./src/
-COPY cmd/otel/build.rs ./
-COPY cmd/otel/proto ./proto/
+# Cache dependencies: copy manifests first and fetch
+COPY Cargo.toml ./
+# Copy all workspace members' manifests to satisfy workspace resolution
+COPY rust/kvutil/Cargo.toml ./rust/kvutil/Cargo.toml
+COPY cmd/otel/Cargo.toml ./cmd/otel/Cargo.toml
+COPY cmd/flowgger/Cargo.toml ./cmd/flowgger/Cargo.toml
+COPY cmd/trapd/Cargo.toml ./cmd/trapd/Cargo.toml
+COPY cmd/poller-ng/Cargo.toml ./cmd/poller-ng/Cargo.toml
+RUN mkdir -p rust/kvutil/src cmd/flowgger/src cmd/trapd/src cmd/otel/src cmd/poller-ng/src && \
+    printf "pub fn _stub(){}" > rust/kvutil/src/lib.rs && \
+    printf "fn main(){}" > cmd/trapd/src/main.rs && \
+    printf "fn main(){}" > cmd/poller-ng/src/main.rs && \
+    printf "fn main(){}" > cmd/flowgger/src/main.rs && \
+    printf "pub fn _stub(){}" > cmd/flowgger/src/lib.rs && \
+    printf "fn main(){}" > cmd/otel/src/main.rs && \
+    printf "pub fn _stub(){}" > cmd/otel/src/lib.rs
+RUN cargo fetch --manifest-path cmd/otel/Cargo.toml
+
+# Now copy sources
+COPY rust/kvutil ./rust/kvutil
+COPY proto ./proto
+COPY cmd/otel ./cmd/otel
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \
-    cargo build --release --target x86_64-unknown-linux-gnu
+    cargo build --manifest-path cmd/otel/Cargo.toml --release --target x86_64-unknown-linux-gnu
 
 # Runtime stage
 FROM debian:bullseye-slim
@@ -30,8 +48,8 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /output
 
 # Copy the binary from the builder stage to both /usr/local/bin and /output
-COPY --from=builder /usr/src/serviceradar-otel/target/x86_64-unknown-linux-gnu/release/otel /usr/local/bin/serviceradar-otel
-COPY --from=builder /usr/src/serviceradar-otel/target/x86_64-unknown-linux-gnu/release/otel /output/serviceradar-otel
+COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/otel /usr/local/bin/serviceradar-otel
+COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/otel /output/serviceradar-otel
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar
