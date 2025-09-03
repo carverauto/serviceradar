@@ -17,6 +17,7 @@
 'use client';
 
 import React from 'react';
+import safeSet from '../../../lib/safeSet';
 
 interface AgentConfig {
   id: string;
@@ -56,40 +57,9 @@ interface AgentConfigFormProps {
 }
 
 export default function AgentConfigForm({ config, onChange }: AgentConfigFormProps) {
-  const dangerousKeys = ['__proto__', 'constructor', 'prototype'];
-  const isSafeKey = (key: string) => !dangerousKeys.includes(key);
-
   const updateConfig = (path: string, value: unknown) => {
     const newConfig = { ...config };
-    const keys = path.split('.');
-    let current: Record<string, unknown> = newConfig as Record<string, unknown>;
-
-    // Validate all keys in the chain to prevent prototype pollution
-    for (const key of keys) {
-      if (!isSafeKey(key)) {
-        console.error(`Attempted to set dangerous property: ${key}`);
-        return;
-      }
-    }
-
-    for (let i = 0; i < keys.length - 1; i++) {
-      const k = keys[i];
-      if (!isSafeKey(k)) {
-        console.error(`Attempted to set dangerous nested property: ${k}`);
-        return;
-      }
-      if (typeof current[k] !== 'object' || current[k] === null) {
-        current[k] = {};
-      }
-      current = current[k] as Record<string, unknown>;
-    }
-
-    const lastKey = keys[keys.length - 1];
-    if (!isSafeKey(lastKey)) {
-      console.error(`Attempted to set dangerous property: ${lastKey}`);
-      return;
-    }
-    current[lastKey] = value;
+    safeSet(newConfig, path, value);
     onChange(newConfig as AgentConfig);
   };
 
