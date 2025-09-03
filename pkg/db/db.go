@@ -244,12 +244,14 @@ func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.Co
     }
     var bufferCapacity int
     cap64 := int64(maxBufferSize) * 2 // compute in wider type
-    if cap64 < 0 {                     // defensive: should not happen after clamp above
+    
+    switch {
+    case cap64 < 0: // defensive: should not happen after clamp above
         bufferCapacity = 0
-    } else if cap64 > int64(math.MaxInt) {
+    case cap64 > int64(math.MaxInt):
         // Prevent integer overflow by capping bufferCapacity
         bufferCapacity = math.MaxInt
-    } else {
+    default:
         bufferCapacity = int(cap64)
     }
 
