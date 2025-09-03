@@ -15,6 +15,7 @@
 # Multi-stage build for ServiceRadar Zen service (Rust)
 FROM rust:latest AS builder
 
+# Build from workspace root so workspace dependencies resolve
 WORKDIR /usr/src
 
 # Install dependencies for building
@@ -22,26 +23,30 @@ RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy proto files first in expected directory structure
-COPY proto/ ./serviceradar-zen/proto/
-COPY cmd/otel/proto/ ./otel/proto/
+# Copy workspace manifests first
+COPY Cargo.toml ./
+COPY Cargo.lock ./
 
-# Set working directory for zen build  
-WORKDIR /usr/src/serviceradar-zen
+# Copy required workspace members and protos
+COPY rust/kvutil ./rust/kvutil
+COPY cmd/flowgger ./cmd/flowgger
+COPY cmd/trapd ./cmd/trapd
+COPY cmd/otel ./cmd/otel
+COPY cmd/poller-ng ./cmd/poller-ng
+COPY cmd/consumers/zen ./cmd/consumers/zen
+COPY cmd/otel/proto ./cmd/otel/proto
+COPY proto ./proto
 
-# Copy project files for Zen service
-COPY cmd/consumers/zen/Cargo.toml cmd/consumers/zen/Cargo.lock* ./
-COPY cmd/consumers/zen/src ./src/
-COPY docker/compose/build-zen-fixed.rs ./build.rs
-COPY cmd/consumers/zen/data ./data/
+# Override build.rs if needed
+COPY docker/compose/build-zen-fixed.rs ./cmd/consumers/zen/build.rs
 
 # Build arguments for version info (unused in Rust but kept for consistency)
 ARG VERSION=dev
 ARG BUILD_ID=docker
 
 # Build for current architecture (ARM64 or AMD64)
-RUN cargo build --release
-RUN cargo build --release --bin zen-put-rule
+RUN cargo build -p serviceradar-zen --release && \
+    cargo build -p serviceradar-zen --release --bin zen-put-rule
 
 # Runtime stage - using Ubuntu 24.04 for GLIBC 2.39 compatibility
 FROM ubuntu:24.04
@@ -68,8 +73,8 @@ RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
 
 # Copy binaries from builder
-COPY --from=builder /usr/src/serviceradar-zen/target/release/serviceradar-zen /usr/local/bin/serviceradar-zen
-COPY --from=builder /usr/src/serviceradar-zen/target/release/zen-put-rule /usr/local/bin/zen-put-rule
+COPY --from=builder /usr/src/target/release/serviceradar-zen /usr/local/bin/serviceradar-zen
+COPY --from=builder /usr/src/target/release/zen-put-rule /usr/local/bin/zen-put-rule
 RUN chmod +x /usr/local/bin/serviceradar-zen /usr/local/bin/zen-put-rule
 
 # Copy rule data files
