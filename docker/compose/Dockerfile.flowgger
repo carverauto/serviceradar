@@ -15,23 +15,33 @@
 # Multi-stage build for ServiceRadar Flowgger service (Rust)
 FROM rust:latest AS builder
 
-WORKDIR /usr/src/serviceradar-flowgger
+# Build from workspace root so workspace dependencies resolve
+WORKDIR /usr/src
 
-# Install dependencies for building (no protobuf needed for flowgger)
+# Install dependencies for building (prost-build requires protoc)
 RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project files for Flowgger service
-COPY cmd/flowgger/Cargo.toml cmd/flowgger/Cargo.lock* ./
-COPY cmd/flowgger/src ./src/
-COPY cmd/flowgger/build.rs ./
+# Copy workspace manifests first
+COPY Cargo.toml ./
+COPY Cargo.lock ./
+
+# Copy workspace members required for dependency resolution and build
+COPY rust/kvutil ./rust/kvutil
+COPY cmd/flowgger ./cmd/flowgger
+COPY cmd/trapd ./cmd/trapd
+COPY cmd/otel ./cmd/otel
+COPY cmd/poller-ng ./cmd/poller-ng
+COPY cmd/consumers/zen ./cmd/consumers/zen
+COPY proto ./proto
 
 # Build arguments for version info (unused in Rust but kept for consistency)
 ARG VERSION=dev
 ARG BUILD_ID=docker
 
 # Build for current architecture (ARM64 or AMD64) with NATS output feature
-RUN cargo build --features nats-output --release
+RUN cargo build -p serviceradar-flowgger --features nats-output --release
 
 # Runtime stage - using Ubuntu for better compatibility
 FROM ubuntu:22.04
@@ -58,7 +68,7 @@ RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
 
 # Copy binary from builder
-COPY --from=builder /usr/src/serviceradar-flowgger/target/release/serviceradar-flowgger /usr/local/bin/serviceradar-flowgger
+COPY --from=builder /usr/src/target/release/serviceradar-flowgger /usr/local/bin/serviceradar-flowgger
 RUN chmod +x /usr/local/bin/serviceradar-flowgger
 
 # Copy entrypoint script

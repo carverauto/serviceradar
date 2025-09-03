@@ -15,25 +15,33 @@
 # Multi-stage build for ServiceRadar OTEL service (Rust)
 FROM rust:latest AS builder
 
-WORKDIR /usr/src/serviceradar-otel
+# Build from workspace root so workspace dependencies resolve
+WORKDIR /usr/src
 
 # Install dependencies for building
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project files for OTEL service
-COPY cmd/otel/Cargo.toml cmd/otel/Cargo.lock* ./
-COPY cmd/otel/src ./src/
-COPY cmd/otel/build.rs ./
-COPY cmd/otel/proto ./proto/
+# Copy workspace manifests first
+COPY Cargo.toml ./
+COPY Cargo.lock ./
+
+# Copy workspace members and protos needed for build
+COPY rust/kvutil ./rust/kvutil
+COPY cmd/otel ./cmd/otel
+COPY cmd/flowgger ./cmd/flowgger
+COPY cmd/trapd ./cmd/trapd
+COPY cmd/poller-ng ./cmd/poller-ng
+COPY cmd/consumers/zen ./cmd/consumers/zen
+COPY proto ./proto
 
 # Build arguments for version info (unused in Rust but kept for consistency)
 ARG VERSION=dev
 ARG BUILD_ID=docker
 
 # Build for current architecture (ARM64 or AMD64)
-RUN cargo build --release
+RUN cargo build -p otel --release
 
 # Runtime stage - using Ubuntu for better compatibility
 FROM ubuntu:22.04
@@ -60,7 +68,7 @@ RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
 
 # Copy binary from builder
-COPY --from=builder /usr/src/serviceradar-otel/target/release/otel /usr/local/bin/serviceradar-otel
+COPY --from=builder /usr/src/target/release/otel /usr/local/bin/serviceradar-otel
 RUN chmod +x /usr/local/bin/serviceradar-otel
 
 # Copy entrypoint script
