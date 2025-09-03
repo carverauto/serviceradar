@@ -419,5 +419,11 @@ if [[ "$PUSH" == false ]]; then
 fi
 
 echo ""
-log "ServiceRadar images created:"
-docker images | grep "serviceradar" | head -20
+if [[ "$PUSH" == true ]]; then
+    # When pushing multi-arch images with buildx, nothing is loaded locally.
+    # Avoid failing the script due to grep returning 1 with pipefail enabled.
+    log "Images were pushed to $REGISTRY; skipping local image list."
+else
+    log "ServiceRadar images created:"
+    docker images | grep "serviceradar" | head -20 || true
+fi
