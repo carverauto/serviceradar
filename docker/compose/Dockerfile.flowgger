@@ -18,8 +18,9 @@ FROM rust:latest AS builder
 # Build from workspace root so workspace dependencies resolve
 WORKDIR /usr/src
 
-# Install dependencies for building (no protobuf needed for flowgger)
+# Install dependencies for building (prost-build requires protoc)
 RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy workspace manifests first
