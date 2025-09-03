@@ -22,7 +22,8 @@
     "styled-jsx": "^5.1.6",
     "tailwindcss-animate": "^1.0.7",
     "use-debounce": "^10.0.5",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "lodash.set": "^4.3.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
