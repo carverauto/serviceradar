@@ -515,5 +515,9 @@ if [[ "$PUSH" == false ]]; then
 fi
 
 echo ""
-log "Available images:"
-docker images | grep "serviceradar" | head -10
+if [[ "$PUSH" == true ]]; then
+    log "Images were pushed to $REGISTRY; skipping local image list."
+else
+    log "Available images:"
+    docker images | grep "serviceradar" | head -10 || true
+fi
