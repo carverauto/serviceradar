@@ -265,6 +265,14 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       }
 
       setSuccess(true);
+      // Notify listeners (e.g., Global Services status) that a config was saved
+      try {
+        // Use a custom event; keep payload minimal and generic
+        const evt = new CustomEvent('sr:config-saved', {
+          detail: { serviceType: service.type, scope: (service.type === 'otel' || service.type === 'flowgger' || service.type === 'db-event-writer' || service.type === 'zen-consumer') ? 'global' : 'scoped', kvStore }
+        });
+        window.dispatchEvent(evt);
+      } catch {}
       onSave();
       
       setTimeout(() => setSuccess(false), 3000);

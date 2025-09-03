@@ -35,7 +35,7 @@ const navItems = [
     { href: '/network', label: 'Network', icon: Globe },
     { href: '/events', label: 'Events', icon: MessageSquareCode },
     { href: '/observability', label: 'Observability', icon: Activity },
-    { href: '/admin', label: 'Admin', icon: Settings },
+    { href: '/admin', label: 'Settings', icon: Settings },
 ];
 
 export default function Sidebar() {

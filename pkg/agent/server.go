@@ -84,8 +84,8 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 
     s.kvStore = kvStore
 
-	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
-		return createSweepService(sweepConfig, kvStore, cfg, log)
+	s.createSweepService = func(ctx context.Context, sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
+		return createSweepService(ctx, sweepConfig, kvStore, cfg, log)
 	}
 
     if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
@@ -203,7 +203,7 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 }
 
 // createSweepService constructs a new SweepService instance.
-func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerConfig, log logger.Logger) (Service, error) {
+func createSweepService(ctx context.Context, sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerConfig, log logger.Logger) (Service, error) {
 	if sweepConfig == nil {
 		return nil, errSweepConfigNil
 	}
@@ -241,7 +241,7 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
 
-	return NewSweepService(c, kvStore, configKey, log)
+	return NewSweepService(ctx, c, kvStore, configKey, log)
 }
 
 func (s *Server) loadSweepService(
@@ -274,7 +274,7 @@ func (s *Server) loadSweepService(
 		s.logger.Info().Str("kvPath", kvPath).Msg("Successfully merged KV updates into file config")
 	}
 
-	service, err := s.createSweepService(&sweepConfig, s.kvStore) // Pass s.kvStore
+	service, err := s.createSweepService(ctx, &sweepConfig, s.kvStore) // Pass s.kvStore
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +306,7 @@ func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *
 
 	s.logger.Info().Str("kvPath", kvPath).Msg("Loaded sweep config from KV")
 
-	service, err := s.createSweepService(sweepConfig, s.kvStore) // Pass s.kvStore
+	service, err := s.createSweepService(ctx, sweepConfig, s.kvStore) // Pass s.kvStore
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sweep service from KV config: %w", err)
 	}
