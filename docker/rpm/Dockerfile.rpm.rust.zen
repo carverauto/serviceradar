@@ -29,6 +29,13 @@ COPY proto ./proto/
 RUN mkdir -p cmd/otel/proto
 COPY cmd/otel/proto ./cmd/otel/proto/
 
+# Copy all workspace members to satisfy cargo workspace requirements
+COPY rust/kvutil ./rust/kvutil/
+COPY cmd/flowgger ./cmd/flowgger/
+COPY cmd/trapd ./cmd/trapd/
+COPY cmd/otel ./cmd/otel/
+COPY cmd/poller-ng ./cmd/poller-ng/
+
 # Copy the zen crate sources into workspace
 COPY ${BINARY_PATH} ./${BINARY_PATH}
 
@@ -83,6 +90,3 @@ COPY --from=builder /output/*.rpm ./
 RUN ls -la /rpms/
 
 CMD ["ls", "-la", "/rpms/"]
-# Install build dependencies (protoc for tonic-build)
-RUN dnf install -y protobuf-compiler && \
-    dnf clean all
