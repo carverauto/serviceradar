@@ -17,6 +17,7 @@ depends: [
   "yojson"
   "ppx_deriving" {>= "5.0"}
   "lwt_ppx"
+  "alcotest" {with-test}
 ]
 
 build: [
