@@ -29,6 +29,9 @@ COPY proto ./proto/
 RUN mkdir -p cmd/otel/proto
 COPY cmd/otel/proto ./cmd/otel/proto/
 
+# Update Rust to latest to support edition 2024
+RUN rustup update && rustup install nightly && rustup default nightly
+
 # Copy all workspace members to satisfy cargo workspace requirements
 COPY rust/kvutil ./rust/kvutil/
 COPY cmd/flowgger ./cmd/flowgger/
