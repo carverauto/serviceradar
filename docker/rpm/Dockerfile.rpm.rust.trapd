@@ -23,12 +23,22 @@ RUN echo "BINARY_PATH=${BINARY_PATH}" && \
 COPY Cargo.toml ./
 COPY Cargo.lock ./
 
-# Include shared protobuf definitions for build.rs
+# Include shared protobuf definitions for build.rs resolution
 RUN mkdir -p proto
 COPY proto ./proto/
+RUN mkdir -p cmd/otel/proto
+COPY cmd/otel/proto ./cmd/otel/proto/
 
-# Copy crate sources into workspace
-COPY ${BINARY_PATH} ./${BINARY_PATH}
+# Update Rust to latest to support edition 2024  
+RUN rustup update && rustup install nightly && rustup default nightly
+
+# Copy all workspace members to satisfy cargo workspace requirements
+COPY rust/kvutil ./rust/kvutil/
+COPY cmd/trapd ./cmd/trapd/
+COPY cmd/flowgger ./cmd/flowgger/
+COPY cmd/otel ./cmd/otel/
+COPY cmd/poller-ng ./cmd/poller-ng/
+COPY cmd/consumers/zen ./cmd/consumers/zen
 
 # Build the Rust binary with cache mounts and copy artifacts out
 RUN --mount=type=cache,target=/root/.cargo/registry \
@@ -79,6 +89,3 @@ COPY --from=builder /output/*.rpm ./
 RUN ls -la /rpms/
 
 CMD ["ls", "-la", "/rpms/"]
-# Install build dependencies (protoc for tonic-build)
-RUN dnf install -y protobuf-compiler && \
-    dnf clean all
