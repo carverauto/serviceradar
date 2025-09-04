@@ -257,11 +257,11 @@ build_image() {
             --tag "$full_image_name" \
             $build_args \
             $NO_CACHE \
-            .
+            . || return 1
         
         if [[ "$PUSH" == true ]]; then
             log "Pushing $full_image_name..."
-            docker push "$full_image_name"
+            docker push "$full_image_name" || return 1
         fi
     else
         # Multi-arch build with buildx
@@ -286,7 +286,7 @@ build_image() {
             $build_args \
             $NO_CACHE \
             $push_flag \
-            .
+            . || return 1
     fi
     
     if [[ "$PUSH" == true ]]; then
@@ -297,6 +297,7 @@ build_image() {
     else
         success "Built: $full_image_name"
     fi
+    return 0
 }
 
 log "Starting build process..."
@@ -356,10 +357,13 @@ WORKDIR /certs
 ENTRYPOINT ["/bin/sh", "/entrypoint-certs.sh"]
 EOF
     
-    build_image "cert-generator" "docker/compose/Dockerfile.cert-generator" ""
+    local result=0
+    build_image "cert-generator" "docker/compose/Dockerfile.cert-generator" "" || result=1
     
     # Clean up temporary Dockerfile
     rm -f docker/compose/Dockerfile.cert-generator
+    
+    return $result
 }
 
 # Build selected services
@@ -378,8 +382,9 @@ for service in $SERVICES_TO_BUILD; do
     build_args="${SERVICE_BUILD_ARGS[$service]:-}"
     
     # Handle special cases
+    BUILD_SUCCESS=false
     if [[ "$service" == "cert-generator" ]]; then
-        build_cert_generator
+        build_cert_generator && BUILD_SUCCESS=true
     else
         dockerfile="${dockerfile_info%:*}"  # Remove :DYNAMIC if present
         
@@ -390,11 +395,11 @@ for service in $SERVICES_TO_BUILD; do
             continue
         fi
         
-        build_image "$service" "$dockerfile" "$build_args"
+        build_image "$service" "$dockerfile" "$build_args" && BUILD_SUCCESS=true
     fi
     
-    if [[ $? -eq 0 ]]; then
-        ((BUILT_COUNT++))
+    if [[ "$BUILD_SUCCESS" == true ]]; then
+        BUILT_COUNT=$((BUILT_COUNT + 1))
     else
         FAILED_SERVICES="$FAILED_SERVICES $service"
     fi
@@ -425,5 +430,6 @@ if [[ "$PUSH" == true ]]; then
     log "Images were pushed to $REGISTRY; skipping local image list."
 else
     log "ServiceRadar images created:"
-    docker images | grep "serviceradar" | head -20 || true
+    # Use grep -E with a pattern that always matches something to avoid pipefail issues
+    docker images | { grep "serviceradar" || true; } | head -20
 fi
