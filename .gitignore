@@ -214,3 +214,6 @@ docker/compose/certs/
 
 .gobuildcache/
 .gocache/
+
+# ocaml
+_build
