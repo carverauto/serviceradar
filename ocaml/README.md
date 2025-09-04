@@ -172,7 +172,7 @@ dune test
 dune test --force --no-buffer
 
 # Run specific test file
-dune exec srql/test/test_translator.exe
+dune exec -- srql/test/test_translator
 ```
 
 ### Test Coverage
