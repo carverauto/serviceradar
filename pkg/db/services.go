@@ -2,7 +2,6 @@ package db
 
 import (
     "context"
-    "encoding/json"
     "fmt"
 
     "github.com/carverauto/serviceradar/pkg/models"
@@ -116,16 +115,10 @@ func (db *DB) StoreServices(ctx context.Context, services []*models.Service) err
     }
 
     for _, svc := range services {
-        // Serialize config to JSON string (stored in String column)
-        var configJSON string
-        if svc.Config == nil {
-            configJSON = "{}"
-        } else {
-            if b, mErr := json.Marshal(svc.Config); mErr == nil {
-                configJSON = string(b)
-            } else {
-                configJSON = "{}"
-            }
+        // Use config as map[string]string directly for production compatibility
+        config := svc.Config
+        if config == nil {
+            config = make(map[string]string)
         }
 
         if err := batch.Append(
@@ -134,7 +127,7 @@ func (db *DB) StoreServices(ctx context.Context, services []*models.Service) err
             svc.AgentID,     // agent_id
             svc.ServiceName, // service_name
             svc.ServiceType, // service_type
-            configJSON,      // config as JSON string
+            config,          // config as map[string]string for production
             svc.Partition,   // partition
         ); err != nil {
             return fmt.Errorf("failed to append service %s: %w", svc.ServiceName, err)
