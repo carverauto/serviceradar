@@ -13,7 +13,6 @@ import (
 // Test that each sweep clears previous results so availability reflects current state only.
 func TestRunSweep_ClearsPreviousResults(t *testing.T) {
     t.Parallel()
-
     ctrl := gomock.NewController(t)
     defer ctrl.Finish()
 
@@ -52,5 +51,6 @@ func TestRunSweep_ClearsPreviousResults(t *testing.T) {
     if err := sweeper.runSweep(ctx); err != nil {
         t.Fatalf("runSweep returned error: %v", err)
     }
-}
 
+    // gomock assertion will validate the expectation
+}
