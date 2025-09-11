@@ -1684,10 +1684,17 @@ func (s *NetworkSweeper) handleContextDone(ctx context.Context, resultBatch []mo
 }
 
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {
-	targets, err := s.generateTargets()
-	if err != nil {
-		return fmt.Errorf("failed to generate targets: %w", err)
-	}
+    // Clear previous results so availability reflects the current sweep only
+    // This prevents stale positives from lingering across sweeps when targets change
+    if s.store != nil {
+        // Using age=0 clears all stored results
+        _ = s.store.PruneResults(context.Background(), 0)
+    }
+
+    targets, err := s.generateTargets()
+    if err != nil {
+        return fmt.Errorf("failed to generate targets: %w", err)
+    }
 
 	// Prepare device result aggregators for multi-IP devices
 	s.prepareDeviceAggregators(targets)
