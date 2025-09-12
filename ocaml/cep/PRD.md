@@ -1,7 +1,3 @@
-Below is a concise, engineering‑ready **PRD** for ServiceRadar’s **Stateful Rules & Correlation** capability, designed to integrate cleanly with **SRQL** and your existing **Zen → Proton → JetStream** pipeline, while leveraging **OCaml ADTs** for safety and maintainability.
-
----
-
 # Product Requirements Document (PRD)
 
 **Product**: ServiceRadar Stateful Rules & Correlation
@@ -399,7 +395,7 @@ end
 
 ## 17) Rollout plan & milestones
 
-**M1 — Foundations (2–3 weeks)**
+**M1 — Foundations**
 
 * OCaml runtime skeleton (STATE/TIMERS/SINK adapters).
 * JetStream consumer (via sidecar or direct) + KV watcher.
@@ -407,13 +403,13 @@ end
 * Implement 2 rules: “missing heartbeat” + “failed login burst (Proton)”.
 * UI: Catalog list, enable toggle, parameter form (static schema).
 
-**M2 — Usability (2–3 weeks)**
+**M2 — Usability**
 
 * Dry‑run & preview subject; rule validation; error surfaces.
 * More rules: interface flap, sequence (A→B→C unless D).
 * SRQL embedding (`USING PROTON`) in rules.
 
-**M3 — Authoring (4–6 weeks)**
+**M3 — Authoring**
 
 * SRQL **CREATE RULE** syntax end‑to‑end (parse → ADT → runtime).
 * Rule versioning + change log; canary flag.
@@ -465,16 +461,3 @@ end
   }
 }
 ```
-
----
-
-### What you’ll get from this plan
-
-* A **minimal, robust** correlator that augments Zen/Proton rather than replacing them.
-* A **user‑visible Rules** feature that’s actually safe and maintainable (ADTs + strong typing).
-* A **single language** story: SRQL for query predicates and, incrementally, for rule authoring.
-
-If you want, I can follow up with:
-
-* The **OCaml module signatures** and a **starter implementation** for `STATE`, `TIMERS`, `SINK`, and a single `Engine.eval_event` path;
-* The **SRQL grammar patch** for `CREATE RULE …` with a couple of unit tests mapping to the ADTs.
