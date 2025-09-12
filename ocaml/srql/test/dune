@@ -1,3 +1,7 @@
 (test
  (name test_translator)
  (libraries srql_translator alcotest))
+
+(executable
+ (name test_proton_integration)
+ (libraries srql_translator lwt lwt.unix))
