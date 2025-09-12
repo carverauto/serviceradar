@@ -1,0 +1,109 @@
+# Multi-stage build for ServiceRadar Zen service (Rust) - OPTIMIZED
+FROM rust:latest AS builder
+
+# Build from workspace root so workspace dependencies resolve
+WORKDIR /usr/src
+
+# Install dependencies for building
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set optimization flags and use all available cores
+ENV RUSTFLAGS="-C target-cpu=native -C opt-level=3"
+
+# Copy workspace manifests ONLY (for dependency caching)
+COPY Cargo.toml ./
+COPY Cargo.lock ./
+
+# Create minimal stub files to satisfy cargo build dependencies
+# This allows Docker to cache the dependency compilation layer
+RUN mkdir -p rust/kvutil/src cmd/flowgger/src cmd/trapd/src cmd/otel/src cmd/poller-ng/src cmd/consumers/zen/src cmd/consumers/zen/src/bin && \
+    echo "fn main() {}" > cmd/consumers/zen/src/main.rs && \
+    echo "fn main() {}" > cmd/consumers/zen/src/bin/put_rule.rs && \
+    touch rust/kvutil/src/lib.rs cmd/flowgger/src/lib.rs cmd/trapd/src/lib.rs cmd/otel/src/lib.rs cmd/poller-ng/src/lib.rs
+
+# Copy cargo manifests for individual packages
+COPY rust/kvutil/Cargo.toml ./rust/kvutil/
+COPY cmd/flowgger/Cargo.toml ./cmd/flowgger/
+COPY cmd/trapd/Cargo.toml ./cmd/trapd/
+COPY cmd/otel/Cargo.toml ./cmd/otel/
+COPY cmd/poller-ng/Cargo.toml ./cmd/poller-ng/
+COPY cmd/consumers/zen/Cargo.toml ./cmd/consumers/zen/
+
+# Build dependencies only (this layer will be cached)
+RUN cargo build -p serviceradar-zen --release && \
+    cargo build -p serviceradar-zen --release --bin zen-put-rule
+
+# Now copy the actual source code
+COPY rust/kvutil ./rust/kvutil
+COPY cmd/flowgger ./cmd/flowgger
+COPY cmd/trapd ./cmd/trapd
+COPY cmd/otel ./cmd/otel
+COPY cmd/poller-ng ./cmd/poller-ng
+COPY cmd/consumers/zen ./cmd/consumers/zen
+COPY cmd/otel/proto ./cmd/otel/proto
+COPY proto ./proto
+
+# Override build.rs if needed
+COPY docker/compose/build-zen-fixed.rs ./cmd/consumers/zen/build.rs
+
+# Build arguments for version info
+ARG VERSION=dev
+ARG BUILD_ID=docker
+
+# Clean previous builds and rebuild with actual source (dependencies are cached)
+RUN cargo clean -p serviceradar-zen && \
+    cargo build -p serviceradar-zen --release && \
+    cargo build -p serviceradar-zen --release --bin zen-put-rule
+
+# Runtime stage - using Ubuntu 24.04 for GLIBC 2.39 compatibility
+FROM ubuntu:24.04
+
+# Install runtime dependencies including grpcurl for health checks
+RUN apt-get update && \
+    apt-get install -y \
+        ca-certificates \
+        curl \
+        jq \
+        netcat-openbsd \
+        wget \
+        libssl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && arch=$(dpkg --print-architecture) \
+    && wget -qO- https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_${arch}.tar.gz \
+        | tar -xz -C /usr/local/bin grpcurl \
+    && chmod +x /usr/local/bin/grpcurl
+
+# Create non-root user (let system assign UID automatically)
+RUN useradd -m -s /bin/bash serviceradar
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
+    chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
+
+# Copy binaries from builder
+COPY --from=builder /usr/src/target/release/serviceradar-zen /usr/local/bin/serviceradar-zen
+COPY --from=builder /usr/src/target/release/zen-put-rule /usr/local/bin/zen-put-rule
+RUN chmod +x /usr/local/bin/serviceradar-zen /usr/local/bin/zen-put-rule
+
+# Copy rule data files
+COPY cmd/consumers/zen/data /var/lib/serviceradar/data
+
+# Copy entrypoint and rule installation scripts
+COPY docker/compose/entrypoint-zen.sh /usr/local/bin/entrypoint.sh
+COPY docker/compose/zen-install-rules.sh /usr/local/bin/zen-install-rules.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/zen-install-rules.sh
+
+# Switch to non-root user
+USER serviceradar
+
+# Set working directory
+WORKDIR /var/lib/serviceradar
+
+# Expose gRPC port
+EXPOSE 50040
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["serviceradar-zen"]
