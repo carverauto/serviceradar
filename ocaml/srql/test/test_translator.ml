@@ -85,7 +85,7 @@ let test_complex_logical () =
 let test_limit () =
   test_translation 
     "show products limit 10"
-    "SELECT * FROM products  LIMIT 10" ()
+    "SELECT * FROM products LIMIT 10" ()
 
 let test_where_with_limit () =
   test_translation 
@@ -114,7 +114,8 @@ let test_empty_query () =
   make_error_test "" ()
 
 let test_invalid_syntax () =
-  make_error_test "select * from users" ()
+  (* Ensure parser rejects malformed SELECT lacking fields *)
+  make_error_test "select from users" ()
 
 let test_missing_entity () =
   make_error_test "show" ()

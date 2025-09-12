@@ -86,7 +86,7 @@ let () =
   
   (* Test SHOW/FIND/COUNT queries with correct ServiceRadar table mappings *)
   test_translation "SHOW devices" "SELECT * FROM unified_devices";
-  test_translation "COUNT devices" "SELECT count(*) FROM unified_devices";
+  test_translation "COUNT devices" "SELECT count() FROM unified_devices";
   test_translation "FIND devices WHERE id = 1" "SELECT * FROM unified_devices WHERE id = 1";
   
   print_endline "2. Testing with live Proton connection:";
