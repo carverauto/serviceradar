@@ -1,0 +1,51 @@
+# Minimal build focusing only on zen consumer to avoid workspace issues
+FROM rust:latest AS builder
+
+WORKDIR /usr/src
+
+# Install dependencies for building  
+RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
+
+# Create a minimal workspace with only zen consumer
+RUN echo '[workspace]\nresolver = "2"\nmembers = ["cmd/consumers/zen"]\n\n[workspace.dependencies]\ntonic = { version = "0.12", features = ["tls"] }\nprost = "0.13"\ntonic-build = "0.12"\ntokio = { version = "1" }\ntokio-stream = "0.1"\ntonic-health = "0.12"\ntonic-reflection = "0.12"\n\n[profile.release]\nopt-level = 3\ndebug = false\nrpath = false\nlto = true\ndebug-assertions = false\npanic = "abort"' > Cargo.toml
+
+# Copy only the zen consumer source
+COPY cmd/consumers/zen ./cmd/consumers/zen
+COPY proto ./proto
+
+# Build the zen consumer directly without workspace complications
+WORKDIR /usr/src/cmd/consumers/zen
+RUN cargo build --release
+RUN cargo build --release --bin zen-put-rule
+
+# Runtime stage
+FROM ubuntu:24.04
+
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y ca-certificates curl jq netcat-openbsd wget libssl-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -s /bin/bash serviceradar
+
+# Create directories
+RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
+    chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
+
+# Copy binaries
+COPY --from=builder /usr/src/cmd/consumers/zen/target/release/serviceradar-zen /usr/local/bin/serviceradar-zen
+COPY --from=builder /usr/src/cmd/consumers/zen/target/release/zen-put-rule /usr/local/bin/zen-put-rule
+RUN chmod +x /usr/local/bin/serviceradar-zen /usr/local/bin/zen-put-rule
+
+# Copy data and scripts
+COPY cmd/consumers/zen/data /var/lib/serviceradar/data
+COPY docker/compose/entrypoint-zen.sh /usr/local/bin/entrypoint.sh
+COPY docker/compose/zen-install-rules.sh /usr/local/bin/zen-install-rules.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/zen-install-rules.sh
+
+USER serviceradar
+WORKDIR /var/lib/serviceradar
+EXPOSE 50040
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["serviceradar-zen"]

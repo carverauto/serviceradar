@@ -17,6 +17,9 @@ depends: [
   "yojson"
   "ppx_deriving" {>= "5.0"}
   "lwt_ppx"
+  "proton" {>= "1.0.14"}
+  "lwt"
+  "lwt_ssl"
   "alcotest" {with-test}
 ]
 
