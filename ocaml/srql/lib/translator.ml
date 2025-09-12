@@ -75,7 +75,7 @@ let translate_query (q : query) : string =
   | _ ->
       let select_clause = match q.q_type with
         | `Show | `Find -> "SELECT *"
-        | `Count -> "SELECT count(*)"
+        | `Count -> "SELECT count()"
         | `Select -> "SELECT *" (* fallback, though this case shouldn't happen *)
       in
       let from_clause = " FROM " ^ actual_table in
