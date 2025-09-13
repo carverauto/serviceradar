@@ -1,8 +1,9 @@
 (library
  (name srql_translator)
  (public_name srql-translator.lib)
- (preprocess (pps ppx_deriving.show lwt_ppx))
- (libraries yojson proton lwt lwt_ssl))
+ (preprocess
+  (pps ppx_deriving.show lwt_ppx))
+ (libraries yojson proton lwt))
 
 (ocamllex lexer)
 
