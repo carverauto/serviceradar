@@ -41,3 +41,8 @@
 (executable
  (name test_serviceradar_srql)
  (libraries srql_translator lwt lwt.unix))
+
+(executable
+ (name run_live_srql)
+ (public_name run_live_srql)
+ (libraries srql_translator lwt lwt.unix))

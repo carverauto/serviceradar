@@ -52,15 +52,16 @@ let test_with_proton_connection () =
         | sql ->
             Printf.printf "  📝 Translated to SQL: %s\n" sql;
             
-            (* Then test execution *)
-            let* () = 
-              try
-                let* _result = Srql_translator.Proton_client.SRQL.translate_and_execute client srql in
-                Printf.printf "  ✅ Executed successfully\n";
-                Lwt.return_unit
-              with e ->
-                Printf.printf "  ⚠️  Execution failed: %s\n" (Printexc.to_string e);
-                Lwt.return_unit
+            (* Then test execution with proper async exception handling *)
+            let* () =
+              Lwt.catch
+                (fun () ->
+                  let* _result = Srql_translator.Proton_client.SRQL.translate_and_execute client srql in
+                  Printf.printf "  ✅ Executed successfully\n";
+                  Lwt.return_unit)
+                (fun e ->
+                  Printf.printf "  ⚠️  Execution failed: %s\n" (Printexc.to_string e);
+                  Lwt.return_unit)
             in
             Printf.printf "\n";
             Lwt.return_unit
