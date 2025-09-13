@@ -14,6 +14,7 @@ let test_simple_queries () =
     verify_hostname = false;
     insecure_skip_verify = true;
     compression = None;
+    settings = [];
   } in
   
   Lwt_main.run (

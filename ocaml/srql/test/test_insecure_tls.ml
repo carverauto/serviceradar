@@ -17,6 +17,7 @@ let () =
     verify_hostname = false;  (* Skip hostname verification *)
     insecure_skip_verify = true;  (* Skip all certificate verification *)
     compression = None;
+    settings = [];
   } in
   
   print_endline "Attempting insecure TLS connection (skip cert verification)...";

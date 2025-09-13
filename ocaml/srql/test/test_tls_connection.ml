@@ -28,6 +28,7 @@ let test_tls_connection () =
     verify_hostname = false;  (* Since we're connecting to localhost but cert is for proton.serviceradar *)
     insecure_skip_verify = false;  (* We want to verify the cert with our CA *)
     compression = None;
+    settings = [];
   } in
   
   print_endline "Attempting TLS connection with mTLS certificates...";
@@ -106,6 +107,7 @@ let test_insecure_tls () =
     verify_hostname = false;
     insecure_skip_verify = true;  (* Skip all certificate verification *)
     compression = None;
+    settings = [];
   } in
   
   print_endline "Attempting insecure TLS connection...";
