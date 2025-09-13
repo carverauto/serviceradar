@@ -6,6 +6,9 @@ on:
       - 'ocaml/**'
       - '.github/workflows/ocaml-lint.yml'
 
+permissions:
+  contents: read
+
 concurrency:
   group: lint-${{ github.ref }}
   cancel-in-progress: true
