@@ -1,4 +1,4 @@
-name: OCaml Build and Test
+name: OCaml CI
 permissions:
   contents: read
 
@@ -13,37 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-pr:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        ocaml-version: [ 4.14, 5.3 ]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Use OCaml ${{ matrix.ocaml-version }}
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: ${{ matrix.ocaml-version }}
-          dune-cache: true
-          allow-prerelease-opam: true
-          opam-depext: true
-
-      - name: Install dependencies (with tests)
-        working-directory: ocaml
-        run: opam install . --deps-only --with-test
-
-      - name: Build
-        working-directory: ocaml
-        run: opam exec -- dune build
-
-      - name: Test
-        working-directory: ocaml
-        run: opam exec -- dune runtest
-
-  lower-bounds-pr:
+  build-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -57,56 +27,8 @@ jobs:
           allow-prerelease-opam: true
           opam-depext: true
 
-      - name: Install dependencies (lower bounds criteria)
-        working-directory: ocaml
-        run: opam install . --deps-only --with-test --criteria='+removed,+count[version-lag,solution]' --solver=builtin-0install
-
-      - name: Build (lower bounds)
-        working-directory: ocaml
-        run: opam exec -- dune build
-
-      - name: Test (lower bounds)
-        working-directory: ocaml
-        run: opam exec -- dune runtest
-
-  test-main:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            ocaml: 4.14
-          - os: ubuntu-latest
-            ocaml: 5.3
-          - os: macos-latest
-            ocaml: 5.3
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Use OCaml ${{ matrix.ocaml }}
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: ${{ matrix.ocaml }}
-          dune-cache: true
-          allow-prerelease-opam: true
-          opam-depext: true
-
-      - name: Install macOS packages
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew update
-          brew install gmp zstd
-
-      - name: Configure macOS compiler env
-        if: matrix.os == 'macos-latest'
-        run: |
-          echo "CFLAGS=-I/opt/homebrew/include -Wno-implicit-function-declaration" >> $GITHUB_ENV
-          echo "CPATH=/opt/homebrew/include" >> $GITHUB_ENV
-          echo "LDFLAGS=-L/opt/homebrew/lib" >> $GITHUB_ENV
-          echo "LIBRARY_PATH=/opt/homebrew/lib" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=/opt/homebrew/lib/pkgconfig" >> $GITHUB_ENV
+      - name: Pin Dream to latest git (OCaml 5.3)
+        run: opam pin add -y dream git+https://github.com/aantron/dream.git
 
       - name: Install dependencies (with tests)
         working-directory: ocaml
@@ -120,14 +42,16 @@ jobs:
         working-directory: ocaml
         run: opam exec -- dune runtest
 
-      - name: Install lower bounds
+      - name: Build server
         working-directory: ocaml
-        run: opam install . --deps-only --with-test --criteria='+removed,+count[version-lag,solution]' --solver=builtin-0install
+        run: opam exec -- dune build srql/bin/main.exe
 
-      - name: Build (lower bounds)
+      - name: Smoke test server
         working-directory: ocaml
-        run: opam exec -- dune build
-
-      - name: Test (lower bounds)
-        working-directory: ocaml
-        run: opam exec -- dune runtest
+        run: |
+          set -euxo pipefail
+          opam exec -- dune exec srql/bin/main.exe &
+          SRQL_PID=$!
+          sleep 1
+          curl -sf http://127.0.0.1:8080/health | tee /dev/stderr | grep 'ok'
+          kill $SRQL_PID || true

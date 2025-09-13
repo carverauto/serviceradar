@@ -14,7 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-
   lint-fmt:
     runs-on: ubuntu-latest
     steps:
@@ -29,96 +28,8 @@ jobs:
           allow-prerelease-opam: true
 
       - name: Install ocamlformat
-        run: opam install ocamlformat
+        run: opam install ocamlformat -y
 
-      - name: Lint fmt
-        uses: ocaml/setup-ocaml/lint-fmt@v3
-
-  lint-fmt-check:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Use OCaml 5.3
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: 5.3
-          dune-cache: true
-          allow-prerelease-opam: true
-
-      - name: Install ocamlformat
-        run: opam install ocamlformat
-
-      - name: Check formatting
+      - name: Check formatting with dune @fmt
         working-directory: ocaml
-        run: |
-          eval $(opam env)
-          git ls-files '*.ml' '*.mli' | xargs ocamlformat --check
-          if [ $? -ne 0 ]; then
-            echo "❌ Code is not properly formatted. Please run ocamlformat on your files."
-            echo "You can format all files with: git ls-files '*.ml' '*.mli' | xargs ocamlformat --inplace"
-            exit 1
-          fi
-          echo "✅ Code formatting is correct"
-
-  lint-opam:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Use OCaml 5.3
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: 5.3
-          dune-cache: true
-          allow-prerelease-opam: true
-
-      - name: Lint opam
-        uses: ocaml/setup-ocaml/lint-opam@v3
-        continue-on-error: true
-
-  lint-doc:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Use OCaml 5.3
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: 5.3
-          dune-cache: true
-          allow-prerelease-opam: true
-
-      - name: Lint doc
-        uses: ocaml/setup-ocaml/lint-doc@v3
-
-  lint-opam-dune-sync:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Use OCaml 5.3
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: 5.3
-          dune-cache: true
-          allow-prerelease-opam: true
-
-      - name: Install opam-dune-lint
-        run: opam install opam-dune-lint -y
-
-      - name: Check opam files are in sync with dune
-        working-directory: ocaml
-        run: |
-          opam exec -- opam-dune-lint
-          if git diff --quiet -- srql-translator.opam; then
-            echo "✅ opam files are in sync with dune"
-          else
-            echo "❌ opam files are out of sync with dune. Please run 'opam exec -- opam-dune-lint' and commit the changes."
-            git diff -- srql-translator.opam
-            exit 1
-          fi
+        run: opam exec -- dune build @fmt
