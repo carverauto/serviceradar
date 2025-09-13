@@ -14,6 +14,7 @@ module Config = struct
     verify_hostname : bool;
     insecure_skip_verify : bool;
     compression : Proton.Compress.method_t option;
+    settings : (string * string) list;
   }
 
   let default = {
@@ -29,6 +30,7 @@ module Config = struct
     verify_hostname = true;
     insecure_skip_verify = false;
     compression = Some Proton.Compress.LZ4;
+    settings = [];
   }
 
   let with_tls ?(ca_cert=None) ?(client_cert=None) ?(client_key=None) 
@@ -40,6 +42,7 @@ module Config = struct
       client_key;
       verify_hostname;
       insecure_skip_verify;
+      settings = config.settings;
     }
 
   let local_docker_tls = 
@@ -79,15 +82,30 @@ module Client = struct
       else None
     in
     
-    let client = Proton.Client.create 
-      ~host:config.Config.host
-      ~port:config.port
-      ~database:config.database
-      ~user:config.username
-      ~password:config.password
-      ?tls_config
-      ?compression:config.compression
-      ()
+    let client =
+      match config.compression with
+      | None ->
+          Proton.Client.create
+            ~host:config.Config.host
+            ~port:config.port
+            ~database:config.database
+            ~user:config.username
+            ~password:config.password
+            ~settings:config.settings
+            ?tls_config
+            ~compression:Proton.Compress.None
+            ()
+      | Some cmpr ->
+          Proton.Client.create
+            ~host:config.Config.host
+            ~port:config.port
+            ~database:config.database
+            ~user:config.username
+            ~password:config.password
+            ~settings:config.settings
+            ?tls_config
+            ~compression:cmpr
+            ()
     in
     
     (* Client is created and ready - no separate connect needed *)

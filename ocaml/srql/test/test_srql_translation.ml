@@ -30,6 +30,7 @@ let test_with_proton_connection () =
     verify_hostname = false;
     insecure_skip_verify = true;
     compression = None;
+    settings = [];
   } in
   
   Lwt_main.run (

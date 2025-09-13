@@ -18,12 +18,15 @@ let getenv_int name default =
   | None -> default
 
 let () =
-  (* Read SRQL from CLI or use default *)
+  (* Parse CLI flags; support --stream and SRQL as remaining args *)
+  let args = Array.to_list Sys.argv |> List.tl in
+  let streaming_cli = List.exists (fun a -> a = "--stream") args in
+  let _ = streaming_cli in
+  let srql_args = List.filter (fun a -> a <> "--stream") args in
   let srql =
-    if Array.length Sys.argv > 1 then
-      String.concat " " (Array.to_list (Array.sub Sys.argv 1 (Array.length Sys.argv - 1)))
-    else
-      "SHOW devices LIMIT 10"
+    match srql_args with
+    | [] -> "SHOW devices LIMIT 10"
+    | _ -> String.concat " " srql_args
   in
 
   Printf.printf "Live SRQL Runner\n";
@@ -60,24 +63,138 @@ let () =
     verify_hostname;
     insecure_skip_verify;
     compression;
+    settings = (if getenv_bool "SRQL_STREAMING" false then [ ("wait_end_of_query", "0") ] else []);
   } in
 
   Printf.printf "Connecting: host=%s port=%d tls=%b db=%s user=%s compression=%s\n\n"
     host port use_tls database username (match compression with None -> "none" | Some _ -> "lz4");
 
-  let http_mode = getenv_bool "PROTON_HTTP" false in
-
-  let run_native () =
-    Srql_translator.Proton_client.Client.with_connection config (fun client ->
-      let sql = Srql_translator.Proton_client.SRQL.translate_to_sql srql in
+  let run_native_once cfg =
+    let original_sql = Srql_translator.Proton_client.SRQL.translate_to_sql srql in
+      (* Boundedness control: SRQL_BOUNDED=bounded|unbounded|auto (default auto) *)
+      let bounded_mode = getenv "SRQL_BOUNDED" "auto" |> String.lowercase_ascii in
+      let contains s sub =
+        let len_s = String.length s and len_sub = String.length sub in
+        let rec loop i = if i + len_sub > len_s then false else if String.sub s i len_sub = sub then true else loop (i+1) in
+        loop 0
+      in
+      let wrap_table_if_needed sql =
+        let lsql = String.lowercase_ascii sql in
+        let has_limit = contains lsql " limit " in
+        let has_table = contains lsql " from table(" in
+        let should_wrap =
+          match bounded_mode with
+          | "bounded" | "1" -> true
+          | "unbounded" | "0" -> false
+          | _ (* auto *) -> has_limit && not has_table
+        in
+        if not should_wrap || has_table then sql
+        else (
+          (* Find FROM and extract table identifier, wrap with table(...) *)
+          try
+            let lfrom = " from " in
+            let idx_from =
+              let rec find_from i =
+                if i >= String.length lsql then raise Not_found
+                else if String.sub lsql i (String.length lfrom) = lfrom then i
+                else find_from (i+1)
+              in find_from 0
+            in
+            let start_tbl = idx_from + String.length lfrom in
+            let rec skip_spaces j = if j < String.length lsql && lsql.[j] = ' ' then skip_spaces (j+1) else j in
+            let tbl_start = skip_spaces start_tbl in
+            let keywords = [" where "; " limit "; " group "; " order "; " settings "; " union "] in
+            let next_kw_pos =
+              List.filter_map (fun kw ->
+                let rec find i =
+                  if i >= String.length lsql then None
+                  else if String.sub lsql i (String.length kw) = kw then Some i
+                  else find (i+1)
+                in find tbl_start
+              ) keywords |> List.sort compare |> (function | x::_ -> x | [] -> String.length lsql)
+            in
+            let tbl_end = next_kw_pos in
+            let before = String.sub sql 0 tbl_start in
+            let tbl = String.sub sql tbl_start (tbl_end - tbl_start) |> String.trim in
+            let after = String.sub sql tbl_end (String.length sql - tbl_end) in
+            before ^ "table(" ^ tbl ^ ")" ^ after
+          with _ -> sql
+        )
+      in
+      let sql = wrap_table_if_needed original_sql in
+      let contains s sub =
+        let len_s = String.length s and len_sub = String.length sub in
+        let rec loop i = if i + len_sub > len_s then false else if String.sub s i len_sub = sub then true else loop (i+1) in
+        loop 0
+      in
+      let lsql = String.lowercase_ascii sql in
+      let has_from = contains lsql " from " in
+      let has_table_wrapper = contains lsql " from table(" in
+      let has_limit = contains lsql " limit " in
+      let is_unbounded = has_from && (not has_table_wrapper) && (not has_limit) in
       Printf.printf "SQL:  %s\n\n" sql;
+      Srql_translator.Proton_client.Client.with_connection cfg (fun client ->
 
-      let* result = Srql_translator.Proton_client.SRQL.translate_and_execute client srql in
-      (match result with
-       | Proton.Client.NoRows ->
-           Printf.printf "No rows returned.\n";
-           Lwt.return_unit
-       | Proton.Client.Rows (rows, columns) ->
+      let power10 p =
+        let rec loop acc i = if i = 0 then acc else loop (Int64.mul acc 10L) (i-1) in
+        loop 1L p
+      in
+      let pad_left s width =
+        let len = String.length s in
+        if len >= width then s else String.make (width - len) '0' ^ s
+      in
+      let iso8601_of_datetime ts tz_opt =
+        let tm = Unix.gmtime (Int64.to_float ts) in
+        let y = tm.Unix.tm_year + 1900 and mo = tm.Unix.tm_mon + 1 and d = tm.Unix.tm_mday in
+        let hh = tm.Unix.tm_hour and mm = tm.Unix.tm_min and ss = tm.Unix.tm_sec in
+        let base = Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" y mo d hh mm ss in
+        match tz_opt with Some tz when String.lowercase_ascii tz = "utc" -> base ^ "Z" | _ -> base
+      in
+      let iso8601_of_datetime64 v precision tz_opt =
+        let denom = power10 precision in
+        let secs = Int64.div v denom in
+        let frac = Int64.to_int (Int64.rem v denom) in
+        let base = iso8601_of_datetime secs tz_opt in
+        if precision > 0 then
+          base ^ "." ^ pad_left (string_of_int frac) precision ^ (match tz_opt with Some tz when String.lowercase_ascii tz = "utc" -> "" | _ -> "")
+        else base
+      in
+      let pretty_value typ v =
+        let lt = String.lowercase_ascii (String.trim typ) in
+        match (lt, v) with
+        | ("bool", Proton.Column.UInt32 i) -> if Int32.to_int i = 0 then "false" else "true"
+        | ("bool", Proton.Column.Int32 i) -> if Int32.to_int i = 0 then "false" else "true"
+        | (lt, Proton.Column.DateTime (ts, tz)) when String.length lt >= 8 && String.sub lt 0 8 = "datetime" ->
+            iso8601_of_datetime ts tz
+        | (lt, Proton.Column.DateTime64 (v, p, tz)) when String.length lt >= 10 && String.sub lt 0 10 = "datetime64" ->
+            iso8601_of_datetime64 v p tz
+        | (_, other) -> Proton.Column.value_to_string other
+      in
+
+      if is_unbounded then (
+        Printf.printf "Unbounded query detected; streaming via native protocol...\n";
+        let printed_header = ref false in
+        let* _cols =
+          Proton.Client.query_iter_with_columns client sql ~f:(fun row columns ->
+            if not !printed_header then (
+              let col_count = List.length columns in
+              Printf.printf "Columns (%d): " col_count;
+              List.iter (fun (name, typ) -> Printf.printf "%s:%s " name typ) columns;
+              Printf.printf "\n";
+              printed_header := true);
+            let values = List.map2 (fun (_, typ) v -> pretty_value typ v) columns row in
+            Printf.printf "%s\n" (String.concat " | " values);
+            flush stdout;
+            Lwt.return_unit)
+        in
+        Lwt.return_unit
+      ) else (
+        let* result = Srql_translator.Proton_client.Client.execute client sql in
+        match result with
+        | Proton.Client.NoRows ->
+            Printf.printf "No rows returned.\n";
+            Lwt.return_unit
+        | Proton.Client.Rows (rows, columns) ->
            let power10 p =
              let rec loop acc i = if i = 0 then acc else loop (Int64.mul acc 10L) (i-1) in
              loop 1L p
@@ -129,93 +246,45 @@ let () =
            ) to_show;
            if row_count > max_show then
              Printf.printf "... and %d more\n" (row_count - max_show);
-           Lwt.return_unit)
+            Lwt.return_unit)
     )
   in
 
-  let url_encode s =
-    let buf = Buffer.create (String.length s * 2) in
-    String.iter (fun c ->
-      let code = Char.code c in
-      let is_unreserved =
-        (code >= 48 && code <= 57) || (* 0-9 *)
-        (code >= 65 && code <= 90) || (* A-Z *)
-        (code >= 97 && code <= 122) || (* a-z *)
-        c = '-' || c = '_' || c = '.' || c = '~'
-      in
-      if is_unreserved then Buffer.add_char buf c
-      else if c = ' ' then Buffer.add_string buf "%20"
-      else Buffer.add_string buf (Printf.sprintf "%%%02X" code)
-    ) s;
-    Buffer.contents buf
-  in
-
-  let run_http () =
-    let http_port = getenv_int "PROTON_HTTP_PORT" 8123 in
-    let sql = Srql_translator.Proton_client.SRQL.translate_to_sql srql in
-    Printf.printf "SQL:  %s\n\n" sql;
-
-    let query = url_encode sql in
-    let user_q = url_encode username in
-    let pass_q = url_encode password in
-    let format_q = url_encode "TabSeparatedWithNamesAndTypes" in
-    let path = Printf.sprintf 
-      "/?user=%s&password=%s&default_format=%s&output_format_write_statistics=0&query=%s"
-      user_q pass_q format_q query in
-
-    let addr = Unix.inet_addr_of_string "127.0.0.1" in
-    let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-    let () = Unix.connect sock (Unix.ADDR_INET (addr, http_port)) in
-    let req = Printf.sprintf "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n" path host in
-    ignore (Unix.write_substring sock req 0 (String.length req));
-
-    let buf = Bytes.create 4096 in
-    let response = Buffer.create 16384 in
-    let rec read_all () =
-      match Unix.read sock buf 0 (Bytes.length buf) with
-      | 0 -> ()
-      | n -> Buffer.add_subbytes response buf 0 n; read_all ()
+  let run_native () =
+    let try_no_compression =
+      match compression with
+      | None -> false
+      | Some _ -> true
     in
-    read_all ();
-    Unix.close sock;
+    let cfg_no_compress = if try_no_compression then { config with compression = None } else config in
+    let try_non_tls = config.use_tls in
+    let cfg_non_tls = if try_non_tls then { config with use_tls = false; port = (getenv_int "PROTON_PORT_PLAIN" 8463) } else config in
 
-    let resp = Buffer.contents response in
-    let header_end = try String.index_from resp 0 '\n' with Not_found -> 0 in
-    let status_line = if header_end > 0 then String.sub resp 0 (header_end - 1) else "" in
-    Printf.printf "HTTP: %s\n" status_line;
-    let body =
-      match String.index_opt resp '\n' with
-      | None -> resp
-      | Some _ ->
-          (* crude split on first blank line between headers and body *)
-          (match String.split_on_char '\n' resp with
-           | lines ->
-               let rec drop_headers = function
-                 | [] -> []
-                 | l :: tl -> if String.trim l = "" then tl else drop_headers tl
-               in
-               String.concat "\n" (drop_headers lines))
+    let rec try_steps = function
+      | [] -> Lwt.fail_with "All native attempts failed"
+      | (label, cfg) :: rest ->
+          (if label <> "initial" then Printf.printf "%s...\n" label);
+          Lwt.catch
+            (fun () -> run_native_once cfg)
+            (fun e ->
+              Printf.printf "Attempt failed: %s\n" (Printexc.to_string e);
+              try_steps rest)
     in
-    (* Print first ~10 lines of the body *)
-    let lines = String.split_on_char '\n' body in
-    let rec print_first n = function
-      | _ when n <= 0 -> ()
-      | [] -> ()
-      | l :: tl -> Printf.printf "%s\n" l; print_first (n-1) tl
+    let steps =
+      let base = [ ("initial", config) ] in
+      let base = if try_no_compression then base @ [ ("Retrying native without compression", cfg_no_compress) ] else base in
+      let base = if try_non_tls then base @ [ (Printf.sprintf "Retrying native without TLS on port %d" cfg_non_tls.port, cfg_non_tls) ] else base in
+      base
     in
-    print_endline "Rows (first 10):";
-    print_first 10 lines;
-    Lwt.return_unit
+    try_steps steps
   in
 
   let run () =
-    if http_mode then run_http ()
-    else Lwt.catch
+    Lwt.catch
       (fun () -> run_native ())
       (fun e ->
-        Printf.printf "Native protocol failed: %s\nFalling back to HTTP on port %d...\n\n"
-          (Printexc.to_string e) (getenv_int "PROTON_HTTP_PORT" 8123);
-        run_http ())
+        Printf.printf "Native protocol failed: %s\n" (Printexc.to_string e);
+        Lwt.fail e)
   in
 
   match Lwt.catch run (fun e -> Printf.printf "Error: %s\n" (Printexc.to_string e); Lwt.return_unit) |> Lwt_main.run with

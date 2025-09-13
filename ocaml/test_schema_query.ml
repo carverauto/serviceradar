@@ -14,6 +14,7 @@ let test_schema_query () =
     verify_hostname = false;
     insecure_skip_verify = true;
     compression = None;
+    settings = [];
   } in
   
   Lwt_main.run (

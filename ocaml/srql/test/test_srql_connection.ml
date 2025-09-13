@@ -17,6 +17,7 @@ let test_tls_connection () =
     verify_hostname = false;  (* For localhost testing *)
     insecure_skip_verify = true;  (* For development/self-signed certs *)
     compression = None;
+    settings = [];
   } in
   
   print_endline "Attempting TLS connection to Proton on port 9440...";
@@ -48,6 +49,7 @@ let test_non_tls_connection () =
     verify_hostname = false;
     insecure_skip_verify = false;
     compression = Some Proton.Compress.LZ4;  (* Try with compression *)
+    settings = [];
   } in
   
   print_endline "Attempting non-TLS connection to Proton on port 8463...";
@@ -90,6 +92,7 @@ let run_test () =
     verify_hostname = false;
     insecure_skip_verify = false;
     compression = None;
+    settings = [];
   } in
   
   print_endline "1. Testing connection to Proton...";
