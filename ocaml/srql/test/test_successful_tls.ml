@@ -18,6 +18,7 @@ let () =
     verify_hostname = false;  (* Skip hostname verification for localhost *)
     insecure_skip_verify = true;  (* Skip cert verification for development *)
     compression = None;
+    settings = [];
   } in
   
   print_endline "🔐 Connecting to Proton via TLS on port 9440...";

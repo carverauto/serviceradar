@@ -14,6 +14,7 @@ module Config : sig
     verify_hostname : bool;
     insecure_skip_verify : bool;
     compression : Proton.Compress.method_t option;
+    settings : (string * string) list;
   }
 
   val default : t
