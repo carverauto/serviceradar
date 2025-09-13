@@ -5,7 +5,7 @@ let () =
   
   let test_connection port use_tls desc =
     Printf.printf "Testing %s on port %d...\n" desc port;
-    let config = Srql_translator.Proton_client.Config.{
+  let config = Srql_translator.Proton_client.Config.{
       host = "localhost";
       port = port;
       database = "default";
@@ -17,8 +17,9 @@ let () =
       client_key = None;
       verify_hostname = false;
       insecure_skip_verify = true;  (* For dev/self-signed certs *)
-      compression = None;
-    } in
+    compression = None;
+    settings = [];
+  } in
     
     Srql_translator.Proton_client.Client.with_connection config (fun client ->
       let* is_alive = Srql_translator.Proton_client.Client.ping client in
