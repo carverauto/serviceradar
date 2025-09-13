@@ -1,0 +1,4 @@
+(executable
+ (public_name test_srql_simple)
+ (name test_srql_simple)
+ (libraries lwt lwt.unix srql_translator proton))
