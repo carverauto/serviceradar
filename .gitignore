@@ -217,3 +217,4 @@ docker/compose/certs/
 
 # ocaml
 _build
+dune-workspace
