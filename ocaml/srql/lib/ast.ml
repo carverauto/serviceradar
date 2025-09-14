@@ -25,7 +25,7 @@ type condition =
 type order_dir = Asc | Desc [@@deriving show]
 
 type query = {
-  q_type : [ `Show | `Find | `Count | `Select | `Stream ];
+  q_type : [ `Select | `Stream ];
   entity : string;
   conditions : condition option;
   limit : int option;

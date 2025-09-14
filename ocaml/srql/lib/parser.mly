@@ -11,7 +11,7 @@
 %token TODAY YESTERDAY
 
 /* Keywords and operators */
-%token SHOW FIND COUNT SELECT FROM WHERE AND OR LIMIT AS IN LIKE
+%token SELECT FROM WHERE AND OR LIMIT AS IN LIKE
 %token ORDER BY ASC DESC
 %token EQ NEQ GT GTE LT LTE CONTAINS ARRAY_CONTAINS
 %token BETWEEN IS NULL NOT
@@ -31,14 +31,9 @@
 
 /* Grammar rules */
 query:
-  | q = simple_query; EOF { q }
   | s = select_query; EOF { s }
   | st = stream_query; EOF { st }
 ;
-
-simple_query:
-  | qt = query_type; latest = opt_latest; entity = IDENT; conds = option(conditions); ord = option(order_clause); grp = option(group_clause); hav = option(having_clause); lim = option(limit_clause)
-    { { q_type = qt; entity; conditions = conds; limit = lim; select_fields = None; order_by = ord; group_by = grp; having = hav; latest = latest } }
 
 select_query:
   | SELECT; fields = select_fields; from_clause = option(from_clause); conds = option(conditions); ord = option(order_clause); grp = option(group_clause); hav = option(having_clause); lim = option(limit_clause)
@@ -47,12 +42,6 @@ select_query:
 stream_query:
   | STREAM; fields = select_fields; FROM; entity = IDENT; conds = option(conditions); grp = option(group_clause); hav = option(having_clause); ord = option(order_clause)
     { { q_type = `Stream; entity; conditions = conds; limit = None; select_fields = Some fields; order_by = ord; group_by = grp; having = hav; latest = false } }
-
-query_type:
-  | SHOW { `Show }
-  | FIND { `Find }
-  | COUNT { `Count }
-;
 
 opt_latest:
   | LATEST { true }

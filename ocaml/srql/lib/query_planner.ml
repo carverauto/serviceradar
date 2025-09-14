@@ -105,8 +105,13 @@ let plan_to_srql (q:query_spec) : Ast.query option =
       let map_key k =
         let kl = String.lowercase_ascii k in
         match String.lowercase_ascii ent, kl with
-        | "logs", "service" -> "service" (* translator maps to service_name *)
-        | "devices", ("ip" | "hostname" | "mac" | "site" | "name") -> kl
+        | "logs", ("service" | "service.name") -> "service"
+        | "logs", ("endpoint.hostname") -> "endpoint_hostname"
+        | "devices", ("ip" | "hostname" | "mac" | "site" | "name" | "device_name" | "ip_address" | "mac_address" | "uid") -> kl
+        | "devices", ("device.ip") -> "ip"
+        | "devices", ("device.mac") -> "mac"
+        | "devices", ("device.os.name") -> "device_os_name"
+        | "devices", ("device.os.version") -> "device_os_version"
         | "connections", ("src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol") -> kl
         | "flows", ("src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol" | "bytes" | "packets") -> kl
         | _ -> kl
