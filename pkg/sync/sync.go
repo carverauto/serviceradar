@@ -37,9 +37,6 @@ const (
 	integrationTypeArmis  = "armis"
 	integrationTypeNetbox = "netbox"
 
-	// Default ServiceRadar endpoint
-	defaultServiceRadarEndpoint = "http://localhost:8080"
-
 	// String constants
 	trueString = "true"
 )
@@ -230,7 +227,7 @@ func NewArmisIntegration(
 	// No default sweep config - the agent's file config is authoritative
 	// The sync service should only provide network updates
 
-    // SRQL-based SweepResultsQuerier removed; leave nil until external SRQL available
+	// SRQL-based SweepResultsQuerier removed; leave nil until external SRQL available
 
 	// Wrap the token provider with caching to avoid 401 errors
 	cachedTokenProvider := armis.NewCachedTokenProvider(defaultImpl)
@@ -263,7 +260,7 @@ func NewArmisIntegration(
 		DeviceFetcher: defaultImpl,
 		KVWriter:      kvWriter,
 		SweeperConfig: nil, // No default config - agent's file config is authoritative
-        SweepQuerier:  nil,
+		SweepQuerier:  nil,
 		Updater:       armisUpdater,
 		Logger:        log,
 	}
@@ -278,7 +275,7 @@ func NewNetboxIntegration(
 	serverName string,
 	log logger.Logger,
 ) *netbox.NetboxIntegration {
-    // SRQL-based Querier removed; leave nil until external SRQL available
+	// SRQL-based Querier removed; leave nil until external SRQL available
 
 	return &netbox.NetboxIntegration{
 		Config:        config,
@@ -286,7 +283,7 @@ func NewNetboxIntegration(
 		GrpcConn:      grpcConn,
 		ServerName:    serverName,
 		ExpandSubnets: false, // Default: treat as /32
-        Querier:       nil,
+		Querier:       nil,
 		Logger:        log,
 	}
 }
