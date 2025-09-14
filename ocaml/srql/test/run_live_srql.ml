@@ -23,10 +23,11 @@ let is_raw_sql s =
   starts_with "select " || starts_with "show " || starts_with "with " || starts_with "describe " || starts_with "explain "
 
 let () =
-  (* Parse CLI flags; support --stream and query as remaining args *)
+  (* Parse CLI flags; support --stream, --translate-only and query as remaining args *)
   let args = Array.to_list Sys.argv |> List.tl in
-  let _streaming_cli = List.exists (fun a -> a = "--stream") args in
-  let query_args = List.filter (fun a -> a <> "--stream") args in
+  let streaming_cli = List.exists (fun a -> a = "--stream") args in
+  let translate_only = List.exists (fun a -> a = "--translate-only") args in
+  let query_args = args |> List.filter (fun a -> a <> "--stream" && a <> "--translate-only") in
   let query =
     match query_args with
     | [] -> "in:devices limit:10"
@@ -36,6 +37,7 @@ let () =
   Printf.printf "Live SRQL Runner (ASQ-aligned)\n";
   Printf.printf "=================================\n\n";
   Printf.printf "Query: %s\n" query;
+  if translate_only then Printf.printf "(translate-only)\n";
 
   (* Build config from environment *)
   let host = getenv "PROTON_HOST" "localhost" in
@@ -54,6 +56,12 @@ let () =
     | _ -> Some Proton.Compress.LZ4
   in
 
+  let max_exec_time = getenv "SRQL_MAX_EXEC_TIME" "" |> String.trim in
+  let settings =
+    (* Enable Proton streaming behavior automatically when --stream is used, or via env override *)
+    let base = if streaming_cli || getenv_bool "SRQL_STREAMING" false then [ ("wait_end_of_query", "0") ] else [] in
+    if max_exec_time <> "" then ("max_execution_time", max_exec_time) :: base else base
+  in
   let config = Srql_translator.Proton_client.Config.{
     host;
     port;
@@ -67,7 +75,7 @@ let () =
     verify_hostname;
     insecure_skip_verify;
     compression;
-    settings = (if getenv_bool "SRQL_STREAMING" false then [ ("wait_end_of_query", "0") ] else []);
+    settings = settings;
   } in
 
   Printf.printf "Connecting: host=%s port=%d tls=%b db=%s user=%s compression=%s\n\n"
@@ -84,17 +92,54 @@ let () =
         let rec loop i = if i + len_sub > len_s then false else if String.sub s i len_sub = sub then true else loop (i+1) in
         loop 0
       in
-      let wrap_table_if_needed sql =
+      let wrap_table_if_needed ~stream sql =
         let lsql = String.lowercase_ascii sql in
-        let has_limit = contains lsql " limit " in
         let has_table = contains lsql " from table(" in
-        let should_wrap =
-          match bounded_mode with
-          | "bounded" | "1" -> true
-          | "unbounded" | "0" -> false
-          | _ (* auto *) -> has_limit && not has_table
-        in
-        if not should_wrap || has_table then sql
+        (* Policy: only stream when explicitly asked. Otherwise snapshot-wrap. *)
+        let snapshot_requested = (not stream) && (match bounded_mode with "unbounded" | "0" -> false | _ -> true) in
+        if stream then (
+          (* Unwrap table(...) and strip LIMIT for unbounded streaming *)
+          let sql' =
+            if has_table then (
+              try
+                let lfrom_tbl = " from table(" in
+                let idx =
+                  let rec find_from i =
+                    if i >= String.length lsql then raise Not_found
+                    else if String.sub lsql i (String.length lfrom_tbl) = lfrom_tbl then i
+                    else find_from (i+1)
+                  in find_from 0
+                in
+                let start_tbl = idx + String.length lfrom_tbl in
+                (* find closing ")" of table( ... ) *)
+                let rec find_close j depth =
+                  if j >= String.length lsql then String.length lsql
+                  else let c = lsql.[j] in
+                    if c = '(' then find_close (j+1) (depth+1)
+                    else if c = ')' then if depth = 0 then j else find_close (j+1) (depth-1)
+                    else find_close (j+1) depth
+                in
+                let end_tbl = find_close start_tbl 0 in
+                let before = String.sub sql 0 idx in
+                let tbl = String.sub sql start_tbl (end_tbl - start_tbl) in
+                let after = String.sub sql (end_tbl+1) (String.length sql - end_tbl - 1) in
+                before ^ " from " ^ tbl ^ after
+              with _ -> sql
+            ) else sql
+          in
+          (* strip LIMIT if present at top-level *)
+          let lsql2 = String.lowercase_ascii sql' in
+          let idx_limit =
+            let key = " limit " in
+            let rec find i =
+              if i + String.length key > String.length lsql2 then None
+              else if String.sub lsql2 i (String.length key) = key then Some i else find (i+1)
+            in find 0
+          in
+          match idx_limit with
+          | None -> sql'
+          | Some i -> String.sub sql' 0 i
+        ) else if (not snapshot_requested) || has_table then sql
         else (
           (* Find FROM and extract table identifier, wrap with table(...) *)
           try
@@ -127,20 +172,9 @@ let () =
           with _ -> sql
         )
       in
-      let sql = wrap_table_if_needed original_sql in
-      let contains s sub =
-        let len_s = String.length s and len_sub = String.length sub in
-        let rec loop i = if i + len_sub > len_s then false else if String.sub s i len_sub = sub then true else loop (i+1) in
-        loop 0
-      in
-      let lsql = String.lowercase_ascii sql in
-      let has_from = contains lsql " from " in
-      let has_table_wrapper = contains lsql " from table(" in
-      let has_limit = contains lsql " limit " in
-      let has_group_by = contains lsql " group by " in
-      let is_simple_count = (contains lsql "select count()") || (contains lsql "select count(*)") in
-      let is_scalar_aggregate = is_simple_count && (not has_group_by) in
-      let is_unbounded = has_from && (not has_table_wrapper) && (not has_limit) && (not is_scalar_aggregate) in
+      let sql = wrap_table_if_needed ~stream:streaming_cli original_sql in
+      if translate_only then (Printf.printf "SQL: %s\n" sql; exit 0);
+      (* print SQL and run *)
       Printf.printf "SQL:  %s\n\n" sql;
       Srql_translator.Proton_client.Client.with_connection cfg (fun client ->
 
@@ -180,7 +214,7 @@ let () =
         | (_, other) -> Proton.Column.value_to_string other
       in
 
-      if is_unbounded then (
+      if streaming_cli then (
         Printf.printf "Unbounded query detected; streaming via native protocol...\n";
         let printed_header = ref false in
         let* _cols =
@@ -248,4 +282,3 @@ let () =
       )
   in
   Lwt_main.run (run_native_once config)
-
