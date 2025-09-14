@@ -1,6 +1,12 @@
 open Query_ast
 open Sql_ir
 
+(* Optional default time window, configurable by server/header/env. *)
+let default_time_ref : string option ref = ref None
+
+let set_default_time (v:string option) =
+  default_time_ref := v
+
 let and_opt a b = match (a,b) with | (None, x) -> x | (x, None) -> x | (Some l, Some r) -> Some (And (l, r))
 
 let normalize_agg (a:string) : string =
@@ -131,6 +137,17 @@ let plan_to_srql (q:query_spec) : Sql_ir.query option =
         | "connections", ("src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol") -> kl
         | "flows", ("src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol" | "bytes" | "packets") -> kl
         | _ -> kl
+      in
+      (* maybe inject default time window if none provided *)
+      let q =
+        let has_time = List.exists (function | TimeFilter _ -> true | _ -> false) q.filters in
+        if has_time then q else (
+          let from_env = Sys.getenv_opt "SRQL_DEFAULT_TIME" in
+          let chosen = match !default_time_ref with Some s -> Some s | None -> from_env in
+          match chosen with
+          | Some s when String.trim s <> "" -> { q with filters = q.filters @ [ TimeFilter s ] }
+          | _ -> q
+        )
       in
       (* build combined conditions using condition_of_filter and key mapping *)
       let attr_conds =

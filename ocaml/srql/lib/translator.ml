@@ -233,7 +233,7 @@ let translate_query (q : query) : string =
       if actual_table = "" then
         select_clause  (* Handle SELECT without FROM clause *)
       else
-        let from_clause = " FROM " ^ actual_table in
+        let from_clause = " FROM table(" ^ actual_table ^ ")" in
         let where_clause =
           let cond_sql = match conditions with
             | Some conds -> Some (translate_condition ~entity:q.entity conds)
@@ -274,5 +274,6 @@ let translate_query (q : query) : string =
           | None -> ""
         in
         select_clause ^ from_clause ^ where_clause ^ group_clause ^ having_clause ^ order_clause ^ limit_clause
+  
 
 (* Legacy SRQL parsing has been removed from the library build. *)

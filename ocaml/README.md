@@ -67,7 +67,7 @@ curl -X POST http://localhost:8080/translate \
 # Response:
 # {"sql": "SELECT * FROM unified_devices WHERE to_date(last_seen) = today() AND hostname = 'server'", "hint": "auto"}
 
-You can optionally provide a boundedness hint to guide execution mode downstream:
+You can optionally provide a boundedness hint to guide execution mode downstream and to the execution API:
 
 ```bash
 curl -X POST http://localhost:8080/translate \
@@ -81,6 +81,74 @@ curl -X POST http://localhost:8080/translate \
 Supported hint fields:
 - `bounded_mode`: one of `bounded`, `unbounded`, or `auto` (preferred)
 - `bounded`: boolean (legacy/alternative), maps to `bounded`/`unbounded`
+
+### Execution API: Streaming vs Snapshot
+
+The `/api/query` endpoint supports both streaming (unbounded) and snapshot (bounded) execution. The UI can signal the intent via an HTTP header or JSON fields. The backend will default to snapshot unless explicitly asked to stream.
+
+- Header: `X-SRQL-Mode: stream | snapshot | auto`
+- Body (fallbacks if header not provided):
+  - `mode`: `"stream" | "snapshot" | "auto"`
+  - `bounded_mode`: `"unbounded" | "bounded" | "auto"`
+  - `bounded`: `true | false` (maps to `bounded`/`unbounded`)
+
+Examples:
+
+```bash
+# Snapshot (bounded) request
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -H "X-SRQL-Mode: snapshot" \
+  -d '{"query": "in:devices hostname:server time:today", "limit": 50}'
+
+# Streaming (unbounded) request via header
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -H "X-SRQL-Mode: stream" \
+  -d '{"query": "in:logs service:myapp"}'
+
+# Alternatively, signal via body (no header)
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "in:logs service:myapp", "mode": "stream"}'
+
+# Legacy-style body fields also work
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "in:devices discovery_sources:(sweep)", "bounded_mode": "bounded"}'
+```
+
+Notes:
+- Snapshot requests will wrap the SQL `FROM <table>` as `FROM table(<table>)` for Proton snapshot semantics.
+- Streaming requests omit the `table(...)` wrapper and may run until canceled. UI should prefer a streaming transport (SSE/WebSocket) for long-lived queries.
+- `auto` currently behaves like snapshot unless enhanced detection is implemented.
+
+### WebSocket Streaming
+
+For unbounded queries, use the WebSocket endpoint to receive incremental rows:
+
+- Endpoint: `GET ws://localhost:8080/api/stream?query=<SRQL>`
+- Messages are JSON objects with `type` of `columns`, `data`, `complete`, or `error`.
+
+Example (JavaScript):
+
+```js
+const ws = new WebSocket("ws://localhost:8080/api/stream?query=" + encodeURIComponent("in:logs service:myapp"));
+ws.onmessage = (ev) => {
+  const msg = JSON.parse(ev.data);
+  if (msg.type === "columns") {
+    console.log("columns", msg.columns);
+  } else if (msg.type === "data") {
+    console.log("row", msg.data);
+  } else if (msg.type === "complete") {
+    console.log("stream complete");
+  } else if (msg.type === "error") {
+    console.error("stream error", msg.error);
+  }
+};
+```
+
+Auth and CORS/Origin checks are not enabled in the OCaml server yet; see Go `pkg/core/api/stream.go` and `auth.go` for reference if you need parity.
 ```
 
 ### Command Line Interface
