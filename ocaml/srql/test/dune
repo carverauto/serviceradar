@@ -3,6 +3,10 @@
  (libraries srql_translator alcotest))
 
 (test
+ (name test_query_engine)
+ (libraries srql_translator alcotest))
+
+(test
  (name test_json_conv)
  (libraries srql_translator alcotest yojson))
 

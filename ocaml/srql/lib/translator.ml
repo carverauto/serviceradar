@@ -20,11 +20,32 @@ let map_field_name ~entity (field:string) : string =
   in
   let apply_entity_mapping f =
     match entity_lc with
+    | "devices" -> (match f with
+        | "name" | "host" | "device_name" -> "hostname"
+        | "ip_address" -> "ip"
+        | "mac_address" -> "mac"
+        | "os.name" -> "device_os_name"
+        | "os.version" -> "device_os_version"
+        | _ when String.contains f '.' ->
+            let lf = lc f in
+            if String.length lf > 3 && String.sub lf 0 3 = "os." then "device_os_" ^ (String.sub lf 3 (String.length lf - 3))
+            else if String.length lf > 12 && String.sub lf 0 12 = "observables." then "observables_" ^ (String.sub lf 12 (String.length lf - 12))
+            else f
+        | _ -> f)
     | "logs" -> (match f with
         | "severity" | "level" -> "severity_text"
         | "service" -> "service_name"
         | "trace" -> "trace_id"
         | "span" -> "span_id"
+        | _ -> f)
+    | "flows" | "connections" -> (match f with
+        | "src" -> "src_ip"
+        | "dst" -> "dst_ip"
+        | "sport" -> "src_port"
+        | "dport" -> "dst_port"
+        | _ when String.contains f '.' -> String.map (fun c -> if c = '.' then '_' else c) f
+        | "src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol"
+        | "bytes" | "bytes_in" | "bytes_out" | "packets" | "packets_in" | "packets_out" | "direction" -> f
         | _ -> f)
     | "otel_traces" -> (match f with
         | "trace" -> "trace_id" | "span" -> "span_id" | "service" -> "service_name"
@@ -116,7 +137,9 @@ let rec translate_condition ~entity = function
 let is_array_field field =
   let array_fields = [
     "discovery_sources"; "discovery_source"; "tags"; "categories";
-    "allowed_databases"; "ssl_certificates"; "networks"; "labels"
+    "allowed_databases"; "ssl_certificates"; "networks"; "labels";
+    (* common arrays in device and OCSF schemas *)
+    "ip"; "mac"; "device_ip"; "device_mac"; "observables_ip"; "observables_mac"; "observables_hostname"
   ] in
   List.mem (String.lowercase_ascii field) array_fields
 
