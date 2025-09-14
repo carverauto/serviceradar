@@ -5,7 +5,4 @@
   (pps ppx_deriving.show lwt_ppx))
  (libraries yojson proton lwt))
 
-(ocamllex lexer)
-
-(menhir
- (modules parser))
+; Legacy SRQL lexer/parser disabled from build

@@ -1,48 +1,16 @@
 (test
- (name test_translator)
+ (name test_json_conv)
+ (libraries srql_translator alcotest yojson))
+
+(test
+ (name test_query_engine)
+ (libraries srql_translator alcotest))
+
+(test
+ (name test_bounded_unbounded)
  (libraries srql_translator alcotest))
 
 (executable
- (name test_proton_integration)
- (libraries srql_translator lwt lwt.unix))
-
-(executable
- (name test_srql_connection)
- (libraries srql_translator lwt lwt.unix))
-
-(executable
- (name test_simple_connection)
- (libraries srql_translator lwt lwt.unix))
-
-(executable
- (name test_direct_proton)
- (libraries proton lwt lwt.unix))
-
-(executable
- (name test_tls_connection)
- (libraries srql_translator lwt lwt.unix))
-
-(executable
- (name test_insecure_tls)
- (libraries srql_translator lwt lwt.unix))
-
-(executable
- (name test_successful_tls)
- (libraries srql_translator lwt lwt.unix))
-
-(executable
- (name test_srql_translation)
- (libraries srql_translator lwt lwt.unix))
-
-(executable
- (name test_parser_debug)
- (libraries srql_translator))
-
-(executable
- (name test_serviceradar_srql)
- (libraries srql_translator lwt lwt.unix))
-
-(executable
  (name run_live_srql)
- (public_name run_live_srql)
+ (modules run_live_srql)
  (libraries srql_translator lwt lwt.unix))

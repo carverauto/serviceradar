@@ -1,22 +1,20 @@
 # SRQL Translator
 
-An OCaml-based translator for the ServiceRadar Query Language (SRQL) - a domain-specific language that compiles to SQL.
+An OCaml-based translator for the ServiceRadar Query Language (SRQL). SRQL keeps its name but the syntax is now ASQ-aligned key:value.
 
 ## Overview
 
-SRQL provides a simplified, more intuitive syntax for querying data that gets translated into standard SQL. This project includes:
-- A lexer and parser built with OCamllex and Menhir
+SRQL provides an intuitive key:value syntax for querying data that gets translated into SQL for Proton/ClickHouse. This project includes:
+- A planner/validator and translator pipeline
 - A REST API server built with Dream framework
-- A command-line interface for direct translation
-- Unit tests for the translator
+- Unit tests for the planner/translator
 
 ## Features
 
-- **Simple query syntax**: More readable than raw SQL
-- **Three query types**: `show`, `find`, and `count`
-- **Flexible conditions**: Support for AND/OR logic and multiple operators
+- **ASQ-aligned syntax**: key:value tokens with nesting and lists
+- **Flexible filters**: AND/OR logic, IN lists, wildcards, negation
+- **Streaming and analytics**: windowing and simple stats
 - **REST API**: HTTP endpoint for integrating with other services
-- **CLI tool**: Direct command-line translation
 
 ## Installation
 
@@ -31,7 +29,7 @@ opam init
 eval $(opam env)
 
 # Install dependencies
-opam install dune dream menhir yojson ppx_deriving lwt_ppx alcotest
+opam install dune dream yojson ppx_deriving lwt_ppx alcotest
 ```
 
 ### Build
@@ -64,78 +62,116 @@ Send translation requests:
 ```bash
 curl -X POST http://localhost:8080/translate \
   -H "Content-Type: application/json" \
-  -d '{"query": "find users where age > 21"}'
+  -d '{"query": "in:devices hostname:server time:today"}'
 
 # Response:
-# {"sql": "SELECT * FROM users WHERE age > 21"}
+# {"sql": "SELECT * FROM unified_devices WHERE to_date(last_seen) = today() AND hostname = 'server'", "hint": "auto"}
+
+You can optionally provide a boundedness hint to guide execution mode downstream and to the execution API:
+
+```bash
+curl -X POST http://localhost:8080/translate \
+  -H "Content-Type: application/json" \
+  -d '{"query": "in:devices discovery_sources:(sweep) stats:\"count()\"", "bounded_mode": "bounded"}'
+
+# Response:
+# {"sql": "SELECT count() FROM unified_devices WHERE has(discovery_sources, 'sweep')", "hint": "bounded"}
+```
+
+Supported hint fields:
+- `bounded_mode`: one of `bounded`, `unbounded`, or `auto` (preferred)
+- `bounded`: boolean (legacy/alternative), maps to `bounded`/`unbounded`
+
+### Execution API: Streaming vs Snapshot
+
+The `/api/query` endpoint supports both streaming (unbounded) and snapshot (bounded) execution. The UI can signal the intent via an HTTP header or JSON fields. The backend will default to snapshot unless explicitly asked to stream.
+
+- Header: `X-SRQL-Mode: stream | snapshot | auto`
+- Body (fallbacks if header not provided):
+  - `mode`: `"stream" | "snapshot" | "auto"`
+  - `bounded_mode`: `"unbounded" | "bounded" | "auto"`
+  - `bounded`: `true | false` (maps to `bounded`/`unbounded`)
+
+Examples:
+
+```bash
+# Snapshot (bounded) request
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -H "X-SRQL-Mode: snapshot" \
+  -d '{"query": "in:devices hostname:server time:today", "limit": 50}'
+
+# Streaming (unbounded) request via header
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -H "X-SRQL-Mode: stream" \
+  -d '{"query": "in:logs service:myapp"}'
+
+# Alternatively, signal via body (no header)
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "in:logs service:myapp", "mode": "stream"}'
+
+# Legacy-style body fields also work
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "in:devices discovery_sources:(sweep)", "bounded_mode": "bounded"}'
+```
+
+Notes:
+- Snapshot requests will wrap the SQL `FROM <table>` as `FROM table(<table>)` for Proton snapshot semantics.
+- Streaming requests omit the `table(...)` wrapper and may run until canceled. UI should prefer a streaming transport (SSE/WebSocket) for long-lived queries.
+- `auto` currently behaves like snapshot unless enhanced detection is implemented.
+
+### WebSocket Streaming
+
+For unbounded queries, use the WebSocket endpoint to receive incremental rows:
+
+- Endpoint: `GET ws://localhost:8080/api/stream?query=<SRQL>`
+- Messages are JSON objects with `type` of `columns`, `data`, `complete`, or `error`.
+
+Example (JavaScript):
+
+```js
+const ws = new WebSocket("ws://localhost:8080/api/stream?query=" + encodeURIComponent("in:logs service:myapp"));
+ws.onmessage = (ev) => {
+  const msg = JSON.parse(ev.data);
+  if (msg.type === "columns") {
+    console.log("columns", msg.columns);
+  } else if (msg.type === "data") {
+    console.log("row", msg.data);
+  } else if (msg.type === "complete") {
+    console.log("stream complete");
+  } else if (msg.type === "error") {
+    console.error("stream error", msg.error);
+  }
+};
+```
+
+Auth and CORS/Origin checks are not enabled in the OCaml server yet; see Go `pkg/core/api/stream.go` and `auth.go` for reference if you need parity.
 ```
 
 ### Command Line Interface
 
-```bash
-# Build the CLI
-dune exec srql-cli "show products"
-# Output: SELECT * FROM products
+CLI examples omitted for now; use the HTTP API for translation and execution.
 
-# Or install it
-dune install
-srql-cli "count orders where status = 'pending'"
-# Output: SELECT count() FROM orders WHERE status = 'pending'
+## SRQL Syntax (ASQ-aligned)
+
+- Entities: `in:devices`, `in:services`, `in:activity` (aliases to events), `in:flows`, etc.
+- Attributes: `key:value` pairs; nested groups: `parent:(child:value, ...)`.
+- Lists: `key:(v1,v2,...)` compiles to `IN (...)`.
+- Negation: prefix with `!` for NOT, including lists: `!key:(...)`.
+- Wildcards: `%` in values uses `LIKE`/`NOT LIKE`.
+- Time: `time:today|yesterday|last_7d|[start,end]` or `timeFrame:"7 Days"`.
+- Stats/Windows: `stats:"count() by field"` and `window:5m` for bucketing.
+
+Examples:
+
 ```
-
-## SRQL Syntax
-
-### Query Types
-
-- `show <entity>` - Returns all fields (translates to `SELECT *`)
-- `find <entity>` - Same as show, semantic choice for searches
-- `count <entity>` - Returns count (translates to `SELECT count()`)
-
-### Operators
-
-- `=` - Equal
-- `!=` - Not equal
-- `>` - Greater than
-- `>=` - Greater than or equal
-- `<` - Less than
-- `<=` - Less than or equal
-- `contains` - String contains (uses SQL position function)
-
-### Logical Operators
-
-- `and` - Logical AND
-- `or` - Logical OR
-
-### Examples
-
-```sql
--- Simple queries
-show users
-→ SELECT * FROM users
-
-find products limit 10
-→ SELECT * FROM products LIMIT 10
-
-count orders
-→ SELECT count() FROM orders
-
--- With conditions
-show employees where department = 'Engineering'
-→ SELECT * FROM employees WHERE department = 'Engineering'
-
-find products where price > 100 and category = 'Electronics'
-→ SELECT * FROM products WHERE (price > 100 AND category = 'Electronics')
-
-count users where created_date >= '2024-01-01' or status = 'active'
-→ SELECT count() FROM users WHERE (created_date >= '2024-01-01' OR status = 'active')
-
--- String search
-find articles where title contains 'OCaml'
-→ SELECT * FROM articles WHERE position(title, 'OCaml') > 0
-
--- Complex query
-find orders where (status = 'pending' or status = 'processing') and amount > 1000 limit 50
-→ SELECT * FROM orders WHERE ((status = 'pending' OR status = 'processing') AND amount > 1000) LIMIT 50
+in:services port:(22,2222) timeFrame:"7 Days"
+in:devices services:(name:(facebook)) type:MRIs timeFrame:"7 Days"
+in:activity type:"Connection Started" connection:(from:(type:"Mobile Phone") direction:"From > To" to:(partition:Corporate tag:Managed)) timeFrame:"7 Days"
+in:devices !model:(Hikvision,Zhejiang) name:%cam% time:last_24h
 ```
 
 ## Project Structure
@@ -151,10 +187,12 @@ srql/
 │   │   └── cli.ml       # CLI entry point
 │   ├── lib/
 │   │   ├── dune         # Library configuration
-│   │   ├── ast.ml       # Abstract Syntax Tree definitions
-│   │   ├── lexer.mll    # Lexical analyzer
-│   │   ├── parser.mly   # Grammar and parser
-│   │   └── translator.ml # AST to SQL translator
+│   │   ├── sql_ir.ml         # Internal relational IR (was ast.ml)
+│   │   ├── query_ast.ml      # ASQ spec
+│   │   ├── query_parser.ml   # ASQ tokenizer/parser
+│   │   ├── query_planner.ml  # Planner + mapping
+│   │   ├── query_validator.ml# Validation
+│   │   └── translator.ml     # IR to SQL translator
 │   └── test/
 │       ├── dune         # Test configuration
 │       └── test_translator.ml # Unit tests
@@ -172,30 +210,16 @@ dune test
 dune test --force --no-buffer
 
 # Run specific test file
-dune exec -- srql/test/test_translator
+dune exec -- srql/test/test_query_engine
 ```
 
 ### Test Coverage
 
-The comprehensive test suite includes 28 test cases covering:
+Tests cover entity mapping, timeFrame parsing, lists, wildcards, negation, nested groups, stats and windowing using Alcotest.
 
-- **Basic Queries** (3 tests): `show`, `find`, and `count` operations
-- **WHERE Clauses** (7 tests): All comparison operators (`=`, `!=`, `>`, `>=`, `<`, `<=`, `contains`)
-- **Logical Operators** (4 tests): `AND`/`OR` with proper operator precedence
-- **LIMIT Clause** (2 tests): Simple limits and combined with WHERE conditions
-- **Complex Queries** (2 tests): Multi-condition queries with mixed logical operators
-- **Error Handling** (5 tests): Invalid syntax, missing entities, malformed queries
-- **Edge Cases** (5 tests): Underscores in identifiers, mixed case, large numbers
+### Extending syntax
 
-Tests use the [Alcotest](https://github.com/mirage/alcotest) framework and verify both successful translations and proper error handling.
-
-### Adding New Operators
-
-1. Add token in `lexer.mll`
-2. Add token declaration in `parser.mly`
-3. Add to operator type in `ast.ml`
-4. Update grammar rules in `parser.mly`
-5. Add translation logic in `translator.ml`
+Add new key aliases/mappings in `query_planner.ml` and `translator.ml`, and extend `query_parser.ml` for additional token shapes as needed.
 
 ### Grammar Extension Ideas
 
@@ -210,19 +234,19 @@ Tests use the [Alcotest](https://github.com/mirage/alcotest) framework and verif
 
 ### POST /translate
 
-Translates an SRQL query to SQL.
+Translates an SRQL (ASQ-aligned) query to SQL.
 
 **Request:**
 ```json
 {
-  "query": "find users where age > 21"
+  "query": "in:devices hostname:server time:today"
 }
 ```
 
 **Response (Success):**
 ```json
 {
-  "sql": "SELECT * FROM users WHERE age > 21"
+  "sql": "SELECT * FROM unified_devices WHERE to_date(last_seen) = today() AND hostname = 'server'"
 }
 ```
 
@@ -245,5 +269,5 @@ Health check endpoint.
 ```
 
 - Built with [Dream](https://aantron.github.io/dream/) web framework
-- Parser generated with [Menhir](http://gallium.inria.fr/~fpottier/menhir/)
+- Planner/validator and translator implemented in pure OCaml
 - JSON handling via [Yojson](https://github.com/ocaml-community/yojson)

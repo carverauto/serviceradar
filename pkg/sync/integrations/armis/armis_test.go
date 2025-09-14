@@ -496,7 +496,7 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 	assert.Contains(t, err.Error(), "no queries configured")
 }
 
-// TestArmisIntegration_FetchMultipleQueries tests that multiple ASQ queries are accumulated in memory
+// TestArmisIntegration_FetchMultipleQueries tests that multiple queries are accumulated in memory
 // and all devices are included in the final sweep.json, preventing the overwriting issue.
 func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
 	integration, mocks := setupArmisIntegration(t)
