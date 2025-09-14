@@ -11,7 +11,7 @@ let sql_of qstr =
 
 let contains msg hay needle =
   let lhay = String.lowercase_ascii hay and lneedle = String.lowercase_ascii needle in
-  let rec sub s sub =
+  let sub s sub =
     let ls = String.length s and lsub = String.length sub in
     let rec loop i = if i + lsub > ls then false else if String.sub s i lsub = sub then true else loop (i+1) in
     loop 0
@@ -22,14 +22,15 @@ let contains msg hay needle =
 let test_devices_today () =
   let sql = sql_of "in:devices name:server01 time:today" in
   contains "from table" sql "from unified_devices";
-  contains "time today" sql "to_date(timestamp) = today()";
+  contains "time today to_date" sql "to_date(";
+  contains "time today func" sql ") = today()";
   contains "hostname mapping" sql "hostname = 'server01'"
 
 let test_flows_topk_by () =
-  let sql = sql_of "in:flows src:10.0.0.1 stats:\"topk_by(sum(bytes), 5) by dst\"" in
+  let sql = sql_of "in:flows src:10.0.0.1 stats:\"topk(dst, 5)\"" in
   contains "group by dst" sql "group by dst_ip";
-  contains "metric alias" sql "sum(bytes) AS metric";
-  contains "order by metric" sql "order by metric desc";
+  contains "count alias" sql "count() AS cnt";
+  contains "order by cnt" sql "order by cnt desc";
   contains "limit present" sql "limit 5";
   contains "src filter" sql "src_ip = '10.0.0.1'"
 

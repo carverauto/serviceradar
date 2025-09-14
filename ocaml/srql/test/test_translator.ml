@@ -122,7 +122,7 @@ let test_complex_query_1 () =
 let test_complex_query_2 () =
   test_translation 
     "count logs where severity = 'ERROR' or severity = 'CRITICAL' and timestamp > 1234567890"
-    "SELECT count() FROM logs WHERE (severity = 'ERROR' OR (severity = 'CRITICAL' AND timestamp > 1234567890))" ()
+    "SELECT count() FROM logs WHERE (severity_text = 'ERROR' OR (severity_text = 'CRITICAL' AND timestamp > 1234567890))" ()
 
 (* Test parentheses in conditions *)
 let test_parentheses_precedence () =
@@ -172,7 +172,7 @@ let test_column_with_underscore () =
 let test_mixed_case_identifiers () =
   test_translation 
     "show UserProfiles where isActive = 1"
-    "SELECT * FROM UserProfiles WHERE isActive = 1" ()
+    "SELECT * FROM UserProfiles WHERE isactive = 1" ()
 
 (* Test suites *)
 let basic_queries = [

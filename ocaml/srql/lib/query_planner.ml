@@ -49,10 +49,20 @@ let parse_stats (s:string) : (string list * string list) =
     | Some i -> (String.sub s 0 i |> String.trim, String.sub s (i+2) (String.length s - i - 2) |> String.trim)
     | None -> (s, "")
   in
-  let aggs = agg_part
-             |> String.split_on_char ','
-             |> List.map String.trim
-             |> List.filter ((<>) "")
+  let split_top_level_commas str =
+    let parts = ref [] in
+    let buf = Buffer.create (String.length str) in
+    let depth = ref 0 in
+    let push () = let v = Buffer.contents buf |> String.trim in if v <> "" then parts := !parts @ [v]; Buffer.clear buf in
+    String.iter (fun c -> match c with
+      | '(' -> incr depth; Buffer.add_char buf c
+      | ')' -> decr depth; Buffer.add_char buf c
+      | ',' when !depth = 0 -> push ()
+      | _ -> Buffer.add_char buf c
+    ) str;
+    push (); !parts
+  in
+  let aggs = split_top_level_commas agg_part
              |> List.map normalize_agg
   in
   let bys = if by_part = "" then [] else by_part |> String.split_on_char ',' |> List.map String.trim |> List.filter ((<>) "") in
