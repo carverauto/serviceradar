@@ -22,19 +22,24 @@ let map_field_name ~entity (field:string) : string =
     match entity_lc with
     | "devices" -> (match f with
         | "name" | "host" | "device_name" -> "hostname"
-        | "ip_address" -> "ip"
-        | "mac_address" -> "mac"
-        | "os.name" -> "device_os_name"
-        | "os.version" -> "device_os_version"
+        | "ip_address" | "device.ip" -> "ip"
+        | "mac_address" | "device.mac" -> "mac"
+        | "uid" | "device.uid" -> "device_id"
+        | "domain" | "device_domain" -> "device_domain"
+        | "site" | "location" | "device_location" -> "device_location"
+        | "os.name" | "device.os.name" -> "device_os_name"
+        | "os.version" | "device.os.version" -> "device_os_version"
         | _ when String.contains f '.' ->
             let lf = lc f in
             if String.length lf > 3 && String.sub lf 0 3 = "os." then "device_os_" ^ (String.sub lf 3 (String.length lf - 3))
             else if String.length lf > 12 && String.sub lf 0 12 = "observables." then "observables_" ^ (String.sub lf 12 (String.length lf - 12))
-            else f
+            else String.map (fun c -> if c='.' then '_' else c) f
         | _ -> f)
     | "logs" -> (match f with
         | "severity" | "level" -> "severity_text"
-        | "service" -> "service_name"
+        | "service" | "service.name" -> "service_name"
+        | "endpoint.hostname" -> "endpoint_hostname"
+        | _ when String.contains f '.' -> String.map (fun c -> if c='.' then '_' else c) f
         | "trace" -> "trace_id"
         | "span" -> "span_id"
         | _ -> f)
@@ -43,6 +48,14 @@ let map_field_name ~entity (field:string) : string =
         | "dst" -> "dst_ip"
         | "sport" -> "src_port"
         | "dport" -> "dst_port"
+        | "src_endpoint.ip" -> "src_ip"
+        | "src_endpoint.port" -> "src_port"
+        | "dst_endpoint.ip" -> "dst_ip"
+        | "dst_endpoint.port" -> "dst_port"
+        | "traffic.bytes_in" -> "bytes_in"
+        | "traffic.bytes_out" -> "bytes_out"
+        | "traffic.packets_in" -> "packets_in"
+        | "traffic.packets_out" -> "packets_out"
         | _ when String.contains f '.' -> String.map (fun c -> if c = '.' then '_' else c) f
         | "src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol"
         | "bytes" | "bytes_in" | "bytes_out" | "packets" | "packets_in" | "packets_out" | "direction" -> f
@@ -173,9 +186,24 @@ let translate_query (q : query) : string =
       let select_clause = "SELECT " ^ (String.concat ", " fields) in
       if actual_table = "" then select_clause else
       let from_clause = " FROM " ^ actual_table in
-      let where_clause = match conditions with
-        | Some conds -> " WHERE " ^ (translate_condition ~entity:q.entity conds)
-        | None -> ""
+      let where_clause =
+        let cond_sql = match conditions with
+          | Some conds -> Some (translate_condition ~entity:q.entity conds)
+          | None -> None
+        in
+        let default_filters =
+          let e = lc q.entity in
+          let filters = ref [] in
+          if e = "devices" then filters := !filters @ ["coalesce(metadata['_deleted'], '') != 'true'"];
+          if e = "sweep_results" then filters := !filters @ ["has(discovery_sources, 'sweep')"];
+          if e = "snmp_results" || e = "snmp_metrics" then filters := !filters @ ["metric_type = 'snmp'"];
+          !filters
+        in
+        match (cond_sql, default_filters) with
+        | (None, []) -> ""
+        | (Some c, []) -> " WHERE " ^ c
+        | (None, ds) -> " WHERE " ^ (String.concat " AND " ds)
+        | (Some c, ds) -> " WHERE (" ^ c ^ ") AND " ^ (String.concat " AND " ds)
       in
       let group_clause = match q.group_by with
         | Some lst when lst <> [] ->
@@ -201,9 +229,24 @@ let translate_query (q : query) : string =
         select_clause  (* Handle SELECT without FROM clause *)
       else
         let from_clause = " FROM " ^ actual_table in
-        let where_clause = match conditions with
-          | Some conds -> " WHERE " ^ (translate_condition ~entity:q.entity conds)
-          | None -> ""
+        let where_clause =
+          let cond_sql = match conditions with
+            | Some conds -> Some (translate_condition ~entity:q.entity conds)
+            | None -> None
+          in
+          let default_filters =
+            let e = lc q.entity in
+            let filters = ref [] in
+            if e = "devices" then filters := !filters @ ["coalesce(metadata['_deleted'], '') != 'true'"];
+            if e = "sweep_results" then filters := !filters @ ["has(discovery_sources, 'sweep')"];
+            if e = "snmp_results" || e = "snmp_metrics" then filters := !filters @ ["metric_type = 'snmp'"];
+            !filters
+          in
+          match (cond_sql, default_filters) with
+          | (None, []) -> ""
+          | (Some c, []) -> " WHERE " ^ c
+          | (None, ds) -> " WHERE " ^ (String.concat " AND " ds)
+          | (Some c, ds) -> " WHERE (" ^ c ^ ") AND " ^ (String.concat " AND " ds)
         in
         let group_clause = match q.group_by with
           | Some lst when lst <> [] ->
@@ -226,77 +269,8 @@ let translate_query (q : query) : string =
           | None -> ""
         in
         select_clause ^ from_clause ^ where_clause ^ group_clause ^ having_clause ^ order_clause ^ limit_clause
-  | _ ->
-      (* Handle LATEST modifier for non-SELECT queries on non-versioned streams *)
-      let latest_sql_opt =
-        if q.latest then (
-          let e = lc q.entity in
-          let is_versioned = List.mem e ["devices"; "services"; "sweep_results"; "device_updates"; "icmp_results"; "snmp_results"] in
-          match (is_versioned, Entity_mapping.get_primary_key q.entity) with
-          | (false, Some pk) ->
-              let where_user = match conditions with
-                | Some conds -> " WHERE " ^ (translate_condition ~entity:q.entity conds)
-                | None -> ""
-              in
-              let with_filtered = Printf.sprintf "WITH filtered_data AS (\n  SELECT * FROM table(%s)%s\n),\n" actual_table where_user in
-              let with_latest = Printf.sprintf "latest_records AS (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY %s ORDER BY _tp_time DESC) AS rn\n  FROM filtered_data\n)\n" pk in
-              let final_select = "SELECT * EXCEPT rn FROM latest_records WHERE rn = 1" in
-              Some (String.trim (with_filtered ^ with_latest ^ final_select))
-          | _ -> None
-        ) else None
-      in
-      (match latest_sql_opt with
-       | Some s -> s
-       | None ->
-      
-      let select_clause = match q.q_type with
-        | `Show | `Find -> "SELECT *"
-        | `Count -> "SELECT count()"
-        | `Select -> "SELECT *" (* fallback, though this case shouldn't happen *)
-        | `Stream -> "SELECT *"
-      in
-      let from_clause = " FROM " ^ actual_table in
-      (* Default filters for entities *)
-      let default_filters =
-        let e = lc q.entity in
-        let filters = ref [] in
-        if e = "devices" then filters := !filters @ ["coalesce(metadata['_deleted'], '') != 'true'"];
-        if e = "sweep_results" then filters := !filters @ ["has(discovery_sources, 'sweep')"];
-        if e = "snmp_results" || e = "snmp_metrics" then filters := !filters @ ["metric_type = 'snmp'"];
-        !filters
-      in
-      let where_clause =
-        let cond_sql = match conditions with
-          | Some conds -> Some (translate_condition ~entity:q.entity conds)
-          | None -> None
-        in
-        match (cond_sql, default_filters) with
-        | (None, []) -> ""
-        | (Some c, []) -> " WHERE " ^ c
-        | (None, ds) -> " WHERE " ^ (String.concat " AND " ds)
-        | (Some c, ds) -> " WHERE (" ^ c ^ ") AND " ^ (String.concat " AND " ds)
-      in
-      let order_clause = match q.order_by with
-        | Some lst when lst <> [] ->
-            let part (f, d) = (map_field_name ~entity:q.entity f) ^ (match d with Ast.Asc -> " ASC" | Ast.Desc -> " DESC") in
-            " ORDER BY " ^ (String.concat ", " (List.map part lst))
-        | _ -> ""
-      in
-      let limit_clause = match q.limit with
-        | Some n -> " LIMIT " ^ (string_of_int n)
-        | None -> ""
-      in
-      let group_clause = match q.group_by with
-        | Some lst when lst <> [] ->
-            let mapped = List.map (map_field_name ~entity:q.entity) lst in
-            " GROUP BY " ^ (String.concat ", " mapped)
-        | _ -> ""
-      in
-      let having_clause = match q.having with
-        | Some cond -> " HAVING " ^ (translate_condition ~entity:q.entity cond)
-        | None -> ""
-      in
-      String.trim (select_clause ^ from_clause ^ where_clause ^ group_clause ^ having_clause ^ order_clause ^ limit_clause))
+
+
 
 (* The main function exposed to the web server *)
 let process_srql_string (query_str : string) : (string, string) result =

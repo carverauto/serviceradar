@@ -9,9 +9,6 @@ let ident = ['a'-'z' 'A'-'Z' '_'] ['a'-'z' 'A'-'Z' '0'-'9' '_']*
 
 rule token = parse
   | [' ' '\t' '\r' '\n'] { token lexbuf } (* Skip whitespace *)
-  | ("show" | "SHOW")       { SHOW }
-  | ("find" | "FIND")       { FIND }
-  | ("count" | "COUNT")     { COUNT }
   | ("select" | "SELECT")   { SELECT }
   | ("from" | "FROM")       { FROM }
   | ("where" | "WHERE")     { WHERE }
