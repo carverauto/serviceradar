@@ -18,12 +18,26 @@ rule token = parse
   | ("and" | "AND")         { AND }
   | ("or" | "OR")           { OR }
   | ("limit" | "LIMIT")     { LIMIT }
+  | ("order" | "ORDER")     { ORDER }
+  | ("by" | "BY")           { BY }
+  | ("group" | "GROUP")     { GROUP }
+  | ("having" | "HAVING")   { HAVING }
+  | ("asc" | "ASC")         { ASC }
+  | ("desc" | "DESC")       { DESC }
   | ("as" | "AS")           { AS }
+  | ("between" | "BETWEEN") { BETWEEN }
+  | ("is" | "IS")           { IS }
+  | ("null" | "NULL")       { NULL }
+  | ("not" | "NOT")         { NOT }
+  | ("latest" | "LATEST")   { LATEST }
   | ("contains" | "CONTAINS") { CONTAINS }
   | ("in" | "IN")           { IN }
   | ("like" | "LIKE")       { LIKE }
+  | ("today" | "TODAY")     { TODAY }
+  | ("yesterday" | "YESTERDAY") { YESTERDAY }
   | ("true" | "TRUE")       { TRUE }
   | ("false" | "FALSE")     { FALSE }
+  | ("stream" | "STREAM")   { STREAM }
   | "="         { EQ }
   | "!="        { NEQ }
   | ">"         { GT }

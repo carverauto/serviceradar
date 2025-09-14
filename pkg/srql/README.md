@@ -1,6 +1,6 @@
 # ServiceRadar Query Language (SRQL)
 
-A flexible, powerful query language for network monitoring, inspired by Armis ASQ/AQL.
+A flexible, powerful query language for network monitoring.
 
 ## Overview
 
