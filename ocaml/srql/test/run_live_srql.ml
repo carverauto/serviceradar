@@ -131,7 +131,16 @@ let () =
       let has_from = contains lsql " from " in
       let has_table_wrapper = contains lsql " from table(" in
       let has_limit = contains lsql " limit " in
-      let is_unbounded = has_from && (not has_table_wrapper) && (not has_limit) in
+      (* TODO(srql-aggregates): Treat scalar aggregates as bounded.
+         - Current heuristic only detects COUNT without GROUP BY.
+         - Extend to SUM/AVG/MIN/MAX single-row aggregates.
+         - Consider auto-wrapping FROM with table(<tbl>) for snapshot semantics when no LIMIT.
+         - Centralize boundedness via a flag from translator to client (see ocaml/srql/REMAINING_WORK.md §2.1).
+      *)
+      let has_group_by = contains lsql " group by " in
+      let is_simple_count = (contains lsql "select count()") || (contains lsql "select count(*)") in
+      let is_scalar_aggregate = is_simple_count && (not has_group_by) in
+      let is_unbounded = has_from && (not has_table_wrapper) && (not has_limit) && (not is_scalar_aggregate) in
       Printf.printf "SQL:  %s\n\n" sql;
       Srql_translator.Proton_client.Client.with_connection cfg (fun client ->
 

@@ -92,6 +92,27 @@ let test_where_with_limit () =
     "find users where age > 18 limit 100"
     "SELECT * FROM users WHERE age > 18 LIMIT 100" ()
 
+(* Test ORDER BY clause *)
+let test_order_by_single_asc () =
+  test_translation
+    "show users order by created_at asc limit 5"
+    "SELECT * FROM users ORDER BY created_at ASC LIMIT 5" ()
+
+let test_order_by_single_default_asc () =
+  test_translation
+    "find logs order by timestamp limit 10"
+    "SELECT * FROM logs ORDER BY timestamp ASC LIMIT 10" ()
+
+let test_order_by_multi_mixed_dirs () =
+  test_translation
+    "count events where severity = 'ERROR' order by timestamp desc, id asc limit 1"
+    "SELECT count() FROM events WHERE severity = 'ERROR' ORDER BY timestamp DESC, id ASC LIMIT 1" ()
+
+let test_select_with_order_by () =
+  test_translation
+    "select name, value from metrics where host = 'a' order by timestamp desc limit 2"
+    "SELECT name, value FROM metrics WHERE host = 'a' ORDER BY timestamp DESC LIMIT 2" ()
+
 (* Test complex queries *)
 let test_complex_query_1 () =
   test_translation 
@@ -182,6 +203,13 @@ let limit_clause = [
   "where with limit", `Quick, test_where_with_limit;
 ]
 
+let order_by_clause = [
+  "order by single asc", `Quick, test_order_by_single_asc;
+  "order by single default asc", `Quick, test_order_by_single_default_asc;
+  "order by multi mixed", `Quick, test_order_by_multi_mixed_dirs;
+  "select with order by", `Quick, test_select_with_order_by;
+]
+
 let complex_queries = [
   "complex query 1", `Quick, test_complex_query_1;
   "complex query 2", `Quick, test_complex_query_2;
@@ -210,6 +238,7 @@ let () =
     "WHERE Clauses", where_clauses;
     "Logical Operators", logical_operators;
     "LIMIT Clause", limit_clause;
+    "ORDER BY Clause", order_by_clause;
     "Complex Queries", complex_queries;
     "Error Handling", error_handling;
     "Edge Cases", edge_cases;

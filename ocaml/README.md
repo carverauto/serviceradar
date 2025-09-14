@@ -67,7 +67,22 @@ curl -X POST http://localhost:8080/translate \
   -d '{"query": "find users where age > 21"}'
 
 # Response:
-# {"sql": "SELECT * FROM users WHERE age > 21"}
+# {"sql": "SELECT * FROM users WHERE age > 21", "hint": "auto"}
+
+You can optionally provide a boundedness hint to guide execution mode downstream:
+
+```bash
+curl -X POST http://localhost:8080/translate \
+  -H "Content-Type: application/json" \
+  -d '{"query": "count devices where discovery_sources = \"sweep\"", "bounded_mode": "bounded"}'
+
+# Response:
+# {"sql": "SELECT count() FROM unified_devices WHERE has(discovery_sources, 'sweep')", "hint": "bounded"}
+```
+
+Supported hint fields:
+- `bounded_mode`: one of `bounded`, `unbounded`, or `auto` (preferred)
+- `bounded`: boolean (legacy/alternative), maps to `bounded`/`unbounded`
 ```
 
 ### Command Line Interface
