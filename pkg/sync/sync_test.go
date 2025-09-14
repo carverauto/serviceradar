@@ -459,72 +459,7 @@ func TestNetboxIntegrationFactory(t *testing.T) {
 	})
 }
 
-func TestArmisDeviceStateAdapter(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	querier := NewMockSRQLQuerier(ctrl)
-	adapter := &armisDeviceStateAdapter{querier: querier}
-
-	ctx := context.Background()
-	source := "test-source"
-
-	deviceStates := []DeviceState{
-		{
-			DeviceID:    "device1",
-			IP:          "192.168.1.1",
-			IsAvailable: true,
-			Metadata:    map[string]interface{}{"key": "value"},
-		},
-		{
-			DeviceID:    "device2",
-			IP:          "192.168.1.2",
-			IsAvailable: false,
-			Metadata:    map[string]interface{}{"key2": "value2"},
-		},
-	}
-
-	querier.EXPECT().GetDeviceStatesBySource(ctx, source).Return(deviceStates, nil)
-
-	result, err := adapter.GetDeviceStatesBySource(ctx, source)
-
-	require.NoError(t, err)
-	assert.Len(t, result, 2)
-	assert.Equal(t, "device1", result[0].DeviceID)
-	assert.Equal(t, "192.168.1.1", result[0].IP)
-	assert.True(t, result[0].IsAvailable)
-	assert.Equal(t, map[string]interface{}{"key": "value"}, result[0].Metadata)
-}
-
-func TestNetboxDeviceStateAdapter(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	querier := NewMockSRQLQuerier(ctrl)
-	adapter := &netboxDeviceStateAdapter{querier: querier}
-
-	ctx := context.Background()
-	source := "test-source"
-
-	deviceStates := []DeviceState{
-		{
-			DeviceID:    "device1",
-			IP:          "192.168.1.1",
-			IsAvailable: true,
-			Metadata:    map[string]interface{}{"key": "value"},
-		},
-	}
-
-	querier.EXPECT().GetDeviceStatesBySource(ctx, source).Return(deviceStates, nil)
-
-	result, err := adapter.GetDeviceStatesBySource(ctx, source)
-
-	require.NoError(t, err)
-	assert.Len(t, result, 1)
-	assert.Equal(t, "device1", result[0].DeviceID)
-	assert.Equal(t, "192.168.1.1", result[0].IP)
-	assert.True(t, result[0].IsAvailable)
-}
+// SRQL adapters removed from Go implementation; related adapter tests deleted.
 
 func TestCreateSimpleSyncService(t *testing.T) {
 	ctrl := gomock.NewController(t)
