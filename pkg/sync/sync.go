@@ -180,53 +180,7 @@ func getServerName(config *Config) string {
 	return ""
 }
 
-// armisDeviceStateAdapter adapts sync.DeviceState to armis.DeviceState
-type armisDeviceStateAdapter struct {
-	querier SRQLQuerier
-}
-
-func (a *armisDeviceStateAdapter) GetDeviceStatesBySource(ctx context.Context, source string) ([]armis.DeviceState, error) {
-	states, err := a.querier.GetDeviceStatesBySource(ctx, source)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]armis.DeviceState, len(states))
-	for i, state := range states {
-		result[i] = armis.DeviceState{
-			DeviceID:    state.DeviceID,
-			IP:          state.IP,
-			IsAvailable: state.IsAvailable,
-			Metadata:    state.Metadata,
-		}
-	}
-
-	return result, nil
-}
-
-// netboxDeviceStateAdapter adapts sync.DeviceState to netbox.DeviceState
-type netboxDeviceStateAdapter struct {
-	querier SRQLQuerier
-}
-
-func (n *netboxDeviceStateAdapter) GetDeviceStatesBySource(ctx context.Context, source string) ([]netbox.DeviceState, error) {
-	states, err := n.querier.GetDeviceStatesBySource(ctx, source)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]netbox.DeviceState, len(states))
-	for i, state := range states {
-		result[i] = netbox.DeviceState{
-			DeviceID:    state.DeviceID,
-			IP:          state.IP,
-			IsAvailable: state.IsAvailable,
-			Metadata:    state.Metadata,
-		}
-	}
-
-	return result, nil
-}
+// SRQL adapters removed; SRQL now handled externally.
 
 // NewArmisIntegration creates a new ArmisIntegration with a gRPC client
 func NewArmisIntegration(
@@ -276,27 +230,7 @@ func NewArmisIntegration(
 	// No default sweep config - the agent's file config is authoritative
 	// The sync service should only provide network updates
 
-	// Initialize SweepResultsQuerier if ServiceRadar API credentials are provided
-	var sweepQuerier armis.SRQLQuerier
-
-	serviceRadarAPIKey := config.Credentials["api_key"]
-	serviceRadarEndpoint := config.Credentials["serviceradar_endpoint"]
-
-	// If no specific ServiceRadar endpoint is provided, assume it's on the same host
-	if serviceRadarEndpoint == "" && serviceRadarAPIKey != "" {
-		serviceRadarEndpoint = defaultServiceRadarEndpoint
-	}
-
-	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
-		baseSweepQuerier := NewSweepResultsQuery(
-			serviceRadarEndpoint,
-			serviceRadarAPIKey,
-			httpClient,
-			log,
-		)
-
-		sweepQuerier = &armisDeviceStateAdapter{querier: baseSweepQuerier}
-	}
+    // SRQL-based SweepResultsQuerier removed; leave nil until external SRQL available
 
 	// Wrap the token provider with caching to avoid 401 errors
 	cachedTokenProvider := armis.NewCachedTokenProvider(defaultImpl)
@@ -329,7 +263,7 @@ func NewArmisIntegration(
 		DeviceFetcher: defaultImpl,
 		KVWriter:      kvWriter,
 		SweeperConfig: nil, // No default config - agent's file config is authoritative
-		SweepQuerier:  sweepQuerier,
+        SweepQuerier:  nil,
 		Updater:       armisUpdater,
 		Logger:        log,
 	}
@@ -344,28 +278,7 @@ func NewNetboxIntegration(
 	serverName string,
 	log logger.Logger,
 ) *netbox.NetboxIntegration {
-	// Add SRQL Querier for retraction logic, if configured
-	var sweepQuerier netbox.SRQLQuerier
-
-	serviceRadarAPIKey := config.Credentials["api_key"]
-	serviceRadarEndpoint := config.Credentials["serviceradar_endpoint"]
-
-	if serviceRadarEndpoint == "" && serviceRadarAPIKey != "" {
-		serviceRadarEndpoint = defaultServiceRadarEndpoint
-	}
-
-	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
-		httpClient := &http.Client{Timeout: 30 * time.Second}
-
-		baseSweepQuerier := NewSweepResultsQuery(
-			serviceRadarEndpoint,
-			serviceRadarAPIKey,
-			httpClient,
-			log,
-		)
-
-		sweepQuerier = &netboxDeviceStateAdapter{querier: baseSweepQuerier}
-	}
+    // SRQL-based Querier removed; leave nil until external SRQL available
 
 	return &netbox.NetboxIntegration{
 		Config:        config,
@@ -373,7 +286,7 @@ func NewNetboxIntegration(
 		GrpcConn:      grpcConn,
 		ServerName:    serverName,
 		ExpandSubnets: false, // Default: treat as /32
-		Querier:       sweepQuerier,
+        Querier:       nil,
 		Logger:        log,
 	}
 }

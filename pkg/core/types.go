@@ -30,7 +30,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/mcp"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -65,9 +64,7 @@ type Server struct {
 	eventPublisher          *natsutil.EventPublisher
 	natsConn                *nats.Conn
 	discoveryService        DiscoveryService
-	mcpServer               api.MCPRouteRegistrar
-	mcpConfig               *mcp.MCPConfig // Temporary storage for MCP config until API server is available
-	mcpLogger               logger.Logger  // Temporary storage for MCP logger until API server is available
+    // MCP removed from Go server; SRQL tooling moved out of process
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus
 	serviceListBuffers      map[string][]*models.Service
