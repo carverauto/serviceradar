@@ -341,10 +341,8 @@ func TestNewArmisIntegration(t *testing.T) {
 				assert.NotNil(t, integration.Updater)
 			}
 
-			// Check if SRQL querier is set when API credentials are provided
-			if tt.config.Credentials["api_key"] != "" {
-				assert.NotNil(t, integration.SweepQuerier)
-			}
+            // SRQL querier removed from Go implementation
+            assert.Nil(t, integration.SweepQuerier)
 		})
 	}
 }
@@ -360,44 +358,40 @@ func TestNewNetboxIntegration(t *testing.T) {
 
 	serverName := testServer
 
-	tests := []struct {
-		name               string
-		config             *models.SourceConfig
-		expectSweepQuerier bool
-	}{
-		{
-			name: "default configuration",
-			config: &models.SourceConfig{
-				Type:        integrationTypeNetbox,
-				AgentID:     "test-agent",
-				Credentials: map[string]string{},
-			},
-			expectSweepQuerier: false,
-		},
-		{
-			name: "with ServiceRadar API credentials",
-			config: &models.SourceConfig{
-				Type:    integrationTypeNetbox,
-				AgentID: "test-agent",
-				Credentials: map[string]string{
-					"api_key":               "test-key",
-					"serviceradar_endpoint": "http://localhost:8080",
-				},
-			},
-			expectSweepQuerier: true,
-		},
-		{
-			name: "with API key but no endpoint (uses default)",
-			config: &models.SourceConfig{
-				Type:    integrationTypeNetbox,
-				AgentID: "test-agent",
-				Credentials: map[string]string{
-					"api_key": "test-key",
-				},
-			},
-			expectSweepQuerier: true,
-		},
-	}
+    tests := []struct {
+        name   string
+        config *models.SourceConfig
+    }{
+        {
+            name: "default configuration",
+            config: &models.SourceConfig{
+                Type:        integrationTypeNetbox,
+                AgentID:     "test-agent",
+                Credentials: map[string]string{},
+            },
+        },
+        {
+            name: "with ServiceRadar API credentials",
+            config: &models.SourceConfig{
+                Type:    integrationTypeNetbox,
+                AgentID: "test-agent",
+                Credentials: map[string]string{
+                    "api_key":               "test-key",
+                    "serviceradar_endpoint": "http://localhost:8080",
+                },
+            },
+        },
+        {
+            name: "with API key but no endpoint (uses default)",
+            config: &models.SourceConfig{
+                Type:    integrationTypeNetbox,
+                AgentID: "test-agent",
+                Credentials: map[string]string{
+                    "api_key": "test-key",
+                },
+            },
+        },
+    }
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -411,13 +405,10 @@ func TestNewNetboxIntegration(t *testing.T) {
 			assert.Equal(t, serverName, integration.ServerName)
 			assert.False(t, integration.ExpandSubnets, "ExpandSubnets should always be false in NewNetboxIntegration")
 
-			if tt.expectSweepQuerier {
-				assert.NotNil(t, integration.Querier)
-			} else {
-				assert.Nil(t, integration.Querier)
-			}
-		})
-	}
+            // SRQL querier removed from Go implementation
+            assert.Nil(t, integration.Querier)
+        })
+    }
 }
 
 func TestNetboxIntegrationFactory(t *testing.T) {

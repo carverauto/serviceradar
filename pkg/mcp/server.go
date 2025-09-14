@@ -18,18 +18,17 @@
 package mcp
 
 import (
-	"context"
-	_ "embed"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"strings"
+    "context"
+    _ "embed"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "strings"
 
-	"github.com/gorilla/mux"
+    "github.com/gorilla/mux"
 
-	"github.com/carverauto/serviceradar/pkg/core/api"
-	"github.com/carverauto/serviceradar/pkg/core/auth"
-	"github.com/carverauto/serviceradar/pkg/logger"
+    "github.com/carverauto/serviceradar/pkg/core/auth"
+    "github.com/carverauto/serviceradar/pkg/logger"
 )
 
 //go:embed srql-mcp-prompt.md
@@ -53,13 +52,13 @@ var (
 
 // Server represents the ServiceRadar MCP server instance.
 type MCPServer struct {
-	queryExecutor api.SRQLQueryExecutor
-	logger        logger.Logger
-	config        *MCPConfig
-	authService   auth.AuthService
-	ctx           context.Context
-	cancel        context.CancelFunc
-	tools         map[string]MCPTool
+    queryExecutor QueryExecutor
+    logger        logger.Logger
+    config        *MCPConfig
+    authService   auth.AuthService
+    ctx           context.Context
+    cancel        context.CancelFunc
+    tools         map[string]MCPTool
 }
 
 // Config holds configuration for the MCP server.
@@ -98,11 +97,11 @@ type MCPError struct {
 
 // NewMCPServer creates a new MCP server instance
 func NewMCPServer(
-	parentCtx context.Context,
-	queryExecutor api.SRQLQueryExecutor,
-	log logger.Logger,
-	config *MCPConfig,
-	authService auth.AuthService,
+    parentCtx context.Context,
+    queryExecutor QueryExecutor,
+    log logger.Logger,
+    config *MCPConfig,
+    authService auth.AuthService,
 ) *MCPServer {
 	ctx, cancel := context.WithCancel(parentCtx)
 

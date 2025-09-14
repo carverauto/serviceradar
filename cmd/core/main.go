@@ -56,7 +56,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	_ "github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -146,7 +145,6 @@ func run() error {
         api.WithQueryExecutor(server.DB),
         api.WithDBService(server.DB),
         api.WithDeviceRegistry(server.DeviceRegistry),
-        api.WithDatabaseType(parser.Proton),
         api.WithLogger(mainLogger),
     }
     // Provide RBAC config to API for route protection if configured

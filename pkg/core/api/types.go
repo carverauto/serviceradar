@@ -17,21 +17,19 @@
 package api
 
 import (
-	"context"
-	"encoding/json"
-	"sync"
-	"time"
+    "context"
+    "encoding/json"
+    "sync"
+    "time"
 
-	"github.com/gorilla/mux"
+    "github.com/gorilla/mux"
 
-	"github.com/carverauto/serviceradar/pkg/core/auth"
-	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/metrics"
-	"github.com/carverauto/serviceradar/pkg/metricstore"
-	"github.com/carverauto/serviceradar/pkg/models"
-	srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
-	"github.com/carverauto/serviceradar/pkg/srql/parser"
+    "github.com/carverauto/serviceradar/pkg/core/auth"
+    "github.com/carverauto/serviceradar/pkg/db"
+    "github.com/carverauto/serviceradar/pkg/logger"
+    "github.com/carverauto/serviceradar/pkg/metrics"
+    "github.com/carverauto/serviceradar/pkg/metricstore"
+    "github.com/carverauto/serviceradar/pkg/models"
 )
 
 type ServiceStatus struct {
@@ -92,8 +90,7 @@ type APIServer struct {
 	knownPollers         []string
 	authService          auth.AuthService
 	corsConfig           models.CORSConfig
-	dbType               parser.DatabaseType
-    entityTableMap       map[srqlmodels.EntityType]string
+    // SRQL has moved out of Go; SRQL-specific fields removed
     logger               logger.Logger
     // KV client settings for admin config writes/reads
     kvAddress            string

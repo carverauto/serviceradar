@@ -43,10 +43,8 @@ import (
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/metrics"
-	"github.com/carverauto/serviceradar/pkg/metricstore"
-	"github.com/carverauto/serviceradar/pkg/models"
-	srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
-	"github.com/carverauto/serviceradar/pkg/srql/parser"
+    "github.com/carverauto/serviceradar/pkg/metricstore"
+    "github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -62,12 +60,12 @@ var (
 
 // NewAPIServer creates a new API server instance with the given configuration
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
-	s := &APIServer{
-		pollers:     make(map[string]*PollerStatus),
-		router:      mux.NewRouter(),
-		corsConfig:  config,
-		kvEndpoints: make(map[string]*KVEndpoint),
-	}
+    s := &APIServer{
+        pollers:     make(map[string]*PollerStatus),
+        router:      mux.NewRouter(),
+        corsConfig:  config,
+        kvEndpoints: make(map[string]*KVEndpoint),
+    }
 
 	// Default kvPutFn dials KV and performs a Put
 	s.kvPutFn = func(ctx context.Context, key string, value []byte, ttl int64) error {
@@ -124,35 +122,9 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		return resp.Value, resp.Found, nil
 	}
 
-	// Initialize with default entity table mapping to match SRQL translator
-	defaultEntityTableMap := map[srqlmodels.EntityType]string{
-		srqlmodels.Devices:       "unified_devices",
-		srqlmodels.Flows:         "netflow_metrics",
-		srqlmodels.Traps:         "traps",
-		srqlmodels.Connections:   "connections",
-		srqlmodels.Logs:          "logs",
-		srqlmodels.Services:      "services",
-		srqlmodels.Interfaces:    "discovered_interfaces",
-		srqlmodels.SweepResults:  "unified_devices",
-		srqlmodels.DeviceUpdates: "device_updates",
-		srqlmodels.ICMPResults:   "icmp_results",
-		srqlmodels.SNMPResults:   "timeseries_metrics",
-		srqlmodels.Events:        "events",
-		srqlmodels.Pollers:       "pollers",
-		srqlmodels.CPUMetrics:    "cpu_metrics",
-		srqlmodels.DiskMetrics:   "disk_metrics",
-		srqlmodels.MemoryMetrics: "memory_metrics",
-		srqlmodels.SNMPMetrics:   "timeseries_metrics",
-		// OTEL entities
-		srqlmodels.OtelTraces:         "otel_traces",
-		srqlmodels.OtelMetrics:        "otel_metrics",
-		srqlmodels.OtelTraceSummaries: "otel_trace_summaries_final",
-	}
-	s.entityTableMap = defaultEntityTableMap
-
-	for _, o := range options {
-		o(s)
-	}
+    for _, o := range options {
+        o(s)
+    }
 
 	// If only single kvAddress configured and no endpoints registered, register a default 'local'
 	if s.kvAddress != "" && len(s.kvEndpoints) == 0 {
@@ -162,13 +134,6 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 	s.setupRoutes()
 
 	return s
-}
-
-// WithDatabaseType sets the database type for the API server
-func WithDatabaseType(dbType parser.DatabaseType) func(*APIServer) {
-	return func(server *APIServer) {
-		server.dbType = dbType
-	}
 }
 
 // WithQueryExecutor adds a query executor to the API server
@@ -291,9 +256,9 @@ func WithDeviceRegistry(dr DeviceRegistryService) func(server *APIServer) {
 }
 
 func WithLogger(log logger.Logger) func(server *APIServer) {
-	return func(server *APIServer) {
-		server.logger = log
-	}
+    return func(server *APIServer) {
+        server.logger = log
+    }
 }
 
 // setupRoutes configures the HTTP routes for the API server.
@@ -654,8 +619,7 @@ func (s *APIServer) setupAuthRoutes() {
 
 // setupWebSocketRoutes configures WebSocket routes with custom authentication.
 func (s *APIServer) setupWebSocketRoutes() {
-	// WebSocket streaming endpoint - bypasses middleware auth and handles auth internally
-	s.router.HandleFunc("/api/stream", s.handleStreamQuery).Methods("GET")
+    // SRQL WebSocket endpoint removed; SRQL moves to OCaml service
 }
 
 // setupProtectedRoutes configures protected API routes.
@@ -692,8 +656,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices/{id}/sysmon/memory", s.getDeviceSysmonMemoryMetrics).Methods("GET")
 	protected.HandleFunc("/devices/{id}/sysmon/processes", s.getDeviceSysmonProcessMetrics).Methods("GET")
 
-	// TODO: replace this with OCaml SRQL processor / endpoint
-	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
+    // SRQL HTTP endpoint removed; SRQL moves to OCaml service
 
 	// Device-centric endpoints
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
@@ -1555,8 +1518,8 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fallback to SRQL query
-	s.fallbackToSRQLQuery(ctx, w, params)
+    // Fallback to database listing if device registry unavailable or failed
+    s.fallbackToDBDeviceList(ctx, w, params)
 }
 
 // parseDeviceQueryParams extracts and validates query parameters for device listing
@@ -1599,11 +1562,11 @@ func parseDeviceQueryParams(r *http.Request) map[string]interface{} {
 // tryDeviceRegistryPath attempts to retrieve and process devices using the device registry
 // Returns true if successful, false if it needs to fall back to SRQL
 func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) bool {
-	devices, err := s.deviceRegistry.ListDevices(ctx, params["limit"].(int), params["offset"].(int))
-	if err != nil {
-		s.logger.Warn().Err(err).Msg("Device registry listing failed, falling back to SRQL")
-		return false
-	}
+    devices, err := s.deviceRegistry.ListDevices(ctx, params["limit"].(int), params["offset"].(int))
+    if err != nil {
+        s.logger.Warn().Err(err).Msg("Device registry listing failed; will use DB fallback")
+        return false
+    }
 
 	// Filter devices based on search and status parameters
 	filteredDevices := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
@@ -1616,7 +1579,7 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 	// Format and send the response
 	s.sendDeviceRegistryResponse(w, filteredDevices)
 
-	return true
+    return true
 }
 
 // sendDeviceRegistryResponse formats and sends the response for device registry path
@@ -1647,68 +1610,26 @@ func (s *APIServer) sendDeviceRegistryResponse(w http.ResponseWriter, devices []
 	}
 }
 
+// fallbackToDBDeviceList lists devices via the database service without SRQL
+func (s *APIServer) fallbackToDBDeviceList(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) {
+    if s.dbService == nil {
+        writeError(w, "Database not configured", http.StatusInternalServerError)
+        return
+    }
+
+    devices, err := s.dbService.ListUnifiedDevices(ctx, params["limit"].(int), params["offset"].(int))
+    if err != nil {
+        s.logger.Error().Err(err).Msg("Error listing devices from database")
+        writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
+        return
+    }
+
+    // Filter based on search/status to match registry path behavior
+    filtered := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
+    s.sendDeviceRegistryResponse(w, filtered)
+}
+
 // fallbackToSRQLQuery handles the SRQL query fallback path for device listing
-func (s *APIServer) fallbackToSRQLQuery(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) {
-	query := buildDeviceSRQLQuery(params)
-
-	// Execute the SRQL query
-	result, err := s.queryExecutor.ExecuteQuery(ctx, query)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Error executing devices query")
-		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
-
-		return
-	}
-
-	// Post-process device results (same as the /api/query endpoint)
-	if len(result) > 0 {
-		result = s.postProcessDeviceResults(result)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(result); err != nil {
-		s.logger.Error().Err(err).Msg("Error encoding devices response")
-		writeError(w, "Failed to encode response", http.StatusInternalServerError)
-	}
-}
-
-// buildDeviceSRQLQuery constructs an SRQL query for device listing based on parameters
-func buildDeviceSRQLQuery(params map[string]interface{}) string {
-	query := "SHOW DEVICES"
-
-	var whereClauses []string
-
-	// Add search filter
-	searchTerm := params["searchTerm"].(string)
-	if searchTerm != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("(ip LIKE '%%%s%%' OR hostname "+
-			"LIKE '%%%s%%' OR device_id LIKE '%%%s%%')",
-			searchTerm, searchTerm, searchTerm))
-	}
-
-	// Add status filter
-	status := params["status"].(string)
-	switch status {
-	case "online":
-		whereClauses = append(whereClauses, "is_available = true")
-	case "offline":
-		whereClauses = append(whereClauses, "is_available = false")
-	}
-
-	// Combine where clauses
-	if len(whereClauses) > 0 {
-		query += " WHERE " + strings.Join(whereClauses, " AND ")
-	}
-
-	// Add ordering
-	query += " ORDER BY last_seen DESC"
-
-	// Add limit
-	query += fmt.Sprintf(" LIMIT %d", params["limit"].(int))
-
-	return query
-}
 
 // @Summary Get specific device
 // @Description Retrieves details for a specific device by device ID
@@ -2027,29 +1948,4 @@ func (s *APIServer) RegisterMCPRoutes(mcpServer MCPRouteRegistrar) {
 }
 
 // ExecuteSRQLQuery executes an SRQL query and returns the results
-func (s *APIServer) ExecuteSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error) {
-	// Create a QueryRequest similar to the HTTP API
-	req := &QueryRequest{
-		Query: query,
-		Limit: limit,
-	}
-
-	// Validate the request
-	if errMsg, _, ok := validateQueryRequest(req); !ok {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidQueryRequest, errMsg)
-	}
-
-	// Prepare the query
-	parsedQuery, _, err := s.prepareQuery(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare query: %w", err)
-	}
-
-	// Execute the query and build response
-	response, err := s.executeQueryAndBuildResponse(ctx, parsedQuery, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
-
-	return response.Results, nil
-}
+// ExecuteSRQLQuery was removed; SRQL now lives outside Go API.

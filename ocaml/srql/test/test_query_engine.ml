@@ -21,7 +21,7 @@ let contains msg hay needle =
 
 let test_devices_today () =
   let sql = sql_of "in:devices name:server01 time:today" in
-  contains "from table" sql "from unified_devices";
+  contains "from table" sql "from table(unified_devices)";
   contains "time today to_date" sql "to_date(";
   contains "time today func" sql ") = today()";
   contains "hostname mapping" sql "hostname = 'server01'"
@@ -56,13 +56,13 @@ let () =
 
 let test_services_ports_timeframe () =
   let sql = sql_of "in:services port:(22,2222) timeFrame:\"7 Days\"" in
-  contains "services table" sql "from services";
+  contains "services table" sql "from table(services)";
   contains "port IN list" sql "port IN (22, 2222)";
   contains "7 days timeframe" sql "INTERVAL 7 DAY"
 
 let test_devices_nested_services_and_type () =
   let sql = sql_of "in:devices services:(name:(facebook)) type:MRIs timeFrame:\"7 Days\"" in
-  contains "devices table" sql "from unified_devices";
+  contains "devices table" sql "from table(unified_devices)";
   contains "service name flattened" sql "services_name = 'facebook'";
   contains "MRIs type equality" sql "type = 'MRIs'";
   contains "7 days timeframe" sql "INTERVAL 7 DAY"
@@ -70,7 +70,7 @@ let test_devices_nested_services_and_type () =
 let test_activity_connection_nested () =
   let q = "in:activity type:\"Connection Started\" connection:(from:(type:\"Mobile Phone\") direction:\"From > To\" to:(boundary:Corporate tag:Managed)) timeFrame:\"7 Days\"" in
   let sql = sql_of q in
-  contains "events alias" sql "from events";
+  contains "events alias" sql "from table(events)";
   contains "nested flatten 1" sql "connection_from_type = 'Mobile Phone'";
   contains "nested flatten 2" sql "connection_direction = 'From > To'";
   contains "boundary->partition alias" sql "connection_to_partition = 'Corporate'";
@@ -157,7 +157,7 @@ let test_devices_not_like_hostname () =
 
 let test_activity_like_nested_decision_host () =
   let sql = sql_of "in:activity decisionData:(host:(%ipinfo.%))" in
-  contains "events table" sql "from events";
+  contains "events table" sql "from table(events)";
   contains "nested LIKE" sql "decisionData_host LIKE '%ipinfo.%'"
 
 let test_activity_not_like_nested_decision_host () =
