@@ -1,5 +1,5 @@
 open Query_ast
-open Ast
+open Sql_ir
 
 let and_opt a b = match (a,b) with | (None, x) -> x | (x, None) -> x | (Some l, Some r) -> Some (And (l, r))
 
@@ -68,7 +68,7 @@ let parse_stats (s:string) : (string list * string list) =
   let bys = if by_part = "" then [] else by_part |> String.split_on_char ',' |> List.map String.trim |> List.filter ((<>) "") in
   (aggs, bys)
 
-let parse_having (s:string) : Ast.condition option =
+let parse_having (s:string) : Sql_ir.condition option =
   (* supports simple patterns like count()>10, avg(field)>=1.5, sum(bytes)<1000 *)
   let ops = [ (">=", Gte); ("<=", Lte); ("!=", Neq); (">", Gt); ("<", Lt); ("=", Eq) ] in
   let rec find_op = function
@@ -86,12 +86,18 @@ let parse_having (s:string) : Ast.condition option =
       Some (Condition (lhs, op, v))
 
 let condition_of_filter = function
-  | AttributeFilter (k, op, v) -> Some (Condition (k, op, v))
+  | AttributeFilter (k, op, v) ->
+      (match v, op with
+       | String s, Eq when String.contains s '%' -> Some (Condition (k, Like, v))
+       | String s, Neq when String.contains s '%' -> Some (Not (Condition (k, Like, v)))
+       | _ -> Some (Condition (k, op, v)))
+  | AttributeListFilter (k, vs) -> Some (InList (k, vs))
+  | AttributeListFilterNot (k, vs) -> Some (Not (InList (k, vs)))
   | ObservableFilter (_k, _v) -> None (* not handled here yet *)
   | TimeFilter _ -> None
   | TextSearch _ -> None
 
-let plan_to_srql (q:query_spec) : Ast.query option =
+let plan_to_srql (q:query_spec) : Sql_ir.query option =
   (* Support: in:<single entity> + attribute filters + optional limit + sort -> SRQL SELECT *)
   let entity =
     match q.targets with
@@ -101,9 +107,18 @@ let plan_to_srql (q:query_spec) : Ast.query option =
   match entity with
   | None -> None
   | Some ent ->
+      (* entity aliases *)
+      let ent = let le = String.lowercase_ascii ent in if le = "activity" then "events" else ent in
       (* attribute key mapping (friendly -> internal); minimal for now *)
       let map_key k =
-        let kl = String.lowercase_ascii k in
+        let kl0 = String.lowercase_ascii k in
+        (* boundary alias -> partition, including nested suffixes like ".boundary" *)
+        let kl =
+          if kl0 = "boundary" then "partition"
+          else if String.length kl0 > 9 && String.sub kl0 (String.length kl0 - 9) 9 = ".boundary" then
+            (String.sub kl0 0 (String.length kl0 - 9)) ^ ".partition"
+          else kl0
+        in
         match String.lowercase_ascii ent, kl with
         | "logs", ("service" | "service.name") -> "service"
         | "logs", ("endpoint.hostname") -> "endpoint_hostname"
@@ -112,16 +127,20 @@ let plan_to_srql (q:query_spec) : Ast.query option =
         | "devices", ("device.mac") -> "mac"
         | "devices", ("device.os.name") -> "device_os_name"
         | "devices", ("device.os.version") -> "device_os_version"
+        | "devices", ("partition" | "device.partition" | "device_partition") -> "partition"
         | "connections", ("src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol") -> kl
         | "flows", ("src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol" | "bytes" | "packets") -> kl
         | _ -> kl
       in
-      (* build combined conditions *)
+      (* build combined conditions using condition_of_filter and key mapping *)
       let attr_conds =
         q.filters
-        |> List.filter_map (function
-              | AttributeFilter (k, op, v) -> Some (Condition (map_key k, op, v))
-              | _ -> None)
+        |> List.filter_map (fun f ->
+            match f with
+            | AttributeFilter (k, op, v) -> condition_of_filter (AttributeFilter (map_key k, op, v))
+            | AttributeListFilter (k, vs) -> condition_of_filter (AttributeListFilter (map_key k, vs))
+            | AttributeListFilterNot (k, vs) -> condition_of_filter (AttributeListFilterNot (map_key k, vs))
+            | _ -> None)
       in
       let cond =
         attr_conds

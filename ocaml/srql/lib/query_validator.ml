@@ -1,4 +1,4 @@
-open Ast
+open Sql_ir
 
 let lc = String.lowercase_ascii
 let trim = String.trim

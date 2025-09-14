@@ -1,5 +1,5 @@
 (* file: srql/lib/translator.ml *)
-open Ast
+open Sql_ir
 
 let lc = String.lowercase_ascii
 let trim = String.trim
@@ -60,6 +60,11 @@ let map_field_name ~entity (field:string) : string =
         | "src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol"
         | "bytes" | "bytes_in" | "bytes_out" | "packets" | "packets_in" | "packets_out" | "direction" -> f
         | _ -> f)
+    | "events" -> (
+        match f with
+        | _ when String.contains f '.' -> String.map (fun c -> if c='.' then '_' else c) f
+        | _ -> f
+      )
     | "otel_traces" -> (match f with
         | "trace" -> "trace_id" | "span" -> "span_id" | "service" -> "service_name"
         | "name" -> "name" | "kind" -> "kind"
@@ -217,7 +222,7 @@ let translate_query (q : query) : string =
       in
       let order_clause = match q.order_by with
         | Some lst when lst <> [] ->
-            let part (f, d) = (map_field_name ~entity:q.entity f) ^ (match d with Ast.Asc -> " ASC" | Ast.Desc -> " DESC") in
+            let part (f, d) = (map_field_name ~entity:q.entity f) ^ (match d with Sql_ir.Asc -> " ASC" | Sql_ir.Desc -> " DESC") in
             " ORDER BY " ^ (String.concat ", " (List.map part lst))
         | _ -> ""
       in
@@ -260,7 +265,7 @@ let translate_query (q : query) : string =
         in
         let order_clause = match q.order_by with
           | Some lst when lst <> [] ->
-              let part (f, d) = (map_field_name ~entity:q.entity f) ^ (match d with Ast.Asc -> " ASC" | Ast.Desc -> " DESC") in
+              let part (f, d) = (map_field_name ~entity:q.entity f) ^ (match d with Sql_ir.Asc -> " ASC" | Sql_ir.Desc -> " DESC") in
               " ORDER BY " ^ (String.concat ", " (List.map part lst))
           | _ -> ""
         in
@@ -270,16 +275,4 @@ let translate_query (q : query) : string =
         in
         select_clause ^ from_clause ^ where_clause ^ group_clause ^ having_clause ^ order_clause ^ limit_clause
 
-
-
-(* The main function exposed to the web server *)
-let process_srql_string (query_str : string) : (string, string) result =
-  try
-    let lexbuf = Lexing.from_string query_str in
-    let ast = Parser.query Lexer.token lexbuf in
-    let sql = translate_query ast in
-    Ok sql
-  with
-  | Lexer.Error msg -> Error (Printf.sprintf "Lexing error: %s" msg)
-  | Parser.Error -> Error (Printf.sprintf "Syntax error near character %d" (Lexing.lexeme_start (Lexing.from_string query_str)))
-  | ex -> Error (Printf.sprintf "An unexpected error occurred: %s" (Printexc.to_string ex))
+(* Legacy SRQL parsing has been removed from the library build. *)

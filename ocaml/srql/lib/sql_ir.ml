@@ -1,4 +1,4 @@
-(* file: srql/lib/ast.ml *)
+(* file: srql/lib/sql_ir.ml *)
 type operator =
   | Eq | Neq | Gt | Gte | Lt | Lte | Contains | In | Like | ArrayContains
   [@@deriving show] (* This line auto-generates a print function for debugging *)
