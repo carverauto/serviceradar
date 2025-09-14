@@ -61,3 +61,20 @@ let needs_default_discovery_filter entity =
 let needs_snmp_filter entity =
   let entity_lower = String.lowercase_ascii entity in
   entity_lower = "snmp_results" || entity_lower = "snmp_metrics"
+
+(* Primary key mapping for LATEST on non-versioned_kv streams *)
+let primary_key_map : (string * string) list = [
+  ("interfaces", "device_ip, ifIndex");
+  ("pollers", "poller_id");
+  ("cpu_metrics", "device_id, core_id");
+  ("disk_metrics", "device_id, mount_point");
+  ("memory_metrics", "device_id");
+  ("process_metrics", "device_id, pid");
+  ("flows", "flow_id");
+]
+
+let get_primary_key entity : string option =
+  let e = String.lowercase_ascii entity in
+  match List.assoc_opt e primary_key_map with
+  | Some k -> Some k
+  | None -> None

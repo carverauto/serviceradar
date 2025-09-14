@@ -136,19 +136,59 @@ end
 
 (* SRQL-specific query execution *)
 module SRQL = struct
-  let translate_and_execute client srql_query =
-    (* Parse SRQL query *)
-    let lexbuf = Lexing.from_string srql_query in
-    let ast = Parser.query Lexer.token lexbuf in
-    
-    (* Translate to SQL using existing translator *)
-    let sql = Translator.translate_query ast in
-    
-    (* Execute the SQL query *)
-    Client.execute client sql
+  (* ASQ-aligned SRQL parsing to SQL *)
+  let parse_to_ast (query_str:string) : Sql_ir.query =
+    let qspec = Query_parser.parse query_str in
+    match Query_planner.plan_to_srql qspec with
+    | Some ast -> (match Query_validator.validate ast with Ok () -> ast | Error msg -> failwith msg)
+    | None -> failwith "Query planning failed: please provide in:<entity> and attribute filters"
 
   let translate_to_sql srql_query =
-    let lexbuf = Lexing.from_string srql_query in
-    let ast = Parser.query Lexer.token lexbuf in
-    Translator.translate_query ast
+    let ast = parse_to_ast srql_query in
+    let base_sql = Translator.translate_query ast in
+    (* Proton requires FROM table(<name>) for snapshot semantics in many cases. 
+       Wrap FROM target with table(...) if not already present. *)
+    let lsql = String.lowercase_ascii base_sql in
+    let contains s sub =
+      let len_s = String.length s and len_sub = String.length sub in
+      let rec loop i = if i + len_sub > len_s then false else if String.sub s i len_sub = sub then true else loop (i+1) in
+      loop 0
+    in
+    let has_from = contains lsql " from " in
+    let has_table_wrapper = contains lsql " from table(" in
+    if (not has_from) || has_table_wrapper then base_sql
+    else (
+      try
+        let lfrom = " from " in
+        let idx_from =
+          let rec find_from i =
+            if i >= String.length lsql then raise Not_found
+            else if String.sub lsql i (String.length lfrom) = lfrom then i
+            else find_from (i+1)
+          in find_from 0
+        in
+        let start_tbl = idx_from + String.length lfrom in
+        let rec skip_spaces j = if j < String.length lsql && lsql.[j] = ' ' then skip_spaces (j+1) else j in
+        let tbl_start = skip_spaces start_tbl in
+        let keywords = [" where "; " limit "; " group "; " order "; " settings "; " union "] in
+        let next_kw_pos =
+          List.filter_map (fun kw ->
+            let rec find i =
+              if i >= String.length lsql then None
+              else if String.sub lsql i (String.length kw) = kw then Some i
+              else find (i+1)
+            in find tbl_start
+          ) keywords |> List.sort compare |> (function | x::_ -> x | [] -> String.length lsql)
+        in
+        let tbl_end = next_kw_pos in
+        let before = String.sub base_sql 0 tbl_start in
+        let tbl = String.sub base_sql tbl_start (tbl_end - tbl_start) |> String.trim in
+        let after = String.sub base_sql tbl_end (String.length base_sql - tbl_end) in
+        before ^ "table(" ^ tbl ^ ")" ^ after
+      with _ -> base_sql
+    )
+
+  let translate_and_execute client srql_query =
+    let sql = translate_to_sql srql_query in
+    Client.execute client sql
 end

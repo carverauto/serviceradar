@@ -341,10 +341,8 @@ func TestNewArmisIntegration(t *testing.T) {
 				assert.NotNil(t, integration.Updater)
 			}
 
-			// Check if SRQL querier is set when API credentials are provided
-			if tt.config.Credentials["api_key"] != "" {
-				assert.NotNil(t, integration.SweepQuerier)
-			}
+            // SRQL querier removed from Go implementation
+            assert.Nil(t, integration.SweepQuerier)
 		})
 	}
 }
@@ -360,44 +358,40 @@ func TestNewNetboxIntegration(t *testing.T) {
 
 	serverName := testServer
 
-	tests := []struct {
-		name               string
-		config             *models.SourceConfig
-		expectSweepQuerier bool
-	}{
-		{
-			name: "default configuration",
-			config: &models.SourceConfig{
-				Type:        integrationTypeNetbox,
-				AgentID:     "test-agent",
-				Credentials: map[string]string{},
-			},
-			expectSweepQuerier: false,
-		},
-		{
-			name: "with ServiceRadar API credentials",
-			config: &models.SourceConfig{
-				Type:    integrationTypeNetbox,
-				AgentID: "test-agent",
-				Credentials: map[string]string{
-					"api_key":               "test-key",
-					"serviceradar_endpoint": "http://localhost:8080",
-				},
-			},
-			expectSweepQuerier: true,
-		},
-		{
-			name: "with API key but no endpoint (uses default)",
-			config: &models.SourceConfig{
-				Type:    integrationTypeNetbox,
-				AgentID: "test-agent",
-				Credentials: map[string]string{
-					"api_key": "test-key",
-				},
-			},
-			expectSweepQuerier: true,
-		},
-	}
+    tests := []struct {
+        name   string
+        config *models.SourceConfig
+    }{
+        {
+            name: "default configuration",
+            config: &models.SourceConfig{
+                Type:        integrationTypeNetbox,
+                AgentID:     "test-agent",
+                Credentials: map[string]string{},
+            },
+        },
+        {
+            name: "with ServiceRadar API credentials",
+            config: &models.SourceConfig{
+                Type:    integrationTypeNetbox,
+                AgentID: "test-agent",
+                Credentials: map[string]string{
+                    "api_key":               "test-key",
+                    "serviceradar_endpoint": "http://localhost:8080",
+                },
+            },
+        },
+        {
+            name: "with API key but no endpoint (uses default)",
+            config: &models.SourceConfig{
+                Type:    integrationTypeNetbox,
+                AgentID: "test-agent",
+                Credentials: map[string]string{
+                    "api_key": "test-key",
+                },
+            },
+        },
+    }
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -411,13 +405,10 @@ func TestNewNetboxIntegration(t *testing.T) {
 			assert.Equal(t, serverName, integration.ServerName)
 			assert.False(t, integration.ExpandSubnets, "ExpandSubnets should always be false in NewNetboxIntegration")
 
-			if tt.expectSweepQuerier {
-				assert.NotNil(t, integration.Querier)
-			} else {
-				assert.Nil(t, integration.Querier)
-			}
-		})
-	}
+            // SRQL querier removed from Go implementation
+            assert.Nil(t, integration.Querier)
+        })
+    }
 }
 
 func TestNetboxIntegrationFactory(t *testing.T) {
@@ -468,72 +459,7 @@ func TestNetboxIntegrationFactory(t *testing.T) {
 	})
 }
 
-func TestArmisDeviceStateAdapter(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	querier := NewMockSRQLQuerier(ctrl)
-	adapter := &armisDeviceStateAdapter{querier: querier}
-
-	ctx := context.Background()
-	source := "test-source"
-
-	deviceStates := []DeviceState{
-		{
-			DeviceID:    "device1",
-			IP:          "192.168.1.1",
-			IsAvailable: true,
-			Metadata:    map[string]interface{}{"key": "value"},
-		},
-		{
-			DeviceID:    "device2",
-			IP:          "192.168.1.2",
-			IsAvailable: false,
-			Metadata:    map[string]interface{}{"key2": "value2"},
-		},
-	}
-
-	querier.EXPECT().GetDeviceStatesBySource(ctx, source).Return(deviceStates, nil)
-
-	result, err := adapter.GetDeviceStatesBySource(ctx, source)
-
-	require.NoError(t, err)
-	assert.Len(t, result, 2)
-	assert.Equal(t, "device1", result[0].DeviceID)
-	assert.Equal(t, "192.168.1.1", result[0].IP)
-	assert.True(t, result[0].IsAvailable)
-	assert.Equal(t, map[string]interface{}{"key": "value"}, result[0].Metadata)
-}
-
-func TestNetboxDeviceStateAdapter(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	querier := NewMockSRQLQuerier(ctrl)
-	adapter := &netboxDeviceStateAdapter{querier: querier}
-
-	ctx := context.Background()
-	source := "test-source"
-
-	deviceStates := []DeviceState{
-		{
-			DeviceID:    "device1",
-			IP:          "192.168.1.1",
-			IsAvailable: true,
-			Metadata:    map[string]interface{}{"key": "value"},
-		},
-	}
-
-	querier.EXPECT().GetDeviceStatesBySource(ctx, source).Return(deviceStates, nil)
-
-	result, err := adapter.GetDeviceStatesBySource(ctx, source)
-
-	require.NoError(t, err)
-	assert.Len(t, result, 1)
-	assert.Equal(t, "device1", result[0].DeviceID)
-	assert.Equal(t, "192.168.1.1", result[0].IP)
-	assert.True(t, result[0].IsAvailable)
-}
+// SRQL adapters removed from Go implementation; related adapter tests deleted.
 
 func TestCreateSimpleSyncService(t *testing.T) {
 	ctrl := gomock.NewController(t)

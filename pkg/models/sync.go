@@ -11,7 +11,7 @@ type SourceConfig struct {
 	Credentials        map[string]string `json:"credentials"`            // e.g., {"api_key": "xyz"}
 	Prefix             string            `json:"prefix"`                 // KV key prefix, e.g., "armis/"
 	InsecureSkipVerify bool              `json:"insecure_skip_verify"`   // For TLS connections
-	Queries            []QueryConfig     `json:"queries"`                // List of AQL/ASQ queries
+    Queries            []QueryConfig     `json:"queries"`                // List of queries
 	CustomField        string            `json:"custom_field,omitempty"` // Custom field for additional metadata
 
 	// AgentID and PollerID allow assigning discovered devices to specific
@@ -38,10 +38,10 @@ type SourceConfig struct {
 	BatchSize int `json:"batch_size,omitempty"`
 }
 
-// QueryConfig represents a single labeled AQL/ASQ query.
+// QueryConfig represents a single labeled query.
 type QueryConfig struct {
 	Label      string      `json:"label"`       // Name or description of the query
-	Query      string      `json:"query"`       // The AQL/ASQ query string
+    Query      string      `json:"query"`       // The query string
 	SweepModes []SweepMode `json:"sweep_modes"` // Sweep modes to apply to devices from this query
 }
 
