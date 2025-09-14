@@ -136,20 +136,15 @@ end
 
 (* SRQL-specific query execution *)
 module SRQL = struct
-  let translate_and_execute client srql_query =
-    (* Parse SRQL query *)
-    let lexbuf = Lexing.from_string srql_query in
-    let ast = Parser.query Lexer.token lexbuf in
-    
-    (* Translate to SQL using existing translator *)
-    let sql = Translator.translate_query ast in
-    
-    (* Execute the SQL query *)
-    Client.execute client sql
+  (* ASQ-aligned SRQL parsing to SQL *)
+  let parse_to_ast (query_str:string) : Sql_ir.query =
+    let qspec = Query_parser.parse query_str in
+    match Query_planner.plan_to_srql qspec with
+    | Some ast -> (match Query_validator.validate ast with Ok () -> ast | Error msg -> failwith msg)
+    | None -> failwith "Query planning failed: please provide in:<entity> and attribute filters"
 
   let translate_to_sql srql_query =
-    let lexbuf = Lexing.from_string srql_query in
-    let ast = Parser.query Lexer.token lexbuf in
+    let ast = parse_to_ast srql_query in
     let base_sql = Translator.translate_query ast in
     (* Proton requires FROM table(<name>) for snapshot semantics in many cases. 
        Wrap FROM target with table(...) if not already present. *)
@@ -163,7 +158,6 @@ module SRQL = struct
     let has_table_wrapper = contains lsql " from table(" in
     if (not has_from) || has_table_wrapper then base_sql
     else (
-      (* Find the table identifier after FROM and wrap it with table(...) until next keyword *)
       try
         let lfrom = " from " in
         let idx_from =
@@ -193,4 +187,8 @@ module SRQL = struct
         before ^ "table(" ^ tbl ^ ")" ^ after
       with _ -> base_sql
     )
+
+  let translate_and_execute client srql_query =
+    let sql = translate_to_sql srql_query in
+    Client.execute client sql
 end

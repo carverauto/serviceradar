@@ -17,21 +17,25 @@ let getenv_int name default =
   | Some v -> (try int_of_string (String.trim v) with _ -> default)
   | None -> default
 
+let is_raw_sql s =
+  let ls = String.lowercase_ascii (String.trim s) in
+  let starts_with pref = let lp = String.length pref in String.length ls >= lp && String.sub ls 0 lp = pref in
+  starts_with "select " || starts_with "show " || starts_with "with " || starts_with "describe " || starts_with "explain "
+
 let () =
-  (* Parse CLI flags; support --stream and SRQL as remaining args *)
+  (* Parse CLI flags; support --stream and query as remaining args *)
   let args = Array.to_list Sys.argv |> List.tl in
-  let streaming_cli = List.exists (fun a -> a = "--stream") args in
-  let _ = streaming_cli in
-  let srql_args = List.filter (fun a -> a <> "--stream") args in
-  let srql =
-    match srql_args with
-    | [] -> "SHOW devices LIMIT 10"
-    | _ -> String.concat " " srql_args
+  let _streaming_cli = List.exists (fun a -> a = "--stream") args in
+  let query_args = List.filter (fun a -> a <> "--stream") args in
+  let query =
+    match query_args with
+    | [] -> "in:devices limit:10"
+    | _ -> String.concat " " query_args
   in
 
-  Printf.printf "Live SRQL Runner\n";
-  Printf.printf "=================\n\n";
-  Printf.printf "SRQL: %s\n" srql;
+  Printf.printf "Live SRQL Runner (ASQ-aligned)\n";
+  Printf.printf "=================================\n\n";
+  Printf.printf "Query: %s\n" query;
 
   (* Build config from environment *)
   let host = getenv "PROTON_HOST" "localhost" in
@@ -70,7 +74,9 @@ let () =
     host port use_tls database username (match compression with None -> "none" | Some _ -> "lz4");
 
   let run_native_once cfg =
-    let original_sql = Srql_translator.Proton_client.SRQL.translate_to_sql srql in
+    let original_sql =
+      if is_raw_sql query then query else Srql_translator.Proton_client.SRQL.translate_to_sql query
+    in
       (* Boundedness control: SRQL_BOUNDED=bounded|unbounded|auto (default auto) *)
       let bounded_mode = getenv "SRQL_BOUNDED" "auto" |> String.lowercase_ascii in
       let contains s sub =
@@ -131,12 +137,6 @@ let () =
       let has_from = contains lsql " from " in
       let has_table_wrapper = contains lsql " from table(" in
       let has_limit = contains lsql " limit " in
-      (* TODO(srql-aggregates): Treat scalar aggregates as bounded.
-         - Current heuristic only detects COUNT without GROUP BY.
-         - Extend to SUM/AVG/MIN/MAX single-row aggregates.
-         - Consider auto-wrapping FROM with table(<tbl>) for snapshot semantics when no LIMIT.
-         - Centralize boundedness via a flag from translator to client (see ocaml/srql/REMAINING_WORK.md §2.1).
-      *)
       let has_group_by = contains lsql " group by " in
       let is_simple_count = (contains lsql "select count()") || (contains lsql "select count(*)") in
       let is_scalar_aggregate = is_simple_count && (not has_group_by) in
@@ -233,68 +233,19 @@ let () =
              match (lt, v) with
              | ("bool", Proton.Column.UInt32 i) -> if Int32.to_int i = 0 then "false" else "true"
              | ("bool", Proton.Column.Int32 i) -> if Int32.to_int i = 0 then "false" else "true"
-             | (lt, Proton.Column.DateTime (ts, tz)) when String.length lt >= 8 && String.sub lt 0 8 = "datetime" ->
-                 iso8601_of_datetime ts tz
-             | (lt, Proton.Column.DateTime64 (v, p, tz)) when String.length lt >= 10 && String.sub lt 0 10 = "datetime64" ->
-                 iso8601_of_datetime64 v p tz
+             | (lt, Proton.Column.DateTime (ts, tz)) when String.length lt >= 8 && String.sub lt 0 8 = "datetime" -> iso8601_of_datetime ts tz
+             | (lt, Proton.Column.DateTime64 (v, p, tz)) when String.length lt >= 10 && String.sub lt 0 10 = "datetime64" -> iso8601_of_datetime64 v p tz
              | (_, other) -> Proton.Column.value_to_string other
            in
-           let row_count = List.length rows in
            let col_count = List.length columns in
            Printf.printf "Columns (%d): " col_count;
            List.iter (fun (name, typ) -> Printf.printf "%s:%s " name typ) columns;
-           Printf.printf "\nRows (%d):\n" row_count;
-           let max_show = min 10 row_count in
-           let rec take n xs = match (n, xs) with 0, _ -> [] | _, [] -> [] | n, x::tl -> x :: take (n-1) tl in
-           let to_show = take max_show rows in
-           List.iteri (fun i row ->
-             let values =
-               List.map2 (fun (_, typ) v -> pretty_value typ v) columns row
-             in
-             Printf.printf "  %02d | %s\n" (i+1) (String.concat " | " values)
-           ) to_show;
-           if row_count > max_show then
-             Printf.printf "... and %d more\n" (row_count - max_show);
-            Lwt.return_unit)
-    )
+           Printf.printf "\n";
+           List.iter (fun row ->
+             let values = List.map2 (fun (_, typ) v -> pretty_value typ v) columns row in
+             Printf.printf "%s\n" (String.concat " | " values)) rows;
+           Lwt.return_unit)
+      )
   in
+  Lwt_main.run (run_native_once config)
 
-  let run_native () =
-    let try_no_compression =
-      match compression with
-      | None -> false
-      | Some _ -> true
-    in
-    let cfg_no_compress = if try_no_compression then { config with compression = None } else config in
-    let try_non_tls = config.use_tls in
-    let cfg_non_tls = if try_non_tls then { config with use_tls = false; port = (getenv_int "PROTON_PORT_PLAIN" 8463) } else config in
-
-    let rec try_steps = function
-      | [] -> Lwt.fail_with "All native attempts failed"
-      | (label, cfg) :: rest ->
-          (if label <> "initial" then Printf.printf "%s...\n" label);
-          Lwt.catch
-            (fun () -> run_native_once cfg)
-            (fun e ->
-              Printf.printf "Attempt failed: %s\n" (Printexc.to_string e);
-              try_steps rest)
-    in
-    let steps =
-      let base = [ ("initial", config) ] in
-      let base = if try_no_compression then base @ [ ("Retrying native without compression", cfg_no_compress) ] else base in
-      let base = if try_non_tls then base @ [ (Printf.sprintf "Retrying native without TLS on port %d" cfg_non_tls.port, cfg_non_tls) ] else base in
-      base
-    in
-    try_steps steps
-  in
-
-  let run () =
-    Lwt.catch
-      (fun () -> run_native ())
-      (fun e ->
-        Printf.printf "Native protocol failed: %s\n" (Printexc.to_string e);
-        Lwt.fail e)
-  in
-
-  match Lwt.catch run (fun e -> Printf.printf "Error: %s\n" (Printexc.to_string e); Lwt.return_unit) |> Lwt_main.run with
-  | () -> ()

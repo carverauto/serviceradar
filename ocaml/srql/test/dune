@@ -5,3 +5,8 @@
 (test
  (name test_query_engine)
  (libraries srql_translator alcotest))
+
+(executable
+ (name run_live_srql)
+ (modules run_live_srql)
+ (libraries srql_translator lwt lwt.unix))
