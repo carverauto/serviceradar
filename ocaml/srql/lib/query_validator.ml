@@ -69,14 +69,17 @@ let validate_having ~(having:condition) ~(select_fields:string list) ~(group_by:
     Error (Printf.sprintf "Invalid HAVING reference '%s'. %s" lhs available)
 
 let validate (q:query) : (unit, string) result =
-  match q.select_fields, q.group_by with
-  | Some fs, Some gb when fs <> ["*"] -> (
-      match validate_select_vs_group_by ~select_fields:fs ~group_by:gb with
-      | Error e -> Error e
-      | Ok () -> (
-          match q.having with
-          | None -> Ok ()
-          | Some h -> validate_having ~having:h ~select_fields:fs ~group_by:gb
-        )
-    )
+  (* Validate SELECT vs GROUP BY when both present *)
+  let res =
+    match q.select_fields, q.group_by with
+    | Some fs, Some gb when fs <> ["*"] -> validate_select_vs_group_by ~select_fields:fs ~group_by:gb
+    | _ -> Ok ()
+  in
+  match res, q.having, q.select_fields, q.group_by with
+  | Error e, _, _, _ -> Error e
+  | Ok (), None, _, _ -> Ok ()
+  | Ok (), Some h, Some fs, Some gb -> validate_having ~having:h ~select_fields:fs ~group_by:gb
+  | Ok (), Some h, Some fs, None ->
+      (* Even without GROUP BY, HAVING must reference aggregates or aliases from SELECT *)
+      validate_having ~having:h ~select_fields:fs ~group_by:[]
   | _ -> Ok ()
