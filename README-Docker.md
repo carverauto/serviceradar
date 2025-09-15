@@ -45,6 +45,23 @@ Run the included test script:
 - **Full documentation**: See [Docker Setup Guide](docs/docs/docker-setup.md)
 - **Security**: Change your admin password after first login
 
+## Optional: Enable APISIX Gateway (Nginx front door)
+
+Enable APISIX (standalone mode) as an internal API gateway while keeping Nginx on port 80.
+
+1. Switch Core to RS256 in `core.json` (auth section) and restart core.
+2. Start APISIX profile:
+   ```bash
+   docker-compose --profile apisix up -d apisix
+   ```
+3. Access the app via Nginx: `http://localhost`.
+   - Nginx proxies `/api/*` internally to APISIX for JWT validation.
+   - `/auth/*` remains public and proxied directly to Core for local auth and OAuth (goth).
+4. Validate end-to-end:
+   ```bash
+   ./scripts/test-apisix.sh
+   ```
+
 ## Common Commands
 
 ```bash

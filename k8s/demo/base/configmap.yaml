@@ -4,6 +4,69 @@ kind: ConfigMap
 metadata:
   name: serviceradar-config
 data:
+  nginx.conf: |
+    # ServiceRadar Web Interface - Nginx (Kubernetes)
+    server {
+      listen 80;
+      server_name _;
+
+      client_max_body_size 100M;
+
+      # Static assets
+      location /_next/ {
+        proxy_pass http://serviceradar-web:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      # Next.js API routes (keep hitting web)
+      location ~ ^/api/(auth|nodes|status|pollers|devices|mcp) {
+        proxy_pass http://serviceradar-web:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      # Swagger/UI (direct to core)
+      location /swagger/ {
+        proxy_pass http://serviceradar-core:8090;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+      location = /api-docs { proxy_pass http://serviceradar-core:8090; }
+
+      # Backend API (protect via APISIX)
+      location /api/ {
+        proxy_pass http://serviceradar-apisix:9080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      # Auth is public, direct to core
+      location /auth/ {
+        proxy_pass http://serviceradar-core:8090;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      # Main app
+      location / {
+        proxy_pass http://serviceradar-web:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+    }
   core.json: |
     {
       "listen_addr": ":8090",

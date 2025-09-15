@@ -17,12 +17,15 @@
 package auth
 
 import (
-	"fmt"
-	"time"
+    "fmt"
+    "time"
+    "crypto/rsa"
+    "crypto/x509"
+    "encoding/pem"
 
-	"github.com/golang-jwt/jwt/v4"
+    "github.com/golang-jwt/jwt/v4"
 
-	"github.com/carverauto/serviceradar/pkg/models"
+    "github.com/carverauto/serviceradar/pkg/models"
 )
 
 type Claims struct {
@@ -51,9 +54,8 @@ func GenerateJWT(user *models.User, secret string, expiration time.Duration) (st
 
 	fmt.Printf("DEBUG: GenerateJWT - Claims Roles: %+v\n", claims.Roles)
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	return token.SignedString([]byte(secret))
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    return token.SignedString([]byte(secret))
 }
 
 func ParseJWT(tokenString, secret string) (*Claims, error) {
@@ -72,19 +74,145 @@ func ParseJWT(tokenString, secret string) (*Claims, error) {
 }
 
 func GenerateTokenPair(user *models.User, config *models.AuthConfig) (*models.Token, error) {
-	accessToken, err := GenerateJWT(user, config.JWTSecret, config.JWTExpiration)
-	if err != nil {
-		return nil, err
-	}
+    accessToken, err := GenerateJWTConfig(user, config, config.JWTExpiration)
+    if err != nil {
+        return nil, err
+    }
 
-	refreshToken, err := GenerateJWT(user, config.JWTSecret, 7*24*time.Hour) // 1 week refresh token
-	if err != nil {
-		return nil, err
-	}
+    refreshToken, err := GenerateJWTConfig(user, config, 7*24*time.Hour) // 1 week refresh token
+    if err != nil {
+        return nil, err
+    }
 
 	return &models.Token{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ExpiresAt:    time.Now().Add(config.JWTExpiration),
 	}, nil
+}
+
+// GenerateJWTConfig generates a JWT using the configured algorithm.
+func GenerateJWTConfig(user *models.User, cfg *models.AuthConfig, expiration time.Duration) (string, error) {
+    if cfg == nil || cfg.JWTAlgorithm == "" || cfg.JWTAlgorithm == "HS256" {
+        return GenerateJWT(user, cfg.JWTSecret, expiration)
+    }
+
+    // Build claims
+    claims := Claims{
+        UserID:   user.ID,
+        Email:    user.Email,
+        Provider: user.Provider,
+        Roles:    user.Roles,
+        RegisteredClaims: jwt.RegisteredClaims{
+            ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiration)),
+            IssuedAt:  jwt.NewNumericDate(time.Now()),
+        },
+    }
+
+    switch cfg.JWTAlgorithm {
+    case "RS256":
+        priv, kid, err := parseRSAPrivateKey(cfg.JWTPrivateKeyPEM, cfg.JWTKeyID)
+        if err != nil {
+            return "", err
+        }
+        token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+        if kid != "" {
+            token.Header["kid"] = kid
+        }
+        return token.SignedString(priv)
+    default:
+        return "", fmt.Errorf("unsupported JWT algorithm: %s", cfg.JWTAlgorithm)
+    }
+}
+
+// ParseJWTConfig verifies a JWT using the configured algorithm.
+func ParseJWTConfig(tokenString string, cfg *models.AuthConfig) (*Claims, error) {
+    if cfg == nil || cfg.JWTAlgorithm == "" || cfg.JWTAlgorithm == "HS256" {
+        return ParseJWT(tokenString, cfg.JWTSecret)
+    }
+
+    switch cfg.JWTAlgorithm {
+    case "RS256":
+        // Prefer public key PEM if provided, otherwise derive from private key
+        var pubKey *rsa.PublicKey
+        if cfg.JWTPublicKeyPEM != "" {
+            pk, err := parseRSAPublicKey(cfg.JWTPublicKeyPEM)
+            if err != nil {
+                return nil, err
+            }
+            pubKey = pk
+        } else {
+            priv, _, err := parseRSAPrivateKey(cfg.JWTPrivateKeyPEM, cfg.JWTKeyID)
+            if err != nil {
+                return nil, err
+            }
+            pubKey = &priv.PublicKey
+        }
+        token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+            if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+                return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+            }
+            return pubKey, nil
+        })
+        if err != nil {
+            return nil, err
+        }
+        if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+            return claims, nil
+        }
+        return nil, jwt.ErrSignatureInvalid
+    default:
+        return nil, fmt.Errorf("unsupported JWT algorithm: %s", cfg.JWTAlgorithm)
+    }
+}
+
+func parseRSAPrivateKey(pemStr, kid string) (*rsa.PrivateKey, string, error) {
+    if pemStr == "" {
+        return nil, "", fmt.Errorf("JWTPrivateKeyPEM is empty")
+    }
+    block, _ := pem.Decode([]byte(pemStr))
+    if block == nil || block.Type != "RSA PRIVATE KEY" && block.Type != "PRIVATE KEY" {
+        return nil, "", fmt.Errorf("invalid RSA private key PEM")
+    }
+    var key any
+    var err error
+    if block.Type == "PRIVATE KEY" {
+        key, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+        if err != nil {
+            return nil, "", fmt.Errorf("parse PKCS8 private key: %w", err)
+        }
+    } else {
+        key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+        if err != nil {
+            return nil, "", fmt.Errorf("parse PKCS1 private key: %w", err)
+        }
+    }
+    priv, ok := key.(*rsa.PrivateKey)
+    if !ok {
+        return nil, "", fmt.Errorf("provided key is not RSA private key")
+    }
+    return priv, kid, nil
+}
+
+func parseRSAPublicKey(pemStr string) (*rsa.PublicKey, error) {
+    block, _ := pem.Decode([]byte(pemStr))
+    if block == nil || (block.Type != "PUBLIC KEY" && block.Type != "RSA PUBLIC KEY") {
+        return nil, fmt.Errorf("invalid RSA public key PEM")
+    }
+    if block.Type == "PUBLIC KEY" {
+        pkix, err := x509.ParsePKIXPublicKey(block.Bytes)
+        if err != nil {
+            return nil, fmt.Errorf("parse PKIX public key: %w", err)
+        }
+        pub, ok := pkix.(*rsa.PublicKey)
+        if !ok {
+            return nil, fmt.Errorf("not an RSA public key")
+        }
+        return pub, nil
+    }
+    pub, err := x509.ParsePKCS1PublicKey(block.Bytes)
+    if err != nil {
+        return nil, fmt.Errorf("parse PKCS1 public key: %w", err)
+    }
+    return pub, nil
 }

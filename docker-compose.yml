@@ -215,6 +215,28 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # Apache APISIX (standalone mode) — optional gateway
+  apisix:
+    image: apache/apisix:3.9.1-debian
+    container_name: serviceradar-apisix
+    environment:
+      - APISIX_STAND_ALONE=true
+    volumes:
+      - ./docker/apisix/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+    # No published ports; Nginx proxies /api/* to APISIX internally
+    depends_on:
+      core:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    networks:
+      serviceradar-net:
+        aliases:
+          - apisix.serviceradar
+    profiles:
+      - apisix
+    restart: unless-stopped
+
   # ServiceRadar Poller Service
   poller:
     image: ghcr.io/carverauto/serviceradar-poller:v1.0.53
