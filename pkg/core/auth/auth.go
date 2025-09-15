@@ -44,8 +44,8 @@ const (
 )
 
 type Auth struct {
-	config *models.AuthConfig
-	db     db.Service
+    config *models.AuthConfig
+    db     db.Service
 }
 
 func NewAuth(config *models.AuthConfig, d db.Service) *Auth {
@@ -63,7 +63,12 @@ func NewAuth(config *models.AuthConfig, d db.Service) *Auth {
 		}
 	}
 
-	return &Auth{config: config, db: d}
+    return &Auth{config: config, db: d}
+}
+
+// Config exposes a read-only pointer to the auth configuration for helpers like JWKS serving.
+func (a *Auth) Config() *models.AuthConfig {
+    return a.config
 }
 
 func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*models.Token, error) {
@@ -124,7 +129,7 @@ func (a *Auth) CompleteOAuth(ctx context.Context, provider string, gothUser *got
 }
 
 func (a *Auth) RefreshToken(ctx context.Context, refreshToken string) (*models.Token, error) {
-	claims, err := ParseJWT(refreshToken, a.config.JWTSecret)
+    claims, err := ParseJWTConfig(refreshToken, a.config)
 	if err != nil {
 		return nil, fmt.Errorf("invalid refresh token: %w", err)
 	}
@@ -139,7 +144,7 @@ func (a *Auth) RefreshToken(ctx context.Context, refreshToken string) (*models.T
 }
 
 func (a *Auth) VerifyToken(_ context.Context, token string) (*models.User, error) {
-	claims, err := ParseJWT(token, a.config.JWTSecret)
+    claims, err := ParseJWTConfig(token, a.config)
 	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}

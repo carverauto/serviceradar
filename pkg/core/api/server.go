@@ -611,10 +611,65 @@ func (*APIServer) updateOpenAPI3Servers(
 
 // setupAuthRoutes configures public authentication routes.
 func (s *APIServer) setupAuthRoutes() {
-	s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")
-	s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
-	s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
-	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
+    s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")
+    s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
+    s.router.HandleFunc("/auth/jwks.json", s.handleJWKS).Methods("GET")
+    s.router.HandleFunc("/.well-known/openid-configuration", s.handleOIDCDiscovery).Methods("GET")
+    s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
+    s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
+}
+
+// handleJWKS serves the JWKS (JSON Web Key Set) for RS256 token validation by gateways.
+func (s *APIServer) handleJWKS(w http.ResponseWriter, _ *http.Request) {
+    // Auth service must be present and must expose config
+    // Our concrete implementation stores config in auth.Auth; we access via exported helper
+    // Build JWKS JSON using the server's configured auth settings
+    if s.authService == nil {
+        http.Error(w, "auth service not configured", http.StatusServiceUnavailable)
+        return
+    }
+    // We don’t have direct access to config here; use a small adapter: the auth package exposes a function
+    // that needs the config, which we can obtain by type assertion to *auth.Auth.
+    // If not the concrete type, we return an empty set.
+    var cfg *models.AuthConfig
+    if a, ok := s.authService.(*auth.Auth); ok {
+        // Access unexported field via method would be cleaner, but keep minimal by adding a tiny getter.
+        // Fall back to empty set if not available
+        cfg = a.Config()
+    }
+    if cfg == nil {
+        w.Header().Set("Content-Type", "application/json")
+        _, _ = w.Write([]byte(`{"keys":[]}`))
+        return
+    }
+    data, err := auth.PublicJWKSJSON(cfg)
+    if err != nil {
+        s.logger.Error().Err(err).Msg("failed to build JWKS")
+        http.Error(w, "failed to build jwks", http.StatusInternalServerError)
+        return
+    }
+    w.Header().Set("Content-Type", "application/json")
+    _, _ = w.Write(data)
+}
+
+// handleOIDCDiscovery serves a minimal OpenID Provider Configuration pointing to the JWKS.
+func (s *APIServer) handleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
+    scheme := "http"
+    if r.TLS != nil {
+        scheme = "https"
+    }
+    host := r.Host
+    issuer := scheme + "://" + host
+    jwks := issuer + "/auth/jwks.json"
+    w.Header().Set("Content-Type", "application/json")
+    _, _ = w.Write([]byte("{\n" +
+        "  \"issuer\": \"" + issuer + "\",\n" +
+        "  \"jwks_uri\": \"" + jwks + "\",\n" +
+        "  \"id_token_signing_alg_values_supported\": [\"RS256\"],\n" +
+        "  \"response_types_supported\": [\"code\", \"token\", \"id_token\"],\n" +
+        "  \"subject_types_supported\": [\"public\"],\n" +
+        "  \"claims_supported\": [\"sub\", \"email\", \"roles\", \"exp\", \"iat\"]\n" +
+        "}"))
 }
 
 // setupWebSocketRoutes configures WebSocket routes with custom authentication.

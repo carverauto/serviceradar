@@ -164,45 +164,57 @@ type KVEndpoint struct {
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
 	type Alias CoreServiceConfig
 
-	aux := &struct {
-		AlertThreshold string `json:"alert_threshold"`
-		Auth           *struct {
-			JWTSecret     string               `json:"jwt_secret"`
-			JWTExpiration string               `json:"jwt_expiration"`
-			LocalUsers    map[string]string    `json:"local_users"`
-			CallbackURL   string               `json:"callback_url,omitempty"`
-			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
-			RBAC          RBACConfig           `json:"rbac,omitempty"`
-		} `json:"auth,omitempty"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
+    aux := &struct {
+        AlertThreshold string `json:"alert_threshold"`
+        Auth           *struct {
+            JWTSecret     string               `json:"jwt_secret"`
+            JWTAlgorithm  string               `json:"jwt_algorithm,omitempty"`
+            JWTPrivateKey string               `json:"jwt_private_key_pem,omitempty"`
+            JWTPublicKey  string               `json:"jwt_public_key_pem,omitempty"`
+            JWTKeyID      string               `json:"jwt_key_id,omitempty"`
+            JWTExpiration string               `json:"jwt_expiration"`
+            LocalUsers    map[string]string    `json:"local_users"`
+            CallbackURL   string               `json:"callback_url,omitempty"`
+            SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+            RBAC          RBACConfig           `json:"rbac,omitempty"`
+        } `json:"auth,omitempty"`
+        *Alias
+    }{
+        Alias: (*Alias)(c),
+    }
 
 	if c.AlertThreshold != 0 {
 		aux.AlertThreshold = c.AlertThreshold.String()
 	}
 
-	if c.Auth != nil {
-		aux.Auth = &struct {
-			JWTSecret     string               `json:"jwt_secret"`
-			JWTExpiration string               `json:"jwt_expiration"`
-			LocalUsers    map[string]string    `json:"local_users"`
-			CallbackURL   string               `json:"callback_url,omitempty"`
-			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
-			RBAC          RBACConfig           `json:"rbac,omitempty"`
-		}{
-			JWTSecret:    c.Auth.JWTSecret,
-			LocalUsers:   c.Auth.LocalUsers,
-			CallbackURL:  c.Auth.CallbackURL,
-			SSOProviders: c.Auth.SSOProviders,
-			RBAC:         c.Auth.RBAC,
-		}
-
-		if c.Auth.JWTExpiration != 0 {
-			aux.Auth.JWTExpiration = c.Auth.JWTExpiration.String()
-		}
-	}
+    if c.Auth != nil {
+        aux.Auth = &struct {
+            JWTSecret     string               `json:"jwt_secret"`
+            JWTAlgorithm  string               `json:"jwt_algorithm,omitempty"`
+            JWTPrivateKey string               `json:"jwt_private_key_pem,omitempty"`
+            JWTPublicKey  string               `json:"jwt_public_key_pem,omitempty"`
+            JWTKeyID      string               `json:"jwt_key_id,omitempty"`
+            JWTExpiration string               `json:"jwt_expiration"`
+            LocalUsers    map[string]string    `json:"local_users"`
+            CallbackURL   string               `json:"callback_url,omitempty"`
+            SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+            RBAC          RBACConfig           `json:"rbac,omitempty"`
+        }{
+            JWTSecret:    c.Auth.JWTSecret,
+            JWTAlgorithm: c.Auth.JWTAlgorithm,
+            JWTPrivateKey: c.Auth.JWTPrivateKeyPEM,
+            JWTPublicKey: c.Auth.JWTPublicKeyPEM,
+            JWTKeyID:     c.Auth.JWTKeyID,
+            LocalUsers:   c.Auth.LocalUsers,
+            CallbackURL:  c.Auth.CallbackURL,
+            SSOProviders: c.Auth.SSOProviders,
+            RBAC:         c.Auth.RBAC,
+        }
+        
+        if c.Auth.JWTExpiration != 0 {
+            aux.Auth.JWTExpiration = c.Auth.JWTExpiration.String()
+        }
+    }
 
 	return json.Marshal(aux)
 }
@@ -210,20 +222,24 @@ func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
 func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 	type Alias CoreServiceConfig
 
-	aux := &struct {
-		AlertThreshold string `json:"alert_threshold"`
-		Auth           *struct {
-			JWTSecret     string               `json:"jwt_secret"`
-			JWTExpiration string               `json:"jwt_expiration"`
-			LocalUsers    map[string]string    `json:"local_users"`
-			CallbackURL   string               `json:"callback_url,omitempty"`
-			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
-			RBAC          RBACConfig           `json:"rbac,omitempty"`
-		} `json:"auth"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
+    aux := &struct {
+        AlertThreshold string `json:"alert_threshold"`
+        Auth           *struct {
+            JWTSecret     string               `json:"jwt_secret"`
+            JWTAlgorithm  string               `json:"jwt_algorithm,omitempty"`
+            JWTPrivateKey string               `json:"jwt_private_key_pem,omitempty"`
+            JWTPublicKey  string               `json:"jwt_public_key_pem,omitempty"`
+            JWTKeyID      string               `json:"jwt_key_id,omitempty"`
+            JWTExpiration string               `json:"jwt_expiration"`
+            LocalUsers    map[string]string    `json:"local_users"`
+            CallbackURL   string               `json:"callback_url,omitempty"`
+            SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+            RBAC          RBACConfig           `json:"rbac,omitempty"`
+        } `json:"auth"`
+        *Alias
+    }{
+        Alias: (*Alias)(c),
+    }
 
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
@@ -238,14 +254,18 @@ func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 		c.AlertThreshold = duration
 	}
 
-	if aux.Auth != nil {
-		c.Auth = &AuthConfig{
-			JWTSecret:    aux.Auth.JWTSecret,
-			LocalUsers:   aux.Auth.LocalUsers,
-			CallbackURL:  aux.Auth.CallbackURL,
-			SSOProviders: aux.Auth.SSOProviders,
-			RBAC:         aux.Auth.RBAC,
-		}
+    if aux.Auth != nil {
+        c.Auth = &AuthConfig{
+            JWTSecret:       aux.Auth.JWTSecret,
+            JWTAlgorithm:    aux.Auth.JWTAlgorithm,
+            JWTPrivateKeyPEM: aux.Auth.JWTPrivateKey,
+            JWTPublicKeyPEM: aux.Auth.JWTPublicKey,
+            JWTKeyID:        aux.Auth.JWTKeyID,
+            LocalUsers:      aux.Auth.LocalUsers,
+            CallbackURL:     aux.Auth.CallbackURL,
+            SSOProviders:    aux.Auth.SSOProviders,
+            RBAC:            aux.Auth.RBAC,
+        }
 
 		if aux.Auth.JWTExpiration != "" {
 			duration, err := time.ParseDuration(aux.Auth.JWTExpiration)
