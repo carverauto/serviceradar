@@ -113,48 +113,65 @@ func ensureDataDirectory(dbPath string) error {
 }
 
 func initializeAuthConfig(config *models.CoreServiceConfig) (*models.AuthConfig, error) {
-	authConfig := &models.AuthConfig{
-		JWTSecret:     os.Getenv("JWT_SECRET"),
-		JWTExpiration: 24 * time.Hour,
-		CallbackURL:   os.Getenv("AUTH_CALLBACK_URL"),
-		LocalUsers:    make(map[string]string),
-	}
+    authConfig := &models.AuthConfig{
+        JWTSecret:     os.Getenv("JWT_SECRET"),
+        JWTExpiration: 24 * time.Hour,
+        CallbackURL:   os.Getenv("AUTH_CALLBACK_URL"),
+        LocalUsers:    make(map[string]string),
+    }
 
-	if config.Auth != nil {
-		applyAuthOverrides(authConfig, config.Auth)
-	} else {
-		applyDefaultAdminUser(authConfig)
-	}
+    if config.Auth != nil {
+        applyAuthOverrides(authConfig, config.Auth)
+    } else {
+        applyDefaultAdminUser(authConfig)
+    }
 
-	if authConfig.JWTSecret == "" {
-		return nil, errJWTSecretRequired
-	}
+    // If RS256 is configured with a key, allow empty JWT_SECRET.
+    if !(authConfig.JWTAlgorithm == "RS256" && (authConfig.JWTPrivateKeyPEM != "" || authConfig.JWTPublicKeyPEM != "")) {
+        if authConfig.JWTSecret == "" {
+            return nil, errJWTSecretRequired
+        }
+    }
 
-	return authConfig, nil
+    return authConfig, nil
 }
 
 func applyAuthOverrides(authConfig, configAuth *models.AuthConfig) {
-	if configAuth.JWTSecret != "" {
-		authConfig.JWTSecret = configAuth.JWTSecret
-	}
+    if configAuth.JWTSecret != "" {
+        authConfig.JWTSecret = configAuth.JWTSecret
+    }
 
-	if configAuth.JWTExpiration != 0 {
-		authConfig.JWTExpiration = configAuth.JWTExpiration
-	}
+    if configAuth.JWTExpiration != 0 {
+        authConfig.JWTExpiration = configAuth.JWTExpiration
+    }
 
-	if len(configAuth.LocalUsers) > 0 {
-		authConfig.LocalUsers = configAuth.LocalUsers
-	}
+    if len(configAuth.LocalUsers) > 0 {
+        authConfig.LocalUsers = configAuth.LocalUsers
+    }
+
+    // RS256/JWKS fields
+    if configAuth.JWTAlgorithm != "" {
+        authConfig.JWTAlgorithm = configAuth.JWTAlgorithm
+    }
+    if configAuth.JWTPrivateKeyPEM != "" {
+        authConfig.JWTPrivateKeyPEM = configAuth.JWTPrivateKeyPEM
+    }
+    if configAuth.JWTPublicKeyPEM != "" {
+        authConfig.JWTPublicKeyPEM = configAuth.JWTPublicKeyPEM
+    }
+    if configAuth.JWTKeyID != "" {
+        authConfig.JWTKeyID = configAuth.JWTKeyID
+    }
 
 	// Always copy RBAC if any part of it is configured
 	if configAuth.RBAC.UserRoles != nil || configAuth.RBAC.RolePermissions != nil || configAuth.RBAC.RouteProtection != nil {
 		authConfig.RBAC = configAuth.RBAC
-		fmt.Printf("DEBUG: Copied RBAC config. UserRoles: %+v\n", authConfig.RBAC.UserRoles)
-	} else {
-		// Even if the check fails, try to copy it anyway
-		authConfig.RBAC = configAuth.RBAC
-		fmt.Printf("DEBUG: Copied RBAC config anyway. UserRoles: %+v\n", authConfig.RBAC.UserRoles)
-	}
+        fmt.Printf("DEBUG: Copied RBAC config. UserRoles: %+v\n", authConfig.RBAC.UserRoles)
+    } else {
+        // Even if the check fails, try to copy it anyway
+        authConfig.RBAC = configAuth.RBAC
+        fmt.Printf("DEBUG: Copied RBAC config anyway. UserRoles: %+v\n", authConfig.RBAC.UserRoles)
+    }
 }
 
 func applyDefaultAdminUser(authConfig *models.AuthConfig) {
