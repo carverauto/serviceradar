@@ -61,6 +61,8 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
         return cli.RunGenerateTLS(cfg)
     case "render-kong":
         return cli.RunRenderKongCmd(cfg)
+    case "generate-jwt-keys":
+        return cli.RunGenerateJWTKeysCmd(cfg)
     default:
         return runBcryptMode(cfg)
     }
