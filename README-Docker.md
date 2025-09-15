@@ -52,11 +52,15 @@ Run Kong OSS locally and proxy `/api/*` through it. A pre-start helper fetches C
 1) Generate DB-less config then start Kong (profile `kong`):
    docker-compose --profile kong up -d kong-config kong
 
-2) Point Nginx to Kong by setting API_UPSTREAM when starting Nginx:
+2) Point Nginx to Kong by setting API_UPSTREAM when starting Nginx (TLS terminates at Nginx; internal hop is HTTP):
    API_UPSTREAM=http://kong:8000 docker-compose up -d nginx
 
 3) Validate Admin API:
    curl -s http://localhost:8001/
+
+4) Client HTTPS terminates at Nginx (optional):
+   # If you map 443:443 and provide certs to Nginx, clients use HTTPS to Nginx.
+   # Behind Nginx, Kong and Core communicate over HTTP only.
 
 Notes:
 - No license or Postgres required (community, DB-less).

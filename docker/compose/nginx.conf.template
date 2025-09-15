@@ -30,8 +30,8 @@ server {
     # WebSocket streaming endpoint - proxy to API upstream
     location /api/stream {
         # Use variable to force runtime DNS resolution
-        # API_UPSTREAM can be set at container start (envsubst), defaults to Core
-        set $api_upstream ${API_UPSTREAM:-http://core:8090};
+        # API_UPSTREAM provided via container env; default set in compose
+        set $api_upstream $API_UPSTREAM;
         proxy_pass $api_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -111,7 +111,7 @@ server {
     # Fix double slashes in API URLs (frontend bug workaround)
     location = /api//query {
         # Use variable to force runtime DNS resolution
-        set $api_upstream ${API_UPSTREAM:-http://core:8090};
+        set $api_upstream $API_UPSTREAM;
         proxy_pass $api_upstream/api/query$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -132,7 +132,7 @@ server {
     # Backend API routes (catch-all) -> API upstream
     location /api/ {
         # Use variable to force runtime DNS resolution
-        set $api_upstream ${API_UPSTREAM:-http://core:8090};
+        set $api_upstream $API_UPSTREAM;
         proxy_pass $api_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
