@@ -196,6 +196,8 @@ services:
     ports:
       - "80:80"      # HTTP
       # - "443:443"  # HTTPS (add SSL termination later)
+    environment:
+      API_UPSTREAM: ${API_UPSTREAM:-http://core:8090}
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
@@ -215,27 +217,47 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  # Apache APISIX (standalone mode) — optional gateway
-  apisix:
-    image: apache/apisix:3.9.1-debian
-    container_name: serviceradar-apisix
-    environment:
-      - APISIX_STAND_ALONE=true
+  # JWKS renderer - generates DB-less config for Kong from Core's JWKS
+  kong-config:
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.jwks2kong
+    image: ghcr.io/carverauto/serviceradar-kong-config:latest
+    container_name: serviceradar-kong-config
+    command: ["--jwks", "${JWKS_URL:-http://core:8090/auth/jwks.json}", "--service", "${KONG_SERVICE_URL:-http://core:8090}", "--path", "${KONG_ROUTE_PATH:-/api}", "--out", "/out/kong.yml"]
     volumes:
-      - ./docker/apisix/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
-    # No published ports; Nginx proxies /api/* to APISIX internally
-    depends_on:
-      core:
-        condition: service_healthy
-      web:
-        condition: service_healthy
+      - kong_config:/out
     networks:
-      serviceradar-net:
-        aliases:
-          - apisix.serviceradar
+      - serviceradar-net
     profiles:
-      - apisix
-    restart: unless-stopped
+      - kong
+    restart: "no"
+
+  # Kong (Community) — DB-less mode, optional 'kong' profile
+  kong:
+    image: ${KONG_IMAGE:-kong:latest}
+    container_name: serviceradar-kong
+    restart: on-failure
+    depends_on:
+      kong-config:
+        condition: service_completed_successfully
+    environment:
+      KONG_DATABASE: off
+      KONG_DECLARATIVE_CONFIG: /opt/kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    volumes:
+      - kong_config:/opt/kong
+    ports:
+      - "8000:8000"
+      - "8443:8443"
+      - "8001:8001"
+    networks:
+      - serviceradar-net
+    profiles:
+      - kong
+
+  
 
   # ServiceRadar Poller Service
   poller:
@@ -779,4 +801,8 @@ volumes:
   snmp-checker-data:
     driver: local
   rperf-client-data:
+    driver: local
+  kong_config:
+    driver: local
+  kong_db_data:
     driver: local

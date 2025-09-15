@@ -473,6 +473,7 @@ func ParseFlags() (*CmdConfig, error) {
 		"update-config": UpdateConfigHandler{},
 		"update-poller": UpdatePollerHandler{},
 		"generate-tls":  GenerateTLSHandler{},
+		"render-kong":   RenderKongHandler{},
 	}
 
 	// Parse subcommand flags if present
@@ -627,7 +628,12 @@ func RunUpdateConfig(configFile, adminHash, dbPasswordFile string) error {
 
 // RunGenerateTLS handles the generate-tls subcommand.
 func RunGenerateTLS(cfg *CmdConfig) error {
-	return GenerateTLSCerts(cfg)
+    return GenerateTLSCerts(cfg)
+}
+
+// RunRenderKong handles the render-kong subcommand.
+func RunRenderKongCmd(cfg *CmdConfig) error { // distinct name to avoid collision
+    return RunRenderKong(cfg)
 }
 
 // RunBcryptNonInteractive handles non-interactive bcrypt generation.

@@ -40,9 +40,9 @@ data:
       }
       location = /api-docs { proxy_pass http://serviceradar-core:8090; }
 
-      # Backend API (protect via APISIX)
+      # Backend API (direct to Core)
       location /api/ {
-        proxy_pass http://serviceradar-apisix:9080;
+        proxy_pass http://serviceradar-core:8090;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

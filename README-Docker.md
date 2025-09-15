@@ -45,22 +45,24 @@ Run the included test script:
 - **Full documentation**: See [Docker Setup Guide](docs/docs/docker-setup.md)
 - **Security**: Change your admin password after first login
 
-## Optional: Enable APISIX Gateway (Nginx front door)
+## Optional: Enable Kong Gateway (Community, DB-less + JWKS)
 
-Enable APISIX (standalone mode) as an internal API gateway while keeping Nginx on port 80.
+Run Kong OSS locally and proxy `/api/*` through it. A pre-start helper fetches Core's JWKS and generates a DB-less config, so keys are fresh each startup.
 
-1. Switch Core to RS256 in `core.json` (auth section) and restart core.
-2. Start APISIX profile:
-   ```bash
-   docker-compose --profile apisix up -d apisix
-   ```
-3. Access the app via Nginx: `http://localhost`.
-   - Nginx proxies `/api/*` internally to APISIX for JWT validation.
-   - `/auth/*` remains public and proxied directly to Core for local auth and OAuth (goth).
-4. Validate end-to-end:
-   ```bash
-   ./scripts/test-apisix.sh
-   ```
+1) Generate DB-less config then start Kong (profile `kong`):
+   docker-compose --profile kong up -d kong-config kong
+
+2) Point Nginx to Kong by setting API_UPSTREAM when starting Nginx:
+   API_UPSTREAM=http://kong:8000 docker-compose up -d nginx
+
+3) Validate Admin API:
+   curl -s http://localhost:8001/
+
+Notes:
+- No license or Postgres required (community, DB-less).
+- Override JWKS/service/route via env: `JWKS_URL`, `KONG_SERVICE_URL`, `KONG_ROUTE_PATH`.
+- The default Nginx config proxies `/api/*` directly to Core. Set `API_UPSTREAM` to route via Kong.
+
 
 ## Common Commands
 
