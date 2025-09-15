@@ -27,11 +27,12 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # WebSocket streaming endpoint - protect via APISIX
+    # WebSocket streaming endpoint - proxy to API upstream
     location /api/stream {
         # Use variable to force runtime DNS resolution
-        set $apisix_upstream http://apisix:9080;
-        proxy_pass $apisix_upstream;
+        # API_UPSTREAM can be set at container start (envsubst), defaults to Core
+        set $api_upstream ${API_UPSTREAM:-http://core:8090};
+        proxy_pass $api_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -107,11 +108,11 @@ server {
         proxy_set_header X-API-Key $http_x_api_key;
     }
 
-    # Fix double slashes in API URLs (frontend bug workaround) via APISIX
+    # Fix double slashes in API URLs (frontend bug workaround)
     location = /api//query {
         # Use variable to force runtime DNS resolution
-        set $apisix_upstream http://apisix:9080;
-        proxy_pass $apisix_upstream/api/query$is_args$args;
+        set $api_upstream ${API_UPSTREAM:-http://core:8090};
+        proxy_pass $api_upstream/api/query$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -128,11 +129,11 @@ server {
         proxy_read_timeout 86400;
     }
 
-    # Backend API routes (catch-all) via APISIX
+    # Backend API routes (catch-all) -> API upstream
     location /api/ {
         # Use variable to force runtime DNS resolution
-        set $apisix_upstream http://apisix:9080;
-        proxy_pass $apisix_upstream;
+        set $api_upstream ${API_UPSTREAM:-http://core:8090};
+        proxy_pass $api_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

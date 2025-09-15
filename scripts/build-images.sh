@@ -322,6 +322,7 @@ declare -A SERVICE_DOCKERFILES=(
     ["snmp-checker"]="docker/compose/Dockerfile.snmp-checker"
     ["rperf-client"]="docker/compose/Dockerfile.rperf-client"
     ["tools"]="docker/compose/Dockerfile.tools"
+    ["kong-config"]="docker/compose/Dockerfile.jwks2kong"
 )
 
 # Define which services need build args
