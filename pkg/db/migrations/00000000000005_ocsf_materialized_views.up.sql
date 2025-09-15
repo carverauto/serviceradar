@@ -159,7 +159,7 @@ CREATE MATERIALIZED VIEW ocsf_observable_device_macs_mv AS
 SELECT
     'mac_address' AS observable_type,
     mac AS observable_value,
-    lower(replaceAll(mac, ':', '')) AS observable_value_normalized,
+    lower(replace_all(mac, ':', '')) AS observable_value_normalized,
     'device' AS entity_class,
     device_uid AS entity_uid,
     time AS entity_last_seen,
@@ -310,9 +310,9 @@ SELECT
     to_start_of_hour(time) + INTERVAL 1 HOUR AS time_window_end,
 
     -- Statistics
-    uniq(entity_uid) AS entity_count,
-    groupUniqArray(entity_class) AS entity_classes,
-    groupUniqArray(discovery_source) AS discovery_sources,
+    unique(entity_uid) AS entity_count,
+    group_uniq_array(entity_class) AS entity_classes,
+    group_uniq_array(discovery_source) AS discovery_sources,
 
     -- Activity Metrics
     min(time) AS first_seen,
@@ -326,15 +326,15 @@ SELECT
 
     -- Threat Intelligence (placeholder - populated by threat intel process)
     max(threat_score) AS max_threat_score,
-    groupUniqArray(threat_categories) AS threat_categories,
+    group_uniq_array(threat_categories) AS threat_categories,
     max(threat_score) > 0.5 AS is_flagged,
 
     -- Geographic Summary
-    groupUniqArray(geo_country) AS countries,
-    groupUniqArray(geo_region) AS regions,
-    groupUniqArray(asn_org) AS asn_orgs,
+    group_uniq_array(geo_country) AS countries,
+    group_uniq_array(geo_region) AS regions,
+    group_uniq_array(asn_org) AS asn_orgs,
 
-    map() AS metadata
+    map_cast(CAST([] AS array(string)), CAST([] AS array(string))) AS metadata
 
 FROM ocsf_observable_index
 GROUP BY
