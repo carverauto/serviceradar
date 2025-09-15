@@ -4,6 +4,7 @@
 
 -- Device Inventory Events (discovery.device_inventory_info)
 -- OCSF Class: 5001 (Device Inventory Info)
+DROP STREAM IF EXISTS ocsf_device_inventory;
 CREATE STREAM ocsf_device_inventory (
     -- OCSF Core Fields
     time DateTime64(3) DEFAULT now64(),
@@ -31,16 +32,15 @@ CREATE STREAM ocsf_device_inventory (
 
     -- Enrichment Data
     raw_data string DEFAULT '',           -- Original JSON from data source
-    enrichments map(string, string) DEFAULT map(),
-    metadata map(string, string) DEFAULT map(),
+    enrichments map(string, string),
+    metadata map(string, string),
 
     -- Observable Flattening (for fast cross-entity searches)
     observables_ip array(string) DEFAULT [],
     observables_mac array(string) DEFAULT [],
     observables_hostname array(string) DEFAULT [],
     observables_domain array(string) DEFAULT [],
-    observables_resource_uid array(string) DEFAULT []
-) ENGINE = Stream(1, 1, rand())
+    observables_resource_uid array(string)) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(time), 3600)  -- Hourly partitions
 ORDER BY (time, device_uid)
 TTL to_start_of_day(time) + INTERVAL 30 DAY
@@ -48,6 +48,7 @@ SETTINGS index_granularity = 8192;
 
 -- Network Activity Events (network.network_activity)
 -- OCSF Class: 4001 (Network Activity)
+DROP STREAM IF EXISTS ocsf_network_activity;
 CREATE STREAM ocsf_network_activity (
     -- OCSF Core Fields
     time DateTime64(3) DEFAULT now64(),
@@ -93,14 +94,13 @@ CREATE STREAM ocsf_network_activity (
 
     -- Enrichment Data
     raw_data string DEFAULT '',
-    metadata map(string, string) DEFAULT map(),
+    metadata map(string, string),
 
     -- Observable Flattening
     observables_ip array(string) DEFAULT [],
     observables_port array(string) DEFAULT [],      -- Format: "ip:port"
     observables_hostname array(string) DEFAULT [],
-    observables_mac array(string) DEFAULT []
-) ENGINE = Stream(1, 1, rand())
+    observables_mac array(string)) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(time), 3600)
 ORDER BY (time, src_endpoint_ip, dst_endpoint_ip)
 TTL to_start_of_day(time) + INTERVAL 3 DAY        -- Shorter retention for high-volume data
@@ -108,6 +108,7 @@ SETTINGS index_granularity = 8192;
 
 -- User Inventory Events (discovery.user_inventory_info)
 -- OCSF Class: 5002 (User Inventory Info)
+DROP STREAM IF EXISTS ocsf_user_inventory;
 CREATE STREAM ocsf_user_inventory (
     -- OCSF Core Fields
     time DateTime64(3) DEFAULT now64(),
@@ -138,15 +139,14 @@ CREATE STREAM ocsf_user_inventory (
 
     -- Enrichment Data
     raw_data string DEFAULT '',
-    metadata map(string, string) DEFAULT map(),
+    metadata map(string, string),
 
     -- Observable Flattening
     observables_username array(string) DEFAULT [],
     observables_email array(string) DEFAULT [],
     observables_hostname array(string) DEFAULT [],
     observables_domain array(string) DEFAULT [],
-    observables_resource_uid array(string) DEFAULT []
-) ENGINE = Stream(1, 1, rand())
+    observables_resource_uid array(string)) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(time), 3600)
 ORDER BY (time, user_uid)
 TTL to_start_of_day(time) + INTERVAL 90 DAY        -- Longer retention for compliance
@@ -154,6 +154,7 @@ SETTINGS index_granularity = 8192;
 
 -- System Activity Events (system.system_activity)
 -- OCSF Class: 1001 (System Activity)
+DROP STREAM IF EXISTS ocsf_system_activity;
 CREATE STREAM ocsf_system_activity (
     -- OCSF Core Fields
     time DateTime64(3) DEFAULT now64(),
@@ -190,14 +191,13 @@ CREATE STREAM ocsf_system_activity (
 
     -- Enrichment Data
     raw_data string DEFAULT '',
-    metadata map(string, string) DEFAULT map(),
+    metadata map(string, string),
 
     -- Observable Flattening
     observables_ip array(string) DEFAULT [],
     observables_hostname array(string) DEFAULT [],
     observables_username array(string) DEFAULT [],
-    observables_process array(string) DEFAULT []
-) ENGINE = Stream(1, 1, rand())
+    observables_process array(string)) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(time), 3600)
 ORDER BY (time, endpoint_hostname, service_name)
 TTL to_start_of_day(time) + INTERVAL 7 DAY
