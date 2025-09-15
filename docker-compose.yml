@@ -197,7 +197,7 @@ services:
       - "80:80"      # HTTP
       # - "443:443"  # HTTPS (add SSL termination later)
     environment:
-      API_UPSTREAM: ${API_UPSTREAM:-http://core:8090}
+      API_UPSTREAM: ${API_UPSTREAM:-http://kong:8000}
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
@@ -207,6 +207,8 @@ services:
         condition: service_healthy
       core:
         condition: service_healthy
+      kong:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
       interval: 30s
@@ -224,13 +226,37 @@ services:
       dockerfile: docker/compose/Dockerfile.jwks2kong
     image: ghcr.io/carverauto/serviceradar-kong-config:latest
     container_name: serviceradar-kong-config
-    command: ["--jwks", "${JWKS_URL:-http://core:8090/auth/jwks.json}", "--service", "${KONG_SERVICE_URL:-http://core:8090}", "--path", "${KONG_ROUTE_PATH:-/api}", "--out", "/out/kong.yml"]
+    user: "0:0"
+    entrypoint: ["/bin/sh","-lc"]
+    command: |
+      set -e
+      if serviceradar-cli render-kong \
+        --jwks "${JWKS_URL:-http://core:8090/auth/jwks.json}" \
+        --service "${KONG_SERVICE_URL:-http://core:8090}" \
+        --path "${KONG_ROUTE_PATH:-/api}" \
+        --out "/out/kong.yml"; then
+        echo "[INFO] Rendered Kong config from JWKS"
+      else
+        echo "[WARN] JWKS fetch failed; writing minimal config" >&2
+        mkdir -p /out
+        cat > /out/kong.yml <<EOF
+      _format_version: "3.0"
+      _transform: true
+      services:
+        - name: core-api
+          url: ${KONG_SERVICE_URL:-http://core:8090}
+          routes:
+            - name: core-api-routes
+              paths:
+                - ${KONG_ROUTE_PATH:-/api}
+              strip_path: false
+      EOF
+      fi
     volumes:
       - kong_config:/out
     networks:
       - serviceradar-net
-    profiles:
-      - kong
+    # runs as part of default stack (no profile)
     restart: "no"
 
   # Kong (Community) — DB-less mode, optional 'kong' profile
@@ -250,12 +276,10 @@ services:
       - kong_config:/opt/kong
     ports:
       - "8000:8000"
-      - "8443:8443"
       - "8001:8001"
     networks:
       - serviceradar-net
-    profiles:
-      - kong
+    # runs as part of default stack (no profile)
 
   
 
