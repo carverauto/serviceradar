@@ -45,7 +45,7 @@ capnp = { version = "0.14", optional = true }
 clap = "4"
 flate2 = "1"
 glob = { version = "0.3", optional = true }
-kafka = { version = "0.8", features = ["snappy", "gzip", "security"], optional = true }
+kafka = { version = "0.10", features = ["snappy", "gzip", "security"], optional = true }
 async-nats  = { version = "0.42", optional = true }
 log = "0.4"
 notify = { version = "4.0", optional = true }
