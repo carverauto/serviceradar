@@ -1,5 +1,7 @@
 open Query_ast
 open Sql_ir
+open Field_mapping
+open Sql_sanitize
 
 (* Optional default time window, configurable by server/header/env. *)
 let default_time_ref : string option ref = ref None
@@ -9,7 +11,7 @@ let set_default_time (v:string option) =
 
 let and_opt a b = match (a,b) with | (None, x) -> x | (x, None) -> x | (Some l, Some r) -> Some (And (l, r))
 
-let normalize_agg (a:string) : string =
+let normalize_agg ~entity (a:string) : string =
   let s = String.trim a in
   let lower = String.lowercase_ascii s in
   (* keep alias if present: split by " as " last occurrence *)
@@ -22,25 +24,47 @@ let normalize_agg (a:string) : string =
   in
   let body_l, alias_opt = alias_split lower in
   let body = String.sub s 0 (String.length body_l) in
-  let with_alias expr = match alias_opt with Some al when al <> "" -> expr ^ " AS " ^ al | _ -> expr in
+  let with_alias expr =
+    match alias_opt with
+    | Some al when al <> "" ->
+        let alias = ensure_safe_identifier ~context:"stats alias" al in
+        expr ^ " AS " ^ alias
+    | _ -> expr
+  in
   let starts_with pref = let lp = String.length pref in String.length body_l >= lp && String.sub body_l 0 lp = pref in
   (* topk is handled elsewhere *)
   if starts_with "count_distinct(" || starts_with "distinct_count(" then (
-    let inner = String.sub body (String.index body '(' + 1) (String.rindex body ')' - (String.index body '(') - 1) |> String.trim in
-    with_alias ("uniq(" ^ inner ^ ")")
+    let inner_raw =
+      String.sub body (String.index body '(' + 1)
+        (String.rindex body ')' - (String.index body '(') - 1)
+      |> String.trim
+    in
+    let inner = map_field_name ~entity inner_raw in
+    let expr = "uniq(" ^ inner ^ ")" in
+    ensure_safe_expression ~context:"stats expression" expr;
+    with_alias expr
   ) else if starts_with "p" && String.length body_l > 2 && body_l.[1] >= '0' && body_l.[1] <= '9' then (
     (* p95(field) -> quantile(0.95)(field) *)
     try
       let i_par = String.index body '(' in
       let fn = String.sub body_l 0 i_par in
       let perc = String.sub fn 1 (String.length fn - 1) |> int_of_string in
-      let inner = String.sub body (i_par+1) (String.rindex body ')' - i_par - 1) |> String.trim in
+      let inner_raw =
+        String.sub body (i_par + 1) (String.rindex body ')' - i_par - 1)
+        |> String.trim
+      in
+      let inner = map_field_name ~entity inner_raw in
       let q = float_of_int perc /. 100.0 in
-      with_alias (Printf.sprintf "quantile(%0.2f)(%s)" q inner)
+      let expr = Printf.sprintf "quantile(%0.2f)(%s)" q inner in
+      ensure_safe_expression ~context:"stats expression" expr;
+      with_alias expr
     with _ -> s
-  ) else s
+  ) else (
+    ensure_safe_expression ~context:"stats expression" body;
+    with_alias body
+  )
 
-let parse_stats (s:string) : (string list * string list) =
+let parse_stats ~entity (s:string) : (string list * string list) =
   (* returns (agg_selects, by_fields) and supports aliases via "as" *)
   let s = String.trim s in
   let lower = String.lowercase_ascii s in
@@ -68,8 +92,9 @@ let parse_stats (s:string) : (string list * string list) =
     ) str;
     push (); !parts
   in
-  let aggs = split_top_level_commas agg_part
-             |> List.map normalize_agg
+  let aggs =
+    split_top_level_commas agg_part
+    |> List.map (normalize_agg ~entity)
   in
   let bys = if by_part = "" then [] else by_part |> String.split_on_char ',' |> List.map String.trim |> List.filter ((<>) "") in
   (aggs, bys)
@@ -189,7 +214,10 @@ let plan_to_srql (q:query_spec) : Sql_ir.query option =
               ) else if String.length ls >= 2 && ls.[0] = '[' && ls.[String.length ls - 1] = ']' then (
                 let inside = String.sub ls 1 (String.length ls - 2) in
                 let parts = inside |> String.split_on_char ',' |> List.map String.trim in
-                let parse_dt s = Expr (Printf.sprintf "parseDateTimeBestEffort('%s')" s) in
+                let parse_dt s =
+                  let escaped = escape_string_literal s in
+                  Expr (Printf.sprintf "parseDateTimeBestEffort('%s')" escaped)
+                in
                 match parts with
                 | [start_s; end_s] when start_s <> "" && end_s <> "" ->
                     let c1 = Condition (ts_field, Gte, parse_dt start_s) in
@@ -209,7 +237,7 @@ let plan_to_srql (q:query_spec) : Sql_ir.query option =
         match q.stats with
         | None -> (Some ["*"], None, q.sort, limit)
         | Some s ->
-            let (aggs_all, bys_raw) = parse_stats s in
+            let (aggs_all, bys_raw) = parse_stats ~entity:ent s in
             let bys = List.map map_key bys_raw in
             (* topk_by(expr, N) detection and rewrite *)
             let topk_by_info =
@@ -255,7 +283,7 @@ let plan_to_srql (q:query_spec) : Sql_ir.query option =
               match topk_by_info with
               | Some (expr, n) ->
                   (* topk_by requires group-by keys to rank groups by an aggregate expression *)
-                  let expr_norm = normalize_agg expr in
+                  let expr_norm = normalize_agg ~entity:ent expr in
                   let metric_alias = "metric" in
                   let expr_with_alias = expr_norm ^ " AS " ^ metric_alias in
                   let base_sel = bys @ [expr_with_alias] in
