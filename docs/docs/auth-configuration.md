@@ -9,7 +9,7 @@ ServiceRadar supports user authentication to secure access to the monitoring das
 
 ## RS256 + JWKS (for API Gateways)
 
-For deployments behind an API Gateway (e.g., Apache APISIX), you can switch JWT signing to RS256 and expose a JWKS endpoint so the gateway validates tokens without sharing secrets.
+For deployments behind an API Gateway (e.g., Kong), you can switch JWT signing to RS256 and expose a JWKS endpoint so the gateway validates tokens without sharing secrets.
 
 Add these fields under `auth` in `core.json`:
 

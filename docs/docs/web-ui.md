@@ -91,7 +91,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Backend API routes (protected by APISIX)
+    # Backend API routes (protected by Kong)
     location /api/ {
         proxy_pass http://127.0.0.1:9080;
         proxy_set_header Host $host;
