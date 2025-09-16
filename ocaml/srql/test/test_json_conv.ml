@@ -22,9 +22,7 @@ let test_uint32_number () =
   let cols = [ ("u32", "UInt32") ] in
   let rows = [ [ Proton.Column.UInt32 42l ] ] in
   let j = to_json rows cols in
-  match j with
-  | `List [ `Assoc [ ("u32", `Int 42) ] ] -> ()
-  | _ -> fail "Expected u32 as Int"
+  match j with `List [ `Assoc [ ("u32", `Int 42) ] ] -> () | _ -> fail "Expected u32 as Int"
 
 let test_decimal_string () =
   let cols = [ ("d", "Decimal(10,2)") ] in
@@ -36,7 +34,11 @@ let test_decimal_string () =
 
 let test_array_uint64 () =
   let cols = [ ("arr", "Array(UInt64)") ] in
-  let rows = [ [ Proton.Column.Array [| Proton.Column.UInt64 1L; Proton.Column.UInt64 9007199254740993L |] ] ] in
+  let rows =
+    [
+      [ Proton.Column.Array [| Proton.Column.UInt64 1L; Proton.Column.UInt64 9007199254740993L |] ];
+    ]
+  in
   let j = to_json rows cols in
   match j with
   | `List [ `Assoc [ ("arr", `List [ `Intlit "1"; `Intlit "9007199254740993" ]) ] ] -> ()
@@ -67,18 +69,20 @@ let test_nullable_datetime_null () =
   | _ -> fail "Expected Nullable(DateTime) as null"
 
 let () =
-  run "JSON Conversion Tests" [
-    ("numbers", [
-      ("u64 string", `Quick, test_uint64_string);
-      ("i64 string", `Quick, test_int64_string);
-      ("u32 number", `Quick, test_uint32_number);
-      ("decimal string", `Quick, test_decimal_string);
-    ]);
-    ("complex", [
-      ("array u64", `Quick, test_array_uint64);
-      ("map string->u64", `Quick, test_map_string_u64);
-      ("tuple u64,str", `Quick, test_tuple_u64_str);
-      ("nullable dt null", `Quick, test_nullable_datetime_null);
-    ]);
-  ]
-
+  run "JSON Conversion Tests"
+    [
+      ( "numbers",
+        [
+          ("u64 string", `Quick, test_uint64_string);
+          ("i64 string", `Quick, test_int64_string);
+          ("u32 number", `Quick, test_uint32_number);
+          ("decimal string", `Quick, test_decimal_string);
+        ] );
+      ( "complex",
+        [
+          ("array u64", `Quick, test_array_uint64);
+          ("map string->u64", `Quick, test_map_string_u64);
+          ("tuple u64,str", `Quick, test_tuple_u64_str);
+          ("nullable dt null", `Quick, test_nullable_datetime_null);
+        ] );
+    ]

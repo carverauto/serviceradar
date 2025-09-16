@@ -1,15 +1,10 @@
 (* file: srql/lib/sql_ir.ml *)
-type operator =
-  | Eq | Neq | Gt | Gte | Lt | Lte | Contains | In | Like | ArrayContains
-  [@@deriving show] (* This line auto-generates a print function for debugging *)
+type operator = Eq | Neq | Gt | Gte | Lt | Lte | Contains | In | Like | ArrayContains
+[@@deriving show]
+(* This line auto-generates a print function for debugging *)
 
-type value =
-  | String of string
-  | Int of int
-  | Bool of bool
-  | Expr of string
-  | Float of float
-  [@@deriving show]
+type value = String of string | Int of int | Bool of bool | Expr of string | Float of float
+[@@deriving show]
 
 type condition =
   | Condition of (string * operator * value)
@@ -20,7 +15,7 @@ type condition =
   | IsNull of string
   | IsNotNull of string
   | InList of string * value list
-  [@@deriving show]
+[@@deriving show]
 
 type order_dir = Asc | Desc [@@deriving show]
 
@@ -34,4 +29,5 @@ type query = {
   group_by : string list option;
   having : condition option;
   latest : bool;
-} [@@deriving show]
+}
+[@@deriving show]
