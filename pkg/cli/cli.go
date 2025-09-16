@@ -469,11 +469,13 @@ func ParseFlags() (*CmdConfig, error) {
 	}
 
 	// Define subcommands and their handlers
-	subcommands := map[string]SubcommandHandler{
-		"update-config": UpdateConfigHandler{},
-		"update-poller": UpdatePollerHandler{},
-		"generate-tls":  GenerateTLSHandler{},
-	}
+    subcommands := map[string]SubcommandHandler{
+        "update-config": UpdateConfigHandler{},
+        "update-poller": UpdatePollerHandler{},
+        "generate-tls":  GenerateTLSHandler{},
+        "render-kong":   RenderKongHandler{},
+        "generate-jwt-keys": GenerateJWTKeysHandler{},
+    }
 
 	// Parse subcommand flags if present
 	if handler, exists := subcommands[cfg.SubCmd]; exists {
@@ -627,7 +629,17 @@ func RunUpdateConfig(configFile, adminHash, dbPasswordFile string) error {
 
 // RunGenerateTLS handles the generate-tls subcommand.
 func RunGenerateTLS(cfg *CmdConfig) error {
-	return GenerateTLSCerts(cfg)
+    return GenerateTLSCerts(cfg)
+}
+
+// RunRenderKong handles the render-kong subcommand.
+func RunRenderKongCmd(cfg *CmdConfig) error { // distinct name to avoid collision
+    return RunRenderKong(cfg)
+}
+
+// RunGenerateJWTKeys handles the generate-jwt-keys subcommand.
+func RunGenerateJWTKeysCmd(cfg *CmdConfig) error { // distinct name to avoid collision
+    return RunGenerateJWTKeys(cfg)
 }
 
 // RunBcryptNonInteractive handles non-interactive bcrypt generation.

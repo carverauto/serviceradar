@@ -55,10 +55,18 @@ type Token struct {
 // AuthConfig contains authentication configuration.
 // @Description Authentication and authorization configuration settings.
 type AuthConfig struct {
-	// Secret key used for signing JWT tokens (SENSITIVE: never store in DB or display in UI)
-	JWTSecret string `json:"jwt_secret" example:"very-secret-key-do-not-share" sensitive:"true"`
-	// How long JWT tokens are valid
-	JWTExpiration time.Duration `json:"jwt_expiration" example:"24h"`
+    // Secret key used for signing JWT tokens (SENSITIVE: never store in DB or display in UI)
+    JWTSecret string `json:"jwt_secret" example:"very-secret-key-do-not-share" sensitive:"true"`
+    // Optional JWT signing algorithm. Defaults to HS256. Set to RS256 to enable RSA signing.
+    JWTAlgorithm string `json:"jwt_algorithm,omitempty" example:"RS256"`
+    // PEM-encoded RSA private key used for RS256 signing (SENSITIVE)
+    JWTPrivateKeyPEM string `json:"jwt_private_key_pem,omitempty" sensitive:"true"`
+    // PEM-encoded RSA public key (optional; derived from private key if omitted)
+    JWTPublicKeyPEM string `json:"jwt_public_key_pem,omitempty"`
+    // Key ID placed in JWT header as `kid` for JWKS lookup
+    JWTKeyID string `json:"jwt_key_id,omitempty" example:"main-2025-09"`
+    // How long JWT tokens are valid
+    JWTExpiration time.Duration `json:"jwt_expiration" example:"24h"`
 	// OAuth callback URL
 	CallbackURL string `json:"callback_url" example:"https://api.example.com/auth/callback"`
 	// Map of local usernames to password hashes (SENSITIVE: never store in DB or display in UI)
