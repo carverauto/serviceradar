@@ -25,6 +25,7 @@ RUSTFMT ?= rustfmt
 # OCaml configuration
 OPAM ?= opam
 DUNE ?= dune
+DUNE_ROOT ?= --root ocaml
 
 # Set up Rust environment - use original user's paths when running with sudo
 ifdef SUDO_USER
@@ -112,7 +113,7 @@ lint-ocaml: lint-ocaml-fmt lint-ocaml-opam lint-ocaml-doc ## Run all OCaml linti
 lint-ocaml-fmt: ## Check OCaml code formatting
 	@echo "🔍 Checking OCaml code formatting..."
 	@$(OPAM) list ocamlformat > /dev/null 2>&1 || (echo "Installing ocamlformat..." && $(OPAM) install ocamlformat -y)
-	@$(OPAM) exec -- $(DUNE) build @fmt
+	@$(OPAM) exec -- $(DUNE) build $(DUNE_ROOT) @fmt
 
 .PHONY: lint-ocaml-opam
 lint-ocaml-opam: ## Check opam files
@@ -122,13 +123,13 @@ lint-ocaml-opam: ## Check opam files
 .PHONY: lint-ocaml-doc
 lint-ocaml-doc: ## Check OCaml documentation
 	@echo "🔍 Checking OCaml documentation..."
-	@$(OPAM) exec -- $(DUNE) build @doc
+	@$(OPAM) exec -- $(DUNE) build $(DUNE_ROOT) @doc
 
 .PHONY: lint-ocaml-fix
 lint-ocaml-fix: ## Auto-fix OCaml formatting issues
 	@echo "🔧 Auto-fixing OCaml formatting issues..."
 	@$(OPAM) list ocamlformat > /dev/null 2>&1 || (echo "Installing ocamlformat..." && $(OPAM) install ocamlformat -y)
-	@$(OPAM) exec -- $(DUNE) build @fmt --auto-promote
+	@$(OPAM) exec -- $(DUNE) build $(DUNE_ROOT) @fmt --auto-promote
 	@echo "✅ OCaml formatting issues fixed!"
 
 .PHONY: test

@@ -7,6 +7,27 @@ title: Authentication Configuration
 
 ServiceRadar supports user authentication to secure access to the monitoring dashboard and API. This guide explains how to configure authentication options, including the local user authentication system.
 
+## RS256 + JWKS (for API Gateways)
+
+For deployments behind an API Gateway (e.g., Kong), you can switch JWT signing to RS256 and expose a JWKS endpoint so the gateway validates tokens without sharing secrets.
+
+Add these fields under `auth` in `core.json`:
+
+```json
+"auth": {
+  "jwt_algorithm": "RS256",
+  "jwt_private_key_pem": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+  "jwt_key_id": "main-2025-09",
+  "jwt_expiration": "24h"
+}
+```
+
+The core service will serve:
+- `/.well-known/openid-configuration` with a `jwks_uri` pointing to
+- `/auth/jwks.json` containing the RSA public key set
+
+Gateways can use these endpoints to validate `Authorization: Bearer <token>` without contacting the core on every request.
+
 ## Overview
 
 ServiceRadar's authentication system provides:

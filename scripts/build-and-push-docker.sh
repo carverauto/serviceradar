@@ -64,6 +64,7 @@ OPTIONS:
   --tools              Build only tools image
   --trapd              Build only trapd image
   --zen                Build only zen image
+  --kong-config        Build only kong-config (JWKS renderer) image
   --platform PLATFORM  Target platform (default: auto-detected based on --push)
   --force-multiplatform Force multi-platform build even without --push
   --no-cache           Build without cache
@@ -115,6 +116,7 @@ BUILD_SYNC=false
 BUILD_TOOLS=false
 BUILD_TRAPD=false
 BUILD_ZEN=false
+BUILD_KONG_CONFIG=false
 PLATFORM=""  # Will be set based on push flag
 NO_CACHE=""
 FORCE_MULTIPLATFORM=false
@@ -209,6 +211,10 @@ while [[ $# -gt 0 ]]; do
             BUILD_ZEN=true
             shift
             ;;
+        --kong-config)
+            BUILD_KONG_CONFIG=true
+            shift
+            ;;
         --platform)
             PLATFORM="$2"
             shift 2
@@ -238,7 +244,7 @@ if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == fals
       "$BUILD_AGENT" == false && "$BUILD_CONFIG_UPDATER" == false && "$BUILD_DB_EVENT_WRITER" == false && "$BUILD_FLOWGGER" == false && \
       "$BUILD_KV" == false && "$BUILD_MAPPER" == false && "$BUILD_NGINX" == false && "$BUILD_OTEL" == false && "$BUILD_POLLER" == false && \
       "$BUILD_RPERF_CLIENT" == false && "$BUILD_SNMP_CHECKER" == false && "$BUILD_SYNC" == false && "$BUILD_TOOLS" == false && \
-      "$BUILD_TRAPD" == false && "$BUILD_ZEN" == false ]]; then
+      "$BUILD_TRAPD" == false && "$BUILD_ZEN" == false && "$BUILD_KONG_CONFIG" == false ]]; then
     BUILD_ALL=true
 fi
 
@@ -496,6 +502,11 @@ fi
 # Build Zen service
 if [[ "$BUILD_ALL" == true || "$BUILD_ZEN" == true ]]; then
     build_image "zen" "docker/compose/Dockerfile.zen" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build kong-config (JWKS renderer) image
+if [[ "$BUILD_ALL" == true || "$BUILD_KONG_CONFIG" == true ]]; then
+    build_image "kong-config" "docker/compose/Dockerfile.jwks2kong" ""
 fi
 
 log "Build process completed!"

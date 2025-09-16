@@ -32,6 +32,7 @@ import (
 const (
 	defaultMetricsRetention  = 100
 	defaultMetricsMaxPollers = 10000
+	jwtAlgorithmRS256        = "RS256"
 )
 
 func LoadConfig(path string) (models.CoreServiceConfig, error) {
@@ -126,8 +127,11 @@ func initializeAuthConfig(config *models.CoreServiceConfig) (*models.AuthConfig,
 		applyDefaultAdminUser(authConfig)
 	}
 
-	if authConfig.JWTSecret == "" {
-		return nil, errJWTSecretRequired
+	// If RS256 is configured with a key, allow empty JWT_SECRET.
+	if authConfig.JWTAlgorithm != jwtAlgorithmRS256 || (authConfig.JWTPrivateKeyPEM == "" && authConfig.JWTPublicKeyPEM == "") {
+		if authConfig.JWTSecret == "" {
+			return nil, errJWTSecretRequired
+		}
 	}
 
 	return authConfig, nil
@@ -144,6 +148,20 @@ func applyAuthOverrides(authConfig, configAuth *models.AuthConfig) {
 
 	if len(configAuth.LocalUsers) > 0 {
 		authConfig.LocalUsers = configAuth.LocalUsers
+	}
+
+	// RS256/JWKS fields
+	if configAuth.JWTAlgorithm != "" {
+		authConfig.JWTAlgorithm = configAuth.JWTAlgorithm
+	}
+	if configAuth.JWTPrivateKeyPEM != "" {
+		authConfig.JWTPrivateKeyPEM = configAuth.JWTPrivateKeyPEM
+	}
+	if configAuth.JWTPublicKeyPEM != "" {
+		authConfig.JWTPublicKeyPEM = configAuth.JWTPublicKeyPEM
+	}
+	if configAuth.JWTKeyID != "" {
+		authConfig.JWTKeyID = configAuth.JWTKeyID
 	}
 
 	// Always copy RBAC if any part of it is configured

@@ -38,6 +38,22 @@ services:
     networks:
       - serviceradar-net
 
+  # Generate RS256 JWT keys and update core.json (first-run init)
+  core-jwks-init:
+    image: ghcr.io/carverauto/serviceradar-kong-config:latest
+    container_name: serviceradar-core-jwks-init
+    user: "0:0"
+    entrypoint: ["/usr/local/bin/serviceradar-cli", "generate-jwt-keys"]
+    command: ["-file", "/etc/serviceradar/config/core.json", "-bits", "2048"]
+    volumes:
+      - generated-config:/etc/serviceradar/config
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   # Fix certificate permissions for Docker deployment
   cert-permissions-fixer:
     image: alpine:3.20
@@ -143,6 +159,8 @@ services:
         condition: service_completed_successfully
       config-updater:
         condition: service_completed_successfully
+      core-jwks-init:
+        condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
       proton:
@@ -196,6 +214,8 @@ services:
     ports:
       - "80:80"      # HTTP
       # - "443:443"  # HTTPS (add SSL termination later)
+    environment:
+      API_UPSTREAM: ${API_UPSTREAM:-http://kong:8000}
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
@@ -205,6 +225,8 @@ services:
         condition: service_healthy
       core:
         condition: service_healthy
+      kong:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
       interval: 30s
@@ -214,6 +236,62 @@ services:
     networks:
       - serviceradar-net
     restart: unless-stopped
+
+  # JWKS renderer - generates DB-less config for Kong from Core's JWKS
+  kong-config:
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.jwks2kong
+    image: ghcr.io/carverauto/serviceradar-kong-config:latest
+    container_name: serviceradar-kong-config
+    user: "0:0"
+    command: ["--jwks","${JWKS_URL:-http://core:8090/auth/jwks.json}","--service","${KONG_SERVICE_URL:-http://core:8090}","--path","${KONG_ROUTE_PATH:-/api}","--out","/out/kong.yml"]
+    volumes:
+      - kong_config:/out
+    depends_on:
+      core:
+        condition: service_healthy
+    networks:
+      - serviceradar-net
+    # runs as part of default stack (no profile)
+    restart: "no"
+
+  # Kong (Community) — DB-less mode, optional 'kong' profile
+  kong:
+    image: ${KONG_IMAGE:-kong:latest}
+    container_name: serviceradar-kong
+    restart: on-failure
+    # Start alongside kong-config; Kong's entrypoint will wait/copy default
+    # so we don't block on kong-config completion.
+    depends_on:
+      kong-config:
+        condition: service_started
+    environment:
+      KONG_DATABASE: off
+      KONG_DECLARATIVE_CONFIG: /opt/kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      # run Kong in foreground (no daemon) when using 'kong start'
+      KONG_NGINX_DAEMON: off
+      KONG_LOG_LEVEL: debug
+    command: ["sh","-lc","if [ ! -f /opt/kong/kong.yml ]; then cp /default-kong.yml /opt/kong/kong.yml 2>/dev/null || true; fi; until [ -f /opt/kong/kong.yml ]; do echo '[kong] waiting for /opt/kong/kong.yml'; sleep 2; done; exec kong start --vv"]
+    volumes:
+      - kong_config:/opt/kong
+      - ./docker/kong/kong.yaml:/default-kong.yml:ro
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    networks:
+      - serviceradar-net
+    # runs as part of default stack (no profile)
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8001/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  
 
   # ServiceRadar Poller Service
   poller:
@@ -757,4 +835,8 @@ volumes:
   snmp-checker-data:
     driver: local
   rperf-client-data:
+    driver: local
+  kong_config:
+    driver: local
+  kong_db_data:
     driver: local
