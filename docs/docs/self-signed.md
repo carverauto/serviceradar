@@ -111,9 +111,9 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     
-    # Backend API routes (protected by APISIX)
+    # Backend API routes (protected by Kong)
     location /api/ {
-        # APISIX should be running locally (standalone or native)
+        # Kong should be running locally (standalone or native)
         proxy_pass http://127.0.0.1:9080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
