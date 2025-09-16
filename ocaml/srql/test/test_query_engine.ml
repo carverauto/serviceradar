@@ -4,16 +4,18 @@ let sql_of qstr =
   let qspec = Srql_translator.Query_parser.parse qstr in
   match Srql_translator.Query_planner.plan_to_srql qspec with
   | None -> fail "planner returned None"
-  | Some ast ->
-      (match Srql_translator.Query_validator.validate ast with
-       | Error msg -> fail msg
-       | Ok () -> Srql_translator.Translator.translate_query ast)
+  | Some ast -> (
+      match Srql_translator.Query_validator.validate ast with
+      | Error msg -> fail msg
+      | Ok () -> Srql_translator.Translator.translate_query ast)
 
 let contains msg hay needle =
   let lhay = String.lowercase_ascii hay and lneedle = String.lowercase_ascii needle in
   let sub s sub =
     let ls = String.length s and lsub = String.length sub in
-    let rec loop i = if i + lsub > ls then false else if String.sub s i lsub = sub then true else loop (i+1) in
+    let rec loop i =
+      if i + lsub > ls then false else if String.sub s i lsub = sub then true else loop (i + 1)
+    in
     loop 0
   in
   if not (sub lhay lneedle) then
@@ -35,22 +37,25 @@ let test_flows_topk_by () =
   contains "src filter" sql "src_ip = '10.0.0.1'"
 
 let test_validation_having_error () =
-  let qspec = Srql_translator.Query_parser.parse "in:devices name:server stats:\"count()\" having:\"hostname>1\"" in
+  let qspec =
+    Srql_translator.Query_parser.parse
+      "in:devices name:server stats:\"count()\" having:\"hostname>1\""
+  in
   match Srql_translator.Query_planner.plan_to_srql qspec with
   | None -> fail "planner returned None"
-  | Some ast ->
+  | Some ast -> (
       match Srql_translator.Query_validator.validate ast with
       | Ok () -> fail "expected validation error"
-      | Error _ -> ()
+      | Error _ -> ())
 
-let suite = [
-  "devices today mapping", `Quick, test_devices_today;
-  "flows topk_by ranking", `Quick, test_flows_topk_by;
-  "having invalid reference", `Quick, test_validation_having_error;
-]
+let suite =
+  [
+    ("devices today mapping", `Quick, test_devices_today);
+    ("flows topk_by ranking", `Quick, test_flows_topk_by);
+    ("having invalid reference", `Quick, test_validation_having_error);
+  ]
 
-let () =
-  Alcotest.run "query_engine" [ ("planner+translator", suite) ]
+let () = Alcotest.run "query_engine" [ ("planner+translator", suite) ]
 
 (* Additional tests for ASQ examples *)
 
@@ -68,7 +73,10 @@ let test_devices_nested_services_and_type () =
   contains "7 days timeframe" sql "INTERVAL 7 DAY"
 
 let test_activity_connection_nested () =
-  let q = "in:activity type:\"Connection Started\" connection:(from:(type:\"Mobile Phone\") direction:\"From > To\" to:(boundary:Corporate tag:Managed)) timeFrame:\"7 Days\"" in
+  let q =
+    "in:activity type:\"Connection Started\" connection:(from:(type:\"Mobile Phone\") \
+     direction:\"From > To\" to:(boundary:Corporate tag:Managed)) timeFrame:\"7 Days\""
+  in
   let sql = sql_of q in
   contains "events alias" sql "from table(events)";
   contains "nested flatten 1" sql "connection_from_type = 'Mobile Phone'";
@@ -76,14 +84,14 @@ let test_activity_connection_nested () =
   contains "boundary->partition alias" sql "connection_to_partition = 'Corporate'";
   contains "7 days timeframe" sql "INTERVAL 7 DAY"
 
-let suite_asq = [
-  "services ports + timeframe", `Quick, test_services_ports_timeframe;
-  "devices services nested + type", `Quick, test_devices_nested_services_and_type;
-  "activity connection nested", `Quick, test_activity_connection_nested;
-]
+let suite_asq =
+  [
+    ("services ports + timeframe", `Quick, test_services_ports_timeframe);
+    ("devices services nested + type", `Quick, test_devices_nested_services_and_type);
+    ("activity connection nested", `Quick, test_activity_connection_nested);
+  ]
 
-let () =
-  Alcotest.run "asq_examples" [ ("examples", suite_asq) ]
+let () = Alcotest.run "asq_examples" [ ("examples", suite_asq) ]
 
 (* Negation tests *)
 
@@ -97,13 +105,13 @@ let test_negation_like_services () =
   contains "not like emitted" sql "NOT name LIKE '%ssh%'";
   contains "7 days timeframe" sql "INTERVAL 7 DAY"
 
-let suite_neg = [
-  "devices NOT IN list", `Quick, test_negation_list_devices;
-  "services NOT LIKE", `Quick, test_negation_like_services;
-]
+let suite_neg =
+  [
+    ("devices NOT IN list", `Quick, test_negation_list_devices);
+    ("services NOT LIKE", `Quick, test_negation_like_services);
+  ]
 
-let () =
-  Alcotest.run "negation_examples" [ ("negation", suite_neg) ]
+let () = Alcotest.run "negation_examples" [ ("negation", suite_neg) ]
 
 (* More nested/alias/wildcard/timeframe tests *)
 
@@ -116,19 +124,21 @@ let test_services_like_positive () =
   contains "like emitted" sql "name LIKE '%ssh%'"
 
 let test_nested_negation_group_with_timeframe_hours () =
-  let sql = sql_of "in:activity connection:(to:(!tag:Managed, boundary:Corporate)) timeFrame:\"12 Hours\"" in
+  let sql =
+    sql_of "in:activity connection:(to:(!tag:Managed, boundary:Corporate)) timeFrame:\"12 Hours\""
+  in
   contains "not tag managed" sql "NOT connection_to_tag = 'Managed'";
   contains "partition alias within group" sql "connection_to_partition = 'Corporate'";
   contains "12 hours timeframe" sql "INTERVAL 12 HOUR"
 
-let suite_more = [
-  "devices boundary->partition", `Quick, test_devices_boundary_alias;
-  "services LIKE positive", `Quick, test_services_like_positive;
-  "nested negation + timeframe hours", `Quick, test_nested_negation_group_with_timeframe_hours;
-]
+let suite_more =
+  [
+    ("devices boundary->partition", `Quick, test_devices_boundary_alias);
+    ("services LIKE positive", `Quick, test_services_like_positive);
+    ("nested negation + timeframe hours", `Quick, test_nested_negation_group_with_timeframe_hours);
+  ]
 
-let () =
-  Alcotest.run "asq_more" [ ("more", suite_more) ]
+let () = Alcotest.run "asq_more" [ ("more", suite_more) ]
 
 (* discovery_sources contains both 'sweep' and 'armis' *)
 
@@ -138,12 +148,10 @@ let test_devices_discovery_sources_both () =
   contains "has armis" sql "has(discovery_sources, 'armis')";
   contains "both AND" sql "AND"
 
-let suite_arrays = [
-  "devices discovery_sources both", `Quick, test_devices_discovery_sources_both;
-]
+let suite_arrays =
+  [ ("devices discovery_sources both", `Quick, test_devices_discovery_sources_both) ]
 
-let () =
-  Alcotest.run "asq_arrays" [ ("arrays", suite_arrays) ]
+let () = Alcotest.run "asq_arrays" [ ("arrays", suite_arrays) ]
 
 (* Additional LIKE / NOT LIKE cases *)
 
@@ -164,12 +172,14 @@ let test_activity_not_like_nested_decision_host () =
   let sql = sql_of "in:activity decisionData:(host:(!%ipinfo.%))" in
   contains "nested NOT LIKE" sql "NOT decisionData_host LIKE '%ipinfo.%'"
 
-let suite_like = [
-  "devices LIKE hostname", `Quick, test_devices_like_hostname;
-  "devices NOT LIKE hostname", `Quick, test_devices_not_like_hostname;
-  "activity nested LIKE decisionData.host", `Quick, test_activity_like_nested_decision_host;
-  "activity nested NOT LIKE decisionData.host", `Quick, test_activity_not_like_nested_decision_host;
-]
+let suite_like =
+  [
+    ("devices LIKE hostname", `Quick, test_devices_like_hostname);
+    ("devices NOT LIKE hostname", `Quick, test_devices_not_like_hostname);
+    ("activity nested LIKE decisionData.host", `Quick, test_activity_like_nested_decision_host);
+    ( "activity nested NOT LIKE decisionData.host",
+      `Quick,
+      test_activity_not_like_nested_decision_host );
+  ]
 
-let () =
-  Alcotest.run "asq_like" [ ("like", suite_like) ]
+let () = Alcotest.run "asq_like" [ ("like", suite_like) ]

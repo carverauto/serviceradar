@@ -8,17 +8,14 @@ let looks_like_expression s =
   let len = String.length s in
   let rec loop i =
     if i >= len then false
-    else
-      match s.[i] with
-      | '(' | ')' | ' ' | '+' | '-' | '/' | '*' -> true
-      | _ -> loop (i + 1)
+    else match s.[i] with '(' | ')' | ' ' | '+' | '-' | '/' | '*' -> true | _ -> loop (i + 1)
   in
   loop 0
 
 let map_field_name ~entity (field : string) : string =
   let field_trimmed = trim field in
   if field_trimmed = "*" then "*"
-  else (
+  else
     let field_lc = lc field_trimmed in
     let entity_lc = lc (trim entity) in
     let is_wrapped name s =
@@ -27,8 +24,10 @@ let map_field_name ~entity (field : string) : string =
       let lp = String.length pref and ls = String.length s' in
       ls >= lp + 1 && String.sub s' 0 lp = pref && s'.[ls - 1] = ')'
     in
-    if (String.contains field_trimmed '(' || String.contains field_trimmed ' ') && not (is_wrapped "date" field_trimmed) then
-      invalid_arg (Printf.sprintf "Unsupported field expression '%s'" field_trimmed);
+    if
+      (String.contains field_trimmed '(' || String.contains field_trimmed ' ')
+      && not (is_wrapped "date" field_trimmed)
+    then invalid_arg (Printf.sprintf "Unsupported field expression '%s'" field_trimmed);
     let unwrap s =
       let s' = trim s in
       try
@@ -39,8 +38,8 @@ let map_field_name ~entity (field : string) : string =
     in
     let apply_entity_mapping f =
       match entity_lc with
-      | "devices" ->
-          (match f with
+      | "devices" -> (
+          match f with
           | "name" | "host" | "device_name" -> "hostname"
           | "ip_address" | "device.ip" -> "ip"
           | "mac_address" | "device.mac" -> "mac"
@@ -57,8 +56,8 @@ let map_field_name ~entity (field : string) : string =
                 "observables_" ^ String.sub lf 12 (String.length lf - 12)
               else String.map (fun c -> if c = '.' then '_' else c) f
           | _ -> f)
-      | "logs" ->
-          (match f with
+      | "logs" -> (
+          match f with
           | "severity" | "level" -> "severity_text"
           | "service" | "service.name" -> "service_name"
           | "endpoint.hostname" -> "endpoint_hostname"
@@ -66,8 +65,8 @@ let map_field_name ~entity (field : string) : string =
           | "trace" -> "trace_id"
           | "span" -> "span_id"
           | _ -> f)
-      | "flows" | "connections" ->
-          (match f with
+      | "flows" | "connections" -> (
+          match f with
           | "src" -> "src_ip"
           | "dst" -> "dst_ip"
           | "sport" -> "src_port"
@@ -81,16 +80,16 @@ let map_field_name ~entity (field : string) : string =
           | "traffic.packets_in" -> "packets_in"
           | "traffic.packets_out" -> "packets_out"
           | _ when String.contains f '.' -> String.map (fun c -> if c = '.' then '_' else c) f
-          | "src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol"
-          | "bytes" | "bytes_in" | "bytes_out" | "packets" | "packets_in"
-          | "packets_out" | "direction" -> f
+          | "src_ip" | "dst_ip" | "src_port" | "dst_port" | "protocol" | "bytes" | "bytes_in"
+          | "bytes_out" | "packets" | "packets_in" | "packets_out" | "direction" ->
+              f
           | _ -> f)
       | "events" -> (
           match f with
           | _ when String.contains f '.' -> String.map (fun c -> if c = '.' then '_' else c) f
           | _ -> f)
-      | "otel_traces" ->
-          (match f with
+      | "otel_traces" -> (
+          match f with
           | "trace" -> "trace_id"
           | "span" -> "span_id"
           | "service" -> "service_name"
@@ -100,8 +99,8 @@ let map_field_name ~entity (field : string) : string =
           | "end" -> "end_time_unix_nano"
           | "duration_ms" -> "(end_time_unix_nano - start_time_unix_nano) / 1e6"
           | _ -> f)
-      | "otel_metrics" ->
-          (match f with
+      | "otel_metrics" -> (
+          match f with
           | "trace" -> "trace_id"
           | "span" -> "span_id"
           | "service" -> "service_name"
@@ -109,8 +108,8 @@ let map_field_name ~entity (field : string) : string =
           | "method" -> "http_method"
           | "status" -> "http_status_code"
           | _ -> f)
-      | "otel_trace_summaries" ->
-          (match f with
+      | "otel_trace_summaries" -> (
+          match f with
           | "trace" -> "trace_id"
           | "service" -> "root_service_name"
           | "duration_ms" -> "duration_ms"
@@ -121,8 +120,8 @@ let map_field_name ~entity (field : string) : string =
           | "end" -> "end_time_unix_nano"
           | "root_span" -> "root_span_name"
           | _ -> f)
-      | "otel_spans_enriched" ->
-          (match f with
+      | "otel_spans_enriched" -> (
+          match f with
           | "trace" -> "trace_id"
           | "span" -> "span_id"
           | "service" -> "service_name"
@@ -134,8 +133,8 @@ let map_field_name ~entity (field : string) : string =
           | "start" -> "start_time_unix_nano"
           | "end" -> "end_time_unix_nano"
           | _ -> f)
-      | "otel_root_spans" ->
-          (match f with
+      | "otel_root_spans" -> (
+          match f with
           | "trace" -> "trace_id"
           | "span" -> "root_span_id"
           | "name" -> "root_span_name"
@@ -152,7 +151,5 @@ let map_field_name ~entity (field : string) : string =
     in
     if looks_like_expression mapped then (
       ensure_safe_expression ~context:"computed expression" mapped;
-      mapped
-    ) else
-      ensure_safe_identifier ~context:("field " ^ field_trimmed) mapped
-  )
+      mapped)
+    else ensure_safe_identifier ~context:("field " ^ field_trimmed) mapped
