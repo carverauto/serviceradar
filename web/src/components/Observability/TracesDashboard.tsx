@@ -212,7 +212,7 @@ const TracesDashboard = () => {
             const [totalRes, successRes, errorRes] = await Promise.all([
                 cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
                 cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries status_code:1 stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries status_code:!1 stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries status_code!=1 stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
             ]);
 
             setStats({
@@ -262,7 +262,7 @@ const TracesDashboard = () => {
             if (filterStatus === 'success') {
                 queryParts.push('status_code:1');
             } else if (filterStatus === 'error') {
-                queryParts.push('status_code:!1');
+                queryParts.push('status_code!=1');
             }
 
             if (debouncedSearchTerm) {
@@ -331,7 +331,7 @@ const TracesDashboard = () => {
         if (filterStatus === 'success') {
             queryParts.push('status_code:1');
         } else if (filterStatus === 'error') {
-            queryParts.push('status_code:!1');
+            queryParts.push('status_code!=1');
         }
 
         if (debouncedSearchTerm) {

@@ -6,8 +6,8 @@ let entity_mappings =
   [
     ("devices", { table_name = "unified_devices"; timestamp_field = "last_seen" });
     ("flows", { table_name = "netflow_metrics"; timestamp_field = "timestamp" });
-    ("interfaces", { table_name = "discovered_interfaces"; timestamp_field = "last_seen" });
-    ("sweep_results", { table_name = "unified_devices"; timestamp_field = "timestamp" });
+    ("interfaces", { table_name = "discovered_interfaces"; timestamp_field = "timestamp" });
+    ("sweep_results", { table_name = "unified_devices"; timestamp_field = "last_seen" });
     ("traps", { table_name = "traps"; timestamp_field = "timestamp" });
     ("connections", { table_name = "connections"; timestamp_field = "timestamp" });
     ("logs", { table_name = "logs"; timestamp_field = "timestamp" });

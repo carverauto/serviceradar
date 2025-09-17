@@ -63,6 +63,30 @@ let parse_kv (tok : string) : (string * string) option =
       let v = String.sub tok (i + 1) (String.length tok - i - 1) |> trim in
       Some (k, v)
 
+let parse_non_colon_comparison (tok : string) : (string * Sql_ir.operator * string) option =
+  let tok = String.trim tok in
+  let len = String.length tok in
+  let slice i op_len op =
+    if i <= 0 || i + op_len >= len then None
+    else
+      let key = String.sub tok 0 i |> String.trim in
+      let value = String.sub tok (i + op_len) (len - i - op_len) |> String.trim in
+      if key = "" || value = "" then None else Some (key, op, value)
+  in
+  let rec seek i =
+    if i >= len then None
+    else
+      match tok.[i] with
+      | '!' when i + 1 < len && tok.[i + 1] = '=' -> slice i 2 Neq
+      | '>' when i + 1 < len && tok.[i + 1] = '=' -> slice i 2 Gte
+      | '<' when i + 1 < len && tok.[i + 1] = '=' -> slice i 2 Lte
+      | '>' -> slice i 1 Gt
+      | '<' -> slice i 1 Lt
+      | '=' -> slice i 1 Eq
+      | _ -> seek (i + 1)
+  in
+  seek 0
+
 let strip_neg (k : string) : bool * string =
   if String.length k > 0 && k.[0] = '!' then (true, String.sub k 1 (String.length k - 1) |> trim)
   else (false, k)
@@ -176,6 +200,18 @@ let parse (input : string) : query_spec =
           (* allow bare "inactivity" as alias for in:activity *)
           let lt = lower tok in
           if lt = "inactivity" then targets := !targets @ [ Entity [ "activity" ] ]
+          else (
+            match parse_non_colon_comparison tok with
+            | Some (raw_key, op, raw_value) ->
+                let neg_key, key' = strip_neg (lower raw_key) in
+                let vstr = strip_quotes raw_value in
+                let value = parse_value vstr in
+                let filter =
+                  if neg_key then AttributeFilter (key', Neq, value)
+                  else AttributeFilter (key', op, value)
+                in
+                filters := !filters @ [ filter ]
+            | None -> ())
       | Some (k, v) -> (
           match k with
           | "in" ->

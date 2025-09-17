@@ -808,7 +808,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     };
 
     const handleDiscoveredInterfacesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('in:interfaces time:last_7d sort:last_seen:desc limit:50'));
+        router.push('/query?q=' + encodeURIComponent('in:interfaces time:last_7d sort:timestamp:desc limit:50'));
     };
 
     const handleActiveSweepsClick = () => {
