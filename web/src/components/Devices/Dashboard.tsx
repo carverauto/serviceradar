@@ -91,19 +91,19 @@ const Dashboard = () => {
         setStatsLoading(true);
         try {
             const [totalRes, onlineRes, offlineRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:devices stats:"count()" time:last_7d', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:devices is_available:true stats:"count()" time:last_7d', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:devices is_available:false stats:"count()" time:last_7d', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:devices stats:"count() as total" sort:total:desc time:last_7d', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:devices is_available:true stats:"count() as total" sort:total:desc time:last_7d', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:devices is_available:false stats:"count() as total" sort:total:desc time:last_7d', token || undefined, 30000),
             ]);
             console.log('Device stats response:', {
-                total: totalRes.results[0]?.['count()'],
-                online: onlineRes.results[0]?.['count()'],
-                offline: offlineRes.results[0]?.['count()']
+                total: totalRes.results[0]?.total,
+                online: onlineRes.results[0]?.total,
+                offline: offlineRes.results[0]?.total
             });
             setStats({
-                total: totalRes.results[0]?.['count()'] || 0,
-                online: onlineRes.results[0]?.['count()'] || 0,
-                offline: offlineRes.results[0]?.['count()'] || 0,
+                total: totalRes.results[0]?.total || 0,
+                online: onlineRes.results[0]?.total || 0,
+                offline: offlineRes.results[0]?.total || 0,
             });
         } catch (e) {
             console.error("Failed to fetch stats:", e);

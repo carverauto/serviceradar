@@ -220,6 +220,16 @@ let parse (input : string) : query_spec =
           | key ->
               let neg_key, key' = strip_neg key in
               let vstr = strip_quotes v in
+              let lc_key = String.lowercase_ascii key' in
+              let is_range_literal s =
+                let len = String.length s in
+                len >= 2 && s.[0] = '[' && s.[len - 1] = ']'
+              in
+              if (not neg_key) && is_range_literal vstr
+                 && (lc_key = "event_timestamp" || lc_key = "timestamp" || lc_key = "last_seen")
+              then
+                filters := !filters @ [ TimeFilter vstr ]
+              else
               if String.length vstr >= 2 && vstr.[0] = '(' && vstr.[String.length vstr - 1] = ')'
               then
                 let inner = String.sub vstr 1 (String.length vstr - 2) in

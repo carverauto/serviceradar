@@ -468,7 +468,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
         },
         {
             name: 'Pollers (Last Hour)',
-            query: 'in:pollers time:last_1h sort:timestamp:desc limit:20',
+            query: 'in:pollers time:last_1h sort:last_seen:desc limit:20',
         },
         {
             name: 'Critical Traps Today',

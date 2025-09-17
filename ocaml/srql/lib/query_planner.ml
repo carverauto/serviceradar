@@ -179,11 +179,40 @@ let parse_having (s : string) : Sql_ir.condition option =
       in
       Some (Condition (lhs, op, v))
 
-let condition_of_filter = function
+let condition_of_filter ~timestamp_field = function
   | AttributeFilter (k, op, v) -> (
       match (v, op) with
       | String s, Eq when String.contains s '%' -> Some (Condition (k, Like, v))
       | String s, Neq when String.contains s '%' -> Some (Not (Condition (k, Like, v)))
+      | String s, Eq when
+          let len = String.length s in
+          len >= 2
+          && s.[0] = '['
+          && s.[len - 1] = ']'
+          && String.lowercase_ascii k = timestamp_field ->
+          let len = String.length s in
+          let inside = String.sub s 1 (len - 2) in
+          let parts = inside |> String.split_on_char ',' |> List.map String.trim in
+          let parse_dt lit =
+            let escaped = escape_string_literal lit in
+            Expr (Printf.sprintf "parse_datetime_best_effort('%s')" escaped)
+          in
+          let mk_cond start_opt end_opt =
+            match (start_opt, end_opt) with
+            | Some start_v, Some end_v ->
+                let c1 = Condition (k, Gte, parse_dt start_v) in
+                let c2 = Condition (k, Lte, parse_dt end_v) in
+                Some (And (c1, c2))
+            | Some start_v, None -> Some (Condition (k, Gte, parse_dt start_v))
+            | None, Some end_v -> Some (Condition (k, Lte, parse_dt end_v))
+            | None, None -> None
+          in
+          (match parts with
+          | [ start_s; end_s ] ->
+              let start_opt = if start_s = "" then None else Some start_s in
+              let end_opt = if end_s = "" then None else Some end_s in
+              mk_cond start_opt end_opt
+          | _ -> None)
       | _ -> Some (Condition (k, op, v)))
   | AttributeListFilter (k, vs) -> Some (InList (k, vs))
   | AttributeListFilterNot (k, vs) -> Some (Not (InList (k, vs)))
@@ -234,16 +263,35 @@ let plan_to_srql (q : query_spec) : Sql_ir.query option =
             kl
         | _ -> kl
       in
+      let timestamp_field = Entity_mapping.get_timestamp_field ent |> String.lowercase_ascii in
+      let is_range_literal (s : string) =
+        let len = String.length s in
+        len >= 2 && s.[0] = '[' && s.[len - 1] = ']'
+      in
+      (* Normalize filters: treat direct timestamp ranges as time filters so they share the same handling path. *)
+      let normalized_filters =
+        let rec aux acc = function
+          | AttributeFilter (k, Eq, String v) :: rest ->
+              let mapped = map_key k |> String.lowercase_ascii in
+              if mapped = timestamp_field && is_range_literal v then
+                aux (TimeFilter v :: acc) rest
+              else aux (AttributeFilter (k, Eq, String v) :: acc) rest
+          | filter :: rest -> aux (filter :: acc) rest
+          | [] -> List.rev acc
+        in
+        aux [] q.filters
+      in
       (* maybe inject default time window if none provided *)
       let q =
-        let has_time = List.exists (function TimeFilter _ -> true | _ -> false) q.filters in
-        if has_time then q
+        let has_time = List.exists (function TimeFilter _ -> true | _ -> false) normalized_filters in
+        if has_time then { q with filters = normalized_filters }
         else
           let from_env = Sys.getenv_opt "SRQL_DEFAULT_TIME" in
           let chosen = match !default_time_ref with Some s -> Some s | None -> from_env in
           match chosen with
-          | Some s when String.trim s <> "" -> { q with filters = q.filters @ [ TimeFilter s ] }
-          | _ -> q
+          | Some s when String.trim s <> "" ->
+              { q with filters = normalized_filters @ [ TimeFilter s ] }
+          | _ -> { q with filters = normalized_filters }
       in
       (* build combined conditions using condition_of_filter and key mapping *)
       let attr_conds =
@@ -251,11 +299,14 @@ let plan_to_srql (q : query_spec) : Sql_ir.query option =
         |> List.filter_map (fun f ->
                match f with
                | AttributeFilter (k, op, v) ->
-                   condition_of_filter (AttributeFilter (map_key k, op, v))
+                   condition_of_filter ~timestamp_field
+                     (AttributeFilter (map_key k, op, v))
                | AttributeListFilter (k, vs) ->
-                   condition_of_filter (AttributeListFilter (map_key k, vs))
+                   condition_of_filter ~timestamp_field
+                     (AttributeListFilter (map_key k, vs))
                | AttributeListFilterNot (k, vs) ->
-                   condition_of_filter (AttributeListFilterNot (map_key k, vs))
+                   condition_of_filter ~timestamp_field
+                     (AttributeListFilterNot (map_key k, vs))
                | _ -> None)
       in
       let cond = attr_conds |> List.fold_left (fun acc c -> and_opt acc (Some c)) None in
@@ -264,15 +315,16 @@ let plan_to_srql (q : query_spec) : Sql_ir.query option =
         let add_time acc tf =
           match tf with
           | TimeFilter s ->
-              let ls = String.lowercase_ascii (String.trim s) in
+              let trimmed = String.trim s in
+              let ls = String.lowercase_ascii trimmed in
               let reject_suspicious () =
-                if String.contains ls '\'' || String.contains ls '\\' then
+                if String.contains trimmed '\'' || String.contains trimmed '\\' then
                   invalid_arg "Invalid time range";
                 if
                   contains_substring ls "--" || contains_substring ls "/*"
                   || contains_substring ls "*/"
                 then invalid_arg "Invalid time range";
-                if contains_substring ls ";" then invalid_arg "Invalid time range"
+                if String.contains trimmed ';' then invalid_arg "Invalid time range"
               in
               reject_suspicious ();
               let ts_field = Entity_mapping.get_timestamp_field ent in
@@ -307,13 +359,14 @@ let plan_to_srql (q : query_spec) : Sql_ir.query option =
                     in
                     let expr = Printf.sprintf "now() - INTERVAL %d %s" n unit_sql in
                     and_opt acc (Some (Condition (ts_field, Gte, Expr expr)))
-              else if String.length ls >= 2 && ls.[0] = '[' && ls.[String.length ls - 1] = ']' then (
+              else if String.length trimmed >= 2 && trimmed.[0] = '['
+                      && trimmed.[String.length trimmed - 1] = ']' then (
                 reject_suspicious ();
-                let inside = String.sub ls 1 (String.length ls - 2) in
+                let inside = String.sub trimmed 1 (String.length trimmed - 2) in
                 let parts = inside |> String.split_on_char ',' |> List.map String.trim in
                 let parse_dt s =
                   let escaped = escape_string_literal s in
-                  Expr (Printf.sprintf "parseDateTimeBestEffort('%s')" escaped)
+                  Expr (Printf.sprintf "parse_datetime_best_effort('%s')" escaped)
                 in
                 match parts with
                 | [ start_s; end_s ] when start_s <> "" && end_s <> "" ->

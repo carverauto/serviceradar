@@ -106,18 +106,19 @@ const EventsDashboard = () => {
 
         try {
             // Use cached queries to prevent duplicates
+            const last24HoursIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
             const [totalRes, criticalRes, highRes, lowRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:events stats:"count()" time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:events severity:Critical stats:"count()" time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:events severity:High stats:"count()" time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:events severity:Low stats:"count()" time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:Critical time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:High time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:Low time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
             ]);
 
             setStats({
-                total: totalRes.results[0]?.['count()'] || 0,
-                critical: criticalRes.results[0]?.['count()'] || 0,
-                high: highRes.results[0]?.['count()'] || 0,
-                low: lowRes.results[0]?.['count()'] || 0,
+                total: totalRes.results[0]?.total || 0,
+                critical: criticalRes.results[0]?.total || 0,
+                high: highRes.results[0]?.total || 0,
+                low: lowRes.results[0]?.total || 0,
             });
         } catch (e) {
             console.error("Failed to fetch event stats:", e);
@@ -131,9 +132,10 @@ const EventsDashboard = () => {
         setError(null);
 
         try {
+            const last24HoursIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
             const queryParts = [
                 'in:events',
-                'time:last_24h',
+                `time:[${last24HoursIso},]`,
                 `sort:${sortBy}:${sortOrder}`,
                 'limit:20'
             ];

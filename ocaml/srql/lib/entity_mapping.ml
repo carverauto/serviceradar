@@ -11,12 +11,12 @@ let entity_mappings =
     ("traps", { table_name = "traps"; timestamp_field = "timestamp" });
     ("connections", { table_name = "connections"; timestamp_field = "timestamp" });
     ("logs", { table_name = "logs"; timestamp_field = "timestamp" });
-    ("services", { table_name = "services"; timestamp_field = "last_seen" });
+    ("services", { table_name = "services"; timestamp_field = "timestamp" });
     ("device_updates", { table_name = "device_updates"; timestamp_field = "timestamp" });
     ("icmp_results", { table_name = "icmp_results"; timestamp_field = "timestamp" });
     ("snmp_results", { table_name = "timeseries_metrics"; timestamp_field = "timestamp" });
-    ("events", { table_name = "events"; timestamp_field = "timestamp" });
-    ("pollers", { table_name = "pollers"; timestamp_field = "timestamp" });
+    ("events", { table_name = "events"; timestamp_field = "event_timestamp" });
+    ("pollers", { table_name = "pollers"; timestamp_field = "last_seen" });
     ("cpu_metrics", { table_name = "cpu_metrics"; timestamp_field = "timestamp" });
     ("disk_metrics", { table_name = "disk_metrics"; timestamp_field = "timestamp" });
     ("memory_metrics", { table_name = "memory_metrics"; timestamp_field = "timestamp" });

@@ -863,21 +863,21 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         try {
             // Use cached queries to prevent duplicates
             const [devicesRes, interfacesRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    'in:devices discovery_sources:* stats:"count()" time:last_7d',
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices discovery_sources:* stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000 // 30 second cache
                 ),
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    'in:interfaces stats:"count()" time:last_7d',
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:interfaces stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
             ]);
 
             setDiscoveryStats({
-                discoveredDevices: devicesRes.results[0]?.['count()'] || 0,
-                discoveredInterfaces: interfacesRes.results[0]?.['count()'] || 0,
+                discoveredDevices: devicesRes.results[0]?.total || 0,
+                discoveredInterfaces: interfacesRes.results[0]?.total || 0,
             });
         } catch (error) {
             console.error('Failed to fetch discovery stats:', error);
@@ -891,27 +891,27 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         try {
             // Use cached queries to prevent duplicates
             const [totalRes, onlineRes, offlineRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    'in:devices stats:"count()" time:last_7d',
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000 // 30 second cache
                 ),
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    'in:devices is_available:true stats:"count()" time:last_7d',
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices is_available:true stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    'in:devices is_available:false stats:"count()" time:last_7d',
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices is_available:false stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
             ]);
 
             setDeviceStats({
-                total: totalRes.results[0]?.['count()'] || 0,
-                online: onlineRes.results[0]?.['count()'] || 0,
-                offline: offlineRes.results[0]?.['count()'] || 0,
+                total: totalRes.results[0]?.total || 0,
+                online: onlineRes.results[0]?.total || 0,
+                offline: offlineRes.results[0]?.total || 0,
             });
         } catch (error) {
             console.error('Failed to fetch device stats:', error);

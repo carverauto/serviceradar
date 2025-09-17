@@ -210,15 +210,15 @@ const TracesDashboard = () => {
 
         try {
             const [totalRes, successRes, errorRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:otel_trace_summaries stats:"count()" time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:otel_trace_summaries status_code:1 stats:"count()" time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:otel_trace_summaries status_code:!1 stats:"count()" time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries status_code:1 stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries status_code:!1 stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
             ]);
 
             setStats({
-                total: totalRes.results[0]?.['count()'] || 0,
-                successful: successRes.results[0]?.['count()'] || 0,
-                errors: errorRes.results[0]?.['count()'] || 0,
+                total: totalRes.results[0]?.total || 0,
+                successful: successRes.results[0]?.total || 0,
+                errors: errorRes.results[0]?.total || 0,
                 avg_duration_ms: 0, // Will calculate from current data
                 p95_duration_ms: 0, // Will calculate from current data
                 services_count: 0, // Will calculate from current data
