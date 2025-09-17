@@ -145,20 +145,21 @@ test: ## Run all tests with coverage
 	@cd cmd/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd cmd/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd cmd/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@$(MAKE) --no-print-directory test-ocaml
 
 # OCaml test targets
 .PHONY: test-ocaml
 test-ocaml: ## Run OCaml tests
 	@echo "$(COLOR_BOLD)Running OCaml tests$(COLOR_RESET)"
-	@$(OPAM) exec -- $(DUNE) exec test_lwt/test_suite_lwt.exe
+	@$(OPAM) exec -- $(DUNE) test $(DUNE_ROOT)
 
 .PHONY: test-ocaml-silent
 test-ocaml-silent: ## Run OCaml tests silently (only shows failures)
-	@$(OPAM) exec -- $(DUNE) test
+	@$(OPAM) exec -- $(DUNE) test $(DUNE_ROOT)
 
 .PHONY: test-ocaml-verbose
 test-ocaml-verbose: ## Run OCaml tests with verbose output
-	@$(OPAM) exec -- $(DUNE) test --verbose
+	@$(OPAM) exec -- $(DUNE) test --verbose $(DUNE_ROOT)
 
 .PHONY: bench-ocaml-readers
 bench-ocaml-readers: ## Run OCaml reader micro-benchmarks

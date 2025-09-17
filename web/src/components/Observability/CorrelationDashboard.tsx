@@ -216,11 +216,10 @@ const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) =
         try {
             // Execute all correlation queries in parallel with proper error handling
             const [logsRes, traceSummaryRes, spansRes, metricsRes] = await Promise.all([
-                postQuery<{ results: Log[] }>(`SHOW LOGS WHERE trace_id = '${traceId}' ORDER BY timestamp ASC`).catch(() => ({ results: [] })),
-                postQuery<{ results: TraceSummary[] }>(`SHOW otel_trace_summaries_final WHERE trace_id = '${traceId}'`).catch(() => ({ results: [] })),
-                // Query the actual otel_traces table from your schema
-                postQuery<{ results: TraceSpan[] }>(`SHOW otel_traces WHERE trace_id = '${traceId}' ORDER BY start_time_unix_nano ASC`).catch(() => ({ results: [] })),
-                postQuery<{ results: OtelMetric[] }>(`SHOW otel_metrics WHERE trace_id = '${traceId}' ORDER BY timestamp ASC`).catch(() => ({ results: [] }))
+                postQuery<{ results: Log[] }>(`in:logs trace_id:${traceId} time:last_24h sort:timestamp:asc limit:200`).catch(() => ({ results: [] })),
+                postQuery<{ results: TraceSummary[] }>(`in:otel_trace_summaries trace_id:${traceId} time:last_24h limit:5`).catch(() => ({ results: [] })),
+                postQuery<{ results: TraceSpan[] }>(`in:otel_traces trace_id:${traceId} time:last_24h sort:start_time_unix_nano:asc limit:500`).catch(() => ({ results: [] })),
+                postQuery<{ results: OtelMetric[] }>(`in:otel_metrics trace_id:${traceId} time:last_24h sort:timestamp:asc limit:200`).catch(() => ({ results: [] }))
             ]);
 
             // Parse span data to handle JSON strings for attributes and events

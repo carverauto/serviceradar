@@ -207,6 +207,39 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # SRQL Service (OCaml) - handles /api/query requests routed via Kong
+  srql:
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.srql
+    image: ghcr.io/carverauto/serviceradar-srql:v1.0.53
+    container_name: serviceradar-srql
+    environment:
+      - PROTON_HOST=proton
+      - PROTON_PORT=9440
+      - PROTON_TLS=1
+      - PROTON_INSECURE_SKIP_VERIFY=1
+      - PROTON_VERIFY_HOSTNAME=0
+      - AUTH_ENABLED=true
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
+      - credentials:/etc/serviceradar/credentials:ro
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+      proton:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
   # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
@@ -245,7 +278,7 @@ services:
     image: ghcr.io/carverauto/serviceradar-kong-config:latest
     container_name: serviceradar-kong-config
     user: "0:0"
-    command: ["--jwks","${JWKS_URL:-http://core:8090/auth/jwks.json}","--service","${KONG_SERVICE_URL:-http://core:8090}","--path","${KONG_ROUTE_PATH:-/api}","--out","/out/kong.yml"]
+    command: ["--jwks","${JWKS_URL:-http://core:8090/auth/jwks.json}","--service","${KONG_SERVICE_URL:-http://core:8090}","--path","${KONG_ROUTE_PATH:-/api}","--srql-service","${SRQL_SERVICE_URL:-http://srql:8080}","--srql-path","${SRQL_ROUTE_PATH:-/api/query}","--out","/out/kong.yml"]
     volumes:
       - kong_config:/out
     depends_on:
@@ -266,6 +299,8 @@ services:
     depends_on:
       kong-config:
         condition: service_started
+      srql:
+        condition: service_healthy
     environment:
       KONG_DATABASE: off
       KONG_DECLARATIVE_CONFIG: /opt/kong/kong.yml
@@ -511,7 +546,10 @@ services:
 
   # ServiceRadar Flowgger Service (Syslog collector)
   flowgger:
-    image: ghcr.io/carverauto/serviceradar-flowgger:v1.0.53
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.flowgger
+    image: ghcr.io/carverauto/serviceradar-flowgger:local
     container_name: serviceradar-flowgger
     ports:
       - "514:514/udp"  # Syslog UDP port
@@ -627,7 +665,10 @@ services:
 
   # ServiceRadar DB Event Writer Service (NATS to Database bridge)
   db-event-writer:
-    image: ghcr.io/carverauto/serviceradar-db-event-writer:v1.0.53
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.db-event-writer
+    image: ghcr.io/carverauto/serviceradar-db-event-writer:local
     container_name: serviceradar-db-event-writer
     ports:
       - "50041:50041"  # gRPC port

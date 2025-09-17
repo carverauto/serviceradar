@@ -28,17 +28,19 @@ type CmdConfig struct {
 	ProtonDir       string
 	AddIPs          bool
 	NonInteractive  bool
-    Components      []string
-    // Kong/JWKS rendering
-    JWKSURL        string
-    KongServiceURL string
-    KongRoutePath  string
-    OutputPath     string
-    JWTKeyClaim    string
-    // JWT key generation
-    JWTKeyBits     int
-    JWTKeyID       string
-    JWTForce       bool
+	Components      []string
+	// Kong/JWKS rendering
+	JWKSURL        string
+	KongServiceURL string
+	KongRoutePath  string
+	OutputPath     string
+	JWTKeyClaim    string
+	SRQLServiceURL string
+	SRQLRoutePath  string
+	// JWT key generation
+	JWTKeyBits int
+	JWTKeyID   string
+	JWTForce   bool
 }
 
 // logStyles defines styles for logging messages

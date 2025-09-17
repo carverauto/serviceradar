@@ -21,6 +21,7 @@ import { AlertCircle, XCircle, AlertTriangle, Info, ExternalLink, FileText } fro
 import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { useRouter } from 'next/navigation';
 import { formatNumber } from '@/utils/formatters';
+import { escapeSrqlValue } from '@/lib/srql';
 
 
 interface LogEntry {
@@ -124,43 +125,33 @@ const CriticalLogsWidget = () => {
     };
 
     const handleLogLevelClick = useCallback((level: string) => {
-        let query = '';
-        switch (level.toLowerCase()) {
-            case 'fatal':
-                query = 'show logs where severity_text = "fatal"';
-                break;
-            case 'error':
-                query = 'show logs where severity_text = "error"';
-                break;
-            case 'warning':
-                query = 'show logs where severity_text = "warning" or severity_text = "warn"';
-                break;
-            case 'info':
-                query = 'show logs where severity_text = "info"';
-                break;
-            case 'debug':
-                query = 'show logs where severity_text = "debug"';
-                break;
-            case 'all':
-                query = 'show logs';
-                break;
-            default:
-                query = 'show logs';
+        const clauses = ['in:logs', 'time:last_24h', 'sort:timestamp:desc', 'limit:100'];
+        const normalized = level.toLowerCase();
+        if (normalized === 'fatal') {
+            clauses.push('severity_text:(fatal,FATAL)');
+        } else if (normalized === 'error') {
+            clauses.push('severity_text:(error,ERROR)');
+        } else if (normalized === 'warning') {
+            clauses.push('severity_text:(warning,warn,WARNING,WARN)');
+        } else if (normalized === 'info') {
+            clauses.push('severity_text:(info,INFO)');
+        } else if (normalized === 'debug') {
+            clauses.push('severity_text:(debug,trace,DEBUG,TRACE)');
         }
-        const encodedQuery = encodeURIComponent(query);
-        router.push(`/query?q=${encodedQuery}`);
+        const query = clauses.join(' ');
+        router.push(`/query?q=${encodeURIComponent(query)}`);
     }, [router]);
 
     const handleLogEntryClick = useCallback((log: LogEntry) => {
+        const clauses = ['in:logs', 'time:last_24h', 'sort:timestamp:desc', 'limit:100'];
         if (log.trace_id) {
-            const query = `show logs where trace_id = "${log.trace_id}"`;
-            const encodedQuery = encodeURIComponent(query);
-            router.push(`/query?q=${encodedQuery}`);
-        } else {
-            const query = `show logs where severity_text = "${log.severity_text}"`;
-            const encodedQuery = encodeURIComponent(query);
-            router.push(`/query?q=${encodedQuery}`);
+            clauses.push(`trace_id:"${escapeSrqlValue(log.trace_id)}"`);
         }
+        if (log.severity_text) {
+            clauses.push(`severity_text:"${escapeSrqlValue(log.severity_text)}"`);
+        }
+        const query = clauses.join(' ');
+        router.push(`/query?q=${encodeURIComponent(query)}`);
     }, [router]);
 
     if (loading) {
@@ -204,9 +195,8 @@ const CriticalLogsWidget = () => {
                 </h3>
                 <button
                     onClick={() => {
-                        const query = 'show logs where severity_text in ("fatal", "error")';
-                        const encodedQuery = encodeURIComponent(query);
-                        router.push(`/query?q=${encodedQuery}`);
+                        const query = 'in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc limit:100';
+                        router.push(`/query?q=${encodeURIComponent(query)}`);
                     }}
                     className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                     title="View critical logs (fatal + error)"

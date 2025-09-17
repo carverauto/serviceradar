@@ -59,22 +59,20 @@ else
 fi
 
 # Check for Proton password in shared credentials volume (same as core service)
+# One-time password injection: update config if new password detected
 if [ -f "/etc/serviceradar/credentials/proton-password" ]; then
     PROTON_PASSWORD=$(cat /etc/serviceradar/credentials/proton-password)
     echo "Found Proton password from shared credentials"
 fi
 
-# One-time password injection: only update if password is empty
 if [ -n "$PROTON_PASSWORD" ]; then
     CURRENT_PASSWORD=$(jq -r '.database.password' "$CONFIG_PATH")
-    if [ "$CURRENT_PASSWORD" = "" ] || [ "$CURRENT_PASSWORD" = "null" ]; then
-        echo "First-time setup: Writing generated Proton password to config permanently..."
-        # Update the config file permanently with the password
+    if [ "$CURRENT_PASSWORD" != "$PROTON_PASSWORD" ]; then
+        echo "Updating Proton password in $CONFIG_PATH"
         jq --arg pwd "$PROTON_PASSWORD" '.database.password = $pwd' "$CONFIG_PATH" > /tmp/config-updated.json
         mv /tmp/config-updated.json "$CONFIG_PATH"
-        echo "✅ Password permanently written to $CONFIG_PATH - this will only happen once!"
     else
-        echo "✅ Password already configured in $CONFIG_PATH, skipping injection"
+        echo "✅ Proton password already up to date"
     fi
 else
     echo "⚠️  Warning: No Proton password found in credentials, using config as-is"

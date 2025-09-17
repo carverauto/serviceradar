@@ -20,18 +20,19 @@ module Config : sig
   val default : t
   (** Default configuration for local Proton instance *)
 
-  val with_tls : 
+  val with_tls :
     ?ca_cert:string option ->
     ?client_cert:string option ->
     ?client_key:string option ->
     ?verify_hostname:bool ->
     ?insecure_skip_verify:bool ->
-    t -> t
+    t ->
+    t
   (** Add TLS configuration to an existing config *)
 
   val local_docker_tls : t
   (** Pre-configured for local Docker environment with TLS *)
-  
+
   val local_docker_no_tls : t
   (** Pre-configured for local Docker environment without TLS *)
 end

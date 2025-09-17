@@ -1,8 +1,4 @@
-type search_target =
-  | Entity of string list
-  | Observable of string
-  | EventClass of string
-
+type search_target = Entity of string list | Observable of string | EventClass of string
 type time_range = string
 
 type search_filter =

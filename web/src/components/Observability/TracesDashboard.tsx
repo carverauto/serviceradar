@@ -30,6 +30,7 @@ import {
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
 import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
+import { escapeSrqlValue } from '@/lib/srql';
 
 const StatCard = ({
     title,
@@ -210,15 +211,15 @@ const TracesDashboard = () => {
 
         try {
             const [totalRes, successRes, errorRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries_final', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries_final WHERE status_code = 1', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_trace_summaries_final WHERE status_code != 1 OR error_count > 0', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries status_code:1 stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries status_code!=1 stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
             ]);
 
             setStats({
-                total: totalRes.results[0]?.['count()'] || 0,
-                successful: successRes.results[0]?.['count()'] || 0,
-                errors: errorRes.results[0]?.['count()'] || 0,
+                total: totalRes.results[0]?.total || 0,
+                successful: successRes.results[0]?.total || 0,
+                errors: errorRes.results[0]?.total || 0,
                 avg_duration_ms: 0, // Will calculate from current data
                 p95_duration_ms: 0, // Will calculate from current data
                 services_count: 0, // Will calculate from current data
@@ -232,7 +233,7 @@ const TracesDashboard = () => {
 
     const fetchServices = useCallback(async () => {
         try {
-            const query = 'SHOW DISTINCT(root_service_name) FROM otel_trace_summaries_final WHERE root_service_name IS NOT NULL LIMIT 100';
+            const query = 'in:otel_trace_summaries root_service_name:* time:last_24h stats:"count() as total by root_service_name" limit:200';
             const response = await postQuery<{ results: Array<{ root_service_name: string }> }>(query);
             const serviceNames = response.results?.map(r => r.root_service_name).filter(Boolean) || [];
             setServices(serviceNames);
@@ -247,32 +248,36 @@ const TracesDashboard = () => {
         setError(null);
 
         try {
-            let query = 'SHOW otel_trace_summaries_final';
-            const conditions: string[] = [];
+            const queryParts = [
+                'in:otel_trace_summaries',
+                'time:last_24h',
+                `sort:${sortBy === 'timestamp' ? 'timestamp' : sortBy}:${sortOrder}`,
+                'limit:20'
+            ];
 
-            // Add search filter
-            if (debouncedSearchTerm) {
-                conditions.push(`(trace_id LIKE '%${debouncedSearchTerm}%' OR root_service_name LIKE '%${debouncedSearchTerm}%' OR root_span_name LIKE '%${debouncedSearchTerm}%')`);
-            }
-
-            // Add service filter
             if (filterService !== 'all') {
-                conditions.push(`root_service_name = '${filterService}'`);
+                const escapedService = escapeSrqlValue(filterService);
+                queryParts.push(`root_service_name:"${escapedService}"`);
             }
 
-            // Add status filter
             if (filterStatus === 'success') {
-                conditions.push('status_code = 1 AND error_count = 0');
+                queryParts.push('status_code:1');
             } else if (filterStatus === 'error') {
-                conditions.push('(status_code != 1 OR error_count > 0)');
+                queryParts.push('status_code!=1');
             }
 
-            if (conditions.length > 0) {
-                query += ` WHERE ${conditions.join(' AND ')}`;
+            if (debouncedSearchTerm) {
+                const trimmed = debouncedSearchTerm.trim();
+                const escapedTerm = escapeSrqlValue(trimmed);
+                const looksLikeTraceId = /^[0-9a-fA-F-]{16,}$/.test(trimmed);
+                if (looksLikeTraceId) {
+                    queryParts.push(`trace_id:${trimmed}`);
+                } else {
+                    queryParts.push(`root_span_name:%${escapedTerm}%`);
+                }
             }
 
-            // Add ordering
-            query += ` ORDER BY ${sortBy === 'timestamp' ? '_tp_time' : sortBy} ${sortOrder.toUpperCase()}`;
+            const query = queryParts.join(' ');
 
             const response = await postQuery<TraceSummariesApiResponse>(query, cursor, direction);
             setTraces(response.results || []);
@@ -311,33 +316,42 @@ const TracesDashboard = () => {
     }, [postQuery, debouncedSearchTerm, filterService, filterStatus, sortBy, sortOrder]);
 
     const buildStreamingQuery = useCallback(() => {
-        let query = 'SHOW otel_trace_summaries_final';
-        const conditions: string[] = [];
-
-        if (debouncedSearchTerm) {
-            conditions.push(`(trace_id LIKE '%${debouncedSearchTerm}%' OR root_service_name LIKE '%${debouncedSearchTerm}%' OR root_span_name LIKE '%${debouncedSearchTerm}%')`);
-        }
+        const queryParts = [
+            'in:otel_trace_summaries',
+            'time:last_24h',
+            `sort:${sortBy === 'timestamp' ? 'timestamp' : sortBy}:${sortOrder}`,
+            'limit:20',
+            'stream:true'
+        ];
 
         if (filterService !== 'all') {
-            conditions.push(`root_service_name = '${filterService}'`);
+            const escapedService = escapeSrqlValue(filterService);
+            queryParts.push(`root_service_name:"${escapedService}"`);
         }
 
         if (filterStatus === 'success') {
-            conditions.push('status_code = 1 AND error_count = 0');
+            queryParts.push('status_code:1');
         } else if (filterStatus === 'error') {
-            conditions.push('(status_code != 1 OR error_count > 0)');
+            queryParts.push('status_code!=1');
         }
 
-        if (conditions.length > 0) {
-            query += ` WHERE ${conditions.join(' AND ')}`;
+        if (debouncedSearchTerm) {
+            const trimmed = debouncedSearchTerm.trim();
+            const escapedTerm = escapeSrqlValue(trimmed);
+            const looksLikeTraceId = /^[0-9a-fA-F-]{16,}$/.test(trimmed);
+            if (looksLikeTraceId) {
+                queryParts.push(`trace_id:${trimmed}`);
+            } else {
+                queryParts.push(`root_span_name:%${escapedTerm}%`);
+            }
         }
 
-        query += ` ORDER BY ${sortBy === 'timestamp' ? '_tp_time' : sortBy} ${sortOrder.toUpperCase()}`;
-        
+        const query = queryParts.join(' ');
+
         // Debug: Log the streaming query being used
         console.log('📡 Streaming query:', query);
         console.log('📡 Active filters - Status:', filterStatus, 'Service:', filterService, 'Search:', debouncedSearchTerm);
-        
+
         return query;
     }, [debouncedSearchTerm, filterService, filterStatus, sortBy, sortOrder]);
 
