@@ -184,12 +184,12 @@ let condition_of_filter ~timestamp_field = function
       match (v, op) with
       | String s, Eq when String.contains s '%' -> Some (Condition (k, Like, v))
       | String s, Neq when String.contains s '%' -> Some (Not (Condition (k, Like, v)))
-      | String s, Eq when
-          let len = String.length s in
-          len >= 2
-          && s.[0] = '['
-          && s.[len - 1] = ']'
-          && String.lowercase_ascii k = timestamp_field ->
+      | String s, Eq
+        when let len = String.length s in
+             len >= 2
+             && s.[0] = '['
+             && s.[len - 1] = ']'
+             && String.lowercase_ascii k = timestamp_field -> (
           let len = String.length s in
           let inside = String.sub s 1 (len - 2) in
           let parts = inside |> String.split_on_char ',' |> List.map String.trim in
@@ -207,7 +207,7 @@ let condition_of_filter ~timestamp_field = function
             | None, Some end_v -> Some (Condition (k, Lte, parse_dt end_v))
             | None, None -> None
           in
-          (match parts with
+          match parts with
           | [ start_s; end_s ] ->
               let start_opt = if start_s = "" then None else Some start_s in
               let end_opt = if end_s = "" then None else Some end_s in
@@ -273,8 +273,7 @@ let plan_to_srql (q : query_spec) : Sql_ir.query option =
         let rec aux acc = function
           | AttributeFilter (k, Eq, String v) :: rest ->
               let mapped = map_key k |> String.lowercase_ascii in
-              if mapped = timestamp_field && is_range_literal v then
-                aux (TimeFilter v :: acc) rest
+              if mapped = timestamp_field && is_range_literal v then aux (TimeFilter v :: acc) rest
               else aux (AttributeFilter (k, Eq, String v) :: acc) rest
           | filter :: rest -> aux (filter :: acc) rest
           | [] -> List.rev acc
@@ -283,7 +282,9 @@ let plan_to_srql (q : query_spec) : Sql_ir.query option =
       in
       (* maybe inject default time window if none provided *)
       let q =
-        let has_time = List.exists (function TimeFilter _ -> true | _ -> false) normalized_filters in
+        let has_time =
+          List.exists (function TimeFilter _ -> true | _ -> false) normalized_filters
+        in
         if has_time then { q with filters = normalized_filters }
         else
           let from_env = Sys.getenv_opt "SRQL_DEFAULT_TIME" in
@@ -299,14 +300,11 @@ let plan_to_srql (q : query_spec) : Sql_ir.query option =
         |> List.filter_map (fun f ->
                match f with
                | AttributeFilter (k, op, v) ->
-                   condition_of_filter ~timestamp_field
-                     (AttributeFilter (map_key k, op, v))
+                   condition_of_filter ~timestamp_field (AttributeFilter (map_key k, op, v))
                | AttributeListFilter (k, vs) ->
-                   condition_of_filter ~timestamp_field
-                     (AttributeListFilter (map_key k, vs))
+                   condition_of_filter ~timestamp_field (AttributeListFilter (map_key k, vs))
                | AttributeListFilterNot (k, vs) ->
-                   condition_of_filter ~timestamp_field
-                     (AttributeListFilterNot (map_key k, vs))
+                   condition_of_filter ~timestamp_field (AttributeListFilterNot (map_key k, vs))
                | _ -> None)
       in
       let cond = attr_conds |> List.fold_left (fun acc c -> and_opt acc (Some c)) None in
@@ -359,8 +357,11 @@ let plan_to_srql (q : query_spec) : Sql_ir.query option =
                     in
                     let expr = Printf.sprintf "now() - INTERVAL %d %s" n unit_sql in
                     and_opt acc (Some (Condition (ts_field, Gte, Expr expr)))
-              else if String.length trimmed >= 2 && trimmed.[0] = '['
-                      && trimmed.[String.length trimmed - 1] = ']' then (
+              else if
+                String.length trimmed >= 2
+                && trimmed.[0] = '['
+                && trimmed.[String.length trimmed - 1] = ']'
+              then (
                 reject_suspicious ();
                 let inside = String.sub trimmed 1 (String.length trimmed - 2) in
                 let parts = inside |> String.split_on_char ',' |> List.map String.trim in

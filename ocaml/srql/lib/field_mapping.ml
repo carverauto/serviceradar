@@ -141,10 +141,7 @@ let map_field_name ~entity (field : string) : string =
           | "kind" -> "root_kind"
           | "service" -> "root_service"
           | _ -> f)
-      | "pollers" -> (
-          match f with
-          | "timestamp" -> "last_seen"
-          | _ -> f)
+      | "pollers" -> ( match f with "timestamp" -> "last_seen" | _ -> f)
       | _ -> f
     in
     let mapped =

@@ -196,11 +196,11 @@ let parse (input : string) : query_spec =
   List.iter
     (fun tok ->
       match parse_kv tok with
-      | None ->
+      | None -> (
           (* allow bare "inactivity" as alias for in:activity *)
           let lt = lower tok in
           if lt = "inactivity" then targets := !targets @ [ Entity [ "activity" ] ]
-          else (
+          else
             match parse_non_colon_comparison tok with
             | Some (raw_key, op, raw_value) ->
                 let neg_key, key' = strip_neg (lower raw_key) in
@@ -261,19 +261,16 @@ let parse (input : string) : query_spec =
                 let len = String.length s in
                 len >= 2 && s.[0] = '[' && s.[len - 1] = ']'
               in
-              if (not neg_key) && is_range_literal vstr
-                 && (lc_key = "event_timestamp" || lc_key = "timestamp" || lc_key = "last_seen")
-              then
-                filters := !filters @ [ TimeFilter vstr ]
+              if
+                (not neg_key) && is_range_literal vstr
+                && (lc_key = "event_timestamp" || lc_key = "timestamp" || lc_key = "last_seen")
+              then filters := !filters @ [ TimeFilter vstr ]
               else if String.length vstr > 0 && vstr.[0] = '!' then
                 let neg_value = String.sub vstr 1 (String.length vstr - 1) |> String.trim in
                 if neg_value = "" then ()
-                else
-                  filters :=
-                    !filters
-                    @ [ AttributeFilter (key', Neq, parse_value neg_value) ]
-              else
-              if String.length vstr >= 2 && vstr.[0] = '(' && vstr.[String.length vstr - 1] = ')'
+                else filters := !filters @ [ AttributeFilter (key', Neq, parse_value neg_value) ]
+              else if
+                String.length vstr >= 2 && vstr.[0] = '(' && vstr.[String.length vstr - 1] = ')'
               then
                 let inner = String.sub vstr 1 (String.length vstr - 2) in
                 filters := !filters @ parse_group ~prefix:key' ~neg:neg_key inner
