@@ -464,7 +464,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
         },
         {
             name: 'All Interfaces',
-            query: 'in:interfaces time:last_24h sort:last_seen:desc limit:20',
+            query: 'in:interfaces time:last_24h sort:timestamp:desc limit:20',
         },
         {
             name: 'Pollers (Last Hour)',
