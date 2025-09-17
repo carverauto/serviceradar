@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
+import { escapeSrqlValue } from '@/lib/srql';
 
 const StatCard = ({
     title,
@@ -236,7 +237,7 @@ const MetricsDashboard = () => {
             ];
 
             if (filterService !== 'all') {
-                const escapedService = filterService.replace(/"/g, '\\"');
+                const escapedService = escapeSrqlValue(filterService);
                 queryParts.push(`service_name:"${escapedService}"`);
             }
 
@@ -247,7 +248,7 @@ const MetricsDashboard = () => {
             }
 
             if (debouncedSearchTerm) {
-                const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+                const escapedTerm = escapeSrqlValue(debouncedSearchTerm);
                 queryParts.push(`span_name:%${escapedTerm}%`);
             }
 

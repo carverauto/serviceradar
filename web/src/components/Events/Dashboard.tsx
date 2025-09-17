@@ -19,6 +19,7 @@ import {
 import ReactJson from '@/components/Common/DynamicReactJson';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
+import { escapeSrqlValue } from '@/lib/srql';
 
 type SortableKeys = 'event_timestamp' | 'host' | 'severity';
 
@@ -145,7 +146,7 @@ const EventsDashboard = () => {
             }
 
             if (debouncedSearchTerm) {
-                const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+                const escapedTerm = escapeSrqlValue(debouncedSearchTerm);
                 queryParts.push(`short_message:%${escapedTerm}%`);
             }
 
