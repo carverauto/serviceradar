@@ -107,10 +107,10 @@ const EventsDashboard = () => {
         try {
             // Use cached queries to prevent duplicates
             const [totalRes, criticalRes, highRes, lowRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT EVENTS', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Critical'", token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'High'", token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Low'", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('in:events stats:"count()" time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('in:events severity:Critical stats:"count()" time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('in:events severity:High stats:"count()" time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('in:events severity:Low stats:"count()" time:last_24h', token || undefined, 30000),
             ]);
 
             setStats({
@@ -131,22 +131,23 @@ const EventsDashboard = () => {
         setError(null);
 
         try {
-            let query = 'SHOW EVENTS';
-            const whereClauses: string[] = [];
-
-            if (debouncedSearchTerm) {
-                whereClauses.push(`(short_message LIKE '%${debouncedSearchTerm}%' OR host LIKE '%${debouncedSearchTerm}%')`);
-            }
+            const queryParts = [
+                'in:events',
+                'time:last_24h',
+                `sort:${sortBy}:${sortOrder}`,
+                'limit:20'
+            ];
 
             if (filterSeverity !== 'all') {
-                whereClauses.push(`severity = '${filterSeverity}'`);
+                queryParts.push(`severity:${filterSeverity}`);
             }
 
-            if (whereClauses.length > 0) {
-                query += ` WHERE ${whereClauses.join(' AND ')}`;
+            if (debouncedSearchTerm) {
+                const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+                queryParts.push(`short_message:%${escapedTerm}%`);
             }
 
-            query += ` ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
+            const query = queryParts.join(' ');
 
             const data = await postQuery<EventsApiResponse>(query, cursor, direction);
             setEvents(data.results || []);

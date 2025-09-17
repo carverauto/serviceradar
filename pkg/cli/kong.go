@@ -35,6 +35,8 @@ func (RenderKongHandler) Parse(args []string, cfg *CmdConfig) error {
 	path := fs.String("path", "/api", "Route path prefix")
 	out := fs.String("out", "/etc/kong/kong.yml", "Output DB-less YAML path")
 	keyClaim := fs.String("key-claim", "kid", "JWT key claim name to map keys")
+	srqlService := fs.String("srql-service", "", "Optional SRQL upstream service URL")
+	srqlPath := fs.String("srql-path", "/api/query", "Route path for SRQL queries")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parsing render-kong flags: %w", err)
 	}
@@ -43,6 +45,8 @@ func (RenderKongHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.KongRoutePath = *path
 	cfg.OutputPath = *out
 	cfg.JWTKeyClaim = *keyClaim
+	cfg.SRQLServiceURL = *srqlService
+	cfg.SRQLRoutePath = *srqlPath
 
 	return nil
 }
@@ -59,7 +63,7 @@ func RunRenderKong(cfg *CmdConfig) error {
 	if len(pemKeys) == 0 {
 		return errNoRSAKeysInJWKS
 	}
-	content := renderKongDBLess(cfg.KongServiceURL, cfg.KongRoutePath, cfg.JWTKeyClaim, pemKeys)
+	content := renderKongDBLess(cfg.KongServiceURL, cfg.KongRoutePath, cfg.SRQLServiceURL, cfg.SRQLRoutePath, cfg.JWTKeyClaim, pemKeys)
 	if err := os.WriteFile(cfg.OutputPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("writing %s: %w", cfg.OutputPath, err)
 	}
@@ -158,7 +162,7 @@ func rsaJWKToPEM(nB64, eB64 string) (string, error) {
 	return string(pem.EncodeToMemory(blk)), nil
 }
 
-func renderKongDBLess(serviceURL, routePath, keyClaim string, keys []pemKey) string {
+func renderKongDBLess(serviceURL, routePath, srqlService, srqlPath, keyClaim string, keys []pemKey) string {
 	var b strings.Builder
 	b.WriteString("_format_version: \"3.0\"\n")
 	b.WriteString("_transform: true\n\n")
@@ -170,6 +174,15 @@ func renderKongDBLess(serviceURL, routePath, keyClaim string, keys []pemKey) str
 	b.WriteString("        paths:\n")
 	b.WriteString("          - " + routePath + "\n")
 	b.WriteString("        strip_path: false\n\n")
+	if srqlService != "" {
+		b.WriteString("  - name: srql-api\n")
+		b.WriteString("    url: " + srqlService + "\n")
+		b.WriteString("    routes:\n")
+		b.WriteString("      - name: srql-api-route\n")
+		b.WriteString("        paths:\n")
+		b.WriteString("          - " + srqlPath + "\n")
+		b.WriteString("        strip_path: false\n\n")
+	}
 	b.WriteString("consumers:\n")
 	b.WriteString("  - username: jwks-consumer\n\n")
 	b.WriteString("plugins:\n")
@@ -181,6 +194,16 @@ func renderKongDBLess(serviceURL, routePath, keyClaim string, keys []pemKey) str
 	b.WriteString("      claims_to_verify:\n")
 	b.WriteString("        - exp\n")
 	b.WriteString("      run_on_preflight: true\n\n")
+	if srqlService != "" {
+		b.WriteString("  - name: jwt\n")
+		b.WriteString("    route: srql-api-route\n")
+		b.WriteString("    enabled: true\n")
+		b.WriteString("    config:\n")
+		b.WriteString("      key_claim_name: " + keyClaim + "\n")
+		b.WriteString("      claims_to_verify:\n")
+		b.WriteString("        - exp\n")
+		b.WriteString("      run_on_preflight: true\n\n")
+	}
 	b.WriteString("jwt_secrets:\n")
 	for _, k := range keys {
 		b.WriteString("  - consumer: jwks-consumer\n")

@@ -97,8 +97,11 @@ export async function POST(req: NextRequest) {
                 const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
                 
                 // Use a more efficient query that only returns unique device_ids
+                const deviceFilters = deviceIds
+                    .map((id) => `device_id:"${id.replace(/"/g, '\\"')}"`)
+                    .join(' ');
                 const srqlQuery = {
-                    query: `show cpu_metrics where timestamp >= '${twoHoursAgo}' and device_id in (${deviceIds.map(id => `'${id}'`).join(', ')}) order by timestamp desc`,
+                    query: `in:cpu_metrics ${deviceFilters} time:[${twoHoursAgo},] sort:timestamp:desc`,
                     limit: deviceIds.length * 2 // Reasonable limit based on number of devices
                 };
 

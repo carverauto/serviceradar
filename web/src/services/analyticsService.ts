@@ -46,6 +46,7 @@ export interface AnalyticsData {
   
   // Device data for widgets
   devicesLatest: unknown[];
+  servicesLatest: unknown[];
   
   // Pollers data
   pollers: unknown[];
@@ -121,27 +122,28 @@ class AnalyticsService {
 
     // Execute all queries in parallel - this reduces from 20+ queries to 1 batch
     const queries = [
-      'COUNT DEVICES',
-      'COUNT DEVICES WHERE is_available = false',
-      'COUNT EVENTS',
-      "COUNT EVENTS WHERE severity = 'Critical'",
-      "COUNT EVENTS WHERE severity = 'High'",
-      "COUNT EVENTS WHERE severity = 'Medium'",
-      "COUNT EVENTS WHERE severity = 'Low'",
-      "SHOW EVENTS WHERE severity IN ('Critical', 'High') ORDER BY event_timestamp DESC",
-      'COUNT LOGS',
-      "COUNT LOGS WHERE severity_text = 'fatal'",
-      "COUNT LOGS WHERE severity_text = 'error'",
-      "COUNT LOGS WHERE severity_text = 'warning' OR severity_text = 'warn'",
-      "COUNT LOGS WHERE severity_text = 'info'",
-      "COUNT LOGS WHERE severity_text = 'debug'",
-      "SHOW LOGS WHERE severity_text IN ('fatal', 'error') ORDER BY timestamp DESC",
-      'COUNT otel_metrics',
-      'COUNT otel_trace_summaries_final',
-      'COUNT otel_metrics WHERE is_slow = true',
-      "COUNT otel_metrics WHERE http_status_code >= '400'",
-      'SHOW otel_metrics WHERE is_slow = true ORDER BY timestamp DESC',
-      'SHOW DEVICES LATEST'
+      'in:devices stats:"count()"',
+      'in:devices is_available:false stats:"count()"',
+      'in:events stats:"count()" time:last_24h',
+      'in:events severity:Critical stats:"count()" time:last_24h',
+      'in:events severity:High stats:"count()" time:last_24h',
+      'in:events severity:Medium stats:"count()" time:last_24h',
+      'in:events severity:Low stats:"count()" time:last_24h',
+      'in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc limit:100',
+      'in:logs stats:"count()" time:last_24h',
+      'in:logs severity_text:fatal stats:"count()" time:last_24h',
+      'in:logs severity_text:error stats:"count()" time:last_24h',
+      'in:logs severity_text:(warning,warn) stats:"count()" time:last_24h',
+      'in:logs severity_text:info stats:"count()" time:last_24h',
+      'in:logs severity_text:debug stats:"count()" time:last_24h',
+      'in:logs severity_text:(fatal,error) time:last_24h sort:timestamp:desc limit:100',
+      'in:otel_metrics stats:"count()" time:last_24h',
+      'in:otel_traces stats:"count()" time:last_24h',
+      'in:otel_metrics is_slow:true stats:"count()" time:last_24h',
+      'in:otel_metrics http_status_code:[400,] stats:"count()" time:last_24h',
+      'in:otel_metrics is_slow:true time:last_24h sort:timestamp:desc limit:100',
+      'in:devices sort:last_seen:desc limit:100',
+      'in:services time:last_7d limit:200'
     ];
 
     // Batch all queries together
@@ -182,7 +184,7 @@ class AnalyticsService {
       highEventsRes, mediumEventsRes, lowEventsRes, recentCriticalEventsRes,
       totalLogsRes, fatalLogsRes, errorLogsRes, warningLogsRes, infoLogsRes,
       debugLogsRes, recentErrorLogsRes, totalMetricsRes, totalTracesRes,
-      slowMetricsRes, errorMetricsRes, recentSlowSpansRes, devicesLatestRes
+      slowMetricsRes, errorMetricsRes, recentSlowSpansRes, devicesLatestRes, servicesLatestRes
     ] = queryResults;
 
     const totalDevices = totalDevicesRes.results[0]?.['count()'] || 0;
@@ -220,6 +222,7 @@ class AnalyticsService {
       
       // Raw data for widgets
       devicesLatest: devicesLatestRes.results || [],
+      servicesLatest: servicesLatestRes.results || [],
       pollers: pollers || []
     };
   }
@@ -230,7 +233,7 @@ class AnalyticsService {
       totalEvents: 0, criticalEvents: 0, highEvents: 0, mediumEvents: 0, lowEvents: 0, recentCriticalEvents: [],
       totalLogs: 0, fatalLogs: 0, errorLogs: 0, warningLogs: 0, infoLogs: 0, debugLogs: 0, recentErrorLogs: [],
       totalMetrics: 0, totalTraces: 0, slowMetrics: 0, errorMetrics: 0, recentSlowSpans: [],
-      devicesLatest: [], pollers: []
+      devicesLatest: [], servicesLatest: [], pollers: []
     };
   }
 

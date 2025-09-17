@@ -51,12 +51,12 @@ export default function Header() {
     const derivedQuery = useMemo(() => {
         if (urlQuery) return urlQuery;
         
-        let newQuery = 'show devices';
+        let newQuery = 'in:devices time:last_24h sort:last_seen:desc limit:20';
         if (selectedPoller) {
-            newQuery += ` | where poller_id = '${selectedPoller}'`;
+            newQuery += ` poller_id:"${selectedPoller}"`;
         }
         if (selectedPartition) {
-            newQuery += ` | where partition = '${selectedPartition}'`;
+            newQuery += ` partition:"${selectedPartition}"`;
         }
         return newQuery;
     }, [urlQuery, selectedPoller, selectedPartition]);
@@ -65,7 +65,7 @@ export default function Header() {
         const fetchPollers = async () => {
             try {
                 const data = await cachedQuery<{ results: { poller_id: string }[] }>(
-                    'show pollers',
+                    'in:pollers time:last_7d sort:timestamp:desc limit:200',
                     token || undefined
                 );
                 const rawResults = Array.isArray(data.results) ? data.results as { poller_id: string }[] : [];
@@ -90,7 +90,7 @@ export default function Header() {
         const fetchPartitions = async () => {
             try {
                 const data = await cachedQuery<{ results: { partition: string }[] }>(
-                    'SHOW DEVICES',
+                    'in:devices time:last_7d limit:500',
                     token || undefined
                 );
                 

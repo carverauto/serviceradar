@@ -105,43 +105,28 @@ const CriticalEventsWidget: React.FC = () => {
         return message.substring(0, maxLength) + '...';
     };
 
+    const escapeValue = (value: string) => value.replace(/"/g, '\\"');
+
     const handleEventSeverityClick = useCallback((severity: string) => {
-        let query = '';
-        switch (severity.toLowerCase()) {
-            case 'critical':
-                query = 'show events where severity = "Critical"';
-                break;
-            case 'high':
-                query = 'show events where severity = "High"';
-                break;
-            case 'medium':
-                query = 'show events where severity = "Medium"';
-                break;
-            case 'low':
-                query = 'show events where severity = "Low"';
-                break;
-            case 'all':
-                query = 'show events';
-                break;
-            default:
-                query = 'show events';
+        const baseClauses = ['in:events', 'time:last_24h', 'sort:timestamp:desc', 'limit:100'];
+        const normalized = severity.toLowerCase();
+        if (['critical', 'high', 'medium', 'low'].includes(normalized)) {
+            baseClauses.push(`severity:${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`);
         }
-        const encodedQuery = encodeURIComponent(query);
-        router.push(`/query?q=${encodedQuery}`);
+        const query = baseClauses.join(' ');
+        router.push(`/query?q=${encodeURIComponent(query)}`);
     }, [router]);
 
     const handleEventEntryClick = useCallback((event: Event) => {
-        // Try to find related events by host and event type
-        let query = '';
-        if (event.host && event.short_message) {
-            query = `show events where host = "${event.host}" and severity = "${event.severity}"`;
-        } else if (event.host) {
-            query = `show events where host = "${event.host}"`;
-        } else {
-            query = `show events where severity = "${event.severity}"`;
+        const clauses = ['in:events', 'time:last_24h', 'sort:timestamp:desc', 'limit:100'];
+        if (event.host) {
+            clauses.push(`host:"${escapeValue(event.host)}"`);
         }
-        const encodedQuery = encodeURIComponent(query);
-        router.push(`/query?q=${encodedQuery}`);
+        if (event.severity) {
+            clauses.push(`severity:${event.severity}`);
+        }
+        const query = clauses.join(' ');
+        router.push(`/query?q=${encodeURIComponent(query)}`);
     }, [router]);
 
     if (loading) {
@@ -185,9 +170,8 @@ const CriticalEventsWidget: React.FC = () => {
                 </h3>
                 <button
                     onClick={() => {
-                        const query = 'show events where severity in ("Critical", "High")';
-                        const encodedQuery = encodeURIComponent(query);
-                        router.push(`/query?q=${encodedQuery}`);
+                        const query = 'in:events severity:(Critical,High) time:last_24h sort:timestamp:desc limit:100';
+                        router.push(`/query?q=${encodeURIComponent(query)}`);
                     }}
                     className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                     title="View critical events (Critical + High)"

@@ -41,6 +41,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Runtime stage - using Alpine for small size
 FROM alpine:3.20
 
+ARG TARGETARCH
+
 # Install runtime dependencies including grpcurl for health checks
 RUN apk add --no-cache \
         ca-certificates \
@@ -48,7 +50,9 @@ RUN apk add --no-cache \
         jq \
         netcat-openbsd \
         wget \
-    && wget -qO- https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz \
+    && ARCHIVE_NAME="linux_x86_64" && \
+       if [ "$TARGETARCH" = "arm64" ]; then ARCHIVE_NAME="linux_arm64"; elif [ "$TARGETARCH" = "amd64" ]; then ARCHIVE_NAME="linux_x86_64"; fi && \
+       wget -qO- https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_${ARCHIVE_NAME}.tar.gz \
         | tar -xz -C /usr/local/bin grpcurl \
     && chmod +x /usr/local/bin/grpcurl
 
