@@ -98,8 +98,11 @@ export async function POST(req: NextRequest) {
                 
                 // Query SNMP data using snmp_metrics entity (maps to timeseries_metrics with metric_type='snmp' filter)
                 // Note: limit/pagination not supported for most SNMP entities
+                const escapeForSrql = (value: string) =>
+                    String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
                 const deviceFilters = deviceIds
-                    .map((id) => `device_id:"${id.replace(/"/g, '\\"')}"`)
+                    .map((id) => `device_id:"${escapeForSrql(id)}"`)
                     .join(' ');
                 const srqlQuery = {
                     query: `in:snmp_metrics ${deviceFilters} time:[${twoHoursAgo},] sort:timestamp:desc`

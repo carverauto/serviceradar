@@ -110,7 +110,7 @@ const Dashboard = () => {
         } finally {
             setStatsLoading(false);
         }
-    }, [postQuery, token]);
+    }, [token]);
 
     const fetchDevices = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
         setDevicesLoading(true);
