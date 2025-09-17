@@ -106,6 +106,7 @@ module Client = struct
     Lwt.return client
 
   let execute client query = Proton.Client.execute client query
+  let execute_with_params client query ~params = Proton.Client.execute_with_params client query ~params
   let query client query = Proton.Client.execute client query
   let close client = Proton.Client.disconnect client
 
@@ -131,12 +132,10 @@ module SRQL = struct
         match Query_validator.validate ast with Ok () -> ast | Error msg -> failwith msg)
     | None -> failwith "Query planning failed: please provide in:<entity> and attribute filters"
 
-  let translate_to_sql srql_query =
-    let ast = parse_to_ast srql_query in
-    let base_sql = Translator.translate_query ast in
-    (* Proton requires FROM table(<name>) for snapshot semantics in many cases. 
+  let wrap_table_if_needed sql =
+    (* Proton requires FROM table(<name>) for snapshot semantics in many cases.
        Wrap FROM target with table(...) if not already present. *)
-    let lsql = String.lowercase_ascii base_sql in
+    let lsql = String.lowercase_ascii sql in
     let contains s sub =
       let len_s = String.length s and len_sub = String.length sub in
       let rec loop i =
@@ -148,7 +147,7 @@ module SRQL = struct
     in
     let has_from = contains lsql " from " in
     let has_table_wrapper = contains lsql " from table(" in
-    if (not has_from) || has_table_wrapper then base_sql
+    if (not has_from) || has_table_wrapper then sql
     else
       try
         let lfrom = " from " in
@@ -182,13 +181,29 @@ module SRQL = struct
           | [] -> String.length lsql
         in
         let tbl_end = next_kw_pos in
-        let before = String.sub base_sql 0 tbl_start in
-        let tbl = String.sub base_sql tbl_start (tbl_end - tbl_start) |> String.trim in
-        let after = String.sub base_sql tbl_end (String.length base_sql - tbl_end) in
+        let before = String.sub sql 0 tbl_start in
+        let tbl = String.sub sql tbl_start (tbl_end - tbl_start) |> String.trim in
+        let after = String.sub sql tbl_end (String.length sql - tbl_end) in
         before ^ "table(" ^ tbl ^ ")" ^ after
-      with _ -> base_sql
+      with _ -> sql
+
+  type translation = {
+    sql : string;
+    params : (string * Proton.Column.value) list;
+  }
+
+  let translate srql_query : translation =
+    let ast = parse_to_ast srql_query in
+    let open Translator in
+    let translation = translate_query ast in
+    let wrapped_sql = wrap_table_if_needed translation.sql in
+    { sql = wrapped_sql; params = translation.params }
+
+  let translate_to_sql srql_query =
+    let { sql; _ } = translate srql_query in
+    sql
 
   let translate_and_execute client srql_query =
-    let sql = translate_to_sql srql_query in
-    Client.execute client sql
+    let { sql; params } = translate srql_query in
+    Client.execute_with_params client sql ~params
 end

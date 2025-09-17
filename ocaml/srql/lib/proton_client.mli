@@ -47,6 +47,10 @@ module Client : sig
   val execute : t -> string -> Proton.Client.query_result Lwt.t
   (** Execute a query without returning results *)
 
+  val execute_with_params :
+    t -> string -> params:(string * Proton.Column.value) list -> Proton.Client.query_result Lwt.t
+  (** Execute a parameterized query using named placeholders *)
+
   val query : t -> string -> Proton.Client.query_result Lwt.t
   (** Execute a query and return results *)
 
@@ -61,6 +65,15 @@ module Client : sig
 end
 
 module SRQL : sig
+  type translation = {
+    sql : string;
+    params : (string * Proton.Column.value) list;
+  }
+  (** Result of translating SRQL into Proton SQL along with parameter bindings. *)
+
+  val translate : string -> translation
+  (** Translate SRQL to SQL with parameters without executing it. *)
+
   val translate_and_execute : Client.t -> string -> Proton.Client.query_result Lwt.t
   (** Translate SRQL query to SQL and execute it *)
 

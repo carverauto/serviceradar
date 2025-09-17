@@ -29,7 +29,8 @@ let test_bounded_wraps_table () =
       latest = false;
     }
   in
-  let sql = Translator.translate_query q in
+  let translation = Translator.translate_query q in
+  let sql = translation.sql in
   check bool "has table() wrapper" true (contains ~needle:" FROM table(unified_devices)" sql);
   check bool "has LIMIT 10" true (contains ~needle:" LIMIT 10" sql)
 
@@ -50,7 +51,7 @@ let test_unbounded_no_table_wrapper () =
       latest = false;
     }
   in
-  let sql = Translator.translate_query q in
+  let sql = (Translator.translate_query q).sql in
   check bool "no table() wrapper" false (contains ~needle:" FROM table(" sql);
   check bool "from unified_devices" true (contains ~needle:" FROM unified_devices" sql)
 

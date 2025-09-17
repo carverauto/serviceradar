@@ -1,6 +1,8 @@
 open Alcotest
 
-let sql_of qstr =
+module Column = Proton.Column
+
+let translation_of qstr =
   let qspec = Srql_translator.Query_parser.parse qstr in
   match Srql_translator.Query_planner.plan_to_srql qspec with
   | None -> fail "planner returned None"
@@ -22,19 +24,29 @@ let contains msg hay needle =
     fail (Printf.sprintf "%s: expected to find '%s' in '%s'" msg needle hay)
 
 let test_devices_today () =
-  let sql = sql_of "in:devices name:server01 time:today" in
+  let translation = translation_of "in:devices name:server01 time:today" in
+  let sql = translation.sql in
   contains "from table" sql "from table(unified_devices)";
   contains "time today to_date" sql "to_date(";
   contains "time today func" sql ") = today()";
-  contains "hostname mapping" sql "hostname = 'server01'"
+  contains "hostname mapping" sql "hostname = {{";
+  check bool "hostname parameter present" true
+    (List.exists
+       (function _, Column.String "server01" -> true | _ -> false)
+       translation.params)
 
 let test_flows_topk_by () =
-  let sql = sql_of "in:flows src:10.0.0.1 stats:\"topk(dst, 5)\"" in
+  let translation = translation_of "in:flows src:10.0.0.1 stats:\"topk(dst, 5)\"" in
+  let sql = translation.sql in
   contains "group by dst" sql "group by dst_ip";
   contains "count alias" sql "count() AS cnt";
   contains "order by cnt" sql "order by cnt desc";
   contains "limit present" sql "limit 5";
-  contains "src filter" sql "src_ip = '10.0.0.1'"
+  contains "src filter" sql "src_ip = {{";
+  check bool "src placeholder value" true
+    (List.exists
+       (function _, Column.String "10.0.0.1" -> true | _ -> false)
+       translation.params)
 
 let test_validation_having_error () =
   let qspec =
@@ -60,16 +72,26 @@ let () = Alcotest.run "query_engine" [ ("planner+translator", suite) ]
 (* Additional tests for ASQ examples *)
 
 let test_services_ports_timeframe () =
-  let sql = sql_of "in:services port:(22,2222) timeFrame:\"7 Days\"" in
+  let translation = translation_of "in:services port:(22,2222) timeFrame:\"7 Days\"" in
+  let sql = translation.sql in
   contains "services table" sql "from table(services)";
-  contains "port IN list" sql "port IN (22, 2222)";
-  contains "7 days timeframe" sql "INTERVAL 7 DAY"
+  contains "port IN list" sql "port IN ({{";
+  contains "7 days timeframe" sql "INTERVAL 7 DAY";
+  check bool "22 present" true
+    (List.exists (function _, Column.Int64 n -> n = 22L | _ -> false) translation.params);
+  check bool "2222 present" true
+    (List.exists (function _, Column.Int64 n -> n = 2222L | _ -> false) translation.params)
 
 let test_devices_nested_services_and_type () =
-  let sql = sql_of "in:devices services:(name:(facebook)) type:MRIs timeFrame:\"7 Days\"" in
+  let translation = translation_of "in:devices services:(name:(facebook)) type:MRIs timeFrame:\"7 Days\"" in
+  let sql = translation.sql in
   contains "devices table" sql "from table(unified_devices)";
-  contains "service name flattened" sql "services_name = 'facebook'";
-  contains "MRIs type equality" sql "type = 'MRIs'";
+  contains "service name flattened" sql "services_name = {{";
+  contains "MRIs type equality" sql "type = {{";
+  check bool "facebook param" true
+    (List.exists (function _, Column.String "facebook" -> true | _ -> false) translation.params);
+  check bool "MRIs param" true
+    (List.exists (function _, Column.String "MRIs" -> true | _ -> false) translation.params);
   contains "7 days timeframe" sql "INTERVAL 7 DAY"
 
 let test_activity_connection_nested () =
@@ -77,11 +99,18 @@ let test_activity_connection_nested () =
     "in:activity type:\"Connection Started\" connection:(from:(type:\"Mobile Phone\") \
      direction:\"From > To\" to:(boundary:Corporate tag:Managed)) timeFrame:\"7 Days\""
   in
-  let sql = sql_of q in
+  let translation = translation_of q in
+  let sql = translation.sql in
   contains "events alias" sql "from table(events)";
-  contains "nested flatten 1" sql "connection_from_type = 'Mobile Phone'";
-  contains "nested flatten 2" sql "connection_direction = 'From > To'";
-  contains "boundary->partition alias" sql "connection_to_partition = 'Corporate'";
+  contains "nested flatten 1" sql "connection_from_type = {{";
+  contains "nested flatten 2" sql "connection_direction = {{";
+  contains "boundary->partition alias" sql "connection_to_partition = {{";
+  let expect_string value =
+    List.exists (function _, Column.String s -> String.equal s value | _ -> false) translation.params
+  in
+  check bool "mobile phone param" true (expect_string "Mobile Phone");
+  check bool "direction param" true (expect_string "From > To");
+  check bool "corporate param" true (expect_string "Corporate");
   contains "7 days timeframe" sql "INTERVAL 7 DAY"
 
 let suite_asq =
@@ -96,13 +125,19 @@ let () = Alcotest.run "asq_examples" [ ("examples", suite_asq) ]
 (* Negation tests *)
 
 let test_negation_list_devices () =
-  let sql = sql_of "in:devices !model:(Hikvision,Zhejiang) timeFrame:\"7 Days\"" in
-  contains "not in emitted" sql "NOT (model IN ('Hikvision', 'Zhejiang'))";
-  contains "7 days timeframe" sql "INTERVAL 7 DAY"
+  let translation = translation_of "in:devices !model:(Hikvision,Zhejiang) timeFrame:\"7 Days\"" in
+  let sql = translation.sql in
+  contains "not in emitted" sql "NOT (model IN ({{";
+  contains "7 days timeframe" sql "INTERVAL 7 DAY";
+  check bool "Hikvision param" true
+    (List.exists (function _, Column.String "Hikvision" -> true | _ -> false) translation.params);
+  check bool "Zhejiang param" true
+    (List.exists (function _, Column.String "Zhejiang" -> true | _ -> false) translation.params)
 
 let test_negation_like_services () =
-  let sql = sql_of "in:services !name:%ssh% timeFrame:\"7 Days\"" in
-  contains "not like emitted" sql "NOT name LIKE '%ssh%'";
+  let translation = translation_of "in:services !name:%ssh% timeFrame:\"7 Days\"" in
+  let sql = translation.sql in
+  contains "not like emitted" sql "NOT name LIKE {{";
   contains "7 days timeframe" sql "INTERVAL 7 DAY"
 
 let suite_neg =
@@ -116,19 +151,31 @@ let () = Alcotest.run "negation_examples" [ ("negation", suite_neg) ]
 (* More nested/alias/wildcard/timeframe tests *)
 
 let test_devices_boundary_alias () =
-  let sql = sql_of "in:devices boundary:Corporate" in
-  contains "partition alias" sql "partition = 'Corporate'"
+  let translation = translation_of "in:devices boundary:Corporate" in
+  let sql = translation.sql in
+  contains "partition alias" sql "partition = {{";
+  check bool "Corporate param" true
+    (List.exists (function _, Column.String "Corporate" -> true | _ -> false) translation.params)
 
 let test_services_like_positive () =
-  let sql = sql_of "in:services name:%ssh%" in
-  contains "like emitted" sql "name LIKE '%ssh%'"
+  let translation = translation_of "in:services name:%ssh%" in
+  let sql = translation.sql in
+  contains "like emitted" sql "name LIKE {{";
+  check bool "ssh pattern param" true
+    (List.exists (function _, Column.String "%ssh%" -> true | _ -> false) translation.params)
 
 let test_nested_negation_group_with_timeframe_hours () =
-  let sql =
-    sql_of "in:activity connection:(to:(!tag:Managed, boundary:Corporate)) timeFrame:\"12 Hours\""
+  let translation =
+    translation_of
+      "in:activity connection:(to:(!tag:Managed, boundary:Corporate)) timeFrame:\"12 Hours\""
   in
-  contains "not tag managed" sql "NOT connection_to_tag = 'Managed'";
-  contains "partition alias within group" sql "connection_to_partition = 'Corporate'";
+  let sql = translation.sql in
+  contains "not tag managed" sql "NOT connection_to_tag = {{";
+  contains "partition alias within group" sql "connection_to_partition = {{";
+  check bool "Managed param" true
+    (List.exists (function _, Column.String "Managed" -> true | _ -> false) translation.params);
+  check bool "Corporate param" true
+    (List.exists (function _, Column.String "Corporate" -> true | _ -> false) translation.params);
   contains "12 hours timeframe" sql "INTERVAL 12 HOUR"
 
 let suite_more =
@@ -143,9 +190,14 @@ let () = Alcotest.run "asq_more" [ ("more", suite_more) ]
 (* discovery_sources contains both 'sweep' and 'armis' *)
 
 let test_devices_discovery_sources_both () =
-  let sql = sql_of "in:devices discovery_sources:(sweep) discovery_sources:(armis)" in
-  contains "has sweep" sql "has(discovery_sources, 'sweep')";
-  contains "has armis" sql "has(discovery_sources, 'armis')";
+  let translation = translation_of "in:devices discovery_sources:(sweep) discovery_sources:(armis)" in
+  let sql = translation.sql in
+  contains "has sweep" sql "has(discovery_sources, {{";
+  contains "has armis" sql "has(discovery_sources, {{";
+  check bool "sweep param" true
+    (List.exists (function _, Column.String "sweep" -> true | _ -> false) translation.params);
+  check bool "armis param" true
+    (List.exists (function _, Column.String "armis" -> true | _ -> false) translation.params);
   contains "both AND" sql "AND"
 
 let suite_arrays =
@@ -156,21 +208,33 @@ let () = Alcotest.run "asq_arrays" [ ("arrays", suite_arrays) ]
 (* Additional LIKE / NOT LIKE cases *)
 
 let test_devices_like_hostname () =
-  let sql = sql_of "in:devices hostname:%cam%" in
-  contains "hostname LIKE" sql "hostname LIKE '%cam%'"
+  let translation = translation_of "in:devices hostname:%cam%" in
+  let sql = translation.sql in
+  contains "hostname LIKE" sql "hostname LIKE {{";
+  check bool "hostname pattern param" true
+    (List.exists (function _, Column.String "%cam%" -> true | _ -> false) translation.params)
 
 let test_devices_not_like_hostname () =
-  let sql = sql_of "in:devices !hostname:%cam%" in
-  contains "hostname NOT LIKE" sql "NOT hostname LIKE '%cam%'"
+  let translation = translation_of "in:devices !hostname:%cam%" in
+  let sql = translation.sql in
+  contains "hostname NOT LIKE" sql "NOT hostname LIKE {{";
+  check bool "hostname not pattern param" true
+    (List.exists (function _, Column.String "%cam%" -> true | _ -> false) translation.params)
 
 let test_activity_like_nested_decision_host () =
-  let sql = sql_of "in:activity decisionData:(host:(%ipinfo.%))" in
+  let translation = translation_of "in:activity decisionData:(host:(%ipinfo.%))" in
+  let sql = translation.sql in
   contains "events table" sql "from table(events)";
-  contains "nested LIKE" sql "decisionData_host LIKE '%ipinfo.%'"
+  contains "nested LIKE" sql "decisionData_host LIKE {{";
+  check bool "decision host param" true
+    (List.exists (function _, Column.String "%ipinfo.%" -> true | _ -> false) translation.params)
 
 let test_activity_not_like_nested_decision_host () =
-  let sql = sql_of "in:activity decisionData:(host:(!%ipinfo.%))" in
-  contains "nested NOT LIKE" sql "NOT decisionData_host LIKE '%ipinfo.%'"
+  let translation = translation_of "in:activity decisionData:(host:(!%ipinfo.%))" in
+  let sql = translation.sql in
+  contains "nested NOT LIKE" sql "NOT decisionData_host LIKE {{";
+  check bool "decision host not param" true
+    (List.exists (function _, Column.String "%ipinfo.%" -> true | _ -> false) translation.params)
 
 let suite_like =
   [
