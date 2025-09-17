@@ -166,42 +166,81 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
 
 
 
-    const isDeviceQuery = (query: string): boolean => {
-        const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW DEVICES') || 
-               normalizedQuery.startsWith('FIND DEVICES') ||
-               normalizedQuery.startsWith('COUNT DEVICES');
+    const extractEntities = (input: string): string[] => {
+        const matches = [...input.matchAll(/\bin:([^\s]+)/gi)];
+        const entities = new Set<string>();
+        matches.forEach((match) => {
+            match[1]
+                .split(',')
+                .map((candidate) => candidate.trim().toLowerCase())
+                .filter(Boolean)
+                .forEach((candidate) => entities.add(candidate));
+        });
+        return [...entities];
     };
 
-    const isInterfaceQuery = (query: string): boolean => {
-        const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW INTERFACES') || 
-               normalizedQuery.startsWith('FIND INTERFACES') ||
-               normalizedQuery.startsWith('COUNT INTERFACES');
+    const hasEntity = (input: string, entity: string): boolean => {
+        const lowered = entity.toLowerCase();
+        return extractEntities(input).includes(lowered);
     };
 
-    const isSweepQuery = (query: string): boolean => {
-        const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW SWEEP_RESULTS') || 
-               normalizedQuery.startsWith('FIND SWEEP_RESULTS') ||
-               normalizedQuery.startsWith('COUNT SWEEP_RESULTS') ||
-               normalizedQuery.startsWith('SHOW SWEEP') || 
-               normalizedQuery.startsWith('FIND SWEEP') ||
-               normalizedQuery.startsWith('COUNT SWEEP');
+    const legacyStartsWith = (input: string, prefix: string): boolean =>
+        input.trim().toUpperCase().startsWith(prefix);
+
+    const isDeviceQuery = (currentQuery: string): boolean => {
+        const normalizedQuery = currentQuery.trim().toUpperCase();
+        return (
+            hasEntity(currentQuery, 'devices') ||
+            hasEntity(currentQuery, 'sweep_results') ||
+            legacyStartsWith(normalizedQuery, 'SHOW DEVICES') ||
+            legacyStartsWith(normalizedQuery, 'FIND DEVICES') ||
+            legacyStartsWith(normalizedQuery, 'COUNT DEVICES')
+        );
     };
 
-    const isEventQuery = (query: string): boolean => {
-        const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW EVENTS') || 
-               normalizedQuery.startsWith('FIND EVENTS') ||
-               normalizedQuery.startsWith('COUNT EVENTS');
+    const isInterfaceQuery = (currentQuery: string): boolean => {
+        const normalizedQuery = currentQuery.trim().toUpperCase();
+        return (
+            hasEntity(currentQuery, 'interfaces') ||
+            legacyStartsWith(normalizedQuery, 'SHOW INTERFACES') ||
+            legacyStartsWith(normalizedQuery, 'FIND INTERFACES') ||
+            legacyStartsWith(normalizedQuery, 'COUNT INTERFACES')
+        );
     };
 
-    const isLogQuery = (query: string): boolean => {
-        const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW LOGS') || 
-               normalizedQuery.startsWith('FIND LOGS') ||
-               normalizedQuery.startsWith('COUNT LOGS');
+    const isSweepQuery = (currentQuery: string): boolean => {
+        const normalizedQuery = currentQuery.trim().toUpperCase();
+        return (
+            hasEntity(currentQuery, 'sweep_results') ||
+            /discovery_sources:\(?.*sweep.*\)?/i.test(currentQuery) ||
+            legacyStartsWith(normalizedQuery, 'SHOW SWEEP_RESULTS') ||
+            legacyStartsWith(normalizedQuery, 'FIND SWEEP_RESULTS') ||
+            legacyStartsWith(normalizedQuery, 'COUNT SWEEP_RESULTS') ||
+            legacyStartsWith(normalizedQuery, 'SHOW SWEEP') ||
+            legacyStartsWith(normalizedQuery, 'FIND SWEEP') ||
+            legacyStartsWith(normalizedQuery, 'COUNT SWEEP')
+        );
+    };
+
+    const isEventQuery = (currentQuery: string): boolean => {
+        const normalizedQuery = currentQuery.trim().toUpperCase();
+        return (
+            hasEntity(currentQuery, 'events') ||
+            hasEntity(currentQuery, 'activity') ||
+            legacyStartsWith(normalizedQuery, 'SHOW EVENTS') ||
+            legacyStartsWith(normalizedQuery, 'FIND EVENTS') ||
+            legacyStartsWith(normalizedQuery, 'COUNT EVENTS')
+        );
+    };
+
+    const isLogQuery = (currentQuery: string): boolean => {
+        const normalizedQuery = currentQuery.trim().toUpperCase();
+        return (
+            hasEntity(currentQuery, 'logs') ||
+            legacyStartsWith(normalizedQuery, 'SHOW LOGS') ||
+            legacyStartsWith(normalizedQuery, 'FIND LOGS') ||
+            legacyStartsWith(normalizedQuery, 'COUNT LOGS')
+        );
     };
 
 
@@ -417,27 +456,27 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
     const exampleQueries = [
         {
             name: 'All Devices',
-            query: 'show devices',
+            query: 'in:devices time:last_24h sort:last_seen:desc limit:20',
         },
         {
             name: 'Sweep Results',
-            query: 'show sweep_results',
+            query: 'in:sweep_results discovery_sources:(sweep) time:last_24h sort:last_seen:desc limit:20',
         },
         {
             name: 'All Interfaces',
-            query: 'show interfaces',
+            query: 'in:interfaces time:last_24h sort:last_seen:desc limit:20',
         },
         {
-            name: 'Test Query',
-            query: 'show pollers',
+            name: 'Pollers (Last Hour)',
+            query: 'in:pollers time:last_1h sort:timestamp:desc limit:20',
         },
         {
             name: 'Critical Traps Today',
-            query: 'show traps where severity = "critical" and date(timestamp) = TODAY',
+            query: 'in:traps severity:Critical time:today sort:timestamp:desc limit:50',
         },
         {
             name: 'High Traffic Flows',
-            query: 'find flows where bytes > 1000000 order by bytes desc limit 10',
+            query: 'in:flows time:last_24h stats:"sum(bytes_total) as total_bytes by connection.src_endpoint_ip" sort:total_bytes:desc limit:10',
         },
     ];
 

@@ -186,9 +186,9 @@ const MetricsDashboard = () => {
 
         try {
             const [totalRes, slowRes, errorRateRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_metrics', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT otel_metrics WHERE is_slow = true', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT otel_metrics WHERE http_status_code = '500' OR http_status_code = '400' OR http_status_code = '404' OR http_status_code = '503'", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('in:otel_metrics stats:"count()" time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('in:otel_metrics is_slow:true stats:"count()" time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('in:otel_metrics http_status_code:(400,404,500,503) stats:"count()" time:last_24h', token || undefined, 30000),
             ]);
 
             const total = (totalRes.results && totalRes.results[0])?.['count()'] || 0;
@@ -213,7 +213,7 @@ const MetricsDashboard = () => {
 
     const fetchServices = useCallback(async () => {
         try {
-            const query = 'SHOW DISTINCT(service_name) FROM otel_metrics WHERE service_name IS NOT NULL LIMIT 100';
+            const query = 'in:otel_metrics service_name:* time:last_24h stats:"count() as total by service_name" limit:200';
             const response = await postQuery<{ results: Array<{ service_name: string }> }>(query);
             const serviceNames = (response.results || []).map(r => r.service_name).filter(Boolean);
             setServices(serviceNames);
@@ -228,32 +228,30 @@ const MetricsDashboard = () => {
         setError(null);
 
         try {
-            let query = 'SHOW otel_metrics';
-            const conditions: string[] = [];
+            const queryParts = [
+                'in:otel_metrics',
+                'time:last_24h',
+                `sort:${sortBy === 'timestamp' ? 'timestamp' : sortBy}:${sortOrder}`,
+                'limit:20'
+            ];
 
-            // Add search filter
-            if (debouncedSearchTerm) {
-                conditions.push(`(trace_id LIKE '%${debouncedSearchTerm}%' OR service_name LIKE '%${debouncedSearchTerm}%' OR span_name LIKE '%${debouncedSearchTerm}%')`);
-            }
-
-            // Add service filter
             if (filterService !== 'all') {
-                conditions.push(`service_name = '${filterService}'`);
+                const escapedService = filterService.replace(/"/g, '\\"');
+                queryParts.push(`service_name:"${escapedService}"`);
             }
 
-            // Add performance filter
             if (filterSlow === 'slow') {
-                conditions.push('is_slow = true');
+                queryParts.push('is_slow:true');
             } else if (filterSlow === 'fast') {
-                conditions.push('is_slow = false');
+                queryParts.push('is_slow:false');
             }
 
-            if (conditions.length > 0) {
-                query += ` WHERE ${conditions.join(' AND ')}`;
+            if (debouncedSearchTerm) {
+                const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+                queryParts.push(`span_name:%${escapedTerm}%`);
             }
 
-            // Add ordering
-            query += ` ORDER BY ${sortBy === 'timestamp' ? '_tp_time' : sortBy} ${sortOrder.toUpperCase()}`;
+            const query = queryParts.join(' ');
 
             const response = await postQuery<OtelMetricsApiResponse>(query, cursor, direction);
             setMetrics(response.results || []);

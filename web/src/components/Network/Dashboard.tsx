@@ -183,13 +183,20 @@ const SNMPDevicesView: React.FC = React.memo(() => {
         setError(null);
 
         try {
-            const whereClauses = ["discovery_sources = 'snmp'"];
+            const queryParts = [
+                'in:devices',
+                'discovery_sources:(snmp)',
+                'time:last_7d',
+                `sort:${sortBy}:${sortOrder}`,
+                'limit:20'
+            ];
 
             if (debouncedSearchTerm) {
-                whereClauses.push(`(ip LIKE '%${debouncedSearchTerm}%' OR hostname LIKE '%${debouncedSearchTerm}%')`);
+                const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+                queryParts.push(`hostname:%${escapedTerm}%`);
             }
 
-            const query = `SHOW DEVICES WHERE ${whereClauses.join(' AND ')} ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
+            const query = queryParts.join(' ');
             const data = await postQuery<DevicesApiResponse>(query, cursor, direction);
 
             setDevices(data.results || []);
@@ -797,19 +804,19 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
 
     // Click handlers for stat cards
     const handleDiscoveredDevicesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('SHOW DEVICES WHERE discovery_sources IS NOT NULL'));
+        router.push('/query?q=' + encodeURIComponent('in:devices discovery_sources:* time:last_7d sort:last_seen:desc limit:50'));
     };
 
     const handleDiscoveredInterfacesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('SHOW INTERFACES'));
+        router.push('/query?q=' + encodeURIComponent('in:interfaces time:last_7d sort:last_seen:desc limit:50'));
     };
 
     const handleActiveSweepsClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show devices'));
+        router.push('/query?q=' + encodeURIComponent('in:sweep_results time:last_7d sort:last_seen:desc limit:50'));
     };
 
     const handleSNMPDevicesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show devices where device_id IS NOT NULL'));
+        router.push('/query?q=' + encodeURIComponent('in:devices discovery_sources:(snmp) time:last_7d sort:last_seen:desc limit:50'));
     };
 
     const { discoveryServices, sweepServices, snmpServices, applicationServices } = useMemo(() => {
@@ -857,12 +864,12 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
             // Use cached queries to prevent duplicates
             const [devicesRes, interfacesRes] = await Promise.all([
                 cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES WHERE discovery_sources IS NOT NULL",
+                    'in:devices discovery_sources:* stats:"count()" time:last_7d',
                     token || undefined,
                     30000 // 30 second cache
                 ),
                 cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT INTERFACES",
+                    'in:interfaces stats:"count()" time:last_7d',
                     token || undefined,
                     30000
                 ),
@@ -885,17 +892,17 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
             // Use cached queries to prevent duplicates
             const [totalRes, onlineRes, offlineRes] = await Promise.all([
                 cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES",
+                    'in:devices stats:"count()" time:last_7d',
                     token || undefined,
                     30000 // 30 second cache
                 ),
                 cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES WHERE is_available = true",
+                    'in:devices is_available:true stats:"count()" time:last_7d',
                     token || undefined,
                     30000
                 ),
                 cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES WHERE is_available = false",
+                    'in:devices is_available:false stats:"count()" time:last_7d',
                     token || undefined,
                     30000
                 ),

@@ -95,7 +95,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     // Fetch discovered devices using device_id centric queries
     const fetchDevices = useCallback(async () => {
         try {
-            const query = 'SHOW DEVICES WHERE discovery_sources IS NOT NULL LIMIT 10000';
+            const query = 'in:devices discovery_sources:* time:last_7d limit:10000';
             const response = await cachedQuery<{ results: Device[] }>(
                 query,
                 token || undefined,
@@ -111,7 +111,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     // Fetch discovered interfaces using device_id centric queries
     const fetchInterfaces = useCallback(async () => {
         try {
-            const query = 'SHOW INTERFACES LIMIT 10000';
+            const query = 'in:interfaces time:last_7d limit:10000';
             const response = await cachedQuery<{ results: DiscoveredInterface[] }>(
                 query,
                 token || undefined,
@@ -129,17 +129,17 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
         try {
             const [totalDevicesRes, activeDevicesRes, totalInterfacesRes] = await Promise.all([
                 cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES WHERE discovery_sources IS NOT NULL",
+                    'in:devices discovery_sources:* stats:"count()" time:last_7d',
                     token || undefined,
                     30000
                 ),
                 cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES WHERE discovery_sources IS NOT NULL AND is_available = true",
+                    'in:devices discovery_sources:* is_available:true stats:"count()" time:last_7d',
                     token || undefined,
                     30000
                 ),
                 cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT INTERFACES",
+                    'in:interfaces stats:"count()" time:last_7d',
                     token || undefined,
                     30000
                 ),

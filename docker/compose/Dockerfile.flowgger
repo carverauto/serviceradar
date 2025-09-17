@@ -43,10 +43,12 @@ ARG BUILD_ID=docker
 # Build for current architecture (ARM64 or AMD64) with NATS output feature
 RUN cargo build -p serviceradar-flowgger --features nats-output --release
 
-# Runtime stage - using Ubuntu for better compatibility
-FROM ubuntu:22.04
+# Runtime stage - use Ubuntu 24.04 (glibc 2.39) for compatibility across architectures
+FROM ubuntu:24.04
 
-# Install runtime dependencies
+ARG TARGETARCH
+
+# Install runtime dependencies and architecture-appropriate grpcurl binary
 RUN apt-get update && \
     apt-get install -y \
         ca-certificates \
@@ -56,15 +58,17 @@ RUN apt-get update && \
         wget \
         libssl-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && wget -qO- https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz \
+    && ARCHIVE_NAME="linux_x86_64" && \
+       if [ "$TARGETARCH" = "arm64" ]; then ARCHIVE_NAME="linux_arm64"; elif [ "$TARGETARCH" = "amd64" ]; then ARCHIVE_NAME="linux_x86_64"; fi && \
+       curl -sSL https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_${ARCHIVE_NAME}.tar.gz \
         | tar -xz -C /usr/local/bin grpcurl \
     && chmod +x /usr/local/bin/grpcurl
 
 # Create non-root user
-RUN useradd -m -u 1000 serviceradar
+RUN useradd --system --create-home --home /var/lib/serviceradar serviceradar
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
+RUN mkdir -p /etc/serviceradar /var/log/serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
 
 # Copy binary from builder

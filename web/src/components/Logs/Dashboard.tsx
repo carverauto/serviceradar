@@ -76,6 +76,14 @@ const formatNumber = (num: number): string => {
     return num.toString();
 };
 
+const severityQueryMap: Record<'FATAL' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG', string> = {
+    FATAL: 'severity_text:(fatal,FATAL,Fatal)',
+    ERROR: 'severity_text:(error,ERROR,Error)',
+    WARN: 'severity_text:(warn,warning,WARN,WARNING)',
+    INFO: 'severity_text:(info,INFO,Info)',
+    DEBUG: 'severity_text:(debug,trace,DEBUG,TRACE,Debug,Trace)'
+};
+
 const LogsDashboard = () => {
     const { token } = useAuth();
     const [logs, setLogs] = useState<Log[]>([]);
@@ -155,12 +163,12 @@ const LogsDashboard = () => {
             // Handle various severity text formats that might come from OTEL
             // Using case-insensitive queries to handle variations
             const [totalRes, fatalRes, errorRes, warnRes, infoRes, debugRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT LOGS', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) = 'fatal'", token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) = 'error'", token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) IN ('warn', 'warning')", token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) = 'info'", token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT LOGS WHERE lower(severity_text) IN ('debug', 'trace')", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('in:logs stats:"count()" time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>(`in:logs ${severityQueryMap.FATAL} stats:"count()" time:last_24h`, token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>(`in:logs ${severityQueryMap.ERROR} stats:"count()" time:last_24h`, token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>(`in:logs ${severityQueryMap.WARN} stats:"count()" time:last_24h`, token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>(`in:logs ${severityQueryMap.INFO} stats:"count()" time:last_24h`, token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>(`in:logs ${severityQueryMap.DEBUG} stats:"count()" time:last_24h`, token || undefined, 30000),
             ]);
 
             setStats({
@@ -182,7 +190,7 @@ const LogsDashboard = () => {
         try {
             // Use SRQL SHOW query with DISTINCT function to get unique service names efficiently
             // This should translate to: SELECT DISTINCT service_name FROM table(logs) WHERE service_name IS NOT NULL
-            const query = 'SHOW DISTINCT(service_name) FROM logs WHERE service_name IS NOT NULL';
+            const query = 'in:logs service_name:* time:last_24h stats:"count() as total by service_name" limit:200';
             const data = await postQuery<LogsApiResponse>(query);
             
             if (!data.results || data.results.length === 0) {
@@ -208,46 +216,28 @@ const LogsDashboard = () => {
         setError(null);
 
         try {
-            let query = 'SHOW LOGS';
-            const whereClauses: string[] = [];
-
-            if (debouncedSearchTerm) {
-                whereClauses.push(`(body LIKE '%${debouncedSearchTerm}%' OR service_name LIKE '%${debouncedSearchTerm}%')`);
-            }
+            const queryParts = [
+                'in:logs',
+                'time:last_24h',
+                `sort:${sortBy}:${sortOrder}`,
+                'limit:20'
+            ];
 
             if (filterSeverity !== 'all') {
-                // Map filter values to actual severity texts in the database
-                // Using case-insensitive queries to handle variations
-                let severityFilter = '';
-                switch (filterSeverity) {
-                    case 'FATAL':
-                        severityFilter = "lower(severity_text) = 'fatal'";
-                        break;
-                    case 'ERROR':
-                        severityFilter = "lower(severity_text) = 'error'";
-                        break;
-                    case 'WARN':
-                        severityFilter = "lower(severity_text) IN ('warn', 'warning')";
-                        break;
-                    case 'INFO':
-                        severityFilter = "lower(severity_text) = 'info'";
-                        break;
-                    case 'DEBUG':
-                        severityFilter = "lower(severity_text) IN ('debug', 'trace')";
-                        break;
-                }
-                whereClauses.push(severityFilter);
+                queryParts.push(severityQueryMap[filterSeverity]);
             }
 
             if (filterService !== 'all') {
-                whereClauses.push(`service_name = '${filterService}'`);
+                const escapedService = filterService.replace(/"/g, '\\"');
+                queryParts.push(`service_name:"${escapedService}"`);
             }
 
-            if (whereClauses.length > 0) {
-                query += ` WHERE ${whereClauses.join(' AND ')}`;
+            if (debouncedSearchTerm) {
+                const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+                queryParts.push(`body:%${escapedTerm}%`);
             }
 
-            query += ` ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
+            const query = queryParts.join(' ');
 
             const data = await postQuery<LogsApiResponse>(query, cursor, direction);
             setLogs(data.results || []);
@@ -262,49 +252,34 @@ const LogsDashboard = () => {
     }, [postQuery, debouncedSearchTerm, filterSeverity, filterService, sortBy, sortOrder]);
 
     const buildStreamingQuery = useCallback(() => {
-        let query = 'SHOW LOGS';
-        const whereClauses: string[] = [];
-
-        if (debouncedSearchTerm) {
-            whereClauses.push(`(body LIKE '%${debouncedSearchTerm}%' OR service_name LIKE '%${debouncedSearchTerm}%')`);
-        }
+        const queryParts = [
+            'in:logs',
+            'time:last_24h',
+            `sort:${sortBy}:${sortOrder}`,
+            'limit:20',
+            'stream:true'
+        ];
 
         if (filterSeverity !== 'all') {
-            let severityFilter = '';
-            switch (filterSeverity) {
-                case 'FATAL':
-                    severityFilter = "lower(severity_text) = 'fatal'";
-                    break;
-                case 'ERROR':
-                    severityFilter = "lower(severity_text) = 'error'";
-                    break;
-                case 'WARN':
-                    severityFilter = "lower(severity_text) IN ('warn', 'warning')";
-                    break;
-                case 'INFO':
-                    severityFilter = "lower(severity_text) = 'info'";
-                    break;
-                case 'DEBUG':
-                    severityFilter = "lower(severity_text) IN ('debug', 'trace')";
-                    break;
-            }
-            whereClauses.push(severityFilter);
+            queryParts.push(severityQueryMap[filterSeverity]);
         }
 
         if (filterService !== 'all') {
-            whereClauses.push(`service_name = '${filterService}'`);
+            const escapedService = filterService.replace(/"/g, '\\"');
+            queryParts.push(`service_name:"${escapedService}"`);
         }
 
-        if (whereClauses.length > 0) {
-            query += ` WHERE ${whereClauses.join(' AND ')}`;
+        if (debouncedSearchTerm) {
+            const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+            queryParts.push(`body:%${escapedTerm}%`);
         }
 
-        query += ` ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
-        
+        const query = queryParts.join(' ');
+
         // Debug: Log the streaming query being used
         console.log('📡 Streaming query:', query);
         console.log('📡 Active filters - Severity:', filterSeverity, 'Service:', filterService, 'Search:', debouncedSearchTerm);
-        
+
         return query;
     }, [debouncedSearchTerm, filterSeverity, filterService, sortBy, sortOrder]);
 
