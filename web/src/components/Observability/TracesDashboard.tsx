@@ -30,6 +30,7 @@ import {
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
 import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
+import { escapeSrqlValue } from '@/lib/srql';
 
 const StatCard = ({
     title,
@@ -255,7 +256,7 @@ const TracesDashboard = () => {
             ];
 
             if (filterService !== 'all') {
-                const escapedService = filterService.replace(/"/g, '\\"');
+                const escapedService = escapeSrqlValue(filterService);
                 queryParts.push(`root_service_name:"${escapedService}"`);
             }
 
@@ -267,7 +268,7 @@ const TracesDashboard = () => {
 
             if (debouncedSearchTerm) {
                 const trimmed = debouncedSearchTerm.trim();
-                const escapedTerm = trimmed.replace(/"/g, '\\"');
+                const escapedTerm = escapeSrqlValue(trimmed);
                 const looksLikeTraceId = /^[0-9a-fA-F-]{16,}$/.test(trimmed);
                 if (looksLikeTraceId) {
                     queryParts.push(`trace_id:${trimmed}`);
@@ -324,7 +325,7 @@ const TracesDashboard = () => {
         ];
 
         if (filterService !== 'all') {
-            const escapedService = filterService.replace(/"/g, '\\"');
+            const escapedService = escapeSrqlValue(filterService);
             queryParts.push(`root_service_name:"${escapedService}"`);
         }
 
@@ -336,7 +337,7 @@ const TracesDashboard = () => {
 
         if (debouncedSearchTerm) {
             const trimmed = debouncedSearchTerm.trim();
-            const escapedTerm = trimmed.replace(/"/g, '\\"');
+            const escapedTerm = escapeSrqlValue(trimmed);
             const looksLikeTraceId = /^[0-9a-fA-F-]{16,}$/.test(trimmed);
             if (looksLikeTraceId) {
                 queryParts.push(`trace_id:${trimmed}`);

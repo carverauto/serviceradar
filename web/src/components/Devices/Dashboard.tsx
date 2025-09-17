@@ -18,6 +18,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Device, Pagination, DevicesApiResponse } from '@/types/devices';
 import { cachedQuery } from '@/lib/cached-query';
+import { escapeSrqlValue } from '@/lib/srql';
 import {Server, Search, Loader2, AlertTriangle, CheckCircle, XCircle} from 'lucide-react';
 import DeviceTable from './DeviceTable';
 import { useDebounce } from 'use-debounce';
@@ -128,7 +129,7 @@ const Dashboard = () => {
             }
 
             if (debouncedSearchTerm) {
-                const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+                const escapedTerm = escapeSrqlValue(debouncedSearchTerm);
                 queryParts.push(`hostname:%${escapedTerm}%`);
             }
 

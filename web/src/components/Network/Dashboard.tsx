@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
+import { escapeSrqlValue } from '@/lib/srql';
 import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
 import DeviceTable from '@/components/Devices/DeviceTable';
 
@@ -192,7 +193,7 @@ const SNMPDevicesView: React.FC = React.memo(() => {
             ];
 
             if (debouncedSearchTerm) {
-                const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+                const escapedTerm = escapeSrqlValue(debouncedSearchTerm);
                 queryParts.push(`hostname:%${escapedTerm}%`);
             }
 

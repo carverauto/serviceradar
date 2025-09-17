@@ -21,6 +21,7 @@ import { AlertCircle, XCircle, AlertTriangle, Info, ExternalLink, FileText } fro
 import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { useRouter } from 'next/navigation';
 import { formatNumber } from '@/utils/formatters';
+import { escapeSrqlValue } from '@/lib/srql';
 
 
 interface LogEntry {
@@ -123,8 +124,6 @@ const CriticalLogsWidget = () => {
         return message.substring(0, maxLength) + '...';
     };
 
-    const escapeValue = (value: string) => value.replace(/"/g, '\\"');
-
     const handleLogLevelClick = useCallback((level: string) => {
         const clauses = ['in:logs', 'time:last_24h', 'sort:timestamp:desc', 'limit:100'];
         const normalized = level.toLowerCase();
@@ -146,10 +145,10 @@ const CriticalLogsWidget = () => {
     const handleLogEntryClick = useCallback((log: LogEntry) => {
         const clauses = ['in:logs', 'time:last_24h', 'sort:timestamp:desc', 'limit:100'];
         if (log.trace_id) {
-            clauses.push(`trace_id:"${escapeValue(log.trace_id)}"`);
+            clauses.push(`trace_id:"${escapeSrqlValue(log.trace_id)}"`);
         }
         if (log.severity_text) {
-            clauses.push(`severity_text:"${escapeValue(log.severity_text)}"`);
+            clauses.push(`severity_text:"${escapeSrqlValue(log.severity_text)}"`);
         }
         const query = clauses.join(' ');
         router.push(`/query?q=${encodeURIComponent(query)}`);

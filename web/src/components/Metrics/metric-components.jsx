@@ -18,6 +18,7 @@ import React from 'react';
 import { Cpu, HardDrive, BarChart3, Activity } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { MetricCard, CustomTooltip, ProgressBar } from './shared-components';
+import { escapeSrqlValue } from '@/lib/srql';
 
 export const CpuCard = ({ data }) => {
     return (
@@ -264,10 +265,9 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
 
         try {
             // Build SRQL query based on ID type using the new ASQ-style syntax
-            const escapeSrqlValue = (value) => value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
             const idFilter = actualIdType === 'device'
-                ? `device_id:"${escapeSrqlValue(actualId)}"`
-                : `poller_id:"${escapeSrqlValue(actualId)}"`;
+                ? `device_id:"${escapeSrqlValue(String(actualId))}"`
+                : `poller_id:"${escapeSrqlValue(String(actualId))}"`;
 
             const queryParts = [
                 'in:process_metrics',

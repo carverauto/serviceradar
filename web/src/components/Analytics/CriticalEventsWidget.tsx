@@ -22,6 +22,7 @@ import { useRouter } from 'next/navigation';
 import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { Event } from '@/types/events';
 import { formatNumber } from '@/utils/formatters';
+import { escapeSrqlValue } from '@/lib/srql';
 
 
 const CriticalEventsWidget: React.FC = () => {
@@ -105,8 +106,6 @@ const CriticalEventsWidget: React.FC = () => {
         return message.substring(0, maxLength) + '...';
     };
 
-    const escapeValue = (value: string) => value.replace(/"/g, '\\"');
-
     const handleEventSeverityClick = useCallback((severity: string) => {
         const eventWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const baseClauses = ['in:events', `time:[${eventWindowStart},]`, 'sort:event_timestamp:desc', 'limit:100'];
@@ -122,7 +121,7 @@ const CriticalEventsWidget: React.FC = () => {
         const eventWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const clauses = ['in:events', `time:[${eventWindowStart},]`, 'sort:event_timestamp:desc', 'limit:100'];
         if (event.host) {
-            clauses.push(`host:"${escapeValue(event.host)}"`);
+            clauses.push(`host:"${escapeSrqlValue(event.host)}"`);
         }
         if (event.severity) {
             clauses.push(`severity:${event.severity}`);

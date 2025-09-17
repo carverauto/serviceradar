@@ -30,6 +30,7 @@ import ReactJson from '@/components/Common/DynamicReactJson';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
 import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
+import { escapeSrqlValue } from '@/lib/srql';
 
 const StatCard = ({
     title,
@@ -228,12 +229,12 @@ const LogsDashboard = () => {
             }
 
             if (filterService !== 'all') {
-                const escapedService = filterService.replace(/"/g, '\\"');
+                const escapedService = escapeSrqlValue(filterService);
                 queryParts.push(`service_name:"${escapedService}"`);
             }
 
             if (debouncedSearchTerm) {
-                const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+                const escapedTerm = escapeSrqlValue(debouncedSearchTerm);
                 queryParts.push(`body:%${escapedTerm}%`);
             }
 
@@ -265,12 +266,12 @@ const LogsDashboard = () => {
         }
 
         if (filterService !== 'all') {
-            const escapedService = filterService.replace(/"/g, '\\"');
+            const escapedService = escapeSrqlValue(filterService);
             queryParts.push(`service_name:"${escapedService}"`);
         }
 
         if (debouncedSearchTerm) {
-            const escapedTerm = debouncedSearchTerm.replace(/"/g, '\\"');
+            const escapedTerm = escapeSrqlValue(debouncedSearchTerm);
             queryParts.push(`body:%${escapedTerm}%`);
         }
 
