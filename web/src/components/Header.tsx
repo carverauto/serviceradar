@@ -65,7 +65,7 @@ export default function Header() {
         const fetchPollers = async () => {
             try {
                 const data = await cachedQuery<{ results: { poller_id: string }[] }>(
-                    'in:pollers time:last_7d sort:timestamp:desc limit:200',
+                    'in:pollers time:last_7d sort:last_seen:desc limit:200',
                     token || undefined
                 );
                 const rawResults = Array.isArray(data.results) ? data.results as { poller_id: string }[] : [];

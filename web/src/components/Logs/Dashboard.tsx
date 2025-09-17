@@ -163,21 +163,21 @@ const LogsDashboard = () => {
             // Handle various severity text formats that might come from OTEL
             // Using case-insensitive queries to handle variations
             const [totalRes, fatalRes, errorRes, warnRes, infoRes, debugRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:logs stats:"count()" time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>(`in:logs ${severityQueryMap.FATAL} stats:"count()" time:last_24h`, token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>(`in:logs ${severityQueryMap.ERROR} stats:"count()" time:last_24h`, token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>(`in:logs ${severityQueryMap.WARN} stats:"count()" time:last_24h`, token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>(`in:logs ${severityQueryMap.INFO} stats:"count()" time:last_24h`, token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>(`in:logs ${severityQueryMap.DEBUG} stats:"count()" time:last_24h`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:logs stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:logs ${severityQueryMap.FATAL} stats:"count() as total" sort:total:desc time:last_24h`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:logs ${severityQueryMap.ERROR} stats:"count() as total" sort:total:desc time:last_24h`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:logs ${severityQueryMap.WARN} stats:"count() as total" sort:total:desc time:last_24h`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:logs ${severityQueryMap.INFO} stats:"count() as total" sort:total:desc time:last_24h`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:logs ${severityQueryMap.DEBUG} stats:"count() as total" sort:total:desc time:last_24h`, token || undefined, 30000),
             ]);
 
             setStats({
-                total: totalRes.results[0]?.['count()'] || 0,
-                fatal: fatalRes.results[0]?.['count()'] || 0,
-                error: errorRes.results[0]?.['count()'] || 0,
-                warning: warnRes.results[0]?.['count()'] || 0,
-                info: infoRes.results[0]?.['count()'] || 0,
-                debug: debugRes.results[0]?.['count()'] || 0,
+                total: totalRes.results[0]?.total || 0,
+                fatal: fatalRes.results[0]?.total || 0,
+                error: errorRes.results[0]?.total || 0,
+                warning: warnRes.results[0]?.total || 0,
+                info: infoRes.results[0]?.total || 0,
+                debug: debugRes.results[0]?.total || 0,
             });
         } catch (e) {
             console.error("Failed to fetch log stats:", e);

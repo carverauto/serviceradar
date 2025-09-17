@@ -186,19 +186,19 @@ const MetricsDashboard = () => {
 
         try {
             const [totalRes, slowRes, errorRateRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:otel_metrics stats:"count()" time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:otel_metrics is_slow:true stats:"count()" time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>('in:otel_metrics http_status_code:(400,404,500,503) stats:"count()" time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:otel_metrics stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:otel_metrics is_slow:true stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:otel_metrics http_status_code:(400,404,500,503) stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
             ]);
 
-            const total = (totalRes.results && totalRes.results[0])?.['count()'] || 0;
-            const errors = (errorRateRes.results && errorRateRes.results[0])?.['count()'] || 0;
+            const total = (totalRes.results && totalRes.results[0])?.total || 0;
+            const errors = (errorRateRes.results && errorRateRes.results[0])?.total || 0;
             
             // Average duration will be calculated after fetching metrics data
             
             setStats({
                 total: total,
-                slow_spans: (slowRes.results && slowRes.results[0])?.['count()'] || 0,
+                slow_spans: (slowRes.results && slowRes.results[0])?.total || 0,
                 avg_duration_ms: 0,
                 p95_duration_ms: 0, // P95 calculation would need a more complex query
                 error_rate: total > 0 ? errors / total : 0,

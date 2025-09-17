@@ -139,10 +139,10 @@ const DashboardContent = () => {
                 query = 'in:devices is_available:false time:last_7d sort:last_seen:desc limit:100';
                 break;
             case 'latency':
-                query = 'in:services type:icmp response_time:[100000000,] time:last_7d sort:last_seen:desc limit:100';
+                query = 'in:services type:icmp response_time:[100000000,] sort:timestamp:desc limit:100';
                 break;
             case 'failing':
-                query = 'in:services available:false time:last_7d sort:last_seen:desc limit:100';
+                query = 'in:services available:false sort:timestamp:desc limit:100';
                 break;
         }
         const encodedQuery = encodeURIComponent(query);

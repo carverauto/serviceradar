@@ -128,27 +128,27 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     const fetchStats = useCallback(async () => {
         try {
             const [totalDevicesRes, activeDevicesRes, totalInterfacesRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    'in:devices discovery_sources:* stats:"count()" time:last_7d',
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices discovery_sources:* stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    'in:devices discovery_sources:* is_available:true stats:"count()" time:last_7d',
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices discovery_sources:* is_available:true stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    'in:interfaces stats:"count()" time:last_7d',
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:interfaces stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
             ]);
 
             setStats({
-                totalDevices: totalDevicesRes.results[0]?.['count()'] || 0,
-                activeDevices: activeDevicesRes.results[0]?.['count()'] || 0,
-                totalInterfaces: totalInterfacesRes.results[0]?.['count()'] || 0,
+                totalDevices: totalDevicesRes.results[0]?.total || 0,
+                activeDevices: activeDevicesRes.results[0]?.total || 0,
+                totalInterfaces: totalInterfacesRes.results[0]?.total || 0,
                 onlineInterfaces: 0 // Could add interface status counting if needed
             });
         } catch (error) {

@@ -108,7 +108,8 @@ const CriticalEventsWidget: React.FC = () => {
     const escapeValue = (value: string) => value.replace(/"/g, '\\"');
 
     const handleEventSeverityClick = useCallback((severity: string) => {
-        const baseClauses = ['in:events', 'time:last_24h', 'sort:timestamp:desc', 'limit:100'];
+        const eventWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const baseClauses = ['in:events', `time:[${eventWindowStart},]`, 'sort:event_timestamp:desc', 'limit:100'];
         const normalized = severity.toLowerCase();
         if (['critical', 'high', 'medium', 'low'].includes(normalized)) {
             baseClauses.push(`severity:${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`);
@@ -118,7 +119,8 @@ const CriticalEventsWidget: React.FC = () => {
     }, [router]);
 
     const handleEventEntryClick = useCallback((event: Event) => {
-        const clauses = ['in:events', 'time:last_24h', 'sort:timestamp:desc', 'limit:100'];
+        const eventWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const clauses = ['in:events', `time:[${eventWindowStart},]`, 'sort:event_timestamp:desc', 'limit:100'];
         if (event.host) {
             clauses.push(`host:"${escapeValue(event.host)}"`);
         }
@@ -170,7 +172,8 @@ const CriticalEventsWidget: React.FC = () => {
                 </h3>
                 <button
                     onClick={() => {
-                        const query = 'in:events severity:(Critical,High) time:last_24h sort:timestamp:desc limit:100';
+                        const eventWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+                        const query = `in:events severity:(Critical,High) time:[${eventWindowStart},] sort:event_timestamp:desc limit:100`;
                         router.push(`/query?q=${encodeURIComponent(query)}`);
                     }}
                     className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"

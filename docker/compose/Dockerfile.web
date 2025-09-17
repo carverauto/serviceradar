@@ -90,8 +90,8 @@ RUN mkdir -p /etc/serviceradar && \
 # This replaces the incorrect localhost URLs with correct container URLs
 RUN find .next -name "*.js" -type f -exec sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' {} \;
 
-# Set ownership
-RUN chown -R nextjs:nodejs /app
+# Set ownership for runtime paths (avoid chowning entire dependency tree)
+RUN chown -R nextjs:nodejs /app/.next /app/public /usr/local/bin/entrypoint.sh
 
 USER nextjs
 
