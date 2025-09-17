@@ -229,6 +229,13 @@ let parse (input : string) : query_spec =
                  && (lc_key = "event_timestamp" || lc_key = "timestamp" || lc_key = "last_seen")
               then
                 filters := !filters @ [ TimeFilter vstr ]
+              else if String.length vstr > 0 && vstr.[0] = '!' then
+                let neg_value = String.sub vstr 1 (String.length vstr - 1) |> String.trim in
+                if neg_value = "" then ()
+                else
+                  filters :=
+                    !filters
+                    @ [ AttributeFilter (key', Neq, parse_value neg_value) ]
               else
               if String.length vstr >= 2 && vstr.[0] = '(' && vstr.[String.length vstr - 1] = ')'
               then
