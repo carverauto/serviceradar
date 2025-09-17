@@ -43,6 +43,7 @@ interface AnalyticsData {
   errorMetrics: number;
   recentSlowSpans: unknown[];
   devicesLatest: unknown[];
+  servicesLatest: unknown[];
   pollers: unknown[];
 }
 

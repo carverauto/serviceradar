@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1
+
+# Build stage - compile OCaml SRQL service
+FROM ocaml/opam:debian-12-ocaml-5.1 AS builder
+WORKDIR /src
+
+# Install system dependencies (minimal, dune will pull OCaml deps via opam)
+RUN sudo apt-get update \
+    && sudo apt-get install -y --no-install-recommends pkg-config libev-dev libgmp-dev liblz4-dev libzstd-dev libssl-dev \
+    && sudo rm -rf /var/lib/apt/lists/*
+
+# Pin Proton OCaml driver (not yet available in default opam repository)
+RUN opam pin add proton https://github.com/mfreeman451/proton-ocaml-driver.git#main -y
+
+# Copy OCaml project
+COPY --chown=opam:opam ocaml/ ./
+
+# Install dependencies and build the binary
+ENV OPAMCONFIRMLEVEL=unsafe-yes
+
+RUN opam install . --deps-only -y \
+    && eval $(opam env) \
+    && dune build --profile=release srql/bin/main.exe
+
+# Runtime stage
+FROM debian:12-slim
+ENV LANG=C.UTF-8
+WORKDIR /app
+
+# Install runtime dependencies (ca-certificates for TLS, curl for health/debug)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl libev4 libgmp10 liblz4-1 libzstd1 libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 serviceradar
+
+# Copy binary from build stage
+COPY --from=builder /src/_build/default/srql/bin/main.exe /usr/local/bin/serviceradar-srql
+
+# Copy entrypoint script
+COPY docker/compose/entrypoint-srql.sh /usr/local/bin/entrypoint-srql.sh
+RUN chmod +x /usr/local/bin/entrypoint-srql.sh /usr/local/bin/serviceradar-srql
+
+USER serviceradar
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-srql.sh"]
+CMD ["serviceradar-srql"]

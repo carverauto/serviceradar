@@ -10,6 +10,10 @@
  (name test_bounded_unbounded)
  (libraries srql_translator alcotest))
 
+(test
+ (name test_sql_sanitize)
+ (libraries srql_translator alcotest))
+
 (executable
  (name run_live_srql)
  (modules run_live_srql)

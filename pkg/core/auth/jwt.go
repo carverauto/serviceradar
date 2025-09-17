@@ -34,6 +34,7 @@ type Claims struct {
 	Email    string   `json:"email"`
 	Provider string   `json:"provider"`
 	Roles    []string `json:"roles"`
+	KeyID    string   `json:"kid,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -127,6 +128,9 @@ func GenerateJWTConfig(user *models.User, cfg *models.AuthConfig, expiration tim
 		priv, kid, err := parseRSAPrivateKey(cfg.JWTPrivateKeyPEM, cfg.JWTKeyID)
 		if err != nil {
 			return "", err
+		}
+		if kid != "" {
+			claims.KeyID = kid
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 		if kid != "" {

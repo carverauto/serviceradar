@@ -17,6 +17,7 @@
 // src/app/api/devices/snmp/status/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getInternalApiUrl, getApiKey } from '@/lib/config';
+import { escapeSrqlValue } from '@/lib/srql';
 
 // Simple in-memory cache for SNMP status results
 interface CacheEntry {
@@ -98,8 +99,11 @@ export async function POST(req: NextRequest) {
                 
                 // Query SNMP data using snmp_metrics entity (maps to timeseries_metrics with metric_type='snmp' filter)
                 // Note: limit/pagination not supported for most SNMP entities
+                const deviceFilters = deviceIds
+                    .map((id) => `device_id:"${escapeSrqlValue(String(id))}"`)
+                    .join(' ');
                 const srqlQuery = {
-                    query: `show snmp_metrics where timestamp >= '${twoHoursAgo}' and device_id in (${deviceIds.map(id => `'${id}'`).join(', ')}) order by timestamp desc`
+                    query: `in:snmp_metrics ${deviceFilters} time:[${twoHoursAgo},] sort:timestamp:desc`
                 };
 
             const queryResponse = await fetch(`${apiUrl}/api/query`, {
