@@ -164,86 +164,6 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
         return () => observer.disconnect();
     }, []);
 
-
-
-    const extractEntities = (input: string): string[] => {
-        const matches = [...input.matchAll(/\bin:([^\s]+)/gi)];
-        const entities = new Set<string>();
-        matches.forEach((match) => {
-            match[1]
-                .split(',')
-                .map((candidate) => candidate.trim().toLowerCase())
-                .filter(Boolean)
-                .forEach((candidate) => entities.add(candidate));
-        });
-        return [...entities];
-    };
-
-    const hasEntity = (input: string, entity: string): boolean => {
-        const lowered = entity.toLowerCase();
-        return extractEntities(input).includes(lowered);
-    };
-
-    const legacyStartsWith = (input: string, prefix: string): boolean =>
-        input.trim().toUpperCase().startsWith(prefix);
-
-    const isDeviceQuery = (currentQuery: string): boolean => {
-        const normalizedQuery = currentQuery.trim().toUpperCase();
-        return (
-            hasEntity(currentQuery, 'devices') ||
-            hasEntity(currentQuery, 'sweep_results') ||
-            legacyStartsWith(normalizedQuery, 'SHOW DEVICES') ||
-            legacyStartsWith(normalizedQuery, 'FIND DEVICES') ||
-            legacyStartsWith(normalizedQuery, 'COUNT DEVICES')
-        );
-    };
-
-    const isInterfaceQuery = (currentQuery: string): boolean => {
-        const normalizedQuery = currentQuery.trim().toUpperCase();
-        return (
-            hasEntity(currentQuery, 'interfaces') ||
-            legacyStartsWith(normalizedQuery, 'SHOW INTERFACES') ||
-            legacyStartsWith(normalizedQuery, 'FIND INTERFACES') ||
-            legacyStartsWith(normalizedQuery, 'COUNT INTERFACES')
-        );
-    };
-
-    const isSweepQuery = (currentQuery: string): boolean => {
-        const normalizedQuery = currentQuery.trim().toUpperCase();
-        return (
-            hasEntity(currentQuery, 'sweep_results') ||
-            /discovery_sources:\(?.*sweep.*\)?/i.test(currentQuery) ||
-            legacyStartsWith(normalizedQuery, 'SHOW SWEEP_RESULTS') ||
-            legacyStartsWith(normalizedQuery, 'FIND SWEEP_RESULTS') ||
-            legacyStartsWith(normalizedQuery, 'COUNT SWEEP_RESULTS') ||
-            legacyStartsWith(normalizedQuery, 'SHOW SWEEP') ||
-            legacyStartsWith(normalizedQuery, 'FIND SWEEP') ||
-            legacyStartsWith(normalizedQuery, 'COUNT SWEEP')
-        );
-    };
-
-    const isEventQuery = (currentQuery: string): boolean => {
-        const normalizedQuery = currentQuery.trim().toUpperCase();
-        return (
-            hasEntity(currentQuery, 'events') ||
-            hasEntity(currentQuery, 'activity') ||
-            legacyStartsWith(normalizedQuery, 'SHOW EVENTS') ||
-            legacyStartsWith(normalizedQuery, 'FIND EVENTS') ||
-            legacyStartsWith(normalizedQuery, 'COUNT EVENTS')
-        );
-    };
-
-    const isLogQuery = (currentQuery: string): boolean => {
-        const normalizedQuery = currentQuery.trim().toUpperCase();
-        return (
-            hasEntity(currentQuery, 'logs') ||
-            legacyStartsWith(normalizedQuery, 'SHOW LOGS') ||
-            legacyStartsWith(normalizedQuery, 'FIND LOGS') ||
-            legacyStartsWith(normalizedQuery, 'COUNT LOGS')
-        );
-    };
-
-
     const isDeviceData = (data: unknown): data is Device[] => {
         if (!Array.isArray(data) || data.length === 0) return false;
         const firstItem = data[0];
@@ -597,19 +517,18 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                                 </p>
                             )
                         ) : (
-                            /* Table view - use specialized components when available */
-                            /* Check data type first, then verify query type for safety */
-                            isLogData(results) && isLogQuery(query) ? (
+                            /* Table view - use specialized components when the data shape matches */
+                            isLogData(results) ? (
                                 <LogTable logs={results as Log[]} jsonViewTheme={jsonViewTheme} />
-                            ) : isEventData(results) && isEventQuery(query) ? (
+                            ) : isEventData(results) ? (
                                 <EventTable events={results as Event[]} jsonViewTheme={jsonViewTheme} />
-                            ) : isSweepResultsData(results) && isSweepQuery(query) ? (
+                            ) : isSweepResultsData(results) ? (
                                 <SweepResultsQueryTable devices={results as Device[]} jsonViewTheme={jsonViewTheme} />
-                            ) : isDeviceData(results) && isDeviceQuery(query) ? (
+                            ) : isDeviceData(results) ? (
                                 <DeviceTable devices={results as Device[]} />
-                            ) : isInterfaceData(results) && isInterfaceQuery(query) ? (
+                            ) : isInterfaceData(results) ? (
                                 <InterfaceTable interfaces={results as NetworkInterface[]} showDeviceColumn={true} jsonViewTheme={jsonViewTheme} />
-                            ) : isSweepData(results) && isSweepQuery(query) ? (
+                            ) : isSweepData(results) ? (
                                 <SweepResultsTable sweepResults={results as SweepResult[]} showPollerColumn={true} showPartitionColumn={true} jsonViewTheme={jsonViewTheme} />
                             ) : (
                                 /* Fallback to generic table */

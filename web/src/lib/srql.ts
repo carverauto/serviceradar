@@ -4,4 +4,3 @@
  */
 export const escapeSrqlValue = (value: string | number | boolean): string =>
     String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-
