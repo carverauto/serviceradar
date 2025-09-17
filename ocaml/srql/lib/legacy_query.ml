@@ -32,8 +32,12 @@ module String_utils = struct
     String.iter
       (fun c ->
         match c with
-        | '(' -> incr depth; Buffer.add_char buf c
-        | ')' -> decr depth; Buffer.add_char buf c
+        | '(' ->
+            incr depth;
+            Buffer.add_char buf c
+        | ')' ->
+            decr depth;
+            Buffer.add_char buf c
         | ',' when !depth = 0 -> push ()
         | _ -> Buffer.add_char buf c)
       text;
@@ -43,23 +47,17 @@ end
 
 open String_utils
 
-type translation = {
-  sql : string;
-  order : (string * order_dir) list;
-  limit : int option;
-}
+type translation = { sql : string; order : (string * order_dir) list; limit : int option }
 
 let entity_table entity = Entity_mapping.get_table_name (String.lowercase_ascii entity)
-
-let timestamp_for_entity entity =
-  Entity_mapping.get_timestamp_field (String.lowercase_ascii entity)
+let timestamp_for_entity entity = Entity_mapping.get_timestamp_field (String.lowercase_ascii entity)
 
 let normalize_default_time_value (value : string option) : string option =
   match value with
-  | Some raw ->
+  | Some raw -> (
       let trimmed = trim raw in
       if trimmed = "" then None
-      else (
+      else
         match String.lowercase_ascii trimmed with
         | "auto" | "none" | "unbounded" -> None
         | _ -> Some trimmed)
@@ -84,7 +82,8 @@ let has_time_filter entity where_clause =
       ]
     in
     List.exists
-      (fun needle -> match index_of_sub_icase where_clause needle with Some _ -> true | None -> false)
+      (fun needle ->
+        match index_of_sub_icase where_clause needle with Some _ -> true | None -> false)
       candidates
 
 let build_default_time_clause entity default_time =
@@ -95,11 +94,11 @@ let build_default_time_clause entity default_time =
     let lower = String.lowercase_ascii trimmed in
     if lower = "today" then Some (Printf.sprintf "toDate(%s) = today()" ts_field)
     else if lower = "yesterday" then Some (Printf.sprintf "toDate(%s) = yesterday()" ts_field)
-    else if String.length lower > 5 && String.sub lower 0 5 = "last_" then (
+    else if String.length lower > 5 && String.sub lower 0 5 = "last_" then
       let rest = String.sub trimmed 5 (String.length trimmed - 5) in
       let rec find_digits idx =
-        if idx < String.length rest && Char.code rest.[idx] >= 48 && Char.code rest.[idx] <= 57
-        then find_digits (idx + 1)
+        if idx < String.length rest && Char.code rest.[idx] >= 48 && Char.code rest.[idx] <= 57 then
+          find_digits (idx + 1)
         else idx
       in
       let digits_end = find_digits 0 in
@@ -112,7 +111,9 @@ let build_default_time_clause entity default_time =
         | Some n ->
             let unit_raw =
               if digits_end >= String.length rest then ""
-              else String.sub rest digits_end (String.length rest - digits_end) |> trim |> String.lowercase_ascii
+              else
+                String.sub rest digits_end (String.length rest - digits_end)
+                |> trim |> String.lowercase_ascii
             in
             let unit_sql =
               match unit_raw with
@@ -125,14 +126,14 @@ let build_default_time_clause entity default_time =
               | "y" | "yr" | "yrs" | "year" | "years" -> "YEAR"
               | _ -> "HOUR"
             in
-            Some (Printf.sprintf "%s >= now() - INTERVAL %d %s" ts_field n unit_sql))
-    else if String.length trimmed >= 2 && trimmed.[0] = '['
-            && trimmed.[String.length trimmed - 1] = ']'
-    then (
+            Some (Printf.sprintf "%s >= now() - INTERVAL %d %s" ts_field n unit_sql)
+    else if
+      String.length trimmed >= 2 && trimmed.[0] = '[' && trimmed.[String.length trimmed - 1] = ']'
+    then
       let inside = String.sub trimmed 1 (String.length trimmed - 2) in
       let parts = inside |> String.split_on_char ',' |> List.map trim in
       match parts with
-      | [ start_s; end_s ] ->
+      | [ start_s; end_s ] -> (
           let start_clause =
             if start_s = "" then None
             else
@@ -147,12 +148,12 @@ let build_default_time_clause entity default_time =
                 (Printf.sprintf "%s <= parseDateTimeBestEffort('%s')" ts_field
                    (Sql_sanitize.escape_string_literal end_s))
           in
-          (match (start_clause, end_clause) with
+          match (start_clause, end_clause) with
           | Some s, Some e -> Some ("(" ^ s ^ " AND " ^ e ^ ")")
           | Some s, None -> Some s
           | None, Some e -> Some e
           | None, None -> None)
-      | _ -> None)
+      | _ -> None
     else None
 
 let apply_default_time_clause ~entity ~where_clause ~default_time =
@@ -166,13 +167,13 @@ let apply_default_time_clause ~entity ~where_clause ~default_time =
   in
   match default_time with
   | None -> where_clause
-  | Some dt ->
+  | Some dt -> (
       if has_time_filter entity where_clause then where_clause
       else
         match build_default_time_clause entity dt with
         | None -> where_clause
         | Some clause when where_clause = "" -> clause
-        | Some clause -> where_clause ^ " AND " ^ clause
+        | Some clause -> where_clause ^ " AND " ^ clause)
 
 let parse_order_by clause =
   clause |> split_on_comma
@@ -180,9 +181,7 @@ let parse_order_by clause =
          let trimmed = trim part in
          if trimmed = "" then None
          else
-           let pieces =
-             trimmed |> String.split_on_char ' ' |> List.filter (fun s -> s <> "")
-           in
+           let pieces = trimmed |> String.split_on_char ' ' |> List.filter (fun s -> s <> "") in
            match pieces with
            | [] -> None
            | field :: rest ->
@@ -198,9 +197,7 @@ let normalize_limit clause =
   if trimmed = "" then None
   else
     let first_token =
-      match String.split_on_char ' ' trimmed with
-      | hd :: _ -> trim hd
-      | [] -> trimmed
+      match String.split_on_char ' ' trimmed with hd :: _ -> trim hd | [] -> trimmed
     in
     match int_of_string_opt first_token with Some v -> Some v | None -> None
 
@@ -210,7 +207,7 @@ let translate_distinct query req_limit default_time =
   else
     match index_of_sub_icase query ")" with
     | None -> None
-    | Some idx_end_fn ->
+    | Some idx_end_fn -> (
         let field =
           String.sub query (String.length prefix) (idx_end_fn - String.length prefix) |> trim
         in
@@ -221,7 +218,9 @@ let translate_distinct query req_limit default_time =
         match index_of_sub_icase after " from " with
         | None -> None
         | Some idx_from ->
-            let rest = String.sub after (idx_from + 6) (String.length after - idx_from - 6) |> trim in
+            let rest =
+              String.sub after (idx_from + 6) (String.length after - idx_from - 6) |> trim
+            in
             if rest = "" then None
             else
               let idx_where = index_of_sub_icase rest " where " in
@@ -229,7 +228,8 @@ let translate_distinct query req_limit default_time =
               let idx_limit = index_of_sub_icase rest " limit " in
               let entity_end =
                 match
-                  List.filter_map (fun x -> x) [ idx_where; idx_order; idx_limit ] |> List.sort compare
+                  List.filter_map (fun x -> x) [ idx_where; idx_order; idx_limit ]
+                  |> List.sort compare
                 with
                 | next :: _ -> next
                 | [] -> String.length rest
@@ -237,22 +237,19 @@ let translate_distinct query req_limit default_time =
               let entity = String.sub rest 0 entity_end |> trim in
               if entity = "" then None
               else
-              let where_clause =
-                match idx_where with
-                | Some i ->
-                    let start = i + 7 in
-                    let stop =
+                let where_clause =
+                  match idx_where with
+                  | Some i ->
+                      let start = i + 7 in
+                      let stop =
                         List.fold_left
-                          (fun acc v ->
-                            match v with
-                            | Some j when j > i && j < acc -> j
-                            | _ -> acc)
+                          (fun acc v -> match v with Some j when j > i && j < acc -> j | _ -> acc)
                           (String.length rest) [ idx_order; idx_limit ]
-                    in
-                    String.sub rest start (stop - start) |> trim
-                | None -> ""
-              in
-              let where_clause = apply_default_time_clause ~entity ~where_clause ~default_time in
+                      in
+                      String.sub rest start (stop - start) |> trim
+                  | None -> ""
+                in
+                let where_clause = apply_default_time_clause ~entity ~where_clause ~default_time in
                 let order_clause =
                   match idx_order with
                   | Some i ->
@@ -278,9 +275,7 @@ let translate_distinct query req_limit default_time =
                   else (base ^ " ORDER BY " ^ order_clause, parse_order_by order_clause)
                 in
                 let effective_limit =
-                  match normalize_limit limit_clause with
-                  | Some v -> Some v
-                  | None -> req_limit
+                  match normalize_limit limit_clause with Some v -> Some v | None -> req_limit
                 in
                 let sql =
                   if limit_clause <> "" then base ^ " LIMIT " ^ limit_clause
@@ -289,14 +284,16 @@ let translate_distinct query req_limit default_time =
                     | Some v -> base ^ Printf.sprintf " LIMIT %d" v
                     | None -> base
                 in
-                Some { sql; order = order_fields; limit = effective_limit }
+                Some { sql; order = order_fields; limit = effective_limit })
 
 let translate_simple query req_limit default_time =
   let normalized = trim query in
   if normalized = "" then None
   else
     let handle command keyword_len =
-      let rest = String.sub normalized keyword_len (String.length normalized - keyword_len) |> trim in
+      let rest =
+        String.sub normalized keyword_len (String.length normalized - keyword_len) |> trim
+      in
       if rest = "" then None
       else
         let idx_where = index_of_sub_icase rest " where " in
@@ -305,17 +302,19 @@ let translate_simple query req_limit default_time =
         let idx_latest = index_of_sub_icase rest " latest" in
         let earliest =
           List.filter_map (fun x -> x) [ idx_where; idx_order; idx_limit; idx_latest ]
-          |> List.sort compare |> function [] -> None | x :: _ -> Some x
+          |> List.sort compare
+          |> function
+          | [] -> None
+          | x :: _ -> Some x
         in
         let entity_end, latest_flag =
-          match idx_latest, earliest with
+          match (idx_latest, earliest) with
           | Some idx, Some min_idx when idx < min_idx -> (idx, true)
           | Some idx, None -> (idx, true)
-          | _ -> (match earliest with Some idx -> (idx, false) | None -> (String.length rest, false))
+          | _ -> (
+              match earliest with Some idx -> (idx, false) | None -> (String.length rest, false))
         in
-        let entity =
-          if entity_end <= 0 then rest else String.sub rest 0 entity_end |> trim
-        in
+        let entity = if entity_end <= 0 then rest else String.sub rest 0 entity_end |> trim in
         if entity = "" then None
         else
           let remainder_start =
@@ -336,10 +335,7 @@ let translate_simple query req_limit default_time =
                 let start = i + 7 in
                 let stop =
                   List.fold_left
-                    (fun acc v ->
-                      match v with
-                      | Some j when j > i && j < acc -> j
-                      | _ -> acc)
+                    (fun acc v -> match v with Some j when j > i && j < acc -> j | _ -> acc)
                     (String.length remainder) [ idx_order; idx_limit ]
                 in
                 String.sub remainder start (stop - start) |> trim
@@ -374,18 +370,18 @@ let translate_simple query req_limit default_time =
               (Some clause, parse_order_by clause)
             else (None, [])
           in
-          let base = match applied_order with Some clause -> base ^ " ORDER BY " ^ clause | None -> base in
+          let base =
+            match applied_order with Some clause -> base ^ " ORDER BY " ^ clause | None -> base
+          in
           let effective_limit =
-            match normalize_limit limit_clause with
-            | Some v -> Some v
-            | None -> req_limit
+            match normalize_limit limit_clause with Some v -> Some v | None -> req_limit
           in
           let sql =
             if limit_clause <> "" then base ^ " LIMIT " ^ limit_clause
             else if command <> `Count then
-              (match effective_limit with
+              match effective_limit with
               | Some v -> base ^ Printf.sprintf " LIMIT %d" v
-              | None -> base)
+              | None -> base
             else base
           in
           Some { sql; order = order_fields; limit = effective_limit }
