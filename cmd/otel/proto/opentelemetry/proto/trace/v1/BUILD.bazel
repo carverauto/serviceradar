@@ -12,6 +12,12 @@ proto_library(
     ],
 )
 
+filegroup(
+    name = "proto_src",
+    srcs = ["trace.proto"],
+    visibility = ["//visibility:public"],
+)
+
 go_proto_library(
     name = "v1_go_proto",
     importpath = "go.opentelemetry.io/proto/otlp/trace/v1",

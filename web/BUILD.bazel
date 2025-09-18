@@ -1,5 +1,95 @@
-# Temporary placeholder until Bazel targets for the Next.js app are added.
-exports_files([
-    "package.json",
-    "package-lock.json",
-])
+load("@npm//:defs.bzl", "npm_link_all_packages")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_project")
+load(
+    "@aspect_rules_js//contrib/nextjs:defs.bzl",
+    "nextjs_standalone_build",
+    "nextjs_standalone_server",
+)
+load("@aspect_rules_js//js:defs.bzl", "js_binary")
+
+npm_link_all_packages(name = "node_modules")
+
+WEB_TS_SRCS = glob(
+    [
+        "next-env.d.ts",
+        "next.config.ts",
+        "next.config.docker.ts",
+        "tailwind.config.ts",
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "src/**/*.cts",
+        "src/**/*.mts",
+        "src/**/*.js",
+        "src/**/*.jsx",
+    ],
+    exclude = [
+        "src/**/*.spec.ts",
+        "src/**/*.spec.tsx",
+        "src/**/*.stories.tsx",
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx",
+    ],
+    allow_empty = True,
+)
+
+ts_project(
+    name = "typecheck",
+    srcs = WEB_TS_SRCS,
+    tsconfig = "tsconfig.json",
+    deps = [":node_modules"],
+    allow_js = True,
+    incremental = True,
+    no_emit = True,
+    preserve_jsx = True,
+    resolve_json_module = True,
+    ts_build_info_file = "tsconfig.tsbuildinfo",
+    validate = False,
+)
+
+js_binary(
+    name = "next_js_binary",
+    entry_point = "node_modules/.bin/next",
+    data = [":node_modules"],
+    visibility = ["//visibility:public"],
+)
+
+NEXT_APP_SRCS = glob(
+    [
+        "public/**",
+        "src/**",
+    ],
+    exclude = [
+        "src/**/*.spec.*",
+        "src/**/*.stories.*",
+        "src/**/*.test.*",
+    ],
+    allow_empty = True,
+)
+
+nextjs_standalone_build(
+    name = "standalone_app",
+    config = "next.config.ts",
+    srcs = NEXT_APP_SRCS + [
+        "next-env.d.ts",
+    ],
+    next_js_binary = ":next_js_binary",
+    data = [
+        ":node_modules",
+        "package.json",
+        "pnpm-lock.yaml",
+        "postcss.config.mjs",
+        "tailwind.config.ts",
+        "tsconfig.json",
+    ],
+)
+
+nextjs_standalone_server(
+    name = "standalone_server",
+    app = ":standalone_app",
+    data = [
+        ":node_modules/next",
+        ":node_modules/react",
+        ":node_modules/react-dom",
+    ],
+    visibility = ["//visibility:public"],
+)

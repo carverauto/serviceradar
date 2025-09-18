@@ -14,7 +14,9 @@ bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "rules_oci", version = "2.2.6")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
+bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 
 archive_override(
     module_name = "rules_ocaml",
@@ -247,7 +249,7 @@ use_repo(
 )
 
 # --- Rust toolchain bootstrap -----------------------------------------------
-RUST_DEFAULT_VERSION = "1.82.0"
+RUST_DEFAULT_VERSION = "1.86.0"
 
 RUST_EDITION = "2021"
 
@@ -260,8 +262,21 @@ use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
 
-# TODO(bazel-migration): add rust_host_tools for pinned host binaries and wire up
-# cargo-raze generated dependencies when Rust targets are migrated.
+# TODO(bazel-migration): add rust_host_tools for pinned host binaries and expand
+# crate_universe coverage as additional Rust targets migrate.
+
+# --- Rust crate dependencies (crate_universe) --------------------------------
+
+crates = use_extension(
+    "@rules_rust//crate_universe:extensions.bzl",
+    "crate",
+)
+crates.from_cargo(
+    name = "rust_crates",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crates, "rust_crates")
 
 # --- Node.js toolchain -------------------------------------------------------
 NODE_VERSION = "22.13.1"
@@ -286,6 +301,9 @@ register_toolchains(
 npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
 npm.npm_translate_lock(
     name = "npm",
+    bins = {
+        "next": ["next=./dist/bin/next"],
+    },
     dev = True,
     npmrc = "//web:.npmrc",
     pnpm_lock = "//web:pnpm-lock.yaml",

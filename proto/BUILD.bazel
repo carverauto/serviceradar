@@ -15,6 +15,18 @@ proto_library(
     visibility = ["//visibility:public"],
 )
 
+filegroup(
+    name = "kv_proto_src",
+    srcs = ["kv.proto"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "monitoring_proto_src",
+    srcs = ["monitoring.proto"],
+    visibility = ["//visibility:public"],
+)
+
 alias(
     name = "compile",
     actual = ":proto_proto",
