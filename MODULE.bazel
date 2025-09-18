@@ -14,6 +14,7 @@ bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "rules_oci", version = "2.2.6")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
+bazel_dep(name = "rules_cc", version = "0.1.1")
 
 archive_override(
     module_name = "rules_ocaml",
@@ -95,6 +96,8 @@ archive_override(
         "https://github.com/obazl/makeheaders/archive/refs/tags/3.0.0.tar.gz",
     ],
 )
+
+bazel_dep(name = "makeheaders", version = "3.0.0")
 
 archive_override(
     module_name = "semverc",
@@ -196,6 +199,11 @@ use_repo(go_sdk, "go_sdk")
 go_deps = use_extension(
     "@bazel_gazelle//:extensions.bzl",
     "go_deps",
+)
+go_deps.module_override(
+    path = "github.com/spiffe/go-spiffe/v2",
+    patches = ["//third_party/patches:go-spiffe-go-proto.patch"],
+    patch_strip = 1,
 )
 go_deps.from_file(go_mod = "//:go.mod")
 
