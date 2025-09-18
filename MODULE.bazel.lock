@@ -483,6 +483,1680 @@
         },
         "recordedRepoMappingEntries": []
       }
+    },
+    "@@tools_opam+//extensions:opam.bzl%opam": {
+      "general": {
+        "bzlTransitiveDigest": "UZEoPPEzJd4XWWWoKtprd57taiua6gcpU6v8Y/6haRc=",
+        "usagesDigest": "zqD9Ip7OOBdwtzfk34WbY/L9gVQVi2WHiSBuX1NAz6Q=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {
+          "HOME": "/Users/mfreeman",
+          "OBAZL_OPAM_ENV": null,
+          "OBAZL_USE_LOCAL_TC": null,
+          "XDG_DATA_HOME": null
+        },
+        "generatedRepoSpecs": {
+          "opam.ocamlsdk": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.stublibs": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.alcotest": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.angstrom": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.asn1-combinators": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.astring": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.base64": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.bigarray-compat": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.bigarray-overlap": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.bigstringaf": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.bos": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.bytes": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ca-certs": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.camlp-streams": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.caqti": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.caqti-lwt": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.cmdliner": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.cppo": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.csexp": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.cstruct": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ctypes": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.digestif": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.domain-name": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.dream": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.dream-httpaf": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.dream-pure": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.dune": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.dune-configurator": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.dune-private-libs": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.dune-site": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.duration": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.dyn": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.eqaf": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.faraday": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.faraday-lwt": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.faraday-lwt-unix": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.findlib": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.fmt": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.fpath": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.gmap": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.graphql": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.graphql_parser": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.graphql-lwt": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.hmap": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.integers": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ipaddr": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.kdf": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ke": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.lambdasoup": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.logs": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.lru": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.lwt": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.lwt_ppx": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.lwt_ssl": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.lwt-dllist": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.lz4": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.macaddr": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.magic-mime": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.markup": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.menhir": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.menhirCST": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.menhirLib": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.menhirSdk": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.mirage-clock": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.mirage-crypto": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.mirage-crypto-ec": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.mirage-crypto-pk": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.mirage-crypto-rng": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.mirage-crypto-rng-lwt": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.mtime": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.multipart_form": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.multipart_form-lwt": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ocaml": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ocaml-compiler-libs": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ocaml-syntax-shims": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ocamlbuild": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ocplib-endian": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ohex": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ordering": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.pecu": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.pkgconfig": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.pp": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ppx_derivers": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ppx_deriving": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ppxlib": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.prettym": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.proton": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.psq": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ptime": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.re": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.rresult": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.seq": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.sexplib0": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.ssl": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.stdlib-shims": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.stdune": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.stringext": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.tls": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.tls-lwt": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.topkg": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.toplevel": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.uchar": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.unstrctrd": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.uri": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.uutf": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.x509": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.yojson": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.zarith": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.zstd": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "5.1.0",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/None/lib",
+              "ocaml_version": "",
+              "obazl_pfx": "opam.",
+              "config_tool": "/private/var/tmp/_bazel_mfreeman/bc0cb8cb0a426f228f78bdf29196f517/modextwd/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          }
+        },
+        "moduleExtensionMetadata": {
+          "explicitRootModuleDirectDeps": [
+            "opam.ocamlsdk",
+            "opam.dune",
+            "opam.menhir",
+            "opam.yojson",
+            "opam.ppx_deriving",
+            "opam.lwt_ppx",
+            "opam.proton",
+            "opam.lwt",
+            "opam.dream"
+          ],
+          "explicitRootModuleDirectDevDeps": [
+            "opam.alcotest"
+          ],
+          "useAllRepos": "NO",
+          "reproducible": false
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "tools_opam+",
+            "bazel_skylib",
+            "bazel_skylib+"
+          ]
+        ]
+      }
     }
   }
 }

@@ -33,7 +33,9 @@
    - [x] Create root `WORKSPACE.bazel` and `MODULE.bazel` (bzlmod).
    - [x] Declare Bazel rulesets (`rules_go` + Gazelle, `rules_rust`, `rules_nodejs`, `rules_proto`, `rules_oci`, `rules_pkg`, `aspect_rules_js`).
    - [x] Register shared toolchains (Go SDK via `go_sdk.from_file`, Rust 1.82 toolchains, Node.js 22.13.1 for darwin/linux on amd64 & arm64).
-   - [x] Pin `rules_ocaml` 2.1.0 via `archive_override`; plan follow-up to register toolchains and OCaml toolchains once workflow is defined.
+   - [x] Pin `rules_ocaml` 3.0.0.beta.1 via `archive_override`; plan follow-up to register toolchains and OCaml toolchains once workflow is defined.
+   - [x] Mirror `tools_opam` 1.0.0.beta.1 and its required auxiliary modules (`obazl_tools_cc`, `findlibc`, `runfiles`, `xdgc`, `gopt`, `liblogc`, `makeheaders`, `sfsexp`, `uthash`, `semverc`, `cwalk` vendored from commit e98d23f; dev-only dependency `unity` deferred).
+   - [x] Configure tools_opam module extension for srql packages; register ocamlsdk toolchains for OCaml 5.1.0.
    - [ ] Model external binary dependencies using `http_file` (`timeplus`, `nats-server`, etc.).
 2. **Seed minimal BUILD targets**
    - Add `//docs:lint` or placeholder target to validate workspace loads.
@@ -55,6 +57,7 @@
 - Validate with `bazel test //rust/...`.
 
 ### 5.3 OCaml (deferred)
+- Investigate `tools_opam` generator changes needed to sanitize ocaml_import names (e.g., `ppx_deriving`) so package repos load without source name collisions; current suffix patch still leaves Bazel emitting conflicting targets.
 - Introduce `rules_ocaml` for `ocaml/` libraries, align dune layout with Bazel packages.
 - Validate with language-specific `bazel test` invocations.
 
