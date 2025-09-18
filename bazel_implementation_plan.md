@@ -47,7 +47,8 @@
 ### 5.1 Go
 - [x] Run Gazelle across `cmd/`, `internal/`, `pkg/`, `poller/` directories to seed Bazel targets.
 - [x] Define `go_library`, `go_binary`, and `go_test` targets mirroring current module boundaries (CLI builds under Bazel, `pkg/logger:logger_test` passes).
-- [ ] Establish `//proto` → Go code generation with `rules_proto` + `rules_go` plugin (root stubs still checked in, but `github.com/spiffe/go-spiffe/v2` now builds under Bazel via patched repo so agent binaries link).
+- [x] Retire the legacy Go SRQL implementation (`pkg/srql`) in favor of the OCaml version so future work centers on `ocaml/srql` only.
+- [x] Establish `//proto` → Go code generation with `rules_proto` + `rules_go` plugin (root `proto` and `proto/discovery` now use `go_proto_library`, with checked-in Go stubs kept only for non-Bazel workflows).
 - [ ] Validate with `bazel test //cmd/... //internal/...` (blocked for agent services until `github.com/spiffe/go-spiffe/v2` proto definitions are wired in the Bazel graph).
 
 ### 5.2 Rust

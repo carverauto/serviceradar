@@ -1,28 +1,32 @@
 # gazelle:ignore
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
 load("@rules_proto//proto:defs.bzl", "proto_library")
+
+# Generated Go sources remain in the repository for the non-Bazel module workflow.
 
 proto_library(
     name = "discovery_proto",
     srcs = ["discovery.proto"],
+    deps = ["//google/protobuf:wrappers_proto"],
+    visibility = ["//visibility:public"],
+)
+
+go_proto_library(
+    name = "discovery_go_proto",
+    compilers = [
+        "@io_bazel_rules_go//proto:go_proto",
+        "@io_bazel_rules_go//proto:go_grpc_v2",
+    ],
+    importpath = "github.com/carverauto/serviceradar/proto/discovery",
+    proto = ":discovery_proto",
     visibility = ["//visibility:public"],
 )
 
 go_library(
     name = "discovery",
-    srcs = [
-        "discovery.pb.go",
-        "discovery_grpc.pb.go",
-    ],
+    embed = [":discovery_go_proto"],
     importpath = "github.com/carverauto/serviceradar/proto/discovery",
     visibility = ["//visibility:public"],
-    deps = [
-        "@org_golang_google_grpc//:grpc",
-        "@org_golang_google_grpc//codes",
-        "@org_golang_google_grpc//status",
-        "@org_golang_google_protobuf//reflect/protoreflect:protoreflect",
-        "@org_golang_google_protobuf//runtime/protoimpl:protoimpl",
-        "@org_golang_google_protobuf//types/known/wrapperspb:wrapperspb",
-    ],
 )
