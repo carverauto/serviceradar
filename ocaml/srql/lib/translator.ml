@@ -2,17 +2,11 @@
 open Sql_ir
 open Field_mapping
 open Sql_sanitize
-
 module Column = Proton.Column
 
 type param_binding = string * Column.value
-
 type query_with_params = { sql : string; params : param_binding list }
-
-type param_builder = {
-  mutable counter : int;
-  mutable params : param_binding list;
-}
+type param_builder = { mutable counter : int; mutable params : param_binding list }
 
 let create_builder () = { counter = 0; params = [] }
 
@@ -195,7 +189,8 @@ let translate_query (q : query) : query_with_params =
               let filters = ref [] in
               if e = "devices" then
                 filters := !filters @ [ "coalesce(metadata['_deleted'], '') != 'true'" ];
-              if e = "sweep_results" then filters := !filters @ [ "has(discovery_sources, 'sweep')" ];
+              if e = "sweep_results" then
+                filters := !filters @ [ "has(discovery_sources, 'sweep')" ];
               if e = "snmp_results" || e = "snmp_metrics" then
                 filters := !filters @ [ "metric_type = 'snmp'" ];
               !filters
@@ -250,7 +245,8 @@ let translate_query (q : query) : query_with_params =
               let filters = ref [] in
               if e = "devices" then
                 filters := !filters @ [ "coalesce(metadata['_deleted'], '') != 'true'" ];
-              if e = "sweep_results" then filters := !filters @ [ "has(discovery_sources, 'sweep')" ];
+              if e = "sweep_results" then
+                filters := !filters @ [ "has(discovery_sources, 'sweep')" ];
               if e = "snmp_results" || e = "snmp_metrics" then
                 filters := !filters @ [ "metric_type = 'snmp'" ];
               !filters

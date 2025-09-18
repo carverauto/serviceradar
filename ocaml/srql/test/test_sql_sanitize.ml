@@ -1,5 +1,4 @@
 open Alcotest
-
 module Column = Proton.Column
 
 let translation_of qstr =

@@ -1,5 +1,4 @@
 open Alcotest
-
 module Column = Proton.Column
 
 let translation_of qstr =
@@ -31,9 +30,7 @@ let test_devices_today () =
   contains "time today func" sql ") = today()";
   contains "hostname mapping" sql "hostname = {{";
   check bool "hostname parameter present" true
-    (List.exists
-       (function _, Column.String "server01" -> true | _ -> false)
-       translation.params)
+    (List.exists (function _, Column.String "server01" -> true | _ -> false) translation.params)
 
 let test_flows_topk_by () =
   let translation = translation_of "in:flows src:10.0.0.1 stats:\"topk(dst, 5)\"" in
@@ -44,9 +41,7 @@ let test_flows_topk_by () =
   contains "limit present" sql "limit 5";
   contains "src filter" sql "src_ip = {{";
   check bool "src placeholder value" true
-    (List.exists
-       (function _, Column.String "10.0.0.1" -> true | _ -> false)
-       translation.params)
+    (List.exists (function _, Column.String "10.0.0.1" -> true | _ -> false) translation.params)
 
 let test_validation_having_error () =
   let qspec =
@@ -83,7 +78,9 @@ let test_services_ports_timeframe () =
     (List.exists (function _, Column.Int64 n -> n = 2222L | _ -> false) translation.params)
 
 let test_devices_nested_services_and_type () =
-  let translation = translation_of "in:devices services:(name:(facebook)) type:MRIs timeFrame:\"7 Days\"" in
+  let translation =
+    translation_of "in:devices services:(name:(facebook)) type:MRIs timeFrame:\"7 Days\""
+  in
   let sql = translation.sql in
   contains "devices table" sql "from table(unified_devices)";
   contains "service name flattened" sql "services_name = {{";
@@ -106,7 +103,9 @@ let test_activity_connection_nested () =
   contains "nested flatten 2" sql "connection_direction = {{";
   contains "boundary->partition alias" sql "connection_to_partition = {{";
   let expect_string value =
-    List.exists (function _, Column.String s -> String.equal s value | _ -> false) translation.params
+    List.exists
+      (function _, Column.String s -> String.equal s value | _ -> false)
+      translation.params
   in
   check bool "mobile phone param" true (expect_string "Mobile Phone");
   check bool "direction param" true (expect_string "From > To");
@@ -190,7 +189,9 @@ let () = Alcotest.run "asq_more" [ ("more", suite_more) ]
 (* discovery_sources contains both 'sweep' and 'armis' *)
 
 let test_devices_discovery_sources_both () =
-  let translation = translation_of "in:devices discovery_sources:(sweep) discovery_sources:(armis)" in
+  let translation =
+    translation_of "in:devices discovery_sources:(sweep) discovery_sources:(armis)"
+  in
   let sql = translation.sql in
   contains "has sweep" sql "has(discovery_sources, {{";
   contains "has armis" sql "has(discovery_sources, {{";

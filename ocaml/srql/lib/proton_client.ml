@@ -106,7 +106,10 @@ module Client = struct
     Lwt.return client
 
   let execute client query = Proton.Client.execute client query
-  let execute_with_params client query ~params = Proton.Client.execute_with_params client query ~params
+
+  let execute_with_params client query ~params =
+    Proton.Client.execute_with_params client query ~params
+
   let query client query = Proton.Client.execute client query
   let close client = Proton.Client.disconnect client
 
@@ -187,10 +190,7 @@ module SRQL = struct
         before ^ "table(" ^ tbl ^ ")" ^ after
       with _ -> sql
 
-  type translation = {
-    sql : string;
-    params : (string * Proton.Column.value) list;
-  }
+  type translation = { sql : string; params : (string * Proton.Column.value) list }
 
   let translate srql_query : translation =
     let ast = parse_to_ast srql_query in
