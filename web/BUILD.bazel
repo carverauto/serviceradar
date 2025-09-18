@@ -1,0 +1,5 @@
+# Temporary placeholder until Bazel targets for the Next.js app are added.
+exports_files([
+    "package.json",
+    "package-lock.json",
+])
