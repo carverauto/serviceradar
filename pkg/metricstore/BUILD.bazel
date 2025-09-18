@@ -1,0 +1,35 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "metricstore",
+    srcs = [
+        "errors.go",
+        "interfaces.go",
+        "mock_metricstore.go",
+        "rperf_manager.go",
+        "snmp_manager.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/metricstore",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/db",
+        "//pkg/models",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "metricstore_test",
+    srcs = [
+        "rperf_manager_test.go",
+        "snmp_manager_test.go",
+    ],
+    embed = [":metricstore"],
+    deps = [
+        "//pkg/db",
+        "//pkg/models",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_mock//gomock",
+    ],
+)

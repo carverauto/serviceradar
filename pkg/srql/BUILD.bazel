@@ -1,0 +1,12 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "srql",
+    srcs = ["srql.go"],
+    importpath = "github.com/carverauto/serviceradar/pkg/srql",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/srql/models",
+        "//pkg/srql/parser",
+    ],
+)

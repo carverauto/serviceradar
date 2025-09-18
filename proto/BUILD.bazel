@@ -1,0 +1,39 @@
+# gazelle:ignore
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+proto_library(
+    name = "kv_proto",
+    srcs = ["kv.proto"],
+    visibility = ["//visibility:public"],
+)
+
+proto_library(
+    name = "monitoring_proto",
+    srcs = ["monitoring.proto"],
+    visibility = ["//visibility:public"],
+)
+
+# Go stubs are pre-generated in the repository. We keep them as sources for now
+# and can switch to go_proto_library once the Bazel protobuf toolchain is wired.
+go_library(
+    name = "proto",
+    srcs = [
+        "kv.pb.go",
+        "kv_grpc.pb.go",
+        "mock_monitoring.go",
+        "monitoring.pb.go",
+        "monitoring_grpc.pb.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/proto",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//reflect/protoreflect:protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl:protoimpl",
+        "@org_uber_go_mock//gomock",
+    ],
+)

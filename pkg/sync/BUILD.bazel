@@ -1,0 +1,58 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sync",
+    srcs = [
+        "blacklist.go",
+        "circuit_breaker.go",
+        "clock.go",
+        "config.go",
+        "interfaces.go",
+        "metrics.go",
+        "mock_proto.go",
+        "mock_sync.go",
+        "service.go",
+        "srql_querier.go",
+        "sync.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/sync",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/grpc",
+        "//pkg/logger",
+        "//pkg/models",
+        "//pkg/sync/integrations/armis",
+        "//pkg/sync/integrations/netbox",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//metadata",
+        "@org_golang_google_grpc//status",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "sync_test",
+    srcs = [
+        "armis_netbox_test.go",
+        "blacklist_test.go",
+        "circuit_breaker_test.go",
+        "metrics_test.go",
+        "service_error_handling_test.go",
+        "service_test.go",
+        "sync_test.go",
+    ],
+    embed = [":sync"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "//pkg/sync/integrations/netbox",
+        "//proto",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//metadata",
+        "@org_uber_go_mock//gomock",
+    ],
+)

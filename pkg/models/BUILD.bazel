@@ -1,0 +1,46 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "models",
+    srcs = [
+        "api_types.go",
+        "auth.go",
+        "config.go",
+        "cors.go",
+        "db.go",
+        "device.go",
+        "discovery.go",
+        "events.go",
+        "grpc.go",
+        "metrics.go",
+        "netflow.go",
+        "rperf.go",
+        "schema.go",
+        "service.go",
+        "snmp.go",
+        "sweep.go",
+        "sync.go",
+        "unified_device.go",
+        "utils.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/models",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/core/alerts",
+        "//pkg/logger",
+        "//proto/discovery",
+    ],
+)
+
+go_test(
+    name = "models_test",
+    srcs = [
+        "sync_test.go",
+        "utils_test.go",
+    ],
+    embed = [":models"],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)
