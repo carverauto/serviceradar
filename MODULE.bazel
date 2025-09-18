@@ -14,7 +14,7 @@ bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "rules_oci", version = "2.2.6")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
-bazel_dep(name = "rules_cc", version = "0.1.1")
+bazel_dep(name = "rules_cc", version = "0.2.4")
 
 archive_override(
     module_name = "rules_ocaml",
@@ -295,6 +295,44 @@ use_repo(npm, "npm")
 
 # TODO(bazel-migration): add npm package visibility/hoisting configuration and
 # integrate additional js tooling once Bazel targets exist.
+
+# --- External binary artifacts ----------------------------------------------
+
+http_file = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:http.bzl",
+    "http_file",
+)
+
+http_archive = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:http.bzl",
+    "http_archive",
+)
+
+http_file(
+    name = "timeplus_proton_linux_x86_64",
+    urls = [
+        "https://github.com/timeplus-io/proton/releases/download/v1.6.16/proton-v1.6.16-Linux-x86_64",
+    ],
+    sha256 = "41250d599d635077dbc0a46e7e388b0cfc6bc96f2781da657e42455d672bfb33",
+    downloaded_file_path = "proton",
+    executable = True,
+)
+
+http_archive(
+    name = "nats_server_linux_amd64",
+    urls = [
+        "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
+    ],
+    sha256 = "84192cee46c62760d9c259a97f373b73bccadc41be779c26ef676542ae15daf6",
+    strip_prefix = "nats-server-v2.11.4-linux-amd64",
+    build_file_content = """
+filegroup(
+    name = "nats_server",
+    srcs = ["nats-server"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
 
 # Additional module extensions will be layered in as language owners migrate to
 # Bazel (e.g., http_file for binary deps).

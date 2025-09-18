@@ -1,0 +1,13 @@
+# Expose external binary artifacts fetched via http_file/http_archive.
+
+filegroup(
+    name = "proton_linux_x86_64",
+    srcs = ["@timeplus_proton_linux_x86_64//file"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "nats_server_linux_amd64",
+    srcs = ["@nats_server_linux_amd64//:nats_server"],
+    visibility = ["//visibility:public"],
+)

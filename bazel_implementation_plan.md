@@ -36,12 +36,12 @@
    - [x] Pin `rules_ocaml` 3.0.0.beta.1 via `archive_override`; plan follow-up to register toolchains and OCaml toolchains once workflow is defined.
    - [x] Mirror `tools_opam` 1.0.0.beta.1 and its required auxiliary modules (`obazl_tools_cc`, `findlibc`, `runfiles`, `xdgc`, `gopt`, `liblogc`, `makeheaders`, `sfsexp`, `uthash`, `semverc`, `cwalk` vendored from commit e98d23f; dev-only dependency `unity` deferred).
    - [x] Configure tools_opam module extension for srql packages; register ocamlsdk toolchains for OCaml 5.1.0.
-   - [ ] Model external binary dependencies using `http_file` (`timeplus`, `nats-server`, etc.).
+   - [x] Model external binary dependencies using `http_file` (`timeplus`, `nats-server`, etc.).
 2. **Seed minimal BUILD targets**
-   - Add `//docs:lint` or placeholder target to validate workspace loads.
-   - Add `//proto:compile` using `rules_proto` to confirm toolchains.
+   - [x] Add `//docs:lint` or placeholder target to validate workspace loads.
+   - [x] Add `//proto:compile` using `rules_proto` to confirm toolchains.
 3. **Automation**
-   - Add CI safety net: GitHub Action job running `bazel build //docs:lint` to ensure early detection of regressions.
+   - [x] Add CI safety net: GitHub Action job running `bazel build //docs:lint` to ensure early detection of regressions.
 
 ## 5. Phase 2 – Language Foundations (Weeks 2–4)
 ### 5.1 Go
