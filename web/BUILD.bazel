@@ -38,18 +38,22 @@ ts_project(
     tsconfig = "tsconfig.json",
     deps = [":node_modules"],
     allow_js = True,
-    incremental = True,
     no_emit = True,
     preserve_jsx = True,
     resolve_json_module = True,
-    ts_build_info_file = "tsconfig.tsbuildinfo",
     validate = False,
+    transpiler = "tsc",
 )
 
 js_binary(
     name = "next_js_binary",
     entry_point = "node_modules/.bin/next",
-    data = [":node_modules"],
+    data = [
+        ":node_modules",
+        ":node_modules/next",
+        ":node_modules/react",
+        ":node_modules/react-dom",
+    ],
     visibility = ["//visibility:public"],
 )
 
