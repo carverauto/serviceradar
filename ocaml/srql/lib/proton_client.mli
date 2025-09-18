@@ -49,7 +49,11 @@ module Client : sig
 
   val execute_with_params :
     t -> string -> params:(string * Proton.Column.value) list -> Proton.Client.query_result Lwt.t
-  (** Execute a parameterized query using named placeholders *)
+  (** Execute a parameterized query using named placeholders.
+
+      Since the bundled Proton client does not expose server-side prepared statements yet, values
+      are inlined into the SQL string after being sanitized. Use this helper to avoid duplicating the
+      escaping logic. *)
 
   val query : t -> string -> Proton.Client.query_result Lwt.t
   (** Execute a query and return results *)

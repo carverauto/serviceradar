@@ -57,9 +57,10 @@
 - Validate with `bazel test //rust/...`.
 
 ### 5.3 OCaml (deferred)
-- Investigate `tools_opam` generator changes needed to sanitize ocaml_import names (e.g., `ppx_deriving`) so package repos load without source name collisions; current suffix patch still leaves Bazel emitting conflicting targets.
-- Introduce `rules_ocaml` for `ocaml/` libraries, align dune layout with Bazel packages.
-- Validate with language-specific `bazel test` invocations.
+- `tools_opam` fork now rewrites `ppx_deriving` outputs to avoid target name collisions and vendors the extension locally for reproducible fetches. The same override now normalizes `digestif` and its subpackages so the generated repos expose usable archives/plugins.
+- `//ocaml/srql/BUILD.bazel` defines modules, the `srql_translator` library namespace shim, binaries, and Alcotest-based smoke tests; alias module lives under `ocaml/srql/bazel/` to avoid interfering with dune.
+- `bazel build //ocaml/srql:srql_translator` passes locally. `Proton_client` temporarily substitutes parameters inline (sanitizing values) until the upstream Proton driver exposes prepared statements.
+- Validate with language-specific `bazel test` invocations; `bazel test //ocaml/srql:test_json_conv` is green.
 
 ### 5.4 Node/TypeScript (Next.js)
 - [x] Configure `rules_nodejs` + `aspect_rules_js` with `npm_translate_lock` (driven by `web/pnpm-lock.yaml`).

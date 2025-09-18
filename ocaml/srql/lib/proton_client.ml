@@ -1,5 +1,7 @@
 open Lwt.Syntax
 
+module Column = Proton.Column
+
 module Config = struct
   type t = {
     host : string;
@@ -75,6 +77,80 @@ end
 module Client = struct
   type t = Proton.Client.t
 
+  let uint32_to_string i =
+    if Int32.compare i 0l >= 0 then Int32.to_string i else Printf.sprintf "%lu" i
+
+  let uint64_to_string i = Printf.sprintf "%Lu" i
+
+  let rec sql_literal_of_column (value : Column.value) : string =
+    match value with
+    | Column.Null -> "NULL"
+    | Column.String s -> "'" ^ Sql_sanitize.escape_string_literal s ^ "'"
+    | Column.Int32 i -> Int32.to_string i
+    | Column.UInt32 i -> uint32_to_string i
+    | Column.Int64 i -> Int64.to_string i
+    | Column.UInt64 i -> uint64_to_string i
+    | Column.Float64 f ->
+        if Float.is_finite f then Printf.sprintf "%.17g" f
+        else if Float.is_nan f then "nan"
+        else if f = Float.infinity then "inf"
+        else "-inf"
+    | Column.DateTime (ts, tz_opt) -> (
+        match tz_opt with
+        | Some tz -> Printf.sprintf "toDateTime(%Ld, '%s')" ts (Sql_sanitize.escape_string_literal tz)
+        | None -> Printf.sprintf "toDateTime(%Ld)" ts)
+    | Column.DateTime64 (v, precision, tz_opt) -> (
+        match tz_opt with
+        | Some tz ->
+            Printf.sprintf "toDateTime64(%Ld, %d, '%s')" v precision
+              (Sql_sanitize.escape_string_literal tz)
+        | None -> Printf.sprintf "toDateTime64(%Ld, %d)" v precision)
+    | Column.Enum8 (name, _) | Column.Enum16 (name, _) ->
+        "'" ^ Sql_sanitize.escape_string_literal name ^ "'"
+    | Column.Array elements ->
+        let items =
+          elements |> Array.to_list |> List.map sql_literal_of_column |> String.concat ", "
+        in
+        "[" ^ items ^ "]"
+    | Column.Map pairs ->
+        let keys, values = List.split pairs in
+        let key_list =
+          keys |> List.map sql_literal_of_column |> String.concat ", " |> fun s -> "[" ^ s ^ "]"
+        in
+        let value_list =
+          values |> List.map sql_literal_of_column |> String.concat ", " |> fun s -> "[" ^ s ^ "]"
+        in
+        "mapFromArrays(" ^ key_list ^ ", " ^ value_list ^ ")"
+    | Column.Tuple items ->
+        let parts = items |> List.map sql_literal_of_column |> String.concat ", " in
+        "tuple(" ^ parts ^ ")"
+
+  let replace_all (source : string) ~(pattern : string) ~(replacement : string) : string =
+    if pattern = "" then source
+    else
+      let plen = String.length pattern in
+      let slen = String.length source in
+      let buf = Buffer.create (slen + (plen * 2)) in
+      let rec loop idx =
+        if idx >= slen then ()
+        else if idx <= slen - plen && String.sub source idx plen = pattern then (
+          Buffer.add_string buf replacement;
+          loop (idx + plen))
+        else (
+          Buffer.add_char buf source.[idx];
+          loop (idx + 1))
+      in
+      loop 0;
+      Buffer.contents buf
+
+  let substitute_params sql (params : (string * Column.value) list) : string =
+    List.fold_left
+      (fun acc (name, value) ->
+        let placeholder = "{{" ^ name ^ "}}" in
+        let literal = sql_literal_of_column value in
+        replace_all acc ~pattern:placeholder ~replacement:literal)
+      sql params
+
   let connect config =
     let tls_config =
       if config.Config.use_tls then
@@ -108,7 +184,8 @@ module Client = struct
   let execute client query = Proton.Client.execute client query
 
   let execute_with_params client query ~params =
-    Proton.Client.execute_with_params client query ~params
+    let inlined = substitute_params query params in
+    Proton.Client.execute client inlined
 
   let query client query = Proton.Client.execute client query
   let close client = Proton.Client.disconnect client
