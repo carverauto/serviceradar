@@ -65,10 +65,7 @@ module Client : sig
 end
 
 module SRQL : sig
-  type translation = {
-    sql : string;
-    params : (string * Proton.Column.value) list;
-  }
+  type translation = { sql : string; params : (string * Proton.Column.value) list }
   (** Result of translating SRQL into Proton SQL along with parameter bindings. *)
 
   val translate : string -> translation
