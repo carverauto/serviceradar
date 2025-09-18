@@ -17,17 +17,177 @@ bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 
 archive_override(
     module_name = "rules_ocaml",
-    integrity = "sha256-tLySsR7GfBvk49b3kLRa8h0YYxAjKlHHzs1ox4BKVTI=",
-    strip_prefix = "rules_ocaml-2.1.0",
+    integrity = "sha256-cqe6FvPE/z5HAKzO/MN5YcbPMaqtzQS6kmRtAPBBySc=",
+    strip_prefix = "rules_ocaml-3.0.0.beta.1",
     urls = [
-        "https://github.com/obazl/rules_ocaml/archive/refs/tags/2.1.0.tar.gz",
+        "https://github.com/obazl/rules_ocaml/archive/refs/tags/3.0.0.beta.1.tar.gz",
     ],
 )
 
-bazel_dep(name = "rules_ocaml", version = "2.1.0")
+bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
+
+archive_override(
+    module_name = "tools_opam",
+    integrity = "sha256-ElwMXfSAGsavBQO9iMAno6NiaDQ31PJmitVe/vJiTJM=",
+    patch_strip = 1,
+    patches = [
+        "//third_party/patches/tools_opam:0001-Sanitize-ocaml-import-target-names.patch",
+    ],
+    strip_prefix = "tools_opam-1.0.0.beta.1",
+    urls = [
+        "https://github.com/obazl/tools_opam/archive/refs/tags/1.0.0.beta.1.tar.gz",
+    ],
+)
+
+bazel_dep(name = "tools_opam", version = "1.0.0.beta.1")
+
+archive_override(
+    module_name = "obazl_tools_cc",
+    integrity = "sha256-vh4YXopUJiBe5pvBt6+MQAN2WIz+QrmRGg+v6r1GdZs=",
+    strip_prefix = "obazl_tools_cc-3.0.0",
+    urls = [
+        "https://github.com/obazl/obazl_tools_cc/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "findlibc",
+    integrity = "sha256-Btxdss/Y16n05z84xUlLbJeKzM/oWeTY3+zvf6qN820=",
+    strip_prefix = "findlibc-3.0.0",
+    urls = [
+        "https://github.com/obazl/findlibc/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "runfiles",
+    integrity = "sha256-qjvMYGxauHRWuY6gOwIdZFj8eJfzv24lpeyX4Dv7/FI=",
+    strip_prefix = "runfiles-3.0.0",
+    urls = [
+        "https://github.com/obazl/runfiles/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "xdgc",
+    integrity = "sha256-OHNCvHJe7+JenXQSqcKuSlzlL8Q+0gC17RP5FDx2kXM=",
+    strip_prefix = "xdgc-3.0.0",
+    urls = [
+        "https://github.com/obazl/xdgc/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "gopt",
+    integrity = "sha256-cyd1bgKXCkskTpIN2eWdmMBGD2diXY+ZzmxXpGEOBlY=",
+    strip_prefix = "gopt-10.0.0",
+    urls = [
+        "https://github.com/obazl/gopt/archive/refs/tags/10.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "liblogc",
+    integrity = "sha256-C/7itdldocCde/Hm21PGQRJHHttvevUl/yrdAMCbYVE=",
+    strip_prefix = "liblogc-3.0.0",
+    urls = [
+        "https://github.com/obazl/liblogc/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "makeheaders",
+    integrity = "sha256-TWphcN+KX42HLb3+SLFSu39U+8ZcooWWminzMAVvmbQ=",
+    strip_prefix = "makeheaders-3.0.0",
+    urls = [
+        "https://github.com/obazl/makeheaders/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "semverc",
+    integrity = "sha256-d9t+oZ2y7oC3P1BwcK7cKSn1YCY2wapbRZbxaKprpzA=",
+    strip_prefix = "semverc-3.0.0",
+    urls = [
+        "https://github.com/obazl/semverc/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "sfsexp",
+    integrity = "sha256-EA5IfSiJ9+ocrMI8pZMLpuHBMfugk5lLF7t/C4HFQfE=",
+    strip_prefix = "sfsexp-1.4.1.bzl",
+    urls = [
+        "https://github.com/obazl/sfsexp/archive/refs/tags/1.4.1.bzl.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "uthash",
+    integrity = "sha256-FGY0b/dX4DFmloaKY+yHq2CLa9RJy/6eR+VdpLq884Y=",
+    strip_prefix = "uthash-2.3.0.bzl",
+    urls = [
+        "https://github.com/obazl/uthash/archive/refs/tags/2.3.0.bzl.tar.gz",
+    ],
+)
+
+local_path_override(
+    module_name = "cwalk",
+    path = "third_party/cwalk",
+)
+
+# Vendored copy of cwalk@1.2.9 (commit e98d23f), pending upstream release tag.
 
 # TODO(bazel-migration): rules_ocaml is not yet in the Bazel Central Registry.
 # Add an archive_override/use_extension once a release is selected.
+
+opam = use_extension(
+    "@tools_opam//extensions:opam.bzl",
+    "opam",
+)
+opam.deps(
+    ocaml_version = "5.1.0",
+    pkgs = {
+        "dune": "3.20.2",
+        "menhir": "20250903",
+        "yojson": "2.2.2",
+        "ppx_deriving": "6.0.3",
+        "lwt_ppx": "5.9.1",
+        "proton": "1.0.15",
+        "lwt": "5.9.2",
+        "dream": "1.0.0~alpha7",
+    },
+)
+
+opam_dev = use_extension(
+    "@tools_opam//extensions:opam.bzl",
+    "opam",
+    dev_dependency = True,
+)
+opam_dev.deps(
+    pkgs = {
+        "alcotest": "1.9.0",
+    },
+)
+
+use_repo(
+    opam,
+    "opam.dream",
+    "opam.dune",
+    "opam.lwt",
+    "opam.lwt_ppx",
+    "opam.menhir",
+    "opam.ocamlsdk",
+    "opam.ppx_deriving",
+    "opam.proton",
+    "opam.yojson",
+)
+
+use_repo(opam_dev, "opam.alcotest")
+
+register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")
+
+register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")
 
 # --- Go toolchain & dependency management ----------------------------------
 
