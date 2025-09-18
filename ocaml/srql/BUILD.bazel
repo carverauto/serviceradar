@@ -1,0 +1,244 @@
+package(default_visibility = ["//visibility:public"])
+
+load("@rules_ocaml//build:rules.bzl", "ocaml_binary", "ocaml_library", "ocaml_module", "ocaml_test")
+
+# --- Core library modules ----------------------------------------------------
+
+ocaml_module(
+    name = "entity_mapping",
+    struct = "lib/entity_mapping.ml",
+)
+
+ocaml_module(
+    name = "sql_sanitize",
+    struct = "lib/sql_sanitize.ml",
+    sig = "lib/sql_sanitize.mli",
+)
+
+ocaml_module(
+    name = "field_mapping",
+    struct = "lib/field_mapping.ml",
+    sig = "lib/field_mapping.mli",
+    deps = [":sql_sanitize"],
+)
+
+ocaml_module(
+    name = "sql_ir",
+    struct = "lib/sql_ir.ml",
+    ppx = "@opam.ppx_deriving//show/lib:plugin",
+    deps = [
+        "@opam.ppx_deriving//runtime/lib",
+    ],
+)
+
+ocaml_module(
+    name = "query_ast",
+    struct = "lib/query_ast.ml",
+    deps = [":sql_ir"],
+)
+
+ocaml_module(
+    name = "query_parser",
+    struct = "lib/query_parser.ml",
+    deps = [
+        ":query_ast",
+        ":sql_ir",
+    ],
+)
+
+ocaml_module(
+    name = "query_validator",
+    struct = "lib/query_validator.ml",
+    deps = [":sql_ir"],
+)
+
+ocaml_module(
+    name = "query_planner",
+    struct = "lib/query_planner.ml",
+    deps = [
+        ":entity_mapping",
+        ":field_mapping",
+        ":query_ast",
+        ":sql_ir",
+        ":sql_sanitize",
+    ],
+)
+
+ocaml_module(
+    name = "json_conv",
+    struct = "lib/json_conv.ml",
+    sig = "lib/json_conv.mli",
+    deps = [
+        "@opam.proton//lib",
+        "@opam.yojson//lib",
+    ],
+)
+
+ocaml_module(
+    name = "translator",
+    struct = "lib/translator.ml",
+    deps = [
+        ":entity_mapping",
+        ":field_mapping",
+        ":sql_ir",
+        ":sql_sanitize",
+        "@opam.proton//lib",
+    ],
+)
+
+ocaml_module(
+    name = "proton_client",
+    struct = "lib/proton_client.ml",
+    sig = "lib/proton_client.mli",
+    deps = [
+        ":query_parser",
+        ":query_planner",
+        ":query_validator",
+        ":sql_ir",
+        ":translator",
+        "@opam.lwt//lib",
+        "@opam.proton//lib",
+    ],
+)
+
+ocaml_module(
+    name = "srql_translator_ns",
+    module_name = "Srql_translator",
+    struct = "bazel/srql_translator_alias.ml",
+    deps = [
+        ":entity_mapping",
+        ":field_mapping",
+        ":json_conv",
+        ":proton_client",
+        ":query_ast",
+        ":query_parser",
+        ":query_planner",
+        ":query_validator",
+        ":sql_ir",
+        ":sql_sanitize",
+        ":translator",
+    ],
+)
+
+ocaml_library(
+    name = "srql_translator",
+    manifest = [
+        ":entity_mapping",
+        ":field_mapping",
+        ":json_conv",
+        ":proton_client",
+        ":query_ast",
+        ":query_parser",
+        ":query_planner",
+        ":query_validator",
+        ":sql_ir",
+        ":sql_sanitize",
+        ":translator",
+        ":srql_translator_ns",
+    ],
+)
+
+# --- Executables -------------------------------------------------------------
+
+ocaml_module(
+    name = "srql_server_main",
+    struct = "bin/main.ml",
+    deps = [
+        ":srql_translator",
+        "@opam.dream//lib",
+        "@opam.lwt//lib",
+        "@opam.proton//lib",
+    ],
+)
+
+ocaml_binary(
+    name = "srql_server",
+    main = ":srql_server_main",
+)
+
+ocaml_module(
+    name = "srql_translator_cli_main",
+    struct = "bin/cli.ml",
+    deps = [":srql_translator"],
+)
+
+ocaml_binary(
+    name = "srql_translator_cli",
+    main = ":srql_translator_cli_main",
+)
+
+ocaml_module(
+    name = "srql_cli_main",
+    struct = "bin/srql_cli.ml",
+    deps = [
+        ":srql_translator",
+        "@opam.lwt//lib",
+        "@opam.proton//lib",
+    ],
+)
+
+ocaml_binary(
+    name = "srql_cli",
+    main = ":srql_cli_main",
+)
+
+# --- Tests -------------------------------------------------------------------
+
+ocaml_module(
+    name = "test_json_conv_module",
+    struct = "test/test_json_conv.ml",
+    deps = [
+        ":srql_translator",
+        "@opam.alcotest//lib",
+        "@opam.proton//lib",
+        "@opam.yojson//lib",
+    ],
+)
+
+ocaml_test(
+    name = "test_json_conv",
+    main = ":test_json_conv_module",
+)
+
+ocaml_module(
+    name = "test_query_engine_module",
+    struct = "test/test_query_engine.ml",
+    deps = [
+        ":srql_translator",
+        "@opam.alcotest//lib",
+        "@opam.proton//lib",
+    ],
+)
+
+ocaml_test(
+    name = "test_query_engine",
+    main = ":test_query_engine_module",
+)
+
+ocaml_module(
+    name = "test_bounded_unbounded_module",
+    struct = "test/test_bounded_unbounded.ml",
+    deps = [
+        ":srql_translator",
+        "@opam.alcotest//lib",
+    ],
+)
+
+ocaml_test(
+    name = "test_bounded_unbounded",
+    main = ":test_bounded_unbounded_module",
+)
+
+ocaml_module(
+    name = "test_sql_sanitize_module",
+    struct = "test/test_sql_sanitize.ml",
+    deps = [
+        ":srql_translator",
+        "@opam.alcotest//lib",
+    ],
+)
+
+ocaml_test(
+    name = "test_sql_sanitize",
+    main = ":test_sql_sanitize_module",
+)
