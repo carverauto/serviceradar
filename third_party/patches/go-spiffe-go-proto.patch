@@ -1,0 +1,14 @@
+--- a/proto/spiffe/workload/BUILD.bazel
++++ b/proto/spiffe/workload/BUILD.bazel
+@@ -11,7 +11,10 @@
+ 
+ go_proto_library(
+     name = "workload_go_proto",
+-    compilers = ["@io_bazel_rules_go//proto:go_grpc_v2"],
++    compilers = [
++        "@io_bazel_rules_go//proto:go_proto",
++        "@io_bazel_rules_go//proto:go_grpc_v2",
++    ],
+     importpath = "github.com/spiffe/go-spiffe/v2/proto/spiffe/workload",
+     importpath_aliases = ["github.com/spiffe/go-spiffe/proto/spiffe/workload"],
+     proto = ":workload_proto",
