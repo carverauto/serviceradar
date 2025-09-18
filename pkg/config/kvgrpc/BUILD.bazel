@@ -1,0 +1,12 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "kvgrpc",
+    srcs = ["client.go"],
+    importpath = "github.com/carverauto/serviceradar/pkg/config/kvgrpc",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/config/kv",
+        "//proto",
+    ],
+)

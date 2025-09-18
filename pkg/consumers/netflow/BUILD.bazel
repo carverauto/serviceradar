@@ -1,0 +1,25 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "netflow",
+    srcs = [
+        "config.go",
+        "consumer.go",
+        "errors.go",
+        "processor.go",
+        "service.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/consumers/netflow",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/config",
+        "//pkg/db",
+        "//pkg/lifecycle",
+        "//pkg/models",
+        "//pkg/natsutil",
+        "@com_github_carverauto_serviceradar//proto/flow:go_default_library",
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_go//jetstream",
+        "@org_golang_google_protobuf//proto",
+    ],
+)

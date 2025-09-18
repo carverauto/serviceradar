@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "alerts",
+    srcs = [
+        "discord.go",
+        "interfaces.go",
+        "mock_alerts.go",
+        "webhook.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/core/alerts",
+    visibility = ["//visibility:public"],
+    deps = ["@org_uber_go_mock//gomock"],
+)

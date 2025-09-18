@@ -1,0 +1,36 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "metrics",
+    srcs = [
+        "buffer.go",
+        "interfaces.go",
+        "manager.go",
+        "mock_buffer.go",
+        "rperf.go",
+        "sysmon.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/metrics",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/db",
+        "//pkg/logger",
+        "//pkg/models",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "metrics_test",
+    srcs = [
+        "buffer_bench_test.go",
+        "buffer_test.go",
+    ],
+    embed = [":metrics"],
+    deps = [
+        "//pkg/db",
+        "//pkg/logger",
+        "//pkg/models",
+        "@org_uber_go_mock//gomock",
+    ],
+)

@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "fastsum",
+    srcs = [
+        "api.go",
+        "sum_amd64.go",
+        "sum_amd64.s",
+        "sum_arm64.go",
+        "sum_arm64.s",
+        "sum_generic.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/internal/fastsum",
+    visibility = ["//:__subpackages__"],
+)

@@ -1,0 +1,35 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "mcp",
+    srcs = [
+        "builder.go",
+        "errors.go",
+        "query_utils.go",
+        "server.go",
+        "tools_devices.go",
+        "tools_events.go",
+        "tools_logs.go",
+        "tools_srql.go",
+        "tools_sweeps.go",
+    ],
+    embedsrcs = ["srql-mcp-prompt.md"],
+    importpath = "github.com/carverauto/serviceradar/pkg/mcp",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/core/auth",
+        "//pkg/logger",
+        "@com_github_gorilla_mux//:mux",
+    ],
+)
+
+go_test(
+    name = "mcp_test",
+    srcs = ["server_test.go"],
+    embed = [":mcp"],
+    deps = [
+        "//pkg/core/auth",
+        "//pkg/logger",
+        "@com_github_stretchr_testify//assert",
+    ],
+)

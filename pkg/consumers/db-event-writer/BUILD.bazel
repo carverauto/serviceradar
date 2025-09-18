@@ -1,0 +1,41 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "db-event-writer",
+    srcs = [
+        "agent_service.go",
+        "config.go",
+        "consumer.go",
+        "errors.go",
+        "processor.go",
+        "service.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/consumers/db-event-writer",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cmd/otel/proto/opentelemetry/proto/collector/logs/v1:logs",
+        "//cmd/otel/proto/opentelemetry/proto/collector/trace/v1:trace",
+        "//cmd/otel/proto/opentelemetry/proto/common/v1:common",
+        "//cmd/otel/proto/opentelemetry/proto/logs/v1:logs",
+        "//cmd/otel/proto/opentelemetry/proto/resource/v1:resource",
+        "//cmd/otel/proto/opentelemetry/proto/trace/v1:trace",
+        "//pkg/db",
+        "//pkg/lifecycle",
+        "//pkg/logger",
+        "//pkg/models",
+        "//pkg/natsutil",
+        "//proto",
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_go//jetstream",
+        "@com_github_timeplus_io_proton_go_driver_v2//:proton-go-driver",
+        "@io_opentelemetry_go_proto_otlp//collector/metrics/v1:metrics",
+        "@io_opentelemetry_go_proto_otlp//metrics/v1:metrics",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "db-event-writer_test",
+    srcs = ["processor_test.go"],
+    embed = [":db-event-writer"],
+)
