@@ -91,8 +91,11 @@ let () =
     (match compression with None -> "none" | Some _ -> "lz4");
 
   let run_native_once cfg =
-    let original_sql =
-      if is_raw_sql query then query else Srql_translator.Proton_client.SRQL.translate_to_sql query
+    let base_sql, params =
+      if is_raw_sql query then (query, [])
+      else
+        let t = Srql_translator.Proton_client.SRQL.translate query in
+        (t.sql, t.params)
     in
     (* Boundedness control: SRQL_BOUNDED=bounded|unbounded|auto (default auto) *)
     let bounded_mode = getenv "SRQL_BOUNDED" "auto" |> String.lowercase_ascii in
@@ -197,12 +200,25 @@ let () =
           before ^ "table(" ^ tbl ^ ")" ^ after
         with _ -> sql
     in
-    let sql = wrap_table_if_needed ~stream:streaming_cli original_sql in
+    let sql = wrap_table_if_needed ~stream:streaming_cli base_sql in
+    let print_params () =
+      match params with
+      | [] -> ()
+      | ps ->
+          print_endline "Parameters:";
+          List.iter
+            (fun (name, value) ->
+              Printf.printf "  %s -> %s\n" name (Proton.Column.value_to_string value))
+            ps;
+          print_newline ()
+    in
     if translate_only then (
       Printf.printf "SQL: %s\n" sql;
+      print_params ();
       exit 0);
     (* print SQL and run *)
     Printf.printf "SQL:  %s\n\n" sql;
+    print_params ();
     Srql_translator.Proton_client.Client.with_connection cfg (fun client ->
         let power10 p =
           let rec loop acc i = if i = 0 then acc else loop (Int64.mul acc 10L) (i - 1) in
@@ -249,22 +265,32 @@ let () =
         if streaming_cli then (
           Printf.printf "Unbounded query detected; streaming via native protocol...\n";
           let printed_header = ref false in
-          let* _cols =
-            Proton.Client.query_iter_with_columns client sql ~f:(fun row columns ->
-                if not !printed_header then (
-                  let col_count = List.length columns in
-                  Printf.printf "Columns (%d): " col_count;
-                  List.iter (fun (name, typ) -> Printf.printf "%s:%s " name typ) columns;
-                  Printf.printf "\n";
-                  printed_header := true);
-                let values = List.map2 (fun (_, typ) v -> pretty_value typ v) columns row in
-                Printf.printf "%s\n" (String.concat " | " values);
-                flush stdout;
-                Lwt.return_unit)
+          let stream_row row columns =
+            if not !printed_header then (
+              let col_count = List.length columns in
+              Printf.printf "Columns (%d): " col_count;
+              List.iter (fun (name, typ) -> Printf.printf "%s:%s " name typ) columns;
+              Printf.printf "\n";
+              printed_header := true);
+            let values = List.map2 (fun (_, typ) v -> pretty_value typ v) columns row in
+            Printf.printf "%s\n" (String.concat " | " values);
+            flush stdout;
+            Lwt.return_unit
           in
-          Lwt.return_unit)
+          (match params with
+          | [] -> Proton.Client.query_iter_with_columns client sql ~f:stream_row
+          | _ ->
+              let stmt = Proton.Client.prepare client sql in
+              Proton.Client.query_iter_with_columns_prepared client stmt ~params ~f:stream_row)
+          >|= fun _ -> ())
         else
-          let* result = Srql_translator.Proton_client.Client.execute client sql in
+          let* result =
+            match params with
+            | [] -> Srql_translator.Proton_client.Client.execute client sql
+            | _ ->
+                let stmt = Proton.Client.prepare client sql in
+                Proton.Client.execute_prepared client stmt ~params
+          in
           match result with
           | Proton.Client.NoRows ->
               Printf.printf "No rows returned.\n";

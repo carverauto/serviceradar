@@ -1,6 +1,7 @@
 open Alcotest
+module Column = Proton.Column
 
-let sql_of qstr =
+let translation_of qstr =
   let qspec = Srql_translator.Query_parser.parse qstr in
   match Srql_translator.Query_planner.plan_to_srql qspec with
   | None -> fail "planner returned None"
@@ -28,13 +29,21 @@ let expect_invalid_arg name f =
   | _ -> fail (name ^ ": expected Invalid_argument to be raised")
 
 let test_escape_single_quote () =
-  let sql = sql_of "in:events host:\"O'Reilly\"" in
-  check_contains "escaped single quote" sql "host = 'O''Reilly'"
+  let translation = translation_of "in:events host:\"O'Reilly\"" in
+  check_contains "placeholder present" translation.sql "host = {{";
+  check bool "parameter captured" true
+    (List.exists
+       (function _, Column.String s -> String.equal s "O'Reilly" | _ -> false)
+       translation.params)
 
 let test_escape_injection_payload () =
   let payload = "a'); DROP STREAM devices; --" in
-  let sql = sql_of (Printf.sprintf "in:events host:\"%s\"" payload) in
-  check_contains "escaped payload" sql "host = 'a''); DROP STREAM devices; --'"
+  let translation = translation_of (Printf.sprintf "in:events host:\"%s\"" payload) in
+  check_contains "placeholder present" translation.sql "host = {{";
+  check bool "payload captured as param" true
+    (List.exists
+       (function _, Column.String s -> String.equal s payload | _ -> false)
+       translation.params)
 
 let test_absolute_time_escape () =
   expect_invalid_arg "time injection" (fun () ->
@@ -147,38 +156,6 @@ let alphabet =
     '^';
   |]
 
-let is_double_quoted s idx = idx + 1 < String.length s && s.[idx + 1] = '\''
-
-let rec literal_is_safely_escaped lit idx len =
-  if idx >= len then true
-  else
-    match lit.[idx] with
-    | '\'' -> is_double_quoted lit idx && literal_is_safely_escaped lit (idx + 2) len
-    | '\\' -> false
-    | _ -> literal_is_safely_escaped lit (idx + 1) len
-
-let assert_literal_safe sql =
-  let len = String.length sql in
-  let rec loop i =
-    if i >= len then ()
-    else if sql.[i] = '\'' then (
-      let rec find_end j =
-        if j >= len then None
-        else if sql.[j] = '\'' then
-          if j + 1 < len && sql.[j + 1] = '\'' then find_end (j + 2) else Some j
-        else find_end (j + 1)
-      in
-      match find_end (i + 1) with
-      | None -> fail "unterminated literal"
-      | Some end_idx ->
-          let literal = String.sub sql (i + 1) (end_idx - i - 1) in
-          if not (literal_is_safely_escaped literal 0 (String.length literal)) then
-            fail (Printf.sprintf "unsafe literal produced: %s" sql);
-          loop (end_idx + 1))
-    else loop (i + 1)
-  in
-  loop 0
-
 let random_payload () =
   let len = 1 + Random.int 24 in
   String.init len (fun _ -> alphabet.(Random.int (Array.length alphabet)))
@@ -188,10 +165,9 @@ let test_fuzz_string_escaping () =
   for _ = 1 to 200 do
     let payload = random_payload () in
     try
-      let sql = sql_of (Printf.sprintf "in:events host:\"%s\"" payload) in
-      try assert_literal_safe sql
-      with Not_found ->
-        fail (Printf.sprintf "missing literal in sql for payload: %s -> %s" payload sql)
+      let translation = translation_of (Printf.sprintf "in:events host:\"%s\"" payload) in
+      check_contains "placeholder present" translation.sql "{{";
+      check bool "parameters captured" true (translation.params <> [])
     with Invalid_argument _ -> ()
   done
 
