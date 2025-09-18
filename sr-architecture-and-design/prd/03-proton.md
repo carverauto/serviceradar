@@ -45,9 +45,9 @@ The solution enhances SRQL (ServiceRadar Query Language) with streaming construc
 ### Data Sources (intro.md, rperf-monitoring.md):
 - SNMP, ICMP, rperf, sysinfo; planned: gNMI, NetFlow, syslog, SNMP traps, BGP.
 
-### SRQL (pkg/srql):
-- ANTLR-based DSL, supports SHOW/FIND/COUNT for devices, flows, traps, logs, connections.
-- Translates to ClickHouse/ArangoDB, lacks streaming support (e.g., WINDOW, HAVING).
+### SRQL (ocaml/srql):
+- OCaml implementation of the ServiceRadar query language with JSON/Proton bindings.
+- Supersedes the deprecated Go prototype; streaming support and future enhancements land here.
 
 ### Limitations:
 - No edge stream processing for gNMI/BGP.
