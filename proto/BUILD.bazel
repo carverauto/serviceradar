@@ -15,6 +15,12 @@ proto_library(
     visibility = ["//visibility:public"],
 )
 
+alias(
+    name = "compile",
+    actual = ":proto_proto",
+    visibility = ["//visibility:public"],
+)
+
 go_proto_library(
     name = "proto_go_proto",
     compilers = [
