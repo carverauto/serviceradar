@@ -52,10 +52,10 @@
 - [x] Validate with `bazel test //cmd/... //internal/...`.
 
 ### 5.2 Rust
-- Introduce `cargo-raze` to translate `Cargo.toml` dependencies under `rust/` into Bazel repositories.
-- Define top-level `rust_library`, `rust_binary`, `rust_test` rules.
+- [x] Introduce Bazel-managed Rust crate dependencies (via `crate_universe`) to mirror the Cargo workspace.
+- [x] Define initial `rust_library`/`rust_test` targets (`//rust/kvutil`) as the first Bazelized crate.
 - Configure incremental compilation cache dirs for deterministic builds.
-- Validate with `bazel test //rust/...`.
+- [x] Validate with `bazel test //rust/...`.
 
 ### 5.3 OCaml (deferred)
 - `tools_opam` fork now rewrites `ppx_deriving` outputs to avoid target name collisions and vendors the extension locally for reproducible fetches. The same override now normalizes `digestif` and its subpackages so the generated repos expose usable archives/plugins.

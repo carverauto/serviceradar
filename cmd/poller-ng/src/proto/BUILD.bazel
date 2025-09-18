@@ -10,6 +10,12 @@ proto_library(
     visibility = ["//visibility:public"],
 )
 
+filegroup(
+    name = "monitoring_proto_src",
+    srcs = ["monitoring.proto"],
+    visibility = ["//visibility:public"],
+)
+
 go_proto_library(
     name = "proto_go_proto",
     compilers = [
