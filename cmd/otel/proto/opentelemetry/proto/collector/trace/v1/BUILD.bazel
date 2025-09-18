@@ -1,0 +1,26 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+proto_library(
+    name = "v1_proto",
+    srcs = ["trace_service.proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//opentelemetry/proto/trace/v1:v1_proto"],
+)
+
+go_proto_library(
+    name = "v1_go_proto",
+    compilers = ["@io_bazel_rules_go//proto:go_grpc_v2"],
+    importpath = "go.opentelemetry.io/proto/otlp/collector/trace/v1",
+    proto = ":v1_proto",
+    visibility = ["//visibility:public"],
+    deps = ["//opentelemetry/proto/trace/v1:trace_proto"],
+)
+
+go_library(
+    name = "trace",
+    embed = [":v1_go_proto"],
+    importpath = "go.opentelemetry.io/proto/otlp/collector/trace/v1",
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,24 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "db-event-writer_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/cmd/consumers/db-event-writer",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/config",
+        "//pkg/consumers/db-event-writer",
+        "//pkg/db",
+        "//pkg/lifecycle",
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+go_binary(
+    name = "db-event-writer",
+    embed = [":db-event-writer_lib"],
+    visibility = ["//visibility:public"],
+)
