@@ -1,0 +1,23 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "agent_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/cmd/agent",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/agent",
+        "//pkg/config",
+        "//pkg/lifecycle",
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+go_binary(
+    name = "agent",
+    embed = [":agent_lib"],
+    visibility = ["//visibility:public"],
+)

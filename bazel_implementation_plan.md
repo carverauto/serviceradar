@@ -45,10 +45,10 @@
 
 ## 5. Phase 2 – Language Foundations (Weeks 2–4)
 ### 5.1 Go
-- Run Gazelle across `cmd/`, `internal/`, `pkg/`, `poller/` directories.
-- Define `go_library`, `go_binary`, and `go_test` targets mirroring current module boundaries.
-- Establish `//proto` → Go code generation with `rules_proto` + `rules_go` plugin.
-- Validate with `bazel test //cmd/... //internal/...`.
+- [x] Run Gazelle across `cmd/`, `internal/`, `pkg/`, `poller/` directories to seed Bazel targets.
+- [x] Define `go_library`, `go_binary`, and `go_test` targets mirroring current module boundaries (CLI builds under Bazel, `pkg/logger:logger_test` passes).
+- [ ] Establish `//proto` → Go code generation with `rules_proto` + `rules_go` plugin (still using checked-in stubs; need to rationalize `proto/` packages and upstream `go-spiffe` protos).
+- [ ] Validate with `bazel test //cmd/... //internal/...` (blocked for agent services until `github.com/spiffe/go-spiffe/v2` proto definitions are wired in the Bazel graph).
 
 ### 5.2 Rust
 - Introduce `cargo-raze` to translate `Cargo.toml` dependencies under `rust/` into Bazel repositories.

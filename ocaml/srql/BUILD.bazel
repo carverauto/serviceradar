@@ -1,6 +1,6 @@
-package(default_visibility = ["//visibility:public"])
-
 load("@rules_ocaml//build:rules.bzl", "ocaml_binary", "ocaml_library", "ocaml_module", "ocaml_test")
+
+package(default_visibility = ["//visibility:public"])
 
 # --- Core library modules ----------------------------------------------------
 
@@ -11,14 +11,14 @@ ocaml_module(
 
 ocaml_module(
     name = "sql_sanitize",
-    struct = "lib/sql_sanitize.ml",
     sig = "lib/sql_sanitize.mli",
+    struct = "lib/sql_sanitize.ml",
 )
 
 ocaml_module(
     name = "field_mapping",
-    struct = "lib/field_mapping.ml",
     sig = "lib/field_mapping.mli",
+    struct = "lib/field_mapping.ml",
     deps = [":sql_sanitize"],
 )
 
@@ -62,8 +62,8 @@ ocaml_module(
 
 ocaml_module(
     name = "json_conv",
-    struct = "lib/json_conv.ml",
     sig = "lib/json_conv.mli",
+    struct = "lib/json_conv.ml",
     deps = [
         "@opam.proton//lib",
         "@opam.yojson//lib",
@@ -84,8 +84,8 @@ ocaml_module(
 
 ocaml_module(
     name = "proton_client",
-    struct = "lib/proton_client.ml",
     sig = "lib/proton_client.mli",
+    struct = "lib/proton_client.ml",
     deps = [
         ":query_parser",
         ":query_planner",
