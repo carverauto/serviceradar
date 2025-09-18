@@ -1,0 +1,5 @@
+exports_files([
+    "0001-Rename-ppx-deriving-ocaml-import.patch",
+    "0001-Sanitize-ocaml-import-target-names.patch",
+    "MODULE.bazel",
+])

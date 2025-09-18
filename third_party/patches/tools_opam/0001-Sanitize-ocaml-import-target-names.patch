@@ -1,0 +1,26 @@
+diff --git a/lib/emit_build_bazel.c b/lib/emit_build_bazel.c
+index 622d1f2..8f9f032 100644
+--- a/lib/emit_build_bazel.c
++++ b/lib/emit_build_bazel.c
+@@ -709,7 +709,7 @@ Note that "archive" should only be used for archive files that are intended to b
+ 
+     /* write scheme opam-resolver table */
+     fprintf(ostream, "\nocaml_import(\n");
+-    fprintf(ostream, "    name = \"%s\",\n", _pkg_name); /* default target provides archive */
++    fprintf(ostream, "    name = \"%s__pkg\",\n", _pkg_name); /* default target provides archive */
+ 
+     emit_bazel_metadatum(ostream, 1,
+                          ocaml_ws,              /* @ocaml */
+@@ -1507,10 +1507,10 @@ void emit_bazel_deps_target(FILE* ostream, int level,
+         fprintf(ostream,
+                 "\nalias(\n"
+                 "    name   = \"lib\",\n"
+-                "    actual = \"%s\"\n"
++                "    actual = \"%s__pkg\"\n"
+                 ")\n", _pkg_name);
+         fprintf(ostream, "\nocaml_import(\n");
+-        fprintf(ostream, "    name = \"%s\",\n", _pkg_name);
++        fprintf(ostream, "    name = \"%s__pkg\",\n", _pkg_name);
+         emit_bazel_metadatum(ostream, 1,
+                              _repo, _entries,
+                              "version", "version");
