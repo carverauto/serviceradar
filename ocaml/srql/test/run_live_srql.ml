@@ -265,23 +265,32 @@ let () =
         if streaming_cli then (
           Printf.printf "Unbounded query detected; streaming via native protocol...\n";
           let printed_header = ref false in
-          let* _cols =
-            Proton.Client.query_iter_with_columns_with_params client sql ~params
-              ~f:(fun row columns ->
-                if not !printed_header then (
-                  let col_count = List.length columns in
-                  Printf.printf "Columns (%d): " col_count;
-                  List.iter (fun (name, typ) -> Printf.printf "%s:%s " name typ) columns;
-                  Printf.printf "\n";
-                  printed_header := true);
-                let values = List.map2 (fun (_, typ) v -> pretty_value typ v) columns row in
-                Printf.printf "%s\n" (String.concat " | " values);
-                flush stdout;
-                Lwt.return_unit)
+          let stream_row row columns =
+            if not !printed_header then (
+              let col_count = List.length columns in
+              Printf.printf "Columns (%d): " col_count;
+              List.iter (fun (name, typ) -> Printf.printf "%s:%s " name typ) columns;
+              Printf.printf "\n";
+              printed_header := true);
+            let values = List.map2 (fun (_, typ) v -> pretty_value typ v) columns row in
+            Printf.printf "%s\n" (String.concat " | " values);
+            flush stdout;
+            Lwt.return_unit
           in
-          Lwt.return_unit)
+          (match params with
+          | [] -> Proton.Client.query_iter_with_columns client sql ~f:stream_row
+          | _ ->
+              let stmt = Proton.Client.prepare client sql in
+              Proton.Client.query_iter_with_columns_prepared client stmt ~params ~f:stream_row)
+          >|= fun _ -> ())
         else
-          let* result = Srql_translator.Proton_client.Client.execute_with_params client sql ~params in
+          let* result =
+            match params with
+            | [] -> Srql_translator.Proton_client.Client.execute client sql
+            | _ ->
+                let stmt = Proton.Client.prepare client sql in
+                Proton.Client.execute_prepared client stmt ~params
+          in
           match result with
           | Proton.Client.NoRows ->
               Printf.printf "No rows returned.\n";
