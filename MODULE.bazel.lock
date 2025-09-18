@@ -748,7 +748,7 @@
     },
     "@@tools_opam+//extensions:opam.bzl%opam": {
       "general": {
-        "bzlTransitiveDigest": "qc18CDcfiYkSdRK94xzt3Ev0Ag+F//qYwsD3uajqMmI=",
+        "bzlTransitiveDigest": "IiOc1PWWCutovM3O/zwTMoo3PY4O60hBgCAUAFlr7UM=",
         "usagesDigest": "zqD9Ip7OOBdwtzfk34WbY/L9gVQVi2WHiSBuX1NAz6Q=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},

@@ -25,10 +25,6 @@ ocaml_module(
 ocaml_module(
     name = "sql_ir",
     struct = "lib/sql_ir.ml",
-    ppx = "@opam.ppx_deriving//show/lib:plugin",
-    deps = [
-        "@opam.ppx_deriving//runtime/lib",
-    ],
 )
 
 ocaml_module(
