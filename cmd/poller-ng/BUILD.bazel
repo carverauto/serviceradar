@@ -1,0 +1,21 @@
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rust_crates//:defs.bzl", "all_crate_deps", "crate_deps")
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    crate_root = "build.rs",
+    edition = "2021",
+    deps = crate_deps(["tonic-build"]),
+    data = ["//cmd/poller-ng/src/proto:monitoring_proto_src"],
+)
+
+rust_binary(
+    name = "poller_ng",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    edition = "2021",
+    deps = all_crate_deps(normal = True) + [":build_script"],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
