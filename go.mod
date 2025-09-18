@@ -3,7 +3,6 @@ module github.com/carverauto/serviceradar
 go 1.25.0
 
 require (
-	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.6
@@ -107,7 +106,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250908214217-97024824d090 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/carverauto/serviceradar/pkg/srql/parser/gen/antlr => ./pkg/srql/parser/gen/antlr
 
 replace github.com/carverauto/serviceradar => ./
