@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "fastsum",
@@ -12,4 +12,10 @@ go_library(
     ],
     importpath = "github.com/carverauto/serviceradar/internal/fastsum",
     visibility = ["//:__subpackages__"],
+)
+
+go_test(
+    name = "fastsum_test",
+    srcs = ["sum_test.go"],
+    embed = [":fastsum"],
 )

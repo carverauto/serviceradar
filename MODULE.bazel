@@ -201,9 +201,9 @@ go_deps = use_extension(
     "go_deps",
 )
 go_deps.module_override(
-    path = "github.com/spiffe/go-spiffe/v2",
-    patches = ["//third_party/patches:go-spiffe-go-proto.patch"],
     patch_strip = 1,
+    patches = ["//third_party/patches:go-spiffe-go-proto.patch"],
+    path = "github.com/spiffe/go-spiffe/v2",
 )
 go_deps.from_file(go_mod = "//:go.mod")
 
@@ -310,21 +310,16 @@ http_archive = use_repo_rule(
 
 http_file(
     name = "timeplus_proton_linux_x86_64",
+    downloaded_file_path = "proton",
+    executable = True,
+    sha256 = "41250d599d635077dbc0a46e7e388b0cfc6bc96f2781da657e42455d672bfb33",
     urls = [
         "https://github.com/timeplus-io/proton/releases/download/v1.6.16/proton-v1.6.16-Linux-x86_64",
     ],
-    sha256 = "41250d599d635077dbc0a46e7e388b0cfc6bc96f2781da657e42455d672bfb33",
-    downloaded_file_path = "proton",
-    executable = True,
 )
 
 http_archive(
     name = "nats_server_linux_amd64",
-    urls = [
-        "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
-    ],
-    sha256 = "84192cee46c62760d9c259a97f373b73bccadc41be779c26ef676542ae15daf6",
-    strip_prefix = "nats-server-v2.11.4-linux-amd64",
     build_file_content = """
 filegroup(
     name = "nats_server",
@@ -332,6 +327,11 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 """,
+    sha256 = "84192cee46c62760d9c259a97f373b73bccadc41be779c26ef676542ae15daf6",
+    strip_prefix = "nats-server-v2.11.4-linux-amd64",
+    urls = [
+        "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
+    ],
 )
 
 # Additional module extensions will be layered in as language owners migrate to
