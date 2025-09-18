@@ -134,6 +134,7 @@ jspm_packages/
 bin
 
 pnpm-lock.yaml
+!web/pnpm-lock.yaml
 
 .vscode
 
@@ -218,3 +219,7 @@ docker/compose/certs/
 # ocaml
 _build
 dune-workspace
+
+# Bazel local overrides
+.bazelrc.local
+.bazelrc.remote

@@ -1,0 +1,4 @@
+workspace(name = "serviceradar")
+
+# All external dependencies are managed through MODULE.bazel (Bzlmod).
+# Avoid declaring http_archive/git_repository here unless absolutely necessary.

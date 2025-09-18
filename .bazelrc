@@ -1,0 +1,31 @@
+# Global Bazel configuration for the ServiceRadar monorepo.
+# Keep this file minimal and import developer- or environment-specific overrides
+# via the optional .bazelrc.local and .bazelrc.remote files.
+
+startup --max_idle_secs=60
+
+common --announce_rc
+common --experimental_convenience_symlinks=clean
+common --color=yes
+common --curses=yes
+
+build --keep_going
+build --jobs=auto
+build --show_timestamps
+
+# Standard test ergonomics: show failing logs and retry known flaky tests once.
+test --test_output=errors
+test --flaky_test_attempts=2
+
+# Allow developers to extend configuration locally (ignored in version control).
+try-import %workspace%/.bazelrc.local
+
+# Remote caching/execution settings live here; provide BuildBuddy endpoints in
+# .bazelrc.remote (kept out of version control until credentials are ready).
+try-import %workspace%/.bazelrc.remote
+
+# CI profile can layer on top of the remote config without re-declaring values.
+build:ci --keep_going --build_tag_filters=-manual
+
+# CI tests should avoid manual-only targets and preserve detailed output.
+test:ci --test_tag_filters=-manual --test_output=errors
