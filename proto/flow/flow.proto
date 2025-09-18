@@ -1,6 +1,6 @@
 syntax = "proto3";
 package flowpb;
-option go_package = "github.com/mfreeman451/goflow2/pb;flowpb";
+option go_package = "github.com/carverauto/serviceradar/proto/flow;flowpb";
 
 message FlowMessage {
 

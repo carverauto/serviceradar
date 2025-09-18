@@ -17,7 +17,7 @@ go_library(
         "//pkg/lifecycle",
         "//pkg/models",
         "//pkg/natsutil",
-        "@com_github_carverauto_serviceradar//proto/flow:go_default_library",
+        "//proto/flow:pb",
         "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_nats_io_nats_go//jetstream",
         "@org_golang_google_protobuf//proto",

@@ -49,7 +49,7 @@
 - [x] Define `go_library`, `go_binary`, and `go_test` targets mirroring current module boundaries (CLI builds under Bazel, `pkg/logger:logger_test` passes).
 - [x] Retire the legacy Go SRQL implementation (`pkg/srql`) in favor of the OCaml version so future work centers on `ocaml/srql` only.
 - [x] Establish `//proto` → Go code generation with `rules_proto` + `rules_go` plugin (root `proto` and `proto/discovery` now use `go_proto_library`, with checked-in Go stubs kept only for non-Bazel workflows).
-- [ ] Validate with `bazel test //cmd/... //internal/...` (blocked for agent services until `github.com/spiffe/go-spiffe/v2` proto definitions are wired in the Bazel graph).
+- [x] Validate with `bazel test //cmd/... //internal/...`.
 
 ### 5.2 Rust
 - Introduce `cargo-raze` to translate `Cargo.toml` dependencies under `rust/` into Bazel repositories.

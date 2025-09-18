@@ -10,7 +10,10 @@ proto_library(
 
 go_proto_library(
     name = "rperf_go_proto",
-    compilers = ["@io_bazel_rules_go//proto:go_grpc_v2"],
+    compilers = [
+        "@io_bazel_rules_go//proto:go_proto",
+        "@io_bazel_rules_go//proto:go_grpc_v2",
+    ],
     importpath = "github.com/carverauto/serviceradar/cmd/checkers/rperf/src/proto/rperf",
     proto = ":rperf_proto",
     visibility = ["//visibility:public"],
