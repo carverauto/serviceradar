@@ -1,0 +1,10 @@
+{
+  "name": "cwalk",
+  "repo": "likle/cwalk",
+  "version": "v1.2.9",
+  "decription": "libcwalk - path library for C/C++",
+  "src": [
+    "src/cwalk.c",
+    "include/cwalk.h"
+  ]
+}
