@@ -30,4 +30,20 @@ build:ci --keep_going --build_tag_filters=-manual
 # CI tests should avoid manual-only targets and preserve detailed output.
 test:ci --test_tag_filters=-manual --test_output=errors
 
+# Remote execution profile (opt-in via --config=remote).
+build:remote --remote_executor=grpcs://remote.buildbuddy.io
+build:remote --host_platform=@buildbuddy_toolchain//:platform_linux_x86_64
+build:remote --platforms=@buildbuddy_toolchain//:platform_linux_x86_64
+build:remote --extra_execution_platforms=@buildbuddy_toolchain//:platform_linux_x86_64
+build:remote --crosstool_top=@buildbuddy_toolchain//:toolchain
+build:remote --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
+build:remote --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+build:remote --java_language_version=11
+build:remote --tool_java_language_version=11
+build:remote --java_runtime_version=remotejdk_11
+build:remote --tool_java_runtime_version=remotejdk_11
+build:remote --define=EXECUTOR=remote
+build:remote --incompatible_strict_action_env
+build:remote --remote_timeout=10m
+
 build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
