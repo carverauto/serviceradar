@@ -222,3 +222,4 @@ dune-workspace
 # Bazel local overrides
 .bazelrc.local
 .bazelrc.remote
+.bazel_output/

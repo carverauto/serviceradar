@@ -27,6 +27,27 @@ bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
 
 archive_override(
+    module_name = "toolchains_buildbuddy",
+    integrity = "sha256-e6gcgLHmJHvxCNNbCSQ4OrX8FbGn8TiS7XSVphM1ZU8=",
+    strip_prefix = "buildbuddy-toolchain-badf8034b2952ec613970a27f24fb140be7eaf73",
+    urls = [
+        "https://github.com/buildbuddy-io/buildbuddy-toolchain/archive/badf8034b2952ec613970a27f24fb140be7eaf73.tar.gz",
+    ],
+)
+
+bazel_dep(
+    name = "toolchains_buildbuddy",
+    repo_name = "io_buildbuddy_buildbuddy_toolchain",
+    version = "0.0.1",
+)
+
+buildbuddy_toolchain_ext = use_extension(
+    "@io_buildbuddy_buildbuddy_toolchain//:extensions.bzl",
+    "buildbuddy",
+)
+use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
+
+archive_override(
     module_name = "rules_ocaml",
     integrity = "sha256-cqe6FvPE/z5HAKzO/MN5YcbPMaqtzQS6kmRtAPBBySc=",
     strip_prefix = "rules_ocaml-3.0.0.beta.1",
