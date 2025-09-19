@@ -1,0 +1,35 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "netbox",
+    srcs = [
+        "mock_netbox.go",
+        "netbox.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/sync/integrations/netbox",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "netbox_test",
+    srcs = [
+        "netbox_test.go",
+        "retraction_test.go",
+    ],
+    embed = [":netbox"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_mock//gomock",
+    ],
+)

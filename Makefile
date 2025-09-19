@@ -200,10 +200,6 @@ release: ## Create and push a new release
 	@git tag -a $(NEXT_VERSION) -m "Release $(NEXT_VERSION)"
 	@git push origin $(NEXT_VERSION)
 
-.PHONY: test-release
-test-release: ## Test release locally using goreleaser
-	@echo "$(COLOR_BOLD)Testing release locally$(COLOR_RESET)"
-	@goreleaser release --snapshot --clean --skip-publish
 
 .PHONY: version
 version: ## Show current and next version
@@ -479,9 +475,11 @@ docs-setup: ## Initial setup for Docusaurus development
 .PHONY: build-web
 build-web: ## Build the Next.js web interface
 	@echo "$(COLOR_BOLD)Building Next.js web interface$(COLOR_RESET)"
-	@cd web && npm install && npm run build
-	@mkdir -p pkg/core/api/web
-	@cp -r web/.next pkg/core/api/web/
+	@NEXT_PUBLIC_VERSION=$(VERSION) ./tools/bazel/bazel build //pkg/core/api/web:files
+	@BAZEL_BIN=$$(./tools/bazel/bazel info bazel-bin) && \
+		rm -rf pkg/core/api/web/.next && \
+		mkdir -p pkg/core/api/web/.next && \
+		cp -R $$BAZEL_BIN/pkg/core/api/web/.next/. pkg/core/api/web/.next/
 
 # RPerf plugin specific targets
 .PHONY: build-rperf-checker

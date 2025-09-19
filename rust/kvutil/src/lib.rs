@@ -107,3 +107,27 @@ where T: Serialize + for<'de> Deserialize<'de> {
     *dst = serde_json::from_value(merged).map_err(|e| KvError::Other(e.into()))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Deserialize, PartialEq, Serialize)]
+    struct SampleCfg {
+        foo: String,
+        bar: Option<u32>,
+    }
+
+    #[test]
+    fn overlay_toml_updates_fields_without_clobbering_missing_values() {
+        let mut cfg = SampleCfg {
+            foo: "hello".into(),
+            bar: Some(7),
+        };
+
+        overlay_toml(&mut cfg, br#"foo = "world""#).expect("overlay should apply");
+
+        assert_eq!(cfg.foo, "world");
+        assert_eq!(cfg.bar, None);
+    }
+}

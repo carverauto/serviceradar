@@ -1,0 +1,16 @@
+load("@bazel_gazelle//:def.bzl", "gazelle")
+
+# gazelle:prefix github.com/carverauto/serviceradar
+# gazelle:exclude .gomodcache
+# gazelle:exclude _build
+# gazelle:exclude dist
+# gazelle:exclude release-artifacts
+# gazelle:exclude target
+# gazelle:exclude cmd/checkers/rperf-client
+# gazelle:exclude cmd/ebpf
+
+gazelle(
+    name = "gazelle",
+)
+
+exports_files(["VERSION"])

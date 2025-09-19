@@ -1,0 +1,26 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "config",
+    srcs = [
+        "config.go",
+        "diff.go",
+        "env_loader.go",
+        "file_loader.go",
+        "interfaces.go",
+        "kv_client.go",
+        "kv_loader.go",
+        "kv_watch.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/config",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/config/kv",
+        "//pkg/config/kvgrpc",
+        "//pkg/grpc",
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@com_github_rs_zerolog//:zerolog",
+    ],
+)

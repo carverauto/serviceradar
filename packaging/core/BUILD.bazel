@@ -1,0 +1,145 @@
+load("@rules_pkg//pkg:pkg.bzl", "pkg_deb", "pkg_tar")
+load("@rules_pkg//pkg:rpm.bzl", "pkg_rpm")
+load(
+    "@rules_pkg//pkg:mappings.bzl",
+    "pkg_attributes",
+    "pkg_files",
+    "pkg_mkdirs",
+    "strip_prefix",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+config_setting(
+    name = "linux",
+    constraint_values = [
+        "@platforms//os:linux",
+    ],
+)
+
+filegroup(
+    name = "postinstall_script",
+    srcs = ["scripts/postinstall.sh"],
+)
+
+filegroup(
+    name = "preremove_script",
+    srcs = ["scripts/preremove.sh"],
+)
+
+pkg_mkdirs(
+    name = "state_dirs",
+    dirs = ["/var/lib/serviceradar"],
+    attributes = pkg_attributes(mode = "0755"),
+)
+
+pkg_files(
+    name = "binary_files",
+    srcs = ["//cmd/core:core"],
+    prefix = "/usr/local/bin",
+    attributes = pkg_attributes(mode = "0755"),
+    renames = {"//cmd/core:core": "serviceradar-core"},
+)
+
+pkg_files(
+    name = "config_files",
+    srcs = [
+        "config/api.env",
+        "config/core.json",
+    ],
+    prefix = "/etc/serviceradar",
+    strip_prefix = strip_prefix.from_pkg("config"),
+    attributes = pkg_attributes(
+        mode = "0644",
+        rpm_filetag = ("config(noreplace)",),
+    ),
+)
+
+pkg_files(
+    name = "systemd_unit",
+    srcs = ["systemd/serviceradar-core.service"],
+    prefix = "/lib/systemd/system",
+    strip_prefix = strip_prefix.from_pkg("systemd"),
+    attributes = pkg_attributes(mode = "0644"),
+)
+
+pkg_files(
+    name = "web_assets",
+    srcs = ["//pkg/core/api/web:files"],
+    prefix = "/usr/local/share/serviceradar-core/web",
+    strip_prefix = strip_prefix.from_pkg(),
+    renames = {"//pkg/core/api/web:files": "dist"},
+)
+
+pkg_tar(
+    name = "core_data",
+    srcs = [
+        ":binary_files",
+        ":config_files",
+        ":state_dirs",
+        ":systemd_unit",
+        ":web_assets",
+    ],
+    package_dir = "/",
+    extension = "tar",
+)
+
+pkg_deb(
+    name = "core_deb",
+    package = "serviceradar-core",
+    architecture = "amd64",
+    maintainer = "Michael Freeman <mfreeman@carverauto.dev>",
+    version_file = "//:VERSION",
+    description = "ServiceRadar Core API service and web interface.",
+    homepage = "https://github.com/carverauto/serviceradar",
+    license = "MIT",
+    depends = [
+        "systemd",
+        "jq",
+    ],
+    section = "utils",
+    priority = "optional",
+    conffiles = [
+        "/etc/serviceradar/core.json",
+        "/etc/serviceradar/api.env",
+    ],
+    postinst = ":postinstall_script",
+    prerm = ":preremove_script",
+    data = ":core_data",
+)
+
+pkg_rpm(
+    name = "core_rpm",
+    package_name = "serviceradar-core",
+    target_compatible_with = ["@platforms//os:linux"],
+    version_file = "//:VERSION",
+    release = "1",
+    architecture = "x86_64",
+    summary = "ServiceRadar Core component",
+    description = "ServiceRadar Core API service and web interface.",
+    license = "MIT",
+    url = "https://github.com/carverauto/serviceradar",
+    requires = [
+        "systemd",
+        "jq",
+    ],
+    srcs = [
+        ":binary_files",
+        ":config_files",
+        ":state_dirs",
+        ":systemd_unit",
+        ":web_assets",
+    ],
+    post_scriptlet_file = ":postinstall_script",
+    preun_scriptlet_file = ":preremove_script",
+)
+
+filegroup(
+    name = "core",
+    srcs = [
+        ":core_deb",
+    ] + select({
+        ":linux": [":core_rpm"],
+        "//conditions:default": [],
+    }),
+)

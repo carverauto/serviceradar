@@ -1,0 +1,8 @@
+.cargo
+.gomodcache
+cmd/logos/.venv
+cmd/otel/target
+_build
+node_modules
+dist
+target

@@ -1,0 +1,46 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "logger",
+    srcs = [
+        "config.go",
+        "errors.go",
+        "interfaces.go",
+        "logger.go",
+        "mock_logger.go",
+        "otel.go",
+        "tracing.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/logger",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_rs_zerolog//:zerolog",
+        "@com_github_rs_zerolog//log",
+        "@io_opentelemetry_go_otel//:otel",
+        "@io_opentelemetry_go_otel//propagation",
+        "@io_opentelemetry_go_otel//semconv/v1.31.0:v1_31_0",
+        "@io_opentelemetry_go_otel_exporters_otlp_otlplog_otlploggrpc//:otlploggrpc",
+        "@io_opentelemetry_go_otel_exporters_otlp_otlptrace_otlptracegrpc//:otlptracegrpc",
+        "@io_opentelemetry_go_otel_log//:log",
+        "@io_opentelemetry_go_otel_log//global",
+        "@io_opentelemetry_go_otel_sdk//resource",
+        "@io_opentelemetry_go_otel_sdk//trace",
+        "@io_opentelemetry_go_otel_sdk_log//:log",
+        "@io_opentelemetry_go_otel_trace//:trace",
+        "@org_golang_google_grpc//credentials",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "logger_test",
+    srcs = [
+        "duration_test.go",
+        "example_otel_test.go",
+        "example_test.go",
+        "logger_test.go",
+        "otel_test.go",
+    ],
+    embed = [":logger"],
+    deps = ["@com_github_rs_zerolog//:zerolog"],
+)
