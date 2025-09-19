@@ -8913,6 +8913,64 @@
         ]
       }
     },
+    "@@toolchains_buildbuddy+//:extensions.bzl%buildbuddy": {
+      "general": {
+        "bzlTransitiveDigest": "u7Z+AlfJgGgFZGxPEfZkeEkTzEkgIYkIxgokZ5953dE=",
+        "usagesDigest": "89nX54lTkGs6UHGLTScpBE6oRpkMyxiBjrm0VWYrqkE=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "buildbuddy_toolchain": {
+            "repoRuleId": "@@toolchains_buildbuddy+//:rules.bzl%_buildbuddy_toolchain",
+            "attributes": {
+              "container_image": "",
+              "llvm": false,
+              "java_version": "",
+              "gcc_version": "",
+              "msvc_edition": "Community",
+              "msvc_release": "2022",
+              "msvc_version": "14.39.33519",
+              "windows_kits_release": "10",
+              "windows_kits_version": "10.0.22621.0",
+              "extra_cxx_builtin_include_directories": []
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "rules_cc+",
+            "bazel_tools",
+            "bazel_tools"
+          ],
+          [
+            "rules_cc+",
+            "cc_compatibility_proxy",
+            "rules_cc++compatibility_proxy+cc_compatibility_proxy"
+          ],
+          [
+            "rules_cc+",
+            "rules_cc",
+            "rules_cc+"
+          ],
+          [
+            "rules_cc++compatibility_proxy+cc_compatibility_proxy",
+            "rules_cc",
+            "rules_cc+"
+          ],
+          [
+            "toolchains_buildbuddy+",
+            "bazel_tools",
+            "bazel_tools"
+          ],
+          [
+            "toolchains_buildbuddy+",
+            "rules_cc",
+            "rules_cc+"
+          ]
+        ]
+      }
+    },
     "@@tools_opam+//extensions:opam.bzl%opam": {
       "general": {
         "bzlTransitiveDigest": "IiOc1PWWCutovM3O/zwTMoo3PY4O60hBgCAUAFlr7UM=",
