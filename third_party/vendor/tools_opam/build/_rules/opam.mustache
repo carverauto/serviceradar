@@ -1,0 +1,23 @@
+{{! mustache template to generate opam file }}
+opam_version: {{opam_version}}
+name:         {{name}}
+version:      {{version}}
+maintainer:   {{maintainer}}
+description:  {{description}}
+authors:      {{authors}}
+build:        [
+{{#build}}
+  [{{#cmd}}{{.}} {{/cmd}}] {{filter}}
+{{/build}}
+]
+depends:      [
+{{#deps.*}}
+  {{*}} {{.}}
+{{/deps.*}}
+]
+
+depexts:      [
+{{#depexts}}
+  [{{#depext}}{{.}} {{/depext}}] {{filter}}
+{{/depexts}}
+]

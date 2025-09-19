@@ -1,0 +1,3 @@
+#!/bin/sh
+
+opam switch import --cli=2.1 --root ./.opam --switch obazl $1
