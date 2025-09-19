@@ -12,9 +12,11 @@ common --curses=yes
 build --keep_going
 build --jobs=auto
 build --show_timestamps
+build --action_env=OPENSSL_NO_PKG_CONFIG=1
 
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
 test --test_output=errors
+test --action_env=OPENSSL_NO_PKG_CONFIG=1
 test --flaky_test_attempts=2
 
 # Allow developers to extend configuration locally (ignored in version control).

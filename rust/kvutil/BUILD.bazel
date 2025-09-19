@@ -8,7 +8,13 @@ cargo_build_script(
     crate_root = "build.rs",
     edition = "2021",
     deps = crate_deps(["tonic-build"]),
-    data = ["//proto:kv_proto_src"],
+    data = [
+        "@bazel_tools//tools/proto:protoc",
+        "//proto:kv_proto_src",
+    ],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
 )
 
 rust_library(

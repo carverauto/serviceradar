@@ -1,0 +1,23 @@
+load("@rules_foreign_cc//foreign_cc:configure.bzl", "configure_make")
+
+perl_version = "5.40.0"
+
+configure_make(
+    name = "perl_binary",
+    lib_name = "perl",
+    lib_source = "@perl_src//:all_sources",
+    configure_in_place = True,
+    configure_prefix = "cp $(execpath :configure-wrapper.sh) ./configure && chmod +x ./configure &&",
+    configure_options = ["-des"],
+    build_data = [":configure-wrapper.sh"],
+    out_binaries = ["bin/perl"],
+)
+
+exports_files(["configure-wrapper.sh"])
+
+filegroup(
+    name = "perl_tool",
+    srcs = [":perl_binary"],
+    output_group = "bin/perl",
+    visibility = ["//visibility:public"],
+)
