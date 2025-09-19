@@ -1,0 +1,65 @@
+--- openssl-src-300.5.2+3.5.2.orig/src/lib.rs	2025-09-19 15:34:09
++++ openssl-src-300.5.2+3.5.2/src/lib.rs	2025-09-19 15:34:09
+@@ -7,7 +7,50 @@
+ use std::process::Command;
+ 
+ pub fn source_dir() -> PathBuf {
+-    Path::new(env!("CARGO_MANIFEST_DIR")).join("openssl")
++    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
++    let mut candidates: Vec<PathBuf> = Vec::new();
++
++    candidates.push(manifest_dir.join("openssl"));
++
++    let external_rest = manifest_dir
++        .to_str()
++        .and_then(|s| s.split_once("/external/"))
++        .map(|(_, rest)| PathBuf::from(rest));
++
++    if let Some(rest) = external_rest.as_ref() {
++        candidates.push(Path::new("external").join(rest));
++    }
++
++    if let Ok(runfiles) = env::var("RUNFILES_DIR") {
++        let runfiles_path = PathBuf::from(runfiles);
++        candidates.push(runfiles_path.join(manifest_dir).join("openssl"));
++
++        if let Some(rest) = external_rest.as_ref() {
++            candidates.push(runfiles_path.join(rest));
++            candidates.push(runfiles_path.join("external").join(rest));
++        }
++    }
++
++    if let Ok(src_dir) = env::var("RULES_RUST_OPENSSL_SRC_DIR") {
++        let override_path = PathBuf::from(src_dir);
++        let candidate_dir = if override_path.is_dir() {
++            override_path.clone()
++        } else {
++            override_path
++                .parent()
++                .map(Path::to_path_buf)
++                .unwrap_or_else(|| override_path.clone())
++        };
++        candidates.push(candidate_dir);
++    }
++
++    for candidate in &candidates {
++        if candidate.exists() {
++            return candidate.clone();
++        }
++    }
++
++    manifest_dir.join("openssl")
+ }
+ 
+ pub fn version() -> &'static str {
+@@ -503,6 +546,10 @@
+                     continue;
+                 }
+ 
++                if arg == "-no-canonical-prefixes" {
++                    continue;
++                }
++
+                 configure.arg(arg);
+             }
+ 
