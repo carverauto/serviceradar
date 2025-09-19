@@ -1,0 +1,7 @@
+exports_files(glob(["*.dune-package"]))
+
+filegroup(
+    name = "dune-package_files",
+    srcs = glob(["*.dune-package"]),
+    visibility = ["//test/dune:__pkg__"],
+)
