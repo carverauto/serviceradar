@@ -13,8 +13,7 @@
 *.out
 coverage.txt
 
-# Dependency directories (remove the comment below to include it)
-vendor/
+# Dependency directories managed manually
 
 .idea
 *.impl

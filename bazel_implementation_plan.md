@@ -74,6 +74,8 @@
 - Configuration schemas: move toward runtime-fetched configuration; represent generated code or defaults as Bazel targets.
 
 ## 6. Phase 3 – Packaging & Artifact Strategy (Weeks 5–6)
+- ✅ Core component packaged via `//packaging/core:core` (`pkg_tar` + `pkg_deb`), replacing goreleaser configs.
+- RPM publishing remains pending a Linux rpmbuild runner (to tackle alongside remote execution setup).
 - Containers: adopt `rules_oci` to replace Dockerfiles for services under `cmd/services`.
 - Debian/RPM: use `rules_pkg` to encode package metadata previously handled by `setup-package.sh`.
 - Helm charts/K8s: evaluate templating approach; either keep separate or use Bazel to package manifests.
@@ -93,6 +95,7 @@
    - Create BuildBuddy account/project; obtain remote cache/execution endpoints.
    - Configure `.bazelrc` `--remote_cache`, `--remote_executor`, and `--bes_backend` entries toggled by `--config=ci`.
    - Add developer opt-in remote caching config guarded by environment variables.
+   - Stand up a Bazel remote execution/cache cluster in Kubernetes (reuse existing platform observability).
 2. **GitHub Actions rewrite**
    - Replace per-language workflows with unified `bazel test //...` pipeline (with matrix for platforms if needed).
    - Add presubmit targets (lint, build, test) using Bazel query to scope changed packages.
