@@ -20,13 +20,17 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Bazelisk
-        uses: bazelbuild/setup-bazelisk@v1
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-version: 1.x
 
       - name: Build docs lint target
         run: bazel build //docs:lint
