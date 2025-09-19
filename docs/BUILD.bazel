@@ -1,0 +1,4 @@
+sh_test(
+    name = "lint",
+    srcs = ["lint_placeholder.sh"],
+)

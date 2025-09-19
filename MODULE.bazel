@@ -1,0 +1,390 @@
+module(
+    name = "serviceradar",
+    version = "0.0.0",
+    repo_name = "serviceradar",
+)
+
+# Core language ecosystems
+bazel_dep(name = "rules_go", version = "0.57.0", repo_name = "io_bazel_rules_go")
+bazel_dep(name = "gazelle", version = "0.45.0", repo_name = "bazel_gazelle")
+bazel_dep(name = "rules_rust", version = "0.65.0")
+bazel_dep(name = "rules_python", version = "1.6.1")
+bazel_dep(name = "rules_nodejs", version = "6.5.0")
+bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "rules_oci", version = "2.2.6")
+bazel_dep(name = "rules_pkg", version = "1.1.0")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
+use_repo(find_rpm, "rules_pkg_rpmbuild")
+
+register_toolchains("@rules_pkg_rpmbuild//:all")
+
+bazel_dep(name = "aspect_rules_js", version = "2.6.0")
+bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
+bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
+bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
+
+archive_override(
+    module_name = "rules_ocaml",
+    integrity = "sha256-cqe6FvPE/z5HAKzO/MN5YcbPMaqtzQS6kmRtAPBBySc=",
+    strip_prefix = "rules_ocaml-3.0.0.beta.1",
+    urls = [
+        "https://github.com/obazl/rules_ocaml/archive/refs/tags/3.0.0.beta.1.tar.gz",
+    ],
+)
+
+bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
+
+local_path_override(
+    module_name = "tools_opam",
+    path = "third_party/vendor/tools_opam",
+)
+
+bazel_dep(name = "tools_opam", version = "1.0.0.beta.1")
+
+archive_override(
+    module_name = "obazl_tools_cc",
+    integrity = "sha256-vh4YXopUJiBe5pvBt6+MQAN2WIz+QrmRGg+v6r1GdZs=",
+    strip_prefix = "obazl_tools_cc-3.0.0",
+    urls = [
+        "https://github.com/obazl/obazl_tools_cc/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "findlibc",
+    integrity = "sha256-Btxdss/Y16n05z84xUlLbJeKzM/oWeTY3+zvf6qN820=",
+    strip_prefix = "findlibc-3.0.0",
+    urls = [
+        "https://github.com/obazl/findlibc/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "runfiles",
+    integrity = "sha256-qjvMYGxauHRWuY6gOwIdZFj8eJfzv24lpeyX4Dv7/FI=",
+    strip_prefix = "runfiles-3.0.0",
+    urls = [
+        "https://github.com/obazl/runfiles/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "xdgc",
+    integrity = "sha256-OHNCvHJe7+JenXQSqcKuSlzlL8Q+0gC17RP5FDx2kXM=",
+    strip_prefix = "xdgc-3.0.0",
+    urls = [
+        "https://github.com/obazl/xdgc/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "gopt",
+    integrity = "sha256-cyd1bgKXCkskTpIN2eWdmMBGD2diXY+ZzmxXpGEOBlY=",
+    strip_prefix = "gopt-10.0.0",
+    urls = [
+        "https://github.com/obazl/gopt/archive/refs/tags/10.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "liblogc",
+    integrity = "sha256-C/7itdldocCde/Hm21PGQRJHHttvevUl/yrdAMCbYVE=",
+    strip_prefix = "liblogc-3.0.0",
+    urls = [
+        "https://github.com/obazl/liblogc/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "makeheaders",
+    integrity = "sha256-TWphcN+KX42HLb3+SLFSu39U+8ZcooWWminzMAVvmbQ=",
+    strip_prefix = "makeheaders-3.0.0",
+    urls = [
+        "https://github.com/obazl/makeheaders/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+bazel_dep(name = "makeheaders", version = "3.0.0")
+
+archive_override(
+    module_name = "semverc",
+    integrity = "sha256-d9t+oZ2y7oC3P1BwcK7cKSn1YCY2wapbRZbxaKprpzA=",
+    strip_prefix = "semverc-3.0.0",
+    urls = [
+        "https://github.com/obazl/semverc/archive/refs/tags/3.0.0.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "sfsexp",
+    integrity = "sha256-EA5IfSiJ9+ocrMI8pZMLpuHBMfugk5lLF7t/C4HFQfE=",
+    strip_prefix = "sfsexp-1.4.1.bzl",
+    urls = [
+        "https://github.com/obazl/sfsexp/archive/refs/tags/1.4.1.bzl.tar.gz",
+    ],
+)
+
+archive_override(
+    module_name = "uthash",
+    integrity = "sha256-FGY0b/dX4DFmloaKY+yHq2CLa9RJy/6eR+VdpLq884Y=",
+    strip_prefix = "uthash-2.3.0.bzl",
+    urls = [
+        "https://github.com/obazl/uthash/archive/refs/tags/2.3.0.bzl.tar.gz",
+    ],
+)
+
+local_path_override(
+    module_name = "cwalk",
+    path = "third_party/cwalk",
+)
+
+# Vendored copy of cwalk@1.2.9 (commit e98d23f), pending upstream release tag.
+
+# TODO(bazel-migration): rules_ocaml is not yet in the Bazel Central Registry.
+# Add an archive_override/use_extension once a release is selected.
+
+opam = use_extension(
+    "@tools_opam//extensions:opam.bzl",
+    "opam",
+)
+opam.deps(
+    ocaml_version = "5.1.0",
+    pkgs = {
+        "dune": "3.20.2",
+        "menhir": "20250903",
+        "yojson": "2.2.2",
+        "ppx_deriving": "6.0.3",
+        "lwt_ppx": "5.9.1",
+        "proton": "1.0.15",
+        "lwt": "5.9.2",
+        "dream": "1.0.0~alpha7",
+    },
+)
+
+opam_dev = use_extension(
+    "@tools_opam//extensions:opam.bzl",
+    "opam",
+    dev_dependency = True,
+)
+opam_dev.deps(
+    pkgs = {
+        "alcotest": "1.9.0",
+    },
+)
+
+use_repo(
+    opam,
+    "opam.dream",
+    "opam.dune",
+    "opam.lwt",
+    "opam.lwt_ppx",
+    "opam.menhir",
+    "opam.ocamlsdk",
+    "opam.ppx_deriving",
+    "opam.proton",
+    "opam.yojson",
+)
+
+use_repo(opam_dev, "opam.alcotest")
+
+register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")
+
+register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")
+
+# --- Go toolchain & dependency management ----------------------------------
+
+go_sdk = use_extension(
+    "@io_bazel_rules_go//go:extensions.bzl",
+    "go_sdk",
+)
+go_sdk.from_file(
+    name = "go_sdk",
+    go_mod = "//:go.mod",
+)
+use_repo(go_sdk, "go_sdk")
+
+go_deps = use_extension(
+    "@bazel_gazelle//:extensions.bzl",
+    "go_deps",
+)
+go_deps.module_override(
+    patch_strip = 1,
+    patches = ["//third_party/patches:go-spiffe-go-proto.patch"],
+    path = "github.com/spiffe/go-spiffe/v2",
+)
+go_deps.from_file(go_mod = "//:go.mod")
+
+# NOTE: `bazel mod tidy` populates the list of repositories below based on the
+# contents of go.mod. Keep the list sorted for readability.
+use_repo(
+    go_deps,
+    "com_github_atotto_clipboard",
+    "com_github_charmbracelet_bubbles",
+    "com_github_charmbracelet_bubbletea",
+    "com_github_charmbracelet_lipgloss",
+    "com_github_golang_jwt_jwt_v4",
+    "com_github_google_uuid",
+    "com_github_gorilla_mux",
+    "com_github_gorilla_websocket",
+    "com_github_gosnmp_gosnmp",
+    "com_github_markbates_goth",
+    "com_github_nats_io_nats_go",
+    "com_github_rs_zerolog",
+    "com_github_spiffe_go_spiffe_v2",
+    "com_github_stretchr_testify",
+    "com_github_swaggo_http_swagger",
+    "com_github_swaggo_swag",
+    "com_github_timeplus_io_proton_go_driver_v2",
+    "io_opentelemetry_go_contrib_instrumentation_github_com_gorilla_mux_otelmux",
+    "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",
+    "io_opentelemetry_go_otel",
+    "io_opentelemetry_go_otel_exporters_otlp_otlplog_otlploggrpc",
+    "io_opentelemetry_go_otel_exporters_otlp_otlptrace_otlptracegrpc",
+    "io_opentelemetry_go_otel_log",
+    "io_opentelemetry_go_otel_sdk",
+    "io_opentelemetry_go_otel_sdk_log",
+    "io_opentelemetry_go_otel_trace",
+    "io_opentelemetry_go_proto_otlp",
+    "org_golang_google_grpc",
+    "org_golang_google_protobuf",
+    "org_golang_x_crypto",
+    "org_golang_x_net",
+    "org_golang_x_sys",
+    "org_uber_go_mock",
+)
+
+# --- Rust toolchain bootstrap -----------------------------------------------
+RUST_DEFAULT_VERSION = "1.86.0"
+
+RUST_EDITION = "2021"
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = RUST_EDITION,
+    versions = [RUST_DEFAULT_VERSION],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+# TODO(bazel-migration): add rust_host_tools for pinned host binaries and expand
+# crate_universe coverage as additional Rust targets migrate.
+
+# --- Rust crate dependencies (crate_universe) --------------------------------
+
+crates = use_extension(
+    "@rules_rust//crate_universe:extensions.bzl",
+    "crate",
+)
+crates.from_cargo(
+    name = "rust_crates",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crates, "rust_crates")
+
+# --- Node.js toolchain -------------------------------------------------------
+NODE_VERSION = "22.13.1"
+
+node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
+node.toolchain(node_version = NODE_VERSION)
+use_repo(node, "nodejs_toolchains")
+
+register_toolchains(
+    "@nodejs_toolchains//:darwin_amd64_toolchain_target",
+    "@nodejs_toolchains//:darwin_amd64_toolchain",
+    "@nodejs_toolchains//:darwin_arm64_toolchain_target",
+    "@nodejs_toolchains//:darwin_arm64_toolchain",
+    "@nodejs_toolchains//:linux_amd64_toolchain_target",
+    "@nodejs_toolchains//:linux_amd64_toolchain",
+    "@nodejs_toolchains//:linux_arm64_toolchain_target",
+    "@nodejs_toolchains//:linux_arm64_toolchain",
+)
+
+# --- npm dependency ingestion ------------------------------------------------
+
+npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
+npm.npm_translate_lock(
+    name = "npm",
+    bins = {
+        "next": ["next=./dist/bin/next"],
+    },
+    dev = True,
+    npmrc = "//web:.npmrc",
+    pnpm_lock = "//web:pnpm-lock.yaml",
+    root_package = "web",
+)
+use_repo(npm, "npm")
+
+# Expose select npm package repositories required for Next.js build tooling.
+use_repo(
+    npm,
+    "npm__at_microlink_react-json-view__1.26.2_1639084467__links",
+    "npm__at_tanstack_react-query__5.81.5_react_19.1.0__links",
+    "npm__lodash.set__4.3.2__links",
+    "npm__lodash__4.17.21__links",
+    "npm__lucide-react__0.476.0_react_19.1.0__links",
+    "npm__next-runtime-env__3.3.0_878941852__links",
+    "npm__next__15.4.7_125332280",
+    "npm__next__15.4.7_125332280__links",
+    "npm__react-dom__19.1.0_react_19.1.0",
+    "npm__react-dom__19.1.0_react_19.1.0__links",
+    "npm__react__19.1.0",
+    "npm__react__19.1.0__links",
+    "npm__recharts-scale__0.4.5__links",
+    "npm__recharts__2.15.3_125332280__links",
+    "npm__tailwindcss-animate__1.0.7_tailwindcss_3.4.17__links",
+    "npm__use-debounce__10.0.5_react_19.1.0__links",
+    "npm__xlsx__0.18.5__links",
+)
+
+rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "ext")
+rules_ts_ext.deps()
+use_repo(rules_ts_ext, "npm_typescript")
+
+# TODO(bazel-migration): add npm package visibility/hoisting configuration and
+# integrate additional js tooling once Bazel targets exist.
+
+# --- External binary artifacts ----------------------------------------------
+
+http_file = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:http.bzl",
+    "http_file",
+)
+
+http_archive = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:http.bzl",
+    "http_archive",
+)
+
+http_file(
+    name = "timeplus_proton_linux_x86_64",
+    downloaded_file_path = "proton",
+    executable = True,
+    sha256 = "41250d599d635077dbc0a46e7e388b0cfc6bc96f2781da657e42455d672bfb33",
+    urls = [
+        "https://github.com/timeplus-io/proton/releases/download/v1.6.16/proton-v1.6.16-Linux-x86_64",
+    ],
+)
+
+http_archive(
+    name = "nats_server_linux_amd64",
+    build_file_content = """
+filegroup(
+    name = "nats_server",
+    srcs = ["nats-server"],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "84192cee46c62760d9c259a97f373b73bccadc41be779c26ef676542ae15daf6",
+    strip_prefix = "nats-server-v2.11.4-linux-amd64",
+    urls = [
+        "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
+    ],
+)
+
+# Additional module extensions will be layered in as language owners migrate to
+# Bazel (e.g., http_file for binary deps).

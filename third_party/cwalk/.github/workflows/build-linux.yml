@@ -1,0 +1,42 @@
+name: Build on Linux
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-20.04]
+        build_type: [Release]
+        c_compiler: [gcc, clang]
+        sanitizers: [address, OFF]
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+    - name: Configure CMake
+      run: >
+        cmake -B ${{ steps.strings.outputs.build-output-dir }}
+        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        -DENABLE_TESTS=1
+        -DENABLE_COVERAGE=1
+        -DENABLE_SANITIZER=${{ matrix.sanitizers }}
+        -S ${{ github.workspace }}
+    - name: Build
+      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+    - name: Test
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: ctest --build-config ${{ matrix.build_type }}
+    - name: Coverage
+      if: ${{ matrix.c_compiler == 'gcc' && matrix.sanitizers == 'OFF' }}
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: bash <(curl -s https://codecov.io/bash)

@@ -1,0 +1,48 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "poller",
+    srcs = [
+        "agent_poller.go",
+        "config.go",
+        "errors.go",
+        "interfaces.go",
+        "mock_poller.go",
+        "poller.go",
+        "results_poller.go",
+        "ticker.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/poller",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/grpc",
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "poller_test",
+    srcs = [
+        "agent_poller_test.go",
+        "config_test.go",
+        "poller_test.go",
+        "results_poller_test.go",
+    ],
+    embed = [":poller"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_uber_go_mock//gomock",
+    ],
+)

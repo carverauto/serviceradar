@@ -1,0 +1,3 @@
+#!/bin/sh
+
+opam init --cli=2.1 --root=./.opam --bare --no-setup --no-opamrc --bypass-checks --yes --quiet

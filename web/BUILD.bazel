@@ -1,0 +1,260 @@
+load("@npm//:defs.bzl", "npm_link_all_packages")
+load(
+    "@npm__next__15.4.7_125332280__links//:defs.bzl",
+    npm_link_next_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__react__19.1.0__links//:defs.bzl",
+    npm_link_react_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__react-dom__19.1.0_react_19.1.0__links//:defs.bzl",
+    npm_link_react_dom_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__lucide-react__0.476.0_react_19.1.0__links//:defs.bzl",
+    npm_link_lucide_react_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__at_tanstack_react-query__5.81.5_react_19.1.0__links//:defs.bzl",
+    npm_link_react_query_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__at_microlink_react-json-view__1.26.2_1639084467__links//:defs.bzl",
+    npm_link_react_json_view_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__recharts__2.15.3_125332280__links//:defs.bzl",
+    npm_link_recharts_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__recharts-scale__0.4.5__links//:defs.bzl",
+    npm_link_recharts_scale_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__use-debounce__10.0.5_react_19.1.0__links//:defs.bzl",
+    npm_link_use_debounce_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__lodash__4.17.21__links//:defs.bzl",
+    npm_link_lodash_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__lodash.set__4.3.2__links//:defs.bzl",
+    npm_link_lodash_set_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__next-runtime-env__3.3.0_878941852__links//:defs.bzl",
+    npm_link_next_runtime_env_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__xlsx__0.18.5__links//:defs.bzl",
+    npm_link_xlsx_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__tailwindcss-animate__1.0.7_tailwindcss_3.4.17__links//:defs.bzl",
+    npm_link_tailwindcss_animate_store = "npm_link_imported_package_store",
+)
+load("@aspect_rules_ts//ts:defs.bzl", "ts_project")
+load(
+    "@aspect_rules_js//contrib/nextjs:defs.bzl",
+    "nextjs_standalone_build",
+    "nextjs_standalone_server",
+)
+load("@aspect_rules_js//js:defs.bzl", "js_binary")
+
+npm_link_all_packages(name = "node_modules")
+
+# Link runtime dependencies for the Next.js CLI into the node_modules tree so
+# Bazel runfiles expose the actual package contents.
+npm_link_next_store(
+    name = "node_modules/next",
+    link_root_name = "node_modules",
+    link_alias = "next",
+)
+npm_link_react_store(
+    name = "node_modules/react",
+    link_root_name = "node_modules",
+    link_alias = "react",
+)
+npm_link_react_dom_store(
+    name = "node_modules/react-dom",
+    link_root_name = "node_modules",
+    link_alias = "react-dom",
+)
+
+npm_link_lucide_react_store(
+    name = "node_modules/lucide-react",
+    link_root_name = "node_modules",
+    link_alias = "lucide-react",
+)
+npm_link_react_query_store(
+    name = "node_modules/@tanstack/react-query",
+    link_root_name = "node_modules",
+    link_alias = "@tanstack/react-query",
+)
+
+npm_link_react_json_view_store(
+    name = "node_modules/@microlink/react-json-view",
+    link_root_name = "node_modules",
+    link_alias = "@microlink/react-json-view",
+)
+npm_link_recharts_store(
+    name = "node_modules/recharts",
+    link_root_name = "node_modules",
+    link_alias = "recharts",
+)
+npm_link_recharts_scale_store(
+    name = "node_modules/recharts-scale",
+    link_root_name = "node_modules",
+    link_alias = "recharts-scale",
+)
+npm_link_use_debounce_store(
+    name = "node_modules/use-debounce",
+    link_root_name = "node_modules",
+    link_alias = "use-debounce",
+)
+
+npm_link_lodash_store(
+    name = "node_modules/lodash",
+    link_root_name = "node_modules",
+    link_alias = "lodash",
+)
+npm_link_lodash_set_store(
+    name = "node_modules/lodash.set",
+    link_root_name = "node_modules",
+    link_alias = "lodash.set",
+)
+npm_link_next_runtime_env_store(
+    name = "node_modules/next-runtime-env",
+    link_root_name = "node_modules",
+    link_alias = "next-runtime-env",
+)
+npm_link_xlsx_store(
+    name = "node_modules/xlsx",
+    link_root_name = "node_modules",
+    link_alias = "xlsx",
+)
+
+npm_link_tailwindcss_animate_store(
+    name = "node_modules/tailwindcss-animate",
+    link_root_name = "node_modules",
+    link_alias = "tailwindcss-animate",
+)
+
+WEB_TS_SRCS = glob(
+    [
+        "next-env.d.ts",
+        "next.config.ts",
+        "next.config.docker.ts",
+        "tailwind.config.ts",
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "src/**/*.cts",
+        "src/**/*.mts",
+        "src/**/*.js",
+        "src/**/*.jsx",
+    ],
+    exclude = [
+        "src/**/*.spec.ts",
+        "src/**/*.spec.tsx",
+        "src/**/*.stories.tsx",
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx",
+    ],
+    allow_empty = True,
+)
+
+ts_project(
+    name = "typecheck",
+    srcs = WEB_TS_SRCS,
+    tsconfig = "tsconfig.json",
+    deps = [":node_modules"],
+    allow_js = True,
+    no_emit = True,
+    preserve_jsx = True,
+    resolve_json_module = True,
+    validate = False,
+    transpiler = "tsc",
+)
+
+js_binary(
+    name = "next_js_binary",
+    entry_point = "node_modules/next/dist/bin/next",
+    data = [
+        ":node_modules",
+        ":node_modules/next",
+        ":node_modules/react",
+        ":node_modules/react-dom",
+        ":node_modules/lucide-react",
+        ":node_modules/@tanstack/react-query",
+        ":node_modules/@microlink/react-json-view",
+        ":node_modules/recharts",
+        ":node_modules/recharts-scale",
+        ":node_modules/use-debounce",
+        ":node_modules/lodash",
+        ":node_modules/lodash.set",
+        ":node_modules/next-runtime-env",
+        ":node_modules/xlsx",
+        ":node_modules/tailwindcss-animate",
+    ],
+    copy_data_to_bin = False,
+    visibility = ["//visibility:public"],
+)
+
+NEXT_APP_SRCS = glob(
+    [
+        "public/**",
+        "src/**",
+    ],
+    exclude = [
+        "src/**/*.spec.*",
+        "src/**/*.stories.*",
+        "src/**/*.test.*",
+    ],
+    allow_empty = True,
+)
+
+nextjs_standalone_build(
+    name = "standalone_app",
+    config = "next.config.bazel.mjs",
+    srcs = NEXT_APP_SRCS + [
+        "next-env.d.ts",
+    ],
+    next_js_binary = ":next_js_binary",
+    visibility = ["//visibility:public"],
+    data = [
+        ":node_modules",
+        ":node_modules/next",
+        ":node_modules/react",
+        ":node_modules/react-dom",
+        ":node_modules/lucide-react",
+        ":node_modules/@tanstack/react-query",
+        ":node_modules/@microlink/react-json-view",
+        ":node_modules/recharts",
+        ":node_modules/recharts-scale",
+        ":node_modules/use-debounce",
+        ":node_modules/lodash",
+        ":node_modules/lodash.set",
+        ":node_modules/next-runtime-env",
+        ":node_modules/xlsx",
+        ":node_modules/tailwindcss-animate",
+        "package.json",
+        "pnpm-lock.yaml",
+        "postcss.config.mjs",
+        "tailwind.config.ts",
+        "tsconfig.json",
+    ],
+    allow_execroot_entry_point_with_no_copy_data_to_bin = True,
+)
+
+nextjs_standalone_server(
+    name = "standalone_server",
+    app = ":standalone_app",
+    data = [
+        ":node_modules/next",
+        ":node_modules/react",
+        ":node_modules/react-dom",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,495 @@
+(lang dune 3.12)
+(name ctypes)
+(version 0.21.1)
+(sections
+ (lib /Users/gar/.opam/5.1.1/lib/ctypes)
+ (libexec /Users/gar/.opam/5.1.1/lib/ctypes)
+ (doc /Users/gar/.opam/5.1.1/doc/ctypes)
+ (stublibs /Users/gar/.opam/5.1.1/lib/stublibs))
+(files
+ (lib
+  (META
+   complexL.cmi
+   complexL.cmt
+   complexL.cmti
+   complexL.cmx
+   complexL.ml
+   complexL.mli
+   cstubs_internals.cmi
+   cstubs_internals.cmt
+   cstubs_internals.cmti
+   cstubs_internals.cmx
+   cstubs_internals.h
+   cstubs_internals.ml
+   cstubs_internals.mli
+   ctypes.a
+   ctypes.cma
+   ctypes.cmi
+   ctypes.cmt
+   ctypes.cmti
+   ctypes.cmx
+   ctypes.cmxa
+   ctypes.ml
+   ctypes.mli
+   ctypes_bigarray.cmi
+   ctypes_bigarray.cmt
+   ctypes_bigarray.cmti
+   ctypes_bigarray.cmx
+   ctypes_bigarray.ml
+   ctypes_bigarray.mli
+   ctypes_bigarray_stubs.cmi
+   ctypes_bigarray_stubs.cmt
+   ctypes_bigarray_stubs.cmx
+   ctypes_bigarray_stubs.ml
+   ctypes_coerce.cmi
+   ctypes_coerce.cmt
+   ctypes_coerce.cmti
+   ctypes_coerce.cmx
+   ctypes_coerce.ml
+   ctypes_coerce.mli
+   ctypes_complex_compatibility.h
+   ctypes_complex_stubs.h
+   ctypes_cstubs_internals.h
+   ctypes_ldouble_stubs.h
+   ctypes_managed_buffer_stubs.h
+   ctypes_memory.cmi
+   ctypes_memory.cmt
+   ctypes_memory.cmx
+   ctypes_memory.ml
+   ctypes_memory_stubs.cmi
+   ctypes_memory_stubs.cmt
+   ctypes_memory_stubs.cmx
+   ctypes_memory_stubs.ml
+   ctypes_primitive_types.cmi
+   ctypes_primitive_types.cmt
+   ctypes_primitive_types.cmti
+   ctypes_primitive_types.cmx
+   ctypes_primitive_types.ml
+   ctypes_primitive_types.mli
+   ctypes_primitives.cmi
+   ctypes_primitives.cmt
+   ctypes_primitives.cmx
+   ctypes_primitives.h
+   ctypes_primitives.ml
+   ctypes_ptr.cmi
+   ctypes_ptr.cmt
+   ctypes_ptr.cmx
+   ctypes_ptr.ml
+   ctypes_raw_pointer.h
+   ctypes_roots_stubs.cmi
+   ctypes_roots_stubs.cmt
+   ctypes_roots_stubs.cmx
+   ctypes_roots_stubs.ml
+   ctypes_static.cmi
+   ctypes_static.cmt
+   ctypes_static.cmti
+   ctypes_static.cmx
+   ctypes_static.ml
+   ctypes_static.mli
+   ctypes_std_view_stubs.cmi
+   ctypes_std_view_stubs.cmt
+   ctypes_std_view_stubs.cmx
+   ctypes_std_view_stubs.ml
+   ctypes_std_views.cmi
+   ctypes_std_views.cmt
+   ctypes_std_views.cmx
+   ctypes_std_views.ml
+   ctypes_structs.cmi
+   ctypes_structs.cmt
+   ctypes_structs.cmti
+   ctypes_structs.cmx
+   ctypes_structs.ml
+   ctypes_structs.mli
+   ctypes_structs_computed.cmi
+   ctypes_structs_computed.cmt
+   ctypes_structs_computed.cmti
+   ctypes_structs_computed.cmx
+   ctypes_structs_computed.ml
+   ctypes_structs_computed.mli
+   ctypes_type_info_stubs.h
+   ctypes_type_printing.cmi
+   ctypes_type_printing.cmt
+   ctypes_type_printing.cmti
+   ctypes_type_printing.cmx
+   ctypes_type_printing.ml
+   ctypes_type_printing.mli
+   ctypes_types.cmi
+   ctypes_types.cmti
+   ctypes_types.mli
+   ctypes_value_printing.cmi
+   ctypes_value_printing.cmt
+   ctypes_value_printing.cmx
+   ctypes_value_printing.ml
+   ctypes_value_printing_stubs.cmi
+   ctypes_value_printing_stubs.cmt
+   ctypes_value_printing_stubs.cmx
+   ctypes_value_printing_stubs.ml
+   dune-package
+   lDouble.cmi
+   lDouble.cmt
+   lDouble.cmti
+   lDouble.cmx
+   lDouble.ml
+   lDouble.mli
+   libctypes_stubs.a
+   ocaml_integers.h
+   opam
+   posixTypes.cmi
+   posixTypes.cmt
+   posixTypes.cmti
+   posixTypes.cmx
+   posixTypes.ml
+   posixTypes.mli
+   stubs/cstubs.cmi
+   stubs/cstubs.cmt
+   stubs/cstubs.cmti
+   stubs/cstubs.cmx
+   stubs/cstubs.ml
+   stubs/cstubs.mli
+   stubs/cstubs_analysis.cmi
+   stubs/cstubs_analysis.cmt
+   stubs/cstubs_analysis.cmti
+   stubs/cstubs_analysis.cmx
+   stubs/cstubs_analysis.ml
+   stubs/cstubs_analysis.mli
+   stubs/cstubs_c_language.cmi
+   stubs/cstubs_c_language.cmt
+   stubs/cstubs_c_language.cmx
+   stubs/cstubs_c_language.ml
+   stubs/cstubs_emit_c.cmi
+   stubs/cstubs_emit_c.cmt
+   stubs/cstubs_emit_c.cmx
+   stubs/cstubs_emit_c.ml
+   stubs/cstubs_errors.cmi
+   stubs/cstubs_errors.cmt
+   stubs/cstubs_errors.cmti
+   stubs/cstubs_errors.cmx
+   stubs/cstubs_errors.ml
+   stubs/cstubs_errors.mli
+   stubs/cstubs_generate_c.cmi
+   stubs/cstubs_generate_c.cmt
+   stubs/cstubs_generate_c.cmti
+   stubs/cstubs_generate_c.cmx
+   stubs/cstubs_generate_c.ml
+   stubs/cstubs_generate_c.mli
+   stubs/cstubs_generate_ml.cmi
+   stubs/cstubs_generate_ml.cmt
+   stubs/cstubs_generate_ml.cmti
+   stubs/cstubs_generate_ml.cmx
+   stubs/cstubs_generate_ml.ml
+   stubs/cstubs_generate_ml.mli
+   stubs/cstubs_inverted.cmi
+   stubs/cstubs_inverted.cmt
+   stubs/cstubs_inverted.cmti
+   stubs/cstubs_inverted.cmx
+   stubs/cstubs_inverted.ml
+   stubs/cstubs_inverted.mli
+   stubs/cstubs_public_name.cmi
+   stubs/cstubs_public_name.cmt
+   stubs/cstubs_public_name.cmti
+   stubs/cstubs_public_name.cmx
+   stubs/cstubs_public_name.ml
+   stubs/cstubs_public_name.mli
+   stubs/cstubs_structs.cmi
+   stubs/cstubs_structs.cmt
+   stubs/cstubs_structs.cmti
+   stubs/cstubs_structs.cmx
+   stubs/cstubs_structs.ml
+   stubs/cstubs_structs.mli
+   stubs/ctypes_path.cmi
+   stubs/ctypes_path.cmt
+   stubs/ctypes_path.cmti
+   stubs/ctypes_path.cmx
+   stubs/ctypes_path.ml
+   stubs/ctypes_path.mli
+   stubs/ctypes_stubs.a
+   stubs/ctypes_stubs.cma
+   stubs/ctypes_stubs.cmxa
+   top/ctypes_printers.ml
+   top/ctypes_printers.mli
+   top/ctypes_top.a
+   top/ctypes_top.cma
+   top/ctypes_top.cmi
+   top/ctypes_top.cmt
+   top/ctypes_top.cmx
+   top/ctypes_top.cmxa
+   top/ctypes_top.ml
+   top/ctypes_top__Ctypes_printers.cmi
+   top/ctypes_top__Ctypes_printers.cmt
+   top/ctypes_top__Ctypes_printers.cmti
+   top/ctypes_top__Ctypes_printers.cmx
+   top/ctypes_top__Install_ctypes_printers.cmi
+   top/ctypes_top__Install_ctypes_printers.cmt
+   top/ctypes_top__Install_ctypes_printers.cmx
+   top/install_ctypes_printers.ml))
+ (libexec (ctypes.cmxs stubs/ctypes_stubs.cmxs top/ctypes_top.cmxs))
+ (doc (CHANGES.md LICENSE README.md))
+ (stublibs (dllctypes_stubs.so)))
+(library
+ (name ctypes)
+ (kind normal)
+ (archives (byte ctypes.cma) (native ctypes.cmxa))
+ (plugins (byte ctypes.cma) (native ctypes.cmxs))
+ (foreign_objects
+  complex_stubs.o
+  ctypes_bigarrays.o
+  ctypes_roots.o
+  ldouble_stubs.o
+  managed_buffer_stubs.o
+  posix_types_stubs.o
+  raw_pointer_stubs.o
+  type_info_stubs.o)
+ (foreign_archives (archives (for all) (files libctypes_stubs.a)))
+ (foreign_dll_files ../stublibs/dllctypes_stubs.so)
+ (native_archives ctypes.a)
+ (requires integers bigarray-compat)
+ (modes byte native)
+ (modules
+  (unwrapped
+   (module
+    (obj_name complexL)
+    (visibility public)
+    (source
+     (path ComplexL)
+     (intf (path complexL.mli))
+     (impl (path complexL.ml))))
+   (module
+    (obj_name cstubs_internals)
+    (visibility public)
+    (source
+     (path Cstubs_internals)
+     (intf (path cstubs_internals.mli))
+     (impl (path cstubs_internals.ml))))
+   (module
+    (obj_name ctypes)
+    (visibility public)
+    (source (path Ctypes) (intf (path ctypes.mli)) (impl (path ctypes.ml))))
+   (module
+    (obj_name ctypes_bigarray)
+    (visibility public)
+    (source
+     (path Ctypes_bigarray)
+     (intf (path ctypes_bigarray.mli))
+     (impl (path ctypes_bigarray.ml))))
+   (module
+    (obj_name ctypes_bigarray_stubs)
+    (visibility public)
+    (source
+     (path Ctypes_bigarray_stubs)
+     (impl (path ctypes_bigarray_stubs.ml))))
+   (module
+    (obj_name ctypes_coerce)
+    (visibility public)
+    (source
+     (path Ctypes_coerce)
+     (intf (path ctypes_coerce.mli))
+     (impl (path ctypes_coerce.ml))))
+   (module
+    (obj_name ctypes_memory)
+    (visibility public)
+    (source (path Ctypes_memory) (impl (path ctypes_memory.ml))))
+   (module
+    (obj_name ctypes_memory_stubs)
+    (visibility public)
+    (source (path Ctypes_memory_stubs) (impl (path ctypes_memory_stubs.ml))))
+   (module
+    (obj_name ctypes_primitive_types)
+    (visibility public)
+    (source
+     (path Ctypes_primitive_types)
+     (intf (path ctypes_primitive_types.mli))
+     (impl (path ctypes_primitive_types.ml))))
+   (module
+    (obj_name ctypes_primitives)
+    (visibility public)
+    (source (path Ctypes_primitives) (impl (path ctypes_primitives.ml))))
+   (module
+    (obj_name ctypes_ptr)
+    (visibility public)
+    (source (path Ctypes_ptr) (impl (path ctypes_ptr.ml))))
+   (module
+    (obj_name ctypes_roots_stubs)
+    (visibility public)
+    (source (path Ctypes_roots_stubs) (impl (path ctypes_roots_stubs.ml))))
+   (module
+    (obj_name ctypes_static)
+    (visibility public)
+    (source
+     (path Ctypes_static)
+     (intf (path ctypes_static.mli))
+     (impl (path ctypes_static.ml))))
+   (module
+    (obj_name ctypes_std_view_stubs)
+    (visibility public)
+    (source
+     (path Ctypes_std_view_stubs)
+     (impl (path ctypes_std_view_stubs.ml))))
+   (module
+    (obj_name ctypes_std_views)
+    (visibility public)
+    (source (path Ctypes_std_views) (impl (path ctypes_std_views.ml))))
+   (module
+    (obj_name ctypes_structs)
+    (visibility public)
+    (source
+     (path Ctypes_structs)
+     (intf (path ctypes_structs.mli))
+     (impl (path ctypes_structs.ml))))
+   (module
+    (obj_name ctypes_structs_computed)
+    (visibility public)
+    (source
+     (path Ctypes_structs_computed)
+     (intf (path ctypes_structs_computed.mli))
+     (impl (path ctypes_structs_computed.ml))))
+   (module
+    (obj_name ctypes_type_printing)
+    (visibility public)
+    (source
+     (path Ctypes_type_printing)
+     (intf (path ctypes_type_printing.mli))
+     (impl (path ctypes_type_printing.ml))))
+   (module
+    (obj_name ctypes_types)
+    (visibility public)
+    (source (path Ctypes_types) (intf (path ctypes_types.mli))))
+   (module
+    (obj_name ctypes_value_printing)
+    (visibility public)
+    (source
+     (path Ctypes_value_printing)
+     (impl (path ctypes_value_printing.ml))))
+   (module
+    (obj_name ctypes_value_printing_stubs)
+    (visibility public)
+    (source
+     (path Ctypes_value_printing_stubs)
+     (impl (path ctypes_value_printing_stubs.ml))))
+   (module
+    (obj_name lDouble)
+    (visibility public)
+    (source (path LDouble) (intf (path lDouble.mli)) (impl (path lDouble.ml))))
+   (module
+    (obj_name posixTypes)
+    (visibility public)
+    (source
+     (path PosixTypes)
+     (intf (path posixTypes.mli))
+     (impl (path posixTypes.ml)))))))
+(deprecated_library_name
+ (old_public_name ctypes.foreign)
+ (new_public_name ctypes-foreign))
+(library
+ (name ctypes.stubs)
+ (kind normal)
+ (archives (byte stubs/ctypes_stubs.cma) (native stubs/ctypes_stubs.cmxa))
+ (plugins (byte stubs/ctypes_stubs.cma) (native stubs/ctypes_stubs.cmxs))
+ (native_archives stubs/ctypes_stubs.a)
+ (requires (re_export ctypes) str)
+ (modes byte native)
+ (modules
+  (unwrapped
+   (module
+    (obj_name cstubs)
+    (visibility public)
+    (source
+     (path Cstubs)
+     (intf (path stubs/cstubs.mli))
+     (impl (path stubs/cstubs.ml))))
+   (module
+    (obj_name cstubs_analysis)
+    (visibility public)
+    (source
+     (path Cstubs_analysis)
+     (intf (path stubs/cstubs_analysis.mli))
+     (impl (path stubs/cstubs_analysis.ml))))
+   (module
+    (obj_name cstubs_c_language)
+    (visibility public)
+    (source (path Cstubs_c_language) (impl (path stubs/cstubs_c_language.ml))))
+   (module
+    (obj_name cstubs_emit_c)
+    (visibility public)
+    (source (path Cstubs_emit_c) (impl (path stubs/cstubs_emit_c.ml))))
+   (module
+    (obj_name cstubs_errors)
+    (visibility public)
+    (source
+     (path Cstubs_errors)
+     (intf (path stubs/cstubs_errors.mli))
+     (impl (path stubs/cstubs_errors.ml))))
+   (module
+    (obj_name cstubs_generate_c)
+    (visibility public)
+    (source
+     (path Cstubs_generate_c)
+     (intf (path stubs/cstubs_generate_c.mli))
+     (impl (path stubs/cstubs_generate_c.ml))))
+   (module
+    (obj_name cstubs_generate_ml)
+    (visibility public)
+    (source
+     (path Cstubs_generate_ml)
+     (intf (path stubs/cstubs_generate_ml.mli))
+     (impl (path stubs/cstubs_generate_ml.ml))))
+   (module
+    (obj_name cstubs_inverted)
+    (visibility public)
+    (source
+     (path Cstubs_inverted)
+     (intf (path stubs/cstubs_inverted.mli))
+     (impl (path stubs/cstubs_inverted.ml))))
+   (module
+    (obj_name cstubs_public_name)
+    (visibility public)
+    (source
+     (path Cstubs_public_name)
+     (intf (path stubs/cstubs_public_name.mli))
+     (impl (path stubs/cstubs_public_name.ml))))
+   (module
+    (obj_name cstubs_structs)
+    (visibility public)
+    (source
+     (path Cstubs_structs)
+     (intf (path stubs/cstubs_structs.mli))
+     (impl (path stubs/cstubs_structs.ml))))
+   (module
+    (obj_name ctypes_path)
+    (visibility public)
+    (source
+     (path Ctypes_path)
+     (intf (path stubs/ctypes_path.mli))
+     (impl (path stubs/ctypes_path.ml)))))))
+(library
+ (name ctypes.top)
+ (kind normal)
+ (archives (byte top/ctypes_top.cma) (native top/ctypes_top.cmxa))
+ (plugins (byte top/ctypes_top.cma) (native top/ctypes_top.cmxs))
+ (native_archives top/ctypes_top.a)
+ (requires ctypes compiler-libs)
+ (main_module_name Ctypes_top)
+ (modes byte native)
+ (modules
+  (wrapped
+   (group
+    (alias
+     (obj_name ctypes_top)
+     (visibility public)
+     (kind alias)
+     (source (path Ctypes_top) (impl (path top/ctypes_top.ml-gen))))
+    (name Ctypes_top)
+    (modules
+     (module
+      (obj_name ctypes_top__Ctypes_printers)
+      (visibility public)
+      (source
+       (path Ctypes_printers)
+       (intf (path top/ctypes_printers.mli))
+       (impl (path top/ctypes_printers.ml))))
+     (module
+      (obj_name ctypes_top__Install_ctypes_printers)
+      (visibility public)
+      (source
+       (path Install_ctypes_printers)
+       (impl (path top/install_ctypes_printers.ml))))))
+   (wrapped true))))

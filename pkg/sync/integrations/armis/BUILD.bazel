@@ -1,0 +1,43 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "armis",
+    srcs = [
+        "armis.go",
+        "armis_updater.go",
+        "config.go",
+        "devices.go",
+        "errors.go",
+        "interfaces.go",
+        "mock_armis.go",
+        "token_cache.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/sync/integrations/armis",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "armis_test",
+    srcs = [
+        "armis_test.go",
+        "token_cache_test.go",
+    ],
+    embed = [":armis"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_golang_google_grpc//:grpc",
+        "@org_uber_go_mock//gomock",
+    ],
+)

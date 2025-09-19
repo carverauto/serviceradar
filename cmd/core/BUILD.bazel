@@ -1,0 +1,23 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "core_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/cmd/core",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/core",
+        "//pkg/core/api",
+        "//pkg/lifecycle",
+        "//pkg/logger",
+        "//pkg/swagger",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+go_binary(
+    name = "core",
+    embed = [":core_lib"],
+    visibility = ["//visibility:public"],
+)

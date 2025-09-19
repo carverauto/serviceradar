@@ -1,0 +1,44 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sweeper",
+    srcs = [
+        "base_processor.go",
+        "interfaces.go",
+        "memory_store.go",
+        "mock_sweeper.go",
+        "sweeper.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/sweeper",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "//pkg/scan",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "sweeper_test",
+    srcs = [
+        "aggregation_test.go",
+        "availability_logic_test.go",
+        "base_processor_test.go",
+        "memory_store_test.go",
+        "sticky_availability_test.go",
+        "sweeper_prune_test.go",
+        "sweeper_test.go",
+        "target_count_test.go",
+        "tcp_optimization_test.go",
+    ],
+    embed = [":sweeper"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_mock//gomock",
+    ],
+)

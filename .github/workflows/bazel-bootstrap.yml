@@ -1,0 +1,32 @@
+name: Bazel Bootstrap
+
+on:
+  push:
+    branches:
+      - main
+      - 'bazel/**'
+  pull_request:
+    paths:
+      - '**/*.bzl'
+      - '**/BUILD.bazel'
+      - MODULE.bazel
+      - WORKSPACE.bazel
+      - bazel_implementation_plan.md
+      - .github/workflows/bazel-bootstrap.yml
+      - docs/**
+      - proto/**
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Bazelisk
+        uses: bazelbuild/setup-bazelisk@v1
+
+      - name: Build docs lint target
+        run: bazel build //docs:lint

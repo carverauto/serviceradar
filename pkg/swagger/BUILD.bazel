@@ -1,0 +1,17 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "swagger",
+    srcs = [
+        "docs.go",
+        "embed.go",
+    ],
+    embedsrcs = [
+        "docs.go",
+        "swagger.json",
+        "swagger.yaml",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/swagger",
+    visibility = ["//visibility:public"],
+    deps = ["@com_github_swaggo_swag//:swag"],
+)

@@ -1,0 +1,1 @@
+option('ENABLE_TESTS', type: 'boolean', value: false, description: 'Enables building test executables')

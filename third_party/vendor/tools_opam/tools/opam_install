@@ -1,0 +1,7 @@
+#!/bin/sh
+
+opam install --cli=2.1 --root ./.opam --switch obazl --require-checksums $1
+
+## --download-only $1
+## requires opam 2.1
+## once our conversion tool is in order, we can download w/o installing and run the tool.  for now we do a regular install.

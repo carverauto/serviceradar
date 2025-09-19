@@ -1,0 +1,31 @@
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+load("@rust_crates//:defs.bzl", "all_crate_deps", "crate_deps")
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    crate_root = "build.rs",
+    edition = "2018",
+    deps = crate_deps(["tonic-build"]),
+    data = ["//proto:kv_proto_src"],
+)
+
+rust_library(
+    name = "flowgger_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2018",
+    crate_name = "flowgger",
+    deps = all_crate_deps(normal = True) + [":build_script", "//rust/kvutil:kvutil"],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    visibility = ["//visibility:public"],
+)
+
+rust_binary(
+    name = "flowgger",
+    srcs = ["src/main.rs"],
+    edition = "2018",
+    deps = all_crate_deps(normal = True) + [":build_script", ":flowgger_lib", "//rust/kvutil:kvutil"],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)

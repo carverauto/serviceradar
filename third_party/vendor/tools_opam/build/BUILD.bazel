@@ -1,0 +1,4 @@
+# do not remove
+
+# needed for remote stardoc
+exports_files(["rules.bzl"])

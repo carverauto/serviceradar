@@ -1,10 +1,7 @@
 (* file: srql/lib/sql_ir.ml *)
 type operator = Eq | Neq | Gt | Gte | Lt | Lte | Contains | In | Like | ArrayContains
-[@@deriving show]
-(* This line auto-generates a print function for debugging *)
 
 type value = String of string | Int of int | Bool of bool | Expr of string | Float of float
-[@@deriving show]
 
 type condition =
   | Condition of (string * operator * value)
@@ -15,9 +12,8 @@ type condition =
   | IsNull of string
   | IsNotNull of string
   | InList of string * value list
-[@@deriving show]
 
-type order_dir = Asc | Desc [@@deriving show]
+type order_dir = Asc | Desc
 
 type query = {
   q_type : [ `Select | `Stream ];
@@ -30,4 +26,3 @@ type query = {
   having : condition option;
   latest : bool;
 }
-[@@deriving show]
