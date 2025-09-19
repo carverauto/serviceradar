@@ -29,3 +29,5 @@ build:ci --keep_going --build_tag_filters=-manual
 
 # CI tests should avoid manual-only targets and preserve detailed output.
 test:ci --test_tag_filters=-manual --test_output=errors
+
+build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
