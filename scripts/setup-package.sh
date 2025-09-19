@@ -288,66 +288,42 @@ build_component() {
             docker rm "$container_id"
         # The problem is likely in this section of setup-package.sh
         elif [ "$build_method" = "npm" ]; then
-            local build_dir output_dir
+            local build_dir output_dir bazel bazel_bin web_bundle
             build_dir=$(echo "$config" | jq -r '.build_dir')
             output_dir=$(echo "$config" | jq -r '.output_dir')
-            echo "Building Next.js application in $build_dir..."
+            echo "Building Next.js application in $build_dir via Bazel..."
+
+            bazel="${BASE_DIR}/tools/bazel/bazel"
+            NEXT_PUBLIC_VERSION="$VERSION" NEXT_PUBLIC_BUILD_ID="$BUILD_ID" "${bazel}" build //pkg/core/api/web:files || { echo "Error: Bazel build failed"; exit 1; }
+
+            bazel_bin="$("${bazel}" info bazel-bin)"
+            web_bundle="${bazel_bin}/pkg/core/api/web/.next"
+
+            # Prepare destination directories
+            rm -rf "${pkg_root}${output_dir}"
             mkdir -p "${pkg_root}${output_dir}" || { echo "Error: Failed to create directory ${pkg_root}${output_dir}"; exit 1; }
-            cd "${BASE_DIR}/${build_dir}" || { echo "Error: Failed to change to ${BASE_DIR}/${build_dir}"; exit 1; }
-            echo "Current directory: $(pwd)"
-            echo "Node.js version: $(node -v)"
-            echo "npm version: $(npm -v)"
-            
-            # Create build info file for web UI
-            echo "Creating build info file..."
-            cat > public/build-info.json << EOF
+            mkdir -p "${pkg_root}${output_dir}/.next" || { echo "Error: Failed to create .next directory"; exit 1; }
+
+            # Copy the standalone runtime and supporting manifests
+            cp -R "${web_bundle}/standalone/." "${pkg_root}${output_dir}/" || { echo "Error: Failed to copy standalone files"; exit 1; }
+            chmod -R u+w "${pkg_root}${output_dir}/.next" || true
+            cp -R "${web_bundle}/." "${pkg_root}${output_dir}/.next/" || { echo "Error: Failed to copy .next contents"; exit 1; }
+
+            # Copy public assets and embed build metadata
+            if [ -d "${BASE_DIR}/${build_dir}/public" ]; then
+                mkdir -p "${pkg_root}${output_dir}/public" || { echo "Error: Failed to create public directory"; exit 1; }
+                cp -R "${BASE_DIR}/${build_dir}/public/." "${pkg_root}${output_dir}/public/" || { echo "Error: Failed to copy public directory"; exit 1; }
+            else
+                mkdir -p "${pkg_root}${output_dir}/public" || { echo "Error: Failed to create public directory"; exit 1; }
+            fi
+
+            cat > "${pkg_root}${output_dir}/public/build-info.json" << EOF
 {
   "version": "$VERSION",
   "buildId": "$BUILD_ID",
   "buildTime": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF
-            
-            echo "Installing dependencies..."
-            npm install || { echo "Error: npm install failed"; exit 1; }
-            echo "Building Next.js application with VERSION=$VERSION and BUILD_ID=$BUILD_ID..."
-            NEXT_PUBLIC_VERSION="$VERSION" NEXT_PUBLIC_BUILD_ID="$BUILD_ID" npm run build || { echo "Error: npm build failed"; exit 1; }
-            echo "Installing production dependencies for runtime..."
-            rm -rf node_modules package-lock.json
-            npm install --production || { echo "Error: npm install --production failed"; exit 1; }
-
-            # Debug the directories
-            echo "Debugging Next.js build output..."
-            ls -la .next/ || echo "No .next directory found!"
-            ls -la .next/standalone/ || echo "No standalone directory found!"
-            ls -la .next/static/ || echo "No static directory found!"
-
-            # Create the necessary directory structure first
-            echo "Creating directory structure for standalone build..."
-            mkdir -p "${pkg_root}${output_dir}/.next/static" || { echo "Error: Failed to create static directory"; exit 1; }
-
-            # Copy the standalone server and dependencies
-            echo "Copying standalone build artifacts..."
-            cp -r .next/standalone/. "${pkg_root}${output_dir}/" || { echo "Error: Failed to copy standalone files"; exit 1; }
-
-            # Copy public directory if it exists
-            if [ -d "public" ]; then
-                echo "Copying public directory..."
-                mkdir -p "${pkg_root}${output_dir}/public" || { echo "Error: Failed to create public directory"; exit 1; }
-                cp -r public/. "${pkg_root}${output_dir}/public/" || { echo "Error: Failed to copy public directory"; exit 1; }
-            fi
-
-            # Copy static files to the right location
-            echo "Copying static files..."
-            cp -r .next/static/. "${pkg_root}${output_dir}/.next/static/" || { echo "Error: Failed to copy static files"; exit 1; }
-
-            # Verify the copied files
-            echo "Verifying copied files..."
-            ls -la "${pkg_root}${output_dir}/server.js" || { echo "Warning: server.js not found"; }
-            ls -la "${pkg_root}${output_dir}/.next/static/" || { echo "Warning: .next/static directory not found"; }
-
-            # Return to base directory
-            cd "${BASE_DIR}" || { echo "Error: Failed to return to base directory"; exit 1; }
         elif [ "$build_method" = "rust" ] && [ -n "$dockerfile" ]; then
             local output_path docker_output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')

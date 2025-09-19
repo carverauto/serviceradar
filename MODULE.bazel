@@ -13,10 +13,18 @@ bazel_dep(name = "rules_nodejs", version = "6.5.0")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "rules_oci", version = "2.2.6")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
+use_repo(find_rpm, "rules_pkg_rpmbuild")
+
+register_toolchains("@rules_pkg_rpmbuild//:all")
+
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.4")
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
+bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
 
 archive_override(
     module_name = "rules_ocaml",
@@ -310,6 +318,28 @@ npm.npm_translate_lock(
     root_package = "web",
 )
 use_repo(npm, "npm")
+
+# Expose select npm package repositories required for Next.js build tooling.
+use_repo(
+    npm,
+    "npm__at_microlink_react-json-view__1.26.2_1639084467__links",
+    "npm__at_tanstack_react-query__5.81.5_react_19.1.0__links",
+    "npm__lodash.set__4.3.2__links",
+    "npm__lodash__4.17.21__links",
+    "npm__lucide-react__0.476.0_react_19.1.0__links",
+    "npm__next-runtime-env__3.3.0_878941852__links",
+    "npm__next__15.4.7_125332280",
+    "npm__next__15.4.7_125332280__links",
+    "npm__react-dom__19.1.0_react_19.1.0",
+    "npm__react-dom__19.1.0_react_19.1.0__links",
+    "npm__react__19.1.0",
+    "npm__react__19.1.0__links",
+    "npm__recharts-scale__0.4.5__links",
+    "npm__recharts__2.15.3_125332280__links",
+    "npm__tailwindcss-animate__1.0.7_tailwindcss_3.4.17__links",
+    "npm__use-debounce__10.0.5_react_19.1.0__links",
+    "npm__xlsx__0.18.5__links",
+)
 
 rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "ext")
 rules_ts_ext.deps()

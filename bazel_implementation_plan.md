@@ -65,8 +65,9 @@
 
 ### 5.4 Node/TypeScript (Next.js)
 - [x] Configure `rules_nodejs` + `aspect_rules_js` with `npm_translate_lock` (driven by `web/pnpm-lock.yaml`).
-- [ ] Add `ts_project`/`next_js_binary` targets to reproduce the Next.js build.
-- [ ] Ensure static assets pipeline (`web/`, `pkg/`) compiles under Bazel.
+- [x] Add `ts_project`/`next_js_binary` targets to reproduce the Next.js build (see `//web:typecheck` and `//web:next_js_binary`).
+- [x] Ensure static assets pipeline (`web/`, `pkg/`) compiles under Bazel (Next.js standalone build succeeds and `//pkg/core/api/web:files` mirrors the bundle).
+    - [x] Update Go packaging/release workflows to consume `//pkg/core/api/web:files` instead of invoking npm scripts directly.
 
 ### 5.5 Shared Assets
 - Proto/gRPC: centralize under `proto/BUILD.bazel`, generate Go/Rust/TypeScript stubs.

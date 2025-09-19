@@ -1008,6 +1008,22 @@
         ]
       }
     },
+    "@@rules_pkg+//toolchains/rpm:rpmbuild_configure.bzl%find_system_rpmbuild_bzlmod": {
+      "general": {
+        "bzlTransitiveDigest": "B5+jkTTzKQTZ6KUhRFS1FMM7bu1H6uMRvQ234e9yIgA=",
+        "usagesDigest": "C2n6/iinOCV7A7c7ARz9Q3oW6bkBXSqTa8F1CWpESvA=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "rules_pkg_rpmbuild": {
+            "repoRuleId": "@@rules_pkg+//toolchains/rpm:rpmbuild_configure.bzl%build_repo_for_rpmbuild_toolchain",
+            "attributes": {}
+          }
+        },
+        "recordedRepoMappingEntries": []
+      }
+    },
     "@@rules_python+//python/uv:uv.bzl%uv": {
       "general": {
         "bzlTransitiveDigest": "PmZM/pIkZKEDDL68TohlKJrWPYKL5VwUw3MA7kmm6fk=",
