@@ -19,6 +19,7 @@ bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
 bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
 bazel_dep(name = "rules_shell", version = "0.4.0", repo_name = "rules_shell")
 bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
+bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
 
 find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
 use_repo(find_rpm, "rules_pkg_rpmbuild")
@@ -51,6 +52,9 @@ buildbuddy_toolchain_ext = use_extension(
     "buildbuddy",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
+
+perl_ext = use_extension("//third_party/perl:extension.bzl", "perl")
+use_repo(perl_ext, "perl_src")
 
 archive_override(
     module_name = "rules_ocaml",
@@ -339,6 +343,9 @@ npm.npm_translate_lock(
         "next": ["next=./dist/bin/next"],
     },
     dev = True,
+    lifecycle_hooks_exclude = [
+        "unrs-resolver@1.7.2",
+    ],
     npmrc = "//web:.npmrc",
     pnpm_lock = "//web:pnpm-lock.yaml",
     root_package = "web",

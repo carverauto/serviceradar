@@ -6,3 +6,5 @@ _build
 node_modules
 dist
 target
+third_party/vendor/tools_opam
+vendor
