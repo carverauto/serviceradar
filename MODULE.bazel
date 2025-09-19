@@ -53,9 +53,6 @@ buildbuddy_toolchain_ext = use_extension(
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
-perl_ext = use_extension("//third_party/perl:extension.bzl", "perl")
-use_repo(perl_ext, "perl_src")
-
 archive_override(
     module_name = "rules_ocaml",
     integrity = "sha256-cqe6FvPE/z5HAKzO/MN5YcbPMaqtzQS6kmRtAPBBySc=",
@@ -308,6 +305,61 @@ register_toolchains("@rust_toolchains//:all")
 crates = use_extension(
     "@rules_rust//crate_universe:extensions.bzl",
     "crate",
+)
+crates.annotation(
+    additive_build_file_content = """
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+
+write_file(
+    name = "workspace_perl_tool",
+    out = "perl-wrapper.sh",
+    content = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'exec perl "$@"',
+    ],
+    is_executable = True,
+)
+""",
+    build_script_data = [
+        ":workspace_perl_tool",
+        "@rust_crates__openssl-src-300.5.2-3.5.2//:openssl_src_runfiles",
+        "@rust_crates__openssl-src-300.5.2-3.5.2//:openssl_src_readme",
+    ],
+    build_script_env = {
+        "OPENSSL_SRC_PERL": "$(execpath :workspace_perl_tool)",
+        "RULES_RUST_OPENSSL_SRC_DIR": "$(location @rust_crates__openssl-src-300.5.2-3.5.2//:openssl_src_readme)",
+    },
+    crate = "openssl-sys",
+)
+crates.annotation(
+    additive_build_file_content = """
+filegroup(
+    name = "openssl_src_runfiles",
+    srcs = glob(
+        allow_empty = True,
+        include = ["**"],
+        exclude = [
+            "**/* *",
+            ".tmp_git_root/**/*",
+            "BUILD",
+            "BUILD.bazel",
+            "WORKSPACE",
+            "WORKSPACE.bazel",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "openssl_src_readme",
+    srcs = ["openssl/README.md"],
+    visibility = ["//visibility:public"],
+)
+""",
+    crate = "openssl-src",
+    patches = ["//third_party/rust_patches:openssl_src_runfiles.patch"],
+    patch_args = ["-p1"],
 )
 crates.from_cargo(
     name = "rust_crates",

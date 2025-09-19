@@ -17,12 +17,3 @@ buildbuddy_deps()
 load("@io_buildbuddy_buildbuddy_toolchain//:rules.bzl", "buildbuddy")
 
 buildbuddy(name = "buildbuddy_toolchain")
-
-# Prebuilt Perl is not available on remote executors, so we build it from source via
-# rules_foreign_cc and point OpenSSL's vendored build to the resulting binary.
-http_archive(
-    name = "perl_src",
-    urls = ["https://www.cpan.org/src/5.0/perl-5.40.0.tar.xz"],
-    integrity = "sha256-1TJTAK0mdiTLC31RLP3810+n/gDEVcW1GmvVPl4Znvk=",
-    strip_prefix = "perl-5.40.0",
-)
