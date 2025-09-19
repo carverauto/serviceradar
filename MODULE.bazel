@@ -14,6 +14,11 @@ bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "rules_oci", version = "2.2.6")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
+bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
+bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
+bazel_dep(name = "rules_shell", version = "0.4.0", repo_name = "rules_shell")
+bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
 
 find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
 use_repo(find_rpm, "rules_pkg_rpmbuild")
@@ -37,8 +42,8 @@ archive_override(
 
 bazel_dep(
     name = "toolchains_buildbuddy",
-    repo_name = "io_buildbuddy_buildbuddy_toolchain",
     version = "0.0.1",
+    repo_name = "io_buildbuddy_buildbuddy_toolchain",
 )
 
 buildbuddy_toolchain_ext = use_extension(
