@@ -53,6 +53,9 @@ buildbuddy_toolchain_ext = use_extension(
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
+perl_ext = use_extension("//third_party/perl:extension.bzl", "perl")
+use_repo(perl_ext, "perl_src")
+
 archive_override(
     module_name = "rules_ocaml",
     integrity = "sha256-cqe6FvPE/z5HAKzO/MN5YcbPMaqtzQS6kmRtAPBBySc=",
