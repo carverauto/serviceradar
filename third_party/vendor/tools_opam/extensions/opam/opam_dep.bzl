@@ -91,10 +91,14 @@ def _opam_dep_repo_impl(rctx):
         repo_pkg,
         switch_pfx)
     )
-    cmd = [rctx.attr.config_tool,
+    config_tool = rctx.path(rctx.attr.config_tool)
+    if not config_tool.exists:
+        fail("config tool not found at %s" % config_tool)
+
+    cmd = [str(config_tool),
            "--pkg", repo_pkg,
            "--pkg-pfx", rctx.attr.obazl_pfx,
-           "--switch-pfx", switch_pfx]
+            "--switch-pfx", switch_pfx]
     if rctx.attr.ocaml_version:
         cmd.extend(["--ocaml-version", rctx.attr.ocaml_version])
     rctx.report_progress("Configuring pkg %s" % repo_pkg)
