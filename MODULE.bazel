@@ -11,6 +11,7 @@ bazel_dep(name = "rules_rust", version = "0.65.0")
 bazel_dep(name = "rules_python", version = "1.6.1")
 bazel_dep(name = "rules_nodejs", version = "6.5.0")
 bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "protobuf", version = "29.1", repo_name = "com_google_protobuf")
 bazel_dep(name = "rules_oci", version = "2.2.6")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "platforms", version = "1.0.0")
@@ -52,9 +53,6 @@ buildbuddy_toolchain_ext = use_extension(
     "buildbuddy",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
-
-perl_ext = use_extension("//third_party/perl:extension.bzl", "perl")
-use_repo(perl_ext, "perl_src")
 
 archive_override(
     module_name = "rules_ocaml",
@@ -361,8 +359,8 @@ filegroup(
 )
 """,
     crate = "openssl-src",
-    patches = ["//third_party/rust_patches:openssl_src_runfiles.patch"],
     patch_args = ["-p1"],
+    patches = ["//third_party/rust_patches:openssl_src_runfiles.patch"],
 )
 crates.from_cargo(
     name = "rust_crates",
@@ -446,6 +444,30 @@ http_file = use_repo_rule(
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
+)
+
+http_archive(
+    name = "perl_src",
+    build_file_content = """
+filegroup(
+    name = "all_sources",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "d5325300ad267624cb0b7d512cfdfcd74fa7fe00c455c5b51a6bd53e5e199ef9",
+    strip_prefix = "perl-5.40.0",
+    urls = [
+        "https://www.cpan.org/src/5.0/perl-5.40.0.tar.xz",
+    ],
+)
+
+http_archive(
+    name = "remote_coverage_tools",
+    sha256 = "aab349130118497d86bc79e3f735f026d3c36e7d38529063e91da1c29cc2ea47",
+    urls = [
+        "https://mirror.bazel.build/bazel_coverage_output_generator/releases/coverage_output_generator-v2.9.zip",
+    ],
 )
 
 http_file(
