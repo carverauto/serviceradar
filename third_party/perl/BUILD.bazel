@@ -4,13 +4,12 @@ perl_version = "5.40.0"
 
 configure_make(
     name = "perl_binary",
-    lib_name = "perl",
+    lib_name = "perl_install",  # Keep build tree from colliding with the perl binary name
     lib_source = "@perl_src//:all_sources",
     configure_in_place = True,
-    configure_prefix = "cp $(execpath :configure-wrapper.sh) ./configure && chmod +x ./configure &&",
+    configure_command = "bazel_configure_wrapper.sh",
     configure_options = ["-des"],
-    build_data = [":configure-wrapper.sh"],
-    out_binaries = ["bin/perl"],
+    out_binaries = ["perl"],
 )
 
 exports_files(["configure-wrapper.sh"])

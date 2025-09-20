@@ -14,3 +14,9 @@ gazelle(
 )
 
 exports_files(["VERSION"])
+
+alias(
+    name = "cwalk",
+    actual = "@@cwalk+//:cwalk",
+    visibility = ["//visibility:public"],
+)

@@ -1,3 +1,4 @@
+.bazel_cache
 .cargo
 .gomodcache
 cmd/logos/.venv

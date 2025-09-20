@@ -13,9 +13,19 @@ for arg in "$@"; do
 done
 
 if [[ -z "${prefix}" ]]; then
-  echo "Missing --prefix argument" >&2
-  exit 1
+  if [[ -n "${INSTALLDIR:-}" ]]; then
+    prefix="${INSTALLDIR}"
+  else
+    echo "Missing --prefix argument" >&2
+    exit 1
+  fi
 fi
+
+for dotted in .dir-locals.el .editorconfig .metaconf-exclusions.txt; do
+  if [[ ! -e "${dotted}" ]]; then
+    : > "${dotted}"
+  fi
+done
 
 if (( ${#passthrough[@]} )); then
   exec ./Configure "-Dprefix=${prefix}" "${passthrough[@]}"
