@@ -48,4 +48,13 @@ build:remote --define=EXECUTOR=remote
 build:remote --incompatible_strict_action_env
 build:remote --remote_timeout=10m
 
+# OCaml toolchain generated via tools_opam is macOS-hosted, which cannot run on
+# Linux remote executors. Force OCaml compilation/linking actions to run locally
+# until a hermetic Linux toolchain is available.
+build:remote --strategy=CompileOCamlModule=local
+build:remote --strategy=CompileOCamlLibrary=local
+build:remote --strategy=CompileOCamlArchive=local
+build:remote --strategy=OcamlPack=local
+build:remote --strategy=OcamlLink=local
+
 build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
