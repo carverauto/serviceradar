@@ -34,9 +34,9 @@ test:ci --test_tag_filters=-manual --test_output=errors
 
 # Remote execution profile (opt-in via --config=remote).
 build:remote --remote_executor=grpcs://remote.buildbuddy.io
-build:remote --host_platform=@buildbuddy_toolchain//:platform_linux_x86_64
-build:remote --platforms=@buildbuddy_toolchain//:platform_linux_x86_64
-build:remote --extra_execution_platforms=@buildbuddy_toolchain//:platform_linux_x86_64
+build:remote --host_platform=//:rbe_linux_amd64
+build:remote --platforms=//:rbe_linux_amd64
+build:remote --extra_execution_platforms=//:rbe_linux_amd64,//:rbe_linux_arm64
 build:remote --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:remote --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
 build:remote --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
