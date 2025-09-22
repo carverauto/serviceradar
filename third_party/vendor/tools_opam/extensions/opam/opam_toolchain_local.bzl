@@ -21,6 +21,7 @@ def _opam_create_local_switch(ctx, opambin,
         cmd = ["opam", "var", "sys-ocaml-version"]
         res = ctx.execute(cmd,
                           working_directory = str(proj_root),
+                          environment = {"OBAZL_NO_BWRAP": "1"},
                           quiet = (verbosity < 1))
         if res.return_code == 0:
             ocaml_version = res.stdout.strip()
@@ -49,11 +50,10 @@ def _opam_create_local_switch(ctx, opambin,
 
     ctx.report_progress("""Creating local switch for compiler {v} at {id}""".format(v=ocaml_version, id=switch_id))
 
+    env = {"OBAZL_NO_BWRAP": "1"}
     res = ctx.execute(cmd,
                       working_directory = str(proj_root),
-                      # environment = {
-                      #     "PATH":  "/usr/local/bin:/bin:/usr/bin:usr/sbin"
-                      # },
+                      environment = env,
                       quiet = (opam_verbosity < 1))
     if res.return_code == 5:
         # no matching compiler found; run 'opam update'
@@ -91,6 +91,7 @@ def config_local_toolchain(mctx,
         cmd = [opambin, "var", "ocaml:version",
                "--switch", proj_root,]
         res = mctx.execute(cmd,
+                           environment = {"OBAZL_NO_BWRAP": "1"},
                            quiet = (debug < 1))
         if res.return_code == 0:
             switch =  proj_root
@@ -155,7 +156,7 @@ To remove this warning, either:
 
     ## now get the OPAMROOT
     cmd = [opambin, "var", "root"]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
     if res.return_code == 0:
         OPAMROOT = res.stdout.strip()
     else:
@@ -165,7 +166,7 @@ To remove this warning, either:
         fail("cmd failure.")
 
     cmd = [opambin, "var", "bin", "--switch", switch]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
     if res.return_code == 0:
         switch_bin = res.stdout.strip()
     else:
@@ -175,7 +176,7 @@ To remove this warning, either:
         fail("cmd failure.")
 
     cmd = [opambin, "var", "lib", "--switch", switch]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
     if res.return_code == 0:
         switch_lib = res.stdout.strip()
     else:
@@ -212,4 +213,3 @@ To remove this warning, either:
 
     return (opambin, OPAMROOT, SDKLIB,
             str(switch), ocaml_version, deps)
-

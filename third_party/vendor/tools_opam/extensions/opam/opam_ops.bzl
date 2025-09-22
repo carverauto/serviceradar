@@ -117,10 +117,9 @@ def opam_install_pkg(rctx,
         print("\nInstalling pkg:\n\t%s" % cmd)
     rctx.report_progress("Installing pkg {p} ({i} of {tot})".format(p=pkg, i=n, tot=tot))
 
+    env = {"OBAZL_NO_BWRAP": "1"}
     res = rctx.execute(cmd,
-                       # environment = {
-                       #     "PATH":  the_path
-                       # },
+                       environment = env,
                        quiet = (opam_verbosity < 1))
     if res.return_code == 0:
         if debug > 0: print("pkg installed: '%s'" % pkg)
@@ -130,4 +129,3 @@ def opam_install_pkg(rctx,
         print("stdout: %s" % res.stdout)
         print("stderr: %s" % res.stderr)
         fail("cmd failure")
-

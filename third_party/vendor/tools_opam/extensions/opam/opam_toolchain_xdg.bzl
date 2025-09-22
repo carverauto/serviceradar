@@ -102,8 +102,9 @@ def _init_opam(mctx, opambin, opam_version, OPAMROOT,
     """.format(c = CCYEL, reset = CCRESET,
                v = opam_version, r = OPAMROOT)
                          )
+    env = {"OBAZL_NO_BWRAP": "1", "OPAMNO": "true"}
     res = mctx.execute(cmd,
-                       environment = {"OPAMNO": "true"},
+                       environment = env,
                        quiet = (opam_verbosity < 1))
     if res.return_code != 0:
         print("cmd: %s" % cmd)
@@ -138,10 +139,12 @@ def _create_switch(mctx, opambin, opam_version,
       in opam {o} root: {r}""".format(c = CCYEL, reset = CCRESET,
                s = switch_id, v = switch_id,
                o = opam_version, r = OPAMROOT))
+    env = {
+        "OBAZL_NO_BWRAP": "1",
+        "PATH": "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin",
+    }
     res = mctx.execute(cmd,
-                       environment = {
-                           "PATH": "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin"
-                       },
+                       environment = env,
                        quiet = (opam_verbosity < 1))
     if res.return_code != 0:
         if res.return_code != 2: # already installed
@@ -185,7 +188,7 @@ def config_xdg_toolchain(mctx,
 
     if verbosity > 0:
         cmd = [opambin, "--version"]
-        res = mctx.execute(cmd)
+        res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
         if res.return_code == 0:
             print("\n  Opam version: %s" % res.stdout.strip())
         else:
@@ -223,7 +226,7 @@ def config_xdg_toolchain(mctx,
         # no ocaml_version specified, use default
         cmd = ["opam", "var", "sys-ocaml-version",
                "--root", OPAMROOT]
-        res = mctx.execute(cmd)
+        res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
                            # environment = {
                            #     "PATH": "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin"
                            # },
@@ -248,7 +251,7 @@ def config_xdg_toolchain(mctx,
 
     cmd = [opambin, "var", "prefix", "--root", OPAMROOT,
            "--switch", switch_id]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
     if res.return_code == 0:
         switch_pfx = res.stdout.strip()
     else:
@@ -260,7 +263,7 @@ def config_xdg_toolchain(mctx,
 
     cmd = [opambin, "var", "bin", "--root", OPAMROOT,
            "--switch", switch_id]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
     if res.return_code == 0:
         switch_bin = res.stdout.strip()
     else:
@@ -294,7 +297,8 @@ def config_xdg_toolchain(mctx,
            "--root", "{}".format(str(OPAMROOT)),
           "--yes"]
     switch_lib = None
-    res = mctx.execute(cmd) # , quiet = (verbosity < 1))
+    res = mctx.execute(cmd,
+                       environment = {"OBAZL_NO_BWRAP": "1"}) # , quiet = (verbosity < 1))
     if res.return_code == 0:
         switch_lib = res.stdout.strip()
     else:
