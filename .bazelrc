@@ -36,6 +36,10 @@ build:ci --bes_backend=grpcs://remote.buildbuddy.io
 # CI tests should avoid manual-only targets and preserve detailed output.
 test:ci --test_tag_filters=-manual --test_output=errors
 
+# Suppress use-after-free warnings in CI (needed for tools_opam on Ubuntu 24.04)
+build:ci --copt=-Wno-use-after-free
+test:ci --copt=-Wno-use-after-free
+
 # Remote execution profile (opt-in via --config=remote).
 build:remote --remote_executor=grpcs://remote.buildbuddy.io
 build:remote --host_platform=//:rbe_linux_amd64
