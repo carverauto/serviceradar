@@ -38,18 +38,22 @@ def _build_config_tool(mctx, toolchain, debug, verbosity):
     # cmd = ["tree", "-aL", "1", "../../external"]
     # mctx.execute(cmd, quiet = False)
 
-    mctx.file("MODULE.bazel",
-
-              content = """
+    mctx.file(
+        "MODULE.bazel",
+        content = """
 module(
     name = "config_tool",
     version = "0.0.0",
- )
+)
 
-bazel_dep(name = "tools_opam",  version="1.0.0.beta.1")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "tools_opam",  version = "1.0.0.beta.1")
 bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
-               """
-              )
+
+host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
+use_repo(host_platform_ext, "host_platform")
+        """,
+    )
 
     HOME = mctx.getenv("HOME")
 
