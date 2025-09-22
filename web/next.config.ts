@@ -17,6 +17,9 @@
 import baseConfig from "./next.config.bazel.mjs";
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = baseConfig;
+const nextConfig: NextConfig = {
+  ...baseConfig,
+  output: "standalone",
+};
 
 export default nextConfig;

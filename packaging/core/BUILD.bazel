@@ -17,6 +17,11 @@ config_setting(
     ],
 )
 
+config_setting(
+    name = "remote_executor",
+    define_values = {"EXECUTOR": "remote"},
+)
+
 filegroup(
     name = "postinstall_script",
     srcs = ["scripts/postinstall.sh"],
@@ -111,7 +116,12 @@ pkg_deb(
 pkg_rpm(
     name = "core_rpm",
     package_name = "serviceradar-core",
-    target_compatible_with = ["@platforms//os:linux"],
+    target_compatible_with = select({
+        ":remote_executor": ["@platforms//:incompatible"],
+        "//conditions:default": ["@platforms//os:linux"],
+    }),
+    # rpmbuild is only installed on developer machines; block remote execution.
+    tags = ["no-remote-exec"],
     version_file = "//:VERSION",
     release = "1",
     architecture = "x86_64",
@@ -135,11 +145,17 @@ pkg_rpm(
 )
 
 filegroup(
+    name = "core_rpm_bundle",
+    srcs = select({
+        ":remote_executor": [],
+        "//conditions:default": [":core_rpm"],
+    }),
+)
+
+filegroup(
     name = "core",
     srcs = [
         ":core_deb",
-    ] + select({
-        ":linux": [":core_rpm"],
-        "//conditions:default": [],
-    }),
+        ":core_rpm_bundle",
+    ],
 )

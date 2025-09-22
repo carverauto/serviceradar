@@ -9,9 +9,13 @@ cargo_build_script(
     edition = "2021",
     deps = crate_deps(["tonic-build"]),
     data = [
+        "@bazel_tools//tools/proto:protoc",
         "//proto:kv_proto_src",
         "//proto:monitoring_proto_src",
     ],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
 )
 
 rust_binary(

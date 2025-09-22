@@ -1,3 +1,4 @@
+.bazel_cache
 .cargo
 .gomodcache
 cmd/logos/.venv
@@ -6,3 +7,7 @@ _build
 node_modules
 dist
 target
+third_party/vendor/tools_opam
+vendor
+_bazel_root
+_bazel_output
