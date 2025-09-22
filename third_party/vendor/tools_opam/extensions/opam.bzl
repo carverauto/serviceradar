@@ -299,6 +299,9 @@ use_repo(opam_dev, utop="opam.utop")
         #             print("DEPS: %s" % config.direct_deps)
         #             print("SUBDEPS: %s" % config.indirect_deps)
 
+    if not direct_deps and not dev_deps:
+        return
+
     ## detect whether or not we are in an opam install env.
     if mctx.getenv("OBAZL_OPAM_ENV"):
         toolchain = "opam"
