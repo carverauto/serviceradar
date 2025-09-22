@@ -104,11 +104,14 @@ def _opam_dep_repo_impl(rctx):
     if rctx.attr.ocaml_version:
         cmd.extend(["--ocaml-version", rctx.attr.ocaml_version])
     rctx.report_progress("Configuring pkg %s" % repo_pkg)
-    res = rctx.execute(cmd,
-                       environment = {
-                           "OBAZL_SDKLIB": rctx.attr.sdklib
-                       },
-                       quiet = (verbosity < 1))
+    res = rctx.execute(
+        cmd,
+        environment = {
+            "OBAZL_SDKLIB": rctx.attr.sdklib,
+            "OBAZL_NO_BWRAP": "1",
+        },
+        quiet = (verbosity < 1),
+    )
 
     if res.return_code == 0:
         _pkg_deps = res.stdout.strip()
