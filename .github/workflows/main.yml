@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
 
     steps:
       - name: Checkout
@@ -27,10 +29,10 @@ jobs:
           bazel-version-file: .bazelversion
 
       - name: Configure remote cache
-        if: ${{ secrets.BUILDBUDDY_ORG_API_KEY != '' }}
+        if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
           cat <<EOF > .bazelrc.remote
-          common --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+          common --remote_header=x-buildbuddy-api-key=${BUILDBUDDY_ORG_API_KEY}
           EOF
 
       - name: Test
