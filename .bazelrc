@@ -32,7 +32,6 @@ build:ci --config=remote
 build:ci --build_metadata=ROLE=CI
 build:ci --bes_results_url=https://app.buildbuddy.io/invocation/
 build:ci --bes_backend=grpcs://remote.buildbuddy.io
-build:ci --repository_cache_timeout=10m
 build:ci --remote_timeout=15m
 
 # CI tests should avoid manual-only targets and preserve detailed output.
