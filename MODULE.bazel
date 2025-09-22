@@ -399,7 +399,7 @@ filegroup(
 """,
     crate = "openssl-src",
     patch_args = ["-p1"],
-    patches = ["//third_party/rust_patches:openssl_src_runfiles.patch"],
+    patches = ["//third_party/rust_patches:openssl_src_runfiles_patch"],
 )
 crates.from_cargo(
     name = "rust_crates",
