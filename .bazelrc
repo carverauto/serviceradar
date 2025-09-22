@@ -28,6 +28,10 @@ try-import %workspace%/.bazelrc.remote
 
 # CI profile can layer on top of the remote config without re-declaring values.
 build:ci --keep_going --build_tag_filters=-manual
+build:ci --config=remote
+build:ci --build_metadata=ROLE=CI
+build:ci --bes_results_url=https://app.buildbuddy.io/invocation/
+build:ci --bes_backend=grpcs://remote.buildbuddy.io
 
 # CI tests should avoid manual-only targets and preserve detailed output.
 test:ci --test_tag_filters=-manual --test_output=errors
