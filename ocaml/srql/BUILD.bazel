@@ -1,4 +1,10 @@
-load("@rules_ocaml//build:rules.bzl", "ocaml_binary", "ocaml_library", "ocaml_module", "ocaml_test")
+load(
+    "//ocaml/srql:ocaml_local_rules.bzl",
+    "ocaml_binary",
+    "ocaml_library",
+    "ocaml_module",
+    "ocaml_test",
+)
 
 package(default_visibility = ["//visibility:public"])
 
