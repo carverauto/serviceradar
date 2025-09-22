@@ -145,6 +145,9 @@ npm_link_tailwindcss_animate_store(
 WEB_TS_SRCS = glob(
     [
         "next-env.d.ts",
+        "next.config.bazel.d.ts",
+        # Ensure the Next.js Bazel config is available to tsc in remote sandboxes.
+        "next.config.bazel.mjs",
         "next.config.ts",
         "next.config.docker.ts",
         "tailwind.config.ts",
