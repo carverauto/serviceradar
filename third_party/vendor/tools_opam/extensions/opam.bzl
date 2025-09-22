@@ -128,6 +128,7 @@ use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
         environment = {
             "HOME": mctx.getenv("HOME") + "/.cache",
             "XDG_CACHE_HOME": mctx.getenv("HOME") + "/.cache",
+            "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": "0",
             "OBAZL_NO_BWRAP": "1",
         },
         quiet = (verbosity < 1),
