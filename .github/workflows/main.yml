@@ -21,30 +21,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bubblewrap
 
-      - name: Install bazelisk
-        run: |
-          curl -sSLo bazelisk-linux-amd64 "https://github.com/bazelbuild/bazelisk/releases/download/v1.1.0/bazelisk-linux-amd64"
-          mkdir -p "${GITHUB_WORKSPACE}/bin"
-          mv bazelisk-linux-amd64 "${GITHUB_WORKSPACE}/bin/bazel"
-          chmod +x "${GITHUB_WORKSPACE}/bin/bazel"
-          echo "${GITHUB_WORKSPACE}/bin" >> "$GITHUB_PATH"
+      - name: Install Bazel
+        uses: bazel-contrib/setup-bazel@v3
+        with:
+          bazel-version-file: .bazelversion
 
-      - name: Build
-        env:
-          BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
-          BAZELISK_SKIP_WRAPPER: 1
+      - name: Configure remote cache
+        if: ${{ secrets.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
-          "${GITHUB_WORKSPACE}/bin/bazel" build \
-            --config=ci \
-            --remote_header=x-buildbuddy-api-key=${BUILDBUDDY_ORG_API_KEY} \
-            //...
+          cat <<EOF > .bazelrc.remote
+          common --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+          EOF
 
       - name: Test
-        env:
-          BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
-          BAZELISK_SKIP_WRAPPER: 1
         run: |
-          "${GITHUB_WORKSPACE}/bin/bazel" test \
+          bazel test \
             --config=ci \
-            --remote_header=x-buildbuddy-api-key=${BUILDBUDDY_ORG_API_KEY} \
             //...
