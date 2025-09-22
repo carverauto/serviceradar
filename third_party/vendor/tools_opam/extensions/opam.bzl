@@ -92,11 +92,15 @@ bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
 
     mctx.report_progress("Building @tools_opam//extensions/config")
     # print("\nRunning cfg tool build:\n%s" % cmd)
-    res = mctx.execute(cmd,
-                       environment = {
-                           "HOME": "../.cache",
-                           "XDG_CACHE_HOME": "../.cache"},
-                       quiet = (verbosity < 1))
+    res = mctx.execute(
+        cmd,
+        environment = {
+            "HOME": "../.cache",
+            "XDG_CACHE_HOME": "../.cache",
+            "OBAZL_NO_BWRAP": "1",
+        },
+        quiet = (verbosity < 1),
+    )
     if res.return_code == 0:
         # stdout = res.stdout.strip()
         # print("\nSTDOUT:\n%s" % stdout)
