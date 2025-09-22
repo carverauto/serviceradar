@@ -54,6 +54,11 @@ bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
     HOME = mctx.getenv("HOME")
 
     # only for opam install
+    shared_flags = [
+        "--repo_env=OBAZL_NO_BWRAP=1",
+        "--action_env=OBAZL_NO_BWRAP=1",
+    ]
+
     if toolchain == "opam":
         cmd = [bazel,
                "--ignore_all_rc_files",
@@ -87,6 +92,8 @@ bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
                "--ignore_dev_dependency",
                "--compilation_mode", "fastbuild",
                "@tools_opam//extensions/config"]
+
+    cmd.extend(shared_flags)
     if verbosity > 1:
         cmd.append("--subcommands=pretty_print")
 
