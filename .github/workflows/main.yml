@@ -24,6 +24,7 @@ jobs:
       - name: Build
         env:
           BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+          BAZELISK_SKIP_WRAPPER: 1
         run: |
           "${GITHUB_WORKSPACE}/bin/bazel" build \
             --config=ci \
@@ -33,6 +34,7 @@ jobs:
       - name: Test
         env:
           BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+          BAZELISK_SKIP_WRAPPER: 1
         run: |
           "${GITHUB_WORKSPACE}/bin/bazel" test \
             --config=ci \
