@@ -229,8 +229,6 @@ opam.deps(
         "lwt": "5.9.2",
         "dream": "1.0.0~alpha7",
     },
-    verbosity = 2,
-    opam_verbosity = 2,
 )
 
 opam_dev = use_extension(
