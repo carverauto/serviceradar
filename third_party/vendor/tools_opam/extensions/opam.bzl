@@ -102,8 +102,8 @@ bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
     res = mctx.execute(
         cmd,
         environment = {
-            "HOME": "../.cache",
-            "XDG_CACHE_HOME": "../.cache",
+            "HOME": mctx.getenv("HOME") + "/.cache",
+            "XDG_CACHE_HOME": mctx.getenv("HOME") + "/.cache",
             "OBAZL_NO_BWRAP": "1",
         },
         quiet = (verbosity < 1),
