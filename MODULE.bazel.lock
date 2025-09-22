@@ -9247,11 +9247,12 @@
     },
     "@@tools_opam+//extensions:opam.bzl%opam": {
       "general": {
-        "bzlTransitiveDigest": "wi1hJwdtAQ5v9w7MZT+LHT/8fTiGz4YGD3iN6NMVYho=",
+        "bzlTransitiveDigest": "3GWERDQSW3BEo9fQqpdvBmKOlmVtqV98/a0HmSitIO8=",
         "usagesDigest": "zqD9Ip7OOBdwtzfk34WbY/L9gVQVi2WHiSBuX1NAz6Q=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {
+          "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": "1",
           "HOME": "/Users/mfreeman",
           "OBAZL_OPAM_ENV": null,
           "OBAZL_USE_LOCAL_TC": null,
