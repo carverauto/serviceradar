@@ -64,6 +64,7 @@ use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
     # only for opam install
     shared_flags = [
         "--repo_env=OBAZL_NO_BWRAP=1",
+        "--repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=0",
         "--action_env=OBAZL_NO_BWRAP=1",
     ]
 

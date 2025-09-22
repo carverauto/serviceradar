@@ -9247,7 +9247,7 @@
     },
     "@@tools_opam+//extensions:opam.bzl%opam": {
       "general": {
-        "bzlTransitiveDigest": "3GWERDQSW3BEo9fQqpdvBmKOlmVtqV98/a0HmSitIO8=",
+        "bzlTransitiveDigest": "Z7Uq38RRUIXVdq/yka8ErwSmdMSMyWms/lt7dyPaEiM=",
         "usagesDigest": "zqD9Ip7OOBdwtzfk34WbY/L9gVQVi2WHiSBuX1NAz6Q=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
