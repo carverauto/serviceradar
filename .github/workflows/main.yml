@@ -26,7 +26,7 @@ jobs:
       - name: Install Bazel
         uses: bazel-contrib/setup-bazel@0.15.0
         with:
-          bazel-version-file: .bazelversion
+          bazelisk-version: 1.x
 
       - name: Configure remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
