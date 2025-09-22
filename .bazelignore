@@ -9,3 +9,5 @@ dist
 target
 third_party/vendor/tools_opam
 vendor
+_bazel_root
+_bazel_output

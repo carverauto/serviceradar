@@ -8,7 +8,14 @@ cargo_build_script(
     crate_root = "build.rs",
     edition = "2024",
     deps = crate_deps(["tonic-build"]),
-    data = ["//cmd/otel:otel_proto_srcs", "//proto:kv_proto_src"],
+    data = [
+        "@bazel_tools//tools/proto:protoc",
+        "//cmd/otel:otel_proto_srcs",
+        "//proto:kv_proto_src",
+    ],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
 )
 
 rust_library(
@@ -16,6 +23,7 @@ rust_library(
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/lib.rs",
     edition = "2024",
+    crate_name = "otel",
     deps = all_crate_deps(normal = True) + [":build_script", "//rust/kvutil:kvutil"],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
