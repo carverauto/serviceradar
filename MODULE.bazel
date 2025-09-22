@@ -11,9 +11,46 @@ bazel_dep(name = "rules_rust", version = "0.65.0")
 bazel_dep(name = "rules_python", version = "1.6.1")
 bazel_dep(name = "rules_nodejs", version = "6.5.0")
 bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "protobuf", version = "29.1", repo_name = "com_google_protobuf")
 bazel_dep(name = "rules_oci", version = "2.2.6")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
+bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
+
+host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
+use_repo(host_platform_ext, "host_platform")
+
+java = use_extension("@rules_java//java:extensions.bzl", "toolchains")
+use_repo(
+    java,
+    "local_jdk",
+    "remote_java_tools",
+    "remote_java_tools_darwin_arm64",
+    "remote_java_tools_darwin_x86_64",
+    "remote_java_tools_linux",
+    "remote_java_tools_windows",
+    "remotejdk11_linux",
+    "remotejdk11_macos",
+    "remotejdk11_macos_aarch64",
+)
+
+register_toolchains(
+    "@remote_java_tools//:all",
+    "@remote_java_tools_linux//:all",
+    "@remote_java_tools_darwin_x86_64//:all",
+    "@remote_java_tools_darwin_arm64//:all",
+    "@remote_java_tools_windows//:all",
+    "@local_jdk//:all",
+    "@remotejdk11_linux//:all",
+    "@remotejdk11_macos//:all",
+    "@remotejdk11_macos_aarch64//:all",
+)
+
+bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
+bazel_dep(name = "rules_shell", version = "0.4.0", repo_name = "rules_shell")
+bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
+bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
 
 find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
 use_repo(find_rpm, "rules_pkg_rpmbuild")
@@ -26,6 +63,9 @@ bazel_dep(name = "rules_cc", version = "0.2.4")
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
 
+cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
+use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
+
 archive_override(
     module_name = "toolchains_buildbuddy",
     integrity = "sha256-e6gcgLHmJHvxCNNbCSQ4OrX8FbGn8TiS7XSVphM1ZU8=",
@@ -37,8 +77,8 @@ archive_override(
 
 bazel_dep(
     name = "toolchains_buildbuddy",
-    repo_name = "io_buildbuddy_buildbuddy_toolchain",
     version = "0.0.1",
+    repo_name = "io_buildbuddy_buildbuddy_toolchain",
 )
 
 buildbuddy_toolchain_ext = use_extension(
@@ -46,6 +86,12 @@ buildbuddy_toolchain_ext = use_extension(
     "buildbuddy",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
+
+xcode_configure_ext = use_extension(
+    "@bazel_tools//tools/osx:xcode_configure.bzl",
+    "xcode_configure_extension",
+)
+use_repo(xcode_configure_ext, "local_config_xcode")
 
 archive_override(
     module_name = "rules_ocaml",
@@ -300,6 +346,61 @@ crates = use_extension(
     "@rules_rust//crate_universe:extensions.bzl",
     "crate",
 )
+crates.annotation(
+    additive_build_file_content = """
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+
+write_file(
+    name = "workspace_perl_tool",
+    out = "perl-wrapper.sh",
+    content = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'exec perl "$@"',
+    ],
+    is_executable = True,
+)
+""",
+    build_script_data = [
+        ":workspace_perl_tool",
+        "@rust_crates__openssl-src-300.5.2-3.5.2//:openssl_src_runfiles",
+        "@rust_crates__openssl-src-300.5.2-3.5.2//:openssl_src_readme",
+    ],
+    build_script_env = {
+        "OPENSSL_SRC_PERL": "$(execpath :workspace_perl_tool)",
+        "RULES_RUST_OPENSSL_SRC_DIR": "$(location @rust_crates__openssl-src-300.5.2-3.5.2//:openssl_src_readme)",
+    },
+    crate = "openssl-sys",
+)
+crates.annotation(
+    additive_build_file_content = """
+filegroup(
+    name = "openssl_src_runfiles",
+    srcs = glob(
+        allow_empty = True,
+        include = ["**"],
+        exclude = [
+            "**/* *",
+            ".tmp_git_root/**/*",
+            "BUILD",
+            "BUILD.bazel",
+            "WORKSPACE",
+            "WORKSPACE.bazel",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "openssl_src_readme",
+    srcs = ["openssl/README.md"],
+    visibility = ["//visibility:public"],
+)
+""",
+    crate = "openssl-src",
+    patch_args = ["-p1"],
+    patches = ["//third_party/rust_patches:openssl_src_runfiles.patch"],
+)
 crates.from_cargo(
     name = "rust_crates",
     cargo_lockfile = "//:Cargo.lock",
@@ -334,6 +435,9 @@ npm.npm_translate_lock(
         "next": ["next=./dist/bin/next"],
     },
     dev = True,
+    lifecycle_hooks_exclude = [
+        "unrs-resolver@1.7.2",
+    ],
     npmrc = "//web:.npmrc",
     pnpm_lock = "//web:pnpm-lock.yaml",
     root_package = "web",
@@ -379,6 +483,32 @@ http_file = use_repo_rule(
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
+)
+
+http_archive(
+    name = "perl_src",
+    build_file_content = """
+filegroup(
+    name = "all_sources",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+    visibility = ["//visibility:public"],
+)
+""",
+    patch_args = ["-p1"],
+    patches = ["//third_party/perl:add_configure_wrapper.patch"],
+    sha256 = "d5325300ad267624cb0b7d512cfdfcd74fa7fe00c455c5b51a6bd53e5e199ef9",
+    strip_prefix = "perl-5.40.0",
+    urls = [
+        "https://www.cpan.org/src/5.0/perl-5.40.0.tar.xz",
+    ],
+)
+
+http_archive(
+    name = "remote_coverage_tools",
+    sha256 = "aab349130118497d86bc79e3f735f026d3c36e7d38529063e91da1c29cc2ea47",
+    urls = [
+        "https://mirror.bazel.build/bazel_coverage_output_generator/releases/coverage_output_generator-v2.9.zip",
+    ],
 )
 
 http_file(

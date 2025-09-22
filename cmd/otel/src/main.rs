@@ -20,23 +20,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv")
         && !std::env::var("KV_ADDRESS").unwrap_or_default().is_empty();
     let mut kv_client: Option<KvClient> = None;
-    if use_kv
-        && let Ok(mut kv) = KvClient::connect_from_env().await
-    {
-        // Initial fetch
-        if let Ok(Some(bytes)) = kv.get("config/otel.toml").await
-            && let Ok(s) = std::str::from_utf8(&bytes)
-            && let Ok(new_cfg) = toml::from_str::<otel::config::Config>(s)
-        {
-            config = new_cfg;
+    if use_kv {
+        if let Ok(mut kv) = KvClient::connect_from_env().await {
+            // Initial fetch
+            if let Ok(Some(bytes)) = kv.get("config/otel.toml").await {
+                if let Ok(s) = std::str::from_utf8(&bytes) {
+                    if let Ok(new_cfg) = toml::from_str::<otel::config::Config>(s) {
+                        config = new_cfg;
+                    }
+                }
+            }
+            // Bootstrap current config if missing
+            if let Ok(None) = kv.get("config/otel.toml").await {
+                if let Ok(content) = toml::to_string_pretty(&config) {
+                    let _ = kv.put_if_absent("config/otel.toml", content.into_bytes()).await;
+                }
+            }
+            kv_client = Some(kv);
         }
-        // Bootstrap current config if missing
-        if let Ok(None) = kv.get("config/otel.toml").await
-            && let Ok(content) = toml::to_string_pretty(&config)
-        {
-            let _ = kv.put_if_absent("config/otel.toml", content.into_bytes()).await;
-        }
-        kv_client = Some(kv);
     }
     let addr = parse_bind_address(&config)?;
 

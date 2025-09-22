@@ -145,6 +145,9 @@ npm_link_tailwindcss_animate_store(
 WEB_TS_SRCS = glob(
     [
         "next-env.d.ts",
+        "next.config.bazel.d.ts",
+        # Ensure the Next.js Bazel config is available to tsc in remote sandboxes.
+        "next.config.bazel.mjs",
         "next.config.ts",
         "next.config.docker.ts",
         "tailwind.config.ts",
@@ -169,7 +172,21 @@ ts_project(
     name = "typecheck",
     srcs = WEB_TS_SRCS,
     tsconfig = "tsconfig.json",
-    deps = [":node_modules"],
+    deps = [
+        ":node_modules",
+        ":node_modules/next",
+        ":node_modules/react",
+        ":node_modules/react-dom",
+        ":node_modules/@tanstack/react-query",
+        ":node_modules/@microlink/react-json-view",
+        ":node_modules/lucide-react",
+        ":node_modules/recharts",
+        ":node_modules/recharts-scale",
+        ":node_modules/use-debounce",
+        ":node_modules/next-runtime-env",
+        ":node_modules/tailwindcss-animate",
+        ":node_modules/xlsx",
+    ],
     allow_js = True,
     no_emit = True,
     preserve_jsx = True,
