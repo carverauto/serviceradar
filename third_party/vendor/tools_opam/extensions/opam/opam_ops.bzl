@@ -105,6 +105,7 @@ def opam_install_pkg(rctx,
            pkg,
            "--switch", switch,
            "--root", "{}".format(root),
+           "--disable-sandboxing",  # Disable sandboxing for CI environments
            "--yes"]
     if opam_verbosity > 1:
         s = "-"

@@ -38,6 +38,7 @@ def _opam_create_local_switch(ctx, opambin,
            "{}".format(ocaml_version),
            "--deps-only",
            "--no-switch", # do not automatically select
+           "--disable-sandboxing",  # Disable sandboxing for CI environments
            ]
     if opam_verbosity > 1:
         s = "-"

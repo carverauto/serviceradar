@@ -102,7 +102,7 @@ def _init_opam(mctx, opambin, opam_version, OPAMROOT,
     """.format(c = CCYEL, reset = CCRESET,
                v = opam_version, r = OPAMROOT)
                          )
-    env = {"OBAZL_NO_BWRAP": "1", "OPAMNO": "true", "OPAM_DISABLE_SANDBOXING": "1"}
+    env = {"OBAZL_NO_BWRAP": "1", "OPAMNO": "true"}
     res = mctx.execute(cmd,
                        environment = env,
                        quiet = (opam_verbosity < 1))
@@ -124,6 +124,7 @@ def _create_switch(mctx, opambin, opam_version,
            str(switch_id),
            str(switch_id), ## compiler version
            "--root={}".format(OPAMROOT),
+           "--disable-sandboxing",  # Disable sandboxing for CI environments
            # "--verbose"
            ]
     if opam_verbosity > 1:
@@ -141,7 +142,6 @@ def _create_switch(mctx, opambin, opam_version,
                o = opam_version, r = OPAMROOT))
     env = {
         "OBAZL_NO_BWRAP": "1",
-        "OPAM_DISABLE_SANDBOXING": "1",  # Disable sandboxing in CI environments
         "PATH": "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin",
     }
     res = mctx.execute(cmd,
@@ -189,7 +189,7 @@ def config_xdg_toolchain(mctx,
 
     if verbosity > 0:
         cmd = [opambin, "--version"]
-        res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1", "OPAM_DISABLE_SANDBOXING": "1"})
+        res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
         if res.return_code == 0:
             print("\n  Opam version: %s" % res.stdout.strip())
         else:
@@ -227,7 +227,7 @@ def config_xdg_toolchain(mctx,
         # no ocaml_version specified, use default
         cmd = ["opam", "var", "sys-ocaml-version",
                "--root", OPAMROOT]
-        res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1", "OPAM_DISABLE_SANDBOXING": "1"})
+        res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
                            # environment = {
                            #     "PATH": "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin"
                            # },
@@ -299,7 +299,7 @@ def config_xdg_toolchain(mctx,
           "--yes"]
     switch_lib = None
     res = mctx.execute(cmd,
-                       environment = {"OBAZL_NO_BWRAP": "1", "OPAM_DISABLE_SANDBOXING": "1"}) # , quiet = (verbosity < 1))
+                       environment = {"OBAZL_NO_BWRAP": "1"}) # , quiet = (verbosity < 1))
     if res.return_code == 0:
         switch_lib = res.stdout.strip()
     else:
