@@ -24,7 +24,7 @@ jobs:
           sudo apt-get install -y bubblewrap
 
       - name: Install Bazel
-        uses: bazel-contrib/setup-bazel@v3
+        uses: bazel-contrib/setup-bazel@0.15.0
         with:
           bazel-version-file: .bazelversion
 
