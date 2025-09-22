@@ -24,7 +24,7 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2024",
     crate_name = "otel",
-    deps = all_crate_deps(normal = True) + [":build_script", "//rust/kvutil:kvutil"],
+    deps = all_crate_deps(normal = True, normal_dev = True) + [":build_script", "//rust/kvutil:kvutil"],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
 )

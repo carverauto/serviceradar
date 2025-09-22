@@ -8,6 +8,11 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
+config_setting(
+    name = "remote_executor",
+    define_values = {"EXECUTOR": "remote"},
+)
+
 # --- Core library modules ----------------------------------------------------
 
 ocaml_module(
