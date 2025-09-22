@@ -112,6 +112,10 @@ use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
         elif mctx.os.arch in ("aarch64", "aarch64_be"):
             toolchain_flag = "@local_config_cc_toolchains//:cc-toolchain-aarch64"
 
+    disable_local_cc = mctx.getenv("BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN")
+    if disable_local_cc and disable_local_cc != "0":
+        toolchain_flag = None
+
     if toolchain_flag:
         cmd.append("--extra_toolchains={}".format(toolchain_flag))
     if verbosity > 1:
