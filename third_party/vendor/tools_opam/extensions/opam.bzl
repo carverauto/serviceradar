@@ -49,9 +49,13 @@ module(
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "tools_opam",  version = "1.0.0.beta.1")
 bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
+bazel_dep(name = "rules_cc", version = "0.2.4")
 
 host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
 use_repo(host_platform_ext, "host_platform")
+
+cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
+use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
         """,
     )
 
@@ -98,6 +102,18 @@ use_repo(host_platform_ext, "host_platform")
                "@tools_opam//extensions/config"]
 
     cmd.extend(shared_flags)
+
+    toolchain_flag = None
+    if mctx.os.name == "mac os x":
+        toolchain_flag = "@local_config_cc_toolchains//:cc-toolchain-darwin_arm64"
+    elif mctx.os.name == "linux":
+        if mctx.os.arch in ("x86_64", "amd64"):
+            toolchain_flag = "@local_config_cc_toolchains//:cc-toolchain-k8"
+        elif mctx.os.arch in ("aarch64", "aarch64_be"):
+            toolchain_flag = "@local_config_cc_toolchains//:cc-toolchain-aarch64"
+
+    if toolchain_flag:
+        cmd.append("--extra_toolchains={}".format(toolchain_flag))
     if verbosity > 1:
         cmd.append("--subcommands=pretty_print")
 
