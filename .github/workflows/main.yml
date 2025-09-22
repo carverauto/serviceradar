@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -20,6 +22,7 @@ jobs:
           mkdir -p "${GITHUB_WORKSPACE}/bin"
           mv bazelisk-linux-amd64 "${GITHUB_WORKSPACE}/bin/bazel"
           chmod +x "${GITHUB_WORKSPACE}/bin/bazel"
+          echo "${GITHUB_WORKSPACE}/bin" >> "$GITHUB_PATH"
 
       - name: Build
         env:
