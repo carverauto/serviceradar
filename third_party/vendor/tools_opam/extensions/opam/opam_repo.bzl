@@ -29,7 +29,9 @@ def utop_get_paths(rctx, opambin, opam_root, switch_id,
     cmd = [opambin, "var", "bin",
            "--switch", "{}".format(switch_id),
            "--root", opam_root]
-    res = rctx.execute(cmd, quiet = (opam_verbosity < 1))
+    res = rctx.execute(cmd,
+                       environment = {"OBAZL_NO_BWRAP": "1"},
+                       quiet = (opam_verbosity < 1))
     if res.return_code == 0:
         switch_bin = res.stdout.strip()
     else:
@@ -47,7 +49,9 @@ def utop_get_paths(rctx, opambin, opam_root, switch_id,
     cmd = [opambin, "var", "stublibs",
            "--switch", "{}".format(switch_id),
            "--root", opam_root]
-    res = rctx.execute(cmd, quiet = (opam_verbosity < 1))
+    res = rctx.execute(cmd,
+                       environment = {"OBAZL_NO_BWRAP": "1"},
+                       quiet = (opam_verbosity < 1))
     if res.return_code == 0:
         stublibs = res.stdout.strip()
     else:
@@ -63,7 +67,9 @@ def utop_get_paths(rctx, opambin, opam_root, switch_id,
     cmd = [opambin, "var", "ocaml:lib",
            "--switch", "{}".format(switch_id),
            "--root", opam_root]
-    res = rctx.execute(cmd, quiet = (opam_verbosity < 1))
+    res = rctx.execute(cmd,
+                       environment = {"OBAZL_NO_BWRAP": "1"},
+                       quiet = (opam_verbosity < 1))
     if res.return_code == 0:
         ocaml_stublibs = res.stdout.strip() + "/stublibs"
     else:

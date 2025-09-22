@@ -55,7 +55,9 @@ def _opam_dep_repo_impl(rctx):
     cmd = [opambin, "var", "prefix",
            "--switch", "{}".format(opamswitch),
            "--root", opamroot]
-    res = rctx.execute(cmd, quiet = (opam_verbosity < 1))
+    res = rctx.execute(cmd,
+                       environment = {"OBAZL_NO_BWRAP": "1"},
+                       quiet = (opam_verbosity < 1))
     switch_pfx = None
     if res.return_code == 0:
         switch_pfx = res.stdout.strip()

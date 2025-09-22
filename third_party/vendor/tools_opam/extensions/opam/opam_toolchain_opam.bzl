@@ -21,13 +21,15 @@ def config_opam_toolchain(mctx,
                           debug, opam_verbosity, verbosity):
     if verbosity > 0: print("\n  Configuring opam toolchain")
 
+    no_bwrap_env = {"OBAZL_NO_BWRAP": "1"}
+
     opambin = mctx.getenv("OPAMBIN")
     if not opambin:
         opambin = mctx.which("opam")
     if debug > 0: print("opambin: %s" % opambin)
     if verbosity > 0:
         cmd = [opambin, "--version"]
-        res = mctx.execute(cmd)
+        res = mctx.execute(cmd, environment = no_bwrap_env)
         if res.return_code == 0:
             print("\n  Opam version: %s" % res.stdout.strip())
         else:
@@ -60,7 +62,7 @@ def config_opam_toolchain(mctx,
     ocaml_version = None
     ## check effective ocaml version vs. requested version
     cmd = [opambin, "var", "ocaml:version"]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = no_bwrap_env)
     if res.return_code == 0:
         ocaml_version = res.stdout.strip()
     else:
@@ -113,7 +115,7 @@ def config_opam_toolchain(mctx,
     if debug > 0: print("SDKBIN: %s" % SDKBIN)
 
     cmd = [opambin, "var", "lib"] # , "--switch", switch]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = no_bwrap_env)
     if res.return_code == 0:
         switch_lib = res.stdout.strip()
     else:
@@ -141,4 +143,3 @@ def config_opam_toolchain(mctx,
             str(switch_id),
             ocaml_version,
             deps)
-
