@@ -1,0 +1,21 @@
+diff --git a/extensions/opam.bzl b/extensions/opam.bzl
+index 1234567..89abcde 100644
+--- a/extensions/opam.bzl
++++ b/extensions/opam.bzl
+@@ -87,6 +87,8 @@ def _build_config_tool(mctx, toolchain, external_flags = ["--version"]):
+                "--subcommands=pretty_print",
+                "--compilation_mode", "fastbuild",
++               # Suppress use-after-free warnings in findlibc on newer GCC versions
++               "--copt=-Wno-use-after-free",
+                "@tools_opam//extensions/config"]
+     else:
+         cmd = ["bazel",
+@@ -101,6 +103,8 @@ def _build_config_tool(mctx, toolchain, external_flags = ["--version"]):
+                "--lockfile_mode=off",
+                "--ignore_dev_dependency",
+                "--compilation_mode", "fastbuild",
++               # Suppress use-after-free warnings in findlibc on newer GCC versions
++               "--copt=-Wno-use-after-free",
+                "@tools_opam//extensions/config"]
+
+     cmd.extend(shared_flags)

@@ -86,6 +86,8 @@ use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
                "--registry=https://bcr.bazel.build",
                "--subcommands=pretty_print",
                "--compilation_mode", "fastbuild",
+               # Suppress use-after-free warnings in findlibc on newer GCC versions
+               "--copt=-Wno-use-after-free",
                "@tools_opam//extensions/config"]
     else:
         cmd = ["bazel",
@@ -100,6 +102,8 @@ use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
                "--lockfile_mode=off",
                "--ignore_dev_dependency",
                "--compilation_mode", "fastbuild",
+               # Suppress use-after-free warnings in findlibc on newer GCC versions
+               "--copt=-Wno-use-after-free",
                "@tools_opam//extensions/config"]
 
     cmd.extend(shared_flags)
