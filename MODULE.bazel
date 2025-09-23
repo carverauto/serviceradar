@@ -17,6 +17,11 @@ bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
+single_version_override(
+    module_name = "rules_java",
+    patch_strip = 0,
+    patches = ["//third_party/patches/rules_java:openbsd_jni_header.patch"],
+)
 
 host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
 use_repo(host_platform_ext, "host_platform")

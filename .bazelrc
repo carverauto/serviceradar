@@ -30,17 +30,15 @@ try-import %workspace%/.bazelrc.remote
 
 # CI profile can layer on top of the remote config without re-declaring values.
 build:ci --keep_going --build_tag_filters=-manual
+build:ci --config=remote
 build:ci --build_metadata=ROLE=CI
 build:ci --bes_results_url=https://app.buildbuddy.io/invocation/
 build:ci --bes_backend=grpcs://remote.buildbuddy.io
 build:ci --remote_timeout=15m
 
 # CI tests should avoid manual-only targets and preserve detailed output.
+test:ci --config=remote
 test:ci --test_tag_filters=-manual --test_output=errors
-
-# Suppress use-after-free warnings in CI (needed for tools_opam on Ubuntu 24.04)
-build:ci --copt=-Wno-use-after-free
-test:ci --copt=-Wno-use-after-free
 
 # Remote execution profile (opt-in via --config=remote).
 build:remote --remote_executor=grpcs://remote.buildbuddy.io
@@ -50,6 +48,7 @@ build:remote --extra_execution_platforms=//:rbe_linux_amd64,//:rbe_linux_arm64
 build:remote --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:remote --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
 build:remote --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+build:remote --copt=-Wno-use-after-free
 build:remote --java_language_version=11
 build:remote --tool_java_language_version=11
 build:remote --java_runtime_version=remotejdk_11
@@ -57,6 +56,8 @@ build:remote --tool_java_runtime_version=remotejdk_11
 build:remote --define=EXECUTOR=remote
 build:remote --incompatible_strict_action_env
 build:remote --remote_timeout=10m
+
+test:remote --copt=-Wno-use-after-free
 
 # OCaml toolchain generated via tools_opam is macOS-hosted, which cannot run on
 # Linux remote executors. Force OCaml compilation/linking actions to run locally
