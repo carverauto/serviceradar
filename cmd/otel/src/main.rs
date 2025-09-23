@@ -1,11 +1,13 @@
-use otel::server::{create_collector, start_server, start_metrics_server};
+use kvutil::KvClient;
+use otel::server::{create_collector, start_metrics_server, start_server};
 use otel::setup::{
     handle_generate_config, load_configuration, log_configuration_info, parse_bind_address,
     setup_logging_and_parse_args,
 };
 use otel::tls::setup_grpc_tls;
 use std::net::SocketAddr;
-use kvutil::KvClient;
+
+const CONFIG_PATH: &str = "config/otel.toml";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,24 +22,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv")
         && !std::env::var("KV_ADDRESS").unwrap_or_default().is_empty();
     let mut kv_client: Option<KvClient> = None;
-    if use_kv {
-        if let Ok(mut kv) = KvClient::connect_from_env().await {
-            // Initial fetch
-            if let Ok(Some(bytes)) = kv.get("config/otel.toml").await {
-                if let Ok(s) = std::str::from_utf8(&bytes) {
-                    if let Ok(new_cfg) = toml::from_str::<otel::config::Config>(s) {
-                        config = new_cfg;
-                    }
-                }
-            }
-            // Bootstrap current config if missing
-            if let Ok(None) = kv.get("config/otel.toml").await {
-                if let Ok(content) = toml::to_string_pretty(&config) {
-                    let _ = kv.put_if_absent("config/otel.toml", content.into_bytes()).await;
-                }
-            }
-            kv_client = Some(kv);
+    if use_kv && let Ok(mut kv) = KvClient::connect_from_env().await {
+        // Initial fetch
+        if let Ok(Some(bytes)) = kv.get(CONFIG_PATH).await
+            && let Ok(s) = std::str::from_utf8(&bytes)
+            && let Ok(new_cfg) = toml::from_str::<otel::config::Config>(s)
+        {
+            config = new_cfg;
         }
+        // Bootstrap current config if missing
+        if let Ok(None) = kv.get(CONFIG_PATH).await
+            && let Ok(content) = toml::to_string_pretty(&config)
+        {
+            let _ = kv.put_if_absent(CONFIG_PATH, content.into_bytes()).await;
+        }
+        kv_client = Some(kv);
     }
     let addr = parse_bind_address(&config)?;
 
@@ -52,29 +51,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let shared_cfg = std::sync::Arc::new(tokio::sync::RwLock::new(config.clone()));
         let shared_for_cb = shared_cfg.clone();
         let collector_for_cb = collector.clone();
-        let _ = kv.watch_apply("config/otel.toml", move |bytes| {
-            let shared = shared_for_cb.clone();
-            let coll = collector_for_cb.clone();
-            let b = bytes.to_vec();
-            tokio::spawn(async move {
-                {
-                    let mut guard = shared.write().await;
-                    // Snapshot previous values
-                    let prev = guard.clone();
-                    // Apply overlay into config
-                    let _ = kvutil::overlay_toml(&mut *guard, &b);
-                    // Reconfigure NATS output with new config (idempotent)
-                    let new_nats = guard.nats_config();
-                    coll.reconfigure_nats(new_nats).await;
-                    // Log advisory if bind address/port or TLS changed
-                    let prev_bind = prev.bind_address();
-                    let new_bind = guard.bind_address();
-                    if prev_bind != new_bind || prev.grpc_tls.as_ref() != guard.grpc_tls.as_ref() {
-                        eprintln!("OTEL server bind/TLS changed; restart required to apply");
+        let _ = kv
+            .watch_apply(CONFIG_PATH, move |bytes| {
+                let shared = shared_for_cb.clone();
+                let coll = collector_for_cb.clone();
+                let b = bytes.to_vec();
+                tokio::spawn(async move {
+                    {
+                        let mut guard = shared.write().await;
+                        // Snapshot previous values
+                        let prev = guard.clone();
+                        // Apply overlay into config
+                        let _ = kvutil::overlay_toml(&mut *guard, &b);
+                        // Reconfigure NATS output with new config (idempotent)
+                        let new_nats = guard.nats_config();
+                        coll.reconfigure_nats(new_nats).await;
+                        // Log advisory if bind address/port or TLS changed
+                        let prev_bind = prev.bind_address();
+                        let new_bind = guard.bind_address();
+                        if prev_bind != new_bind
+                            || prev.grpc_tls.as_ref() != guard.grpc_tls.as_ref()
+                        {
+                            eprintln!("OTEL server bind/TLS changed; restart required to apply");
+                        }
                     }
-                }
-            });
-        }).await;
+                });
+            })
+            .await;
     }
 
     // (KV bootstrap and watch now done above via kvutil)

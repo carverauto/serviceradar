@@ -18,29 +18,29 @@
 // cmd/poller-ng/src/adapter.rs
 
 use anyhow::{Context, Result};
-use log::{info, error, debug, warn};
+use futures::future;
+use log::{debug, error, info, warn};
+use rand::Rng;
 use reqwest::Client;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time::{interval, sleep};
 use tonic::{
-    transport::{Server, Channel, ServerTlsConfig, ClientTlsConfig, Identity, Certificate},
+    transport::{Certificate, Channel, ClientTlsConfig, Identity, Server, ServerTlsConfig},
     Request, Response, Status,
 };
-use tonic_health::pb::HealthCheckRequest;
 use tonic_health::pb::health_client::HealthClient;
+use tonic_health::pb::HealthCheckRequest;
 use tonic_reflection::server::Builder as ReflectionBuilder;
-use rand::Rng;
-use futures::future;
 
-use crate::processors::{sysmon::SysmonProcessor, rperf::RperfProcessor};
 use crate::models::types::ServiceStatus;
 use crate::processor::DataProcessor;
-use crate::{Config, AgentConfig, SecurityConfig};
+use crate::processors::{rperf::RperfProcessor, sysmon::SysmonProcessor};
+use crate::{AgentConfig, Config, SecurityConfig};
 
 // Import proto definitions
 pub mod proto {
@@ -71,7 +71,8 @@ impl ProtonAdapter {
         let core_client = if config.forward_to_core && config.core_address.is_some() {
             let addr = config.core_address.as_ref().unwrap();
             info!("Connecting to core service at {}", addr);
-            let channel = Self::create_channel(addr, &Some(config.security.clone())).await
+            let channel = Self::create_channel(addr, &Some(config.security.clone()))
+                .await
                 .context(format!("Failed to connect to core service at {}", addr))?;
             let client = proto::poller_service_client::PollerServiceClient::new(channel);
             Some(Arc::new(Mutex::new(client)))
@@ -79,10 +80,8 @@ impl ProtonAdapter {
             None
         };
 
-        let processors: Vec<Box<dyn DataProcessor>> = vec![
-            Box::new(SysmonProcessor {}),
-            Box::new(RperfProcessor {}),
-        ];
+        let processors: Vec<Box<dyn DataProcessor>> =
+            vec![Box::new(SysmonProcessor {}), Box::new(RperfProcessor {})];
 
         let adapter = Self {
             processors: Arc::new(processors),
@@ -97,7 +96,9 @@ impl ProtonAdapter {
         // Start background task to handle stream setup retries
         let adapter_clone = adapter.clone();
         tokio::spawn(async move {
-            adapter_clone.run_stream_setup_retries(Duration::from_secs(300)).await;
+            adapter_clone
+                .run_stream_setup_retries(Duration::from_secs(300))
+                .await;
         });
 
         Ok(adapter)
@@ -133,11 +134,10 @@ impl ProtonAdapter {
                     .domain_name(&security.server_name);
 
                 if security.mode == "mtls" {
-                    let client_ca_cert = fs::read_to_string(&client_ca_path)
-                        .context(format!(
-                            "Failed to read client CA certificate file: {:?}",
-                            client_ca_path
-                        ))?;
+                    let client_ca_cert = fs::read_to_string(&client_ca_path).context(format!(
+                        "Failed to read client CA certificate file: {:?}",
+                        client_ca_path
+                    ))?;
                     let client_ca = Certificate::from_pem(client_ca_cert);
                     tls_config = tls_config.ca_certificate(client_ca);
                 }
@@ -185,12 +185,20 @@ impl ProtonAdapter {
                     sleep(total_delay).await;
                 }
                 Err(e) => {
-                    error!("{} failed after {} attempts: {}", operation_name, attempts + 1, e);
+                    error!(
+                        "{} failed after {} attempts: {}",
+                        operation_name,
+                        attempts + 1,
+                        e
+                    );
                     return Err(e);
                 }
             }
         }
-        Err(anyhow::anyhow!("Max retries reached for {}", operation_name))
+        Err(anyhow::anyhow!(
+            "Max retries reached for {}",
+            operation_name
+        ))
     }
 
     /// Runs a background task to periodically retry stream setup every retry_interval.
@@ -221,14 +229,15 @@ impl ProtonAdapter {
                         self.streams_setup.store(true, Ordering::SeqCst);
                     }
                     Err(e) => {
-                        error!("Failed to set up Proton streams: {}. Will retry in {:?}", e, retry_interval);
+                        error!(
+                            "Failed to set up Proton streams: {}. Will retry in {:?}",
+                            e, retry_interval
+                        );
                     }
                 }
             }
         }
     }
-
-
 
     pub async fn start_polling(&self, config: Arc<Config>) -> Result<()> {
         let mut interval_timer = interval(Duration::from_secs(config.poll_interval));
@@ -236,15 +245,20 @@ impl ProtonAdapter {
         let agent_concurrency = std::cmp::min(config.agents.len(), 5); // Limit number of concurrent agents
 
         info!(
-        "Starting polling with batch size {} and agent concurrency {}",
-        batch_size, agent_concurrency
-    );
+            "Starting polling with batch size {} and agent concurrency {}",
+            batch_size, agent_concurrency
+        );
 
         loop {
             interval_timer.tick().await;
 
             // Process agents in chunks to limit overall concurrency
-            for agent_chunk in config.agents.iter().collect::<Vec<_>>().chunks(agent_concurrency) {
+            for agent_chunk in config
+                .agents
+                .iter()
+                .collect::<Vec<_>>()
+                .chunks(agent_concurrency)
+            {
                 let mut agent_futures = Vec::with_capacity(agent_chunk.len());
 
                 for (agent_name, agent_config) in agent_chunk {
@@ -284,12 +298,16 @@ impl ProtonAdapter {
         self.exponential_backoff(
             || async {
                 // Perform health check
-                self.ensure_agent_health(&agent_config.address, security).await?;
+                self.ensure_agent_health(&agent_config.address, security)
+                    .await?;
 
                 // Connect to agent
                 let channel = Self::create_channel(&agent_config.address, security)
                     .await
-                    .context(format!("Failed to connect to agent at {}", agent_config.address))?;
+                    .context(format!(
+                        "Failed to connect to agent at {}",
+                        agent_config.address
+                    ))?;
                 let client = proto::agent_service_client::AgentServiceClient::new(channel);
 
                 // Group checks into batches
@@ -297,8 +315,10 @@ impl ProtonAdapter {
                 let total_checks = checks.len();
                 let mut all_services = Vec::with_capacity(total_checks);
 
-                info!("Processing {} checks for agent {} in batches of {}",
-                 total_checks, agent_name, batch_size);
+                info!(
+                    "Processing {} checks for agent {} in batches of {}",
+                    total_checks, agent_name, batch_size
+                );
 
                 // Process checks in batches
                 for chunk in checks.chunks(batch_size) {
@@ -310,7 +330,10 @@ impl ProtonAdapter {
 
                         // Create a future for each check in this batch
                         let check_future = async move {
-                            info!("Executing check: {} ({})", check_clone.service_name, check_clone.service_type);
+                            info!(
+                                "Executing check: {} ({})",
+                                check_clone.service_name, check_clone.service_type
+                            );
                             let request = Request::new(proto::StatusRequest {
                                 service_name: check_clone.service_name.clone(),
                                 service_type: check_clone.service_type.clone(),
@@ -333,8 +356,10 @@ impl ProtonAdapter {
                                     })
                                 }
                                 Err(e) => {
-                                    error!("Check failed for {}/{}: {}",
-              check_clone.service_type, check_clone.service_name, e);
+                                    error!(
+                                        "Check failed for {}/{}: {}",
+                                        check_clone.service_type, check_clone.service_name, e
+                                    );
                                     Ok::<ServiceStatus, anyhow::Error>(ServiceStatus {
                                         service_name: check_clone.service_name.clone(),
                                         available: false,
@@ -351,13 +376,12 @@ impl ProtonAdapter {
                     }
 
                     // Execute this batch of checks in parallel
-                    let batch_results: Vec<Result<_, _>> = futures::future::join_all(check_futures).await;
+                    let batch_results: Vec<Result<_, _>> =
+                        futures::future::join_all(check_futures).await;
 
                     // Collect successful results from this batch
-                    let batch_services: Vec<ServiceStatus> = batch_results
-                        .into_iter()
-                        .filter_map(Result::ok)
-                        .collect();
+                    let batch_services: Vec<ServiceStatus> =
+                        batch_results.into_iter().filter_map(Result::ok).collect();
 
                     // Extend our collection of all services
                     all_services.extend(batch_services);
@@ -365,8 +389,12 @@ impl ProtonAdapter {
 
                 // Process all collected services
                 if !all_services.is_empty() {
-                    info!("Completed {} of {} checks for agent {}",
-                     all_services.len(), total_checks, agent_name);
+                    info!(
+                        "Completed {} of {} checks for agent {}",
+                        all_services.len(),
+                        total_checks,
+                        agent_name
+                    );
                     self.process_services(agent_name, &all_services).await?;
                 } else {
                     warn!("No successful checks completed for agent {}", agent_name);
@@ -376,7 +404,8 @@ impl ProtonAdapter {
             },
             4, // Max retries
             &format!("poll agent {}", agent_name),
-        ).await
+        )
+        .await
     }
 
     async fn forward_to_core(&self, _poller_id: &str, services: &[ServiceStatus]) -> Result<()> {
@@ -384,7 +413,8 @@ impl ProtonAdapter {
             let mut client = core_client.lock().await;
 
             // Convert ServiceStatus objects to proto::ServiceStatus for gRPC
-            let service_statuses: Vec<proto::ServiceStatus> = services.iter()
+            let service_statuses: Vec<proto::ServiceStatus> = services
+                .iter()
                 .map(|s| proto::ServiceStatus {
                     service_name: s.service_name.clone(),
                     available: s.available,
@@ -403,9 +433,9 @@ impl ProtonAdapter {
 
             match client.report_status(Request::new(forwarded_req)).await {
                 Ok(_) => info!(
-                "Successfully forwarded status to core for poller_id={}",
-                self.poller_id
-            ),
+                    "Successfully forwarded status to core for poller_id={}",
+                    self.poller_id
+                ),
                 Err(e) => error!("Failed to forward status to core: {}", e),
             }
         }
@@ -439,7 +469,8 @@ impl ProtonAdapter {
             },
             4, // Max retries
             &format!("health check for agent {}", agent_addr),
-        ).await
+        )
+        .await
     }
 
     async fn setup_all_streams(&self) -> Result<()> {
@@ -447,17 +478,19 @@ impl ProtonAdapter {
         for processor in self.processors.iter() {
             info!("Setting up streams for processor: {}", processor.name());
             self.exponential_backoff(
-                || async {
-                    processor.setup_streams(&client, &self.proton_url).await
-                },
+                || async { processor.setup_streams(&client, &self.proton_url).await },
                 4, // Max retries
                 &format!("setup streams for processor {}", processor.name()),
             )
-                .await
-                .map_err(|e| {
-                    error!("Failed to set up streams for processor {}: {}", processor.name(), e);
+            .await
+            .map_err(|e| {
+                error!(
+                    "Failed to set up streams for processor {}: {}",
+                    processor.name(),
                     e
-                })?;
+                );
+                e
+            })?;
         }
         Ok(())
     }
@@ -465,7 +498,10 @@ impl ProtonAdapter {
     async fn process_services(&self, poller_id: &str, services: &[ServiceStatus]) -> Result<()> {
         // Check if Proton streams are setup before attempting to process data with Proton
         if !self.streams_setup.load(Ordering::SeqCst) {
-            debug!("Skipping Proton processing for {}: Proton streams not set up", poller_id);
+            debug!(
+                "Skipping Proton processing for {}: Proton streams not set up",
+                poller_id
+            );
 
             // Still forward to core if configured, even if Proton isn't available
             if self.forward_to_core && self.core_client.is_some() {
@@ -481,20 +517,20 @@ impl ProtonAdapter {
             for processor in self.processors.iter() {
                 if processor.handles_service(&service.service_type, &service.service_name) {
                     info!(
-                    "Processing service {} with processor {}",
-                    service.service_name,
-                    processor.name()
-                );
+                        "Processing service {} with processor {}",
+                        service.service_name,
+                        processor.name()
+                    );
                     if let Err(e) = processor
                         .process_service(poller_id, service, &client, &self.proton_url)
                         .await
                     {
                         error!(
-                        "Error processing service {} with processor {}: {}",
-                        service.service_name,
-                        processor.name(),
-                        e
-                    );
+                            "Error processing service {} with processor {}: {}",
+                            service.service_name,
+                            processor.name(),
+                            e
+                        );
                     }
                 }
             }
@@ -538,9 +574,7 @@ impl ProtonAdapter {
                 let ca_cert = fs::read_to_string(&ca_path)
                     .context(format!("Failed to read CA certificate file: {:?}", ca_path))?;
                 let ca = Certificate::from_pem(ca_cert.as_bytes());
-                let tls_config = ServerTlsConfig::new()
-                    .identity(identity)
-                    .client_ca_root(ca);
+                let tls_config = ServerTlsConfig::new().identity(identity).client_ca_root(ca);
                 server_builder = server_builder
                     .tls_config(tls_config)
                     .context("Failed to configure TLS")?;
@@ -549,7 +583,9 @@ impl ProtonAdapter {
 
         server_builder
             .add_service(health_service)
-            .add_service(proto::poller_service_server::PollerServiceServer::new(self.clone()))
+            .add_service(proto::poller_service_server::PollerServiceServer::new(
+                self.clone(),
+            ))
             .add_service(reflection_service)
             .serve(addr)
             .await
@@ -593,7 +629,9 @@ impl proto::poller_service_server::PollerService for ProtonAdapter {
         }
 
         // Always return success to prevent unnecessary retries
-        Ok(Response::new(proto::PollerStatusResponse { received: true }))
+        Ok(Response::new(proto::PollerStatusResponse {
+            received: true,
+        }))
     }
 }
 

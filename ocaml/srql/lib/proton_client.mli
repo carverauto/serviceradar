@@ -52,8 +52,8 @@ module Client : sig
   (** Execute a parameterized query using named placeholders.
 
       Since the bundled Proton client does not expose server-side prepared statements yet, values
-      are inlined into the SQL string after being sanitized. Use this helper to avoid duplicating the
-      escaping logic. *)
+      are inlined into the SQL string after being sanitized. Use this helper to avoid duplicating
+      the escaping logic. *)
 
   val substitute_params : string -> (string * Proton.Column.value) list -> string
   (** Inline named parameters into a SQL statement, applying the same sanitization as

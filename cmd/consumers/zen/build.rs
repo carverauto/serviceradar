@@ -35,7 +35,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         println!("cargo:rerun-if-changed={otel_base}/opentelemetry/proto/logs/v1/logs.proto");
         println!("cargo:rerun-if-changed={otel_base}/opentelemetry/proto/common/v1/common.proto");
-        println!("cargo:rerun-if-changed={otel_base}/opentelemetry/proto/resource/v1/resource.proto");
+        println!(
+            "cargo:rerun-if-changed={otel_base}/opentelemetry/proto/resource/v1/resource.proto"
+        );
     }
 
     Ok(())

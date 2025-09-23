@@ -1,11 +1,11 @@
 extern crate flowgger;
 
 use clap::{Arg, Command};
-use std::io::{stderr, Write};
-use tempfile::NamedTempFile;
 use kvutil::KvClient;
+use std::io::{stderr, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tempfile::NamedTempFile;
 
 const DEFAULT_CONFIG_FILE: &str = "flowgger.toml";
 const FLOWGGER_VERSION_STRING: &str = env!("CARGO_PKG_VERSION");
@@ -33,24 +33,34 @@ async fn main() {
         // Watch for updates and trigger a self-restart to apply changes
         if let Ok(mut kv) = KvClient::connect_from_env().await {
             let restarting = Arc::new(AtomicBool::new(false));
-            let _ = kv.watch_apply("config/flowgger.toml", {
-                let restarting = restarting.clone();
-                move |_| {
-                if restarting.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-                    // Debounce briefly, then spawn a new process with same args and exit
-                    tokio::spawn(async move {
-                        let _ = writeln!(stderr(), "KV updated: config/flowgger.toml; restarting to apply changes");
-                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                        if let Ok(exe) = std::env::current_exe() {
-                            let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
-                            let mut cmd = std::process::Command::new(exe);
-                            cmd.args(args);
-                            let _ = cmd.spawn(); // fire-and-forget
+            let _ = kv
+                .watch_apply("config/flowgger.toml", {
+                    let restarting = restarting.clone();
+                    move |_| {
+                        if restarting
+                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                            .is_ok()
+                        {
+                            // Debounce briefly, then spawn a new process with same args and exit
+                            tokio::spawn(async move {
+                                let _ = writeln!(
+                                    stderr(),
+                                    "KV updated: config/flowgger.toml; restarting to apply changes"
+                                );
+                                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                                if let Ok(exe) = std::env::current_exe() {
+                                    let args: Vec<std::ffi::OsString> =
+                                        std::env::args_os().skip(1).collect();
+                                    let mut cmd = std::process::Command::new(exe);
+                                    cmd.args(args);
+                                    let _ = cmd.spawn(); // fire-and-forget
+                                }
+                                std::process::exit(0);
+                            });
                         }
-                        std::process::exit(0);
-                    });
-                }
-            }}).await;
+                    }
+                })
+                .await;
         }
     }
 
@@ -64,7 +74,11 @@ async fn main() {
 
 async fn try_create_config_from_kv() -> Result<Option<String>, Box<dyn std::error::Error>> {
     let mut kv = KvClient::connect_from_env().await?;
-    let content = if let Some(bytes) = kv.get("config/flowgger.toml").await? { String::from_utf8(bytes)? } else { return Ok(None) };
+    let content = if let Some(bytes) = kv.get("config/flowgger.toml").await? {
+        String::from_utf8(bytes)?
+    } else {
+        return Ok(None);
+    };
     let mut tmp = NamedTempFile::new()?;
     tmp.write_all(content.as_bytes())?;
     let path = tmp.into_temp_path();
@@ -78,7 +92,9 @@ async fn bootstrap_flowgger_to_kv_if_missing(path: &str) -> Result<(), Box<dyn s
     let mut kv = KvClient::connect_from_env().await?;
     if kv.get("config/flowgger.toml").await?.is_none() {
         let content = std::fs::read_to_string(path).unwrap_or_default();
-        let _ = kv.put_if_absent("config/flowgger.toml", content.into_bytes()).await;
+        let _ = kv
+            .put_if_absent("config/flowgger.toml", content.into_bytes())
+            .await;
     }
     Ok(())
 }

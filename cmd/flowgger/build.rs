@@ -12,4 +12,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compile_protos(&[kv_proto_path], &[kv_proto_dir])?;
     Ok(())
 }
-
