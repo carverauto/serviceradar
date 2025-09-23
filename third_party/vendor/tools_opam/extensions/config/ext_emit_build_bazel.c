@@ -395,7 +395,7 @@ void ext_emit_ocamlsdk_module(char *_ocaml_version,
         char *p = strrchr(sdk_lib, '/');
         int len = p - sdk_lib;
         /* LOG_DEBUG(0, "len: %d", len); */
-        char buf[len];
+        char buf[len + 1];
         memcpy(buf, sdk_lib, len); // includes the '/'
         buf[len] = '\0';           // replace the '/'
         LOG_DEBUG(0, "buf: %s", buf);

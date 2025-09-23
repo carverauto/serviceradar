@@ -55,6 +55,10 @@ module Client : sig
       are inlined into the SQL string after being sanitized. Use this helper to avoid duplicating the
       escaping logic. *)
 
+  val substitute_params : string -> (string * Proton.Column.value) list -> string
+  (** Inline named parameters into a SQL statement, applying the same sanitization as
+      [execute_with_params]. Useful for tooling that needs the rendered SQL without executing it. *)
+
   val query : t -> string -> Proton.Client.query_result Lwt.t
   (** Execute a query and return results *)
 

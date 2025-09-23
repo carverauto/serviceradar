@@ -1,0 +1,32 @@
+--- toolchains/BUILD
++++ toolchains/BUILD
+@@ -122,11 +122,6 @@
+ java_runtime_files(
+     name = "jni_md_header-freebsd",
+     srcs = ["include/freebsd/jni_md.h"],
+-)
+-
+-java_runtime_files(
+-    name = "jni_md_header-openbsd",
+-    srcs = ["include/openbsd/jni_md.h"],
+ )
+ 
+ # The Java native interface. Depend on this package if you #include <jni.h>.
+@@ -146,7 +141,7 @@
+         "@bazel_tools//src/conditions:linux_riscv64": [":jni_md_header-linux"],
+         "@bazel_tools//src/conditions:linux_s390x": [":jni_md_header-linux"],
+         "@bazel_tools//src/conditions:linux_x86_64": [":jni_md_header-linux"],
+-        "@bazel_tools//src/conditions:openbsd": [":jni_md_header-openbsd"],
++        "@bazel_tools//src/conditions:openbsd": [":jni_md_header-linux"],
+         "@bazel_tools//src/conditions:windows": [":jni_md_header-windows"],
+         "//conditions:default": [],
+     }),
+@@ -159,7 +154,7 @@
+         "@bazel_tools//src/conditions:linux_riscv64": ["include/linux"],
+         "@bazel_tools//src/conditions:linux_s390x": ["include/linux"],
+         "@bazel_tools//src/conditions:linux_x86_64": ["include/linux"],
+-        "@bazel_tools//src/conditions:openbsd": ["include/openbsd"],
++        "@bazel_tools//src/conditions:openbsd": ["include/linux"],
+         "@bazel_tools//src/conditions:windows": ["include/win32"],
+         "//conditions:default": [],
+     }),

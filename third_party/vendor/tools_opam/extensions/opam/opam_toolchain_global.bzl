@@ -22,17 +22,19 @@ def config_global_toolchain(mctx,
                             debug, opam_verbosity, verbosity):
     if verbosity > 0: print("\n  Configuring global toolchain")
 
+    no_bwrap_env = {"OBAZL_NO_BWRAP": "1"}
+
     opambin = mctx.which("opam")
     if verbosity > 0:
         cmd = [opambin, "--version"]
-        res = mctx.execute(cmd)
+        res = mctx.execute(cmd, environment = no_bwrap_env)
         if res.return_code == 0:
             print("\n  Opam version: %s" % res.stdout.strip())
         else:
             fail("Unable to run opam")
 
     cmd = [opambin, "var", "root"]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = no_bwrap_env)
     if res.return_code == 0:
         OPAMROOT = res.stdout.strip()
     else:
@@ -43,7 +45,7 @@ def config_global_toolchain(mctx,
     if debug > 0: print("OPAMROOT: %s" % OPAMROOT)
 
     cmd = [opambin, "var", "switch"]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = no_bwrap_env)
     if res.return_code == 0:
         switch_id = res.stdout.strip()
     else:
@@ -56,7 +58,7 @@ def config_global_toolchain(mctx,
     effective_ocaml_version = None
     ## check effective ocaml version vs. requested version
     cmd = [opambin, "var", "ocaml:version"]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = no_bwrap_env)
     if res.return_code == 0:
         effective_ocaml_version = res.stdout.strip()
     else:
@@ -90,7 +92,7 @@ To eliminate this warning, either
         ocaml_version = effective_ocaml_version
 
     cmd = [opambin, "var", "prefix"]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = no_bwrap_env)
     if res.return_code == 0:
         switch_pfx = res.stdout.strip()
     else:
@@ -108,7 +110,7 @@ To eliminate this warning, either
     if debug > 0: print("SDKBIN: %s" % SDKBIN)
 
     cmd = [opambin, "var", "lib"] # , "--switch", switch]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = no_bwrap_env)
     if res.return_code == 0:
         switch_lib = res.stdout.strip()
     else:
@@ -207,4 +209,3 @@ c) Tell me to install all missing packages by setting the env variable OBAZL_FOR
             str(switch_id),
             ocaml_version,
             deps)
-

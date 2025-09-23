@@ -21,7 +21,10 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"os"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -31,6 +34,16 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+func permissionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, syscall.EACCES) ||
+		strings.Contains(err.Error(), "requires root")
+}
 
 func TestNewSYNScanner(t *testing.T) {
 	if testing.Short() {
@@ -67,17 +80,22 @@ func TestNewSYNScanner(t *testing.T) {
 			log := logger.NewTestLogger()
 			scanner, err := NewSYNScanner(tt.timeout, tt.concurrency, log, nil)
 
-			if !isRoot {
-				// Without root privileges, should fail
-				require.Error(t, err)
-				assert.Nil(t, scanner)
-				t.Logf("SYN scanner correctly failed without root privileges: %v", err)
+			if err != nil {
+				if !isRoot {
+					require.Error(t, err)
+					assert.Nil(t, scanner)
+					t.Logf("SYN scanner correctly failed without root privileges: %v", err)
 
-				return
+					return
+				}
+
+				if permissionError(err) {
+					t.Skipf("Skipping SYN scanner test: raw sockets unavailable (%v)", err)
+				}
+
+				require.NoError(t, err)
 			}
 
-			// With root privileges, should succeed
-			require.NoError(t, err)
 			assert.NotNil(t, scanner)
 			assert.Equal(t, tt.wantTimeout, scanner.timeout)
 			assert.Equal(t, tt.wantConc, scanner.concurrency)

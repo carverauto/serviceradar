@@ -55,7 +55,9 @@ def _opam_dep_repo_impl(rctx):
     cmd = [opambin, "var", "prefix",
            "--switch", "{}".format(opamswitch),
            "--root", opamroot]
-    res = rctx.execute(cmd, quiet = (opam_verbosity < 1))
+    res = rctx.execute(cmd,
+                       environment = {"OBAZL_NO_BWRAP": "1"},
+                       quiet = (opam_verbosity < 1))
     switch_pfx = None
     if res.return_code == 0:
         switch_pfx = res.stdout.strip()
@@ -102,11 +104,14 @@ def _opam_dep_repo_impl(rctx):
     if rctx.attr.ocaml_version:
         cmd.extend(["--ocaml-version", rctx.attr.ocaml_version])
     rctx.report_progress("Configuring pkg %s" % repo_pkg)
-    res = rctx.execute(cmd,
-                       environment = {
-                           "OBAZL_SDKLIB": rctx.attr.sdklib
-                       },
-                       quiet = (verbosity < 1))
+    res = rctx.execute(
+        cmd,
+        environment = {
+            "OBAZL_SDKLIB": rctx.attr.sdklib,
+            "OBAZL_NO_BWRAP": "1",
+        },
+        quiet = (verbosity < 1),
+    )
 
     if res.return_code == 0:
         _pkg_deps = res.stdout.strip()
