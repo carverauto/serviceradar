@@ -81,7 +81,9 @@ impl Input for UdpInput {
                 Err(_) => continue,
             };
             let line = &buf[..length];
-            if let Err(e) = handle_record_maybe_compressed(line, src, &tx, decoder.as_ref(), encoder.as_ref()) {
+            if let Err(e) =
+                handle_record_maybe_compressed(line, src, &tx, decoder.as_ref(), encoder.as_ref())
+            {
                 let _ = writeln!(stderr(), "{e}");
             }
         }

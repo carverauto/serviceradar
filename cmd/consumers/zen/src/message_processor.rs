@@ -17,7 +17,7 @@ pub async fn process_message(
     msg: &Message,
 ) -> Result<()> {
     debug!("processing message on subject {}", msg.subject);
-    
+
     // Determine message format and parse accordingly
     let format = cfg.message_format_for_subject(&msg.subject);
     let mut context: serde_json::Value = match format {
@@ -91,13 +91,19 @@ mod tests {
                 DecisionGroupConfig {
                     name: "json_group".to_string(),
                     subjects: vec!["events.json".to_string()],
-                    rules: vec![RuleEntry { order: 1, key: "test_rule".to_string() }],
+                    rules: vec![RuleEntry {
+                        order: 1,
+                        key: "test_rule".to_string(),
+                    }],
                     format: MessageFormat::Json,
                 },
                 DecisionGroupConfig {
-                    name: "protobuf_group".to_string(), 
+                    name: "protobuf_group".to_string(),
                     subjects: vec!["events.protobuf".to_string()],
-                    rules: vec![RuleEntry { order: 1, key: "test_rule".to_string() }],
+                    rules: vec![RuleEntry {
+                        order: 1,
+                        key: "test_rule".to_string(),
+                    }],
                     format: MessageFormat::Protobuf,
                 },
             ],
@@ -111,7 +117,9 @@ mod tests {
 
     fn create_otel_protobuf_data() -> Vec<u8> {
         use crate::otel_logs::opentelemetry::proto::{
-            common::v1::{any_value::Value as AnyValueEnum, AnyValue, KeyValue, InstrumentationScope},
+            common::v1::{
+                any_value::Value as AnyValueEnum, AnyValue, InstrumentationScope, KeyValue,
+            },
             logs::v1::{LogRecord, LogsData, ResourceLogs, ScopeLogs},
             resource::v1::Resource,
         };
@@ -141,7 +149,9 @@ mod tests {
                         severity_number: 9,
                         severity_text: "INFO".to_string(),
                         body: Some(AnyValue {
-                            value: Some(AnyValueEnum::StringValue("Test protobuf message".to_string())),
+                            value: Some(AnyValueEnum::StringValue(
+                                "Test protobuf message".to_string(),
+                            )),
                         }),
                         attributes: vec![],
                         dropped_attributes_count: 0,
@@ -164,10 +174,19 @@ mod tests {
     #[test]
     fn test_message_format_detection() {
         let cfg = create_test_config();
-        
-        assert_eq!(cfg.message_format_for_subject("events.json"), MessageFormat::Json);
-        assert_eq!(cfg.message_format_for_subject("events.protobuf"), MessageFormat::Protobuf);
-        assert_eq!(cfg.message_format_for_subject("events.unknown"), MessageFormat::Json);
+
+        assert_eq!(
+            cfg.message_format_for_subject("events.json"),
+            MessageFormat::Json
+        );
+        assert_eq!(
+            cfg.message_format_for_subject("events.protobuf"),
+            MessageFormat::Protobuf
+        );
+        assert_eq!(
+            cfg.message_format_for_subject("events.unknown"),
+            MessageFormat::Json
+        );
     }
 
     #[test]
@@ -177,7 +196,7 @@ mod tests {
             "level": "info"
         });
         let json_bytes = serde_json::to_vec(&json_data).unwrap();
-        
+
         let parsed: serde_json::Value = serde_json::from_slice(&json_bytes).unwrap();
         assert_eq!(parsed["message"], "test json message");
         assert_eq!(parsed["level"], "info");
@@ -187,7 +206,7 @@ mod tests {
     fn test_protobuf_message_parsing() {
         let protobuf_data = create_otel_protobuf_data();
         let result = crate::otel_logs::otel_logs_to_json(&protobuf_data).unwrap();
-        
+
         assert_eq!(result["severity_text"], "INFO");
         assert_eq!(result["body"], "Test protobuf message");
         assert_eq!(result["timestamp"], 1234567890000000000u64);
@@ -196,10 +215,10 @@ mod tests {
     #[test]
     fn test_ordered_rules_for_subject() {
         let cfg = create_test_config();
-        
+
         let json_rules = cfg.ordered_rules_for_subject("events.json");
         assert_eq!(json_rules, vec!["test_rule"]);
-        
+
         let protobuf_rules = cfg.ordered_rules_for_subject("events.protobuf");
         assert_eq!(protobuf_rules, vec!["test_rule"]);
     }

@@ -56,13 +56,11 @@ pub trait Encoder: CloneBoxedEncoder {
 }
 
 pub fn config_get_prepend_ts(config: &Config) -> Option<String> {
-    let prepend_ts = config
-        .lookup("output.syslog_prepend_timestamp")
-        .map(|bs| {
-            bs.as_str()
-                .expect("output.syslog_prepend_timestamp should be a string")
-                .to_string()
-        });
+    let prepend_ts = config.lookup("output.syslog_prepend_timestamp").map(|bs| {
+        bs.as_str()
+            .expect("output.syslog_prepend_timestamp should be a string")
+            .to_string()
+    });
 
     match prepend_ts {
         Some(time_format) => {

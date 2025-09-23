@@ -19,7 +19,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use log::{info, error};
+use log::{error, info};
 use reqwest::Client;
 
 use crate::models::types::{ServiceStatus, SysmonMetrics};
@@ -33,11 +33,21 @@ impl DataProcessor for SysmonProcessor {
         service_type == "grpc" && service_name == "sysmon"
     }
 
-    async fn process_service(&self, poller_id: &str, service: &ServiceStatus, client: &Client, proton_url: &str) -> Result<()> {
+    async fn process_service(
+        &self,
+        poller_id: &str,
+        service: &ServiceStatus,
+        client: &Client,
+        proton_url: &str,
+    ) -> Result<()> {
         match serde_json::from_str::<SysmonMetrics>(&service.message) {
             Ok(metrics) => {
-                info!("Processing sysmon data for {}: {} CPUs, {} disks, memory data",
-                     poller_id, metrics.cpus.len(), metrics.disks.len());
+                info!(
+                    "Processing sysmon data for {}: {} CPUs, {} disks, memory data",
+                    poller_id,
+                    metrics.cpus.len(),
+                    metrics.disks.len()
+                );
 
                 let mut queries = Vec::new();
                 for cpu in &metrics.cpus {
@@ -49,18 +59,26 @@ impl DataProcessor for SysmonProcessor {
                 for disk in &metrics.disks {
                     queries.push(format!(
                         "INSERT INTO sysmon_disk_stream VALUES ('{}', '{}', '{}', {}, {})",
-                        metrics.timestamp, poller_id, disk.mount_point, disk.used_bytes, disk.total_bytes
+                        metrics.timestamp,
+                        poller_id,
+                        disk.mount_point,
+                        disk.used_bytes,
+                        disk.total_bytes
                     ));
                 }
                 queries.push(format!(
                     "INSERT INTO sysmon_memory_stream VALUES ('{}', '{}', {}, {})",
-                    metrics.timestamp, poller_id, metrics.memory.used_bytes, metrics.memory.total_bytes
+                    metrics.timestamp,
+                    poller_id,
+                    metrics.memory.used_bytes,
+                    metrics.memory.total_bytes
                 ));
 
                 let batch_query = queries.join(";\n");
-                self.execute_proton_query(client, proton_url, batch_query).await?;
+                self.execute_proton_query(client, proton_url, batch_query)
+                    .await?;
                 Ok(())
-            },
+            }
             Err(e) => {
                 error!("Failed to parse sysmon metrics: {}", e);
                 Err(anyhow::anyhow!("Failed to parse sysmon metrics: {}", e))
@@ -69,36 +87,50 @@ impl DataProcessor for SysmonProcessor {
     }
 
     async fn setup_streams(&self, client: &Client, proton_url: &str) -> Result<()> {
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE STREAM IF NOT EXISTS sysmon_cpu_stream (
+        self.execute_proton_query(
+            client,
+            proton_url,
+            "CREATE STREAM IF NOT EXISTS sysmon_cpu_stream (
                 timestamp DateTime,
                 poller_id String,
                 core_id Int32,
                 usage_percent Float32
-            ) SETTINGS type='memory'".to_string()
-        ).await?;
+            ) SETTINGS type='memory'"
+                .to_string(),
+        )
+        .await?;
 
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE STREAM IF NOT EXISTS sysmon_disk_stream (
+        self.execute_proton_query(
+            client,
+            proton_url,
+            "CREATE STREAM IF NOT EXISTS sysmon_disk_stream (
                 timestamp DateTime,
                 poller_id String,
                 mount_point String,
                 used_bytes UInt64,
                 total_bytes UInt64
-            ) SETTINGS type='memory'".to_string()
-        ).await?;
+            ) SETTINGS type='memory'"
+                .to_string(),
+        )
+        .await?;
 
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE STREAM IF NOT EXISTS sysmon_memory_stream (
+        self.execute_proton_query(
+            client,
+            proton_url,
+            "CREATE STREAM IF NOT EXISTS sysmon_memory_stream (
                 timestamp DateTime,
                 poller_id String,
                 used_bytes UInt64,
                 total_bytes UInt64
-            ) SETTINGS type='memory'".to_string()
-        ).await?;
+            ) SETTINGS type='memory'"
+                .to_string(),
+        )
+        .await?;
 
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE MATERIALIZED VIEW IF NOT EXISTS cpu_usage_1m AS
+        self.execute_proton_query(
+            client,
+            proton_url,
+            "CREATE MATERIALIZED VIEW IF NOT EXISTS cpu_usage_1m AS
             SELECT
                 window_start,
                 poller_id,
@@ -107,11 +139,15 @@ impl DataProcessor for SysmonProcessor {
             FROM
                 tumble(sysmon_cpu_stream, 1m, watermark=10s)
             GROUP BY
-                window_start, poller_id, core_id".to_string()
-        ).await?;
+                window_start, poller_id, core_id"
+                .to_string(),
+        )
+        .await?;
 
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE MATERIALIZED VIEW IF NOT EXISTS disk_usage_1m AS
+        self.execute_proton_query(
+            client,
+            proton_url,
+            "CREATE MATERIALIZED VIEW IF NOT EXISTS disk_usage_1m AS
             SELECT
                 window_start,
                 poller_id,
@@ -122,11 +158,15 @@ impl DataProcessor for SysmonProcessor {
             FROM
                 tumble(sysmon_disk_stream, 1m, watermark=10s)
             GROUP BY
-                window_start, poller_id, mount_point".to_string()
-        ).await?;
+                window_start, poller_id, mount_point"
+                .to_string(),
+        )
+        .await?;
 
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE MATERIALIZED VIEW IF NOT EXISTS memory_usage_1m AS
+        self.execute_proton_query(
+            client,
+            proton_url,
+            "CREATE MATERIALIZED VIEW IF NOT EXISTS memory_usage_1m AS
             SELECT
                 window_start,
                 poller_id,
@@ -136,8 +176,10 @@ impl DataProcessor for SysmonProcessor {
             FROM
                 tumble(sysmon_memory_stream, 1m, watermark=10s)
             GROUP BY
-                window_start, poller_id".to_string()
-        ).await?;
+                window_start, poller_id"
+                .to_string(),
+        )
+        .await?;
 
         Ok(())
     }

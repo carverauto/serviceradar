@@ -15,13 +15,12 @@
  *
  */
 
-
 // cmd/poller-ng/src/processor.rs
 
+use crate::models::types::ServiceStatus;
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
-use crate::models::types::ServiceStatus;
 
 #[async_trait]
 pub trait DataProcessor: Send + Sync {
@@ -29,11 +28,13 @@ pub trait DataProcessor: Send + Sync {
     fn handles_service(&self, service_type: &str, service_name: &str) -> bool;
 
     // Process a service and insert data into Proton
-    async fn process_service(&self,
-                             poller_id: &str,
-                             service: &ServiceStatus,
-                             client: &Client,
-                             proton_url: &str) -> Result<()>;
+    async fn process_service(
+        &self,
+        poller_id: &str,
+        service: &ServiceStatus,
+        client: &Client,
+        proton_url: &str,
+    ) -> Result<()>;
 
     // Set up necessary Proton streams for this processor
     async fn setup_streams(&self, client: &Client, proton_url: &str) -> Result<()>;
@@ -42,12 +43,18 @@ pub trait DataProcessor: Send + Sync {
     fn name(&self) -> &'static str;
 
     // Helper method for executing Proton queries
-    async fn execute_proton_query(&self, client: &Client, proton_url: &str, query: String) -> Result<()> {
-        let response = client.post(format!("{}/api/query", proton_url))
+    async fn execute_proton_query(
+        &self,
+        client: &Client,
+        proton_url: &str,
+        query: String,
+    ) -> Result<()> {
+        let response = client
+            .post(format!("{}/api/query", proton_url))
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
-            "sql": query
-        }))
+                "sql": query
+            }))
             .send()
             .await?;
 

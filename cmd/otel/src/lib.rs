@@ -46,6 +46,7 @@ pub mod opentelemetry {
     }
 }
 
+use crate::nats_output::PerformanceMetric;
 use opentelemetry::proto::collector::logs::v1::logs_service_server::LogsService;
 use opentelemetry::proto::collector::logs::v1::{
     ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse,
@@ -54,7 +55,6 @@ use opentelemetry::proto::collector::trace::v1::trace_service_server::TraceServi
 use opentelemetry::proto::collector::trace::v1::{
     ExportTraceServiceRequest, ExportTraceServiceResponse,
 };
-use crate::nats_output::PerformanceMetric;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -97,24 +97,22 @@ impl ServiceRadarCollector {
     pub async fn reconfigure_nats(&self, nats_config: Option<nats_output::NATSConfig>) {
         debug!("Reconfiguring NATS output for collector");
         match nats_config {
-            Some(cfg) => {
-                match nats_output::NATSOutput::new(cfg).await {
-                    Ok(new_output) => {
-                        if let Some(arc) = &self.nats_output {
-                            {
-                                let mut guard = arc.lock().await;
-                                *guard = new_output;
-                                info!("NATS output reconfigured successfully");
-                            }
-                        } else {
-                            warn!("NATS output not initialized; restart required to enable output");
+            Some(cfg) => match nats_output::NATSOutput::new(cfg).await {
+                Ok(new_output) => {
+                    if let Some(arc) = &self.nats_output {
+                        {
+                            let mut guard = arc.lock().await;
+                            *guard = new_output;
+                            info!("NATS output reconfigured successfully");
                         }
-                    }
-                    Err(e) => {
-                        error!("Failed to reconfigure NATS output: {e}");
+                    } else {
+                        warn!("NATS output not initialized; restart required to enable output");
                     }
                 }
-            }
+                Err(e) => {
+                    error!("Failed to reconfigure NATS output: {e}");
+                }
+            },
             None => {
                 if let Some(arc) = &self.nats_output {
                     {
@@ -179,7 +177,10 @@ impl TraceService for ServiceRadarCollector {
                         .find(|kv| kv.key == "service.name")
                         .and_then(|kv| kv.value.as_ref())
                         .and_then(|v| {
-                            if let Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(s)) = &v.value {
+                            if let Some(
+                                opentelemetry::proto::common::v1::any_value::Value::StringValue(s),
+                            ) = &v.value
+                            {
                                 Some(s.as_str())
                             } else {
                                 None
@@ -191,7 +192,9 @@ impl TraceService for ServiceRadarCollector {
             for scope_span in &resource_span.scope_spans {
                 for span in &scope_span.spans {
                     // Calculate span duration
-                    let duration_ns = span.end_time_unix_nano.saturating_sub(span.start_time_unix_nano);
+                    let duration_ns = span
+                        .end_time_unix_nano
+                        .saturating_sub(span.start_time_unix_nano);
                     let duration_ms = duration_ns as f64 / 1_000_000.0;
                     let duration_seconds = duration_ns as f64 / 1_000_000_000.0;
 
@@ -202,10 +205,12 @@ impl TraceService for ServiceRadarCollector {
                     // Extract additional context from span attributes
                     let mut span_attrs = std::collections::HashMap::new();
                     for attr in &span.attributes {
-                        if let Some(value) = &attr.value {
-                            if let Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(s)) = &value.value {
-                                span_attrs.insert(attr.key.as_str(), s.as_str());
-                            }
+                        if let Some(value) = &attr.value
+                            && let Some(
+                                opentelemetry::proto::common::v1::any_value::Value::StringValue(s),
+                            ) = &value.value
+                        {
+                            span_attrs.insert(attr.key.as_str(), s.as_str());
                         }
                     }
 
@@ -240,19 +245,26 @@ impl TraceService for ServiceRadarCollector {
                         grpc_status_code: None,
                         is_slow,
                         component: "otel-collector".to_string(),
-                        level: if is_slow { "warn".to_string() } else { "info".to_string() },
+                        level: if is_slow {
+                            "warn".to_string()
+                        } else {
+                            "info".to_string()
+                        },
                     };
 
                     // Add base span metric
                     performance_metrics.push(base_metric.clone());
 
                     // Add HTTP-specific metric if available
-                    if let (Some(method), Some(route)) = (span_attrs.get("http.method"), span_attrs.get("http.route")) {
+                    if let (Some(method), Some(route)) =
+                        (span_attrs.get("http.method"), span_attrs.get("http.route"))
+                    {
                         let mut http_metric = base_metric.clone();
                         http_metric.metric_type = "http".to_string();
                         http_metric.http_method = Some(method.to_string());
                         http_metric.http_route = Some(route.to_string());
-                        http_metric.http_status_code = span_attrs.get("http.status_code").map(|s| s.to_string());
+                        http_metric.http_status_code =
+                            span_attrs.get("http.status_code").map(|s| s.to_string());
                         performance_metrics.push(http_metric);
                     }
 
@@ -263,7 +275,9 @@ impl TraceService for ServiceRadarCollector {
                         grpc_metric.metric_type = "grpc".to_string();
                         grpc_metric.grpc_service = Some(grpc_service.to_string());
                         grpc_metric.grpc_method = Some(grpc_method.to_string());
-                        grpc_metric.grpc_status_code = span_attrs.get("rpc.grpc.status_code").map(|s| s.to_string());
+                        grpc_metric.grpc_status_code = span_attrs
+                            .get("rpc.grpc.status_code")
+                            .map(|s| s.to_string());
                         performance_metrics.push(grpc_metric);
                     }
 
@@ -285,14 +299,17 @@ impl TraceService for ServiceRadarCollector {
         }
 
         // Publish performance metrics to NATS
-        if !performance_metrics.is_empty() {
-            if let Some(nats) = &self.nats_output {
-                debug!("Publishing {} performance metrics to NATS", performance_metrics.len());
-                let nats_output = nats.lock().await;
-                if let Err(e) = nats_output.publish_metrics(&performance_metrics).await {
-                    error!("Failed to publish performance metrics to NATS: {e}");
-                    // Don't fail the request, just log the error
-                }
+        if !performance_metrics.is_empty()
+            && let Some(nats) = &self.nats_output
+        {
+            debug!(
+                "Publishing {} performance metrics to NATS",
+                performance_metrics.len()
+            );
+            let nats_output = nats.lock().await;
+            if let Err(e) = nats_output.publish_metrics(&performance_metrics).await {
+                error!("Failed to publish performance metrics to NATS: {e}");
+                // Don't fail the request, just log the error
             }
         }
 

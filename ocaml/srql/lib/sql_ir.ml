@@ -1,6 +1,5 @@
 (* file: srql/lib/sql_ir.ml *)
 type operator = Eq | Neq | Gt | Gte | Lt | Lte | Contains | In | Like | ArrayContains
-
 type value = String of string | Int of int | Bool of bool | Expr of string | Float of float
 
 type condition =
