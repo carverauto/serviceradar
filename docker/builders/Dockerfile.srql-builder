@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# Build stage - compile OCaml SRQL service
 ARG BASE_IMAGE=ocaml/opam:ubuntu-24.04-ocaml-5.1
-FROM ${BASE_IMAGE} AS builder
+FROM ${BASE_IMAGE}
 
 USER root
 RUN apt-get update \
@@ -59,36 +58,5 @@ RUN opam install -y \
     && opam clean -a -c
 
 WORKDIR /workspace
-COPY --chown=opam:opam ocaml/ ./
 
-RUN eval $(opam env) \
-    && opam install . --deps-only -y \
-    && dune build --profile=release srql/bin/main.exe
-
-# Runtime stage
-FROM debian:12-slim
-ENV LANG=C.UTF-8
-WORKDIR /app
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        libev4 \
-        libgmp10 \
-        liblz4-1 \
-        libssl3 \
-        libzstd1 \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN useradd -m -u 1000 serviceradar
-
-COPY --from=builder /workspace/_build/default/srql/bin/main.exe /usr/local/bin/serviceradar-srql
-COPY docker/compose/entrypoint-srql.sh /usr/local/bin/entrypoint-srql.sh
-RUN chmod +x /usr/local/bin/entrypoint-srql.sh /usr/local/bin/serviceradar-srql
-
-USER serviceradar
-EXPOSE 8080
-
-ENTRYPOINT ["/usr/local/bin/entrypoint-srql.sh"]
-CMD ["serviceradar-srql"]
+CMD ["opam", "switch", "show"]

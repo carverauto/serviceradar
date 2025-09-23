@@ -1,0 +1,23 @@
+[Unit]
+Description=ServiceRadar SRQL Query Service
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/serviceradar/srql.env
+EnvironmentFile=-/etc/serviceradar/config/api.env
+EnvironmentFile=-/etc/serviceradar/api.env
+ExecStart=/usr/local/bin/serviceradar-srql
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s SIGINT $MAINPID
+User=serviceradar
+Group=serviceradar
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/usr/local/bin
+StandardOutput=append:/var/log/serviceradar/srql.log
+StandardError=append:/var/log/serviceradar/srql-error.log
+LimitNOFILE=200000
+
+[Install]
+WantedBy=multi-user.target

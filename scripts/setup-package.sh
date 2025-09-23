@@ -324,6 +324,25 @@ build_component() {
   "buildTime": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF
+        elif [ "$build_method" = "ocaml" ] && [ -n "$dockerfile" ]; then
+            local output_path docker_output_path
+            output_path=$(echo "$config" | jq -r '.binary.output_path')
+            docker_output_path=$(echo "$config" | jq -r '.binary.docker_output_path // "/output/${package_name}"')
+            echo "Building OCaml binary with Docker ($dockerfile)..."
+            docker build \
+                --platform linux/amd64 \
+                --build-arg VERSION="$version" \
+                --build-arg BUILD_ID="$BUILD_ID" \
+                -f "${BASE_DIR}/${dockerfile}" \
+                -t "${package_name}-builder" \
+                "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
+            container_id=$(docker create "${package_name}-builder" /bin/true) || { echo "Error: Failed to create container"; exit 1; }
+            echo "Creating directory for binary: $(dirname "${pkg_root}${output_path}")"
+            mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
+            docker cp "${container_id}:${docker_output_path}" "${pkg_root}${output_path}" || { echo "Error: Failed to copy OCaml binary from ${docker_output_path}"; exit 1; }
+            ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not copied to package root"; exit 1; }
+            test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
+            docker rm "$container_id"
         elif [ "$build_method" = "rust" ] && [ -n "$dockerfile" ]; then
             local output_path docker_output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')
