@@ -245,7 +245,29 @@ fi
 
 # Note: we assume $1 can be trusted, see https://github.com/projectatomic/bubblewrap/issues/259
 # As of now we are compatible up to 0.1.8, '--' can be added here when we require >= 0.3.0
-exec bwrap "${ARGS[@]}" "$@"
+fallback_log=$(mktemp 2>/dev/null || echo "")
+
+if [ -n "$fallback_log" ]; then
+    set +e
+    bwrap "${ARGS[@]}" "$@" 2> >(tee "$fallback_log" >&2)
+    status=$?
+    set -e
+    if [ $status -eq 0 ]; then
+        rm -f "$fallback_log"
+        exit 0
+    fi
+
+    if grep -Eq '^bwrap: .* (RTM_NEWADDR|Operation not permitted|Permission denied)' "$fallback_log"; then
+        echo "sandbox.sh: bubblewrap unavailable (status $status); running command without sandbox." >&2
+        rm -f "$fallback_log"
+        exec "$@"
+    fi
+
+    rm -f "$fallback_log"
+    exit $status
+else
+    exec bwrap "${ARGS[@]}" "$@"
+fi
 """
   ] {os = "linux"}
   [
