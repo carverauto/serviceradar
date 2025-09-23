@@ -118,22 +118,24 @@ def _create_switch(mctx, opambin, opam_version,
                    OPAMROOT, switch_id,
                    opam_verbosity, verbosity):
 
-    cmd = [opambin,
-           "switch",
-           "create",
-           str(switch_id),
-           str(switch_id), ## compiler version
-           "--root={}".format(OPAMROOT),
-           "--disable-sandboxing",  # Disable sandboxing for CI environments
-           # "--verbose"
-           ]
+    base_cmd = [opambin,
+                "switch",
+                "create",
+                str(switch_id),
+                str(switch_id), ## compiler version
+                "--root={}".format(OPAMROOT)]
+
+    verbosity_flag = []
     if opam_verbosity > 1:
         s = "-"
         for i in range(1, opam_verbosity):
             s = s + "v"
-        cmd.extend([s])
+        verbosity_flag = [s]
 
-    if verbosity > 0: print("\n  Creating XDG switch:\n\t%s" % cmd)
+    cmd_disable = base_cmd + ["--disable-sandboxing"] + verbosity_flag
+    cmd_enable = base_cmd + verbosity_flag
+
+    if verbosity > 0: print("\n  Creating XDG switch:\n\t%s" % cmd_disable)
 
     mctx.report_progress("""
 {c}INFO{reset}: Creating opam switch {s} with OCaml version {v}
@@ -144,16 +146,28 @@ def _create_switch(mctx, opambin, opam_version,
         "OBAZL_NO_BWRAP": "1",
         "PATH": "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin",
     }
-    res = mctx.execute(cmd,
+    res = mctx.execute(cmd_disable,
                        environment = env,
                        quiet = (opam_verbosity < 1))
+    if res.return_code != 0 and "unknown option '--disable-sandboxing'" in res.stderr:
+        if verbosity > 0 or opam_verbosity:
+            print("  Retrying switch creation without '--disable-sandboxing'; flag unsupported by this opam version.")
+            print("\t%s" % cmd_enable)
+        res = mctx.execute(cmd_enable,
+                           environment = env,
+                           quiet = (opam_verbosity < 1))
+        cmd_used = cmd_enable
+    else:
+        cmd_used = cmd_disable
+
     if res.return_code != 0:
         if res.return_code != 2: # already installed
-            print("cmd: %s" % cmd)
-            print("rc: %s" % res.return_code)
-            print("stdout: %s" % res.stdout)
-            print("stderr: %s" % res.stderr)
-            fail("cmd failure: %s" % cmd)
+            fail("opam switch create failed; cmd=%s rc=%s\nstdout:%s\nstderr:%s" % (
+                cmd_used,
+                res.return_code,
+                res.stdout,
+                res.stderr,
+            ))
 
     ocaml_version = None
 

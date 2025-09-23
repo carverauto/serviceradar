@@ -68,6 +68,11 @@ use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
         "--action_env=OBAZL_NO_BWRAP=1",
     ]
 
+    copt_flags = []
+    if mctx.os.name != "mac os x":
+        # Clang (macOS) does not recognize '-Wno-use-after-free'; limit to toolchains that support it.
+        copt_flags = ["--copt=-Wno-use-after-free"]
+
     if toolchain == "opam":
         cmd = [bazel,
                "--ignore_all_rc_files",
@@ -86,8 +91,7 @@ use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
                "--registry=https://bcr.bazel.build",
                "--subcommands=pretty_print",
                "--compilation_mode", "fastbuild",
-               # Suppress use-after-free warnings in findlibc on newer GCC versions
-               "--copt=-Wno-use-after-free",
+               ] + copt_flags + [
                "@tools_opam//extensions/config"]
     else:
         cmd = ["bazel",
@@ -102,8 +106,7 @@ use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
                "--lockfile_mode=off",
                "--ignore_dev_dependency",
                "--compilation_mode", "fastbuild",
-               # Suppress use-after-free warnings in findlibc on newer GCC versions
-               "--copt=-Wno-use-after-free",
+               ] + copt_flags + [
                "@tools_opam//extensions/config"]
 
     cmd.extend(shared_flags)

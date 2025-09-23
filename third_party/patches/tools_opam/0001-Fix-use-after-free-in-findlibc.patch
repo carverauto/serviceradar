@@ -2,20 +2,39 @@ diff --git a/extensions/opam.bzl b/extensions/opam.bzl
 index 1234567..89abcde 100644
 --- a/extensions/opam.bzl
 +++ b/extensions/opam.bzl
-@@ -87,6 +87,8 @@ def _build_config_tool(mctx, toolchain, external_flags = ["--version"]):
-                "--subcommands=pretty_print",
-                "--compilation_mode", "fastbuild",
-+               # Suppress use-after-free warnings in findlibc on newer GCC versions
-+               "--copt=-Wno-use-after-free",
-                "@tools_opam//extensions/config"]
-     else:
-         cmd = ["bazel",
-@@ -101,6 +103,8 @@ def _build_config_tool(mctx, toolchain, external_flags = ["--version"]):
-                "--lockfile_mode=off",
-                "--ignore_dev_dependency",
-                "--compilation_mode", "fastbuild",
-+               # Suppress use-after-free warnings in findlibc on newer GCC versions
-+               "--copt=-Wno-use-after-free",
-                "@tools_opam//extensions/config"]
-
-     cmd.extend(shared_flags)
+@@ -84,6 +84,12 @@ def _build_config_tool(mctx, toolchain, external_flags = ["--version"]):
+      "--repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=0",
+      "--action_env=OBAZL_NO_BWRAP=1",
+  ]
++
++    copt_flags = []
++    if mctx.os.name != "mac os x":
++        # Suppress use-after-free warnings in findlibc on toolchains that support the flag.
++        copt_flags = ["--copt=-Wno-use-after-free"]
+ 
+      if toolchain == "opam":
+          cmd = [bazel,
+@@ -99,7 +105,8 @@ def _build_config_tool(mctx, toolchain, external_flags = ["--version"]):
+                  "--registry=https://raw.githubusercontent.com/obazl/registry/main/",
+                  "--registry=https://bcr.bazel.build",
+                  "--subcommands=pretty_print",
+-                 "--compilation_mode", "fastbuild",
+-                 "@tools_opam//extensions/config"]
++                 "--compilation_mode", "fastbuild",
++                 ] + copt_flags + [
++                 "@tools_opam//extensions/config"]
+      else:
+          cmd = ["bazel",
+@@ -110,7 +117,8 @@ def _build_config_tool(mctx, toolchain, external_flags = ["--version"]):
+                  "--registry=https://raw.githubusercontent.com/obazl/registry/main/",
+                  "--registry=https://bcr.bazel.build",
+                  "--lockfile_mode=off",
+-                 "--ignore_dev_dependency",
+-                 "--compilation_mode", "fastbuild",
+-                 "@tools_opam//extensions/config"]
++                 "--ignore_dev_dependency",
++                 "--compilation_mode", "fastbuild",
++                 ] + copt_flags + [
++                 "@tools_opam//extensions/config"]
+ 
+      cmd.extend(shared_flags)
