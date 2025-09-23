@@ -1,5 +1,4 @@
 open Lwt.Syntax
-
 module Column = Proton.Column
 
 module Config = struct
@@ -97,7 +96,8 @@ module Client = struct
         else "-inf"
     | Column.DateTime (ts, tz_opt) -> (
         match tz_opt with
-        | Some tz -> Printf.sprintf "toDateTime(%Ld, '%s')" ts (Sql_sanitize.escape_string_literal tz)
+        | Some tz ->
+            Printf.sprintf "toDateTime(%Ld, '%s')" ts (Sql_sanitize.escape_string_literal tz)
         | None -> Printf.sprintf "toDateTime(%Ld)" ts)
     | Column.DateTime64 (v, precision, tz_opt) -> (
         match tz_opt with

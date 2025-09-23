@@ -4,7 +4,7 @@ use prost::Message;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Include the protobuf definitions
     use serviceradar_zen::otel_logs::opentelemetry::proto::{
-        common::v1::{any_value::Value as AnyValueEnum, AnyValue, KeyValue, InstrumentationScope},
+        common::v1::{any_value::Value as AnyValueEnum, AnyValue, InstrumentationScope, KeyValue},
         logs::v1::{LogRecord, LogsData, ResourceLogs, ScopeLogs},
         resource::v1::Resource,
     };
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     severity_text: "INFO".to_string(),
                     body: Some(AnyValue {
                         value: Some(AnyValueEnum::StringValue(
-                            "This is an example OTEL log message".to_string()
+                            "This is an example OTEL log message".to_string(),
                         )),
                     }),
                     attributes: vec![
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Convert to JSON using our conversion function
     let json_value = serviceradar_zen::otel_logs::otel_logs_to_json(&protobuf_data)?;
     let json_pretty = serde_json::to_string_pretty(&json_value)?;
-    
+
     println!("Converted JSON:");
     println!("{}", json_pretty);
 
