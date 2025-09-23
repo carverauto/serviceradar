@@ -257,7 +257,7 @@ if [ -n "$fallback_log" ]; then
         exit 0
     fi
 
-    if grep -Eq '^bwrap: .* (RTM_NEWADDR|Operation not permitted|Permission denied)' "$fallback_log"; then
+    if grep -Eq '^[#[:space:]]*bwrap: .* (RTM_NEWADDR|Operation not permitted|Permission denied)' "$fallback_log"; then
         echo "sandbox.sh: bubblewrap unavailable (status $status); running command without sandbox." >&2
         rm -f "$fallback_log"
         exec "$@"
