@@ -205,6 +205,7 @@ ocaml_module(
 ocaml_test(
     name = "test_json_conv",
     main = ":test_json_conv_module",
+    tags = ["ocaml"],
 )
 
 ocaml_module(
@@ -220,6 +221,7 @@ ocaml_module(
 ocaml_test(
     name = "test_query_engine",
     main = ":test_query_engine_module",
+    tags = ["ocaml"],
 )
 
 ocaml_module(
@@ -234,6 +236,7 @@ ocaml_module(
 ocaml_test(
     name = "test_bounded_unbounded",
     main = ":test_bounded_unbounded_module",
+    tags = ["ocaml"],
 )
 
 ocaml_module(
@@ -248,4 +251,5 @@ ocaml_module(
 ocaml_test(
     name = "test_sql_sanitize",
     main = ":test_sql_sanitize_module",
+    tags = ["ocaml"],
 )

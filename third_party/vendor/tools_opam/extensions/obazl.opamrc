@@ -83,6 +83,15 @@ init-scripts: [
 
 set -ue
 
+if [ "${OBAZL_NO_BWRAP:-}" = "1" ]; then
+    if [ $# -lt 1 ]; then
+        echo "sandbox.sh: missing command for OBAZL_NO_BWRAP" >&2
+        exit 2
+    fi
+    shift
+    exec "$@"
+fi
+
 # Used to make /* match all files (even those beginning with a '.')
 shopt -s dotglob
 
@@ -236,7 +245,31 @@ fi
 
 # Note: we assume $1 can be trusted, see https://github.com/projectatomic/bubblewrap/issues/259
 # As of now we are compatible up to 0.1.8, '--' can be added here when we require >= 0.3.0
-exec bwrap "${ARGS[@]}" "$@"
+fallback_log=$(mktemp 2>/dev/null || echo "")
+
+if [ -n "$fallback_log" ]; then
+    set +e
+    bwrap "${ARGS[@]}" "$@" 2> >(tee "$fallback_log" >&2)
+    status=$?
+    set -e
+    if [ $status -eq 0 ]; then
+        rm -f "$fallback_log"
+        exit 0
+    fi
+
+    if sed -E 's/\x1B\[[0-9;:]*[@-~]//g' "$fallback_log" | \
+        tr -d '\r' | \
+        grep -Eq 'bwrap: .* (RTM_NEWADDR|Operation not permitted|Permission denied)'; then
+        echo "sandbox.sh: bubblewrap unavailable (status $status); running command without sandbox." >&2
+        rm -f "$fallback_log"
+        exec "$@"
+    fi
+
+    rm -f "$fallback_log"
+    exit $status
+else
+    exec bwrap "${ARGS[@]}" "$@"
+fi
 """
   ] {os = "linux"}
   [

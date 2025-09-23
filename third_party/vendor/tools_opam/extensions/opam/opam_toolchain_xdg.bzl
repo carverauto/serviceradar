@@ -26,6 +26,75 @@ os_map = {
 }
 
 ################
+def _install_override_repository(mctx, opambin, opam_root, verbosity, opam_verbosity):
+    overrides_rel = "extensions/opam/overrides_repo"
+    overrides_path = mctx.path(overrides_rel)
+    if not overrides_path.exists:
+        return
+
+    repo_parent = opam_root + "/srql_repos"
+    repo_dir = repo_parent + "/overrides_repo"
+
+    run_cmd(mctx, ["mkdir", "-p", repo_parent], verbosity=verbosity)
+    run_cmd(mctx, ["rm", "-rf", repo_dir], verbosity=verbosity)
+    run_cmd(mctx, ["cp", "-R", str(overrides_path), repo_parent], verbosity=verbosity)
+
+    repo_url = "file://" + repo_dir
+    env = {"OBAZL_NO_BWRAP": "1"}
+
+    add_cmd = [
+        opambin,
+        "repository",
+        "add",
+        "srql-overrides",
+        repo_url,
+        "--root",
+        opam_root,
+        "--dont-select",
+        "--priority=0",
+    ]
+    res = mctx.execute(add_cmd, environment = env, quiet = (opam_verbosity < 1))
+    if res.return_code != 0:
+        if "already registered" in res.stderr or "already exists" in res.stderr:
+            set_cmd = [
+                opambin,
+                "repository",
+                "set-url",
+                "srql-overrides",
+                repo_url,
+                "--root",
+                opam_root,
+            ]
+            res2 = mctx.execute(set_cmd, environment = env, quiet = (opam_verbosity < 1))
+            if res2.return_code != 0:
+                print("cmd: %s" % set_cmd)
+                print("rc: %s" % res2.return_code)
+                print("stdout: %s" % res2.stdout)
+                print("stderr: %s" % res2.stderr)
+                fail("cmd failure")
+        else:
+            print("cmd: %s" % add_cmd)
+            print("rc: %s" % res.return_code)
+            print("stdout: %s" % res.stdout)
+            print("stderr: %s" % res.stderr)
+            fail("cmd failure")
+
+    update_cmd = [
+        opambin,
+        "update",
+        "srql-overrides",
+        "--root",
+        opam_root,
+    ]
+    res = mctx.execute(update_cmd, environment = env, quiet = (opam_verbosity < 1))
+    if res.return_code != 0:
+        print("cmd: %s" % update_cmd)
+        print("rc: %s" % res.return_code)
+        print("stdout: %s" % res.stdout)
+        print("stderr: %s" % res.stderr)
+        fail("cmd failure")
+
+################
 def _get_xdg_ctx(ctx, debug, verbosity):
 
     xdg = ctx.getenv("XDG_DATA_HOME")
@@ -102,8 +171,9 @@ def _init_opam(mctx, opambin, opam_version, OPAMROOT,
     """.format(c = CCYEL, reset = CCRESET,
                v = opam_version, r = OPAMROOT)
                          )
+    env = {"OBAZL_NO_BWRAP": "1", "OPAMNO": "true"}
     res = mctx.execute(cmd,
-                       environment = {"OPAMNO": "true"},
+                       environment = env,
                        quiet = (opam_verbosity < 1))
     if res.return_code != 0:
         print("cmd: %s" % cmd)
@@ -112,44 +182,69 @@ def _init_opam(mctx, opambin, opam_version, OPAMROOT,
         print("stderr: %s" % res.stderr)
         fail("cmd failure")
 
+    _install_override_repository(
+        mctx = mctx,
+        opambin = opambin,
+        opam_root = OPAMROOT,
+        verbosity = verbosity,
+        opam_verbosity = opam_verbosity,
+    )
+
 ################
 def _create_switch(mctx, opambin, opam_version,
                    OPAMROOT, switch_id,
                    opam_verbosity, verbosity):
 
-    cmd = [opambin,
-           "switch",
-           "create",
-           str(switch_id),
-           str(switch_id), ## compiler version
-           "--root={}".format(OPAMROOT),
-           # "--verbose"
-           ]
+    base_cmd = [opambin,
+                "switch",
+                "create",
+                str(switch_id),
+                str(switch_id), ## compiler version
+                "--root={}".format(OPAMROOT)]
+
+    verbosity_flag = []
     if opam_verbosity > 1:
         s = "-"
         for i in range(1, opam_verbosity):
             s = s + "v"
-        cmd.extend([s])
+        verbosity_flag = [s]
 
-    if verbosity > 0: print("\n  Creating XDG switch:\n\t%s" % cmd)
+    cmd_disable = base_cmd + ["--disable-sandboxing"] + verbosity_flag
+    cmd_enable = base_cmd + verbosity_flag
+
+    if verbosity > 0: print("\n  Creating XDG switch:\n\t%s" % cmd_disable)
 
     mctx.report_progress("""
 {c}INFO{reset}: Creating opam switch {s} with OCaml version {v}
       in opam {o} root: {r}""".format(c = CCYEL, reset = CCRESET,
                s = switch_id, v = switch_id,
                o = opam_version, r = OPAMROOT))
-    res = mctx.execute(cmd,
-                       environment = {
-                           "PATH": "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin"
-                       },
+    env = {
+        "OBAZL_NO_BWRAP": "1",
+        "PATH": "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin",
+    }
+    res = mctx.execute(cmd_disable,
+                       environment = env,
                        quiet = (opam_verbosity < 1))
+    if res.return_code != 0 and "unknown option '--disable-sandboxing'" in res.stderr:
+        if verbosity > 0 or opam_verbosity:
+            print("  Retrying switch creation without '--disable-sandboxing'; flag unsupported by this opam version.")
+            print("\t%s" % cmd_enable)
+        res = mctx.execute(cmd_enable,
+                           environment = env,
+                           quiet = (opam_verbosity < 1))
+        cmd_used = cmd_enable
+    else:
+        cmd_used = cmd_disable
+
     if res.return_code != 0:
         if res.return_code != 2: # already installed
-            print("cmd: %s" % cmd)
-            print("rc: %s" % res.return_code)
-            print("stdout: %s" % res.stdout)
-            print("stderr: %s" % res.stderr)
-            fail("cmd failure: %s" % cmd)
+            fail("opam switch create failed; cmd=%s rc=%s\nstdout:%s\nstderr:%s" % (
+                cmd_used,
+                res.return_code,
+                res.stdout,
+                res.stderr,
+            ))
 
     ocaml_version = None
 
@@ -185,7 +280,7 @@ def config_xdg_toolchain(mctx,
 
     if verbosity > 0:
         cmd = [opambin, "--version"]
-        res = mctx.execute(cmd)
+        res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
         if res.return_code == 0:
             print("\n  Opam version: %s" % res.stdout.strip())
         else:
@@ -223,7 +318,7 @@ def config_xdg_toolchain(mctx,
         # no ocaml_version specified, use default
         cmd = ["opam", "var", "sys-ocaml-version",
                "--root", OPAMROOT]
-        res = mctx.execute(cmd)
+        res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
                            # environment = {
                            #     "PATH": "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin"
                            # },
@@ -248,7 +343,7 @@ def config_xdg_toolchain(mctx,
 
     cmd = [opambin, "var", "prefix", "--root", OPAMROOT,
            "--switch", switch_id]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
     if res.return_code == 0:
         switch_pfx = res.stdout.strip()
     else:
@@ -260,7 +355,7 @@ def config_xdg_toolchain(mctx,
 
     cmd = [opambin, "var", "bin", "--root", OPAMROOT,
            "--switch", switch_id]
-    res = mctx.execute(cmd)
+    res = mctx.execute(cmd, environment = {"OBAZL_NO_BWRAP": "1"})
     if res.return_code == 0:
         switch_bin = res.stdout.strip()
     else:
@@ -294,7 +389,8 @@ def config_xdg_toolchain(mctx,
            "--root", "{}".format(str(OPAMROOT)),
           "--yes"]
     switch_lib = None
-    res = mctx.execute(cmd) # , quiet = (verbosity < 1))
+    res = mctx.execute(cmd,
+                       environment = {"OBAZL_NO_BWRAP": "1"}) # , quiet = (verbosity < 1))
     if res.return_code == 0:
         switch_lib = res.stdout.strip()
     else:

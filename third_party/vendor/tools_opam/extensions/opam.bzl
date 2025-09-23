@@ -38,22 +38,41 @@ def _build_config_tool(mctx, toolchain, debug, verbosity):
     # cmd = ["tree", "-aL", "1", "../../external"]
     # mctx.execute(cmd, quiet = False)
 
-    mctx.file("MODULE.bazel",
-
-              content = """
+    mctx.file(
+        "MODULE.bazel",
+        content = """
 module(
     name = "config_tool",
     version = "0.0.0",
- )
+)
 
-bazel_dep(name = "tools_opam",  version="1.0.0.beta.1")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "tools_opam",  version = "1.0.0.beta.1")
 bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
-               """
-              )
+bazel_dep(name = "rules_cc", version = "0.2.4")
+
+host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
+use_repo(host_platform_ext, "host_platform")
+
+cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
+use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
+        """,
+    )
 
     HOME = mctx.getenv("HOME")
 
     # only for opam install
+    shared_flags = [
+        "--repo_env=OBAZL_NO_BWRAP=1",
+        "--repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=0",
+        "--action_env=OBAZL_NO_BWRAP=1",
+    ]
+
+    copt_flags = []
+    if mctx.os.name != "mac os x":
+        # Clang (macOS) does not recognize '-Wno-use-after-free'; limit to toolchains that support it.
+        copt_flags = ["--copt=-Wno-use-after-free"]
+
     if toolchain == "opam":
         cmd = [bazel,
                "--ignore_all_rc_files",
@@ -72,6 +91,7 @@ bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
                "--registry=https://bcr.bazel.build",
                "--subcommands=pretty_print",
                "--compilation_mode", "fastbuild",
+               ] + copt_flags + [
                "@tools_opam//extensions/config"]
     else:
         cmd = ["bazel",
@@ -86,17 +106,41 @@ bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
                "--lockfile_mode=off",
                "--ignore_dev_dependency",
                "--compilation_mode", "fastbuild",
+               ] + copt_flags + [
                "@tools_opam//extensions/config"]
+
+    cmd.extend(shared_flags)
+
+    toolchain_flag = None
+    if mctx.os.name == "mac os x":
+        toolchain_flag = "@local_config_cc_toolchains//:cc-toolchain-darwin_arm64"
+    elif mctx.os.name == "linux":
+        if mctx.os.arch in ("x86_64", "amd64"):
+            toolchain_flag = "@local_config_cc_toolchains//:cc-toolchain-k8"
+        elif mctx.os.arch in ("aarch64", "aarch64_be"):
+            toolchain_flag = "@local_config_cc_toolchains//:cc-toolchain-aarch64"
+
+    disable_local_cc = mctx.getenv("BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN")
+    if disable_local_cc and disable_local_cc != "0":
+        toolchain_flag = None
+
+    if toolchain_flag:
+        cmd.append("--extra_toolchains={}".format(toolchain_flag))
     if verbosity > 1:
         cmd.append("--subcommands=pretty_print")
 
     mctx.report_progress("Building @tools_opam//extensions/config")
     # print("\nRunning cfg tool build:\n%s" % cmd)
-    res = mctx.execute(cmd,
-                       environment = {
-                           "HOME": "../.cache",
-                           "XDG_CACHE_HOME": "../.cache"},
-                       quiet = (verbosity < 1))
+    res = mctx.execute(
+        cmd,
+        environment = {
+            "HOME": mctx.getenv("HOME") + "/.cache",
+            "XDG_CACHE_HOME": mctx.getenv("HOME") + "/.cache",
+            "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": "0",
+            "OBAZL_NO_BWRAP": "1",
+        },
+        quiet = (verbosity < 1),
+    )
     if res.return_code == 0:
         # stdout = res.stdout.strip()
         # print("\nSTDOUT:\n%s" % stdout)
@@ -287,6 +331,9 @@ use_repo(opam_dev, utop="opam.utop")
         #             print("MOD: %s" % config.name)
         #             print("DEPS: %s" % config.direct_deps)
         #             print("SUBDEPS: %s" % config.indirect_deps)
+
+    if not direct_deps and not dev_deps:
+        return
 
     ## detect whether or not we are in an opam install env.
     if mctx.getenv("OBAZL_OPAM_ENV"):

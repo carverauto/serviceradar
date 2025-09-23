@@ -10,7 +10,7 @@ load(
 
 # LOCAL_REPO=repo_name()
 ## ERROR: repo_name not defined (v 7.0)
-LOCAL_REPO = repository_name()[1:]
+# LOCAL_REPO = repository_name()[1:]
 
 ##########
 cc_binary(
@@ -37,7 +37,7 @@ cc_binary(
     ],
     linkstatic = 1,
     local_defines = define_module_version() + [
-        "LOCAL_REPO=\\\"{}\\\"".format(LOCAL_REPO),
+        # "LOCAL_REPO=\\\"{}\\\"".format(LOCAL_REPO),
         "BAZEL_CURRENT_REPOSITORY=\\\"{}\\\"".format(package_relative_label("@tools_opam").repo_name),
     ],
     visibility = ["//visibility:public"],
