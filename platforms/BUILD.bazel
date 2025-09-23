@@ -1,6 +1,3 @@
-load("@platforms//os:os.bzl", "os")
-load("@platforms//cpu:cpu.bzl", "cpu")
-
 # Platform definitions for ServiceRadar multi-arch builds
 
 platform(
