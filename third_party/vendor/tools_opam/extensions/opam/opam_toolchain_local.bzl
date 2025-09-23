@@ -34,38 +34,53 @@ def _opam_create_local_switch(ctx, opambin,
 
 
     ## WARNING: this cmd depends on the local opam file
-    cmd = [opambin, "switch", "create", ".",
-           "{}".format(ocaml_version),
-           "--deps-only",
-           "--no-switch", # do not automatically select
-           "--disable-sandboxing",  # Disable sandboxing for CI environments
-           ]
+    base_cmd = [opambin, "switch", "create", ".",
+                "{}".format(ocaml_version),
+                "--deps-only",
+                "--no-switch"]
+
+    verbosity_flag = []
     if opam_verbosity > 1:
         s = "-"
         for i in range(1, opam_verbosity):
             s = s + "v"
-        cmd.extend([s])
-    if (verbosity > 0
-        or opam_verbosity):
-        print("\nCreating switch:\n\t%s" % cmd)
+        verbosity_flag = [s]
+
+    cmd_disable = base_cmd + ["--disable-sandboxing"] + verbosity_flag
+    cmd_enable = base_cmd + verbosity_flag
+
+    if (verbosity > 0 or opam_verbosity):
+        print("\nCreating switch:\n\t%s" % cmd_disable)
 
     ctx.report_progress("""Creating local switch for compiler {v} at {id}""".format(v=ocaml_version, id=switch_id))
 
     env = {"OBAZL_NO_BWRAP": "1"}
-    res = ctx.execute(cmd,
+    res = ctx.execute(cmd_disable,
                       working_directory = str(proj_root),
                       environment = env,
                       quiet = (opam_verbosity < 1))
+    if res.return_code != 0 and "unknown option '--disable-sandboxing'" in res.stderr:
+        if (verbosity > 0 or opam_verbosity):
+            print("Retrying switch creation without '--disable-sandboxing'; flag unsupported by this opam version.")
+            print("\t%s" % cmd_enable)
+        res = ctx.execute(cmd_enable,
+                          working_directory = str(proj_root),
+                          environment = env,
+                          quiet = (opam_verbosity < 1))
+        cmd_used = cmd_enable
+    else:
+        cmd_used = cmd_disable
     if res.return_code == 5:
         # no matching compiler found; run 'opam update'
         # then opam switch list-available
         fail(res.stderr)
     elif res.return_code != 0:
-        print("cmd: %s" % cmd)
-        print("rc: %s" % res.return_code)
-        print("stdout: %s" % res.stdout)
-        print("stderr: %s" % res.stderr)
-        fail("cmd failure: %s" % cmd)
+        fail("opam local switch create failed; cmd=%s rc=%s\nstdout:%s\nstderr:%s" % (
+            cmd_used,
+            res.return_code,
+            res.stdout,
+            res.stderr,
+        ))
 
     return switch_id, ocaml_version
 

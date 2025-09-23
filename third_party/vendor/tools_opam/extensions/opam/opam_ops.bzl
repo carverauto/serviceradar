@@ -100,33 +100,48 @@ def opam_install_pkg(rctx,
     #     print("stderr: %s" % res.stderr)
     #     fail("cmd failure")
 
-    cmd = [opam_path,
-           "install",
-           pkg,
-           "--switch", switch,
-           "--root", "{}".format(root),
-           "--disable-sandboxing",  # Disable sandboxing for CI environments
-           "--yes"]
+    base_cmd = [opam_path,
+                "install",
+                pkg,
+                "--switch", switch,
+                "--root", "{}".format(root)]
+
+    verbosity_flag = []
     if opam_verbosity > 1:
         s = "-"
         for i in range(1, opam_verbosity):
             s = s + "v"
-        cmd.extend([s])
+        verbosity_flag = [s]
 
-    if (verbosity > 1
-        or opam_verbosity):
-        print("\nInstalling pkg:\n\t%s" % cmd)
+    cmd_disable = base_cmd + ["--disable-sandboxing", "--yes"] + verbosity_flag
+    cmd_enable = base_cmd + ["--yes"] + verbosity_flag
+
+    if (verbosity > 1 or opam_verbosity):
+        print("\nInstalling pkg:\n\t%s" % cmd_disable)
     rctx.report_progress("Installing pkg {p} ({i} of {tot})".format(p=pkg, i=n, tot=tot))
 
     env = {"OBAZL_NO_BWRAP": "1"}
-    res = rctx.execute(cmd,
+    res = rctx.execute(cmd_disable,
                        environment = env,
                        quiet = (opam_verbosity < 1))
+
+    if res.return_code != 0 and "unknown option '--disable-sandboxing'" in res.stderr:
+        if verbosity > 0 or opam_verbosity:
+            print("Retrying opam install without '--disable-sandboxing'; flag unsupported by this opam version.")
+            print("\t%s" % cmd_enable)
+        res = rctx.execute(cmd_enable,
+                           environment = env,
+                           quiet = (opam_verbosity < 1))
+        cmd_used = cmd_enable
+    else:
+        cmd_used = cmd_disable
+
     if res.return_code == 0:
         if debug > 0: print("pkg installed: '%s'" % pkg)
     else:
-        print("cmd: %s" % cmd)
-        print("rc: %s" % res.return_code)
-        print("stdout: %s" % res.stdout)
-        print("stderr: %s" % res.stderr)
-        fail("cmd failure")
+        fail("opam install failed; cmd=%s rc=%s\nstdout:%s\nstderr:%s" % (
+            cmd_used,
+            res.return_code,
+            res.stdout,
+            res.stderr,
+        ))
