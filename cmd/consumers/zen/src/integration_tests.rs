@@ -10,7 +10,7 @@ mod tests {
         let config_json = json!({
             "nats_url": "nats://localhost:4222",
             "stream_name": "test-stream",
-            "consumer_name": "test-consumer", 
+            "consumer_name": "test-consumer",
             "subjects": ["events.json", "events.protobuf"],
             "decision_groups": [
                 {
@@ -20,7 +20,7 @@ mod tests {
                     "format": "json"
                 },
                 {
-                    "name": "protobuf_events", 
+                    "name": "protobuf_events",
                     "subjects": ["events.protobuf"],
                     "rules": [{"order": 1, "key": "rule2"}],
                     "format": "protobuf"
@@ -32,16 +32,24 @@ mod tests {
 
         let config_str = serde_json::to_string(&config_json).unwrap();
         let cfg: Config = serde_json::from_str(&config_str).unwrap();
-        
+
         assert!(cfg.validate().is_ok());
-        assert_eq!(cfg.message_format_for_subject("events.json"), MessageFormat::Json);
-        assert_eq!(cfg.message_format_for_subject("events.protobuf"), MessageFormat::Protobuf);
+        assert_eq!(
+            cfg.message_format_for_subject("events.json"),
+            MessageFormat::Json
+        );
+        assert_eq!(
+            cfg.message_format_for_subject("events.protobuf"),
+            MessageFormat::Protobuf
+        );
     }
 
     #[test]
     fn test_otel_logs_conversion_end_to_end() {
         use crate::otel_logs::opentelemetry::proto::{
-            common::v1::{any_value::Value as AnyValueEnum, AnyValue, KeyValue, InstrumentationScope},
+            common::v1::{
+                any_value::Value as AnyValueEnum, AnyValue, InstrumentationScope, KeyValue,
+            },
             logs::v1::{LogRecord, LogsData, ResourceLogs, ScopeLogs},
             resource::v1::Resource,
         };
@@ -81,7 +89,7 @@ mod tests {
                         severity_text: "WARN".to_string(),
                         body: Some(AnyValue {
                             value: Some(AnyValueEnum::StringValue(
-                                "This is a warning message from OTEL".to_string()
+                                "This is a warning message from OTEL".to_string(),
                             )),
                         }),
                         attributes: vec![
@@ -123,11 +131,11 @@ mod tests {
         assert_eq!(result["severity_text"], "WARN");
         assert_eq!(result["body"], "This is a warning message from OTEL");
         assert_eq!(result["scope"], "my-instrumentation");
-        
+
         // Check resource attributes
         assert_eq!(result["resource"]["service.name"], "my-service");
         assert_eq!(result["resource"]["service.version"], "1.0.0");
-        
+
         // Check log attributes
         assert_eq!(result["attributes"]["http.method"], "GET");
         assert_eq!(result["attributes"]["http.status_code"], 404);
@@ -138,7 +146,7 @@ mod tests {
         let invalid_data = vec![0xFF, 0xFE, 0xFD, 0xFC]; // Invalid protobuf
         let result = otel_logs::otel_logs_to_json(&invalid_data);
         assert!(result.is_err());
-        
+
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("failed to decode") || error_msg.contains("decode"));
     }
@@ -146,7 +154,9 @@ mod tests {
     #[test]
     fn test_complex_otel_log_with_nested_attributes() {
         use crate::otel_logs::opentelemetry::proto::{
-            common::v1::{any_value::Value as AnyValueEnum, AnyValue, KeyValue, KeyValueList, ArrayValue},
+            common::v1::{
+                any_value::Value as AnyValueEnum, AnyValue, ArrayValue, KeyValue, KeyValueList,
+            },
             logs::v1::{LogRecord, LogsData, ResourceLogs, ScopeLogs},
             resource::v1::Resource,
         };
@@ -176,10 +186,14 @@ mod tests {
                                     value: Some(AnyValueEnum::ArrayValue(ArrayValue {
                                         values: vec![
                                             AnyValue {
-                                                value: Some(AnyValueEnum::StringValue("tag1".to_string())),
+                                                value: Some(AnyValueEnum::StringValue(
+                                                    "tag1".to_string(),
+                                                )),
                                             },
                                             AnyValue {
-                                                value: Some(AnyValueEnum::StringValue("tag2".to_string())),
+                                                value: Some(AnyValueEnum::StringValue(
+                                                    "tag2".to_string(),
+                                                )),
                                             },
                                         ],
                                     })),
@@ -194,7 +208,9 @@ mod tests {
                                             KeyValue {
                                                 key: "nested_key".to_string(),
                                                 value: Some(AnyValue {
-                                                    value: Some(AnyValueEnum::StringValue("nested_value".to_string())),
+                                                    value: Some(AnyValueEnum::StringValue(
+                                                        "nested_value".to_string(),
+                                                    )),
                                                 }),
                                             },
                                             KeyValue {
@@ -211,7 +227,9 @@ mod tests {
                             KeyValue {
                                 key: "binary_data".to_string(),
                                 value: Some(AnyValue {
-                                    value: Some(AnyValueEnum::BytesValue(vec![0x48, 0x65, 0x6c, 0x6c, 0x6f])), // "Hello"
+                                    value: Some(AnyValueEnum::BytesValue(vec![
+                                        0x48, 0x65, 0x6c, 0x6c, 0x6f,
+                                    ])), // "Hello"
                                 }),
                             },
                         ],
@@ -241,7 +259,10 @@ mod tests {
 
         // Verify nested object conversion
         assert!(result["attributes"]["metadata"].is_object());
-        assert_eq!(result["attributes"]["metadata"]["nested_key"], "nested_value");
+        assert_eq!(
+            result["attributes"]["metadata"]["nested_key"],
+            "nested_value"
+        );
         assert_eq!(result["attributes"]["metadata"]["number"], 42);
 
         // Verify binary data conversion to base64

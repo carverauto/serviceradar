@@ -18,8 +18,8 @@
 // cmd/poller-ng/src/main.rs
 
 mod adapter;
-mod processor;
 mod models;
+mod processor;
 mod processors;
 
 use adapter::ProtonAdapter;
@@ -136,11 +136,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Loading configuration from {}", args.config_file);
     let config = Arc::new(Config::from_file(&args.config_file)?);
 
-    info!("Initializing adapter with Proton URL: {}", config.proton_url);
+    info!(
+        "Initializing adapter with Proton URL: {}",
+        config.proton_url
+    );
     let adapter = ProtonAdapter::new(&config).await?;
 
     if !config.agents.is_empty() {
-        info!("Found {} agent configurations, starting polling", config.agents.len());
+        info!(
+            "Found {} agent configurations, starting polling",
+            config.agents.len()
+        );
         let config_clone = config.clone();
         let adapter_clone = adapter.clone();
         tokio::spawn(async move {

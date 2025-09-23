@@ -23,7 +23,8 @@ pub struct ZenAgentService;
 
 #[tonic::async_trait]
 impl AgentService for ZenAgentService {
-    type StreamResultsStream = Pin<Box<dyn Stream<Item = Result<monitoring::ResultsChunk, Status>> + Send + 'static>>;
+    type StreamResultsStream =
+        Pin<Box<dyn Stream<Item = Result<monitoring::ResultsChunk, Status>> + Send + 'static>>;
     async fn get_status(
         &self,
         request: Request<monitoring::StatusRequest>,
@@ -75,15 +76,13 @@ impl AgentService for ZenAgentService {
         request: Request<monitoring::ResultsRequest>,
     ) -> Result<Response<Self::StreamResultsStream>, Status> {
         let _req = request.into_inner();
-        
+
         // Create an empty stream for now - in a real implementation this would
         // stream actual results data in chunks
         let stream = futures::stream::empty();
-        
+
         Ok(Response::new(Box::pin(stream)))
     }
-
-
 }
 
 pub async fn start_grpc_server(cfg: Config) -> Result<()> {

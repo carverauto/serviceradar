@@ -3,10 +3,10 @@ mod debug_output;
 mod file_output;
 #[cfg(feature = "kafka-output")]
 mod kafka_output;
-#[cfg(feature = "tls")]
-mod tls_output;
 #[cfg(feature = "nats-output")]
 mod nats_output;
+#[cfg(feature = "tls")]
+mod tls_output;
 
 #[cfg(feature = "nats-output")]
 pub use self::nats_output::NATSOutput;
