@@ -26,6 +26,75 @@ os_map = {
 }
 
 ################
+def _install_override_repository(mctx, opambin, opam_root, verbosity, opam_verbosity):
+    overrides_rel = "extensions/opam/overrides_repo"
+    overrides_path = mctx.path(overrides_rel)
+    if not overrides_path.exists:
+        return
+
+    repo_parent = opam_root + "/srql_repos"
+    repo_dir = repo_parent + "/overrides_repo"
+
+    run_cmd(mctx, ["mkdir", "-p", repo_parent], verbosity=verbosity)
+    run_cmd(mctx, ["rm", "-rf", repo_dir], verbosity=verbosity)
+    run_cmd(mctx, ["cp", "-R", str(overrides_path), repo_parent], verbosity=verbosity)
+
+    repo_url = "file://" + repo_dir
+    env = {"OBAZL_NO_BWRAP": "1"}
+
+    add_cmd = [
+        opambin,
+        "repository",
+        "add",
+        "srql-overrides",
+        repo_url,
+        "--root",
+        opam_root,
+        "--dont-select",
+        "--priority=0",
+    ]
+    res = mctx.execute(add_cmd, environment = env, quiet = (opam_verbosity < 1))
+    if res.return_code != 0:
+        if "already registered" in res.stderr or "already exists" in res.stderr:
+            set_cmd = [
+                opambin,
+                "repository",
+                "set-url",
+                "srql-overrides",
+                repo_url,
+                "--root",
+                opam_root,
+            ]
+            res2 = mctx.execute(set_cmd, environment = env, quiet = (opam_verbosity < 1))
+            if res2.return_code != 0:
+                print("cmd: %s" % set_cmd)
+                print("rc: %s" % res2.return_code)
+                print("stdout: %s" % res2.stdout)
+                print("stderr: %s" % res2.stderr)
+                fail("cmd failure")
+        else:
+            print("cmd: %s" % add_cmd)
+            print("rc: %s" % res.return_code)
+            print("stdout: %s" % res.stdout)
+            print("stderr: %s" % res.stderr)
+            fail("cmd failure")
+
+    update_cmd = [
+        opambin,
+        "update",
+        "srql-overrides",
+        "--root",
+        opam_root,
+    ]
+    res = mctx.execute(update_cmd, environment = env, quiet = (opam_verbosity < 1))
+    if res.return_code != 0:
+        print("cmd: %s" % update_cmd)
+        print("rc: %s" % res.return_code)
+        print("stdout: %s" % res.stdout)
+        print("stderr: %s" % res.stderr)
+        fail("cmd failure")
+
+################
 def _get_xdg_ctx(ctx, debug, verbosity):
 
     xdg = ctx.getenv("XDG_DATA_HOME")
@@ -112,6 +181,14 @@ def _init_opam(mctx, opambin, opam_version, OPAMROOT,
         print("stdout: %s" % res.stdout)
         print("stderr: %s" % res.stderr)
         fail("cmd failure")
+
+    _install_override_repository(
+        mctx = mctx,
+        opambin = opambin,
+        opam_root = OPAMROOT,
+        verbosity = verbosity,
+        opam_verbosity = opam_verbosity,
+    )
 
 ################
 def _create_switch(mctx, opambin, opam_version,

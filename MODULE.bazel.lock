@@ -9247,8 +9247,8 @@
     },
     "@@tools_opam+//extensions:opam.bzl%opam": {
       "general": {
-        "bzlTransitiveDigest": "XaDREkVT5K35ZpLiEDBpwsxDtjijyt2uK5fEKEuW6lc=",
-        "usagesDigest": "zqD9Ip7OOBdwtzfk34WbY/L9gVQVi2WHiSBuX1NAz6Q=",
+        "bzlTransitiveDigest": "aHUSrktmNDZEXDmhaKIrPxIEXiDl0qhKCfdMnfwj+ic=",
+        "usagesDigest": "sH0pSDQj4uZe9pYslX423mqlZDYkMiNRV2AgyPl2VAI=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {
