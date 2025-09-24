@@ -24,7 +24,8 @@ RUN dnf clean all && \
     curl \
     tar \
     systemd-devel \
-    policycoreutils-python-utils
+    policycoreutils-python-utils \
+    systemd-rpm-macros
 
 # Set up RPM build environment
 RUN rpmdev-setuptree
