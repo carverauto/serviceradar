@@ -34,7 +34,7 @@
     "name": "kong",
     "package_name": "serviceradar-kong",
     "version": "3.11.0.3",
-    "description": "Wrapper package bundling Kong Gateway Enterprise for air-gapped installs",
+    "description": "Wrapper package bundling Kong Gateway (enterprise by default) for air-gapped installs",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "net",
@@ -56,16 +56,24 @@
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
-    
     "config_files": [
-      { "source": "packaging/kong/config/kong.conf", "dest": "/etc/kong/kong.conf", "optional": true },
-      { "source": "packaging/kong/vendor/kong-enterprise-edition-3.11.0.3.el9.x86_64.rpm", "dest": "/usr/share/serviceradar-kong/vendor/kong-enterprise-edition-3.11.0.3.el9.x86_64.rpm", "optional": true },
-      { "source": "packaging/kong/vendor/kong-enterprise-edition-3.11.0.3.el9.aarch64.rpm", "dest": "/usr/share/serviceradar-kong/vendor/kong-enterprise-edition-3.11.0.3.el9.aarch64.rpm", "optional": true },
-      { "source": "packaging/kong/vendor/kong-enterprise-edition_3.11.0.3_amd64.deb", "dest": "/usr/share/serviceradar-kong/vendor/kong-enterprise-edition_3.11.0.3_amd64.deb", "optional": true },
-      { "source": "packaging/kong/vendor/kong-enterprise-edition_3.11.0.3_arm64.deb", "dest": "/usr/share/serviceradar-kong/vendor/kong-enterprise-edition_3.11.0.3_arm64.deb", "optional": true }
+      {
+        "source": "packaging/kong/config/kong.conf",
+        "dest": "/etc/kong/kong.conf",
+        "optional": true
+      },
+      {
+        "source": "packaging/kong/vendor",
+        "dest": "/usr/share/serviceradar-kong/vendor",
+        "optional": true
+      }
     ],
-    "postinst": { "source": "packaging/kong/scripts/postinstall.sh" },
-    "prerm": { "source": "packaging/kong/scripts/preremove.sh" },
+    "postinst": {
+      "source": "packaging/kong/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/kong/scripts/preremove.sh"
+    },
     "conffiles": []
   },
   {
