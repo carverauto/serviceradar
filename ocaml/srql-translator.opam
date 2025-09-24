@@ -24,11 +24,10 @@ depends: [
   "mirage-crypto-rng" {>= "1.2.0"}
   "mirage-crypto-rng-lwt" {>= "1.2.0"}
   "x509" {>= "1.0.0"}
-  "h2" {>= "0.13.0" & < "0.14.0"}
-  "h2-lwt" {>= "0.13.0" & < "0.14.0"}
-  "h2-lwt-unix" {>= "0.13.0" & < "0.14.0"}
-  # lwt_ssl not used in code; avoid unnecessary OpenSSL dep
-  "dream" {>= "1.0.0~alpha8"}
+  "h2" {>= "0.13.0"}
+  "h2-lwt" {>= "0.13.0"}
+  "h2-lwt-unix" {>= "0.13.0"}
+  "dream" {>= "1.0.0~alpha7"}
   "alcotest" {with-test}
 ]
 

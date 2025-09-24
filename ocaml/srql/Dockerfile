@@ -23,23 +23,13 @@ USER opam
 ENV OPAMYES=1 \
     OPAMCONFIRMLEVEL=unsafe-yes
 
-# Install h2 first with the correct version to avoid conflicts
-RUN opam update && opam install -y "h2>=0.13.0" "h2-lwt>=0.13.0" "h2-lwt-unix>=0.13.0"
+# Update opam to 2.2.1 and refresh repositories
+RUN opam update \
+    && git -C /home/opam/opam-repository fetch --depth=1 origin master \
+    && git -C /home/opam/opam-repository reset --hard origin/master \
+    && opam update
 
-# Update opam repository to get latest packages and install proton 1.0.16
-RUN opam update && opam install -y "proton>=1.0.16"
-
-# Clone and modify Dream to work with h2 >= 0.13.0
-ARG DREAM_REF="master"
-RUN git clone --depth 1 --branch "${DREAM_REF}" https://github.com/aantron/dream.git /tmp/dream \
-    && cd /tmp/dream \
-    && sed -i 's/"h2" {< "0.13.0"}/"h2" {>= "0.13.0"}/' dream-httpaf.opam \
-    && sed -i 's/"h2-lwt-unix" {< "0.13.0"}/"h2-lwt-unix" {>= "0.13.0"}/' dream-httpaf.opam \
-    && sed -i 's/"h2-lwt" {< "0.13.0"}/"h2-lwt" {>= "0.13.0"}/' dream-httpaf.opam \
-    && opam pin add dream-httpaf /tmp/dream -n \
-    && opam pin add dream-pure /tmp/dream -n \
-    && opam pin add dream /tmp/dream -n
-
+# Install all dependencies
 RUN opam install -y \
         dune \
         menhir \
@@ -53,9 +43,11 @@ RUN opam install -y \
         mirage-crypto-rng \
         mirage-crypto-rng-lwt \
         x509 \
-        dream-httpaf \
-        dream-pure \
-        dream \
+        h2.0.13.0 \
+        h2-lwt.0.13.0 \
+        h2-lwt-unix.0.13.0 \
+        dream.1.0.0~alpha7 \
+        proton.1.0.16 \
     && opam clean -a -c
 
 WORKDIR /src
