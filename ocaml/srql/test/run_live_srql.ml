@@ -277,12 +277,14 @@ let () =
             flush stdout;
             Lwt.return_unit
           in
-          (match params with
-          | [] -> Proton.Client.query_iter_with_columns client sql ~f:stream_row
-          | _ ->
-              let stmt = Proton.Client.prepare client sql in
-              Proton.Client.query_iter_with_columns_prepared client stmt ~params ~f:stream_row)
-          >|= fun _ -> ())
+          let+ _ =
+            match params with
+            | [] -> Proton.Client.query_iter_with_columns client sql ~f:stream_row
+            | _ ->
+                let stmt = Proton.Client.prepare client sql in
+                Proton.Client.query_iter_with_columns_prepared client stmt ~params ~f:stream_row
+          in
+          ())
         else
           let* result =
             match params with
