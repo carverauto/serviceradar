@@ -4,10 +4,23 @@ set -euo pipefail
 OUT_DIR=${KONG_VENDOR_DIR:-packaging/kong/vendor}
 FETCH_ENTERPRISE=${KONG_FETCH_ENTERPRISE:-1}
 ENTERPRISE_VERSION=${KONG_ENTERPRISE_VERSION:-3.11.0.3}
-ENTERPRISE_CHANNEL=${ENTERPRISE_VERSION//./}
+# Kong publishes packages under major+minor channels (e.g. 3.11.x lives in gateway-311)
+derive_channel() {
+  local version="$1"
+  local fallback="$2"
+
+  IFS='.' read -r major minor _ <<<"$version"
+  if [[ -n "${major:-}" && -n "${minor:-}" ]]; then
+    printf '%s%s' "$major" "$minor"
+  else
+    printf '%s' "$fallback"
+  fi
+}
+
+ENTERPRISE_CHANNEL=${KONG_ENTERPRISE_CHANNEL:-$(derive_channel "$ENTERPRISE_VERSION" "${ENTERPRISE_VERSION//./}" )}
 FETCH_COMMUNITY=${KONG_FETCH_COMMUNITY:-0}
 COMMUNITY_VERSION=${KONG_COMMUNITY_VERSION:-3.7.1}
-COMMUNITY_CHANNEL=${COMMUNITY_VERSION//./}
+COMMUNITY_CHANNEL=${KONG_COMMUNITY_CHANNEL:-$(derive_channel "$COMMUNITY_VERSION" "${COMMUNITY_VERSION//./}" )}
 
 mkdir -p "$OUT_DIR"
 
