@@ -4,7 +4,7 @@ Release:        %{release}%{?dist}
 Summary:        ServiceRadar Proton Server (Time-series database)
 License:        Proprietary
 
-BuildRequires:  systemd
+BuildRequires:  systemd-rpm-macros
 Requires:       systemd
 %{?systemd_requires}
 

@@ -4,7 +4,7 @@ Release:        %{release}%{?dist}
 Summary:        ServiceRadar Event Writer
 License:        Proprietary
 
-BuildRequires:  systemd
+BuildRequires:  systemd-rpm-macros
 Requires:       systemd
 Requires:       epel-release
 %{?systemd_requires}

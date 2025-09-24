@@ -4,7 +4,7 @@ Release:        %{release}%{?dist}
 Summary:        ServiceRadar RPerf Network Performance Checker
 License:        Proprietary
 
-BuildRequires:  systemd
+BuildRequires:  systemd-rpm-macros
 Requires:       systemd
 Requires:       serviceradar-rperf
 %{?systemd_requires}
