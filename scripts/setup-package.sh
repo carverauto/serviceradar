@@ -392,7 +392,10 @@ EOF
 
             docker rm "$container_id"
 
-      elif [ "$build_method" = "external" ]; then
+        elif [ "$build_method" = "none" ] || [ -z "$build_method" ]; then
+            echo "No binary build required for $component (build_method '$build_method'), skipping binary stage."
+
+        elif [ "$build_method" = "external" ]; then
           local url output_path binary_is_archive extract_command
           url=$(echo "$config" | jq -r '.external_binary.source_url')
           output_path=$(echo "$config" | jq -r '.external_binary.output_path')
