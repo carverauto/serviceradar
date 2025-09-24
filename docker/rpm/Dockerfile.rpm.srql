@@ -66,28 +66,34 @@ RUN eval $(opam env) \
     && opam clean -a -c
 
 WORKDIR /src
-COPY ocaml/ ./ocaml
+COPY --chown=opam:opam ocaml/ ./ocaml
+WORKDIR /src/ocaml
 
 RUN eval $(opam env) \
-    && cd ocaml \
     && opam install . --deps-only -y \
     && dune build --profile=release srql/bin/main.exe \
     && install -Dm755 _build/default/srql/bin/main.exe /tmp/serviceradar-srql
 
-USER root
-WORKDIR /root/rpmbuild
-RUN mkdir -p BUILD BUILDROOT RPMS SOURCES/${COMPONENT}/config SOURCES/${COMPONENT}/systemd SPECS SRPMS
-COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
-COPY packaging/${COMPONENT}/config/srql.env SOURCES/${COMPONENT}/config/
-COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
+USER opam
+WORKDIR /home/opam/rpmbuild
+RUN install -d -m 0755 BUILD BUILDROOT RPMS SRPMS \
+    && install -d -m 0755 SOURCES/${COMPONENT}/config SOURCES/${COMPONENT}/systemd SPECS
+
+COPY --chown=opam:opam packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY --chown=opam:opam packaging/${COMPONENT}/config/srql.env SOURCES/${COMPONENT}/config/
+COPY --chown=opam:opam packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
+
 RUN install -Dm755 /tmp/serviceradar-srql BUILD/serviceradar-${COMPONENT}
 
 RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-.*//') \
     && rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec \
+        --define "_topdir /home/opam/rpmbuild" \
         --define "version ${RPM_VERSION}" \
-        --define "release ${RELEASE}" \
-    && mkdir -p /output \
-    && find RPMS -type f -name "*.rpm" -exec cp {} /output/ \;
+        --define "release ${RELEASE}"
+
+USER root
+RUN install -d -m 0755 /output \
+    && find /home/opam/rpmbuild/RPMS -type f -name "*.rpm" -exec cp {} /output/ \;
 
 FROM --platform=linux/amd64 oraclelinux:9
 WORKDIR /rpms
