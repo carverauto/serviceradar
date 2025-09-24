@@ -19,35 +19,37 @@ RUN apt-get update \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Upgrade to opam 2.4.1 (statically linked binary)
+RUN curl -fsSL https://github.com/ocaml/opam/releases/download/2.4.1/opam-2.4.1-x86_64-linux \
+        -o /usr/local/bin/opam \
+    && chmod +x /usr/local/bin/opam \
+    && opam --version
+
 USER opam
 ENV OPAMYES=1 \
     OPAMCONFIRMLEVEL=unsafe-yes
 
-# Update opam to 2.2.1 and refresh repositories
+COPY --chown=opam:opam proton-ocaml-driver /tmp/proton-ocaml-driver
+
+# Refresh repositories, apply local pins, and remove conflicting packages
 RUN opam update \
     && git -C /home/opam/opam-repository fetch --depth=1 origin master \
     && git -C /home/opam/opam-repository reset --hard origin/master \
-    && opam update
+    && opam update \
+    && opam pin add proton /tmp/proton-ocaml-driver -y \
+    && opam remove -y mirage-crypto mirage-crypto-rng mirage-crypto-rng-lwt tls tls-lwt x509 || true
 
-# Install all dependencies
-RUN opam install -y \
+# Install all dependencies (dream pulls in the mirage-crypto 1.2.x stack)
+RUN eval $(opam env) \
+    && opam install -y \
         dune \
         menhir \
         yojson \
         ppx_deriving \
         lwt \
         lwt_ppx \
-        tls \
-        tls-lwt \
-        mirage-crypto \
-        mirage-crypto-rng \
-        mirage-crypto-rng-lwt \
-        x509 \
-        h2.0.13.0 \
-        h2-lwt.0.13.0 \
-        h2-lwt-unix.0.13.0 \
         dream.1.0.0~alpha7 \
-        proton.1.0.16 \
+        proton \
     && opam clean -a -c
 
 WORKDIR /src
