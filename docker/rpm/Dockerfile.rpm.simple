@@ -40,7 +40,10 @@ RUN echo "===== DEBUG INFO =====" && \
 
 # Build the binary
 RUN mkdir -p /build-out && \
-    if [ -d "${BINARY_PATH}" ] && [ -f "${BINARY_PATH}/main.go" ]; then \
+    if [ -z "${BINARY_PATH}" ]; then \
+        echo "No build path provided; skipping binary compilation for ${COMPONENT}"; \
+        touch /build-out/.keep; \
+    elif [ -d "${BINARY_PATH}" ] && [ -f "${BINARY_PATH}/main.go" ]; then \
         echo "Building from ${BINARY_PATH}" && \
         cd ${BINARY_PATH} && ls -la && \
         cd /src && \
@@ -63,6 +66,7 @@ RUN dnf clean all && \
     rpm-build \
     rpmdevtools \
     systemd-devel \
+    systemd-rpm-macros \
     libcap-devel \
     policycoreutils-python-utils \
     gcc \
