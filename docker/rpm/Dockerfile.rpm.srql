@@ -1,54 +1,59 @@
 # syntax=docker/dockerfile:1
 
-FROM rockylinux:9 AS builder
+FROM --platform=linux/amd64 ocaml/opam:oraclelinux-9-ocaml-5.2 AS builder
 SHELL ["/bin/bash", "-lc"]
 
 ARG VERSION=0.0.0
 ARG RELEASE=1
 ARG COMPONENT=srql
-ARG PROTON_REPO="git+https://github.com/mfreeman451/proton-ocaml-driver.git"
-ARG PROTON_REF="1.0.16"
-ARG DREAM_REF="master"
 
-ENV OPAMYES=1 \
-    OPAMCONFIRMLEVEL=unsafe-yes \
-    OPAM_SWITCH_NAME=ocaml-srql
-
-RUN dnf install -y epel-release \
+USER root
+RUN dnf install -y oracle-epel-release-el9 \
+    && dnf config-manager --enable ol9_codeready_builder \
     && dnf install -y \
         ca-certificates \
         gcc \
         gcc-c++ \
         git \
         gmp-devel \
+        libev-devel \
         lz4-devel \
         make \
         m4 \
-        opam \
         openssl-devel \
         patch \
         pkgconfig \
+        rpm-build \
         rsync \
         tar \
         unzip \
         which \
         zlib-devel \
-        zstd-devel \
+        libzstd-devel \
     && dnf clean all
 
-RUN opam init --disable-sandboxing --yes
-RUN opam update
-RUN opam switch create "${OPAM_SWITCH_NAME}" 5.1.1 --yes
+RUN curl -fsSL https://github.com/ocaml/opam/releases/download/2.4.1/opam-2.4.1-x86_64-linux \
+        -o /usr/local/bin/opam \
+    && chmod +x /usr/local/bin/opam \
+    && opam --version
 
-RUN eval $(opam env --switch="${OPAM_SWITCH_NAME}") \
-    && opam pin add proton "${PROTON_REPO}#${PROTON_REF}" -y \
-    && git clone --depth 1 --branch "${DREAM_REF}" https://github.com/aantron/dream.git /tmp/dream \
-    && sed -i 's/"h2" {< "0.13.0"}/"h2" {>= "0.13.0" & < "0.14.0"}/' /tmp/dream/dream-httpaf.opam \
-    && sed -i 's/"h2-lwt-unix"/"h2-lwt-unix" {>= "0.13.0"}/' /tmp/dream/dream-httpaf.opam \
-    && sed -i 's/"h2-lwt"/"h2-lwt" {>= "0.13.0"}/' /tmp/dream/dream-httpaf.opam \
-    && opam pin add dream /tmp/dream -y \
-    && opam pin add dream-httpaf /tmp/dream -y \
-    && opam pin add dream-pure /tmp/dream -y \
+USER opam
+ENV OPAMYES=1 \
+    OPAMCONFIRMLEVEL=unsafe-yes
+
+COPY --chown=opam:opam proton-ocaml-driver /tmp/proton-ocaml-driver
+
+# Strip git metadata so opam treats this as a path pin that includes local edits
+RUN rm -rf /tmp/proton-ocaml-driver/.git
+
+RUN opam update \
+    && git -C /home/opam/opam-repository fetch --depth=1 origin master \
+    && git -C /home/opam/opam-repository reset --hard origin/master \
+    && opam update \
+    && opam pin add proton /tmp/proton-ocaml-driver --kind=path -y \
+    && opam remove -y mirage-crypto mirage-crypto-rng mirage-crypto-rng-lwt tls tls-lwt x509 || true
+
+RUN eval $(opam env) \
     && opam install -y \
         dune \
         menhir \
@@ -56,27 +61,20 @@ RUN eval $(opam env --switch="${OPAM_SWITCH_NAME}") \
         ppx_deriving \
         lwt \
         lwt_ppx \
-        tls \
-        tls-lwt \
-        mirage-crypto \
-        mirage-crypto-rng \
-        mirage-crypto-rng-lwt \
-        x509 \
-        h2 \
-        h2-lwt \
-        h2-lwt-unix \
+        dream.1.0.0~alpha7 \
         proton \
     && opam clean -a -c
 
 WORKDIR /src
 COPY ocaml/ ./ocaml
 
-RUN eval $(opam env --switch="${OPAM_SWITCH_NAME}") \
+RUN eval $(opam env) \
     && cd ocaml \
     && opam install . --deps-only -y \
     && dune build --profile=release srql/bin/main.exe \
     && install -Dm755 _build/default/srql/bin/main.exe /tmp/serviceradar-srql
 
+USER root
 WORKDIR /root/rpmbuild
 RUN mkdir -p BUILD BUILDROOT RPMS SOURCES/${COMPONENT}/config SOURCES/${COMPONENT}/systemd SPECS SRPMS
 COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
@@ -91,7 +89,7 @@ RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-.*//') \
     && mkdir -p /output \
     && find RPMS -type f -name "*.rpm" -exec cp {} /output/ \;
 
-FROM rockylinux:9
+FROM --platform=linux/amd64 oraclelinux:9
 WORKDIR /rpms
 COPY --from=builder /output/ ./
 
