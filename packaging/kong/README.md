@@ -1,20 +1,24 @@
 ServiceRadar Kong Packaging
 
 Overview
-- Provides a wrapper package `serviceradar-kong` for Debian and RHEL that vendors the official Kong Gateway (Community or Enterprise) packages for air‑gapped installs.
+- Provides a wrapper package `serviceradar-kong` for Debian and RHEL that vendors Kong Gateway Enterprise by default for air‑gapped installs.
+- You can optionally fetch the community artifacts by setting `KONG_FETCH_COMMUNITY=1` when downloading binaries.
 - Post‑install script installs the bundled upstream package locally (dpkg/rpm), so no external repos are required at install time.
 
-Included Artifacts (to be downloaded before building)
-- Choose one set:
-  - Community: `kong-<ver>.<arch>.rpm` (EL9) and `kong_<ver>_<arch>.deb` (Debian)
-  - Enterprise (optional): `kong-enterprise-edition-3.11.0.3.el9.<arch>.rpm` and `kong-enterprise-edition_3.11.0.3_<arch>.deb`
+Included Artifacts (download before building)
+- Enterprise (default): `kong-enterprise-edition-<ver>.el9.<arch>.rpm` and `kong-enterprise-edition_<ver>_<arch>.deb`
+- Community (optional): `kong-<ver>.<arch>.rpm` (EL9) and `kong_<ver>_<arch>.deb` (Debian)
 
 Fetch Artifacts
-- Run `scripts/fetch-kong-artifacts.sh` to download the vendor packages into `packaging/kong/vendor/` (edit script if using Community URLs) prior to building the wrapper packages.
+- Run `scripts/fetch-kong-artifacts.sh` to download the enterprise binaries into `packaging/kong/vendor/`.
+- Adjust the following env vars as needed:
+  - `KONG_ENTERPRISE_VERSION` (default `3.11.0.3`)
+  - `KONG_FETCH_COMMUNITY=1` to also pull the community artifacts (version controlled by `KONG_COMMUNITY_VERSION`, default `3.7.1`).
+  - `KONG_VENDOR_DIR` if you want a different destination directory.
 
 Install Behavior
-- Debian: `serviceradar-kong` installs the appropriate `kong-enterprise-edition_3.11.0.3_<arch>.deb` with `dpkg -i`.
-- RHEL: `serviceradar-kong` installs the appropriate `kong-enterprise-edition-3.11.0.3.el9.<arch>.rpm` with `rpm -Uvh --nodeps`.
+- Debian: `serviceradar-kong` installs the appropriate `kong-enterprise-edition_<version>_<arch>.deb` (or the community `.deb` if present) with `dpkg -i`.
+- RHEL: `serviceradar-kong` installs the appropriate `kong-enterprise-edition-<version>.el9.<arch>.rpm` (or the community `.rpm` if present) with `rpm -Uvh --nodeps`.
 - No repository configuration is required on the target host.
 
 Kong Setup Notes

@@ -7,7 +7,7 @@ Release:        %{release}%{?dist}
 Summary:        ServiceRadar NetFlow/sFlow/IPFIX collector with NATS support.
 License:        Proprietary
 
-BuildRequires:  systemd
+BuildRequires:  systemd-rpm-macros
 Requires:       systemd, serviceradar-cli
 %{?systemd_requires}
 

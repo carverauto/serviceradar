@@ -4,7 +4,7 @@ Release:        %{release}%{?dist}
 Summary:        ServiceRadar monitoring agent
 License:        Proprietary
 
-BuildRequires:  systemd-devel
+BuildRequires:  systemd-rpm-macros
 BuildRequires:  libcap-devel
 BuildRequires:  gcc
 Requires:       systemd
