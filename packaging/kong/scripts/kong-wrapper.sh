@@ -8,6 +8,20 @@ set -euo pipefail
 KONG_PREFIX="/usr/local/kong"
 KONG_CONF="/etc/kong/kong.conf"
 
+# Find Kong binary - check common locations
+KONG_BIN=""
+for path in /usr/bin/kong /usr/local/bin/kong /opt/kong/bin/kong; do
+  if [ -x "$path" ]; then
+    KONG_BIN="$path"
+    break
+  fi
+done
+
+if [ -z "$KONG_BIN" ]; then
+  echo "Error: Kong binary not found. Make sure Kong is installed." >&2
+  exit 1
+fi
+
 # Create prefix directory if it doesn't exist
 mkdir -p "$KONG_PREFIX" || true
 
@@ -21,4 +35,4 @@ fi
 export KONG_PREFIX="$KONG_PREFIX"
 
 # Execute the Kong command passed as arguments
-exec /usr/bin/kong "$@" -c "$KONG_CONF"
+exec "$KONG_BIN" "$@" -c "$KONG_CONF"
