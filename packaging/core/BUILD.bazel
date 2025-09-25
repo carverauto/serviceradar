@@ -68,14 +68,6 @@ pkg_files(
     attributes = pkg_attributes(mode = "0644"),
 )
 
-pkg_files(
-    name = "web_assets",
-    srcs = ["//pkg/core/api/web:files"],
-    prefix = "/usr/local/share/serviceradar-core/web",
-    strip_prefix = strip_prefix.from_pkg(),
-    renames = {"//pkg/core/api/web:files": "dist"},
-)
-
 pkg_tar(
     name = "core_data",
     srcs = [
@@ -83,7 +75,6 @@ pkg_tar(
         ":config_files",
         ":state_dirs",
         ":systemd_unit",
-        ":web_assets",
     ],
     package_dir = "/",
     extension = "tar",
@@ -95,7 +86,7 @@ pkg_deb(
     architecture = "amd64",
     maintainer = "Michael Freeman <mfreeman@carverauto.dev>",
     version_file = "//:VERSION",
-    description = "ServiceRadar Core API service and web interface.",
+    description = "ServiceRadar Core API service.",
     homepage = "https://github.com/carverauto/serviceradar",
     license = "MIT",
     depends = [
@@ -126,7 +117,7 @@ pkg_rpm(
     release = "1",
     architecture = "x86_64",
     summary = "ServiceRadar Core component",
-    description = "ServiceRadar Core API service and web interface.",
+    description = "ServiceRadar Core API service.",
     license = "MIT",
     url = "https://github.com/carverauto/serviceradar",
     requires = [
@@ -138,7 +129,6 @@ pkg_rpm(
         ":config_files",
         ":state_dirs",
         ":systemd_unit",
-        ":web_assets",
     ],
     post_scriptlet_file = ":postinstall_script",
     preun_scriptlet_file = ":preremove_script",
