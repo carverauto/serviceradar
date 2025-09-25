@@ -46,12 +46,25 @@ install -m 755 %{_sourcedir}/packaging/kong/scripts/kong-wrapper.sh \
 # Copy vendor RPMs that match this build's architecture; skip others
 
 for artifact in \
-  %{_sourcedir}/packaging/kong/vendor/kong-enterprise-edition-*.rpm \
-  %{_sourcedir}/packaging/kong/vendor/kong-*.rpm; do
+  %{_sourcedir}/packaging/kong/vendor/kong*.rpm; do
   if [ -f "$artifact" ]; then
     case "$artifact" in
       *.%{kong_vendor_arch}.rpm)
         install -m 644 "$artifact" %{buildroot}/usr/share/serviceradar-kong/vendor/
+        ;;
+      *.amd64.rpm)
+        if [ "%{kong_vendor_arch}" = "x86_64" ]; then
+          install -m 644 "$artifact" %{buildroot}/usr/share/serviceradar-kong/vendor/
+        else
+          echo "Skipping vendor artifact $(basename "$artifact") for arch %{kong_vendor_arch}"
+        fi
+        ;;
+      *.arm64.rpm)
+        if [ "%{kong_vendor_arch}" = "aarch64" ]; then
+          install -m 644 "$artifact" %{buildroot}/usr/share/serviceradar-kong/vendor/
+        else
+          echo "Skipping vendor artifact $(basename "$artifact") for arch %{kong_vendor_arch}"
+        fi
         ;;
       *)
         echo "Skipping non-%{kong_vendor_arch} vendor artifact $(basename "$artifact")"
