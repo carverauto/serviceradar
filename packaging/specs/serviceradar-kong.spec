@@ -4,6 +4,8 @@ Release:        %{release}%{?dist}
 Summary:        ServiceRadar Kong Gateway bundle
 License:        Proprietary
 
+%global kong_vendor_arch %{_target_cpu}
+
 BuildRequires:  systemd-rpm-macros
 Requires:       systemd
 Requires:       ca-certificates
@@ -34,14 +36,20 @@ install -m 755 %{_sourcedir}/packaging/kong/scripts/postinstall.sh \
 install -m 755 %{_sourcedir}/packaging/kong/scripts/preremove.sh \
   %{buildroot}/usr/share/serviceradar-kong/scripts/preremove.sh
 
-# Copy any bundled vendor artifacts that are present
+# Copy vendor RPMs that match this build's architecture; skip others
+
 for artifact in \
   %{_sourcedir}/packaging/kong/vendor/kong-enterprise-edition-*.rpm \
-  %{_sourcedir}/packaging/kong/vendor/kong-enterprise-edition_*.deb \
-  %{_sourcedir}/packaging/kong/vendor/kong-*.rpm \
-  %{_sourcedir}/packaging/kong/vendor/kong-*.deb; do
+  %{_sourcedir}/packaging/kong/vendor/kong-*.rpm; do
   if [ -f "$artifact" ]; then
-    install -m 644 "$artifact" %{buildroot}/usr/share/serviceradar-kong/vendor/
+    case "$artifact" in
+      *.%{kong_vendor_arch}.rpm)
+        install -m 644 "$artifact" %{buildroot}/usr/share/serviceradar-kong/vendor/
+        ;;
+      *)
+        echo "Skipping non-%{kong_vendor_arch} vendor artifact $(basename "$artifact")"
+        ;;
+    esac
   fi
 done
 
