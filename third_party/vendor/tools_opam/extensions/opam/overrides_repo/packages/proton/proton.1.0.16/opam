@@ -23,7 +23,7 @@ depends: [
   "cstruct"
   "ptime"
   "domain-name"
-  "mirage-crypto" {>= "1.2.0" & < "3.0.0"}
+  "mirage-crypto" {>= "1.2.0" & < "2.0.0"}
   "conf-gmp" {build & >= "4"}
   "alcotest"
     {with-test & ("os_distribution" != "debian" | "os_version" != "12")}
