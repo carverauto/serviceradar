@@ -223,14 +223,15 @@ opam = use_extension(
     "opam",
 )
 opam.deps(
-    ocaml_version = "4.14.2",
+    opam_version = "2.4.1",
+    ocaml_version = "5.2.0",
     pkgs = {
         "dune": "3.20.2",
         "menhir": "20250903",
         "yojson": "2.2.2",
         "ppx_deriving": "6.0.3",
         "lwt_ppx": "5.9.1",
-        "proton": "1.0.15",
+        "proton": "1.0.16",
         "lwt": "5.9.2",
         "tls": "2.0.2",
         "tls-lwt": "2.0.2",
@@ -241,7 +242,7 @@ opam.deps(
         "h2": "0.12.0",
         "h2-lwt": "0.12.0",
         "h2-lwt-unix": "0.12.0",
-        "dream": "1.0.0~alpha8",
+        "dream": "1.0.0~alpha7",
     },
 )
 
