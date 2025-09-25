@@ -57,5 +57,9 @@ sha256 = {
     "opam-2.3.0-x86_64-linux": "324e78e3f33efeba279aacf9f9610cfec7b2df7d7e0e1640f75f09de85f96cc9",
     "opam-2.3.0-x86_64-macos": "9cf6031b599c862f0a0886f2b0354bb80cd8cad21a349c7894e55fac54209c83",
     "opam-2.3.0-arm64-linux": "c363d070b1771b6830c6806eb9fd5ff1a54d0fe97bf389cd2dff20b6d203b2ad",
-    "opam-2.3.0-arm64-macos": "b35efa25668996f8df807b57b571aaccb5a6f78395cbefd32a3860df6d3eef39"
+    "opam-2.3.0-arm64-macos": "b35efa25668996f8df807b57b571aaccb5a6f78395cbefd32a3860df6d3eef39",
+    "opam-2.4.1-x86_64-linux": "30da8eb20c8f4cfd3818db867d85f26df1ca5ca27cb25910c0235c5a02e12d3b",
+    "opam-2.4.1-x86_64-macos": "88ac1a1bd6f91dbac205579bcb156ebcdf0675c46d05c0f9bb1128d9ff7efbcd",
+    "opam-2.4.1-arm64-linux": "627894846d728bfeb3192d5cfa7d7ff671a7eaa9a1e77ece015a1bd1a8faa933",
+    "opam-2.4.1-arm64-macos": "c595fec2e34368e263869738de84bfae3b733b27fb2a5045b7a8dd8b466c99f6"
 }
