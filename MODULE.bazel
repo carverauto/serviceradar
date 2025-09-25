@@ -223,8 +223,8 @@ opam = use_extension(
     "opam",
 )
 opam.deps(
-    opam_version = "2.4.1",
     ocaml_version = "5.2.0",
+    opam_version = "2.4.1",
     pkgs = {
         "dune": "3.20.2",
         "menhir": "20250903",

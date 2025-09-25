@@ -156,6 +156,7 @@ ocaml_module(
         "@opam.lwt//lib",
         "@opam.proton//lib",
     ],
+    ppx = "@opam.lwt_ppx//lib:ppx.exe",
 )
 
 ocaml_binary(
