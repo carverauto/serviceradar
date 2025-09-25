@@ -64,6 +64,14 @@ main() {
     *) echo "Unsupported OS for serviceradar-kong postinstall" >&2; exit 1 ;;
   esac
 
+  # Create kong user and group if they don't exist
+  if ! getent group kong >/dev/null 2>&1; then
+    groupadd -r kong || true
+  fi
+  if ! getent passwd kong >/dev/null 2>&1; then
+    useradd -r -g kong -d /usr/local/kong -s /sbin/nologin kong || true
+  fi
+
   # Write DB-less config if not present
   mkdir -p /etc/kong || true
   if [ ! -f /etc/kong/kong.conf ]; then
@@ -97,10 +105,11 @@ EOF
     [ -f /etc/kong/kong.yml ] || touch /etc/kong/kong.yml
   fi
 
-  # Enable and start Kong if systemd is present
+  # Enable and start serviceradar-kong if systemd is present
   if command -v systemctl >/dev/null 2>&1; then
-    systemctl enable kong || true
-    systemctl restart kong || true
+    systemctl daemon-reload || true
+    systemctl enable serviceradar-kong || true
+    systemctl restart serviceradar-kong || true
   fi
 
   echo "Kong installed (DB-less). Configure /etc/kong/kong.yml as needed."
