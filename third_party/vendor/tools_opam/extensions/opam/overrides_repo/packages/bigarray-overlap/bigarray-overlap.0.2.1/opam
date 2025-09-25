@@ -1,0 +1,46 @@
+opam-version: "2.0"
+name: "bigarray-overlap"
+version: "0.2.1"
+synopsis: "Bigarray.overlap"
+description:
+  "A minimal library to know that 2 bigarray share physically the same memory or not."
+maintainer: "Romain Calascibetta <romain.calascibetta@gmail.com>"
+authors: "Romain Calascibetta <romain.calascibetta@gmail.com>"
+license: "MIT"
+homepage: "https://github.com/dinosaure/overlap"
+doc: "https://dinosaure.github.io/overlap/"
+bug-reports: "https://github.com/dinosaure/overlap/issues"
+depends: [
+  "ocaml" {>= "4.08.0"}
+  "dune" {>= "2.6"}
+  "alcotest" {with-test}
+  "astring" {with-test}
+  "fpath" {with-test}
+  "bos" {with-test}
+  "ocamlfind" {with-test}
+  "conf-pkg-config" {build}
+]
+depopts: ["ocaml-freestanding" "mirage-xen-posix" "js_of_ocaml-compiler"]
+conflicts: [
+  "mirage-xen-posix" {< "3.1.0"}
+  "ocaml-freestanding" {< "0.4.3"}
+]
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+  ["sh" "-c" "if [ -f _build/default/lib/bigarray-overlap/liboverlap_stubs.a ]; then cp _build/default/lib/bigarray-overlap/liboverlap_stubs.a _build/default/lib/bigarray-overlap/liboverlap_freestanding_stubs.a; fi"]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+]
+install: [
+  ["dune" "install" "-p" name]
+  ["sh" "-c" "cd %{lib}%/bigarray-overlap && cp liboverlap_stubs.a liboverlap_freestanding_stubs.a"]
+  ["./test/test_runes.ml"] {with-test}
+]
+dev-repo: "git+https://github.com/dinosaure/overlap.git"
+url {
+  src:
+    "https://github.com/dinosaure/overlap/releases/download/v0.2.1/bigarray-overlap-0.2.1.tbz"
+  checksum: [
+    "sha256=2f520ac470054e335883eba9254bf28b6676ddb57753cfb58b22cf84ae1a66e0"
+    "sha512=223f15f815cd944cf2e9955ed9e3cf5608a9db36103e9bb017c2fe452dfb319908228b419f416f6239b8562208027068b7c44e8fb4be6c6a7858ecba540d5439"
+  ]
+}
