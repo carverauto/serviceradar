@@ -205,14 +205,16 @@ impl TraceService for ServiceRadarCollector {
                     // Extract additional context from span attributes
                     let mut span_attrs = std::collections::HashMap::new();
                     for attr in &span.attributes {
-                        if let Some(value) = &attr.value {
-                            if let Some(
-                                opentelemetry::proto::common::v1::any_value::Value::StringValue(s),
-                            ) = &value.value
-                            {
-                                span_attrs.insert(attr.key.as_str(), s.as_str());
-                            }
-                        }
+                        let Some(value) = &attr.value else {
+                            continue;
+                        };
+                        let Some(
+                            opentelemetry::proto::common::v1::any_value::Value::StringValue(s),
+                        ) = &value.value
+                        else {
+                            continue;
+                        };
+                        span_attrs.insert(attr.key.as_str(), s.as_str());
                     }
 
                     // Record Prometheus metrics
@@ -300,17 +302,17 @@ impl TraceService for ServiceRadarCollector {
         }
 
         // Publish performance metrics to NATS
-        if !performance_metrics.is_empty() {
-            if let Some(nats) = &self.nats_output {
-                debug!(
-                    "Publishing {} performance metrics to NATS",
-                    performance_metrics.len()
-                );
-                let nats_output = nats.lock().await;
-                if let Err(e) = nats_output.publish_metrics(&performance_metrics).await {
-                    error!("Failed to publish performance metrics to NATS: {e}");
-                    // Don't fail the request, just log the error
-                }
+        if performance_metrics.is_empty() {
+            // Nothing to publish
+        } else if let Some(nats) = &self.nats_output {
+            debug!(
+                "Publishing {} performance metrics to NATS",
+                performance_metrics.len()
+            );
+            let nats_output = nats.lock().await;
+            if let Err(e) = nats_output.publish_metrics(&performance_metrics).await {
+                error!("Failed to publish performance metrics to NATS: {e}");
+                // Don't fail the request, just log the error
             }
         }
 

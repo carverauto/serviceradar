@@ -22,24 +22,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv")
         && !std::env::var("KV_ADDRESS").unwrap_or_default().is_empty();
     let mut kv_client: Option<KvClient> = None;
-    if use_kv {
-        if let Ok(mut kv) = KvClient::connect_from_env().await {
-            // Initial fetch
-            if let Ok(Some(bytes)) = kv.get(CONFIG_PATH).await {
-                if let Ok(s) = std::str::from_utf8(&bytes) {
-                    if let Ok(new_cfg) = toml::from_str::<otel::config::Config>(s) {
+    let kv_connection = if use_kv {
+        Some(KvClient::connect_from_env().await)
+    } else {
+        None
+    };
+
+    match kv_connection {
+        Some(Ok(mut kv)) => {
+            match kv.get(CONFIG_PATH).await {
+                Ok(Some(bytes)) => {
+                    if let Some(new_cfg) = std::str::from_utf8(&bytes)
+                        .ok()
+                        .and_then(|s| toml::from_str::<otel::config::Config>(s).ok())
+                    {
                         config = new_cfg;
                     }
                 }
-            }
-            // Bootstrap current config if missing
-            if let Ok(None) = kv.get(CONFIG_PATH).await {
-                if let Ok(content) = toml::to_string_pretty(&config) {
-                    let _ = kv.put_if_absent(CONFIG_PATH, content.into_bytes()).await;
+                Ok(None) => {
+                    if let Ok(content) = toml::to_string_pretty(&config) {
+                        let _ = kv.put_if_absent(CONFIG_PATH, content.into_bytes()).await;
+                    }
+                }
+                Err(err) => {
+                    log::warn!(
+                        "Failed to fetch OTEL config from KV at {}: {err}",
+                        CONFIG_PATH
+                    );
                 }
             }
             kv_client = Some(kv);
         }
+        Some(Err(err)) => {
+            log::warn!("Failed to connect to KV config source: {err}");
+        }
+        None => {}
     }
     let addr = parse_bind_address(&config)?;
 
