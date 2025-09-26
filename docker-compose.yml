@@ -388,6 +388,7 @@ services:
   # NATS for messaging and KV store
   nats:
     image: nats:latest
+    platform: linux/amd64
     container_name: serviceradar-nats
     ports:
       - "4222:4222"  # Client connections

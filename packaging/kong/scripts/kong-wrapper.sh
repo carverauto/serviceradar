@@ -8,6 +8,8 @@ set -euo pipefail
 KONG_PREFIX="/usr/local/kong"
 KONG_CONF="/etc/kong/kong.conf"
 
+export LUA_PATH="/usr/local/openresty/site/lualib"
+
 # Find Kong binary - check common locations
 KONG_BIN=""
 for path in /usr/bin/kong /usr/local/bin/kong /opt/kong/bin/kong; do
