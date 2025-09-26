@@ -33,7 +33,7 @@ spec:
               mountPath: /opt/kong
       initContainers:
         - name: render-jwks
-          image: ghcr.io/carverauto/serviceradar-kong-config:latest
+          image: ghcr.io/carverauto/serviceradar-kong-config:v1.0.53
           env:
             - name: JWKS_URL
               value: http://serviceradar-core:8090/auth/jwks.json

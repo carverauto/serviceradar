@@ -113,9 +113,13 @@ EOFCONF
   JWKS_URL_DEFAULT="http://localhost:8090/auth/jwks.json"
   SERVICE_URL_DEFAULT="http://localhost:8090"
   ROUTE_PATH_DEFAULT="/api"
+  SRQL_SERVICE_DEFAULT="http://localhost:8080"
+  SRQL_ROUTE_DEFAULT="/api/query"
   JWKS_URL="${JWKS_URL:-$JWKS_URL_DEFAULT}"
   SERVICE_URL="${KONG_SERVICE_URL:-$SERVICE_URL_DEFAULT}"
   ROUTE_PATH="${KONG_ROUTE_PATH:-$ROUTE_PATH_DEFAULT}"
+  SRQL_SERVICE_URL="${SRQL_SERVICE_URL:-$SRQL_SERVICE_DEFAULT}"
+  SRQL_ROUTE_PATH="${SRQL_ROUTE_PATH:-$SRQL_ROUTE_DEFAULT}"
 
   SERVICERADAR_CLI_BIN="${SERVICERADAR_CLI:-}"
   if [ -z "$SERVICERADAR_CLI_BIN" ]; then
@@ -133,7 +137,13 @@ EOFCONF
   if [ -n "$SERVICERADAR_CLI_BIN" ] && [ -x "$SERVICERADAR_CLI_BIN" ]; then
     echo "Rendering /etc/kong/kong.yml from JWKS ($JWKS_URL) via ${SERVICERADAR_CLI_BIN} ..."
     mkdir -p /etc/kong || true
-    if "$SERVICERADAR_CLI_BIN" render-kong --jwks "$JWKS_URL" --service "$SERVICE_URL" --path "$ROUTE_PATH" --out "/etc/kong/kong.yml"; then
+    if "$SERVICERADAR_CLI_BIN" render-kong \
+        --jwks "$JWKS_URL" \
+        --service "$SERVICE_URL" \
+        --path "$ROUTE_PATH" \
+        --srql-service "$SRQL_SERVICE_URL" \
+        --srql-path "$SRQL_ROUTE_PATH" \
+        --out "/etc/kong/kong.yml"; then
       echo "Rendered Kong DB-less config at /etc/kong/kong.yml"
     else
       echo "Warning: Failed to fetch JWKS at $JWKS_URL; leaving /etc/kong/kong.yml untouched." >&2
