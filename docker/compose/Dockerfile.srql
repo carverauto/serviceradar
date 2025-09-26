@@ -1,66 +1,15 @@
 # syntax=docker/dockerfile:1
 
-# Build stage - compile OCaml SRQL service
-ARG BASE_IMAGE=ocaml/opam:ubuntu-24.04-ocaml-5.2
-FROM ${BASE_IMAGE} AS builder
+# Stage to collect the released OCaml SRQL binary. We reuse the existing image
+# so we do not have to rebuild the compiler stack just to refresh the runtime
+# base.
+ARG SRQL_SOURCE_IMAGE=ghcr.io/carverauto/serviceradar-srql:v1.0.53
+FROM ${SRQL_SOURCE_IMAGE} AS artifact
 
-USER root
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        libev-dev \
-        libffi-dev \
-        libgmp-dev \
-        liblz4-dev \
-        libssl-dev \
-        libzstd-dev \
-        pkg-config \
-        rsync \
-        zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN curl -fsSL https://github.com/ocaml/opam/releases/download/2.4.1/opam-2.4.1-x86_64-linux \
-        -o /usr/local/bin/opam \
-    && chmod +x /usr/local/bin/opam \
-    && opam --version
-
-USER opam
-ENV OPAMYES=1 \
-    OPAMCONFIRMLEVEL=unsafe-yes
-
-COPY --chown=opam:opam proton-ocaml-driver /tmp/proton-ocaml-driver
-RUN rm -rf /tmp/proton-ocaml-driver/.git
-
-RUN opam update \
-    && git -C /home/opam/opam-repository fetch --depth=1 origin master \
-    && git -C /home/opam/opam-repository reset --hard origin/master \
-    && opam update \
-    && opam pin add proton /tmp/proton-ocaml-driver --kind=path -y \
-    && opam remove -y mirage-crypto mirage-crypto-rng mirage-crypto-rng-lwt tls tls-lwt x509 || true
-
-RUN eval $(opam env) \
-    && opam install -y \
-        dune \
-        menhir \
-        yojson \
-        ppx_deriving \
-        lwt \
-        lwt_ppx \
-        dream.1.0.0~alpha7 \
-        proton \
-    && opam clean -a -c
-
-WORKDIR /workspace
-COPY --chown=opam:opam ocaml/ ./
-
-RUN eval $(opam env) \
-    && opam install . --deps-only -y \
-    && dune build --profile=release srql/bin/main.exe
-
-# Runtime stage
-FROM debian:12-slim
-ENV LANG=C.UTF-8
+# Runtime stage with a glibc >= 2.38 (Ubuntu 24.04 currently ships 2.39).
+FROM ubuntu:24.04
+ENV LANG=C.UTF-8 \
+    DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 
 RUN apt-get update \
@@ -70,14 +19,23 @@ RUN apt-get update \
         libev4 \
         libgmp10 \
         liblz4-1 \
-        libssl3 \
+        libssl3t64 \
         libzstd1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -u 1000 serviceradar
+# Ensure we have a deterministic application user even if UID 1000 already
+# exists (Ubuntu images ship an `ubuntu` user by default).
+RUN if getent passwd 1000 >/dev/null; then \
+        existing_user=$(getent passwd 1000 | cut -d: -f1); \
+        usermod -d /home/serviceradar -m "${existing_user}"; \
+        usermod -l serviceradar "${existing_user}"; \
+    else \
+        useradd -m -u 1000 serviceradar; \
+    fi
 
-COPY --from=builder /workspace/_build/default/srql/bin/main.exe /usr/local/bin/serviceradar-srql
+COPY --from=artifact /usr/local/bin/serviceradar-srql /usr/local/bin/serviceradar-srql
 COPY docker/compose/entrypoint-srql.sh /usr/local/bin/entrypoint-srql.sh
+
 RUN chmod +x /usr/local/bin/entrypoint-srql.sh /usr/local/bin/serviceradar-srql
 
 USER serviceradar
