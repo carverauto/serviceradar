@@ -13,9 +13,7 @@ services:
 
   # Proton (TimeBase) Database with custom configuration
   proton:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.proton
+    image: ghcr.io/carverauto/serviceradar-proton:v1.0.53
     container_name: serviceradar-proton
     ports:
       - "8123:8123"  # HTTP port for JDBC driver, batch mode
@@ -62,12 +60,7 @@ services:
 
   # ServiceRadar Core Service
   core:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.core
-      args:
-        VERSION: ${VERSION:-dev}
-        BUILD_ID: ${BUILD_ID:-docker}
+    image: ghcr.io/carverauto/serviceradar-core:v1.0.53
     container_name: serviceradar-core
     ports:
       - "8090:8090"  # HTTP API

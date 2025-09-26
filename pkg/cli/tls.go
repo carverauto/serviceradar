@@ -297,7 +297,7 @@ func generateRootCA(cfg *CmdConfig, styles *logStyles) (*x509.Certificate, *ecds
 			OrganizationalUnit: []string{"Operations"},
 			CommonName:         "ServiceRadar CA",
 		},
-		NotBefore:             time.Now(),
+		NotBefore:             time.Now().Add(-1 * time.Hour), // Set to 1 hour ago to avoid timezone/clock skew issues
 		NotAfter:              time.Now().Add(defaultDaysValid * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
@@ -398,7 +398,7 @@ func createServiceCertificate(
 			OrganizationalUnit: []string{"Operations"},
 			CommonName:         service + ".serviceradar",
 		},
-		NotBefore:             time.Now(),
+		NotBefore:             time.Now().Add(-1 * time.Hour), // Set to 1 hour ago to avoid timezone/clock skew issues
 		NotAfter:              time.Now().Add(defaultDaysValid * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},

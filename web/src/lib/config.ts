@@ -16,6 +16,12 @@
 
 import { env } from "next-runtime-env";
 
+function normalizeBaseUrl(url: string): string {
+  const withoutProtocolWhitespace = url.trim();
+  const withoutTrailingSlash = withoutProtocolWhitespace.replace(/\/+$/, "");
+  return withoutTrailingSlash.replace(/\/api$/, "");
+}
+
 /**
  * Configuration helper for ServiceRadar web application
  * Handles both server-side and client-side API URLs
@@ -28,16 +34,16 @@ export function getInternalApiUrl(): string {
     const internalUrl = process.env.NEXT_INTERNAL_API_URL;
     if (internalUrl) {
       // If it contains /api, it's probably a mistake - remove it
-      return internalUrl.replace(/\/api$/, '');
+      return normalizeBaseUrl(internalUrl);
     }
-    
+
     // Local development fallback - direct to backend
-    return "http://localhost:8090";
+    return normalizeBaseUrl("http://localhost:8090");
   }
-  
+
   // Client-side fallback (shouldn't be used for server-side API routes)
   const publicUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
-  return publicUrl.replace(/\/api$/, '');
+  return normalizeBaseUrl(publicUrl);
 }
 
 // For client-side API calls (browser to API)
@@ -45,20 +51,20 @@ export function getPublicApiUrl(): string {
   // Client-side can use either next-runtime-env or process.env
   // Try process.env first for server-side rendering
   if (typeof window === "undefined") {
-    return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+    return normalizeBaseUrl(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090");
   }
   // Use next-runtime-env for client-side runtime configuration
-  return env("NEXT_PUBLIC_API_URL") || "http://localhost:8090";
+  return normalizeBaseUrl(env("NEXT_PUBLIC_API_URL") || "http://localhost:8090");
 }
 
 // Get API key for server-side requests
 export function getApiKey(): string {
-  return process.env.API_KEY || process.env.NEXT_PUBLIC_API_KEY || "changeme";
+  return process.env.API_KEY || process.env.NEXT_PUBLIC_API_KEY || "";
 }
 
 // Get JWT secret for token validation
 export function getJwtSecret(): string {
-  return process.env.JWT_SECRET || "changeme";
+  return process.env.JWT_SECRET || "";
 }
 
 // Check if authentication is enabled

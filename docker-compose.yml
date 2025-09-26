@@ -40,7 +40,7 @@ services:
 
   # Generate RS256 JWT keys and update core.json (first-run init)
   core-jwks-init:
-    image: ghcr.io/carverauto/serviceradar-kong-config:latest
+    image: ghcr.io/carverauto/serviceradar-kong-config:v1.0.53
     container_name: serviceradar-core-jwks-init
     user: "0:0"
     entrypoint: ["/usr/local/bin/serviceradar-cli", "generate-jwt-keys"]
@@ -126,9 +126,6 @@ services:
 
   # ServiceRadar Core Service
   core:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.core
     image: ghcr.io/carverauto/serviceradar-core:v1.0.53
     container_name: serviceradar-core
     # Expose core ports for debugging authentication
@@ -209,9 +206,6 @@ services:
 
   # SRQL Service (OCaml) - handles /api/query requests routed via Kong
   srql:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.srql
     image: ghcr.io/carverauto/serviceradar-srql:v1.0.53
     container_name: serviceradar-srql
     environment:
@@ -272,10 +266,7 @@ services:
 
   # JWKS renderer - generates DB-less config for Kong from Core's JWKS
   kong-config:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.jwks2kong
-    image: ghcr.io/carverauto/serviceradar-kong-config:latest
+    image: ghcr.io/carverauto/serviceradar-kong-config:v1.0.53
     container_name: serviceradar-kong-config
     user: "0:0"
     command: ["--jwks","${JWKS_URL:-http://core:8090/auth/jwks.json}","--service","${KONG_SERVICE_URL:-http://core:8090}","--path","${KONG_ROUTE_PATH:-/api}","--srql-service","${SRQL_SERVICE_URL:-http://srql:8080}","--srql-path","${SRQL_ROUTE_PATH:-/api/query}","--out","/out/kong.yml"]
@@ -361,12 +352,7 @@ services:
 
   # ServiceRadar Agent Service
   agent:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.agent
-      args:
-        VERSION: ${VERSION:-dev}
-        BUILD_ID: ${BUILD_ID:-docker}
+    image: ghcr.io/carverauto/serviceradar-agent:v1.0.53
     container_name: serviceradar-agent
     volumes:
       - ./docker/compose/agent.docker.json:/etc/serviceradar/agent.json:ro
@@ -402,6 +388,7 @@ services:
   # NATS for messaging and KV store
   nats:
     image: nats:latest
+    platform: linux/amd64
     container_name: serviceradar-nats
     ports:
       - "4222:4222"  # Client connections
@@ -468,12 +455,7 @@ services:
 
   # ServiceRadar Sync Service (Device discovery synchronization)
   sync:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.sync
-      args:
-        VERSION: ${VERSION:-dev}
-        BUILD_ID: ${BUILD_ID:-docker}
+    image: ghcr.io/carverauto/serviceradar-sync:v1.0.53
     container_name: serviceradar-sync
     ports:
       - "50058:50058"  # gRPC port
@@ -546,10 +528,7 @@ services:
 
   # ServiceRadar Flowgger Service (Syslog collector)
   flowgger:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.flowgger
-    image: ghcr.io/carverauto/serviceradar-flowgger:local
+    image: ghcr.io/carverauto/serviceradar-flowgger:v1.0.53
     container_name: serviceradar-flowgger
     ports:
       - "514:514/udp"  # Syslog UDP port
@@ -665,10 +644,7 @@ services:
 
   # ServiceRadar DB Event Writer Service (NATS to Database bridge)
   db-event-writer:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.db-event-writer
-    image: ghcr.io/carverauto/serviceradar-db-event-writer:local
+    image: ghcr.io/carverauto/serviceradar-db-event-writer:v1.0.53
     container_name: serviceradar-db-event-writer
     ports:
       - "50041:50041"  # gRPC port
@@ -807,11 +783,8 @@ services:
   # This service is disabled by default. To enable it, use the 'testing' profile:
   # docker-compose --profile testing up -d
   faker:
-    image: ghcr.io/carverauto/serviceradar-faker:v1.0.53
+    image: ghcr.io/carverauto/serviceradar-faker:latest
     container_name: serviceradar-faker
-    build:
-      context: .
-      dockerfile: cmd/faker/Dockerfile
     profiles:
       - testing
     ports:
