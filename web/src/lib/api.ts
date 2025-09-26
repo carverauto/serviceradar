@@ -34,9 +34,14 @@ export async function fetchFromAPI<T>(
   let apiUrl: string;
 
   if (typeof window === "undefined") {
-    // Server-side: Use a fully qualified URL or environment variable
-    // const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
-    const baseApiUrl = env('NEXT_PUBLIC_API_URL') || "http://localhost:8090";
+    // Server-side: prefer the internal gateway when available
+    const rawBaseUrl =
+      process.env.NEXT_INTERNAL_API_URL ||
+      env('NEXT_PUBLIC_API_URL') ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      "http://localhost:8090";
+
+    const baseApiUrl = normalizeBaseUrl(rawBaseUrl);
     apiUrl = `${baseApiUrl}/api/${normalizedEndpoint}`;
   } else {
     // Client-side: Use relative URL path
@@ -91,3 +96,9 @@ export async function fetchFromAPI<T>(
 
 // Union type for cacheable data (exported for client-api.ts)
 export type CacheableData = SystemStatus | Poller[];
+
+function normalizeBaseUrl(url: string): string {
+  const withProtocol = url.startsWith("http") ? url : `http://${url}`;
+  const withoutTrailingSlash = withProtocol.replace(/\/+$/, "");
+  return withoutTrailingSlash.replace(/\/api$/, "");
+}

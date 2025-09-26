@@ -40,7 +40,9 @@ services:
 
   # Generate RS256 JWT keys and update core.json (first-run init)
   core-jwks-init:
-    image: ghcr.io/carverauto/serviceradar-kong-config:latest
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.jwks2kong
     container_name: serviceradar-core-jwks-init
     user: "0:0"
     entrypoint: ["/usr/local/bin/serviceradar-cli", "generate-jwt-keys"]
@@ -266,7 +268,9 @@ services:
 
   # JWKS renderer - generates DB-less config for Kong from Core's JWKS
   kong-config:
-    image: ghcr.io/carverauto/serviceradar-kong-config:latest
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.jwks2kong
     container_name: serviceradar-kong-config
     user: "0:0"
     command: ["--jwks","${JWKS_URL:-http://core:8090/auth/jwks.json}","--service","${KONG_SERVICE_URL:-http://core:8090}","--path","${KONG_ROUTE_PATH:-/api}","--srql-service","${SRQL_SERVICE_URL:-http://srql:8080}","--srql-path","${SRQL_ROUTE_PATH:-/api/query}","--out","/out/kong.yml"]

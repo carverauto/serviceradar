@@ -41,7 +41,7 @@ if [ -n "$WEB_API_URL" ]; then
     export NEXT_PUBLIC_API_URL="$WEB_API_URL"
     echo "Setting NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL (from web.json)"
 elif [ -z "$NEXT_PUBLIC_API_URL" ]; then
-    export NEXT_PUBLIC_API_URL="http://localhost/api"
+    export NEXT_PUBLIC_API_URL="http://localhost"
     echo "Setting NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL (fallback)"
 fi
 
@@ -51,7 +51,6 @@ if [ -z "$API_KEY" ] && [ -f /etc/serviceradar/certs/api-key ]; then
     echo "Loaded API key from /etc/serviceradar/certs/api-key"
 elif [ -z "$API_KEY" ]; then
     echo "Warning: API_KEY not set - authentication may fail"
-    export API_KEY="PLACEHOLDER_NO_KEY_SET"
 fi
 
 # Load JWT secret from generated file if not already set from api.env
@@ -60,7 +59,6 @@ if [ -z "$JWT_SECRET" ] && [ -f /etc/serviceradar/certs/jwt-secret ]; then
     echo "Loaded JWT secret from /etc/serviceradar/certs/jwt-secret"
 elif [ -z "$JWT_SECRET" ]; then
     echo "Warning: JWT_SECRET not set - authentication may fail"
-    export JWT_SECRET="PLACEHOLDER_NO_SECRET_SET"
 fi
 
 # Set auth enabled
