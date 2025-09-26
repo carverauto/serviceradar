@@ -131,6 +131,8 @@ jspm_packages/
 .idea
 #.bin
 bin
+!ocaml/srql/bin/
+!ocaml/srql/bin/**
 
 pnpm-lock.yaml
 !web/pnpm-lock.yaml
