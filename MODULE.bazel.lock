@@ -9252,7 +9252,7 @@
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {
-          "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": "1",
+          "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": null,
           "HOME": "/Users/mfreeman",
           "OBAZL_OPAM_ENV": null,
           "OBAZL_USE_LOCAL_TC": null,
@@ -9932,7 +9932,7 @@
               "verbosity": 0
             }
           },
-          "opam.graphql_parser": {
+          "opam.graphql-lwt": {
             "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
             "attributes": {
               "install": false,
@@ -9947,7 +9947,7 @@
               "verbosity": 0
             }
           },
-          "opam.graphql-lwt": {
+          "opam.graphql_parser": {
             "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
             "attributes": {
               "install": false,
@@ -10172,6 +10172,21 @@
               "verbosity": 0
             }
           },
+          "opam.lwt-dllist": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
+              "switch": "4.14.2",
+              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
+              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/4.14.2/lib",
+              "ocaml_version": "4.14.2",
+              "obazl_pfx": "opam.",
+              "config_tool": "/Users/mfreeman/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
           "opam.lwt_ppx": {
             "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
             "attributes": {
@@ -10188,21 +10203,6 @@
             }
           },
           "opam.lwt_ssl": {
-            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
-            "attributes": {
-              "install": false,
-              "opam": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/bin/opam",
-              "switch": "4.14.2",
-              "root": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root",
-              "sdklib": "/Users/mfreeman/.local/share/obazl/opam/2.3.0/root/4.14.2/lib",
-              "ocaml_version": "4.14.2",
-              "obazl_pfx": "opam.",
-              "config_tool": "/Users/mfreeman/.cache/bazel/_bazel_mfreeman/a8a9eebf955071b3af2db109b06844c6/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/external/tools_opam+/extensions/config/config",
-              "debug": 0,
-              "verbosity": 0
-            }
-          },
-          "opam.lwt-dllist": {
             "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
             "attributes": {
               "install": false,
