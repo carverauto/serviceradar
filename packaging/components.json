@@ -33,8 +33,8 @@
   {
     "name": "kong",
     "package_name": "serviceradar-kong",
-    "version": "3.11.0.3",
-    "description": "Wrapper package bundling Kong Gateway (enterprise by default) for air-gapped installs",
+    "version": "1.0.53",
+    "description": "Wrapper package bundling Kong Gateway OSS 3.10.0 for air-gapped installs (falls back to enterprise if provided)",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "net",

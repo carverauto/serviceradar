@@ -94,6 +94,20 @@ else
     chown serviceradar:serviceradar /etc/serviceradar/api.env
 fi
 
+# Ensure RS256 keys are present and JWKS can be served
+if [ -f "/etc/serviceradar/core.json" ]; then
+    if ! jq -e '.auth.jwt_private_key_pem // empty' /etc/serviceradar/core.json >/dev/null 2>&1; then
+        if command -v serviceradar-cli >/dev/null 2>&1; then
+            echo "Generating RS256 JWT keys in /etc/serviceradar/core.json ..."
+            serviceradar-cli generate-jwt-keys --file /etc/serviceradar/core.json --bits 2048 || {
+                echo "Warning: Failed to generate RS256 keys; continuing with existing config" >&2
+            }
+        else
+            echo "Warning: serviceradar-cli not available; skipping RS256 key generation" >&2
+        fi
+    fi
+fi
+
 # Update core.json with JWT_SECRET if it exists
 if [ -f "/etc/serviceradar/core.json" ] && [ -n "$JWT_SECRET" ]; then
     # Check if core.json has auth section and a jwt_secret field

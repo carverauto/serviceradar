@@ -1,0 +1,28 @@
+[Unit]
+Description=ServiceRadar Kong Gateway
+Documentation=https://docs.konghq.com/
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+Environment=KONG_PREFIX=/usr/local/kong
+ExecStartPre=-/usr/share/serviceradar-kong/scripts/kong-wrapper.sh prepare
+ExecStart=/usr/share/serviceradar-kong/scripts/kong-wrapper.sh start
+ExecReload=/usr/share/serviceradar-kong/scripts/kong-wrapper.sh reload
+ExecStop=-/usr/share/serviceradar-kong/scripts/kong-wrapper.sh quit
+Restart=no
+User=root
+Group=root
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=serviceradar-kong
+LimitNOFILE=65536
+LimitNPROC=16384
+TimeoutStartSec=90
+TimeoutStopSec=30
+PIDFile=/usr/local/kong/pids/nginx.pid
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

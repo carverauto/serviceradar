@@ -64,6 +64,7 @@ OPTIONS:
   --tools              Build only tools image
   --trapd              Build only trapd image
   --zen                Build only zen image
+  --srql               Build only srql image
   --kong-config        Build only kong-config (JWKS renderer) image
   --platform PLATFORM  Target platform (default: auto-detected based on --push)
   --force-multiplatform Force multi-platform build even without --push
@@ -116,6 +117,7 @@ BUILD_SYNC=false
 BUILD_TOOLS=false
 BUILD_TRAPD=false
 BUILD_ZEN=false
+BUILD_SRQL=false
 BUILD_KONG_CONFIG=false
 PLATFORM=""  # Will be set based on push flag
 NO_CACHE=""
@@ -195,6 +197,10 @@ while [[ $# -gt 0 ]]; do
             BUILD_SNMP_CHECKER=true
             shift
             ;;
+        --srql)
+            BUILD_SRQL=true
+            shift
+            ;;
         --sync)
             BUILD_SYNC=true
             shift
@@ -244,7 +250,7 @@ if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == fals
       "$BUILD_AGENT" == false && "$BUILD_CONFIG_UPDATER" == false && "$BUILD_DB_EVENT_WRITER" == false && "$BUILD_FLOWGGER" == false && \
       "$BUILD_KV" == false && "$BUILD_MAPPER" == false && "$BUILD_NGINX" == false && "$BUILD_OTEL" == false && "$BUILD_POLLER" == false && \
       "$BUILD_RPERF_CLIENT" == false && "$BUILD_SNMP_CHECKER" == false && "$BUILD_SYNC" == false && "$BUILD_TOOLS" == false && \
-      "$BUILD_TRAPD" == false && "$BUILD_ZEN" == false && "$BUILD_KONG_CONFIG" == false ]]; then
+      "$BUILD_TRAPD" == false && "$BUILD_ZEN" == false && "$BUILD_SRQL" == false && "$BUILD_KONG_CONFIG" == false ]]; then
     BUILD_ALL=true
 fi
 
@@ -487,6 +493,11 @@ fi
 # Build Sync service
 if [[ "$BUILD_ALL" == true || "$BUILD_SYNC" == true ]]; then
     build_image "sync" "docker/compose/Dockerfile.sync" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build SRQL service
+if [[ "$BUILD_ALL" == true || "$BUILD_SRQL" == true ]]; then
+    build_image "srql" "docker/compose/Dockerfile.srql" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
 fi
 
 # Build Tools service
