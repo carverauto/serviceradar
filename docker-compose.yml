@@ -266,7 +266,7 @@ services:
 
   # JWKS renderer - generates DB-less config for Kong from Core's JWKS
   kong-config:
-    image: ghcr.io/carverauto/serviceradar-kong-config:v1.0.53
+    image: ghcr.io/carverauto/serviceradar-kong-config:latest
     container_name: serviceradar-kong-config
     user: "0:0"
     command: ["--jwks","${JWKS_URL:-http://core:8090/auth/jwks.json}","--service","${KONG_SERVICE_URL:-http://core:8090}","--path","${KONG_ROUTE_PATH:-/api}","--srql-service","${SRQL_SERVICE_URL:-http://srql:8080}","--srql-path","${SRQL_ROUTE_PATH:-/api/query}","--out","/out/kong.yml"]
@@ -782,7 +782,7 @@ services:
   # This service is disabled by default. To enable it, use the 'testing' profile:
   # docker-compose --profile testing up -d
   faker:
-    image: ghcr.io/carverauto/serviceradar-faker:v1.0.53
+    image: ghcr.io/carverauto/serviceradar-faker:latest
     container_name: serviceradar-faker
     profiles:
       - testing
