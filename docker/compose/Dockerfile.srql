@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build stage - compile OCaml SRQL service
-ARG BASE_IMAGE=ocaml/opam:ubuntu-24.04-ocaml-5.1
+ARG BASE_IMAGE=ocaml/opam:ubuntu-24.04-ocaml-5.2
 FROM ${BASE_IMAGE} AS builder
 
 USER root
@@ -20,41 +20,34 @@ RUN apt-get update \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
+RUN curl -fsSL https://github.com/ocaml/opam/releases/download/2.4.1/opam-2.4.1-x86_64-linux \
+        -o /usr/local/bin/opam \
+    && chmod +x /usr/local/bin/opam \
+    && opam --version
+
 USER opam
 ENV OPAMYES=1 \
     OPAMCONFIRMLEVEL=unsafe-yes
 
-RUN opam update
+COPY --chown=opam:opam proton-ocaml-driver /tmp/proton-ocaml-driver
+RUN rm -rf /tmp/proton-ocaml-driver/.git
 
-ARG PROTON_REPO="git+https://github.com/mfreeman451/proton-ocaml-driver.git"
-ARG PROTON_REF="1.0.16"
-RUN opam pin add proton "${PROTON_REPO}#${PROTON_REF}" -y
+RUN opam update \
+    && git -C /home/opam/opam-repository fetch --depth=1 origin master \
+    && git -C /home/opam/opam-repository reset --hard origin/master \
+    && opam update \
+    && opam pin add proton /tmp/proton-ocaml-driver --kind=path -y \
+    && opam remove -y mirage-crypto mirage-crypto-rng mirage-crypto-rng-lwt tls tls-lwt x509 || true
 
-ARG DREAM_REF="master"
-RUN git clone --depth 1 --branch "${DREAM_REF}" https://github.com/aantron/dream.git /tmp/dream \
-    && sed -i 's/"h2" {< "0.13.0"}/"h2" {>= "0.13.0" & < "0.14.0"}/' /tmp/dream/dream-httpaf.opam \
-    && sed -i 's/"h2-lwt-unix"/"h2-lwt-unix" {>= "0.13.0"}/' /tmp/dream/dream-httpaf.opam \
-    && sed -i 's/"h2-lwt"/"h2-lwt" {>= "0.13.0"}/' /tmp/dream/dream-httpaf.opam \
-    && opam pin add dream /tmp/dream -y \
-    && opam pin add dream-httpaf /tmp/dream -y \
-    && opam pin add dream-pure /tmp/dream -y
-
-RUN opam install -y \
+RUN eval $(opam env) \
+    && opam install -y \
         dune \
         menhir \
         yojson \
         ppx_deriving \
         lwt \
         lwt_ppx \
-        tls \
-        tls-lwt \
-        mirage-crypto \
-        mirage-crypto-rng \
-        mirage-crypto-rng-lwt \
-        x509 \
-        h2 \
-        h2-lwt \
-        h2-lwt-unix \
+        dream.1.0.0~alpha7 \
         proton \
     && opam clean -a -c
 
