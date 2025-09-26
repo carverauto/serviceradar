@@ -1,0 +1,21 @@
+(executable
+ (public_name srql-server)
+ (name main)
+ (modules main)
+ (libraries srql_translator dream yojson)
+ (preprocess
+  (pps lwt_ppx)))
+
+(executable
+ (public_name srql-translator)
+ (name cli)
+ (modules cli)
+ (libraries srql_translator yojson)
+ (preprocess
+  (pps lwt_ppx)))
+
+(executable
+ (public_name srql-cli)
+ (name srql_cli)
+ (modules srql_cli)
+ (libraries srql_translator lwt lwt.unix))
