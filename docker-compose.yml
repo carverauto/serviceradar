@@ -784,9 +784,6 @@ services:
   faker:
     image: ghcr.io/carverauto/serviceradar-faker:v1.0.53
     container_name: serviceradar-faker
-    build:
-      context: .
-      dockerfile: cmd/faker/Dockerfile
     profiles:
       - testing
     ports:
