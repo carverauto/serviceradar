@@ -17,8 +17,8 @@ RUN echo "BINARY_PATH=${BINARY_PATH}" && \
     echo "Current directory: $(pwd)" && \
     ls -la /src || echo "No /src directory yet"
 
-# Install build dependencies (openssl + protoc)
-RUN dnf install -y openssl-devel protobuf-compiler && \
+# Install build dependencies (openssl + protoc + perl for OpenSSL configure script)
+RUN dnf install -y openssl-devel protobuf-compiler perl pkgconf-pkg-config && \
     echo "OpenSSL development libraries installed successfully" && \
     dnf clean all && \
     echo "DNF cache cleaned"
