@@ -19,8 +19,16 @@ RUN echo "BINARY_PATH=${BINARY_PATH}" && \
     echo "Current directory: $(pwd)" && \
     ls -la /src || echo "No /src directory yet"
 
+# Install system dependencies required for eBPF builds and linking utilities
+RUN dnf install -y clang llvm llvm-devel llvm-libs libbpf libbpf-devel kernel-headers pkgconf-pkg-config gcc make && \
+    dnf clean all && \
+    cargo install --locked bpf-linker
+
 # Copy workspace Cargo.toml first for better layer caching
 COPY ${BINARY_PATH}/Cargo.toml .
+
+# Include workspace-specific cargo configuration (command aliases, etc.)
+COPY ${BINARY_PATH}/.cargo ./.cargo
 
 # Copy the OpenTelemetry proto files to the expected location
 COPY ${BINARY_PATH}/proto ./proto/
