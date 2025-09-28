@@ -43,8 +43,8 @@ import (
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/metrics"
-    "github.com/carverauto/serviceradar/pkg/metricstore"
-    "github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -60,12 +60,12 @@ var (
 
 // NewAPIServer creates a new API server instance with the given configuration
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
-    s := &APIServer{
-        pollers:     make(map[string]*PollerStatus),
-        router:      mux.NewRouter(),
-        corsConfig:  config,
-        kvEndpoints: make(map[string]*KVEndpoint),
-    }
+	s := &APIServer{
+		pollers:     make(map[string]*PollerStatus),
+		router:      mux.NewRouter(),
+		corsConfig:  config,
+		kvEndpoints: make(map[string]*KVEndpoint),
+	}
 
 	// Default kvPutFn dials KV and performs a Put
 	s.kvPutFn = func(ctx context.Context, key string, value []byte, ttl int64) error {
@@ -122,9 +122,9 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		return resp.Value, resp.Found, nil
 	}
 
-    for _, o := range options {
-        o(s)
-    }
+	for _, o := range options {
+		o(s)
+	}
 
 	// If only single kvAddress configured and no endpoints registered, register a default 'local'
 	if s.kvAddress != "" && len(s.kvEndpoints) == 0 {
@@ -256,9 +256,9 @@ func WithDeviceRegistry(dr DeviceRegistryService) func(server *APIServer) {
 }
 
 func WithLogger(log logger.Logger) func(server *APIServer) {
-    return func(server *APIServer) {
-        server.logger = log
-    }
+	return func(server *APIServer) {
+		server.logger = log
+	}
 }
 
 // setupRoutes configures the HTTP routes for the API server.
@@ -611,70 +611,79 @@ func (*APIServer) updateOpenAPI3Servers(
 
 // setupAuthRoutes configures public authentication routes.
 func (s *APIServer) setupAuthRoutes() {
-    s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")
-    s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
-    s.router.HandleFunc("/auth/jwks.json", s.handleJWKS).Methods("GET")
-    s.router.HandleFunc("/.well-known/openid-configuration", s.handleOIDCDiscovery).Methods("GET")
-    s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
-    s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
+	s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")
+	s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
+	s.router.HandleFunc("/auth/jwks.json", s.handleJWKS).Methods("GET")
+	s.router.HandleFunc("/.well-known/openid-configuration", s.handleOIDCDiscovery).Methods("GET")
+	s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
+	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
 }
 
 // handleJWKS serves the JWKS (JSON Web Key Set) for RS256 token validation by gateways.
 func (s *APIServer) handleJWKS(w http.ResponseWriter, _ *http.Request) {
-    // Auth service must be present and must expose config
-    // Our concrete implementation stores config in auth.Auth; we access via exported helper
-    // Build JWKS JSON using the server's configured auth settings
-    if s.authService == nil {
-        http.Error(w, "auth service not configured", http.StatusServiceUnavailable)
-        return
-    }
-    // We don’t have direct access to config here; use a small adapter: the auth package exposes a function
-    // that needs the config, which we can obtain by type assertion to *auth.Auth.
-    // If not the concrete type, we return an empty set.
-    var cfg *models.AuthConfig
-    if a, ok := s.authService.(*auth.Auth); ok {
-        // Access unexported field via method would be cleaner, but keep minimal by adding a tiny getter.
-        // Fall back to empty set if not available
-        cfg = a.Config()
-    }
-    if cfg == nil {
-        w.Header().Set("Content-Type", "application/json")
-        _, _ = w.Write([]byte(`{"keys":[]}`))
-        return
-    }
-    data, err := auth.PublicJWKSJSON(cfg)
-    if err != nil {
-        s.logger.Error().Err(err).Msg("failed to build JWKS")
-        http.Error(w, "failed to build jwks", http.StatusInternalServerError)
-        return
-    }
-    w.Header().Set("Content-Type", "application/json")
-    _, _ = w.Write(data)
+	// Auth service must be present and must expose config
+	// Our concrete implementation stores config in auth.Auth; we access via exported helper
+	// Build JWKS JSON using the server's configured auth settings
+	if s.authService == nil {
+		http.Error(w, "auth service not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// We don’t have direct access to config here; use a small adapter: the auth package exposes a function
+	// that needs the config, which we can obtain by type assertion to *auth.Auth.
+	// If not the concrete type, we return an empty set.
+	var cfg *models.AuthConfig
+
+	if a, ok := s.authService.(*auth.Auth); ok {
+		// Access unexported field via method would be cleaner, but keep minimal by adding a tiny getter.
+		// Fall back to empty set if not available
+		cfg = a.Config()
+	}
+
+	if cfg == nil {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"keys":[]}`))
+
+		return
+	}
+
+	data, err := auth.PublicJWKSJSON(cfg)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("failed to build JWKS")
+		http.Error(w, "failed to build jwks", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
 }
 
 // handleOIDCDiscovery serves a minimal OpenID Provider Configuration pointing to the JWKS.
 func (s *APIServer) handleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
-    scheme := "http"
-    if r.TLS != nil {
-        scheme = "https"
-    }
-    host := r.Host
-    issuer := scheme + "://" + host
-    jwks := issuer + "/auth/jwks.json"
-    w.Header().Set("Content-Type", "application/json")
-    _, _ = w.Write([]byte("{\n" +
-        "  \"issuer\": \"" + issuer + "\",\n" +
-        "  \"jwks_uri\": \"" + jwks + "\",\n" +
-        "  \"id_token_signing_alg_values_supported\": [\"RS256\"],\n" +
-        "  \"response_types_supported\": [\"code\", \"token\", \"id_token\"],\n" +
-        "  \"subject_types_supported\": [\"public\"],\n" +
-        "  \"claims_supported\": [\"sub\", \"email\", \"roles\", \"exp\", \"iat\"]\n" +
-        "}"))
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+
+	host := r.Host
+	issuer := scheme + "://" + host
+	jwks := issuer + "/auth/jwks.json"
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte("{\n" +
+		"  \"issuer\": \"" + issuer + "\",\n" +
+		"  \"jwks_uri\": \"" + jwks + "\",\n" +
+		"  \"id_token_signing_alg_values_supported\": [\"RS256\"],\n" +
+		"  \"response_types_supported\": [\"code\", \"token\", \"id_token\"],\n" +
+		"  \"subject_types_supported\": [\"public\"],\n" +
+		"  \"claims_supported\": [\"sub\", \"email\", \"roles\", \"exp\", \"iat\"]\n" +
+		"}"))
 }
 
 // setupWebSocketRoutes configures WebSocket routes with custom authentication.
 func (s *APIServer) setupWebSocketRoutes() {
-    // SRQL WebSocket endpoint removed; SRQL moves to OCaml service
+	// SRQL WebSocket endpoint removed; SRQL moves to OCaml service
 }
 
 // setupProtectedRoutes configures protected API routes.
@@ -711,7 +720,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices/{id}/sysmon/memory", s.getDeviceSysmonMemoryMetrics).Methods("GET")
 	protected.HandleFunc("/devices/{id}/sysmon/processes", s.getDeviceSysmonProcessMetrics).Methods("GET")
 
-    // SRQL HTTP endpoint removed; SRQL moves to OCaml service
+	// SRQL HTTP endpoint removed; SRQL moves to OCaml service
 
 	// Device-centric endpoints
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
@@ -751,6 +760,7 @@ func (s *APIServer) resolveKVDomain(kvID string) string {
 	if kvID == "" {
 		return s.kvEndpoints["local"].Domain
 	}
+
 	// Exact ID match
 	if ep, ok := s.kvEndpoints[kvID]; ok {
 		if ep.Domain != "" {
@@ -758,6 +768,7 @@ func (s *APIServer) resolveKVDomain(kvID string) string {
 		}
 		return kvID
 	}
+
 	// Address match fallback
 	for _, ep := range s.kvEndpoints {
 		if ep.Address == kvID {
@@ -766,6 +777,7 @@ func (s *APIServer) resolveKVDomain(kvID string) string {
 			}
 		}
 	}
+
 	// If looks like a URL/address and no mapping, default to hub domain if present
 	if strings.Contains(kvID, "://") || strings.Contains(kvID, ":") {
 		if ep, ok := s.kvEndpoints["local"]; ok && ep.Domain != "" {
@@ -773,6 +785,7 @@ func (s *APIServer) resolveKVDomain(kvID string) string {
 		}
 		return ""
 	}
+
 	// Otherwise treat kvID as the domain itself
 	return kvID
 }
@@ -823,6 +836,7 @@ func (s *APIServer) parseServicesTreeFilters(r *http.Request) servicesTreeFilter
 			filters.limit = n
 		}
 	}
+
 	if v := q.Get("offset"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			filters.offset = n
@@ -863,6 +877,7 @@ func (s *APIServer) buildAgentServices(services []ServiceStatus, filters service
 			AgentID:   agentID,
 			KvStoreID: svc.KvStoreID,
 		}
+
 		agentMap[agentID].Services = append(agentMap[agentID].Services, node)
 	}
 
@@ -879,6 +894,7 @@ func (s *APIServer) isServiceConfigured(ctx context.Context, sn ServiceNode) boo
 	// Map kvID to endpoint ID for getKVClient (allow domain or id)
 	kvID := sn.KvStoreID
 	epID := ""
+
 	if kvID != "" {
 		if _, ok2 := s.kvEndpoints[kvID]; ok2 {
 			epID = kvID
@@ -891,6 +907,7 @@ func (s *APIServer) isServiceConfigured(ctx context.Context, sn ServiceNode) boo
 			}
 		}
 	}
+
 	if epID == "" && s.kvAddress != "" {
 		epID = "local"
 	}
@@ -928,6 +945,7 @@ func (s *APIServer) filterConfiguredServices(r *http.Request, agent *AgentNode) 
 		if s.isServiceConfigured(ctx, sn) {
 			filtered = append(filtered, sn)
 		}
+
 		cancel()
 	}
 
@@ -941,10 +959,12 @@ func (s *APIServer) applyPagination(agent *AgentNode, offset, limit int) {
 		if start > len(agent.Services) {
 			start = len(agent.Services)
 		}
+
 		end := len(agent.Services)
 		if limit > 0 && start+limit < end {
 			end = start + limit
 		}
+
 		agent.Services = agent.Services[start:end]
 	}
 }
@@ -975,6 +995,7 @@ func (s *APIServer) handleServicesTree(w http.ResponseWriter, r *http.Request) {
 					kvSet[sn.KvStoreID] = struct{}{}
 				}
 			}
+
 			if len(kvSet) > 0 {
 				agent.KvStoreIDs = make([]string, 0, len(kvSet))
 				for id := range kvSet {
@@ -1009,13 +1030,17 @@ func (s *APIServer) handleServicesTree(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) handleListKVEndpoints(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	eps := make([]*KVEndpoint, 0, len(s.kvEndpoints))
+
 	for _, ep := range s.kvEndpoints {
 		eps = append(eps, &KVEndpoint{ID: ep.ID, Name: ep.Name, Address: ep.Address, Domain: ep.Domain, Type: ep.Type})
 	}
+
 	if len(eps) == 0 && s.kvAddress != "" {
 		eps = append(eps, &KVEndpoint{ID: "local", Name: "Local KV", Address: s.kvAddress, Type: "hub"})
 	}
+
 	_ = s.encodeJSONResponse(w, eps)
 }
 
@@ -1031,6 +1056,7 @@ func (s *APIServer) handleKVInfo(w http.ResponseWriter, r *http.Request) {
 	// Resolve endpoint ID: prefer direct ID match
 	epID := ""
 	s.mu.RLock()
+
 	if kvID != "" {
 		if _, ok := s.kvEndpoints[kvID]; ok {
 			epID = kvID
@@ -1044,10 +1070,12 @@ func (s *APIServer) handleKVInfo(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
 	// Fallback to local
 	if epID == "" && s.kvAddress != "" {
 		epID = "local"
 	}
+
 	s.mu.RUnlock()
 
 	kvClient, closer, err := s.getKVClient(ctx, epID)
@@ -1055,6 +1083,7 @@ func (s *APIServer) handleKVInfo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "KV client not available", http.StatusBadGateway)
 		return
 	}
+
 	defer closer()
 
 	info, err := kvClient.Info(ctx, &proto.InfoRequest{})
@@ -1062,11 +1091,13 @@ func (s *APIServer) handleKVInfo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "Failed to fetch KV info", http.StatusBadGateway)
 		return
 	}
+
 	type resp struct {
 		Domain    string `json:"domain"`
 		Bucket    string `json:"bucket"`
 		KvStoreID string `json:"kv_store_id,omitempty"`
 	}
+
 	_ = s.encodeJSONResponse(w, resp{Domain: info.GetDomain(), Bucket: info.GetBucket(), KvStoreID: kvID})
 }
 
@@ -1573,8 +1604,8 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-    // Fallback to database listing if device registry unavailable or failed
-    s.fallbackToDBDeviceList(ctx, w, params)
+	// Fallback to database listing if device registry unavailable or failed
+	s.fallbackToDBDeviceList(ctx, w, params)
 }
 
 // parseDeviceQueryParams extracts and validates query parameters for device listing
@@ -1617,11 +1648,11 @@ func parseDeviceQueryParams(r *http.Request) map[string]interface{} {
 // tryDeviceRegistryPath attempts to retrieve and process devices using the device registry
 // Returns true if successful, false if it needs to fall back to SRQL
 func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) bool {
-    devices, err := s.deviceRegistry.ListDevices(ctx, params["limit"].(int), params["offset"].(int))
-    if err != nil {
-        s.logger.Warn().Err(err).Msg("Device registry listing failed; will use DB fallback")
-        return false
-    }
+	devices, err := s.deviceRegistry.ListDevices(ctx, params["limit"].(int), params["offset"].(int))
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Device registry listing failed; will use DB fallback")
+		return false
+	}
 
 	// Filter devices based on search and status parameters
 	filteredDevices := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
@@ -1634,7 +1665,7 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 	// Format and send the response
 	s.sendDeviceRegistryResponse(w, filteredDevices)
 
-    return true
+	return true
 }
 
 // sendDeviceRegistryResponse formats and sends the response for device registry path
@@ -1667,21 +1698,21 @@ func (s *APIServer) sendDeviceRegistryResponse(w http.ResponseWriter, devices []
 
 // fallbackToDBDeviceList lists devices via the database service without SRQL
 func (s *APIServer) fallbackToDBDeviceList(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) {
-    if s.dbService == nil {
-        writeError(w, "Database not configured", http.StatusInternalServerError)
-        return
-    }
+	if s.dbService == nil {
+		writeError(w, "Database not configured", http.StatusInternalServerError)
+		return
+	}
 
-    devices, err := s.dbService.ListUnifiedDevices(ctx, params["limit"].(int), params["offset"].(int))
-    if err != nil {
-        s.logger.Error().Err(err).Msg("Error listing devices from database")
-        writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
-        return
-    }
+	devices, err := s.dbService.ListUnifiedDevices(ctx, params["limit"].(int), params["offset"].(int))
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Error listing devices from database")
+		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
+		return
+	}
 
-    // Filter based on search/status to match registry path behavior
-    filtered := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
-    s.sendDeviceRegistryResponse(w, filtered)
+	// Filter based on search/status to match registry path behavior
+	filtered := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
+	s.sendDeviceRegistryResponse(w, filtered)
 }
 
 // fallbackToSRQLQuery handles the SRQL query fallback path for device listing
@@ -2001,6 +2032,3 @@ func (s *APIServer) RegisterMCPRoutes(mcpServer MCPRouteRegistrar) {
 		mcpServer.RegisterRoutes(apiRouter)
 	}
 }
-
-// ExecuteSRQLQuery executes an SRQL query and returns the results
-// ExecuteSRQLQuery was removed; SRQL now lives outside Go API.
