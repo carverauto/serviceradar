@@ -26,6 +26,11 @@ mkdir -p %{buildroot}/var/log/proton-server
 # Install binary
 install -m 755 %{_sourcedir}/proton %{buildroot}/usr/bin/
 
+# Provide compatibility symlinks expected by service scripts
+ln -sf proton %{buildroot}/usr/bin/proton-server
+ln -sf proton %{buildroot}/usr/bin/proton-client
+ln -sf proton %{buildroot}/usr/bin/proton-local
+
 # Install systemd service
 install -m 644 %{_sourcedir}/systemd/serviceradar-proton.service %{buildroot}/lib/systemd/system/
 
@@ -35,6 +40,9 @@ install -m 644 %{_sourcedir}/config/users.yaml %{buildroot}/etc/proton-server/
 
 %files
 %attr(0755, root, root) /usr/bin/proton
+/usr/bin/proton-server
+/usr/bin/proton-client
+/usr/bin/proton-local
 %config(noreplace) %attr(0644, proton, proton) /etc/proton-server/config.yaml
 %config(noreplace) %attr(0644, proton, proton) /etc/proton-server/users.yaml
 %attr(0644, root, root) /lib/systemd/system/serviceradar-proton.service
@@ -46,6 +54,7 @@ install -m 644 %{_sourcedir}/config/users.yaml %{buildroot}/etc/proton-server/
 %dir %attr(0755, proton, proton) /var/lib/proton/nativelog/log
 %dir %attr(0755, proton, proton) /var/lib/proton/user_files
 %dir %attr(0755, proton, proton) /var/log/proton-server
+%ghost %dir %attr(0755, proton, proton) /run/proton-server
 
 %pre
 # Create proton group if it doesn't exist
@@ -64,11 +73,13 @@ fi
 # Set up required directories
 mkdir -p /var/lib/proton/{tmp,checkpoint,nativelog/meta,nativelog/log,user_files}
 mkdir -p /var/log/proton-server
+install -d -m 0755 -o proton -g proton /run/proton-server
 
 # Set proper ownership and permissions
 chown -R proton:proton /etc/proton-server
 chown -R proton:proton /var/lib/proton
 chown -R proton:proton /var/log/proton-server
+chown root:root /usr/bin/proton
 chmod 755 /usr/bin/proton
 
 # Run proton install to set up the server properly
