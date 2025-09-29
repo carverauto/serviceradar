@@ -55,6 +55,11 @@ mkdir -p /usr/local/share/serviceradar-web
 
 %post
 %systemd_post serviceradar-web.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-web.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-web.service >/dev/null 2>&1 || :
+fi
 
 # Add epel if needed
 if ! rpm -q epel-release >/dev/null 2>&1; then

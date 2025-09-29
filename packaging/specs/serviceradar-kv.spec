@@ -34,6 +34,11 @@ fi
 
 %post
 %systemd_post serviceradar-kv.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-kv.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-kv.service >/dev/null 2>&1 || :
+fi
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-kv
 

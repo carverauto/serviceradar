@@ -69,6 +69,11 @@ fi
 
 %post
 %systemd_post serviceradar-proton.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-proton.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-proton.service >/dev/null 2>&1 || :
+fi
 
 # Set up required directories
 mkdir -p /var/lib/proton/{tmp,checkpoint,nativelog/meta,nativelog/log,user_files}
