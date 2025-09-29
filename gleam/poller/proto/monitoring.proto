@@ -1,0 +1,157 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package monitoring;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+service AgentService {
+  rpc GetStatus(StatusRequest) returns (StatusResponse) {}
+  rpc GetResults(ResultsRequest) returns (ResultsResponse) {}
+  rpc StreamResults(ResultsRequest) returns (stream ResultsChunk) {}
+}
+
+service PollerService {
+  rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse) {}
+  rpc StreamStatus(stream PollerStatusChunk) returns (PollerStatusResponse) {}
+}
+
+message DeviceStatusRequest {
+  string agent_id = 1; // Unique identifier for the agent
+}
+
+message StatusRequest {
+  string service_name = 1; // Type of service to check (process, port, dusk)
+  string service_type = 2; // Type of service (process, port, grpc, etc)
+  string agent_id = 3;     // Agent ID for traceability
+  string poller_id = 4;    // Poller ID for traceability
+  string details = 5;      // Additional details (e.g., process name)
+  int32 port = 6;          // Port number for port checks
+}
+
+message ResultsRequest {
+  string service_name = 1; // Name of the service to get results from
+  string service_type = 2; // Type of service (grpc, etc)
+  string agent_id = 3;     // Agent ID for traceability
+  string poller_id = 4;    // Poller ID for traceability
+  string details = 5;      // Additional details
+  string last_sequence = 6; // Last sequence received by poller
+  SweepCompletionStatus completion_status = 7; // Completion status reported by poller
+}
+
+message StatusResponse {
+  bool available = 1;
+  bytes message = 2; // New field
+  string service_name = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+  string agent_id = 6;
+  string poller_id = 7;
+}
+
+message ResultsResponse {
+  bool available = 1;
+  bytes data = 2;          // Results data (e.g., discovery results)
+  string service_name = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+  string agent_id = 6;
+  string poller_id = 7;
+  int64 timestamp = 8;     // When results were generated
+  string current_sequence = 9; // Current sequence of this response
+  bool has_new_data = 10;     // Whether data changed since last_sequence
+  SweepCompletionStatus sweep_completion = 11; // Sweep completion status for coordination
+}
+
+message PollerStatusRequest {
+  repeated ServiceStatus services = 1;
+  string poller_id = 2;
+  string agent_id = 3; // Agent ID for traceability
+  int64 timestamp = 4;
+  string partition = 5; // Partition identifier (REQUIRED)
+  string source_ip = 6; // Host IP where poller/agent is running (REQUIRED)
+  string kv_store_id = 7; // KV store identifier this service is using
+}
+
+message PollerStatusResponse {
+  bool received = 1;
+}
+
+message ServiceStatus {
+  string service_name = 1;
+  bool available = 2;
+  bytes message = 3; // Changed to bytes
+  string service_type = 4;
+  int64 response_time = 5;
+  string agent_id = 6;     // Agent ID for traceability
+  string poller_id = 7;     // Poller ID for traceability
+  string partition = 8; // Partition identifier
+  string source = 9;      // Source of the message: "status" or "results"
+  string kv_store_id = 10; // KV store identifier this service is using
+}
+
+message SweepServiceStatus {
+  string network = 1;         // CIDR range being swept
+  int32 total_hosts = 2;      // Total hosts in range
+  int32 available_hosts = 3;  // Number of responding hosts
+  repeated PortStatus ports = 4;
+  int64 last_sweep = 5;       // Timestamp of last sweep
+}
+
+message PortStatus {
+  int32 port = 1;
+  int32 available = 2;        // Number of hosts with this port open
+}
+
+message ResultsChunk {
+  bytes data = 1;              // Chunk of results data
+  bool is_final = 2;          // Whether this is the last chunk
+  int32 chunk_index = 3;      // Order of this chunk
+  int32 total_chunks = 4;     // Total number of chunks
+  string current_sequence = 5; // Current sequence of this chunk stream
+  int64 timestamp = 6;        // When chunk was generated
+}
+
+message SweepCompletionStatus {
+  enum Status {
+    UNKNOWN = 0;          // Status not available
+    NOT_STARTED = 1;      // Sweep has not been initiated
+    IN_PROGRESS = 2;      // Sweep is currently running
+    COMPLETED = 3;        // Sweep completed successfully
+    FAILED = 4;           // Sweep failed or was interrupted
+  }
+  Status status = 1;          // Current completion status
+  int64 completion_time = 2;  // Timestamp when sweep completed (if COMPLETED)
+  string target_sequence = 3; // Sequence ID of the targets being swept
+  int32 total_targets = 4;    // Total number of targets to sweep
+  int32 completed_targets = 5; // Number of targets completed so far
+  string error_message = 6;   // Error details if status is FAILED
+}
+
+message PollerStatusChunk {
+  repeated ServiceStatus services = 1; // Chunk of service statuses
+  string poller_id = 2;
+  string agent_id = 3;
+  int64 timestamp = 4;
+  string partition = 5;
+  string source_ip = 6;
+  bool is_final = 7;           // Whether this is the last chunk
+  int32 chunk_index = 8;       // Order of this chunk
+  int32 total_chunks = 9;      // Total number of chunks
+  string kv_store_id = 10;     // KV store identifier this service is using
+}

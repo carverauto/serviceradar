@@ -1,0 +1,37 @@
+import gleam/otp/actor
+
+pub type ConfigWatcherState {
+  ConfigWatcherState(
+    watching: Bool,
+  )
+}
+
+pub type ConfigWatcherMessage {
+  StartWatching
+  StopWatching
+  Shutdown
+}
+
+pub fn start() -> Result(actor.StartResult(ConfigWatcherMessage), actor.StartError) {
+  let initial_state = ConfigWatcherState(watching: False)
+  actor.start(initial_state, handle_message)
+}
+
+fn handle_message(
+  message: ConfigWatcherMessage,
+  state: ConfigWatcherState,
+) -> actor.Next(ConfigWatcherMessage, ConfigWatcherState) {
+  case message {
+    StartWatching -> {
+      actor.continue(ConfigWatcherState(..state, watching: True))
+    }
+
+    StopWatching -> {
+      actor.continue(ConfigWatcherState(..state, watching: False))
+    }
+
+    Shutdown -> {
+      actor.stop(actor.Normal)
+    }
+  }
+}

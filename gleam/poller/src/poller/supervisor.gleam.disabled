@@ -1,0 +1,42 @@
+import gleam/otp/supervisor
+import gleam/otp/actor
+import gleam/result
+import poller/types.{type Config}
+import poller/config
+import security/manager as security_manager
+import poller/config_watcher
+import poller/metrics_collector
+import poller/core_reporter
+
+pub type SupervisorError {
+  SupervisorStartError(String)
+}
+
+pub fn start(config: Config) -> Result(supervisor.Children(Nil), SupervisorError) {
+  let children = [
+    // Security must start first - other processes depend on it
+    supervisor.worker(security_manager.start),
+
+    // Core infrastructure
+    supervisor.worker(config_watcher.start),
+    supervisor.worker(metrics_collector.start),
+    supervisor.worker(core_reporter.start),
+
+    // Agent supervisor will be added later
+    // supervisor.supervisor(agent_supervisor.start),
+  ]
+
+  supervisor.start(supervisor.Spec(
+    argument: Nil,
+    frequency: 10,
+    period: 60,
+    init: fn(_) { Ok(children) }
+  ))
+  |> result.map_error(fn(_) { SupervisorStartError("Failed to start supervisor") })
+}
+
+pub fn start_link() -> Result(supervisor.Children(Nil), SupervisorError) {
+  // For now, use a default config - this will be replaced with proper config loading
+  let default_config = config.create_default_config()
+  start(default_config)
+}

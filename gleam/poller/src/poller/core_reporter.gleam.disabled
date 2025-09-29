@@ -1,0 +1,68 @@
+import gleam/otp/actor
+import gleam/list
+import poller/types.{type ServiceStatus}
+
+pub type CoreReporterState {
+  CoreReporterState(
+    connected: Bool,
+    buffer: List(ServiceStatus),
+    batch_size: Int,
+  )
+}
+
+pub type CoreReporterMessage {
+  Connect
+  Disconnect
+  ReportStatus(ServiceStatus)
+  SendBatch
+  Shutdown
+}
+
+pub fn start() -> Result(actor.StartResult(CoreReporterMessage), actor.StartError) {
+  let initial_state = CoreReporterState(
+    connected: False,
+    buffer: [],
+    batch_size: 100,
+  )
+  actor.start(initial_state, handle_message)
+}
+
+fn handle_message(
+  message: CoreReporterMessage,
+  state: CoreReporterState,
+) -> actor.Next(CoreReporterMessage, CoreReporterState) {
+  case message {
+    Connect -> {
+      actor.continue(CoreReporterState(..state, connected: True))
+    }
+
+    Disconnect -> {
+      actor.continue(CoreReporterState(..state, connected: False))
+    }
+
+    ReportStatus(status) -> {
+      let new_buffer = [status, ..state.buffer]
+      let new_state = CoreReporterState(..state, buffer: new_buffer)
+
+      case list.length(new_buffer) >= state.batch_size {
+        True -> {
+          // Send batch and clear buffer
+          // For now, just clear the buffer
+          actor.continue(CoreReporterState(..new_state, buffer: []))
+        }
+        False -> {
+          actor.continue(new_state)
+        }
+      }
+    }
+
+    SendBatch -> {
+      // For now, just clear the buffer
+      actor.continue(CoreReporterState(..state, buffer: []))
+    }
+
+    Shutdown -> {
+      actor.stop(actor.Normal)
+    }
+  }
+}
