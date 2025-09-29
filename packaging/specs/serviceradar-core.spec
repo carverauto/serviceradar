@@ -7,7 +7,6 @@ License:        Proprietary
 BuildRequires:  systemd-rpm-macros
 Requires:       systemd
 Requires:       epel-release
-Requires:       python3
 Requires:       openssl
 %{?systemd_requires}
 
@@ -170,47 +169,6 @@ install -d -m 0700 -o serviceradar -g serviceradar /var/lib/serviceradar/.cache
 # Set proper permissions for configuration
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod -R 755 /etc/serviceradar
-
-# Ensure logging configuration exists for upgraded installations
-if [ -f /etc/serviceradar/core.json ]; then
-    /usr/bin/python3 <<'PY'
-import json
-import os
-
-path = "/etc/serviceradar/core.json"
-
-try:
-    with open(path, "r", encoding="utf-8") as handle:
-        data = json.load(handle)
-except Exception:
-    data = None
-
-if isinstance(data, dict):
-    logging_cfg = data.get("logging")
-    if not isinstance(logging_cfg, dict) or not logging_cfg.get("level"):
-        data["logging"] = {
-            "level": "info",
-            "debug": False,
-            "output": "stdout",
-            "time_format": "",
-            "otel": {
-                "enabled": False,
-                "endpoint": "",
-                "service_name": "serviceradar-core",
-                "batch_timeout": "5s",
-                "insecure": False,
-                "headers": {}
-            }
-        }
-        tmp_path = f"{path}.rpmtmp"
-        with open(tmp_path, "w", encoding="utf-8") as handle:
-            json.dump(data, handle, indent=4)
-            handle.write("\n")
-        os.replace(tmp_path, path)
-PY
-    chown serviceradar:serviceradar /etc/serviceradar/core.json
-    chmod 0644 /etc/serviceradar/core.json
-fi
 
 # Start and enable service
 systemctl daemon-reload

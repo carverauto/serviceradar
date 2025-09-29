@@ -555,6 +555,25 @@ EOF
                         -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=$version -X github.com/carverauto/serviceradar/pkg/version.buildID=$BUILD_ID" \
                         -o "${RPMBUILD_DIR}/BUILD/$(basename $output_path)" \
                         "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
+                elif [ "$build_method" = "ocaml" ] && [ -n "$src_path" ]; then
+                    echo "Building OCaml binary with Bazel from $src_path..."
+                    bazel="${BASE_DIR}/tools/bazel/bazel"
+                    if [ ! -x "$bazel" ]; then
+                        echo "Error: Bazel not found at $bazel"
+                        exit 1
+                    fi
+                    # Build the srql_server target
+                    "$bazel" build //${src_path}:srql_server || { echo "Error: Bazel build failed"; exit 1; }
+                    # Get the bazel-bin output directory
+                    bazel_bin="$("$bazel" info bazel-bin)"
+                    built_binary="${bazel_bin}/${src_path}/srql_server"
+                    if [ ! -f "$built_binary" ]; then
+                        echo "Error: Built binary not found at $built_binary"
+                        exit 1
+                    fi
+                    # Copy to rpmbuild directory with the expected name
+                    output_path=$(echo "$config" | jq -r '.binary.output_path')
+                    cp "$built_binary" "${RPMBUILD_DIR}/BUILD/$(basename $output_path)" || { echo "Error: Failed to copy binary"; exit 1; }
                 elif [ "$build_method" = "none" ]; then
                     echo "No binary build required for $component"
                 else

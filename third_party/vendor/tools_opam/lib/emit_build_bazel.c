@@ -685,25 +685,38 @@ Note that "archive" should only be used for archive files that are intended to b
     UT_string *globber;
     utstring_new(globber);
     utstring_printf(globber, "%s/%s/*.h", opam_switch_dir, _filedeps_path);
-    errno = 0;
-    int rc = glob(utstring_body(globber), GLOB_ERR , NULL, &globs);
-    if( rc == 0 ) {
-        if (globs.gl_pathc > 0) {
-            /* fprintf(ostream, "## globbed: %s\n", utstring_body(globber)); */
-            fprintf(ostream, "\ncc_library(\n");
-            fprintf(ostream, "    name     = \"hdrs\",\n");
-            fprintf(ostream, "    hdrs     = glob([\"*.h\"], allow_empty=True),\n");
-            fprintf(ostream, "    includes = [\".\"],\n");
-            fprintf(ostream, "    deps     = [\"@opam.ocamlsdk//ffi/lib\"],\n");
-            fprintf(ostream, ")\n\n");
+
+    // Check if directory exists before globbing
+    UT_string *dir_path;
+    utstring_new(dir_path);
+    utstring_printf(dir_path, "%s/%s", opam_switch_dir, _filedeps_path);
+    struct stat st;
+    bool dir_exists = (stat(utstring_body(dir_path), &st) == 0 && S_ISDIR(st.st_mode));
+    utstring_free(dir_path);
+
+    if (dir_exists) {
+        errno = 0;
+        int rc = glob(utstring_body(globber), 0 , NULL, &globs);
+        if( rc == 0 ) {
+            if (globs.gl_pathc > 0) {
+                /* fprintf(ostream, "## globbed: %s\n", utstring_body(globber)); */
+                fprintf(ostream, "\ncc_library(\n");
+                fprintf(ostream, "    name     = \"hdrs\",\n");
+                fprintf(ostream, "    hdrs     = glob([\"*.h\"], allow_empty=True),\n");
+                fprintf(ostream, "    includes = [\".\"],\n");
+                fprintf(ostream, "    deps     = [\"@opam.ocamlsdk//ffi/lib\"],\n");
+                fprintf(ostream, ")\n\n");
+            }
+        } else {
+            if( rc == GLOB_NOMATCH ) {
+                LOG_DEBUG(0, "glob nomatch: %s", utstring_body(globber));
+            } else {
+                log_error("Some kinda glob error");
+                exit(1);
+            }
         }
     } else {
-        if( rc == GLOB_NOMATCH ) {
-            LOG_DEBUG(0, "glob nomatch: %s", utstring_body(globber));
-        } else {
-            log_error("Some kinda glob error");
-            exit(1);
-        }
+        LOG_DEBUG(0, "Directory does not exist, skipping glob: %s/%s", opam_switch_dir, _filedeps_path);
     }
     utstring_free(globber);
 
