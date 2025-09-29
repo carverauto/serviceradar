@@ -38,6 +38,21 @@ def _build_config_tool(mctx, toolchain, debug, verbosity):
     # cmd = ["tree", "-aL", "1", "../../external"]
     # mctx.execute(cmd, quiet = False)
 
+    tools_opam_override = ""
+    tools_opam_override_flag = None
+    marker = mctx.path("../../DO_NOT_BUILD_HERE")
+    if marker.exists:
+        repo_root = mctx.path(mctx.read(marker))
+        override_candidate = str(repo_root) + "/third_party/vendor/tools_opam"
+        if mctx.path(override_candidate).exists:
+            tools_opam_override = """
+local_path_override(
+    module_name = "tools_opam",
+    path = \"{path}\",
+)
+""".format(path = override_candidate)
+            tools_opam_override_flag = override_candidate
+
     mctx.file(
         "MODULE.bazel",
         content = """
@@ -46,7 +61,7 @@ module(
     version = "0.0.0",
 )
 
-bazel_dep(name = "platforms", version = "1.0.0")
+{tools_opam_override}bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "tools_opam",  version = "1.0.0.beta.1")
 bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
 bazel_dep(name = "rules_cc", version = "0.2.4")
@@ -56,7 +71,7 @@ use_repo(host_platform_ext, "host_platform")
 
 cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
 use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
-        """,
+        """.format(tools_opam_override = tools_opam_override),
     )
 
     HOME = mctx.getenv("HOME")
@@ -108,6 +123,9 @@ use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
                "--compilation_mode", "fastbuild",
                ] + copt_flags + [
                "@tools_opam//extensions/config"]
+
+    if tools_opam_override_flag:
+        cmd.append("--override_module=tools_opam={}".format(tools_opam_override_flag))
 
     cmd.extend(shared_flags)
 
