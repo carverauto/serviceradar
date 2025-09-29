@@ -73,3 +73,13 @@ test:remote --copt=-Wno-use-after-free
 #build:remote --strategy=OcamlLink=local
 
 build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
+
+build:remote --remote_cache=grpcs://remote.buildbuddy.io
+build:remote --remote_executor=grpcs://remote.buildbuddy.io
+build:remote --remote_upload_local_results
+build:remote --host_platform=@buildbuddy_toolchain//:platform
+build:remote --platforms=@buildbuddy_toolchain//:platform
+build:remote --crosstool_top=@buildbuddy_toolchain//:toolchain
+build:remote --jobs=100
+
+build:ci --config=remote
