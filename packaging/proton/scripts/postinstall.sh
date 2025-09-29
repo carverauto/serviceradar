@@ -111,7 +111,7 @@ done
 
 # Create required directories
 log_info "Creating required directories..."
-for dir in /var/lib/proton/tmp /var/lib/proton/checkpoint /var/lib/proton/nativelog/meta /var/lib/proton/nativelog/log /var/lib/proton/user_files /var/log/proton-server /var/run/proton-server /etc/proton-server/config.d /etc/proton-server/users.d /var/lib/proton/access; do
+for dir in /var/lib/proton/tmp /var/lib/proton/checkpoint /var/lib/proton/nativelog/meta /var/lib/proton/nativelog/log /var/lib/proton/user_files /var/log/proton-server /run/proton-server /etc/proton-server/config.d /etc/proton-server/users.d /var/lib/proton/access; do
     mkdir -p "$dir" || log_error "Failed to create directory $dir"
 done
 
@@ -223,7 +223,8 @@ setcap cap_net_admin,cap_ipc_lock,cap_sys_nice=ep /usr/bin/proton || {
 
 # Set ownership and permissions
 log_info "Setting ownership and permissions..."
-chown -R proton:proton /usr/bin/proton /etc/proton-server /var/log/proton-server /var/run/proton-server /var/lib/proton || log_error "Failed to set ownership"
+chown root:root /usr/bin/proton || log_error "Failed to set ownership on /usr/bin/proton"
+chown -R proton:proton /etc/proton-server /var/log/proton-server /run/proton-server /var/lib/proton || log_error "Failed to set ownership"
 chmod 755 /usr/bin/proton || log_error "Failed to set permissions on /usr/bin/proton"
 chmod 700 /etc/proton-server/users.d /etc/proton-server/config.d || log_error "Failed to set permissions on config directories"
 
