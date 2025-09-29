@@ -522,7 +522,15 @@ EOF
         echo "Package built: ${RELEASE_DIR}/${package_name}_${version}.deb"
 
     elif [ "$package_type" = "rpm" ]; then
-        if [ -n "$dockerfile" ]; then
+        # Special handling for web component - use native build script
+        if [ "$component" = "web" ]; then
+            echo "Building RPM natively for web component..."
+            export VERSION="$version"
+            export BUILD_ID="$BUILD_ID"
+            export RELEASE="$rpm_release"
+            "${BASE_DIR}/scripts/build-web-rpm.sh" || { echo "Error: Native RPM build failed"; exit 1; }
+            echo "RPM built: ${RELEASE_DIR}/rpm/${version}/${package_name}-${version}-${rpm_release}.*.rpm"
+        elif [ -n "$dockerfile" ]; then
             echo "Building RPM with Dockerfile $dockerfile..."
             echo "Verifying context contents..."
             # Only verify go.mod and source path if they're needed and exist
