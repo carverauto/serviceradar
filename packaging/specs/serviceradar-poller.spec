@@ -16,7 +16,6 @@ Collects and forwards monitoring data from agents to core service.
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/etc/serviceradar
 mkdir -p %{buildroot}/lib/systemd/system
-mkdir -p %{buildroot}/var/lib/serviceradar
 
 install -m 755 %{_builddir}/serviceradar-poller %{buildroot}/usr/local/bin/
 install -m 644 %{_sourcedir}/systemd/serviceradar-poller.service %{buildroot}/lib/systemd/system/
@@ -27,7 +26,6 @@ install -m 644 %{_sourcedir}/config/poller.json %{buildroot}/etc/serviceradar/
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/poller.json
 %attr(0644, root, root) /lib/systemd/system/serviceradar-poller.service
 %dir %attr(0755, root, root) /etc/serviceradar
-%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar
 
 %pre
 # Create serviceradar user if it doesn't exist
@@ -43,6 +41,7 @@ else
     systemctl try-restart serviceradar-poller.service >/dev/null 2>&1 || :
 fi
 chown -R serviceradar:serviceradar /etc/serviceradar
+install -d -m 0750 -o serviceradar -g serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/bin/serviceradar-poller
 
 # Enable and start service

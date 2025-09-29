@@ -19,7 +19,6 @@ Provides local system monitoring capabilities.
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/etc/serviceradar/checkers/sweep
 mkdir -p %{buildroot}/lib/systemd/system
-mkdir -p %{buildroot}/var/lib/serviceradar
 
 install -m 755 %{_builddir}/serviceradar-agent %{buildroot}/usr/local/bin/
 install -m 644 %{_sourcedir}/systemd/serviceradar-agent.service %{buildroot}/lib/systemd/system/
@@ -33,7 +32,6 @@ install -m 644 %{_sourcedir}/config/checkers/sweep/sweep.json %{buildroot}/etc/s
 %attr(0644, root, root) /lib/systemd/system/serviceradar-agent.service
 %dir %attr(0755, root, root) /etc/serviceradar
 %dir %attr(0755, root, root) /etc/serviceradar/checkers
-%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar
 
 %pre
 # Create serviceradar user if it doesn't exist
@@ -49,6 +47,7 @@ else
     systemctl try-restart serviceradar-agent.service >/dev/null 2>&1 || :
 fi
 chown -R serviceradar:serviceradar /etc/serviceradar
+install -d -m 0750 -o serviceradar -g serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/bin/serviceradar-agent
 # Set required capability for ICMP scanning
 # setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent

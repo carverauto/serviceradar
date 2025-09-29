@@ -15,7 +15,6 @@ This package provides the ServiceRadar SysMon checker plugin for monitoring syst
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/etc/serviceradar/checkers
-mkdir -p %{buildroot}/var/lib/serviceradar
 
 # Install both binaries
 install -m 755 %{_builddir}/serviceradar-sysmon-checker-zfs %{buildroot}/usr/local/bin/
@@ -32,7 +31,6 @@ install -m 644 %{_sourcedir}/sysmon-checker/config/checkers/sysmon.json.example 
 %attr(0644, root, root) /lib/systemd/system/serviceradar-sysmon-checker.service
 %dir %attr(0755, root, root) /etc/serviceradar
 %dir %attr(0755, root, root) /etc/serviceradar/checkers
-%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar
 
 %pre
 # Create serviceradar user if it doesn't exist

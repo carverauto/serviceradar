@@ -15,7 +15,6 @@ This package provides the serviceradar SNMP checker plugin for monitoring servic
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/etc/serviceradar/checkers
 mkdir -p %{buildroot}/lib/systemd/system
-mkdir -p %{buildroot}/var/lib/serviceradar
 
 # Install the binary
 install -m 755 %{_builddir}/serviceradar-snmp-checker %{buildroot}/usr/local/bin/
@@ -30,7 +29,6 @@ install -m 644 %{_sourcedir}/config/checkers/snmp.json %{buildroot}/etc/servicer
 %attr(0644, root, root) /lib/systemd/system/serviceradar-snmp-checker.service
 %dir %attr(0755, root, root) /etc/serviceradar
 %dir %attr(0755, root, root) /etc/serviceradar/checkers
-%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar
 
 %pre
 # Create serviceradar user if it doesn't exist
