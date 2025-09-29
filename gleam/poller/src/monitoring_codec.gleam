@@ -2,10 +2,9 @@
 /// This module provides conversion between our Gleam types and protobuf wire format
 import gleam/bit_array
 import gleam/list
-import gleam/result
 import monitoring_types.{
   type PollerStatusRequest, type PollerStatusResponse, type ServiceStatus,
-  PollerStatusRequest, PollerStatusResponse, ServiceStatus,
+  PollerStatusResponse,
 }
 import protozoa/decode
 import protozoa/encode

@@ -1,9 +1,7 @@
 /// HTTP-based gRPC client implementation
 /// This module implements real gRPC calls over HTTP/2 using protobuf encoding
-import gleam/bit_array
-import gleam/http.{type Header}
+import gleam/http
 import gleam/http/request.{type Request}
-import gleam/http/response.{type Response}
 import gleam/httpc
 import gleam/result
 import gleam/string
@@ -132,26 +130,3 @@ fn build_grpc_request(
   Ok(grpc_request)
 }
 
-/// Convert gRPC status code to enum
-fn grpc_status_from_code(code: Int) -> GrpcStatus {
-  case code {
-    0 -> GrpcOk
-    1 -> Cancelled
-    2 -> Unknown
-    3 -> InvalidArgument
-    4 -> DeadlineExceeded
-    5 -> NotFound
-    6 -> AlreadyExists
-    7 -> PermissionDenied
-    8 -> ResourceExhausted
-    9 -> FailedPrecondition
-    10 -> Aborted
-    11 -> OutOfRange
-    12 -> Unimplemented
-    13 -> Internal
-    14 -> Unavailable
-    15 -> DataLoss
-    16 -> Unauthenticated
-    _ -> Unknown
-  }
-}

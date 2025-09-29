@@ -4,8 +4,8 @@ import gleam/result
 import poller/grpc_client.{type GrpcChannel}
 import poller/types.{
   type AgentConfig, type AgentConnectionState, type Check, type CircuitState,
-  type GrpcError, type ServiceStatus, Closed, Connected, ConnectionError,
-  Disconnected, Failed, Open, ServiceStatus,
+  type ServiceStatus, Closed, Connected,
+  Disconnected, Failed, Open,
 }
 
 // NOTE: This agent coordinator currently uses gRPC for communication,

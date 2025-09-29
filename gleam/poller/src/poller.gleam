@@ -1,11 +1,11 @@
 import gleam/io
-import gleam/option.{None, Some}
+import gleam/option.{None}
 import gleam/result
 import poller/agent_coordinator
 import poller/config
 import poller/core_service
 import poller/simple_supervisor
-import poller/types.{AgentConfig, Check, ServiceStatus}
+import poller/types.{AgentConfig, Check}
 
 pub fn main() -> Nil {
   io.println("Starting ServiceRadar Gleam Poller MVP...")

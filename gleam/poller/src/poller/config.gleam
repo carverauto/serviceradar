@@ -3,7 +3,7 @@ import gleam/option.{type Option, None}
 import gleam/result
 import gleam/string
 import poller/types.{
-  type AgentConfig, type Check, type Config, AgentConfig, Check, Config,
+  type AgentConfig, type Check, type Config, Config,
 }
 
 pub type ConfigError {

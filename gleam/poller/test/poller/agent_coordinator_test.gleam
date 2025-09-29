@@ -6,7 +6,7 @@ import poller/agent_coordinator.{
   reset_circuit_breaker,
 }
 import poller/types.{
-  AgentConfig, Check, Closed, Connected, Disconnected, Failed, Open,
+  AgentConfig, Check, Closed, Connected, Disconnected, Failed,
 }
 
 pub fn create_agent_coordinator_test() {
