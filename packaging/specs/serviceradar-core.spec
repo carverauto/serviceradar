@@ -7,6 +7,8 @@ License:        Proprietary
 BuildRequires:  systemd-rpm-macros
 Requires:       systemd
 Requires:       epel-release
+Requires:       python3
+Requires:       openssl
 %{?systemd_requires}
 
 Source: systemd/serviceradar-core.service
@@ -19,6 +21,7 @@ mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/etc/serviceradar
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/var/lib/serviceradar
+mkdir -p %{buildroot}/var/log/serviceradar
 mkdir -p %{buildroot}/etc/serviceradar/selinux
 
 install -m 755 %{_builddir}/serviceradar-core %{buildroot}/usr/local/bin/
@@ -45,12 +48,25 @@ EOF
 %attr(0644, root, root) /lib/systemd/system/serviceradar-core.service
 %attr(0644, root, root) /etc/serviceradar/selinux/serviceradar-core.te
 %dir %attr(0755, root, root) /etc/serviceradar
-%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar
+%dir %attr(0750, serviceradar, serviceradar) /var/lib/serviceradar
+%dir %attr(0755, serviceradar, serviceradar) /var/log/serviceradar
 
 %pre
-# Create serviceradar user if it doesn't exist
+# Ensure serviceradar group exists before user creation
+if ! getent group serviceradar >/dev/null; then
+    groupadd --system serviceradar
+fi
+
+# Create serviceradar user with managed home directory if it doesn't exist
 if ! id -u serviceradar >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin serviceradar
+    useradd --system --home-dir /var/lib/serviceradar --create-home \
+        --shell /usr/sbin/nologin --gid serviceradar serviceradar
+else
+    # Align existing user home directory if needed
+    CURRENT_HOME=$(getent passwd serviceradar | cut -d: -f6)
+    if [ "$CURRENT_HOME" != "/var/lib/serviceradar" ]; then
+        usermod --home /var/lib/serviceradar serviceradar >/dev/null 2>&1 || :
+    fi
 fi
 
 %post
@@ -143,13 +159,58 @@ if systemctl is-active --quiet firewalld; then
 fi
 
 # Create data directory with proper permissions
-mkdir -p /var/lib/serviceradar
-chown -R serviceradar:serviceradar /var/lib/serviceradar
-chmod 755 /var/lib/serviceradar
+install -d -m 0750 -o serviceradar -g serviceradar /var/lib/serviceradar
+
+# Ensure log directory exists for configured log files
+install -d -m 0755 -o serviceradar -g serviceradar /var/log/serviceradar
+
+# Ensure user cache directory exists to satisfy goimports modindex cache
+install -d -m 0700 -o serviceradar -g serviceradar /var/lib/serviceradar/.cache
 
 # Set proper permissions for configuration
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod -R 755 /etc/serviceradar
+
+# Ensure logging configuration exists for upgraded installations
+if [ -f /etc/serviceradar/core.json ]; then
+    /usr/bin/python3 <<'PY'
+import json
+import os
+
+path = "/etc/serviceradar/core.json"
+
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        data = json.load(handle)
+except Exception:
+    data = None
+
+if isinstance(data, dict):
+    logging_cfg = data.get("logging")
+    if not isinstance(logging_cfg, dict) or not logging_cfg.get("level"):
+        data["logging"] = {
+            "level": "info",
+            "debug": False,
+            "output": "stdout",
+            "time_format": "",
+            "otel": {
+                "enabled": False,
+                "endpoint": "",
+                "service_name": "serviceradar-core",
+                "batch_timeout": "5s",
+                "insecure": False,
+                "headers": {}
+            }
+        }
+        tmp_path = f"{path}.rpmtmp"
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=4)
+            handle.write("\n")
+        os.replace(tmp_path, path)
+PY
+    chown serviceradar:serviceradar /etc/serviceradar/core.json
+    chmod 0644 /etc/serviceradar/core.json
+fi
 
 # Start and enable service
 systemctl daemon-reload
