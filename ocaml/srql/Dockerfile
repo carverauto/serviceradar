@@ -29,17 +29,11 @@ USER opam
 ENV OPAMYES=1 \
     OPAMCONFIRMLEVEL=unsafe-yes
 
-COPY --chown=opam:opam proton-ocaml-driver /tmp/proton-ocaml-driver
-
-# Strip git metadata so opam treats this as a path pin that includes local edits
-RUN rm -rf /tmp/proton-ocaml-driver/.git
-
-# Refresh repositories, apply local pins, and remove conflicting packages
+# Refresh repositories and remove conflicting packages
 RUN opam update \
     && git -C /home/opam/opam-repository fetch --depth=1 origin master \
     && git -C /home/opam/opam-repository reset --hard origin/master \
     && opam update \
-    && opam pin add proton /tmp/proton-ocaml-driver --kind=path -y \
     && opam remove -y mirage-crypto mirage-crypto-rng mirage-crypto-rng-lwt tls tls-lwt x509 || true
 
 # Install all dependencies (dream pulls in the mirage-crypto 1.2.x stack)
@@ -52,7 +46,7 @@ RUN eval $(opam env) \
         lwt \
         lwt_ppx \
         dream.1.0.0~alpha7 \
-        proton \
+        proton.1.0.17 \
     && opam clean -a -c
 
 WORKDIR /src

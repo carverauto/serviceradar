@@ -231,7 +231,7 @@ opam.deps(
         "yojson": "2.2.2",
         "ppx_deriving": "6.0.3",
         "lwt_ppx": "5.9.1",
-        "proton": "1.0.16",
+        "proton": "1.0.17",
         "lwt": "5.9.2",
         "tls": "2.0.2",
         "tls-lwt": "2.0.2",
