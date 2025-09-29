@@ -21,8 +21,8 @@ mkdir -p %{buildroot}/etc/nats
 
 # Install files into the buildroot
 install -m 755 %{_builddir}/nats-server %{buildroot}/usr/bin/nats-server
-install -m 644 %{_sourcedir}/systemd/serviceradar-nats.service %{buildroot}/lib/systemd/system/serviceradar-nats.service
-install -m 644 %{_sourcedir}/config/nats-server.conf %{buildroot}/etc/nats/nats-server.conf
+install -m 644 %{_sourcedir}/packaging/nats/systemd/serviceradar-nats.service %{buildroot}/lib/systemd/system/serviceradar-nats.service
+install -m 644 %{_sourcedir}/packaging/nats/config/nats-server.conf %{buildroot}/etc/nats/nats-server.conf
 
 %files
 %attr(0755, nats, nats) /usr/bin/nats-server

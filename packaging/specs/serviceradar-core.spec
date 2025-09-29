@@ -25,8 +25,8 @@ mkdir -p %{buildroot}/var/log/serviceradar
 mkdir -p %{buildroot}/etc/serviceradar/selinux
 
 install -m 755 %{_builddir}/serviceradar-core %{buildroot}/usr/local/bin/
-install -m 644 %{_sourcedir}/systemd/serviceradar-core.service %{buildroot}/lib/systemd/system/serviceradar-core.service
-install -m 644 %{_sourcedir}/config/core.json %{buildroot}/etc/serviceradar/
+install -m 644 %{_sourcedir}/packaging/core/systemd/serviceradar-core.service %{buildroot}/lib/systemd/system/serviceradar-core.service
+install -m 644 %{_sourcedir}/packaging/core/config/core.json %{buildroot}/etc/serviceradar/
 
 # Install SELinux policy template
 cat > %{buildroot}/etc/serviceradar/selinux/serviceradar-core.te << 'EOF'
