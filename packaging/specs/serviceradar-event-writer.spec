@@ -38,6 +38,11 @@ fi
 
 %post
 %systemd_post serviceradar-event-writer.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-event-writer.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-event-writer.service >/dev/null 2>&1 || :
+fi
 
 # Check if EPEL repository is installed, install if missing
 if ! rpm -q epel-release >/dev/null 2>&1; then

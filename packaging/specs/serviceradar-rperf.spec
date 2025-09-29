@@ -37,6 +37,11 @@ fi
 
 %post
 %systemd_post serviceradar-rperf.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-rperf.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-rperf.service >/dev/null 2>&1 || :
+fi
 mkdir -p /var/log/rperf
 chown -R serviceradar:serviceradar /var/log/rperf
 chmod 755 /usr/local/bin/serviceradar-rperf

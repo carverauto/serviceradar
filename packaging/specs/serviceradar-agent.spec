@@ -43,6 +43,11 @@ fi
 
 %post
 %systemd_post serviceradar-agent.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-agent.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-agent.service >/dev/null 2>&1 || :
+fi
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-agent
 # Set required capability for ICMP scanning

@@ -45,6 +45,11 @@ fi
 
 %post
 %systemd_post serviceradar-srql.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-srql.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-srql.service >/dev/null 2>&1 || :
+fi
 mkdir -p /var/log/serviceradar
 chown serviceradar:serviceradar /var/log/serviceradar
 if [ -f /etc/serviceradar/srql.env ]; then
