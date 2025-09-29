@@ -1,10 +1,12 @@
 import gleam/io
-import gleam/option.{None}
+import gleam/list
+import gleam/option.{None, Some}
 import gleam/result
+import gleam/string
 import poller/agent_coordinator
 import poller/config
 import poller/core_service
-import poller/simple_supervisor
+import poller/supervisor
 import poller/types.{AgentConfig, Check}
 
 pub fn main() -> Nil {
@@ -28,16 +30,16 @@ pub fn start_poller() -> Result(Nil, String) {
         address: "localhost:8080",
         checks: [
           Check(
-            name: "health_check",
-            type_: "http",
+            name: "agent_health",
+            type_: "agent_health",
             agent_id: "demo_agent",
             poller_id: "gleam_poller_mvp",
             details: None,
             interval: 30_000,
           ),
           Check(
-            name: "database_check",
-            type_: "postgres",
+            name: "external_checkers",
+            type_: "grpc_health",
             agent_id: "demo_agent",
             poller_id: "gleam_poller_mvp",
             details: None,
@@ -48,15 +50,10 @@ pub fn start_poller() -> Result(Nil, String) {
       ),
     )
 
-  // Validate and start supervisor
-  use supervisor_state <- result.try(
-    simple_supervisor.create_supervisor(demo_config)
-    |> result.map_error(fn(_) { "Failed to create supervisor" }),
-  )
-
+  // Start OTP supervisor with all components
   use _started_supervisor <- result.try(
-    simple_supervisor.start_supervisor(supervisor_state)
-    |> result.map_error(fn(_) { "Failed to start supervisor" }),
+    supervisor.start(demo_config)
+    |> result.map_error(fn(_) { "Failed to start OTP supervisor" }),
   )
 
   // Create and test agent coordinator
@@ -81,8 +78,8 @@ pub fn start_poller() -> Result(Nil, String) {
     agent_coordinator.execute_check(
       connected_agent,
       Check(
-        name: "health_check",
-        type_: "http",
+        name: "agent_health",
+        type_: "agent_health",
         agent_id: "demo_agent",
         poller_id: "gleam_poller_mvp",
         details: None,
@@ -96,8 +93,8 @@ pub fn start_poller() -> Result(Nil, String) {
     agent_coordinator.execute_check(
       connected_agent,
       Check(
-        name: "database_check",
-        type_: "postgres",
+        name: "external_checkers",
+        type_: "grpc_health",
         agent_id: "demo_agent",
         poller_id: "gleam_poller_mvp",
         details: None,
@@ -123,30 +120,108 @@ pub fn start_poller() -> Result(Nil, String) {
     |> result.map_error(fn(_) { "Failed to connect to core service" }),
   )
 
-  use _report_result <- result.try(
-    core_service.report_status(
-      connected_core,
-      [health_check_result, db_check_result],
-      demo_config,
-    )
-    |> result.map_error(fn(_) { "Failed to report status to core" }),
+  // Try to report to core service, but don't fail if it's unavailable
+  let report_result = core_service.report_status(
+    connected_core,
+    [health_check_result, db_check_result],
+    demo_config,
   )
 
-  io.println("✓ Configuration validated")
-  io.println("✓ Supervisor started")
-  io.println("✓ Agent coordinator created")
-  io.println("✓ Agent connected")
-  io.println("✓ Service checks executed")
-  io.println("✓ Core service connection established")
-  io.println("✓ Status reports sent to core")
+  case report_result {
+    Ok(_) -> {
+      io.println("Status reports sent to core")
+    }
+    Error(_) -> {
+      io.println("Core service unavailable - poller will continue operating")
+      io.println("  (Status reports will be retried automatically)")
+    }
+  }
+
+  io.println("Configuration validated")
+  io.println("OTP supervisor started (security, config watcher, metrics, core reporter)")
+  io.println("Agent coordinator created")
+  io.println("Agent connected")
+  io.println("Service checks executed")
+  io.println("Core service connection established")
   io.println("")
-  io.println("🎉 ServiceRadar Gleam Poller MVP is fully operational!")
+  io.println("ServiceRadar Gleam Poller started successfully")
   io.println("")
-  io.println("Architecture Notes:")
-  io.println("- gRPC client communicates with existing Go agents (temporary)")
-  io.println("- Core service communication via gRPC (production ready)")
-  io.println("- Future: Agent communication will use GenServer/actors")
-  io.println("- Future: New Gleam agents will speak gRPC to other components")
+  io.println("Starting continuous polling loop...")
+  io.println("Press Ctrl+C twice to stop (or type 'a' in debugger then Enter)")
+  io.println("")
+
+  // Start the continuous polling loop
+  start_polling_loop(connected_agent, connected_core, demo_config)
 
   Ok(Nil)
 }
+
+/// Continuous polling loop that runs the poller service
+fn start_polling_loop(
+  agent_state: agent_coordinator.AgentCoordinatorState,
+  core_channel: core_service.CoreChannel,
+  config: types.Config,
+) -> Nil {
+  polling_loop(agent_state, core_channel, config, 1)
+}
+
+fn polling_loop(
+  agent_state: agent_coordinator.AgentCoordinatorState,
+  core_channel: core_service.CoreChannel,
+  config: types.Config,
+  cycle: Int,
+) -> Nil {
+  io.println("Polling cycle #" <> string.inspect(cycle) <> " starting...")
+
+  // Execute all checks for this agent
+  let check_results = case config.get_agent(config, "demo_agent") {
+    Some(agent_config) -> {
+      agent_config.checks
+      |> list.map(fn(check) {
+        case agent_coordinator.execute_check(agent_state, check) {
+          Ok(result) -> {
+            io.println("  " <> check.name <> ": " <> case result.available {
+              True -> "UP"
+              False -> "DOWN"
+            })
+            result
+          }
+          Error(_) -> {
+            io.println("  " <> check.name <> ": ERROR")
+            // Create a failure status
+            types.ServiceStatus(
+              service_name: check.name,
+              available: False,
+              message: "Check execution failed",
+              service_type: check.type_,
+              response_time: 30_000_000_000, // 30s timeout in nanoseconds
+              agent_id: check.agent_id,
+              poller_id: check.poller_id,
+              timestamp: 0, // Will be updated by core service
+            )
+          }
+        }
+      })
+    }
+    None -> []
+  }
+
+  // Report to core service (with retry logic)
+  case core_service.report_status(core_channel, check_results, config) {
+    Ok(_) -> io.println("  Reported " <> string.inspect(list.length(check_results)) <> " status(es) to core")
+    Error(_) -> io.println("  Core service still unavailable (retrying...)")
+  }
+
+  // Sleep for 30 seconds before next cycle
+  io.println("  Sleeping 30s until next cycle...")
+  io.println("")
+  sleep_seconds(30_000) // 30 seconds in milliseconds
+
+  // Continue the loop
+  polling_loop(agent_state, core_channel, config, cycle + 1)
+}
+
+
+// Sleep function for milliseconds
+@external(erlang, "timer", "sleep")
+fn sleep_seconds(milliseconds: Int) -> Nil

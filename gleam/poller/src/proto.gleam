@@ -579,17 +579,6 @@ pub fn decode_sweepstatus_field(field_num: Int) -> decode.Decoder(SweepStatus) {
   })
 }
 
-fn decode_sweepstatus_from_field(field: decode.Field) -> Result(SweepStatus, decode.DecodeError) {
-  use value <- result.try(decode.int32_field(field))
-  case value {
-      0 -> Ok(UNKNOWN)
-      1 -> Ok(NOTSTARTED)
-      2 -> Ok(INPROGRESS)
-      3 -> Ok(COMPLETED)
-      4 -> Ok(FAILED)
-    _ -> Error(decode.DecodeError(expected: "valid sweepstatus value", found: "Unknown sweepstatus value: " <> string.inspect(value), path: []))
-  }
-}
 
 pub fn decode_sweepstatus_value(value: Int) -> Result(SweepStatus, String) {
   case value {

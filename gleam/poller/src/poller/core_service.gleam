@@ -94,7 +94,7 @@ pub fn connect_core_channel(
   }
 }
 
-/// Report a batch of service statuses to the core service
+/// Report a batch of service statuses to the core service with retry logic
 ///
 /// ## Parameters
 ///
@@ -105,6 +105,7 @@ pub fn connect_core_channel(
 /// ## Returns
 ///
 /// Returns `Ok(PollerStatusResponse)` if successful, otherwise `Error(GrpcError)`
+/// Uses exponential backoff retry logic for resilience
 pub fn report_status(
   channel: CoreChannel,
   services: List(InternalServiceStatus),
@@ -128,11 +129,8 @@ pub fn report_status(
           kv_store_id: config.kv_store_id,
         )
 
-      // Make real gRPC call using gleam_httpc for HTTP/2 transport and protozoa for protobuf encoding
-      case call_core_report_status(channel.address, request) {
-        Ok(response) -> Ok(response)
-        Error(error) -> Error(error)
-      }
+      // Retry with exponential backoff: 1s, 2s, 4s, 8s, 16s
+      report_status_with_retry(channel.address, request, 5, 1000)
     }
   }
 }
@@ -245,6 +243,44 @@ fn validate_grpc_address(address: String) -> Bool {
 // Real gRPC implementation functions using protozoa and HTTP/2
 
 /// Call the core service ReportStatus RPC
+/// Retry core service calls with exponential backoff
+fn report_status_with_retry(
+  address: String,
+  request: PollerStatusRequest,
+  max_retries: Int,
+  initial_delay_ms: Int,
+) -> Result(PollerStatusResponse, GrpcError) {
+  retry_attempt(address, request, 0, max_retries, initial_delay_ms)
+}
+
+fn retry_attempt(
+  address: String,
+  request: PollerStatusRequest,
+  attempt: Int,
+  max_retries: Int,
+  delay_ms: Int,
+) -> Result(PollerStatusResponse, GrpcError) {
+  case call_core_report_status(address, request) {
+    Ok(response) -> Ok(response)
+    Error(error) -> {
+      case attempt < max_retries {
+        True -> {
+          // Sleep for exponential backoff delay
+          sleep_ms(delay_ms)
+
+          // Double the delay for next attempt (exponential backoff)
+          let next_delay = delay_ms * 2
+          retry_attempt(address, request, attempt + 1, max_retries, next_delay)
+        }
+        False -> {
+          // Max retries exceeded - return the error but log it as a warning rather than failing
+          Error(error)
+        }
+      }
+    }
+  }
+}
+
 fn call_core_report_status(
   address: String,
   request: PollerStatusRequest,
@@ -260,6 +296,10 @@ fn call_core_report_status(
       Error(ConnectionError("gRPC status error: " <> msg))
   }
 }
+
+// Simple sleep function using Erlang's timer
+@external(erlang, "timer", "sleep")
+fn sleep_ms(milliseconds: Int) -> Nil
 
 /// Send a chunk via the core service ReportStatusStream RPC
 fn call_core_send_chunk(
