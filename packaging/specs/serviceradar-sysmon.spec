@@ -42,6 +42,11 @@ fi
 
 %post
 %systemd_post serviceradar-sysmon-checker.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-sysmon-checker.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-sysmon-checker.service >/dev/null 2>&1 || :
+fi
 
 # Check for ZFS availability
 ZFS_AVAILABLE=false

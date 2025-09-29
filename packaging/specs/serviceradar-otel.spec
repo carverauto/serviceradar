@@ -37,6 +37,11 @@ fi
 
 %post
 %systemd_post serviceradar-otel.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-otel.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-otel.service >/dev/null 2>&1 || :
+fi
 mkdir -p /var/log/serviceradar
 chown -R serviceradar:serviceradar /var/log/serviceradar
 chmod 755 /usr/local/bin/serviceradar-otel

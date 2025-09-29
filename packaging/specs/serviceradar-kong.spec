@@ -97,6 +97,11 @@ fi
 /usr/share/serviceradar-kong/scripts/postinstall.sh || true
 # Reload systemd to recognize new service file
 %systemd_post serviceradar-kong.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-kong.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-kong.service >/dev/null 2>&1 || :
+fi
 
 %preun
 %systemd_preun serviceradar-kong.service

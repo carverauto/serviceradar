@@ -48,6 +48,11 @@ fi
 %post
 # Use standard systemd macros to handle service installation
 %systemd_post serviceradar-goflow2.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-goflow2.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-goflow2.service >/dev/null 2>&1 || :
+fi
 
 # Ensure the 'serviceradar' user can read the shared TLS certificates
 if [ -d "/etc/serviceradar/certs/" ]; then
