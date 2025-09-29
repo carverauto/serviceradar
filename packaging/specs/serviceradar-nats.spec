@@ -43,6 +43,11 @@ fi
 
 %post
 %systemd_post serviceradar-nats.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-nats.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-nats.service >/dev/null 2>&1 || :
+fi
 # Create required directories with proper permissions
 mkdir -p /var/lib/nats/jetstream /var/log/nats
 chown -R nats:nats /var/lib/nats /var/log/nats

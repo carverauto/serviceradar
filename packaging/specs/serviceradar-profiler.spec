@@ -36,6 +36,11 @@ fi
 
 %post
 %systemd_post serviceradar-profiler.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-profiler.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-profiler.service >/dev/null 2>&1 || :
+fi
 mkdir -p /var/log/serviceradar
 chown -R serviceradar:serviceradar /var/log/serviceradar
 chmod 755 /usr/local/bin/serviceradar-profiler

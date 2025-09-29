@@ -55,6 +55,11 @@ fi
 
 %post
 %systemd_post serviceradar-core.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-core.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-core.service >/dev/null 2>&1 || :
+fi
 
 # Check if EPEL repository is installed, install if missing
 if ! rpm -q epel-release >/dev/null 2>&1; then
