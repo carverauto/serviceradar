@@ -16,7 +16,7 @@ depends: [
   "yojson"
   "ppx_deriving" {>= "5.0"}
   "lwt_ppx"
-  "proton" {>= "1.0.16"}
+  "proton" {>= "1.0.17"}
   "lwt"
   "tls" {>= "1.0.0"}
   "tls-lwt" {>= "1.0.0"}
