@@ -19,6 +19,7 @@ simplifile = ">= 2.3.0 and < 3.0.0"
 gleam_http = ">= 4.2.0 and < 5.0.0"
 gleam_httpc = ">= 5.0.0 and < 6.0.0"
 gleam_time = ">= 1.0.0 and < 2.0.0"
+snag = ">= 1.1.0 and < 2.0.0"
 
 [dev-dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"

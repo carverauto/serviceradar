@@ -21,14 +21,14 @@ package monitoring;
 option go_package = "github.com/carverauto/serviceradar/proto";
 
 service AgentService {
-  rpc GetStatus(StatusRequest) returns (StatusResponse) {}
-  rpc GetResults(ResultsRequest) returns (ResultsResponse) {}
-  rpc StreamResults(ResultsRequest) returns (stream ResultsChunk) {}
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+  rpc GetResults(ResultsRequest) returns (ResultsResponse);
+  rpc StreamResults(ResultsRequest) returns (stream ResultsChunk);
 }
 
 service PollerService {
-  rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse) {}
-  rpc StreamStatus(stream PollerStatusChunk) returns (PollerStatusResponse) {}
+  rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse);
+  rpc StreamStatus(stream PollerStatusChunk) returns (PollerStatusResponse);
 }
 
 message DeviceStatusRequest {
@@ -127,15 +127,21 @@ message ResultsChunk {
   int64 timestamp = 6;        // When chunk was generated
 }
 
+enum SweepStatus {
+  // Status not available
+  UNKNOWN = 0;
+  // Sweep has not been initiated
+  NOT_STARTED = 1;
+  // Sweep is currently running
+  IN_PROGRESS = 2;
+  // Sweep completed successfully
+  COMPLETED = 3;
+  // Sweep failed or was interrupted
+  FAILED = 4;
+}
+
 message SweepCompletionStatus {
-  enum Status {
-    UNKNOWN = 0;          // Status not available
-    NOT_STARTED = 1;      // Sweep has not been initiated
-    IN_PROGRESS = 2;      // Sweep is currently running
-    COMPLETED = 3;        // Sweep completed successfully
-    FAILED = 4;           // Sweep failed or was interrupted
-  }
-  Status status = 1;          // Current completion status
+  SweepStatus status = 1;          // Current completion status
   int64 completion_time = 2;  // Timestamp when sweep completed (if COMPLETED)
   string target_sequence = 3; // Sequence ID of the targets being swept
   int32 total_targets = 4;    // Total number of targets to sweep
