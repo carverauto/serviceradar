@@ -16,6 +16,7 @@ build --action_env=OPENSSL_NO_PKG_CONFIG=1
 build --java_runtime_version=local_jdk
 build --tool_java_runtime_version=local_jdk
 
+
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
 test --test_output=errors
 test --action_env=OPENSSL_NO_PKG_CONFIG=1
@@ -34,6 +35,8 @@ build:ci --config=remote
 build:ci --build_metadata=ROLE=CI
 build:ci --bes_results_url=https://app.buildbuddy.io/invocation/
 build:ci --bes_backend=grpcs://remote.buildbuddy.io
+build:ci --bes_backend=grpcs://carverauto.buildbuddy.io
+build:ci --remote_cache=grpcs://carverauto.buildbuddy.io
 build:ci --remote_timeout=15m
 
 # CI tests should avoid manual-only targets and preserve detailed output.
@@ -56,16 +59,27 @@ build:remote --tool_java_runtime_version=remotejdk_11
 build:remote --define=EXECUTOR=remote
 build:remote --incompatible_strict_action_env
 build:remote --remote_timeout=10m
+build:remote --remote_download_minimal
 
 test:remote --copt=-Wno-use-after-free
 
 # OCaml toolchain generated via tools_opam is macOS-hosted, which cannot run on
 # Linux remote executors. Force OCaml compilation/linking actions to run locally
 # until a hermetic Linux toolchain is available.
-build:remote --strategy=CompileOCamlModule=local
-build:remote --strategy=CompileOCamlLibrary=local
-build:remote --strategy=CompileOCamlArchive=local
-build:remote --strategy=OcamlPack=local
-build:remote --strategy=OcamlLink=local
+#build:remote --strategy=CompileOCamlModule=local
+#build:remote --strategy=CompileOCamlLibrary=local
+#build:remote --strategy=CompileOCamlArchive=local
+#build:remote --strategy=OcamlPack=local
+#build:remote --strategy=OcamlLink=local
 
 build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
+
+build:remote --remote_cache=grpcs://remote.buildbuddy.io
+build:remote --remote_executor=grpcs://remote.buildbuddy.io
+build:remote --remote_upload_local_results
+build:remote --host_platform=@buildbuddy_toolchain//:platform
+build:remote --platforms=@buildbuddy_toolchain//:platform
+build:remote --crosstool_top=@buildbuddy_toolchain//:toolchain
+build:remote --jobs=100
+
+build:ci --config=remote

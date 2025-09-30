@@ -24,7 +24,7 @@ mkdir -p %{buildroot}/var/lib/proton/user_files
 mkdir -p %{buildroot}/var/log/proton-server
 
 # Install binary
-install -m 755 %{_sourcedir}/proton %{buildroot}/usr/bin/
+install -m 755 %{_sourcedir}/packaging/proton/proton %{buildroot}/usr/bin/
 
 # Provide compatibility symlinks expected by service scripts
 ln -sf proton %{buildroot}/usr/bin/proton-server
@@ -32,11 +32,11 @@ ln -sf proton %{buildroot}/usr/bin/proton-client
 ln -sf proton %{buildroot}/usr/bin/proton-local
 
 # Install systemd service
-install -m 644 %{_sourcedir}/systemd/serviceradar-proton.service %{buildroot}/lib/systemd/system/
+install -m 644 %{_sourcedir}/packaging/proton/systemd/serviceradar-proton.service %{buildroot}/lib/systemd/system/
 
 # Install configuration files
-install -m 644 %{_sourcedir}/config/config.yaml %{buildroot}/etc/proton-server/
-install -m 644 %{_sourcedir}/config/users.yaml %{buildroot}/etc/proton-server/
+install -m 644 %{_sourcedir}/packaging/proton/config/config.yaml %{buildroot}/etc/proton-server/
+install -m 644 %{_sourcedir}/packaging/proton/config/users.yaml %{buildroot}/etc/proton-server/
 
 %files
 %attr(0755, root, root) /usr/bin/proton
