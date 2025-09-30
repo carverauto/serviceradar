@@ -104,12 +104,27 @@ def _opam_dep_repo_impl(rctx):
     if rctx.attr.ocaml_version:
         cmd.extend(["--ocaml-version", rctx.attr.ocaml_version])
     rctx.report_progress("Configuring pkg %s" % repo_pkg)
+
+    config_tool_path = str(config_tool)
+    runfiles_dir = config_tool_path + ".runfiles"
+    runfiles_manifest = config_tool_path + ".runfiles_manifest"
+
+    env = {
+        "OBAZL_SDKLIB": rctx.attr.sdklib,
+        "OBAZL_NO_BWRAP": "1",
+    }
+
+    runfiles_dir_path = rctx.path(runfiles_dir)
+    if runfiles_dir_path.exists:
+        env["RUNFILES_DIR"] = runfiles_dir
+
+    runfiles_manifest_path = rctx.path(runfiles_manifest)
+    if runfiles_manifest_path.exists:
+        env["RUNFILES_MANIFEST_FILE"] = runfiles_manifest
+
     res = rctx.execute(
         cmd,
-        environment = {
-            "OBAZL_SDKLIB": rctx.attr.sdklib,
-            "OBAZL_NO_BWRAP": "1",
-        },
+        environment = env,
         quiet = (verbosity < 1),
     )
 

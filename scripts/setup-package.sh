@@ -522,19 +522,124 @@ EOF
         echo "Package built: ${RELEASE_DIR}/${package_name}_${version}.deb"
 
     elif [ "$package_type" = "rpm" ]; then
-        if [ -n "$dockerfile" ]; then
-            echo "Building RPM with Dockerfile $dockerfile..."
-            echo "Verifying context contents..."
-            # Only verify go.mod and source path if they're needed and exist
-            if [ -f "${BASE_DIR}/go.mod" ]; then
-                ls -l "${BASE_DIR}/go.mod" || echo "Note: go.mod not found, but may not be required"
-            fi
-            if [ -n "$src_path" ] && [ -d "${BASE_DIR}/${src_path}" ]; then
-                ls -l "${BASE_DIR}/${src_path}" || echo "Source directory ${src_path} not found"
-            else
-                echo "Note: Source path not available or not required"
-            fi
+        # Detect if we're on Oracle Linux/RHEL/Rocky - if so, build natively
+        if grep -qE "Oracle Linux|Red Hat|Rocky Linux|AlmaLinux" /etc/os-release 2>/dev/null; then
+            echo "Building RPM natively on $(grep PRETTY_NAME /etc/os-release | cut -d'"' -f2)..."
 
+            # Special handling for web component - use dedicated build script
+            if [ "$component" = "web" ]; then
+                export VERSION="$version"
+                export BUILD_ID="$BUILD_ID"
+                export RELEASE="$rpm_release"
+                "${BASE_DIR}/scripts/build-web-rpm.sh" || { echo "Error: Native RPM build failed"; exit 1; }
+                echo "RPM built: ${RELEASE_DIR}/rpm/${version}/${package_name}-${version}-${rpm_release}.*.rpm"
+            else
+                # Native RPM build for all other components
+                echo "Building ${component} natively..."
+
+                # Ensure RPM build tools are installed
+                if ! command -v rpmbuild &> /dev/null; then
+                    echo "Installing rpmbuild..."
+                    sudo dnf install -y rpm-build rpmdevtools
+                fi
+
+                # Set up RPM build directory
+                RPMBUILD_DIR="${HOME}/rpmbuild"
+                rpmdev-setuptree
+
+                # Build binary if needed
+                if [ "$build_method" = "go" ] && [ -n "$src_path" ]; then
+                    echo "Building Go binary from $src_path..."
+                    output_path=$(echo "$config" | jq -r '.binary.output_path')
+                    GOOS=linux GOARCH=amd64 go build \
+                        -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=$version -X github.com/carverauto/serviceradar/pkg/version.buildID=$BUILD_ID" \
+                        -o "${RPMBUILD_DIR}/BUILD/$(basename $output_path)" \
+                        "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
+                elif [ "$build_method" = "ocaml" ] && [ -n "$src_path" ]; then
+                    echo "Building OCaml binary with Bazel from $src_path..."
+                    bazel="${BASE_DIR}/tools/bazel/bazel"
+                    if [ ! -x "$bazel" ]; then
+                        echo "Error: Bazel not found at $bazel"
+                        exit 1
+                    fi
+                    # Build the srql_server target
+                    "$bazel" build //${src_path}:srql_server || { echo "Error: Bazel build failed"; exit 1; }
+                    # Get the bazel-bin output directory
+                    bazel_bin="$("$bazel" info bazel-bin)"
+                    built_binary="${bazel_bin}/${src_path}/srql_server"
+                    if [ ! -f "$built_binary" ]; then
+                        echo "Error: Built binary not found at $built_binary"
+                        exit 1
+                    fi
+                    # Copy to rpmbuild directory with the expected name
+                    output_path=$(echo "$config" | jq -r '.binary.output_path')
+                    cp "$built_binary" "${RPMBUILD_DIR}/BUILD/$(basename $output_path)" || { echo "Error: Failed to copy binary"; exit 1; }
+                elif [ "$build_method" = "none" ]; then
+                    echo "No binary build required for $component"
+                else
+                    echo "Build method '$build_method' not yet supported for native RPM builds - falling back to Docker"
+                    # Fall back to Docker for unsupported build methods
+                    if [ -n "$dockerfile" ]; then
+                        docker build \
+                            --platform linux/amd64 \
+                            --build-arg VERSION="$version" \
+                            --build-arg BUILD_ID="$BUILD_ID" \
+                            --build-arg RELEASE="$rpm_release" \
+                            --build-arg COMPONENT="$component" \
+                            --build-arg BINARY_PATH="$src_path" \
+                            -f "${BASE_DIR}/${dockerfile}" \
+                            -t "${package_name}-rpm-builder" \
+                            "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
+                        tmp_dir=$(mktemp -d)
+                        container_id=$(docker create "${package_name}-rpm-builder" /bin/true)
+                        docker cp "$container_id:/rpms/." "$tmp_dir/"
+                        mkdir -p "${RELEASE_DIR}/rpm/${version}"
+                        find "$tmp_dir" -name "*.rpm" -exec cp {} "${RELEASE_DIR}/rpm/${version}/" \;
+                        docker rm "$container_id"
+                        rm -rf "$tmp_dir"
+                        continue
+                    fi
+                fi
+
+                # Copy source files needed for RPM build
+                mkdir -p "${RPMBUILD_DIR}/SOURCES"
+
+                # Copy the entire packaging directory for this component
+                # This ensures all config files, scripts, systemd services, etc. are available
+                if [ -d "${BASE_DIR}/packaging/${component}" ]; then
+                    echo "Copying packaging/${component} to SOURCES..."
+                    mkdir -p "${RPMBUILD_DIR}/SOURCES/packaging"
+                    cp -r "${BASE_DIR}/packaging/${component}" "${RPMBUILD_DIR}/SOURCES/packaging/"
+                fi
+
+                # Copy spec file
+                spec_file="${BASE_DIR}/packaging/specs/${package_name}.spec"
+                if [ ! -f "$spec_file" ]; then
+                    echo "Error: Spec file not found: $spec_file"
+                    exit 1
+                fi
+                cp "$spec_file" "${RPMBUILD_DIR}/SPECS/"
+
+                # Build RPM
+                RPM_VERSION=$(echo ${version} | sed 's/-/_/g')
+                echo "Building RPM package with version ${RPM_VERSION}..."
+                rpmbuild -bb \
+                    --define "version ${RPM_VERSION}" \
+                    --define "release ${rpm_release}" \
+                    --define "_sourcedir ${RPMBUILD_DIR}/SOURCES" \
+                    --define "_builddir ${RPMBUILD_DIR}/BUILD" \
+                    --define "_rpmdir ${RPMBUILD_DIR}/RPMS" \
+                    --nocheck \
+                    "${RPMBUILD_DIR}/SPECS/${package_name}.spec" || { echo "Error: rpmbuild failed"; exit 1; }
+
+                # Copy RPM to release directory
+                mkdir -p "${RELEASE_DIR}/rpm/${version}"
+                find "${RPMBUILD_DIR}/RPMS" -name "*.rpm" -exec cp {} "${RELEASE_DIR}/rpm/${version}/" \;
+                echo "RPM built: ${RELEASE_DIR}/rpm/${version}/${package_name}-${RPM_VERSION}-${rpm_release}.*.rpm"
+            fi
+        elif [ -n "$dockerfile" ]; then
+            # Not on Oracle Linux - use Docker as fallback
+            echo "Building RPM with Dockerfile $dockerfile..."
             docker build \
                 --platform linux/amd64 \
                 --build-arg VERSION="$version" \
@@ -546,11 +651,10 @@ EOF
                 -t "${package_name}-rpm-builder" \
                 "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
             tmp_dir=$(mktemp -d)
-            container_id=$(docker create "${package_name}-rpm-builder" /bin/true) || { echo "Error: Failed to create container"; exit 1; }
-            docker cp "$container_id:/rpms/." "$tmp_dir/" || { echo "Error: Failed to copy RPMs from /rpms/"; exit 1; }
-            mkdir -p "${RELEASE_DIR}/rpm/${version}" || { echo "Error: Failed to create RPM directory"; exit 1; }
+            container_id=$(docker create "${package_name}-rpm-builder" /bin/true)
+            docker cp "$container_id:/rpms/." "$tmp_dir/"
+            mkdir -p "${RELEASE_DIR}/rpm/${version}"
             find "$tmp_dir" -name "*.rpm" -exec cp {} "${RELEASE_DIR}/rpm/${version}/" \;
-            echo "RPM built: ${RELEASE_DIR}/rpm/${version}/${package_name}-${version}-${rpm_release}.*.rpm"
             docker rm "$container_id"
             rm -rf "$tmp_dir"
         else

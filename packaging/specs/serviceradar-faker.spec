@@ -31,10 +31,10 @@ mkdir -p %{buildroot}/etc/serviceradar
 install -m 755 %{_builddir}/serviceradar-faker %{buildroot}/usr/local/bin/
 
 # Install config file
-install -m 644 %{_sourcedir}/config/faker.json %{buildroot}/usr/share/serviceradar/faker/config/
+install -m 644 %{_sourcedir}/packaging/faker/config/faker.json %{buildroot}/usr/share/serviceradar/faker/config/
 
 # Install systemd service file
-install -m 644 %{_sourcedir}/systemd/serviceradar-faker.service %{buildroot}/usr/share/serviceradar/faker/systemd/
+install -m 644 %{_sourcedir}/packaging/faker/systemd/serviceradar-faker.service %{buildroot}/usr/share/serviceradar/faker/systemd/
 
 # Install scripts (create dummy scripts if they don't exist)
 cat > %{buildroot}/usr/share/serviceradar/faker/scripts/postinstall.sh << 'EOF'

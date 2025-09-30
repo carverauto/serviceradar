@@ -16,14 +16,13 @@ This package provides the ServiceRadar RPerf checker plugin for monitoring netwo
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/etc/serviceradar/checkers
-mkdir -p %{buildroot}/var/lib/serviceradar
 
 # Install the binary (assumes binary is built at /src/cmd/checkers/rperf-client/target/release/serviceradar-rperf-checker)
 install -m 755 %{_builddir}/serviceradar-rperf-checker %{buildroot}/usr/local/bin/
 
 # Install systemd service and config files from packaging directory
-install -m 644 %{_sourcedir}/rperf-checker/systemd/serviceradar-rperf-checker.service %{buildroot}/lib/systemd/system/
-install -m 644 %{_sourcedir}/rperf-checker/config/checkers/rperf.json %{buildroot}/etc/serviceradar/checkers/
+install -m 644 %{_sourcedir}/packaging/rperf-checker/systemd/serviceradar-rperf-checker.service %{buildroot}/lib/systemd/system/
+install -m 644 %{_sourcedir}/packaging/rperf-checker/config/checkers/rperf.json %{buildroot}/etc/serviceradar/checkers/
 
 %files
 %attr(0755, root, root) /usr/local/bin/serviceradar-rperf-checker
@@ -31,12 +30,23 @@ install -m 644 %{_sourcedir}/rperf-checker/config/checkers/rperf.json %{buildroo
 %attr(0644, root, root) /lib/systemd/system/serviceradar-rperf-checker.service
 %dir %attr(0755, root, root) /etc/serviceradar
 %dir %attr(0755, root, root) /etc/serviceradar/checkers
-%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar
 
 %pre
-# Create serviceradar user if it doesn't exist
+# Ensure serviceradar group exists before user creation
+if ! getent group serviceradar >/dev/null; then
+    groupadd --system serviceradar
+fi
+
+# Create serviceradar user with managed home directory if it doesn't exist
 if ! id -u serviceradar >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin serviceradar
+    useradd --system --home-dir /var/lib/serviceradar --create-home \
+        --shell /usr/sbin/nologin --gid serviceradar serviceradar
+else
+    # Align existing user home directory if needed
+    CURRENT_HOME=$(getent passwd serviceradar | cut -d: -f6)
+    if [ "$CURRENT_HOME" != "/var/lib/serviceradar" ]; then
+        usermod --home /var/lib/serviceradar serviceradar >/dev/null 2>&1 || :
+    fi
 fi
 
 %post
