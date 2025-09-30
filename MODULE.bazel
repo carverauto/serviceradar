@@ -90,6 +90,22 @@ buildbuddy_toolchain_ext = use_extension(
     "@io_buildbuddy_buildbuddy_toolchain//:extensions.bzl",
     "buildbuddy",
 )
+
+# Align BuildBuddy's generated GCC toolchain with the Oracle Linux based
+# executor image so Bazel treats the system headers as hermetic.
+buildbuddy_toolchain_ext.gcc_toolchain(
+    extra_cxx_builtin_include_directories = [
+        "/usr/include/c++/11/x86_64-redhat-linux",
+        "/usr/include/x86_64-redhat-linux",
+        "/usr/lib/gcc/x86_64-redhat-linux/11/include",
+        "/usr/lib/gcc/x86_64-redhat-linux/11/include-fixed",
+    ],
+)
+
+# Make the generated platform default to our custom executor image.
+buildbuddy_toolchain_ext.platform(
+    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:latest",
+)
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
 xcode_configure_ext = use_extension(
