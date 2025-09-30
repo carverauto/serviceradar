@@ -1,15 +1,14 @@
-load("@platforms//host:extension.bzl", "host_platform")
-
-# Custom RBE platform using Oracle Linux 9 based executor image
+# Custom RBE platform using BuildBuddy's Ubuntu base with OCaml/opam added
 platform(
     name = "rbe_platform",
     constraint_values = [
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
-        "@bazel_tools//tools/cpp:clang",
+        "@bazel_tools//tools/cpp:gcc",
     ],
     exec_properties = {
         "OSFamily": "Linux",
+        "Arch": "amd64",
         "dockerNetwork": "off",
         "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:latest",
     },

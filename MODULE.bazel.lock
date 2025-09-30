@@ -9027,7 +9027,7 @@
     "@@toolchains_buildbuddy+//:extensions.bzl%buildbuddy": {
       "general": {
         "bzlTransitiveDigest": "u7Z+AlfJgGgFZGxPEfZkeEkTzEkgIYkIxgokZ5953dE=",
-        "usagesDigest": "89nX54lTkGs6UHGLTScpBE6oRpkMyxiBjrm0VWYrqkE=",
+        "usagesDigest": "0NMy62SPsu71oGz4enQe3yhX5j6W5z4M3868iodUSNk=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -9035,7 +9035,7 @@
           "buildbuddy_toolchain": {
             "repoRuleId": "@@toolchains_buildbuddy+//:rules.bzl%_buildbuddy_toolchain",
             "attributes": {
-              "container_image": "",
+              "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:latest",
               "llvm": false,
               "java_version": "",
               "gcc_version": "",
@@ -9044,7 +9044,12 @@
               "msvc_version": "14.39.33519",
               "windows_kits_release": "10",
               "windows_kits_version": "10.0.22621.0",
-              "extra_cxx_builtin_include_directories": []
+              "extra_cxx_builtin_include_directories": [
+                "/usr/include/c++/11/x86_64-redhat-linux",
+                "/usr/include/x86_64-redhat-linux",
+                "/usr/lib/gcc/x86_64-redhat-linux/11/include",
+                "/usr/lib/gcc/x86_64-redhat-linux/11/include-fixed"
+              ]
             }
           }
         },
@@ -9089,7 +9094,7 @@
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {
-          "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": null,
+          "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": "1",
           "HOME": "/home/mfreeman",
           "OBAZL_OPAM_ENV": null,
           "OBAZL_USE_LOCAL_TC": null,

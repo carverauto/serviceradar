@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Custom RBE executor image based on Oracle Linux 9 with OCaml/opam preinstalled
-# This image provides a hermetic build environment for BuildBuddy RBE
+# This image provides a hermetic build environment for BuildBuddy RBE with RPM building support
 
 FROM --platform=linux/amd64 ocaml/opam:oraclelinux-9-ocaml-5.2
 SHELL ["/bin/bash", "-lc"]
@@ -65,12 +65,14 @@ RUN eval $(opam env) \
 # Switch back to root for final setup
 USER root
 
-# Set up work directory
-RUN mkdir -p /workspace && chown opam:opam /workspace
-WORKDIR /workspace
+# Set up work directory with proper permissions
+RUN mkdir -p /workspace && chown -R opam:opam /workspace
 
 # Ensure opam environment is available
 RUN echo 'eval $(opam env)' >> /etc/profile.d/opam.sh
 
+# Default to root user for RBE execution
+USER root
+WORKDIR /workspace
+
 # Important: Do not set ENTRYPOINT or CMD as BuildBuddy will provide commands
-# ENTRYPOINT should be unset so BuildBuddy can execute build actions directly
