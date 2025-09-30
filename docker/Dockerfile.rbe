@@ -21,6 +21,7 @@ RUN dnf install -y oracle-epel-release-el9 \
         lz4-devel \
         make \
         m4 \
+        perl \
         openssl-devel \
         patch \
         pkgconfig \
