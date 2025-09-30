@@ -79,6 +79,13 @@ RUN mkdir -p /workspace && chown -R opam:opam /workspace
 # Ensure opam environment is available
 RUN echo 'eval $(opam env)' >> /etc/profile.d/opam.sh
 
+# Provide compatibility symlinks for ocamlsdk toolchain which expects the
+# standard library under ~/.local/share/obazl.
+RUN install -d /root/.local/share/obazl/opam/2.4.1/root/5.2.0/lib \
+    && ln -sfr /home/opam/.opam/5.2/lib/ocaml /root/.local/share/obazl/opam/2.4.1/root/5.2.0/lib/ocaml \
+    && install -d /home/opam/.local/share/obazl/opam/2.4.1/root/5.2.0/lib \
+    && ln -sfr /home/opam/.opam/5.2/lib/ocaml /home/opam/.local/share/obazl/opam/2.4.1/root/5.2.0/lib/ocaml
+
 # Default to root user for RBE execution
 USER root
 WORKDIR /workspace
