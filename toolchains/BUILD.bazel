@@ -1,0 +1,13 @@
+toolchain(
+    name = "rbe_cc_toolchain",
+    toolchain = "@buildbuddy_toolchain//:ubuntu_local_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+)
