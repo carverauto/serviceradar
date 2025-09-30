@@ -8,30 +8,14 @@ load(
     _ocaml_test = "ocaml_test",
 )
 
-# OCaml toolchains bundled in the repo only provide macOS binaries. Force these
-# targets to execute locally so remote Linux executors never try to run the
-# incompatible toolchain binaries, and mark them incompatible with the remote
-# executor configuration so Bazel skips them entirely when `--config=remote` is
-# active.
-LOCAL_ONLY_TAGS = ["no-remote-exec"]
-_REMOTE_INCOMPATIBLE = select({
-    "//ocaml/srql:remote_executor": ["@platforms//:incompatible"],
-    "//conditions:default": [],
-})
-
+# The OCaml toolchain is now available on the remote executor image, so we no
+# longer need to force these targets to run locally or mark them incompatible
+# when `--config=remote` is enabled. The wrappers remain in place to keep the
+# call sites stable should we need to reintroduce overrides later.
 def _apply_local_overrides(kwargs):
-    new_kwargs = dict(kwargs)
-    existing_tags = new_kwargs.get("tags", [])
-    combined_tags = []
-    for tag in existing_tags + LOCAL_ONLY_TAGS:
-        if tag not in combined_tags:
-            combined_tags.append(tag)
-    new_kwargs["tags"] = combined_tags
-
-    if "target_compatible_with" in new_kwargs:
+    if "target_compatible_with" in kwargs:
         fail("ocaml_local_rules wrappers do not support overriding target_compatible_with")
-    new_kwargs["target_compatible_with"] = _REMOTE_INCOMPATIBLE
-    return new_kwargs
+    return dict(kwargs)
 
 def ocaml_module(**kwargs):
     _ocaml_module(**_apply_local_overrides(kwargs))

@@ -301,6 +301,8 @@ register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")
 
 register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")
 
+register_toolchains("//toolchains:rbe_cc_toolchain")
+
 # --- Go toolchain & dependency management ----------------------------------
 
 go_sdk = use_extension(

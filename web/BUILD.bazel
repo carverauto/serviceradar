@@ -145,15 +145,7 @@ npm_link_tailwindcss_animate_store(
 genrule(
     name = "next_env_d_ts",
     outs = ["next-env.d.ts"],
-    cmd = """
-cat <<'EOF' > $@
-/// <reference types=\"next\" />
-/// <reference types=\"next/image-types/global\" />
-
-// NOTE: This file should not be edited
-// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
-EOF
-""",
+    cmd = "printf '%s\\n' \\\n+        '/// <reference types=\"next\" />' \\\n+        '/// <reference types=\"next/image-types/global\" />' \\\n+        '' \\\n+        '// NOTE: This file should not be edited' \\\n+        '// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.' \\\n+        > $@",
     visibility = ["//visibility:public"],
 )
 
@@ -211,8 +203,9 @@ ts_project(
 
 js_binary(
     name = "next_js_binary",
-    entry_point = "node_modules/next/dist/bin/next",
+    entry_point = "next.cli.js",
     data = [
+        "next.cli.js",
         ":node_modules",
         ":node_modules/next",
         ":node_modules/react",
@@ -229,7 +222,6 @@ js_binary(
         ":node_modules/xlsx",
         ":node_modules/tailwindcss-animate",
     ],
-    copy_data_to_bin = False,
     visibility = ["//visibility:public"],
 )
 
