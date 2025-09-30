@@ -1,0 +1,73 @@
+diff --git a/build/_rules/ocaml_module/impl_module.bzl b/build/_rules/ocaml_module/impl_module.bzl
+--- a/build/_rules/ocaml_module/impl_module.bzl
++++ b/build/_rules/ocaml_module/impl_module.bzl
+@@ -977,6 +977,8 @@
+         + depsets.deps.astructs
+         + depsets.deps.archives ## FIXME: redundant (cli_link_deps)
+         + depsets.deps.afiles
++        + [depset(ctx.files._sdk_stdlib)]
++        + [depset(ctx.files._sdk_stublibs)]
+         ## module compilation never depends on cclibs
+         # + bottomup_ns_inputs
+         + depsets.codeps.sigs
+@@ -995,6 +997,11 @@
+ 
+     args.add_all(includes, before_each="-I", uniquify = True)
+ 
++    compiler_dir = paths.dirname(tc.compiler.path)
++    stdlib_dir = paths.normalize(paths.join(compiler_dir, "..", "stdlib", "lib"))
++    stublib_dir = paths.normalize(paths.join(compiler_dir, "..", "stublibs", "lib"))
++    args.add("-I", stdlib_dir)
++
+     if ctx.attr.open:
+         for dep in ctx.attr.open:
+             if OCamlModuleProvider in dep:
+@@ -1050,6 +1057,14 @@
+ 
+     ################
+     out_sig = ctx.actions.declare_file(ctx.label.name + ".mli")
++    action_env = {
++        "OCAMLLIB": stdlib_dir,
++        "CAML_LD_LIBRARY_PATH": stublib_dir,
++    }
++
++    if getattr(tc, "cc_link_env_vars", None):
++        action_env.update(tc.cc_link_env_vars)
++
+     ctx.actions.run_shell(
+         tools = [tc.compiler],
+         arguments = ["-i", args],
+@@ -1060,6 +1075,7 @@
+             "$@",
+             "| tee %s" % out_sig.path
+         ]),
++        env = action_env,
+         mnemonic = "GenerateSigfile",
+         progress_message = "{mode} gensig {rule}: {ws}//{pkg}:{tgt}".format(
+             mode = tc.host + ">" + tc.target,
+@@ -1078,6 +1094,7 @@
+         inputs    = action_inputs_depset,
+         outputs   = action_outputs,
+         tools = [tc.compiler], # + tool_args,
++        env = action_env,
+         mnemonic = mnemonic,
+         progress_message = "{mode} compiling {rule}: {ws}//{pkg}:{tgt}".format(
+             mode = tc.host + ">" + tc.target,
+diff --git a/build/_rules/ocaml_module.bzl b/build/_rules/ocaml_module.bzl
+--- a/build/_rules/ocaml_module.bzl
++++ b/build/_rules/ocaml_module.bzl
+@@ -178,6 +178,14 @@
+         ),
+ 
+         _cmd_line_option = attr.label(default = "@rules_ocaml//cfg/option"),
++        _sdk_stdlib = attr.label(
++            default = "@@tools_opam++opam+opam.ocamlsdk//stdlib/lib:all_files",
++            allow_files = True,
++        ),
++        _sdk_stublibs = attr.label(
++            default = "@@tools_opam++opam+opam.stublibs//lib:stublibs",
++            allow_files = True,
++        ),
+     ),
+ 
+     fragments      = ["platform", "cpp"],

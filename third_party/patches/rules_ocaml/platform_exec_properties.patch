@@ -1,0 +1,60 @@
+--- a/platform/BUILD.bazel
++++ b/platform/BUILD.bazel
+@@ -2,13 +2,21 @@
+ package(default_visibility = ["//visibility:public"])
+ 
+ ## endocompilers
+-platform(name = "ocamlopt.opt",
+-         parents = ["@local_config_platform//:host"],
+-         constraint_values = [
+-             "@rules_ocaml//platform/arch:sys",
+-             "@rules_ocaml//platform/executor:sys",
+-             "@rules_ocaml//platform/emitter:sys"
+-         ])
++platform(
++    name = "ocamlopt.opt",
++    parents = ["@local_config_platform//:host"],
++    constraint_values = [
++        "@rules_ocaml//platform/arch:sys",
++        "@rules_ocaml//platform/executor:sys",
++        "@rules_ocaml//platform/emitter:sys",
++    ],
++    exec_properties = {
++        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.3",
++        "OSFamily": "Linux",
++        "Arch": "amd64",
++        "dockerNetwork": "off",
++    },
++)
+ 
+ platform(name = "ocamlc.byte",
+          parents = ["@local_config_platform//:host"],
+@@ -19,13 +27,21 @@
+          ])
+ 
+ ## exocompilers
+-platform(name = "ocamlc.opt",
+-         parents = ["@local_config_platform//:host"],
+-         constraint_values = [
+-             "@rules_ocaml//platform/arch:sys",
+-             "@rules_ocaml//platform/executor:sys",
+-             "@rules_ocaml//platform/emitter:vm"
+-         ])
++platform(
++    name = "ocamlc.opt",
++    parents = ["@local_config_platform//:host"],
++    constraint_values = [
++        "@rules_ocaml//platform/arch:sys",
++        "@rules_ocaml//platform/executor:sys",
++        "@rules_ocaml//platform/emitter:vm",
++    ],
++    exec_properties = {
++        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.3",
++        "OSFamily": "Linux",
++        "Arch": "amd64",
++        "dockerNetwork": "off",
++    },
++)
+ ## non-compiler target platform - unconstrained emitter
+ platform(name = "sys>any",
+          parents = ["@local_config_platform//:host"],
