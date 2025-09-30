@@ -118,6 +118,11 @@ archive_override(
     module_name = "rules_ocaml",
     integrity = "sha256-cqe6FvPE/z5HAKzO/MN5YcbPMaqtzQS6kmRtAPBBySc=",
     strip_prefix = "rules_ocaml-3.0.0.beta.1",
+    patch_strip = 1,
+    patches = [
+        "//third_party/patches/rules_ocaml:platform_exec_properties.patch",
+        "//third_party/patches/rules_ocaml:stdlib_env.patch",
+    ],
     urls = [
         "https://github.com/obazl/rules_ocaml/archive/refs/tags/3.0.0.beta.1.tar.gz",
     ],
