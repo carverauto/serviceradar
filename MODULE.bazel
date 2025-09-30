@@ -433,10 +433,43 @@ crates.from_cargo(
 use_repo(crates, "rust_crates")
 
 # --- Node.js toolchain -------------------------------------------------------
-NODE_VERSION = "22.13.1"
+NODE_VERSION = "18.20.4"
 
 node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
-node.toolchain(node_version = NODE_VERSION)
+node.toolchain(
+    node_repositories = {
+        "18.20.4-darwin_arm64": (
+            "node-v18.20.4-darwin-arm64.tar.gz",
+            "node-v18.20.4-darwin-arm64",
+            "aca5b568cc2a7e918037f05168634a921d88f43882c92a01b4ef5e39d0b89414",
+        ),
+        "18.20.4-darwin_amd64": (
+            "node-v18.20.4-darwin-x64.tar.gz",
+            "node-v18.20.4-darwin-x64",
+            "7d2eb630b66bb39b9cf6bb12b35de833e2445797f2ddc9bcae714e63e75181ca",
+        ),
+        "18.20.4-linux_arm64": (
+            "node-v18.20.4-linux-arm64.tar.xz",
+            "node-v18.20.4-linux-arm64",
+            "1cb5053bd4109aec41a8104ea3e9f48b95b1adef4d23bb4fc64f8c2d90c65ae3",
+        ),
+        "18.20.4-linux_amd64": (
+            "node-v18.20.4-linux-x64-glibc-217.tar.xz",
+            "node-v18.20.4-linux-x64-glibc-217",
+            "2e3b9693fb46a0096aa4bf11d5086834126d780d0422b613a5c6f6f981b18037",
+        ),
+        "18.20.4-windows_amd64": (
+            "node-v18.20.4-win-x64.zip",
+            "node-v18.20.4-win-x64",
+            "a2864d9048fb83cc85e3b2c3d18f5731b69cae8964bb029f5cdecbb0820eccd7",
+        ),
+    },
+    node_urls = [
+        "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
+        "https://nodejs.org/dist/v{version}/{filename}",
+    ],
+    node_version = NODE_VERSION,
+)
 use_repo(node, "nodejs_toolchains")
 
 register_toolchains(
