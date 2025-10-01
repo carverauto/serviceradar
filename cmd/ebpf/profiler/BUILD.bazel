@@ -1,0 +1,11 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "Cargo.toml",
+    "ebpf_placeholder.o",
+])
+
+alias(
+    name = "profiler",
+    actual = "//cmd/ebpf/profiler/profiler:profiler",
+)
