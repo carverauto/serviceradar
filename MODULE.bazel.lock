@@ -9027,7 +9027,7 @@
     "@@toolchains_buildbuddy+//:extensions.bzl%buildbuddy": {
       "general": {
         "bzlTransitiveDigest": "u7Z+AlfJgGgFZGxPEfZkeEkTzEkgIYkIxgokZ5953dE=",
-        "usagesDigest": "89nX54lTkGs6UHGLTScpBE6oRpkMyxiBjrm0VWYrqkE=",
+        "usagesDigest": "rEBi/lSCdFfk1YcYbHzCjvIysgfvdhqLg5yNEjKkz4g=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -9035,7 +9035,7 @@
           "buildbuddy_toolchain": {
             "repoRuleId": "@@toolchains_buildbuddy+//:rules.bzl%_buildbuddy_toolchain",
             "attributes": {
-              "container_image": "",
+              "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.3",
               "llvm": false,
               "java_version": "",
               "gcc_version": "",
@@ -9044,7 +9044,12 @@
               "msvc_version": "14.39.33519",
               "windows_kits_release": "10",
               "windows_kits_version": "10.0.22621.0",
-              "extra_cxx_builtin_include_directories": []
+              "extra_cxx_builtin_include_directories": [
+                "/usr/include/c++/11/x86_64-redhat-linux",
+                "/usr/include/x86_64-redhat-linux",
+                "/usr/lib/gcc/x86_64-redhat-linux/11/include",
+                "/usr/lib/gcc/x86_64-redhat-linux/11/include-fixed"
+              ]
             }
           }
         },
@@ -9085,11 +9090,11 @@
     "@@tools_opam+//extensions:opam.bzl%opam": {
       "general": {
         "bzlTransitiveDigest": "7F2vAJlffl1L6PdxB/y5StjtiGZ0eO1E73tGTd62jXQ=",
-        "usagesDigest": "wFrmQHDaJQRssilnPzr6nqCv4/d8Gdl3WuqQZclRUs8=",
+        "usagesDigest": "9bauVpzxBSLKlFIsZ9iVFxdp/AXhTx9Dlj5pagD7Woo=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {
-          "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": null,
+          "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": "1",
           "HOME": "/home/mfreeman",
           "OBAZL_OPAM_ENV": null,
           "OBAZL_USE_LOCAL_TC": null,
@@ -9679,6 +9684,21 @@
               "verbosity": 0
             }
           },
+          "opam.gen": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/home/mfreeman/.local/share/obazl/opam/2.4.1/bin/opam",
+              "switch": "5.2.0",
+              "root": "/home/mfreeman/.local/share/obazl/opam/2.4.1/root",
+              "sdklib": "/home/mfreeman/.local/share/obazl/opam/2.4.1/root/5.2.0/lib",
+              "ocaml_version": "5.2.0",
+              "obazl_pfx": "opam.",
+              "config_tool": "/home/mfreeman/.cache/bazel/_bazel_mfreeman/3ca1e6c8ab46f48520e8f7fdcd260c1a/execroot/_main/bazel-out/k8-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
           "opam.gluten": {
             "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
             "attributes": {
@@ -9890,6 +9910,21 @@
             }
           },
           "opam.ipaddr": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/home/mfreeman/.local/share/obazl/opam/2.4.1/bin/opam",
+              "switch": "5.2.0",
+              "root": "/home/mfreeman/.local/share/obazl/opam/2.4.1/root",
+              "sdklib": "/home/mfreeman/.local/share/obazl/opam/2.4.1/root/5.2.0/lib",
+              "ocaml_version": "5.2.0",
+              "obazl_pfx": "opam.",
+              "config_tool": "/home/mfreeman/.cache/bazel/_bazel_mfreeman/3ca1e6c8ab46f48520e8f7fdcd260c1a/execroot/_main/bazel-out/k8-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
+          "opam.js_of_ocaml-compiler": {
             "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
             "attributes": {
               "install": false,
@@ -10564,6 +10599,21 @@
               "verbosity": 0
             }
           },
+          "opam.sedlex": {
+            "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
+            "attributes": {
+              "install": false,
+              "opam": "/home/mfreeman/.local/share/obazl/opam/2.4.1/bin/opam",
+              "switch": "5.2.0",
+              "root": "/home/mfreeman/.local/share/obazl/opam/2.4.1/root",
+              "sdklib": "/home/mfreeman/.local/share/obazl/opam/2.4.1/root/5.2.0/lib",
+              "ocaml_version": "5.2.0",
+              "obazl_pfx": "opam.",
+              "config_tool": "/home/mfreeman/.cache/bazel/_bazel_mfreeman/3ca1e6c8ab46f48520e8f7fdcd260c1a/execroot/_main/bazel-out/k8-fastbuild/bin/external/tools_opam+/extensions/config/config",
+              "debug": 0,
+              "verbosity": 0
+            }
+          },
           "opam.seq": {
             "repoRuleId": "@@tools_opam+//extensions/opam:opam_dep.bzl%opam_dep",
             "attributes": {
@@ -10838,13 +10888,17 @@
         "moduleExtensionMetadata": {
           "explicitRootModuleDirectDeps": [
             "opam.ocamlsdk",
+            "opam.cmdliner",
             "opam.dune",
+            "opam.fmt",
             "opam.menhir",
+            "opam.js_of_ocaml-compiler",
             "opam.yojson",
             "opam.ppx_deriving",
             "opam.lwt_ppx",
             "opam.proton",
             "opam.lwt",
+            "opam.logs",
             "opam.tls",
             "opam.tls-lwt",
             "opam.mirage-crypto",
