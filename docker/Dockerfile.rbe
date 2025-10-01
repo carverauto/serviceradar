@@ -15,18 +15,27 @@ RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
     # handles the module enablement and pulls in all necessary components.
     && dnf install -y \
         gcc-toolset-13 \
+        bpftool \
         ca-certificates \
+        clang \
         git \
         gmp-devel \
+        libbpf-devel \
         libev-devel \
+        llvm \
+        llvm-libs \
         lz4-devel \
         make \
         m4 \
-        perl \
         openssl-devel \
         patch \
+        perl \
         pkgconfig \
         rpm-build \
+        rpmdevtools \
+        redhat-rpm-config \
+        rpm-sign \
+        createrepo_c \
         rsync \
         tar \
         unzip \
@@ -35,15 +44,27 @@ RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
         libzstd-devel \
     && dnf clean all
 
-# Prefer modern GCC toolchain required by Abseil/Rules_pkg builds.
-RUN alternatives --install /usr/bin/gcc gcc /opt/rh/gcc-toolset-13/root/usr/bin/gcc 200 \
-    && alternatives --install /usr/bin/g++ g++ /opt/rh/gcc-toolset-13/root/usr/bin/g++ 200 \
-    && alternatives --install /usr/bin/cpp cpp /opt/rh/gcc-toolset-13/root/usr/bin/cpp 200
-
 ENV CC=/usr/bin/gcc \
-    CXX=/usr/bin/g++
+    CXX=/usr/bin/g++ \
+    HOME=/root \
+    RUSTUP_HOME=/opt/rustup \
+    CARGO_HOME=/opt/cargo \
+    PATH=/opt/cargo/bin:/opt/rh/gcc-toolset-13/root/usr/bin:$PATH
 
-ENV PATH=/opt/rh/gcc-toolset-13/root/usr/bin:$PATH
+# Pin a nightly that includes the bpfel-unknown-none artifacts so builds stay reproducible.
+ARG RUST_EBPF_TOOLCHAIN=nightly-2024-12-31
+
+# Install Rust toolchains for native and eBPF builds.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init \
+    && chmod +x /tmp/rustup-init \
+    && /tmp/rustup-init -y --profile minimal --default-toolchain stable --no-modify-path \
+    && rm -f /tmp/rustup-init \
+    && rustup toolchain install ${RUST_EBPF_TOOLCHAIN} --profile minimal \
+    && rustup component add --toolchain ${RUST_EBPF_TOOLCHAIN} rust-src llvm-tools-preview \
+    && rustup target add --toolchain ${RUST_EBPF_TOOLCHAIN} bpfel-unknown-none \
+    && rustup default stable \
+    && cargo install --locked bpf-linker \
+    && chown -R opam:opam /opt/rustup /opt/cargo
 
 # Provide Debian-compatible library locations required by prebuilt OCaml toolchains.
 RUN mkdir -p /lib/x86_64-linux-gnu \
