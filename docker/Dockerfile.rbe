@@ -9,8 +9,9 @@ SHELL ["/bin/bash", "-lc"]
 USER root
 
 # Install build dependencies
-RUN dnf install -y oracle-epel-release-el9 \
+RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
     && dnf config-manager --enable ol9_codeready_builder \
+    && dnf module enable -y gcc-toolset:13 \
     && dnf install -y \
         ca-certificates \
         gcc \
@@ -32,7 +33,20 @@ RUN dnf install -y oracle-epel-release-el9 \
         which \
         zlib-devel \
         libzstd-devel \
+        gcc-toolset-13-gcc \
+        gcc-toolset-13-gcc-c++ \
+        gcc-toolset-13-binutils \
     && dnf clean all
+
+# Prefer modern GCC toolchain required by Abseil/Rules_pkg builds.
+RUN alternatives --install /usr/bin/gcc gcc /opt/rh/gcc-toolset-13/root/usr/bin/gcc 200 \
+    && alternatives --install /usr/bin/g++ g++ /opt/rh/gcc-toolset-13/root/usr/bin/g++ 200 \
+    && alternatives --install /usr/bin/cpp cpp /opt/rh/gcc-toolset-13/root/usr/bin/cpp 200
+
+ENV CC=/usr/bin/gcc \
+    CXX=/usr/bin/g++
+
+ENV PATH=/opt/rh/gcc-toolset-13/root/usr/bin:$PATH
 
 # Provide Debian-compatible library locations required by prebuilt OCaml toolchains.
 RUN mkdir -p /lib/x86_64-linux-gnu \
