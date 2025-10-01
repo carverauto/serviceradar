@@ -6,7 +6,7 @@ We historically vendored 1000+ files from `obazl/tools_opam` in `third_party/ven
 
 ## Current Status (2025-09-30)
 
-- ✅ `all_files` filegroup is now emitted in `stdlib/lib/BUILD.bazel` via commit `c75fdadc3cbf6230bdffe50426e24e2b38941c13` on `carverauto/tools_opam`.
+- ✅ `all_files` filegroup is now emitted in `stdlib/lib/BUILD.bazel` via commit `bdf1a9f1f6f8ff16a331a28174a687969b533e0d` on `carverauto/tools_opam`.
 - ✅ `MODULE.bazel` now pinpoints that commit directly; no local patch overlay is required.
 - ✅ Vendored `third_party/vendor/tools_opam` tree was removed; the repo now depends solely on the fork via `git_override`.
 - 🔜 Keep tracking upstream (obazl/tools_opam). If/when they accept the fork changes, move the override back to upstream.
