@@ -2,14 +2,13 @@
 
 <img width="1470" height="798" alt="Screenshot 2025-08-03 at 12 15 47 AM" src="https://github.com/user-attachments/assets/d6c61754-89d7-4c56-981f-1486e0586f3a" />
 
-[![releases](https://github.com/carverauto/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/release.yml)
-[![Docker Images](https://github.com/carverauto/serviceradar/actions/workflows/docker-build.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/docker-build.yml)
+[![CI](https://github.com/carverauto/serviceradar/actions/workflows/main.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/main.yml)
 [![Go Linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
 [![Web Linter](https://github.com/carverauto/serviceradar/actions/workflows/web-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/web-lint.yml)
 [![Go Tests](https://github.com/carverauto/serviceradar/actions/workflows/tests-golang.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests-golang.yml)
 [![Rust Tests](https://github.com/carverauto/serviceradar/actions/workflows/tests-rust.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests-rust.yml)
 [![OCaml Lint](https://github.com/carverauto/serviceradar/actions/workflows/ocaml-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/ocaml-lint.yml)
-[![OCaml Build and Test](https://github.com/carverauto/serviceradar/actions/workflows/ocaml-build-test.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/ocaml-build-test.yml)
+
 <a href="https://cla-assistant.io/carverauto/serviceradar"><img src="https://cla-assistant.io/readme/badge/carverauto/serviceradar" alt="CLA assistant" /></a>
 
 ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard to reach places or constrained environments.
