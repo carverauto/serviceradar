@@ -1,0 +1,56 @@
+diff --git a/third_party/ocaml_stdlib/BUILD.bazel b/third_party/ocaml_stdlib/BUILD.bazel
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/third_party/ocaml_stdlib/BUILD.bazel
+@@ -0,0 +1,49 @@
++package(default_visibility = ["//visibility:public"])
++
++# Complete OCaml stdlib including std_exit and runtime libraries
++filegroup(
++    name = "all_files",
++    srcs = glob([
++        "*.cmi",
++        "*.cmx",
++        "*.cmxa",
++        "*.cma",
++        "*.cmo",
++        "*.ml",
++        "*.mli",
++        "*.cmt",
++        "*.cmti",
++        "*.a",
++        "*.o",
++    ]),
++)
++
++filegroup(
++    name = "stdlib_runtime",
++    srcs = glob([
++        "*.a",
++        "*.o",
++    ]),
++)
++
++filegroup(
++    name = "stdlib_interfaces",
++    srcs = glob([
++        "*.cmi",
++        "*.mli",
++    ]),
++)
++
++filegroup(
++    name = "stdlib_compiled",
++    srcs = glob([
++        "*.cmx",
++        "*.cmxa",
++        "*.cma",
++        "*.cmo",
++    ]),
++)
++
++filegroup(
++    name = "stublibs",
++    srcs = glob(["stublibs/**/*"]),
++)

@@ -1,0 +1,6 @@
+# otherlibs/dynlink/META.  Generated from META.in by configure.
+
+version = "5.2.0"
+description = "Dynamic loading and linking of object files"
+archive(byte) = "dynlink.cma"
+archive(native) = "dynlink.cmxa"
