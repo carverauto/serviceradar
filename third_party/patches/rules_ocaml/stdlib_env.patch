@@ -1,52 +1,160 @@
 diff --git a/build/_rules/ocaml_binary.bzl b/build/_rules/ocaml_binary.bzl
-index 92c7543..19ef573 100644
+index 92c7543..ac16322 100644
 --- a/build/_rules/ocaml_binary.bzl
 +++ b/build/_rules/ocaml_binary.bzl
-@@ -82,6 +82,14 @@ the difference between '/' and ':' in such labels):
+@@ -82,6 +82,18 @@ the difference between '/' and ':' in such labels):
          _allowlist_function_transition = attr.label(
              default = "@bazel_tools//tools/allowlists/function_transition_allowlist"
          ),
 +        _sdk_stdlib = attr.label(
-+            default = "@@tools_opam++opam+opam.ocamlsdk//stdlib/lib:all_files",
++            default = Label("@@tools_opam++opam+opam.ocamlsdk//stdlib/lib:all_files"),
 +            allow_files = True,
 +        ),
 +        _sdk_stublibs = attr.label(
-+            default = "@@tools_opam++opam+opam.stublibs//lib:stublibs",
++            default = Label("@@tools_opam++opam+opam.stublibs//lib:stublibs"),
++            allow_files = True,
++        ),
++        _stdlib_std_exit = attr.label(
++            default = "@rules_ocaml//third_party/std_exit:source",
 +            allow_files = True,
 +        ),
      ),
      provides = [OcamlExecutableMarker], # OCamlModuleProvider],
      ## this is not an ns archive, and it does not use ns ConfigState,
 diff --git a/build/_rules/ocaml_binary/impl_binary.bzl b/build/_rules/ocaml_binary/impl_binary.bzl
-index 189ad55..d7ceb26 100644
+index 189ad55..e7a57ca 100644
 --- a/build/_rules/ocaml_binary/impl_binary.bzl
 +++ b/build/_rules/ocaml_binary/impl_binary.bzl
-@@ -761,6 +761,8 @@ def impl_binary(ctx): # , mode, tc, tool, tool_args):
+@@ -739,6 +739,92 @@ def impl_binary(ctx): # , mode, tc, tool, tool_args):
+         # print("CLI LINKDEP %s" % dep)
+         args.add(dep)
+ 
++    path = "/usr/bin:/usr"  ## FIXME
++    if hasattr(ctx.attr, "diff_cmd"):
++        if ctx.attr.diff_cmd:
++            path = path + ":" + ctx.file.diff_cmd.dirname
++
++    compiler_dir = paths.dirname(tc.compiler.path)
++    stdlib_cmxa_file = None
++    for lib in ctx.files._sdk_stdlib:
++        if lib.basename == "stdlib.cmxa":
++            stdlib_cmxa_file = lib
++            break
++    if stdlib_cmxa_file:
++        stdlib_dir = stdlib_cmxa_file.dirname
++    else:
++        stdlib_dir = paths.normalize(paths.join(compiler_dir, "..", "stdlib", "lib"))
++
++    stublib_dir = None
++    for lib in ctx.files._sdk_stublibs:
++        stublib_dir = lib.dirname
++        break
++    if not stublib_dir:
++        stublib_dir = paths.normalize(paths.join(compiler_dir, "..", "stublibs", "lib"))
++
++    std_exit_ml = None
++    std_exit_mli = None
++    for src in ctx.files._stdlib_std_exit:
++        if src.basename.endswith(".ml"):
++            std_exit_ml = src
++        elif src.basename.endswith(".mli"):
++            std_exit_mli = src
++
++    std_exit_artifacts = []
++    std_exit_cmx = None
++    std_exit_o = None
++    std_exit_cmi = None
++    if std_exit_ml:
++        std_exit_base = "std_exit"
++        std_exit_cmi = ctx.actions.declare_file(std_exit_base + ".cmi")
++        std_exit_cmx = ctx.actions.declare_file(std_exit_base + ".cmx")
++        std_exit_o = ctx.actions.declare_file(std_exit_base + ".o")
++        std_exit_artifacts = [std_exit_cmx, std_exit_o, std_exit_cmi]
++
++        compile_env = {
++            "PATH": path,
++            "OCAMLLIB": stdlib_dir,
++            "CAML_LD_LIBRARY_PATH": stublib_dir,
++        }
++        if getattr(tc, "cc_link_env_vars", None):
++            compile_env.update(tc.cc_link_env_vars)
++
++        if std_exit_mli:
++            ctx.actions.run(
++                executable = tc.compiler,
++                arguments = [
++                    "-I", stdlib_dir,
++                    "-c",
++                    "-o", std_exit_cmi.path,
++                    std_exit_mli.path,
++                ],
++                inputs = [std_exit_mli] + ctx.files._sdk_stdlib,
++                outputs = [std_exit_cmi],
++                env = compile_env,
++                mnemonic = "CompileStdExitInterface",
++            )
++
++        std_exit_base_path = std_exit_o.path[:-2]
++        compile_inputs_ml = [std_exit_ml] + ctx.files._sdk_stdlib + ctx.files._sdk_stublibs
++        if std_exit_mli:
++            compile_inputs_ml.append(std_exit_cmi)
++        outputs_ml = [std_exit_o, std_exit_cmx]
++        if not std_exit_mli:
++            outputs_ml.append(std_exit_cmi)
++        ctx.actions.run(
++            executable = tc.compiler,
++            arguments = [
++                "-I", stdlib_dir,
++                "-c",
++                "-o", std_exit_base_path,
++                std_exit_ml.path,
++            ],
++            inputs = compile_inputs_ml,
++            outputs = outputs_ml,
++            env = compile_env,
++            mnemonic = "CompileStdExitModule",
++        )
++
+     # if hasattr(ctx.attr, "main"):
+     #     for f in ctx.attr.main[0][DefaultInfo].files.to_list():
+     #         args.add(f)
+@@ -747,6 +833,10 @@ def impl_binary(ctx): # , mode, tc, tool, tool_args):
+
+     action_outputs = []
+
++    args.add("-I", stdlib_dir)
++    if std_exit_cmx:
++        args.add("-I", std_exit_cmx.dirname)
++
+     if "-dstartup" in ctx.attr.opts:
+         out_startup = ctx.actions.declare_file(
+             out_bin.basename + ".startup.s")
+@@ -761,6 +851,6 @@ def impl_binary(ctx): # , mode, tc, tool, tool_args):
      args.add("-o", out_bin)
      action_outputs.append(out_bin)
- 
-+    args.add(paths.normalize(paths.join(paths.dirname(tc.compiler.path), "..", "stdlib", "lib", "stdlib.cmxa")))
-+
+
      # if tc.target == "vm":
      #     # FIXME: requires that runtime and stubs files be added to cmd line
      #     # e.g. -lbase_stubs
-@@ -807,6 +809,8 @@ def impl_binary(ctx): # , mode, tc, tool, tool_args):
-         + depsets.deps.afiles
-         + depsets.deps.astructs
-         + [cli_link_depset] # depsets.deps.cli_link_deps
-+        + [depset(ctx.files._sdk_stdlib)]
-+        + [depset(ctx.files._sdk_stublibs)]
+@@ -798,6 +892,9 @@ def impl_binary(ctx): # , mode, tc, tool, tool_args):
+         + oruntime
+         + action_inputs
+         + tc.stublibs
++        + std_exit_artifacts
++        + ctx.files._sdk_stdlib
++        + ctx.files._sdk_stublibs
+         ,
+         transitive =
+         depsets.deps.sigs
+@@ -836,11 +931,11 @@ def impl_binary(ctx): # , mode, tc, tool, tool_args):
+         print("WARNING: unknown rule for executable: %s" % ctx.attr._rule)
+         mnemonic = ctx.attr._rule
  
-         + depsets.codeps.sigs
-         + depsets.codeps.structs
-@@ -840,7 +844,14 @@ def impl_binary(ctx): # , mode, tc, tool, tool_args):
-     if hasattr(ctx.attr, "diff_cmd"):
-         if ctx.attr.diff_cmd:
-             path = path + ":" + ctx.file.diff_cmd.dirname
+-    path = "/usr/bin:/usr"  ## FIXME
+-    if hasattr(ctx.attr, "diff_cmd"):
+-        if ctx.attr.diff_cmd:
+-            path = path + ":" + ctx.file.diff_cmd.dirname
 -    env = {"PATH": path}
-+    compiler_dir = paths.dirname(tc.compiler.path)
-+    stdlib_dir = paths.normalize(paths.join(compiler_dir, "..", "stdlib", "lib"))
-+    stublib_dir = paths.normalize(paths.join(compiler_dir, "..", "stublibs", "lib"))
 +    env = {
 +        "PATH": path,
 +        "OCAMLLIB": stdlib_dir,
@@ -64,18 +172,18 @@ index e680acc..926e0fc 100644
  
          _cmd_line_option = attr.label(default = "@rules_ocaml//cfg/option"),
 +        _sdk_stdlib = attr.label(
-+            default = "@@tools_opam++opam+opam.ocamlsdk//stdlib/lib:all_files",
++            default = Label("@@tools_opam++opam+opam.ocamlsdk//stdlib/lib:all_files"),
 +            allow_files = True,
 +        ),
 +        _sdk_stublibs = attr.label(
-+            default = "@@tools_opam++opam+opam.stublibs//lib:stublibs",
++            default = Label("@@tools_opam++opam+opam.stublibs//lib:stublibs"),
 +            allow_files = True,
 +        ),
      ),
  
      fragments      = ["platform", "cpp"],
 diff --git a/build/_rules/ocaml_module/impl_module.bzl b/build/_rules/ocaml_module/impl_module.bzl
-index ef5c921..8ab20ba 100644
+index ef5c921..afae5c4 100644
 --- a/build/_rules/ocaml_module/impl_module.bzl
 +++ b/build/_rules/ocaml_module/impl_module.bzl
 @@ -977,6 +977,8 @@ def impl_module(ctx): ## , mode, tool, tool_args):
@@ -87,19 +195,30 @@ index ef5c921..8ab20ba 100644
          ## module compilation never depends on cclibs
          # + bottomup_ns_inputs
          + depsets.codeps.sigs
-@@ -995,6 +997,11 @@ def impl_module(ctx): ## , mode, tool, tool_args):
+@@ -995,6 +997,22 @@ def impl_module(ctx): ## , mode, tool, tool_args):
  
      args.add_all(includes, before_each="-I", uniquify = True)
  
 +    compiler_dir = paths.dirname(tc.compiler.path)
-+    stdlib_dir = paths.normalize(paths.join(compiler_dir, "..", "stdlib", "lib"))
-+    stublib_dir = paths.normalize(paths.join(compiler_dir, "..", "stublibs", "lib"))
++    stdlib_dir = None
++    for lib in ctx.files._sdk_stdlib:
++        stdlib_dir = lib.dirname
++        break
++    if not stdlib_dir:
++        stdlib_dir = paths.normalize(paths.join(compiler_dir, "..", "stdlib", "lib"))
++
++    stublib_dir = None
++    for lib in ctx.files._sdk_stublibs:
++        stublib_dir = lib.dirname
++        break
++    if not stublib_dir:
++        stublib_dir = paths.normalize(paths.join(compiler_dir, "..", "stublibs", "lib"))
 +    args.add("-I", stdlib_dir)
 +
      if ctx.attr.open:
          for dep in ctx.attr.open:
              if OCamlModuleProvider in dep:
-@@ -1050,6 +1057,14 @@ def impl_module(ctx): ## , mode, tool, tool_args):
+@@ -1050,10 +1068,19 @@ def impl_module(ctx): ## , mode, tool, tool_args):
  
      ################
      out_sig = ctx.actions.declare_file(ctx.label.name + ".mli")
@@ -114,11 +233,109 @@ index ef5c921..8ab20ba 100644
      ctx.actions.run_shell(
          tools = [tc.compiler],
          arguments = ["-i", args],
-@@ -1078,6 +1093,7 @@ def impl_module(ctx): ## , mode, tool, tool_args):
+         inputs    = action_inputs_depset,
++        env = action_env,
+         outputs = [out_sig],
+         command = " ".join([
+             "{}".format(tc.compiler.path),
+@@ -1077,6 +1104,7 @@ def impl_module(ctx): ## , mode, tool, tool_args):
+         arguments = [args],
          inputs    = action_inputs_depset,
          outputs   = action_outputs,
-         tools = [tc.compiler], # + tool_args,
 +        env = action_env,
+         tools = [tc.compiler], # + tool_args,
          mnemonic = mnemonic,
          progress_message = "{mode} compiling {rule}: {ws}//{pkg}:{tgt}".format(
-             mode = tc.host + ">" + tc.target,
+diff --git a/build/_rules/ocaml_test.bzl b/build/_rules/ocaml_test.bzl
+index 481ccbe..256bcab 100644
+--- a/build/_rules/ocaml_test.bzl
++++ b/build/_rules/ocaml_test.bzl
+@@ -62,6 +62,19 @@ In addition to the [OCaml configurable defaults](#configdefs) that apply to all
+         _rule = attr.string( default = "ocaml_test" ),
+         _tags = attr.string_list( default  = ["ocaml", "test"] ),
+ 
++        _sdk_stdlib = attr.label(
++            default = Label("@@tools_opam++opam+opam.ocamlsdk//stdlib/lib:all_files"),
++            allow_files = True,
++        ),
++        _sdk_stublibs = attr.label(
++            default = Label("@@tools_opam++opam+opam.stublibs//lib:stublibs"),
++            allow_files = True,
++        ),
++        _stdlib_std_exit = attr.label(
++            default = "@rules_ocaml//third_party/std_exit:source",
++            allow_files = True,
++        ),
++
+         cc_libs = attr.label_list(),
+ 
+         ## https://bazel.build/docs/integrating-with-rules-cc
+diff --git a/third_party/std_exit/BUILD.bazel b/third_party/std_exit/BUILD.bazel
+new file mode 100644
+index 0000000..f16ec28
+--- /dev/null
++++ b/third_party/std_exit/BUILD.bazel
+@@ -0,0 +1,14 @@
++package(default_visibility = ["//visibility:public"])
++
++filegroup(
++    name = "source",
++    srcs = [
++        "std_exit.ml",
++        "std_exit.mli",
++    ],
++)
++
++filegroup(
++    name = "all_files",
++    srcs = glob(["std_exit.*"]),
++)
+diff --git a/third_party/std_exit/std_exit.ml b/third_party/std_exit/std_exit.ml
+new file mode 100644
+index 0000000..1b97652
+--- /dev/null
++++ b/third_party/std_exit/std_exit.ml
+@@ -0,0 +1,18 @@
++(**************************************************************************)
++(*                                                                        *)
++(*                                 OCaml                                  *)
++(*                                                                        *)
++(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
++(*                                                                        *)
++(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
++(*     en Automatique.                                                    *)
++(*                                                                        *)
++(*   All rights reserved.  This file is distributed under the terms of    *)
++(*   the GNU Lesser General Public License version 2.1, with the          *)
++(*   special exception on linking described in the file LICENSE.          *)
++(*                                                                        *)
++(**************************************************************************)
++
++(* Ensure that [at_exit] functions are called at the end of every program *)
++
++let _ = do_at_exit()
+diff --git a/third_party/std_exit/std_exit.mli b/third_party/std_exit/std_exit.mli
+new file mode 100644
+index 0000000..213871a
+--- /dev/null
++++ b/third_party/std_exit/std_exit.mli
+@@ -0,0 +1,19 @@
++(**************************************************************************)
++(*                                                                        *)
++(*                                 OCaml                                  *)
++(*                                                                        *)
++(*             Sebastien Hinderer, projet Cambium, INRIA Paris            *)
++(*                                                                        *)
++(*   Copyright 2022 Institut National de Recherche en Informatique et     *)
++(*     en Automatique.                                                    *)
++(*                                                                        *)
++(*   All rights reserved.  This file is distributed under the terms of    *)
++(*   the GNU Lesser General Public License version 2.1, with the          *)
++(*   special exception on linking described in the file LICENSE.          *)
++(*                                                                        *)
++(**************************************************************************)
++
++(* Interface to the std_exit module *)
++
++(* This interface file is empty because the std_exit module only runs
++   code during initialisation and does not export any function *)
