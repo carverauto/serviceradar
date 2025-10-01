@@ -1,0 +1,3 @@
+#!/bin/sh
+
+opam switch export --cli=2.1 --root ./.opam --switch obazl --freeze --full $1

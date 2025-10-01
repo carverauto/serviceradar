@@ -1,0 +1,7 @@
+(lang dune 3.12)
+(name cppo)
+(sections (lib .) (bin ../../bin) (doc ../../doc/cppo))
+(files
+ (lib (META dune-package opam))
+ (bin (cppo))
+ (doc (LICENSE.md README.md)))
