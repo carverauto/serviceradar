@@ -337,6 +337,13 @@ go_deps.module_override(
     patches = ["//third_party/patches:go-spiffe-go-proto.patch"],
     path = "github.com/spiffe/go-spiffe/v2",
 )
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    directives = [
+        "gazelle:proto disable",
+    ],
+    path = "google.golang.org/protobuf",
+)
 go_deps.from_file(go_mod = "//:go.mod")
 
 # NOTE: `bazel mod tidy` populates the list of repositories below based on the
