@@ -132,7 +132,7 @@ bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
 bazel_dep(name = "tools_opam", version = "1.0.0.beta.1")
 git_override(
     module_name = "tools_opam",
-    commit = "c75fdadc3cbf6230bdffe50426e24e2b38941c13",
+    commit = "bdf1a9f1f6f8ff16a331a28174a687969b533e0d",
     remote = "https://github.com/carverauto/tools_opam.git",
 )
 
