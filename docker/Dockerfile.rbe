@@ -11,11 +11,11 @@ USER root
 # Install build dependencies
 RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
     && dnf config-manager --enable ol9_codeready_builder \
-    && dnf module enable -y gcc-toolset:13 \
+    # By installing the main 'gcc-toolset-13' package, dnf automatically
+    # handles the module enablement and pulls in all necessary components.
     && dnf install -y \
+        gcc-toolset-13 \
         ca-certificates \
-        gcc \
-        gcc-c++ \
         git \
         gmp-devel \
         libev-devel \
@@ -33,9 +33,6 @@ RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
         which \
         zlib-devel \
         libzstd-devel \
-        gcc-toolset-13-gcc \
-        gcc-toolset-13-gcc-c++ \
-        gcc-toolset-13-binutils \
     && dnf clean all
 
 # Prefer modern GCC toolchain required by Abseil/Rules_pkg builds.
