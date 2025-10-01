@@ -17,6 +17,8 @@ pub struct EbpfProfiler {
     ring_buf: Option<AsyncFd<RingBuf<MapData>>>,
 }
 
+const EBPF_PROGRAM: &[u8] = include_bytes_aligned!(concat!(env!("SERVICERADAR_PROFILER_EBPF")));
+
 impl EbpfProfiler {
     pub fn new() -> Result<Self> {
         debug!("Creating eBPF profiler");
@@ -32,10 +34,7 @@ impl EbpfProfiler {
         let target_pid = pid as u32;
 
         // Load the eBPF program bytes
-        #[cfg(debug_assertions)]
-        let prog_bytes = include_bytes_aligned!("../../target/bpfel-unknown-none/debug/profiler");
-        #[cfg(not(debug_assertions))]
-        let prog_bytes = include_bytes_aligned!("../../target/bpfel-unknown-none/release/profiler");
+        let prog_bytes = EBPF_PROGRAM;
 
         // Use EbpfLoader to set the global PID before loading
         let mut bpf = EbpfLoader::new()

@@ -7,10 +7,6 @@ members = [
     "cmd/otel",
     "cmd/poller-ng",
     "cmd/consumers/zen",
-]
-
-# Exclude independent crates that should not be treated as workspace members
-exclude = [
     "cmd/checkers/rperf-client",
     "cmd/checkers/sysmon",
 ]
