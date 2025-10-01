@@ -344,6 +344,18 @@ go_deps.gazelle_override(
     ],
     path = "google.golang.org/protobuf",
 )
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    path = "github.com/pmezard/go-difflib",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    path = "github.com/nats-io/nats.go",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    path = "github.com/markbates/goth",
+)
 go_deps.from_file(go_mod = "//:go.mod")
 
 # NOTE: `bazel mod tidy` populates the list of repositories below based on the
