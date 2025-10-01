@@ -117,25 +117,23 @@ use_repo(xcode_configure_ext, "local_config_xcode")
 archive_override(
     module_name = "rules_ocaml",
     integrity = "sha256-cqe6FvPE/z5HAKzO/MN5YcbPMaqtzQS6kmRtAPBBySc=",
-    strip_prefix = "rules_ocaml-3.0.0.beta.1",
     patch_strip = 1,
     patches = [
         "//third_party/patches/rules_ocaml:platform_exec_properties.patch",
         "//third_party/patches/rules_ocaml:stdlib_env.patch",
     ],
+    strip_prefix = "rules_ocaml-3.0.0.beta.1",
     urls = [
         "https://github.com/obazl/rules_ocaml/archive/refs/tags/3.0.0.beta.1.tar.gz",
     ],
 )
 
 bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
-
 bazel_dep(name = "tools_opam", version = "1.0.0.beta.1")
-
 git_override(
     module_name = "tools_opam",
+    commit = "c75fdadc3cbf6230bdffe50426e24e2b38941c13",
     remote = "https://github.com/carverauto/tools_opam.git",
-    commit = "bf1eabe538eb692d7482d528bb60fbaa8838bc1f",
 )
 
 archive_override(
