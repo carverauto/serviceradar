@@ -19,10 +19,10 @@ load("@rules_ocaml//build:providers.bzl",
 def _in_transition_impl(settings, attr):
 
     if attr.tc == "ocamlopt":
-        host = "@rules_ocaml//platform:ocamlopt.opt"
+        host = "//docker:ocaml_rbe_ocamlopt"
         tgt  = "@rules_ocaml//platform:sys>any"
     elif attr.tc == "ocamlc":
-        host = "@rules_ocaml//platform:ocamlc.opt"
+        host = "//docker:ocaml_rbe_ocamlc"
         tgt  = "@rules_ocaml//platform:vm>any"
     else:
         fail("Illegal tc: {}; options are ocamlopt, ocamlc".format(attr.tc))

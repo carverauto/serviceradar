@@ -90,6 +90,22 @@ buildbuddy_toolchain_ext = use_extension(
     "@io_buildbuddy_buildbuddy_toolchain//:extensions.bzl",
     "buildbuddy",
 )
+
+# Align BuildBuddy's generated GCC toolchain with the Oracle Linux based
+# executor image so Bazel treats the system headers as hermetic.
+buildbuddy_toolchain_ext.gcc_toolchain(
+    extra_cxx_builtin_include_directories = [
+        "/usr/include/c++/11/x86_64-redhat-linux",
+        "/usr/include/x86_64-redhat-linux",
+        "/usr/lib/gcc/x86_64-redhat-linux/11/include",
+        "/usr/lib/gcc/x86_64-redhat-linux/11/include-fixed",
+    ],
+)
+
+# Make the generated platform default to our custom executor image.
+buildbuddy_toolchain_ext.platform(
+    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.3",
+)
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
 xcode_configure_ext = use_extension(
@@ -101,6 +117,11 @@ use_repo(xcode_configure_ext, "local_config_xcode")
 archive_override(
     module_name = "rules_ocaml",
     integrity = "sha256-cqe6FvPE/z5HAKzO/MN5YcbPMaqtzQS6kmRtAPBBySc=",
+    patch_strip = 1,
+    patches = [
+        "//third_party/patches/rules_ocaml:platform_exec_properties.patch",
+        "//third_party/patches/rules_ocaml:stdlib_env.patch",
+    ],
     strip_prefix = "rules_ocaml-3.0.0.beta.1",
     urls = [
         "https://github.com/obazl/rules_ocaml/archive/refs/tags/3.0.0.beta.1.tar.gz",
@@ -226,13 +247,17 @@ opam.deps(
     ocaml_version = "5.2.0",
     opam_version = "2.4.1",
     pkgs = {
+        "cmdliner": "1.3.0",
         "dune": "3.20.2",
+        "fmt": "0.11.0",
         "menhir": "20250903",
+        "js_of_ocaml-compiler": "6.2.0",
         "yojson": "2.2.2",
         "ppx_deriving": "6.0.3",
         "lwt_ppx": "5.9.1",
         "proton": "1.0.17",
         "lwt": "5.9.2",
+        "logs": "0.9.0",
         "tls": "2.0.2",
         "tls-lwt": "2.0.2",
         "mirage-crypto": "1.2.0",
@@ -259,11 +284,15 @@ opam_dev.deps(
 
 use_repo(
     opam,
+    "opam.cmdliner",
     "opam.dream",
     "opam.dune",
+    "opam.fmt",
     "opam.h2",
     "opam.h2-lwt",
     "opam.h2-lwt-unix",
+    "opam.js_of_ocaml-compiler",
+    "opam.logs",
     "opam.lwt",
     "opam.lwt_ppx",
     "opam.menhir",
@@ -285,6 +314,8 @@ register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")
 
 register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")
 
+register_toolchains("//toolchains:rbe_cc_toolchain")
+
 # --- Go toolchain & dependency management ----------------------------------
 
 go_sdk = use_extension(
@@ -305,6 +336,25 @@ go_deps.module_override(
     patch_strip = 1,
     patches = ["//third_party/patches:go-spiffe-go-proto.patch"],
     path = "github.com/spiffe/go-spiffe/v2",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    directives = [
+        "gazelle:proto disable",
+    ],
+    path = "google.golang.org/protobuf",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    path = "github.com/pmezard/go-difflib",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    path = "github.com/nats-io/nats.go",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    path = "github.com/markbates/goth",
 )
 go_deps.from_file(go_mod = "//:go.mod")
 

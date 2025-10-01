@@ -1,0 +1,93 @@
+# syntax=docker/dockerfile:1
+
+# Custom RBE executor image based on Oracle Linux 9 with OCaml/opam preinstalled
+# This image provides a hermetic build environment for BuildBuddy RBE with RPM building support
+
+FROM --platform=linux/amd64 ocaml/opam:oraclelinux-9-ocaml-5.2
+SHELL ["/bin/bash", "-lc"]
+
+USER root
+
+# Install build dependencies
+RUN dnf install -y oracle-epel-release-el9 \
+    && dnf config-manager --enable ol9_codeready_builder \
+    && dnf install -y \
+        ca-certificates \
+        gcc \
+        gcc-c++ \
+        git \
+        gmp-devel \
+        libev-devel \
+        lz4-devel \
+        make \
+        m4 \
+        perl \
+        openssl-devel \
+        patch \
+        pkgconfig \
+        rpm-build \
+        rsync \
+        tar \
+        unzip \
+        which \
+        zlib-devel \
+        libzstd-devel \
+    && dnf clean all
+
+# Provide Debian-compatible library locations required by prebuilt OCaml toolchains.
+RUN mkdir -p /lib/x86_64-linux-gnu \
+    && ln -sf /usr/lib64/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6 \
+    && ln -sf /usr/lib64/libm.so.6 /lib/x86_64-linux-gnu/libm.so.6 \
+    && ln -sf /usr/lib64/libpthread.so.0 /lib/x86_64-linux-gnu/libpthread.so.0 \
+    && ln -sf /usr/lib64/libdl.so.2 /lib/x86_64-linux-gnu/libdl.so.2
+
+# Install opam 2.4.1
+RUN curl -fsSL https://github.com/ocaml/opam/releases/download/2.4.1/opam-2.4.1-x86_64-linux \
+        -o /usr/local/bin/opam \
+    && chmod +x /usr/local/bin/opam \
+    && opam --version
+
+# Set up opam environment as opam user
+USER opam
+ENV OPAMYES=1 \
+    OPAMCONFIRMLEVEL=unsafe-yes
+
+# Update opam repository and install required OCaml packages
+RUN opam update \
+    && git -C /home/opam/opam-repository fetch --depth=1 origin master \
+    && git -C /home/opam/opam-repository reset --hard origin/master \
+    && opam update \
+    && opam remove -y mirage-crypto mirage-crypto-rng mirage-crypto-rng-lwt tls tls-lwt x509 || true
+
+RUN eval $(opam env) \
+    && opam install -y \
+        dune \
+        menhir \
+        yojson \
+        ppx_deriving \
+        lwt \
+        lwt_ppx \
+        dream.1.0.0~alpha7 \
+    && opam clean -a -c
+
+# Switch back to root for final setup
+USER root
+
+# Set up work directory with proper permissions
+RUN mkdir -p /workspace && chown -R opam:opam /workspace
+
+# Ensure opam environment is available
+RUN echo 'eval $(opam env)' >> /etc/profile.d/opam.sh
+
+# Provide compatibility symlinks for ocamlsdk toolchain which expects the
+# standard library under ~/.local/share/obazl.
+RUN install -d /root/.local/share/obazl/opam/2.4.1/root/5.2.0/lib \
+    && ln -sfr /home/opam/.opam/5.2/lib/ocaml /root/.local/share/obazl/opam/2.4.1/root/5.2.0/lib/ocaml \
+    && install -d /home/opam/.local/share/obazl/opam/2.4.1/root/5.2.0/lib \
+    && ln -sfr /home/opam/.opam/5.2/lib/ocaml /home/opam/.local/share/obazl/opam/2.4.1/root/5.2.0/lib/ocaml
+
+# Default to root user for RBE execution
+USER root
+WORKDIR /workspace
+
+# Important: Do not set ENTRYPOINT or CMD as BuildBuddy will provide commands

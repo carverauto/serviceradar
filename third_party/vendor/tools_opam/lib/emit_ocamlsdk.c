@@ -166,11 +166,21 @@ void _symlink_ocaml_stdlib(UT_string *stdlib_srcdir, char *tgtdir)
     while ((direntry = readdir(d)) != NULL) {
         if ((direntry->d_type==DT_REG)
             || (direntry->d_type==DT_LNK)) {
-            if (strncmp("stdlib", direntry->d_name, 6) != 0) {
-                if (strncmp("camlinternal",
-                            direntry->d_name, 12) != 0) {
-                    continue;
-                }
+            // Include stdlib, camlinternal, std_exit, and lib*.a files (runtime)
+            bool is_stdlib = (strncmp("stdlib", direntry->d_name, 6) == 0);
+            bool is_camlinternal = (strncmp("camlinternal", direntry->d_name, 12) == 0);
+            bool is_std_exit = (strncmp("std_exit", direntry->d_name, 8) == 0);
+
+            // Check for lib*.a files (runtime libraries)
+            size_t len = strlen(direntry->d_name);
+            bool is_runtime_lib = (strncmp("lib", direntry->d_name, 3) == 0) &&
+                                  (len > 3) &&
+                                  (direntry->d_name[len - 2] == '.') &&
+                                  (direntry->d_name[len - 1] == 'a');
+
+            if (!is_stdlib && !is_camlinternal && !is_std_exit && !is_runtime_lib) {
+                // Skip files that don't match any pattern
+                continue;
             }
             utstring_renew(src);
             utstring_printf(src, "%s/%s",

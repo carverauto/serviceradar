@@ -2,8 +2,8 @@
 def _dbg_out_transition_impl(settings, attr):
 
     ## force bytecode target, dbg build
-    host = "@rules_ocaml//platform:ocamlc.opt"
-    tgt  = "@rules_ocaml//platform:ocamlc.opt"
+    host = "//docker:ocaml_rbe_ocamlc"
+    tgt  = "//docker:ocaml_rbe_ocamlc"
 
     return {
         "@rules_ocaml//toolchain": "ocamlc",

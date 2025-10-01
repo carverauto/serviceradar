@@ -109,12 +109,18 @@ LOCAL void emit_bazel_cc_imports(FILE* ostream,
         if ((direntry->d_type==DT_REG)
             || (direntry->d_type==DT_LNK)) {
             if (fnmatch("lib*stubs.a", direntry->d_name, 0) == 0) {
-                fprintf(ostream, "cc_import(\n");
-                fprintf(ostream, "    name           = \"_%s\",\n",
-                        direntry->d_name);
-                fprintf(ostream, "    static_library = \"%s\",\n",
-                        direntry->d_name);
-                fprintf(ostream, ")\n");
+                // Check if file is empty before generating cc_import
+                char filepath[PATH_MAX];
+                snprintf(filepath, sizeof(filepath), "%s/%s", dname, direntry->d_name);
+                struct stat st;
+                if (stat(filepath, &st) == 0 && st.st_size > 0) {
+                    fprintf(ostream, "cc_import(\n");
+                    fprintf(ostream, "    name           = \"_%s\",\n",
+                            direntry->d_name);
+                    fprintf(ostream, "    static_library = \"%s\",\n",
+                            direntry->d_name);
+                    fprintf(ostream, ")\n");
+                }
             } else {
                 if (fnmatch("*stubs.so", direntry->d_name, 0) == 0)
                     {
@@ -210,10 +216,16 @@ LOCAL void emit_bazel_stublibs_attr(FILE* ostream,
         if ((direntry->d_type==DT_REG)
             || (direntry->d_type==DT_LNK)) {
             if (fnmatch("lib*stubs.a", direntry->d_name, 0) == 0) {
-                name_len = strlen(direntry->d_name);
-                memcpy(strbuf, direntry->d_name, 128);
-                strbuf[name_len] = '\0';
-                utarray_push_back(cc_stubs, &sbuf);
+                // Check if file is empty before adding to cc_deps
+                char filepath[PATH_MAX];
+                snprintf(filepath, sizeof(filepath), "%s/%s", utstring_body(dname), direntry->d_name);
+                struct stat st;
+                if (stat(filepath, &st) == 0 && st.st_size > 0) {
+                    name_len = strlen(direntry->d_name);
+                    memcpy(strbuf, direntry->d_name, 128);
+                    strbuf[name_len] = '\0';
+                    utarray_push_back(cc_stubs, &sbuf);
+                }
 
             } else {
                 if (fnmatch("*stubs.so", direntry->d_name, 0) == 0)

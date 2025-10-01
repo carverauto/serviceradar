@@ -142,9 +142,15 @@ npm_link_tailwindcss_animate_store(
     link_alias = "tailwindcss-animate",
 )
 
+genrule(
+    name = "next_env_d_ts",
+    outs = ["next-env.d.ts"],
+    cmd = "printf '%s\\n' \\\n+        '/// <reference types=\"next\" />' \\\n+        '/// <reference types=\"next/image-types/global\" />' \\\n+        '' \\\n+        '// NOTE: This file should not be edited' \\\n+        '// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.' \\\n+        > $@",
+    visibility = ["//visibility:public"],
+)
+
 WEB_TS_SRCS = glob(
     [
-        "next-env.d.ts",
         "next.config.bazel.d.ts",
         # Ensure the Next.js Bazel config is available to tsc in remote sandboxes.
         "next.config.bazel.mjs",
@@ -170,7 +176,7 @@ WEB_TS_SRCS = glob(
 
 ts_project(
     name = "typecheck",
-    srcs = WEB_TS_SRCS,
+    srcs = WEB_TS_SRCS + [":next_env_d_ts"],
     tsconfig = "tsconfig.json",
     deps = [
         ":node_modules",
@@ -197,8 +203,9 @@ ts_project(
 
 js_binary(
     name = "next_js_binary",
-    entry_point = "node_modules/next/dist/bin/next",
+    entry_point = "next.cli.js",
     data = [
+        "next.cli.js",
         ":node_modules",
         ":node_modules/next",
         ":node_modules/react",
@@ -215,7 +222,6 @@ js_binary(
         ":node_modules/xlsx",
         ":node_modules/tailwindcss-animate",
     ],
-    copy_data_to_bin = False,
     visibility = ["//visibility:public"],
 )
 
@@ -235,9 +241,7 @@ NEXT_APP_SRCS = glob(
 nextjs_standalone_build(
     name = "standalone_app",
     config = "next.config.bazel.mjs",
-    srcs = NEXT_APP_SRCS + [
-        "next-env.d.ts",
-    ],
+    srcs = NEXT_APP_SRCS + [":next_env_d_ts"],
     next_js_binary = ":next_js_binary",
     visibility = ["//visibility:public"],
     data = [

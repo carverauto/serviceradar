@@ -225,3 +225,4 @@ dune-workspace
 .bazelrc.local
 .bazelrc.remote
 .bazel_output/
+third_party/ocaml_stdlib/
