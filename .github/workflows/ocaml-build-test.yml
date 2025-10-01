@@ -19,16 +19,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Use OCaml 5.3
+      - name: Use OCaml 5.2
         uses: ocaml/setup-ocaml@v3
         with:
-          ocaml-compiler: 5.3
+          ocaml-compiler: 5.2.0
           dune-cache: true
-          allow-prerelease-opam: true
           opam-depext: true
-
-      - name: Pin Dream to latest git (OCaml 5.3)
-        run: opam pin add -y dream git+https://github.com/aantron/dream.git
 
       - name: Install dependencies (with tests)
         working-directory: ocaml
