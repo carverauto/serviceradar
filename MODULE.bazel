@@ -129,12 +129,13 @@ archive_override(
 )
 
 bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
-bazel_dep(name = "tools_opam", version = "1.0.0.beta.1")
-git_override(
+
+local_path_override(
     module_name = "tools_opam",
-    commit = "bdf1a9f1f6f8ff16a331a28174a687969b533e0d",
-    remote = "https://github.com/carverauto/tools_opam.git",
+    path = "third_party/vendor/tools_opam",
 )
+
+bazel_dep(name = "tools_opam", version = "1.0.0.beta.1")
 
 archive_override(
     module_name = "obazl_tools_cc",

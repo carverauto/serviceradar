@@ -1,0 +1,15 @@
+# exports_files(
+#     glob(["**/*.BUILD"])
+# )
+
+filegroup(
+    name = "ocamlsdk",
+    srcs = glob(["*.c"]),
+    visibility = ["//lib:__pkg__"],
+)
+
+filegroup(
+    name = "buildfiles",
+    srcs = glob(["*.BUILD"]),
+    visibility = ["//lib:__pkg__"],
+)
