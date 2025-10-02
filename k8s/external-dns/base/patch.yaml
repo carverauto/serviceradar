@@ -1,0 +1,16 @@
+spec:
+  template:
+    spec:
+      containers:
+      - name: external-dns
+        args:
+        - --source=service
+        - --source=ingress
+        - --domain-filter=carverauto.dev
+        - --provider=cloudflare
+        - --cloudflare-dns-records-per-page=5000
+        - --log-level=trace
+        - --policy=sync
+        - --request-timeout=30s
+        - --min-event-sync-interval=5s
+        - --events
