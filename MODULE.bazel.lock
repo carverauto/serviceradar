@@ -1087,11 +1087,40 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "anfgzQokiHri4FJRiW4KvwSfiR7ComgkDZBoR/2HI1I=",
-        "usagesDigest": "/O1PwnnkqSBmI9Oe08ZYYqjM4IS8JR+/9rjgzVTNDaQ=",
+        "usagesDigest": "lCNSaNTA0ABVYaR+hIIeSpeokPmnqQ73RyRQlzkd2eI=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
         "generatedRepoSpecs": {
+          "ubuntu_jammy_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/ubuntu",
+              "identifier": "sha256:a1af69f6c9bc3657289d23abff8ee360d2417d6cf69719e287822443dca3dc57",
+              "platform": "linux/amd64",
+              "target_name": "ubuntu_jammy_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "ubuntu_jammy": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "ubuntu_jammy",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/ubuntu",
+              "identifier": "sha256:a1af69f6c9bc3657289d23abff8ee360d2417d6cf69719e287822443dca3dc57",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@ubuntu_jammy_linux_amd64"
+              },
+              "bzlmod_repository": "ubuntu_jammy",
+              "reproducible": true
+            }
+          },
           "oci_crane_darwin_amd64": {
             "repoRuleId": "@@rules_oci+//oci:repositories.bzl%crane_repositories",
             "attributes": {
@@ -1207,7 +1236,10 @@
           }
         },
         "moduleExtensionMetadata": {
-          "explicitRootModuleDirectDeps": [],
+          "explicitRootModuleDirectDeps": [
+            "ubuntu_jammy",
+            "ubuntu_jammy_linux_amd64"
+          ],
           "explicitRootModuleDirectDevDeps": [],
           "useAllRepos": "NO",
           "reproducible": false
