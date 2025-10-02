@@ -1087,7 +1087,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "anfgzQokiHri4FJRiW4KvwSfiR7ComgkDZBoR/2HI1I=",
-        "usagesDigest": "DZsSpkafNZIFggjWGt4KLz6+f0Q/B18qqe5QarxJr+Y=",
+        "usagesDigest": "uPCHNTq1LlWQ1aXWnygN+xrFauSJqoQtBKf6OSE7q+c=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -1266,6 +1266,122 @@
               "reproducible": true
             }
           },
+          "serviceradar_srql_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/serviceradar-srql",
+              "identifier": "sha256:c125090188f1cb0ad08b1a72ee34140e6b64fb6bf9cd49dace5d45d4cff3b09f",
+              "platform": "linux/amd64",
+              "target_name": "serviceradar_srql_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "serviceradar_srql": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "serviceradar_srql",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/serviceradar-srql",
+              "identifier": "sha256:c125090188f1cb0ad08b1a72ee34140e6b64fb6bf9cd49dace5d45d4cff3b09f",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@serviceradar_srql_linux_amd64"
+              },
+              "bzlmod_repository": "serviceradar_srql",
+              "reproducible": true
+            }
+          },
+          "serviceradar_cert_generator_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/serviceradar-cert-generator",
+              "identifier": "sha256:882587dffa59b709fc11c3ed5d304ef8af1c281c943cca19fda7af263e9707ea",
+              "platform": "linux/amd64",
+              "target_name": "serviceradar_cert_generator_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "serviceradar_cert_generator": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "serviceradar_cert_generator",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/serviceradar-cert-generator",
+              "identifier": "sha256:882587dffa59b709fc11c3ed5d304ef8af1c281c943cca19fda7af263e9707ea",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@serviceradar_cert_generator_linux_amd64"
+              },
+              "bzlmod_repository": "serviceradar_cert_generator",
+              "reproducible": true
+            }
+          },
+          "serviceradar_tools_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/serviceradar-tools",
+              "identifier": "sha256:c9b4e23ec638e3b2582477d11ca977b76c3c4297b42a64177628067f15a6fb82",
+              "platform": "linux/amd64",
+              "target_name": "serviceradar_tools_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "serviceradar_tools": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "serviceradar_tools",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/serviceradar-tools",
+              "identifier": "sha256:c9b4e23ec638e3b2582477d11ca977b76c3c4297b42a64177628067f15a6fb82",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@serviceradar_tools_linux_amd64"
+              },
+              "bzlmod_repository": "serviceradar_tools",
+              "reproducible": true
+            }
+          },
+          "serviceradar_proton_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/serviceradar-proton",
+              "identifier": "sha256:e26cf79d2c28b091b31bc1e7d1f3da9a6268c03d6f4c7a4fd3314b9ef2a99842",
+              "platform": "linux/amd64",
+              "target_name": "serviceradar_proton_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "serviceradar_proton": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "serviceradar_proton",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/serviceradar-proton",
+              "identifier": "sha256:e26cf79d2c28b091b31bc1e7d1f3da9a6268c03d6f4c7a4fd3314b9ef2a99842",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@serviceradar_proton_linux_amd64"
+              },
+              "bzlmod_repository": "serviceradar_proton",
+              "reproducible": true
+            }
+          },
           "oci_crane_darwin_amd64": {
             "repoRuleId": "@@rules_oci+//oci:repositories.bzl%crane_repositories",
             "attributes": {
@@ -1393,7 +1509,15 @@
             "node_20_alpine",
             "node_20_alpine_linux_amd64",
             "nginx_alpine",
-            "nginx_alpine_linux_amd64"
+            "nginx_alpine_linux_amd64",
+            "serviceradar_srql",
+            "serviceradar_srql_linux_amd64",
+            "serviceradar_cert_generator",
+            "serviceradar_cert_generator_linux_amd64",
+            "serviceradar_tools",
+            "serviceradar_tools_linux_amd64",
+            "serviceradar_proton",
+            "serviceradar_proton_linux_amd64"
           ],
           "explicitRootModuleDirectDevDeps": [],
           "useAllRepos": "NO",

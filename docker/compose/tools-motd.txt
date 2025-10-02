@@ -1,0 +1,36 @@
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          ServiceRadar Debug Tools                           ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  🔧 DEBUGGING COMMANDS:                                                      ║
+║    test-connectivity    - Test all service connectivity                     ║
+║    nats-js-status      - Show NATS JetStream status                        ║
+║    test-grpc           - Health check all gRPC services                    ║
+║                                                                              ║
+║  📡 NATS ALIASES:                                                            ║
+║    nats-info           - Show NATS server information                       ║
+║    nats-streams        - List all JetStream streams                         ║
+║    nats-events         - Show events stream details                         ║
+║    nats-kv             - Show KV store stream details                       ║
+║                                                                              ║
+║  🔌 gRPC ALIASES:                                                            ║
+║    grpc-core           - Connect to core gRPC (add method after)            ║
+║    grpc-agent          - Connect to agent gRPC                              ║
+║    grpc-mapper         - Connect to mapper gRPC                             ║
+║    grpc-trapd          - Connect to trapd gRPC                              ║
+║                                                                              ║
+║  🏃 QUICK TESTS:                                                             ║
+║    nc-nats             - Test NATS TCP connectivity                         ║
+║    ping-nats           - Ping NATS server                                   ║
+║    sr-devices          - List devices via ServiceRadar CLI                  ║
+║                                                                              ║
+║  📁 CERT LOCATIONS:                                                          ║
+║    /etc/serviceradar/certs/root.pem       - Root CA                         ║
+║    /etc/serviceradar/certs/client.pem     - Client certificate              ║
+║    /etc/serviceradar/certs/client-key.pem - Client private key              ║
+║                                                                              ║
+║  🎯 NATS CONTEXT: Configured for serviceradar-nats:4222 with mTLS           ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+

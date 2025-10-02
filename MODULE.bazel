@@ -111,66 +111,106 @@ use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 oci_ext = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 oci_ext.pull(
     name = "ubuntu_jammy",
-    image = "ubuntu:22.04",
     digest = "sha256:a1af69f6c9bc3657289d23abff8ee360d2417d6cf69719e287822443dca3dc57",
+    image = "ubuntu:22.04",
     platforms = [
         "linux/amd64",
     ],
 )
 oci_ext.pull(
     name = "alpine_3_20",
-    image = "alpine:3.20",
     digest = "sha256:f25ebd2af60b9de8e26e5100fe6f493beb81bff010f27e84f223ad19886a78f0",
+    image = "alpine:3.20",
     platforms = [
         "linux/amd64",
     ],
 )
 oci_ext.pull(
     name = "ubuntu_noble",
-    image = "ubuntu:24.04",
     digest = "sha256:985be7c735afdf6f18aaa122c23f87d989c30bba4e9aa24c8278912aac339a8d",
+    image = "ubuntu:24.04",
     platforms = [
         "linux/amd64",
     ],
 )
 oci_ext.pull(
     name = "debian_bookworm_slim",
-    image = "debian:bookworm-slim",
     digest = "sha256:48fa1e32d5ad897f7748b4b67d1ffb9e2ec46f4129f037afa3456a99f937203a",
+    image = "debian:bookworm-slim",
     platforms = [
         "linux/amd64",
     ],
 )
 oci_ext.pull(
     name = "node_20_alpine",
-    image = "node:20-alpine",
     digest = "sha256:6a91081a440be0b57336fbc4ee87f3dab1a2fd6f80cdb355dcf960e13bda3b59",
+    image = "node:20-alpine",
     platforms = [
         "linux/amd64",
     ],
 )
 oci_ext.pull(
     name = "nginx_alpine",
-    image = "nginx:alpine",
     digest = "sha256:60e48a050b6408d0c5dd59b98b6e36bf0937a0bbe99304e3e9c0e63b7563443a",
+    image = "nginx:alpine",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "serviceradar_srql",
+    digest = "sha256:c125090188f1cb0ad08b1a72ee34140e6b64fb6bf9cd49dace5d45d4cff3b09f",
+    image = "ghcr.io/carverauto/serviceradar-srql",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "serviceradar_cert_generator",
+    digest = "sha256:882587dffa59b709fc11c3ed5d304ef8af1c281c943cca19fda7af263e9707ea",
+    image = "ghcr.io/carverauto/serviceradar-cert-generator",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "serviceradar_tools",
+    digest = "sha256:c9b4e23ec638e3b2582477d11ca977b76c3c4297b42a64177628067f15a6fb82",
+    image = "ghcr.io/carverauto/serviceradar-tools",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "serviceradar_proton",
+    digest = "sha256:e26cf79d2c28b091b31bc1e7d1f3da9a6268c03d6f4c7a4fd3314b9ef2a99842",
+    image = "ghcr.io/carverauto/serviceradar-proton",
     platforms = [
         "linux/amd64",
     ],
 )
 use_repo(
     oci_ext,
-    "ubuntu_jammy",
-    "ubuntu_jammy_linux_amd64",
     "alpine_3_20",
     "alpine_3_20_linux_amd64",
-    "ubuntu_noble",
-    "ubuntu_noble_linux_amd64",
     "debian_bookworm_slim",
     "debian_bookworm_slim_linux_amd64",
-    "node_20_alpine",
-    "node_20_alpine_linux_amd64",
     "nginx_alpine",
     "nginx_alpine_linux_amd64",
+    "node_20_alpine",
+    "node_20_alpine_linux_amd64",
+    "serviceradar_cert_generator",
+    "serviceradar_cert_generator_linux_amd64",
+    "serviceradar_proton",
+    "serviceradar_proton_linux_amd64",
+    "serviceradar_srql",
+    "serviceradar_srql_linux_amd64",
+    "serviceradar_tools",
+    "serviceradar_tools_linux_amd64",
+    "ubuntu_jammy",
+    "ubuntu_jammy_linux_amd64",
+    "ubuntu_noble",
+    "ubuntu_noble_linux_amd64",
 )
 
 xcode_configure_ext = use_extension(
@@ -677,38 +717,38 @@ http_file = use_repo_rule(
 
 http_file(
     name = "jq_linux_amd64",
+    executable = True,
+    sha256 = "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5",
     urls = [
         "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64",
     ],
-    sha256 = "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5",
-    executable = True,
 )
 
 http_file(
     name = "jq_linux_arm64",
+    executable = True,
+    sha256 = "4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5",
     urls = [
         "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64",
     ],
-    sha256 = "4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5",
-    executable = True,
 )
 
 http_file(
     name = "curl_linux_amd64",
+    executable = True,
+    sha256 = "d18aa1f4e03b50b649491ca2c401cd8c5e89e72be91ff758952ad2ab5a83135d",
     urls = [
         "https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-amd64",
     ],
-    sha256 = "d18aa1f4e03b50b649491ca2c401cd8c5e89e72be91ff758952ad2ab5a83135d",
-    executable = True,
 )
 
 http_file(
     name = "curl_linux_arm64",
+    executable = True,
+    sha256 = "1b050abd1669f9a2ac29b34eb022cdeafb271dce5a4fb57d8ef8fadff6d7be1f",
     urls = [
         "https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-aarch64",
     ],
-    sha256 = "1b050abd1669f9a2ac29b34eb022cdeafb271dce5a4fb57d8ef8fadff6d7be1f",
-    executable = True,
 )
 
 http_archive = use_repo_rule(
@@ -718,14 +758,26 @@ http_archive = use_repo_rule(
 
 http_archive(
     name = "grpcurl_linux_amd64",
-    urls = [
-        "https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz",
-    ],
-    sha256 = "a422d1e8ad854a305c0dd53f2f2053da242211d3d1810e7addb40a041e309516",
-    strip_prefix = "",
     build_file_content = """
 exports_files(["grpcurl"])
 """,
+    sha256 = "a422d1e8ad854a305c0dd53f2f2053da242211d3d1810e7addb40a041e309516",
+    strip_prefix = "",
+    urls = [
+        "https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "natscli_linux_amd64",
+    build_file_content = """
+exports_files(["nats"])
+""",
+    sha256 = "7c94cbee0295a828615fb4e0ffa730c3939fc3139db085a4e158592abb4bd5f0",
+    strip_prefix = "nats-0.1.3-linux-amd64",
+    urls = [
+        "https://github.com/nats-io/natscli/releases/download/v0.1.3/nats-0.1.3-linux-amd64.zip",
+    ],
 )
 
 http_archive(

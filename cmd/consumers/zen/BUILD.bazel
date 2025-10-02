@@ -55,3 +55,9 @@ rust_test(
         "testdata/syslog_settings.json",
     ],
 )
+
+exports_files([
+    "data/cef_severity.json",
+    "data/passthrough.json",
+    "data/strip_full_message.json",
+])

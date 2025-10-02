@@ -18,3 +18,27 @@ exports_files(
 )
 
 exports_files(["nginx.conf.template"])
+
+genrule(
+    name = "proton_config_docker",
+    srcs = ["//packaging/proton/config:config.yaml"],
+    outs = ["proton-config.yaml"],
+    cmd = """
+        sed -e 's|listen_host: 127.0.0.1|listen_host: 0.0.0.0|' \
+            -e 's|certificateFile: /etc/proton-server/root.pem|certificateFile: /etc/proton-server/certs/proton.pem|' \
+            -e 's|privateKeyFile: /etc/proton-server/core-key.pem|privateKeyFile: /etc/proton-server/certs/proton-key.pem|' \
+            -e 's|caConfig: /etc/proton-server/ca-cert.pem|caConfig: /etc/proton-server/certs/root.pem|' \
+            $< > $@
+    """,
+    visibility = ["//visibility:public"],
+)
+
+exports_files([
+    "entrypoint-srql.sh",
+    "proton-openssl.xml",
+    "proton-limits.conf",
+    "proton-sysctl.conf",
+    "tools-profile.sh",
+    "tools-entrypoint.sh",
+    "tools-motd.txt",
+])
