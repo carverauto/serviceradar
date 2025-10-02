@@ -1,4 +1,5 @@
 load("@bazel_gazelle//:def.bzl", "gazelle")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 # gazelle:prefix github.com/carverauto/serviceradar
 # gazelle:exclude .gomodcache
@@ -36,5 +37,11 @@ platform(
 alias(
     name = "cwalk",
     actual = "@@cwalk+//:cwalk",
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "buildbuddy_setup_docker_auth",
+    srcs = ["buildbuddy_setup_docker_auth.sh"],
     visibility = ["//visibility:public"],
 )
