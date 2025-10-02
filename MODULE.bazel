@@ -104,7 +104,7 @@ buildbuddy_toolchain_ext.gcc_toolchain(
 
 # Make the generated platform default to our custom executor image.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.3",
+    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.5",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
@@ -445,6 +445,7 @@ write_file(
         "RULES_RUST_OPENSSL_SRC_DIR": "$(location @rust_crates__openssl-src-300.5.2-3.5.2//:openssl_src_readme)",
     },
     crate = "openssl-sys",
+    repositories = ["rust_crates"],
 )
 crates.annotation(
     additive_build_file_content = """
@@ -474,6 +475,7 @@ filegroup(
     crate = "openssl-src",
     patch_args = ["-p1"],
     patches = ["//third_party/rust_patches:openssl_src_runfiles_patch"],
+    repositories = ["rust_crates"],
 )
 crates.from_cargo(
     name = "rust_crates",
@@ -481,6 +483,27 @@ crates.from_cargo(
     manifests = ["//:Cargo.toml"],
 )
 use_repo(crates, "rust_crates")
+crates.from_cargo(
+    name = "rust_crates_rperf_checker",
+    cargo_lockfile = "//cmd/checkers/rperf-client:Cargo.lock",
+    manifests = ["//cmd/checkers/rperf-client:Cargo.toml"],
+)
+crates.from_cargo(
+    name = "rust_crates_sysmon",
+    cargo_lockfile = "//cmd/checkers/sysmon:Cargo.lock",
+    manifests = ["//cmd/checkers/sysmon:Cargo.toml"],
+)
+crates.from_cargo(
+    name = "rust_crates_profiler",
+    cargo_lockfile = "//cmd/ebpf/profiler/profiler:Cargo.lock",
+    manifests = ["//cmd/ebpf/profiler:Cargo.toml"],
+)
+use_repo(
+    crates,
+    "rust_crates_profiler",
+    "rust_crates_rperf_checker",
+    "rust_crates_sysmon",
+)
 
 # --- Node.js toolchain -------------------------------------------------------
 NODE_VERSION = "18.20.4"

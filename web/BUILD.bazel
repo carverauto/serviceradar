@@ -62,6 +62,7 @@ load(
     "nextjs_standalone_server",
 )
 load("@aspect_rules_js//js:defs.bzl", "js_binary")
+load("@aspect_bazel_lib//lib:copy_directory.bzl", "copy_directory")
 
 npm_link_all_packages(name = "node_modules")
 
@@ -277,5 +278,12 @@ nextjs_standalone_server(
         ":node_modules/react",
         ":node_modules/react-dom",
     ],
+    visibility = ["//visibility:public"],
+)
+
+copy_directory(
+    name = "public_tree",
+    src = "public",
+    out = "public_bundle",
     visibility = ["//visibility:public"],
 )

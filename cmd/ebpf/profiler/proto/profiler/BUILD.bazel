@@ -2,6 +2,8 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
 load("@rules_proto//proto:defs.bzl", "proto_library")
 
+exports_files(["profiler.proto"])
+
 proto_library(
     name = "profiler_proto",
     srcs = ["profiler.proto"],
