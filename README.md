@@ -78,7 +78,7 @@ For detailed installation options including component-specific deployments and o
 
 ## Architecture Overview
 
-ServiceRadar uses a distributed architecture with four main components:
+ServiceRadar (SR) uses a distributed architecture with four main components:
 
 1. **Agent** - Runs on monitored hosts, provides service status through gRPC
 2. **Poller** - Coordinates monitoring activities, can run anywhere in your network
