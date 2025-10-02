@@ -3,9 +3,18 @@
 package(default_visibility = ["//visibility:public"])
 
 exports_files(
-    glob(["entrypoint-*.sh"]),
+    glob(
+        [
+            "entrypoint-*.sh",
+            "*.docker.json",
+            "*.docker.toml",
+            "*.sh",
+            "*.ts",
+            "*.rs",
+        ],
+        allow_empty = True,
+        exclude = ["Dockerfile.*"],
+    ),
 )
 
-exports_files([
-    "nginx.conf.template",
-])
+exports_files(["nginx.conf.template"])

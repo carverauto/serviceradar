@@ -1087,7 +1087,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "anfgzQokiHri4FJRiW4KvwSfiR7ComgkDZBoR/2HI1I=",
-        "usagesDigest": "lCNSaNTA0ABVYaR+hIIeSpeokPmnqQ73RyRQlzkd2eI=",
+        "usagesDigest": "DZsSpkafNZIFggjWGt4KLz6+f0Q/B18qqe5QarxJr+Y=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -1118,6 +1118,151 @@
                 "@@platforms//cpu:x86_64": "@ubuntu_jammy_linux_amd64"
               },
               "bzlmod_repository": "ubuntu_jammy",
+              "reproducible": true
+            }
+          },
+          "alpine_3_20_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/alpine",
+              "identifier": "sha256:f25ebd2af60b9de8e26e5100fe6f493beb81bff010f27e84f223ad19886a78f0",
+              "platform": "linux/amd64",
+              "target_name": "alpine_3_20_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "alpine_3_20": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "alpine_3_20",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/alpine",
+              "identifier": "sha256:f25ebd2af60b9de8e26e5100fe6f493beb81bff010f27e84f223ad19886a78f0",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@alpine_3_20_linux_amd64"
+              },
+              "bzlmod_repository": "alpine_3_20",
+              "reproducible": true
+            }
+          },
+          "ubuntu_noble_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/ubuntu",
+              "identifier": "sha256:985be7c735afdf6f18aaa122c23f87d989c30bba4e9aa24c8278912aac339a8d",
+              "platform": "linux/amd64",
+              "target_name": "ubuntu_noble_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "ubuntu_noble": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "ubuntu_noble",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/ubuntu",
+              "identifier": "sha256:985be7c735afdf6f18aaa122c23f87d989c30bba4e9aa24c8278912aac339a8d",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@ubuntu_noble_linux_amd64"
+              },
+              "bzlmod_repository": "ubuntu_noble",
+              "reproducible": true
+            }
+          },
+          "debian_bookworm_slim_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/debian",
+              "identifier": "sha256:48fa1e32d5ad897f7748b4b67d1ffb9e2ec46f4129f037afa3456a99f937203a",
+              "platform": "linux/amd64",
+              "target_name": "debian_bookworm_slim_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "debian_bookworm_slim": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "debian_bookworm_slim",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/debian",
+              "identifier": "sha256:48fa1e32d5ad897f7748b4b67d1ffb9e2ec46f4129f037afa3456a99f937203a",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@debian_bookworm_slim_linux_amd64"
+              },
+              "bzlmod_repository": "debian_bookworm_slim",
+              "reproducible": true
+            }
+          },
+          "node_20_alpine_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/node",
+              "identifier": "sha256:6a91081a440be0b57336fbc4ee87f3dab1a2fd6f80cdb355dcf960e13bda3b59",
+              "platform": "linux/amd64",
+              "target_name": "node_20_alpine_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "node_20_alpine": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "node_20_alpine",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/node",
+              "identifier": "sha256:6a91081a440be0b57336fbc4ee87f3dab1a2fd6f80cdb355dcf960e13bda3b59",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@node_20_alpine_linux_amd64"
+              },
+              "bzlmod_repository": "node_20_alpine",
+              "reproducible": true
+            }
+          },
+          "nginx_alpine_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/nginx",
+              "identifier": "sha256:60e48a050b6408d0c5dd59b98b6e36bf0937a0bbe99304e3e9c0e63b7563443a",
+              "platform": "linux/amd64",
+              "target_name": "nginx_alpine_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "nginx_alpine": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "nginx_alpine",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "library/nginx",
+              "identifier": "sha256:60e48a050b6408d0c5dd59b98b6e36bf0937a0bbe99304e3e9c0e63b7563443a",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@nginx_alpine_linux_amd64"
+              },
+              "bzlmod_repository": "nginx_alpine",
               "reproducible": true
             }
           },
@@ -1238,7 +1383,17 @@
         "moduleExtensionMetadata": {
           "explicitRootModuleDirectDeps": [
             "ubuntu_jammy",
-            "ubuntu_jammy_linux_amd64"
+            "ubuntu_jammy_linux_amd64",
+            "alpine_3_20",
+            "alpine_3_20_linux_amd64",
+            "ubuntu_noble",
+            "ubuntu_noble_linux_amd64",
+            "debian_bookworm_slim",
+            "debian_bookworm_slim_linux_amd64",
+            "node_20_alpine",
+            "node_20_alpine_linux_amd64",
+            "nginx_alpine",
+            "nginx_alpine_linux_amd64"
           ],
           "explicitRootModuleDirectDevDeps": [],
           "useAllRepos": "NO",
