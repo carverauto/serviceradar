@@ -41,7 +41,7 @@ def _attrs_from(entry):
 def _normalize_file_entry(entry):
     src = entry.get("src") or entry.get("target")
     dest = entry.get("dest")
-    allow_empty = False
+    strip_prefix = entry.get("strip_prefix")
     if src == None or dest == None:
         fail("File entry must include src and dest: %s" % entry)
     prefix, basename = _split_dest(dest)
@@ -51,19 +51,28 @@ def _normalize_file_entry(entry):
         "prefix": prefix,
         "basename": basename,
         "attributes": attributes,
+        "strip_prefix": strip_prefix,
     }
 
 
 def _emit_pkg_files(name, suffix, entries):
     targets = []
     for idx, entry in enumerate(entries):
-        pkg_files(
-            name = "{}_{}{}".format(name, suffix, idx),
-            srcs = [entry["src"]],
-            prefix = entry["prefix"],
-            renames = {entry["src"]: entry["basename"]},
-                        attributes = entry["attributes"],
-        )
+        kwargs = {
+            "name": "{}_{}{}".format(name, suffix, idx),
+            "srcs": [entry["src"]],
+            "prefix": entry["prefix"],
+            "attributes": entry["attributes"],
+        }
+
+        if entry.get("strip_prefix"):
+            kwargs["strip_prefix"] = entry["strip_prefix"]
+
+        basename = entry["basename"]
+        if basename and not entry.get("strip_prefix"):
+            kwargs["renames"] = {entry["src"]: basename}
+
+        pkg_files(**kwargs)
         targets.append(":{}_{}{}".format(name, suffix, idx))
     return targets
 

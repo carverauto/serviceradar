@@ -720,10 +720,22 @@ PACKAGES = {
                 "rpm_filetag": "config(noreplace)",
             },
             {
-                "src": "nginx/serviceradar-web.conf",
+                "src": "config/nginx.conf",
                 "dest": "/etc/nginx/conf.d/serviceradar-web.conf",
                 "mode": "0644",
                 "rpm_filetag": "config(noreplace)",
+            },
+            {
+                "src": "//packaging/web:bundle_root",
+                "dest": "/usr/local/share/serviceradar-web/",
+            },
+            {
+                "src": "//packaging/web:bundle_next",
+                "dest": "/usr/local/share/serviceradar-web/.next/",
+            },
+            {
+                "src": "//web:public_tree",
+                "dest": "/usr/local/share/serviceradar-web/public/",
             },
         ],
         "systemd": {
