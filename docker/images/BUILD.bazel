@@ -441,3 +441,465 @@ oci_load(
     image = ":rperf_client_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-rperf-client:local"],
 )
+
+pkg_tar(
+    name = "poller_layer_amd64",
+    files = {
+        "//cmd/poller:poller": "usr/local/bin/serviceradar-poller",
+        "//docker/compose:poller.docker.json": "etc/serviceradar/poller.json",
+    },
+    modes = {
+        "usr/local/bin/serviceradar-poller": "0755",
+        "etc/serviceradar/poller.json": "0644",
+    },
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "var/log/serviceradar",
+        "var/lib/serviceradar",
+    ],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "poller_image_amd64",
+    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
+    tars = [":common_tools_amd64", ":poller_layer_amd64"],
+    cmd = ["/usr/local/bin/serviceradar-poller", "-config", "/etc/serviceradar/poller.json"],
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    },
+    workdir = "/var/lib/serviceradar",
+    exposed_ports = ["50053/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-poller",
+    },
+)
+
+oci_load(
+    name = "poller_image_amd64_tar",
+    image = ":poller_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-poller:local"],
+)
+
+pkg_tar(
+    name = "sync_layer_amd64",
+    files = {
+        "//cmd/sync:sync": "usr/local/bin/serviceradar-sync",
+        "//docker/compose:entrypoint-sync.sh": "usr/local/bin/entrypoint.sh",
+        "//docker/compose:sync.docker.json": "etc/serviceradar/sync.json",
+    },
+    modes = {
+        "usr/local/bin/serviceradar-sync": "0755",
+        "usr/local/bin/entrypoint.sh": "0755",
+        "etc/serviceradar/sync.json": "0644",
+    },
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "var/log/serviceradar",
+        "var/lib/serviceradar",
+    ],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "sync_image_amd64",
+    base = "@ubuntu_jammy_linux_amd64//:ubuntu_jammy_linux_amd64",
+    tars = [":common_tools_amd64", ":sync_layer_amd64"],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    cmd = ["serviceradar-sync"],
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    },
+    workdir = "/var/lib/serviceradar",
+    exposed_ports = ["50058/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-sync",
+    },
+)
+
+oci_load(
+    name = "sync_image_amd64_tar",
+    image = ":sync_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-sync:local"],
+)
+
+pkg_tar(
+    name = "zen_layer_amd64",
+    files = {
+        "//cmd/consumers/zen:zen": "usr/local/bin/serviceradar-zen",
+        "//cmd/consumers/zen:zen_put_rule": "usr/local/bin/zen-put-rule",
+        "//docker/compose:entrypoint-zen.sh": "usr/local/bin/entrypoint.sh",
+        "//docker/compose:zen-install-rules.sh": "usr/local/bin/zen-install-rules.sh",
+        "//docker/compose:zen.docker.json": "etc/serviceradar/zen.json",
+        "//cmd/consumers/zen:data/cef_severity.json": "var/lib/serviceradar/data/cef_severity.json",
+        "//cmd/consumers/zen:data/passthrough.json": "var/lib/serviceradar/data/passthrough.json",
+        "//cmd/consumers/zen:data/strip_full_message.json": "var/lib/serviceradar/data/strip_full_message.json",
+    },
+    modes = {
+        "usr/local/bin/serviceradar-zen": "0755",
+        "usr/local/bin/zen-put-rule": "0755",
+        "usr/local/bin/entrypoint.sh": "0755",
+        "usr/local/bin/zen-install-rules.sh": "0755",
+        "etc/serviceradar/zen.json": "0644",
+        "var/lib/serviceradar/data/cef_severity.json": "0644",
+        "var/lib/serviceradar/data/passthrough.json": "0644",
+        "var/lib/serviceradar/data/strip_full_message.json": "0644",
+    },
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "var/log/serviceradar",
+        "var/lib/serviceradar",
+    ],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "zen_image_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    tars = [":common_tools_amd64", ":zen_layer_amd64"],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    cmd = ["serviceradar-zen"],
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    },
+    workdir = "/var/lib/serviceradar",
+    exposed_ports = ["50040/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-zen",
+    },
+)
+
+oci_load(
+    name = "zen_image_amd64_tar",
+    image = ":zen_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-zen:local"],
+)
+
+pkg_tar(
+    name = "config_updater_layer_amd64",
+    files = {
+        "//cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//docker/compose:update-config.sh": "usr/local/bin/update-config.sh",
+    },
+    modes = {
+        "usr/local/bin/serviceradar-cli": "0755",
+        "usr/local/bin/update-config.sh": "0755",
+    },
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "etc/serviceradar/config",
+    ],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "config_updater_image_amd64",
+    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
+    tars = [":common_tools_amd64", ":config_updater_layer_amd64"],
+    cmd = ["/usr/local/bin/update-config.sh"],
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    },
+    workdir = "/",
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-config-updater",
+    },
+)
+
+oci_load(
+    name = "config_updater_image_amd64_tar",
+    image = ":config_updater_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-config-updater:local"],
+)
+
+pkg_tar(
+    name = "nginx_layer_amd64",
+    files = {
+        "//docker/compose:nginx.conf.template": "etc/nginx/templates/default.conf.template",
+        "//docker/compose:entrypoint-nginx.sh": "docker-entrypoint.d/50-serviceradar.sh",
+    },
+    modes = {
+        "etc/nginx/templates/default.conf.template": "0644",
+        "docker-entrypoint.d/50-serviceradar.sh": "0755",
+    },
+    package_dir = "/",
+)
+
+oci_image(
+    name = "nginx_image_amd64",
+    base = "@nginx_alpine_linux_amd64//:nginx_alpine_linux_amd64",
+    tars = [":nginx_layer_amd64"],
+    exposed_ports = ["80/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-nginx",
+    },
+)
+
+oci_load(
+    name = "nginx_image_amd64_tar",
+    image = ":nginx_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-nginx:local"],
+)
+
+pkg_tar(
+    name = "web_app_tree_amd64",
+    srcs = ["//pkg/core/api/web:files"],
+    package_dir = "/app",
+)
+
+pkg_tar(
+    name = "web_public_root_amd64",
+    srcs = ["//web:public_tree"],
+    package_dir = "/app/public",
+)
+
+pkg_tar(
+    name = "web_public_standalone_amd64",
+    srcs = ["//web:public_tree"],
+    package_dir = "/app/.next/standalone/public",
+)
+
+pkg_tar(
+    name = "web_layer_amd64",
+    files = {
+        "//docker/compose:entrypoint-web.sh": "usr/local/bin/entrypoint.sh",
+        "//docker/compose:web.docker.json": "etc/serviceradar/web.json",
+    },
+    modes = {
+        "usr/local/bin/entrypoint.sh": "0755",
+        "etc/serviceradar/web.json": "0644",
+    },
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "etc/serviceradar/config",
+    ],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "web_image_amd64",
+    base = "@node_20_alpine_linux_amd64//:node_20_alpine_linux_amd64",
+    tars = [
+        ":common_tools_amd64",
+        ":web_app_tree_amd64",
+        ":web_public_root_amd64",
+        ":web_public_standalone_amd64",
+        ":web_layer_amd64",
+    ],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    cmd = ["node", ".next/standalone/server.js"],
+    env = {
+        "HOSTNAME": "0.0.0.0",
+        "NODE_ENV": "production",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PORT": "3000",
+    },
+    workdir = "/app",
+    exposed_ports = ["3000/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-web",
+    },
+)
+
+oci_load(
+    name = "web_image_amd64_tar",
+    image = ":web_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-web:local"],
+)
+
+pkg_tar(
+    name = "srql_layer_amd64",
+    files = {
+        "//ocaml/srql:srql_server": "usr/local/bin/serviceradar-srql",
+        "//docker/compose:entrypoint-srql.sh": "usr/local/bin/entrypoint.sh",
+    },
+    modes = {
+        "usr/local/bin/serviceradar-srql": "0755",
+        "usr/local/bin/entrypoint.sh": "0755",
+    },
+    empty_dirs = [
+        "etc/serviceradar/certs",
+    ],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "srql_image_amd64",
+    base = "@serviceradar_srql_linux_amd64//:serviceradar_srql_linux_amd64",
+    tars = [":srql_layer_amd64"],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    cmd = ["serviceradar-srql"],
+    env = {
+        "HOSTNAME": "0.0.0.0",
+        "PORT": "8080",
+    },
+    workdir = "/app",
+    exposed_ports = ["8080/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-srql",
+    },
+)
+
+oci_load(
+    name = "srql_image_amd64_tar",
+    image = ":srql_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-srql:local"],
+)
+
+pkg_tar(
+    name = "kong_config_layer_amd64",
+    files = {
+        "//cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+    },
+    modes = {
+        "usr/local/bin/serviceradar-cli": "0755",
+    },
+    package_dir = "/",
+)
+
+oci_image(
+    name = "kong_config_image_amd64",
+    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
+    tars = [":kong_config_layer_amd64"],
+    entrypoint = ["/usr/local/bin/serviceradar-cli"],
+    cmd = ["render-kong"],
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    },
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-kong-config",
+    },
+)
+
+oci_load(
+    name = "kong_config_image_amd64_tar",
+    image = ":kong_config_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-kong-config:local"],
+)
+
+pkg_tar(
+    name = "cert_generator_layer_amd64",
+    files = {
+        "//docker/compose:entrypoint-certs.sh": "entrypoint-certs.sh",
+    },
+    modes = {
+        "entrypoint-certs.sh": "0755",
+    },
+    empty_dirs = ["certs"],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "cert_generator_image_amd64",
+    base = "@serviceradar_cert_generator_linux_amd64//:serviceradar_cert_generator_linux_amd64",
+    tars = [":cert_generator_layer_amd64"],
+    entrypoint = ["/bin/sh", "/entrypoint-certs.sh"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-cert-generator",
+    },
+)
+
+oci_load(
+    name = "cert_generator_image_amd64_tar",
+    image = ":cert_generator_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-cert-generator:local"],
+)
+
+pkg_tar(
+    name = "tools_layer_amd64",
+    files = {
+        "//cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
+        "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
+        "//docker/compose:tools-motd.txt": "etc/motd",
+        "@natscli_linux_amd64//:nats": "usr/local/bin/nats",
+    },
+    modes = {
+        "usr/local/bin/serviceradar-cli": "0755",
+        "usr/local/bin/entrypoint.sh": "0755",
+        "etc/profile.d/serviceradar-tools.sh": "0644",
+        "etc/motd": "0644",
+        "usr/local/bin/nats": "0755",
+    },
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "etc/serviceradar/nats",
+        "root/.config/nats/context",
+    ],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "tools_image_amd64",
+    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
+    tars = [":tools_layer_amd64", ":common_tools_amd64"],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    cmd = ["/bin/sh"],
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    },
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-tools",
+    },
+)
+
+oci_load(
+    name = "tools_image_amd64_tar",
+    image = ":tools_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-tools:local"],
+)
+
+pkg_tar(
+    name = "proton_layer_amd64",
+    files = {
+        "//docker/compose:proton_config_docker": "etc/proton-server/config.yaml",
+        "//packaging/proton/config:users.yaml": "etc/proton-server/users.yaml",
+        "//packaging/proton/config:grok-patterns": "etc/proton-server/grok-patterns",
+        "//docker/compose:proton-openssl.xml": "etc/proton-server/config.d/openssl.xml",
+        "//docker/compose:proton-limits.conf": "etc/security/limits.d/serviceradar.conf",
+        "//docker/compose:proton-sysctl.conf": "etc/sysctl.d/99-clickhouse.conf",
+        "//docker/compose:proton-init.sh": "usr/local/bin/proton-init.sh",
+    },
+    modes = {
+        "etc/proton-server/config.yaml": "0644",
+        "etc/proton-server/users.yaml": "0644",
+        "etc/proton-server/grok-patterns": "0644",
+        "etc/proton-server/config.d/openssl.xml": "0644",
+        "etc/security/limits.d/serviceradar.conf": "0644",
+        "etc/sysctl.d/99-clickhouse.conf": "0644",
+        "usr/local/bin/proton-init.sh": "0755",
+    },
+    symlinks = {
+        "etc/proton-server/server.crt": "certs/proton.pem",
+        "etc/proton-server/server.key": "certs/proton-key.pem",
+    },
+    empty_dirs = [
+        "etc/proton-server/certs",
+        "etc/proton-server/config.d",
+        "etc/proton-server/users.d",
+        "etc/serviceradar/certs",
+        "etc/serviceradar/credentials",
+        "var/lib/proton",
+        "var/log/proton-server",
+        "var/run/proton-server",
+    ],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "proton_image_amd64",
+    base = "@serviceradar_proton_linux_amd64//:serviceradar_proton_linux_amd64",
+    tars = [":common_tools_amd64", ":proton_layer_amd64"],
+    entrypoint = ["/usr/local/bin/proton-init.sh"],
+    workdir = "/var/lib/proton",
+    exposed_ports = ["8123/tcp", "8463/tcp", "8443/tcp", "9440/tcp", "7587/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-proton",
+    },
+)
+
+oci_load(
+    name = "proton_image_amd64_tar",
+    image = ":proton_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-proton:local"],
+)
