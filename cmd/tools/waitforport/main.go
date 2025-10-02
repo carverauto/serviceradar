@@ -17,10 +17,15 @@ func main() {
 		timeout  = flag.Duration("timeout", 2*time.Second, "per-attempt dial timeout")
 		quiet    = flag.Bool("quiet", false, "suppress progress logs")
 	)
+
 	flag.Parse()
 
 	if *host == "" || *port <= 0 {
-		fmt.Fprintln(os.Stderr, "wait-for-port: both --host and --port must be provided")
+		_, err := fmt.Fprintln(os.Stderr, "wait-for-port: both --host and --port must be provided")
+		if err != nil {
+			return
+		}
+
 		os.Exit(2)
 	}
 
@@ -29,20 +34,34 @@ func main() {
 
 	for attempt := 1; maxAttempts == 0 || attempt <= maxAttempts; attempt++ {
 		if !*quiet {
-			fmt.Fprintf(os.Stderr, "wait-for-port: attempting %s (attempt %d)\n", addr, attempt)
+			_, err := fmt.Fprintf(os.Stderr, "wait-for-port: attempting %s (attempt %d)\n", addr, attempt)
+			if err != nil {
+				return
+			}
 		}
 
 		conn, err := net.DialTimeout("tcp", addr, *timeout)
 		if err == nil {
-			conn.Close()
-			if !*quiet {
-				fmt.Fprintf(os.Stderr, "wait-for-port: %s is available\n", addr)
+			err := conn.Close()
+			if err != nil {
+				return
 			}
+
+			if !*quiet {
+				_, err := fmt.Fprintf(os.Stderr, "wait-for-port: %s is available\n", addr)
+				if err != nil {
+					return
+				}
+			}
+
 			return
 		}
 
 		if maxAttempts != 0 && attempt >= maxAttempts {
-			fmt.Fprintf(os.Stderr, "wait-for-port: timed out waiting for %s after %d attempts: %v\n", addr, maxAttempts, err)
+			_, err := fmt.Fprintf(os.Stderr, "wait-for-port: timed out waiting for %s after %d attempts: %v\n", addr, maxAttempts, err)
+			if err != nil {
+				return
+			}
 			os.Exit(1)
 		}
 
