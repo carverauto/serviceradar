@@ -488,19 +488,19 @@ PACKAGES = {
                 "mode": "0755",
             },
             {
-                "src": "config/config.yaml",
+                "src": "//packaging/proton/config:config.yaml",
                 "dest": "/usr/share/serviceradar-proton/config.yaml",
                 "mode": "0644",
                 "rpm_filetag": "config(noreplace)",
             },
             {
-                "src": "config/users.yaml",
+                "src": "//packaging/proton/config:users.yaml",
                 "dest": "/usr/share/serviceradar-proton/users.yaml",
                 "mode": "0644",
                 "rpm_filetag": "config(noreplace)",
             },
             {
-                "src": "config/grok-patterns",
+                "src": "//packaging/proton/config:grok-patterns",
                 "dest": "/usr/share/serviceradar-proton/grok-patterns",
                 "mode": "0644",
                 "rpm_filetag": "config(noreplace)",
