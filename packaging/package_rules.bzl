@@ -34,7 +34,13 @@ def _attrs_from(entry):
     for key, attr_key in [("mode", "mode"), ("owner", "user"), ("group", "group"), ("rpm_filetag", "rpm_filetag")]:
         value = entry.get(key)
         if value:
-            attrs[attr_key] = (value,) if attr_key == "rpm_filetag" else value
+            if attr_key == "rpm_filetag":
+                if type(value) in (type(()), type([])):
+                    # rules_pkg expects a single string; allow tuple/list inputs for convenience.
+                    value = " ".join(value)
+                if not value.startswith("%"):
+                    value = "%" + value
+            attrs[attr_key] = value
     return pkg_attributes(**attrs) if attrs else None
 
 
@@ -122,7 +128,7 @@ def serviceradar_package(
         summary = None,
         version_file = "//:VERSION",
         rpm_tags = ["no-remote-exec"],
-        rpm_disable_remote = True,
+        rpm_disable_remote = False,
     ):
     """Define .deb and .rpm packaging targets for a component."""
 
