@@ -34,7 +34,7 @@ passthrough=[]
 file = ["notify", "glob"]
 
 [build-dependencies.capnpc]
-version = "0.10"
+version = "0.21"
 optional = true
 
 [build-dependencies]
