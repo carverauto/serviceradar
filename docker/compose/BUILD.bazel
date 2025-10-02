@@ -1,0 +1,11 @@
+"""Expose compose assets to Bazel targets."""
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(
+    glob(["entrypoint-*.sh"]),
+)
+
+exports_files([
+    "nginx.conf.template",
+])

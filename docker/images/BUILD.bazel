@@ -1,0 +1,51 @@
+"""Bazel-native OCI images."""
+
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
+
+package(default_visibility = ["//visibility:public"])
+
+pkg_tar(
+    name = "core_layer_amd64",
+    files = {
+        "//cmd/core:core": "usr/local/bin/serviceradar-core",
+        "//docker/compose:entrypoint-core.sh": "usr/local/bin/entrypoint.sh",
+        "@jq_linux_amd64//file": "usr/local/bin/jq",
+        "@curl_linux_amd64//file": "usr/local/bin/curl",
+    },
+    modes = {
+        "usr/local/bin/serviceradar-core": "0755",
+        "usr/local/bin/entrypoint.sh": "0755",
+        "usr/local/bin/jq": "0755",
+        "usr/local/bin/curl": "0755",
+    },
+    empty_dirs = [
+        "etc/serviceradar",
+        "var/log/serviceradar",
+        "var/lib/serviceradar",
+        "data",
+    ],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "core_image_amd64",
+    base = "@ubuntu_jammy_linux_amd64//:ubuntu_jammy_linux_amd64",
+    tars = [":core_layer_amd64"],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    cmd = ["serviceradar-core"],
+    workdir = "/data",
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    },
+    exposed_ports = ["8090/tcp", "50051/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-core",
+    },
+)
+
+oci_load(
+    name = "core_image_amd64_tar",
+    image = ":core_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-core:local"],
+)

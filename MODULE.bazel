@@ -108,6 +108,21 @@ buildbuddy_toolchain_ext.platform(
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
+oci_ext = use_extension("@rules_oci//oci:extensions.bzl", "oci")
+oci_ext.pull(
+    name = "ubuntu_jammy",
+    image = "ubuntu:22.04",
+    digest = "sha256:a1af69f6c9bc3657289d23abff8ee360d2417d6cf69719e287822443dca3dc57",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+use_repo(
+    oci_ext,
+    "ubuntu_jammy",
+    "ubuntu_jammy_linux_amd64",
+)
+
 xcode_configure_ext = use_extension(
     "@bazel_tools//tools/osx:xcode_configure.bzl",
     "xcode_configure_extension",
@@ -608,6 +623,42 @@ use_repo(rules_ts_ext, "npm_typescript")
 http_file = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_file",
+)
+
+http_file(
+    name = "jq_linux_amd64",
+    urls = [
+        "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64",
+    ],
+    sha256 = "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5",
+    executable = True,
+)
+
+http_file(
+    name = "jq_linux_arm64",
+    urls = [
+        "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64",
+    ],
+    sha256 = "4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5",
+    executable = True,
+)
+
+http_file(
+    name = "curl_linux_amd64",
+    urls = [
+        "https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-amd64",
+    ],
+    sha256 = "d18aa1f4e03b50b649491ca2c401cd8c5e89e72be91ff758952ad2ab5a83135d",
+    executable = True,
+)
+
+http_file(
+    name = "curl_linux_arm64",
+    urls = [
+        "https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-aarch64",
+    ],
+    sha256 = "1b050abd1669f9a2ac29b34eb022cdeafb271dce5a4fb57d8ef8fadff6d7be1f",
+    executable = True,
 )
 
 http_archive = use_repo_rule(
