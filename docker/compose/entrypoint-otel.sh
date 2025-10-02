@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Copyright 2025 Carver Automation Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,17 +16,22 @@
 set -e
 
 # Wait for dependencies to be ready
-if [ -n "$WAIT_FOR_NATS" ]; then
-    NATS_ADDR="${NATS_HOST:-nats}:${NATS_PORT:-4222}"
-    echo "Waiting for NATS service at $NATS_ADDR..."
-    for i in {1..30}; do
-        if nc -z ${NATS_HOST:-nats} ${NATS_PORT:-4222} > /dev/null 2>&1; then
-            echo "NATS service is ready!"
-            break
-        fi
-        echo "Waiting for NATS... ($i/30)"
-        sleep 2
-    done
+if [ -n "${WAIT_FOR_NATS:-}" ]; then
+    NATS_HOST_VALUE="${NATS_HOST:-nats}"
+    NATS_PORT_VALUE="${NATS_PORT:-4222}"
+    echo "Waiting for NATS service at ${NATS_HOST_VALUE}:${NATS_PORT_VALUE}..."
+
+    if wait-for-port \
+        --host "${NATS_HOST_VALUE}" \
+        --port "${NATS_PORT_VALUE}" \
+        --attempts 30 \
+        --interval 2s \
+        --quiet; then
+        echo "NATS service is ready!"
+    else
+        echo "ERROR: Timed out waiting for NATS at ${NATS_HOST_VALUE}:${NATS_PORT_VALUE}" >&2
+        exit 1
+    fi
 fi
 
 # Check if config file exists

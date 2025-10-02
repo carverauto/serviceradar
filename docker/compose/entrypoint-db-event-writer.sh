@@ -16,30 +16,40 @@
 set -e
 
 # Wait for dependencies to be ready
-if [ -n "$WAIT_FOR_NATS" ]; then
-    NATS_ADDR="${NATS_HOST:-nats}:${NATS_PORT:-4222}"
-    echo "Waiting for NATS service at $NATS_ADDR..."
-    for i in {1..30}; do
-        if nc -z ${NATS_HOST:-nats} ${NATS_PORT:-4222} > /dev/null 2>&1; then
-            echo "NATS service is ready!"
-            break
-        fi
-        echo "Waiting for NATS... ($i/30)"
-        sleep 2
-    done
+if [ -n "${WAIT_FOR_NATS:-}" ]; then
+    NATS_HOST_VALUE="${NATS_HOST:-nats}"
+    NATS_PORT_VALUE="${NATS_PORT:-4222}"
+    echo "Waiting for NATS service at ${NATS_HOST_VALUE}:${NATS_PORT_VALUE}..."
+
+    if wait-for-port \
+        --host "${NATS_HOST_VALUE}" \
+        --port "${NATS_PORT_VALUE}" \
+        --attempts 30 \
+        --interval 2s \
+        --quiet; then
+        echo "NATS service is ready!"
+    else
+        echo "ERROR: Timed out waiting for NATS at ${NATS_HOST_VALUE}:${NATS_PORT_VALUE}" >&2
+        exit 1
+    fi
 fi
 
-if [ -n "$WAIT_FOR_PROTON" ]; then
-    PROTON_ADDR="${PROTON_HOST:-proton}:${PROTON_PORT:-9440}"
-    echo "Waiting for Proton database at $PROTON_ADDR..."
-    for i in {1..30}; do
-        if nc -z ${PROTON_HOST:-proton} ${PROTON_PORT:-9440} > /dev/null 2>&1; then
-            echo "Proton database is ready!"
-            break
-        fi
-        echo "Waiting for Proton... ($i/30)"
-        sleep 2
-    done
+if [ -n "${WAIT_FOR_PROTON:-}" ]; then
+    PROTON_HOST_VALUE="${PROTON_HOST:-proton}"
+    PROTON_PORT_VALUE="${PROTON_PORT:-9440}"
+    echo "Waiting for Proton database at ${PROTON_HOST_VALUE}:${PROTON_PORT_VALUE}..."
+
+    if wait-for-port \
+        --host "${PROTON_HOST_VALUE}" \
+        --port "${PROTON_PORT_VALUE}" \
+        --attempts 30 \
+        --interval 2s \
+        --quiet; then
+        echo "Proton database is ready!"
+    else
+        echo "ERROR: Timed out waiting for Proton at ${PROTON_HOST_VALUE}:${PROTON_PORT_VALUE}" >&2
+        exit 1
+    fi
 fi
 
 # Initialize config from template on first run

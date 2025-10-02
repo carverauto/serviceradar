@@ -3,6 +3,18 @@
 
 set -e
 
+random_hex() {
+    # $1: number of bytes to read from urandom
+    dd if=/dev/urandom bs=1 count="$1" 2>/dev/null \
+        | hexdump -v -e '/1 "%02x"'
+}
+
+random_base64() {
+    # $1: number of raw bytes before base64 encoding
+    dd if=/dev/urandom bs=1 count="$1" 2>/dev/null \
+        | base64 | tr -d '\n'
+}
+
 CERT_DIR="/etc/serviceradar/certs"
 CONFIG_DIR="/etc/serviceradar/config"
 CORE_CONFIG="$CONFIG_DIR/core.json"
@@ -19,13 +31,13 @@ cp /config/core.docker.json "$CORE_CONFIG"
 # Generate JWT secret and API key if they don't exist
 if [ ! -f "$CERT_DIR/jwt-secret" ]; then
     echo "Generating JWT secret..."
-    openssl rand -hex 32 > "$CERT_DIR/jwt-secret"
+    random_hex 32 > "$CERT_DIR/jwt-secret"
     echo "✅ Generated JWT secret"
 fi
 
 if [ ! -f "$CERT_DIR/api-key" ]; then
     echo "Generating API key..."
-    openssl rand -hex 32 > "$CERT_DIR/api-key"
+    random_hex 32 > "$CERT_DIR/api-key"
     echo "✅ Generated API key"
 fi
 
@@ -33,7 +45,7 @@ fi
 if [ ! -f "$CERT_DIR/admin-password-hash" ]; then
     echo "Generating admin password bcrypt hash..."
     # Generate a random password
-    ADMIN_PASSWORD=$(openssl rand -base64 12)
+    ADMIN_PASSWORD=$(random_base64 12)
     echo "$ADMIN_PASSWORD" > "$CERT_DIR/admin-password"
     
     # Generate bcrypt hash using serviceradar-cli

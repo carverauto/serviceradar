@@ -16,17 +16,22 @@
 set -e
 
 # Wait for dependencies to be ready
-if [ -n "$WAIT_FOR_OTEL" ]; then
-    OTEL_ADDR="${OTEL_HOST:-otel}:${OTEL_PORT:-4317}"
-    echo "Waiting for OTEL service at $OTEL_ADDR..."
-    for i in {1..30}; do
-        if nc -z ${OTEL_HOST:-otel} ${OTEL_PORT:-4317} > /dev/null 2>&1; then
-            echo "OTEL service is ready!"
-            break
-        fi
-        echo "Waiting for OTEL... ($i/30)"
-        sleep 2
-    done
+if [ -n "${WAIT_FOR_OTEL:-}" ]; then
+    OTEL_HOST_VALUE="${OTEL_HOST:-otel}"
+    OTEL_PORT_VALUE="${OTEL_PORT:-4317}"
+    echo "Waiting for OTEL service at ${OTEL_HOST_VALUE}:${OTEL_PORT_VALUE}..."
+
+    if wait-for-port \
+        --host "${OTEL_HOST_VALUE}" \
+        --port "${OTEL_PORT_VALUE}" \
+        --attempts 30 \
+        --interval 2s \
+        --quiet; then
+        echo "OTEL service is ready!"
+    else
+        echo "ERROR: Timed out waiting for OTEL at ${OTEL_HOST_VALUE}:${OTEL_PORT_VALUE}" >&2
+        exit 1
+    fi
 fi
 
 # Check if config file exists
