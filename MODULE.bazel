@@ -117,10 +117,60 @@ oci_ext.pull(
         "linux/amd64",
     ],
 )
+oci_ext.pull(
+    name = "alpine_3_20",
+    image = "alpine:3.20",
+    digest = "sha256:f25ebd2af60b9de8e26e5100fe6f493beb81bff010f27e84f223ad19886a78f0",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "ubuntu_noble",
+    image = "ubuntu:24.04",
+    digest = "sha256:985be7c735afdf6f18aaa122c23f87d989c30bba4e9aa24c8278912aac339a8d",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "debian_bookworm_slim",
+    image = "debian:bookworm-slim",
+    digest = "sha256:48fa1e32d5ad897f7748b4b67d1ffb9e2ec46f4129f037afa3456a99f937203a",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "node_20_alpine",
+    image = "node:20-alpine",
+    digest = "sha256:6a91081a440be0b57336fbc4ee87f3dab1a2fd6f80cdb355dcf960e13bda3b59",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "nginx_alpine",
+    image = "nginx:alpine",
+    digest = "sha256:60e48a050b6408d0c5dd59b98b6e36bf0937a0bbe99304e3e9c0e63b7563443a",
+    platforms = [
+        "linux/amd64",
+    ],
+)
 use_repo(
     oci_ext,
     "ubuntu_jammy",
     "ubuntu_jammy_linux_amd64",
+    "alpine_3_20",
+    "alpine_3_20_linux_amd64",
+    "ubuntu_noble",
+    "ubuntu_noble_linux_amd64",
+    "debian_bookworm_slim",
+    "debian_bookworm_slim_linux_amd64",
+    "node_20_alpine",
+    "node_20_alpine_linux_amd64",
+    "nginx_alpine",
+    "nginx_alpine_linux_amd64",
 )
 
 xcode_configure_ext = use_extension(
@@ -664,6 +714,18 @@ http_file(
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
+)
+
+http_archive(
+    name = "grpcurl_linux_amd64",
+    urls = [
+        "https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz",
+    ],
+    sha256 = "a422d1e8ad854a305c0dd53f2f2053da242211d3d1810e7addb40a041e309516",
+    strip_prefix = "",
+    build_file_content = """
+exports_files(["grpcurl"])
+""",
 )
 
 http_archive(
