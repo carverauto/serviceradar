@@ -9,13 +9,13 @@ load("@bazel_gazelle//:def.bzl", "gazelle")
 # gazelle:exclude cmd/checkers/rperf-client
 # gazelle:exclude cmd/ebpf
 
+load("@platforms//host:extension.bzl", "host_platform")
+
 gazelle(
     name = "gazelle",
 )
 
 exports_files(["VERSION"])
-
-load("@platforms//host:extension.bzl", "host_platform")
 
 # Custom RBE platform using Oracle Linux 9 based executor image
 platform(
@@ -28,7 +28,7 @@ platform(
     exec_properties = {
         "OSFamily": "Linux",
         "dockerNetwork": "off",
-        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:latest",
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:1.0.5",
     },
     visibility = ["//visibility:public"],
 )

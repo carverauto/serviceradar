@@ -8,6 +8,10 @@ proto_library(
     visibility = ["//visibility:public"],
 )
 
+exports_files([
+    "monitoring.proto",
+])
+
 go_proto_library(
     name = "proto_go_proto",
     compilers = [

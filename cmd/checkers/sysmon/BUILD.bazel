@@ -1,6 +1,6 @@
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
-load("@rust_crates//:defs.bzl", "all_crate_deps", "crate_deps")
+load("@rust_crates_sysmon//:defs.bzl", "all_crate_deps", "crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -8,11 +8,11 @@ cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
     crate_root = "build.rs",
-    edition = "2018",
+    edition = "2021",
     deps = crate_deps(["tonic-build"]),
     data = [
         "@bazel_tools//tools/proto:protoc",
-        "//proto:kv_proto_src",
+        "//cmd/checkers/sysmon/src/proto:monitoring.proto",
     ],
     build_script_env = {
         "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
@@ -20,20 +20,18 @@ cargo_build_script(
 )
 
 rust_library(
-    name = "flowgger_lib",
-    srcs = glob(["src/**/*.rs"]),
+    name = "sysmon_lib",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
     crate_root = "src/lib.rs",
-    edition = "2018",
-    crate_name = "flowgger",
-    deps = all_crate_deps(normal = True) + [":build_script", "//rust/kvutil:kvutil"],
+    crate_name = "serviceradar_sysmon_checker",
+    edition = "2021",
+    deps = all_crate_deps(normal = True) + [":build_script"],
     proc_macro_deps = all_crate_deps(proc_macro = True),
-    visibility = ["//visibility:public"],
 )
 
 rust_binary(
-    name = "flowgger",
+    name = "sysmon",
     srcs = ["src/main.rs"],
-    edition = "2018",
-    deps = all_crate_deps(normal = True) + [":build_script", ":flowgger_lib", "//rust/kvutil:kvutil"],
-    proc_macro_deps = all_crate_deps(proc_macro = True),
+    edition = "2021",
+    deps = [":sysmon_lib"] + all_crate_deps(normal = True),
 )

@@ -4,6 +4,6 @@ load("//packaging:packages.bzl", "PACKAGES")
 package(default_visibility = ["//visibility:public"])
 
 serviceradar_package_from_config(
-    name = "core",
-    config = PACKAGES["core"],
+    name = "sysmon",
+    config = PACKAGES["sysmon"],
 )
