@@ -95,6 +95,7 @@ The Docker Compose deployment includes:
 
 - **Proton Database** - Timeplus stream processing engine with ClickHouse compatibility
 - **Core API** - Main ServiceRadar API and business logic
+- **API Gateway** - Polyglot APIs or Bring Your Own API, easily extend SR
 - **Web UI** - Modern React-based dashboard  
 - **Nginx** - Reverse proxy and load balancer
 - **Agent** - Host monitoring service
