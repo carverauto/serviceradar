@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-dns
+  namespace: default
+spec:
+  selector:
+    app: external-dns
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 7979  # This should be the port that the application inside the container listens on.
