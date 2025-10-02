@@ -46,24 +46,17 @@ RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
 
 ENV CC=/usr/bin/gcc \
     CXX=/usr/bin/g++ \
-    HOME=/root \
     RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/opt/cargo \
     PATH=/opt/cargo/bin:/opt/rh/gcc-toolset-13/root/usr/bin:$PATH
 
-# Pin a nightly that includes the bpfel-unknown-none artifacts so builds stay reproducible.
-ARG RUST_EBPF_TOOLCHAIN=nightly-2024-12-31
-
-# Install Rust toolchains for native and eBPF builds.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init \
+# Install Rust toolchains for native builds.
+RUN HOME=/root curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init \
     && chmod +x /tmp/rustup-init \
-    && /tmp/rustup-init -y --profile minimal --default-toolchain stable --no-modify-path \
+    && HOME=/root /tmp/rustup-init -y --profile minimal --default-toolchain stable --no-modify-path \
     && rm -f /tmp/rustup-init \
-    && rustup toolchain install ${RUST_EBPF_TOOLCHAIN} --profile minimal \
-    && rustup component add --toolchain ${RUST_EBPF_TOOLCHAIN} rust-src llvm-tools-preview \
-    && rustup target add --toolchain ${RUST_EBPF_TOOLCHAIN} bpfel-unknown-none \
-    && rustup default stable \
-    && cargo install --locked bpf-linker \
+    && HOME=/root rustup default stable \
+    && HOME=/root cargo install --locked bpf-linker \
     && chown -R opam:opam /opt/rustup /opt/cargo
 
 # Provide Debian-compatible library locations required by prebuilt OCaml toolchains.
@@ -81,6 +74,7 @@ RUN curl -fsSL https://github.com/ocaml/opam/releases/download/2.4.1/opam-2.4.1-
 
 # Set up opam environment as opam user
 USER opam
+ENV HOME=/home/opam
 ENV OPAMYES=1 \
     OPAMCONFIRMLEVEL=unsafe-yes
 
