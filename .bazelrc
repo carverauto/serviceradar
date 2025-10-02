@@ -30,7 +30,7 @@ try-import %workspace%/.bazelrc.local
 try-import %workspace%/.bazelrc.remote
 
 # Metadata for buildbuddy
-build --workspace_status_command=$(pwd)/workspace_status.sh
+build --workspace_status_command=$(pwd)/scripts/workspace_status.sh
 
 # CI profile can layer on top of the remote config without re-declaring values.
 build:ci --keep_going --build_tag_filters=-manual
