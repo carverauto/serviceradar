@@ -410,6 +410,7 @@ PACKAGES = {
                 "patterns": ["vendor/**"],
                 "strip_prefix": "vendor",
                 "dest": "/usr/share/serviceradar-kong/vendor",
+                "allow_empty": True,
             },
         ],
         "directories": [
