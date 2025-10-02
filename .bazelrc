@@ -65,6 +65,9 @@ build:remote --remote_timeout=10m
 build:remote --remote_download_minimal
 build:remote --remote_upload_local_results
 build:remote --jobs=100
+build:remote --remote_env=PATH=/usr/local/bin:/usr/bin:/bin
+
+test:remote --remote_env=PATH=/usr/local/bin:/usr/bin:/bin
 
 test:remote --copt=-Wno-use-after-free
 

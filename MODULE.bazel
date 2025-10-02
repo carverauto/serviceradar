@@ -100,11 +100,12 @@ buildbuddy_toolchain_ext.gcc_toolchain(
         "/usr/lib/gcc/x86_64-redhat-linux/11/include",
         "/usr/lib/gcc/x86_64-redhat-linux/11/include-fixed",
     ],
+    gcc_major_version = "11",
 )
 
 # Make the generated platform default to our custom executor image.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.5",
+    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.6",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
