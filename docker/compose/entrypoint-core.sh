@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # Copyright 2025 Carver Automation Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,6 +14,11 @@
 # limitations under the License.
 
 set -e
+
+export PATH="/usr/local/bin:${PATH}"
+
+# Ensure expected directories exist even on minimal base images.
+mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar /data
 
 # Default config path
 CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/core.json}"
