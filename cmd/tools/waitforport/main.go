@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net"
@@ -40,7 +41,9 @@ func main() {
 			}
 		}
 
-		conn, err := net.DialTimeout("tcp", addr, *timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		conn, err := (&net.Dialer{Timeout: *timeout}).DialContext(ctx, "tcp", addr)
+		cancel()
 		if err == nil {
 			err := conn.Close()
 			if err != nil {
