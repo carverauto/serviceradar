@@ -20,7 +20,7 @@
 +        "@rules_ocaml//platform/emitter:sys",
 +    ],
 +    exec_properties = {
-+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.3",
++        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.6",
 +        "OSFamily": "Linux",
 +        "Arch": "amd64",
 +        "dockerNetwork": "off",
@@ -49,7 +49,7 @@
 +        "@rules_ocaml//platform/emitter:vm",
 +    ],
 +    exec_properties = {
-+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.3",
++        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.6",
 +        "OSFamily": "Linux",
 +        "Arch": "amd64",
 +        "dockerNetwork": "off",
