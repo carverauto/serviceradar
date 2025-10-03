@@ -36,6 +36,8 @@ RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
         redhat-rpm-config \
         rpm-sign \
         createrepo_c \
+        protobuf-compiler \
+        protobuf-devel \
         rsync \
         tar \
         unzip \
@@ -43,6 +45,11 @@ RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
         zlib-devel \
         libzstd-devel \
     && dnf clean all
+
+# Ensure the newer GCC toolchain is seen via the conventional /usr/bin paths so
+# Bazel toolchains that invoke /usr/bin/gcc use the upgraded compiler.
+RUN ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/gcc /usr/bin/gcc \
+    && ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/g++ /usr/bin/g++
 
 ENV CC=/usr/bin/gcc \
     CXX=/usr/bin/g++ \

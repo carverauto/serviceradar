@@ -2,6 +2,7 @@
 
 load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
+load("//docker/images:push_targets.bzl", "declare_ghcr_push_targets")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -903,3 +904,6 @@ oci_load(
     image = ":proton_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-proton:local"],
 )
+
+# --- GHCR publishing ---------------------------------------------------------
+declare_ghcr_push_targets()
