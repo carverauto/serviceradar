@@ -16,10 +16,10 @@ The BuildBuddy executors connect to the remote BuildBuddy instance at `remote.bu
 
 - **Replicas**: 3 (autoscaling: min=3, max=10)
 - **Resources per executor**:
-  - CPU: 1-2 cores
-  - Memory: 4-8Gi
+  - CPU: 8-16 cores (request-limit)
+  - Memory: 16-32Gi (request-limit)
 - **Cache**: 20GB local cache per executor
-- **Persistent Disk**: 50Gi per executor
+- **Persistent Disk**: 160Gi per executor
 
 ### Node Affinity
 
