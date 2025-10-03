@@ -2,7 +2,7 @@
 
 load("@rules_oci//oci:defs.bzl", "oci_push")
 load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template")
-load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_multirun//:defs.bzl", "command", "multirun")
 
 GHCR_PUSH_TARGETS = [
     ("core_image_amd64", "ghcr.io/carverauto/serviceradar-core"),
@@ -32,6 +32,8 @@ GHCR_PUSH_TARGETS = [
 def declare_ghcr_push_targets():
     """Registers oci_push targets and helper binaries for GHCR publishing."""
 
+    push_command_targets = []
+
     for image, repository in GHCR_PUSH_TARGETS:
         expand_template(
             name = "{}_push_tags".format(image),
@@ -53,23 +55,17 @@ def declare_ghcr_push_targets():
             visibility = ["//visibility:public"],
         )
 
-    write_file(
-        name = "ghcr_push_targets",
-        out = "ghcr_push_targets.txt",
-        content = [
-            "serviceradar/docker/images/{}_push".format(image)
-            for image, _ in GHCR_PUSH_TARGETS
-        ],
-    )
+        command_name = "{}_push_cmd".format(image)
+        command(
+            name = command_name,
+            command = ":{}_push".format(image),
+            description = "Push {}".format(repository),
+        )
+        push_command_targets.append(":{}".format(command_name))
 
-    native.sh_binary(
+    multirun(
         name = "push_all",
-        srcs = ["push_all.sh"],
-        data = [
-            ":ghcr_push_targets",
-        ] + [
-            ":{}_push".format(image)
-            for image, _ in GHCR_PUSH_TARGETS
-        ],
+        commands = push_command_targets,
+        jobs = 0,
         visibility = ["//visibility:public"],
     )

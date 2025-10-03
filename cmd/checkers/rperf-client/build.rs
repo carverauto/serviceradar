@@ -22,6 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rperf_descriptor_path = Path::new(&out_dir).join("rperf_descriptor.bin");
     let monitoring_descriptor_path = Path::new(&out_dir).join("monitoring_descriptor.bin");
 
+    // Force tonic/prost to use the system-installed protoc inside our RBE image.
+    env::set_var("PROTOC", "/usr/bin/protoc");
+    env::set_var("PROTOC_INCLUDE", "/usr/include");
+
     tonic_build::configure()
         .build_server(true)
         .build_client(false)

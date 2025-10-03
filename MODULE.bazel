@@ -17,6 +17,8 @@ bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
+bazel_dep(name = "rules_multirun", version = "0.13.0")
+
 single_version_override(
     module_name = "rules_java",
     patch_strip = 0,
@@ -53,7 +55,7 @@ register_toolchains(
 )
 
 bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
-bazel_dep(name = "rules_shell", version = "0.4.0", repo_name = "rules_shell")
+bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
 bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
 bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
 
@@ -106,7 +108,7 @@ buildbuddy_toolchain_ext.gcc_toolchain(
 
 # Make the generated platform default to our custom executor image.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.6",
+    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.9",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
