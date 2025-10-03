@@ -146,9 +146,19 @@ npm_link_tailwindcss_animate_store(
 genrule(
     name = "next_env_d_ts",
     outs = ["next-env.d.ts"],
-    cmd = "printf '%s\\n' \\\n+        '/// <reference types=\"next\" />' \\\n+        '/// <reference types=\"next/image-types/global\" />' \\\n+        '' \\\n+        '// NOTE: This file should not be edited' \\\n+        '// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.' \\\n+        > $@",
+    cmd = "\n".join([
+        "cat <<'EOF' > $@",
+        "/// <reference types=\"next\" />",
+        "/// <reference types=\"next/image-types/global\" />",
+        "",
+        "// NOTE: This file should not be edited",
+        "// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.",
+        "EOF",
+        "",
+    ]),
     visibility = ["//visibility:public"],
 )
+
 
 WEB_TS_SRCS = glob(
     [
