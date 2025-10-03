@@ -21469,7 +21469,7 @@
     "@@toolchains_buildbuddy+//:extensions.bzl%buildbuddy": {
       "general": {
         "bzlTransitiveDigest": "u7Z+AlfJgGgFZGxPEfZkeEkTzEkgIYkIxgokZ5953dE=",
-        "usagesDigest": "iBLTHu0/qruDpUBd7QaAkjsItgq7CnSkevBOZRtvSpg=",
+        "usagesDigest": "6oyJZlN42wSEEaw1Xiggb+Hv6fDlGT3hRNK2z19Fj4Q=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -21480,17 +21480,18 @@
               "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.6",
               "llvm": false,
               "java_version": "",
-              "gcc_version": "11",
+              "gcc_version": "13",
               "msvc_edition": "Community",
               "msvc_release": "2022",
               "msvc_version": "14.39.33519",
               "windows_kits_release": "10",
               "windows_kits_version": "10.0.22621.0",
               "extra_cxx_builtin_include_directories": [
-                "/usr/include/c++/11/x86_64-redhat-linux",
-                "/usr/include/x86_64-redhat-linux",
-                "/usr/lib/gcc/x86_64-redhat-linux/11/include",
-                "/usr/lib/gcc/x86_64-redhat-linux/11/include-fixed"
+                "/opt/rh/gcc-toolset-13/root/usr/include/c++/13",
+                "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/x86_64-redhat-linux",
+                "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/backward",
+                "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include",
+                "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include-fixed"
               ]
             }
           }

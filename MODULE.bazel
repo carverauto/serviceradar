@@ -95,12 +95,13 @@ buildbuddy_toolchain_ext = use_extension(
 # executor image so Bazel treats the system headers as hermetic.
 buildbuddy_toolchain_ext.gcc_toolchain(
     extra_cxx_builtin_include_directories = [
-        "/usr/include/c++/11/x86_64-redhat-linux",
-        "/usr/include/x86_64-redhat-linux",
-        "/usr/lib/gcc/x86_64-redhat-linux/11/include",
-        "/usr/lib/gcc/x86_64-redhat-linux/11/include-fixed",
+        "/opt/rh/gcc-toolset-13/root/usr/include/c++/13",
+        "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/x86_64-redhat-linux",
+        "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/backward",
+        "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include",
+        "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include-fixed",
     ],
-    gcc_major_version = "11",
+    gcc_major_version = "13",
 )
 
 # Make the generated platform default to our custom executor image.
@@ -421,6 +422,12 @@ register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")
 register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")
 
 register_toolchains("//toolchains:rbe_cc_toolchain")
+
+register_execution_platforms(
+    "//docker:rbe_platform",
+    "//docker:ocaml_rbe_ocamlopt",
+    "//docker:ocaml_rbe_ocamlc",
+)
 
 # --- Go toolchain & dependency management ----------------------------------
 
