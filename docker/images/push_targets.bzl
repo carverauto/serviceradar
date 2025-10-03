@@ -2,6 +2,7 @@
 
 load("@rules_oci//oci:defs.bzl", "oci_push")
 load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template")
+load("//docker/images:container_tags.bzl", "immutable_push_tags")
 load("@rules_multirun//:defs.bzl", "command", "multirun")
 
 GHCR_PUSH_TARGETS = [
@@ -36,15 +37,19 @@ def declare_ghcr_push_targets():
 
     for image, repository in GHCR_PUSH_TARGETS:
         expand_template(
-            name = "{}_push_tags".format(image),
-            template = [
-                "latest",
-                "sha-{{STABLE_COMMIT_SHA}}",
-            ],
+            name = "{}_commit_tag".format(image),
+            template = ["sha-{{STABLE_COMMIT_SHA}}"],
             substitutions = {"{{STABLE_COMMIT_SHA}}": "dev"},
             stamp = 1,
             stamp_substitutions = {"{{STABLE_COMMIT_SHA}}": "{{STABLE_COMMIT_SHA}}"},
-            out = "{}_push_tags.txt".format(image),
+            out = "{}_commit_tag.txt".format(image),
+        )
+
+        immutable_push_tags(
+            name = "{}_push_tags".format(image),
+            digest = ":{}.digest".format(image),
+            commit_tags = ":{}_commit_tag".format(image),
+            static_tags = ["latest"],
         )
 
         oci_push(
