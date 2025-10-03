@@ -65,7 +65,6 @@ build:remote --remote_timeout=10m
 build:remote --remote_download_minimal
 build:remote --remote_upload_local_results
 build:remote --jobs=100
-
 test:remote --copt=-Wno-use-after-free
 
 # OCaml toolchain generated via tools_opam is macOS-hosted, which cannot run on
