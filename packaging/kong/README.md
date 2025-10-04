@@ -7,17 +7,34 @@ Overview
 
 Included Artifacts (copy into `packaging/kong/vendor/` before building)
 - OSS (default):
-  - `kong.el8.amd64.rpm` (or matching EL8/EL9 arch produced by Bazel)
-  - `kong.amd64.deb` (or the matching Debian/Ubuntu arch)
+  - `kong-<version>.el8.amd64.rpm` / `kong-<version>.el9.amd64.rpm` (or matching EL8/EL9 arch produced by Bazel)
+  - `kong_<version>_amd64.deb` (or the matching Debian/Ubuntu arch)
 - Enterprise (optional): any `kong-enterprise-edition-*.rpm` / `kong-enterprise-edition_*.deb` files you still depend on.
 
 Build / Fetch Artifacts
-- Build the OSS binaries from the upstream `kong/` workspace:
+- Build the OSS binaries from the upstream Kong repository (automatic helper):
   ```bash
-  (cd kong && bin/bazel build --config release --//:licensing=false --//:skip_webui=true //build:kong :kong_el8 :kong_deb)
-  cp kong/bazel-bin/pkg/kong*.rpm packaging/kong/vendor/
-  cp kong/bazel-bin/pkg/kong*.deb packaging/kong/vendor/
+  ./scripts/build-kong-vendor.sh
   ```
+  The script clones the pinned commit (`21b0fbaafbfe835afa8998b415628610aa533cb4` by
+  default), bootstraps Bazelisk for that workspace, builds the Kong runtime, and
+  stages the resulting `.rpm` / `.deb` files into `packaging/kong/vendor/` with
+  versioned filenames. Additional Bazel flags can be passed via
+  `KONG_EXTRA_BAZEL_FLAGS`.
+
+- Manual build fallback:
+  ```bash
+  git clone https://github.com/Kong/kong.git
+  cd kong
+  git checkout 21b0fbaafbfe835afa8998b415628610aa533cb4
+  make check-bazel
+  bin/bazel build --config release --//:licensing=false --//:skip_webui=true \
+    //build:kong :kong_el8 :kong_el9 :kong_deb
+  cp bazel-bin/pkg/kong*.rpm ../packaging/kong/vendor/
+  cp bazel-bin/pkg/kong*.deb ../packaging/kong/vendor/
+  ```
+- To bump Kong, run the helper script with `KONG_COMMIT=<new sha>` (and
+  optionally `KONG_REMOTE`) so CI and local workflows stay in sync.
 - To include enterprise packages instead (or in addition), run `scripts/fetch-kong-artifacts.sh` or copy the RPM/DEB files into the same vendor directory.
 
 Install Behavior
