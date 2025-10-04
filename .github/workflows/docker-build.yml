@@ -80,7 +80,8 @@ jobs:
         run: |
           printf 'Published tags include:\n'
           printf '  - latest\n'
-          printf '  - sha-${GITHUB_SHA:0:12}\n'
+          sha_prefix="${GITHUB_SHA:0:12}"
+          printf '  - sha-%s\n' "${sha_prefix}"
           if [[ -n "${EXTRA_TAG}" ]]; then
             printf '  - %s\n' "${EXTRA_TAG}"
           fi
