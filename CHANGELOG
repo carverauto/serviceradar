@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.53-pre15
+
+Release tooling alignment for GitHub publishing.
+
+## Whats New
+
+**1.0.53-pre15**
+- Ensure GitHub release uploads rewrite Debian/RPM filenames with the tagged version.
+- Harden Bazel runfile resolution so publishing works across Bazel 8+ layouts.
+
 # ServiceRadar v1.0.53-pre14
 
 Release automation improvements and packaging workflow updates.
@@ -135,6 +145,4 @@ curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.53-pr
 curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.53-pre5/install-serviceradar.sh | bash -s -- --poller --skip-checker-prompts --checkers=sysmon
 systemctl restart serviceradar-poller
 ```
-
-
 
