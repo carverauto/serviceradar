@@ -35,9 +35,8 @@ jobs:
       - name: Configure BuildBuddy remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
-          cat <<'RC' > .bazelrc.remote
-          common --remote_header=x-buildbuddy-api-key=${BUILDBUDDY_ORG_API_KEY}
-          RC
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
 
       - name: Resolve release tag
         id: release
