@@ -440,6 +440,7 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) erro
 	if err != nil {
 		return err
 	}
+	req.ContentLength = info.Size()
 
 	if !c.dryRun {
 		if c.token != "" {
@@ -448,7 +449,6 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) erro
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("Content-Length", fmt.Sprintf("%d", info.Size()))
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
 	if c.dryRun {
