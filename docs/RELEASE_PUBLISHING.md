@@ -2,6 +2,27 @@
 
 This guide explains how to publish a ServiceRadar release from Bazel, including pushing container images to GHCR and uploading Debian/RPM packages to a GitHub release. The workflow is fully hermetic: Bazel builds every artifact and the publish steps reuse the generated outputs directly from the runfiles tree.
 
+## GitHub Actions workflow
+
+Tags that follow the `v*` convention automatically trigger `.github/workflows/release.yml`. The job:
+
+- Ensures the tag matches the `VERSION` file and extracts the matching entry from `CHANGELOG` via `scripts/extract-changelog.py` (falling back to a default note when absent).
+- Runs `bazel run --config=remote --stamp //release:publish_packages` so that Bazel builds and uploads every Debian/RPM asset to the GitHub release.
+- Verifies the resulting release with the GitHub API and fails if no `.deb` or `.rpm` assets are present.
+- Normalises the uploaded asset names to include the release version (for example `serviceradar-core_1.0.53-pre14_amd64.deb`).
+
+Use `workflow_dispatch` to re-run or dry-run the pipeline with alternative options (draft releases, appending notes, skipping asset overwrites, etc.).
+
+## Local release helper
+
+The `scripts/cut-release.sh` helper automates routine git tasks before tagging a release:
+
+```
+./scripts/cut-release.sh --version 1.0.53-pre14 --push
+```
+
+The script validates that `CHANGELOG` already contains a section for the version, updates `VERSION`, commits the change, and creates an annotated tag (`v1.0.53-pre14` by default). Pass `--dry-run` to preview the actions or `--skip-changelog-check` when drafting notes. Run it from the repository root on a clean working tree.
+
 ## Prerequisites
 
 - `bazel`/Bazelisk configured for this repository.

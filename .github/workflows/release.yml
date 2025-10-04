@@ -1,209 +1,196 @@
-  # Copyright 2025 Carver Automation Corporation.
-  #
-  # Licensed under the Apache License, Version 2.0 (the "License");
-  # you may not use this file except in compliance with the License.
-  # You may obtain a copy of the License at
-  #
-  #     http://www.apache.org/licenses/LICENSE-2.0
-  #
-  # Unless required by applicable law or agreed to in writing, software
-  # distributed under the License is distributed on an "AS IS" BASIS,
-  # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  # See the License for the specific language governing permissions and
-  # limitations under the License.
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-name: Release ServiceRadar Packages
+name: Publish Release Artifacts
+
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (defaults to the event tag or VERSION file)."
+        required: false
+        type: string
+      dry_run:
+        description: "Run publish_packages in --dry_run mode."
+        required: false
+        type: boolean
+        default: false
+      append_notes:
+        description: "Append notes when updating an existing release."
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: "Mark the GitHub release as a prerelease."
+        required: false
+        type: boolean
+        default: false
+      draft:
+        description: "Create the GitHub release as a draft."
+        required: false
+        type: boolean
+        default: false
+      overwrite_assets:
+        description: "Replace assets on the release when filenames match."
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
   packages: write
-  actions: read
-  security-events: write
 
 jobs:
-  build-deb-packages:
-      runs-on: ubuntu
-      env:
-        VERSION: ${{ github.ref_name }}
-      steps:
-        - uses: actions/checkout@v5
-        - name: Cache Node.js dependencies and Next.js build
-          uses: actions/cache@v4
-          with:
-            path: |
-              ~/.npm
-              ${{ github.workspace }}/.next/cache
-            key: ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
-            restore-keys: |
-              ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}-
-        - name: Set up Node.js
-          uses: actions/setup-node@v5
-          with:
-            node-version: '20'
-        - name: Set up Go
-          uses: actions/setup-go@v6
-          with:
-            go-version: '1.25'
-        - name: Set up Docker Buildx
-          uses: docker/setup-buildx-action@v3
-          with:
-            driver-opts: env.BUILDKIT_STEP_LOG_MAX_SIZE=50000000
-        - name: Log in to GHCR
-          uses: docker/login-action@v3
-          with:
-            registry: ghcr.io
-            username: ${{ github.actor }}
-            password: ${{ secrets.GITHUB_TOKEN }}
-        - name: Set up Docker credentials for builds
-          run: |
-            mkdir -p ~/.docker
-            echo '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64)'"}}}'  > ~/.docker/config.json
-            chmod 600 ~/.docker/config.json
-            # Verify credentials file was created
-            cat ~/.docker/config.json
-        - name: Pull required base images
-          run: |
-            # Pre-pull any required base images to ensure authentication works
-            docker pull ghcr.io/carverauto/custom-rust-zfs:latest || echo "Failed to pull custom-rust-zfs, will try during build"
-        - name: Build DEB packages
-          env:
-            DOCKER_BUILDKIT: 1
-          run: |
-            # Build all DEB packages using the unified script
-            ./scripts/setup-package.sh --type=deb --all
-        - name: List Artifacts (for debugging)
-          run: ls -al ./release-artifacts
-        - name: Upload DEB Release Assets
-          uses: softprops/action-gh-release@v2
-          with:
-            files: ./release-artifacts/*.deb
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-rpm-packages:
-      runs-on: oracle
-      env:
-        VERSION: ${{ github.ref_name }}
-      steps:
-        - uses: actions/checkout@v5
-        - name: Cache Node.js dependencies and Next.js build
-          uses: actions/cache@v4
-          with:
-            path: |
-              ~/.npm
-              ${{ github.workspace }}/.next/cache
-            key: ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
-            restore-keys: |
-              ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}-
-        - name: Set up Node.js
-          uses: actions/setup-node@v5
-          with:
-            node-version: '20'
-        - name: Set up Docker Buildx
-          uses: docker/setup-buildx-action@v3
-          with:
-            driver-opts: env.BUILDKIT_STEP_LOG_MAX_SIZE=50000000
-        - name: Log in to GHCR
-          uses: docker/login-action@v3
-          with:
-            registry: ghcr.io
-            username: ${{ github.actor }}
-            password: ${{ secrets.GITHUB_TOKEN }}
-        - name: Set up Docker credentials for builds
-          run: |
-            mkdir -p ~/.docker
-            echo '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64)'"}}}'  > ~/.docker/config.json
-            chmod 600 ~/.docker/config.json
-            # Verify credentials file was created
-            cat ~/.docker/config.json
-        - name: Create output directory
-          run: |
-            mkdir -p ./release-artifacts/rpm
-        - name: Pull required base images
-          run: |
-            # Pre-pull any required base images to ensure authentication works
-            docker pull ghcr.io/carverauto/custom-rust-zfs:latest || echo "Failed to pull custom-rust-zfs, will try during build"
-            docker pull ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest || echo "Failed to pull rockylinux9-rust-rpm-base, will try during build"
-        - name: Build all RPM packages
-          env:
-            DOCKER_BUILDKIT: 1
-          run: |
-            # Build all RPM packages using the unified script
-            ./scripts/setup-package.sh --type=rpm --all
-        - name: List RPM Artifacts (for debugging)
-          run: |
-            find ./release-artifacts/rpm -type f -name "*.rpm" | sort
-        - name: Upload RPM Release Assets
-          uses: softprops/action-gh-release@v2
-          with:
-            files: ./release-artifacts/rpm/*/*.rpm
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-docker-images:
-    runs-on: ubuntu
-    permissions:
-      contents: read
-      packages: write
+  publish:
+    runs-on: oracle
     env:
-      REGISTRY: ghcr.io
-      IMAGE_PREFIX: ghcr.io/carverauto/serviceradar
-      VERSION: ${{ github.ref_name }}
-      GOPROXY: direct
-      DOCKER_BUILDKIT_INLINE_CACHE: 1
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
-      - name: Check GITHUB_TOKEN permissions
+      - name: Configure BuildBuddy remote cache
+        if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
-          echo "🔍 Checking GITHUB_TOKEN permissions..."
-          echo "Repository: ${{ github.repository }}"
-          echo "Actor: ${{ github.actor }}"
-          echo "Event: ${{ github.event_name }}"
-          
-          # Check what permissions the token has
-          curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-               -H "Accept: application/vnd.github.v3+json" \
-               "https://api.github.com/repos/${{ github.repository }}" | \
-               jq '.permissions // "No permissions found"'
-          
-          # Check if we can write to packages
-          echo "Testing package write..."
-          echo "FROM alpine:latest" > Dockerfile.test
-          docker build -t ghcr.io/carverauto/test-permissions:latest -f Dockerfile.test . || true
-          docker push ghcr.io/carverauto/test-permissions:latest || echo "❌ Cannot write to package registry"
-          docker rmi ghcr.io/carverauto/test-permissions:latest || true
-          rm -f Dockerfile.test
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
 
-      - name: Build and push all ServiceRadar Docker images
+      - name: Resolve release metadata
+        id: release
         env:
-          DOCKER_BUILDKIT: 1
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+          INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+          INPUT_APPEND_NOTES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.append_notes || 'false' }}
+          INPUT_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease || 'false' }}
+          INPUT_DRAFT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.draft || 'false' }}
+          INPUT_OVERWRITE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.overwrite_assets || 'true' }}
+        run: |
+          set -euo pipefail
+
+          tag="$INPUT_TAG"
+          if [[ -z "$tag" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          if [[ -z "$tag" ]]; then
+            tag="$(< VERSION)"
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "Unable to determine release tag" >&2
+            exit 1
+          fi
+
+          version="${tag#v}"
+          file_version="$(< VERSION)"
+          file_version="${file_version%%[$'\r\n']*}"
+          if [[ -n "$file_version" && "$file_version" != "$version" ]]; then
+            echo "VERSION file ($file_version) does not match release tag ($version)" >&2
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${INPUT_DRY_RUN}" >> "$GITHUB_OUTPUT"
+          echo "append_notes=${INPUT_APPEND_NOTES}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${INPUT_PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "draft=${INPUT_DRAFT}" >> "$GITHUB_OUTPUT"
+          echo "overwrite_assets=${INPUT_OVERWRITE}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes from CHANGELOG
+        id: notes
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP}/release-notes.md"
+          if scripts/extract-changelog.py "$VERSION" --output "$notes_file"; then
+            echo "Using changelog entry for version $VERSION" >&2
+          else
+            echo "CHANGELOG entry not found for $VERSION, falling back to autogenerated notes" >&2
+            {
+              printf '# ServiceRadar %s\n\n' "$VERSION"
+              printf 'Automated release generated by GitHub Actions.\n'
+            } > "$notes_file"
+          fi
+          echo "path=${notes_file}" >> "$GITHUB_OUTPUT"
+          echo "---- release notes preview ----"
+          cat "$notes_file"
+          echo "--------------------------------"
+
+      - name: Publish Debian and RPM packages
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          NOTES_FILE: ${{ steps.notes.outputs.path }}
+          DRY_RUN: ${{ steps.release.outputs.dry_run }}
+          APPEND_NOTES: ${{ steps.release.outputs.append_notes }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          DRAFT: ${{ steps.release.outputs.draft }}
+          OVERWRITE_ASSETS: ${{ steps.release.outputs.overwrite_assets }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$RELEASE_TAG" ]]; then
+            echo "Release tag is empty" >&2
+            exit 1
+          fi
+
+          declare -a args
+          args+=("--tag" "$RELEASE_TAG")
+          if [[ -n "$NOTES_FILE" ]]; then
+            args+=("--notes_file" "$NOTES_FILE")
+          fi
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=("--dry_run")
+          fi
+          if [[ "$APPEND_NOTES" == "true" ]]; then
+            args+=("--append_notes")
+          fi
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=("--prerelease")
+          fi
+          if [[ "$DRAFT" == "true" ]]; then
+            args+=("--draft")
+          fi
+          if [[ "$OVERWRITE_ASSETS" != "true" ]]; then
+            args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
+          fi
+
+          bazel run --config=remote --stamp //release:publish_packages -- "${args[@]}"
+
+      - name: Verify uploaded release assets via API
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get version info
-          export VERSION="${{ env.VERSION }}"
-          export BUILD_ID="${{ github.run_number }}"
-          export TAG="${{ env.VERSION }}"
-          
-          echo "Building images with tag: $TAG"
-          echo "Logged in as: ${{ github.actor }}"
-          
-          # Simple approach - just use the default buildx
-          ./scripts/build-images.sh --push --tag "$TAG"
-          
-          # Also tag as latest for releases  
-          ./scripts/build-images.sh --push --tag latest
+          set -euo pipefail
+          api_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          response=$(curl -sSf -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GITHUB_TOKEN}" "$api_url")
+          printf 'Release asset summary for %s:\n' "$RELEASE_TAG"
+          echo "$response" | jq '.assets[]? | {name, size, download_count}'
+          deb_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".deb"))] | length')
+          rpm_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".rpm"))] | length')
+          if (( deb_count == 0 )); then
+            echo "No .deb assets detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          if (( rpm_count == 0 )); then
+            echo "No .rpm assets detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          echo "Validated presence of ${deb_count} .deb and ${rpm_count} .rpm assets."

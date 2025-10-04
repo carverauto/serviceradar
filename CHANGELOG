@@ -1,3 +1,15 @@
+# ServiceRadar v1.0.53-pre14
+
+Release automation improvements and packaging workflow updates.
+
+## Whats New
+
+**1.0.53-pre14**
+- Automated GitHub release workflow builds and uploads Debian/RPM assets via Bazel.
+- New `scripts/cut-release.sh` helper streamlines tagging and pushing releases.
+- Release pipeline now validates assets through the GitHub API to ensure packages are published.
+- GitHub release uploads now stamp Debian/RPM filenames with the release version.
+
 # ServiceRadar v1.0.53-pre10
 
 Release of ServiceRadar network management, observability, and stream processing platform.
@@ -123,8 +135,6 @@ curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.53-pr
 curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.53-pre5/install-serviceradar.sh | bash -s -- --poller --skip-checker-prompts --checkers=sysmon
 systemctl restart serviceradar-poller
 ```
-
-
 
 
 
