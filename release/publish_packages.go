@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -18,6 +19,14 @@ import (
 )
 
 const manifestRunfile = "release/package_manifest.txt"
+
+var (
+	errGithubAPI      = errors.New("github api error")
+	errGithubUpload   = errors.New("github upload error")
+	errEmptyUploadURL = errors.New("upload URL is empty")
+	errRunfileNotFound = errors.New("runfile not found")
+	errNoArtifacts    = errors.New("no artifacts listed in manifest")
+)
 
 type runfileResolver struct {
 	manifest    map[string]string
@@ -73,12 +82,12 @@ func main() {
 	flag.Parse()
 
 	if strings.TrimSpace(*tagFlag) == "" {
-		fail("--tag is required")
+		failf("--tag is required")
 	}
 
 	repo := strings.TrimSpace(*repoFlag)
 	if repo == "" || strings.Count(repo, "/") != 1 {
-		fail("--repo must be in owner/repo format (got %q)", repo)
+		failf("--repo must be in owner/repo format (got %q)", repo)
 	}
 
 	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
@@ -86,17 +95,17 @@ func main() {
 		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
 	}
 	if token == "" && !*dryRunFlag {
-		fail("GITHUB_TOKEN (or GH_TOKEN) must be set unless --dry_run is used")
+		failf("GITHUB_TOKEN (or GH_TOKEN) must be set unless --dry_run is used")
 	}
 
 	resolver, err := newRunfileResolver()
 	if err != nil {
-		fail("failed to initialise runfile resolver: %v", err)
+		failf("failed to initialise runfile resolver: %v", err)
 	}
 
 	assets, err := collectAssets(resolver, manifestRunfile)
 	if err != nil {
-		fail("failed to resolve package artifacts: %v", err)
+		failf("failed to resolve package artifacts: %v", err)
 	}
 
 	fmt.Printf("Found %d package artifacts\n", len(assets))
@@ -105,7 +114,7 @@ func main() {
 	if notes == "" && strings.TrimSpace(*notesFileFlag) != "" {
 		content, err := readMaybeRunfile(resolver, *notesFileFlag)
 		if err != nil {
-			fail("failed to read release notes: %v", err)
+			failf("failed to read release notes: %v", err)
 		}
 		notes = strings.TrimSpace(content)
 	}
@@ -136,7 +145,7 @@ func main() {
 		prerelease:  *prereleaseFlag,
 	})
 	if err != nil {
-		fail("failed to ensure release: %v", err)
+		failf("failed to ensure release: %v", err)
 	}
 
 	if created {
@@ -156,7 +165,7 @@ func main() {
 			if *overwriteAssetsFlag {
 				fmt.Printf("Replacing existing asset %s\n", name)
 				if err := client.deleteAsset(id); err != nil {
-					fail("failed to delete existing asset %q: %v", name, err)
+					failf("failed to delete existing asset %q: %v", name, err)
 				}
 				delete(existingAssets, name)
 			} else {
@@ -166,7 +175,7 @@ func main() {
 		}
 
 		if err := client.uploadAsset(rel.UploadURL, artifact); err != nil {
-			fail("failed to upload asset %q: %v", name, err)
+			failf("failed to upload asset %q: %v", name, err)
 		}
 		fmt.Printf("Uploaded %s\n", name)
 	}
@@ -216,20 +225,11 @@ func ensureRelease(client *githubClient, args ensureReleaseArgs) (*release, bool
 		}
 	}
 
-	needUpdate := false
-
-	if args.name != "" && args.name != existing.Name {
-		needUpdate = true
-	}
-	if args.commit != "" && !strings.EqualFold(args.commit, existing.TargetCommitish) {
-		needUpdate = true
-	}
-	if args.notes != "" && desiredBody != existing.Body {
-		needUpdate = true
-	}
-	if existing.Draft != args.draft || existing.Prerelease != args.prerelease {
-		needUpdate = true
-	}
+	needUpdate := (args.name != "" && args.name != existing.Name) ||
+		(args.commit != "" && !strings.EqualFold(args.commit, existing.TargetCommitish)) ||
+		(args.notes != "" && desiredBody != existing.Body) ||
+		existing.Draft != args.draft ||
+		existing.Prerelease != args.prerelease
 
 	if needUpdate {
 		updated, err := client.updateRelease(existing.ID, releaseRequest{
@@ -261,7 +261,7 @@ func newGithubClient(token, repo string, dryRun bool) *githubClient {
 }
 
 func (c *githubClient) request(method, endpoint string, body io.Reader, contentType string) (*http.Response, error) {
-	req, err := http.NewRequest(method, endpoint, body)
+	req, err := http.NewRequestWithContext(context.Background(), method, endpoint, body)
 	if err != nil {
 		return nil, err
 	}
@@ -287,9 +287,11 @@ func (c *githubClient) request(method, endpoint string, body io.Reader, contentT
 		return nil, err
 	}
 	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 		data, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("github api error: %s (%s)", resp.Status, strings.TrimSpace(string(data)))
+		return nil, fmt.Errorf("%w: %s (%s)", errGithubAPI, resp.Status, strings.TrimSpace(string(data)))
 	}
 	return resp, nil
 }
@@ -304,7 +306,9 @@ func (c *githubClient) getReleaseByTag(tag string) (*release, error) {
 		}
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
@@ -339,7 +343,9 @@ func (c *githubClient) createRelease(tag, name, commit, notes string, draft, pre
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	var out release
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -359,7 +365,9 @@ func (c *githubClient) updateRelease(id int64, payload releaseRequest) (*release
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	var out release
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -375,14 +383,14 @@ func (c *githubClient) deleteAsset(id int64) error {
 		return err
 	}
 	if resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	return nil
 }
 
 func (c *githubClient) uploadAsset(uploadURL, assetPath string) error {
 	if uploadURL == "" {
-		return errors.New("upload URL is empty")
+		return errEmptyUploadURL
 	}
 
 	base := uploadURL
@@ -397,7 +405,9 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	info, err := file.Stat()
 	if err != nil {
@@ -406,7 +416,7 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath string) error {
 
 	contentType := mimeTypeForExtension(filepath.Ext(name))
 
-	req, err := http.NewRequest(http.MethodPost, endpoint, file)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, file)
 	if err != nil {
 		return err
 	}
@@ -430,10 +440,12 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode >= 400 {
 		data, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("github upload error: %s (%s)", resp.Status, strings.TrimSpace(string(data)))
+		return fmt.Errorf("%w: %s (%s)", errGithubUpload, resp.Status, strings.TrimSpace(string(data)))
 	}
 	return nil
 }
@@ -460,7 +472,9 @@ func newRunfileResolver() (*runfileResolver, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer file.Close()
+		defer func() {
+			_ = file.Close()
+		}()
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -512,7 +526,7 @@ func (r *runfileResolver) resolve(path string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("runfile %q not found", path)
+	return "", fmt.Errorf("%w: %q", errRunfileNotFound, path)
 }
 
 func collectAssets(resolver *runfileResolver, manifest string) ([]string, error) {
@@ -525,7 +539,9 @@ func collectAssets(resolver *runfileResolver, manifest string) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	scanner := bufio.NewScanner(file)
 	var artifacts []string
@@ -545,7 +561,7 @@ func collectAssets(resolver *runfileResolver, manifest string) ([]string, error)
 	}
 
 	if len(artifacts) == 0 {
-		return nil, fmt.Errorf("no artifacts listed in %s", manifestPath)
+		return nil, fmt.Errorf("%w: %s", errNoArtifacts, manifestPath)
 	}
 
 	sort.Strings(artifacts)
@@ -572,7 +588,7 @@ func readMaybeRunfile(resolver *runfileResolver, path string) (string, error) {
 	return string(content), nil
 }
 
-func fail(format string, args ...interface{}) {
+func failf(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	fmt.Fprintf(os.Stderr, "%s\n", msg)
 	os.Exit(1)
@@ -593,7 +609,7 @@ func boolPtr(v bool) *bool {
 
 func uniqueStrings(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
-	var result []string
+	result := make([]string, 0, len(values))
 	for _, v := range values {
 		if v == "" {
 			continue
