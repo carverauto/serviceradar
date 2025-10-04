@@ -89,5 +89,6 @@ Ensure the following BuildBuddy secrets are defined before enabling the workflow
 - `GHCR_USERNAME`
 - `GHCR_TOKEN`
 - `GITHUB_TOKEN`
+- `BUILDBUDDY_API_KEY` (or `BUILDBUDDY_ORG_API_KEY`) – required so Bazel’s `--config=remote` can authenticate to BuildBuddy inside the workflow.
 
 Once the secrets are present, enable the “Release” workflow in BuildBuddy. A push to a `v*` tag (or a manual workflow dispatch) will authenticate to GHCR, push all images, and publish the Debian/RPM assets to the matching GitHub release.
