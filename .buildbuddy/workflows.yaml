@@ -29,6 +29,8 @@ workflows:
         value_from_secret: GITHUB_TOKEN
       - name: GH_TOKEN
         value_from_secret: GITHUB_TOKEN
+      - name: BUILDBUDDY_API_KEY
+        value_from_secret: BUILDBUDDY_API_KEY
       - name: RELEASE_TAG
         value_from_input: tag
       - name: RELEASE_NOTES_FILE
