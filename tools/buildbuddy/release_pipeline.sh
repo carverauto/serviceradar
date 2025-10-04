@@ -5,6 +5,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
+maybe_write_remote_rc() {
+    local key="${BUILDBUDDY_API_KEY:-${BUILDBUDDY_ORG_API_KEY:-}}"
+    local rc_file="${REPO_ROOT}/.bazelrc.remote"
+
+    if [[ -f "${rc_file}" || -z "${key}" ]]; then
+        return
+    fi
+
+    local old_umask
+    old_umask=$(umask)
+    umask 077
+    printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${key}" > "${rc_file}"
+    umask "${old_umask}"
+}
+
+maybe_write_remote_rc
+
 BAZEL_BINARY="${BAZEL_BINARY:-${REPO_ROOT}/tools/bazel/bazel}"
 if [[ ! -x "${BAZEL_BINARY}" ]]; then
     BAZEL_BINARY="bazel"
