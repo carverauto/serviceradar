@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.53-pre17
+
+Release cut for the final GitHub upload fix.
+
+## Whats New
+
+**1.0.53-pre17**
+- Prepare follow-up tag so the GitHub Actions release reruns with the Content-Length fix.
+- Carry forward packaging/version metadata for automated publishing.
+
 # ServiceRadar v1.0.53-pre16
 
 Release publisher refinements for GitHub automation.
