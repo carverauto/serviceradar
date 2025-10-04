@@ -243,20 +243,21 @@ if not sanitized_base:
     raise SystemExit("sanitized RPM version is empty")
 
 with open(dst, 'w', encoding='utf-8') as out:
-    out.write(sanitized_base + "\n")
+    out.write(sanitized_base + '\\n')
 PY
 """,
     )
 
     fallback_release = rpm_release or "1"
-    fallback_escaped = fallback_release.replace("'", "'\\''")
+    fallback_release_escaped = fallback_release.replace("'", "'\\''")
     native.genrule(
         name = "{}_rpm_release".format(name),
         srcs = [version_file],
         outs = [rpm_release_output],
         cmd = """
 set -eo pipefail
-python3 - <<'PY' "$<" "$@" '%s'
+fallback='%s'
+python3 - <<'PY' "$<" "$@" "$$fallback"
 import re
 import sys
 
@@ -274,9 +275,9 @@ if not sanitized_release:
     sanitized_release = '1'
 
 with open(dst, 'w', encoding='utf-8') as out:
-    out.write(sanitized_release + "\n")
+    out.write(sanitized_release + '\\n')
 PY
-""" % fallback_escaped,
+""" % fallback_release_escaped,
     )
 
     pkg_rpm(
