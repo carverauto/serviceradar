@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.53-pre18
+
+Kong packaging automation and vendor refresh.
+
+## Whats New
+
+**1.0.53-pre18**
+- Added `scripts/build-kong-vendor.sh` to clone the pinned Kong commit and build OSS RPM/DEB artifacts automatically.
+- Release workflow now runs the helper so Kong binaries ship with every GitHub release.
+- Documented the new flow in `packaging/kong/README.md` and clarified the expected versioned filenames.
+
 # ServiceRadar v1.0.53-pre17
 
 Release cut for the final GitHub upload fix.
@@ -166,4 +177,3 @@ curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.53-pr
 curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.53-pre5/install-serviceradar.sh | bash -s -- --poller --skip-checker-prompts --checkers=sysmon
 systemctl restart serviceradar-poller
 ```
-
