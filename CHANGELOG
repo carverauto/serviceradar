@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.53-pre16
+
+Release publisher refinements for GitHub automation.
+
+## Whats New
+
+**1.0.53-pre16**
+- Fix GitHub asset uploads by letting the client set `Content-Length` for large RPMs.
+- Clean up release notes for prior prerelease entries.
+- Bump VERSION to keep packaging outputs aligned with the tag.
+
 # ServiceRadar v1.0.53-pre15
 
 Release tooling alignment for GitHub publishing.
