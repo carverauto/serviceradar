@@ -13,24 +13,33 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/bazelbuild/rules_go/go/tools/bazel"
 )
 
 const manifestRunfile = "release/package_manifest.txt"
 
 var (
-	errGithubAPI      = errors.New("github api error")
-	errGithubUpload   = errors.New("github upload error")
-	errEmptyUploadURL = errors.New("upload URL is empty")
-	errRunfileNotFound = errors.New("runfile not found")
-	errNoArtifacts    = errors.New("no artifacts listed in manifest")
+	errGithubAPI              = errors.New("github api error")
+	errGithubUpload           = errors.New("github upload error")
+	errEmptyUploadURL         = errors.New("upload URL is empty")
+	errRunfileNotFound        = errors.New("runfile not found")
+	errNoArtifacts            = errors.New("no artifacts listed in manifest")
+	errEmptyTag               = errors.New("tag is empty")
+	errNoVersionComponent     = errors.New("tag does not contain a version component")
+	errUnexpectedDebianName   = errors.New("unexpected debian artifact name")
+	errUnexpectedRPMName      = errors.New("unexpected rpm artifact name")
+	errUnsupportedArtifactExt = errors.New("unsupported artifact extension")
 )
 
 type runfileResolver struct {
 	manifest    map[string]string
 	searchBases []string
+	workspace   string
 }
 
 type githubClient struct {
@@ -88,6 +97,11 @@ func main() {
 	repo := strings.TrimSpace(*repoFlag)
 	if repo == "" || strings.Count(repo, "/") != 1 {
 		failf("--repo must be in owner/repo format (got %q)", repo)
+	}
+
+	releaseVersion, rpmVersion, rpmRelease, err := deriveVersionMetadata(*tagFlag)
+	if err != nil {
+		failf("invalid tag %q: %v", *tagFlag, err)
 	}
 
 	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
@@ -160,24 +174,27 @@ func main() {
 	}
 
 	for _, artifact := range assets {
-		name := filepath.Base(artifact)
-		if id, ok := existingAssets[name]; ok {
+		uploadName, err := resolveUploadName(artifact, releaseVersion, rpmVersion, rpmRelease)
+		if err != nil {
+			failf("failed to derive upload name for %q: %v", artifact, err)
+		}
+		if id, ok := existingAssets[uploadName]; ok {
 			if *overwriteAssetsFlag {
-				fmt.Printf("Replacing existing asset %s\n", name)
+				fmt.Printf("Replacing existing asset %s\n", uploadName)
 				if err := client.deleteAsset(id); err != nil {
-					failf("failed to delete existing asset %q: %v", name, err)
+					failf("failed to delete existing asset %q: %v", uploadName, err)
 				}
-				delete(existingAssets, name)
+				delete(existingAssets, uploadName)
 			} else {
-				fmt.Printf("Skipping %s (asset already exists)\n", name)
+				fmt.Printf("Skipping %s (asset already exists)\n", uploadName)
 				continue
 			}
 		}
 
-		if err := client.uploadAsset(rel.UploadURL, artifact); err != nil {
-			failf("failed to upload asset %q: %v", name, err)
+		if err := client.uploadAsset(rel.UploadURL, artifact, uploadName); err != nil {
+			failf("failed to upload asset %q: %v", uploadName, err)
 		}
-		fmt.Printf("Uploaded %s\n", name)
+		fmt.Printf("Uploaded %s\n", uploadName)
 	}
 
 	fmt.Println("All artifacts processed successfully")
@@ -388,7 +405,7 @@ func (c *githubClient) deleteAsset(id int64) error {
 	return nil
 }
 
-func (c *githubClient) uploadAsset(uploadURL, assetPath string) error {
+func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) error {
 	if uploadURL == "" {
 		return errEmptyUploadURL
 	}
@@ -398,7 +415,10 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath string) error {
 		base = uploadURL[:idx]
 	}
 
-	name := filepath.Base(assetPath)
+	name := uploadName
+	if strings.TrimSpace(name) == "" {
+		name = filepath.Base(assetPath)
+	}
 	endpoint := fmt.Sprintf("%s?name=%s", strings.TrimRight(base, "/"), url.QueryEscape(name))
 
 	file, err := os.Open(assetPath)
@@ -465,6 +485,7 @@ func newRunfileResolver() (*runfileResolver, error) {
 	resolver := &runfileResolver{
 		manifest:    map[string]string{},
 		searchBases: nil,
+		workspace:   "",
 	}
 
 	if manifest := os.Getenv("RUNFILES_MANIFEST_FILE"); manifest != "" {
@@ -487,6 +508,14 @@ func newRunfileResolver() (*runfileResolver, error) {
 				continue
 			}
 			resolver.manifest[parts[0]] = parts[1]
+			if idx := strings.Index(parts[0], "/"); idx != -1 {
+				trimmed := parts[0][idx+1:]
+				if trimmed != "" {
+					if _, exists := resolver.manifest[trimmed]; !exists {
+						resolver.manifest[trimmed] = parts[1]
+					}
+				}
+			}
 		}
 		if err := scanner.Err(); err != nil {
 			return nil, err
@@ -501,18 +530,63 @@ func newRunfileResolver() (*runfileResolver, error) {
 			os.Getenv("BAZEL_WORKSPACE"),
 		)
 		if workspace != "" {
+			resolver.workspace = workspace
 			candidates = append(candidates, filepath.Join(dir, workspace))
 		}
-		candidates = append(candidates, filepath.Join(dir, "__main__"), dir)
+		candidates = append(candidates, filepath.Join(dir, "_main"), filepath.Join(dir, "__main__"), dir)
 		resolver.searchBases = uniqueStrings(filterExisting(candidates))
 	} else if exe, err := os.Executable(); err == nil {
-		resolver.searchBases = []string{filepath.Dir(exe)}
+		exeDir := filepath.Dir(exe)
+		runfilesDir := exeDir + ".runfiles"
+		workspace := firstNonEmpty(
+			os.Getenv("TEST_WORKSPACE"),
+			os.Getenv("BUILD_WORKSPACE_NAME"),
+			os.Getenv("BAZEL_WORKSPACE"),
+		)
+		if workspace != "" {
+			resolver.workspace = workspace
+		}
+		candidates := []string{
+			filepath.Join(runfilesDir, workspace),
+			filepath.Join(runfilesDir, "_main"),
+			filepath.Join(runfilesDir, "__main__"),
+			runfilesDir,
+			exeDir,
+		}
+		resolver.searchBases = uniqueStrings(filterExisting(candidates))
 	}
 
 	return resolver, nil
 }
 
 func (r *runfileResolver) resolve(path string) (string, error) {
+	//nolint:staticcheck // bazel.Runfile is deprecated but required for compatibility
+	if resolved, err := bazel.Runfile(path); err == nil {
+		if _, statErr := os.Stat(resolved); statErr == nil {
+			return resolved, nil
+		}
+	}
+	if r.workspace != "" {
+		//nolint:staticcheck // bazel.Runfile is deprecated but required for compatibility
+		if resolved, err := bazel.Runfile(filepath.Join(r.workspace, path)); err == nil {
+			if _, statErr := os.Stat(resolved); statErr == nil {
+				return resolved, nil
+			}
+		}
+	}
+	//nolint:staticcheck // bazel.Runfile is deprecated but required for compatibility
+	if resolved, err := bazel.Runfile(filepath.Join("_main", path)); err == nil {
+		if _, statErr := os.Stat(resolved); statErr == nil {
+			return resolved, nil
+		}
+	}
+	//nolint:staticcheck // bazel.Runfile is deprecated but required for compatibility
+	if resolved, err := bazel.Runfile(filepath.Join("__main__", path)); err == nil {
+		if _, statErr := os.Stat(resolved); statErr == nil {
+			return resolved, nil
+		}
+	}
+
 	if resolved, ok := r.manifest[path]; ok {
 		if _, err := os.Stat(resolved); err == nil {
 			return resolved, nil
@@ -527,6 +601,77 @@ func (r *runfileResolver) resolve(path string) (string, error) {
 	}
 
 	return "", fmt.Errorf("%w: %q", errRunfileNotFound, path)
+}
+
+var rpmSanitizePattern = regexp.MustCompile(`[^A-Za-z0-9._+]`)
+
+func deriveVersionMetadata(tag string) (debVersion, rpmVersion, rpmRelease string, err error) {
+	trimmed := strings.TrimSpace(tag)
+	if trimmed == "" {
+		return "", "", "", errEmptyTag
+	}
+	if strings.HasPrefix(trimmed, "v") || strings.HasPrefix(trimmed, "V") {
+		trimmed = trimmed[1:]
+	}
+	if trimmed == "" {
+		return "", "", "", errNoVersionComponent
+	}
+	dbv := trimmed
+	rpmVer, rpmRel := splitRPMVersion(trimmed)
+	return dbv, rpmVer, rpmRel, nil
+}
+
+func splitRPMVersion(version string) (string, string) {
+	base, release, ok := strings.Cut(version, "-")
+	if ok {
+		base = sanitizeRPMComponent(base)
+		release = sanitizeRPMComponent(release)
+	} else {
+		base = sanitizeRPMComponent(version)
+		release = ""
+	}
+	if release == "" {
+		release = "1"
+	}
+	if base == "" {
+		base = "0"
+	}
+	return base, release
+}
+
+func sanitizeRPMComponent(value string) string {
+	if value == "" {
+		return ""
+	}
+	sanitized := rpmSanitizePattern.ReplaceAllString(value, ".")
+	return strings.Trim(sanitized, ".")
+}
+
+func resolveUploadName(path, debVersion, rpmVersion, rpmRelease string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".deb":
+		base := strings.TrimSuffix(filepath.Base(path), ext)
+		parts := strings.SplitN(base, "__", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return "", fmt.Errorf("%w: %q", errUnexpectedDebianName, filepath.Base(path))
+		}
+		return fmt.Sprintf("%s_%s_%s%s", parts[0], debVersion, parts[1], ext), nil
+	case ".rpm":
+		base := strings.TrimSuffix(filepath.Base(path), ext)
+		idx := strings.LastIndex(base, ".")
+		if idx == -1 || idx == len(base)-1 {
+			return "", fmt.Errorf("%w: %q", errUnexpectedRPMName, filepath.Base(path))
+		}
+		arch := base[idx+1:]
+		namePart := strings.TrimRight(base[:idx], "-")
+		if strings.TrimSpace(namePart) == "" {
+			return "", fmt.Errorf("%w: %q", errUnexpectedRPMName, filepath.Base(path))
+		}
+		return fmt.Sprintf("%s-%s-%s.%s%s", namePart, rpmVersion, rpmRelease, arch, ext), nil
+	default:
+		return "", fmt.Errorf("%w: %q", errUnsupportedArtifactExt, ext)
+	}
 }
 
 func collectAssets(resolver *runfileResolver, manifest string) ([]string, error) {

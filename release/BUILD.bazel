@@ -12,5 +12,8 @@ go_binary(
         ":package_manifest",
         ":package_artifacts",
     ],
+    deps = [
+        "@io_bazel_rules_go//go/tools/bazel",
+    ],
     visibility = ["//visibility:public"],
 )
