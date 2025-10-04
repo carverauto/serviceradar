@@ -24,11 +24,16 @@ import (
 const manifestRunfile = "release/package_manifest.txt"
 
 var (
-	errGithubAPI       = errors.New("github api error")
-	errGithubUpload    = errors.New("github upload error")
-	errEmptyUploadURL  = errors.New("upload URL is empty")
-	errRunfileNotFound = errors.New("runfile not found")
-	errNoArtifacts     = errors.New("no artifacts listed in manifest")
+	errGithubAPI              = errors.New("github api error")
+	errGithubUpload           = errors.New("github upload error")
+	errEmptyUploadURL         = errors.New("upload URL is empty")
+	errRunfileNotFound        = errors.New("runfile not found")
+	errNoArtifacts            = errors.New("no artifacts listed in manifest")
+	errEmptyTag               = errors.New("tag is empty")
+	errNoVersionComponent     = errors.New("tag does not contain a version component")
+	errUnexpectedDebianName   = errors.New("unexpected debian artifact name")
+	errUnexpectedRPMName      = errors.New("unexpected rpm artifact name")
+	errUnsupportedArtifactExt = errors.New("unsupported artifact extension")
 )
 
 type runfileResolver struct {
@@ -555,23 +560,27 @@ func newRunfileResolver() (*runfileResolver, error) {
 }
 
 func (r *runfileResolver) resolve(path string) (string, error) {
+	//nolint:staticcheck // bazel.Runfile is deprecated but required for compatibility
 	if resolved, err := bazel.Runfile(path); err == nil {
 		if _, statErr := os.Stat(resolved); statErr == nil {
 			return resolved, nil
 		}
 	}
 	if r.workspace != "" {
+		//nolint:staticcheck // bazel.Runfile is deprecated but required for compatibility
 		if resolved, err := bazel.Runfile(filepath.Join(r.workspace, path)); err == nil {
 			if _, statErr := os.Stat(resolved); statErr == nil {
 				return resolved, nil
 			}
 		}
 	}
+	//nolint:staticcheck // bazel.Runfile is deprecated but required for compatibility
 	if resolved, err := bazel.Runfile(filepath.Join("_main", path)); err == nil {
 		if _, statErr := os.Stat(resolved); statErr == nil {
 			return resolved, nil
 		}
 	}
+	//nolint:staticcheck // bazel.Runfile is deprecated but required for compatibility
 	if resolved, err := bazel.Runfile(filepath.Join("__main__", path)); err == nil {
 		if _, statErr := os.Stat(resolved); statErr == nil {
 			return resolved, nil
@@ -599,13 +608,13 @@ var rpmSanitizePattern = regexp.MustCompile(`[^A-Za-z0-9._+]`)
 func deriveVersionMetadata(tag string) (debVersion, rpmVersion, rpmRelease string, err error) {
 	trimmed := strings.TrimSpace(tag)
 	if trimmed == "" {
-		return "", "", "", fmt.Errorf("tag is empty")
+		return "", "", "", errEmptyTag
 	}
 	if strings.HasPrefix(trimmed, "v") || strings.HasPrefix(trimmed, "V") {
 		trimmed = trimmed[1:]
 	}
 	if trimmed == "" {
-		return "", "", "", fmt.Errorf("tag does not contain a version component")
+		return "", "", "", errNoVersionComponent
 	}
 	dbv := trimmed
 	rpmVer, rpmRel := splitRPMVersion(trimmed)
@@ -613,14 +622,14 @@ func deriveVersionMetadata(tag string) (debVersion, rpmVersion, rpmRelease strin
 }
 
 func splitRPMVersion(version string) (string, string) {
-	base := version
-	release := ""
-	if idx := strings.Index(version, "-"); idx != -1 {
-		base = version[:idx]
-		release = version[idx+1:]
+	base, release, ok := strings.Cut(version, "-")
+	if ok {
+		base = sanitizeRPMComponent(base)
+		release = sanitizeRPMComponent(release)
+	} else {
+		base = sanitizeRPMComponent(version)
+		release = ""
 	}
-	base = sanitizeRPMComponent(base)
-	release = sanitizeRPMComponent(release)
 	if release == "" {
 		release = "1"
 	}
@@ -645,23 +654,23 @@ func resolveUploadName(path, debVersion, rpmVersion, rpmRelease string) (string,
 		base := strings.TrimSuffix(filepath.Base(path), ext)
 		parts := strings.SplitN(base, "__", 2)
 		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-			return "", fmt.Errorf("unexpected debian artifact name %q", filepath.Base(path))
+			return "", fmt.Errorf("%w: %q", errUnexpectedDebianName, filepath.Base(path))
 		}
 		return fmt.Sprintf("%s_%s_%s%s", parts[0], debVersion, parts[1], ext), nil
 	case ".rpm":
 		base := strings.TrimSuffix(filepath.Base(path), ext)
 		idx := strings.LastIndex(base, ".")
 		if idx == -1 || idx == len(base)-1 {
-			return "", fmt.Errorf("unexpected rpm artifact name %q", filepath.Base(path))
+			return "", fmt.Errorf("%w: %q", errUnexpectedRPMName, filepath.Base(path))
 		}
 		arch := base[idx+1:]
 		namePart := strings.TrimRight(base[:idx], "-")
 		if strings.TrimSpace(namePart) == "" {
-			return "", fmt.Errorf("unexpected rpm artifact name %q", filepath.Base(path))
+			return "", fmt.Errorf("%w: %q", errUnexpectedRPMName, filepath.Base(path))
 		}
 		return fmt.Sprintf("%s-%s-%s.%s%s", namePart, rpmVersion, rpmRelease, arch, ext), nil
 	default:
-		return "", fmt.Errorf("unsupported artifact extension %q", ext)
+		return "", fmt.Errorf("%w: %q", errUnsupportedArtifactExt, ext)
 	}
 }
 
