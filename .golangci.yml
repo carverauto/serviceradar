@@ -3,11 +3,6 @@ version: "2"
 run:
   timeout: 5m
 
-linters-settings:
-  exclusions:
-    paths:
-      - vendor
-
 linters:
   enable:
     - asciicheck
