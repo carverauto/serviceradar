@@ -219,11 +219,72 @@ def serviceradar_package(
     else:
         target_compat = {"//conditions:default": compatible}
 
+    rpm_version_output = "{}_rpm_version.txt".format(name)
+    rpm_release_output = "{}_rpm_release.txt".format(name)
+
+    native.genrule(
+        name = "{}_rpm_version".format(name),
+        srcs = [version_file],
+        outs = [rpm_version_output],
+        cmd = """
+set -eo pipefail
+python3 - <<'PY' "$<" "$@"
+import re
+import sys
+
+src, dst = sys.argv[1:3]
+version_raw = open(src, 'r', encoding='utf-8').read().strip()
+if not version_raw:
+    raise SystemExit("VERSION file is empty")
+
+base_part = version_raw.split('-', 1)[0]
+sanitized_base = re.sub(r"[^A-Za-z0-9._+]", ".", base_part).strip('.')
+if not sanitized_base:
+    raise SystemExit("sanitized RPM version is empty")
+
+with open(dst, 'w', encoding='utf-8') as out:
+    out.write(sanitized_base + '\\n')
+PY
+""",
+    )
+
+    fallback_release = rpm_release or "1"
+    fallback_release_escaped = fallback_release.replace("'", "'\\''")
+    native.genrule(
+        name = "{}_rpm_release".format(name),
+        srcs = [version_file],
+        outs = [rpm_release_output],
+        cmd = """
+set -eo pipefail
+fallback='%s'
+python3 - <<'PY' "$<" "$@" "$$fallback"
+import re
+import sys
+
+src, dst, fallback = sys.argv[1:4]
+version_raw = open(src, 'r', encoding='utf-8').read().strip()
+
+release_part = ''
+if '-' in version_raw:
+    release_part = version_raw.split('-', 1)[1]
+
+sanitized_release = re.sub(r"[^A-Za-z0-9._+]", ".", release_part).strip('.') if release_part else ''
+if not sanitized_release:
+    sanitized_release = re.sub(r"[^A-Za-z0-9._+]", ".", fallback).strip('.')
+if not sanitized_release:
+    sanitized_release = '1'
+
+with open(dst, 'w', encoding='utf-8') as out:
+    out.write(sanitized_release + '\\n')
+PY
+""" % fallback_release_escaped,
+    )
+
     pkg_rpm(
         name = "{}_rpm".format(name),
         package_name = package_name,
-        version_file = version_file,
-        release = rpm_release,
+        version_file = ":{}".format(rpm_version_output),
+        release_file = ":{}".format(rpm_release_output),
         architecture = "x86_64" if architecture == "amd64" else architecture,
         summary = summary or description,
         description = description,
