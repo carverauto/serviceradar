@@ -133,6 +133,9 @@ jobs:
           cat "$notes_file"
           echo "--------------------------------"
 
+      - name: Build Kong vendor artifacts
+        run: ./scripts/build-kong-vendor.sh
+
       - name: Publish Debian and RPM packages
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
