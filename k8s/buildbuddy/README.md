@@ -18,6 +18,7 @@ The BuildBuddy executors connect to the remote BuildBuddy instance at `remote.bu
 - **Resources per executor**:
   - CPU: 8-16 cores (request-limit)
   - Memory: 16-32Gi (request-limit)
+  - Ephemeral Storage: 10-30Gi (request-limit)
 - **Cache**: 20GB local cache per executor
 - **Persistent Disk**: 160Gi per executor
 
@@ -98,9 +99,14 @@ kubectl get hpa -n buildbuddy
 
 If pods are being evicted due to resource pressure:
 1. Check node resources: `kubectl describe node <node-name>`
-2. Reduce resource requests/limits in `values.yaml`
-3. Add node affinity to avoid problematic nodes
-4. Reduce cache size (`local_cache_size_bytes`)
+2. Common causes:
+   - **Ephemeral storage exhaustion**: Ensure `ephemeral-storage` limits are set in `resources`
+   - **Memory pressure**: Adjust memory limits
+   - **Disk pressure**: Check node disk usage
+3. Reduce resource requests/limits in `values.yaml`
+4. Add node affinity to avoid problematic nodes
+5. Reduce cache size (`local_cache_size_bytes`)
+6. Clean up evicted pods: `kubectl delete pods --field-selector status.phase=Failed -n buildbuddy`
 
 ### Connection Issues
 
