@@ -1,0 +1,16 @@
+load("//packaging:release_targets.bzl", "declare_release_artifacts")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+declare_release_artifacts()
+
+go_binary(
+    name = "publish_packages",
+    srcs = ["publish_packages.go"],
+    data = [
+        ":package_manifest",
+        ":package_artifacts",
+    ],
+    visibility = ["//visibility:public"],
+)
