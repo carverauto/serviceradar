@@ -49,16 +49,6 @@ jobs:
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Bazel outputs
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/bazel
-            ~/.cache/bazelisk
-          key: bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel.lock', 'MODULE.bazel', 'WORKSPACE', '**/*.bzl', '.bazelrc', '.bazelrc.remote') }}
-          restore-keys: |
-            bazel-${{ runner.os }}-
-
       - name: Authenticate Docker for GHCR
         run: |
           bazel run \
