@@ -149,12 +149,14 @@ pkg_tar(
         "//docker/compose:entrypoint-core.sh": "usr/local/bin/entrypoint.sh",
         "@jq_linux_amd64//file": "usr/local/bin/jq",
         "@curl_linux_amd64//file": "usr/local/bin/curl",
+        "@grpcurl_linux_amd64//:grpcurl": "usr/local/bin/grpcurl",
     },
     modes = {
         "usr/local/bin/serviceradar-core": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
         "usr/local/bin/jq": "0755",
         "usr/local/bin/curl": "0755",
+        "usr/local/bin/grpcurl": "0755",
     },
     empty_dirs = [
         "etc/serviceradar",
@@ -175,7 +177,7 @@ oci_image(
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
     },
-    exposed_ports = ["8090/tcp", "50051/tcp"],
+    exposed_ports = ["8090/tcp", "50052/tcp"],
     labels = {
         "org.opencontainers.image.title": "serviceradar-core",
     },
