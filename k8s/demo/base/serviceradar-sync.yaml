@@ -35,11 +35,11 @@ spec:
           value: "info"
         resources:
           requests:
-            cpu: "250m"
-            memory: "2Gi"
+            cpu: "500m"
+            memory: "3Gi"
           limits:
-            cpu: "1"
-            memory: "4Gi"
+            cpu: "2"
+            memory: "8Gi"
         livenessProbe:
           tcpSocket:
             port: 50058
