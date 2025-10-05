@@ -793,6 +793,30 @@ http_file(
     ],
 )
 
+http_file(
+    name = "alpine_readline_apk",
+    sha256 = "177b9c76718d0a12cd1c27f2a3e422341ad93259ad56d77f55da712563049aed",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/readline-8.2.10-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libncursesw_apk",
+    sha256 = "db40dff96b7bb668257e45a5d14cab346bdfc7992598d5c51ee64dfc4ad014d5",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libncursesw-6.4_p20240420-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_ncurses_terminfo_base_apk",
+    sha256 = "555948e6b67d4bddc213673843a63bbd3d30548133bdff8aff9e66988285ae7e",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/ncurses-terminfo-base-6.4_p20240420-r2.apk",
+    ],
+)
+
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
