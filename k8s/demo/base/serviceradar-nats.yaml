@@ -16,6 +16,7 @@ spec:
       containers:
       - name: nats
         image: nats:latest
+        imagePullPolicy: Always
         command: ["/nats-server", "--config", "/etc/nats/nats-server.conf", "--jetstream"]
         ports:
         - containerPort: 4222
