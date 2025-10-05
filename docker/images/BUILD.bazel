@@ -123,6 +123,39 @@ tar -czf "$@" -C "$${TMP}/rootfs" .
 )
 
 genrule(
+    name = "apk_bash_rootfs_amd64",
+    srcs = ["@alpine_bash_apk//file"],
+    outs = ["apk_bash_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_bash_apk//file)
+TMP=$(@D)/bash_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
     name = "alpine_netutils_rootfs_amd64",
     srcs = [
         ":apk_iputils_ping_rootfs_amd64.tar",
@@ -781,6 +814,25 @@ pkg_tar(
     package_dir = "/app/.next/standalone/public",
 )
 
+genrule(
+    name = "web_node_modules_amd64",
+    srcs = [
+        "//web:node_modules/next",
+        "//web:node_modules/react",
+        "//web:node_modules/react-dom",
+    ],
+    outs = ["web_node_modules_amd64.tar"],
+    cmd = """
+set -euo pipefail
+TMP=$(@D)/web_node_modules
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/app/node_modules"
+NODE_MODULES_DIR=$(GENDIR)/web/node_modules
+cp -a "$${NODE_MODULES_DIR}/." "$${TMP}/app/node_modules/"
+tar -czf "$@" -C "$${TMP}" app
+""",
+)
+
 pkg_tar(
     name = "web_layer_amd64",
     files = {
@@ -806,6 +858,7 @@ oci_image(
         ":web_app_tree_amd64",
         ":web_public_root_amd64",
         ":web_public_standalone_amd64",
+        ":web_node_modules_amd64",
         ":web_layer_amd64",
     ],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
@@ -954,7 +1007,12 @@ pkg_tar(
 oci_image(
     name = "tools_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":alpine_netutils_rootfs_amd64", ":tools_layer_amd64", ":common_tools_amd64"],
+    tars = [
+        ":alpine_netutils_rootfs_amd64",
+        ":apk_bash_rootfs_amd64.tar",
+        ":tools_layer_amd64",
+        ":common_tools_amd64",
+    ],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["/bin/sh"],
     env = {
