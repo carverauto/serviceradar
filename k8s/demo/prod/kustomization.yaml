@@ -9,11 +9,13 @@ resources:
   - namespace.yaml
 
 images:
-  - name: ghcr.io/carverauto/serviceradar/serviceradar-agent
-    newTag: 1.0.19
-  - name: ghcr.io/carverauto/serviceradar/serviceradar-poller
-    newTag: 1.0.19
-  - name: ghcr.io/carverauto/serviceradar/serviceradar-cloud
-    newTag: 1.0.19
-  - name: ghcr.io/carverauto/serviceradar/serviceradar-snmp-checker
-    newTag: 1.0.19
+  - name: ghcr.io/carverauto/serviceradar-core
+    newTag: v1.0.53-pre18
+  - name: ghcr.io/carverauto/serviceradar-web
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-agent
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-poller
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-snmp-checker
+    newTag: latest
