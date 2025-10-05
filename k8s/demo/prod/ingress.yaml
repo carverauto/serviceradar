@@ -38,9 +38,9 @@ spec:
         pathType: Exact
         backend:
           service:
-            name: serviceradar-core
+            name: serviceradar-kong
             port:
-              number: 8090
+              number: 8000
       
       # API routes handled by Next.js
       - path: /api/auth
@@ -84,9 +84,9 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-core
+            name: serviceradar-kong
             port:
-              number: 8090
+              number: 8000
       
       # Auth API routes
       - path: /auth
