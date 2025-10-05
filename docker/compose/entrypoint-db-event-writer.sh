@@ -15,10 +15,38 @@
 
 set -e
 
+# Helper to resolve service hosts depending on the environment (Docker vs. Kubernetes)
+resolve_service_host() {
+    service_name="$1"
+    override_name="$2"
+    docker_default="$3"
+    override_value=$(eval "printf '%s' \"\${${override_name}:-}\"")
+    if [ -n "$override_value" ]; then
+        printf '%s' "$override_value"
+        return
+    fi
+    if [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+        printf '%s' "$service_name"
+        return
+    fi
+    printf '%s' "$docker_default"
+}
+
+resolve_service_port() {
+    override_name="$1"
+    default_value="$2"
+    override_value=$(eval "printf '%s' \"\${${override_name}:-}\"")
+    if [ -n "$override_value" ]; then
+        printf '%s' "$override_value"
+        return
+    fi
+    printf '%s' "$default_value"
+}
+
 # Wait for dependencies to be ready
 if [ -n "${WAIT_FOR_NATS:-}" ]; then
-    NATS_HOST_VALUE="${NATS_HOST:-nats}"
-    NATS_PORT_VALUE="${NATS_PORT:-4222}"
+    NATS_HOST_VALUE=$(resolve_service_host "serviceradar-nats" NATS_HOST "nats")
+    NATS_PORT_VALUE=$(resolve_service_port NATS_PORT "4222")
     echo "Waiting for NATS service at ${NATS_HOST_VALUE}:${NATS_PORT_VALUE}..."
 
     if wait-for-port \
@@ -35,8 +63,8 @@ if [ -n "${WAIT_FOR_NATS:-}" ]; then
 fi
 
 if [ -n "${WAIT_FOR_PROTON:-}" ]; then
-    PROTON_HOST_VALUE="${PROTON_HOST:-proton}"
-    PROTON_PORT_VALUE="${PROTON_PORT:-9440}"
+    PROTON_HOST_VALUE=$(resolve_service_host "serviceradar-proton" PROTON_HOST "proton")
+    PROTON_PORT_VALUE=$(resolve_service_port PROTON_PORT "9440")
     echo "Waiting for Proton database at ${PROTON_HOST_VALUE}:${PROTON_PORT_VALUE}..."
 
     if wait-for-port \

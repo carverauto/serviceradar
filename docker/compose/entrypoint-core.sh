@@ -15,6 +15,33 @@
 
 set -e
 
+resolve_service_host() {
+    service_name="$1"
+    override_name="$2"
+    docker_default="$3"
+    override_value=$(eval "printf '%s' \"\${${override_name}:-}\"")
+    if [ -n "$override_value" ]; then
+        printf '%s' "$override_value"
+        return
+    fi
+    if [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+        printf '%s' "$service_name"
+        return
+    fi
+    printf '%s' "$docker_default"
+}
+
+resolve_service_port() {
+    override_name="$1"
+    default_value="$2"
+    override_value=$(eval "printf '%s' \"\${${override_name}:-}\"")
+    if [ -n "$override_value" ]; then
+        printf '%s' "$override_value"
+        return
+    fi
+    printf '%s' "$default_value"
+}
+
 export PATH="/usr/local/bin:${PATH}"
 
 # Ensure expected directories exist even on minimal base images.
@@ -72,7 +99,9 @@ fi
 
 # Wait for Proton to be ready if configured
 if [ -n "$WAIT_FOR_PROTON" ]; then
-    PROTON_ADDR="${PROTON_HOST:-proton}:${PROTON_PORT:-8123}"
+    PROTON_HOST_VALUE=$(resolve_service_host "serviceradar-proton" PROTON_HOST "proton")
+    PROTON_PORT_VALUE=$(resolve_service_port PROTON_PORT "8123")
+    PROTON_ADDR="${PROTON_HOST_VALUE}:${PROTON_PORT_VALUE}"
     echo "Waiting for Proton at $PROTON_ADDR..."
     
     for i in {1..30}; do

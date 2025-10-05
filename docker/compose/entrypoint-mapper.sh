@@ -15,10 +15,37 @@
 
 set -e
 
+resolve_service_host() {
+    service_name="$1"
+    override_name="$2"
+    docker_default="$3"
+    override_value=$(eval "printf '%s' \"\${${override_name}:-}\"")
+    if [ -n "$override_value" ]; then
+        printf '%s' "$override_value"
+        return
+    fi
+    if [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+        printf '%s' "$service_name"
+        return
+    fi
+    printf '%s' "$docker_default"
+}
+
+resolve_service_port() {
+    override_name="$1"
+    default_value="$2"
+    override_value=$(eval "printf '%s' \"\${${override_name}:-}\"")
+    if [ -n "$override_value" ]; then
+        printf '%s' "$override_value"
+        return
+    fi
+    printf '%s' "$default_value"
+}
+
 # Wait for dependencies to be ready
 if [ -n "${WAIT_FOR_OTEL:-}" ]; then
-    OTEL_HOST_VALUE="${OTEL_HOST:-otel}"
-    OTEL_PORT_VALUE="${OTEL_PORT:-4317}"
+    OTEL_HOST_VALUE=$(resolve_service_host "serviceradar-otel" OTEL_HOST "otel")
+    OTEL_PORT_VALUE=$(resolve_service_port OTEL_PORT "4317")
     echo "Waiting for OTEL service at ${OTEL_HOST_VALUE}:${OTEL_PORT_VALUE}..."
 
     if wait-for-port \
