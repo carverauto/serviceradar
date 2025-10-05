@@ -785,6 +785,14 @@ http_file(
     ],
 )
 
+http_file(
+    name = "alpine_bash_apk",
+    sha256 = "132bb6f77fcad208b44b54d1fd73cb5e02cfea18f884b399f8de0e38b5134a93",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/bash-5.2.26-r0.apk",
+    ],
+)
+
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",

@@ -18,6 +18,7 @@ spec:
       containers:
       - name: sync
         image: ghcr.io/carverauto/serviceradar-sync:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 50058
           name: grpc

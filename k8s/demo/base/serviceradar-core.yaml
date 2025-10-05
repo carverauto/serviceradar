@@ -19,7 +19,8 @@ spec:
         - name: ghcr-io-cred
       containers:
       - name: core
-        image: ghcr.io/carverauto/serviceradar-core:v1.0.53-pre19
+        image: ghcr.io/carverauto/serviceradar-core:latest
+        imagePullPolicy: Always
         command: ["/bin/bash"]
         args:
         - -c

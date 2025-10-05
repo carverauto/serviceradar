@@ -18,6 +18,7 @@ spec:
       initContainers:
         - name: init-rperf-config
           image: busybox:1.36
+          imagePullPolicy: Always
           command: ['sh', '-c', 'mkdir -p /etc/serviceradar/checkers && cp /config/rperf.json /etc/serviceradar/checkers/rperf.json']
           volumeMounts:
             - name: serviceradar-config
@@ -27,6 +28,7 @@ spec:
       containers:
       - name: rperf-checker
         image: ghcr.io/carverauto/serviceradar-rperf-client:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 50081
           name: grpc

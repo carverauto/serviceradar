@@ -18,6 +18,7 @@ spec:
       containers:
       - name: kv
         image: ghcr.io/carverauto/serviceradar-kv:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 50057
           name: grpc
