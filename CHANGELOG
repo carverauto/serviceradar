@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.53-pre19
+
+Bazel container fixes for runtime parity.
+
+## Whats New
+
+**1.0.53-pre19**
+- Enforced pure Go mode in Bazel so every shipped binary is static and CGO-free.
+- Layered Alpine ping, nmap, and netcat APKs into all OCI images that expect those tools at runtime.
+- Rebuilt the Bazel OCI targets to match the previously working docker-compose images.
+
 # ServiceRadar v1.0.53-pre18
 
 Kong packaging automation and vendor refresh.
