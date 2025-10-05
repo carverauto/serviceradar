@@ -778,9 +778,15 @@ data:
     echo "🔑 Using API_KEY: ${API_KEY:0:8}... (${#API_KEY} chars)"
     echo "🔐 Using JWT_SECRET: ${JWT_SECRET:0:8}... (${#JWT_SECRET} chars)"
     
-    # Default configuration path
-    CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/core.json}"
-    echo "Using configuration from $CONFIG_PATH"
+    TEMPLATE_PATH="/etc/serviceradar/core.json"
+    CONFIG_PATH="${CONFIG_PATH:-/var/lib/serviceradar/core.json}"
+    CONFIG_DIR=$(dirname "$CONFIG_PATH")
+    mkdir -p "$CONFIG_DIR"
+    if [ ! -f "$CONFIG_PATH" ]; then
+        echo "Seeding runtime config from $TEMPLATE_PATH into $CONFIG_PATH"
+        cp "$TEMPLATE_PATH" "$CONFIG_PATH"
+    fi
+    echo "Using runtime configuration at $CONFIG_PATH"
     
     # Get Proton password from Kubernetes secret (loaded as env var)
     if [ -n "$PROTON_PASSWORD" ]; then
@@ -794,24 +800,18 @@ data:
         echo "Updating configuration with secrets..."
 
         # Use jq to update the existing config - match production auth format exactly  
+        TMP_CONFIG=$(mktemp)
         jq --arg pwd "$PROTON_PASSWORD" \
            --arg jwt "$JWT_SECRET" \
            --arg api_key "$API_KEY" \
            --arg bcrypt "$ADMIN_BCRYPT_HASH" \
            '.database.password = $pwd | .auth.jwt_secret = $jwt | .auth.jwt_expiration = "24h" | .auth.local_users.admin = $bcrypt | .api_key = $api_key' \
-           "$CONFIG_PATH" > /var/lib/serviceradar/core.json
-        CONFIG_PATH="/var/lib/serviceradar/core.json"
-        echo "Configuration updated with all secrets and saved to $CONFIG_PATH"
+           "$CONFIG_PATH" > "$TMP_CONFIG"
+        mv "$TMP_CONFIG" "$CONFIG_PATH"
+        echo "Configuration updated with secrets at $CONFIG_PATH"
 
-        if command -v serviceradar-cli >/dev/null 2>&1; then
-            if ! jq -e '.auth.jwt_private_key_pem // empty' "$CONFIG_PATH" >/dev/null 2>&1; then
-                echo "Generating RS256 JWT keys for Core JWKS..."
-                if ! serviceradar-cli generate-jwt-keys --file "$CONFIG_PATH" --bits 2048 --force; then
-                    echo "Failed to generate RS256 keys" >&2
-                fi
-            fi
-        else
-            echo "serviceradar-cli not available; skipping RS256 key generation" >&2
+        if ! jq -e '.auth.jwt_private_key_pem // empty' "$CONFIG_PATH" >/dev/null 2>&1; then
+            echo "Warning: RS256 key material missing from $CONFIG_PATH; Core JWKS will be empty" >&2
         fi
     fi
 

@@ -17,6 +17,24 @@ spec:
     spec:
       imagePullSecrets:
         - name: ghcr-io-cred
+      initContainers:
+      - name: init-core-jwks
+        image: ghcr.io/carverauto/serviceradar-kong-config:latest
+        imagePullPolicy: Always
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          mkdir -p /var/lib/serviceradar
+          cp /etc/serviceradar/core.json /var/lib/serviceradar/core.json
+          serviceradar-cli generate-jwt-keys --file /var/lib/serviceradar/core.json --bits 2048 --force
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+          readOnly: true
+        - name: core-data
+          mountPath: /var/lib/serviceradar
       containers:
       - name: core
         image: ghcr.io/carverauto/serviceradar-core:latest
@@ -50,7 +68,7 @@ spec:
         - name: CONFIG_SOURCE
           value: "file"
         - name: CONFIG_PATH
-          value: "/etc/serviceradar/core.json"
+          value: "/var/lib/serviceradar/core.json"
         - name: PROTON_HOST
           value: "serviceradar-proton"
         - name: PROTON_USER
