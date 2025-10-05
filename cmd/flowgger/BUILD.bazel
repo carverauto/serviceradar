@@ -25,7 +25,15 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2018",
     crate_name = "flowgger",
-    deps = all_crate_deps(normal = True) + [":build_script", "//rust/kvutil:kvutil"],
+    crate_features = [
+        "default",
+        "nats-output",
+    ],
+    deps = all_crate_deps(normal = True) + [
+        "@rust_crates//:async-nats",
+        ":build_script",
+        "//rust/kvutil:kvutil",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
 )
@@ -34,6 +42,10 @@ rust_binary(
     name = "flowgger",
     srcs = ["src/main.rs"],
     edition = "2018",
+    crate_features = [
+        "default",
+        "nats-output",
+    ],
     deps = all_crate_deps(normal = True) + [":build_script", ":flowgger_lib", "//rust/kvutil:kvutil"],
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )

@@ -19,6 +19,7 @@ spec:
       containers:
       - name: otel-collector
         image: ghcr.io/carverauto/serviceradar-otel:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 4317
           name: grpc

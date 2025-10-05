@@ -19,6 +19,7 @@ spec:
       containers:
       - name: mapper
         image: ghcr.io/carverauto/serviceradar-mapper:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 50056
           name: grpc

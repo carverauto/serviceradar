@@ -19,6 +19,7 @@ spec:
       initContainers:
       - name: setup-config
         image: alpine:latest
+        imagePullPolicy: Always
         command: ["/bin/sh", "-c"]
         args:
         - |
@@ -36,6 +37,7 @@ spec:
       containers:
       - name: db-event-writer
         image: ghcr.io/carverauto/serviceradar-db-event-writer:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 50041
           name: grpc

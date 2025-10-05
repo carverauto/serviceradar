@@ -22,6 +22,7 @@ spec:
       containers:
       - name: web
         image: ghcr.io/carverauto/serviceradar-web:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 3000
           name: http

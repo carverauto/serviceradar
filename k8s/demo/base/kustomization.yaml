@@ -22,6 +22,7 @@ resources:
 - serviceradar-sync.yaml
 - serviceradar-rperf-checker.yaml
 - serviceradar-faker.yaml
+- serviceradar-db-event-writer-config.yaml
 - secret-generator-job.yaml
 - configmap.yaml
 - cert-scripts-configmap.yaml

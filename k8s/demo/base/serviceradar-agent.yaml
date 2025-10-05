@@ -21,6 +21,7 @@ spec:
       initContainers:
         - name: init-checkers
           image: busybox:1.36
+          imagePullPolicy: Always
           command: ['sh', '-c', '
           mkdir -p /etc/serviceradar/checkers/sweep && 
           cp /config/snmp.json /etc/serviceradar/checkers/snmp.json &&
@@ -34,6 +35,7 @@ spec:
       containers:
         - name: agent
           image: ghcr.io/carverauto/serviceradar-agent:latest
+          imagePullPolicy: Always
           volumeMounts:
             - name: serviceradar-config
               mountPath: /etc/serviceradar

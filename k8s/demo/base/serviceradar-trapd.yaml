@@ -19,6 +19,7 @@ spec:
       containers:
       - name: trapd
         image: ghcr.io/carverauto/serviceradar-trapd:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 162
           name: snmp

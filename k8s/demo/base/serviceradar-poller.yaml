@@ -18,6 +18,7 @@ spec:
       containers:
       - name: poller
         image: ghcr.io/carverauto/serviceradar-poller:latest
+        imagePullPolicy: Always
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar
