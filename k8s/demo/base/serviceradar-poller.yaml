@@ -3,15 +3,19 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: serviceradar-poller
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: serviceradar-poller
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
         app: serviceradar-poller
+        app.kubernetes.io/part-of: serviceradar
     spec:
       imagePullSecrets:
         - name: ghcr-io-cred
@@ -32,28 +36,20 @@ spec:
         resources:
           limits:
             cpu: "500m"
-            memory: "256Mi"
+            memory: "512Mi"
           requests:
             cpu: "100m"
-            memory: "128Mi"
+            memory: "256Mi"
         livenessProbe:
-          exec:
-            command:
-            - nc
-            - -z
-            - localhost
-            - "50053"
+          tcpSocket:
+            port: 50053
           initialDelaySeconds: 60
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - nc
-            - -z
-            - localhost
-            - "50053"
+          tcpSocket:
+            port: 50053
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 3
