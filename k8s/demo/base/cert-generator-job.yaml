@@ -13,6 +13,7 @@ spec:
       containers:
       - name: cert-generator
         image: alpine/openssl:latest
+        imagePullPolicy: Always
         command: ["/bin/sh"]
         args:
         - -c

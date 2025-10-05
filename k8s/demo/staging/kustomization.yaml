@@ -13,7 +13,7 @@ images:
   - name: ghcr.io/carverauto/serviceradar-proton
     newTag: latest
   - name: ghcr.io/carverauto/serviceradar-core
-    newTag: v1.0.53-pre19
+    newTag: latest
   - name: ghcr.io/carverauto/serviceradar-web
     newTag: latest
   - name: ghcr.io/carverauto/serviceradar-agent

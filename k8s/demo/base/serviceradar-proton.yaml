@@ -22,6 +22,7 @@ spec:
       containers:
       - name: proton
         image: ghcr.io/carverauto/serviceradar-proton:latest
+        imagePullPolicy: Always
         securityContext:
           privileged: true
         command: ["/bin/bash"]

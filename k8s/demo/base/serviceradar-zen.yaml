@@ -20,6 +20,7 @@ spec:
       containers:
       - name: zen
         image: ghcr.io/carverauto/serviceradar-zen:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 50040
           name: grpc
