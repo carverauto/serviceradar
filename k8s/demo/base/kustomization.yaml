@@ -19,6 +19,8 @@ resources:
 - serviceradar-mapper.yaml
 - serviceradar-trapd.yaml
 - serviceradar-tools.yaml
+- serviceradar-kong.yaml
+- serviceradar-srql.yaml
 - serviceradar-sync.yaml
 - serviceradar-rperf-checker.yaml
 - serviceradar-faker.yaml
