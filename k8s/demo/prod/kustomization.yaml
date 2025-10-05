@@ -8,6 +8,7 @@ resources:
   - ../base
   - namespace.yaml
   - service-aliases.demo.yaml
+  - ingress.yaml
 
 images:
   - name: ghcr.io/carverauto/serviceradar-core
