@@ -8,9 +8,6 @@ resources:
   - ../base
   - namespace.yaml
 
-patchesStrategicMerge:
-  - patches/service-aliases-demo.yaml
-
 images:
   - name: ghcr.io/carverauto/serviceradar-core
     newTag: v1.0.53-pre19
