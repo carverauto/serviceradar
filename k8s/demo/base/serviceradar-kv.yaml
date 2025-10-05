@@ -34,6 +34,8 @@ spec:
           value: "/etc/serviceradar/kv.json"
         - name: WAIT_FOR_NATS
           value: "true"
+        - name: NATS_HOST
+          value: "serviceradar-nats"
         - name: LOG_LEVEL
           value: "info"
         resources:

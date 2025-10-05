@@ -41,6 +41,8 @@ spec:
           value: "true"
         - name: NATS_HOST
           value: "serviceradar-nats"
+        - name: NATS_HOST
+          value: "serviceradar-nats"
         - name: NATS_PORT
           value: "4222"
         - name: RUST_LOG
