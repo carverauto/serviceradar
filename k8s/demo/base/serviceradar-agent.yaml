@@ -57,11 +57,11 @@ spec:
             privileged: true
           resources:
             limits:
-              cpu: "200m"
-              memory: "512Mi"
+              cpu: "500m"
+              memory: "2Gi"
             requests:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "250m"
+              memory: "1Gi"
       volumes:
         - name: serviceradar-config
           configMap:
