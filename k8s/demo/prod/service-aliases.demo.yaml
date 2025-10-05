@@ -11,6 +11,15 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: kong
+  namespace: demo
+spec:
+  type: ExternalName
+  externalName: serviceradar-kong.demo.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: agent
   namespace: demo
 spec:
@@ -43,6 +52,15 @@ metadata:
 spec:
   type: ExternalName
   externalName: serviceradar-sync.demo.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: srql
+  namespace: demo
+spec:
+  type: ExternalName
+  externalName: serviceradar-srql.demo.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service
