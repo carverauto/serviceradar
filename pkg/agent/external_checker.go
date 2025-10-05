@@ -99,8 +99,28 @@ func NewExternalChecker(
 		return nil, fmt.Errorf("%w: %w", errInvalidPortInAddress, err)
 	}
 
-	// Create SecurityProvider once during checker creation
-	provider, err := ggrpc.NewSecurityProvider(ctx, security, log)
+	// Clone security config so we can tailor the ServerName per target without
+	// mutating the agent's primary security configuration.
+	var securityForService *models.SecurityConfig
+	if security != nil {
+		cfgCopy := *security
+		cfgCopy.TLS = security.TLS
+
+		if host != "" && cfgCopy.ServerName != host {
+			log.Info().
+				Str("original", cfgCopy.ServerName).
+				Str("override", host).
+				Str("service", serviceName).
+				Msg("Adjusting TLS server_name for external checker")
+
+			cfgCopy.ServerName = host
+		}
+
+		securityForService = &cfgCopy
+	}
+
+	// Create SecurityProvider once during checker creation using the cloned config
+	provider, err := ggrpc.NewSecurityProvider(ctx, securityForService, log)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToCreateSecurityProvider, err)
 	}
