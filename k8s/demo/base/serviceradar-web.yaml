@@ -23,6 +23,15 @@ spec:
       - name: web
         image: ghcr.io/carverauto/serviceradar-web:latest
         imagePullPolicy: Always
+        args:
+        - /bin/sh
+        - -c
+        - |
+          mkdir -p /app/.next/standalone/.next
+          if [ ! -e /app/.next/standalone/.next/static ]; then
+            ln -sfn /app/.next/static /app/.next/standalone/.next/static
+          fi
+          exec node .next/standalone/server.js
         ports:
         - containerPort: 3000
           name: http
