@@ -7,8 +7,6 @@ namespace: demo
 resources:
   - ../base
   - namespace.yaml
-
-patchesStrategicMerge:
   - service-aliases.demo.yaml
 
 images:
