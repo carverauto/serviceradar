@@ -15,6 +15,33 @@
 
 set -e
 
+resolve_service_host() {
+    service_name="$1"
+    override_name="$2"
+    docker_default="$3"
+    override_value=$(eval "printf '%s' \"\${${override_name}:-}\"")
+    if [ -n "$override_value" ]; then
+        printf '%s' "$override_value"
+        return
+    fi
+    if [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+        printf '%s' "$service_name"
+        return
+    fi
+    printf '%s' "$docker_default"
+}
+
+resolve_service_port() {
+    override_name="$1"
+    default_value="$2"
+    override_value=$(eval "printf '%s' \"\${${override_name}:-}\"")
+    if [ -n "$override_value" ]; then
+        printf '%s' "$override_value"
+        return
+    fi
+    printf '%s' "$default_value"
+}
+
 # Default config path
 CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/kv.json}"
 
@@ -29,8 +56,8 @@ echo "Using configuration from $CONFIG_PATH"
 
 # Wait for NATS to be ready if configured
 if [ -n "${WAIT_FOR_NATS:-}" ]; then
-    NATS_HOST_VALUE="${NATS_HOST:-nats}"
-    NATS_PORT_VALUE="${NATS_PORT:-4222}"
+    NATS_HOST_VALUE=$(resolve_service_host "serviceradar-nats" NATS_HOST "nats")
+    NATS_PORT_VALUE=$(resolve_service_port NATS_PORT "4222")
     echo "Waiting for NATS at ${NATS_HOST_VALUE}:${NATS_PORT_VALUE}..."
 
     if wait-for-port \
