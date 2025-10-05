@@ -1034,7 +1034,7 @@ pkg_tar(
 oci_image(
     name = "kong_config_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":kong_config_layer_amd64"],
+    tars = [":common_tools_amd64", ":kong_config_layer_amd64"],
     entrypoint = ["/usr/local/bin/serviceradar-cli"],
     cmd = ["render-kong"],
     env = {
