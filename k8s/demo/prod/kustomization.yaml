@@ -8,9 +8,6 @@ resources:
   - ../base
   - namespace.yaml
 
-patches:
-  - path: patches/resources.yaml
-
 images:
   - name: ghcr.io/carverauto/serviceradar/serviceradar-agent
     newTag: 1.0.19
