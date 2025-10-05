@@ -23,6 +23,125 @@ pkg_tar(
     package_dir = "/",
 )
 
+genrule(
+    name = "apk_iputils_ping_rootfs_amd64",
+    srcs = ["@alpine_iputils_ping_apk//file"],
+    outs = ["apk_iputils_ping_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_iputils_ping_apk//file)
+TMP=$(@D)/iputils_ping_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
+    name = "apk_nmap_rootfs_amd64",
+    srcs = ["@alpine_nmap_apk//file"],
+    outs = ["apk_nmap_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_nmap_apk//file)
+TMP=$(@D)/nmap_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
+    name = "apk_netcat_rootfs_amd64",
+    srcs = ["@alpine_netcat_openbsd_apk//file"],
+    outs = ["apk_netcat_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_netcat_openbsd_apk//file)
+TMP=$(@D)/netcat_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
+    name = "alpine_netutils_rootfs_amd64",
+    srcs = [
+        ":apk_iputils_ping_rootfs_amd64.tar",
+        ":apk_nmap_rootfs_amd64.tar",
+        ":apk_netcat_rootfs_amd64.tar",
+    ],
+    outs = ["alpine_netutils_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+ROOT=$(@D)/netutils_root
+rm -rf "$${ROOT}"
+mkdir -p "$${ROOT}"
+for tarfile in $(SRCS); do
+  tar -xzf "$${tarfile}" -C "$${ROOT}"
+done
+tar -czf "$@" -C "$${ROOT}" .
+""",
+)
+
 pkg_tar(
     name = "core_layer_amd64",
     files = {
@@ -90,7 +209,7 @@ pkg_tar(
 oci_image(
     name = "agent_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":common_tools_amd64", ":agent_layer_amd64"],
+    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":agent_layer_amd64"],
     cmd = ["/usr/local/bin/serviceradar-agent", "-config", "/etc/serviceradar/agent.json"],
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -130,7 +249,7 @@ pkg_tar(
 oci_image(
     name = "db_event_writer_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":common_tools_amd64", ":db_event_writer_layer_amd64"],
+    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":db_event_writer_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-db-event-writer"],
     env = {
@@ -170,7 +289,7 @@ pkg_tar(
 oci_image(
     name = "mapper_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":common_tools_amd64", ":mapper_layer_amd64"],
+    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":mapper_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-mapper"],
     env = {
@@ -211,7 +330,7 @@ pkg_tar(
 oci_image(
     name = "kv_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":common_tools_amd64", ":kv_layer_amd64"],
+    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":kv_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["/usr/local/bin/serviceradar-kv"],
     env = {
@@ -381,7 +500,7 @@ pkg_tar(
 oci_image(
     name = "snmp_checker_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":common_tools_amd64", ":snmp_checker_layer_amd64"],
+    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":snmp_checker_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-snmp-checker"],
     env = {
@@ -464,7 +583,7 @@ pkg_tar(
 oci_image(
     name = "poller_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":common_tools_amd64", ":poller_layer_amd64"],
+    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":poller_layer_amd64"],
     cmd = ["/usr/local/bin/serviceradar-poller", "-config", "/etc/serviceradar/poller.json"],
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -596,7 +715,7 @@ pkg_tar(
 oci_image(
     name = "config_updater_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":common_tools_amd64", ":config_updater_layer_amd64"],
+    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":config_updater_layer_amd64"],
     cmd = ["/usr/local/bin/update-config.sh"],
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -833,7 +952,7 @@ pkg_tar(
 oci_image(
     name = "tools_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":tools_layer_amd64", ":common_tools_amd64"],
+    tars = [":alpine_netutils_rootfs_amd64", ":tools_layer_amd64", ":common_tools_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["/bin/sh"],
     env = {
