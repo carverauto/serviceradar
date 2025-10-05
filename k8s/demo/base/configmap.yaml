@@ -792,7 +792,7 @@ data:
     # Update the config file with secrets using jq for in-place editing
     if [ -f "$CONFIG_PATH" ]; then
         echo "Updating configuration with secrets..."
-        
+
         # Use jq to update the existing config - match production auth format exactly  
         jq --arg pwd "$PROTON_PASSWORD" \
            --arg jwt "$JWT_SECRET" \
@@ -802,8 +802,19 @@ data:
            "$CONFIG_PATH" > /var/lib/serviceradar/core.json
         CONFIG_PATH="/var/lib/serviceradar/core.json"
         echo "Configuration updated with all secrets and saved to $CONFIG_PATH"
+
+        if command -v serviceradar-cli >/dev/null 2>&1; then
+            if ! jq -e '.auth.jwt_private_key_pem // empty' "$CONFIG_PATH" >/dev/null 2>&1; then
+                echo "Generating RS256 JWT keys for Core JWKS..."
+                if ! serviceradar-cli generate-jwt-keys --file "$CONFIG_PATH" --bits 2048 --force; then
+                    echo "Failed to generate RS256 keys" >&2
+                fi
+            fi
+        else
+            echo "serviceradar-cli not available; skipping RS256 key generation" >&2
+        fi
     fi
-    
+
     # Wait for Proton to be ready
     if [ "${WAIT_FOR_PROTON:-false}" = "true" ]; then
         PROTON_TLS_ADDR="${PROTON_HOST:-serviceradar-proton}:9440"
