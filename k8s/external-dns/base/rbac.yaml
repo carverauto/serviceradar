@@ -19,6 +19,9 @@ rules:
   - apiGroups: [""]
     resources: ["endpoints"]
     verbs: ["get","watch","list"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get","watch","list"]
   # Add DNS CRD permissions
   - apiGroups: ["dns.tunnel.carverauto.dev"]
     resources: ["dnsendpoints"]
