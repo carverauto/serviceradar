@@ -5,7 +5,7 @@ metadata:
   name: serviceradar-ingress
   annotations:
     cert-manager.io/cluster-issuer: "carverauto-issuer"
-    external-dns.alpha.kubernetes.io/hostname: "demo-staging.serviceradar.cloud"
+    external-dns.alpha.kubernetes.io/hostname: "demo.serviceradar.cloud"
     metallb.universe.tf/allow-shared-ip: "true"
     metallb.universe.tf/address-pool: k3s-pool
     nginx.ingress.kubernetes.io/proxy-body-size: "100m"
@@ -21,7 +21,7 @@ spec:
     - demo.serviceradar.cloud
     secretName: serviceradar-prod-tls
   rules:
-  - host: demo-staging.serviceradar.cloud
+  - host: demo.serviceradar.cloud
     http:
       paths:
       # Static assets from Next.js

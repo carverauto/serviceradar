@@ -761,6 +761,30 @@ http_file(
     ],
 )
 
+http_file(
+    name = "alpine_iputils_ping_apk",
+    sha256 = "a31f461f77b81b1c2291b38f0e4a887f83b39de5eaba2f88946d33c249e09082",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/iputils-ping-20240117-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_nmap_apk",
+    sha256 = "4259d97c8f0d59c74e090950d1b33d303da3d1122ea3a636308786292996d131",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/nmap-7.95-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_netcat_openbsd_apk",
+    sha256 = "a1d83ec145cf1e2c56e6a032066770575d0fee477e443dc25dc23a1bdff920ce",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/netcat-openbsd-1.226-r0.apk",
+    ],
+)
+
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
