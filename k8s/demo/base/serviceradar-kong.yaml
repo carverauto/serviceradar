@@ -52,6 +52,8 @@ spec:
           value: "off"
         - name: KONG_LOG_LEVEL
           value: info
+        - name: KONG_NGINX_WORKER_PROCESSES
+          value: "2"
         ports:
         - containerPort: 8000
           name: proxy
@@ -80,11 +82,11 @@ spec:
           failureThreshold: 5
         resources:
           requests:
-            cpu: "250m"
-            memory: "512Mi"
-          limits:
-            cpu: "1"
+            cpu: "500m"
             memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
       volumes:
       - name: kong-config
         emptyDir: {}
