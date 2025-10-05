@@ -1009,7 +1009,7 @@ oci_image(
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
     tars = [
         ":alpine_netutils_rootfs_amd64",
-        ":apk_bash_rootfs_amd64.tar",
+        ":apk_bash_rootfs_amd64",
         ":tools_layer_amd64",
         ":common_tools_amd64",
     ],

@@ -8,8 +8,6 @@ resources:
   - ../base
   - namespace.yaml
   - ingress.yaml
-  # Include db-event-writer config used by its initContainer
-  - db-event-writer-config.yaml
 
 images:
   - name: ghcr.io/carverauto/serviceradar-proton
