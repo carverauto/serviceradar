@@ -9,7 +9,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/carverauto/serviceradar.git
-    targetRevision: HEAD
+    targetRevision: 1700-create-app-for-demo
     path: k8s/demo/prod
   destination:
     server: https://kubernetes.default.svc
