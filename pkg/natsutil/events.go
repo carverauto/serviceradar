@@ -138,7 +138,7 @@ func ConnectWithEventPublisher(
 		// Try to create the stream if it doesn't exist
 		streamConfig := jetstream.StreamConfig{
 			Name:     streamName,
-			Subjects: []string{"events.poller.health", "events.syslog.health", "events.snmp.health"},
+			Subjects: []string{"events.>", "snmp.traps"},
 		}
 
 		_, err = js.CreateOrUpdateStream(ctx, streamConfig)

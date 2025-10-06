@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // lib.rs
 
 // Module exports
@@ -23,5 +22,5 @@ pub mod poller;
 pub mod server;
 
 pub use config::Config;
-pub use poller::{MetricsCollector, MetricSample};
+pub use poller::{MetricSample, MetricsCollector};
 pub use server::SysmonService;

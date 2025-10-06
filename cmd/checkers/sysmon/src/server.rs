@@ -16,23 +16,24 @@
 
 // server.rs
 
-use std::fs;
 use anyhow::{Context, Result};
 use log::{debug, error, info};
+use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
-use tonic::{Request, Response, Status};
 use tonic::transport::Server;
+use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder as ReflectionBuilder;
-use tokio::sync::RwLock;
 
 use crate::config::Config;
 use crate::poller::MetricsCollector;
 use crate::server::monitoring::agent_service_server::{AgentService, AgentServiceServer};
 
-const FILE_DESCRIPTOR_SET_MONITORING: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
+const FILE_DESCRIPTOR_SET_MONITORING: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
 
 pub mod monitoring {
     tonic::include_proto!("monitoring");
@@ -50,7 +51,9 @@ impl SysmonService {
     }
 
     pub async fn start(&self, config: Arc<Config>) -> Result<ServerHandle> {
-        let addr: SocketAddr = config.listen_addr.parse()
+        let addr: SocketAddr = config
+            .listen_addr
+            .parse()
             .context("Failed to parse listen address")?;
         info!("Starting gRPC sysmon service on {addr}");
         debug!("Server config: TLS={:?}", config.security);
@@ -66,7 +69,10 @@ impl SysmonService {
                 let mut collector = collector_for_task.write().await;
                 match collector.collect().await {
                     Ok(metrics) => {
-                        debug!("Periodic collection successful: timestamp={}", metrics.timestamp);
+                        debug!(
+                            "Periodic collection successful: timestamp={}",
+                            metrics.timestamp
+                        );
                     }
                     Err(e) => {
                         error!("Periodic collection failed: {e}");
@@ -105,7 +111,8 @@ impl SysmonService {
                     .context("Failed to read certificate file")?;
                 let key = fs::read_to_string(security.key_file.as_ref().unwrap())
                     .context("Failed to read key file")?;
-                let identity = tonic::transport::Identity::from_pem(cert.as_bytes(), key.as_bytes());
+                let identity =
+                    tonic::transport::Identity::from_pem(cert.as_bytes(), key.as_bytes());
 
                 let ca_cert = fs::read_to_string(security.ca_file.as_ref().unwrap())
                     .context("Failed to read CA certificate file")?;
@@ -174,7 +181,11 @@ impl AgentService for SysmonService {
         })?;
 
         let response_time_ns = start_time.elapsed().as_nanos() as i64;
-        debug!("GetStatus response prepared: response_time={}ns, message_size={}", response_time_ns, message_bytes.len());
+        debug!(
+            "GetStatus response prepared: response_time={}ns, message_size={}",
+            response_time_ns,
+            message_bytes.len()
+        );
 
         Ok(Response::new(monitoring::StatusResponse {
             available: true, // This is the top-level 'available' in the gRPC StatusResponse message

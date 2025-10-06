@@ -6,86 +6,102 @@ metadata:
 data:
   cef_severity.json: |
     {
-      "name": "CEF Severity Mapping",
-      "description": "Map CEF severity levels to ServiceRadar severity levels",
-      "version": "1.0.0",
-      "rules": [
+      "nodes": [
+        { "id": "inputNode", "type": "inputNode", "name": "Request", "position": {"x": 80, "y": 150} },
         {
-          "condition": {
-            "field": "severity",
-            "operator": "in",
-            "value": ["0", "1", "2"]
-          },
-          "action": {
-            "set_field": "sr_severity",
-            "value": "low"
+          "id": "cefTable",
+          "type": "decisionTableNode",
+          "name": "CEF Severity",
+          "position": {"x": 300, "y": 150},
+          "content": {
+            "hitPolicy": "first",
+            "inputs": [ {"field": "short_message", "id": "fld_msg", "name": "Short", "type": "expression"} ],
+            "outputs": [ {"field": "severity", "id": "fld_sev", "name": "Severity", "type": "expression"} ],
+            "rules": [
+              {"_id": "r0", "fld_msg": "contains(short_message, '|0|') or contains(short_message, '|1|') or contains(short_message, '|2|') or contains(short_message, '|3|')", "fld_sev": "'Low'"},
+              {"_id": "r1", "fld_msg": "contains(short_message, '|4|') or contains(short_message, '|5|') or contains(short_message, '|6|')", "fld_sev": "'Medium'"},
+              {"_id": "r2", "fld_msg": "contains(short_message, '|7|') or contains(short_message, '|8|')", "fld_sev": "'High'"},
+              {"_id": "r3", "fld_msg": "contains(short_message, '|9|') or contains(short_message, '|10|')", "fld_sev": "'Very High'"},
+              {"_id": "r4", "fld_msg": "", "fld_sev": "'Unknown'"}
+            ]
           }
         },
-        {
-          "condition": {
-            "field": "severity", 
-            "operator": "in",
-            "value": ["3", "4", "5", "6"]
-          },
-          "action": {
-            "set_field": "sr_severity",
-            "value": "medium"
-          }
-        },
-        {
-          "condition": {
-            "field": "severity",
-            "operator": "in", 
-            "value": ["7", "8", "9", "10"]
-          },
-          "action": {
-            "set_field": "sr_severity",
-            "value": "high"
-          }
-        }
+        { "id": "outputNode", "type": "outputNode", "name": "Response", "position": {"x": 560, "y": 150} }
+      ],
+      "edges": [
+        {"id": "e1", "sourceId": "inputNode", "targetId": "cefTable", "type": "edge"},
+        {"id": "e2", "sourceId": "cefTable", "targetId": "outputNode", "type": "edge"},
+        {"id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge"}
       ]
     }
   strip_full_message.json: |
     {
-      "name": "Strip Full Message",
-      "description": "Remove full_message field if it's too large or redundant",
-      "version": "1.0.0", 
-      "rules": [
+      "nodes": [
+        { "id": "inputNode", "type": "inputNode", "name": "Request", "position": { "x": 80, "y": 150 } },
         {
-          "condition": {
-            "field": "full_message",
-            "operator": "length_gt",
-            "value": 1000
-          },
-          "action": {
-            "remove_field": "full_message"
+          "id": "stripFullMessage",
+          "type": "expressionNode",
+          "name": "Strip Full Message",
+          "position": { "x": 300, "y": 150 },
+          "content": {
+            "expressions": [
+              { "id": "expr1", "key": "full_message", "value": "null" }
+            ]
           }
         },
+        { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
+      ],
+      "edges": [
+        { "id": "e1", "sourceId": "inputNode", "targetId": "stripFullMessage", "type": "edge" },
+        { "id": "e2", "sourceId": "stripFullMessage", "targetId": "outputNode", "type": "edge" },
+        { "id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge" }
+      ]
+    }
+  snmp_severity.json: |
+    {
+      "nodes": [
+        { "id": "inputNode", "type": "inputNode", "name": "Request", "position": { "x": 80, "y": 150 } },
         {
-          "condition": {
-            "field": "full_message",
-            "operator": "equals",
-            "field_ref": "message"
-          },
-          "action": {
-            "remove_field": "full_message"
+          "id": "setSeverity",
+          "type": "expressionNode",
+          "name": "Set SNMP Severity",
+          "position": { "x": 300, "y": 150 },
+          "content": {
+            "expressions": [
+              { "id": "expr1", "key": "severity", "value": "coalesce(severity, 'Unknown')" }
+            ]
           }
-        }
+        },
+        { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
+      ],
+      "edges": [
+        { "id": "e1", "sourceId": "inputNode", "targetId": "setSeverity", "type": "edge" },
+        { "id": "e2", "sourceId": "setSeverity", "targetId": "outputNode", "type": "edge" },
+        { "id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge" }
       ]
     }
   passthrough.json: |
     {
-      "name": "Passthrough Rule",
-      "description": "Pass events through without modification",
-      "version": "1.0.0",
-      "rules": [
+      "nodes": [
         {
-          "condition": {
-            "operator": "always"
-          },
-          "action": {
-            "pass": true
-          }
+          "id": "inputNode",
+          "type": "inputNode",
+          "name": "Request",
+          "position": { "x": 80, "y": 150 }
+        },
+        {
+          "id": "outputNode",
+          "type": "outputNode",
+          "name": "Response",
+          "position": { "x": 300, "y": 150 }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge_1",
+          "sourceId": "inputNode",
+          "targetId": "outputNode",
+          "type": "edge"
         }
       ]
     }

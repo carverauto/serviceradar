@@ -33,7 +33,10 @@ async fn main() -> Result<()> {
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "debug"),
     );
 
-    info!("Starting serviceradar-sysmon-checker version {}", env!("CARGO_PKG_VERSION"));
+    info!(
+        "Starting serviceradar-sysmon-checker version {}",
+        env!("CARGO_PKG_VERSION")
+    );
 
     let matches = App::new("serviceradar-sysmon-checker")
         .version(env!("CARGO_PKG_VERSION"))

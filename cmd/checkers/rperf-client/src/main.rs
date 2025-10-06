@@ -35,13 +35,15 @@ async fn main() -> Result<()> {
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("ServiceRadar gRPC checker for running rperf network performance tests")
-        .arg(Arg::with_name("config")
-            .short("c")
-            .long("config")
-            .value_name("FILE")
-            .help("Path to configuration file")
-            .takes_value(true)
-            .required(true))
+        .arg(
+            Arg::with_name("config")
+                .short("c")
+                .long("config")
+                .value_name("FILE")
+                .help("Path to configuration file")
+                .takes_value(true)
+                .required(true),
+        )
         .get_matches();
 
     // Extract the config path
@@ -50,16 +52,15 @@ async fn main() -> Result<()> {
 
     // Load configuration
     info!("Loading configuration from {config_path:?}");
-    let config = Config::from_file(&config_path)
-        .context("Failed to load configuration")?;
+    let config = Config::from_file(&config_path).context("Failed to load configuration")?;
 
     // Print configuration summary
     info!("Loaded configuration with {} targets", config.targets.len());
     info!("Server will listen on {}", config.listen_addr);
 
     // Create the server instance
-    let server = RPerfTestOrchestrator::new(Arc::new(config))
-        .context("Failed to create rperf server")?;
+    let server =
+        RPerfTestOrchestrator::new(Arc::new(config)).context("Failed to create rperf server")?;
 
     // Start the server
     let server_handle = server.start().await?;
