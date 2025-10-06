@@ -14,18 +14,12 @@ RUN apt-get update && apt-get install -y \
 
 # Cache dependencies with real workspace contents
 COPY Cargo.toml Cargo.lock ./
-COPY rust/kvutil ./rust/kvutil
-COPY cmd/flowgger/Cargo.toml ./cmd/flowgger/Cargo.toml
-COPY cmd/flowgger/build.rs ./cmd/flowgger/build.rs
-COPY cmd/trapd/Cargo.toml ./cmd/trapd/Cargo.toml
-COPY cmd/otel/Cargo.toml ./cmd/otel/Cargo.toml
-COPY cmd/poller-ng/Cargo.toml ./cmd/poller-ng/Cargo.toml
-COPY cmd/consumers/zen/Cargo.toml ./cmd/consumers/zen/Cargo.toml
+COPY cmd ./cmd
+COPY rust ./rust
 RUN cargo fetch --locked --manifest-path cmd/flowgger/Cargo.toml
 
-# Now copy sources
+# Build scripts need the proto definitions
 COPY proto ./proto
-COPY cmd/flowgger ./cmd/flowgger
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \
