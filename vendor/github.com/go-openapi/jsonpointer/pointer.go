@@ -41,8 +41,10 @@ const (
 	pointerSeparator = `/`
 )
 
-var jsonPointableType = reflect.TypeOf(new(JSONPointable)).Elem()
-var jsonSetableType = reflect.TypeOf(new(JSONSetable)).Elem()
+var (
+	jsonPointableType = reflect.TypeOf(new(JSONPointable)).Elem()
+	jsonSetableType   = reflect.TypeOf(new(JSONSetable)).Elem()
+)
 
 // JSONPointable is an interface for structs to implement when they need to customize the
 // json pointer process
@@ -56,18 +58,17 @@ type JSONSetable interface {
 	JSONSet(string, any) error
 }
 
-// Pointer the json pointer reprsentation
+// Pointer is a representation of a json pointer
 type Pointer struct {
 	referenceTokens []string
 }
 
 // New creates a new json pointer for the given string
 func New(jsonPointerString string) (Pointer, error) {
-
 	var p Pointer
 	err := p.parse(jsonPointerString)
-	return p, err
 
+	return p, err
 }
 
 // Get uses the pointer to retrieve a value from a JSON document
@@ -80,7 +81,7 @@ func (p *Pointer) Set(document any, value any) (any, error) {
 	return document, p.set(document, value, jsonname.DefaultJSONNameProvider)
 }
 
-// DecodedTokens returns the decoded tokens
+// DecodedTokens returns the decoded tokens of this JSON pointer
 func (p *Pointer) DecodedTokens() []string {
 	result := make([]string, 0, len(p.referenceTokens))
 	for _, t := range p.referenceTokens {
@@ -102,9 +103,7 @@ func (p *Pointer) String() string {
 		return emptyPointer
 	}
 
-	pointerString := pointerSeparator + strings.Join(p.referenceTokens, pointerSeparator)
-
-	return pointerString
+	return pointerSeparator + strings.Join(p.referenceTokens, pointerSeparator)
 }
 
 func (p *Pointer) Offset(document string) (int64, error) {
@@ -185,7 +184,7 @@ func (p *Pointer) get(node any, nameProvider *jsonname.NameProvider) (any, refle
 func (p *Pointer) set(node, data any, nameProvider *jsonname.NameProvider) error {
 	knd := reflect.ValueOf(node).Kind()
 
-	if knd != reflect.Ptr && knd != reflect.Struct && knd != reflect.Map && knd != reflect.Slice && knd != reflect.Array {
+	if knd != reflect.Pointer && knd != reflect.Struct && knd != reflect.Map && knd != reflect.Slice && knd != reflect.Array {
 		return errors.Join(
 			ErrUnsupportedValueType,
 			ErrPointer,
@@ -225,7 +224,7 @@ func (p *Pointer) set(node, data any, nameProvider *jsonname.NameProvider) error
 				return err
 			}
 			fld := reflect.ValueOf(r)
-			if fld.CanAddr() && fld.Kind() != reflect.Interface && fld.Kind() != reflect.Map && fld.Kind() != reflect.Slice && fld.Kind() != reflect.Ptr {
+			if fld.CanAddr() && fld.Kind() != reflect.Interface && fld.Kind() != reflect.Map && fld.Kind() != reflect.Slice && fld.Kind() != reflect.Pointer {
 				node = fld.Addr().Interface()
 				continue
 			}
@@ -240,7 +239,7 @@ func (p *Pointer) set(node, data any, nameProvider *jsonname.NameProvider) error
 				return fmt.Errorf("object has no field %q: %w", decodedToken, ErrPointer)
 			}
 			fld := rValue.FieldByName(nm)
-			if fld.CanAddr() && fld.Kind() != reflect.Interface && fld.Kind() != reflect.Map && fld.Kind() != reflect.Slice && fld.Kind() != reflect.Ptr {
+			if fld.CanAddr() && fld.Kind() != reflect.Interface && fld.Kind() != reflect.Map && fld.Kind() != reflect.Slice && fld.Kind() != reflect.Pointer {
 				node = fld.Addr().Interface()
 				continue
 			}
@@ -253,7 +252,7 @@ func (p *Pointer) set(node, data any, nameProvider *jsonname.NameProvider) error
 			if !mv.IsValid() {
 				return fmt.Errorf("object has no key %q: %w", decodedToken, ErrPointer)
 			}
-			if mv.CanAddr() && mv.Kind() != reflect.Interface && mv.Kind() != reflect.Map && mv.Kind() != reflect.Slice && mv.Kind() != reflect.Ptr {
+			if mv.CanAddr() && mv.Kind() != reflect.Interface && mv.Kind() != reflect.Map && mv.Kind() != reflect.Slice && mv.Kind() != reflect.Pointer {
 				node = mv.Addr().Interface()
 				continue
 			}
@@ -270,7 +269,7 @@ func (p *Pointer) set(node, data any, nameProvider *jsonname.NameProvider) error
 			}
 
 			elem := rValue.Index(tokenIndex)
-			if elem.CanAddr() && elem.Kind() != reflect.Interface && elem.Kind() != reflect.Map && elem.Kind() != reflect.Slice && elem.Kind() != reflect.Ptr {
+			if elem.CanAddr() && elem.Kind() != reflect.Interface && elem.Kind() != reflect.Map && elem.Kind() != reflect.Slice && elem.Kind() != reflect.Pointer {
 				node = elem.Addr().Interface()
 				continue
 			}
@@ -291,7 +290,7 @@ func isNil(input any) bool {
 
 	kind := reflect.TypeOf(input).Kind()
 	switch kind { //nolint:exhaustive
-	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan:
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan:
 		return reflect.ValueOf(input).IsNil()
 	default:
 		return false
@@ -520,16 +519,17 @@ const (
 	decRefTok1 = `/`
 )
 
+var (
+	encRefTokReplacer = strings.NewReplacer(encRefTok1, decRefTok1, encRefTok0, decRefTok0)
+	decRefTokReplacer = strings.NewReplacer(decRefTok1, encRefTok1, decRefTok0, encRefTok0)
+)
+
 // Unescape unescapes a json pointer reference token string to the original representation
 func Unescape(token string) string {
-	step1 := strings.ReplaceAll(token, encRefTok1, decRefTok1)
-	step2 := strings.ReplaceAll(step1, encRefTok0, decRefTok0)
-	return step2
+	return encRefTokReplacer.Replace(token)
 }
 
 // Escape escapes a pointer reference token string
 func Escape(token string) string {
-	step1 := strings.ReplaceAll(token, decRefTok0, encRefTok0)
-	step2 := strings.ReplaceAll(step1, decRefTok1, encRefTok1)
-	return step2
+	return decRefTokReplacer.Replace(token)
 }
