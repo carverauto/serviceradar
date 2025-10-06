@@ -86,6 +86,26 @@ if [ ! -f "$CONFIG_PATH" ]; then
     exit 1
 fi
 
+# Ensure the rules data directory exists and is populated with any mounted rules
+DATA_DIR="${DATA_DIR:-/var/lib/serviceradar/data}"
+RULE_SOURCE_DIR="${RULE_SOURCE_DIR:-/etc/serviceradar/rules}"
+
+if [ ! -d "$DATA_DIR" ]; then
+    echo "Creating data directory at $DATA_DIR"
+    mkdir -p "$DATA_DIR"
+fi
+
+if [ -d "$RULE_SOURCE_DIR" ]; then
+    for rule_file in "$RULE_SOURCE_DIR"/*.json; do
+        [ -e "$rule_file" ] || continue
+        target="$DATA_DIR/$(basename "$rule_file")"
+        if [ ! -f "$target" ]; then
+            echo "Seeding rule $(basename "$rule_file") into data directory"
+            cp "$rule_file" "$target"
+        fi
+    done
+fi
+
 # Check if this is the first startup by looking for a marker file
 RULES_INSTALLED_MARKER="/var/lib/serviceradar/.rules_installed"
 

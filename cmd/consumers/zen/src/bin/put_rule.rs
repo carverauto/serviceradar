@@ -4,8 +4,9 @@ use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 
-use async_nats::jetstream::{self};
 use async_nats::ConnectOptions;
+use async_nats::jetstream::kv::Config as KvConfig;
+use async_nats::jetstream::{self};
 
 #[derive(Parser, Debug)]
 #[command(name = "zen-put-rule")]
@@ -85,7 +86,17 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let cfg = Config::from_file(&cli.config)?;
     let js = connect_nats(&cfg).await?;
-    let store = js.get_key_value(&cfg.kv_bucket).await?;
+    let store = match js.get_key_value(&cfg.kv_bucket).await {
+        Ok(store) => store,
+        Err(_) => {
+            let kv_config = KvConfig {
+                bucket: cfg.kv_bucket.clone(),
+                ..Default::default()
+            };
+            js.create_key_value(kv_config).await?;
+            js.get_key_value(&cfg.kv_bucket).await?
+        }
+    };
     let data = fs::read(&cli.file).context("Failed to read rule file")?;
     let rule_key = cli.key;
     let key = format!(

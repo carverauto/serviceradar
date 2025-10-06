@@ -58,6 +58,7 @@ rust_test(
 
 exports_files([
     "data/cef_severity.json",
+    "data/snmp_severity.json",
     "data/passthrough.json",
     "data/strip_full_message.json",
 ])

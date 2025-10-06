@@ -16,7 +16,8 @@
 set -e
 
 CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/zen.json}"
-DATA_DIR="/var/lib/serviceradar/data"
+DATA_DIR="${DATA_DIR:-/var/lib/serviceradar/data}"
+RULE_SOURCE_DIR="${RULE_SOURCE_DIR:-/etc/serviceradar/rules}"
 
 # Check if config file exists
 if [ ! -f "$CONFIG_PATH" ]; then
@@ -24,51 +25,47 @@ if [ ! -f "$CONFIG_PATH" ]; then
     exit 1
 fi
 
-# Check if data directory exists
+# Ensure data directory exists
 if [ ! -d "$DATA_DIR" ]; then
-    echo "Error: Data directory not found at $DATA_DIR"
-    exit 1
+    echo "Creating data directory at $DATA_DIR"
+    mkdir -p "$DATA_DIR"
+fi
+
+# Seed data directory from mounted rules if available
+if [ -d "$RULE_SOURCE_DIR" ]; then
+    for rule_file in "$RULE_SOURCE_DIR"/*.json; do
+        [ -e "$rule_file" ] || continue
+        target="$DATA_DIR/$(basename "$rule_file")"
+        if [ ! -f "$target" ]; then
+            echo "Copying $(basename "$rule_file") from $RULE_SOURCE_DIR to $DATA_DIR"
+            cp "$rule_file" "$target"
+        fi
+    done
 fi
 
 echo "Installing initial zen rules..."
 
-# Install CEF severity rule for syslog events
-if [ -f "$DATA_DIR/cef_severity.json" ]; then
-    echo "Installing cef_severity rule for events.syslog..."
-    zen-put-rule \
-        --config "$CONFIG_PATH" \
-        --file "$DATA_DIR/cef_severity.json" \
-        --subject events.syslog \
-        --key cef_severity
-    echo "✓ cef_severity rule installed"
-else
-    echo "Warning: cef_severity.json not found in $DATA_DIR"
-fi
+install_rule() {
+    local file="$1"
+    local subject="$2"
+    local key="$3"
 
-# Install strip full message rule for syslog events  
-if [ -f "$DATA_DIR/strip_full_message.json" ]; then
-    echo "Installing strip_full_message rule for events.syslog..."
-    zen-put-rule \
-        --config "$CONFIG_PATH" \
-        --file "$DATA_DIR/strip_full_message.json" \
-        --subject events.syslog \
-        --key strip_full_message
-    echo "✓ strip_full_message rule installed"
-else
-    echo "Warning: strip_full_message.json not found in $DATA_DIR"
-fi
+    if [ -f "$file" ]; then
+        echo "Installing $key rule for $subject..."
+        zen-put-rule \
+            --config "$CONFIG_PATH" \
+            --file "$file" \
+            --subject "$subject" \
+            --key "$key"
+        echo "✓ $key rule installed"
+    else
+        echo "Warning: $(basename "$file") not found; skipping $key"
+    fi
+}
 
-# Install passthrough rule for OTEL logs (if it exists)
-if [ -f "$DATA_DIR/passthrough.json" ]; then
-    echo "Installing passthrough rule for events.otel.logs..."
-    zen-put-rule \
-        --config "$CONFIG_PATH" \
-        --file "$DATA_DIR/passthrough.json" \
-        --subject events.otel.logs \
-        --key passthrough
-    echo "✓ passthrough rule installed"
-else
-    echo "Info: passthrough.json not found in $DATA_DIR (optional)"
-fi
+install_rule "$DATA_DIR/strip_full_message.json" "events.syslog" "strip_full_message"
+install_rule "$DATA_DIR/cef_severity.json" "events.syslog" "cef_severity"
+install_rule "$DATA_DIR/snmp_severity.json" "events.snmp" "snmp_severity"
+install_rule "$DATA_DIR/passthrough.json" "events.otel.logs" "passthrough"
 
 echo "✅ Initial zen rules installation completed successfully"

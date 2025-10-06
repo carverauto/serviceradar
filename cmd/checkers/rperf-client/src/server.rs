@@ -14,26 +14,28 @@
  * limitations under the License.
  */
 
-use std::fs;
 use anyhow::{Context, Result};
+use chrono;
 use log::{debug, error, info, warn};
+use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tokio::time::{Duration, timeout};
-use tonic::{Request, Response, Status};
+use tokio::time::{timeout, Duration};
 use tonic::transport::Server;
+use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder as ReflectionBuilder;
-use chrono;
 
 use crate::config::Config;
 use crate::poller::TargetPoller;
 use crate::rperf::RPerfRunner;
 use crate::server::monitoring::agent_service_server::{AgentService, AgentServiceServer};
 
-const FILE_DESCRIPTOR_SET_RPERF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rperf_descriptor.bin"));
-const FILE_DESCRIPTOR_SET_MONITORING: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
+const FILE_DESCRIPTOR_SET_RPERF: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/rperf_descriptor.bin"));
+const FILE_DESCRIPTOR_SET_MONITORING: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
 
 pub mod rperf_service {
     tonic::include_proto!("rperf");
@@ -68,7 +70,10 @@ impl RPerfTestOrchestrator {
     }
 
     pub async fn start(&self) -> Result<ServerHandle> {
-        let addr: SocketAddr = self.config.listen_addr.parse()
+        let addr: SocketAddr = self
+            .config
+            .listen_addr
+            .parse()
             .context("Failed to parse listen address")?;
 
         info!("Starting gRPC test orchestrator on {addr}");
@@ -79,24 +84,41 @@ impl RPerfTestOrchestrator {
                 {
                     let mut pollers = pollers.write().await;
                     for poller in pollers.iter_mut() {
-                        info!("Running scheduled test for target: {}", poller.target_name());
+                        info!(
+                            "Running scheduled test for target: {}",
+                            poller.target_name()
+                        );
                         match poller.run_single_test().await {
                             Ok(result) => {
                                 if result.success {
-                                    info!("Test for target '{}' completed: {:.2} Mbps",
-                                          poller.target_name(), result.summary.bits_per_second / 1_000_000.0);
+                                    info!(
+                                        "Test for target '{}' completed: {:.2} Mbps",
+                                        poller.target_name(),
+                                        result.summary.bits_per_second / 1_000_000.0
+                                    );
                                 } else {
-                                    warn!("Test for target '{}' failed: {}",
-                                          poller.target_name(), result.error.as_deref().unwrap_or("Unknown error"));
+                                    warn!(
+                                        "Test for target '{}' failed: {}",
+                                        poller.target_name(),
+                                        result.error.as_deref().unwrap_or("Unknown error")
+                                    );
                                 }
                             }
-                            Err(e) => error!("Error running test for target '{}': {}", poller.target_name(), e),
+                            Err(e) => error!(
+                                "Error running test for target '{}': {}",
+                                poller.target_name(),
+                                e
+                            ),
                         }
                     }
                 }
                 let poll_interval = {
                     let pollers = pollers.read().await;
-                    pollers.iter().map(|p| p.get_poll_interval()).min().unwrap_or(Duration::from_secs(300))
+                    pollers
+                        .iter()
+                        .map(|p| p.get_poll_interval())
+                        .min()
+                        .unwrap_or(Duration::from_secs(300))
                 };
                 tokio::time::sleep(poll_interval).await;
             }
@@ -127,7 +149,8 @@ impl RPerfTestOrchestrator {
                     .context("Failed to read certificate file")?;
                 let key = fs::read_to_string(security.key_file.as_ref().unwrap())
                     .context("Failed to read key file")?;
-                let identity = tonic::transport::Identity::from_pem(cert.as_bytes(), key.as_bytes());
+                let identity =
+                    tonic::transport::Identity::from_pem(cert.as_bytes(), key.as_bytes());
 
                 let ca_cert = fs::read_to_string(security.ca_file.as_ref().unwrap())
                     .context("Failed to read CA certificate file")?;
@@ -284,7 +307,8 @@ impl RPerfService for RPerfServiceImpl {
                 "error": "Failed to serialize test results",
                 "response_time": start_time.elapsed().as_nanos() as i64,
                 "available": false
-            })).unwrap_or_default()
+            }))
+            .unwrap_or_default()
         });
 
         let response_time = start_time.elapsed().as_nanos() as i64;
@@ -308,8 +332,10 @@ impl AgentService for RPerfServiceImpl {
         request: Request<monitoring::StatusRequest>,
     ) -> Result<Response<monitoring::StatusResponse>, Status> {
         let req = request.into_inner();
-        debug!("Received GetStatus request: service_name={}, service_type={}, details={}",
-               req.service_name, req.service_type, req.details);
+        debug!(
+            "Received GetStatus request: service_name={}, service_type={}, details={}",
+            req.service_name, req.service_type, req.details
+        );
 
         let start_time = std::time::Instant::now();
 
@@ -335,9 +361,10 @@ impl AgentService for RPerfServiceImpl {
 
         let mut results = Vec::new();
         for poller in pollers.iter() {
-            if (!req.details.is_empty() && poller.target_name() == req.details) ||
-                (!req.service_name.is_empty() && poller.target_name() == req.service_name) ||
-                (req.details.is_empty() && req.service_name.is_empty()) {
+            if (!req.details.is_empty() && poller.target_name() == req.details)
+                || (!req.service_name.is_empty() && poller.target_name() == req.service_name)
+                || (req.details.is_empty() && req.service_name.is_empty())
+            {
                 if let Some(last_result) = &poller.last_result {
                     let result_json = serde_json::json!({
                         "target": poller.target_name(),
@@ -375,7 +402,8 @@ impl AgentService for RPerfServiceImpl {
                 "error": "Failed to serialize test results",
                 "response_time": start_time.elapsed().as_nanos() as i64,
                 "available": false
-            })).unwrap_or_default()
+            }))
+            .unwrap_or_default()
         });
 
         let response_time = start_time.elapsed().as_nanos() as i64;
