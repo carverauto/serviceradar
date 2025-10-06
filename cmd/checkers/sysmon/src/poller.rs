@@ -18,18 +18,18 @@
 
 use anyhow::Result;
 use chrono::Utc;
+use log::{debug, info, warn};
 use serde::Serialize;
-use sysinfo::{System, Disks, CpuRefreshKind};
-use log::{debug, warn, info};
-use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
-use std::time::Duration;
 use std::net::UdpSocket;
+use std::sync::Arc;
+use std::time::Duration;
+use sysinfo::{CpuRefreshKind, Disks, System};
+use tokio::sync::{Mutex, RwLock};
 
 #[cfg(feature = "zfs")]
-use libzetta::zpool::{ZpoolEngine, ZpoolOpen3};
+use libzetta::zfs::{DatasetKind, ZfsEngine, ZfsOpen3};
 #[cfg(feature = "zfs")]
-use libzetta::zfs::{ZfsOpen3, DatasetKind, ZfsEngine};
+use libzetta::zpool::{ZpoolEngine, ZpoolOpen3};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct CpuMetric {
@@ -87,12 +87,18 @@ pub struct MetricsCollector {
 }
 
 impl MetricsCollector {
-    pub fn new(host_id: String, partition: Option<String>, filesystems: Vec<String>, zfs_pools: Vec<String>, zfs_datasets: bool) -> Self {
+    pub fn new(
+        host_id: String,
+        partition: Option<String>,
+        filesystems: Vec<String>,
+        zfs_pools: Vec<String>,
+        zfs_datasets: bool,
+    ) -> Self {
         let host_ip = Self::get_local_ip().unwrap_or_else(|| {
             warn!("Failed to determine local IP address, using 'unknown'");
             "unknown".to_string()
         });
-        
+
         debug!("Creating MetricsCollector: host_id={host_id}, host_ip={host_ip}, partition={partition:?}, filesystems={filesystems:?}, zfs_pools={zfs_pools:?}, zfs_datasets={zfs_datasets}");
         let mut system = System::new_all();
         system.refresh_cpu_specifics(CpuRefreshKind::everything()); // Initial CPU refresh
@@ -116,27 +122,23 @@ impl MetricsCollector {
         // Try to connect to a remote address to determine the local IP
         // This doesn't actually send data, just determines which interface would be used
         match UdpSocket::bind("0.0.0.0:0") {
-            Ok(socket) => {
-                match socket.connect("8.8.8.8:80") {
-                    Ok(_) => {
-                        match socket.local_addr() {
-                            Ok(addr) => {
-                                let ip = addr.ip().to_string();
-                                info!("Detected local IP address: {ip}");
-                                Some(ip)
-                            }
-                            Err(e) => {
-                                warn!("Failed to get local address: {e}");
-                                None
-                            }
-                        }
+            Ok(socket) => match socket.connect("8.8.8.8:80") {
+                Ok(_) => match socket.local_addr() {
+                    Ok(addr) => {
+                        let ip = addr.ip().to_string();
+                        info!("Detected local IP address: {ip}");
+                        Some(ip)
                     }
                     Err(e) => {
-                        warn!("Failed to connect to determine local IP: {e}");
+                        warn!("Failed to get local address: {e}");
                         None
                     }
+                },
+                Err(e) => {
+                    warn!("Failed to connect to determine local IP: {e}");
+                    None
                 }
-            }
+            },
             Err(e) => {
                 warn!("Failed to bind UDP socket: {e}");
                 None
@@ -165,7 +167,9 @@ impl MetricsCollector {
                 });
             }
             cpus
-        }).await.map_err(|e| anyhow::anyhow!("Failed to collect CPU metrics: {}", e))?;
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to collect CPU metrics: {}", e))?;
 
         if cpus.is_empty() {
             warn!("No CPU metrics collected, sysinfo returned empty CPU list");
@@ -181,8 +185,13 @@ impl MetricsCollector {
                 used_bytes: system.used_memory(),
                 total_bytes: system.total_memory(),
             }
-        }).await.map_err(|e| anyhow::anyhow!("Failed to collect memory metrics: {}", e))?;
-        debug!("Memory: used={} bytes, total={} bytes", memory.used_bytes, memory.total_bytes);
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to collect memory metrics: {}", e))?;
+        debug!(
+            "Memory: used={} bytes, total={} bytes",
+            memory.used_bytes, memory.total_bytes
+        );
 
         // Process metrics
         debug!("Collecting process metrics");
@@ -191,7 +200,7 @@ impl MetricsCollector {
             let mut system = system.blocking_lock();
             system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
             let mut processes = Vec::new();
-            
+
             for (pid, process) in system.processes() {
                 let pid_u32 = pid.as_u32();
                 let name = process.name().to_string_lossy().to_string();
@@ -201,7 +210,7 @@ impl MetricsCollector {
                 let start_time = chrono::DateTime::from_timestamp(process.start_time() as i64, 0)
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_else(|| "unknown".to_string());
-                
+
                 processes.push(ProcessMetric {
                     pid: pid_u32,
                     name,
@@ -211,16 +220,21 @@ impl MetricsCollector {
                     start_time,
                 });
             }
-            
+
             debug!("Collected {} processes", processes.len());
             processes
-        }).await.map_err(|e| anyhow::anyhow!("Failed to collect process metrics: {}", e))?;
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to collect process metrics: {}", e))?;
 
         let timestamp = Utc::now().to_rfc3339();
         debug!("Timestamp: {timestamp}");
 
         // Disk metrics (run in spawn_blocking to avoid Send issues)
-        debug!("Collecting disk metrics for filesystems: {:?}", self.filesystems);
+        debug!(
+            "Collecting disk metrics for filesystems: {:?}",
+            self.filesystems
+        );
         let filesystems = self.filesystems.clone();
         let disk_metrics = tokio::task::spawn_blocking(move || {
             let mut disks = Vec::new();
@@ -229,7 +243,12 @@ impl MetricsCollector {
                 let mount_point = disk.mount_point().to_string_lossy().to_string();
                 if filesystems.is_empty() || filesystems.contains(&mount_point) {
                     let used = disk.total_space() - disk.available_space();
-                    debug!("Disk {}: used={} bytes, total={} bytes", mount_point, used, disk.total_space());
+                    debug!(
+                        "Disk {}: used={} bytes, total={} bytes",
+                        mount_point,
+                        used,
+                        disk.total_space()
+                    );
                     disks.push(DiskMetric {
                         mount_point,
                         used_bytes: used,
@@ -239,8 +258,8 @@ impl MetricsCollector {
             }
             disks
         })
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to collect disk metrics: {}", e))?;
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to collect disk metrics: {}", e))?;
 
         let mut disks = disk_metrics;
 
@@ -349,8 +368,8 @@ impl MetricsCollector {
                 }
                 disks
             })
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to collect ZFS fallback metrics: {}", e))?;
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to collect ZFS fallback metrics: {}", e))?;
             disks.extend(zfs_fallback);
         }
 

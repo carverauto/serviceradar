@@ -208,9 +208,9 @@ impl TraceService for ServiceRadarCollector {
                         let Some(value) = &attr.value else {
                             continue;
                         };
-                        let Some(
-                            opentelemetry::proto::common::v1::any_value::Value::StringValue(s),
-                        ) = &value.value
+                        let Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                            s,
+                        )) = &value.value
                         else {
                             continue;
                         };
