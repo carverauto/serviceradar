@@ -28,7 +28,7 @@ spec:
           set -e
           mkdir -p /var/lib/serviceradar
           cp /etc/serviceradar/core.json /var/lib/serviceradar/core.json
-          serviceradar-cli generate-jwt-keys --file /var/lib/serviceradar/core.json --bits 2048 --force
+          serviceradar-cli generate-jwt-keys --file /var/lib/serviceradar/core.json --bits 2048
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar
