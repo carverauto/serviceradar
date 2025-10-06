@@ -12,15 +12,49 @@ The BuildBuddy executors connect to the remote BuildBuddy instance at `remote.bu
 - **Namespace**: `buildbuddy`
 - **Release Name**: `buildbuddy`
 
+Key fields you should see in `values.yaml`:
+
+```yaml
+resources:
+  requests:
+    cpu: "8"
+    memory: "16Gi"
+    ephemeral-storage: "20Gi"
+  limits:
+    cpu: "16"
+    memory: "32Gi"
+    ephemeral-storage: "25Gi"
+
+extraVolumes:
+  - name: cache-volume
+    ephemeral:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          resources:
+            requests:
+              storage: 50Gi
+
+extraVolumeMounts:
+  - name: cache-volume
+    mountPath: /cache
+
+config:
+  executor:
+    local_cache_directory: /cache
+    local_cache_size_bytes: 50000000000
+    root_directory: /cache/remotebuilds/
+```
+
 ### Current Setup
 
-- **Replicas**: 3 (autoscaling: min=3, max=10)
+- **Replicas**: 3 (autoscaler target queue length = 5, min=3, max=10)
 - **Resources per executor**:
   - CPU: 8-16 cores (request-limit)
   - Memory: 16-32Gi (request-limit)
-  - Ephemeral Storage: 10-30Gi (request-limit)
-- **Cache**: 20GB local cache per executor
-- **Persistent Disk**: 160Gi per executor
+  - Ephemeral Storage: 20-25Gi (request-limit)
+- **Cache path**: `/cache` (50Gi generic ephemeral PVC, `local-path` storage class)
+- **Remote builds dir**: `/cache/remotebuilds/`
 
 ### Node Affinity
 
@@ -100,13 +134,20 @@ kubectl get hpa -n buildbuddy
 If pods are being evicted due to resource pressure:
 1. Check node resources: `kubectl describe node <node-name>`
 2. Common causes:
-   - **Ephemeral storage exhaustion**: Ensure `ephemeral-storage` limits are set in `resources`
+   - **Ephemeral storage exhaustion**: Ensure `resources.requests/limits.ephemeral-storage` reflect 20Gi/25Gi
    - **Memory pressure**: Adjust memory limits
    - **Disk pressure**: Check node disk usage
-3. Reduce resource requests/limits in `values.yaml`
-4. Add node affinity to avoid problematic nodes
-5. Reduce cache size (`local_cache_size_bytes`)
-6. Clean up evicted pods: `kubectl delete pods --field-selector status.phase=Failed -n buildbuddy`
+3. Confirm the cache PVC is healthy: `kubectl get pvc -n buildbuddy`
+4. Reduce resource requests/limits in `values.yaml` if needed
+5. Add node affinity to avoid problematic nodes
+6. Reduce cache size (`local_cache_size_bytes`)
+7. Clean up evicted pods: `kubectl delete pods --field-selector status.phase=Failed -n buildbuddy`
+
+### Cache Backing Storage
+
+- Executors mount a per-pod PVC named `cache-volume` at `/cache`.
+- The PVC is defined via `extraVolumes` in `values.yaml` and requests 50Gi in the `local-path` storage class.
+- If a node runs out of disk, resize the underlying `local-path` storage or adjust `local_cache_size_bytes`.
 
 ### Connection Issues
 
