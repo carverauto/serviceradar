@@ -2,6 +2,7 @@
 
 load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
+load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
 load("//docker/images:push_targets.bzl", "declare_ghcr_push_targets")
 
 package(default_visibility = ["//visibility:public"])
@@ -903,16 +904,26 @@ pkg_tar(
     package_dir = "/app",
 )
 
+copy_to_directory(
+    name = "web_public_flat",
+    srcs = ["//web:public_tree"],
+    out = "public",
+    replace_prefixes = {
+        "web/public_bundle": "",
+        "public_bundle": "",
+    },
+)
+
 pkg_tar(
     name = "web_public_root_amd64",
-    srcs = ["//web:public_tree"],
-    package_dir = "/app/public",
+    srcs = [":web_public_flat"],
+    package_dir = "/app",
 )
 
 pkg_tar(
     name = "web_public_standalone_amd64",
-    srcs = ["//web:public_tree"],
-    package_dir = "/app/.next/standalone/public",
+    srcs = [":web_public_flat"],
+    package_dir = "/app/.next/standalone",
 )
 
 genrule(

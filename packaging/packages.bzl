@@ -737,6 +737,7 @@ PACKAGES = {
             {
                 "src": "//web:public_tree",
                 "dest": "/usr/local/share/serviceradar-web/public/",
+                "strip_prefix": "web/public_bundle",
             },
         ],
         "systemd": {
