@@ -12,35 +12,30 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Cache dependencies: copy manifests first and fetch
-COPY Cargo.toml ./
-# Copy all workspace members' manifests to satisfy workspace resolution
-COPY rust/kvutil/Cargo.toml ./rust/kvutil/Cargo.toml
+# Cache dependencies with real workspace contents
+COPY Cargo.toml Cargo.lock ./
+COPY rust/kvutil ./rust/kvutil
 COPY cmd/flowgger/Cargo.toml ./cmd/flowgger/Cargo.toml
+COPY cmd/flowgger/build.rs ./cmd/flowgger/build.rs
 COPY cmd/trapd/Cargo.toml ./cmd/trapd/Cargo.toml
 COPY cmd/otel/Cargo.toml ./cmd/otel/Cargo.toml
 COPY cmd/poller-ng/Cargo.toml ./cmd/poller-ng/Cargo.toml
 COPY cmd/consumers/zen/Cargo.toml ./cmd/consumers/zen/Cargo.toml
-RUN mkdir -p rust/kvutil/src cmd/flowgger/src cmd/trapd/src cmd/otel/src cmd/poller-ng/src && \
-    printf "pub fn _stub(){}" > rust/kvutil/src/lib.rs && \
-    printf "fn main(){}" > cmd/trapd/src/main.rs && \
-    printf "fn main(){}" > cmd/poller-ng/src/main.rs && \
-    printf "fn main(){}" > cmd/flowgger/src/main.rs && \
-    printf "pub fn _stub(){}" > cmd/flowgger/src/lib.rs && \
-    printf "fn main(){}" > cmd/otel/src/main.rs && \
-    printf "pub fn _stub(){}" > cmd/otel/src/lib.rs && \
-    mkdir -p cmd/consumers/zen/src && \
-    printf "fn main(){}" > cmd/consumers/zen/src/main.rs
-RUN cargo fetch --manifest-path cmd/flowgger/Cargo.toml
+RUN cargo fetch --locked --manifest-path cmd/flowgger/Cargo.toml
 
 # Now copy sources
-COPY rust/kvutil ./rust/kvutil
 COPY proto ./proto
 COPY cmd/flowgger ./cmd/flowgger
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \
-    cargo build --manifest-path cmd/flowgger/Cargo.toml --features nats-output --release --target x86_64-unknown-linux-gnu
+    cargo build \
+        --manifest-path cmd/flowgger/Cargo.toml \
+        --locked \
+        --no-default-features \
+        --features "gelf nats-output passthrough rfc3164 rfc5424 syslog tls" \
+        --release \
+        --target x86_64-unknown-linux-gnu
 
 # Runtime stage
 FROM debian:bullseye-slim
