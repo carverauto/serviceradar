@@ -126,6 +126,39 @@ data:
           "jwt_expiration": "24h",
           "local_users": {
             "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
+          },
+          "rbac": {
+            "user_roles": {
+              "admin": ["admin", "operator", "viewer"],
+              "operator": ["operator", "viewer"],
+              "user": ["viewer"]
+            },
+            "role_permissions": {
+              "admin": ["*"],
+              "operator": ["config:read", "config:write", "device:*", "alert:*"],
+              "viewer": ["config:read", "device:read", "alert:read", "metrics:read"]
+            },
+            "route_protection": {
+              "/api/admin/*": ["admin"],
+              "/api/config/*": {
+                "GET": ["viewer", "operator", "admin"],
+                "POST": ["operator", "admin"],
+                "PUT": ["operator", "admin"],
+                "DELETE": ["admin"]
+              },
+              "/api/devices/*": {
+                "GET": ["viewer", "operator", "admin"],
+                "POST": ["operator", "admin"],
+                "PUT": ["operator", "admin"],
+                "DELETE": ["admin"]
+              },
+              "/api/alerts/*": {
+                "GET": ["viewer", "operator", "admin"],
+                "POST": ["operator", "admin"],
+                "PUT": ["operator", "admin"],
+                "DELETE": ["admin"]
+              }
+            }
           }
         },
         "nats": {
