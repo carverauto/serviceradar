@@ -104,13 +104,15 @@ func (*Server) extractIdentity(ctx context.Context) (string, error) {
 
 // authorizeMethod checks if the role is permitted to execute the method.
 func (*Server) authorizeMethod(method string, role Role) error {
-    permissions := map[string][]Role{
-        "/proto.KVService/Get":    {RoleReader, RoleWriter},
-        "/proto.KVService/Watch":  {RoleReader, RoleWriter},
-        "/proto.KVService/Put":    {RoleWriter},
-        "/proto.KVService/PutIfAbsent": {RoleWriter},
-        "/proto.KVService/Delete": {RoleWriter},
-    }
+	permissions := map[string][]Role{
+		"/proto.KVService/Get":         {RoleReader, RoleWriter},
+		"/proto.KVService/Watch":       {RoleReader, RoleWriter},
+		"/proto.KVService/Put":         {RoleWriter},
+		"/proto.KVService/PutIfAbsent": {RoleWriter},
+		"/proto.KVService/PutMany":     {RoleWriter},
+		"/proto.KVService/Update":      {RoleWriter},
+		"/proto.KVService/Delete":      {RoleWriter},
+	}
 
 	allowedRoles, ok := permissions[method]
 	if !ok {

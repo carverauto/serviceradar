@@ -85,6 +85,21 @@ func (mr *MockKVStoreMockRecorder) Get(ctx, key any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockKVStore)(nil).Get), ctx, key)
 }
 
+// GetEntry mocks base method.
+func (m *MockKVStore) GetEntry(ctx context.Context, key string) (Entry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEntry", ctx, key)
+	ret0, _ := ret[0].(Entry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEntry indicates an expected call of GetEntry.
+func (mr *MockKVStoreMockRecorder) GetEntry(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEntry", reflect.TypeOf((*MockKVStore)(nil).GetEntry), ctx, key)
+}
+
 // Put mocks base method.
 func (m *MockKVStore) Put(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	m.ctrl.T.Helper()
@@ -95,22 +110,22 @@ func (m *MockKVStore) Put(ctx context.Context, key string, value []byte, ttl tim
 
 // Put indicates an expected call of Put.
 func (mr *MockKVStoreMockRecorder) Put(ctx, key, value, ttl any) *gomock.Call {
-    mr.mock.ctrl.T.Helper()
-    return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*MockKVStore)(nil).Put), ctx, key, value, ttl)
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*MockKVStore)(nil).Put), ctx, key, value, ttl)
 }
 
 // PutIfAbsent mocks base method.
 func (m *MockKVStore) PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error {
-    m.ctrl.T.Helper()
-    ret := m.ctrl.Call(m, "PutIfAbsent", ctx, key, value, ttl)
-    ret0, _ := ret[0].(error)
-    return ret0
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PutIfAbsent", ctx, key, value, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // PutIfAbsent indicates an expected call of PutIfAbsent.
 func (mr *MockKVStoreMockRecorder) PutIfAbsent(ctx, key, value, ttl any) *gomock.Call {
-    mr.mock.ctrl.T.Helper()
-    return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutIfAbsent", reflect.TypeOf((*MockKVStore)(nil).PutIfAbsent), ctx, key, value, ttl)
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutIfAbsent", reflect.TypeOf((*MockKVStore)(nil).PutIfAbsent), ctx, key, value, ttl)
 }
 
 // PutMany mocks base method.
@@ -125,6 +140,21 @@ func (m *MockKVStore) PutMany(ctx context.Context, entries []KeyValueEntry, ttl 
 func (mr *MockKVStoreMockRecorder) PutMany(ctx, entries, ttl any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutMany", reflect.TypeOf((*MockKVStore)(nil).PutMany), ctx, entries, ttl)
+}
+
+// Update mocks base method.
+func (m *MockKVStore) Update(ctx context.Context, key string, value []byte, revision uint64, ttl time.Duration) (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Update", ctx, key, value, revision, ttl)
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Update indicates an expected call of Update.
+func (mr *MockKVStoreMockRecorder) Update(ctx, key, value, revision, ttl any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockKVStore)(nil).Update), ctx, key, value, revision, ttl)
 }
 
 // Watch mocks base method.

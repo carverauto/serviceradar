@@ -53,20 +53,24 @@ func (*mockProtoKVClient) Get(_ context.Context, _ *proto.GetRequest, _ ...grpc.
 	return &proto.GetResponse{}, nil
 }
 
+func (*mockProtoKVClient) Update(_ context.Context, _ *proto.UpdateRequest, _ ...grpc.CallOption) (*proto.UpdateResponse, error) {
+	return &proto.UpdateResponse{}, nil
+}
+
 func (*mockProtoKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ...grpc.CallOption) (*proto.DeleteResponse, error) {
 	return &proto.DeleteResponse{}, nil
 }
 
 func (*mockProtoKVClient) PutIfAbsent(_ context.Context, _ *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
-    return &proto.PutResponse{}, nil
+	return &proto.PutResponse{}, nil
 }
 
 func (*mockProtoKVClient) Watch(_ context.Context, _ *proto.WatchRequest, _ ...grpc.CallOption) (proto.KVService_WatchClient, error) {
-    return nil, nil
+	return nil, nil
 }
 
 func (*mockProtoKVClient) Info(_ context.Context, _ *proto.InfoRequest, _ ...grpc.CallOption) (*proto.InfoResponse, error) {
-    return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
+	return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
 }
 
 func TestNew(t *testing.T) {
@@ -341,8 +345,8 @@ func TestNewArmisIntegration(t *testing.T) {
 				assert.NotNil(t, integration.Updater)
 			}
 
-            // SRQL querier removed from Go implementation
-            assert.Nil(t, integration.SweepQuerier)
+			// SRQL querier removed from Go implementation
+			assert.Nil(t, integration.SweepQuerier)
 		})
 	}
 }
@@ -358,40 +362,40 @@ func TestNewNetboxIntegration(t *testing.T) {
 
 	serverName := testServer
 
-    tests := []struct {
-        name   string
-        config *models.SourceConfig
-    }{
-        {
-            name: "default configuration",
-            config: &models.SourceConfig{
-                Type:        integrationTypeNetbox,
-                AgentID:     "test-agent",
-                Credentials: map[string]string{},
-            },
-        },
-        {
-            name: "with ServiceRadar API credentials",
-            config: &models.SourceConfig{
-                Type:    integrationTypeNetbox,
-                AgentID: "test-agent",
-                Credentials: map[string]string{
-                    "api_key":               "test-key",
-                    "serviceradar_endpoint": "http://localhost:8080",
-                },
-            },
-        },
-        {
-            name: "with API key but no endpoint (uses default)",
-            config: &models.SourceConfig{
-                Type:    integrationTypeNetbox,
-                AgentID: "test-agent",
-                Credentials: map[string]string{
-                    "api_key": "test-key",
-                },
-            },
-        },
-    }
+	tests := []struct {
+		name   string
+		config *models.SourceConfig
+	}{
+		{
+			name: "default configuration",
+			config: &models.SourceConfig{
+				Type:        integrationTypeNetbox,
+				AgentID:     "test-agent",
+				Credentials: map[string]string{},
+			},
+		},
+		{
+			name: "with ServiceRadar API credentials",
+			config: &models.SourceConfig{
+				Type:    integrationTypeNetbox,
+				AgentID: "test-agent",
+				Credentials: map[string]string{
+					"api_key":               "test-key",
+					"serviceradar_endpoint": "http://localhost:8080",
+				},
+			},
+		},
+		{
+			name: "with API key but no endpoint (uses default)",
+			config: &models.SourceConfig{
+				Type:    integrationTypeNetbox,
+				AgentID: "test-agent",
+				Credentials: map[string]string{
+					"api_key": "test-key",
+				},
+			},
+		},
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -405,10 +409,10 @@ func TestNewNetboxIntegration(t *testing.T) {
 			assert.Equal(t, serverName, integration.ServerName)
 			assert.False(t, integration.ExpandSubnets, "ExpandSubnets should always be false in NewNetboxIntegration")
 
-            // SRQL querier removed from Go implementation
-            assert.Nil(t, integration.Querier)
-        })
-    }
+			// SRQL querier removed from Go implementation
+			assert.Nil(t, integration.Querier)
+		})
+	}
 }
 
 func TestNetboxIntegrationFactory(t *testing.T) {

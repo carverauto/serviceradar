@@ -22,5 +22,6 @@ go_test(
     deps = [
         "//pkg/models:models",
         "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
     ],
 )

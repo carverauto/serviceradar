@@ -8,6 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cenkalti/backoff/v5"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -15,20 +19,28 @@ import (
 	"google.golang.org/grpc"
 )
 
-type kvPutManyClient interface {
-	PutMany(ctx context.Context, in *proto.PutManyRequest, opts ...grpc.CallOption) (*proto.PutManyResponse, error)
+type kvIdentityClient interface {
+	Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
+	PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
+	Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error)
 }
 
 type identityPublisher struct {
-	client     kvPutManyClient
+	kvClient   kvIdentityClient
 	namespace  string
 	ttlSeconds int64
 	metrics    *identityPublisherMetrics
 	logger     logger.Logger
 }
 
+const (
+	identityInitialBackoff = 50 * time.Millisecond
+	identityMaxBackoff     = 750 * time.Millisecond
+	identityMaxElapsed     = 5 * time.Second
+)
+
 // WithIdentityPublisher wires a KV-backed identity map publisher into the device registry.
-func WithIdentityPublisher(client kvPutManyClient, namespace string, ttl time.Duration) Option {
+func WithIdentityPublisher(client kvIdentityClient, namespace string, ttl time.Duration) Option {
 	return func(r *DeviceRegistry) {
 		if r == nil {
 			return
@@ -56,7 +68,7 @@ func (m *identityPublisherMetrics) recordFailure() {
 	m.failures.Add(1)
 }
 
-func newIdentityPublisher(client kvPutManyClient, namespace string, ttl time.Duration, log logger.Logger) *identityPublisher {
+func newIdentityPublisher(client kvIdentityClient, namespace string, ttl time.Duration, log logger.Logger) *identityPublisher {
 	if client == nil {
 		return nil
 	}
@@ -65,7 +77,7 @@ func newIdentityPublisher(client kvPutManyClient, namespace string, ttl time.Dur
 		ns = identitymap.DefaultNamespace
 	}
 	return &identityPublisher{
-		client:     client,
+		kvClient:   client,
 		namespace:  ns,
 		ttlSeconds: int64(ttl / time.Second),
 		metrics:    newIdentityPublisherMetrics(),
@@ -74,19 +86,15 @@ func newIdentityPublisher(client kvPutManyClient, namespace string, ttl time.Dur
 }
 
 func (p *identityPublisher) Publish(ctx context.Context, updates []*models.DeviceUpdate) error {
-	if p == nil || p.client == nil || len(updates) == 0 {
+	if p == nil || p.kvClient == nil || len(updates) == 0 {
 		return nil
 	}
 
 	now := time.Now().UTC()
-	entries := make(map[string][]byte)
 	var publishErr error
 
 	for _, update := range updates {
-		if update == nil {
-			continue
-		}
-		if shouldSkipIdentityPublish(update) {
+		if update == nil || shouldSkipIdentityPublish(update) {
 			continue
 		}
 
@@ -104,46 +112,100 @@ func (p *identityPublisher) Publish(ctx context.Context, updates []*models.Devic
 			continue
 		}
 
-		keys := identitymap.BuildKeys(update)
-		if len(keys) == 0 {
-			continue
-		}
-
-		for _, key := range keys {
-			entries[key.KeyPath(p.namespace)] = payload
+		for _, key := range identitymap.BuildKeys(update) {
+			keyPath := key.KeyPath(p.namespace)
+			if err := p.upsertIdentity(ctx, keyPath, payload, record.MetadataHash); err != nil {
+				publishErr = errors.Join(publishErr, err)
+			}
 		}
 	}
 
-	if len(entries) == 0 {
-		if publishErr != nil {
-			p.metrics.recordFailure()
-		}
-		return publishErr
-	}
-
-	req := &proto.PutManyRequest{
-		Entries:    make([]*proto.KeyValueEntry, 0, len(entries)),
-		TtlSeconds: p.ttlSeconds,
-	}
-
-	for key, value := range entries {
-		copied := make([]byte, len(value))
-		copy(copied, value)
-		req.Entries = append(req.Entries, &proto.KeyValueEntry{Key: key, Value: copied})
-	}
-
-	if _, err := p.client.PutMany(ctx, req); err != nil {
-		publishErr = errors.Join(publishErr, fmt.Errorf("kv putmany: %w", err))
+	if publishErr != nil {
 		p.metrics.recordFailure()
-		return publishErr
 	}
-
-	p.metrics.recordPublish(len(req.Entries))
-	p.logger.Debug().
-		Int("key_count", len(req.Entries)).
-		Msg("Published canonical identity entries to KV")
 
 	return publishErr
+}
+
+func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payload []byte, metadataHash string) error {
+	bo := backoff.NewExponentialBackOff()
+	bo.InitialInterval = identityInitialBackoff
+	bo.MaxInterval = identityMaxBackoff
+	bo.Multiplier = 1.6
+	bo.RandomizationFactor = 0.2
+
+	operation := func() (struct{}, error) {
+		resp, err := p.kvClient.Get(ctx, &proto.GetRequest{Key: key})
+		if err != nil {
+			if shouldRetryKV(err) {
+				return struct{}{}, err
+			}
+			return struct{}{}, backoff.Permanent(err)
+		}
+
+		if !resp.GetFound() {
+			_, err := p.kvClient.PutIfAbsent(ctx, &proto.PutRequest{Key: key, Value: payload, TtlSeconds: p.ttlSeconds})
+			if err != nil {
+				if shouldRetryKV(err) {
+					return struct{}{}, err
+				}
+				return struct{}{}, backoff.Permanent(err)
+			}
+
+			p.metrics.recordPublish(1)
+			p.logger.Debug().Str("key", key).Msg("Created canonical identity entry in KV")
+			return struct{}{}, nil
+		}
+
+		existing, err := identitymap.UnmarshalRecord(resp.GetValue())
+		if err != nil {
+			return struct{}{}, backoff.Permanent(fmt.Errorf("unmarshal existing canonical record: %w", err))
+		}
+		if existing.MetadataHash == metadataHash {
+			return struct{}{}, nil
+		}
+
+		_, err = p.kvClient.Update(ctx, &proto.UpdateRequest{
+			Key:        key,
+			Value:      payload,
+			Revision:   resp.GetRevision(),
+			TtlSeconds: p.ttlSeconds,
+		})
+		if err != nil {
+			if shouldRetryKV(err) {
+				return struct{}{}, err
+			}
+			return struct{}{}, backoff.Permanent(err)
+		}
+
+		p.metrics.recordPublish(1)
+		p.logger.Debug().Str("key", key).Msg("Updated canonical identity entry in KV")
+		return struct{}{}, nil
+	}
+
+	if _, err := backoff.Retry(ctx, operation, backoff.WithBackOff(bo), backoff.WithMaxElapsedTime(identityMaxElapsed)); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return fmt.Errorf("publish identity key %s: %w", key, err)
+	}
+
+	return nil
+}
+
+func shouldRetryKV(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	switch status.Code(err) {
+	case codes.OK:
+		return false
+	case codes.AlreadyExists, codes.Aborted, codes.Unavailable, codes.ResourceExhausted, codes.DeadlineExceeded, codes.Internal:
+		return true
+	default:
+		return false
+	}
 }
 
 func shouldSkipIdentityPublish(update *models.DeviceUpdate) bool {

@@ -846,6 +846,22 @@ func (m *mockKVClient) PutMany(ctx context.Context, in *proto.PutManyRequest, op
 	return ret0, ret1
 }
 
+func (m *mockKVClient) Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error) {
+	m.ctrl.T.Helper()
+
+	varargs := []interface{}{ctx, in}
+
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+
+	ret := m.ctrl.Call(m, "Update", varargs...)
+	ret0, _ := ret[0].(*proto.UpdateResponse)
+	ret1, _ := ret[1].(error)
+
+	return ret0, ret1
+}
+
 func (mr *mockKVClientRecorder) PutMany(ctx, in interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 
@@ -860,6 +876,14 @@ func (mr *mockKVClientRecorder) Put(ctx, in interface{}, opts ...interface{}) *g
 	varargs := append([]interface{}{ctx, in}, opts...)
 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*mockKVClient)(nil).Put), varargs...)
+}
+
+func (mr *mockKVClientRecorder) Update(ctx, in interface{}, opts ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+
+	varargs := append([]interface{}{ctx, in}, opts...)
+
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*mockKVClient)(nil).Update), varargs...)
 }
 
 func (mr *mockKVClientRecorder) PutIfAbsent(ctx, in interface{}, opts ...interface{}) *gomock.Call {
@@ -879,11 +903,11 @@ func (*mockKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ...grpc
 }
 
 func (*mockKVClient) Watch(_ context.Context, _ *proto.WatchRequest, _ ...grpc.CallOption) (proto.KVService_WatchClient, error) {
-    return nil, errNotImplemented
+	return nil, errNotImplemented
 }
 
 func (*mockKVClient) Info(_ context.Context, _ *proto.InfoRequest, _ ...grpc.CallOption) (*proto.InfoResponse, error) {
-    return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
+	return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
 }
 
 func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
