@@ -162,6 +162,7 @@ export async function fetchAPI<T>(
       "Content-Type": "application/json",
     },
     cache: "no-store" as RequestCache,
+    credentials: "include",
   };
 
   const options: RequestInit = {

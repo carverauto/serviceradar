@@ -19,6 +19,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -27,6 +28,13 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
+)
+
+var (
+	// ErrDstMustBeNonNilPointer indicates that the destination must be a non-nil pointer.
+	ErrDstMustBeNonNilPointer = errors.New("dst must be a non-nil pointer")
+	// ErrDstMustBePointerToStruct indicates that the destination must be a pointer to a struct.
+	ErrDstMustBePointerToStruct = errors.New("dst must be a pointer to a struct")
 )
 
 // EnvConfigLoader loads configuration from environment variables.
@@ -38,9 +46,9 @@ type EnvConfigLoader struct {
 }
 
 // NewEnvConfigLoader creates a new environment variable config loader.
-func NewEnvConfigLoader(logger logger.Logger, prefix string) *EnvConfigLoader {
+func NewEnvConfigLoader(log logger.Logger, prefix string) *EnvConfigLoader {
 	return &EnvConfigLoader{
-		logger: logger,
+		logger: log,
 		prefix: prefix,
 	}
 }
@@ -71,12 +79,12 @@ func (e *EnvConfigLoader) Load(_ context.Context, _ string, dst interface{}) err
 	// Otherwise, load from individual environment variables
 	v := reflect.ValueOf(dst)
 	if v.Kind() != reflect.Ptr || v.IsNil() {
-		return fmt.Errorf("dst must be a non-nil pointer")
+		return ErrDstMustBeNonNilPointer
 	}
 
 	v = v.Elem()
 	if v.Kind() != reflect.Struct {
-		return fmt.Errorf("dst must be a pointer to a struct")
+		return ErrDstMustBePointerToStruct
 	}
 
 	if err := e.loadStruct(v, e.prefix); err != nil {

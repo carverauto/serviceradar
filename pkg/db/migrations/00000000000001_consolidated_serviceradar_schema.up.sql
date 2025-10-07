@@ -14,7 +14,7 @@
 -- == Core Data Streams
 -- =================================================================
 
--- Latest sweep host states (versioned_kv) – 30d TTL
+-- Latest sweep host states (versioned_kv) – 3d TTL
 CREATE STREAM IF NOT EXISTS sweep_host_states (
     host_ip           string,
     poller_id         string,
@@ -33,7 +33,7 @@ CREATE STREAM IF NOT EXISTS sweep_host_states (
     first_seen        DateTime64(3),
     metadata          string
 ) PRIMARY KEY (host_ip, poller_id, partition)
-  TTL to_start_of_day(coalesce(last_sweep_time, _tp_time)) + INTERVAL 30 DAY
+  TTL to_start_of_day(coalesce(last_sweep_time, _tp_time)) + INTERVAL 3 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 -- Raw device updates (firehose) – 3d TTL
@@ -75,7 +75,7 @@ CREATE STREAM IF NOT EXISTS unified_devices (
     os_info nullable(string),
     version_info nullable(string)
 ) PRIMARY KEY (device_id)
-  TTL to_start_of_day(coalesce(last_seen, _tp_time)) + INTERVAL 30 DAY
+  TTL to_start_of_day(coalesce(last_seen, _tp_time)) + INTERVAL 3 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 -- Registry expected by device-mgr (versioned_kv) – 30d TTL
@@ -98,7 +98,7 @@ CREATE STREAM IF NOT EXISTS unified_devices_registry (
     os_info nullable(string),
     version_info nullable(string)
 ) PRIMARY KEY (device_id)
-  TTL to_start_of_day(coalesce(last_seen, _tp_time)) + INTERVAL 30 DAY
+  TTL to_start_of_day(coalesce(last_seen, _tp_time)) + INTERVAL 3 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 -- Aggregation pipeline MV
@@ -136,7 +136,7 @@ AS SELECT
 -- == Network Discovery Streams
 -- =================================================================
 
--- Discovered interfaces (versioned_kv) – 30d TTL
+-- Discovered interfaces (versioned_kv) – 3d TTL
 CREATE STREAM IF NOT EXISTS discovered_interfaces (
     timestamp         DateTime64(3),
     agent_id          string,
@@ -154,10 +154,10 @@ CREATE STREAM IF NOT EXISTS discovered_interfaces (
     if_oper_status    int32,
     metadata          string
 ) PRIMARY KEY (device_id, if_index)
-  TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 30 DAY
+  TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Topology discovery (LLDP/CDP/BGP/etc.) – 7d TTL
+-- Topology discovery (LLDP/CDP/BGP/etc.) – 3d TTL
 CREATE STREAM IF NOT EXISTS topology_discovery_events (
     timestamp                  DateTime64(3),
     agent_id                   string,
@@ -180,7 +180,7 @@ CREATE STREAM IF NOT EXISTS topology_discovery_events (
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, local_device_id, local_if_index)
-TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 7 DAY
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
 SETTINGS index_granularity = 8192;
 
 -- =================================================================
@@ -316,19 +316,19 @@ ORDER BY (timestamp, service_name, poller_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
 SETTINGS index_granularity = 8192;
 
--- Service definitions (configuration) – 30d TTL
+-- Service definitions (configuration) – 3d TTL
 CREATE STREAM IF NOT EXISTS services (
     timestamp         DateTime64(3),
     poller_id         string,
     agent_id          string,
     service_name      string,
     service_type      string,
-    config            map(string, string),
+    config            string,          -- Store JSON as text; still queryable via json_extract_*
     partition         string
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, poller_id)
-TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 30 DAY
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
 SETTINGS index_granularity = 8192;
 
 -- Poller registry (versioned_kv) – 30d TTL
@@ -338,7 +338,7 @@ CREATE STREAM IF NOT EXISTS pollers (
     last_seen         DateTime64(3),
     is_healthy        bool
 ) PRIMARY KEY (poller_id)
-  TTL to_start_of_day(coalesce(last_seen, _tp_time)) + INTERVAL 30 DAY
+  TTL to_start_of_day(coalesce(last_seen, _tp_time)) + INTERVAL 3 DAY
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 -- Poller history – 7d TTL

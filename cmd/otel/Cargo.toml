@@ -13,11 +13,11 @@ name = "otel"
 path = "src/main.rs"
 
 [dependencies]
-tonic = { version = "0.12", features = ["tls"] }
-prost = "0.13"
-tokio = { version = "1", features = ["full"] }
-tokio-stream = "0.1"
-async-nats = "0.38"
+tonic = { workspace = true }
+prost = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+async-nats = "0.42"
 anyhow = "1.0"
 toml = "0.8"
 serde = { version = "1.0", features = ["derive"] }
@@ -25,16 +25,17 @@ clap = { version = "4.0", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
 hex = "0.4"
-prometheus = { version = "0.13", features = ["process"] }
+prometheus = { version = "0.14", features = ["process"] }
 lazy_static = "1.4"
 hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
+kvutil = { path = "../../rust/kvutil" }
 
 [dev-dependencies]
 tempfile = "3.0"
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = { workspace = true }

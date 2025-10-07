@@ -24,11 +24,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+// Static test errors
+var (
+	errFetchFailed      = errors.New("fetch failed")
+	errFetch1Failed     = errors.New("fetch1 failed")
+	errFetch2Failed     = errors.New("fetch2 failed")
+	errTestSequence     = errors.New("test sequence error")
+	errKVWriteFailed    = errors.New("kv write failed")
+	errReconcile1Failed = errors.New("reconcile1 failed")
+	errReconcile2Failed = errors.New("reconcile2 failed")
+	errTaskFailed       = errors.New("task failed")
+	errOverflow         = errors.New("overflow error")
 )
 
 // TestRunDiscoveryErrorAggregation validates that runDiscovery properly aggregates errors
@@ -45,7 +59,7 @@ func TestRunDiscoveryErrorAggregation(t *testing.T) {
 		{
 			name: "single source fetch error",
 			setupMocks: func(kvClient *MockKVClient, int1 *MockIntegration, int2 *MockIntegration) {
-				int1.EXPECT().Fetch(gomock.Any()).Return(nil, nil, errors.New("fetch failed"))
+				int1.EXPECT().Fetch(gomock.Any()).Return(nil, nil, errFetchFailed)
 				int2.EXPECT().Fetch(gomock.Any()).Return(
 					map[string][]byte{"key2": []byte("data2")},
 					[]*models.DeviceUpdate{{IP: "192.168.1.2"}},
@@ -59,8 +73,8 @@ func TestRunDiscoveryErrorAggregation(t *testing.T) {
 		{
 			name: "multiple source fetch errors",
 			setupMocks: func(_ *MockKVClient, int1 *MockIntegration, int2 *MockIntegration) {
-				int1.EXPECT().Fetch(gomock.Any()).Return(nil, nil, errors.New("fetch1 failed"))
-				int2.EXPECT().Fetch(gomock.Any()).Return(nil, nil, errors.New("fetch2 failed"))
+				int1.EXPECT().Fetch(gomock.Any()).Return(nil, nil, errFetch1Failed)
+				int2.EXPECT().Fetch(gomock.Any()).Return(nil, nil, errFetch2Failed)
 			},
 			expectedError: "discovery completed with 2 errors",
 			errorCount:    2,
@@ -78,7 +92,7 @@ func TestRunDiscoveryErrorAggregation(t *testing.T) {
 					[]*models.DeviceUpdate{{IP: "192.168.1.2"}},
 					nil,
 				)
-				kvClient.EXPECT().PutMany(gomock.Any(), gomock.Any()).Return(nil, errors.New("kv write failed"))
+				kvClient.EXPECT().PutMany(gomock.Any(), gomock.Any()).Return(nil, errKVWriteFailed)
 				kvClient.EXPECT().PutMany(gomock.Any(), gomock.Any()).Return(nil, nil)
 			},
 			expectedError: "discovery completed with 1 errors",
@@ -148,7 +162,12 @@ func TestRunDiscoveryErrorAggregation(t *testing.T) {
 				logger.NewTestLogger(),
 			)
 			require.NoError(t, err)
-			defer s.Stop(context.Background())
+
+			defer func() {
+				if err := s.Stop(context.Background()); err != nil {
+					t.Logf("Failed to stop service: %v", err)
+				}
+			}()
 
 			// Setup mocks
 			tt.setupMocks(mockKVClient, mockInt1, mockInt2)
@@ -180,7 +199,7 @@ func TestRunArmisUpdatesErrorAggregation(t *testing.T) {
 		{
 			name: "single reconcile error",
 			setupMocks: func(int1 *MockIntegration, int2 *MockIntegration) {
-				int1.EXPECT().Reconcile(gomock.Any()).Return(errors.New("reconcile1 failed"))
+				int1.EXPECT().Reconcile(gomock.Any()).Return(errReconcile1Failed)
 				int2.EXPECT().Reconcile(gomock.Any()).Return(nil)
 			},
 			expectedError: "armis updates completed with 1 errors",
@@ -189,8 +208,8 @@ func TestRunArmisUpdatesErrorAggregation(t *testing.T) {
 		{
 			name: "multiple reconcile errors",
 			setupMocks: func(int1 *MockIntegration, int2 *MockIntegration) {
-				int1.EXPECT().Reconcile(gomock.Any()).Return(errors.New("reconcile1 failed"))
-				int2.EXPECT().Reconcile(gomock.Any()).Return(errors.New("reconcile2 failed"))
+				int1.EXPECT().Reconcile(gomock.Any()).Return(errReconcile1Failed)
+				int2.EXPECT().Reconcile(gomock.Any()).Return(errReconcile2Failed)
 			},
 			expectedError: "armis updates completed with 2 errors",
 			errorCount:    2,
@@ -252,7 +271,11 @@ func TestRunArmisUpdatesErrorAggregation(t *testing.T) {
 
 			require.NoError(t, err)
 
-			defer s.Stop(context.Background())
+			defer func() {
+				if err := s.Stop(context.Background()); err != nil {
+					t.Logf("Failed to stop service: %v", err)
+				}
+			}()
 
 			// Sweep timing logic removed - updates proceed immediately
 
@@ -294,7 +317,7 @@ func TestSafelyRunTask(t *testing.T) {
 		{
 			name: "task returns error",
 			task: func(_ context.Context) error {
-				return errors.New("task failed")
+				return errTaskFailed
 			},
 			expectedError: "test task error: task failed",
 			isPanic:       false,
@@ -343,7 +366,11 @@ func TestSafelyRunTask(t *testing.T) {
 
 			require.NoError(t, err)
 
-			defer s.Stop(context.Background())
+			defer func() {
+				if err := s.Stop(context.Background()); err != nil {
+					t.Logf("Failed to stop service: %v", err)
+				}
+			}()
 
 			// Add one to wait group as safelyRunTask expects it
 			s.wg.Add(1)
@@ -353,6 +380,7 @@ func TestSafelyRunTask(t *testing.T) {
 
 			go func() {
 				s.safelyRunTask(context.Background(), "test task", tt.task)
+
 				done <- true
 			}()
 
@@ -421,17 +449,20 @@ func TestErrorChannelOverflow(t *testing.T) {
 
 	require.NoError(t, err)
 
-	defer s.Stop(context.Background())
+	defer func() { _ = s.Stop(context.Background()) }()
 
 	// Fill the error channel
 	for i := 0; i < cap(s.errorChan); i++ {
-		s.sendError(fmt.Errorf("error %d", i))
+		var testErr = fmt.Errorf("error %d: %w", i, errTestSequence)
+		s.sendError(testErr)
 	}
 
 	// Try to send one more error - should not block
 	done := make(chan bool)
+
 	go func() {
-		s.sendError(errors.New("overflow error"))
+		s.sendError(errOverflow)
+
 		done <- true
 	}()
 
@@ -517,10 +548,12 @@ func TestGracefulShutdown(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Task did not start in time")
 	}
+
 	assert.True(t, taskStarted.Load(), "Task should have started")
 
 	// Stop the service with a timeout to prevent test hanging
 	stopDone := make(chan error, 1)
+
 	go func() {
 		stopDone <- s.Stop(context.Background())
 	}()

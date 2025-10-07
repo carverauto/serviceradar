@@ -1,0 +1,96 @@
+# base/serviceradar-mapper.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-mapper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-mapper
+  template:
+    metadata:
+      labels:
+        app: serviceradar-mapper
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      containers:
+      - name: mapper
+        image: ghcr.io/carverauto/serviceradar-mapper:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 50056
+          name: grpc
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: mapper-data
+          mountPath: /var/lib/serviceradar
+        env:
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/mapper.json"
+        - name: WAIT_FOR_OTEL
+          value: "true"
+        - name: OTEL_HOST
+          value: "serviceradar-otel"
+        - name: OTEL_PORT
+          value: "4317"
+        resources:
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+        livenessProbe:
+          tcpSocket:
+            port: 50056
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 50056
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: mapper-data
+        persistentVolumeClaim:
+          claimName: serviceradar-mapper-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-mapper
+spec:
+  selector:
+    app: serviceradar-mapper
+  ports:
+  - name: grpc
+    port: 50056
+    targetPort: grpc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-mapper-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

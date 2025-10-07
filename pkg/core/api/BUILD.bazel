@@ -1,0 +1,37 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "api",
+    srcs = [
+        "auth.go",
+        "interfaces.go",
+        "mock_api_server.go",
+        "rperf.go",
+        "server.go",
+        "snmp_status.go",
+        "sysmon.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/core/api",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/core/auth",
+        "//pkg/db",
+        "//pkg/grpc",
+        "//pkg/http",
+        "//pkg/logger",
+        "//pkg/metrics",
+        "//pkg/metricstore",
+        "//pkg/models",
+        "//pkg/swagger",
+        "//proto",
+        "@com_github_gorilla_mux//:mux",
+        "@com_github_markbates_goth//:goth",
+        "@com_github_markbates_goth//gothic",
+        "@com_github_swaggo_http_swagger//:http-swagger",
+        "@io_opentelemetry_go_contrib_instrumentation_github_com_gorilla_mux_otelmux//:otelmux",
+        "@io_opentelemetry_go_otel//codes",
+        "@io_opentelemetry_go_otel_trace//:trace",
+        "@org_uber_go_mock//gomock",
+    ],
+)

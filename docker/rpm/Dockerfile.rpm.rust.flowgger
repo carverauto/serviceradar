@@ -6,8 +6,8 @@ ARG RELEASE=1
 ARG COMPONENT=flowgger
 ARG BINARY_PATH=cmd/flowgger
 
-# Set working directory
-WORKDIR /src/${BINARY_PATH}
+# Use workspace root so workspace deps resolve
+WORKDIR /src
 
 # Print debug information
 RUN echo "BINARY_PATH=${BINARY_PATH}" && \
@@ -17,32 +17,45 @@ RUN echo "BINARY_PATH=${BINARY_PATH}" && \
     echo "Current directory: $(pwd)" && \
     ls -la /src || echo "No /src directory yet"
 
-# Install openssl dependencies using dnf first
-RUN dnf install -y openssl-devel && \
+# Install build dependencies (openssl + protoc + perl for OpenSSL configure script)
+RUN dnf install -y openssl-devel protobuf-compiler perl pkgconf-pkg-config && \
     echo "OpenSSL development libraries installed successfully" && \
     dnf clean all && \
     echo "DNF cache cleaned"
 
-# Copy dependency files first for better layer caching
-COPY ${BINARY_PATH}/Cargo.toml .
-COPY ${BINARY_PATH}/Cargo.lock .
+# Copy workspace manifest first
+COPY Cargo.toml ./
+COPY Cargo.lock ./
 
-# Copy build script and source files
-COPY ${BINARY_PATH}/build.rs .
-COPY ${BINARY_PATH}/src ./src/
+# Include shared protobuf definitions for build.rs resolution
+RUN mkdir -p proto
+COPY proto ./proto/
+RUN mkdir -p cmd/otel/proto
+COPY cmd/otel/proto ./cmd/otel/proto/
+
+# Update Rust to latest to support edition 2024
+RUN rustup update && rustup install nightly && rustup default nightly
+
+# Copy all workspace members to satisfy cargo workspace requirements
+COPY rust/kvutil ./rust/kvutil/
+COPY cmd/flowgger ./cmd/flowgger/
+COPY cmd/trapd ./cmd/trapd/
+COPY cmd/otel ./cmd/otel/
+COPY cmd/poller-ng ./cmd/poller-ng/
+COPY cmd/consumers/zen ./cmd/consumers/zen
 
 # Build the Rust binary with cache mounts and copy artifacts out
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/tmp/target \
     echo "Building Rust binary..." && \
-    CARGO_TARGET_DIR=/tmp/target cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
+    CARGO_TARGET_DIR=/tmp/target cargo build --release --target x86_64-unknown-linux-gnu --verbose -p serviceradar-flowgger && \
     echo "Build completed successfully" && \
     ls -la /tmp/target/x86_64-unknown-linux-gnu/release/ && \
-    mkdir -p target/x86_64-unknown-linux-gnu/release && \
+    mkdir -p ${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release && \
     # find /tmp/target/x86_64-unknown-linux-gnu/release/ -maxdepth 1 -type f -executable -exec cp {} target/x86_64-unknown-linux-gnu/release/ \; && \ echo "Copied binaries to persistent location:" && \
-    cp /tmp/target/x86_64-unknown-linux-gnu/release/serviceradar-flowgger target/x86_64-unknown-linux-gnu/release/ && \
-    ls -la target/x86_64-unknown-linux-gnu/release/
+    cp /tmp/target/x86_64-unknown-linux-gnu/release/serviceradar-flowgger ${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/ && \
+    ls -la ${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/
 
 # Set up RPM build environment
 WORKDIR /root/rpmbuild

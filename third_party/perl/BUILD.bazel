@@ -1,0 +1,22 @@
+load("@rules_foreign_cc//foreign_cc:configure.bzl", "configure_make")
+
+perl_version = "5.40.0"
+
+configure_make(
+    name = "perl_binary",
+    lib_name = "perl_install",  # Keep build tree from colliding with the perl binary name
+    lib_source = "@perl_src//:all_sources",
+    configure_in_place = True,
+    configure_command = "bazel_configure_wrapper.sh",
+    configure_options = ["-des"],
+    out_binaries = ["perl"],
+)
+
+exports_files(["configure-wrapper.sh"])
+
+filegroup(
+    name = "perl_tool",
+    srcs = [":perl_binary"],
+    output_group = "bin/perl",
+    visibility = ["//visibility:public"],
+)

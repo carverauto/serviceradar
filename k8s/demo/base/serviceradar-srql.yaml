@@ -1,0 +1,97 @@
+# base/serviceradar-srql.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-srql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-srql
+  template:
+    metadata:
+      labels:
+        app: serviceradar-srql
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      containers:
+      - name: srql
+        image: ghcr.io/carverauto/serviceradar-srql:latest
+        imagePullPolicy: Always
+        env:
+        - name: PROTON_HOST
+          value: serviceradar-proton
+        - name: PROTON_PORT
+          value: "9440"
+        - name: PROTON_TLS
+          value: "1"
+        - name: PROTON_INSECURE_SKIP_VERIFY
+          value: "1"
+        - name: PROTON_VERIFY_HOSTNAME
+          value: "0"
+        - name: AUTH_ENABLED
+          value: "true"
+        - name: SRQL_REQUIRE_BEARER
+          value: "true"
+        - name: PROTON_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: proton-password
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: api-key
+        - name: SRQL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: api-key
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 5
+      volumes:
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-srql
+spec:
+  selector:
+    app: serviceradar-srql
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http

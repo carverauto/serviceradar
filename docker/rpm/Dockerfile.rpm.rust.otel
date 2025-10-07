@@ -6,10 +6,10 @@ ARG RELEASE=1
 ARG COMPONENT=otel
 ARG BINARY_PATH=cmd/otel
 
-# Set working directory
-WORKDIR /src/${BINARY_PATH}
+# Use workspace root so workspace deps resolve
+WORKDIR /src
 
-RUN rustup update stable && rustup default stable
+RUN rustup update && rustup install nightly && rustup default nightly
 
 # Print debug information
 RUN echo "BINARY_PATH=${BINARY_PATH}" && \
@@ -19,29 +19,36 @@ RUN echo "BINARY_PATH=${BINARY_PATH}" && \
     echo "Current directory: $(pwd)" && \
     ls -la /src || echo "No /src directory yet"
 
-# Copy dependency files first for better layer caching
-COPY ${BINARY_PATH}/Cargo.toml .
-COPY ${BINARY_PATH}/Cargo.lock .
+# Copy workspace manifest first
+COPY Cargo.toml ./
+COPY Cargo.lock ./
 
-# Copy the OpenTelemetry proto files to the expected location
-COPY ${BINARY_PATH}/proto ./proto/
+# Include shared protobuf definitions for build.rs resolution
+RUN mkdir -p proto
+COPY proto ./proto/
+RUN mkdir -p cmd/otel/proto
+COPY cmd/otel/proto ./cmd/otel/proto/
 
-# Copy build script and source files
-COPY ${BINARY_PATH}/build.rs .
-COPY ${BINARY_PATH}/src ./src/
+# Copy all workspace members to satisfy cargo workspace requirements
+COPY rust/kvutil ./rust/kvutil/
+COPY cmd/otel ./cmd/otel/
+COPY cmd/flowgger ./cmd/flowgger/
+COPY cmd/trapd ./cmd/trapd/
+COPY cmd/poller-ng ./cmd/poller-ng/
+COPY cmd/consumers/zen ./cmd/consumers/zen
 
 # Build the Rust binary with cache mounts and copy artifacts out
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/tmp/target \
     echo "Building Rust binary..." && \
-    CARGO_TARGET_DIR=/tmp/target cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
+    CARGO_TARGET_DIR=/tmp/target cargo build --release --target x86_64-unknown-linux-gnu --verbose -p otel && \
     echo "Build completed successfully" && \
     ls -la /tmp/target/x86_64-unknown-linux-gnu/release/otel && \
-    mkdir -p target/x86_64-unknown-linux-gnu/release && \
-    cp /tmp/target/x86_64-unknown-linux-gnu/release/otel target/x86_64-unknown-linux-gnu/release/ && \
+    mkdir -p ${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release && \
+    cp /tmp/target/x86_64-unknown-linux-gnu/release/otel ${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/ && \
     echo "Copied binaries to persistent location:" && \
-    ls -la target/x86_64-unknown-linux-gnu/release/otel
+    ls -la ${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/otel
 
 # Set up RPM build environment
 WORKDIR /root/rpmbuild

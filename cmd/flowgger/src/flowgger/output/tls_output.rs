@@ -100,11 +100,7 @@ impl TlsWorker {
         loop {
             let mut bytes = match self.arx.lock().unwrap().recv() {
                 Ok(line) => line,
-                Err(_) => {
-                    return Err(io::Error::other(
-                        "Cannot read the message queue any more",
-                    ))
-                }
+                Err(_) => return Err(io::Error::other("Cannot read the message queue any more")),
             };
             if let Some(ref merger) = *merger {
                 merger.frame(&mut bytes);
@@ -233,14 +229,18 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
                 .to_owned()
         })
         .collect();
-    let cert: Option<PathBuf> = config.lookup("output.tls_cert").map(|x| PathBuf::from(
+    let cert: Option<PathBuf> = config.lookup("output.tls_cert").map(|x| {
+        PathBuf::from(
             x.as_str()
                 .expect("output.tls_cert must be a path to a .pem file"),
-        ));
-    let key: Option<PathBuf> = config.lookup("output.tls_key").map(|x| PathBuf::from(
+        )
+    });
+    let key: Option<PathBuf> = config.lookup("output.tls_key").map(|x| {
+        PathBuf::from(
             x.as_str()
                 .expect("output.tls_key must be a path to a .pem file"),
-        ));
+        )
+    });
     let ciphers = config
         .lookup("output.tls_ciphers")
         .map_or(DEFAULT_CIPHERS, |x| {
@@ -254,10 +254,12 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
             x.as_bool()
                 .expect("output.tls_verify_peer must be a boolean")
         });
-    let ca_file: Option<PathBuf> = config.lookup("output.tls_ca_file").map(|x| PathBuf::from(
+    let ca_file: Option<PathBuf> = config.lookup("output.tls_ca_file").map(|x| {
+        PathBuf::from(
             x.as_str()
                 .expect("output.tls_ca_file must be a path to a file"),
-        ));
+        )
+    });
     let compression = config
         .lookup("output.tls_compression")
         .map_or(DEFAULT_COMPRESSION, |x| {

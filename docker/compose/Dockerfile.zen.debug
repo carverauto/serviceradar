@@ -1,0 +1,48 @@
+# Debug version to identify build hang
+FROM rust:latest AS builder
+
+# Build from workspace root so workspace dependencies resolve
+WORKDIR /usr/src
+
+# Install dependencies for building
+RUN echo "=== INSTALLING PROTOBUF ===" && \
+    apt-get update && apt-get install -y protobuf-compiler && \
+    rm -rf /var/lib/apt/lists/* && \
+    echo "=== PROTOBUF INSTALLED ==="
+
+# Copy workspace manifests ONLY (for dependency caching)
+COPY Cargo.toml ./
+COPY Cargo.lock ./
+
+# Create minimal stub files to satisfy cargo build dependencies
+RUN echo "=== CREATING STUB FILES ===" && \
+    mkdir -p rust/kvutil/src cmd/consumers/zen/src cmd/consumers/zen/src/bin && \
+    echo "fn main() {}" > cmd/consumers/zen/src/main.rs && \
+    echo "fn main() {}" > cmd/consumers/zen/src/bin/put_rule.rs && \
+    touch rust/kvutil/src/lib.rs && \
+    echo "=== STUB FILES CREATED ==="
+
+# Copy cargo manifests for individual packages
+COPY rust/kvutil/Cargo.toml ./rust/kvutil/
+COPY cmd/consumers/zen/Cargo.toml ./cmd/consumers/zen/
+
+# Debug: Check what we have so far
+RUN echo "=== CHECKING WORKSPACE ===" && \
+    ls -la && \
+    echo "=== CHECKING ZEN STRUCTURE ===" && \
+    find cmd/consumers/zen -type f && \
+    echo "=== WORKSPACE CHECK COMPLETE ==="
+
+# Try a simple cargo check first to see if it hangs
+RUN echo "=== STARTING CARGO CHECK ===" && \
+    timeout 300 cargo check -p serviceradar-zen 2>&1 | tee /tmp/cargo-check.log || \
+    (echo "=== CARGO CHECK FAILED OR TIMED OUT ===" && cat /tmp/cargo-check.log && exit 1)
+
+# If cargo check works, try a simple build
+RUN echo "=== STARTING CARGO BUILD ===" && \
+    timeout 600 cargo build -p serviceradar-zen --release 2>&1 | tee /tmp/cargo-build.log || \
+    (echo "=== CARGO BUILD FAILED OR TIMED OUT ===" && cat /tmp/cargo-build.log && exit 1)
+
+# Final runtime stage - minimal for now
+FROM ubuntu:24.04
+RUN echo "=== BUILD COMPLETED SUCCESSFULLY ==="

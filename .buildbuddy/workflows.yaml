@@ -1,0 +1,41 @@
+# BuildBuddy workflow that drives the ServiceRadar publish pipeline.
+workflows:
+  - name: "Release"
+    description: "Push GHCR images and publish Debian/RPM assets via Bazel"
+    triggers:
+      push:
+        tags:
+          - "v*"
+      workflow_dispatch:
+        inputs:
+          tag:
+            description: "Release tag (overrides autodetected tag)"
+            default: ""
+          notes_file:
+            description: "Optional release notes file path"
+            default: ""
+          dry_run:
+            description: "Set to 1 to push/publish in dry-run mode"
+            default: "1"
+    bazel_commands:
+      - "run --config=remote //:buildbuddy_setup_docker_auth"
+      - "run --config=remote //tools/buildbuddy:release_pipeline"
+    env:
+      - name: GHCR_USERNAME
+        value_from_secret: GHCR_USERNAME
+      - name: GHCR_TOKEN
+        value_from_secret: GHCR_TOKEN
+      - name: GITHUB_TOKEN
+        value_from_secret: GITHUB_TOKEN
+      - name: GH_TOKEN
+        value_from_secret: GITHUB_TOKEN
+      - name: BUILDBUDDY_API_KEY
+        value_from_secret: BUILDBUDDY_API_KEY
+      - name: RELEASE_TAG
+        value_from_input: tag
+      - name: RELEASE_NOTES_FILE
+        value_from_input: notes_file
+      - name: PUSH_DRY_RUN
+        value_from_input: dry_run
+      - name: RELEASE_DRY_RUN
+        value_from_input: dry_run

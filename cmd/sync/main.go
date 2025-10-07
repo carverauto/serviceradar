@@ -21,11 +21,13 @@ import (
 	"flag"
 	"log"
 
+	"google.golang.org/grpc"
+
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
-	"github.com/carverauto/serviceradar/pkg/sync"
-	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc"
+    "github.com/carverauto/serviceradar/pkg/models"
+    "github.com/carverauto/serviceradar/pkg/sync"
+    "github.com/carverauto/serviceradar/proto"
 )
 
 func main() {
@@ -34,18 +36,33 @@ func main() {
 
 	ctx := context.Background()
 
-	// Step 1: Load config
+	// Step 1: Load config with KV support
+	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
+	
+	cleanup := func() {
+		if kvMgr != nil {
+			_ = kvMgr.Close()
+		}
+	}
+
 	cfgLoader := config.NewConfig(nil)
+	if kvMgr != nil {
+		kvMgr.SetupConfigLoader(cfgLoader)
+	}
 
 	var cfg sync.Config
+	config.LoadAndOverlayOrExit(ctx, kvMgr, cfgLoader, *configPath, &cfg, "Failed to load config")
 
-	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+	// Bootstrap service-level default into KV if missing
+	if kvMgr != nil {
+		kvMgr.BootstrapConfig(ctx, "config/sync.json", cfg)
 	}
+
 
 	// Step 2: Create logger from config
 	logger, err := lifecycle.CreateComponentLogger(ctx, "sync", cfg.Logging)
 	if err != nil {
+		cleanup()
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 
@@ -57,8 +74,15 @@ func main() {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
 			log.Printf("Failed to shutdown logger: %v", shutdownErr)
 		}
-
+		cleanup()
 		log.Fatalf("Failed to create syncer: %v", err)
+	}
+
+	// KV Watch: overlay and apply hot-reload on relevant changes
+	if kvMgr != nil {
+		kvMgr.StartWatch(ctx, "config/sync.json", &cfg, logger, func() {
+			syncer.UpdateConfig(&cfg)
+		})
 	}
 
 	registerServices := func(s *grpc.Server) error {
@@ -85,6 +109,9 @@ func main() {
 	}
 
 	if serverErr != nil {
+		cleanup()
 		log.Fatalf("Sync service failed: %v", serverErr)
 	}
+	
+	cleanup()
 }

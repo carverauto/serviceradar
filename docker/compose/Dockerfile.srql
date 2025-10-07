@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+
+# Stage to collect the released OCaml SRQL binary. We reuse the existing image
+# so we do not have to rebuild the compiler stack just to refresh the runtime
+# base.
+ARG SRQL_SOURCE_IMAGE=ghcr.io/carverauto/serviceradar-srql:v1.0.53
+FROM ${SRQL_SOURCE_IMAGE} AS artifact
+
+# Runtime stage with a glibc >= 2.38 (Ubuntu 24.04 currently ships 2.39).
+FROM ubuntu:24.04
+ENV LANG=C.UTF-8 \
+    DEBIAN_FRONTEND=noninteractive
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        libev4 \
+        libgmp10 \
+        liblz4-1 \
+        libssl3t64 \
+        libzstd1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Ensure we have a deterministic application user even if UID 1000 already
+# exists (Ubuntu images ship an `ubuntu` user by default).
+RUN if getent passwd 1000 >/dev/null; then \
+        existing_user=$(getent passwd 1000 | cut -d: -f1); \
+        usermod -d /home/serviceradar -m "${existing_user}"; \
+        usermod -l serviceradar "${existing_user}"; \
+    else \
+        useradd -m -u 1000 serviceradar; \
+    fi
+
+COPY --from=artifact /usr/local/bin/serviceradar-srql /usr/local/bin/serviceradar-srql
+COPY docker/compose/entrypoint-srql.sh /usr/local/bin/entrypoint-srql.sh
+
+RUN chmod +x /usr/local/bin/entrypoint-srql.sh /usr/local/bin/serviceradar-srql
+
+USER serviceradar
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-srql.sh"]
+CMD ["serviceradar-srql"]

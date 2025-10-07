@@ -23,14 +23,16 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/providers/github"
 	"github.com/markbates/goth/providers/google"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 var (
@@ -42,8 +44,8 @@ const (
 )
 
 type Auth struct {
-	config *models.AuthConfig
-	db     db.Service
+    config *models.AuthConfig
+    db     db.Service
 }
 
 func NewAuth(config *models.AuthConfig, d db.Service) *Auth {
@@ -61,7 +63,12 @@ func NewAuth(config *models.AuthConfig, d db.Service) *Auth {
 		}
 	}
 
-	return &Auth{config: config, db: d}
+    return &Auth{config: config, db: d}
+}
+
+// Config exposes a read-only pointer to the auth configuration for helpers like JWKS serving.
+func (a *Auth) Config() *models.AuthConfig {
+    return a.config
 }
 
 func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*models.Token, error) {
@@ -74,12 +81,13 @@ func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*mode
 		return nil, errInvalidCreds
 	}
 
-	user := &models.User{
-		ID:       generateUserID(username),
-		Email:    username, // Or fetch from DB if we decide to store emails.
-		Name:     username,
-		Provider: "local",
-	}
+    user := &models.User{
+        ID:       generateUserID(username),
+        Email:    username, // Or fetch from DB if we decide to store emails.
+        Name:     username,
+        Provider: "local",
+        Roles:    a.getUserRolesIdentity("local", "", username),
+    }
 
 	return a.generateAndStoreToken(ctx, user)
 }
@@ -108,18 +116,20 @@ func (*Auth) BeginOAuth(_ context.Context, provider string) (string, error) {
 }
 
 func (a *Auth) CompleteOAuth(ctx context.Context, provider string, gothUser *goth.User) (*models.Token, error) {
-	user := &models.User{
-		ID:       gothUser.UserID,
-		Email:    gothUser.Email,
-		Name:     gothUser.Name,
-		Provider: provider,
-	}
+    user := &models.User{
+        ID:       gothUser.UserID,
+        Email:    gothUser.Email,
+        Name:     gothUser.Name,
+        Provider: provider,
+        // Prefer provider+subject mapping; fall back to provider+email; then legacy email/username key
+        Roles:    a.getUserRolesIdentity(provider, gothUser.UserID, gothUser.Email),
+    }
 
 	return a.generateAndStoreToken(ctx, user)
 }
 
 func (a *Auth) RefreshToken(ctx context.Context, refreshToken string) (*models.Token, error) {
-	claims, err := ParseJWT(refreshToken, a.config.JWTSecret)
+    claims, err := ParseJWTConfig(refreshToken, a.config)
 	if err != nil {
 		return nil, fmt.Errorf("invalid refresh token: %w", err)
 	}
@@ -134,7 +144,7 @@ func (a *Auth) RefreshToken(ctx context.Context, refreshToken string) (*models.T
 }
 
 func (a *Auth) VerifyToken(_ context.Context, token string) (*models.User, error) {
-	claims, err := ParseJWT(token, a.config.JWTSecret)
+    claims, err := ParseJWTConfig(token, a.config)
 	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
@@ -143,6 +153,7 @@ func (a *Auth) VerifyToken(_ context.Context, token string) (*models.User, error
 		ID:       claims.UserID,
 		Email:    claims.Email,
 		Provider: claims.Provider,
+		Roles:    claims.Roles,
 	}, nil
 }
 
@@ -168,6 +179,37 @@ func generateUserID(username string) string {
 	hash := sha256.Sum256([]byte(username))
 
 	return base64.URLEncoding.EncodeToString(hash[:])
+}
+
+// getUserRolesIdentity resolves roles using stable identities to avoid email-only assignment.
+// Lookup precedence:
+//  1) provider:subject (e.g., "google:11223344556677889900")
+//  2) provider:email (lowercased)
+//  3) legacy key by username/email only (lowercased)
+func (a *Auth) getUserRolesIdentity(provider, subject, usernameOrEmail string) []string {
+    if a.config == nil || a.config.RBAC.UserRoles == nil {
+        return []string{}
+    }
+
+    // Build candidate keys
+    lower := strings.ToLower(usernameOrEmail)
+    keys := make([]string, 0, 3)
+    if provider != "" && subject != "" {
+        keys = append(keys, provider+":"+subject)
+    }
+    if provider != "" && lower != "" {
+        keys = append(keys, provider+":"+lower)
+    }
+    if lower != "" {
+        keys = append(keys, lower)
+    }
+
+    for _, k := range keys {
+        if roles, ok := a.config.RBAC.UserRoles[k]; ok {
+            return roles
+        }
+    }
+    return []string{}
 }
 
 func randString(n int) string {

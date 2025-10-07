@@ -26,6 +26,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var (
+	// ErrDetailsRequiredMapperDiscovery indicates details field is required for mapper_discovery checks
+	ErrDetailsRequiredMapperDiscovery = errors.New("details field is required for mapper_discovery checks")
+)
+
 // initRegistry creates a registry with logger support for agent package checkers
 func initRegistry(log logger.Logger) checker.Registry {
 	registry := checker.NewRegistry()
@@ -99,7 +104,7 @@ func initRegistry(log logger.Logger) checker.Registry {
 	registry.Register("mapper_discovery",
 		func(ctx context.Context, _, details string, security *models.SecurityConfig) (checker.Checker, error) {
 			if details == "" {
-				return nil, errors.New("details field is required for mapper_discovery checks")
+				return nil, ErrDetailsRequiredMapperDiscovery
 			}
 
 			return NewMapperDiscoveryChecker(ctx, details, security, log)

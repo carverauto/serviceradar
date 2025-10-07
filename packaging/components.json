@@ -6,6 +6,7 @@
         "proton_dir": "/etc/proton-server",
         "components": [
           "core",
+          "srql",
           "proton",
           "agent",
           "poller",
@@ -28,6 +29,52 @@
         ]
       }
     }
+  },
+  {
+    "name": "kong",
+    "package_name": "serviceradar-kong",
+    "version": "1.0.53",
+    "description": "Wrapper package bundling Kong Gateway OSS 3.10.0 for air-gapped installs (falls back to enterprise if provided)",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": [
+        "systemd",
+        "ca-certificates",
+        "serviceradar-cli"
+      ],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": [
+        "systemd",
+        "ca-certificates",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "config_files": [
+      {
+        "source": "packaging/kong/config/kong.conf",
+        "dest": "/etc/kong/kong.conf",
+        "optional": true
+      },
+      {
+        "source": "packaging/kong/vendor",
+        "dest": "/usr/share/serviceradar-kong/vendor",
+        "optional": true
+      }
+    ],
+    "postinst": {
+      "source": "packaging/kong/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/kong/scripts/preremove.sh"
+    },
+    "conffiles": []
   },
   {
     "name": "core",
@@ -82,6 +129,68 @@
     "conffiles": [
       "/etc/serviceradar/core.json",
       "/etc/serviceradar/api.env"
+    ]
+  },
+  {
+    "name": "srql",
+    "package_name": "serviceradar-srql",
+    "version": "1.0.53",
+    "description": "ServiceRadar SRQL OCaml query service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": [
+        "systemd",
+        "ca-certificates",
+        "curl",
+        "libev4",
+        "libgmp10",
+        "liblz4-1",
+        "libzstd1",
+        "libssl3"
+      ],
+      "dockerfile": "ocaml/srql/Dockerfile"
+    },
+    "rpm": {
+      "depends": [
+        "systemd",
+        "ca-certificates",
+        "curl",
+        "libev",
+        "gmp",
+        "lz4",
+        "zstd",
+        "openssl"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.srql",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "ocaml/srql",
+      "build_method": "ocaml",
+      "output_path": "/usr/local/bin/serviceradar-srql",
+      "docker_output_path": "/output/serviceradar-srql"
+    },
+    "config_files": [
+      {
+        "source": "packaging/srql/config/srql.env",
+        "dest": "/etc/serviceradar/srql.env"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/srql/systemd/serviceradar-srql.service",
+      "dest": "/lib/systemd/system/serviceradar-srql.service"
+    },
+    "postinst": {
+      "source": "packaging/srql/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/srql/scripts/prerm.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/srql.env"
     ]
   },
   {
@@ -201,7 +310,7 @@
     },
     "build_method": "external",
     "external_binary": {
-      "source_url": "https://github.com/timeplus-io/proton/releases/download/v1.6.15/proton-v1.6.15-Linux-x86_64",
+      "source_url": "https://github.com/timeplus-io/proton/releases/download/v1.6.16/proton-v1.6.16-Linux-x86_64",
       "extract_command": "cp ${DOWNLOAD_PATH} ${OUTPUT_PATH} && chmod +x ${OUTPUT_PATH}",
       "binary_is_archive": false,
       "output_path": "/usr/bin/proton"
@@ -781,6 +890,10 @@
         "dest": "/etc/serviceradar/zen/rules/passthrough.json"
       },
       {
+        "source": "packaging/zen/rules/snmp_severity.json",
+        "dest": "/etc/serviceradar/zen/rules/snmp_severity.json"
+      },
+      {
         "source": "packaging/zen/rules/strip_full_message.json",
         "dest": "/etc/serviceradar/zen/rules/strip_full_message.json"
       }
@@ -799,6 +912,7 @@
       "/etc/serviceradar/consumers/zen-consumer.json",
       "/etc/serviceradar/zen/rules/cef_severity.json",
       "/etc/serviceradar/zen/rules/passthrough.json",
+      "/etc/serviceradar/zen/rules/snmp_severity.json",
       "/etc/serviceradar/zen/rules/strip_full_message.json"
     ],
     "additional_dirs": [

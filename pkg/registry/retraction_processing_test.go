@@ -21,13 +21,54 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+// testRetractionEvent helper function to test retraction events for different sources
+func testRetractionEvent(t *testing.T, registry *DeviceRegistry, mockDB *db.MockService, source models.DiscoverySource, ip, hostname, metadataKey, metadataValue string) {
+	t.Helper()
+
+	retractionEvent := &models.DeviceUpdate{
+		IP:          ip,
+		DeviceID:    "default:" + ip,
+		Partition:   "default",
+		Source:      source,
+		Hostname:    &hostname,
+		Timestamp:   time.Now(),
+		IsAvailable: false, // Key field for retraction
+		Confidence:  models.GetSourceConfidence(source),
+		Metadata: map[string]string{
+			"_deleted":  "true",
+			metadataKey: metadataValue,
+		},
+	}
+
+	// Setup mock expectations
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			require.Len(t, updates, 1)
+			update := updates[0]
+
+			// Critical test: IsAvailable field must be preserved as false
+			assert.False(t, update.IsAvailable, "Retraction event IsAvailable field must be preserved as false")
+			assert.Equal(t, "true", update.Metadata["_deleted"], "Retraction event must have _deleted metadata")
+			assert.Equal(t, source, update.Source, "Discovery source must be preserved")
+
+			return nil
+		})
+
+	// Process the retraction event
+	ctx := context.Background()
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{retractionEvent})
+	require.NoError(t, err, "Retraction event should be processed successfully")
+}
 
 func TestDeviceRegistry_ProcessRetractionEvents(t *testing.T) {
 	ctx := context.Background()
@@ -36,80 +77,18 @@ func TestDeviceRegistry_ProcessRetractionEvents(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 
 	t.Run("Armis retraction event preserves Available=false", func(t *testing.T) {
 		// Test that a retraction event with IsAvailable=false is preserved through the registry processing
-		retractionEvent := &models.DeviceUpdate{
-			IP:          "192.168.1.100",
-			DeviceID:    "default:192.168.1.100",
-			Partition:   "default",
-			Source:      models.DiscoverySourceArmis,
-			Hostname:    &[]string{"retracted-device"}[0],
-			Timestamp:   time.Now(),
-			IsAvailable: false, // Key field for retraction
-			Confidence:  models.GetSourceConfidence(models.DiscoverySourceArmis),
-			Metadata: map[string]string{
-				"_deleted":        "true",
-				"armis_device_id": "123",
-			},
-		}
-
-		// Setup mock expectations - registry now only publishes directly
-		mockDB.EXPECT().
-			PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
-			DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
-				require.Len(t, updates, 1)
-				update := updates[0]
-
-				// Critical test: IsAvailable field must be preserved as false
-				assert.False(t, update.IsAvailable, "Retraction event IsAvailable field must be preserved as false")
-				assert.Equal(t, "true", update.Metadata["_deleted"], "Retraction event must have _deleted metadata")
-				assert.Equal(t, models.DiscoverySourceArmis, update.Source, "Discovery source must be preserved")
-
-				return nil
-			})
-
-		// Process the retraction event
-		err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{retractionEvent})
-		require.NoError(t, err, "Retraction event should be processed successfully")
+		testRetractionEvent(t, registry, mockDB, models.DiscoverySourceArmis, "192.168.1.100", "retracted-device", "armis_device_id", "123")
 	})
 
 	t.Run("NetBox retraction event preserves Available=false", func(t *testing.T) {
-		retractionEvent := &models.DeviceUpdate{
-			IP:          "192.168.2.50",
-			DeviceID:    "default:192.168.2.50",
-			Partition:   "default",
-			Source:      models.DiscoverySourceNetbox,
-			Hostname:    &[]string{"netbox-device"}[0],
-			Timestamp:   time.Now(),
-			IsAvailable: false, // Device retracted from NetBox
-			Confidence:  models.GetSourceConfidence(models.DiscoverySourceNetbox),
-			Metadata: map[string]string{
-				"_deleted":       "true",
-				"integration_id": "456",
-			},
-		}
-
-		// Setup mock expectations - registry now only publishes directly
-		mockDB.EXPECT().
-			PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
-			DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
-				require.Len(t, updates, 1)
-				update := updates[0]
-
-				// Verify retraction event properties are preserved
-				assert.False(t, update.IsAvailable, "NetBox retraction event IsAvailable field must be false")
-				assert.Equal(t, "true", update.Metadata["_deleted"], "NetBox retraction must have _deleted metadata")
-				assert.Equal(t, models.DiscoverySourceNetbox, update.Source, "Discovery source must be preserved")
-
-				return nil
-			})
-
-		// Process the retraction event
-		err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{retractionEvent})
-		require.NoError(t, err, "NetBox retraction event should be processed successfully")
+		testRetractionEvent(t, registry, mockDB, models.DiscoverySourceNetbox, "192.168.2.50", "netbox-device", "integration_id", "456")
 	})
 
 	t.Run("Multiple retraction events batch processing", func(t *testing.T) {
@@ -163,6 +142,7 @@ func TestDeviceRegistry_RetractionEventFieldPreservation(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 
@@ -221,6 +201,7 @@ func TestDeviceRegistry_RetractionVsDiscoveryEvents(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 

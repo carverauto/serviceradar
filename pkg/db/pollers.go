@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // GetPollerStatus retrieves a poller's current status.

@@ -3,8 +3,9 @@
 package scan
 
 import (
-	"golang.org/x/sys/unix"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 // Mmsghdr represents the mmsghdr struct for amd64 architecture
@@ -21,9 +22,11 @@ func sendmmsg(fd int, msgvec []Mmsghdr, flags int) (int, error) {
 	if len(msgvec) > 0 {
 		p = unsafe.Pointer(&msgvec[0])
 	}
+
 	r1, _, errno := unix.Syscall6(unix.SYS_SENDMMSG, uintptr(fd), uintptr(p), uintptr(len(msgvec)), uintptr(flags), 0, 0)
 	if errno != 0 {
 		return int(r1), errno
 	}
+
 	return int(r1), nil
 }

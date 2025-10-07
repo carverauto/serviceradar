@@ -32,21 +32,19 @@ COPY web/ ./
 RUN cp next.config.docker.ts next.config.ts
 
 # Build arguments for API configuration
-ARG NEXT_PUBLIC_API_URL=http://localhost/api
+ARG NEXT_PUBLIC_API_URL=http://localhost
 ARG NEXT_INTERNAL_API_URL=http://core:8090
-ARG API_KEY=changeme
 
 # Set build-time environment variables explicitly for Docker builds
 # These MUST be set before npm run build to ensure correct compilation
 ENV DOCKER_BUILD=true \
-    NEXT_INTERNAL_API_URL=http://core:8090 \
-    NEXT_PUBLIC_API_URL=http://localhost/api \
-    API_KEY=${API_KEY}
+    NEXT_INTERNAL_API_URL=${NEXT_INTERNAL_API_URL} \
+    NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
 # Build the application with Docker-specific environment
 # The environment variables above will be inlined into the compiled code
-RUN NEXT_INTERNAL_API_URL=http://core:8090 \
-    NEXT_PUBLIC_API_URL=http://localhost/api \
+RUN NEXT_INTERNAL_API_URL=${NEXT_INTERNAL_API_URL} \
+    NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
     DOCKER_BUILD=true \
     npm run build
 
@@ -57,41 +55,36 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install jq for JSON parsing in entrypoint
-RUN apk add --no-cache jq
+# Install runtime tools and create application user early so we can COPY with --chown
+RUN apk add --no-cache jq wget \
+    && addgroup -g 1001 -S nodejs \
+    && adduser -S nextjs -u 1001
 
 # Install runtime dependencies only
-COPY --from=builder /app/package*.json ./
+COPY --from=builder --chown=nextjs:nodejs /app/package*.json ./
 RUN npm ci --only=production || npm install --production
 
 # Copy built application
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.ts ./
-COPY --from=builder /app/tsconfig.json ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/next.config.ts ./
+COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./
 
 # For standalone mode, copy public and static files to the correct locations
-COPY --from=builder /app/public ./.next/standalone/public
-COPY --from=builder /app/.next/static ./.next/standalone/.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./.next/standalone/public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/standalone/.next/static
 
 # Copy entrypoint script
-COPY docker/compose/entrypoint-web.sh /usr/local/bin/entrypoint.sh
+COPY --chown=nextjs:nodejs docker/compose/entrypoint-web.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nextjs -u 1001
-
-# Create config directory
+# Create config directory with correct ownership
 RUN mkdir -p /etc/serviceradar && \
     chown -R nextjs:nodejs /etc/serviceradar
 
 # Fix incorrect URLs in compiled JavaScript files (temporary solution)
 # This replaces the incorrect localhost URLs with correct container URLs
 RUN find .next -name "*.js" -type f -exec sed -i 's|http://localhost/api/api/|http://core:8090/api/|g' {} \;
-
-# Set ownership
-RUN chown -R nextjs:nodejs /app
 
 USER nextjs
 
@@ -104,8 +97,8 @@ ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://0.0.0.0:3000/ || exit 1
 
 # Use entrypoint script
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

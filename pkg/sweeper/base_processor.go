@@ -236,6 +236,7 @@ func (p *BaseProcessor) performCleanupAndRecycling(allHostsToClean [][]*models.H
 
 		go func(hosts []*models.HostResult) {
 			defer wg.Done()
+
 			p.cleanupHostBatch(hosts)
 		}(hostsToClean)
 	}
@@ -299,6 +300,9 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 		p.processICMPResult(host, result)
 
 	case models.ModeTCP:
+		p.processTCPResult(shard, host, result)
+		
+	case models.ModeTCPConnect:
 		p.processTCPResult(shard, host, result)
 	}
 
@@ -461,6 +465,7 @@ type aggregatedShardSummary struct {
 // aggregateShardSummaries combines data from all shard summaries
 func aggregateShardSummaries(summaries []shardSummary) aggregatedShardSummary {
 	var result aggregatedShardSummary
+
 	result.hosts = make([]models.HostResult, 0)
 	result.portCounts = make(map[int]int)
 
@@ -574,9 +579,11 @@ func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
 
 		if currentTotal == 0 {
 			p.totalHostsMu.Lock()
+
 			if p.totalHosts == 0 { // Double-check after acquiring write lock
 				p.totalHosts = totalHosts
 			}
+
 			p.totalHostsMu.Unlock()
 		}
 	}

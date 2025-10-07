@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-web
+  template:
+    metadata:
+      labels:
+        app: serviceradar-web
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: web
+        image: ghcr.io/carverauto/serviceradar-web:{{ .Values.image.tags.web }}
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: NEXT_PUBLIC_API_URL
+          value: "http://localhost/api"
+        - name: NEXT_INTERNAL_API_URL
+          value: "http://serviceradar-core:8090"
+        - name: AUTH_ENABLED
+          value: "true"
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: jwt-secret
+        envFrom:
+        - secretRef:
+            name: serviceradar-secrets
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-web
+spec:
+  selector:
+    app: serviceradar-web
+  ports:
+  - name: http
+    port: 3000
+    targetPort: http

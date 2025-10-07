@@ -16,9 +16,10 @@ import {
     ArrowDown,
     Activity
 } from 'lucide-react';
-import ReactJson from '@microlink/react-json-view';
+import ReactJson from '@/components/Common/DynamicReactJson';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
+import { escapeSrqlValue } from '@/lib/srql';
 
 type SortableKeys = 'event_timestamp' | 'host' | 'severity';
 
@@ -106,18 +107,19 @@ const EventsDashboard = () => {
 
         try {
             // Use cached queries to prevent duplicates
+            const last24HoursIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
             const [totalRes, criticalRes, highRes, lowRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT EVENTS', token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Critical'", token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'High'", token || undefined, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Low'", token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:Critical time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:High time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:Low time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
             ]);
 
             setStats({
-                total: totalRes.results[0]?.['count()'] || 0,
-                critical: criticalRes.results[0]?.['count()'] || 0,
-                high: highRes.results[0]?.['count()'] || 0,
-                low: lowRes.results[0]?.['count()'] || 0,
+                total: totalRes.results[0]?.total || 0,
+                critical: criticalRes.results[0]?.total || 0,
+                high: highRes.results[0]?.total || 0,
+                low: lowRes.results[0]?.total || 0,
             });
         } catch (e) {
             console.error("Failed to fetch event stats:", e);
@@ -131,22 +133,24 @@ const EventsDashboard = () => {
         setError(null);
 
         try {
-            let query = 'SHOW EVENTS';
-            const whereClauses: string[] = [];
-
-            if (debouncedSearchTerm) {
-                whereClauses.push(`(short_message LIKE '%${debouncedSearchTerm}%' OR host LIKE '%${debouncedSearchTerm}%')`);
-            }
+            const last24HoursIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            const queryParts = [
+                'in:events',
+                `time:[${last24HoursIso},]`,
+                `sort:${sortBy}:${sortOrder}`,
+                'limit:20'
+            ];
 
             if (filterSeverity !== 'all') {
-                whereClauses.push(`severity = '${filterSeverity}'`);
+                queryParts.push(`severity:${filterSeverity}`);
             }
 
-            if (whereClauses.length > 0) {
-                query += ` WHERE ${whereClauses.join(' AND ')}`;
+            if (debouncedSearchTerm) {
+                const escapedTerm = escapeSrqlValue(debouncedSearchTerm);
+                queryParts.push(`short_message:%${escapedTerm}%`);
             }
 
-            query += ` ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
+            const query = queryParts.join(' ');
 
             const data = await postQuery<EventsApiResponse>(query, cursor, direction);
             setEvents(data.results || []);

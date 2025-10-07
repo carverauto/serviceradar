@@ -1,0 +1,49 @@
+load("@makeheaders//rules:makeheaders.bzl", "makeheaders")
+load("@rules_cc//cc:defs.bzl", "cc_test")
+
+cc_test(
+    name = "pkg",
+    timeout = "short",
+    srcs = [
+        "dune_pkg_test.c",
+        "test_init.c",
+        ":mkhdrs",
+        "//lib:dune-package.c",
+    ],
+    copts = [
+        "-Ilib",
+        "-I$(GENDIR)/test/dune",
+    ],
+    data = ["//test/data:dune-package_files"],
+    local_defines = [
+        "BAZEL_CURRENT_REPOSITORY=\\\"{}\\\"".format(package_relative_label("@tools_opam").repo_name),
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@gopt//lib:gopt",
+        "@liblogc//lib:logc",
+        "@runfiles//lib:runfiles",
+        "@sfsexp//src:sfsexp",
+        "@unity//lib:unity",
+        "@uthash//lib:uthash",
+    ],
+)
+
+makeheaders(
+    name = "mkhdrs",
+    additional_srcs = [
+    ] + select({
+        "@obazl_tools_cc//profile:dev?": [
+            "@liblogc//macros:ansi_colors.h",
+            "@liblogc//macros:logging_debug.h",
+        ],
+        "//conditions:default": [
+            "@liblogc//macros:logging_ndebug.h",
+        ],
+    }),
+    hdrs_srcs = [
+        "dune_pkg_test.c",
+        "test_init.c",
+        "//lib:dune-package.c",
+    ],
+)

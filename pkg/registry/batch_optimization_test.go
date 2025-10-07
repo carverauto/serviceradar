@@ -61,6 +61,7 @@ func TestSimplifiedRegistryBehavior(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockDB := db.NewMockService(ctrl)
+			allowCanonicalizationQueries(mockDB)
 			testLogger := logger.NewTestLogger()
 			registry := NewDeviceRegistry(mockDB, testLogger)
 
@@ -93,6 +94,7 @@ func TestEmptyBatchHandling(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 
@@ -114,6 +116,7 @@ func TestNormalizationBehavior(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 

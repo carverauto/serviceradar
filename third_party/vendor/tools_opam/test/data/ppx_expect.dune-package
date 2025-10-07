@@ -1,0 +1,273 @@
+(lang dune 3.12)
+(name ppx_expect)
+(version v0.17.2)
+(sections
+ (lib .)
+ (libexec .)
+ (doc ../../doc/ppx_expect)
+ (stublibs ../stublibs))
+(files
+ (lib
+  (META
+  runtime/ppx_expect_runtime__Output.cmti
+   runtime/ppx_expect_runtime__Output.cmx
+   runtime/ppx_expect_runtime__Test_block.cmi
+   runtime/ppx_expect_runtime__Test_block.cmt
+   runtime/ppx_expect_runtime__Test_block.cmti
+   runtime/ppx_expect_runtime__Test_block.cmx
+   runtime/ppx_expect_runtime__Test_node.cmi
+   runtime/ppx_expect_runtime__Test_node.cmt
+   runtime/ppx_expect_runtime__Test_node.cmti
+   runtime/ppx_expect_runtime__Test_node.cmx
+   runtime/ppx_expect_runtime__Types.cmi
+   runtime/ppx_expect_runtime__Types.cmt
+   runtime/ppx_expect_runtime__Types.cmti
+   runtime/ppx_expect_runtime__Types.cmx
+   runtime/ppx_expect_runtime__Write_corrected_file.cmi
+   runtime/ppx_expect_runtime__Write_corrected_file.cmt
+   runtime/ppx_expect_runtime__Write_corrected_file.cmti
+   runtime/ppx_expect_runtime__Write_corrected_file.cmx
+   runtime/runtime.js
+   runtime/test_block.ml
+   runtime/test_block.mli
+   runtime/test_node.ml
+   runtime/test_node.mli
+   runtime/types.ml
+   runtime/types.mli
+   runtime/write_corrected_file.ml
+   runtime/write_corrected_file.mli))
+ (libexec
+  (config/expect_test_config.cmxs
+   config_types/expect_test_config_types.cmxs
+   evaluator/ppx_expect_evaluator.cmxs
+   make_corrected_file/make_corrected_file.cmxs
+   ppx.exe
+   ppx_expect.cmxs
+   runtime/ppx_expect_runtime.cmxs))
+ (doc (CHANGES.md LICENSE.md README.mdx))
+ (stublibs (dllppx_expect_runtime_stubs.so)))
+(library
+ (name ppx_expect)
+ (kind ppx_rewriter)
+ (archives (byte ppx_expect.cma) (native ppx_expect.cmxa))
+ (plugins (byte ppx_expect.cma) (native ppx_expect.cmxs))
+ (native_archives ppx_expect.a)
+ (requires
+  base
+  ppxlib.ast
+  ppxlib
+  ppx_expect.runtime
+  ppx_inline_test
+  ppx_inline_test.libname
+  ppx_here.expander)
+ (ppx_runtime_deps ppx_expect.runtime ppx_expect.config)
+ (main_module_name Ppx_expect)
+ (modes byte native)
+ (modules
+  (singleton
+   (obj_name ppx_expect)
+   (visibility public)
+   (source
+    (path Ppx_expect)
+    (intf (path ppx_expect.mli))
+    (impl (path ppx_expect.ml)))))
+ (inline_tests.backend
+  (runner_libraries ppx_expect.evaluator)
+  (flags :standard)
+  (extends ppx_inline_test)))
+(library
+ (name ppx_expect.config)
+ (kind normal)
+ (synopsis "Default runtime configuration for ppx_expect")
+ (archives
+  (byte config/expect_test_config.cma)
+  (native config/expect_test_config.cmxa))
+ (plugins
+  (byte config/expect_test_config.cma)
+  (native config/expect_test_config.cmxs))
+ (native_archives config/expect_test_config.a)
+ (requires ppx_expect.config_types)
+ (main_module_name Expect_test_config)
+ (modes byte native)
+ (modules
+  (singleton
+   (obj_name expect_test_config)
+   (visibility public)
+   (source
+    (path Expect_test_config)
+    (intf (path config/expect_test_config.mli))
+    (impl (path config/expect_test_config.ml))))))
+(library
+ (name ppx_expect.config_types)
+ (kind normal)
+ (synopsis "Runtime configuration options for ppx_expect")
+ (archives
+  (byte config_types/expect_test_config_types.cma)
+  (native config_types/expect_test_config_types.cmxa))
+ (plugins
+  (byte config_types/expect_test_config_types.cma)
+  (native config_types/expect_test_config_types.cmxs))
+ (native_archives config_types/expect_test_config_types.a)
+ (main_module_name Expect_test_config_types)
+ (modes byte native)
+ (modules
+  (singleton
+   (obj_name expect_test_config_types)
+   (visibility public)
+   (source
+    (path Expect_test_config_types)
+    (impl (path config_types/expect_test_config_types.ml))))))
+(library
+ (name ppx_expect.evaluator)
+ (kind normal)
+ (archives
+  (byte evaluator/ppx_expect_evaluator.cma)
+  (native evaluator/ppx_expect_evaluator.cmxa))
+ (plugins
+  (byte evaluator/ppx_expect_evaluator.cma)
+  (native evaluator/ppx_expect_evaluator.cmxs))
+ (native_archives evaluator/ppx_expect_evaluator.a)
+ (main_module_name Ppx_expect_evaluator)
+ (modes byte native)
+ (modules
+  (singleton
+   (obj_name ppx_expect_evaluator)
+   (visibility public)
+   (source
+    (path Ppx_expect_evaluator)
+    (intf (path evaluator/ppx_expect_evaluator.mli))
+    (impl (path evaluator/ppx_expect_evaluator.ml))))))
+(library
+ (name ppx_expect.make_corrected_file)
+ (kind normal)
+ (archives
+  (byte make_corrected_file/make_corrected_file.cma)
+  (native make_corrected_file/make_corrected_file.cmxa))
+ (plugins
+  (byte make_corrected_file/make_corrected_file.cma)
+  (native make_corrected_file/make_corrected_file.cmxs))
+ (native_archives make_corrected_file/make_corrected_file.a)
+ (requires base ppxlib.print_diff stdio)
+ (main_module_name Make_corrected_file)
+ (modes byte native)
+ (modules
+  (wrapped
+   (group
+    (alias
+     (obj_name make_corrected_file__)
+     (visibility public)
+     (kind alias)
+     (source
+      (path Make_corrected_file__)
+      (impl (path make_corrected_file/make_corrected_file__.ml-gen))))
+    (name Make_corrected_file)
+    (modules
+     (module
+      (obj_name make_corrected_file__Import)
+      (visibility public)
+      (source (path Import) (impl (path make_corrected_file/import.ml))))
+     (module
+      (obj_name make_corrected_file)
+      (visibility public)
+      (source
+       (path Make_corrected_file)
+       (intf (path make_corrected_file/make_corrected_file.mli))
+       (impl (path make_corrected_file/make_corrected_file.ml))))))
+   (wrapped true))))
+(library
+ (name ppx_expect.runtime)
+ (kind normal)
+ (archives
+  (byte runtime/ppx_expect_runtime.cma)
+  (native runtime/ppx_expect_runtime.cmxa))
+ (plugins
+  (byte runtime/ppx_expect_runtime.cma)
+  (native runtime/ppx_expect_runtime.cmxs))
+ (foreign_objects runtime/ppx_expect_runtime_stubs.o)
+ (foreign_archives
+  (archives (for all) (files runtime/libppx_expect_runtime_stubs.a)))
+ (foreign_dll_files ../stublibs/dllppx_expect_runtime_stubs.so)
+ (native_archives runtime/ppx_expect_runtime.a)
+ (jsoo_runtime runtime/runtime.js)
+ (requires
+  base
+  stdio
+  ppx_inline_test.runtime-lib
+  ppx_expect.make_corrected_file
+  ppx_expect.config)
+ (main_module_name Ppx_expect_runtime)
+ (modes byte native)
+ (modules
+  (wrapped
+   (group
+    (alias
+     (obj_name ppx_expect_runtime__)
+     (visibility public)
+     (kind alias)
+     (source
+      (path Ppx_expect_runtime__)
+      (impl (path runtime/ppx_expect_runtime__.ml-gen))))
+    (name Ppx_expect_runtime)
+    (modules
+     (module
+      (obj_name ppx_expect_runtime__Current_file)
+      (visibility public)
+      (source
+       (path Current_file)
+       (intf (path runtime/current_file.mli))
+       (impl (path runtime/current_file.ml))))
+     (module
+      (obj_name ppx_expect_runtime__Expectation)
+      (visibility public)
+      (source
+       (path Expectation)
+       (intf (path runtime/expectation.mli))
+       (impl (path runtime/expectation.ml))))
+     (module
+      (obj_name ppx_expect_runtime__Expectation_intf)
+      (visibility public)
+      (source
+       (path Expectation_intf)
+       (impl (path runtime/expectation_intf.ml))))
+     (module
+      (obj_name ppx_expect_runtime__Output)
+      (visibility public)
+      (source
+       (path Output)
+       (intf (path runtime/output.mli))
+       (impl (path runtime/output.ml))))
+     (module
+      (obj_name ppx_expect_runtime)
+      (visibility public)
+      (source
+       (path Ppx_expect_runtime)
+       (impl (path runtime/ppx_expect_runtime.ml))))
+     (module
+      (obj_name ppx_expect_runtime__Test_block)
+      (visibility public)
+      (source
+       (path Test_block)
+       (intf (path runtime/test_block.mli))
+       (impl (path runtime/test_block.ml))))
+     (module
+      (obj_name ppx_expect_runtime__Test_node)
+      (visibility public)
+      (source
+       (path Test_node)
+       (intf (path runtime/test_node.mli))
+       (impl (path runtime/test_node.ml))))
+     (module
+      (obj_name ppx_expect_runtime__Types)
+      (visibility public)
+      (source
+       (path Types)
+       (intf (path runtime/types.mli))
+       (impl (path runtime/types.ml))))
+     (module
+      (obj_name ppx_expect_runtime__Write_corrected_file)
+      (visibility public)
+      (source
+       (path Write_corrected_file)
+       (intf (path runtime/write_corrected_file.mli))
+       (impl (path runtime/write_corrected_file.ml))))))
+   (wrapped true))))

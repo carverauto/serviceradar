@@ -17,12 +17,13 @@
 package poller
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"math"
-	"sync"
-	"time"
+    "context"
+    "encoding/json"
+    "fmt"
+    "math"
+    "strings"
+    "sync"
+    "time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -37,6 +38,10 @@ const (
 	serviceTypeSweep = "sweep"
 	serviceTypeSync  = "sync"
 	checkTypeGRPC    = "grpc"
+)
+
+var (
+	errStreamStatusNotReceived = fmt.Errorf("core indicated streaming status report was not received")
 )
 
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
@@ -76,13 +81,18 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 		clock = realClock{}
 	}
 
-	p := &Poller{
-		config: *config,
-		agents: make(map[string]*AgentPoller),
-		done:   make(chan struct{}),
-		clock:  clock,
-		logger: log,
-	}
+    p := &Poller{
+        config: *config,
+        agents: make(map[string]*AgentPoller),
+        done:   make(chan struct{}),
+        clock:  clock,
+        logger: log,
+        reloadCh: make(chan time.Duration, 1),
+    }
+
+    if p.config.KVDomain != "" {
+        p.logger.Info().Str("kv_domain", p.config.KVDomain).Msg("Poller configured KV JetStream domain")
+    }
 
 	if p.config.CoreAddress != "" && p.PollFunc == nil {
 		if err := p.connectToCore(ctx); err != nil {
@@ -105,10 +115,11 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 
 // Start implements the lifecycle.Service interface.
 func (p *Poller) Start(ctx context.Context) error {
-	interval := time.Duration(p.config.PollInterval)
-	ticker := p.clock.Ticker(interval)
+    interval := time.Duration(p.config.PollInterval)
+    p.ticker = p.clock.Ticker(interval)
 
-	defer ticker.Stop()
+    defer func(){ if p.ticker != nil { p.ticker.Stop() } }()
+
 	p.logger.Info().Dur("interval", interval).Msg("Starting poller")
 
 	p.startWg.Add(1)
@@ -127,18 +138,25 @@ func (p *Poller) Start(ctx context.Context) error {
 			return ctx.Err()
 		case <-p.done:
 			return nil
-		case <-ticker.Chan():
-			p.wg.Add(1)
+        case <-p.ticker.Chan():
+            p.wg.Add(1)
 
-			go func() {
-				defer p.wg.Done()
+            go func() {
+                defer p.wg.Done()
 
-				if err := p.poll(ctx); err != nil {
-					p.logger.Error().Err(err).Msg("Error during poll")
-				}
-			}()
-		}
-	}
+                if err := p.poll(ctx); err != nil {
+                    p.logger.Error().Err(err).Msg("Error during poll")
+                }
+            }()
+        case newInterval := <-p.reloadCh:
+            // Hot-reload: update ticker interval
+            if p.ticker != nil {
+                p.ticker.Stop()
+            }
+            p.ticker = p.clock.Ticker(newInterval)
+            p.logger.Info().Dur("interval", newInterval).Msg("Poll interval hot-reloaded")
+        }
+    }
 }
 
 // Stop implements the lifecycle.Service interface.
@@ -182,6 +200,7 @@ func (p *Poller) Close() error {
 
 	p.closeOnce.Do(func() { close(p.done) })
 	p.mu.Lock()
+
 	defer p.mu.Unlock()
 
 	if p.grpcClient != nil {
@@ -456,6 +475,60 @@ func (p *Poller) reportToCoreStreaming(ctx context.Context, statuses []*proto.Se
 	return p.handleStreamResponse(stream, len(statuses))
 }
 
+// UpdateConfig applies updated configuration at runtime.
+// PollInterval changes will be picked up on next restart; agents/core/security trigger immediate reconnection/rebuild.
+func (p *Poller) UpdateConfig(ctx context.Context, cfg *Config) error {
+    if cfg == nil { return nil }
+    // Update logger level if configured
+    if cfg.Logging != nil {
+        lvl := strings.ToLower(cfg.Logging.Level)
+        switch lvl { case "debug": p.logger.SetDebug(true); default: p.logger.SetDebug(false) }
+        p.logger.Info().Str("level", cfg.Logging.Level).Msg("Poller logger level updated")
+    }
+    // Determine if core connection needs to be rebuilt
+    reconnectCore := (cfg.CoreAddress != p.config.CoreAddress)
+    if (cfg.Security != nil && p.config.Security != nil) && (cfg.Security.TLS != p.config.Security.TLS || cfg.Security.Mode != p.config.Security.Mode) {
+        reconnectCore = true
+    }
+    // Detect poll interval change
+    intervalChanged := time.Duration(cfg.PollInterval) != time.Duration(p.config.PollInterval)
+    // Apply config
+    p.config = *cfg
+    // If interval changed, request ticker reload (non-blocking, drop stale)
+    if intervalChanged {
+        newDur := time.Duration(cfg.PollInterval)
+        select {
+        case <-p.done:
+            // shutting down; ignore
+        default:
+            // try to drain existing queued value to avoid backlog
+            select { case <-p.reloadCh: default: }
+            select { case p.reloadCh <- newDur: default: }
+        }
+    }
+    if reconnectCore {
+        if p.grpcClient != nil { _ = p.grpcClient.Close(); p.grpcClient = nil; p.coreClient = nil }
+        if err := p.connectToCore(ctx); err != nil {
+            p.logger.Error().Err(err).Msg("Failed to reconnect to core")
+        } else {
+            p.logger.Info().Msg("Reconnected to core after config change")
+        }
+    }
+    // Rebuild agent pollers
+    p.mu.Lock()
+    for name, ap := range p.agents {
+        if ap.clientConn != nil { _ = ap.clientConn.Close(); p.logger.Info().Str("agent", name).Msg("Closed agent connection") }
+    }
+    p.agents = make(map[string]*AgentPoller)
+    p.mu.Unlock()
+    if err := p.initializeAgentPollers(ctx); err != nil {
+        p.logger.Error().Err(err).Msg("Failed to rebuild agent pollers")
+    } else {
+        p.logger.Info().Msg("Rebuilt agent pollers from updated config")
+    }
+    return nil
+}
+
 // chunkPlan holds the chunking strategy for streaming
 type chunkPlan struct {
 	totalChunks  int
@@ -621,7 +694,7 @@ func (p *Poller) handleStreamResponse(stream proto.PollerService_StreamStatusCli
 	}
 
 	if !response.Received {
-		return fmt.Errorf("core indicated streaming status report was not received")
+		return errStreamStatusNotReceived
 	}
 
 	p.logger.Info().
@@ -638,13 +711,14 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 
 	var serviceData json.RawMessage
 
-	if originalMessage == "" {
+	switch {
+	case originalMessage == "":
 		p.logger.Warn().Str("serviceType", serviceType).Str("serviceName", serviceName).Msg("Empty message for service")
 
 		serviceData = json.RawMessage("{}")
-	} else if json.Valid([]byte(originalMessage)) {
+	case json.Valid([]byte(originalMessage)):
 		serviceData = json.RawMessage(originalMessage)
-	} else {
+	default:
 		p.logger.Warn().
 			Str("serviceType", serviceType).
 			Str("serviceName", serviceName).
@@ -654,7 +728,6 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 		errorWrapper := map[string]string{"message": originalMessage}
 
 		wrappedJSON, err := json.Marshal(errorWrapper)
-
 		if err != nil {
 			return "", fmt.Errorf("failed to wrap non-JSON message: %w", err)
 		}
@@ -672,7 +745,6 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 	}
 
 	enhancedJSON, err := json.Marshal(enhancedPayload)
-
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal enhanced service payload: %w", err)
 	}

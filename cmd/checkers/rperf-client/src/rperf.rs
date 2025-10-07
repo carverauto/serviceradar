@@ -22,7 +22,7 @@ use std::vec::Vec;
 
 use crate::config::TargetConfig;
 use crate::server::rperf_service::TestRequest;
-use rperf::{run_client_with_output, client::state::ClientRunState};
+use rperf::{client::state::ClientRunState, run_client_with_output};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct RPerfSummary {
@@ -74,7 +74,10 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
         }
     };
 
-    let success = json_value.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
+    let success = json_value
+        .get("success")
+        .and_then(|s| s.as_bool())
+        .unwrap_or(false);
 
     if !success {
         return Ok(RPerfResult {
@@ -89,7 +92,10 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
         serde_json::Value::Object(obj) => obj,
         _ => {
             error!("Invalid JSON structure: missing summary object");
-            error!("JSON structure: {}", serde_json::to_string_pretty(&json_value).unwrap_or_default());
+            error!(
+                "JSON structure: {}",
+                serde_json::to_string_pretty(&json_value).unwrap_or_default()
+            );
             return Ok(RPerfResult {
                 success: false,
                 error: Some("Invalid JSON structure: missing summary object".to_string()),
@@ -101,7 +107,10 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
 
     let mut summary = RPerfSummary::default();
 
-    if let Some(duration) = summary_data.get("duration_send").or_else(|| summary_data.get("duration_receive")) {
+    if let Some(duration) = summary_data
+        .get("duration_send")
+        .or_else(|| summary_data.get("duration_receive"))
+    {
         summary.duration = duration.as_f64().unwrap_or_default();
     }
 
@@ -125,9 +134,12 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
         if let Some(packets) = summary_data.get("packets_received") {
             summary.packets_received = packets.as_u64().unwrap_or_default();
         }
-        summary.packets_lost = summary.packets_sent.saturating_sub(summary.packets_received);
+        summary.packets_lost = summary
+            .packets_sent
+            .saturating_sub(summary.packets_received);
         if summary.packets_sent > 0 {
-            summary.loss_percent = (summary.packets_lost as f64 / summary.packets_sent as f64) * 100.0;
+            summary.loss_percent =
+                (summary.packets_lost as f64 / summary.packets_sent as f64) * 100.0;
         }
         if let Some(jitter) = summary_data.get("jitter_average") {
             summary.jitter_ms = jitter.as_f64().unwrap_or_default() * 1000.0;
@@ -198,8 +210,10 @@ impl RPerfRunner {
     }
 
     pub async fn run_test(&self) -> Result<RPerfResult> {
-        debug!("Running rperf test to {}:{} with protocol {}", 
-            self.target_address, self.port, self.protocol);
+        debug!(
+            "Running rperf test to {}:{} with protocol {}",
+            self.target_address, self.port, self.protocol
+        );
 
         let mut owned_args: Vec<String> = vec![
             "rperf".to_string(),
@@ -244,8 +258,9 @@ impl RPerfRunner {
                 let args: Vec<&str> = owned_args.iter().map(|s| s.as_str()).collect();
                 run_client_with_output(args, output_clone)
                     .map_err(|e| anyhow::anyhow!("rperf execution failed: {}", e))
-            })
-        ).await;
+            }),
+        )
+        .await;
 
         match result {
             Ok(join_result) => match join_result {

@@ -20,17 +20,23 @@ export function getApiUrl(endpoint: string, isServerSide = typeof window === 'un
     const normalizedEndpoint = endpoint.replace(/^\/+/, "");
 
     if (isServerSide) {
-        // Server-side context - need absolute URL
-        // Get the base URL from environment variable
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+        // Server-side context - need absolute URL and correct upstream host
+        const rawBaseUrl =
+            process.env.NEXT_INTERNAL_API_URL ||
+            process.env.NEXT_PUBLIC_API_URL ||
+            'http://localhost:8090';
 
-        // Ensure URL has protocol
-        const baseWithProtocol = baseUrl.startsWith('http') ? baseUrl : `http://${baseUrl}`;
+        const baseUrl = normalizeBaseUrl(rawBaseUrl);
 
-        // Return complete URL
-        return `${baseWithProtocol}/api/${normalizedEndpoint}`;
+        return `${baseUrl}/api/${normalizedEndpoint}`;
     } else {
         // Client-side context - use relative URL
         return `/api/${normalizedEndpoint}`;
     }
+}
+
+function normalizeBaseUrl(url: string): string {
+    const withProtocol = url.startsWith('http') ? url : `http://${url}`;
+    const withoutTrailingSlash = withProtocol.replace(/\/+$/, '');
+    return withoutTrailingSlash.replace(/\/api$/, '');
 }

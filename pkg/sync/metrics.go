@@ -247,6 +247,7 @@ func (m *InMemoryMetrics) RecordAPIFailure(integration, endpoint string, statusC
 func (m *InMemoryMetrics) RecordCircuitBreakerStateChange(name string, oldState, newState CircuitBreakerState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.circuitBreakerStates[name] = newState.String()
 	m.lastUpdated = time.Now()
 
@@ -260,6 +261,7 @@ func (m *InMemoryMetrics) RecordCircuitBreakerStateChange(name string, oldState,
 func (m *InMemoryMetrics) RecordActiveIntegrations(count int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.activeIntegrations = count
 	m.lastUpdated = time.Now()
 }
@@ -267,6 +269,7 @@ func (m *InMemoryMetrics) RecordActiveIntegrations(count int) {
 func (m *InMemoryMetrics) RecordTotalDevicesDiscovered(count int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.totalDevicesDiscovered = count
 	m.lastUpdated = time.Now()
 }

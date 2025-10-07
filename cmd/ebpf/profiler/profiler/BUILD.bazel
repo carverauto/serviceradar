@@ -1,0 +1,45 @@
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+load("@rust_crates_profiler//:defs.bzl", "all_crate_deps", "crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+EBPF_PLACEHOLDER = "//cmd/ebpf/profiler:ebpf_placeholder.o"
+PROTO_FILE = "//cmd/ebpf/profiler/proto/profiler:profiler.proto"
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    crate_root = "build.rs",
+    edition = "2021",
+    deps = crate_deps(["tonic-build"]),
+    data = [
+        EBPF_PLACEHOLDER,
+        PROTO_FILE,
+        "@bazel_tools//tools/proto:protoc",
+    ],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+        "SERVICERADAR_EBPF_OBJECT": "$(location %s)" % EBPF_PLACEHOLDER,
+    },
+)
+
+rust_library(
+    name = "profiler_lib",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    crate_root = "src/lib.rs",
+    crate_name = "profiler",
+    edition = "2021",
+    deps = all_crate_deps(normal = True) + [
+        ":build_script",
+        "//cmd/ebpf/profiler/profiler-common:profiler_common",
+    ],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+rust_binary(
+    name = "profiler",
+    srcs = ["src/main.rs"],
+    edition = "2021",
+    deps = [":profiler_lib"] + all_crate_deps(normal = True),
+)

@@ -1,0 +1,36 @@
+opam-version: "2.0"
+name: "srql-translator"
+version: "1.0.0"
+synopsis: "An OCaml-based translator for the ServiceRadar Query Language"
+maintainer: "Michael Freeman <mfreeman@carverauto.dev>"
+authors: "Michael Freeman"
+license: "Apache-2.0"
+
+homepage: "https://github.com/carverauto/serviceradar"
+bug-reports: "https://github.com/carverauto/serviceradar/issues"
+
+depends: [
+  "ocaml" {>= "4.14.0"}
+  "dune" {>= "3.20"}
+  "menhir"
+  "yojson"
+  "ppx_deriving" {>= "5.0"}
+  "lwt_ppx"
+  "proton" {>= "1.0.17"}
+  "lwt"
+  "tls" {>= "1.0.0"}
+  "tls-lwt" {>= "1.0.0"}
+  "mirage-crypto" {>= "1.2.0"}
+  "mirage-crypto-rng" {>= "1.2.0"}
+  "mirage-crypto-rng-lwt" {>= "1.2.0"}
+  "x509" {>= "1.0.0"}
+  "h2" {>= "0.13.0"}
+  "h2-lwt" {>= "0.13.0"}
+  "h2-lwt-unix" {>= "0.13.0"}
+  "dream" {>= "1.0.0~alpha7"}
+  "alcotest" {with-test}
+]
+
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+]

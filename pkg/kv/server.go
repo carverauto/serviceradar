@@ -23,9 +23,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // Server implements the KVService gRPC interface and lifecycle.Service.
@@ -89,6 +90,17 @@ func (s *Server) Put(ctx context.Context, req *proto.PutRequest) (*proto.PutResp
 	return &proto.PutResponse{}, nil
 }
 
+// PutIfAbsent implements the PutIfAbsent RPC.
+func (s *Server) PutIfAbsent(ctx context.Context, req *proto.PutRequest) (*proto.PutResponse, error) {
+    ttl := time.Duration(req.TtlSeconds) * time.Second
+
+    if err := s.store.PutIfAbsent(ctx, req.Key, req.Value, ttl); err != nil {
+        return nil, status.Errorf(codes.Internal, "failed to put-if-absent key %s: %v", req.Key, err)
+    }
+
+    return &proto.PutResponse{}, nil
+}
+
 // PutMany implements the PutMany RPC.
 func (s *Server) PutMany(ctx context.Context, req *proto.PutManyRequest) (*proto.PutManyResponse, error) {
 	ttl := time.Duration(req.TtlSeconds) * time.Second
@@ -137,4 +149,13 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 			}
 		}
 	}
+}
+
+// Info implements the Info RPC (domain and bucket for introspection).
+// Note: Requires proto regeneration to compile the new types.
+func (s *Server) Info(_ context.Context, _ *proto.InfoRequest) (*proto.InfoResponse, error) {
+    // We expose the configured domain and bucket from the server's cfg
+    domain := s.config.Domain
+    bucket := s.config.Bucket
+    return &proto.InfoResponse{Domain: domain, Bucket: bucket}, nil
 }

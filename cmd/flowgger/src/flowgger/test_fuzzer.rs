@@ -37,9 +37,9 @@ mod tests {
     use flowgger::get_decoder_rfc3164;
     use flowgger::get_encoder_rfc3164;
     use flowgger::get_output_file;
-    use flowgger::output::Output;
     use flowgger::input::udp_input::handle_record_maybe_compressed;
     use flowgger::merger;
+    use flowgger::output::Output;
 
     use self::merger::{LineMerger, Merger};
     use toml::Value;

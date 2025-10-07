@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(false)
         .file_descriptor_set_path(&descriptor_path)
         .type_attribute(".", "#[allow(dead_code)]")
-        .compile(&[proto_path], &[proto_dir])?;
+        .compile_protos(&[proto_path], &[proto_dir])?;
     println!("cargo:rerun-if-changed={proto_path}");
 
     // Compile OTEL protos
@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tonic_build::configure()
             .build_server(false)
             .build_client(false)
-            .compile(
+            .compile_protos(
                 &[
                     &format!("{otel_base}/opentelemetry/proto/logs/v1/logs.proto"),
                     &format!("{otel_base}/opentelemetry/proto/common/v1/common.proto"),
@@ -35,7 +35,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         println!("cargo:rerun-if-changed={otel_base}/opentelemetry/proto/logs/v1/logs.proto");
         println!("cargo:rerun-if-changed={otel_base}/opentelemetry/proto/common/v1/common.proto");
-        println!("cargo:rerun-if-changed={otel_base}/opentelemetry/proto/resource/v1/resource.proto");
+        println!(
+            "cargo:rerun-if-changed={otel_base}/opentelemetry/proto/resource/v1/resource.proto"
+        );
     }
 
     Ok(())

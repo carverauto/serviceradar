@@ -15,31 +15,68 @@
 
 set -e
 
+resolve_service_host() {
+    service_name="$1"
+    override_name="$2"
+    docker_default="$3"
+    override_value=$(eval "printf '%s' \"\${${override_name}:-}\"")
+    if [ -n "$override_value" ]; then
+        printf '%s' "$override_value"
+        return
+    fi
+    if [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+        printf '%s' "$service_name"
+        return
+    fi
+    printf '%s' "$docker_default"
+}
+
+resolve_service_port() {
+    override_name="$1"
+    default_value="$2"
+    override_value=$(eval "printf '%s' \"\${${override_name}:-}\"")
+    if [ -n "$override_value" ]; then
+        printf '%s' "$override_value"
+        return
+    fi
+    printf '%s' "$default_value"
+}
+
 # Wait for dependencies to be ready
-if [ -n "$WAIT_FOR_AGENT" ]; then
-    AGENT_ADDR="${AGENT_HOST:-agent}:${AGENT_PORT:-50051}"
-    echo "Waiting for Agent service at $AGENT_ADDR..."
-    for i in {1..30}; do
-        if nc -z ${AGENT_HOST:-agent} ${AGENT_PORT:-50051} > /dev/null 2>&1; then
-            echo "Agent service is ready!"
-            break
-        fi
-        echo "Waiting for Agent... ($i/30)"
-        sleep 2
-    done
+if [ -n "${WAIT_FOR_AGENT:-}" ]; then
+    AGENT_HOST_VALUE=$(resolve_service_host "serviceradar-agent" AGENT_HOST "agent")
+    AGENT_PORT_VALUE=$(resolve_service_port AGENT_PORT "50051")
+    echo "Waiting for Agent service at ${AGENT_HOST_VALUE}:${AGENT_PORT_VALUE}..."
+
+    if wait-for-port \
+        --host "${AGENT_HOST_VALUE}" \
+        --port "${AGENT_PORT_VALUE}" \
+        --attempts 30 \
+        --interval 2s \
+        --quiet; then
+        echo "Agent service is ready!"
+    else
+        echo "ERROR: Timed out waiting for Agent at ${AGENT_HOST_VALUE}:${AGENT_PORT_VALUE}" >&2
+        exit 1
+    fi
 fi
 
-if [ -n "$WAIT_FOR_OTEL" ]; then
-    OTEL_ADDR="${OTEL_HOST:-otel}:${OTEL_PORT:-4317}"
-    echo "Waiting for OTEL service at $OTEL_ADDR..."
-    for i in {1..30}; do
-        if nc -z ${OTEL_HOST:-otel} ${OTEL_PORT:-4317} > /dev/null 2>&1; then
-            echo "OTEL service is ready!"
-            break
-        fi
-        echo "Waiting for OTEL... ($i/30)"
-        sleep 2
-    done
+if [ -n "${WAIT_FOR_OTEL:-}" ]; then
+    OTEL_HOST_VALUE=$(resolve_service_host "serviceradar-otel" OTEL_HOST "otel")
+    OTEL_PORT_VALUE=$(resolve_service_port OTEL_PORT "4317")
+    echo "Waiting for OTEL service at ${OTEL_HOST_VALUE}:${OTEL_PORT_VALUE}..."
+
+    if wait-for-port \
+        --host "${OTEL_HOST_VALUE}" \
+        --port "${OTEL_PORT_VALUE}" \
+        --attempts 30 \
+        --interval 2s \
+        --quiet; then
+        echo "OTEL service is ready!"
+    else
+        echo "ERROR: Timed out waiting for OTEL at ${OTEL_HOST_VALUE}:${OTEL_PORT_VALUE}" >&2
+        exit 1
+    fi
 fi
 
 # Check if config file exists

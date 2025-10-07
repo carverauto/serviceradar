@@ -18,25 +18,35 @@
 package agent
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"math"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
+    "context"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "io"
+    "math"
+    "os"
+    "path/filepath"
+    "strings"
+    "time"
 
-	"github.com/carverauto/serviceradar/pkg/checker"
-	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/grpc"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+    "google.golang.org/grpc/codes"
+    "google.golang.org/grpc/status"
+
+    "github.com/carverauto/serviceradar/pkg/checker"
+    "github.com/carverauto/serviceradar/pkg/config"
+    "github.com/carverauto/serviceradar/pkg/grpc"
+    "github.com/carverauto/serviceradar/pkg/logger"
+    "github.com/carverauto/serviceradar/pkg/models"
+    "github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	// ErrAgentIDRequired indicates agent_id is required in configuration
+	ErrAgentIDRequired = errors.New("agent_id is required in configuration")
+	// ErrInvalidChunkCount indicates invalid chunk_count format in metadata
+	ErrInvalidChunkCount = errors.New("invalid chunk_count format in metadata")
+	// ErrInvalidJSONResponse indicates invalid JSON response from checker
+	ErrInvalidJSONResponse = errors.New("invalid JSON response from checker")
 )
 
 const (
@@ -72,17 +82,54 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		return nil, err
 	}
 
-	s.kvStore = kvStore
+    s.kvStore = kvStore
 
-	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
-		return createSweepService(sweepConfig, kvStore, cfg, log)
+	s.createSweepService = func(ctx context.Context, sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
+		return createSweepService(ctx, sweepConfig, kvStore, cfg, log)
 	}
 
-	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
-		return nil, fmt.Errorf("failed to load configurations: %w", err)
-	}
+    if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
+        return nil, fmt.Errorf("failed to load configurations: %w", err)
+    }
+
+    // Bootstrap default configs for common services in KV (PutIfAbsent), best-effort.
+    if s.kvStore != nil && cfg.AgentID != "" {
+        s.bootstrapKVDefaults(ctx, cfg.AgentID)
+    }
 
 	return s, nil
+}
+
+// bootstrapKVDefaults writes minimal default configs for standard services if missing.
+func (s *Server) bootstrapKVDefaults(ctx context.Context, agentID string) {
+    type putIfAbsent interface{
+        PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
+    }
+    pfa, hasPFA := any(s.kvStore).(putIfAbsent)
+    // Conventional keys for agent-local checkers
+    entries := map[string][]byte{
+        fmt.Sprintf("agents/%s/checkers/snmp/snmp.json", agentID):   []byte(`{"enabled": false, "targets": []}`),
+        fmt.Sprintf("agents/%s/checkers/mapper/mapper.json", agentID): []byte(`{"enabled": false, "address": "serviceradar-mapper:50056"}`),
+        fmt.Sprintf("agents/%s/checkers/trapd/trapd.json", agentID):   []byte(`{"enabled": false, "listen_addr": ":50043"}`),
+        fmt.Sprintf("agents/%s/checkers/rperf/rperf.json", agentID):   []byte(`{"enabled": false, "targets": []}`),
+        fmt.Sprintf("agents/%s/checkers/sysmon/sysmon.json", agentID): []byte(`{"enabled": true, "interval": "10s"}`),
+    }
+
+    for key, val := range entries {
+        // Try atomic create first
+        if hasPFA {
+            if err := pfa.PutIfAbsent(ctx, key, val, 0); err == nil {
+                s.logger.Info().Str("key", key).Msg("Bootstrapped default config in KV (created)")
+                continue
+            }
+        }
+        // Fallback: check then put
+        if _, found, err := s.kvStore.Get(ctx, key); err == nil && !found {
+            if err := s.kvStore.Put(ctx, key, val, 0); err == nil {
+                s.logger.Info().Str("key", key).Msg("Bootstrapped default config in KV (fallback)")
+            }
+        }
+    }
 }
 
 // initializeServer creates a new Server struct with default values.
@@ -156,7 +203,7 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 }
 
 // createSweepService constructs a new SweepService instance.
-func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerConfig, log logger.Logger) (Service, error) {
+func createSweepService(ctx context.Context, sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerConfig, log logger.Logger) (Service, error) {
 	if sweepConfig == nil {
 		return nil, errSweepConfigNil
 	}
@@ -169,7 +216,7 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 	}
 
 	if cfg.AgentID == "" {
-		return nil, fmt.Errorf("agent_id is required in configuration")
+		return nil, ErrAgentIDRequired
 	}
 
 	c := &models.Config{
@@ -194,10 +241,12 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
 
-	return NewSweepService(c, kvStore, configKey, log)
+	return NewSweepService(ctx, c, kvStore, configKey, log)
 }
 
-func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
+func (s *Server) loadSweepService(
+	ctx context.Context, cfgLoader *config.Config, kvPath, filePath string,
+) (Service, error) {
 	var sweepConfig SweepConfig
 
 	// Always load from file first (file config is authoritative)
@@ -225,7 +274,7 @@ func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config,
 		s.logger.Info().Str("kvPath", kvPath).Msg("Successfully merged KV updates into file config")
 	}
 
-	service, err := s.createSweepService(&sweepConfig, s.kvStore) // Pass s.kvStore
+	service, err := s.createSweepService(ctx, &sweepConfig, s.kvStore) // Pass s.kvStore
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +306,7 @@ func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *
 
 	s.logger.Info().Str("kvPath", kvPath).Msg("Loaded sweep config from KV")
 
-	service, err := s.createSweepService(sweepConfig, s.kvStore) // Pass s.kvStore
+	service, err := s.createSweepService(ctx, sweepConfig, s.kvStore) // Pass s.kvStore
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sweep service from KV config: %w", err)
 	}
@@ -400,7 +449,7 @@ func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *
 		// Process chunked configuration by reading all chunks and combining them
 		chunkCountInt, ok := chunkCount.(float64)
 		if !ok {
-			return nil, fmt.Errorf("invalid chunk_count format in metadata: %v", chunkCount)
+			return nil, fmt.Errorf("%w: %v", errInvalidChunkCountFormat, chunkCount)
 		}
 
 		return s.processChunkedSweepConfig(ctx, kvPath, int(chunkCountInt), fileConfig)
@@ -579,6 +628,7 @@ func (s *Server) getLogSuffix() string {
 	return ""
 }
 
+// Start initializes and starts all agent services.
 func (s *Server) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting agent service...")
 
@@ -603,6 +653,7 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
+// Stop gracefully shuts down all agent services.
 func (s *Server) Stop(_ context.Context) error {
 	s.logger.Info().Msg("Stopping agent service...")
 
@@ -623,14 +674,59 @@ func (s *Server) Stop(_ context.Context) error {
 	return nil
 }
 
+// UpdateConfig applies logging/security updates at runtime where possible.
+// Security changes typically require a restart to fully apply to gRPC servers/clients.
+func (s *Server) UpdateConfig(newCfg *ServerConfig) {
+    if newCfg == nil { return }
+    // Apply logging level changes if provided
+    if newCfg.Logging != nil {
+        lvl := strings.ToLower(newCfg.Logging.Level)
+        switch lvl {
+        case "debug":
+            s.logger.SetDebug(true)
+        case "info", "":
+            s.logger.SetDebug(false)
+        }
+        s.logger.Info().Str("level", newCfg.Logging.Level).Msg("Agent logger level updated")
+    }
+    // Security changes: log advisory; full restart may be required
+    if newCfg.Security != nil && s.config.Security != nil {
+        // naive compare of cert paths
+        if newCfg.Security.TLS != s.config.Security.TLS || newCfg.Security.Mode != s.config.Security.Mode {
+            s.logger.Warn().Msg("Security config changed; restart recommended to apply TLS changes")
+        }
+    }
+    s.config = newCfg
+}
+
+// RestartServices stops and starts all managed services using the current configuration.
+func (s *Server) RestartServices(ctx context.Context) {
+    s.logger.Info().Msg("Restarting agent services due to config changes")
+    for _, svc := range s.services {
+        if err := svc.Stop(ctx); err != nil {
+            s.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to stop service during restart")
+        }
+    }
+    for _, svc := range s.services {
+        if err := svc.Start(ctx); err != nil {
+            s.logger.Error().Err(err).Str("service", svc.Name()).Msg("Failed to start service during restart")
+        } else {
+            s.logger.Info().Str("service", svc.Name()).Msg("Service restarted")
+        }
+    }
+}
+
+// ListenAddr returns the server's listening address.
 func (s *Server) ListenAddr() string {
 	return s.config.ListenAddr
 }
 
+// SecurityConfig returns the server's security configuration.
 func (s *Server) SecurityConfig() *models.SecurityConfig {
 	return s.config.Security
 }
 
+// Error implements the error interface for ServiceError.
 func (e *ServiceError) Error() string {
 	return fmt.Sprintf("service %s error: %v", e.ServiceName, e.Err)
 }
@@ -692,12 +788,15 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 	return nil
 }
 
+// EnsureConnected ensures the connection is healthy and returns the gRPC client.
 func (c *CheckerConnection) EnsureConnected(ctx context.Context) (*grpc.Client, error) {
 	c.mu.RLock()
+
 	if c.healthy && c.client != nil {
 		c.mu.RUnlock()
 		return c.client, nil
 	}
+
 	c.mu.RUnlock()
 
 	c.mu.Lock()
@@ -765,6 +864,7 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 	}, nil
 }
 
+// GetStatus handles status requests for various service types.
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	// Ensure AgentId and PollerId are set
 	if req.AgentId == "" {
@@ -806,6 +906,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 // For grpc services, this forwards the call to the actual service.
 // For sweep services, this calls the local sweep service.
 // For other services, this returns a "not supported" response.
+// GetResults handles results requests for various service types.
 func (s *Server) GetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
 	s.logger.Info().Str("serviceName", req.ServiceName).Str("serviceType", req.ServiceType).Msg("GetResults called")
 
@@ -907,6 +1008,7 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 // For sweep services, this calls the local sweep service and streams the results.
 // For grpc services, this forwards the streaming call to the actual service.
 // For other services, this returns a "not supported" response.
+// StreamResults handles streaming results requests for large datasets.
 func (s *Server) StreamResults(req *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
 	s.logger.Info().Str("serviceName", req.ServiceName).Str("serviceType", req.ServiceType).Msg("StreamResults called")
 
@@ -949,8 +1051,12 @@ func (s *Server) handleGrpcStreamResults(req *proto.ResultsRequest, stream proto
 
 	externalChecker, ok := getChecker.(*ExternalChecker)
 	if !ok {
-		s.logger.Info().Str("checkerType", fmt.Sprintf("%T", getChecker)).Msg("StreamResults not supported for checker type")
-		return status.Errorf(codes.Unimplemented, "StreamResults not supported by checker type %T", getChecker)
+		s.logger.Info().
+			Str("checkerType", fmt.Sprintf("%T", getChecker)).
+			Msg("StreamResults not supported for checker type")
+		return status.Errorf(
+			codes.Unimplemented, "StreamResults not supported by checker type %T", getChecker,
+		)
 	}
 
 	// Ensure connection to the external service
@@ -1104,8 +1210,8 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 	}
 
 	ctx := stream.Context()
-	response, err := sweepSvc.GetSweepResults(ctx, req.LastSequence)
 
+	response, err := sweepSvc.GetSweepResults(ctx, req.LastSequence)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to get sweep results for streaming")
 		return status.Errorf(codes.Internal, "Failed to get sweep results: %v", err)
@@ -1276,7 +1382,9 @@ func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) 
 	return nil, errNoSweepService
 }
 
-func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *Server) handleDefaultChecker(
+	ctx context.Context, req *proto.StatusRequest,
+) (*proto.StatusResponse, error) {
 	req.AgentId = s.config.AgentID
 
 	c, err := s.getChecker(ctx, req)
@@ -1290,7 +1398,7 @@ func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequ
 
 	if !json.Valid(message) {
 		s.logger.Error().Str("serviceName", req.ServiceName).RawJSON("message", message).Msg("Invalid JSON from checker")
-		return nil, fmt.Errorf("invalid JSON response from checker")
+		return nil, errInvalidJSONResponse
 	}
 
 	return &proto.StatusResponse{
@@ -1464,6 +1572,7 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	return check, nil
 }
 
+// ListServices returns a list of all configured service names.
 func (s *Server) ListServices() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1476,6 +1585,7 @@ func (s *Server) ListServices() []string {
 	return services
 }
 
+// Close gracefully shuts down the server and releases resources.
 func (s *Server) Close(ctx context.Context) error {
 	if err := s.Stop(ctx); err != nil {
 		s.logger.Error().Err(err).Msg("Error during stop")

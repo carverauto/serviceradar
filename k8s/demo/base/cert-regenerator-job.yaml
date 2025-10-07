@@ -1,0 +1,46 @@
+# base/cert-regenerator-job.yaml - Force regenerate certificates with updated FQDNs
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-cert-regenerator
+spec:
+  template:
+    metadata:
+      labels:
+        app: serviceradar-cert-regenerator
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: cert-regenerator
+        image: alpine/openssl:latest
+        imagePullPolicy: Always
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          # Alpine should have openssl built-in, just copy and run the script
+          cp /scripts/generate-certs.sh /tmp/generate-certs.sh
+          chmod +x /tmp/generate-certs.sh
+          cd /certs
+          
+          # Force regenerate certificates to include proper FQDNs
+          echo "Force regenerating certificates with updated FQDNs..."
+          FORCE_REGENERATE=true /bin/sh /tmp/generate-certs.sh
+        volumeMounts:
+        - name: cert-scripts
+          mountPath: /scripts
+        - name: cert-data
+          mountPath: /certs
+        env:
+        - name: CERT_DIR
+          value: "/certs"
+        - name: FORCE_REGENERATE
+          value: "true"
+      volumes:
+      - name: cert-scripts
+        configMap:
+          name: serviceradar-cert-scripts
+          defaultMode: 0755
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data

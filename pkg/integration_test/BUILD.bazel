@@ -1,0 +1,25 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "integration_test",
+    srcs = ["mocks.go"],
+    importpath = "github.com/carverauto/serviceradar/pkg/integration_test",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "integration_test_test",
+    srcs = ["end_to_end_flow_test.go"],
+    embed = [":integration_test"],
+    deps = [
+        "//pkg/models",
+        "//proto",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_mock//gomock",
+    ],
+)

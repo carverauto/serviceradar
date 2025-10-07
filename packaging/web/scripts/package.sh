@@ -39,28 +39,35 @@ mkdir -p etc/nginx/conf.d
 
 echo "Building web application..."
 
-# Build Next.js application
-cd "${BASE_DIR}/web"
-npm install
-npm run build
+# Build the Next.js standalone bundle via Bazel for reproducible output
+cd "${BASE_DIR}"
+BAZEL="${BASE_DIR}/tools/bazel/bazel"
+NEXT_PUBLIC_VERSION="$VERSION" "${BAZEL}" build //pkg/core/api/web:files
 
-# Copy the full Next.js build
+BAZEL_BIN="$("${BAZEL}" info bazel-bin)"
+WEB_BUNDLE="${BAZEL_BIN}/pkg/core/api/web/.next"
+DEST_DIR="${BASE_DIR}/serviceradar-web-build/usr/local/share/serviceradar-web"
+
+# Copy the Bazel-produced assets into the package payload
 echo "Copying built web files..."
-mkdir -p "../serviceradar-web-build/usr/local/share/serviceradar-web"
-cp -r .next "../serviceradar-web-build/usr/local/share/serviceradar-web/"
-cp -r node_modules "../serviceradar-web-build/usr/local/share/serviceradar-web/"
-cp package.json "../serviceradar-web-build/usr/local/share/serviceradar-web/"
+rm -rf "${DEST_DIR}"
+mkdir -p "${DEST_DIR}"
 
-# Copy public files if they exist
-if [ -d "public" ]; then
-    cp -r public "../serviceradar-web-build/usr/local/share/serviceradar-web/"
+# The standalone directory contains server.js and runtime dependencies
+cp -R "${WEB_BUNDLE}/standalone/." "${DEST_DIR}/"
+chmod -R u+w "${DEST_DIR}/.next" || true
+
+# Preserve the full .next tree for static assets and manifests
+mkdir -p "${DEST_DIR}/.next"
+cp -R "${WEB_BUNDLE}/." "${DEST_DIR}/.next/"
+
+# Copy public assets from source if they exist
+if [ -d "${BASE_DIR}/web/public" ]; then
+    mkdir -p "${DEST_DIR}/public"
+    cp -R "${BASE_DIR}/web/public/." "${DEST_DIR}/public/"
 fi
 
-# Copy static files
-cp -R public/* .next/standalone/public/
-cp -R .next/static/* .next/standalone/.next/static/
-
-cd "../serviceradar-web-build"
+cd "${BASE_DIR}/serviceradar-web-build"
 
 echo "Preparing ServiceRadar Web package files..."
 

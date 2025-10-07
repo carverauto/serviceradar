@@ -1,0 +1,23 @@
+diff --git a/lib/emit_ocamlsdk.c b/lib/emit_ocamlsdk.c
+index 0000000..1111111 100644
+--- a/lib/emit_ocamlsdk.c
++++ b/lib/emit_ocamlsdk.c
+@@ -24,10 +24,14 @@ void _symlink_ocaml_stdlib(UT_string *stdlib_srcdir, char *tgtdir)
+     while ((direntry = readdir(d)) != NULL) {
+         if ((direntry->d_type==DT_REG)
+             || (direntry->d_type==DT_LNK)) {
+-            if (strncmp("stdlib", direntry->d_name, 6) != 0) {
+-                if (strncmp("camlinternal",
+-                            direntry->d_name, 12) != 0) {
+-                    continue;
++            // Include stdlib, camlinternal, and std_exit files
++            if (strncmp("stdlib", direntry->d_name, 6) != 0) {
++                if (strncmp("camlinternal", direntry->d_name, 12) != 0) {
++                    if (strncmp("std_exit", direntry->d_name, 8) != 0) {
++                        // Skip files that don't match any pattern
++                        continue;
++                    }
++                    // std_exit files - include them
+                 }
+             }
+             utstring_renew(src);

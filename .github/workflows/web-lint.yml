@@ -15,8 +15,7 @@
 name: Web Lint
 permissions:
   contents: read
-  metadata: read
-  pull_requests: write
+  pull-requests: write
   statuses: write
 
 on:
@@ -43,7 +42,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'

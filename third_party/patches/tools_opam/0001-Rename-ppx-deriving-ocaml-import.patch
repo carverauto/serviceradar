@@ -1,0 +1,25 @@
+diff --git a/extensions/opam/opam_dep.bzl b/extensions/opam/opam_dep.bzl
+index 214072b..e2820e6 100644
+--- a/extensions/opam/opam_dep.bzl
++++ b/extensions/opam/opam_dep.bzl
+@@ -72,6 +72,20 @@ def _opam_dep_repo_impl(rctx):
+     repo = rctx.name.removeprefix("tools_opam++opam+")
+     repo_pkg = repo.removeprefix(rctx.attr.obazl_pfx)
+ 
++    if repo_pkg == "ppx_deriving":
++        build_relpath = "lib/BUILD.bazel"
++        content = rctx.read(build_relpath)
++        content = content.replace(
++            'actual = "ppx_deriving"',
++            'actual = "ppx_deriving__pkg"',
++        )
++        content = content.replace(
++            'name = "ppx_deriving"',
++            'name = "ppx_deriving__pkg"',
++        )
++        rctx.file(build_relpath, content = content)
++
++
+     ## Running rctx.execute cmd creates the repo
+     ## so the ensuing symlink would fail with 'already exists'
+     ## so we delete it before creating the symlink:

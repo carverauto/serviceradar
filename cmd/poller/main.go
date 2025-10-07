@@ -17,16 +17,18 @@
 package main
 
 import (
-	"context"
-	"flag"
-	"fmt"
-	"log"
+    "context"
+    "flag"
+    "fmt"
+    "log"
 
-	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/lifecycle"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/poller"
-	"google.golang.org/grpc"
+    "google.golang.org/grpc"
+
+    "github.com/carverauto/serviceradar/pkg/config"
+    "github.com/carverauto/serviceradar/pkg/lifecycle"
+    "github.com/carverauto/serviceradar/pkg/logger"
+    "github.com/carverauto/serviceradar/pkg/models"
+    "github.com/carverauto/serviceradar/pkg/poller"
 )
 
 var (
@@ -47,13 +49,27 @@ func run() error {
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
 
-	// Step 1: Load configuration
+	// Step 1: Load configuration with KV support
+	kvMgr := config.NewKVManagerFromEnv(ctx, models.RolePoller)
+	defer func() {
+		if kvMgr != nil {
+			_ = kvMgr.Close()
+		}
+	}()
+
 	cfgLoader := config.NewConfig(nil)
+	if kvMgr != nil {
+		kvMgr.SetupConfigLoader(cfgLoader)
+	}
 
 	var cfg poller.Config
-
-	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
+	if err := kvMgr.LoadAndOverlay(ctx, cfgLoader, *configPath, &cfg); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
+	}
+
+	// Bootstrap service-level default into KV if missing
+	if kvMgr != nil {
+		kvMgr.BootstrapConfig(ctx, "config/poller.json", cfg)
 	}
 
 	// Step 2: Create logger from loaded config
@@ -71,11 +87,18 @@ func run() error {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
-	// Create poller instance with a real clock for production
-	p, err := poller.New(ctx, &cfg, nil, pollerLogger) // nil clock defaults to realClock in poller.New
-	if err != nil {
-		return err
-	}
+    // Create poller instance with a real clock for production
+    p, err := poller.New(ctx, &cfg, nil, pollerLogger) // nil clock defaults to realClock in poller.New
+    if err != nil {
+        return err
+    }
+
+    // KV Watch: overlay and apply hot-reload on relevant changes
+    if kvMgr != nil {
+        kvMgr.StartWatch(ctx, "config/poller.json", &cfg, pollerLogger, func() {
+            _ = p.UpdateConfig(ctx, &cfg)
+        })
+    }
 
 	// No gRPC services to register - simplified architecture
 	registerServices := func(_ *grpc.Server) error {

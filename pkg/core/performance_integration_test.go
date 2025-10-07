@@ -61,6 +61,10 @@ func TestSyncResultsPerformanceOptimization(t *testing.T) {
 
 			// Setup mocks
 			mockDB := db.NewMockService(ctrl)
+			mockDB.EXPECT().
+				ExecuteQuery(gomock.Any(), gomock.Any()).
+				Return([]map[string]interface{}{}, nil).
+				AnyTimes()
 			testLogger := logger.NewTestLogger()
 			realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
 
@@ -117,6 +121,14 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
 	testLogger := logger.NewTestLogger()
 	realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
 	discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger)
@@ -180,6 +192,10 @@ func TestDatabaseCallCounting(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
 	testLogger := logger.NewTestLogger()
 	realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
 	discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger)
@@ -194,15 +210,14 @@ func TestDatabaseCallCounting(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Track database calls
-	var dbCallCount int
+	// Track publish calls (canonicalization queries may be issued separately)
+	var publishCallCount int
 
-	// Current implementation only makes one call to PublishBatchDeviceUpdates
-	// No batch optimization queries are performed
+	// Current implementation makes a single publish call into device updates
 	mockDB.EXPECT().
 		PublishBatchDeviceUpdates(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ []*models.DeviceUpdate) error {
-			dbCallCount++
+			publishCallCount++
 			return nil
 		}).
 		Times(1)
@@ -211,9 +226,9 @@ func TestDatabaseCallCounting(t *testing.T) {
 	err := discoveryService.ProcessSyncResults(ctx, "test-poller", "test", serviceStatus, sightingsJSON, time.Now())
 	require.NoError(t, err)
 
-	// Verify database call count
-	assert.Equal(t, 1, dbCallCount, "Should make exactly 1 DB call: 1 for publish (no batch optimization)")
-	t.Logf("Total database calls: %d (should be 1)", dbCallCount)
+	// Verify publish call count
+	assert.Equal(t, 1, publishCallCount, "Should publish device updates exactly once")
+	t.Logf("Total publish calls: %d (should be 1)", publishCallCount)
 }
 
 // Helper functions

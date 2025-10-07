@@ -57,7 +57,9 @@ func (s *APIServer) getDeviceSNMPStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	const snmpStatusTimeout = 15 * time.Second
+
+	ctx, cancel := context.WithTimeout(r.Context(), snmpStatusTimeout)
 	defer cancel()
 
 	if s.dbService == nil {

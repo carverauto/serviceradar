@@ -1,0 +1,63 @@
+# base/serviceradar-nginx.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-nginx
+  template:
+    metadata:
+      labels:
+        app: serviceradar-nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+          name: http
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: serviceradar-config
+          items:
+          - key: nginx.conf
+            path: default.conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-nginx
+spec:
+  selector:
+    app: serviceradar-nginx
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 80
+    targetPort: http

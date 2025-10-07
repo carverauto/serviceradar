@@ -1,0 +1,28 @@
+load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+load("//packaging:package_rules.bzl", "serviceradar_package_from_config")
+load("//packaging:packages.bzl", "PACKAGES")
+
+package(default_visibility = ["//visibility:public"])
+
+copy_to_directory(
+    name = "bundle_root",
+    srcs = ["//pkg/core/api/web:files"],
+    out = "bundle_root",
+    include_srcs_patterns = ["standalone/**"],
+    replace_prefixes = {"standalone": ""},
+    visibility = ["//visibility:public"],
+)
+
+copy_to_directory(
+    name = "bundle_next",
+    srcs = ["//pkg/core/api/web:files"],
+    out = "bundle_next",
+    include_srcs_patterns = [".next/**"],
+    replace_prefixes = {".next": ""},
+    visibility = ["//visibility:public"],
+)
+
+serviceradar_package_from_config(
+    name = "web",
+    config = PACKAGES["web"],
+)

@@ -1,0 +1,10 @@
+(lang dune 3.12)
+(name menhir)
+(version 20231231)
+(sections (lib .) (bin ../../bin) (doc ../../doc/menhir) (man ../../man))
+(files
+ (lib (META dune-package))
+ (bin (menhir))
+ (doc
+  (LICENSE manual.html manual.pdf manual001.png manual002.png manual003.png))
+ (man (man1/menhir.1)))

@@ -26,8 +26,8 @@ import (
 
 // grpcKVStore adapts the gRPC KV client to the KVStore interface.
 type grpcKVStore struct {
-	client proto.KVServiceClient
-	conn   *grpc.Client
+    client proto.KVServiceClient
+    conn   *grpc.Client
 }
 
 var _ KVStore = (*grpcKVStore)(nil) // Ensure grpcKVStore implements KVStore
@@ -42,9 +42,15 @@ func (g *grpcKVStore) Get(ctx context.Context, key string) (value []byte, found 
 }
 
 func (g *grpcKVStore) Put(ctx context.Context, key string, value []byte, ttl time.Duration) error {
-	_, err := g.client.Put(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
+    _, err := g.client.Put(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
 
-	return err
+    return err
+}
+
+// PutIfAbsent is available when KV server supports it; falls back to error if unimplemented.
+func (g *grpcKVStore) PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+    _, err := g.client.PutIfAbsent(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
+    return err
 }
 
 func (g *grpcKVStore) Delete(ctx context.Context, key string) error {

@@ -74,7 +74,8 @@ pub struct Config {
 impl Config {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(&path).context("Failed to read config file")?;
-        let config: Config = serde_json::from_str(&content).context("Failed to parse config file")?;
+        let config: Config =
+            serde_json::from_str(&content).context("Failed to parse config file")?;
         config.validate()?;
         Ok(config)
     }
@@ -87,7 +88,11 @@ impl Config {
             anyhow::bail!("poll_interval must be at least 10 seconds");
         }
         if let Some(security) = &self.security {
-            if security.tls_enabled && (security.cert_file.is_none() || security.key_file.is_none() || security.ca_file.is_none()) {
+            if security.tls_enabled
+                && (security.cert_file.is_none()
+                    || security.key_file.is_none()
+                    || security.ca_file.is_none())
+            {
                 anyhow::bail!("TLS requires cert_file, key_file, and ca_file");
             }
         }

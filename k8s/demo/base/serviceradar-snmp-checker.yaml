@@ -15,17 +15,33 @@ spec:
     spec:
       imagePullSecrets:
         - name: ghcr-io-cred
+      initContainers:
+        - name: init-checkers
+          image: busybox:1.36
+          imagePullPolicy: Always
+          command: ['sh', '-c', 'mkdir -p /etc/serviceradar/checkers && cp /config/snmp.json /etc/serviceradar/checkers/snmp.json']
+          volumeMounts:
+            - name: serviceradar-config
+              mountPath: /config
+            - name: checkers-dir
+              mountPath: /etc/serviceradar/checkers
       containers:
       - name: snmp-checker
-        image: ghcr.io/carverauto/serviceradar/serviceradar-snmp-checker:latest
+        image: ghcr.io/carverauto/serviceradar-snmp-checker:latest
+        imagePullPolicy: Always
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: checkers-dir
+          mountPath: /etc/serviceradar/checkers
         env:
         - name: SERVICERADAR_CONFIG_PATH
-          value: "/etc/serviceradar/snmp-checker.json"
+          value: "/etc/serviceradar/snmp.json"
         - name: SERVICERADAR_CLOUD_ADDR
-          value: "serviceradar-cloud:50051"
+          value: "serviceradar-core:50052"
         - name: SERVICERADAR_NODE_ID
           valueFrom:
             fieldRef:
@@ -41,3 +57,8 @@ spec:
       - name: serviceradar-config
         configMap:
           name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: checkers-dir
+        emptyDir: {}

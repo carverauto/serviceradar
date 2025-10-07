@@ -85,6 +85,7 @@ message PollerStatusRequest {
   int64 timestamp = 4;
   string partition = 5; // Partition identifier (REQUIRED)
   string source_ip = 6; // Host IP where poller/agent is running (REQUIRED)
+  string kv_store_id = 7; // KV store identifier this service is using
 }
 
 message PollerStatusResponse {
@@ -101,6 +102,7 @@ message ServiceStatus {
   string poller_id = 7;     // Poller ID for traceability
   string partition = 8; // Partition identifier
   string source = 9;      // Source of the message: "status" or "results"
+  string kv_store_id = 10; // KV store identifier this service is using
 }
 
 message SweepServiceStatus {
@@ -151,4 +153,5 @@ message PollerStatusChunk {
   bool is_final = 7;           // Whether this is the last chunk
   int32 chunk_index = 8;       // Order of this chunk
   int32 total_chunks = 9;      // Total number of chunks
+  string kv_store_id = 10;     // KV store identifier this service is using
 }

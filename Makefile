@@ -14,13 +14,38 @@
 
 # Go configuration
 GO ?= go
+GOCACHE ?= $(CURDIR)/.gocache
+GOMODCACHE ?= $(CURDIR)/.gomodcache
+export GOCACHE
+export GOMODCACHE
 GOBIN ?= $$($(GO) env GOPATH)/bin
-GOLANGCI_LINT ?= $(GOBIN)/golangci-lint
-GOLANGCI_LINT_VERSION ?= v2.0.2
+GOLANGCI_LINT ?= golangci-lint
+GOLANGCI_LINT_VERSION ?= v2.4.0
 
 # Rust configuration
 CARGO ?= cargo
 RUSTFMT ?= rustfmt
+
+# OCaml configuration
+OPAM ?= opam
+DUNE ?= dune
+DUNE_ROOT ?= --root ocaml
+
+# Set up Rust environment - use original user's paths when running with sudo
+ifdef SUDO_USER
+	# Use dscl on macOS, getent on Linux
+	UNAME_S := $(shell uname -s)
+	ifeq ($(UNAME_S),Darwin)
+		ORIGINAL_HOME := $(shell dscl . -read /Users/$(SUDO_USER) NFSHomeDirectory | awk '{print $$2}')
+	else
+		ORIGINAL_HOME := $(shell getent passwd $(SUDO_USER) | cut -d: -f6)
+	endif
+	RUSTUP_HOME ?= $(ORIGINAL_HOME)/.rustup
+	CARGO_HOME ?= $(ORIGINAL_HOME)/.cargo
+else
+	RUSTUP_HOME ?= $(HOME)/.rustup
+	CARGO_HOME ?= $(HOME)/.cargo
+endif
 
 RPERF_CLIENT_BUILD_DIR ?= cmd/checkers/rperf-client/target/release
 RPERF_CLIENT_BIN ?= serviceradar-rperf-checker
@@ -66,20 +91,50 @@ tidy: ## Tidy and format Go code
 
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
-	@echo "$(COLOR_BOLD)Installing golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"
-	@test -f $(GOLANGCI_LINT) || curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$($(GO) env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
+	@echo "$(COLOR_BOLD)Checking golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"
+	@which $(GOLANGCI_LINT) > /dev/null || (echo "golangci-lint not found, please install it" && exit 1)
 
 .PHONY: lint
 lint: get-golangcilint ## Run linting checks
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
 	@$(GOLANGCI_LINT) run ./...
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
-	@cd cmd/checkers/rperf-client && $(CARGO) clippy -- -D warnings
-	@cd cmd/checkers/sysmon && $(CARGO) clippy -- -D warnings
-	@cd cmd/trapd && $(CARGO) clippy -- -D warnings
-	@cd cmd/consumers/zen && $(CARGO) clippy -- -D warnings
-	@cd cmd/otel && $(CARGO) clippy -- -D warnings
-	@cd cmd/flowgger && $(CARGO) clippy -- -D warnings
+	@cd cmd/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd cmd/checkers/sysmon && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd cmd/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd cmd/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd cmd/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd cmd/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@echo "$(COLOR_BOLD)Running OCaml linters$(COLOR_RESET)"
+	@$(MAKE) lint-ocaml
+
+# OCaml lint targets
+.PHONY: lint-ocaml
+lint-ocaml: lint-ocaml-fmt lint-ocaml-opam lint-ocaml-doc ## Run all OCaml linting checks
+	@echo "✅ All OCaml lint checks passed!"
+
+.PHONY: lint-ocaml-fmt
+lint-ocaml-fmt: ## Check OCaml code formatting
+	@echo "🔍 Checking OCaml code formatting..."
+	@$(OPAM) list ocamlformat > /dev/null 2>&1 || (echo "Installing ocamlformat..." && $(OPAM) install ocamlformat -y)
+	@$(OPAM) exec -- $(DUNE) build $(DUNE_ROOT) @fmt
+
+.PHONY: lint-ocaml-opam
+lint-ocaml-opam: ## Check opam files
+	@echo "🔍 Checking opam files..."
+	@if [ -f ./proton.opam ]; then $(OPAM) exec -- $(OPAM) lint ./proton.opam; fi
+
+.PHONY: lint-ocaml-doc
+lint-ocaml-doc: ## Check OCaml documentation
+	@echo "🔍 Checking OCaml documentation..."
+	@$(OPAM) exec -- $(DUNE) build $(DUNE_ROOT) @doc
+
+.PHONY: lint-ocaml-fix
+lint-ocaml-fix: ## Auto-fix OCaml formatting issues
+	@echo "🔧 Auto-fixing OCaml formatting issues..."
+	@$(OPAM) list ocamlformat > /dev/null 2>&1 || (echo "Installing ocamlformat..." && $(OPAM) install ocamlformat -y)
+	@$(OPAM) exec -- $(DUNE) build $(DUNE_ROOT) @fmt --auto-promote
+	@echo "✅ OCaml formatting issues fixed!"
 
 .PHONY: test
 test: ## Run all tests with coverage
@@ -88,13 +143,45 @@ test: ## Run all tests with coverage
 	@echo "$(COLOR_BOLD)Running Go long tests$(COLOR_RESET)"
 	@$(GO) test -timeout=10s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
-	@cd cmd/checkers/rperf-client && $(CARGO) test
-	@cd cmd/checkers/sysmon && $(CARGO) test
-	@cd cmd/trapd && $(CARGO) test
-	@cd cmd/consumers/zen && $(CARGO) test
-	@cd cmd/otel && $(CARGO) test
-	@cd cmd/flowgger && $(CARGO) test
-	
+	@cd cmd/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd cmd/checkers/sysmon && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd cmd/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd cmd/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd cmd/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd cmd/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@$(MAKE) --no-print-directory test-ocaml
+
+# OCaml test targets
+.PHONY: test-ocaml
+test-ocaml: ## Run OCaml tests
+	@echo "$(COLOR_BOLD)Running OCaml tests$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) test $(DUNE_ROOT)
+
+.PHONY: test-ocaml-silent
+test-ocaml-silent: ## Run OCaml tests silently (only shows failures)
+	@$(OPAM) exec -- $(DUNE) test $(DUNE_ROOT)
+
+.PHONY: test-ocaml-verbose
+test-ocaml-verbose: ## Run OCaml tests with verbose output
+	@$(OPAM) exec -- $(DUNE) test --verbose $(DUNE_ROOT)
+
+.PHONY: bench-ocaml-readers
+bench-ocaml-readers: ## Run OCaml reader micro-benchmarks
+	@echo "$(COLOR_BOLD)Running OCaml reader micro-benchmarks (ONLY_READER_MICRO=1)$(COLOR_RESET)"
+	@ONLY_READER_MICRO=1 $(OPAM) exec -- $(DUNE) exec benchmark/benchmark_main.exe
+
+.PHONY: livetest-ocaml
+livetest-ocaml: ## Run OCaml live tests against real Proton database
+	@echo "$(COLOR_BOLD)Running OCaml live tests against Proton database$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) build @livetest
+
+.PHONY: e2e-ocaml
+e2e-ocaml: livetest-ocaml ## Run OCaml end-to-end tests (alias for livetest-ocaml)
+
+.PHONY: test-live-ocaml
+test-live-ocaml: ## Run OCaml live test executable directly
+	@$(OPAM) exec -- $(DUNE) exec test_live/test_live.exe
+
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
 	@echo "$(COLOR_BOLD)Checking test coverage$(COLOR_RESET)"
@@ -113,10 +200,6 @@ release: ## Create and push a new release
 	@git tag -a $(NEXT_VERSION) -m "Release $(NEXT_VERSION)"
 	@git push origin $(NEXT_VERSION)
 
-.PHONY: test-release
-test-release: ## Test release locally using goreleaser
-	@echo "$(COLOR_BOLD)Testing release locally$(COLOR_RESET)"
-	@goreleaser release --snapshot --clean --skip-publish
 
 .PHONY: version
 version: ## Show current and next version
@@ -135,6 +218,8 @@ clean: ## Clean up build artifacts
 	@cd cmd/consumers/zen && $(CARGO) clean
 	@cd cmd/otel && $(CARGO) clean
 	@cd cmd/flowgger && $(CARGO) clean
+	@echo "$(COLOR_BOLD)Cleaning OCaml build artifacts$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) clean
 
 .PHONY: generate-proto
 generate-proto: ## Generate Go and Rust code from protobuf definitions
@@ -188,6 +273,12 @@ build: generate-proto ## Build all binaries
 	@cp cmd/consumers/zen/target/release/zen-consumer bin/serviceradar-zen-consumer
 	@cp cmd/otel/target/release/serviceradar-otel bin/serviceradar-otel
 	@cp cmd/flowgger/target/release/flowgger bin/serviceradar-flowgger
+
+# OCaml build targets
+.PHONY: build-ocaml
+build-ocaml: ## Build OCaml libraries
+	@echo "$(COLOR_BOLD)Building OCaml libraries$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) build @all
 
 .PHONY: kodata-prep
 kodata-prep: build-web ## Prepare kodata directories
@@ -384,9 +475,11 @@ docs-setup: ## Initial setup for Docusaurus development
 .PHONY: build-web
 build-web: ## Build the Next.js web interface
 	@echo "$(COLOR_BOLD)Building Next.js web interface$(COLOR_RESET)"
-	@cd web && npm install && npm run build
-	@mkdir -p pkg/core/api/web
-	@cp -r web/.next pkg/core/api/web/
+	@NEXT_PUBLIC_VERSION=$(VERSION) ./tools/bazel/bazel build //pkg/core/api/web:files
+	@BAZEL_BIN=$$(./tools/bazel/bazel info bazel-bin) && \
+		rm -rf pkg/core/api/web/.next && \
+		mkdir -p pkg/core/api/web/.next && \
+		cp -R $$BAZEL_BIN/pkg/core/api/web/.next/. pkg/core/api/web/.next/
 
 # RPerf plugin specific targets
 .PHONY: build-rperf-checker
@@ -426,6 +519,47 @@ build-sysmon: generate-proto ## Build only the sysmon checker
 run-sysmon: build-sysmon ## Run the sysmon checker
 	@echo "$(COLOR_BOLD)Running sysmon checker$(COLOR_RESET)"
 	@./bin/serviceradar-sysmon $(ARGS)
+
+# OCaml development targets
+.PHONY: format-ocaml
+format-ocaml: ## Format OCaml code
+	@echo "$(COLOR_BOLD)Formatting OCaml code$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) build @fmt --auto-promote
+
+.PHONY: check-format-ocaml
+check-format-ocaml: ## Check OCaml code formatting
+	@echo "$(COLOR_BOLD)Checking OCaml code formatting$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) build @fmt
+
+.PHONY: watch-ocaml
+watch-ocaml: ## OCaml development watch mode - rebuilds on file changes
+	@echo "$(COLOR_BOLD)Starting OCaml watch mode$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) build @all --watch
+
+.PHONY: test-watch-ocaml
+test-watch-ocaml: ## Run OCaml tests in watch mode
+	@echo "$(COLOR_BOLD)Starting OCaml test watch mode$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) test --watch
+
+.PHONY: doc-ocaml
+doc-ocaml: ## Build OCaml documentation
+	@echo "$(COLOR_BOLD)Building OCaml documentation$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) build @doc
+
+.PHONY: install-ocaml
+install-ocaml: ## Install OCaml library locally
+	@echo "$(COLOR_BOLD)Installing OCaml library locally$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) install
+
+.PHONY: example-ocaml
+example-ocaml: ## Run OCaml example query
+	@echo "$(COLOR_BOLD)Running OCaml example query$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) exec examples/query
+
+.PHONY: compression-example-ocaml
+compression-example-ocaml: ## Run OCaml compression example
+	@echo "$(COLOR_BOLD)Running OCaml compression example$(COLOR_RESET)"
+	@$(OPAM) exec -- $(DUNE) exec examples/compression_example
 
 # Default target
 .DEFAULT_GOAL := help

@@ -2,284 +2,123 @@
 
 ## Overview
 
-ServiceRadar Query Language (SRQL) is a domain-specific query language designed for network monitoring and analysis. It provides an intuitive, SQL-like syntax for querying network entities including devices, flows, traps, connections, and various metrics.
+ServiceRadar Query Language (SRQL) now uses a key:value syntax that is parsed and executed by the OCaml-based SRQL engine (`ocaml/srql`). The engine plans queries against our OCSF-aligned streaming schema defined in `pkg/db/migrations`, translates them to Proton or ClickHouse SQL, and returns consistently shaped results. SRQL keeps its readable style while gaining better alignment with the Open Cybersecurity Schema Framework (OCSF) entities that underpin ServiceRadar.
 
-## Entity Types
+Use SRQL to:
+- Select one or more OCSF data domains with `in:<entity>`
+- Filter using key:value pairs and nested attribute groups
+- Control result shape with sorting, limiting, aggregation statistics, and windowing
+- Switch between point-in-time results and streaming updates
 
-SRQL supports querying the following entity types:
+## Target Entities and OCSF Alignment
 
-### Core Network Entities
-- **devices** - Network devices (routers, switches, servers, etc.)
-- **flows** - Network flow records
-- **traps** - SNMP trap records
-- **connections** - Network connections
-- **logs** - System and application logs
-- **services** - Network services
-- **interfaces** - Network interfaces
-- **pollers** - Polling agents
+Target data with the `in:` selector. Each logical entity routes to one or more OCSF tables or streams introduced in the `00000000000002_*` through `00000000000005_*` migrations.
 
-### Stream Entities
-- **device_updates** - Real-time device state changes
-- **icmp_results** - ICMP ping test results
-- **snmp_results** - SNMP polling results
-- **events** - System events
+| SRQL Entity | Description | Primary OCSF Source |
+|-------------|-------------|---------------------|
+| `in:devices` | Device inventory and current state (includes discovery metadata and observables) | `ocsf_device_inventory`, `ocsf_devices_current` |
+| `in:activity` | Normalized activity & network telemetry. Alias for `events` and maps to connection/flow classes. | `ocsf_network_activity`, `ocsf_system_activity` |
+| `in:flows` | Flow-level telemetry aligned to OCSF network activity class 4001 | `ocsf_network_activity` |
+| `in:connections` | Connection state and summaries with endpoint metadata | `connections`, `ocsf_network_activity` |
+| `in:services` | Observed network/application services and their availability | `services` materialized view |
+| `in:interfaces` | Discovered interfaces with OCSF endpoint metadata | `discovered_interfaces` |
+| `in:logs` | Application and system logs normalized to OCSF logging classes | `logs`, `ocsf_system_activity` |
+| `in:pollers` | Poller/agent operational telemetry | `pollers` |
+| `in:cpu_metrics` / `in:disk_metrics` / `in:memory_metrics` / `in:process_metrics` / `in:snmp_metrics` | Time-series metrics aligned with OCSF telemetry categories | `cpu_metrics`, `disk_metrics`, `memory_metrics`, `process_metrics`, `timeseries_metrics` |
+| `in:otel_traces` | OpenTelemetry spans & summaries | `otel_trace_summaries_final`, `otel_spans_enriched` |
 
-### Metrics Entities
-- **cpu_metrics** - CPU utilization metrics
-- **disk_metrics** - Disk usage metrics
-- **memory_metrics** - Memory utilization metrics
-- **process_metrics** - Process-level metrics
-- **snmp_metrics** - SNMP-based metrics
+`in:` accepts comma-separated targets (e.g. `in:devices,services`). SRQL resolves friendly field names to the correct OCSF column names using the entity mapping in `ocaml/srql/lib/entity_mapping.ml`; for example `device.os.name` maps to `device_os_name` and `boundary` is normalized to `partition`.
 
-## Query Types
+The migrations in `00000000000003_ocsf_entity_state_streams.up.sql` and `00000000000005_ocsf_materialized_views.up.sql` also provision current-state streams for users, vulnerabilities, and other OCSF classes. As those entities are surfaced through SRQL aliases they inherit the same key:value syntax described below—no query changes are required beyond swapping the `in:` target.
 
-### 1. SHOW Statement
-Displays all fields from specified entities with optional filtering.
+## Filters and Field References
 
-**Syntax:**
+### Key:Value Filters
+- Basic comparisons use `field:value`, e.g. `hostname:%cam%` or `severity_id:2`.
+- Values are case-sensitive unless the underlying column is normalized. Use quotes for values with spaces: `device.location:"Building A"`.
+- SRQL maps lists with commas to SQL `IN`/`NOT IN`: `device_type_id:(1,7)`.
+
+### Nested Attributes
+Wrap a nested group in parentheses to drill into OCSF objects:
 ```
-SHOW <entity> [WHERE <condition>] [ORDER BY <field> [ASC|DESC]] [LIMIT <number>] [LATEST]
-SHOW <function>(<args>) FROM <entity> [WHERE <condition>] [ORDER BY <field> [ASC|DESC]] [LIMIT <number>] [LATEST]
+in:activity connection:(src_endpoint_ip:10.0.0.% dst_endpoint_port:(22,2222))
 ```
+Nested keys concatenate with dots internally (`connection.src_endpoint_ip`).
 
-**Examples:**
-```sql
-SHOW devices
-SHOW devices WHERE ip = '192.168.1.1'
-SHOW devices WHERE os CONTAINS 'Linux' ORDER BY hostname ASC LIMIT 10
-SHOW DISTINCT(service_name) FROM services WHERE port = 80
-SHOW devices WHERE traps.severity = 'critical' LATEST
+### Arrays and Observables
+- Repeating the same key expresses “contains all” semantics for arrays:
+  `discovery_sources:(sweep) discovery_sources:(armis)`.
+- Use observable shortcuts created in the migrations: `observable:ip` scans across `observables_ip` collections. Combine with `value:` to match against a specific observable value.
+
+### Negation and Wildcards
+- Prefix a key with `!` to invert it: `!device.status:deleted`, `!hostname:%test%`.
+- `%` acts as a wildcard for string comparisons and emits `LIKE`/`NOT LIKE` SQL as appropriate.
+
+## Time Scoping
+
+Control temporal filters with `time:` or `timeFrame:` keys.
+- Relative windows: `time:last_24h`, `time:last_7d`, `time:last_30m`.
+- Human phrases convert automatically: `timeFrame:"7 Days"` → `time:last_7d`.
+- Absolute ranges: `time:[2024-06-01T00:00:00Z,2024-06-02T00:00:00Z]`. Leave one side blank to create open-ended ranges.
+- Shortcuts `time:today` and `time:yesterday` apply date equality on the entity’s timestamp field (see `entity_mapping.ml`).
+
+If no time filter is supplied, the engine injects the default window configured by the API (commonly the last 24 hours).
+
+## Sorting, Limiting, and Result Shape
+
+- `limit:<n>` caps the number of rows returned.
+- `sort:field[:direction]` applies ordering. Specify multiple sort keys separated by commas: `sort:time:desc,traffic_bytes_out`.
+- `stream:true` or `mode:stream` returns a streaming cursor when the backend supports it.
+
+## Aggregations, Windows, and Having
+
+SRQL supports lightweight analytics without writing raw SQL:
+- `stats:"count() by device.type_id"` emits `SELECT count() ... GROUP BY device_type_id`.
+- `window:5m` buckets results when paired with `stats` to create tumbling window aggregations.
+- `having:"count()>10"` filters aggregated results after grouping.
+
+Use these constructs together:
 ```
-
-### 2. FIND Statement
-Similar to SHOW but optimized for search operations.
-
-**Syntax:**
+in:activity time:last_24h stats:"count() as total_flows by connection.src_endpoint_ip" sort:total_flows:desc having:"total_flows>100" limit:20
 ```
-FIND <entity> [WHERE <condition>] [ORDER BY <field> [ASC|DESC]] [LIMIT <number>] [LATEST]
-```
+The planner converts aggregations into valid Proton SQL, handling `count_distinct`, percentile helpers (`p95(bytes)`), and alias propagation.
 
-**Examples:**
-```sql
-FIND flows WHERE bytes > 1000000
-FIND devices WHERE os CONTAINS 'Windows' AND ip BETWEEN '192.168.1.1' AND '192.168.1.255'
-FIND traps WHERE severity IN ('critical', 'high') ORDER BY timestamp DESC LIMIT 20
-```
+## Streaming Queries
 
-### 3. COUNT Statement
-Returns the count of matching records.
+Set `stream:true` to subscribe to entity streams such as `ocsf_network_activity`. Combine with `window` for sliding analytics or leave `window` unset for raw event feed semantics. `stats` + `stream:true` produces continuously updating grouped results with the backend’s incremental materialized view engine.
 
-**Syntax:**
-```
-COUNT <entity> [WHERE <condition>]
-```
+## Example Queries
 
-**Examples:**
-```sql
-COUNT devices
-COUNT flows WHERE dst_port = 443
-COUNT traps WHERE severity = 'critical' AND timestamp > '2024-01-01 00:00:00'
-```
+- Devices discovered by multiple sources in the past week:
+  `in:devices discovery_sources:(sweep) discovery_sources:(armis) time:last_7d sort:last_seen:desc`
 
-### 4. STREAM Statement
-Advanced streaming queries with joins, windows, and aggregations.
+- High-volume web activity from a private network block:
+  `in:activity time:last_24h src_endpoint_ip:10.0.% dst_endpoint_port:(80,443) stats:"sum(traffic_bytes_out) as bytes_out by src_endpoint_ip" window:1h sort:bytes_out:desc having:"bytes_out>100000000"`
 
-**Syntax:**
-```
-STREAM [<select_list>]
-FROM <data_source> [<join_clauses>]
-[WHERE <condition>]
-[GROUP BY <field_list>]
-[HAVING <condition>]
-[ORDER BY <field_list>]
-[LIMIT <number>]
-[EMIT <emit_clause>]
-```
+- Detect devices with elevated CPU usage during the last hour:
+  `in:cpu_metrics time:last_1h stats:"avg(usage_percent) as avg_cpu by device_id" having:"avg_cpu>85" sort:avg_cpu:desc`
 
-**Examples:**
-```sql
-STREAM device_id, COUNT(*) 
-FROM flows 
-WHERE dst_port = 80 
-GROUP BY device_id 
-EMIT PERIODIC 5M
+- Track SSH or SFTP services discovered in the last two weeks:
+  `in:services service_type:(ssh,sftp) timeFrame:"14 Days" sort:timestamp:desc`
 
-STREAM * 
-FROM TUMBLE(flows, event_time, 1H) 
-WHERE bytes > 1000000
-```
-
-## Conditions and Operators
-
-### Comparison Operators
-- `=` or `==` - Equals
-- `!=` or `<>` - Not equals
-- `>` - Greater than
-- `>=` - Greater than or equal
-- `<` - Less than
-- `<=` - Less than or equal
-- `LIKE` - Pattern matching (SQL-style)
-
-### Special Operators
-- `CONTAINS` - String contains (case-insensitive)
-- `IN` - Value in list
-- `BETWEEN` - Value within range
-- `IS NULL` / `IS NOT NULL` - Null checks
-
-### Logical Operators
-- `AND` - Logical AND
-- `OR` - Logical OR
-- Parentheses `()` for grouping conditions
-
-### Value Types
-- **String**: `'single quotes'` or `"double quotes"`
-- **Integer**: `123`, `1000000`
-- **Float**: `123.45`, `0.99`
-- **Boolean**: `TRUE`, `FALSE`
-- **Timestamp**: `'2024-01-01 12:00:00'`
-- **IP Address**: `192.168.1.1`
-- **MAC Address**: `00:11:22:33:44:55`
-- **Special**: `TODAY`, `YESTERDAY`
-
-## Field References
-
-Fields can be referenced in several ways:
-
-### Simple Fields
-```sql
-WHERE hostname = 'server01'
-WHERE bytes > 1000000
-```
-
-### Dotted Fields (Entity.Field)
-```sql
-WHERE devices.os CONTAINS 'Linux'
-WHERE flows.dst_port = 443
-```
-
-### Nested Fields (Entity.Field.Subfield)
-```sql
-WHERE devices.interface.speed > 1000000000
-WHERE traps.severity.level = 'critical'
-```
-
-## Functions
-
-### Aggregate Functions
-- `COUNT(*)` - Count all records
-- `COUNT(field)` - Count non-null values
-- `DISTINCT(field)` - Get unique values
-
-### Window Functions (for STREAM queries)
-- `TUMBLE(entity, time_field, duration)` - Tumbling window
-- `HOP(entity, time_field, size, advance)` - Hopping window
-
-## Advanced Features
-
-### Time Windows (STREAM only)
-```sql
--- 1-hour tumbling windows
-FROM TUMBLE(flows, event_time, 1H)
-
--- 5-minute hopping windows, advancing every 1 minute
-FROM HOP(flows, event_time, 5M, 1M)
-```
-
-### Joins (STREAM only)
-```sql
-STREAM d.hostname, f.bytes
-FROM devices d
-JOIN flows f ON d.device_id = f.device_id
-WHERE f.dst_port = 80
-```
-
-### Emit Clauses (STREAM only)
-```sql
--- Emit after window closes
-EMIT AFTER WINDOW CLOSE
-
--- Emit after window closes with delay
-EMIT AFTER WINDOW CLOSE WITH DELAY 30S
-
--- Emit periodically
-EMIT PERIODIC 1M
-```
-
-### Time Units
-- `S` - Seconds
-- `M` - Minutes  
-- `H` - Hours
-- `D` - Days
-
-## Common Query Patterns
-
-### Device Discovery
-```sql
--- Find all Windows devices
-FIND devices WHERE os CONTAINS 'Windows'
-
--- Get device count by OS
-STREAM os, COUNT(*) FROM devices GROUP BY os
-
--- Find devices with critical traps
-SHOW devices WHERE traps.severity = 'critical'
-```
-
-### Network Flow Analysis
-```sql
--- High bandwidth flows
-FIND flows WHERE bytes > 10000000 ORDER BY bytes DESC LIMIT 10
-
--- Web traffic analysis
-COUNT flows WHERE dst_port IN (80, 443, 8080, 8443)
-
--- Top talkers in last hour
-STREAM src_ip, SUM(bytes) 
-FROM TUMBLE(flows, event_time, 1H) 
-GROUP BY src_ip 
-ORDER BY SUM(bytes) DESC 
-LIMIT 10
-```
-
-### Security Monitoring
-```sql
--- Critical alerts
-FIND traps WHERE severity = 'critical' AND timestamp > TODAY
-
--- Failed connections
-SHOW connections WHERE status = 'failed' ORDER BY timestamp DESC
-
--- Unusual port activity
-FIND flows WHERE dst_port NOT IN (80, 443, 22, 53) AND bytes > 1000000
-```
-
-### Performance Monitoring
-```sql
--- High CPU usage
-FIND cpu_metrics WHERE utilization > 90 ORDER BY timestamp DESC
-
--- Disk space alerts
-SHOW disk_metrics WHERE free_space_percent < 10
-
--- Memory pressure
-COUNT memory_metrics WHERE available_mb < 1000
-```
+- OpenTelemetry traces exceeding latency SLO:
+  `in:otel_traces service.name:"serviceradar-poller" stats:"p95(duration_ms) as p95_latency by service.name" window:5m having:"p95_latency>1000"`
 
 ## Best Practices
 
-1. **Use LATEST modifier** for real-time queries on frequently updated entities
-2. **Limit result sets** with LIMIT clause for performance
-3. **Use specific conditions** to reduce query scope
-4. **Index commonly queried fields** in your backend database
-5. **Use STREAM queries** for real-time analytics and monitoring
-6. **Group related conditions** with parentheses for clarity
+- Anchor every query with `in:` and an explicit `time` window to constrain scans.
+- Prefer SRQL field aliases (e.g. `device.os.name`, `connection.dst_endpoint_ip`) over raw column names; the engine keeps them aligned with the OCSF migrations.
+- Use repeated keys for array containment checks and comma lists for scalar `IN` comparisons.
+- Inspect new OCSF columns in `pkg/db/migrations` before adding filters so names stay consistent with upstream schema revisions.
+- Validate complex queries with the `srql.validate` MCP tool or the SRQL CLI under `ocaml/srql/bin`.
 
 ## Error Handling
 
-Common syntax errors and solutions:
+Common issues and suggested fixes:
+- **Unknown field** – The key cannot be mapped via `entity_mapping`. Check the OCSF migration files or use the CLI’s schema inspection.
+- **Missing target entity** – Add `in:<entity>` to specify which OCSF domain to query.
+- **Invalid time range** – Ensure `time:` ranges are well-formed (`last_<number><unit>` or `[start,end]`).
+- **Aggregation conflicts** – When using `stats`, ensure grouped fields appear inside the `by` clause and reference aliases correctly in `having`.
+- **Unsupported negation form** – Negation applies to the key (`!key:value`) rather than the value (`key:!value`).
 
-- **Unrecognized entity**: Ensure entity name matches supported types
-- **Invalid field reference**: Check field exists for the specified entity
-- **Type mismatch**: Ensure value types match field expectations
-- **Missing quotes**: String values must be quoted
-- **Invalid timestamp format**: Use 'YYYY-MM-DD HH:MM:SS' format
+SRQL is designed to evolve with the OCSF schema. As additional migrations add classes or fields, extend your queries by following the same key:value conventions and the alignment guidance above.

@@ -375,6 +375,7 @@ type SubcommandHandler interface {
 // UpdateConfigHandler handles flags for the update-config subcommand.
 type UpdateConfigHandler struct{}
 
+// Parse processes the command-line arguments for the update-config subcommand.
 func (UpdateConfigHandler) Parse(args []string, cfg *CmdConfig) error {
 	fs := flag.NewFlagSet("update-config", flag.ExitOnError)
 	configFile := fs.String("file", "", "path to core.json config file")
@@ -395,6 +396,7 @@ func (UpdateConfigHandler) Parse(args []string, cfg *CmdConfig) error {
 // UpdatePollerHandler handles flags for the update-poller subcommand
 type UpdatePollerHandler struct{}
 
+// Parse processes the command-line arguments for the update-poller subcommand.
 func (UpdatePollerHandler) Parse(args []string, cfg *CmdConfig) error {
 	fs := flag.NewFlagSet("update-poller", flag.ExitOnError)
 	pollerFile := fs.String("file", "", "path to poller.json config file")
@@ -423,6 +425,7 @@ func (UpdatePollerHandler) Parse(args []string, cfg *CmdConfig) error {
 // GenerateTLSHandler handles flags for the generate-tls subcommand
 type GenerateTLSHandler struct{}
 
+// Parse processes the command-line arguments for the generate-tls subcommand.
 func (GenerateTLSHandler) Parse(args []string, cfg *CmdConfig) error {
 	fs := flag.NewFlagSet("generate-tls", flag.ExitOnError)
 	ips := fs.String("ip", "", "IP addresses for the certificates (comma-separated)")
@@ -466,11 +469,13 @@ func ParseFlags() (*CmdConfig, error) {
 	}
 
 	// Define subcommands and their handlers
-	subcommands := map[string]SubcommandHandler{
-		"update-config": UpdateConfigHandler{},
-		"update-poller": UpdatePollerHandler{},
-		"generate-tls":  GenerateTLSHandler{},
-	}
+    subcommands := map[string]SubcommandHandler{
+        "update-config": UpdateConfigHandler{},
+        "update-poller": UpdatePollerHandler{},
+        "generate-tls":  GenerateTLSHandler{},
+        "render-kong":   RenderKongHandler{},
+        "generate-jwt-keys": GenerateJWTKeysHandler{},
+    }
 
 	// Parse subcommand flags if present
 	if handler, exists := subcommands[cfg.SubCmd]; exists {
@@ -624,7 +629,17 @@ func RunUpdateConfig(configFile, adminHash, dbPasswordFile string) error {
 
 // RunGenerateTLS handles the generate-tls subcommand.
 func RunGenerateTLS(cfg *CmdConfig) error {
-	return GenerateTLSCerts(cfg)
+    return GenerateTLSCerts(cfg)
+}
+
+// RunRenderKong handles the render-kong subcommand.
+func RunRenderKongCmd(cfg *CmdConfig) error { // distinct name to avoid collision
+    return RunRenderKong(cfg)
+}
+
+// RunGenerateJWTKeys handles the generate-jwt-keys subcommand.
+func RunGenerateJWTKeysCmd(cfg *CmdConfig) error { // distinct name to avoid collision
+    return RunGenerateJWTKeys(cfg)
 }
 
 // RunBcryptNonInteractive handles non-interactive bcrypt generation.
@@ -669,6 +684,7 @@ func getPasswordInput(args []string) (string, error) {
 	return "", nil
 }
 
+// IsInputFromTerminal determines if input is coming from a terminal or being piped/redirected.
 func IsInputFromTerminal() bool {
 	fileInfo, _ := os.Stdin.Stat()
 

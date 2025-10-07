@@ -21,11 +21,17 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+var (
+	// ErrSYNScanNotSupported is returned when SYN scanning is attempted on non-Linux platforms
+	ErrSYNScanNotSupported = errors.New("SYN scanning is only supported on Linux")
 )
 
 // SYNScanner is a stub implementation for non-Linux platforms
@@ -55,21 +61,25 @@ type SYNScannerOptions struct {
 	// GlobalRingMemoryMB is the total memory cap (in MB) for all ring buffers
 	// (not used in stub but kept for API compatibility)
 	GlobalRingMemoryMB int
+
+	// Ring tuning (not used in stub but kept for API compatibility)
+	RingReaders       int
+	RingPollTimeoutMs int
 }
 
 var _ Scanner = (*SYNScanner)(nil)
 
 // NewSYNScanner creates a new SYN scanner stub that returns an error on non-Linux platforms
 func NewSYNScanner(_ time.Duration, _ int, _ logger.Logger, _ *SYNScannerOptions) (*SYNScanner, error) {
-	return nil, fmt.Errorf("SYN scanning is only supported on Linux")
+	return nil, fmt.Errorf("%w", ErrSYNScanNotSupported)
 }
 
 // Scan returns an error indicating SYN scanning is not supported on this platform
 func (*SYNScanner) Scan(_ context.Context, _ []models.Target) (<-chan models.Result, error) {
-	return nil, fmt.Errorf("SYN scanning is only supported on Linux")
+	return nil, fmt.Errorf("%w", ErrSYNScanNotSupported)
 }
 
 // Stop returns an error indicating SYN scanning is not supported on this platform
 func (*SYNScanner) Stop() error {
-	return fmt.Errorf("SYN scanning is only supported on Linux")
+	return fmt.Errorf("%w", ErrSYNScanNotSupported)
 }

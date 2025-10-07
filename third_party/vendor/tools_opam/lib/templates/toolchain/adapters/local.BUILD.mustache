@@ -1,0 +1,89 @@
+# generated file - DO NOT EDIT
+
+exports_files(["BUILD.bazel"])
+
+load("@rules_ocaml//toolchain:BUILD.bzl", "ocaml_toolchain_adapter")
+
+########################
+ocaml_toolchain_adapter(
+    name                   = "syssys",
+    host                   = "sys",
+    target                 = "sys",
+    repl                   = "//bin:ocaml",
+    compiler               = "//bin:ocamlopt.opt",
+    version                = COMPILER_VERSION,
+    profiling_compiler     = "//bin:ocamloptp",
+    ocamllex               = "//bin:ocamllex.opt",
+    ocamlyacc              = "//bin:ocamlyacc",
+    linkmode               = "dynamic",
+    # stdlib                 = "//runtime:stdlib.cma",
+    # std_exit               = "//runtime:std_exit.cmo",
+
+    ## cc runtime - 5 libs:
+    # libasmrun.a
+    # libasmrun_pic.a ## https://stackoverflow.com/questions/18026333/what-does-compiling-with-pic-dwith-pic-with-pic-actually-do
+    # libasmrun_shared.so
+    # libasmrund.a
+    # libasmruni.a
+    # runtime                = "//runtime:runtime", # filegroup
+
+    ## omit vm stuff for >sys toolchains?
+    vmruntime              = "//bin:ocamlrun",
+    vmruntime_debug        = "//bin:ocamlrund",
+    vmruntime_instrumented = "//bin:ocamlruni",
+    dllibs                 = "@stublibs//lib/stublibs",
+)
+
+########################
+ocaml_toolchain_adapter(
+    name                   = "sysvm",
+    host                   = "sys",
+    target                 = "vm",
+    repl                   = "//bin:ocaml",
+    compiler               = "//bin:ocamlc.opt",
+    version                = COMPILER_VERSION,
+    profiling_compiler     = "//bin:ocamlcp",
+    ocamllex               = "//bin:ocamllex.opt",
+    ocamlyacc              = "//bin:ocamlyacc",
+    linkmode               = "dynamic",
+    vmruntime              = "//bin:ocamlrun",
+    vmruntime_debug        = "//bin:ocamlrund",
+    vmruntime_instrumented = "//bin:ocamlruni",
+    dllibs                 = "@stublibs//lib/stublibs",
+)
+
+########################
+ocaml_toolchain_adapter(
+    name                   = "vmvm",
+    host                   = "vm",
+    target                 = "vm",
+    repl                   = "//bin:ocaml",
+    compiler               = "//bin:ocamlc.byte",
+    version                = COMPILER_VERSION,
+    profiling_compiler     = "//bin:ocamlcp",
+    ocamllex               = "//bin:ocamllex.byte",
+    ocamlyacc              = "//bin:ocamlyacc",
+    linkmode               = "dynamic",
+    vmruntime              = "//bin:ocamlrun",
+    vmruntime_debug        = "//bin:ocamlrund",
+    vmruntime_instrumented = "//bin:ocamlruni",
+    dllibs                 = "@stublibs//lib/stublibs",
+)
+
+########################
+ocaml_toolchain_adapter(
+    name                   = "vmsys",
+    host                   = "vm",
+    target                 = "sys",
+    repl                   = "//bin:ocaml",
+    compiler               = "//bin:ocamlopt.byte",
+    version                = COMPILER_VERSION,
+    profiling_compiler     = "//bin:ocamloptp",
+    ocamllex               = "//bin:ocamllex.byte",
+    ocamlyacc              = "//bin:ocamlyacc",
+    linkmode               = "dynamic",
+    vmruntime              = "//bin:ocamlrun",
+    vmruntime_debug        = "//bin:ocamlrund",
+    vmruntime_instrumented = "//bin:ocamlruni",
+    dllibs                 = "@stublibs//lib/stublibs",
+)

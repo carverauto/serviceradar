@@ -25,14 +25,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/checker"
-	cconfig "github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/pkg/checker"
+	cconfig "github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 type mockKVStore struct{}
@@ -128,7 +129,7 @@ func TestNewServerBasic(t *testing.T) {
 		return kvStore, nil
 	}
 
-	s.createSweepService = func(_ *SweepConfig, _ KVStore) (Service, error) {
+	s.createSweepService = func(_ context.Context, _ *SweepConfig, _ KVStore) (Service, error) {
 		return nil, errSweepConfigNil // Default behavior for this test
 	}
 
@@ -454,7 +455,7 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 		return kvStore, nil
 	}
 
-	s.createSweepService = func(sweepConfig *SweepConfig, _ KVStore) (Service, error) {
+	s.createSweepService = func(_ context.Context, sweepConfig *SweepConfig, _ KVStore) (Service, error) {
 		t.Logf("Using mock createSweepService for sweep config: %+v", sweepConfig)
 
 		return &mockService{}, nil

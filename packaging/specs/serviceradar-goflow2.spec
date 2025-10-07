@@ -7,7 +7,7 @@ Release:        %{release}%{?dist}
 Summary:        ServiceRadar NetFlow/sFlow/IPFIX collector with NATS support.
 License:        Proprietary
 
-BuildRequires:  systemd
+BuildRequires:  systemd-rpm-macros
 Requires:       systemd, serviceradar-cli
 %{?systemd_requires}
 
@@ -27,8 +27,8 @@ mkdir -p %{buildroot}/etc/serviceradar
 install -m 755 %{_builddir}/serviceradar-goflow2 %{buildroot}/usr/local/bin/serviceradar-goflow2
 
 # The service and conf files should be in %{_sourcedir}
-install -m 644 %{_sourcedir}/systemd/serviceradar-goflow2.service %{buildroot}/lib/systemd/system/serviceradar-goflow2.service
-install -m 644 %{_sourcedir}/config/goflow2.conf %{buildroot}/etc/serviceradar/goflow2.conf
+install -m 644 %{_sourcedir}/packaging/goflow2/systemd/serviceradar-goflow2.service %{buildroot}/lib/systemd/system/serviceradar-goflow2.service
+install -m 644 %{_sourcedir}/packaging/goflow2/config/goflow2.conf %{buildroot}/etc/serviceradar/goflow2.conf
 
 %files
 %attr(0755, serviceradar, serviceradar) /usr/local/bin/serviceradar-goflow2
@@ -36,18 +36,31 @@ install -m 644 %{_sourcedir}/config/goflow2.conf %{buildroot}/etc/serviceradar/g
 %attr(0644, root, root) /lib/systemd/system/serviceradar-goflow2.service
 
 %pre
-# Create serviceradar user and group if they don't exist.
-# This makes the package installable on a standalone machine.
+# Ensure serviceradar group exists before user creation
 if ! getent group serviceradar >/dev/null; then
     groupadd --system serviceradar
 fi
+
+# Create serviceradar user with managed home directory if it doesn't exist
 if ! id -u serviceradar >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin --gid serviceradar serviceradar
+    useradd --system --home-dir /var/lib/serviceradar --create-home \
+        --shell /usr/sbin/nologin --gid serviceradar serviceradar
+else
+    # Align existing user home directory if needed
+    CURRENT_HOME=$(getent passwd serviceradar | cut -d: -f6)
+    if [ "$CURRENT_HOME" != "/var/lib/serviceradar" ]; then
+        usermod --home /var/lib/serviceradar serviceradar >/dev/null 2>&1 || :
+    fi
 fi
 
 %post
 # Use standard systemd macros to handle service installation
 %systemd_post serviceradar-goflow2.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-goflow2.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-goflow2.service >/dev/null 2>&1 || :
+fi
 
 # Ensure the 'serviceradar' user can read the shared TLS certificates
 if [ -d "/etc/serviceradar/certs/" ]; then

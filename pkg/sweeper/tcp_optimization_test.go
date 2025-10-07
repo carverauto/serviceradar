@@ -18,17 +18,20 @@ package sweeper
 
 import (
 	"context"
-	"os"
 	"runtime"
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/scan"
 )
+
+const testKVNamespace = "test"
 
 // skipIfNotLinuxRoot skips the test if not running on Linux or without root privileges
 func skipIfNotLinuxRoot(t *testing.T) {
@@ -38,9 +41,24 @@ func skipIfNotLinuxRoot(t *testing.T) {
 		t.Skip("SYN scanning is only supported on Linux")
 	}
 
-	if os.Geteuid() != 0 {
-		t.Skip("SYN scanning requires root privileges")
+	log := logger.NewTestLogger()
+	scanner, err := scan.NewSYNScanner(100*time.Millisecond, 1, log, nil)
+	if err != nil {
+		t.Skipf("SYN scanning unavailable: %v", err)
 	}
+	if scanner != nil {
+		_ = scanner.Stop()
+	}
+}
+
+func expectKVBootstrap(mockKV *MockKVStore) {
+	mockKV.EXPECT().Get(gomock.Any(), testKVNamespace).Return(nil, false, nil).AnyTimes()
+	mockKV.EXPECT().Watch(gomock.Any(), testKVNamespace).DoAndReturn(func(context.Context, string) (<-chan []byte, error) {
+		ch := make(chan []byte)
+		close(ch)
+
+		return ch, nil
+	}).AnyTimes()
 }
 
 func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
@@ -77,9 +95,11 @@ func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
 			mockProcessor := NewMockResultProcessor(ctrl)
 
 			defer ctrl.Finish()
-			mockKVStore := NewMockKVStore(ctrl)
 
-			sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
+			mockKVStore := NewMockKVStore(ctrl)
+			expectKVBootstrap(mockKVStore)
+
+			sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
 
 			if tt.expectFallback {
 				// Should succeed with TCP fallback
@@ -113,16 +133,19 @@ func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	defer ctrl.Finish()
+
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
+	expectKVBootstrap(mockKVStore)
+	mockStore.EXPECT().PruneResults(gomock.Any(), time.Duration(0)).Return(nil).AnyTimes()
 
 	// Mock the processor to capture results
 	mockStore.EXPECT().SaveResult(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	mockProcessor.EXPECT().Process(gomock.Any()).Return(nil).AnyTimes()
 	mockProcessor.EXPECT().GetSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).AnyTimes()
 
-	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
+	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
 	require.NoError(t, err)
 	assert.NotNil(t, sweeper)
 
@@ -181,11 +204,14 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	defer ctrl.Finish()
+
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
+	expectKVBootstrap(mockKVStore)
+	mockStore.EXPECT().PruneResults(gomock.Any(), time.Duration(0)).Return(nil).AnyTimes()
 
-	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
+	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
 	require.NoError(t, err)
 
 	targets, err := sweeper.generateTargets()
@@ -199,9 +225,12 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 	for _, target := range targets {
 		deviceIPs[target.Host] = true
 
-		if target.Mode == models.ModeTCP {
+		switch target.Mode {
+		case models.ModeTCP:
 			tcpTargets++
-		} else if target.Mode == models.ModeICMP {
+		case models.ModeTCPConnect:
+			tcpTargets++
+		case models.ModeICMP:
 			icmpTargets++
 		}
 
@@ -239,11 +268,14 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	defer ctrl.Finish()
+
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
+	expectKVBootstrap(mockKVStore)
+	mockStore.EXPECT().PruneResults(gomock.Any(), time.Duration(0)).Return(nil).AnyTimes()
 
-	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
+	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
 	require.NoError(t, err)
 
 	// Verify the sweep uses the optimized scan timeout (20 minutes)
@@ -288,6 +320,7 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	defer ctrl.Finish()
+
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
@@ -302,7 +335,7 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 	}).AnyTimes()
 	mockProcessor.EXPECT().GetSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).AnyTimes()
 
-	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
+	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -342,6 +375,7 @@ func BenchmarkNetworkSweeper_OptimizedTCPScan(b *testing.B) {
 	ctrl := gomock.NewController(b)
 
 	defer ctrl.Finish()
+
 	mockStore := NewMockStore(ctrl)
 	mockProcessor := NewMockResultProcessor(ctrl)
 	mockKVStore := NewMockKVStore(ctrl)
@@ -350,7 +384,7 @@ func BenchmarkNetworkSweeper_OptimizedTCPScan(b *testing.B) {
 	mockProcessor.EXPECT().Process(gomock.Any()).Return(nil).AnyTimes()
 	mockProcessor.EXPECT().GetSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).AnyTimes()
 
-	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, "test", log)
+	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
 	require.NoError(b, err)
 
 	b.ResetTimer()

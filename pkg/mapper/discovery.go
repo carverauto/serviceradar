@@ -23,8 +23,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/google/uuid"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 // NewDiscoveryEngine creates a new discovery engine with the given configuration
@@ -66,6 +67,7 @@ func (e *DiscoveryEngine) Start(ctx context.Context) error {
 
 	go func() {
 		defer e.wg.Done()
+
 		e.cleanupRoutine(ctx)
 	}()
 
@@ -74,6 +76,7 @@ func (e *DiscoveryEngine) Start(ctx context.Context) error {
 
 	go func() {
 		defer e.wg.Done()
+
 		e.scheduleJobs(ctx)
 	}()
 
@@ -92,6 +95,7 @@ func (e *DiscoveryEngine) Stop(ctx context.Context) error {
 
 	// Stop all schedulers
 	e.mu.Lock()
+
 	for name, ticker := range e.schedulers {
 		ticker.Stop()
 		e.logger.Info().Str("job", name).Msg("Stopped scheduler for job")
@@ -145,12 +149,14 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 		if err != nil {
 			e.logger.Error().Str("job", jobConfig.Name).Err(err).
 				Msg("Invalid interval for job, skipping")
+
 			continue
 		}
 
 		if interval <= 0 {
 			e.logger.Error().Str("job", jobConfig.Name).
 				Msg("Invalid interval for job: must be positive, skipping")
+
 			continue
 		}
 
@@ -177,6 +183,7 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 		default:
 			e.logger.Error().Str("job", jobConfig.Name).Str("type", jobConfig.Type).
 				Msg("Invalid type for job, skipping")
+
 			continue
 		}
 
@@ -243,11 +250,13 @@ func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, pa
 
 	// Add job name to job metadata
 	e.mu.RLock()
+
 	if job, exists := e.activeJobs[discoveryID]; exists {
 		job.Results.RawData["scheduled_job_name"] = name
 		job.Results.RawData["agent_id"] = params.AgentID
 		job.Results.RawData["poller_id"] = params.PollerID
 	}
+
 	e.mu.RUnlock()
 
 	e.logger.Info().Str("job", name).Str("discovery_id", discoveryID).
@@ -261,7 +270,7 @@ func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryP
 
 	// Validate params
 	if len(params.Seeds) == 0 {
-		return "", fmt.Errorf("no seeds provided")
+		return "", ErrNoSeedsProvided
 	}
 
 	// Generate a unique discovery ID
@@ -308,7 +317,7 @@ func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryP
 		cancel() // Clean up context
 		delete(e.activeJobs, discoveryID)
 
-		return "", fmt.Errorf("job queue full, cannot enqueue discovery job")
+		return "", ErrJobQueueFull
 	}
 
 	return discoveryID, nil
@@ -413,10 +422,12 @@ func (e *DiscoveryEngine) worker(ctx context.Context, workerID int) {
 		case <-ctx.Done(): // Main context canceled
 			e.logger.Info().Int("worker_id", workerID).
 				Msg("Discovery worker stopping due to main context cancellation")
+
 			return
 		case <-e.done: // Engine stopping
 			e.logger.Info().Int("worker_id", workerID).
 				Msg("Discovery worker stopping due to engine shutdown")
+
 			return
 		case job, ok := <-e.jobChan:
 			if !ok { // jobChan was closed
@@ -504,7 +515,7 @@ func validateConfig(config *Config) error {
 // validateScheduledJob validates a single scheduled job configuration
 func validateScheduledJob(job *ScheduledJob) error {
 	if job.Name == "" {
-		return fmt.Errorf("scheduled job missing name")
+		return fmt.Errorf("%w", ErrScheduledJobMissingName)
 	}
 
 	if !job.Enabled {
@@ -516,11 +527,11 @@ func validateScheduledJob(job *ScheduledJob) error {
 	}
 
 	if len(job.Seeds) == 0 {
-		return fmt.Errorf("job %s has no seeds", job.Name)
+		return fmt.Errorf("job %s: %w", job.Name, ErrJobHasNoSeeds)
 	}
 
 	if job.Type == "" {
-		return fmt.Errorf("job %s missing type", job.Name)
+		return fmt.Errorf("job %s: %w", job.Name, ErrJobMissingType)
 	}
 
 	// Validate that job.Type is one of the valid DiscoveryType values
@@ -531,15 +542,15 @@ func validateScheduledJob(job *ScheduledJob) error {
 		string(DiscoveryTypeTopology):   true,
 	}
 	if !validTypes[job.Type] {
-		return fmt.Errorf("job %s has invalid type: %s", job.Name, job.Type)
+		return fmt.Errorf("job %s has invalid type %s: %w", job.Name, job.Type, ErrJobInvalidType)
 	}
 
 	if job.Concurrency < 0 {
-		return fmt.Errorf("job %s has invalid concurrency: %d", job.Name, job.Concurrency)
+		return fmt.Errorf("job %s has invalid concurrency %d: %w", job.Name, job.Concurrency, ErrJobInvalidConcurrency)
 	}
 
 	if job.Retries < 0 {
-		return fmt.Errorf("job %s has invalid retries: %d", job.Name, job.Retries)
+		return fmt.Errorf("job %s has invalid retries %d: %w", job.Name, job.Retries, ErrJobInvalidRetries)
 	}
 
 	if job.Timeout != "" {
@@ -639,10 +650,12 @@ func (e *DiscoveryEngine) startWorkers(
 				case <-job.ctx.Done():
 					e.logger.Info().Str("job_id", job.ID).Int("worker_id", workerID).
 						Str("target", target).Msg("Worker stopping")
+
 					return
 				case <-e.done:
 					e.logger.Info().Str("job_id", job.ID).Int("worker_id", workerID).
 						Msg("Worker stopping - engine shutdown")
+
 					return
 				default:
 					// Ping with timeout
@@ -669,6 +682,7 @@ func (e *DiscoveryEngine) startWorkers(
 					targetCtx, targetCancel := context.WithTimeout(job.ctx, 2*time.Minute)
 
 					targetDone := make(chan struct{})
+
 					go func() {
 						processor(job, target)
 						close(targetDone)
@@ -1442,6 +1456,7 @@ func (e *DiscoveryEngine) trackJobProgress(
 		}
 
 		job.mu.Lock()
+
 		currentProgress := baseProgress
 
 		if totalTargets > 0 {
@@ -1496,6 +1511,7 @@ func (*DiscoveryEngine) finalizeInterfaces(
 
 	// Cache devices by IP for lookup
 	job.mu.RLock()
+
 	deviceMap := make(map[string]*DiscoveredDevice)
 
 	for _, device := range job.Results.Devices {

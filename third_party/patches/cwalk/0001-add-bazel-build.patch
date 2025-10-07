@@ -1,0 +1,23 @@
+--- /dev/null
++++ MODULE.bazel
+@@ -0,0 +8 @@
++module(
++    name = "cwalk",
++    version = "1.2.9",
++    compatibility_level = 1,
++)
++
++bazel_dep(name = "rules_cc", version = "0.0.16")
++
+--- /dev/null
++++ BUILD.bazel
+@@ -0,0 +9 @@
++load("@rules_cc//cc:defs.bzl", "cc_library")
++
++cc_library(
++    name = "cwalk",
++    srcs = ["src/cwalk.c"],
++    hdrs = ["include/cwalk.h"],
++    includes = ["include"],
++    visibility = ["//visibility:public"],
++)

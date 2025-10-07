@@ -18,6 +18,7 @@ import React from 'react';
 import { Cpu, HardDrive, BarChart3, Activity } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { MetricCard, CustomTooltip, ProgressBar } from './shared-components';
+import { escapeSrqlValue } from '@/lib/srql';
 
 export const CpuCard = ({ data }) => {
     return (
@@ -263,14 +264,20 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
         setError(null);
 
         try {
-            // Build SRQL query based on ID type  
-            // Escape the device ID properly for SRQL - escape backslashes first, then single quotes
-            const escapedId = actualId.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-            const whereCondition = actualIdType === 'device' 
-                ? `device_id = '${escapedId}'`
-                : `poller_id = '${escapedId}'`;
-            
-            const query = `SHOW process_metrics WHERE ${whereCondition} ORDER BY cpu_usage DESC, memory_usage DESC, pid ASC LATEST`;
+            // Build SRQL query based on ID type using the new ASQ-style syntax
+            const idFilter = actualIdType === 'device'
+                ? `device_id:"${escapeSrqlValue(String(actualId))}"`
+                : `poller_id:"${escapeSrqlValue(String(actualId))}"`;
+
+            const queryParts = [
+                'in:process_metrics',
+                idFilter,
+                'time:last_15m',
+                'sort:"cpu_usage:desc, memory_usage:desc, pid:asc"',
+                `limit:${limit}`
+            ];
+
+            const query = queryParts.join(' ');
 
             const body = { query, limit };
             if (cursor) {

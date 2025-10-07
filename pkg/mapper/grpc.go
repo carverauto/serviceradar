@@ -22,11 +22,12 @@ import (
 	"math"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	proto "github.com/carverauto/serviceradar/proto/discovery"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	proto "github.com/carverauto/serviceradar/proto/discovery"
 )
 
 // GRPCDiscoveryService implements the gRPC interface for the discovery service
@@ -324,8 +325,8 @@ func protoToSNMPCredentials(creds *proto.SNMPCredentials) *SNMPCredentials {
 }
 
 // statusTypeToString converts an internal status type to a string
-func statusTypeToString(status DiscoveryStatusType) string {
-	return string(status)
+func statusTypeToString(statusType DiscoveryStatusType) string {
+	return string(statusType)
 }
 
 // statusTypeToProtoStatus converts an internal status type to a proto status enum
