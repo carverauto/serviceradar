@@ -1,0 +1,60 @@
+image:
+  repository: gcr.io/flame-public/buildbuddy-executor-enterprise
+  tag: enterprise-v2.206.0
+  imagePullPolicy: IfNotPresent
+
+replicas: 3
+
+autoscaler:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  averageQueueLength: 5
+
+resources:
+  requests:
+    cpu: "8"
+    memory: "16Gi"
+    ephemeral-storage: "20Gi"
+  limits:
+    cpu: "16"
+    memory: "32Gi"
+    ephemeral-storage: "25Gi"
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: NotIn
+              values:
+                - k8s-cp3-worker3
+
+extraVolumes:
+  - name: cache-volume
+    ephemeral:
+      volumeClaimTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/name: buildbuddy-cache
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: local-path
+          resources:
+            requests:
+              storage: 50Gi
+
+extraVolumeMounts:
+  - name: cache-volume
+    mountPath: /cache
+
+config:
+  executor:
+    app_target: grpcs://remote.buildbuddy.io:443
+    enable_oci: true
+    local_cache_directory: /cache
+    local_cache_size_bytes: 50000000000
+    root_directory: /cache/remotebuilds/
+    api_key: ""
