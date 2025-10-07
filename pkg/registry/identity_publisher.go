@@ -198,6 +198,7 @@ func shouldRetryKV(err error) bool {
 		return false
 	}
 
+	//exhaustive:ignore
 	switch status.Code(err) {
 	case codes.OK:
 		return false

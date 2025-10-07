@@ -224,27 +224,31 @@ clean: ## Clean up build artifacts
 .PHONY: generate-proto
 generate-proto: ## Generate Go and Rust code from protobuf definitions
 	@echo "$(COLOR_BOLD)Generating Go code from protobuf definitions$(COLOR_RESET)"
-	@protoc -I=proto \
+	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/discovery/discovery.proto
-	@protoc -I=proto \
+	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/kv.proto
-	@protoc -I=proto \
+	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/identitymap/v1/identity_map.proto
-	@protoc -I=proto \
+	@protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
+		proto/core_service.proto
+	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/monitoring.proto
-	@protoc -I=proto \
+	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/rperf/rperf.proto
-	@protoc -I=proto \
+	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/flow/flow.proto

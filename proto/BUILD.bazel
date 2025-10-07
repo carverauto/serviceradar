@@ -11,6 +11,7 @@ proto_library(
     srcs = [
         "kv.proto",
         "monitoring.proto",
+        "core_service.proto",
     ],
     visibility = ["//visibility:public"],
 )

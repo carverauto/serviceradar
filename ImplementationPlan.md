@@ -53,9 +53,9 @@ Establish a shared canonical identity map in the KV service so device IDs are no
   Registry publisher now performs per-key `Get` → `PutIfAbsent`/`Update` cycles with exponential backoff (capped at 5s) and leverages the new gRPC `Update` RPC. CAS conflicts surface as `codes.Aborted` and trigger retries; identical metadata hashes short-circuit without rewrites.
 
 ### 4. Core Lookup API
-- Extend proto (`proto/core/service.proto`) with `GetCanonicalDevice` RPC.
-- Implement handler in `pkg/core/api` that checks KV first, falls back to DB scan if missing, then hydrates cache.
-- Add integration tests using in-memory KV stub.
+- [x] Extend proto (`proto/core_service.proto`) with `GetCanonicalDevice` RPC.
+- [x] Implement handler in `pkg/core` that checks KV first, falls back to DB scan if missing, then hydrates cache.
+- [x] Add integration tests using in-memory KV stub.
 
 ### 5. Sync Service Alignment
 - Update Sync writers to call shared library when generating sweep configs.

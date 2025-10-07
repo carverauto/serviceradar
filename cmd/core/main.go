@@ -221,6 +221,7 @@ func run() error {
 	// Create gRPC service registrar
 	registerService := func(s *grpc.Server) error {
 		proto.RegisterPollerServiceServer(s, server)
+		proto.RegisterCoreServiceServer(s, server)
 		return nil
 	}
 

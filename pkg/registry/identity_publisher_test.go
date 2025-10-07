@@ -104,7 +104,7 @@ func TestIdentityPublisherPublishesNewEntries(t *testing.T) {
 	require.NoError(t, pub.Publish(ctx, []*models.DeviceUpdate{update}))
 
 	expectedKeys := identitymap.BuildKeys(update)
-	require.Equal(t, len(expectedKeys), len(kvClient.entries))
+	require.Len(t, kvClient.entries, len(expectedKeys))
 	require.Equal(t, int64(len(expectedKeys)), pub.metrics.publishedKeys.Load())
 
 	for _, key := range expectedKeys {
@@ -142,7 +142,7 @@ func TestIdentityPublisherSkipsUnchangedRecords(t *testing.T) {
 	for _, entry := range kvClient.entries {
 		require.Equal(t, uint64(1), entry.revision)
 	}
-	require.Equal(t, initialKeys, len(kvClient.entries))
+	require.Len(t, kvClient.entries, initialKeys)
 	require.Equal(t, initialWrites, pub.metrics.publishedKeys.Load())
 }
 

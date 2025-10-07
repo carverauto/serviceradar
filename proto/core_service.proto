@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package core;
+
+import "identitymap/v1/identity_map.proto";
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+// GetCanonicalDeviceRequest asks Core to resolve one or more identity keys into a canonical device record.
+message GetCanonicalDeviceRequest {
+  // identity_keys may be provided in preference order; the server will attempt them sequentially.
+  repeated identitymap.v1.IdentityKey identity_keys = 1;
+  // namespace overrides the default identity map namespace when provided.
+  string namespace = 2;
+  // ip_hint can be supplied when only MAC or external identity is known; it helps narrow DB fallbacks.
+  string ip_hint = 3;
+}
+
+// GetCanonicalDeviceResponse contains the canonical record if found.
+message GetCanonicalDeviceResponse {
+  // found indicates whether a canonical record was located in KV or via fallback.
+  bool found = 1;
+  // record is the canonical identity payload stored in KV.
+  identitymap.v1.CanonicalRecord record = 2;
+  // matched_key reports which identity key produced the result (may differ from request order if fallback used).
+  identitymap.v1.IdentityKey matched_key = 3;
+  // revision is the KV revision number, if retrieved directly from KV (0 otherwise).
+  uint64 revision = 4;
+  // hydrated is true when Core populated KV as part of servicing the request.
+  bool hydrated = 5;
+}
+
+// CoreService exposes control-plane RPCs for pollers and agents.
+service CoreService {
+  // GetCanonicalDevice resolves identities to canonical device records backed by the shared identity map.
+  rpc GetCanonicalDevice(GetCanonicalDeviceRequest) returns (GetCanonicalDeviceResponse);
+}
