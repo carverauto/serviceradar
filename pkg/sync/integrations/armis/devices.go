@@ -25,10 +25,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -156,7 +158,7 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		Int("network_count", len(finalSweepConfig.Networks)).
 		Int("device_target_count", len(finalSweepConfig.DeviceTargets)).
 		Str("config_key", configKey).
-            Msg("Writing complete sweep config with all devices from all queries")
+		Msg("Writing complete sweep config with all devices from all queries")
 
 	if a.KVWriter == nil {
 		a.Logger.Warn().Msg("KVWriter not configured, skipping sweep config write")
@@ -178,7 +180,7 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 			Int("network_count", len(finalSweepConfig.Networks)).
 			Int("device_target_count", len(finalSweepConfig.DeviceTargets)).
 			Str("config_key", configKey).
-            Msg("Successfully wrote complete sweep config with all devices from all queries")
+			Msg("Successfully wrote complete sweep config with all devices from all queries")
 	}
 
 	return err
@@ -369,7 +371,7 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 		Msg("All queries completed - processing accumulated devices")
 
 	// Process devices with query labels and configs
-	data, ips, events, deviceTargets := a.processDevices(allDevices, deviceLabels, deviceQueries)
+	data, ips, events, deviceTargets := a.processDevices(ctx, allDevices, deviceLabels, deviceQueries)
 
 	a.Logger.Info().
 		Int("total_devices", len(allDevices)).
@@ -608,10 +610,15 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 
 // processDevices converts devices to KV data and extracts IPs.
 func (a *ArmisIntegration) processDevices(
+	ctx context.Context,
 	devices []Device,
 	deviceLabels map[int]string,
 	deviceQueries map[int]models.QueryConfig,
 ) (data map[string][]byte, ips []string, events []*models.DeviceUpdate, deviceTargets []models.DeviceTarget) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices)*2) // Allocate more space for multiple IPs per device
 	events = make([]*models.DeviceUpdate, 0, len(devices))
@@ -635,8 +642,22 @@ func (a *ArmisIntegration) processDevices(
 		// Use first IP as primary for backward compatibility
 		primaryIP := allIPs[0]
 
-		// Process enriched device for KV storage with all IPs in metadata
-		enrichedData, err := a.createEnrichedDeviceDataWithAllIPs(d, deviceLabels[d.ID], allIPs)
+		// Create device update event with primary IP but include all IPs in metadata
+		event := a.createDeviceUpdateEventWithAllIPs(d, primaryIP, allIPs, deviceLabels[d.ID], now)
+
+		var (
+			canonicalRecord *identitymap.Record
+			revision        uint64
+		)
+
+		if rec, rev := a.lookupCanonicalRecord(ctx, identitymap.BuildKeys(event)); rec != nil {
+			canonicalRecord = rec
+			revision = rev
+			a.attachCanonicalMetadata(event, canonicalRecord, revision)
+		}
+
+		// Process enriched device for KV storage with all IPs in metadata (and canonical data if available)
+		enrichedData, err := a.createEnrichedDeviceDataWithAllIPs(d, deviceLabels[d.ID], allIPs, canonicalRecord)
 		if err != nil {
 			a.Logger.Error().
 				Err(err).
@@ -647,9 +668,6 @@ func (a *ArmisIntegration) processDevices(
 		}
 
 		data[fmt.Sprintf("%d", d.ID)] = enrichedData
-
-		// Create device update event with primary IP but include all IPs in metadata
-		event := a.createDeviceUpdateEventWithAllIPs(d, primaryIP, allIPs, deviceLabels[d.ID], now)
 
 		// Marshal event for KV storage (store under primary IP)
 		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, primaryIP)
@@ -671,9 +689,6 @@ func (a *ArmisIntegration) processDevices(
 		// Create a single device target containing ALL IP addresses in metadata
 		queryConfig := deviceQueries[d.ID]
 
-		// Note: No longer adding IPs to networks array since we use DeviceTargets for per-device sweep modes
-
-		// Create a single device target using primary IP but containing all IPs in metadata
 		deviceTarget := models.DeviceTarget{
 			Network:    primaryIP + "/32",
 			SweepModes: queryConfig.SweepModes,
@@ -690,6 +705,23 @@ func (a *ArmisIntegration) processDevices(
 				"device_name":      d.Name,
 			},
 		}
+
+		if canonicalRecord != nil {
+			if deviceTarget.Metadata == nil {
+				deviceTarget.Metadata = make(map[string]string)
+			}
+			deviceTarget.Metadata["canonical_device_id"] = canonicalRecord.CanonicalDeviceID
+			if canonicalRecord.Partition != "" {
+				deviceTarget.Metadata["canonical_partition"] = canonicalRecord.Partition
+			}
+			if canonicalRecord.MetadataHash != "" {
+				deviceTarget.Metadata["canonical_metadata_hash"] = canonicalRecord.MetadataHash
+			}
+			if revision != 0 {
+				deviceTarget.Metadata["canonical_revision"] = strconv.FormatUint(revision, 10)
+			}
+		}
+
 		deviceTargets = append(deviceTargets, deviceTarget)
 
 		a.Logger.Debug().
@@ -703,8 +735,115 @@ func (a *ArmisIntegration) processDevices(
 	return data, ips, events, deviceTargets
 }
 
+func (a *ArmisIntegration) lookupCanonicalRecord(ctx context.Context, keys []identitymap.Key) (*identitymap.Record, uint64) {
+	if a.KVClient == nil || len(keys) == 0 {
+		return nil, 0
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ordered := prioritizeIdentityKeys(keys)
+
+	for _, key := range ordered {
+		resp, err := a.KVClient.Get(ctx, &proto.GetRequest{Key: key.KeyPath(identitymap.DefaultNamespace)})
+		if err != nil {
+			a.Logger.Debug().
+				Err(err).
+				Str("identity_kind", key.Kind.String()).
+				Str("identity_value", key.Value).
+				Msg("Armis identity map lookup failed")
+			continue
+		}
+
+		if !resp.GetFound() || len(resp.GetValue()) == 0 {
+			continue
+		}
+
+		record, err := identitymap.UnmarshalRecord(resp.GetValue())
+		if err != nil {
+			a.Logger.Debug().
+				Err(err).
+				Str("identity_kind", key.Kind.String()).
+				Msg("Failed to unmarshal canonical identity record")
+			continue
+		}
+
+		a.Logger.Debug().
+			Str("identity_kind", key.Kind.String()).
+			Str("identity_value", key.Value).
+			Str("canonical_device_id", record.CanonicalDeviceID).
+			Msg("Resolved canonical identity for Armis device")
+
+		return record, resp.GetRevision()
+	}
+
+	return nil, 0
+}
+
+func (a *ArmisIntegration) attachCanonicalMetadata(event *models.DeviceUpdate, record *identitymap.Record, revision uint64) {
+	if event == nil || record == nil {
+		return
+	}
+
+	if event.Metadata == nil {
+		event.Metadata = make(map[string]string)
+	}
+
+	event.Metadata["canonical_device_id"] = record.CanonicalDeviceID
+	if record.Partition != "" {
+		event.Metadata["canonical_partition"] = record.Partition
+	}
+	if record.MetadataHash != "" {
+		event.Metadata["canonical_metadata_hash"] = record.MetadataHash
+	}
+	if revision != 0 {
+		event.Metadata["canonical_revision"] = strconv.FormatUint(revision, 10)
+	}
+
+	if hostname, ok := record.Attributes["hostname"]; ok && hostname != "" {
+		event.Metadata["canonical_hostname"] = hostname
+	}
+}
+
+func prioritizeIdentityKeys(keys []identitymap.Key) []identitymap.Key {
+	if len(keys) <= 1 {
+		return keys
+	}
+
+	ordered := make([]identitymap.Key, len(keys))
+	copy(ordered, keys)
+
+	priority := map[identitymap.Kind]int{
+		identitymap.KindArmisID:     0,
+		identitymap.KindNetboxID:    1,
+		identitymap.KindMAC:         2,
+		identitymap.KindPartitionIP: 3,
+		identitymap.KindIP:          4,
+		identitymap.KindDeviceID:    5,
+	}
+
+	sort.SliceStable(ordered, func(i, j int) bool {
+		pi, ok := priority[ordered[i].Kind]
+		if !ok {
+			pi = len(priority)
+		}
+		pj, ok := priority[ordered[j].Kind]
+		if !ok {
+			pj = len(priority)
+		}
+		if pi != pj {
+			return pi < pj
+		}
+		return ordered[i].Value < ordered[j].Value
+	})
+
+	return ordered
+}
+
 // createEnrichedDeviceDataWithAllIPs creates enriched device data with all IP addresses in metadata
-func (*ArmisIntegration) createEnrichedDeviceDataWithAllIPs(d *Device, queryLabel string, allIPs []string) ([]byte, error) {
+func (*ArmisIntegration) createEnrichedDeviceDataWithAllIPs(d *Device, queryLabel string, allIPs []string, canonical *identitymap.Record) ([]byte, error) {
 	tag := ""
 	if len(d.Tags) > 0 {
 		tag = strings.Join(d.Tags, ",")
@@ -719,6 +858,16 @@ func (*ArmisIntegration) createEnrichedDeviceDataWithAllIPs(d *Device, queryLabe
 			"all_ips":         strings.Join(allIPs, ","),
 			"ip_count":        fmt.Sprintf("%d", len(allIPs)),
 		},
+	}
+
+	if canonical != nil {
+		enriched.Metadata["canonical_device_id"] = canonical.CanonicalDeviceID
+		if canonical.Partition != "" {
+			enriched.Metadata["canonical_partition"] = canonical.Partition
+		}
+		if canonical.MetadataHash != "" {
+			enriched.Metadata["canonical_metadata_hash"] = canonical.MetadataHash
+		}
 	}
 
 	return json.Marshal(enriched)
