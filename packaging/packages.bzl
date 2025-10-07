@@ -735,7 +735,7 @@ PACKAGES = {
                 "dest": "/usr/local/share/serviceradar-web/.next/",
             },
             {
-                "src": "//web:public_tree",
+                "src": "//web:public_flat",
                 "dest": "/usr/local/share/serviceradar-web/public/",
             },
         ],
