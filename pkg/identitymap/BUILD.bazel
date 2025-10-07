@@ -1,0 +1,26 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "identitymap",
+    srcs = [
+        "identitymap.go",
+        "metadata_hash.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/identitymap",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/models:models",
+        "//proto/identitymap:identity_map",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "identitymap_test",
+    srcs = ["identitymap_test.go"],
+    embed = [":identitymap"],
+    deps = [
+        "//pkg/models:models",
+        "@com_github_stretchr_testify//assert",
+    ],
+)

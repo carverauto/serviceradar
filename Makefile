@@ -235,6 +235,10 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 	@protoc -I=proto \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
+		proto/identitymap/v1/identity_map.proto
+	@protoc -I=proto \
+		--go_out=proto --go_opt=paths=source_relative \
+		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/monitoring.proto
 	@protoc -I=proto \
 		--go_out=proto --go_opt=paths=source_relative \

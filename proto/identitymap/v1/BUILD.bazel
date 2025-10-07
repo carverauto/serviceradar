@@ -1,0 +1,29 @@
+# gazelle:ignore
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+proto_library(
+    name = "identity_map_proto",
+    srcs = ["identity_map.proto"],
+    visibility = ["//visibility:public"],
+)
+
+go_proto_library(
+    name = "identity_map_go_proto",
+    compilers = [
+        "@io_bazel_rules_go//proto:go_proto",
+        "@io_bazel_rules_go//proto:go_grpc_v2",
+    ],
+    importpath = "github.com/carverauto/serviceradar/proto/identitymap/v1",
+    proto = ":identity_map_proto",
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "identity_map",
+    embed = [":identity_map_go_proto"],
+    importpath = "github.com/carverauto/serviceradar/proto/identitymap/v1",
+    visibility = ["//visibility:public"],
+)
