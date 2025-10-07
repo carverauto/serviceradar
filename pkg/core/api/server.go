@@ -21,6 +21,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -30,71 +31,109 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/core/auth"
-	"github.com/carverauto/serviceradar/pkg/db"
-	srHttp "github.com/carverauto/serviceradar/pkg/http"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/metrics"
-	"github.com/carverauto/serviceradar/pkg/metricstore"
-	"github.com/carverauto/serviceradar/pkg/models"
-	srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
-	"github.com/carverauto/serviceradar/pkg/srql/parser"
-	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/gorilla/mux"
 	httpSwagger "github.com/swaggo/http-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/carverauto/serviceradar/pkg/core/auth"
+	"github.com/carverauto/serviceradar/pkg/db"
+	coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
+	srHttp "github.com/carverauto/serviceradar/pkg/http"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/swagger"
+	"github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	// ErrResponseWriterNotHijacker indicates that the response writer does not implement http.Hijacker.
+	ErrResponseWriterNotHijacker = errors.New("responseWriter does not implement http.Hijacker")
+	// ErrInvalidQueryRequest indicates that the query request is invalid.
+	ErrInvalidQueryRequest = errors.New("invalid query request")
+	// ErrKVAddressNotConfigured indicates that the KV address is not configured.
+	ErrKVAddressNotConfigured = errors.New("KV address not configured")
 )
 
 // NewAPIServer creates a new API server instance with the given configuration
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
 	s := &APIServer{
-		pollers:    make(map[string]*PollerStatus),
-		router:     mux.NewRouter(),
-		corsConfig: config,
+		pollers:     make(map[string]*PollerStatus),
+		router:      mux.NewRouter(),
+		corsConfig:  config,
+		kvEndpoints: make(map[string]*KVEndpoint),
 	}
 
-	// Initialize with default entity table mapping to match SRQL translator
-	defaultEntityTableMap := map[srqlmodels.EntityType]string{
-		srqlmodels.Devices:       "unified_devices",
-		srqlmodels.Flows:         "netflow_metrics",
-		srqlmodels.Traps:         "traps",
-		srqlmodels.Connections:   "connections",
-		srqlmodels.Logs:          "logs",
-		srqlmodels.Services:      "services",
-		srqlmodels.Interfaces:    "discovered_interfaces",
-		srqlmodels.SweepResults:  "unified_devices",
-		srqlmodels.DeviceUpdates: "device_updates",
-		srqlmodels.ICMPResults:   "icmp_results",
-		srqlmodels.SNMPResults:   "timeseries_metrics",
-		srqlmodels.Events:        "events",
-		srqlmodels.Pollers:       "pollers",
-		srqlmodels.CPUMetrics:    "cpu_metrics",
-		srqlmodels.DiskMetrics:   "disk_metrics",
-		srqlmodels.MemoryMetrics: "memory_metrics",
-		srqlmodels.SNMPMetrics:   "timeseries_metrics",
-		// OTEL entities
-		srqlmodels.OtelTraces:         "otel_traces",
-		srqlmodels.OtelMetrics:        "otel_metrics",
-		srqlmodels.OtelTraceSummaries: "otel_trace_summaries_final",
+	// Default kvPutFn dials KV and performs a Put
+	s.kvPutFn = func(ctx context.Context, key string, value []byte, ttl int64) error {
+		if s.kvAddress == "" {
+			return ErrKVAddressNotConfigured
+		}
+		clientCfg := coregrpc.ClientConfig{Address: s.kvAddress, MaxRetries: 3, Logger: s.logger}
+		if s.kvSecurity != nil {
+			sec := *s.kvSecurity
+			sec.Role = models.RolePoller
+			provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
+			if err != nil {
+				return err
+			}
+			clientCfg.SecurityProvider = provider
+			defer func() { _ = provider.Close() }()
+		}
+		c, err := coregrpc.NewClient(ctx, clientCfg)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = c.Close() }()
+		kv := proto.NewKVServiceClient(c.GetConnection())
+		_, err = kv.Put(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: ttl})
+		return err
 	}
-	s.entityTableMap = defaultEntityTableMap
+
+	// Default kvGetFn dials KV and performs a Get
+	s.kvGetFn = func(ctx context.Context, key string) ([]byte, bool, error) {
+		if s.kvAddress == "" {
+			return nil, false, ErrKVAddressNotConfigured
+		}
+		clientCfg := coregrpc.ClientConfig{Address: s.kvAddress, MaxRetries: 3, Logger: s.logger}
+		if s.kvSecurity != nil {
+			sec := *s.kvSecurity
+			sec.Role = models.RolePoller
+			provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
+			if err != nil {
+				return nil, false, err
+			}
+			clientCfg.SecurityProvider = provider
+			defer func() { _ = provider.Close() }()
+		}
+		c, err := coregrpc.NewClient(ctx, clientCfg)
+		if err != nil {
+			return nil, false, err
+		}
+		defer func() { _ = c.Close() }()
+		kv := proto.NewKVServiceClient(c.GetConnection())
+		resp, err := kv.Get(ctx, &proto.GetRequest{Key: key})
+		if err != nil {
+			return nil, false, err
+		}
+		return resp.Value, resp.Found, nil
+	}
 
 	for _, o := range options {
 		o(s)
 	}
 
+	// If only single kvAddress configured and no endpoints registered, register a default 'local'
+	if s.kvAddress != "" && len(s.kvEndpoints) == 0 {
+		s.kvEndpoints["local"] = &KVEndpoint{ID: "local", Name: "Local KV", Address: s.kvAddress, Type: "hub", Security: s.kvSecurity}
+	}
+
 	s.setupRoutes()
 
 	return s
-}
-
-// WithDatabaseType sets the database type for the API server
-func WithDatabaseType(dbType parser.DatabaseType) func(*APIServer) {
-	return func(server *APIServer) {
-		server.dbType = dbType
-	}
 }
 
 // WithQueryExecutor adds a query executor to the API server
@@ -108,6 +147,13 @@ func WithQueryExecutor(qe db.QueryExecutor) func(server *APIServer) {
 func WithAuthService(a auth.AuthService) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.authService = a
+	}
+}
+
+// WithRBACConfig sets the RBAC configuration used for route protection
+func WithRBACConfig(cfg *models.RBACConfig) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.rbacConfig = cfg
 	}
 }
 
@@ -132,10 +178,73 @@ func WithRperfManager(m metricstore.RperfManager) func(server *APIServer) {
 	}
 }
 
-// WithDBService adds a database service to the API server
-func WithDBService(db db.Service) func(server *APIServer) {
+// WithKVAddress sets the KV address used by admin config endpoints.
+func WithKVAddress(addr string) func(server *APIServer) {
+	return func(server *APIServer) { server.kvAddress = addr }
+}
+
+// WithKVSecurity sets the mTLS security used for KV client connections.
+func WithKVSecurity(sec *models.SecurityConfig) func(server *APIServer) {
+	return func(server *APIServer) { server.kvSecurity = sec }
+}
+
+// WithKVEndpoint registers a KV endpoint by ID.
+func WithKVEndpoint(id, name, address, domain, typ string, sec *models.SecurityConfig) func(server *APIServer) {
 	return func(server *APIServer) {
-		server.dbService = db
+		if server.kvEndpoints == nil {
+			server.kvEndpoints = make(map[string]*KVEndpoint)
+		}
+		server.kvEndpoints[id] = &KVEndpoint{ID: id, Name: name, Address: address, Domain: domain, Type: typ, Security: sec}
+	}
+}
+
+// WithKVEndpoints sets the full KV endpoints map.
+func WithKVEndpoints(eps map[string]*KVEndpoint) func(server *APIServer) {
+	return func(server *APIServer) { server.kvEndpoints = eps }
+}
+
+// getKVClient dials a KV gRPC endpoint by ID; falls back to default kvAddress.
+func (s *APIServer) getKVClient(ctx context.Context, id string) (proto.KVServiceClient, func(), error) {
+	// choose endpoint
+	var ep *KVEndpoint
+	if id != "" {
+		ep = s.kvEndpoints[id]
+	}
+	// fallback
+	if ep == nil && s.kvAddress != "" {
+		ep = &KVEndpoint{ID: "local", Address: s.kvAddress, Security: s.kvSecurity}
+	}
+	if ep == nil || ep.Address == "" {
+		return nil, func() {}, ErrKVAddressNotConfigured
+	}
+	clientCfg := coregrpc.ClientConfig{Address: ep.Address, MaxRetries: 3, Logger: s.logger}
+	var closer func()
+	if ep.Security != nil {
+		sec := *ep.Security
+		if sec.Role == "" {
+			sec.Role = models.RolePoller
+		}
+		provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
+		if err != nil {
+			return nil, func() {}, err
+		}
+		clientCfg.SecurityProvider = provider
+		closer = func() { _ = provider.Close() }
+	} else {
+		closer = func() {}
+	}
+	c, err := coregrpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		closer()
+		return nil, func() {}, err
+	}
+	return proto.NewKVServiceClient(c.GetConnection()), func() { closer(); _ = c.Close() }, nil
+}
+
+// WithDBService adds a database service to the API server
+func WithDBService(dbSvc db.Service) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.dbService = dbSvc
 	}
 }
 
@@ -238,7 +347,7 @@ func (w *responseWriterWrapper) WriteHeader(statusCode int) {
 func (w *responseWriterWrapper) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hijacker, ok := w.ResponseWriter.(http.Hijacker)
 	if !ok {
-		return nil, nil, fmt.Errorf("responseWriter does not implement http.Hijacker")
+		return nil, nil, ErrResponseWriterNotHijacker
 	}
 
 	return hijacker.Hijack()
@@ -504,14 +613,77 @@ func (*APIServer) updateOpenAPI3Servers(
 func (s *APIServer) setupAuthRoutes() {
 	s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")
 	s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
+	s.router.HandleFunc("/auth/jwks.json", s.handleJWKS).Methods("GET")
+	s.router.HandleFunc("/.well-known/openid-configuration", s.handleOIDCDiscovery).Methods("GET")
 	s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
 	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
 }
 
+// handleJWKS serves the JWKS (JSON Web Key Set) for RS256 token validation by gateways.
+func (s *APIServer) handleJWKS(w http.ResponseWriter, _ *http.Request) {
+	// Auth service must be present and must expose config
+	// Our concrete implementation stores config in auth.Auth; we access via exported helper
+	// Build JWKS JSON using the server's configured auth settings
+	if s.authService == nil {
+		http.Error(w, "auth service not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// We don’t have direct access to config here; use a small adapter: the auth package exposes a function
+	// that needs the config, which we can obtain by type assertion to *auth.Auth.
+	// If not the concrete type, we return an empty set.
+	var cfg *models.AuthConfig
+
+	if a, ok := s.authService.(*auth.Auth); ok {
+		// Access unexported field via method would be cleaner, but keep minimal by adding a tiny getter.
+		// Fall back to empty set if not available
+		cfg = a.Config()
+	}
+
+	if cfg == nil {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"keys":[]}`))
+
+		return
+	}
+
+	data, err := auth.PublicJWKSJSON(cfg)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("failed to build JWKS")
+		http.Error(w, "failed to build jwks", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
+}
+
+// handleOIDCDiscovery serves a minimal OpenID Provider Configuration pointing to the JWKS.
+func (s *APIServer) handleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+
+	host := r.Host
+	issuer := scheme + "://" + host
+	jwks := issuer + "/auth/jwks.json"
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte("{\n" +
+		"  \"issuer\": \"" + issuer + "\",\n" +
+		"  \"jwks_uri\": \"" + jwks + "\",\n" +
+		"  \"id_token_signing_alg_values_supported\": [\"RS256\"],\n" +
+		"  \"response_types_supported\": [\"code\", \"token\", \"id_token\"],\n" +
+		"  \"subject_types_supported\": [\"public\"],\n" +
+		"  \"claims_supported\": [\"sub\", \"email\", \"roles\", \"exp\", \"iat\"]\n" +
+		"}"))
+}
+
 // setupWebSocketRoutes configures WebSocket routes with custom authentication.
 func (s *APIServer) setupWebSocketRoutes() {
-	// WebSocket streaming endpoint - bypasses middleware auth and handles auth internally
-	s.router.HandleFunc("/api/stream", s.handleStreamQuery).Methods("GET")
+	// SRQL WebSocket endpoint removed; SRQL moves to OCaml service
 }
 
 // setupProtectedRoutes configures protected API routes.
@@ -520,6 +692,13 @@ func (s *APIServer) setupProtectedRoutes() {
 
 	// Use the new flexible authentication middleware for all protected API routes.
 	protected.Use(s.authenticationMiddleware)
+
+	// Apply route-based RBAC protection if available; fallback to admin role guard otherwise
+	if s.authService != nil {
+		if s.rbacConfig != nil && s.rbacConfig.RouteProtection != nil {
+			protected.Use(auth.RouteProtectionMiddleware(s.rbacConfig))
+		}
+	}
 
 	protected.HandleFunc("/pollers", s.getPollers).Methods("GET")
 	protected.HandleFunc("/pollers/{id}", s.getPoller).Methods("GET")
@@ -541,7 +720,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices/{id}/sysmon/memory", s.getDeviceSysmonMemoryMetrics).Methods("GET")
 	protected.HandleFunc("/devices/{id}/sysmon/processes", s.getDeviceSysmonProcessMetrics).Methods("GET")
 
-	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
+	// SRQL HTTP endpoint removed; SRQL moves to OCaml service
 
 	// Device-centric endpoints
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
@@ -552,6 +731,374 @@ func (s *APIServer) setupProtectedRoutes() {
 
 	// Store reference to protected router for MCP routes
 	s.protectedRouter = protected
+
+	// Admin routes with RBAC protection
+	// These routes use the route protection configuration from core.json
+	// The RBAC middleware will check if the user has the required roles
+	adminRoutes := protected.PathPrefix("/admin").Subrouter()
+
+	// If no route-based RBAC is configured, require admin role for admin routes as a safe fallback
+	if (s.rbacConfig == nil || s.rbacConfig.RouteProtection == nil) && s.authService != nil {
+		adminRoutes.Use(auth.RBACMiddleware("admin"))
+	}
+
+	adminRoutes.HandleFunc("/config/{service}", s.handleGetConfig).Methods("GET")
+	adminRoutes.HandleFunc("/config/{service}", s.handleUpdateConfig).Methods("PUT")
+
+	// KV endpoints enumeration (optional, for Admin UI)
+	protected.HandleFunc("/kv/endpoints", s.handleListKVEndpoints).Methods("GET")
+	// KV info for selected kv_store_id (endpoint ID or domain)
+	protected.HandleFunc("/kv/info", s.handleKVInfo).Methods("GET")
+
+	// Services tree (poller -> agent -> services) for Admin UI
+	protected.HandleFunc("/services/tree", s.handleServicesTree).Methods("GET")
+}
+
+// resolveKVDomain maps a kv_store_id (id or address) to a JetStream domain for routing through hub.
+// It checks configured kvEndpoints: exact ID match -> .Domain; address match -> .Domain; else returns kv_store_id as-is (assume it's a domain).
+func (s *APIServer) resolveKVDomain(kvID string) string {
+	if kvID == "" {
+		return s.kvEndpoints["local"].Domain
+	}
+
+	// Exact ID match
+	if ep, ok := s.kvEndpoints[kvID]; ok {
+		if ep.Domain != "" {
+			return ep.Domain
+		}
+		return kvID
+	}
+
+	// Address match fallback
+	for _, ep := range s.kvEndpoints {
+		if ep.Address == kvID {
+			if ep.Domain != "" {
+				return ep.Domain
+			}
+		}
+	}
+
+	// If looks like a URL/address and no mapping, default to hub domain if present
+	if strings.Contains(kvID, "://") || strings.Contains(kvID, ":") {
+		if ep, ok := s.kvEndpoints["local"]; ok && ep.Domain != "" {
+			return ep.Domain
+		}
+		return ""
+	}
+
+	// Otherwise treat kvID as the domain itself
+	return kvID
+}
+
+// ServiceNode represents a service in the services tree
+type ServiceNode struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	AgentID   string `json:"agent_id"`
+	KvStoreID string `json:"kv_store_id,omitempty"`
+}
+
+// AgentNode represents an agent in the services tree
+type AgentNode struct {
+	AgentID    string        `json:"agent_id"`
+	KvStoreIDs []string      `json:"kv_store_ids,omitempty"`
+	Services   []ServiceNode `json:"services"`
+}
+
+// PollerNode represents a poller in the services tree
+type PollerNode struct {
+	PollerID   string      `json:"poller_id"`
+	IsHealthy  bool        `json:"is_healthy"`
+	KvStoreIDs []string    `json:"kv_store_ids,omitempty"`
+	Agents     []AgentNode `json:"agents"`
+}
+
+// servicesTreeFilters holds the query filters for the services tree endpoint
+type servicesTreeFilters struct {
+	poller         string
+	agent          string
+	configuredOnly bool
+	limit          int
+	offset         int
+}
+
+// parseServicesTreeFilters parses query parameters for the services tree endpoint
+func (s *APIServer) parseServicesTreeFilters(r *http.Request) servicesTreeFilters {
+	q := r.URL.Query()
+	filters := servicesTreeFilters{
+		poller:         q.Get("poller"),
+		agent:          q.Get("agent"),
+		configuredOnly: strings.EqualFold(q.Get("configured"), "only"),
+	}
+
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			filters.limit = n
+		}
+	}
+
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			filters.offset = n
+		}
+	}
+
+	return filters
+}
+
+// buildAgentServices groups services by agent and builds the agent nodes
+func (s *APIServer) buildAgentServices(services []ServiceStatus, filters servicesTreeFilters, pollerID string) (map[string]*AgentNode, map[string]struct{}) {
+	agentMap := make(map[string]*AgentNode)
+	kvSetPoller := make(map[string]struct{})
+
+	for _, svc := range services {
+		if filters.agent != "" && svc.AgentID != filters.agent {
+			continue
+		}
+
+		agentID := svc.AgentID
+		if agentID == "" {
+			agentID = pollerID
+		}
+
+		if _, ok := agentMap[agentID]; !ok {
+			agentMap[agentID] = &AgentNode{AgentID: agentID}
+		}
+
+		// Track kv store IDs at agent and poller levels
+		if svc.KvStoreID != "" {
+			kvSetPoller[svc.KvStoreID] = struct{}{}
+		}
+
+		// Append service
+		node := ServiceNode{
+			Name:      svc.Name,
+			Type:      svc.Type,
+			AgentID:   agentID,
+			KvStoreID: svc.KvStoreID,
+		}
+
+		agentMap[agentID].Services = append(agentMap[agentID].Services, node)
+	}
+
+	return agentMap, kvSetPoller
+}
+
+// isServiceConfigured checks if a service is configured in KV store
+func (s *APIServer) isServiceConfigured(ctx context.Context, sn ServiceNode) bool {
+	key, ok := defaultKVKeyForService(sn.Type, sn.Type, sn.AgentID)
+	if !ok {
+		return false
+	}
+
+	// Map kvID to endpoint ID for getKVClient (allow domain or id)
+	kvID := sn.KvStoreID
+	epID := ""
+
+	if kvID != "" {
+		if _, ok2 := s.kvEndpoints[kvID]; ok2 {
+			epID = kvID
+		} else {
+			for id, ep := range s.kvEndpoints {
+				if ep.Domain != "" && ep.Domain == kvID {
+					epID = id
+					break
+				}
+			}
+		}
+	}
+
+	if epID == "" && s.kvAddress != "" {
+		epID = "local"
+	}
+
+	// Build key (domain-prefixed) and query KV
+	if kvID != "" && !strings.HasPrefix(key, "domains/") {
+		if dom := s.resolveKVDomain(kvID); dom != "" {
+			key = fmt.Sprintf("domains/%s/%s", dom, key)
+		}
+	}
+
+	// Query KV for existence; prefer dialing specific endpoint if available
+	if epID != "" {
+		if kvClient, closeFn, err := s.getKVClient(ctx, epID); err == nil {
+			defer closeFn()
+			if resp, err := kvClient.Get(ctx, &proto.GetRequest{Key: key}); err == nil && resp.GetFound() {
+				return true
+			}
+		}
+	} else if s.kvGetFn != nil {
+		if _, found, err := s.kvGetFn(ctx, key); err == nil && found {
+			return true
+		}
+	}
+
+	return false
+}
+
+// filterConfiguredServices filters agent services to only configured ones
+func (s *APIServer) filterConfiguredServices(r *http.Request, agent *AgentNode) {
+	filtered := make([]ServiceNode, 0, len(agent.Services))
+
+	for _, sn := range agent.Services {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		if s.isServiceConfigured(ctx, sn) {
+			filtered = append(filtered, sn)
+		}
+
+		cancel()
+	}
+
+	agent.Services = filtered
+}
+
+// applyPagination applies offset and limit to agent services
+func (s *APIServer) applyPagination(agent *AgentNode, offset, limit int) {
+	if offset > 0 || limit > 0 {
+		start := offset
+		if start > len(agent.Services) {
+			start = len(agent.Services)
+		}
+
+		end := len(agent.Services)
+		if limit > 0 && start+limit < end {
+			end = start + limit
+		}
+
+		agent.Services = agent.Services[start:end]
+	}
+}
+
+// handleServicesTree returns a lightweight tree of pollers -> agents -> services.
+// This uses the in-memory cache (no DB fan-out) to remain responsive and scalable.
+func (s *APIServer) handleServicesTree(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	filters := s.parseServicesTreeFilters(r)
+
+	// Build tree
+	result := make([]PollerNode, 0, len(s.pollers))
+	for pollerID, ps := range s.pollers {
+		if filters.poller != "" && pollerID != filters.poller {
+			continue
+		}
+
+		agentMap, kvSetPoller := s.buildAgentServices(ps.Services, filters, pollerID)
+
+		// Finalize agents: compute kv sets per agent
+		pollerNode := PollerNode{PollerID: pollerID, IsHealthy: ps.IsHealthy}
+		for _, agent := range agentMap {
+			kvSet := make(map[string]struct{})
+			for _, sn := range agent.Services {
+				if sn.KvStoreID != "" {
+					kvSet[sn.KvStoreID] = struct{}{}
+				}
+			}
+
+			if len(kvSet) > 0 {
+				agent.KvStoreIDs = make([]string, 0, len(kvSet))
+				for id := range kvSet {
+					agent.KvStoreIDs = append(agent.KvStoreIDs, id)
+				}
+			}
+
+			// Optionally filter to only configured services for this agent
+			if filters.configuredOnly {
+				s.filterConfiguredServices(r, agent)
+			}
+
+			// Apply offset/limit if requested
+			s.applyPagination(agent, filters.offset, filters.limit)
+
+			pollerNode.Agents = append(pollerNode.Agents, *agent)
+		}
+
+		if len(kvSetPoller) > 0 {
+			pollerNode.KvStoreIDs = make([]string, 0, len(kvSetPoller))
+			for id := range kvSetPoller {
+				pollerNode.KvStoreIDs = append(pollerNode.KvStoreIDs, id)
+			}
+		}
+		result = append(result, pollerNode)
+	}
+
+	_ = s.encodeJSONResponse(w, result)
+}
+
+// handleListKVEndpoints returns configured KV endpoints (IDs, names, domains, types).
+func (s *APIServer) handleListKVEndpoints(w http.ResponseWriter, _ *http.Request) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	eps := make([]*KVEndpoint, 0, len(s.kvEndpoints))
+
+	for _, ep := range s.kvEndpoints {
+		eps = append(eps, &KVEndpoint{ID: ep.ID, Name: ep.Name, Address: ep.Address, Domain: ep.Domain, Type: ep.Type})
+	}
+
+	if len(eps) == 0 && s.kvAddress != "" {
+		eps = append(eps, &KVEndpoint{ID: "local", Name: "Local KV", Address: s.kvAddress, Type: "hub"})
+	}
+
+	_ = s.encodeJSONResponse(w, eps)
+}
+
+// handleKVInfo returns KV server info (domain, bucket) for a given kv_store_id.
+// kv_store_id may be an endpoint ID or a JetStream domain; we try both.
+func (s *APIServer) handleKVInfo(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	q := r.URL.Query()
+	kvID := q.Get("kv_store_id")
+
+	// Resolve endpoint ID: prefer direct ID match
+	epID := ""
+	s.mu.RLock()
+
+	if kvID != "" {
+		if _, ok := s.kvEndpoints[kvID]; ok {
+			epID = kvID
+		} else {
+			// Try domain match => find endpoint whose Domain matches kvID
+			for id, ep := range s.kvEndpoints {
+				if ep.Domain != "" && ep.Domain == kvID {
+					epID = id
+					break
+				}
+			}
+		}
+	}
+
+	// Fallback to local
+	if epID == "" && s.kvAddress != "" {
+		epID = "local"
+	}
+
+	s.mu.RUnlock()
+
+	kvClient, closer, err := s.getKVClient(ctx, epID)
+	if err != nil {
+		writeError(w, "KV client not available", http.StatusBadGateway)
+		return
+	}
+
+	defer closer()
+
+	info, err := kvClient.Info(ctx, &proto.InfoRequest{})
+	if err != nil {
+		writeError(w, "Failed to fetch KV info", http.StatusBadGateway)
+		return
+	}
+
+	type resp struct {
+		Domain    string `json:"domain"`
+		Bucket    string `json:"bucket"`
+		KvStoreID string `json:"kv_store_id,omitempty"`
+	}
+
+	_ = s.encodeJSONResponse(w, resp{Domain: info.GetDomain(), Bucket: info.GetBucket(), KvStoreID: kvID})
 }
 
 // @Summary Get SNMP data
@@ -1057,8 +1604,8 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fallback to SRQL query
-	s.fallbackToSRQLQuery(ctx, w, params)
+	// Fallback to database listing if device registry unavailable or failed
+	s.fallbackToDBDeviceList(ctx, w, params)
 }
 
 // parseDeviceQueryParams extracts and validates query parameters for device listing
@@ -1103,7 +1650,7 @@ func parseDeviceQueryParams(r *http.Request) map[string]interface{} {
 func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) bool {
 	devices, err := s.deviceRegistry.ListDevices(ctx, params["limit"].(int), params["offset"].(int))
 	if err != nil {
-		s.logger.Warn().Err(err).Msg("Device registry listing failed, falling back to SRQL")
+		s.logger.Warn().Err(err).Msg("Device registry listing failed; will use DB fallback")
 		return false
 	}
 
@@ -1149,67 +1696,26 @@ func (s *APIServer) sendDeviceRegistryResponse(w http.ResponseWriter, devices []
 	}
 }
 
-// fallbackToSRQLQuery handles the SRQL query fallback path for device listing
-func (s *APIServer) fallbackToSRQLQuery(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) {
-	query := buildDeviceSRQLQuery(params)
-
-	// Execute the SRQL query
-	result, err := s.queryExecutor.ExecuteQuery(ctx, query)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Error executing devices query")
-		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
-
+// fallbackToDBDeviceList lists devices via the database service without SRQL
+func (s *APIServer) fallbackToDBDeviceList(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) {
+	if s.dbService == nil {
+		writeError(w, "Database not configured", http.StatusInternalServerError)
 		return
 	}
 
-	// Post-process device results (same as the /api/query endpoint)
-	if len(result) > 0 {
-		result = s.postProcessDeviceResults(result)
+	devices, err := s.dbService.ListUnifiedDevices(ctx, params["limit"].(int), params["offset"].(int))
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Error listing devices from database")
+		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
+		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(result); err != nil {
-		s.logger.Error().Err(err).Msg("Error encoding devices response")
-		writeError(w, "Failed to encode response", http.StatusInternalServerError)
-	}
+	// Filter based on search/status to match registry path behavior
+	filtered := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
+	s.sendDeviceRegistryResponse(w, filtered)
 }
 
-// buildDeviceSRQLQuery constructs an SRQL query for device listing based on parameters
-func buildDeviceSRQLQuery(params map[string]interface{}) string {
-	query := "SHOW DEVICES"
-
-	var whereClauses []string
-
-	// Add search filter
-	searchTerm := params["searchTerm"].(string)
-	if searchTerm != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("(ip LIKE '%%%s%%' OR hostname "+
-			"LIKE '%%%s%%' OR device_id LIKE '%%%s%%')",
-			searchTerm, searchTerm, searchTerm))
-	}
-
-	// Add status filter
-	status := params["status"].(string)
-	if status == "online" {
-		whereClauses = append(whereClauses, "is_available = true")
-	} else if status == "offline" {
-		whereClauses = append(whereClauses, "is_available = false")
-	}
-
-	// Combine where clauses
-	if len(whereClauses) > 0 {
-		query += " WHERE " + strings.Join(whereClauses, " AND ")
-	}
-
-	// Add ordering
-	query += " ORDER BY last_seen DESC"
-
-	// Add limit
-	query += fmt.Sprintf(" LIMIT %d", params["limit"].(int))
-
-	return query
-}
+// fallbackToSRQLQuery handles the SRQL query fallback path for device listing
 
 // @Summary Get specific device
 // @Description Retrieves details for a specific device by device ID
@@ -1525,32 +2031,4 @@ func (s *APIServer) RegisterMCPRoutes(mcpServer MCPRouteRegistrar) {
 		apiRouter.Use(s.authenticationMiddleware)
 		mcpServer.RegisterRoutes(apiRouter)
 	}
-}
-
-// ExecuteSRQLQuery executes an SRQL query and returns the results
-func (s *APIServer) ExecuteSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error) {
-	// Create a QueryRequest similar to the HTTP API
-	req := &QueryRequest{
-		Query: query,
-		Limit: limit,
-	}
-
-	// Validate the request
-	if errMsg, _, ok := validateQueryRequest(req); !ok {
-		return nil, fmt.Errorf("invalid query request: %s", errMsg)
-	}
-
-	// Prepare the query
-	parsedQuery, _, err := s.prepareQuery(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare query: %w", err)
-	}
-
-	// Execute the query and build response
-	response, err := s.executeQueryAndBuildResponse(ctx, parsedQuery, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
-
-	return response.Results, nil
 }

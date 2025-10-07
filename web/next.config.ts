@@ -14,20 +14,12 @@
  * limitations under the License.
  */
 
+import baseConfig from "./next.config.bazel.mjs";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  reactStrictMode: true,
+  ...baseConfig,
   output: "standalone",
-  env: {
-    NEXT_PUBLIC_API_URL:
-      process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090",
-    // WebSocket authentication uses cookies only - no API keys in query parameters
-  },
-  serverRuntimeConfig: {
-    // Will only be available on the server side
-    apiKey: process.env.API_KEY || "",
-  },
 };
 
 export default nextConfig;

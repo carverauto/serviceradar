@@ -17,12 +17,14 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -30,27 +32,46 @@ import (
 const (
 	defaultMetricsRetention  = 100
 	defaultMetricsMaxPollers = 10000
+	jwtAlgorithmRS256        = "RS256"
 )
 
 func LoadConfig(path string) (models.CoreServiceConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return models.CoreServiceConfig{}, fmt.Errorf("failed to read config: %w", err)
+		return models.CoreServiceConfig{}, fmt.Errorf("failed to read coreServiceConfig: %w", err)
 	}
 
-	var config models.CoreServiceConfig
+	var coreServiceConfig models.CoreServiceConfig
 
-	if err := json.Unmarshal(data, &config); err != nil {
-		return models.CoreServiceConfig{}, fmt.Errorf("failed to parse config: %w", err)
+	if err := json.Unmarshal(data, &coreServiceConfig); err != nil {
+		return models.CoreServiceConfig{}, fmt.Errorf("failed to parse coreServiceConfig: %w", err)
 	}
 
-	if err := config.Validate(); err != nil {
+	// Overlay from KV if configured (no-op if KV env is not set or key missing)
+	_ = overlayFromKV(path, &coreServiceConfig)
+
+	if err := coreServiceConfig.Validate(); err != nil {
 		return models.CoreServiceConfig{}, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Security config logging removed - will be handled by the logger instance in server
+	return coreServiceConfig, nil
+}
 
-	return config, nil
+// overlayFromKV uses the config package's KV manager to overlay configuration from KV store
+func overlayFromKV(path string, cfg *models.CoreServiceConfig) error {
+	ctx := context.Background()
+
+	// Use the existing KVManager from pkg/config which handles env vars properly
+	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
+	if kvMgr == nil {
+		return nil // No KV configured, which is fine
+	}
+	defer func() { _ = kvMgr.Close() }()
+
+	cfgLoader := config.NewConfig(nil)
+	kvMgr.SetupConfigLoader(cfgLoader)
+
+	return cfgLoader.OverlayFromKV(ctx, path, cfg)
 }
 
 func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig {
@@ -106,8 +127,11 @@ func initializeAuthConfig(config *models.CoreServiceConfig) (*models.AuthConfig,
 		applyDefaultAdminUser(authConfig)
 	}
 
-	if authConfig.JWTSecret == "" {
-		return nil, errJWTSecretRequired
+	// If RS256 is configured with a key, allow empty JWT_SECRET.
+	if authConfig.JWTAlgorithm != jwtAlgorithmRS256 || (authConfig.JWTPrivateKeyPEM == "" && authConfig.JWTPublicKeyPEM == "") {
+		if authConfig.JWTSecret == "" {
+			return nil, errJWTSecretRequired
+		}
 	}
 
 	return authConfig, nil
@@ -125,6 +149,30 @@ func applyAuthOverrides(authConfig, configAuth *models.AuthConfig) {
 	if len(configAuth.LocalUsers) > 0 {
 		authConfig.LocalUsers = configAuth.LocalUsers
 	}
+
+	// RS256/JWKS fields
+	if configAuth.JWTAlgorithm != "" {
+		authConfig.JWTAlgorithm = configAuth.JWTAlgorithm
+	}
+	if configAuth.JWTPrivateKeyPEM != "" {
+		authConfig.JWTPrivateKeyPEM = configAuth.JWTPrivateKeyPEM
+	}
+	if configAuth.JWTPublicKeyPEM != "" {
+		authConfig.JWTPublicKeyPEM = configAuth.JWTPublicKeyPEM
+	}
+	if configAuth.JWTKeyID != "" {
+		authConfig.JWTKeyID = configAuth.JWTKeyID
+	}
+
+	// Always copy RBAC if any part of it is configured
+	if configAuth.RBAC.UserRoles != nil || configAuth.RBAC.RolePermissions != nil || configAuth.RBAC.RouteProtection != nil {
+		authConfig.RBAC = configAuth.RBAC
+		fmt.Printf("DEBUG: Copied RBAC config. UserRoles: %+v\n", authConfig.RBAC.UserRoles)
+	} else {
+		// Even if the check fails, try to copy it anyway
+		authConfig.RBAC = configAuth.RBAC
+		fmt.Printf("DEBUG: Copied RBAC config anyway. UserRoles: %+v\n", authConfig.RBAC.UserRoles)
+	}
 }
 
 func applyDefaultAdminUser(authConfig *models.AuthConfig) {
@@ -134,18 +182,18 @@ func applyDefaultAdminUser(authConfig *models.AuthConfig) {
 }
 
 func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
-	for i, config := range configs {
+	for i, webhookConfig := range configs {
 		s.logger.Debug().
 			Int("index", i).
-			Bool("enabled", config.Enabled).
-			Msg("Processing webhook config")
+			Bool("enabled", webhookConfig.Enabled).
+			Msg("Processing webhook webhookConfig")
 
-		if config.Enabled {
-			alerter := alerts.NewWebhookAlerter(config)
+		if webhookConfig.Enabled {
+			alerter := alerts.NewWebhookAlerter(webhookConfig)
 			s.webhooks = append(s.webhooks, alerter)
 
 			s.logger.Info().
-				Str("url", config.URL).
+				Str("url", webhookConfig.URL).
 				Msg("Added webhook alerter")
 		}
 	}

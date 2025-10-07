@@ -17,6 +17,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -296,7 +297,7 @@ func generateRootCA(cfg *CmdConfig, styles *logStyles) (*x509.Certificate, *ecds
 			OrganizationalUnit: []string{"Operations"},
 			CommonName:         "ServiceRadar CA",
 		},
-		NotBefore:             time.Now(),
+		NotBefore:             time.Now().Add(-1 * time.Hour), // Set to 1 hour ago to avoid timezone/clock skew issues
 		NotAfter:              time.Now().Add(defaultDaysValid * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
@@ -397,7 +398,7 @@ func createServiceCertificate(
 			OrganizationalUnit: []string{"Operations"},
 			CommonName:         service + ".serviceradar",
 		},
-		NotBefore:             time.Now(),
+		NotBefore:             time.Now().Add(-1 * time.Hour), // Set to 1 hour ago to avoid timezone/clock skew issues
 		NotAfter:              time.Now().Add(defaultDaysValid * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
@@ -786,14 +787,14 @@ func randSerial() (*big.Int, error) {
 
 // userExists checks if a user exists.
 func userExists(username string) bool {
-	_, err := exec.Command("getent", "passwd", username).Output()
+	_, err := exec.CommandContext(context.Background(), "getent", "passwd", username).Output()
 
 	return err == nil
 }
 
 // getUID retrieves user UID.
 func getUID(username string) int {
-	cmd := exec.Command("id", "-u", username)
+	cmd := exec.CommandContext(context.Background(), "id", "-u", username)
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -810,7 +811,7 @@ func getUID(username string) int {
 
 // getGID retrieves user GID.
 func getGID(username string) int {
-	cmd := exec.Command("id", "-g", username)
+	cmd := exec.CommandContext(context.Background(), "id", "-g", username)
 
 	output, err := cmd.Output()
 	if err != nil {

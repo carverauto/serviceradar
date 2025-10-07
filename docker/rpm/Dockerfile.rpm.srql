@@ -1,0 +1,96 @@
+# syntax=docker/dockerfile:1
+
+FROM --platform=linux/amd64 ocaml/opam:oraclelinux-9-ocaml-5.2 AS builder
+SHELL ["/bin/bash", "-lc"]
+
+ARG VERSION=0.0.0
+ARG RELEASE=1
+ARG COMPONENT=srql
+
+USER root
+RUN dnf install -y oracle-epel-release-el9 \
+    && dnf config-manager --enable ol9_codeready_builder \
+    && dnf install -y \
+        ca-certificates \
+        gcc \
+        gcc-c++ \
+        git \
+        gmp-devel \
+        libev-devel \
+        lz4-devel \
+        make \
+        m4 \
+        openssl-devel \
+        patch \
+        pkgconfig \
+        rpm-build \
+        rsync \
+        tar \
+        unzip \
+        which \
+        zlib-devel \
+        libzstd-devel \
+    && dnf clean all
+
+RUN curl -fsSL https://github.com/ocaml/opam/releases/download/2.4.1/opam-2.4.1-x86_64-linux \
+        -o /usr/local/bin/opam \
+    && chmod +x /usr/local/bin/opam \
+    && opam --version
+
+USER opam
+ENV OPAMYES=1 \
+    OPAMCONFIRMLEVEL=unsafe-yes
+
+RUN opam update \
+    && git -C /home/opam/opam-repository fetch --depth=1 origin master \
+    && git -C /home/opam/opam-repository reset --hard origin/master \
+    && opam update \
+    && opam remove -y mirage-crypto mirage-crypto-rng mirage-crypto-rng-lwt tls tls-lwt x509 || true
+
+RUN eval $(opam env) \
+    && opam install -y \
+        dune \
+        menhir \
+        yojson \
+        ppx_deriving \
+        lwt \
+        lwt_ppx \
+        dream.1.0.0~alpha7 \
+        proton.1.0.17 \
+    && opam clean -a -c
+
+WORKDIR /src
+COPY --chown=opam:opam ocaml/ ./ocaml
+WORKDIR /src/ocaml
+
+RUN eval $(opam env) \
+    && opam install . --deps-only -y \
+    && dune build --profile=release srql/bin/main.exe \
+    && install -Dm755 _build/default/srql/bin/main.exe /tmp/serviceradar-srql
+
+USER opam
+WORKDIR /home/opam/rpmbuild
+RUN install -d -m 0755 BUILD BUILDROOT RPMS SRPMS \
+    && install -d -m 0755 SOURCES/${COMPONENT}/config SOURCES/${COMPONENT}/systemd SPECS
+
+COPY --chown=opam:opam packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY --chown=opam:opam packaging/${COMPONENT}/config/srql.env SOURCES/${COMPONENT}/config/
+COPY --chown=opam:opam packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
+
+RUN install -Dm755 /tmp/serviceradar-srql BUILD/serviceradar-${COMPONENT}
+
+RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-.*//') \
+    && rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec \
+        --define "_topdir /home/opam/rpmbuild" \
+        --define "version ${RPM_VERSION}" \
+        --define "release ${RELEASE}"
+
+USER root
+RUN install -d -m 0755 /output \
+    && find /home/opam/rpmbuild/RPMS -type f -name "*.rpm" -exec cp {} /output/ \;
+
+FROM --platform=linux/amd64 oraclelinux:9
+WORKDIR /rpms
+COPY --from=builder /output/ ./
+
+CMD ["ls", "-la", "/rpms"]

@@ -17,18 +17,25 @@
 package core
 
 import (
-    "bytes"
-    "context"
-    "encoding/json"
-    "fmt"
-    "strings"
-    "time"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
 
-    "github.com/carverauto/serviceradar/pkg/core/api"
-    "github.com/carverauto/serviceradar/pkg/models"
-    "github.com/carverauto/serviceradar/proto"
-    "go.opentelemetry.io/otel/attribute"
-    "go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/carverauto/serviceradar/pkg/core/api"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
+)
+
+// Static errors for err113 compliance
+var (
+	ErrMissingLocationData = errors.New("missing required location data for device registration")
 )
 
 func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, partition string, now time.Time) error {
@@ -44,8 +51,13 @@ func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, part
 		attribute.Int("message_length", len(svc.Message)),
 	)
 
-    // Reduce noisy per-request logging; trace manages details
-    s.logger.Debug().Str("service", svc.Name).Str("type", svc.Type).Str("partition", partition).Bool("available", svc.Available).Msg("handleService")
+	s.logger.Debug().
+		Str("service_name", svc.Name).
+		Str("service_type", svc.Type).
+		Str("partition", partition).
+		Bool("available", svc.Available).
+		Int("message_length", len(svc.Message)).
+		Msg("handleService")
 
 	if svc.Type == sweepService {
 		span.AddEvent("Processing sweep service", trace.WithAttributes(
@@ -57,7 +69,7 @@ func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, part
 			span.AddEvent("Sweep data processing failed", trace.WithAttributes(
 				attribute.String("error", err.Error()),
 			))
-        s.logger.Error().Err(err).Str("service_name", svc.Name).Str("service_type", svc.Type).Msg("processSweepData failed")
+			s.logger.Error().Err(err).Str("service_name", svc.Name).Str("service_type", svc.Type).Msg("processSweepData failed")
 
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
@@ -94,7 +106,9 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	}
 
 	// Process host results and update devices
-	return s.processSweepHostUpdates(ctx, span, svc.Name, sweepData, contextPollerID, contextPartition, contextAgentID, now)
+	return s.processSweepHostUpdates(
+		ctx, span, svc.Name, sweepData, contextPollerID, contextPartition, contextAgentID, now,
+	)
 }
 
 // initSweepProcessingTrace initializes tracing attributes for sweep data processing
@@ -105,21 +119,21 @@ func (s *Server) initSweepProcessingTrace(span trace.Span, svc *api.ServiceStatu
 		attribute.Int("message_size", len(svc.Message)),
 	)
 
-    // Reduced log noise: initial sweep processing marker
-    s.logger.Debug().Str("service_name", svc.Name).Str("partition", partition).Msg("Sweep processing started")
+	// Reduced log noise: initial sweep processing marker
+	s.logger.Debug().Str("service_name", svc.Name).Str("partition", partition).Msg("Sweep processing started")
 }
 
 // logSweepPayloadInfo logs information about the extracted sweep payload
 func (s *Server) logSweepPayloadInfo(serviceName string, enhancedPayload *models.ServiceMetricsPayload, sweepMessage []byte) {
 	const maxPreviewLength = 300
 
-    // Avoid logging full payloads in production; keep a short summary only
-    s.logger.Debug().Str("service_name", serviceName).Int("sweep_message_length", len(sweepMessage)).Msg("Sweep payload received")
+	// Avoid logging full payloads in production; keep a short summary only
+	s.logger.Debug().Str("service_name", serviceName).Int("sweep_message_length", len(sweepMessage)).Msg("Sweep payload received")
 }
 
 // logContextInfo logs the extracted context information
 func (s *Server) logContextInfo(serviceName, pollerID, partition, agentID string) {
-    s.logger.Debug().Str("service_name", serviceName).Str("poller_id", pollerID).Str("partition", partition).Msg("Sweep context extracted")
+	s.logger.Debug().Str("service_name", serviceName).Str("poller_id", pollerID).Str("partition", partition).Msg("Sweep context extracted")
 }
 
 // prepareSweepData parses, validates and prepares the sweep data for processing
@@ -132,7 +146,7 @@ func (s *Server) prepareSweepData(ctx context.Context, sweepMessage []byte, svc 
 		Hosts []models.HostResult `json:"hosts"`
 	}
 
-    s.logger.Debug().Str("service_name", svc.Name).Msg("Parsing sweep data")
+	s.logger.Debug().Str("service_name", svc.Name).Msg("Parsing sweep data")
 
 	parsedData, err := s.parseConcatenatedSweepJSON(ctx, sweepMessage, svc.Name)
 	if err != nil {
@@ -159,7 +173,7 @@ func (s *Server) processSweepHostUpdates(ctx context.Context, span trace.Span, s
 	proto.SweepServiceStatus
 	Hosts []models.HostResult `json:"hosts"`
 }, contextPollerID, contextPartition, contextAgentID string, now time.Time) error {
-    s.logger.Debug().Str("service_name", serviceName).Int("host_count", len(sweepData.Hosts)).Msg("Processing hosts for device updates")
+	s.logger.Debug().Str("service_name", serviceName).Int("host_count", len(sweepData.Hosts)).Msg("Processing hosts for device updates")
 
 	updatesToStore := s.processHostResults(sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
 
@@ -171,7 +185,7 @@ func (s *Server) processSweepHostUpdates(ctx context.Context, span trace.Span, s
 		attribute.String("agent_id", contextAgentID),
 	)
 
-    s.logger.Info().Str("service_name", serviceName).Int("hosts", len(sweepData.Hosts)).Int("updates", len(updatesToStore)).Msg("Sweep processed")
+	s.logger.Info().Str("service_name", serviceName).Int("hosts", len(sweepData.Hosts)).Int("updates", len(updatesToStore)).Msg("Sweep processed")
 
 	if len(updatesToStore) > 0 {
 		span.AddEvent("Processing device updates", trace.WithAttributes(
@@ -199,7 +213,7 @@ func (s *Server) processSweepHostUpdates(ctx context.Context, span trace.Span, s
 		span.AddEvent("No device updates to process")
 	}
 
-    // Done
+	// Done
 
 	return nil
 }
@@ -222,8 +236,8 @@ func (s *Server) parseConcatenatedSweepJSON(_ context.Context, sweepMessage []by
 			Str("service_name", serviceName).
 			Msg("CORE_DEBUG: Single object parse failed for sweep data, trying to parse concatenated objects")
 
-        // Try to parse as concatenated JSON objects
-        decoder := json.NewDecoder(bytes.NewReader(sweepMessage))
+		// Try to parse as concatenated JSON objects
+		decoder := json.NewDecoder(bytes.NewReader(sweepMessage))
 
 		var allHosts []models.HostResult
 
@@ -335,6 +349,7 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 		Message:   svc.Message,
 		AgentID:   svc.AgentId,
 		PollerID:  svc.PollerId,
+		KvStoreID: svc.KvStoreId,
 	}
 
 	if len(svc.Message) > 0 {
@@ -609,9 +624,20 @@ func (s *Server) bufferServiceData(
 	}
 
 	if len(bufferedServiceList) > 0 {
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Int("services_to_buffer", len(bufferedServiceList)).
+			Msg("Buffering services for storage")
+
 		s.serviceListBufferMu.Lock()
 		s.serviceListBuffers[pollerID] = append(s.serviceListBuffers[pollerID], bufferedServiceList...)
+		totalBuffered := len(s.serviceListBuffers[pollerID])
 		s.serviceListBufferMu.Unlock()
+
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Int("total_buffered_services", totalBuffered).
+			Msg("Services buffered, waiting for flush")
 	}
 }
 
@@ -642,6 +668,8 @@ func (s *Server) createServiceRecords(
 		serviceStatus.Details = []byte(`{"status":"processed"}`)
 	}
 
+	kvMetadata := s.extractSafeKVMetadata(svc)
+
 	serviceRecord := &models.Service{
 		PollerID:    pollerID,
 		ServiceName: svc.ServiceName,
@@ -650,9 +678,40 @@ func (s *Server) createServiceRecords(
 		DeviceID:    deviceID,
 		Partition:   devicePartition,
 		Timestamp:   now,
+		Config:      kvMetadata,
 	}
 
+	// Debug log service creation
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("service.name", serviceRecord.ServiceName),
+		attribute.String("service.type", serviceRecord.ServiceType),
+		attribute.String("service.kv_enabled", kvMetadata["kv_enabled"]),
+		attribute.String("service.kv_store_id", kvMetadata["kv_store_id"]),
+	)
+
 	return serviceStatus, serviceRecord
+}
+
+// extractSafeKVMetadata extracts safe, non-sensitive KV metadata for storage
+// This function ensures no secrets, passwords, or sensitive data is stored
+func (s *Server) extractSafeKVMetadata(svc *proto.ServiceStatus) map[string]string {
+	metadata := make(map[string]string)
+
+	// Set service type for context
+	metadata["service_type"] = svc.ServiceType
+
+	// Extract KV store information from the service status (safe, no secrets)
+	if svc.KvStoreId != "" {
+		metadata["kv_store_id"] = svc.KvStoreId
+		metadata["kv_enabled"] = "true"
+		metadata["kv_configured"] = "true"
+	} else {
+		metadata["kv_enabled"] = "false"
+		metadata["kv_configured"] = "false"
+	}
+
+	return metadata
 }
 
 func (s *Server) processServiceDetails(
@@ -729,8 +788,8 @@ func (s *Server) registerServiceDevice(
 	ctx context.Context, pollerID, agentID, partition, sourceIP string, timestamp time.Time) error {
 	if partition == "" || sourceIP == "" {
 		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - "+
-			"missing required location data (partition=%q, source_ip=%q)",
-			pollerID, partition, sourceIP)
+			"missing required location data (partition=%q, source_ip=%q): %w",
+			pollerID, partition, sourceIP, ErrMissingLocationData)
 	}
 
 	deviceID := fmt.Sprintf("%s:%s", partition, sourceIP)
@@ -739,13 +798,14 @@ func (s *Server) registerServiceDevice(
 
 	var primaryServiceID string
 
-	if agentID == "" {
+	switch agentID {
+	case "":
 		serviceTypes = []string{"poller"}
 		primaryServiceID = pollerID
-	} else if agentID == pollerID {
+	case pollerID:
 		serviceTypes = []string{"poller", "agent"}
 		primaryServiceID = pollerID
-	} else {
+	default:
 		serviceTypes = []string{"agent"}
 		primaryServiceID = agentID
 	}

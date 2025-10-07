@@ -52,16 +52,20 @@ func run() error {
 
 // dispatchCommand routes the CLI to the appropriate subcommand or mode.
 func dispatchCommand(cfg *cli.CmdConfig) error {
-	switch cfg.SubCmd {
-	case "update-config":
-		return cli.RunUpdateConfig(cfg.ConfigFile, cfg.AdminHash, cfg.DBPasswordFile)
-	case "update-poller":
-		return cli.RunUpdatePoller(cfg)
-	case "generate-tls":
-		return cli.RunGenerateTLS(cfg)
-	default:
-		return runBcryptMode(cfg)
-	}
+    switch cfg.SubCmd {
+    case "update-config":
+        return cli.RunUpdateConfig(cfg.ConfigFile, cfg.AdminHash, cfg.DBPasswordFile)
+    case "update-poller":
+        return cli.RunUpdatePoller(cfg)
+    case "generate-tls":
+        return cli.RunGenerateTLS(cfg)
+    case "render-kong":
+        return cli.RunRenderKongCmd(cfg)
+    case "generate-jwt-keys":
+        return cli.RunGenerateJWTKeysCmd(cfg)
+    default:
+        return runBcryptMode(cfg)
+    }
 }
 
 // runBcryptMode handles bcrypt generation in non-interactive or interactive mode.

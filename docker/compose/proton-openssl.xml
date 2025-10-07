@@ -1,0 +1,9 @@
+<proton>
+    <openSSL>
+        <server>
+            <certificateFile>/etc/proton-server/certs/proton.pem</certificateFile>
+            <privateKeyFile>/etc/proton-server/certs/proton-key.pem</privateKeyFile>
+            <dhParamsFile>/etc/proton-server/dhparam.pem</dhParamsFile>
+        </server>
+    </openSSL>
+</proton>

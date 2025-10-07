@@ -21,15 +21,29 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"os"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+func permissionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, syscall.EACCES) ||
+		strings.Contains(err.Error(), "requires root")
+}
 
 func TestNewSYNScanner(t *testing.T) {
 	if testing.Short() {
@@ -50,7 +64,7 @@ func TestNewSYNScanner(t *testing.T) {
 			timeout:     0,
 			concurrency: 0,
 			wantTimeout: 1 * time.Second,
-			wantConc:    1000,
+			wantConc:    256,
 		},
 		{
 			name:        "custom values",
@@ -66,17 +80,22 @@ func TestNewSYNScanner(t *testing.T) {
 			log := logger.NewTestLogger()
 			scanner, err := NewSYNScanner(tt.timeout, tt.concurrency, log, nil)
 
-			if !isRoot {
-				// Without root privileges, should fail
-				require.Error(t, err)
-				assert.Nil(t, scanner)
-				t.Logf("SYN scanner correctly failed without root privileges: %v", err)
+			if err != nil {
+				if !isRoot {
+					require.Error(t, err)
+					assert.Nil(t, scanner)
+					t.Logf("SYN scanner correctly failed without root privileges: %v", err)
 
-				return
+					return
+				}
+
+				if permissionError(err) {
+					t.Skipf("Skipping SYN scanner test: raw sockets unavailable (%v)", err)
+				}
+
+				require.NoError(t, err)
 			}
 
-			// With root privileges, should succeed
-			require.NoError(t, err)
 			assert.NotNil(t, scanner)
 			assert.Equal(t, tt.wantTimeout, scanner.timeout)
 			assert.Equal(t, tt.wantConc, scanner.concurrency)
@@ -97,7 +116,11 @@ func TestSYNScanner_Scan_EmptyTargets(t *testing.T) {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
 	}
-	defer scanner.Stop()
+	defer func() {
+		if err := scanner.Stop(); err != nil {
+			t.Logf("Failed to stop scanner: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
 	targets := []models.Target{}
@@ -120,7 +143,11 @@ func TestSYNScanner_Scan_NonTCPTargets(t *testing.T) {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
 	}
-	defer scanner.Stop()
+	defer func() {
+		if err := scanner.Stop(); err != nil {
+			t.Logf("Failed to stop scanner: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
 	targets := []models.Target{
@@ -150,7 +177,11 @@ func TestSYNScanner_Scan_TCPTargets(t *testing.T) {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
 	}
-	defer scanner.Stop()
+	defer func() {
+		if err := scanner.Stop(); err != nil {
+			t.Logf("Failed to stop scanner: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -190,7 +221,11 @@ func TestSYNScanner_ConcurrentScanning(t *testing.T) {
 		t.Skip("SYN scanner requires root privileges")
 		return
 	}
-	defer scanner.Stop()
+	defer func() {
+		if err := scanner.Stop(); err != nil {
+			t.Logf("Failed to stop scanner: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -235,7 +270,11 @@ func TestSYNScanner_ContextCancellation(t *testing.T) {
 		t.Skipf("SYN scanner requires root privileges: %v", err)
 		return
 	}
-	defer scanner.Stop()
+	defer func() {
+		if err := scanner.Stop(); err != nil {
+			t.Logf("Failed to stop scanner: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()

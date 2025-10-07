@@ -1,0 +1,64 @@
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("@rust_crates//:defs.bzl", "all_crate_deps", "crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    crate_root = "build.rs",
+    edition = "2021",
+    deps = crate_deps(["tonic-build"]),
+    data = [
+        "@bazel_tools//tools/proto:protoc",
+        "//proto:monitoring_proto_src",
+        "//cmd/otel:otel_proto_srcs",
+    ],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+)
+
+rust_library(
+    name = "zen_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    deps = all_crate_deps(normal = True) + [":build_script"],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    visibility = ["//visibility:public"],
+)
+
+rust_binary(
+    name = "zen",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    edition = "2021",
+    deps = all_crate_deps(normal = True) + [":build_script"],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+rust_binary(
+    name = "zen_put_rule",
+    srcs = ["src/bin/put_rule.rs"],
+    edition = "2021",
+    deps = all_crate_deps(normal = True) + [":build_script"],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+rust_test(
+    name = "zen_lib_test",
+    crate = ":zen_lib",
+    data = [
+        "testdata/host_switch.json",
+        "testdata/syslog_settings.json",
+    ],
+)
+
+exports_files([
+    "data/cef_severity.json",
+    "data/snmp_severity.json",
+    "data/passthrough.json",
+    "data/strip_full_message.json",
+])

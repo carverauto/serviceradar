@@ -1,0 +1,183 @@
+# base/serviceradar-core.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-core
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: serviceradar-core
+  template:
+    metadata:
+      labels:
+        app: serviceradar-core
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      initContainers:
+      - name: init-core-jwks
+        image: ghcr.io/carverauto/serviceradar-kong-config:latest
+        imagePullPolicy: Always
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          mkdir -p /var/lib/serviceradar
+          cp /etc/serviceradar/core.json /var/lib/serviceradar/core.json
+          serviceradar-cli generate-jwt-keys --file /var/lib/serviceradar/core.json --bits 2048
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+          readOnly: true
+        - name: core-data
+          mountPath: /var/lib/serviceradar
+      containers:
+      - name: core
+        image: ghcr.io/carverauto/serviceradar-core:latest
+        imagePullPolicy: Always
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          cp /etc/serviceradar/core-k8s-init.sh /tmp/core-k8s-init.sh
+          chmod +x /tmp/core-k8s-init.sh
+          exec /tmp/core-k8s-init.sh
+        ports:
+        - containerPort: 8090
+          name: http
+        - containerPort: 50052
+          name: grpc
+        - containerPort: 9090
+          name: metrics
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        - name: core-data
+          mountPath: /var/lib/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+        env:
+        - name: WAIT_FOR_PROTON
+          value: "false"
+        - name: INIT_DB
+          value: "true"
+        - name: CONFIG_SOURCE
+          value: "file"
+        - name: CONFIG_PATH
+          value: "/var/lib/serviceradar/core.json"
+        - name: PROTON_HOST
+          value: "serviceradar-proton"
+        - name: PROTON_USER
+          value: "default"
+        - name: PROTON_DATABASE
+          value: "default"
+        - name: PROTON_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: proton-password
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: jwt-secret
+        - name: AUTH_PROVIDER
+          value: "local"
+        - name: OAUTH_ENABLED
+          value: "false"
+        - name: ADMIN_BCRYPT_HASH
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: admin-bcrypt-hash
+        resources:
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          exec:
+            command:
+            - grpcurl
+            - -cacert
+            - /etc/serviceradar/certs/root.pem
+            - -cert
+            - /etc/serviceradar/certs/core.pem
+            - -key
+            - /etc/serviceradar/certs/core-key.pem
+            - -servername
+            - core.serviceradar
+            - localhost:50052
+            - grpc.health.v1.Health/Check
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - grpcurl
+            - -cacert
+            - /etc/serviceradar/certs/root.pem
+            - -cert
+            - /etc/serviceradar/certs/core.pem
+            - -key
+            - /etc/serviceradar/certs/core-key.pem
+            - -servername
+            - core.serviceradar
+            - localhost:50052
+            - grpc.health.v1.Health/Check
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: core-data
+        persistentVolumeClaim:
+          claimName: serviceradar-core-data
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-core
+spec:
+  selector:
+    app: serviceradar-core
+  ports:
+  - name: http
+    port: 8090
+    targetPort: http
+  - name: grpc
+    port: 50052
+    targetPort: grpc
+  - name: metrics
+    port: 9090
+    targetPort: metrics
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-core-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

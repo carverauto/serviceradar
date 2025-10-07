@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-zen-rules
+data:
+  cef_severity.json: |
+    {
+      "name": "CEF Severity Mapping",
+      "description": "Map CEF severity levels to ServiceRadar severity levels",
+      "version": "1.0.0",
+      "rules": [
+        {
+          "condition": {
+            "field": "severity",
+            "operator": "in",
+            "value": ["0", "1", "2"]
+          },
+          "action": {
+            "set_field": "sr_severity",
+            "value": "low"
+          }
+        },
+        {
+          "condition": {
+            "field": "severity",
+            "operator": "in",
+            "value": ["3", "4", "5", "6"]
+          },
+          "action": {
+            "set_field": "sr_severity",
+            "value": "medium"
+          }
+        },
+        {
+          "condition": {
+            "field": "severity",
+            "operator": "in",
+            "value": ["7", "8", "9", "10"]
+          },
+          "action": {
+            "set_field": "sr_severity",
+            "value": "high"
+          }
+        }
+      ]
+    }
+  strip_full_message.json: |
+    {
+      "name": "Strip Full Message",
+      "description": "Remove full_message field if it's too large or redundant",
+      "version": "1.0.0",
+      "rules": [
+        {
+          "condition": {
+            "field": "full_message",
+            "operator": "length_gt",
+            "value": 1000
+          },
+          "action": {
+            "remove_field": "full_message"
+          }
+        },
+        {
+          "condition": {
+            "field": "full_message",
+            "operator": "equals",
+            "field_ref": "message"
+          },
+          "action": {
+            "remove_field": "full_message"
+          }
+        }
+      ]
+    }
+  passthrough.json: |
+    {
+      "name": "Passthrough Rule",
+      "description": "Pass events through without modification",
+      "version": "1.0.0",
+      "rules": [
+        {
+          "condition": {
+            "operator": "always"
+          },
+          "action": {
+            "pass": true
+          }
+        }
+      ]
+    }

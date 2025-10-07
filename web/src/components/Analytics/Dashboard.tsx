@@ -133,16 +133,16 @@ const DashboardContent = () => {
         let query = '';
         switch (type) {
             case 'total':
-                query = 'show devices';
+                query = 'in:devices time:last_7d sort:last_seen:desc limit:100';
                 break;
             case 'offline':
-                query = 'show devices where is_available = false';
+                query = 'in:devices is_available:false time:last_7d sort:last_seen:desc limit:100';
                 break;
             case 'latency':
-                query = 'show services where type = "icmp" and response_time > 100000000';
+                query = 'in:services type:icmp response_time:[100000000,] sort:timestamp:desc limit:100';
                 break;
             case 'failing':
-                query = 'show services where available = false';
+                query = 'in:services available:false sort:timestamp:desc limit:100';
                 break;
         }
         const encodedQuery = encodeURIComponent(query);

@@ -1,0 +1,14 @@
+.bazel_cache
+.cargo
+.gomodcache
+cmd/logos/.venv
+cmd/otel/target
+_build
+node_modules
+dist
+target
+third_party/vendor/tools_opam
+vendor
+_bazel_root
+_bazel_output
+.cache

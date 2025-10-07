@@ -10,12 +10,16 @@ Usage:
   serviceradar update-config [options]
   serviceradar update-poller [options]
   serviceradar generate-tls [options]
+  serviceradar render-kong [options]
+  serviceradar generate-jwt-keys [options]
 
 Commands:
   (default)        Generate bcrypt hash from password
   update-config    Update core.json with new admin password hash
   update-poller    Manage service checks in poller.json
   generate-tls     Generate mTLS certificates for ServiceRadar and Proton
+  render-kong      Render Kong DB-less config from Core JWKS
+  generate-jwt-keys Generate RS256 keypair and update core.json
 
 Options for bcrypt generation:
   -help         show this help message
@@ -62,5 +66,21 @@ Examples:
   serviceradar generate-tls -ip 192.168.1.10,10.0.0.5
   serviceradar generate-tls --non-interactive
   serviceradar generate-tls --add-ips -ip 10.0.0.5
+
+Options for render-kong:
+  -jwks string       JWKS URL (default http://core:8090/auth/jwks.json)
+  -service string    upstream service URL (default http://core:8090)
+  -path string       route path prefix (default /api)
+  -out string        output kong.yml path (default /etc/kong/kong.yml)
+  -key-claim string  JWT key claim (default kid)
+
+Example:
+  serviceradar render-kong -jwks http://core:8090/auth/jwks.json -service http://core:8090 -path /api -out /etc/kong/kong.yml
+
+Options for generate-jwt-keys:
+  -file string       path to core.json (default /etc/serviceradar/config/core.json)
+  -kid string        key id to embed in JWT header (default auto-derived)
+  -bits int          RSA key size in bits (default 2048)
+  -force             overwrite existing RS256 keys if present
 `)
 }

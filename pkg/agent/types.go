@@ -32,6 +32,7 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+// Server represents the main agent server that handles checker coordination and service management.
 type Server struct {
 	proto.UnimplementedAgentServiceServer
 	mu                 sync.RWMutex
@@ -46,12 +47,14 @@ type Server struct {
 	config             *ServerConfig
 	connections        map[string]*CheckerConnection
 	kvStore            KVStore
-	createSweepService func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error)
+	createSweepService func(ctx context.Context, sweepConfig *SweepConfig, kvStore KVStore) (Service, error)
 	setupKVStore       func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (KVStore, error)
 	logger             logger.Logger
 }
+// Duration represents a time duration that can be unmarshaled from JSON.
 type Duration time.Duration
 
+// SweepConfig defines configuration parameters for network sweep operations.
 type SweepConfig struct {
 	MaxTargets    int
 	MaxGoroutines int
@@ -66,6 +69,7 @@ type SweepConfig struct {
 	Timeout       Duration              `json:"timeout"`
 }
 
+// CheckerConfig defines the configuration for individual checker services.
 type CheckerConfig struct {
 	Name       string          `json:"name"`
 	Type       string          `json:"type"`
@@ -79,18 +83,19 @@ type CheckerConfig struct {
 
 // ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
-	AgentID     string                 `json:"agent_id"`             // Unique identifier for this agent
-	AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
-	HostIP      string                 `json:"host_ip,omitempty"`    // Host IP address for device correlation
-	Partition   string                 `json:"partition,omitempty"`  // Partition for device correlation
-	ListenAddr  string                 `json:"listen_addr"`
-	Security    *models.SecurityConfig `json:"security"`
-	KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
-	KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
-	CheckersDir string                 `json:"checkers_dir"`          // Directory for external checkers
-	Logging     *logger.Config         `json:"logging,omitempty"`     // Logger configuration
+    AgentID     string                 `json:"agent_id"`             // Unique identifier for this agent
+    AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
+    HostIP      string                 `json:"host_ip,omitempty"`    // Host IP address for device correlation
+    Partition   string                 `json:"partition,omitempty"`  // Partition for device correlation
+    ListenAddr  string                 `json:"listen_addr"`
+    Security    *models.SecurityConfig `json:"security" hot:"rebuild"`
+    KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
+    KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
+    CheckersDir string                 `json:"checkers_dir"`
+    Logging     *logger.Config         `json:"logging,omitempty" hot:"reload"`
 }
 
+// CheckerConnection represents a connection to an external checker service.
 type CheckerConnection struct {
 	client      *grpc.Client
 	serviceName string
@@ -101,6 +106,7 @@ type CheckerConnection struct {
 	logger      logger.Logger
 }
 
+// ServiceError represents an error that occurred in a specific service.
 type ServiceError struct {
 	ServiceName string
 	Err         error

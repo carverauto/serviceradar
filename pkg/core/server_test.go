@@ -25,6 +25,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.uber.org/mock/gomock"
+
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
@@ -35,11 +40,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel"
-	"go.uber.org/mock/gomock"
 )
+
 
 func TestNewServer(t *testing.T) {
 	tests := []struct {
@@ -415,6 +417,7 @@ func verifySweepTestCase(ctx context.Context, t *testing.T, server *Server, svc 
 	require.NoError(t, err)
 
 	var sweepData proto.SweepServiceStatus
+
 	err = json.Unmarshal(svc.Message, &sweepData)
 	require.NoError(t, err)
 
@@ -445,7 +448,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 		tracer:        otel.Tracer("serviceradar-core-test"),
 	}
 
-	pollerID := "test-poller"
+	pollerID := testPollerID
 	now := time.Now()
 
 	// Test data
@@ -469,6 +472,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 }`
 
 	var details json.RawMessage
+
 	err := json.Unmarshal([]byte(detailsJSON), &details)
 	require.NoError(t, err)
 
@@ -521,7 +525,7 @@ func TestHandlePollerRecovery(t *testing.T) {
 		tracer:   otel.Tracer("serviceradar-core-test"),
 	}
 
-	pollerID := "test-poller"
+	pollerID := testPollerID
 	apiStatus := &api.PollerStatus{
 		PollerID:   pollerID,
 		IsHealthy:  true,
@@ -554,7 +558,7 @@ func TestHandlePollerDown(t *testing.T) {
 		tracer:                  otel.Tracer("serviceradar-core-test"),
 	}
 
-	pollerID := "test-poller"
+	pollerID := testPollerID
 	lastSeen := time.Now().Add(-10 * time.Minute)
 	firstSeen := lastSeen.Add(-1 * time.Hour)
 
@@ -791,7 +795,7 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	pollerID := "test-poller"
+	pollerID := testPollerID
 	agentID := "agent-123"
 	now := time.Now()
 

@@ -23,14 +23,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
+	"github.com/carverauto/serviceradar/proto"
+)
+
+const (
+	testServer = "test-server"
 )
 
 // Mock implementation for proto.KVServiceClient
@@ -52,8 +57,16 @@ func (*mockProtoKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ..
 	return &proto.DeleteResponse{}, nil
 }
 
+func (*mockProtoKVClient) PutIfAbsent(_ context.Context, _ *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
+    return &proto.PutResponse{}, nil
+}
+
 func (*mockProtoKVClient) Watch(_ context.Context, _ *proto.WatchRequest, _ ...grpc.CallOption) (proto.KVService_WatchClient, error) {
-	return nil, nil
+    return nil, nil
+}
+
+func (*mockProtoKVClient) Info(_ context.Context, _ *proto.InfoRequest, _ ...grpc.CallOption) (*proto.InfoResponse, error) {
+    return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
 }
 
 func TestNew(t *testing.T) {
@@ -162,10 +175,10 @@ func TestGetServerName(t *testing.T) {
 			name: "with security config",
 			config: &Config{
 				Security: &models.SecurityConfig{
-					ServerName: "test-server",
+					ServerName: testServer,
 				},
 			},
-			expected: "test-server",
+			expected: testServer,
 		},
 		{
 			name:     "without security config",
@@ -196,7 +209,7 @@ func TestDefaultIntegrationRegistry(t *testing.T) {
 	// Create a mock that satisfies proto.KVServiceClient interface
 	kvClient := &mockProtoKVClient{}
 	grpcClient := NewMockGRPCClient(ctrl)
-	serverName := "test-server"
+	serverName := testServer
 
 	// Mock gRPC connection
 	conn := &grpc.ClientConn{}
@@ -243,7 +256,7 @@ func TestNewArmisIntegration(t *testing.T) {
 	kvClient := &mockProtoKVClient{}
 
 	conn := &grpc.ClientConn{}
-	serverName := "test-server"
+	serverName := testServer
 
 	tests := []struct {
 		name     string
@@ -328,10 +341,8 @@ func TestNewArmisIntegration(t *testing.T) {
 				assert.NotNil(t, integration.Updater)
 			}
 
-			// Check if SRQL querier is set when API credentials are provided
-			if tt.config.Credentials["api_key"] != "" {
-				assert.NotNil(t, integration.SweepQuerier)
-			}
+            // SRQL querier removed from Go implementation
+            assert.Nil(t, integration.SweepQuerier)
 		})
 	}
 }
@@ -345,46 +356,42 @@ func TestNewNetboxIntegration(t *testing.T) {
 	kvClient := &mockProtoKVClient{}
 	conn := &grpc.ClientConn{}
 
-	serverName := "test-server"
+	serverName := testServer
 
-	tests := []struct {
-		name               string
-		config             *models.SourceConfig
-		expectSweepQuerier bool
-	}{
-		{
-			name: "default configuration",
-			config: &models.SourceConfig{
-				Type:        integrationTypeNetbox,
-				AgentID:     "test-agent",
-				Credentials: map[string]string{},
-			},
-			expectSweepQuerier: false,
-		},
-		{
-			name: "with ServiceRadar API credentials",
-			config: &models.SourceConfig{
-				Type:    integrationTypeNetbox,
-				AgentID: "test-agent",
-				Credentials: map[string]string{
-					"api_key":               "test-key",
-					"serviceradar_endpoint": "http://localhost:8080",
-				},
-			},
-			expectSweepQuerier: true,
-		},
-		{
-			name: "with API key but no endpoint (uses default)",
-			config: &models.SourceConfig{
-				Type:    integrationTypeNetbox,
-				AgentID: "test-agent",
-				Credentials: map[string]string{
-					"api_key": "test-key",
-				},
-			},
-			expectSweepQuerier: true,
-		},
-	}
+    tests := []struct {
+        name   string
+        config *models.SourceConfig
+    }{
+        {
+            name: "default configuration",
+            config: &models.SourceConfig{
+                Type:        integrationTypeNetbox,
+                AgentID:     "test-agent",
+                Credentials: map[string]string{},
+            },
+        },
+        {
+            name: "with ServiceRadar API credentials",
+            config: &models.SourceConfig{
+                Type:    integrationTypeNetbox,
+                AgentID: "test-agent",
+                Credentials: map[string]string{
+                    "api_key":               "test-key",
+                    "serviceradar_endpoint": "http://localhost:8080",
+                },
+            },
+        },
+        {
+            name: "with API key but no endpoint (uses default)",
+            config: &models.SourceConfig{
+                Type:    integrationTypeNetbox,
+                AgentID: "test-agent",
+                Credentials: map[string]string{
+                    "api_key": "test-key",
+                },
+            },
+        },
+    }
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -398,13 +405,10 @@ func TestNewNetboxIntegration(t *testing.T) {
 			assert.Equal(t, serverName, integration.ServerName)
 			assert.False(t, integration.ExpandSubnets, "ExpandSubnets should always be false in NewNetboxIntegration")
 
-			if tt.expectSweepQuerier {
-				assert.NotNil(t, integration.Querier)
-			} else {
-				assert.Nil(t, integration.Querier)
-			}
-		})
-	}
+            // SRQL querier removed from Go implementation
+            assert.Nil(t, integration.Querier)
+        })
+    }
 }
 
 func TestNetboxIntegrationFactory(t *testing.T) {
@@ -413,7 +417,7 @@ func TestNetboxIntegrationFactory(t *testing.T) {
 
 	kvClient := &mockProtoKVClient{}
 	grpcClient := NewMockGRPCClient(ctrl)
-	serverName := "test-server"
+	serverName := testServer
 
 	// Mock gRPC connection
 	conn := &grpc.ClientConn{}
@@ -455,72 +459,7 @@ func TestNetboxIntegrationFactory(t *testing.T) {
 	})
 }
 
-func TestArmisDeviceStateAdapter(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	querier := NewMockSRQLQuerier(ctrl)
-	adapter := &armisDeviceStateAdapter{querier: querier}
-
-	ctx := context.Background()
-	source := "test-source"
-
-	deviceStates := []DeviceState{
-		{
-			DeviceID:    "device1",
-			IP:          "192.168.1.1",
-			IsAvailable: true,
-			Metadata:    map[string]interface{}{"key": "value"},
-		},
-		{
-			DeviceID:    "device2",
-			IP:          "192.168.1.2",
-			IsAvailable: false,
-			Metadata:    map[string]interface{}{"key2": "value2"},
-		},
-	}
-
-	querier.EXPECT().GetDeviceStatesBySource(ctx, source).Return(deviceStates, nil)
-
-	result, err := adapter.GetDeviceStatesBySource(ctx, source)
-
-	require.NoError(t, err)
-	assert.Len(t, result, 2)
-	assert.Equal(t, "device1", result[0].DeviceID)
-	assert.Equal(t, "192.168.1.1", result[0].IP)
-	assert.True(t, result[0].IsAvailable)
-	assert.Equal(t, map[string]interface{}{"key": "value"}, result[0].Metadata)
-}
-
-func TestNetboxDeviceStateAdapter(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	querier := NewMockSRQLQuerier(ctrl)
-	adapter := &netboxDeviceStateAdapter{querier: querier}
-
-	ctx := context.Background()
-	source := "test-source"
-
-	deviceStates := []DeviceState{
-		{
-			DeviceID:    "device1",
-			IP:          "192.168.1.1",
-			IsAvailable: true,
-			Metadata:    map[string]interface{}{"key": "value"},
-		},
-	}
-
-	querier.EXPECT().GetDeviceStatesBySource(ctx, source).Return(deviceStates, nil)
-
-	result, err := adapter.GetDeviceStatesBySource(ctx, source)
-
-	require.NoError(t, err)
-	assert.Len(t, result, 1)
-	assert.Equal(t, "device1", result[0].DeviceID)
-	assert.Equal(t, "192.168.1.1", result[0].IP)
-	assert.True(t, result[0].IsAvailable)
-}
+// SRQL adapters removed from Go implementation; related adapter tests deleted.
 
 func TestCreateSimpleSyncService(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -697,7 +636,7 @@ func BenchmarkDefaultIntegrationRegistry(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_ = defaultIntegrationRegistry(kvClient, grpcClient, "test-server")
+		_ = defaultIntegrationRegistry(kvClient, grpcClient, testServer)
 	}
 }
 
@@ -720,7 +659,7 @@ func BenchmarkNewArmisIntegration(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		log := logger.NewTestLogger()
-		_ = NewArmisIntegration(ctx, config, kvClient, conn, "test-server", log)
+		_ = NewArmisIntegration(ctx, config, kvClient, conn, testServer, log)
 	}
 }
 

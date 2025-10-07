@@ -21,14 +21,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"sort"
 	"time"
 
+	"github.com/gorilla/mux"
+
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/gorilla/mux"
 )
 
 // fetchMetrics is a generic helper to fetch metrics and handle errors.
@@ -403,7 +405,11 @@ func (s *APIServer) getCPUMetricsForDevice(
 	if err != nil {
 		return nil, fmt.Errorf("failed to query CPU metrics for device %s: %w", deviceID, err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("failed to close rows", "error", err)
+		}
+	}()
 
 	data := make(map[time.Time][]models.CPUMetric)
 
@@ -466,7 +472,11 @@ func (s *APIServer) getMemoryMetricsForDevice(
 	if err != nil {
 		return nil, fmt.Errorf("failed to query memory metrics for device %s: %w", deviceID, err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("failed to close rows", "error", err)
+		}
+	}()
 
 	var result []models.SysmonMemoryResponse
 
@@ -517,7 +527,11 @@ func (s *APIServer) getDiskMetricsForDevice(
 	if err != nil {
 		return nil, fmt.Errorf("failed to query disk metrics for device %s: %w", deviceID, err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("failed to close rows", "error", err)
+		}
+	}()
 
 	data := make(map[time.Time][]models.DiskMetric)
 
@@ -578,7 +592,11 @@ func (s *APIServer) getProcessMetricsForDevice(
 	if err != nil {
 		return nil, fmt.Errorf("failed to query process metrics for device %s: %w", deviceID, err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("failed to close rows", "error", err)
+		}
+	}()
 
 	data := make(map[time.Time][]models.ProcessMetric)
 

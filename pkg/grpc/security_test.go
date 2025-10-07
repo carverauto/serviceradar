@@ -24,12 +24,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 func createTestLogger(_ *testing.T) logger.Logger {
@@ -57,6 +58,7 @@ func TestNoSecurityProvider(t *testing.T) {
 		// Create server with a timeout to avoid hanging
 		s := grpc.NewServer(opt)
 		defer s.Stop()
+
 		assert.NotNil(t, s)
 	})
 
@@ -109,6 +111,7 @@ func TestMTLSProvider(t *testing.T) {
 	t.Run("GetClientCredentials", func(t *testing.T) {
 		provider, err := NewMTLSProvider(config, createTestLogger(t))
 		require.NoError(t, err)
+
 		defer func(provider *MTLSProvider) {
 			err = provider.Close()
 			if err != nil {

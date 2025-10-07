@@ -18,23 +18,19 @@ set -e
 echo "[Nginx Init] Waiting for upstream services to be ready..."
 
 # Wait for web service
-for i in $(seq 1 30); do
-    if nc -z web 3000 2>/dev/null; then
-        echo "[Nginx Init] Web service is ready on port 3000"
-        break
-    fi
-    echo "[Nginx Init] Waiting for web service... ($i/30)"
-    sleep 2
-done
+if wait-for-port --host web --port 3000 --attempts 30 --interval 2s --quiet; then
+    echo "[Nginx Init] Web service is ready on port 3000"
+else
+    echo "[Nginx Init] ERROR: Timed out waiting for web service on port 3000" >&2
+    exit 1
+fi
 
 # Wait for core service
-for i in $(seq 1 30); do
-    if nc -z core 8090 2>/dev/null; then
-        echo "[Nginx Init] Core service is ready on port 8090"
-        break
-    fi
-    echo "[Nginx Init] Waiting for core service... ($i/30)"
-    sleep 2
-done
+if wait-for-port --host core --port 8090 --attempts 30 --interval 2s --quiet; then
+    echo "[Nginx Init] Core service is ready on port 8090"
+else
+    echo "[Nginx Init] ERROR: Timed out waiting for core service on port 8090" >&2
+    exit 1
+fi
 
 echo "[Nginx Init] All upstream services are ready!"

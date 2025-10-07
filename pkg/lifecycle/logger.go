@@ -23,9 +23,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 // InitializeLogger initializes the logger with the provided configuration.

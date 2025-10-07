@@ -28,13 +28,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
+)
+
+const (
+	testAccessToken = "test-access-token"
 )
 
 // TestArmisIntegration_Fetch_NoUpdater tests the fetch logic when no updater is configured.
@@ -101,7 +106,7 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	}
 
 	// 2. Test Fetch (Discovery) - should NOT perform reconciliation
-	testAccessToken := "test-access-token"
+	testAccessToken := testAccessToken
 	expectedQuery := "in:devices orderBy=id boundaries:\"Corporate\""
 
 	// Expectations for the initial device fetch only
@@ -243,7 +248,7 @@ func getFirstPageResponse(devices []Device) *SearchResponse {
 func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, _ *models.SweepConfig) {
 	t.Helper()
 
-	testAccessToken := "test-access-token"
+	testAccessToken := testAccessToken
 	expectedQuery := "in:devices orderBy=id boundaries:\"Corporate\""
 
 	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
@@ -332,7 +337,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 		Logger:       logger.NewTestLogger(),
 	}
 
-	testAccessToken := "test-access-token"
+	testAccessToken := testAccessToken
 	firstPageDevices := []Device{{ID: 1, IPAddress: "192.168.1.1", Name: "Device 1"}, {ID: 2, IPAddress: "192.168.1.2", Name: "Device 2"}}
 	secondPageDevices := []Device{{ID: 3, IPAddress: "192.168.1.3", Name: "Device 3"}, {ID: 4, IPAddress: "192.168.1.4", Name: "Device 4"}}
 	firstPageResp := &SearchResponse{Data: struct {
@@ -491,7 +496,7 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 	assert.Contains(t, err.Error(), "no queries configured")
 }
 
-// TestArmisIntegration_FetchMultipleQueries tests that multiple ASQ queries are accumulated in memory
+// TestArmisIntegration_FetchMultipleQueries tests that multiple queries are accumulated in memory
 // and all devices are included in the final sweep.json, preventing the overwriting issue.
 func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
 	integration, mocks := setupArmisIntegration(t)
@@ -514,7 +519,7 @@ func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
 		{ID: 4, Name: "guest-tablet-1", IPAddress: "192.168.2.101", MacAddress: "00:11:22:33:44:58"},
 	}
 
-	testAccessToken := "test-access-token"
+	testAccessToken := testAccessToken
 
 	// Set up expectations for token provider
 	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
@@ -645,7 +650,11 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 			// Create the response inside the test loop
 			mockResponse := createSuccessResponse(t)
 			if mockResponse != nil {
-				defer mockResponse.Body.Close()
+				defer func() {
+					if err := mockResponse.Body.Close(); err != nil {
+						t.Logf("Failed to close response body: %v", err)
+					}
+				}()
 			}
 
 			impl := setupDefaultArmisIntegration(t, mockResponse, tc.mockError)
@@ -726,7 +735,7 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 							`{"data": {"access_token": "test-access-token", "expiration_utc": "2023-10-11T09:49:00.818613+00:00"}, "success": true}`)),
 				}, nil)
 			},
-			expectedToken: "test-access-token",
+			expectedToken: testAccessToken,
 			expectedError: "",
 		},
 		{
@@ -804,6 +813,23 @@ func (m *mockKVClient) Put(ctx context.Context, in *proto.PutRequest, opts ...gr
 	return ret0, ret1
 }
 
+func (m *mockKVClient) PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error) {
+	m.ctrl.T.Helper()
+
+	varargs := []interface{}{ctx, in}
+
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+
+	ret := m.ctrl.Call(m, "PutIfAbsent", varargs...)
+
+	ret0, _ := ret[0].(*proto.PutResponse)
+	ret1, _ := ret[1].(error)
+
+	return ret0, ret1
+}
+
 func (m *mockKVClient) PutMany(ctx context.Context, in *proto.PutManyRequest, opts ...grpc.CallOption) (*proto.PutManyResponse, error) {
 	m.ctrl.T.Helper()
 
@@ -836,6 +862,14 @@ func (mr *mockKVClientRecorder) Put(ctx, in interface{}, opts ...interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*mockKVClient)(nil).Put), varargs...)
 }
 
+func (mr *mockKVClientRecorder) PutIfAbsent(ctx, in interface{}, opts ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+
+	varargs := append([]interface{}{ctx, in}, opts...)
+
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutIfAbsent", reflect.TypeOf((*mockKVClient)(nil).PutIfAbsent), varargs...)
+}
+
 func (*mockKVClient) Get(_ context.Context, _ *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
 	return nil, errNotImplemented
 }
@@ -845,7 +879,11 @@ func (*mockKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ...grpc
 }
 
 func (*mockKVClient) Watch(_ context.Context, _ *proto.WatchRequest, _ ...grpc.CallOption) (proto.KVService_WatchClient, error) {
-	return nil, errNotImplemented
+    return nil, errNotImplemented
+}
+
+func (*mockKVClient) Info(_ context.Context, _ *proto.InfoRequest, _ ...grpc.CallOption) (*proto.InfoResponse, error) {
+    return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
 }
 
 func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
@@ -1133,6 +1171,7 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 
 	// Create test data with 2500 devices (should be split into 5 batches of 500 each)
 	const totalDevices = 2500
+
 	devices := make([]Device, totalDevices)
 	sweepResults := make([]SweepResult, totalDevices)
 
@@ -1181,6 +1220,7 @@ func TestBatchUpdateDeviceAttributes_SingleBatch(t *testing.T) {
 
 	// Create test data with 100 devices (single batch)
 	const totalDevices = 100
+
 	devices := make([]Device, totalDevices)
 	sweepResults := make([]SweepResult, totalDevices)
 
@@ -1230,6 +1270,7 @@ func TestBatchUpdateDeviceAttributes_WithCustomBatchSize(t *testing.T) {
 
 	// Create test data with 750 devices (should be split into 3 batches of 250 each)
 	const totalDevices = 750
+
 	devices := make([]Device, totalDevices)
 	sweepResults := make([]SweepResult, totalDevices)
 

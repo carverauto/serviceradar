@@ -1,0 +1,190 @@
+# ServiceRadar v1.0.53-pre19
+
+Bazel container fixes for runtime parity.
+
+## Whats New
+
+**1.0.53-pre19**
+- Enforced pure Go mode in Bazel so every shipped binary is static and CGO-free.
+- Layered Alpine ping, nmap, and netcat APKs into all OCI images that expect those tools at runtime.
+- Rebuilt the Bazel OCI targets to match the previously working docker-compose images.
+
+# ServiceRadar v1.0.53-pre18
+
+Kong packaging automation and vendor refresh.
+
+## Whats New
+
+**1.0.53-pre18**
+- Added `scripts/build-kong-vendor.sh` to clone the pinned Kong commit and build OSS RPM/DEB artifacts automatically.
+- Release workflow now runs the helper so Kong binaries ship with every GitHub release.
+- Documented the new flow in `packaging/kong/README.md` and clarified the expected versioned filenames.
+
+# ServiceRadar v1.0.53-pre17
+
+Release cut for the final GitHub upload fix.
+
+## Whats New
+
+**1.0.53-pre17**
+- Prepare follow-up tag so the GitHub Actions release reruns with the Content-Length fix.
+- Carry forward packaging/version metadata for automated publishing.
+
+# ServiceRadar v1.0.53-pre16
+
+Release publisher refinements for GitHub automation.
+
+## Whats New
+
+**1.0.53-pre16**
+- Fix GitHub asset uploads by letting the client set `Content-Length` for large RPMs.
+- Clean up release notes for prior prerelease entries.
+- Bump VERSION to keep packaging outputs aligned with the tag.
+
+# ServiceRadar v1.0.53-pre15
+
+Release tooling alignment for GitHub publishing.
+
+## Whats New
+
+**1.0.53-pre15**
+- Ensure GitHub release uploads rewrite Debian/RPM filenames with the tagged version.
+- Harden Bazel runfile resolution so publishing works across Bazel 8+ layouts.
+
+# ServiceRadar v1.0.53-pre14
+
+Release automation improvements and packaging workflow updates.
+
+## Whats New
+
+**1.0.53-pre14**
+- Automated GitHub release workflow builds and uploads Debian/RPM assets via Bazel.
+- New `scripts/cut-release.sh` helper streamlines tagging and pushing releases.
+- Release pipeline now validates assets through the GitHub API to ensure packages are published.
+- GitHub release uploads now stamp Debian/RPM filenames with the release version.
+
+# ServiceRadar v1.0.53-pre10
+
+Release of ServiceRadar network management, observability, and stream processing platform.
+
+## Whats New
+
+**1.0.53**
+- API Gateway (kong)
+- New SRQL service
+- Admin/Settings UI (WIP)
+- Improved RBAC
+- Kubernetes manifests (helm WIP)
+- High performance TCP syn scanner (AF_PACKET/TPACKET_V3,FANOUT,+more)
+- ICMP Scanner improvements
+- Docker compose stack (arm64/amd64)
+- Configurable sweep_modes per source for Armis integration
+- Configurable batch sizes for Armis updater
+- ServiceRadar Syslog messages now will end up in /var/log/serviceradar 
+
+**1.0.52**
+- Observability dashboard fixes
+
+**1.0.51**
+- Added Streaming OTEL logs/traces in the UI and new streaming APIs
+
+**1.0.50**
+- Auth bug fixed
+- Debug logging cleanup
+
+**1.0.49**
+- Analytics dashboard hard refreshes fixed
+- Sync service bug fixes
+- Sync service now uses a HTTP Circuit Breaker for API requests
+
+**1.0.48**
+- Dashboard improvements
+- Sync/Armis integration authentication token caching/retry logic added
+- Agent preserves config for sweep from FS, merges networks from KV
+- SRQL Queries support new time parameters (show logs from yesterday)
+- Filter networks from discovery with serviceradar-sync
+- Fixed several SRQL queries (show interfaces, show sweep_results)
+- Improved rendering SRQL query results in UI
+- Model-Context-Protocol (MCP) server
+- Improved companion prompt for MCP server
+
+**1.0.47**
+- Sysmon process metrics now available in UI
+- (OTEL) Logs viewer now available in UI
+- Schema cleanup - deprecated sweep_results
+- Core cleanup - deprecated sweep_results
+- Improved error handling/tracking in Device Discovery engine
+- Device Discovery engine handles panics gracefully
+- Armis/Netbox integration improvements
+- Agent availability bug fixed
+- Rust build improvements
+- CICD build pipeline improvements
+- Pagination bug fix for Web UI
+
+**1.0.46**
+- New logger package w/ OTEL support
+- OTEL Logs and Traces Collector w/ TLS support (rust)
+- Sync package / poller improvements
+- SweepResults now written to DB in batches
+- Streaming GRPC calls for large paylods from microservices
+- Updated Zen consumer to support OTEL logs 
+
+**1.0.45**
+
+- Bug Fixes
+- SNMP Dashboard updates
+- Armis Integration improvements
+- GRPC pipeline updates
+
+**1.0.44**
+
+- New UI
+- Query Engine Updates
+- SNMP Dashboard Updates
+- Support for Partitions (manage overlapping IP space)
+- NetBox and Armis Integration improvements
+- New combined "show devices" in SRQL
+- SNMP Trap Receiver (rust)
+- Syslog receiver (rust)
+- Zen Engine (GoRules Zen Engine - rust-based rule processor for events)
+
+## Components
+- serviceradar-dusk-checker: Agent package for monitoring Dusk nodes
+- serviceradar-snmp-checker: SNMP Poller, polls OIDs and graphs results for most counters
+- serviceradar-sysmon-checker: SysMon collects host-based metrics (CPU, memory, filesystem)
+- serviceradar-rperf-checker: RPerf (iperf3-based) bandwidth measurement tool (client)
+- serviceradar-rperf: RPerf server (reflector)
+- serviceradar-agent: Agent performs checks, collects information from external checkers
+- serviceradar-poller: Network poller for collecting monitoring data from Agent
+- serviceradar-core: Core service (API)
+- serviceradar-proton: Stream Processing Engine
+- serviceradar-web: Core service (UI)
+- serviceradar-trapd: SNMP receiver trap service
+- serviceradar-flowgger: SYSLOG receiver service
+- serviceradar-zen: Zen Consumer
+- serviceradar-otel: OTEL Collector
+- servicceradar-event-writer: DB Writer
+- serviceradar-mapper: Network Discovery Engine (Beta)
+- serviceradar-cli: ServiceRadar CLI utility (local-auth password management)
+- serviceradar-nats: NATS JetStream (message broker)
+- serviceradar-kv: NATS JetStream KV API
+- serviceradar-sync: KV integrations (NetBox, ARMIS, etc) -- Optional
+
+## Installation
+See the [README.md](README.md) for detailed installation instructions.
+
+### Quick Start
+
+ServiceRadar provides a simple installation script for deploying all components:
+
+```bash
+# All-in-One Installation (interactive mode)
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.53-pre5/install-serviceradar.sh | bash
+
+# All-in-One Installation (non-interactive mode)
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.53-pre5/install-serviceradar.sh | bash -s -- --all --non-interactive
+
+# Adding the `sysmon` metrics checker (CPU, memory, filesystem usage)
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.53-pre5/install-serviceradar.sh | bash -s -- --poller --skip-checker-prompts --checkers=sysmon
+systemctl restart serviceradar-poller
+```

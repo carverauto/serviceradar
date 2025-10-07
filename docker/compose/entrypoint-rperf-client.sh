@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Wait for certificates to be available
 echo "Waiting for certificates..."

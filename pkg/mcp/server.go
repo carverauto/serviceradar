@@ -18,17 +18,17 @@
 package mcp
 
 import (
-	"context"
-	_ "embed"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"strings"
+    "context"
+    _ "embed"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "strings"
 
-	"github.com/carverauto/serviceradar/pkg/core/api"
-	"github.com/carverauto/serviceradar/pkg/core/auth"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/gorilla/mux"
+    "github.com/gorilla/mux"
+
+    "github.com/carverauto/serviceradar/pkg/core/auth"
+    "github.com/carverauto/serviceradar/pkg/logger"
 )
 
 //go:embed srql-mcp-prompt.md
@@ -45,31 +45,36 @@ const (
 	defaultSRQLGuide = "srql-guide"
 )
 
-// MCPServer represents the ServiceRadar MCP server
+var (
+	errDeviceIDRequired = fmt.Errorf("device_id is required")
+	errQueryRequired    = fmt.Errorf("query is required")
+)
+
+// Server represents the ServiceRadar MCP server instance.
 type MCPServer struct {
-	queryExecutor api.SRQLQueryExecutor
-	logger        logger.Logger
-	config        *MCPConfig
-	authService   auth.AuthService
-	ctx           context.Context
-	cancel        context.CancelFunc
-	tools         map[string]MCPTool
+    queryExecutor QueryExecutor
+    logger        logger.Logger
+    config        *MCPConfig
+    authService   auth.AuthService
+    ctx           context.Context
+    cancel        context.CancelFunc
+    tools         map[string]MCPTool
 }
 
-// MCPConfig holds configuration for the MCP server
+// Config holds configuration for the MCP server.
 type MCPConfig struct {
 	Enabled bool   `json:"enabled"`
 	APIKey  string `json:"api_key"`
 }
 
-// MCPTool represents an MCP tool that can be called
+// Tool represents an MCP tool that can be called.
 type MCPTool struct {
 	Name        string
 	Description string
 	Handler     func(ctx context.Context, args json.RawMessage) (interface{}, error)
 }
 
-// MCPRequest represents an MCP tool call request
+// Request represents an MCP tool call request.
 type MCPRequest struct {
 	Method string `json:"method"`
 	Params struct {
@@ -78,13 +83,13 @@ type MCPRequest struct {
 	} `json:"params"`
 }
 
-// MCPResponse represents an MCP tool call response
+// Response represents an MCP tool call response.
 type MCPResponse struct {
 	Result interface{} `json:"result,omitempty"`
 	Error  *MCPError   `json:"error,omitempty"`
 }
 
-// MCPError represents an MCP error
+// Error represents an MCP error.
 type MCPError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -92,11 +97,11 @@ type MCPError struct {
 
 // NewMCPServer creates a new MCP server instance
 func NewMCPServer(
-	parentCtx context.Context,
-	queryExecutor api.SRQLQueryExecutor,
-	log logger.Logger,
-	config *MCPConfig,
-	authService auth.AuthService,
+    parentCtx context.Context,
+    queryExecutor QueryExecutor,
+    log logger.Logger,
+    config *MCPConfig,
+    authService auth.AuthService,
 ) *MCPServer {
 	ctx, cancel := context.WithCancel(parentCtx)
 
@@ -665,7 +670,7 @@ func (m *MCPServer) executeGetDevice(ctx context.Context, args json.RawMessage) 
 	}
 
 	if params.DeviceID == "" {
-		return nil, fmt.Errorf("device_id is required")
+		return nil, errDeviceIDRequired
 	}
 
 	query := fmt.Sprintf("SHOW devices WHERE device_id = '%s' LIMIT 1", params.DeviceID)
@@ -730,7 +735,7 @@ func (m *MCPServer) executeExecuteSRQL(ctx context.Context, args json.RawMessage
 	}
 
 	if params.Query == "" {
-		return nil, fmt.Errorf("query is required")
+		return nil, errQueryRequired
 	}
 
 	if params.Limit <= 0 {

@@ -1,3 +1,15 @@
+# ServiceRadar Docker Compose Configuration
+#
+# Usage:
+#   Standard deployment (without testing services):
+#     docker-compose up -d
+#   
+#   Include testing services (faker):
+#     docker-compose --profile testing up -d
+#
+# Available profiles:
+#   - testing: Includes the faker service for API testing/development
+
 services:
   # Certificate Generation Service (runs once to generate mTLS certs)
   cert-generator:
@@ -13,7 +25,7 @@ services:
 
   # Configuration Updater (runs after cert generation to update configs with secrets)
   config-updater:
-    image: ghcr.io/carverauto/serviceradar-config-updater:latest
+    image: ghcr.io/carverauto/serviceradar-config-updater:v1.0.53
     container_name: serviceradar-config-updater
     volumes:
       - cert-data:/etc/serviceradar/certs
@@ -23,6 +35,22 @@ services:
       cert-generator:
         condition: service_completed_successfully
     restart: "no"  # Only run once
+    networks:
+      - serviceradar-net
+
+  # Generate RS256 JWT keys and update core.json (first-run init)
+  core-jwks-init:
+    image: ghcr.io/carverauto/serviceradar-kong-config:v1.0.53
+    container_name: serviceradar-core-jwks-init
+    user: "0:0"
+    entrypoint: ["/usr/local/bin/serviceradar-cli", "generate-jwt-keys"]
+    command: ["-file", "/etc/serviceradar/config/core.json", "-bits", "2048"]
+    volumes:
+      - generated-config:/etc/serviceradar/config
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+    restart: "no"
     networks:
       - serviceradar-net
 
@@ -43,7 +71,7 @@ services:
 
   # Proton (TimeBase) Database with custom configuration
   proton:
-    image: ghcr.io/carverauto/serviceradar-proton:latest
+    image: ghcr.io/carverauto/serviceradar-proton:v1.0.53
     container_name: serviceradar-proton
     ports:
       - "8123:8123"  # HTTP port for JDBC driver, batch mode
@@ -82,7 +110,7 @@ services:
       - IPC_LOCK
       - SYS_NICE
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8123/?query=SELECT%201 || curl -sf http://default:$(cat /etc/proton-server/generated_password.txt)@localhost:8123/?query=SELECT%201 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8123/?query=SELECT%201 || curl -sf http://default:$$(cat /etc/proton-server/generated_password.txt)@localhost:8123/?query=SELECT%201 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -98,10 +126,7 @@ services:
 
   # ServiceRadar Core Service
   core:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.core
-    image: serviceradar-core:local
+    image: ghcr.io/carverauto/serviceradar-core:v1.0.53
     container_name: serviceradar-core
     # Expose core ports for debugging authentication
     ports:
@@ -131,6 +156,8 @@ services:
         condition: service_completed_successfully
       config-updater:
         condition: service_completed_successfully
+      core-jwks-init:
+        condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
       proton:
@@ -149,7 +176,7 @@ services:
 
   # ServiceRadar Web Application
   web:
-    image: ghcr.io/carverauto/serviceradar-web:latest
+    image: ghcr.io/carverauto/serviceradar-web:v1.0.53
     container_name: serviceradar-web
     environment:
       - NODE_ENV=production
@@ -177,6 +204,36 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # SRQL Service (OCaml) - handles /api/query requests routed via Kong
+  srql:
+    image: ghcr.io/carverauto/serviceradar-srql:v1.0.53
+    container_name: serviceradar-srql
+    environment:
+      - PROTON_HOST=proton
+      - PROTON_PORT=9440
+      - PROTON_TLS=1
+      - PROTON_INSECURE_SKIP_VERIFY=1
+      - PROTON_VERIFY_HOSTNAME=0
+      - AUTH_ENABLED=true
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
+      - credentials:/etc/serviceradar/credentials:ro
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+      proton:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
   # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
@@ -184,6 +241,8 @@ services:
     ports:
       - "80:80"      # HTTP
       # - "443:443"  # HTTPS (add SSL termination later)
+    environment:
+      API_UPSTREAM: ${API_UPSTREAM:-http://kong:8000}
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
@@ -193,6 +252,8 @@ services:
         condition: service_healthy
       core:
         condition: service_healthy
+      kong:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
       interval: 30s
@@ -203,9 +264,64 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # JWKS renderer - generates DB-less config for Kong from Core's JWKS
+  kong-config:
+    image: ghcr.io/carverauto/serviceradar-kong-config:v1.0.53
+    container_name: serviceradar-kong-config
+    user: "0:0"
+    command: ["--jwks","${JWKS_URL:-http://core:8090/auth/jwks.json}","--service","${KONG_SERVICE_URL:-http://core:8090}","--path","${KONG_ROUTE_PATH:-/api}","--srql-service","${SRQL_SERVICE_URL:-http://srql:8080}","--srql-path","${SRQL_ROUTE_PATH:-/api/query}","--out","/out/kong.yml"]
+    volumes:
+      - kong_config:/out
+    depends_on:
+      core:
+        condition: service_healthy
+    networks:
+      - serviceradar-net
+    # runs as part of default stack (no profile)
+    restart: "no"
+
+  # Kong (Community) — DB-less mode, optional 'kong' profile
+  kong:
+    image: ${KONG_IMAGE:-kong:latest}
+    container_name: serviceradar-kong
+    restart: on-failure
+    # Start alongside kong-config; Kong's entrypoint will wait/copy default
+    # so we don't block on kong-config completion.
+    depends_on:
+      kong-config:
+        condition: service_started
+      srql:
+        condition: service_healthy
+    environment:
+      KONG_DATABASE: off
+      KONG_DECLARATIVE_CONFIG: /opt/kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      # run Kong in foreground (no daemon) when using 'kong start'
+      KONG_NGINX_DAEMON: off
+      KONG_LOG_LEVEL: debug
+    command: ["sh","-lc","if [ ! -f /opt/kong/kong.yml ]; then cp /default-kong.yml /opt/kong/kong.yml 2>/dev/null || true; fi; until [ -f /opt/kong/kong.yml ]; do echo '[kong] waiting for /opt/kong/kong.yml'; sleep 2; done; exec kong start --vv"]
+    volumes:
+      - kong_config:/opt/kong
+      - ./docker/kong/kong.yaml:/default-kong.yml:ro
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    networks:
+      - serviceradar-net
+    # runs as part of default stack (no profile)
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8001/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  
+
   # ServiceRadar Poller Service
   poller:
-    image: ghcr.io/carverauto/serviceradar-poller:latest
+    image: ghcr.io/carverauto/serviceradar-poller:v1.0.53
     container_name: serviceradar-poller
     volumes:
       - ./docker/compose/poller.docker.json:/etc/serviceradar/poller.json:ro
@@ -236,12 +352,7 @@ services:
 
   # ServiceRadar Agent Service
   agent:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.agent
-      args:
-        VERSION: ${VERSION:-dev}
-        BUILD_ID: ${BUILD_ID:-docker}
+    image: ghcr.io/carverauto/serviceradar-agent:v1.0.53
     container_name: serviceradar-agent
     volumes:
       - ./docker/compose/agent.docker.json:/etc/serviceradar/agent.json:ro
@@ -277,6 +388,7 @@ services:
   # NATS for messaging and KV store
   nats:
     image: nats:latest
+    platform: linux/amd64
     container_name: serviceradar-nats
     ports:
       - "4222:4222"  # Client connections
@@ -308,7 +420,7 @@ services:
 
   # ServiceRadar KV Service (Key-Value store using NATS JetStream)
   kv:
-    image: ghcr.io/carverauto/serviceradar-kv:latest
+    image: ghcr.io/carverauto/serviceradar-kv:v1.0.53
     container_name: serviceradar-kv
     ports:
       - "50057:50057"  # gRPC port
@@ -343,12 +455,7 @@ services:
 
   # ServiceRadar Sync Service (Device discovery synchronization)
   sync:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.sync
-      args:
-        VERSION: ${VERSION:-dev}
-        BUILD_ID: ${BUILD_ID:-docker}
+    image: ghcr.io/carverauto/serviceradar-sync:v1.0.53
     container_name: serviceradar-sync
     ports:
       - "50058:50058"  # gRPC port
@@ -386,7 +493,7 @@ services:
 
   # ServiceRadar OTEL Service (OpenTelemetry collector)
   otel:
-    image: ghcr.io/carverauto/serviceradar-otel:latest
+    image: ghcr.io/carverauto/serviceradar-otel:v1.0.53
     container_name: serviceradar-otel
     ports:
       - "4317:4317"  # OTEL gRPC port
@@ -421,7 +528,7 @@ services:
 
   # ServiceRadar Flowgger Service (Syslog collector)
   flowgger:
-    image: ghcr.io/carverauto/serviceradar-flowgger:latest
+    image: ghcr.io/carverauto/serviceradar-flowgger:v1.0.53
     container_name: serviceradar-flowgger
     ports:
       - "514:514/udp"  # Syslog UDP port
@@ -460,7 +567,7 @@ services:
 
   # ServiceRadar Trapd Service (SNMP trap collector)
   trapd:
-    image: ghcr.io/carverauto/serviceradar-trapd:latest
+    image: ghcr.io/carverauto/serviceradar-trapd:v1.0.53
     container_name: serviceradar-trapd
     ports:
       - "162:162/udp"  # SNMP trap UDP port
@@ -499,7 +606,7 @@ services:
 
   # ServiceRadar Zen Service (Event processing and rule engine)
   zen:
-    image: ghcr.io/carverauto/serviceradar-zen:latest
+    image: ghcr.io/carverauto/serviceradar-zen:v1.0.53
     container_name: serviceradar-zen
     ports:
       - "50040:50040"  # gRPC port
@@ -537,7 +644,7 @@ services:
 
   # ServiceRadar DB Event Writer Service (NATS to Database bridge)
   db-event-writer:
-    image: ghcr.io/carverauto/serviceradar-db-event-writer:latest
+    image: ghcr.io/carverauto/serviceradar-db-event-writer:v1.0.53
     container_name: serviceradar-db-event-writer
     ports:
       - "50041:50041"  # gRPC port
@@ -575,7 +682,7 @@ services:
 
   # ServiceRadar Mapper - SNMP Network Discovery Service
   mapper:
-    image: ghcr.io/carverauto/serviceradar-mapper:latest
+    image: ghcr.io/carverauto/serviceradar-mapper:v1.0.53
     container_name: serviceradar-mapper
     ports:
       - "50056:50056"  # gRPC port
@@ -606,7 +713,7 @@ services:
 
   # ServiceRadar SNMP Checker - SNMP Polling Service
   snmp-checker:
-    image: ghcr.io/carverauto/serviceradar-snmp-checker:latest
+    image: ghcr.io/carverauto/serviceradar-snmp-checker:v1.0.53
     container_name: serviceradar-snmp-checker
     ports:
       - "50054:50054"  # gRPC port
@@ -640,7 +747,7 @@ services:
 
   # ServiceRadar rperf Client - Network Performance Testing Service
   rperf-client:
-    image: ghcr.io/carverauto/serviceradar-rperf-client:latest
+    image: ghcr.io/carverauto/serviceradar-rperf-client:v1.0.53
     container_name: serviceradar-rperf-client
     ports:
       - "50059:50059"  # gRPC port
@@ -673,12 +780,13 @@ services:
     restart: unless-stopped
 
   # Faker Service - Armis API Emulator for Testing
+  # This service is disabled by default. To enable it, use the 'testing' profile:
+  # docker-compose --profile testing up -d
   faker:
     image: ghcr.io/carverauto/serviceradar-faker:latest
     container_name: serviceradar-faker
-    build:
-      context: .
-      dockerfile: cmd/faker/Dockerfile
+    profiles:
+      - testing
     ports:
       - "8080:8080"  # Armis API emulator port
     environment:
@@ -741,4 +849,8 @@ volumes:
   snmp-checker-data:
     driver: local
   rperf-client-data:
+    driver: local
+  kong_config:
+    driver: local
+  kong_db_data:
     driver: local

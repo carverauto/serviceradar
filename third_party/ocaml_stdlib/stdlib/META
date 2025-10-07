@@ -1,0 +1,5 @@
+# stdlib/META.  Generated from META.in by configure.
+
+version = "5.2.0"
+description = "Standard library"
+directory = "+"

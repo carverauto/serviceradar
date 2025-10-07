@@ -32,6 +32,7 @@ func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metric
 		if err != nil {
 			m.logger.Error().Str("metricName", metricName).Str("pollerID", pollerID).
 				Err(err).Msg("Failed to marshal rperf metadata")
+
 			continue
 		}
 

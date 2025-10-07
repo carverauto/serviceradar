@@ -190,11 +190,23 @@ mod tests {
             "/zen-consumer-with-otel.json"
         ))
         .unwrap();
-        
-        assert_eq!(cfg.message_format_for_subject("events.syslog"), MessageFormat::Json);
-        assert_eq!(cfg.message_format_for_subject("events.snmp"), MessageFormat::Json);
-        assert_eq!(cfg.message_format_for_subject("events.otel.logs"), MessageFormat::Protobuf);
+
+        assert_eq!(
+            cfg.message_format_for_subject("events.syslog"),
+            MessageFormat::Json
+        );
+        assert_eq!(
+            cfg.message_format_for_subject("events.snmp"),
+            MessageFormat::Json
+        );
+        assert_eq!(
+            cfg.message_format_for_subject("events.otel.logs"),
+            MessageFormat::Protobuf
+        );
         // Default to JSON for unknown subjects
-        assert_eq!(cfg.message_format_for_subject("events.unknown"), MessageFormat::Json);
+        assert_eq!(
+            cfg.message_format_for_subject("events.unknown"),
+            MessageFormat::Json
+        );
     }
 }

@@ -49,17 +49,23 @@ func newAgentPoller(
 	for _, check := range config.Checks {
 		if check.ResultsInterval != nil {
 			// Checks with results_interval go to results pollers
-			resultsPoller := &ResultsPoller{
-				client:    client,
-				check:     check,
-				pollerID:  poller.config.PollerID,
-				agentName: name,
-				interval:  time.Duration(*check.ResultsInterval),
-				poller:    poller,
-				logger:    poller.logger,
-			}
-			ap.resultsPollers = append(ap.resultsPollers, resultsPoller)
-		} else {
+            resultsPoller := &ResultsPoller{
+                client:    client,
+                check:     check,
+                pollerID:  poller.config.PollerID,
+                agentName: name,
+                interval:  time.Duration(*check.ResultsInterval),
+                poller:    poller,
+                logger:    poller.logger,
+                kvStoreId: func() string { 
+                    if poller.config.KVDomain != "" { 
+                        return poller.config.KVDomain 
+                    }
+                    return poller.config.KVAddress 
+                }(),
+            }
+            ap.resultsPollers = append(ap.resultsPollers, resultsPoller)
+        } else {
 			// Regular checks stay in the agent poller
 			filteredConfig.Checks = append(filteredConfig.Checks, check)
 		}
@@ -91,7 +97,11 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 		go func(check Check) {
 			defer wg.Done()
 
-			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID, ap.name, ap.poller.logger)
+            kvID := ap.poller.config.KVDomain
+            if kvID == "" {
+                kvID = ap.poller.config.KVAddress
+            }
+            svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID, ap.name, kvID, ap.poller.logger)
 
 			results <- svcCheck.execute(checkCtx)
 		}(check)
@@ -171,13 +181,14 @@ func (ap *AgentPoller) ExecuteResults(ctx context.Context) []*proto.ServiceStatu
 	return statuses
 }
 
-func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID, agentName string, logger logger.Logger) *ServiceCheck {
+func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID, agentName, kvStoreId string, logger logger.Logger) *ServiceCheck {
 	return &ServiceCheck{
 		client:    client,
 		check:     check,
 		pollerID:  pollerID,
 		agentName: agentName,
 		logger:    logger,
+		kvStoreId: kvStoreId,
 	}
 }
 
@@ -226,6 +237,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 			ServiceType: sc.check.Type,
 			PollerId:    sc.pollerID,
 			Source:      "getStatus",
+			KvStoreId:   sc.kvStoreId,
 		}
 	}
 
@@ -245,5 +257,6 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		AgentId:      getStatus.AgentId,
 		PollerId:     sc.pollerID,
 		Source:       "getStatus",
+		KvStoreId:    sc.kvStoreId,
 	}
 }

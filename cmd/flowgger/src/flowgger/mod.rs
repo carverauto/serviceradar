@@ -247,8 +247,8 @@ fn get_output(output_type: &str, config: &Config) -> Box<dyn Output> {
             }
         }
         "tls" | "syslog-tls" => get_output_tls(config),
-        "file"               => get_output_file(config),
-        _                    => panic!("Invalid output type: {}", output_type),
+        "file" => get_output_file(config),
+        _ => panic!("Invalid output type: {}", output_type),
     }
 }
 
@@ -402,11 +402,7 @@ pub fn validate_time_format_input(
 pub fn start(config_file: &str) {
     let config = match Config::from_path(config_file) {
         Ok(config) => config,
-        Err(e) => panic!(
-            "Unable to read the config file [{}]: {}",
-            config_file,
-            e
-        ),
+        Err(e) => panic!("Unable to read the config file [{}]: {}", config_file, e),
     };
     let input_format = config
         .lookup("input.format")

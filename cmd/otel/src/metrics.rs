@@ -1,5 +1,7 @@
 use lazy_static::lazy_static;
-use prometheus::{register_histogram_vec, register_counter_vec, HistogramVec, CounterVec, Encoder, TextEncoder};
+use prometheus::{
+    CounterVec, Encoder, HistogramVec, TextEncoder, register_counter_vec, register_histogram_vec,
+};
 use std::collections::HashMap;
 
 lazy_static! {
@@ -30,7 +32,7 @@ lazy_static! {
     // Histogram for gRPC request durations (when gRPC attributes are present)
     pub static ref GRPC_REQUEST_DURATION_HISTOGRAM: HistogramVec = register_histogram_vec!(
         "serviceradar_grpc_request_duration_seconds",
-        "Duration of gRPC requests in seconds", 
+        "Duration of gRPC requests in seconds",
         &["service_name", "grpc_service", "grpc_method", "status_code"],
         vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
     ).unwrap();
@@ -106,7 +108,7 @@ pub fn get_metrics_text() -> Result<String, Box<dyn std::error::Error>> {
 pub fn span_kind_to_string(kind: i32) -> &'static str {
     match kind {
         0 => "unspecified",
-        1 => "internal", 
+        1 => "internal",
         2 => "server",
         3 => "client",
         4 => "producer",

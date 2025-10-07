@@ -45,6 +45,29 @@ Run the included test script:
 - **Full documentation**: See [Docker Setup Guide](docs/docs/docker-setup.md)
 - **Security**: Change your admin password after first login
 
+## Optional: Enable Kong Gateway (Community, DB-less + JWKS)
+
+Run Kong OSS locally and proxy `/api/*` through it. A pre-start helper fetches Core's JWKS and generates a DB-less config, so keys are fresh each startup.
+
+1) Generate DB-less config then start Kong (profile `kong`):
+   docker-compose --profile kong up -d kong-config kong
+
+2) Point Nginx to Kong by setting API_UPSTREAM when starting Nginx (TLS terminates at Nginx; internal hop is HTTP):
+   API_UPSTREAM=http://kong:8000 docker-compose up -d nginx
+
+3) Validate Admin API:
+   curl -s http://localhost:8001/
+
+4) Client HTTPS terminates at Nginx (optional):
+   # If you map 443:443 and provide certs to Nginx, clients use HTTPS to Nginx.
+   # Behind Nginx, Kong and Core communicate over HTTP only.
+
+Notes:
+- No license or Postgres required (community, DB-less).
+- Override JWKS/service/route via env: `JWKS_URL`, `KONG_SERVICE_URL`, `KONG_ROUTE_PATH`.
+- The default Nginx config proxies `/api/*` directly to Core. Set `API_UPSTREAM` to route via Kong.
+
+
 ## Common Commands
 
 ```bash

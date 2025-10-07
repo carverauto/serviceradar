@@ -20,16 +20,24 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+// Static errors for err113 compliance
+var (
+	ErrDatabaseNotInitialized = errors.New("database connection not initialized")
 )
 
 // DB represents the database connection for Timeplus Proton.
@@ -46,7 +54,7 @@ type DB struct {
 // GetStreamingConnection returns the underlying proton connection for streaming queries
 func (db *DB) GetStreamingConnection() (interface{}, error) {
 	if db.Conn == nil {
-		return nil, fmt.Errorf("database connection not initialized")
+		return nil, ErrDatabaseNotInitialized
 	}
 
 	return db.Conn, nil
@@ -194,14 +202,13 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 			"max_result_rows":            0,       // Disable row limit for streaming
 			"result_overflow_mode":       "break", // Allow unlimited results
 			"max_rows_to_read":           0,       // Disable read limit
-			"stream_flush_interval_ms":   100,     // Flush streaming results frequently
-		},
+            "stream_flush_interval_ms":   100,     // Flush streaming results frequently
+        },
 		DialTimeout:     5 * time.Second,
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,
 		ConnMaxLifetime: time.Hour,
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrFailedOpenDB, err)
 	}
@@ -230,9 +237,27 @@ func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.Co
 		flushInterval = time.Duration(config.WriteBuffer.FlushInterval)
 	}
 
+    // Calculate buffer capacity safely to prevent integer overflow
+    // Normalize and guard values. Compute in int64 and clamp to int range.
+    if maxBufferSize < 0 {
+        maxBufferSize = 0
+    }
+    var bufferCapacity int
+    cap64 := int64(maxBufferSize) * 2 // compute in wider type
+    
+    switch {
+    case cap64 < 0: // defensive: should not happen after clamp above
+        bufferCapacity = 0
+    case cap64 > int64(math.MaxInt):
+        // Prevent integer overflow by capping bufferCapacity
+        bufferCapacity = math.MaxInt
+    default:
+        bufferCapacity = int(cap64)
+    }
+
 	db := &DB{
 		Conn:          conn,
-		writeBuffer:   make([]*models.SweepResult, 0, maxBufferSize*2), // Pre-allocate with 2x capacity
+		writeBuffer:   make([]*models.SweepResult, 0, bufferCapacity),
 		ctx:           bufferCtx,
 		cancel:        cancel,
 		maxBufferSize: maxBufferSize,
@@ -259,7 +284,8 @@ func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interfac
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
-	defer rows.Close()
+
+	defer func() { _ = rows.Close() }()
 
 	columnTypes := rows.ColumnTypes()
 

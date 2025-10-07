@@ -1,0 +1,14 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+load("@rust_crates_profiler//:defs.bzl", "crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "profiler_common",
+    srcs = ["src/lib.rs"],
+    crate_root = "src/lib.rs",
+    crate_name = "profiler_common",
+    edition = "2021",
+    crate_features = ["user"],
+    deps = crate_deps(["aya"]),
+)

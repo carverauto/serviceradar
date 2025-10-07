@@ -4,7 +4,7 @@ Release:        %{release}%{?dist}
 Summary:        ServiceRadar NATS JetStream service
 License:        Proprietary
 
-BuildRequires:  systemd
+BuildRequires:  systemd-rpm-macros
 Requires:       systemd
 %{?systemd_requires}
 
@@ -21,8 +21,8 @@ mkdir -p %{buildroot}/etc/nats
 
 # Install files into the buildroot
 install -m 755 %{_builddir}/nats-server %{buildroot}/usr/bin/nats-server
-install -m 644 %{_sourcedir}/systemd/serviceradar-nats.service %{buildroot}/lib/systemd/system/serviceradar-nats.service
-install -m 644 %{_sourcedir}/config/nats-server.conf %{buildroot}/etc/nats/nats-server.conf
+install -m 644 %{_sourcedir}/packaging/nats/systemd/serviceradar-nats.service %{buildroot}/lib/systemd/system/serviceradar-nats.service
+install -m 644 %{_sourcedir}/packaging/nats/config/nats-server.conf %{buildroot}/etc/nats/nats-server.conf
 
 %files
 %attr(0755, nats, nats) /usr/bin/nats-server
@@ -43,6 +43,11 @@ fi
 
 %post
 %systemd_post serviceradar-nats.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-nats.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-nats.service >/dev/null 2>&1 || :
+fi
 # Create required directories with proper permissions
 mkdir -p /var/lib/nats/jetstream /var/log/nats
 chown -R nats:nats /var/lib/nats /var/log/nats

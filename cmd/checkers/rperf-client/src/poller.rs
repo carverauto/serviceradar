@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
+use crate::config::TargetConfig;
+use crate::rperf::{RPerfResult, RPerfRunner};
 use anyhow::Result;
 use log::{debug, info};
 use tokio::time::{Duration, Instant};
-use crate::config::TargetConfig;
-use crate::rperf::{RPerfResult, RPerfRunner};
 
 #[derive(Debug)] // Add this
 pub struct TargetPoller {

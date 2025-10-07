@@ -27,17 +27,22 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
 	// MaxBatchSize defines the maximum number of entries to write to KV in a single batch
 	MaxBatchSize = 500
+)
+
+var (
+	errTaskPanic = errors.New("panic in sync task")
 )
 
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
@@ -90,9 +95,14 @@ type SimpleSyncService struct {
 	metrics Metrics
 
 	// Atomic flags to prevent overlapping operations
-	armisUpdateRunning int32
+    armisUpdateRunning int32
 
-	logger logger.Logger
+    logger logger.Logger
+
+    // Hot-reload support
+    discoveryTicker     *time.Ticker
+    armisUpdateTicker   *time.Ticker
+    reloadChan          chan struct{}
 }
 
 // NewSimpleSyncService creates a new simplified sync service
@@ -123,7 +133,7 @@ func NewSimpleSyncServiceWithMetrics(
 
 	serviceCtx, cancel := context.WithCancel(ctx)
 
-	s := &SimpleSyncService{
+    s := &SimpleSyncService{
 		config:     *config,
 		kvClient:   kvClient,
 		sources:    make(map[string]Integration),
@@ -137,9 +147,10 @@ func NewSimpleSyncServiceWithMetrics(
 		ctx:                 serviceCtx,
 		cancel:              cancel,
 		errorChan:           make(chan error, 10), // Buffered channel for error collection
-		metrics:             metrics,
-		logger:              log,
-	}
+        metrics:             metrics,
+        logger:              log,
+        reloadChan:          make(chan struct{}, 1),
+    }
 
 	s.initializeIntegrations(ctx)
 
@@ -151,9 +162,9 @@ func (s *SimpleSyncService) safelyRunTask(ctx context.Context, taskName string, 
 	defer s.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			err := fmt.Errorf("panic in %s: %v", taskName, r)
-			s.logger.Error().Err(err).Msg("Recovered from panic")
-			s.sendError(err)
+			var panicErr = fmt.Errorf("panic in %s: %v: %w", taskName, r, errTaskPanic)
+			s.logger.Error().Err(panicErr).Msg("Recovered from panic")
+			s.sendError(panicErr)
 		}
 	}()
 
@@ -183,13 +194,11 @@ func (s *SimpleSyncService) launchTask(_ context.Context, taskName string, task 
 func (s *SimpleSyncService) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting simplified sync service")
 
-	// Start discovery timer
-	discoveryTicker := time.NewTicker(s.discoveryInterval)
-	defer discoveryTicker.Stop()
-
-	// Start Armis update timer
-	armisUpdateTicker := time.NewTicker(s.armisUpdateInterval)
-	defer armisUpdateTicker.Stop()
+    // Start discovery/update timers
+    s.discoveryTicker = time.NewTicker(s.discoveryInterval)
+    defer s.discoveryTicker.Stop()
+    s.armisUpdateTicker = time.NewTicker(s.armisUpdateInterval)
+    defer s.armisUpdateTicker.Stop()
 
 	// Run initial discovery immediately
 	s.launchTask(ctx, "discovery", s.runDiscovery)
@@ -205,12 +214,18 @@ func (s *SimpleSyncService) Start(ctx context.Context) error {
 			s.logger.Error().Err(err).Msg("Critical error in sync service")
 			// Optionally, you can return the error to stop the service on critical errors
 			// return fmt.Errorf("critical error in sync service: %w", err)
-		case <-discoveryTicker.C:
-			s.launchTask(ctx, "discovery", s.runDiscovery)
-		case <-armisUpdateTicker.C:
-			s.launchTask(ctx, "armis updates", s.runArmisUpdates)
-		}
-	}
+        case <-s.discoveryTicker.C:
+            s.launchTask(ctx, "discovery", s.runDiscovery)
+        case <-s.armisUpdateTicker.C:
+            s.launchTask(ctx, "armis updates", s.runArmisUpdates)
+        case <-s.reloadChan:
+            s.logger.Info().Msg("Reloading sync timers with updated intervals")
+            s.discoveryTicker.Stop()
+            s.armisUpdateTicker.Stop()
+            s.discoveryTicker = time.NewTicker(s.discoveryInterval)
+            s.armisUpdateTicker = time.NewTicker(s.armisUpdateInterval)
+        }
+    }
 }
 
 // Stop gracefully stops the sync service
@@ -223,6 +238,7 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 
 	// Wait for all goroutines to finish with a timeout
 	done := make(chan struct{})
+
 	go func() {
 		s.wg.Wait()
 		close(done)
@@ -253,6 +269,31 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 	return nil
 }
 
+// UpdateConfig applies updated intervals and source registry; triggers timer reload if intervals changed.
+func (s *SimpleSyncService) UpdateConfig(newCfg *Config) {
+    if newCfg == nil { return }
+    // Check interval changes
+    newDisc := time.Duration(newCfg.DiscoveryInterval)
+    newUpd := time.Duration(newCfg.UpdateInterval)
+    intervalsChanged := (newDisc != s.discoveryInterval) || (newUpd != s.armisUpdateInterval)
+    s.discoveryInterval = newDisc
+    s.armisUpdateInterval = newUpd
+    // Rebuild integrations if sources changed
+    // For simplicity, rebuild from registry factories using new config
+    if len(newCfg.Sources) > 0 {
+        s.sources = make(map[string]Integration)
+        for name, src := range newCfg.Sources {
+            if f, ok := s.registry[src.Type]; ok {
+                s.sources[name] = s.createIntegration(s.ctx, src, f)
+            }
+        }
+    }
+    if intervalsChanged {
+        select { case s.reloadChan <- struct{}{}: default: }
+    }
+    s.config = *newCfg
+}
+
 // runDiscovery executes discovery for all integrations and immediately writes to KV
 func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 	start := time.Now()
@@ -272,7 +313,6 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 
 		// Fetch devices from integration. `devices` is now `[]*models.DeviceUpdate`.
 		kvData, devices, err := integration.Fetch(ctx)
-
 		if err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Discovery failed for source")
 			s.metrics.RecordDiscoveryFailure(sourceName, err, time.Since(sourceStart))

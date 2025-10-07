@@ -1,0 +1,157 @@
+# base/serviceradar-kong.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-kong
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-kong
+  template:
+    metadata:
+      labels:
+        app: serviceradar-kong
+    spec:
+      initContainers:
+      - name: render-kong-config
+        image: ghcr.io/carverauto/serviceradar-kong-config:latest
+        imagePullPolicy: Always
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          mkdir -p /opt/kong
+          wait-for-port --host serviceradar-core --port 8090 --attempts 60 --interval 5s --quiet
+          wait-for-port --host serviceradar-srql --port 8080 --attempts 60 --interval 5s --quiet
+          /usr/local/bin/serviceradar-cli render-kong \
+            --jwks http://serviceradar-core:8090/auth/jwks.json \
+            --service http://serviceradar-core:8090 \
+            --path /api \
+            --srql-service http://serviceradar-srql:8080 \
+            --srql-path /api/query \
+            --out /opt/kong/kong.yml
+        volumeMounts:
+        - name: kong-config
+          mountPath: /opt/kong
+      containers:
+      - name: kong
+        image: kong:3.7
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: KONG_DATABASE
+          value: "off"
+        - name: KONG_DECLARATIVE_CONFIG
+          value: /opt/kong/kong.yml
+        - name: KONG_PROXY_LISTEN
+          value: "0.0.0.0:8000, 0.0.0.0:8443 ssl"
+        - name: KONG_ADMIN_LISTEN
+          value: "0.0.0.0:8001"
+        - name: KONG_NGINX_DAEMON
+          value: "off"
+        - name: KONG_LOG_LEVEL
+          value: info
+        - name: KONG_NGINX_WORKER_PROCESSES
+          value: "2"
+        ports:
+        - containerPort: 8000
+          name: proxy
+        - containerPort: 8443
+          name: proxy-ssl
+        - containerPort: 8001
+          name: admin
+        volumeMounts:
+        - name: kong-config
+          mountPath: /opt/kong
+        readinessProbe:
+          httpGet:
+            path: /
+            port: admin
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 5
+        livenessProbe:
+          httpGet:
+            path: /
+            port: admin
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 5
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+      - name: kong-config-watcher
+        image: ghcr.io/carverauto/serviceradar-kong-config:latest
+        imagePullPolicy: Always
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -euo pipefail
+
+          render() {
+            /usr/local/bin/serviceradar-cli render-kong \
+              --jwks http://serviceradar-core:8090/auth/jwks.json \
+              --service http://serviceradar-core:8090 \
+              --path /api \
+              --srql-service http://serviceradar-srql:8080 \
+              --srql-path /api/query \
+              --out "$1"
+          }
+
+          wait-for-port --host serviceradar-core --port 8090 --attempts 60 --interval 5s --quiet
+          wait-for-port --host serviceradar-srql --port 8080 --attempts 60 --interval 5s --quiet
+
+          while true; do
+            tmp_file=$(mktemp /tmp/kong-config.XXXXXX)
+            if render "$tmp_file"; then
+              if [ ! -f /opt/kong/kong.yml ] || ! cmp -s "$tmp_file" /opt/kong/kong.yml; then
+                mv "$tmp_file" /opt/kong/kong.yml
+                http_code=$(curl -s -o /tmp/kong-config-apply.log -w "%{http_code}" -X POST http://127.0.0.1:8001/config -F "config=@/opt/kong/kong.yml") || true
+                echo "Applied Kong config update (HTTP ${http_code:-000})" >&2
+              else
+                rm "$tmp_file"
+              fi
+            else
+              rm -f "$tmp_file"
+            fi
+            sleep 60
+          done
+        volumeMounts:
+        - name: kong-config
+          mountPath: /opt/kong
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+      volumes:
+      - name: kong-config
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-kong
+spec:
+  selector:
+    app: serviceradar-kong
+  ports:
+  - name: proxy
+    port: 8000
+    targetPort: proxy
+  - name: proxy-ssl
+    port: 8443
+    targetPort: proxy-ssl
+  - name: admin
+    port: 8001
+    targetPort: admin

@@ -1,0 +1,14 @@
+load("@aspect_bazel_lib//lib:copy_directory.bzl", "copy_directory")
+
+# Mirror the Next.js standalone output into the location legacy packaging expects.
+copy_directory(
+    name = "bundle",
+    src = "//web:standalone_app",
+    out = ".next",
+)
+
+filegroup(
+    name = "files",
+    srcs = [":bundle"],
+    visibility = ["//visibility:public"],
+)

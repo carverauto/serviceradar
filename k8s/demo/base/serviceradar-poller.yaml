@@ -3,41 +3,61 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: serviceradar-poller
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: serviceradar-poller
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
         app: serviceradar-poller
+        app.kubernetes.io/part-of: serviceradar
     spec:
       imagePullSecrets:
         - name: ghcr-io-cred
       containers:
       - name: poller
-        image: ghcr.io/carverauto/serviceradar/serviceradar-poller:latest
+        image: ghcr.io/carverauto/serviceradar-poller:latest
+        imagePullPolicy: Always
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
         env:
-        - name: SERVICERADAR_CONFIG_PATH
+        - name: CONFIG_PATH
           value: "/etc/serviceradar/poller.json"
-        - name: SERVICERADAR_CLOUD_ADDR
-          value: "serviceradar-cloud:50051"
-        - name: SERVICERADAR_NODE_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+        - name: LOG_LEVEL
+          value: "info"
         resources:
           limits:
-            cpu: "500m"
-            memory: "256Mi"
+            cpu: "2"
+            memory: "6Gi"
           requests:
-            cpu: "100m"
-            memory: "128Mi"
+            cpu: "500m"
+            memory: "2Gi"
+        livenessProbe:
+          tcpSocket:
+            port: 50053
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 50053
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
       volumes:
       - name: serviceradar-config
         configMap:
           name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data

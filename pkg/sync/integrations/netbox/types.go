@@ -19,10 +19,11 @@ package netbox
 import (
 	"context"
 
+	"google.golang.org/grpc"
+
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc"
 )
 
 // SRQLQuerier defines the interface for querying device states from ServiceRadar.

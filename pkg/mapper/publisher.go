@@ -38,11 +38,11 @@ type ProtonPublisher struct {
 // NewProtonPublisher creates a new Proton publisher
 func NewProtonPublisher(deviceRegistry registry.Manager, dbService db.Service, config *StreamConfig) (Publisher, error) {
 	if deviceRegistry == nil {
-		return nil, fmt.Errorf("device registry is required")
+		return nil, ErrDeviceRegistryRequired
 	}
 
 	if dbService == nil {
-		return nil, fmt.Errorf("database service is required for interfaces/topology")
+		return nil, ErrDatabaseServiceRequired
 	}
 
 	return &ProtonPublisher{

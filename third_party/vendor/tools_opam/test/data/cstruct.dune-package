@@ -1,0 +1,53 @@
+(lang dune 3.12)
+(name cstruct)
+(version 6.2.0)
+(sections (lib .) (libexec .) (doc ../../doc/cstruct) (stublibs ../stublibs))
+(files
+ (lib
+  (META
+   cstruct.a
+   cstruct.cma
+   cstruct.cmi
+   cstruct.cmt
+   cstruct.cmti
+   cstruct.cmx
+   cstruct.cmxa
+   cstruct.js
+   cstruct.ml
+   cstruct.mli
+   cstruct_cap.cmi
+   cstruct_cap.cmt
+   cstruct_cap.cmti
+   cstruct_cap.cmx
+   cstruct_cap.ml
+   cstruct_cap.mli
+   dune-package
+   libcstruct_stubs.a
+   opam))
+ (libexec (cstruct.cmxs))
+ (doc (CHANGES.md LICENSE.md README.md))
+ (stublibs (dllcstruct_stubs.so)))
+(library
+ (name cstruct)
+ (kind normal)
+ (archives (byte cstruct.cma) (native cstruct.cmxa))
+ (plugins (byte cstruct.cma) (native cstruct.cmxs))
+ (foreign_objects cstruct_stubs.o)
+ (foreign_archives (archives (for all) (files libcstruct_stubs.a)))
+ (foreign_dll_files ../stublibs/dllcstruct_stubs.so)
+ (native_archives cstruct.a)
+ (jsoo_runtime cstruct.js)
+ (modes byte native)
+ (modules
+  (unwrapped
+   (module
+    (obj_name cstruct)
+    (visibility public)
+    (source (path Cstruct) (intf (path cstruct.mli)) (impl (path cstruct.ml))))
+   (module
+    (obj_name cstruct_cap)
+    (visibility public)
+    (source
+     (path Cstruct_cap)
+     (intf (path cstruct_cap.mli))
+     (impl (path cstruct_cap.ml)))))))

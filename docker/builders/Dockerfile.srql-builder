@@ -1,0 +1,61 @@
+# syntax=docker/dockerfile:1
+
+ARG BASE_IMAGE=ocaml/opam:ubuntu-24.04-ocaml-5.1
+FROM ${BASE_IMAGE}
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        libev-dev \
+        libffi-dev \
+        libgmp-dev \
+        liblz4-dev \
+        libssl-dev \
+        libzstd-dev \
+        pkg-config \
+        rsync \
+        zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+USER opam
+ENV OPAMYES=1 \
+    OPAMCONFIRMLEVEL=unsafe-yes
+
+RUN opam update
+
+ARG PROTON_VERSION="1.0.17"
+RUN opam pin add proton "${PROTON_VERSION}" -y
+
+ARG DREAM_REF="master"
+RUN git clone --depth 1 --branch "${DREAM_REF}" https://github.com/aantron/dream.git /tmp/dream \
+    && sed -i 's/"h2" {< "0.13.0"}/"h2" {>= "0.13.0" & < "0.14.0"}/' /tmp/dream/dream-httpaf.opam \
+    && sed -i 's/"h2-lwt-unix"/"h2-lwt-unix" {>= "0.13.0"}/' /tmp/dream/dream-httpaf.opam \
+    && sed -i 's/"h2-lwt"/"h2-lwt" {>= "0.13.0"}/' /tmp/dream/dream-httpaf.opam \
+    && opam pin add dream /tmp/dream -y \
+    && opam pin add dream-httpaf /tmp/dream -y \
+    && opam pin add dream-pure /tmp/dream -y
+
+RUN opam install -y \
+        dune \
+        menhir \
+        yojson \
+        ppx_deriving \
+        lwt \
+        lwt_ppx \
+        tls \
+        tls-lwt \
+        mirage-crypto \
+        mirage-crypto-rng \
+        mirage-crypto-rng-lwt \
+        x509 \
+        h2 \
+        h2-lwt \
+        h2-lwt-unix \
+        proton \
+    && opam clean -a -c
+
+WORKDIR /workspace
+
+CMD ["opam", "switch", "show"]

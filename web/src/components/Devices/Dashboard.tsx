@@ -17,6 +17,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Device, Pagination, DevicesApiResponse } from '@/types/devices';
+import { cachedQuery } from '@/lib/cached-query';
+import { escapeSrqlValue } from '@/lib/srql';
 import {Server, Search, Loader2, AlertTriangle, CheckCircle, XCircle} from 'lucide-react';
 import DeviceTable from './DeviceTable';
 import { useDebounce } from 'use-debounce';
@@ -90,63 +92,48 @@ const Dashboard = () => {
         setStatsLoading(true);
         try {
             const [totalRes, onlineRes, offlineRes] = await Promise.all([
-                postQuery<{
-                    results: [{
-                        'count()': number
-                    }]
-                }>('COUNT DEVICES'),
-                postQuery<{
-                    results: [{
-                        'count()': number
-                    }]
-                }>('COUNT DEVICES WHERE is_available = true'),
-                postQuery<{
-                    results: [{
-                        'count()': number
-                    }]
-                }>('COUNT DEVICES WHERE is_available = false'),
+                cachedQuery<{ results: [{ total: number }] }>('in:devices stats:"count() as total" sort:total:desc time:last_7d', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:devices is_available:true stats:"count() as total" sort:total:desc time:last_7d', token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>('in:devices is_available:false stats:"count() as total" sort:total:desc time:last_7d', token || undefined, 30000),
             ]);
             console.log('Device stats response:', {
-                total: totalRes.results[0]?.['count()'],
-                online: onlineRes.results[0]?.['count()'],
-                offline: offlineRes.results[0]?.['count()']
+                total: totalRes.results[0]?.total,
+                online: onlineRes.results[0]?.total,
+                offline: offlineRes.results[0]?.total
             });
             setStats({
-                total: totalRes.results[0]?.['count()'] || 0,
-                online: onlineRes.results[0]?.['count()'] || 0,
-                offline: offlineRes.results[0]?.['count()'] || 0,
+                total: totalRes.results[0]?.total || 0,
+                online: onlineRes.results[0]?.total || 0,
+                offline: offlineRes.results[0]?.total || 0,
             });
         } catch (e) {
             console.error("Failed to fetch stats:", e);
         } finally {
             setStatsLoading(false);
         }
-    }, [postQuery]);
+    }, [token]);
 
     const fetchDevices = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
         setDevicesLoading(true);
         setError(null);
         try {
-            let query = 'SHOW DEVICES';
-            const whereClauses: string[] = [];
+            const queryParts = [
+                'in:devices',
+                'time:last_7d',
+                `sort:${sortBy}:${sortOrder}`,
+                'limit:20'
+            ];
+
+            if (filterStatus !== 'all') {
+                queryParts.push(`is_available:${filterStatus === 'online'}`);
+            }
 
             if (debouncedSearchTerm) {
-                whereClauses.push(`(ip LIKE '%${debouncedSearchTerm}%' OR hostname LIKE '%${debouncedSearchTerm}%' OR device_id LIKE '%${debouncedSearchTerm}%')`);
-            }
-            if (filterStatus !== 'all') {
-                whereClauses.push(`is_available = ${filterStatus === 'online'}`);
+                const escapedTerm = escapeSrqlValue(debouncedSearchTerm);
+                queryParts.push(`hostname:%${escapedTerm}%`);
             }
 
-            if (whereClauses.length > 0) {
-                query += ` WHERE ${whereClauses.join(' AND ')}`;
-            }
-
-            // Use IP ordering for pagination reliability when devices have same timestamp
-            if (sortBy === 'last_seen') {
-                query += ` ORDER BY ip ${sortOrder.toUpperCase()}`;
-            } else {
-                query += ` ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
-            }
+            const query = queryParts.join(' ');
 
             const data = await postQuery<DevicesApiResponse>(query, cursor, direction);
             setDevices(data.results || []);

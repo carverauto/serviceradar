@@ -25,7 +25,7 @@ type Validator interface {
 	Validate() error
 }
 
-// ConfigLoader interface for loading configurations from a KV store.
+// Loader interface for loading configurations from various sources.
 type ConfigLoader interface {
 	Load(ctx context.Context, path string, dst interface{}) error
 }

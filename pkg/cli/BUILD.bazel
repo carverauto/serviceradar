@@ -1,0 +1,25 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "cli",
+    srcs = [
+        "checker.go",
+        "cli.go",
+        "errors.go",
+        "help.go",
+        "jwt_keys.go",
+        "kong.go",
+        "tls.go",
+        "types.go",
+        "utils.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/cli",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_atotto_clipboard//:clipboard",
+        "@com_github_charmbracelet_bubbles//textinput",
+        "@com_github_charmbracelet_bubbletea//:bubbletea",
+        "@com_github_charmbracelet_lipgloss//:lipgloss",
+        "@org_golang_x_crypto//bcrypt",
+    ],
+)

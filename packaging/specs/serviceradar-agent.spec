@@ -4,7 +4,7 @@ Release:        %{release}%{?dist}
 Summary:        ServiceRadar monitoring agent
 License:        Proprietary
 
-BuildRequires:  systemd-devel
+BuildRequires:  systemd-rpm-macros
 BuildRequires:  libcap-devel
 BuildRequires:  gcc
 Requires:       systemd
@@ -19,12 +19,11 @@ Provides local system monitoring capabilities.
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/etc/serviceradar/checkers/sweep
 mkdir -p %{buildroot}/lib/systemd/system
-mkdir -p %{buildroot}/var/lib/serviceradar
 
 install -m 755 %{_builddir}/serviceradar-agent %{buildroot}/usr/local/bin/
-install -m 644 %{_sourcedir}/systemd/serviceradar-agent.service %{buildroot}/lib/systemd/system/
-install -m 644 %{_sourcedir}/config/agent.json %{buildroot}/etc/serviceradar/
-install -m 644 %{_sourcedir}/config/checkers/sweep/sweep.json %{buildroot}/etc/serviceradar/checkers/sweep/
+install -m 644 %{_sourcedir}/packaging/agent/systemd/serviceradar-agent.service %{buildroot}/lib/systemd/system/
+install -m 644 %{_sourcedir}/packaging/agent/config/agent.json %{buildroot}/etc/serviceradar/
+install -m 644 %{_sourcedir}/packaging/agent/config/checkers/sweep/sweep.json %{buildroot}/etc/serviceradar/checkers/sweep/
 
 %files
 %attr(0755, root, root) /usr/local/bin/serviceradar-agent
@@ -33,17 +32,34 @@ install -m 644 %{_sourcedir}/config/checkers/sweep/sweep.json %{buildroot}/etc/s
 %attr(0644, root, root) /lib/systemd/system/serviceradar-agent.service
 %dir %attr(0755, root, root) /etc/serviceradar
 %dir %attr(0755, root, root) /etc/serviceradar/checkers
-%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar
 
 %pre
-# Create serviceradar user if it doesn't exist
+# Ensure serviceradar group exists before user creation
+if ! getent group serviceradar >/dev/null; then
+    groupadd --system serviceradar
+fi
+
+# Create serviceradar user with managed home directory if it doesn't exist
 if ! id -u serviceradar >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin serviceradar
+    useradd --system --home-dir /var/lib/serviceradar --create-home \
+        --shell /usr/sbin/nologin --gid serviceradar serviceradar
+else
+    # Align existing user home directory if needed
+    CURRENT_HOME=$(getent passwd serviceradar | cut -d: -f6)
+    if [ "$CURRENT_HOME" != "/var/lib/serviceradar" ]; then
+        usermod --home /var/lib/serviceradar serviceradar >/dev/null 2>&1 || :
+    fi
 fi
 
 %post
 %systemd_post serviceradar-agent.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-agent.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-agent.service >/dev/null 2>&1 || :
+fi
 chown -R serviceradar:serviceradar /etc/serviceradar
+install -d -m 0750 -o serviceradar -g serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/bin/serviceradar-agent
 # Set required capability for ICMP scanning
 # setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent

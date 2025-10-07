@@ -17,6 +17,7 @@
 // src/app/api/devices/sysmon/status/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getInternalApiUrl, getApiKey } from '@/lib/config';
+import { escapeSrqlValue } from '@/lib/srql';
 
 // Simple in-memory cache for sysmon status results
 interface CacheEntry {
@@ -97,8 +98,11 @@ export async function POST(req: NextRequest) {
                 const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
                 
                 // Use a more efficient query that only returns unique device_ids
+                const deviceFilters = deviceIds
+                    .map((id) => `device_id:"${escapeSrqlValue(String(id))}"`)
+                    .join(' ');
                 const srqlQuery = {
-                    query: `show cpu_metrics where timestamp >= '${twoHoursAgo}' and device_id in (${deviceIds.map(id => `'${id}'`).join(', ')}) order by timestamp desc`,
+                    query: `in:cpu_metrics ${deviceFilters} time:[${twoHoursAgo},] sort:timestamp:desc`,
                     limit: deviceIds.length * 2 // Reasonable limit based on number of devices
                 };
 

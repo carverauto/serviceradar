@@ -1,0 +1,52 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "grpc",
+    srcs = [
+        "cert_manager.go",
+        "certs.go",
+        "client.go",
+        "errors.go",
+        "interfaces.go",
+        "mock_grpc.go",
+        "security.go",
+        "server.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/grpc",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "@com_github_rs_zerolog//:zerolog",
+        "@com_github_spiffe_go_spiffe_v2//spiffeid",
+        "@com_github_spiffe_go_spiffe_v2//spiffetls/tlsconfig",
+        "@com_github_spiffe_go_spiffe_v2//workloadapi",
+        "@io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc//:otelgrpc",
+        "@io_opentelemetry_go_otel_trace//:trace",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//health",
+        "@org_golang_google_grpc//health/grpc_health_v1",
+        "@org_golang_google_grpc//keepalive",
+        "@org_golang_google_grpc//reflection",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "grpc_test",
+    srcs = [
+        "generate_certs_test.go",
+        "security_test.go",
+    ],
+    embed = [":grpc"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_golang_google_grpc//:grpc",
+        "@org_uber_go_mock//gomock",
+    ],
+)

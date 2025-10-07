@@ -52,7 +52,7 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 		page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, query.Query, nextPage, a.PageSize)
 		if err != nil {
 			// Check if this is a 401 error and retry with a fresh token
-			if !(strings.Contains(err.Error(), "401") && strings.Contains(err.Error(), "Invalid access token")) {
+			if !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "Invalid access token") {
 				a.Logger.Error().
 					Err(err).
 					Str("query_label", query.Label).
@@ -156,7 +156,7 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		Int("network_count", len(finalSweepConfig.Networks)).
 		Int("device_target_count", len(finalSweepConfig.DeviceTargets)).
 		Str("config_key", configKey).
-		Msg("Writing complete sweep config with all devices from all ASQ queries")
+            Msg("Writing complete sweep config with all devices from all queries")
 
 	if a.KVWriter == nil {
 		a.Logger.Warn().Msg("KVWriter not configured, skipping sweep config write")
@@ -178,7 +178,7 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 			Int("network_count", len(finalSweepConfig.Networks)).
 			Int("device_target_count", len(finalSweepConfig.DeviceTargets)).
 			Str("config_key", configKey).
-			Msg("Successfully wrote complete sweep config with all devices from all ASQ queries")
+            Msg("Successfully wrote complete sweep config with all devices from all queries")
 	}
 
 	return err
@@ -568,7 +568,7 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Log full response
 	bodyBytes, err := io.ReadAll(resp.Body)

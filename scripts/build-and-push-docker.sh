@@ -44,23 +44,48 @@ Build and push ServiceRadar Docker images to GitHub Container Registry (GHCR)
 OPTIONS:
   -t, --tag TAG        Tag for the images (default: $DEFAULT_TAG)
   -p, --push           Push images after building (requires docker login)
-  -a, --all            Build all images (core, proton, cert-generator)
+  -a, --all            Build all images
   -c, --core           Build only core image
   -d, --proton         Build only proton image
+  -w, --web            Build only web image
   -g, --cert-gen       Build only cert-generator image
-  --platform PLATFORM  Target platform (default: linux/amd64,linux/arm64)
+  --agent              Build only agent image
+  --config-updater     Build only config-updater image
+  --db-event-writer    Build only db-event-writer image
+  --flowgger           Build only flowgger image
+  --kv                 Build only kv image
+  --mapper             Build only mapper image
+  --nginx              Build only nginx image
+  --otel               Build only otel image
+  --poller             Build only poller image
+  --rperf-client       Build only rperf-client image
+  --snmp-checker       Build only snmp-checker image
+  --sync               Build only sync image
+  --tools              Build only tools image
+  --trapd              Build only trapd image
+  --zen                Build only zen image
+  --srql               Build only srql image
+  --kong-config        Build only kong-config (JWKS renderer) image
+  --platform PLATFORM  Target platform (default: auto-detected based on --push)
+  --force-multiplatform Force multi-platform build even without --push
   --no-cache           Build without cache
   -h, --help           Show this help
 
 EXAMPLES:
-  # Build all images locally
+  # Build all images locally (single platform)
   $0 --all --tag v1.2.3
 
-  # Build and push core image
+  # Build and push core image (multi-platform)
   $0 --core --push --tag latest
+
+  # Build and push all images for multi-platform
+  $0 --all --push --tag latest
 
   # Build for specific platform
   $0 --all --platform linux/amd64
+  
+  # Force multi-platform build without push (for CI/CD)
+  $0 --all --force-multiplatform --tag latest
 
 AUTHENTICATION:
   Before pushing, login to GHCR:
@@ -75,9 +100,28 @@ PUSH=false
 BUILD_ALL=false
 BUILD_CORE=false
 BUILD_PROTON=false
+BUILD_WEB=false
 BUILD_CERT_GEN=false
-PLATFORM="linux/amd64,linux/arm64"
+BUILD_AGENT=false
+BUILD_CONFIG_UPDATER=false
+BUILD_DB_EVENT_WRITER=false
+BUILD_FLOWGGER=false
+BUILD_KV=false
+BUILD_MAPPER=false
+BUILD_NGINX=false
+BUILD_OTEL=false
+BUILD_POLLER=false
+BUILD_RPERF_CLIENT=false
+BUILD_SNMP_CHECKER=false
+BUILD_SYNC=false
+BUILD_TOOLS=false
+BUILD_TRAPD=false
+BUILD_ZEN=false
+BUILD_SRQL=false
+BUILD_KONG_CONFIG=false
+PLATFORM=""  # Will be set based on push flag
 NO_CACHE=""
+FORCE_MULTIPLATFORM=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -101,13 +145,89 @@ while [[ $# -gt 0 ]]; do
             BUILD_PROTON=true
             shift
             ;;
+        -w|--web)
+            BUILD_WEB=true
+            shift
+            ;;
         -g|--cert-gen)
             BUILD_CERT_GEN=true
+            shift
+            ;;
+        --agent)
+            BUILD_AGENT=true
+            shift
+            ;;
+        --config-updater)
+            BUILD_CONFIG_UPDATER=true
+            shift
+            ;;
+        --db-event-writer)
+            BUILD_DB_EVENT_WRITER=true
+            shift
+            ;;
+        --flowgger)
+            BUILD_FLOWGGER=true
+            shift
+            ;;
+        --kv)
+            BUILD_KV=true
+            shift
+            ;;
+        --mapper)
+            BUILD_MAPPER=true
+            shift
+            ;;
+        --nginx)
+            BUILD_NGINX=true
+            shift
+            ;;
+        --otel)
+            BUILD_OTEL=true
+            shift
+            ;;
+        --poller)
+            BUILD_POLLER=true
+            shift
+            ;;
+        --rperf-client)
+            BUILD_RPERF_CLIENT=true
+            shift
+            ;;
+        --snmp-checker)
+            BUILD_SNMP_CHECKER=true
+            shift
+            ;;
+        --srql)
+            BUILD_SRQL=true
+            shift
+            ;;
+        --sync)
+            BUILD_SYNC=true
+            shift
+            ;;
+        --tools)
+            BUILD_TOOLS=true
+            shift
+            ;;
+        --trapd)
+            BUILD_TRAPD=true
+            shift
+            ;;
+        --zen)
+            BUILD_ZEN=true
+            shift
+            ;;
+        --kong-config)
+            BUILD_KONG_CONFIG=true
             shift
             ;;
         --platform)
             PLATFORM="$2"
             shift 2
+            ;;
+        --force-multiplatform)
+            FORCE_MULTIPLATFORM=true
+            shift
             ;;
         --no-cache)
             NO_CACHE="--no-cache"
@@ -126,8 +246,25 @@ while [[ $# -gt 0 ]]; do
 done
 
 # If no specific image is selected, build all
-if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == false && "$BUILD_CERT_GEN" == false ]]; then
+if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == false && "$BUILD_WEB" == false && "$BUILD_CERT_GEN" == false && \
+      "$BUILD_AGENT" == false && "$BUILD_CONFIG_UPDATER" == false && "$BUILD_DB_EVENT_WRITER" == false && "$BUILD_FLOWGGER" == false && \
+      "$BUILD_KV" == false && "$BUILD_MAPPER" == false && "$BUILD_NGINX" == false && "$BUILD_OTEL" == false && "$BUILD_POLLER" == false && \
+      "$BUILD_RPERF_CLIENT" == false && "$BUILD_SNMP_CHECKER" == false && "$BUILD_SYNC" == false && "$BUILD_TOOLS" == false && \
+      "$BUILD_TRAPD" == false && "$BUILD_ZEN" == false && "$BUILD_SRQL" == false && "$BUILD_KONG_CONFIG" == false ]]; then
     BUILD_ALL=true
+fi
+
+# Set platform based on push flag and options
+if [[ -z "$PLATFORM" ]]; then
+    if [[ "$PUSH" == true ]] || [[ "$FORCE_MULTIPLATFORM" == true ]]; then
+        PLATFORM="linux/amd64,linux/arm64"
+        log "Auto-detected platform: Multi-platform ($PLATFORM)"
+    else
+        PLATFORM="linux/amd64"
+        log "Auto-detected platform: Single platform ($PLATFORM) for local build"
+    fi
+else
+    log "Using specified platform: $PLATFORM"
 fi
 
 # Get version info
@@ -161,10 +298,16 @@ fi
 BUILDER_NAME="serviceradar-builder"
 if ! docker buildx inspect "$BUILDER_NAME" >/dev/null 2>&1; then
     log "Creating buildx builder: $BUILDER_NAME"
-    docker buildx create --name "$BUILDER_NAME" --use
+    docker buildx create --name "$BUILDER_NAME" --use --driver docker-container
 else
     log "Using existing buildx builder: $BUILDER_NAME"
     docker buildx use "$BUILDER_NAME"
+fi
+
+# Bootstrap builder for multi-platform support if needed
+if [[ "$PLATFORM" == *","* ]]; then
+    log "Bootstrapping builder for multi-platform support..."
+    docker buildx inspect --bootstrap "$BUILDER_NAME" >/dev/null 2>&1
 fi
 
 # Build function
@@ -179,14 +322,21 @@ build_image() {
     log "Building $full_image_name"
     
     local push_flag=""
+    local build_platform="$PLATFORM"
+    
     if [[ "$PUSH" == true ]]; then
         push_flag="--push"
+    elif [[ "$FORCE_MULTIPLATFORM" == true ]]; then
+        # Multi-platform build without push - just build and cache
+        push_flag=""
+        log "Building multi-platform image without local load (use --push to push to registry)"
     else
         push_flag="--load"
-        # For multi-platform builds without push, we need to use --load with single platform
+        # For local load, we can only use single platform
         if [[ "$PLATFORM" == *","* ]]; then
-            warn "Multi-platform builds require --push flag. Using linux/amd64 only for local load."
-            PLATFORM="linux/amd64"
+            build_platform="linux/amd64"
+            warn "Multi-platform images cannot be loaded locally. Using $build_platform for local load."
+            warn "Use --push to build and push multi-platform, or --force-multiplatform to build without load."
         fi
     fi
     
@@ -197,22 +347,50 @@ build_image() {
         tags="$tags --tag $latest_image_name"
     fi
     
-    docker buildx build \
-        --platform "$PLATFORM" \
-        --file "$dockerfile" \
-        $tags \
-        $build_args \
-        $NO_CACHE \
-        $push_flag \
-        .
+    # Split build_args for proper expansion
+    local build_cmd=(docker buildx build)
+    build_cmd+=(--platform "$build_platform")
+    build_cmd+=(--file "$dockerfile")
+    
+    # Add tags
+    if [[ -n "$tags" ]]; then
+        read -ra tag_array <<< "$tags"
+        for tag in "${tag_array[@]}"; do
+            build_cmd+=("$tag")
+        done
+    fi
+    
+    # Add build args
+    if [[ -n "$build_args" ]]; then
+        read -ra arg_array <<< "$build_args"
+        for arg in "${arg_array[@]}"; do
+            build_cmd+=("$arg")
+        done
+    fi
+    
+    # Add other flags
+    if [[ -n "$NO_CACHE" ]]; then
+        build_cmd+=("$NO_CACHE")
+    fi
+    
+    if [[ -n "$push_flag" ]]; then
+        build_cmd+=("$push_flag")
+    fi
+    
+    build_cmd+=(.)
+    
+    # Execute the build command
+    "${build_cmd[@]}"
     
     if [[ "$PUSH" == true ]]; then
-        success "Built and pushed: $full_image_name"
+        success "Built and pushed: $full_image_name ($build_platform)"
         if [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             success "Also pushed as: $latest_image_name"
         fi
+    elif [[ "$FORCE_MULTIPLATFORM" == true ]]; then
+        success "Built (cached): $full_image_name ($build_platform)"
     else
-        success "Built: $full_image_name"
+        success "Built and loaded: $full_image_name ($build_platform)"
     fi
 }
 
@@ -224,6 +402,11 @@ fi
 # Build Proton database
 if [[ "$BUILD_ALL" == true || "$BUILD_PROTON" == true ]]; then
     build_image "proton" "docker/compose/Dockerfile.proton" ""
+fi
+
+# Build Web service
+if [[ "$BUILD_ALL" == true || "$BUILD_WEB" == true ]]; then
+    build_image "web" "docker/compose/Dockerfile.web" "--build-arg VERSION=$VERSION"
 fi
 
 # Build cert-generator
@@ -252,16 +435,111 @@ EOF
     rm -f docker/compose/Dockerfile.cert-generator
 fi
 
+# Build Agent service
+if [[ "$BUILD_ALL" == true || "$BUILD_AGENT" == true ]]; then
+    build_image "agent" "docker/compose/Dockerfile.agent" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Config Updater service
+if [[ "$BUILD_ALL" == true || "$BUILD_CONFIG_UPDATER" == true ]]; then
+    build_image "config-updater" "docker/compose/Dockerfile.config-updater" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build DB Event Writer service
+if [[ "$BUILD_ALL" == true || "$BUILD_DB_EVENT_WRITER" == true ]]; then
+    build_image "db-event-writer" "docker/compose/Dockerfile.db-event-writer" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Flowgger service
+if [[ "$BUILD_ALL" == true || "$BUILD_FLOWGGER" == true ]]; then
+    build_image "flowgger" "docker/compose/Dockerfile.flowgger" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build KV service
+if [[ "$BUILD_ALL" == true || "$BUILD_KV" == true ]]; then
+    build_image "kv" "docker/compose/Dockerfile.kv" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Mapper service
+if [[ "$BUILD_ALL" == true || "$BUILD_MAPPER" == true ]]; then
+    build_image "mapper" "docker/compose/Dockerfile.mapper" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Nginx service
+if [[ "$BUILD_ALL" == true || "$BUILD_NGINX" == true ]]; then
+    build_image "nginx" "docker/compose/Dockerfile.nginx" ""
+fi
+
+# Build OTEL service
+if [[ "$BUILD_ALL" == true || "$BUILD_OTEL" == true ]]; then
+    build_image "otel" "docker/compose/Dockerfile.otel" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Poller service
+if [[ "$BUILD_ALL" == true || "$BUILD_POLLER" == true ]]; then
+    build_image "poller" "docker/compose/Dockerfile.poller" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build RPerf Client service
+if [[ "$BUILD_ALL" == true || "$BUILD_RPERF_CLIENT" == true ]]; then
+    build_image "rperf-client" "docker/compose/Dockerfile.rperf-client" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build SNMP Checker service
+if [[ "$BUILD_ALL" == true || "$BUILD_SNMP_CHECKER" == true ]]; then
+    build_image "snmp-checker" "docker/compose/Dockerfile.snmp-checker" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Sync service
+if [[ "$BUILD_ALL" == true || "$BUILD_SYNC" == true ]]; then
+    build_image "sync" "docker/compose/Dockerfile.sync" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build SRQL service
+if [[ "$BUILD_ALL" == true || "$BUILD_SRQL" == true ]]; then
+    build_image "srql" "docker/compose/Dockerfile.srql" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Tools service
+if [[ "$BUILD_ALL" == true || "$BUILD_TOOLS" == true ]]; then
+    build_image "tools" "docker/compose/Dockerfile.tools" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Trapd service
+if [[ "$BUILD_ALL" == true || "$BUILD_TRAPD" == true ]]; then
+    build_image "trapd" "docker/compose/Dockerfile.trapd" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build Zen service
+if [[ "$BUILD_ALL" == true || "$BUILD_ZEN" == true ]]; then
+    build_image "zen" "docker/compose/Dockerfile.zen" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+fi
+
+# Build kong-config (JWKS renderer) image
+if [[ "$BUILD_ALL" == true || "$BUILD_KONG_CONFIG" == true ]]; then
+    build_image "kong-config" "docker/compose/Dockerfile.jwks2kong" ""
+fi
+
 log "Build process completed!"
 
 if [[ "$PUSH" == false ]]; then
     echo ""
-    warn "Images were built locally but not pushed."
-    log "To push images, run with --push flag after logging in:"
-    log "  echo \$GITHUB_TOKEN | docker login ghcr.io -u \$GITHUB_USERNAME --password-stdin"
-    log "  $0 --push --tag $TAG"
+    if [[ "$FORCE_MULTIPLATFORM" == true ]]; then
+        warn "Multi-platform images were built and cached but not pushed or loaded locally."
+        log "Images are stored in buildx cache and can be pushed later with:"
+        log "  $0 --push --tag $TAG"
+    else
+        warn "Images were built locally but not pushed."
+        log "To push multi-platform images, run with --push flag after logging in:"
+        log "  echo \$GITHUB_TOKEN | docker login ghcr.io -u \$GITHUB_USERNAME --password-stdin"
+        log "  $0 --push --tag $TAG"
+    fi
 fi
 
 echo ""
-log "Available images:"
-docker images | grep "serviceradar" | head -10
+if [[ "$PUSH" == true ]]; then
+    log "Images were pushed to $REGISTRY; skipping local image list."
+else
+    log "Available images:"
+    docker images | grep "serviceradar" | head -10 || true
+fi

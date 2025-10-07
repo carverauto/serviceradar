@@ -1,3 +1,4 @@
+// Package version provides version information for ServiceRadar.
 package version
 
 // These variables are set via ldflags during build

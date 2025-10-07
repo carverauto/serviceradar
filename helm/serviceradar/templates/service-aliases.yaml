@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+spec:
+  type: ExternalName
+  externalName: serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local
+  ports:
+  - port: 4222
+    targetPort: 4222
+    name: nats
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kv
+spec:
+  type: ExternalName
+  externalName: serviceradar-kv.{{ .Release.Namespace }}.svc.cluster.local
+  ports:
+  - port: 50057
+    targetPort: 50057
+    name: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core
+spec:
+  type: ExternalName
+  externalName: serviceradar-core.{{ .Release.Namespace }}.svc.cluster.local
+  ports:
+  - port: 8090
+    targetPort: 8090
+    name: http

@@ -21,8 +21,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 type contextKey string
@@ -59,4 +60,31 @@ func AuthMiddleware(authService AuthService) mux.MiddlewareFunc {
 func GetUserFromContext(ctx context.Context) (*models.User, bool) {
 	user, ok := ctx.Value(UserKey).(*models.User)
 	return user, ok
+}
+
+func RBACMiddleware(requiredRole string) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, ok := GetUserFromContext(r.Context())
+			if !ok {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			hasRole := false
+			for _, role := range user.Roles {
+				if role == requiredRole {
+					hasRole = true
+					break
+				}
+			}
+
+			if !hasRole {
+				http.Error(w, "insufficient permissions", http.StatusForbidden)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }

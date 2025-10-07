@@ -19,11 +19,12 @@ use clap::Parser;
 use env_logger::Env;
 use futures::Stream;
 use log::{info, warn};
-use std::pin::Pin;
 use serde::Serialize;
+use std::pin::Pin;
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::UdpSocket;
 
+use kvutil::{overlay_json, KvClient};
 use tonic::{
     transport::{Certificate, Identity, Server, ServerTlsConfig},
     Request, Response, Status,
@@ -38,6 +39,9 @@ pub mod monitoring {
     tonic::include_proto!("monitoring");
 }
 use monitoring::agent_service_server::{AgentService, AgentServiceServer};
+
+// KV proto client
+// Use kvutil crate for KV access
 
 const FILE_DESCRIPTOR_SET_MONITORING: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
@@ -70,7 +74,36 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let cli = Cli::parse();
-    let cfg = Config::from_file(&cli.config)?;
+    let mut cfg = Config::from_file(&cli.config)?;
+    if std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv")
+        && !std::env::var("KV_ADDRESS").unwrap_or_default().is_empty()
+    {
+        if let Ok(mut kv) = KvClient::connect_from_env().await {
+            if let Ok(Some(bytes)) = kv.get("config/trapd.json").await {
+                let _ = overlay_json(&mut cfg, &bytes);
+            }
+            if let Ok(None) = kv.get("config/trapd.json").await {
+                if let Ok(content) = serde_json::to_vec(&cfg) {
+                    let _ = kv.put_if_absent("config/trapd.json", content).await;
+                }
+            }
+            let cfg_ref = std::sync::Arc::new(tokio::sync::Mutex::new(cfg.clone()));
+            let cfg_ref_clone = cfg_ref.clone();
+            let _ = kv
+                .watch_apply("config/trapd.json", move |bytes| {
+                    let cfg_ref = cfg_ref_clone.clone();
+                    let b = bytes.to_vec();
+                    tokio::spawn(async move {
+                        {
+                            let mut guard = cfg_ref.lock().await;
+                            let _ = overlay_json(&mut *guard, &b);
+                        }
+                        println!("KV updated: config/trapd.json (overlay applied)");
+                    });
+                })
+                .await;
+        }
+    }
 
     info!("Starting trap receiver on {}", cfg.listen_addr);
 
@@ -158,7 +191,8 @@ struct TrapdAgentService;
 
 #[tonic::async_trait]
 impl AgentService for TrapdAgentService {
-    type StreamResultsStream = Pin<Box<dyn Stream<Item = Result<monitoring::ResultsChunk, Status>> + Send + 'static>>;
+    type StreamResultsStream =
+        Pin<Box<dyn Stream<Item = Result<monitoring::ResultsChunk, Status>> + Send + 'static>>;
     async fn get_status(
         &self,
         request: Request<monitoring::StatusRequest>,
@@ -210,11 +244,11 @@ impl AgentService for TrapdAgentService {
         request: Request<monitoring::ResultsRequest>,
     ) -> Result<Response<Self::StreamResultsStream>, Status> {
         let _req = request.into_inner();
-        
+
         // Create an empty stream for now - in a real implementation this would
         // stream actual results data in chunks
         let stream = futures::stream::empty();
-        
+
         Ok(Response::new(Box::pin(stream)))
     }
 }
@@ -233,7 +267,7 @@ async fn start_grpc_server(cfg: Config) -> Result<()> {
 
     let reflection_service = ReflectionBuilder::configure()
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
-        .build()?;
+        .build_v1()?;
 
     let mut server_builder = Server::builder();
     if let Some(sec) = &cfg.grpc_security {

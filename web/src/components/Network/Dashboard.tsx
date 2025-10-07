@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
+import { escapeSrqlValue } from '@/lib/srql';
 import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
 import DeviceTable from '@/components/Devices/DeviceTable';
 
@@ -183,13 +184,20 @@ const SNMPDevicesView: React.FC = React.memo(() => {
         setError(null);
 
         try {
-            const whereClauses = ["discovery_sources = 'snmp'"];
+            const queryParts = [
+                'in:devices',
+                'discovery_sources:(snmp)',
+                'time:last_7d',
+                `sort:${sortBy}:${sortOrder}`,
+                'limit:20'
+            ];
 
             if (debouncedSearchTerm) {
-                whereClauses.push(`(ip LIKE '%${debouncedSearchTerm}%' OR hostname LIKE '%${debouncedSearchTerm}%')`);
+                const escapedTerm = escapeSrqlValue(debouncedSearchTerm);
+                queryParts.push(`hostname:%${escapedTerm}%`);
             }
 
-            const query = `SHOW DEVICES WHERE ${whereClauses.join(' AND ')} ORDER BY ${sortBy} ${sortOrder.toUpperCase()}`;
+            const query = queryParts.join(' ');
             const data = await postQuery<DevicesApiResponse>(query, cursor, direction);
 
             setDevices(data.results || []);
@@ -797,19 +805,19 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
 
     // Click handlers for stat cards
     const handleDiscoveredDevicesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('SHOW DEVICES WHERE discovery_sources IS NOT NULL'));
+        router.push('/query?q=' + encodeURIComponent('in:devices discovery_sources:* time:last_7d sort:last_seen:desc limit:50'));
     };
 
     const handleDiscoveredInterfacesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('SHOW INTERFACES'));
+        router.push('/query?q=' + encodeURIComponent('in:interfaces time:last_7d sort:timestamp:desc limit:50'));
     };
 
     const handleActiveSweepsClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show devices'));
+        router.push('/query?q=' + encodeURIComponent('in:sweep_results time:last_7d sort:last_seen:desc limit:50'));
     };
 
     const handleSNMPDevicesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show devices where device_id IS NOT NULL'));
+        router.push('/query?q=' + encodeURIComponent('in:devices discovery_sources:(snmp) time:last_7d sort:last_seen:desc limit:50'));
     };
 
     const { discoveryServices, sweepServices, snmpServices, applicationServices } = useMemo(() => {
@@ -856,21 +864,21 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         try {
             // Use cached queries to prevent duplicates
             const [devicesRes, interfacesRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES WHERE discovery_sources IS NOT NULL",
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices discovery_sources:* stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000 // 30 second cache
                 ),
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT INTERFACES",
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:interfaces stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
             ]);
 
             setDiscoveryStats({
-                discoveredDevices: devicesRes.results[0]?.['count()'] || 0,
-                discoveredInterfaces: interfacesRes.results[0]?.['count()'] || 0,
+                discoveredDevices: devicesRes.results[0]?.total || 0,
+                discoveredInterfaces: interfacesRes.results[0]?.total || 0,
             });
         } catch (error) {
             console.error('Failed to fetch discovery stats:', error);
@@ -884,27 +892,27 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         try {
             // Use cached queries to prevent duplicates
             const [totalRes, onlineRes, offlineRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES",
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000 // 30 second cache
                 ),
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES WHERE is_available = true",
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices is_available:true stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES WHERE is_available = false",
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices is_available:false stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
             ]);
 
             setDeviceStats({
-                total: totalRes.results[0]?.['count()'] || 0,
-                online: onlineRes.results[0]?.['count()'] || 0,
-                offline: offlineRes.results[0]?.['count()'] || 0,
+                total: totalRes.results[0]?.total || 0,
+                online: onlineRes.results[0]?.total || 0,
+                offline: offlineRes.results[0]?.total || 0,
             });
         } catch (error) {
             console.error('Failed to fetch device stats:', error);

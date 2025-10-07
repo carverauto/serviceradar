@@ -24,7 +24,7 @@ pub struct ServerConfig {
     pub metrics: Option<MetricsConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]  
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsConfig {
     #[serde(default = "default_metrics_bind_address")]
     pub bind_address: String,
@@ -32,7 +32,7 @@ pub struct MetricsConfig {
     pub port: u16,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GRPCTLSConfig {
     pub cert_file: String,
     pub key_file: String,
@@ -124,7 +124,10 @@ impl Config {
 
     /// Get the full metrics bind address (address:port) if metrics are enabled
     pub fn metrics_address(&self) -> Option<String> {
-        self.server.metrics.as_ref().map(|m| format!("{}:{}", m.bind_address, m.port))
+        self.server
+            .metrics
+            .as_ref()
+            .map(|m| format!("{}:{}", m.bind_address, m.port))
     }
 
     /// Convert to NatsConfig if NATS is configured

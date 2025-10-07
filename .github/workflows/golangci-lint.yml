@@ -26,12 +26,12 @@ jobs:
       - name: checkout
         uses: actions/checkout@v5
       - name: setup go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.1.6
+          version: v2.4.0
       - name: go mod tidy check
         uses: katexochen/go-tidy-check@v2

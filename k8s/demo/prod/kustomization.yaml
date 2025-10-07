@@ -7,16 +7,17 @@ namespace: demo
 resources:
   - ../base
   - namespace.yaml
-
-patches:
-  - path: patches/resources.yaml
+  - service-aliases.demo.yaml
+  - ingress.yaml
 
 images:
-  - name: ghcr.io/carverauto/serviceradar/serviceradar-agent
-    newTag: 1.0.19
-  - name: ghcr.io/carverauto/serviceradar/serviceradar-poller
-    newTag: 1.0.19
-  - name: ghcr.io/carverauto/serviceradar/serviceradar-cloud
-    newTag: 1.0.19
-  - name: ghcr.io/carverauto/serviceradar/serviceradar-snmp-checker
-    newTag: 1.0.19
+  - name: ghcr.io/carverauto/serviceradar-core
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-web
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-agent
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-poller
+    newTag: latest
+  - name: ghcr.io/carverauto/serviceradar-snmp-checker
+    newTag: latest

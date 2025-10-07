@@ -46,6 +46,7 @@ export interface AnalyticsData {
   
   // Device data for widgets
   devicesLatest: unknown[];
+  servicesLatest: unknown[];
   
   // Pollers data
   pollers: unknown[];
@@ -119,29 +120,34 @@ class AnalyticsService {
       ...(token && { Authorization: `Bearer ${token}` }),
     };
 
+    const now = Date.now();
+    const last24HoursIso = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+    const last7DaysIso = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+
     // Execute all queries in parallel - this reduces from 20+ queries to 1 batch
     const queries = [
-      'COUNT DEVICES',
-      'COUNT DEVICES WHERE is_available = false',
-      'COUNT EVENTS',
-      "COUNT EVENTS WHERE severity = 'Critical'",
-      "COUNT EVENTS WHERE severity = 'High'",
-      "COUNT EVENTS WHERE severity = 'Medium'",
-      "COUNT EVENTS WHERE severity = 'Low'",
-      "SHOW EVENTS WHERE severity IN ('Critical', 'High') ORDER BY event_timestamp DESC",
-      'COUNT LOGS',
-      "COUNT LOGS WHERE severity_text = 'fatal'",
-      "COUNT LOGS WHERE severity_text = 'error'",
-      "COUNT LOGS WHERE severity_text = 'warning' OR severity_text = 'warn'",
-      "COUNT LOGS WHERE severity_text = 'info'",
-      "COUNT LOGS WHERE severity_text = 'debug'",
-      "SHOW LOGS WHERE severity_text IN ('fatal', 'error') ORDER BY timestamp DESC",
-      'COUNT otel_metrics',
-      'COUNT otel_trace_summaries_final',
-      'COUNT otel_metrics WHERE is_slow = true',
-      "COUNT otel_metrics WHERE http_status_code >= '400'",
-      'SHOW otel_metrics WHERE is_slow = true ORDER BY timestamp DESC',
-      'SHOW DEVICES LATEST'
+      'in:devices stats:"count() as total" sort:total:desc',
+      'in:devices is_available:false stats:"count() as total" sort:total:desc',
+      `in:events time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`,
+      `in:events severity:Critical time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`,
+      `in:events severity:High time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`,
+      `in:events severity:Medium time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`,
+      `in:events severity:Low time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`,
+      `in:events severity:(Critical,High) time:[${last24HoursIso},] sort:event_timestamp:desc limit:100`,
+      'in:logs stats:"count() as total" sort:total:desc time:last_24h',
+      'in:logs severity_text:fatal stats:"count() as total" sort:total:desc time:last_24h',
+      'in:logs severity_text:error stats:"count() as total" sort:total:desc time:last_24h',
+      'in:logs severity_text:(warning,warn) stats:"count() as total" sort:total:desc time:last_24h',
+      'in:logs severity_text:info stats:"count() as total" sort:total:desc time:last_24h',
+      'in:logs severity_text:debug stats:"count() as total" sort:total:desc time:last_24h',
+      'in:logs severity_text:(fatal,error) time:last_24h sort:timestamp:desc limit:100',
+      'in:otel_metrics stats:"count() as total" sort:total:desc time:last_24h',
+      'in:otel_traces stats:"count() as total" sort:total:desc time:last_24h',
+      'in:otel_metrics is_slow:true stats:"count() as total" sort:total:desc time:last_24h',
+      'in:otel_metrics http_status_code:[400,] stats:"count() as total" sort:total:desc time:last_24h',
+      'in:otel_metrics is_slow:true time:last_24h sort:timestamp:desc limit:100',
+      `in:devices time:[${last7DaysIso},] sort:last_seen:desc limit:100`,
+      'in:services sort:timestamp:desc limit:200'
     ];
 
     // Batch all queries together
@@ -182,11 +188,11 @@ class AnalyticsService {
       highEventsRes, mediumEventsRes, lowEventsRes, recentCriticalEventsRes,
       totalLogsRes, fatalLogsRes, errorLogsRes, warningLogsRes, infoLogsRes,
       debugLogsRes, recentErrorLogsRes, totalMetricsRes, totalTracesRes,
-      slowMetricsRes, errorMetricsRes, recentSlowSpansRes, devicesLatestRes
+      slowMetricsRes, errorMetricsRes, recentSlowSpansRes, devicesLatestRes, servicesLatestRes
     ] = queryResults;
 
-    const totalDevices = totalDevicesRes.results[0]?.['count()'] || 0;
-    const offlineDevices = offlineDevicesRes.results[0]?.['count()'] || 0;
+    const totalDevices = totalDevicesRes.results[0]?.total || 0;
+    const offlineDevices = offlineDevicesRes.results[0]?.total || 0;
 
     return {
       // Device stats
@@ -195,31 +201,32 @@ class AnalyticsService {
       onlineDevices: totalDevices - offlineDevices,
       
       // Event stats
-      totalEvents: totalEventsRes.results[0]?.['count()'] || 0,
-      criticalEvents: criticalEventsRes.results[0]?.['count()'] || 0,
-      highEvents: highEventsRes.results[0]?.['count()'] || 0,
-      mediumEvents: mediumEventsRes.results[0]?.['count()'] || 0,
-      lowEvents: lowEventsRes.results[0]?.['count()'] || 0,
+      totalEvents: totalEventsRes.results[0]?.total || 0,
+      criticalEvents: criticalEventsRes.results[0]?.total || 0,
+      highEvents: highEventsRes.results[0]?.total || 0,
+      mediumEvents: mediumEventsRes.results[0]?.total || 0,
+      lowEvents: lowEventsRes.results[0]?.total || 0,
       recentCriticalEvents: (recentCriticalEventsRes.results || []).slice(0, 5),
       
       // Log stats
-      totalLogs: totalLogsRes.results[0]?.['count()'] || 0,
-      fatalLogs: fatalLogsRes.results[0]?.['count()'] || 0,
-      errorLogs: errorLogsRes.results[0]?.['count()'] || 0,
-      warningLogs: warningLogsRes.results[0]?.['count()'] || 0,
-      infoLogs: infoLogsRes.results[0]?.['count()'] || 0,
-      debugLogs: debugLogsRes.results[0]?.['count()'] || 0,
+      totalLogs: totalLogsRes.results[0]?.total || 0,
+      fatalLogs: fatalLogsRes.results[0]?.total || 0,
+      errorLogs: errorLogsRes.results[0]?.total || 0,
+      warningLogs: warningLogsRes.results[0]?.total || 0,
+      infoLogs: infoLogsRes.results[0]?.total || 0,
+      debugLogs: debugLogsRes.results[0]?.total || 0,
       recentErrorLogs: (recentErrorLogsRes.results || []).slice(0, 5),
       
       // Observability stats
-      totalMetrics: totalMetricsRes.results[0]?.['count()'] || 0,
-      totalTraces: totalTracesRes.results[0]?.['count()'] || 0,
-      slowMetrics: slowMetricsRes.results[0]?.['count()'] || 0,
-      errorMetrics: errorMetricsRes.results[0]?.['count()'] || 0,
+      totalMetrics: totalMetricsRes.results[0]?.total || 0,
+      totalTraces: totalTracesRes.results[0]?.total || 0,
+      slowMetrics: slowMetricsRes.results[0]?.total || 0,
+      errorMetrics: errorMetricsRes.results[0]?.total || 0,
       recentSlowSpans: (recentSlowSpansRes.results || []).slice(0, 5),
       
       // Raw data for widgets
       devicesLatest: devicesLatestRes.results || [],
+      servicesLatest: servicesLatestRes.results || [],
       pollers: pollers || []
     };
   }
@@ -230,7 +237,7 @@ class AnalyticsService {
       totalEvents: 0, criticalEvents: 0, highEvents: 0, mediumEvents: 0, lowEvents: 0, recentCriticalEvents: [],
       totalLogs: 0, fatalLogs: 0, errorLogs: 0, warningLogs: 0, infoLogs: 0, debugLogs: 0, recentErrorLogs: [],
       totalMetrics: 0, totalTraces: 0, slowMetrics: 0, errorMetrics: 0, recentSlowSpans: [],
-      devicesLatest: [], pollers: []
+      devicesLatest: [], servicesLatest: [], pollers: []
     };
   }
 

@@ -1,0 +1,1637 @@
+(lang dune 3.12)
+(name base)
+(version v0.17.1)
+(sections (lib .) (libexec .) (doc ../../doc/base) (stublibs ../stublibs))
+(files
+ (lib
+  (META
+   applicative.ml
+   applicative.mli
+   applicative_intf.ml
+   array.ml
+   array.mli
+   array0.ml
+   array_permute.ml
+   avltree.ml
+   avltree.mli
+   backtrace.ml
+   backtrace.mli
+   base.a
+   base.cma
+   base.cmi
+   base.cmt
+   base.cmx
+   base.cmxa
+   base.ml
+   base__.cmi
+   base__.cmt
+   base__.cmx
+   base__.ml
+   base__Applicative.cmi
+   base__Applicative.cmt
+   base__Applicative.cmti
+   base__Applicative.cmx
+   base__Applicative_intf.cmi
+   base__Applicative_intf.cmt
+   base__Applicative_intf.cmx
+   base__Array.cmi
+   base__Array.cmt
+   base__Array.cmti
+   base__Array.cmx
+   base__Array0.cmi
+   base__Array0.cmt
+   base__Array0.cmx
+   base__Array_permute.cmi
+   base__Array_permute.cmt
+   base__Array_permute.cmx
+   base__Avltree.cmi
+   base__Avltree.cmt
+   base__Avltree.cmti
+   base__Avltree.cmx
+   base__Backtrace.cmi
+   base__Backtrace.cmt
+   base__Backtrace.cmti
+   base__Backtrace.cmx
+   base__Binary_search.cmi
+   base__Binary_search.cmt
+   base__Binary_search.cmti
+   base__Binary_search.cmx
+   base__Binary_searchable.cmi
+   base__Binary_searchable.cmt
+   base__Binary_searchable.cmti
+   base__Binary_searchable.cmx
+   base__Binary_searchable_intf.cmi
+   base__Binary_searchable_intf.cmt
+   base__Binary_searchable_intf.cmx
+   base__Blit.cmi
+   base__Blit.cmt
+   base__Blit.cmti
+   base__Blit.cmx
+   base__Blit_intf.cmi
+   base__Blit_intf.cmt
+   base__Blit_intf.cmx
+   base__Bool.cmi
+   base__Bool.cmt
+   base__Bool.cmti
+   base__Bool.cmx
+   base__Bool0.cmi
+   base__Bool0.cmt
+   base__Bool0.cmti
+   base__Bool0.cmx
+   base__Buffer.cmi
+   base__Buffer.cmt
+   base__Buffer.cmti
+   base__Buffer.cmx
+   base__Buffer_intf.cmi
+   base__Buffer_intf.cmt
+   base__Buffer_intf.cmx
+   base__Bytes.cmi
+   base__Bytes.cmt
+   base__Bytes.cmti
+   base__Bytes.cmx
+   base__Bytes0.cmi
+   base__Bytes0.cmt
+   base__Bytes0.cmx
+   base__Bytes_intf.cmi
+   base__Bytes_intf.cmt
+   base__Bytes_intf.cmx
+   base__Bytes_tr.cmi
+   base__Bytes_tr.cmt
+   base__Bytes_tr.cmx
+   base__Char.cmi
+   base__Char.cmt
+   base__Char.cmti
+   base__Char.cmx
+   base__Char0.cmi
+   base__Char0.cmt
+   base__Char0.cmx
+   base__Comparable.cmi
+   base__Comparable.cmt
+   base__Comparable.cmti
+   base__Comparable.cmx
+   base__Comparable_intf.cmi
+   base__Comparable_intf.cmt
+   base__Comparable_intf.cmx
+   base__Comparator.cmi
+   base__Comparator.cmt
+   base__Comparator.cmti
+   base__Comparator.cmx
+   base__Comparisons.cmi
+   base__Comparisons.cmt
+   base__Comparisons.cmx
+   base__Container.cmi
+   base__Container.cmt
+   base__Container.cmti
+   base__Container.cmx
+   base__Container_intf.cmi
+   base__Container_intf.cmt
+   base__Container_intf.cmx
+   base__Dictionary_immutable.cmi
+   base__Dictionary_immutable.cmt
+   base__Dictionary_immutable.cmti
+   base__Dictionary_immutable.cmx
+   base__Dictionary_immutable_intf.cmi
+   base__Dictionary_immutable_intf.cmt
+   base__Dictionary_immutable_intf.cmx
+   base__Dictionary_mutable.cmi
+   base__Dictionary_mutable.cmt
+   base__Dictionary_mutable.cmti
+   base__Dictionary_mutable.cmx
+   base__Dictionary_mutable_intf.cmi
+   base__Dictionary_mutable_intf.cmt
+   base__Dictionary_mutable_intf.cmx
+   base__Either.cmi
+   base__Either.cmt
+   base__Either.cmti
+   base__Either.cmx
+   base__Either0.cmi
+   base__Either0.cmt
+   base__Either0.cmx
+   base__Either_intf.cmi
+   base__Either_intf.cmt
+   base__Either_intf.cmx
+   base__Equal.cmi
+   base__Equal.cmt
+   base__Equal.cmx
+   base__Error.cmi
+   base__Error.cmt
+   base__Error.cmti
+   base__Error.cmx
+   base__Exn.cmi
+   base__Exn.cmt
+   base__Exn.cmti
+   base__Exn.cmx
+   base__Field.cmi
+   base__Field.cmt
+   base__Field.cmti
+   base__Field.cmx
+   base__Fieldslib.cmi
+   base__Fieldslib.cmt
+   base__Fieldslib.cmx
+   base__Float.cmi
+   base__Float.cmt
+   base__Float.cmti
+   base__Float.cmx
+   base__Float0.cmi
+   base__Float0.cmt
+   base__Float0.cmx
+   base__Floatable.cmi
+   base__Floatable.cmt
+   base__Floatable.cmx
+   base__Fn.cmi
+   base__Fn.cmt
+   base__Fn.cmti
+   base__Fn.cmx
+   base__Formatter.cmi
+   base__Formatter.cmt
+   base__Formatter.cmti
+   base__Formatter.cmx
+   base__Globalize.cmi
+   base__Globalize.cmt
+   base__Globalize.cmti
+   base__Globalize.cmx
+   base__Hash.cmi
+   base__Hash.cmt
+   base__Hash.cmti
+   base__Hash.cmx
+   base__Hash_intf.cmi
+   base__Hash_intf.cmt
+   base__Hash_intf.cmx
+   base__Hash_set.cmi
+   base__Hash_set.cmt
+   base__Hash_set.cmti
+   base__Hash_set.cmx
+   base__Hash_set_intf.cmi
+   base__Hash_set_intf.cmt
+   base__Hash_set_intf.cmx
+   base__Hashable.cmi
+   base__Hashable.cmt
+   base__Hashable.cmti
+   base__Hashable.cmx
+   base__Hashable_intf.cmi
+   base__Hashable_intf.cmt
+   base__Hashable_intf.cmx
+   base__Hasher.cmi
+   base__Hasher.cmt
+   base__Hasher.cmx
+   base__Hashtbl.cmi
+   base__Hashtbl.cmt
+   base__Hashtbl.cmti
+   base__Hashtbl.cmx
+   base__Hashtbl_intf.cmi
+   base__Hashtbl_intf.cmt
+   base__Hashtbl_intf.cmx
+   base__Hex_lexer.cmi
+   base__Hex_lexer.cmt
+   base__Hex_lexer.cmti
+   base__Hex_lexer.cmx
+   base__Identifiable.cmi
+   base__Identifiable.cmt
+   base__Identifiable.cmti
+   base__Identifiable.cmx
+   base__Identifiable_intf.cmi
+   base__Identifiable_intf.cmt
+   base__Identifiable_intf.cmx
+   base__Import.cmi
+   base__Import.cmt
+   base__Import.cmx
+   base__Import0.cmi
+   base__Import0.cmt
+   base__Import0.cmx
+   base__Indexed_container.cmi
+   base__Indexed_container.cmt
+   base__Indexed_container.cmti
+   base__Indexed_container.cmx
+   base__Indexed_container_intf.cmi
+   base__Indexed_container_intf.cmt
+   base__Indexed_container_intf.cmx
+   base__Info.cmi
+   base__Info.cmt
+   base__Info.cmti
+   base__Info.cmx
+   base__Info_intf.cmi
+   base__Info_intf.cmt
+   base__Info_intf.cmx
+   base__Int.cmi
+   base__Int.cmt
+   base__Int.cmti
+   base__Int.cmx
+   base__Int0.cmi
+   base__Int0.cmt
+   base__Int0.cmx
+   base__Int32.cmi
+   base__Int32.cmt
+   base__Int32.cmti
+   base__Int32.cmx
+   base__Int63.cmi
+   base__Int63.cmt
+   base__Int63.cmti
+   base__Int63.cmx
+   base__Int63_emul.cmi
+   base__Int63_emul.cmt
+   base__Int63_emul.cmti
+   base__Int63_emul.cmx
+   base__Int64.cmi
+   base__Int64.cmt
+   base__Int64.cmti
+   base__Int64.cmx
+   base__Int_conversions.cmi
+   base__Int_conversions.cmt
+   base__Int_conversions.cmti
+   base__Int_conversions.cmx
+   base__Int_intf.cmi
+   base__Int_intf.cmt
+   base__Int_intf.cmx
+   base__Int_math.cmi
+   base__Int_math.cmt
+   base__Int_math.cmti
+   base__Int_math.cmx
+   base__Int_string_conversions.cmi
+   base__Int_string_conversions.cmt
+   base__Int_string_conversions.cmti
+   base__Int_string_conversions.cmx
+   base__Intable.cmi
+   base__Intable.cmt
+   base__Intable.cmx
+   base__Invariant.cmi
+   base__Invariant.cmt
+   base__Invariant.cmti
+   base__Invariant.cmx
+   base__Invariant_intf.cmi
+   base__Invariant_intf.cmt
+   base__Invariant_intf.cmx
+   base__Lazy.cmi
+   base__Lazy.cmt
+   base__Lazy.cmti
+   base__Lazy.cmx
+   base__Linked_queue.cmi
+   base__Linked_queue.cmt
+   base__Linked_queue.cmti
+   base__Linked_queue.cmx
+   base__Linked_queue0.cmi
+   base__Linked_queue0.cmt
+   base__Linked_queue0.cmx
+   base__List.cmi
+   base__List.cmt
+   base__List.cmti
+   base__List.cmx
+   base__List0.cmi
+   base__List0.cmt
+   base__List0.cmx
+   base__List1.cmi
+   base__List1.cmt
+   base__List1.cmx
+   base__Map.cmi
+   base__Map.cmt
+   base__Map.cmti
+   base__Map.cmx
+   base__Map_intf.cmi
+   base__Map_intf.cmt
+   base__Map_intf.cmx
+   base__Maybe_bound.cmi
+   base__Maybe_bound.cmt
+   base__Maybe_bound.cmti
+   base__Maybe_bound.cmx
+   base__Monad.cmi
+   base__Monad.cmt
+   base__Monad.cmti
+   base__Monad.cmx
+   base__Monad_intf.cmi
+   base__Monad_intf.cmt
+   base__Monad_intf.cmx
+   base__Nativeint.cmi
+   base__Nativeint.cmt
+   base__Nativeint.cmti
+   base__Nativeint.cmx
+   base__Nothing.cmi
+   base__Nothing.cmt
+   base__Nothing.cmti
+   base__Nothing.cmx
+   base__Obj_array.cmi
+   base__Obj_array.cmt
+   base__Obj_array.cmti
+   base__Obj_array.cmx
+   base__Obj_local.cmi
+   base__Obj_local.cmt
+   base__Obj_local.cmti
+   base__Obj_local.cmx
+   base__Option.cmi
+   base__Option.cmt
+   base__Option.cmti
+   base__Option.cmx
+   base__Option_array.cmi
+   base__Option_array.cmt
+   base__Option_array.cmti
+   base__Option_array.cmx
+   base__Or_error.cmi
+   base__Or_error.cmt
+   base__Or_error.cmti
+   base__Or_error.cmx
+   base__Ordered_collection_common.cmi
+   base__Ordered_collection_common.cmt
+   base__Ordered_collection_common.cmti
+   base__Ordered_collection_common.cmx
+   base__Ordered_collection_common0.cmi
+   base__Ordered_collection_common0.cmt
+   base__Ordered_collection_common0.cmti
+   base__Ordered_collection_common0.cmx
+   base__Ordering.cmi
+   base__Ordering.cmt
+   base__Ordering.cmti
+   base__Ordering.cmx
+   base__Poly0.cmi
+   base__Poly0.cmt
+   base__Poly0.cmti
+   base__Poly0.cmx
+   base__Popcount.cmi
+   base__Popcount.cmt
+   base__Popcount.cmti
+   base__Popcount.cmx
+   base__Pow_overflow_bounds.cmi
+   base__Pow_overflow_bounds.cmt
+   base__Pow_overflow_bounds.cmti
+   base__Pow_overflow_bounds.cmx
+   base__Ppx_compare_lib.cmi
+   base__Ppx_compare_lib.cmt
+   base__Ppx_compare_lib.cmti
+   base__Ppx_compare_lib.cmx
+   base__Ppx_enumerate_lib.cmi
+   base__Ppx_enumerate_lib.cmt
+   base__Ppx_enumerate_lib.cmx
+   base__Ppx_hash_lib.cmi
+   base__Ppx_hash_lib.cmt
+   base__Ppx_hash_lib.cmx
+   base__Pretty_printer.cmi
+   base__Pretty_printer.cmt
+   base__Pretty_printer.cmti
+   base__Pretty_printer.cmx
+   base__Printf.cmi
+   base__Printf.cmt
+   base__Printf.cmti
+   base__Printf.cmx
+   base__Queue.cmi
+   base__Queue.cmt
+   base__Queue.cmti
+   base__Queue.cmx
+   base__Queue_intf.cmi
+   base__Queue_intf.cmt
+   base__Queue_intf.cmx
+   base__Random.cmi
+   base__Random.cmt
+   base__Random.cmti
+   base__Random.cmx
+   base__Random_repr.cmi
+   base__Random_repr.cmt
+   base__Random_repr.cmx
+   base__Ref.cmi
+   base__Ref.cmt
+   base__Ref.cmti
+   base__Ref.cmx
+   base__Result.cmi
+   base__Result.cmt
+   base__Result.cmti
+   base__Result.cmx
+   base__Sequence.cmi
+   base__Sequence.cmt
+   base__Sequence.cmti
+   base__Sequence.cmx
+   base__Set.cmi
+   base__Set.cmt
+   base__Set.cmti
+   base__Set.cmx
+   base__Set_intf.cmi
+   base__Set_intf.cmt
+   base__Set_intf.cmx
+   base__Sexp.cmi
+   base__Sexp.cmt
+   base__Sexp.cmti
+   base__Sexp.cmx
+   base__Sexp_with_comparable.cmi
+   base__Sexp_with_comparable.cmt
+   base__Sexp_with_comparable.cmti
+   base__Sexp_with_comparable.cmx
+   base__Sexpable.cmi
+   base__Sexpable.cmt
+   base__Sexpable.cmti
+   base__Sexpable.cmx
+   base__Sign.cmi
+   base__Sign.cmt
+   base__Sign.cmti
+   base__Sign.cmx
+   base__Sign0.cmi
+   base__Sign0.cmt
+   base__Sign0.cmx
+   base__Sign_or_nan.cmi
+   base__Sign_or_nan.cmt
+   base__Sign_or_nan.cmti
+   base__Sign_or_nan.cmx
+   base__Source_code_position.cmi
+   base__Source_code_position.cmt
+   base__Source_code_position.cmti
+   base__Source_code_position.cmx
+   base__Source_code_position0.cmi
+   base__Source_code_position0.cmt
+   base__Source_code_position0.cmx
+   base__Stack.cmi
+   base__Stack.cmt
+   base__Stack.cmti
+   base__Stack.cmx
+   base__Stack_intf.cmi
+   base__Stack_intf.cmt
+   base__Stack_intf.cmx
+   base__Staged.cmi
+   base__Staged.cmt
+   base__Staged.cmti
+   base__Staged.cmx
+   base__String.cmi
+   base__String.cmt
+   base__String.cmti
+   base__String.cmx
+   base__String0.cmi
+   base__String0.cmt
+   base__String0.cmx
+   base__String_intf.cmi
+   base__String_intf.cmt
+   base__String_intf.cmx
+   base__Stringable.cmi
+   base__Stringable.cmt
+   base__Stringable.cmx
+   base__Sys.cmi
+   base__Sys.cmt
+   base__Sys.cmti
+   base__Sys.cmx
+   base__Sys0.cmi
+   base__Sys0.cmt
+   base__Sys0.cmx
+   base__T.cmi
+   base__T.cmt
+   base__T.cmx
+   base__Type_equal.cmi
+   base__Type_equal.cmt
+   base__Type_equal.cmti
+   base__Type_equal.cmx
+   base__Type_equal_intf.cmi
+   base__Type_equal_intf.cmt
+   base__Type_equal_intf.cmx
+   base__Uchar.cmi
+   base__Uchar.cmt
+   base__Uchar.cmti
+   base__Uchar.cmx
+   base__Uchar0.cmi
+   base__Uchar0.cmt
+   base__Uchar0.cmx
+   base__Uchar_intf.cmi
+   base__Uchar_intf.cmt
+   base__Uchar_intf.cmx
+   base__Uniform_array.cmi
+   base__Uniform_array.cmt
+   base__Uniform_array.cmti
+   base__Uniform_array.cmx
+   base__Unit.cmi
+   base__Unit.cmt
+   base__Unit.cmti
+   base__Unit.cmx
+   base__Variant.cmi
+   base__Variant.cmt
+   base__Variant.cmti
+   base__Variant.cmx
+   base__Variantslib.cmi
+   base__Variantslib.cmt
+   base__Variantslib.cmx
+   base__With_return.cmi
+   base__With_return.cmt
+   base__With_return.cmti
+   base__With_return.cmx
+   base__Word_size.cmi
+   base__Word_size.cmt
+   base__Word_size.cmti
+   base__Word_size.cmx
+   base_internalhash_types/base_internalhash_types.a
+   base_internalhash_types/base_internalhash_types.cma
+   base_internalhash_types/base_internalhash_types.cmi
+   base_internalhash_types/base_internalhash_types.cmt
+   base_internalhash_types/base_internalhash_types.cmx
+   base_internalhash_types/base_internalhash_types.cmxa
+   base_internalhash_types/base_internalhash_types.ml
+   base_internalhash_types/internalhash.h
+   base_internalhash_types/libbase_internalhash_types_stubs.a
+   base_internalhash_types/runtime.js
+   binary_search.ml
+   binary_search.mli
+   binary_searchable.ml
+   binary_searchable.mli
+   binary_searchable_intf.ml
+   blit.ml
+   blit.mli
+   blit_intf.ml
+   bool.ml
+   bool.mli
+   bool0.ml
+   bool0.mli
+   buffer.ml
+   buffer.mli
+   buffer_intf.ml
+   bytes.ml
+   bytes.mli
+   bytes0.ml
+   bytes_intf.ml
+   bytes_tr.ml
+   char.ml
+   char.mli
+   char0.ml
+   comparable.ml
+   comparable.mli
+   comparable_intf.ml
+   comparator.ml
+   comparator.mli
+   comparisons.ml
+   container.ml
+   container.mli
+   container_intf.ml
+   dictionary_immutable.ml
+   dictionary_immutable.mli
+   dictionary_immutable_intf.ml
+   dictionary_mutable.ml
+   dictionary_mutable.mli
+   dictionary_mutable_intf.ml
+   dune-package
+   either.ml
+   either.mli
+   either0.ml
+   either_intf.ml
+   equal.ml
+   error.ml
+   error.mli
+   exn.ml
+   exn.mli
+   field.ml
+   field.mli
+   fieldslib.ml
+   float.ml
+   float.mli
+   float0.ml
+   floatable.ml
+   fn.ml
+   fn.mli
+   formatter.ml
+   formatter.mli
+   globalize.ml
+   globalize.mli
+   hash.ml
+   hash.mli
+   hash_intf.ml
+   hash_set.ml
+   hash_set.mli
+   hash_set_intf.ml
+   hashable.ml
+   hashable.mli
+   hashable_intf.ml
+   hasher.ml
+   hashtbl.ml
+   hashtbl.mli
+   hashtbl_intf.ml
+   hex_lexer.ml
+   hex_lexer.mli
+   identifiable.ml
+   identifiable.mli
+   identifiable_intf.ml
+   import.ml
+   import0.ml
+   indexed_container.ml
+   indexed_container.mli
+   indexed_container_intf.ml
+   info.ml
+   info.mli
+   info_intf.ml
+   int.ml
+   int.mli
+   int0.ml
+   int32.ml
+   int32.mli
+   int63.ml
+   int63.mli
+   int63_emul.ml
+   int63_emul.mli
+   int64.ml
+   int64.mli
+   int_conversions.ml
+   int_conversions.mli
+   int_intf.ml
+   int_math.ml
+   int_math.mli
+   int_string_conversions.ml
+   int_string_conversions.mli
+   intable.ml
+   invariant.ml
+   invariant.mli
+   invariant_intf.ml
+   lazy.ml
+   lazy.mli
+   libbase_stubs.a
+   linked_queue.ml
+   linked_queue.mli
+   linked_queue0.ml
+   list.ml
+   list.mli
+   list0.ml
+   list1.ml
+   map.ml
+   map.mli
+   map_intf.ml
+   maybe_bound.ml
+   maybe_bound.mli
+   md5/md5_lib.a
+   md5/md5_lib.cma
+   md5/md5_lib.cmi
+   md5/md5_lib.cmt
+   md5/md5_lib.cmti
+   md5/md5_lib.cmx
+   md5/md5_lib.cmxa
+   md5/md5_lib.ml
+   md5/md5_lib.mli
+   monad.ml
+   monad.mli
+   monad_intf.ml
+   nativeint.ml
+   nativeint.mli
+   nothing.ml
+   nothing.mli
+   obj_array.ml
+   obj_array.mli
+   obj_local.ml
+   obj_local.mli
+   opam
+   option.ml
+   option.mli
+   option_array.ml
+   option_array.mli
+   or_error.ml
+   or_error.mli
+   ordered_collection_common.ml
+   ordered_collection_common.mli
+   ordered_collection_common0.ml
+   ordered_collection_common0.mli
+   ordering.ml
+   ordering.mli
+   poly0.ml
+   poly0.mli
+   popcount.ml
+   popcount.mli
+   pow_overflow_bounds.ml
+   pow_overflow_bounds.mli
+   ppx_compare_lib.ml
+   ppx_compare_lib.mli
+   ppx_enumerate_lib.ml
+   ppx_hash_lib.ml
+   pretty_printer.ml
+   pretty_printer.mli
+   printf.ml
+   printf.mli
+   queue.ml
+   queue.mli
+   queue_intf.ml
+   random.ml
+   random.mli
+   random_repr.ml
+   ref.ml
+   ref.mli
+   result.ml
+   result.mli
+   runtime.js
+   sequence.ml
+   sequence.mli
+   set.ml
+   set.mli
+   set_intf.ml
+   sexp.ml
+   sexp.mli
+   sexp_with_comparable.ml
+   sexp_with_comparable.mli
+   sexpable.ml
+   sexpable.mli
+   shadow_stdlib/shadow_stdlib.a
+   shadow_stdlib/shadow_stdlib.cma
+   shadow_stdlib/shadow_stdlib.cmi
+   shadow_stdlib/shadow_stdlib.cmt
+   shadow_stdlib/shadow_stdlib.cmti
+   shadow_stdlib/shadow_stdlib.cmx
+   shadow_stdlib/shadow_stdlib.cmxa
+   shadow_stdlib/shadow_stdlib.ml
+   shadow_stdlib/shadow_stdlib.mli
+   sign.ml
+   sign.mli
+   sign0.ml
+   sign_or_nan.ml
+   sign_or_nan.mli
+   source_code_position.ml
+   source_code_position.mli
+   source_code_position0.ml
+   stack.ml
+   stack.mli
+   stack_intf.ml
+   staged.ml
+   staged.mli
+   string.ml
+   string.mli
+   string0.ml
+   string_intf.ml
+   stringable.ml
+   sys.ml
+   sys.mli
+   sys0.ml
+   t.ml
+   type_equal.ml
+   type_equal.mli
+   type_equal_intf.ml
+   uchar.ml
+   uchar.mli
+   uchar0.ml
+   uchar_intf.ml
+   uniform_array.ml
+   uniform_array.mli
+   unit.ml
+   unit.mli
+   variant.ml
+   variant.mli
+   variantslib.ml
+   with_return.ml
+   with_return.mli
+   word_size.ml
+   word_size.mli))
+ (libexec
+  (base.cmxs
+   base_internalhash_types/base_internalhash_types.cmxs
+   md5/md5_lib.cmxs
+   shadow_stdlib/shadow_stdlib.cmxs))
+ (doc (CHANGES.md LICENSE.md README.org odoc-pages/index.mld))
+ (stublibs (dllbase_internalhash_types_stubs.so dllbase_stubs.so)))
+(library
+ (name base)
+ (kind normal)
+ (archives (byte base.cma) (native base.cmxa))
+ (plugins (byte base.cma) (native base.cmxs))
+ (foreign_objects
+  am_testing.o
+  bytes_stubs.o
+  exn_stubs.o
+  hash_stubs.o
+  int_math_stubs.o
+  obj_stubs.o)
+ (foreign_archives (archives (for all) (files libbase_stubs.a)))
+ (foreign_dll_files ../stublibs/dllbase_stubs.so)
+ (native_archives base.a)
+ (jsoo_runtime runtime.js)
+ (requires
+  base.base_internalhash_types
+  sexplib0
+  base.shadow_stdlib
+  ocaml_intrinsics_kernel)
+ (main_module_name Base)
+ (modes byte native)
+ (modules
+  (wrapped
+   (group
+    (alias
+     (obj_name base__)
+     (visibility public)
+     (kind alias)
+     (source (path Base__) (impl (path base__.ml-gen))))
+    (name Base)
+    (modules
+     (module
+      (obj_name base__Applicative)
+      (visibility public)
+      (source
+       (path Applicative)
+       (intf (path applicative.mli))
+       (impl (path applicative.ml))))
+     (module
+      (obj_name base__Applicative_intf)
+      (visibility public)
+      (source (path Applicative_intf) (impl (path applicative_intf.ml))))
+     (module
+      (obj_name base__Array)
+      (visibility public)
+      (source (path Array) (intf (path array.mli)) (impl (path array.ml))))
+     (module
+      (obj_name base__Array0)
+      (visibility public)
+      (source (path Array0) (impl (path array0.ml))))
+     (module
+      (obj_name base__Array_permute)
+      (visibility public)
+      (source (path Array_permute) (impl (path array_permute.ml))))
+     (module
+      (obj_name base__Avltree)
+      (visibility public)
+      (source
+       (path Avltree)
+       (intf (path avltree.mli))
+       (impl (path avltree.ml))))
+     (module
+      (obj_name base__Backtrace)
+      (visibility public)
+      (source
+       (path Backtrace)
+       (intf (path backtrace.mli))
+       (impl (path backtrace.ml))))
+     (module
+      (obj_name base)
+      (visibility public)
+      (source (path Base) (impl (path base.ml))))
+     (module
+      (obj_name base__Binary_search)
+      (visibility public)
+      (source
+       (path Binary_search)
+       (intf (path binary_search.mli))
+       (impl (path binary_search.ml))))
+     (module
+      (obj_name base__Binary_searchable)
+      (visibility public)
+      (source
+       (path Binary_searchable)
+       (intf (path binary_searchable.mli))
+       (impl (path binary_searchable.ml))))
+     (module
+      (obj_name base__Binary_searchable_intf)
+      (visibility public)
+      (source
+       (path Binary_searchable_intf)
+       (impl (path binary_searchable_intf.ml))))
+     (module
+      (obj_name base__Blit)
+      (visibility public)
+      (source (path Blit) (intf (path blit.mli)) (impl (path blit.ml))))
+     (module
+      (obj_name base__Blit_intf)
+      (visibility public)
+      (source (path Blit_intf) (impl (path blit_intf.ml))))
+     (module
+      (obj_name base__Bool)
+      (visibility public)
+      (source (path Bool) (intf (path bool.mli)) (impl (path bool.ml))))
+     (module
+      (obj_name base__Bool0)
+      (visibility public)
+      (source (path Bool0) (intf (path bool0.mli)) (impl (path bool0.ml))))
+     (module
+      (obj_name base__Buffer)
+      (visibility public)
+      (source (path Buffer) (intf (path buffer.mli)) (impl (path buffer.ml))))
+     (module
+      (obj_name base__Buffer_intf)
+      (visibility public)
+      (source (path Buffer_intf) (impl (path buffer_intf.ml))))
+     (module
+      (obj_name base__Bytes)
+      (visibility public)
+      (source (path Bytes) (intf (path bytes.mli)) (impl (path bytes.ml))))
+     (module
+      (obj_name base__Bytes0)
+      (visibility public)
+      (source (path Bytes0) (impl (path bytes0.ml))))
+     (module
+      (obj_name base__Bytes_intf)
+      (visibility public)
+      (source (path Bytes_intf) (impl (path bytes_intf.ml))))
+     (module
+      (obj_name base__Bytes_tr)
+      (visibility public)
+      (source (path Bytes_tr) (impl (path bytes_tr.ml))))
+     (module
+      (obj_name base__Char)
+      (visibility public)
+      (source (path Char) (intf (path char.mli)) (impl (path char.ml))))
+     (module
+      (obj_name base__Char0)
+      (visibility public)
+      (source (path Char0) (impl (path char0.ml))))
+     (module
+      (obj_name base__Comparable)
+      (visibility public)
+      (source
+       (path Comparable)
+       (intf (path comparable.mli))
+       (impl (path comparable.ml))))
+     (module
+      (obj_name base__Comparable_intf)
+      (visibility public)
+      (source (path Comparable_intf) (impl (path comparable_intf.ml))))
+     (module
+      (obj_name base__Comparator)
+      (visibility public)
+      (source
+       (path Comparator)
+       (intf (path comparator.mli))
+       (impl (path comparator.ml))))
+     (module
+      (obj_name base__Comparisons)
+      (visibility public)
+      (source (path Comparisons) (impl (path comparisons.ml))))
+     (module
+      (obj_name base__Container)
+      (visibility public)
+      (source
+       (path Container)
+       (intf (path container.mli))
+       (impl (path container.ml))))
+     (module
+      (obj_name base__Container_intf)
+      (visibility public)
+      (source (path Container_intf) (impl (path container_intf.ml))))
+     (module
+      (obj_name base__Dictionary_immutable)
+      (visibility public)
+      (source
+       (path Dictionary_immutable)
+       (intf (path dictionary_immutable.mli))
+       (impl (path dictionary_immutable.ml))))
+     (module
+      (obj_name base__Dictionary_immutable_intf)
+      (visibility public)
+      (source
+       (path Dictionary_immutable_intf)
+       (impl (path dictionary_immutable_intf.ml))))
+     (module
+      (obj_name base__Dictionary_mutable)
+      (visibility public)
+      (source
+       (path Dictionary_mutable)
+       (intf (path dictionary_mutable.mli))
+       (impl (path dictionary_mutable.ml))))
+     (module
+      (obj_name base__Dictionary_mutable_intf)
+      (visibility public)
+      (source
+       (path Dictionary_mutable_intf)
+       (impl (path dictionary_mutable_intf.ml))))
+     (module
+      (obj_name base__Either)
+      (visibility public)
+      (source (path Either) (intf (path either.mli)) (impl (path either.ml))))
+     (module
+      (obj_name base__Either0)
+      (visibility public)
+      (source (path Either0) (impl (path either0.ml))))
+     (module
+      (obj_name base__Either_intf)
+      (visibility public)
+      (source (path Either_intf) (impl (path either_intf.ml))))
+     (module
+      (obj_name base__Equal)
+      (visibility public)
+      (source (path Equal) (impl (path equal.ml))))
+     (module
+      (obj_name base__Error)
+      (visibility public)
+      (source (path Error) (intf (path error.mli)) (impl (path error.ml))))
+     (module
+      (obj_name base__Exn)
+      (visibility public)
+      (source (path Exn) (intf (path exn.mli)) (impl (path exn.ml))))
+     (module
+      (obj_name base__Field)
+      (visibility public)
+      (source (path Field) (intf (path field.mli)) (impl (path field.ml))))
+     (module
+      (obj_name base__Fieldslib)
+      (visibility public)
+      (source (path Fieldslib) (impl (path fieldslib.ml))))
+     (module
+      (obj_name base__Float)
+      (visibility public)
+      (source (path Float) (intf (path float.mli)) (impl (path float.ml))))
+     (module
+      (obj_name base__Float0)
+      (visibility public)
+      (source (path Float0) (impl (path float0.ml))))
+     (module
+      (obj_name base__Floatable)
+      (visibility public)
+      (source (path Floatable) (impl (path floatable.ml))))
+     (module
+      (obj_name base__Fn)
+      (visibility public)
+      (source (path Fn) (intf (path fn.mli)) (impl (path fn.ml))))
+     (module
+      (obj_name base__Formatter)
+      (visibility public)
+      (source
+       (path Formatter)
+       (intf (path formatter.mli))
+       (impl (path formatter.ml))))
+     (module
+      (obj_name base__Globalize)
+      (visibility public)
+      (source
+       (path Globalize)
+       (intf (path globalize.mli))
+       (impl (path globalize.ml))))
+     (module
+      (obj_name base__Hash)
+      (visibility public)
+      (source (path Hash) (intf (path hash.mli)) (impl (path hash.ml))))
+     (module
+      (obj_name base__Hash_intf)
+      (visibility public)
+      (source (path Hash_intf) (impl (path hash_intf.ml))))
+     (module
+      (obj_name base__Hash_set)
+      (visibility public)
+      (source
+       (path Hash_set)
+       (intf (path hash_set.mli))
+       (impl (path hash_set.ml))))
+     (module
+      (obj_name base__Hash_set_intf)
+      (visibility public)
+      (source (path Hash_set_intf) (impl (path hash_set_intf.ml))))
+     (module
+      (obj_name base__Hashable)
+      (visibility public)
+      (source
+       (path Hashable)
+       (intf (path hashable.mli))
+       (impl (path hashable.ml))))
+     (module
+      (obj_name base__Hashable_intf)
+      (visibility public)
+      (source (path Hashable_intf) (impl (path hashable_intf.ml))))
+     (module
+      (obj_name base__Hasher)
+      (visibility public)
+      (source (path Hasher) (impl (path hasher.ml))))
+     (module
+      (obj_name base__Hashtbl)
+      (visibility public)
+      (source
+       (path Hashtbl)
+       (intf (path hashtbl.mli))
+       (impl (path hashtbl.ml))))
+     (module
+      (obj_name base__Hashtbl_intf)
+      (visibility public)
+      (source (path Hashtbl_intf) (impl (path hashtbl_intf.ml))))
+     (module
+      (obj_name base__Hex_lexer)
+      (visibility public)
+      (source
+       (path Hex_lexer)
+       (intf (path hex_lexer.mli))
+       (impl (path hex_lexer.ml))))
+     (module
+      (obj_name base__Identifiable)
+      (visibility public)
+      (source
+       (path Identifiable)
+       (intf (path identifiable.mli))
+       (impl (path identifiable.ml))))
+     (module
+      (obj_name base__Identifiable_intf)
+      (visibility public)
+      (source (path Identifiable_intf) (impl (path identifiable_intf.ml))))
+     (module
+      (obj_name base__Import)
+      (visibility public)
+      (source (path Import) (impl (path import.ml))))
+     (module
+      (obj_name base__Import0)
+      (visibility public)
+      (source (path Import0) (impl (path import0.ml))))
+     (module
+      (obj_name base__Indexed_container)
+      (visibility public)
+      (source
+       (path Indexed_container)
+       (intf (path indexed_container.mli))
+       (impl (path indexed_container.ml))))
+     (module
+      (obj_name base__Indexed_container_intf)
+      (visibility public)
+      (source
+       (path Indexed_container_intf)
+       (impl (path indexed_container_intf.ml))))
+     (module
+      (obj_name base__Info)
+      (visibility public)
+      (source (path Info) (intf (path info.mli)) (impl (path info.ml))))
+     (module
+      (obj_name base__Info_intf)
+      (visibility public)
+      (source (path Info_intf) (impl (path info_intf.ml))))
+     (module
+      (obj_name base__Int)
+      (visibility public)
+      (source (path Int) (intf (path int.mli)) (impl (path int.ml))))
+     (module
+      (obj_name base__Int0)
+      (visibility public)
+      (source (path Int0) (impl (path int0.ml))))
+     (module
+      (obj_name base__Int32)
+      (visibility public)
+      (source (path Int32) (intf (path int32.mli)) (impl (path int32.ml))))
+     (module
+      (obj_name base__Int63)
+      (visibility public)
+      (source (path Int63) (intf (path int63.mli)) (impl (path int63.ml))))
+     (module
+      (obj_name base__Int63_emul)
+      (visibility public)
+      (source
+       (path Int63_emul)
+       (intf (path int63_emul.mli))
+       (impl (path int63_emul.ml))))
+     (module
+      (obj_name base__Int64)
+      (visibility public)
+      (source (path Int64) (intf (path int64.mli)) (impl (path int64.ml))))
+     (module
+      (obj_name base__Int_conversions)
+      (visibility public)
+      (source
+       (path Int_conversions)
+       (intf (path int_conversions.mli))
+       (impl (path int_conversions.ml))))
+     (module
+      (obj_name base__Int_intf)
+      (visibility public)
+      (source (path Int_intf) (impl (path int_intf.ml))))
+     (module
+      (obj_name base__Int_math)
+      (visibility public)
+      (source
+       (path Int_math)
+       (intf (path int_math.mli))
+       (impl (path int_math.ml))))
+     (module
+      (obj_name base__Int_string_conversions)
+      (visibility public)
+      (source
+       (path Int_string_conversions)
+       (intf (path int_string_conversions.mli))
+       (impl (path int_string_conversions.ml))))
+     (module
+      (obj_name base__Intable)
+      (visibility public)
+      (source (path Intable) (impl (path intable.ml))))
+     (module
+      (obj_name base__Invariant)
+      (visibility public)
+      (source
+       (path Invariant)
+       (intf (path invariant.mli))
+       (impl (path invariant.ml))))
+     (module
+      (obj_name base__Invariant_intf)
+      (visibility public)
+      (source (path Invariant_intf) (impl (path invariant_intf.ml))))
+     (module
+      (obj_name base__Lazy)
+      (visibility public)
+      (source (path Lazy) (intf (path lazy.mli)) (impl (path lazy.ml))))
+     (module
+      (obj_name base__Linked_queue)
+      (visibility public)
+      (source
+       (path Linked_queue)
+       (intf (path linked_queue.mli))
+       (impl (path linked_queue.ml))))
+     (module
+      (obj_name base__Linked_queue0)
+      (visibility public)
+      (source (path Linked_queue0) (impl (path linked_queue0.ml))))
+     (module
+      (obj_name base__List)
+      (visibility public)
+      (source (path List) (intf (path list.mli)) (impl (path list.ml))))
+     (module
+      (obj_name base__List0)
+      (visibility public)
+      (source (path List0) (impl (path list0.ml))))
+     (module
+      (obj_name base__List1)
+      (visibility public)
+      (source (path List1) (impl (path list1.ml))))
+     (module
+      (obj_name base__Map)
+      (visibility public)
+      (source (path Map) (intf (path map.mli)) (impl (path map.ml))))
+     (module
+      (obj_name base__Map_intf)
+      (visibility public)
+      (source (path Map_intf) (impl (path map_intf.ml))))
+     (module
+      (obj_name base__Maybe_bound)
+      (visibility public)
+      (source
+       (path Maybe_bound)
+       (intf (path maybe_bound.mli))
+       (impl (path maybe_bound.ml))))
+     (module
+      (obj_name base__Monad)
+      (visibility public)
+      (source (path Monad) (intf (path monad.mli)) (impl (path monad.ml))))
+     (module
+      (obj_name base__Monad_intf)
+      (visibility public)
+      (source (path Monad_intf) (impl (path monad_intf.ml))))
+     (module
+      (obj_name base__Nativeint)
+      (visibility public)
+      (source
+       (path Nativeint)
+       (intf (path nativeint.mli))
+       (impl (path nativeint.ml))))
+     (module
+      (obj_name base__Nothing)
+      (visibility public)
+      (source
+       (path Nothing)
+       (intf (path nothing.mli))
+       (impl (path nothing.ml))))
+     (module
+      (obj_name base__Obj_array)
+      (visibility public)
+      (source
+       (path Obj_array)
+       (intf (path obj_array.mli))
+       (impl (path obj_array.ml))))
+     (module
+      (obj_name base__Obj_local)
+      (visibility public)
+      (source
+       (path Obj_local)
+       (intf (path obj_local.mli))
+       (impl (path obj_local.ml))))
+     (module
+      (obj_name base__Option)
+      (visibility public)
+      (source (path Option) (intf (path option.mli)) (impl (path option.ml))))
+     (module
+      (obj_name base__Option_array)
+      (visibility public)
+      (source
+       (path Option_array)
+       (intf (path option_array.mli))
+       (impl (path option_array.ml))))
+     (module
+      (obj_name base__Or_error)
+      (visibility public)
+      (source
+       (path Or_error)
+       (intf (path or_error.mli))
+       (impl (path or_error.ml))))
+     (module
+      (obj_name base__Ordered_collection_common)
+      (visibility public)
+      (source
+       (path Ordered_collection_common)
+       (intf (path ordered_collection_common.mli))
+       (impl (path ordered_collection_common.ml))))
+     (module
+      (obj_name base__Ordered_collection_common0)
+      (visibility public)
+      (source
+       (path Ordered_collection_common0)
+       (intf (path ordered_collection_common0.mli))
+       (impl (path ordered_collection_common0.ml))))
+     (module
+      (obj_name base__Ordering)
+      (visibility public)
+      (source
+       (path Ordering)
+       (intf (path ordering.mli))
+       (impl (path ordering.ml))))
+     (module
+      (obj_name base__Poly0)
+      (visibility public)
+      (source (path Poly0) (intf (path poly0.mli)) (impl (path poly0.ml))))
+     (module
+      (obj_name base__Popcount)
+      (visibility public)
+      (source
+       (path Popcount)
+       (intf (path popcount.mli))
+       (impl (path popcount.ml))))
+     (module
+      (obj_name base__Pow_overflow_bounds)
+      (visibility public)
+      (source
+       (path Pow_overflow_bounds)
+       (intf (path pow_overflow_bounds.mli))
+       (impl (path pow_overflow_bounds.ml))))
+     (module
+      (obj_name base__Ppx_compare_lib)
+      (visibility public)
+      (source
+       (path Ppx_compare_lib)
+       (intf (path ppx_compare_lib.mli))
+       (impl (path ppx_compare_lib.ml))))
+     (module
+      (obj_name base__Ppx_enumerate_lib)
+      (visibility public)
+      (source (path Ppx_enumerate_lib) (impl (path ppx_enumerate_lib.ml))))
+     (module
+      (obj_name base__Ppx_hash_lib)
+      (visibility public)
+      (source (path Ppx_hash_lib) (impl (path ppx_hash_lib.ml))))
+     (module
+      (obj_name base__Pretty_printer)
+      (visibility public)
+      (source
+       (path Pretty_printer)
+       (intf (path pretty_printer.mli))
+       (impl (path pretty_printer.ml))))
+     (module
+      (obj_name base__Printf)
+      (visibility public)
+      (source (path Printf) (intf (path printf.mli)) (impl (path printf.ml))))
+     (module
+      (obj_name base__Queue)
+      (visibility public)
+      (source (path Queue) (intf (path queue.mli)) (impl (path queue.ml))))
+     (module
+      (obj_name base__Queue_intf)
+      (visibility public)
+      (source (path Queue_intf) (impl (path queue_intf.ml))))
+     (module
+      (obj_name base__Random)
+      (visibility public)
+      (source (path Random) (intf (path random.mli)) (impl (path random.ml))))
+     (module
+      (obj_name base__Random_repr)
+      (visibility public)
+      (source (path Random_repr) (impl (path random_repr.ml))))
+     (module
+      (obj_name base__Ref)
+      (visibility public)
+      (source (path Ref) (intf (path ref.mli)) (impl (path ref.ml))))
+     (module
+      (obj_name base__Result)
+      (visibility public)
+      (source (path Result) (intf (path result.mli)) (impl (path result.ml))))
+     (module
+      (obj_name base__Sequence)
+      (visibility public)
+      (source
+       (path Sequence)
+       (intf (path sequence.mli))
+       (impl (path sequence.ml))))
+     (module
+      (obj_name base__Set)
+      (visibility public)
+      (source (path Set) (intf (path set.mli)) (impl (path set.ml))))
+     (module
+      (obj_name base__Set_intf)
+      (visibility public)
+      (source (path Set_intf) (impl (path set_intf.ml))))
+     (module
+      (obj_name base__Sexp)
+      (visibility public)
+      (source (path Sexp) (intf (path sexp.mli)) (impl (path sexp.ml))))
+     (module
+      (obj_name base__Sexp_with_comparable)
+      (visibility public)
+      (source
+       (path Sexp_with_comparable)
+       (intf (path sexp_with_comparable.mli))
+       (impl (path sexp_with_comparable.ml))))
+     (module
+      (obj_name base__Sexpable)
+      (visibility public)
+      (source
+       (path Sexpable)
+       (intf (path sexpable.mli))
+       (impl (path sexpable.ml))))
+     (module
+      (obj_name base__Sign)
+      (visibility public)
+      (source (path Sign) (intf (path sign.mli)) (impl (path sign.ml))))
+     (module
+      (obj_name base__Sign0)
+      (visibility public)
+      (source (path Sign0) (impl (path sign0.ml))))
+     (module
+      (obj_name base__Sign_or_nan)
+      (visibility public)
+      (source
+       (path Sign_or_nan)
+       (intf (path sign_or_nan.mli))
+       (impl (path sign_or_nan.ml))))
+     (module
+      (obj_name base__Source_code_position)
+      (visibility public)
+      (source
+       (path Source_code_position)
+       (intf (path source_code_position.mli))
+       (impl (path source_code_position.ml))))
+     (module
+      (obj_name base__Source_code_position0)
+      (visibility public)
+      (source
+       (path Source_code_position0)
+       (impl (path source_code_position0.ml))))
+     (module
+      (obj_name base__Stack)
+      (visibility public)
+      (source (path Stack) (intf (path stack.mli)) (impl (path stack.ml))))
+     (module
+      (obj_name base__Stack_intf)
+      (visibility public)
+      (source (path Stack_intf) (impl (path stack_intf.ml))))
+     (module
+      (obj_name base__Staged)
+      (visibility public)
+      (source (path Staged) (intf (path staged.mli)) (impl (path staged.ml))))
+     (module
+      (obj_name base__String)
+      (visibility public)
+      (source (path String) (intf (path string.mli)) (impl (path string.ml))))
+     (module
+      (obj_name base__String0)
+      (visibility public)
+      (source (path String0) (impl (path string0.ml))))
+     (module
+      (obj_name base__String_intf)
+      (visibility public)
+      (source (path String_intf) (impl (path string_intf.ml))))
+     (module
+      (obj_name base__Stringable)
+      (visibility public)
+      (source (path Stringable) (impl (path stringable.ml))))
+     (module
+      (obj_name base__Sys)
+      (visibility public)
+      (source (path Sys) (intf (path sys.mli)) (impl (path sys.ml))))
+     (module
+      (obj_name base__Sys0)
+      (visibility public)
+      (source (path Sys0) (impl (path sys0.ml))))
+     (module
+      (obj_name base__T)
+      (visibility public)
+      (source (path T) (impl (path t.ml))))
+     (module
+      (obj_name base__Type_equal)
+      (visibility public)
+      (source
+       (path Type_equal)
+       (intf (path type_equal.mli))
+       (impl (path type_equal.ml))))
+     (module
+      (obj_name base__Type_equal_intf)
+      (visibility public)
+      (source (path Type_equal_intf) (impl (path type_equal_intf.ml))))
+     (module
+      (obj_name base__Uchar)
+      (visibility public)
+      (source (path Uchar) (intf (path uchar.mli)) (impl (path uchar.ml))))
+     (module
+      (obj_name base__Uchar0)
+      (visibility public)
+      (source (path Uchar0) (impl (path uchar0.ml))))
+     (module
+      (obj_name base__Uchar_intf)
+      (visibility public)
+      (source (path Uchar_intf) (impl (path uchar_intf.ml))))
+     (module
+      (obj_name base__Uniform_array)
+      (visibility public)
+      (source
+       (path Uniform_array)
+       (intf (path uniform_array.mli))
+       (impl (path uniform_array.ml))))
+     (module
+      (obj_name base__Unit)
+      (visibility public)
+      (source (path Unit) (intf (path unit.mli)) (impl (path unit.ml))))
+     (module
+      (obj_name base__Variant)
+      (visibility public)
+      (source
+       (path Variant)
+       (intf (path variant.mli))
+       (impl (path variant.ml))))
+     (module
+      (obj_name base__Variantslib)
+      (visibility public)
+      (source (path Variantslib) (impl (path variantslib.ml))))
+     (module
+      (obj_name base__With_return)
+      (visibility public)
+      (source
+       (path With_return)
+       (intf (path with_return.mli))
+       (impl (path with_return.ml))))
+     (module
+      (obj_name base__Word_size)
+      (visibility public)
+      (source
+       (path Word_size)
+       (intf (path word_size.mli))
+       (impl (path word_size.ml))))))
+   (wrapped true))))
+(library
+ (name base.base_internalhash_types)
+ (kind normal)
+ (archives
+  (byte base_internalhash_types/base_internalhash_types.cma)
+  (native base_internalhash_types/base_internalhash_types.cmxa))
+ (plugins
+  (byte base_internalhash_types/base_internalhash_types.cma)
+  (native base_internalhash_types/base_internalhash_types.cmxs))
+ (foreign_objects base_internalhash_types/internalhash_stubs.o)
+ (foreign_archives
+  (archives
+   (for all)
+   (files base_internalhash_types/libbase_internalhash_types_stubs.a)))
+ (foreign_dll_files ../stublibs/dllbase_internalhash_types_stubs.so)
+ (native_archives base_internalhash_types/base_internalhash_types.a)
+ (jsoo_runtime base_internalhash_types/runtime.js)
+ (main_module_name Base_internalhash_types)
+ (modes byte native)
+ (modules
+  (singleton
+   (obj_name base_internalhash_types)
+   (visibility public)
+   (source
+    (path Base_internalhash_types)
+    (impl (path base_internalhash_types/base_internalhash_types.ml))))))
+(library
+ (name base.md5)
+ (kind normal)
+ (archives (byte md5/md5_lib.cma) (native md5/md5_lib.cmxa))
+ (plugins (byte md5/md5_lib.cma) (native md5/md5_lib.cmxs))
+ (native_archives md5/md5_lib.a)
+ (main_module_name Md5_lib)
+ (modes byte native)
+ (modules
+  (singleton
+   (obj_name md5_lib)
+   (visibility public)
+   (source
+    (path Md5_lib)
+    (intf (path md5/md5_lib.mli))
+    (impl (path md5/md5_lib.ml))))))
+(library
+ (name base.shadow_stdlib)
+ (kind normal)
+ (archives
+  (byte shadow_stdlib/shadow_stdlib.cma)
+  (native shadow_stdlib/shadow_stdlib.cmxa))
+ (plugins
+  (byte shadow_stdlib/shadow_stdlib.cma)
+  (native shadow_stdlib/shadow_stdlib.cmxs))
+ (native_archives shadow_stdlib/shadow_stdlib.a)
+ (main_module_name Shadow_stdlib)
+ (modes byte native)
+ (modules
+  (singleton
+   (obj_name shadow_stdlib)
+   (visibility public)
+   (source
+    (path Shadow_stdlib)
+    (intf (path shadow_stdlib/shadow_stdlib.mli))
+    (impl (path shadow_stdlib/shadow_stdlib.ml))))))

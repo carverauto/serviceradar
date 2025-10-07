@@ -5,8 +5,8 @@ After=network-online.target
 [Service]
 Type=forking
 Environment=
-ExecStart=/usr/bin/proton-server --config-file /etc/proton-server/config.yaml --pid-file /var/run/proton-server/proton-server.pid --daemon
-ExecStop=/bin/sh -c '/usr/bin/proton stop || kill -TERM $(cat /var/run/proton-server/proton-server.pid) || true'
+ExecStart=/usr/bin/proton-server --config-file /etc/proton-server/config.yaml --pid-file /run/proton-server/proton-server.pid --daemon
+ExecStop=/bin/sh -c '/usr/bin/proton stop || kill -TERM $(cat /run/proton-server/proton-server.pid) || true'
 ExecReload=/bin/kill -HUP $MAINPID
 User=proton
 Group=proton
@@ -17,7 +17,9 @@ TimeoutStartSec=30
 StandardOutput=journal+append:/var/log/proton-server/proton-server.log
 StandardError=journal+append:/var/log/proton-server/proton-server.err.log
 LimitNOFILE=800000
-PIDFile=/var/run/proton-server/proton-server.pid
+RuntimeDirectory=proton-server
+RuntimeDirectoryMode=0755
+PIDFile=/run/proton-server/proton-server.pid
 
 [Install]
 WantedBy=multi-user.target

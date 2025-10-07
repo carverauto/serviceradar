@@ -4,7 +4,7 @@ Release:        %{release}%{?dist}
 Summary:        ServiceRadar SysMon metrics checker plugin
 License:        Proprietary
 
-BuildRequires:  systemd
+BuildRequires:  systemd-rpm-macros
 Requires:       systemd
 %{?systemd_requires}
 
@@ -15,15 +15,14 @@ This package provides the ServiceRadar SysMon checker plugin for monitoring syst
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/etc/serviceradar/checkers
-mkdir -p %{buildroot}/var/lib/serviceradar
 
 # Install both binaries
 install -m 755 %{_builddir}/serviceradar-sysmon-checker-zfs %{buildroot}/usr/local/bin/
 install -m 755 %{_builddir}/serviceradar-sysmon-checker-nonzfs %{buildroot}/usr/local/bin/
 
 # Install systemd service and config files
-install -m 644 %{_sourcedir}/sysmon-checker/systemd/serviceradar-sysmon-checker.service %{buildroot}/lib/systemd/system/
-install -m 644 %{_sourcedir}/sysmon-checker/config/checkers/sysmon.json.example %{buildroot}/etc/serviceradar/checkers/
+install -m 644 %{_sourcedir}/packaging/sysmon-checker/systemd/serviceradar-sysmon-checker.service %{buildroot}/lib/systemd/system/
+install -m 644 %{_sourcedir}/packaging/sysmon-checker/config/checkers/sysmon.json.example %{buildroot}/etc/serviceradar/checkers/
 
 %files
 %attr(0755, root, root) /usr/local/bin/serviceradar-sysmon-checker-zfs
@@ -32,16 +31,32 @@ install -m 644 %{_sourcedir}/sysmon-checker/config/checkers/sysmon.json.example 
 %attr(0644, root, root) /lib/systemd/system/serviceradar-sysmon-checker.service
 %dir %attr(0755, root, root) /etc/serviceradar
 %dir %attr(0755, root, root) /etc/serviceradar/checkers
-%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar
 
 %pre
-# Create serviceradar user if it doesn't exist
+# Ensure serviceradar group exists before user creation
+if ! getent group serviceradar >/dev/null; then
+    groupadd --system serviceradar
+fi
+
+# Create serviceradar user with managed home directory if it doesn't exist
 if ! id -u serviceradar >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin serviceradar
+    useradd --system --home-dir /var/lib/serviceradar --create-home \
+        --shell /usr/sbin/nologin --gid serviceradar serviceradar
+else
+    # Align existing user home directory if needed
+    CURRENT_HOME=$(getent passwd serviceradar | cut -d: -f6)
+    if [ "$CURRENT_HOME" != "/var/lib/serviceradar" ]; then
+        usermod --home /var/lib/serviceradar serviceradar >/dev/null 2>&1 || :
+    fi
 fi
 
 %post
 %systemd_post serviceradar-sysmon-checker.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-sysmon-checker.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-sysmon-checker.service >/dev/null 2>&1 || :
+fi
 
 # Check for ZFS availability
 ZFS_AVAILABLE=false

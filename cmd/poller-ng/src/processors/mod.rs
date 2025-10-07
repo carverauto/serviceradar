@@ -17,5 +17,5 @@
 
 // cmd/poller-ng/src/processors/mod.rs
 
-pub(crate) mod sysmon;
 pub(crate) mod rperf;
+pub(crate) mod sysmon;

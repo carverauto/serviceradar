@@ -48,8 +48,8 @@ const DeviceAvailabilityWidget = () => {
     const handlePieClick = useCallback((data: DeviceAvailabilityData) => {
         const isOffline = data.name === 'Offline';
         const query = isOffline 
-            ? 'show devices where is_available = false'
-            : 'show devices where is_available = true';
+            ? 'in:devices is_available:false time:last_7d sort:last_seen:desc limit:100'
+            : 'in:devices is_available:true time:last_7d sort:last_seen:desc limit:100';
         
         const encodedQuery = encodeURIComponent(query);
         router.push(`/query?q=${encodedQuery}`);
@@ -100,7 +100,7 @@ const DeviceAvailabilityWidget = () => {
                     </h3>
                     <button
                         onClick={() => {
-                            const query = 'show devices where is_available = false';
+                            const query = 'in:devices is_available:false time:last_7d sort:last_seen:desc limit:100';
                             const encodedQuery = encodeURIComponent(query);
                             router.push(`/query?q=${encodedQuery}`);
                         }}

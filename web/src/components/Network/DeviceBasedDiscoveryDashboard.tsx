@@ -95,7 +95,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     // Fetch discovered devices using device_id centric queries
     const fetchDevices = useCallback(async () => {
         try {
-            const query = 'SHOW DEVICES WHERE discovery_sources IS NOT NULL LIMIT 10000';
+            const query = 'in:devices discovery_sources:* time:last_7d limit:10000';
             const response = await cachedQuery<{ results: Device[] }>(
                 query,
                 token || undefined,
@@ -111,7 +111,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     // Fetch discovered interfaces using device_id centric queries
     const fetchInterfaces = useCallback(async () => {
         try {
-            const query = 'SHOW INTERFACES LIMIT 10000';
+            const query = 'in:interfaces time:last_7d limit:10000';
             const response = await cachedQuery<{ results: DiscoveredInterface[] }>(
                 query,
                 token || undefined,
@@ -128,27 +128,27 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     const fetchStats = useCallback(async () => {
         try {
             const [totalDevicesRes, activeDevicesRes, totalInterfacesRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES WHERE discovery_sources IS NOT NULL",
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices discovery_sources:* stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT DEVICES WHERE discovery_sources IS NOT NULL AND is_available = true",
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:devices discovery_sources:* is_available:true stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
-                cachedQuery<{ results: [{ 'count()': number }] }>(
-                    "COUNT INTERFACES",
+                cachedQuery<{ results: [{ total: number }] }>(
+                    'in:interfaces stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
             ]);
 
             setStats({
-                totalDevices: totalDevicesRes.results[0]?.['count()'] || 0,
-                activeDevices: activeDevicesRes.results[0]?.['count()'] || 0,
-                totalInterfaces: totalInterfacesRes.results[0]?.['count()'] || 0,
+                totalDevices: totalDevicesRes.results[0]?.total || 0,
+                activeDevices: activeDevicesRes.results[0]?.total || 0,
+                totalInterfaces: totalInterfacesRes.results[0]?.total || 0,
                 onlineInterfaces: 0 // Could add interface status counting if needed
             });
         } catch (error) {

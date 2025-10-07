@@ -150,6 +150,7 @@ func TestTCPSweeper_worker(t *testing.T) {
 
 	target := models.Target{Host: "localhost", Port: 9999, Mode: models.ModeTCP}
 	workCh <- target
+
 	close(workCh)
 
 	var wg sync.WaitGroup

@@ -22,7 +22,7 @@ set -x
 
 # Define package version
 VERSION=${VERSION:-1.0.34}
-PROTON_VERSION="v1.6.15"
+PROTON_VERSION="v1.6.16"
 PROTON_DOWNLOAD_URL="https://github.com/timeplus-io/proton/releases/download/${PROTON_VERSION}/proton-${PROTON_VERSION}-Linux-x86_64"
 
 # Use a relative path from the script's location

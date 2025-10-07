@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "lifecycle",
+    srcs = [
+        "logger.go",
+        "server.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/lifecycle",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/grpc",
+        "//pkg/logger",
+        "//pkg/models",
+        "@com_github_rs_zerolog//:zerolog",
+        "@io_opentelemetry_go_otel_trace//:trace",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//health/grpc_health_v1",
+    ],
+)

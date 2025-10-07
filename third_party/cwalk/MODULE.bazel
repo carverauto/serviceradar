@@ -1,0 +1,7 @@
+module(
+    name = "cwalk",
+    version = "1.2.9",
+    compatibility_level = 1,
+)
+
+bazel_dep(name = "rules_cc", version = "0.0.16")

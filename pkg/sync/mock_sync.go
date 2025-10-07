@@ -83,6 +83,26 @@ func (mr *MockKVClientMockRecorder) Get(ctx, in any, opts ...any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockKVClient)(nil).Get), varargs...)
 }
 
+// Info mocks base method.
+func (m *MockKVClient) Info(ctx context.Context, in *proto.InfoRequest, opts ...grpc.CallOption) (*proto.InfoResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Info", varargs...)
+	ret0, _ := ret[0].(*proto.InfoResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Info indicates an expected call of Info.
+func (mr *MockKVClientMockRecorder) Info(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Info", reflect.TypeOf((*MockKVClient)(nil).Info), varargs...)
+}
+
 // Put mocks base method.
 func (m *MockKVClient) Put(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error) {
 	m.ctrl.T.Helper()
@@ -101,6 +121,26 @@ func (mr *MockKVClientMockRecorder) Put(ctx, in any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*MockKVClient)(nil).Put), varargs...)
+}
+
+// PutIfAbsent mocks base method.
+func (m *MockKVClient) PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PutIfAbsent", varargs...)
+	ret0, _ := ret[0].(*proto.PutResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PutIfAbsent indicates an expected call of PutIfAbsent.
+func (mr *MockKVClientMockRecorder) PutIfAbsent(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutIfAbsent", reflect.TypeOf((*MockKVClient)(nil).PutIfAbsent), varargs...)
 }
 
 // PutMany mocks base method.

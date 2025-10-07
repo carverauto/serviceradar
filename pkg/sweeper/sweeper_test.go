@@ -22,11 +22,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+var (
+	// errKVConnectionFailed is used in tests to simulate KV connection failures
+	errKVConnectionFailed = errors.New("KV connection failed")
 )
 
 func TestMockSweeper(t *testing.T) {
@@ -186,6 +192,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 		// Create fresh controller and mock for this test
 		subCtrl := gomock.NewController(t)
 		defer subCtrl.Finish()
+
 		subMockKVStore := NewMockKVStore(subCtrl)
 		// Create fresh config for this test
 		initialConfig := &models.Config{
@@ -209,6 +216,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 		// Create a channel that will send the config update
 		watchCh := make(chan []byte, 1)
 		watchCh <- []byte(kvConfigJSON)
+
 		close(watchCh)
 
 		subMockKVStore.EXPECT().
@@ -278,6 +286,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 		// Create fresh controller and mock for this test
 		subCtrl := gomock.NewController(t)
 		defer subCtrl.Finish()
+
 		subMockKVStore := NewMockKVStore(subCtrl)
 		// Create fresh config for this test
 		initialConfig := &models.Config{
@@ -297,7 +306,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 
 		subMockKVStore.EXPECT().
 			Watch(gomock.Any(), "test-config-key").
-			Return(nil, errors.New("KV connection failed")).
+			Return(nil, errKVConnectionFailed).
 			AnyTimes()
 
 		configReady := make(chan struct{})
@@ -913,6 +922,7 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 
 	// Should eventually receive config ready signal after auto-reconnect
 	t.Log("Waiting for config ready signal...")
+
 	select {
 	case <-configReady:
 		// Config ready signal received - auto-reconnect worked

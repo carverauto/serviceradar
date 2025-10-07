@@ -188,6 +188,7 @@ func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 	// Only check NodeDownStates for "Node Offline" alerts.
 	if alert.Title == "Node Offline" {
 		w.Mu.RLock()
+
 		if w.NodeDownStates[alert.PollerID] {
 			w.Mu.RUnlock()
 			log.Printf("Skipping duplicate 'Node Offline' alert for node: %s", alert.PollerID)
@@ -264,6 +265,7 @@ func (w *WebhookAlerter) preparePayload(alert *WebhookAlert) ([]byte, error) {
 	if w.Config.Template == "" {
 		buf := w.bufferPool.Get().(*bytes.Buffer)
 		buf.Reset()
+
 		defer w.bufferPool.Put(buf)
 
 		enc := json.NewEncoder(buf)
@@ -287,6 +289,7 @@ func (w *WebhookAlerter) executeTemplate(alert *WebhookAlert) ([]byte, error) {
 
 	buf := w.bufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
+
 	defer w.bufferPool.Put(buf)
 
 	if err := tmpl.Execute(buf, map[string]interface{}{
@@ -305,6 +308,7 @@ func (w *WebhookAlerter) executeTemplate(alert *WebhookAlert) ([]byte, error) {
 func (w *WebhookAlerter) sendRequest(ctx context.Context, payload []byte) error {
 	buf := w.bufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
+
 	defer w.bufferPool.Put(buf)
 
 	buf.Write(payload)
@@ -330,6 +334,7 @@ func (w *WebhookAlerter) sendRequest(ctx context.Context, payload []byte) error 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBuf := w.bufferPool.Get().(*bytes.Buffer)
 		errBuf.Reset()
+
 		defer w.bufferPool.Put(errBuf)
 
 		_, _ = io.Copy(errBuf, resp.Body)

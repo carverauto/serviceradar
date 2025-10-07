@@ -1,0 +1,53 @@
+name: OCaml CI
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - 'ocaml/**'
+      - '.github/workflows/ocaml-build-test.yml'
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Use OCaml 5.2
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.0
+          dune-cache: true
+          opam-depext: true
+
+      - name: Install dependencies (with tests)
+        working-directory: ocaml
+        run: opam install . --deps-only --with-test
+
+      - name: Build
+        working-directory: ocaml
+        run: opam exec -- dune build
+
+      - name: Test
+        working-directory: ocaml
+        run: opam exec -- dune runtest
+
+      - name: Build server
+        working-directory: ocaml
+        run: opam exec -- dune build srql/bin/main.exe
+
+      - name: Smoke test server
+        working-directory: ocaml
+        run: |
+          set -euxo pipefail
+          opam exec -- dune exec srql/bin/main.exe &
+          SRQL_PID=$!
+          sleep 1
+          curl -sf http://127.0.0.1:8080/health | tee /dev/stderr | grep 'ok'
+          kill $SRQL_PID || true

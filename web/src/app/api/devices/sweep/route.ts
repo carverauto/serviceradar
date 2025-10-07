@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Query the devices using SRQL syntax with proper pagination
-    const query = `show devices order by last_seen desc`;
+    const query = 'in:devices discovery_sources:(sweep) time:last_24h sort:last_seen:desc';
     
     // Build request body with pagination
     const requestBody: {

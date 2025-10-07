@@ -1,0 +1,4 @@
+exports_files([
+    "platform_exec_properties.patch",
+    "stdlib_env.patch",
+])

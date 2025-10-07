@@ -1,0 +1,57 @@
+# gazelle:ignore
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+# NOTE: The checked-in Go protobuf sources are retained for non-Bazel tooling.
+
+proto_library(
+    name = "proto_proto",
+    srcs = [
+        "kv.proto",
+        "monitoring.proto",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "kv_proto_src",
+    srcs = ["kv.proto"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "monitoring_proto_src",
+    srcs = ["monitoring.proto"],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "compile",
+    actual = ":proto_proto",
+    visibility = ["//visibility:public"],
+)
+
+go_proto_library(
+    name = "proto_go_proto",
+    compilers = [
+        "@io_bazel_rules_go//proto:go_proto",
+        "@io_bazel_rules_go//proto:go_grpc_v2",
+    ],
+    importpath = "github.com/carverauto/serviceradar/proto",
+    proto = ":proto_proto",
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "proto",
+    srcs = ["mock_monitoring.go"],
+    embed = [":proto_go_proto"],
+    importpath = "github.com/carverauto/serviceradar/proto",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_golang_google_grpc//:grpc",
+        "@org_uber_go_mock//gomock",
+    ],
+)

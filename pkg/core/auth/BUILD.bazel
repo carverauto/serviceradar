@@ -1,0 +1,42 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "auth",
+    srcs = [
+        "auth.go",
+        "interfaces.go",
+        "jwks.go",
+        "jwt.go",
+        "middleware.go",
+        "mock_auth.go",
+        "rbac.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/core/auth",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/db",
+        "//pkg/models",
+        "@com_github_golang_jwt_jwt_v4//:jwt",
+        "@com_github_gorilla_mux//:mux",
+        "@com_github_markbates_goth//:goth",
+        "@com_github_markbates_goth//providers/github",
+        "@com_github_markbates_goth//providers/google",
+        "@org_golang_x_crypto//bcrypt",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "auth_test",
+    srcs = ["auth_test.go"],
+    embed = [":auth"],
+    deps = [
+        "//pkg/db",
+        "//pkg/models",
+        "@com_github_markbates_goth//:goth",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_golang_x_crypto//bcrypt",
+        "@org_uber_go_mock//gomock",
+    ],
+)

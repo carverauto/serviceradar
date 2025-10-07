@@ -19,8 +19,16 @@ RUN echo "BINARY_PATH=${BINARY_PATH}" && \
     echo "Current directory: $(pwd)" && \
     ls -la /src || echo "No /src directory yet"
 
+# Install system dependencies required for eBPF builds and linking utilities
+RUN dnf install -y clang llvm llvm-devel llvm-libs libbpf libbpf-devel kernel-headers pkgconf-pkg-config gcc make && \
+    dnf clean all && \
+    cargo install --locked bpf-linker
+
 # Copy workspace Cargo.toml first for better layer caching
 COPY ${BINARY_PATH}/Cargo.toml .
+
+# Include workspace-specific cargo configuration (command aliases, etc.)
+COPY ${BINARY_PATH}/.cargo ./.cargo
 
 # Copy the OpenTelemetry proto files to the expected location
 COPY ${BINARY_PATH}/proto ./proto/
@@ -30,6 +38,15 @@ COPY ${BINARY_PATH}/profiler ./profiler/
 COPY ${BINARY_PATH}/profiler-common ./profiler-common/
 COPY ${BINARY_PATH}/profiler-ebpf ./profiler-ebpf/
 COPY ${BINARY_PATH}/xtask ./xtask/
+
+# Build the eBPF program first so include_bytes can find it
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    echo "Installing nightly toolchain for eBPF build..." && \
+    rustup toolchain install nightly --profile minimal --component rust-src && \
+    echo "Building eBPF object (release)..." && \
+    cargo xtask build-ebpf --release && \
+    echo "eBPF object built at ./target/bpfel-unknown-none/release/profiler"
 
 # Build the Rust binary with cache mounts and copy artifacts out
 RUN --mount=type=cache,target=/root/.cargo/registry \

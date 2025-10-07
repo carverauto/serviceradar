@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import { useQueries } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { ServiceEntry, Poller, GenericServiceDetails } from '@/types/types';
+import { analyticsService, AnalyticsData } from '@/services/analyticsService';
+import { Poller, GenericServiceDetails, ServiceEntry } from '@/types/types';
 import { Device } from '@/types/devices';
 
 interface AnalyticsStats {
@@ -33,166 +34,171 @@ interface ChartData {
     discoveryBySource: { name: string; value: number; color: string }[];
 }
 
+const EMPTY_STATS: AnalyticsStats = {
+    totalDevices: 0,
+    offlineDevices: 0,
+    highLatencyServices: 0,
+    failingServices: 0,
+};
+
 const REFRESH_INTERVAL = 60000; // 60 seconds
+const LATENCY_THRESHOLD_NS = 100 * 1_000_000; // 100ms expressed in nanoseconds
 
 export const useAnalyticsData = () => {
     const { token } = useAuth();
+    const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [error, setError] = useState<Error | null>(null);
 
-    const postQuery = async (query: string) => {
-        const response = await fetch('/api/query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token && { Authorization: `Bearer ${token}` }),
-            },
-            body: JSON.stringify({ query, limit: 1000 }),
+    useEffect(() => {
+        let cancelled = false;
+
+        const updateFromService = async (forceRefresh = false) => {
+            try {
+                const data = forceRefresh
+                    ? await analyticsService.refresh(token || undefined)
+                    : await analyticsService.getAnalyticsData(token || undefined);
+                if (!cancelled) {
+                    setAnalyticsData(data);
+                    setError(null);
+                }
+            } catch (err) {
+                if (!cancelled) {
+                    setError(err instanceof Error ? err : new Error(String(err)));
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        // Initial load
+        setIsLoading(true);
+        updateFromService();
+
+        // Subscribe to cache updates so other consumers keep us fresh
+        const unsubscribe = analyticsService.subscribe(() => {
+            updateFromService();
         });
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to execute query');
+
+        // Periodic refresh to keep data current
+        const intervalId = window.setInterval(() => {
+            updateFromService(true);
+        }, REFRESH_INTERVAL);
+
+        return () => {
+            cancelled = true;
+            unsubscribe();
+            window.clearInterval(intervalId);
+        };
+    }, [token]);
+
+    const { stats, chartData } = useMemo(() => {
+        if (!analyticsData) {
+            return {
+                stats: { ...EMPTY_STATS },
+                chartData: {
+                    deviceAvailability: [],
+                    topLatencyServices: [],
+                    servicesByType: [],
+                    discoveryBySource: [],
+                },
+            };
         }
-        return response.json();
-    };
 
-    const fetchPollers = async (): Promise<Poller[]> => {
-        const response = await fetch('/api/pollers', {
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token && { Authorization: `Bearer ${token}` }),
-            },
-        });
-        if (!response.ok) throw new Error('Failed to fetch pollers data for analytics');
-        return response.json();
-    };
-
-    // Use useQueries to fetch all data in parallel with individual caching
-    const queries = useQueries({
-        queries: [
-            {
-                queryKey: ['analytics', 'totalDevices'],
-                queryFn: () => postQuery('COUNT DEVICES'),
-                staleTime: 30000,
-                refetchInterval: REFRESH_INTERVAL,
-                enabled: !!token,
-            },
-            {
-                queryKey: ['analytics', 'offlineDevices'],
-                queryFn: () => postQuery('COUNT DEVICES WHERE is_available = false'),
-                staleTime: 30000,
-                refetchInterval: REFRESH_INTERVAL,
-                enabled: !!token,
-            },
-            {
-                queryKey: ['analytics', 'services'],
-                queryFn: () => postQuery('SHOW SERVICES'),
-                staleTime: 30000,
-                refetchInterval: REFRESH_INTERVAL,
-                enabled: !!token,
-            },
-            {
-                queryKey: ['analytics', 'devices'],
-                queryFn: () => postQuery('SHOW DEVICES'),
-                staleTime: 30000,
-                refetchInterval: REFRESH_INTERVAL,
-                enabled: !!token,
-            },
-            {
-                queryKey: ['analytics', 'pollers'],
-                queryFn: fetchPollers,
-                staleTime: 30000,
-                refetchInterval: REFRESH_INTERVAL,
-                enabled: !!token,
-            },
-        ],
-    });
-
-    const [
-        totalDevicesQuery,
-        offlineDevicesQuery,
-        servicesQuery,
-        devicesQuery,
-        pollersQuery,
-    ] = queries;
-
-    // Calculate derived data
-    const isLoading = queries.some(query => query.isLoading);
-    const error = queries.find(query => query.error)?.error;
-
-    let stats: AnalyticsStats = {
-        totalDevices: 0,
-        offlineDevices: 0,
-        highLatencyServices: 0,
-        failingServices: 0,
-    };
-
-    let chartData: ChartData = {
-        deviceAvailability: [],
-        topLatencyServices: [],
-        servicesByType: [],
-        discoveryBySource: [],
-    };
-
-    if (!isLoading && !error && queries.every(query => query.data)) {
-        // Calculate stats
-        const totalDevices = totalDevicesQuery.data?.results[0]?.['count()'] || 0;
-        const offlineDevices = offlineDevicesQuery.data?.results[0]?.['count()'] || 0;
-
+        const pollerData = (analyticsData.pollers as Poller[]) || [];
         let failingServices = 0;
         let highLatencyServices = 0;
-        const latencyThreshold = 100 * 1000000; // 100ms in nanoseconds
-        const latencyData: { name: string; value: number }[] = [];
+        const latencyBuckets: { name: string; value: number }[] = [];
 
-        pollersQuery.data?.forEach((poller: Poller) => {
-            poller.services?.forEach(service => {
+        pollerData.forEach((poller) => {
+            poller.services?.forEach((service) => {
                 if (!service.available) {
-                    failingServices++;
+                    failingServices += 1;
                 }
                 if (service.type === 'icmp' && service.available && service.details) {
                     try {
-                        const details = (typeof service.details === 'string' ? JSON.parse(service.details) : service.details) as GenericServiceDetails;
-                        if (details?.response_time) {
-                            const responseTimeMs = details.response_time / 1000000;
-                            latencyData.push({ name: service.name, value: responseTimeMs });
-                            if (details.response_time > latencyThreshold) {
-                                highLatencyServices++;
+                        const details = (typeof service.details === 'string'
+                            ? JSON.parse(service.details)
+                            : service.details) as GenericServiceDetails;
+                        const responseTime = details?.response_time ?? details?.data?.response_time;
+                        if (responseTime) {
+                            const responseTimeMs = responseTime / 1_000_000;
+                            latencyBuckets.push({ name: service.name ?? 'unknown', value: responseTimeMs });
+                            if (responseTime > LATENCY_THRESHOLD_NS) {
+                                highLatencyServices += 1;
                             }
                         }
-                    } catch { /* ignore parse errors */ }
+                    } catch {
+                        // ignore malformed payloads
+                    }
                 }
             });
         });
 
-        stats = { totalDevices, offlineDevices, highLatencyServices, failingServices };
+        const computedStats: AnalyticsStats = {
+            totalDevices: analyticsData.totalDevices,
+            offlineDevices: analyticsData.offlineDevices,
+            highLatencyServices,
+            failingServices,
+        };
 
-        // Prepare chart data
-        const topLatencyServices = latencyData
+        const services = (analyticsData.servicesLatest as ServiceEntry[]) || [];
+        const devices = (analyticsData.devicesLatest as Device[]) || [];
+
+        const deviceAvailability = [
+            { name: 'Online', value: analyticsData.totalDevices - analyticsData.offlineDevices, color: '#3b82f6' },
+            { name: 'Offline', value: analyticsData.offlineDevices, color: '#ef4444' },
+        ];
+
+        const topLatencyServices = latencyBuckets
             .sort((a, b) => b.value - a.value)
             .slice(0, 5)
-            .map((item, i) => ({ ...item, color: ['#f59e0b', '#facc15', '#fef08a', '#fde68a', '#fcd34d'][i % 5] }));
+            .map((item, index) => ({
+                ...item,
+                color: ['#f59e0b', '#facc15', '#fef08a', '#fde68a', '#fcd34d'][index % 5],
+            }));
 
-        chartData = {
-            deviceAvailability: [
-                { name: 'Online', value: totalDevices - offlineDevices, color: '#3b82f6' },
-                { name: 'Offline', value: offlineDevices, color: '#ef4444' }
-            ],
-            topLatencyServices: topLatencyServices,
-            servicesByType: Object.entries((servicesQuery.data?.results as ServiceEntry[] || []).reduce((acc, s) => {
-                acc[s.service_type] = (acc[s.service_type] || 0) + 1;
+        const servicesByType = Object.entries(
+            services.reduce((acc, service) => {
+                const type = service.service_type || 'unknown';
+                acc[type] = (acc[type] || 0) + 1;
                 return acc;
-            }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][i % 5] })),
-            discoveryBySource: Object.entries((devicesQuery.data?.results as Device[] || []).reduce((acc, d) => {
-                (d.discovery_sources || []).forEach(source => {
+            }, {} as Record<string, number>)
+        ).map(([name, value], index) => ({
+            name,
+            value,
+            color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][index % 5],
+        }));
+
+        const discoveryBySource = Object.entries(
+            devices.reduce((acc, device) => {
+                (device.discovery_sources || []).forEach((source) => {
                     acc[source] = (acc[source] || 0) + 1;
                 });
                 return acc;
-            }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][i % 5] })),
+            }, {} as Record<string, number>)
+        ).map(([name, value], index) => ({
+            name,
+            value,
+            color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][index % 5],
+        }));
+
+        const computedChartData: ChartData = {
+            deviceAvailability,
+            topLatencyServices,
+            servicesByType,
+            discoveryBySource,
         };
-    }
+
+        return { stats: computedStats, chartData: computedChartData };
+    }, [analyticsData]);
 
     return {
         stats,
         chartData,
         isLoading,
-        error: error as Error | null,
+        error,
     };
 };

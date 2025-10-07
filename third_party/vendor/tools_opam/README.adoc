@@ -1,0 +1,402 @@
+= tools_opam
+:toc: true
+
+Tools and rules for integrating link:https://opam.ocaml.org/[opam] (the OCaml package manager) onto Bazel for use by link:https://github.com/obazl/rules_ocaml[rules_ocaml].
+
+Currently the only tool is the opam module extension. The Bazel link:https://bazel.build/external/extension#repository_names_and_visibility[module extension] facility is designed to support integration of external
+non-Bazel tools into the Bazel package management (`bzlmod`) and build
+system.  The `tools_opam` extension seamlessly integrates `opam` into bazel so that
+`rules_ocaml` can depend on `opam` resources without any special configuration. You must tell the extension which switch you want and what packages you need, but the tool itself requires no configuration.
+
+== Quickstart
+
+link:https://bazel.build/install[Install Bazel].  Then:
+
+.Clone a demo
+[%collapsible%open]
+====
+----
+git clone https://github.com/obazl/demo_hello.git
+cd demo_hello
+bazel run bin:hello
+bazel test test
+bazel build //...                         <1>
+bazel test //...                          <2>
+bazel test //... --build_tests_only       <3>
+----
+<1>  Builds all targets
+<2>  Builds all targets and runs all tests
+<3>  Runs all tests but only builds targets required by the tests
+====
+
+== Configuration
+
+[source="starlark", title="MODULE.bazel"]
+----
+bazel_dep(name = "tools_opam", version = "1.0.0")
+opam = use_extension("@tools_opam//extensions:opam.bzl", "opam")
+opam.deps(                                                                   <1>
+    toolchain      = "xdg",  # "global" | "local" | "xdg" (default)
+    opam_version   = "2.3.0",  # ignored unless toolchain = "xdg"
+    ocaml_version  = "5.3.0",
+    pkgs           = {"cmdliner": "1.3.0"}  # version ignored currently
+)
+use_repo(opam, "opam.cmdliner")                                              <2>
+use_repo(opam, "opam", "opam.ocamlsdk")                                      <3>
+register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")         <4>
+register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")                <4>
+
+opamdev = use_extension("@tools_opam//extensions:opam.bzl", "opam",          <5>
+                         dev_dependencies = True)
+opamdev.deps(pkgs = {"ounit2": "2.2.7"})
+----
+<1> `deps` is a "tag" supported by the extension; a tag is essentially a method.  This instruction tells Bazel to execute the module extension function; see below for more information.
+<2> The module extension function runs a "repo rule" for every package in `pkgs` (and all their dependencies); the `use_repo` directive tells Bazel which of those repos are direct dependencies of this (root) module. It "imports" the module, making it accessible to `BUILD.bazel` files in this module.
+<3> The `opam` and `opam.ocamlsdk` modules are always implicitly created by the extension and must be imported. Do not list in `pkgs`.
+<4> The toolchains created by `opam.ocamlsdk` must be registered.
+<5> The same extension used with `dev_dependencies = True` means it will be ignored if the current module is not the root module.
+
+=== Bazel labels for opam packages
+
+With legacy build systems (Dune, ocamlfind, etc.) the opam package
+name is sufficient to express a dependency in a build file. With
+Bazel, we need:
+
+* a label expressing a repo (e.g. `@opam.ounit2`)
+* a (Bazel) package within the repo (e.g. `//lib`)
+* a target within the package (e.g. `:ounit2`)
+
+For example, `@opam.ounit2//lib:ounit2`.
+
+[source="starlark", title="BUILD.bazel"]
+----
+ocaml_module(name = "Test", struct = "test.ml",
+             deps = ["@opam.ounit2//lib", ...])           <1>
+----
+<1> `@opam.ounit2//lib` abbreviates `@opam.ounit2//lib:lib`, which is an alias of `@opam.ounit2//lib:ounit2`. Any of the three forms may be used.
+
+WARNING: Do not confuse Bazel's concept of _package_ with that of opam (or Dune, or findlib, or ...). See the Bazel documentation on link:https://bazel.build/concepts/build-ref#packages[packages] for details.
+
+The extension adds prefix `opam.` to all opam package names, which
+means your build files will refer to them as `@opam._pkg_` (in this
+example `@opam.ounit2`). This makes it easy to distinguish between
+opam and non-opam dependencies in your build files. If you prefer to
+drop the prefix, or name your packages something else, you can use the
+aliasing facility of `use_repo`:
+
+    use_repo(opam, ounit2 = "opam.ounit2")  # use `@ounit2` in BUILD.bazel files
+
+The mapping scheme is straightforward. A package `+pkg+` with no
+subpackages becomes `+@opam.pkg//lib+` (or equivalently
+`+@opam.pkg//lib:lib+` or `+@opam.pkg//lib:pkg+`). Subpackages become
+Bazel packages within the repo; i.e. `+mtime.clock+` becomes
+`+@opam.mtime//clock/lib+` (equivalently, `+@opam.mtime//clock/lib:lib+`, `+@opam.mtime//clock/lib:clock+`).
+
+[cols="1,5"]
+|===
+|opam package name | Bazel label
+
+|`_pkg_` | `@opam._pkg_//lib`, `@opam._pkg_//lib:lib`,
+`@opam._pkg_//libpass:[:]_pkg_`
+
+|`+ounit2+`| `+@opam.ounit2//lib+`, `+@opam.ounit2//lib:lib+` `+@opam.ounit2//lib:ounit2+`
+
+|`_pkg.subpkg_` | `@opam._pkg_//_subpkg_/lib`, `@opam._pkg_//_subpkg_/lib:lib`,
+`@opam._pkg_//_subpkg_/libpass:[:]_subpkg_`
+
+
+|`+mtime+` | `+@opam.mtime//lib+`, `+@opam.mtime//lib:lib+`, `+@opam.mtime//lib:mtime+`
+
+|`+mtime.clock+` | `+@opam.mtime//clock/lib+`, `+@opam.mtime//clock/lib:lib+`, `+@opam.mtime//clock/lib:clock+`
+
+|`+mtime.clock.os+` | `+@opam.mtime//clock/os/lib+`, `+@opam.mtime//clock/os/lib:lib+`, `+@opam.mtime//clock/os/lib:os+`
+
+|===
+
+
+=== Building
+
+
+You'll see some messages the first time you build, as the extension
+configures an opam switch, possibly creating it and/or installing
+missing packages; for example:
+
+----
+Fetching module extension @@tools_opam+//extensions:opam.bzl%opam; Building @tools_opam//extensions/config
+Fetching ... @@tools_opam+//extensions:opam.bzl%opam; Creating local switch for compiler 5.3.0 at /path/to/obazl_hello 54s
+Fetching module extension @@tools_opam+//extensions:opam.bzl%opam; Installing pkg ounit2 (1 of 12) 15s
+----
+
+You can use the `verbosity` and `opam_verbosity` attributes to get
+more information; see <<Getting more info>> below.
+
+NOTE: The initial build may take a while, especially if it needs to create and populate an opam switch.
+
+== Toolchain strategies
+
+_Toolchain strategy_ refers to the _opam toolchain_ encompassing
+`+opam+`, an opam `+switch+` containing an OCaml SDK (compilers,
+tools, runtimes, standard library, etc.), and a set of opam packages
+installed in the switch.
+
+The opam "toolchain" is not to be confused with the _OCaml toolchains_
+defined by `+rules_ocaml+`, which model the four basic OCaml compiler
+types: `+ocamlopt.opt+` (sys>sys), `ocamlc.byte` (vm>vm),
+`+ocamlopt.byte+` (vm>sys), and `+ocamlc.opt+` (sys>vm).
+
+=== XDG
+
+This is the default. The extension will create the entire `+opam+`
+toolchain (including opam) in your `XDG_DATA_HOME` directory (default:
+`$HOME/.local/share`).  In that case, it
+will:
+
+* download opam (default version 2.3.0, overridable using the
+  `opam_version` attribute) to `$XDG_DATA_HOME/obazl/opam/<opam_version>/bin/opam`
+* initialize an opam root at `$XDG_DATA_HOME/obazl/opam/<opam_version>/root`
+* create a switch, which will go in the root (e.g. `$XDG_DATA_HOME/obazl/opam/<opam_version>/root/5.3.0`)
+* install your opam package dependencies in that switch
+
+Such XDG toolchains are effectively global toolchains that are
+quasi-private to Obazl. They are completely separate from your system
+opam configuration. They will be shared across OBazl projects that use
+`toolchain = "xdg"`.
+
+=== Local
+
+Setting `toolchain="local"` tells the extension to use the local
+switch it it finds one, and create it if not. If you have specified
+`ocaml_version` then the extension will check to see if the compiler
+it uses matches and print a warning if not. If the switch is missing
+required packages the extension will install them.
+
+If you do not have a local switch, the extension will create one and
+install your required packages.
+
+=== Global
+
+You can use the current global switch, even if you have a local
+switch, by editing `MODULE.bazel` and changing `toolchain="local"`
+to `toolchain="global"`.
+
+If the extension finds that the version of the compiler in the current
+switch does not match what you have specified in `ocaml_version`, it
+will print a warning but proceed with the build.
+
+If it finds that the current switch lacks any of the packages you
+require, it will print an Error message and abort the build; it will
+not automatically install them. You can override this by setting the
+environment variable `OBAZL_FORCE_INSTALL=1`.
+
+== What does the extension do?
+
+* Ensures the requested switch is properly configured
+  * If the switch already exists (local, global, or xdg), checks the version numbers and prints a warning on mismatch
+  * For local and xdg toolchains:
+    ** Creates the switch if needed
+  * Checks that the required packages are installed
+     ** for global switchs, will *not* install packages by default; you can force installation by setting the env variable `OBAZL_FORCE_INSTALL=1`.
+     ** for local and xdg toolchains, installs any missing packages.
+
+If your switch is already properly configured (e.g. your global switch has all the packages needed), then the extension executes no updating opam commands (but may run commands like `opam var prefix` etc.)
+
+Once the requested switch is copacetic, the extension "registers" one
+Bazel repo for each package installed in the switch, by running a
+link:https://bazel.build/extending/repo[repository_rule]. Repo rules
+are only _evaluated_ on demand; that is, their implementation
+functions are executed only when they are required by a build.
+
+The implementation of the repository rule runs a configuration tool,
+written in C (srcs at link:extensions/config[extensions/config] and link:lib[lib]), that reads the `META` file of the opam package and then
+generates the corresponding `MODULE.bazel` and `BUILD.bazel` files
+that together serve to define the repo as a proxy for the opam
+package. The `BUILD.bazel` file contains an `ocaml_import` rule target
+that imports the compiled files etc. in the opam switch.
+
+Finally, the configuration tool defines symlinks in the Bazel repo
+linking to the files in the opam switch.
+
+For more information see below, <<Inspecting the Generated Repos>>.
+
+
+== When does the extension run?
+
+The extension will run the first time you build. Bazel aggressively
+caches things, so thereafter it will not need to run, unless you
+change the `opam.deps` instruction in `MODULE.bazel`. That will
+invalidate the cache and trigger a rerun.
+
+The extension runs a `repository_rule` for each package. This only
+registers the rule with Bazel; the implementation of the rule (which is what generates the BUILD.bazel files representing the opam package to Bazel) only runs on-demand.
+See link:https://bazel.build/extending/repo#when_is_the_implementation_function_executed[When is the implementation function executed?] for more information.
+
+See also link:https://bazel.build/extending/concepts#evaluation-model[Evaluation model].
+
+
+== Interacting with opam
+
+When you build with `tools_opam`, Bazel will only use opam resources
+as configured in your `MODULE.bazel` file. It will ignore opam-related
+environment variables, current switch, etc. Furthermore, if you use
+the `xdg` toolchain strategy, your builds will use a switch configured
+with the opam installation, in `$XDG_DATA_HOME`, that you specified.
+
+It follows that running `opam` from the command line to interact with
+the switch your are using is not correct. Instead you should always
+run `bazel run @opam`, which will ensure that your opam commands are
+properly configured to use the correct opam binary, `--root`, and
+`--switch`.  For example:
+
+.Usage example
+[%collapsible%open]
+====
+[source="shell"]
+----
+$ bazel run @opam -- list
+...
+Root module  : demos_obazl
+  opam bin   : /Users/<uid>/.local/share/obazl/opam/2.3.0/bin/opam
+  OPAMROOT   : /Users/<uid>/.local/share/obazl/opam/2.3.0/root
+  OPAMSWITCH : 5.1.1
+
+# Packages matching: installed
+# Name                      # Installed # Synopsis
+alcotest                    1.8.0       Alcotest is a lightweight and colourful test framework
+astring                     0.8.5       Alternative String module for OCaml
+...
+----
+====
+
+== Getting more info
+
+The transient messages you may see as the build proceeds are logged by
+Bazel. Show the location of the log file by running `bazel info command_log`.
+An easy way to inspect the log is to define an alias *before* running the build:
+
+    alias "bl=less -R `bazel info command_log`"
+
+Then `$ bl` will show the log.  As a convenience, you can just
+
+    $ source tools/source.me
+
+=== Verbosity
+
+You can also ask the `tools_opam` extension to run more verbosely by
+setting the `verbosity` attribute in `MODULE.bazel` to a value greater
+than 0.  For this to take effect, run `$ bazel clean` first.
+
+When `toolchain` is set to `local` or `xdg`, the extension will
+execute opam commands as needed to install and/or configure the
+switch. You can inspect these commands by setting `opam_verbosity` to
+a number greater than zero in `MODULE.bazel`. Setting `1` will just
+print the commands; values greater than `1` will pass `-vv..` to the
+opam commands, where the number of `v`s is `opam_verbosity - 1`. For
+example, setting `opam_verbosity = 3` will pass `-vv`.
+
+=== Inspecting the Generated Repos
+
+Bazel places the generated repos in the `external` subdirectory of the
+`output_base`,  which you can find by running `$ bazel info output_base`.
+
+    $ ls `bazel info output_base`/external
+
+The repositories generated by the `tools_opam` extension look like this:
+
+----
+tools_opam+
+tools_opam++opam+opam
+tools_opam++opam+opam.ocamlsdk
+tools_opam++opam+opam.ounit2
+tools_opam++opam+opam.seq
+tools_opam++opam+opam.stdlib-shims
+tools_opam++opam+opam.stublibs
+----
+
+Note the structure: concatenation of `_rootmodule_pass:[+]`,
+`pass:[+]_extension_+`, and `_repo_`.
+
+IMPORTANT: This is the form of "canonical" names. In this example, the
+_apparent_ name of the ounit2 repo is `opam.ounit2`; its canonical
+name is `tools_opampass:[++]opam+opam.ounit2`. In a Bazel label, the former
+corresponds to `@opam.ounit2` (one `@`) and the latter is
+`@@tools_opam++opam+opam.ounit2` (two `@@`). For more information
+see link:https://bazel.build/external/module#repository_names_and_strict_deps[Repository names and strict deps] and link:https://bazel.build/external/extension#repository_names_and_visibility[Repository names and visibility].
+
+The extension derives the repo name by prefixing `opam.` to the opam
+package name. If you prefer not to use the prefix in your build code
+(e.g. you want `@ounit2` rather than `@opam.ounit2`), you can write
+(in `MODULE.bazel`) `use_repo(opam, ounit2="opam.ounit2")` instead
+of `use_repo(opam, "opam.ounit2")`. This aliasing is local; the name
+of the repo remains `tools_opam++opam+opam.ounit2`.
+
+To view the symlinks created by the repo rule for `ounit2`:
+
+    ls `bazel info output_base`/external/tools_opam++opam+opam.ounit2/lib
+
+You can inspect everything in the repo using standard shell tools.
+Alternatively, you can use Bazel's query functionality.
+
+     bazel query @opam.ounit2//lib:all --output=build
+
+This will print the build code for all targets in the `@opam.ounit2//lib` package. You can also provide a specific build target, in which case Bazel will print just the fragment of the build file:
+
+     bazel query @opam.ounit2//lib:ounit2 --output=build
+
+You can list all the files (including cmxa, cmi, cmx etc.) that are
+dependencies of any target:
+
+    bazel query 'kind("source file", deps(@opam.ounit2//lib))'
+
+This will show all files in the complete dependency graph of
+`@opam.ounit2//lib` (which is an abbreviation of
+`@opam.ounit2//lib:lib`, which in turn is aliased to
+`@opam.ounit2//lib:ounit2`). In this case the sources include a
+dependency on package `stdlib-shims`:
+
+    @@tools_opam++opam+opam.stdlib-shims//lib:stdlib_shims.cma
+    @@tools_opam++opam+opam.stdlib-shims//lib:stdlib_shims.cmxa
+
+To limit the list to direct file dependencies, add a depth argument
+(`1`) to the `deps` function:
+
+    bazel query 'kind("source file", deps(@@tools_opam++opam+opam.ounit2//lib/..., 1))
+    @opam.ounit2//lib:oUnit.a
+    @opam.ounit2//lib:oUnit.cma
+    @opam.ounit2//lib:oUnit.cmi
+    @opam.ounit2//lib:oUnit.cmt
+    @opam.ounit2//lib:oUnit.cmti
+    @opam.ounit2//lib:oUnit.cmx
+    @opam.ounit2//lib:oUnit.cmxa
+    @opam.ounit2//lib:oUnit.cmxs
+    @opam.ounit2//lib:oUnit.ml
+    @opam.ounit2//lib:oUnit.mli
+    @opam.ounit2//lib:oUnit2.cmi
+    @opam.ounit2//lib:oUnit2.cmt
+    @opam.ounit2//lib:oUnit2.cmti
+    @opam.ounit2//lib:oUnit2.cmx
+    @opam.ounit2//lib:oUnit2.ml
+    @opam.ounit2//lib:oUnit2.mli
+
+Many other queries are possible. For example:
+
+Show the entire dependency list:
+
+    bazel query 'deps(@opam.ounit2//lib:ounit2)'
+
+Show direct dependencies (depth=1):
+
+    bazel query 'deps(@opam.ounit2//lib:ounit2, 1)'
+
+Show only the deps in the `deps` attribute of the target:
+
+    bazel query 'labels(deps, @opam.ounit2//lib:ounit2)'
+    @opam.ocamlsdk//lib/unix:unix
+    @opam.ounit2//advanced/lib:lib
+    @@tools_opam++opam+opam.seq//lib:lib
+
+== Roadmap
+
+* Acquiring the list of required packges from the `opam` package file.
+
+* Generation of an `opam` package file from `MODULE.bazel`.
+

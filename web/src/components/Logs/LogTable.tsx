@@ -18,7 +18,7 @@
 
 import React, { useState, Fragment } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import ReactJson from '@microlink/react-json-view';
+import ReactJson from '@/components/Common/DynamicReactJson';
 import { Log } from '@/types/logs';
 
 interface LogTableProps {

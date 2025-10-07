@@ -21,21 +21,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/mcp"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
-	"github.com/nats-io/nats.go"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // sysmonMetricBuffer holds sysmon metrics with their associated partition
@@ -44,6 +44,7 @@ type sysmonMetricBuffer struct {
 	Partition string
 }
 
+// Server represents the core ServiceRadar server instance with all its dependencies and configuration.
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu                      sync.RWMutex
@@ -63,9 +64,7 @@ type Server struct {
 	eventPublisher          *natsutil.EventPublisher
 	natsConn                *nats.Conn
 	discoveryService        DiscoveryService
-	mcpServer               api.MCPRouteRegistrar
-	mcpConfig               *mcp.MCPConfig // Temporary storage for MCP config until API server is available
-	mcpLogger               logger.Logger  // Temporary storage for MCP logger until API server is available
+    // MCP removed from Go server; SRQL tooling moved out of process
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus
 	serviceListBuffers      map[string][]*models.Service

@@ -1,0 +1,58 @@
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("@rust_crates//:defs.bzl", "all_crate_deps", "crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    crate_root = "build.rs",
+    edition = "2024",
+    deps = crate_deps(["tonic-build"]),
+    data = [
+        "@bazel_tools//tools/proto:protoc",
+        "//cmd/otel:otel_proto_srcs",
+        "//proto:kv_proto_src",
+    ],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+)
+
+rust_library(
+    name = "otel_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    crate_name = "otel",
+    deps = all_crate_deps(normal = True, normal_dev = True) + [":build_script", "//rust/kvutil:kvutil"],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    visibility = ["//visibility:public"],
+)
+
+rust_binary(
+    name = "otel",
+    srcs = ["src/main.rs"],
+    edition = "2024",
+    deps = all_crate_deps(normal = True) + [":build_script", ":otel_lib", "//rust/kvutil:kvutil"],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+rust_test(
+    name = "otel_lib_test",
+    crate = ":otel_lib",
+)
+
+filegroup(
+    name = "otel_proto_srcs",
+    srcs = [
+        "//cmd/otel/proto/opentelemetry/proto/collector/logs/v1:proto_src",
+        "//cmd/otel/proto/opentelemetry/proto/collector/trace/v1:proto_src",
+        "//cmd/otel/proto/opentelemetry/proto/common/v1:proto_src",
+        "//cmd/otel/proto/opentelemetry/proto/logs/v1:proto_src",
+        "//cmd/otel/proto/opentelemetry/proto/resource/v1:proto_src",
+        "//cmd/otel/proto/opentelemetry/proto/trace/v1:proto_src",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,2 @@
+{{- /* Optional debugging tools pod */ -}}
+{{ .Files.Get "files/serviceradar-tools.yaml" }}

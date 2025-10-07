@@ -2,12 +2,13 @@
 
 <img width="1470" height="798" alt="Screenshot 2025-08-03 at 12 15 47 AM" src="https://github.com/user-attachments/assets/d6c61754-89d7-4c56-981f-1486e0586f3a" />
 
-[![releases](https://github.com/carverauto/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/release.yml)
-[![Docker Images](https://github.com/carverauto/serviceradar/actions/workflows/docker-build.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/docker-build.yml)
+[![CI](https://github.com/carverauto/serviceradar/actions/workflows/main.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/main.yml)
 [![Go Linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
 [![Web Linter](https://github.com/carverauto/serviceradar/actions/workflows/web-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/web-lint.yml)
 [![Go Tests](https://github.com/carverauto/serviceradar/actions/workflows/tests-golang.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests-golang.yml)
 [![Rust Tests](https://github.com/carverauto/serviceradar/actions/workflows/tests-rust.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests-rust.yml)
+[![OCaml Lint](https://github.com/carverauto/serviceradar/actions/workflows/ocaml-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/ocaml-lint.yml)
+
 <a href="https://cla-assistant.io/carverauto/serviceradar"><img src="https://cla-assistant.io/readme/badge/carverauto/serviceradar" alt="CLA assistant" /></a>
 
 ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard to reach places or constrained environments.
@@ -17,6 +18,7 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 
 - **Real-time Monitoring**: Monitor services and infrastructure in hard-to-reach places
 - **Distributed Architecture**: Components can be installed across different hosts to suit your needs
+- **SRQL**: ServiceRadar Query Language -- intuitive key:value syntax for querying data
 - **Stream Processing**: Timeplus stream processing engine -- streaming OLAP w/ ClickHouse
 - **Observability**: Collect metrics, logs, and traces from SNMP, OTEL, and SYSLOG
 - **Network Mapper**: Discovery Engine uses SNMP/LLDP/CDP and API to discover devices, interfaces, and topology
@@ -32,7 +34,7 @@ The fastest way to get ServiceRadar running is with Docker Compose. This deploys
 
 **Prerequisites:**
 - Docker and Docker Compose installed
-- 4GB+ available RAM
+- 8GB+ available RAM
 - Ports 80, 8090, 8123, 9440 available
 
 ```bash
@@ -48,6 +50,9 @@ docker-compose ps
 
 # View logs
 docker-compose logs -f web
+
+# Get Random Generated Admin Password
+docker-compose logs config-updater
 ```
 
 **Access ServiceRadar:**
@@ -73,7 +78,7 @@ For detailed installation options including component-specific deployments and o
 
 ## Architecture Overview
 
-ServiceRadar uses a distributed architecture with four main components:
+ServiceRadar (SR) uses a distributed architecture with four main components:
 
 1. **Agent** - Runs on monitored hosts, provides service status through gRPC
 2. **Poller** - Coordinates monitoring activities, can run anywhere in your network
@@ -90,6 +95,7 @@ The Docker Compose deployment includes:
 
 - **Proton Database** - Timeplus stream processing engine with ClickHouse compatibility
 - **Core API** - Main ServiceRadar API and business logic
+- **API Gateway** - Polyglot APIs or Bring Your Own API, easily extend SR
 - **Web UI** - Modern React-based dashboard  
 - **Nginx** - Reverse proxy and load balancer
 - **Agent** - Host monitoring service

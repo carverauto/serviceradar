@@ -17,16 +17,16 @@
 package mcp
 
 import (
-	"context"
-	"testing"
+    "context"
+    "testing"
 
-	"github.com/carverauto/serviceradar/pkg/core/api"
-	"github.com/carverauto/serviceradar/pkg/core/auth"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/assert"
+
+    "github.com/carverauto/serviceradar/pkg/core/auth"
+    "github.com/carverauto/serviceradar/pkg/logger"
 )
 
-// mockQueryExecutor implements api.SRQLQueryExecutor for testing
+// mockQueryExecutor implements local QueryExecutor for testing
 type mockQueryExecutor struct{}
 
 func (*mockQueryExecutor) ExecuteSRQLQuery(_ context.Context, _ string, _ int) ([]map[string]interface{}, error) {
@@ -34,7 +34,7 @@ func (*mockQueryExecutor) ExecuteSRQLQuery(_ context.Context, _ string, _ int) (
 }
 
 // Ensure mockQueryExecutor implements the interface
-var _ api.SRQLQueryExecutor = &mockQueryExecutor{}
+var _ QueryExecutor = &mockQueryExecutor{}
 
 func TestNewMCPServer(t *testing.T) {
 	// Test that NewMCPServer doesn't panic with valid inputs
@@ -60,7 +60,7 @@ func TestGetDefaultConfig(t *testing.T) {
 
 	assert.NotNil(t, config)
 	assert.True(t, config.Enabled)
-	assert.Equal(t, "", config.APIKey)
+	assert.Empty(t, config.APIKey)
 }
 
 func TestMCPServerStop(t *testing.T) {

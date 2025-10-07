@@ -21,8 +21,8 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {Loader2, AlertTriangle, Eye, EyeOff, FileJson, Table} from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
-import ReactJson from '@microlink/react-json-view';
 import { fetchAPI } from '@/lib/client-api';
+import ReactJson from '@/components/Common/DynamicReactJson';
 import { Device } from '@/types/devices';
 import { Event } from '@/types/events';
 import { Log } from '@/types/logs';
@@ -142,6 +142,9 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
     }, [query, handleSubmit]); // Re-run when query changes
 
     useEffect(() => {
+        // Only run on client side
+        if (typeof document === 'undefined') return;
+        
         const updateTheme = () => {
             if (document.documentElement.classList.contains('dark')) {
                 setJsonViewTheme('pop');
@@ -160,47 +163,6 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
         observer.observe(document.documentElement, { attributes: true });
         return () => observer.disconnect();
     }, []);
-
-
-
-    const isDeviceQuery = (query: string): boolean => {
-        const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW DEVICES') || 
-               normalizedQuery.startsWith('FIND DEVICES') ||
-               normalizedQuery.startsWith('COUNT DEVICES');
-    };
-
-    const isInterfaceQuery = (query: string): boolean => {
-        const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW INTERFACES') || 
-               normalizedQuery.startsWith('FIND INTERFACES') ||
-               normalizedQuery.startsWith('COUNT INTERFACES');
-    };
-
-    const isSweepQuery = (query: string): boolean => {
-        const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW SWEEP_RESULTS') || 
-               normalizedQuery.startsWith('FIND SWEEP_RESULTS') ||
-               normalizedQuery.startsWith('COUNT SWEEP_RESULTS') ||
-               normalizedQuery.startsWith('SHOW SWEEP') || 
-               normalizedQuery.startsWith('FIND SWEEP') ||
-               normalizedQuery.startsWith('COUNT SWEEP');
-    };
-
-    const isEventQuery = (query: string): boolean => {
-        const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW EVENTS') || 
-               normalizedQuery.startsWith('FIND EVENTS') ||
-               normalizedQuery.startsWith('COUNT EVENTS');
-    };
-
-    const isLogQuery = (query: string): boolean => {
-        const normalizedQuery = query.trim().toUpperCase();
-        return normalizedQuery.startsWith('SHOW LOGS') || 
-               normalizedQuery.startsWith('FIND LOGS') ||
-               normalizedQuery.startsWith('COUNT LOGS');
-    };
-
 
     const isDeviceData = (data: unknown): data is Device[] => {
         if (!Array.isArray(data) || data.length === 0) return false;
@@ -414,27 +376,27 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
     const exampleQueries = [
         {
             name: 'All Devices',
-            query: 'show devices',
+            query: 'in:devices time:last_24h sort:last_seen:desc limit:20',
         },
         {
             name: 'Sweep Results',
-            query: 'show sweep_results',
+            query: 'in:sweep_results discovery_sources:(sweep) time:last_24h sort:last_seen:desc limit:20',
         },
         {
             name: 'All Interfaces',
-            query: 'show interfaces',
+            query: 'in:interfaces time:last_24h sort:timestamp:desc limit:20',
         },
         {
-            name: 'Test Query',
-            query: 'show pollers',
+            name: 'Pollers (Last Hour)',
+            query: 'in:pollers time:last_1h sort:last_seen:desc limit:20',
         },
         {
             name: 'Critical Traps Today',
-            query: 'show traps where severity = "critical" and date(timestamp) = TODAY',
+            query: 'in:traps severity:Critical time:today sort:timestamp:desc limit:50',
         },
         {
             name: 'High Traffic Flows',
-            query: 'find flows where bytes > 1000000 order by bytes desc limit 10',
+            query: 'in:flows time:last_24h stats:"sum(bytes_total) as total_bytes by connection.src_endpoint_ip" sort:total_bytes:desc limit:10',
         },
     ];
 
@@ -555,19 +517,18 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                                 </p>
                             )
                         ) : (
-                            /* Table view - use specialized components when available */
-                            /* Check data type first, then verify query type for safety */
-                            isLogData(results) && isLogQuery(query) ? (
+                            /* Table view - use specialized components when the data shape matches */
+                            isLogData(results) ? (
                                 <LogTable logs={results as Log[]} jsonViewTheme={jsonViewTheme} />
-                            ) : isEventData(results) && isEventQuery(query) ? (
+                            ) : isEventData(results) ? (
                                 <EventTable events={results as Event[]} jsonViewTheme={jsonViewTheme} />
-                            ) : isSweepResultsData(results) && isSweepQuery(query) ? (
+                            ) : isSweepResultsData(results) ? (
                                 <SweepResultsQueryTable devices={results as Device[]} jsonViewTheme={jsonViewTheme} />
-                            ) : isDeviceData(results) && isDeviceQuery(query) ? (
+                            ) : isDeviceData(results) ? (
                                 <DeviceTable devices={results as Device[]} />
-                            ) : isInterfaceData(results) && isInterfaceQuery(query) ? (
+                            ) : isInterfaceData(results) ? (
                                 <InterfaceTable interfaces={results as NetworkInterface[]} showDeviceColumn={true} jsonViewTheme={jsonViewTheme} />
-                            ) : isSweepData(results) && isSweepQuery(query) ? (
+                            ) : isSweepData(results) ? (
                                 <SweepResultsTable sweepResults={results as SweepResult[]} showPollerColumn={true} showPartitionColumn={true} jsonViewTheme={jsonViewTheme} />
                             ) : (
                                 /* Fallback to generic table */

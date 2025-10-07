@@ -1,0 +1,8 @@
+# otherlibs/runtime_events/META.  Generated from META.in by configure.
+
+version = "5.2.0"
+description = "Ring buffer-based runtime tracing"
+archive(byte) = "runtime_events.cma"
+archive(native) = "runtime_events.cmxa"
+plugin(byte) = "runtime_events.cma"
+plugin(native) = "runtime_events.cmxs"

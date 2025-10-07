@@ -1,0 +1,113 @@
+Name:           serviceradar-kong
+Version:        %{version}
+Release:        %{release}%{?dist}
+Summary:        ServiceRadar Kong Gateway bundle
+License:        Proprietary
+
+%global kong_vendor_arch %{_target_cpu}
+
+BuildRequires:  systemd-rpm-macros
+Requires:       systemd
+Requires:       ca-certificates
+Requires:       serviceradar-cli
+%{?systemd_requires}
+
+%description
+Distributes Kong Gateway Enterprise artifacts and helpers for ServiceRadar air-gapped deployments.
+Installs bundled Kong packages into a vendor directory and runs a post-install script to install the
+appropriate Kong RPM on target systems, alongside default DB-less configuration.
+
+%prep
+# No sources to untar
+
+%install
+mkdir -p %{buildroot}/usr/share/serviceradar-kong/vendor
+mkdir -p %{buildroot}/usr/share/serviceradar-kong/scripts
+mkdir -p %{buildroot}/etc/kong
+mkdir -p %{buildroot}%{_unitdir}
+
+# Copy optional configuration if provided
+if [ -f %{_sourcedir}/packaging/kong/config/kong.conf ]; then
+  install -m 644 %{_sourcedir}/packaging/kong/config/kong.conf %{buildroot}/etc/kong/kong.conf
+fi
+
+# Install systemd service file
+install -m 644 %{_sourcedir}/packaging/kong/systemd/serviceradar-kong.service \
+  %{buildroot}%{_unitdir}/serviceradar-kong.service
+
+# Install helper scripts
+install -m 755 %{_sourcedir}/packaging/kong/scripts/postinstall.sh \
+  %{buildroot}/usr/share/serviceradar-kong/scripts/postinstall.sh
+install -m 755 %{_sourcedir}/packaging/kong/scripts/preremove.sh \
+  %{buildroot}/usr/share/serviceradar-kong/scripts/preremove.sh
+install -m 755 %{_sourcedir}/packaging/kong/scripts/kong-wrapper.sh \
+  %{buildroot}/usr/share/serviceradar-kong/scripts/kong-wrapper.sh
+
+# Copy vendor RPMs that match this build's architecture; skip others
+
+for artifact in \
+  %{_sourcedir}/packaging/kong/vendor/kong*.rpm; do
+  if [ -f "$artifact" ]; then
+    case "$artifact" in
+      *.%{kong_vendor_arch}.rpm)
+        install -m 644 "$artifact" %{buildroot}/usr/share/serviceradar-kong/vendor/
+        ;;
+      *.amd64.rpm)
+        if [ "%{kong_vendor_arch}" = "x86_64" ]; then
+          install -m 644 "$artifact" %{buildroot}/usr/share/serviceradar-kong/vendor/
+        else
+          echo "Skipping vendor artifact $(basename "$artifact") for arch %{kong_vendor_arch}"
+        fi
+        ;;
+      *.arm64.rpm)
+        if [ "%{kong_vendor_arch}" = "aarch64" ]; then
+          install -m 644 "$artifact" %{buildroot}/usr/share/serviceradar-kong/vendor/
+        else
+          echo "Skipping vendor artifact $(basename "$artifact") for arch %{kong_vendor_arch}"
+        fi
+        ;;
+      *)
+        echo "Skipping non-%{kong_vendor_arch} vendor artifact $(basename "$artifact")"
+        ;;
+    esac
+  fi
+done
+
+touch %{buildroot}/usr/share/serviceradar-kong/vendor/.keep
+
+# Track vendor artifacts dynamically for %files
+find %{buildroot}/usr/share/serviceradar-kong/vendor -type f \
+  | sed "s|%{buildroot}||" > %{_builddir}/vendor-files.lst
+if [ ! -s %{_builddir}/vendor-files.lst ]; then
+  : > %{_builddir}/vendor-files.lst
+fi
+
+%files -f %{_builddir}/vendor-files.lst
+%attr(0644, root, root) %{_unitdir}/serviceradar-kong.service
+%attr(0755, root, root) /usr/share/serviceradar-kong/scripts/postinstall.sh
+%attr(0755, root, root) /usr/share/serviceradar-kong/scripts/preremove.sh
+%attr(0755, root, root) /usr/share/serviceradar-kong/scripts/kong-wrapper.sh
+%dir %attr(0755, root, root) /usr/share/serviceradar-kong
+%dir %attr(0755, root, root) /usr/share/serviceradar-kong/scripts
+%dir %attr(0755, root, root) /usr/share/serviceradar-kong/vendor
+%dir %attr(0755, root, root) /etc/kong
+%config(noreplace) %attr(0644, root, root) /etc/kong/kong.conf
+
+%post
+/usr/share/serviceradar-kong/scripts/postinstall.sh || true
+# Reload systemd to recognize new service file
+%systemd_post serviceradar-kong.service
+if [ $1 -eq 1 ]; then
+    systemctl enable --now serviceradar-kong.service >/dev/null 2>&1 || :
+else
+    systemctl try-restart serviceradar-kong.service >/dev/null 2>&1 || :
+fi
+
+%preun
+%systemd_preun serviceradar-kong.service
+if [ $1 -eq 0 ]; then
+  /usr/share/serviceradar-kong/scripts/preremove.sh || true
+fi
+
+%postun
+%systemd_postun_with_restart serviceradar-kong.service

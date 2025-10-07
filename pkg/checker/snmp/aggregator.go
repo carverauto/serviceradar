@@ -15,7 +15,6 @@
  */
 
 // Package snmp pkg/checker/snmp/aggregator.go
-
 package snmp
 
 import (
@@ -48,9 +47,13 @@ type SNMPAggregator struct {
 type AggregateType int
 
 const (
+	// AggregateAvg calculates the average value
 	AggregateAvg AggregateType = iota
+	// AggregateMin finds the minimum value
 	AggregateMin
+	// AggregateMax finds the maximum value
 	AggregateMax
+	// AggregateSum calculates the sum of values
 	AggregateSum
 	AggregateCount
 )

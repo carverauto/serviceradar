@@ -28,6 +28,10 @@ service KVService {
   // Put stores a value for a given key with an optional TTL.
   rpc Put(PutRequest) returns (PutResponse) {}
 
+  // PutIfAbsent stores a value only if the key does not already exist.
+  // This is atomic at the KV store level and returns an error if the key exists.
+  rpc PutIfAbsent(PutRequest) returns (PutResponse) {}
+
   // PutMany stores multiple key/value pairs in a single request.
   rpc PutMany(PutManyRequest) returns (PutManyResponse) {}
 
@@ -36,6 +40,9 @@ service KVService {
 
   // Watch streams updates for a specific key.
   rpc Watch(WatchRequest) returns (stream WatchResponse) {}
+
+  // Info returns basic configuration details for this KV server (e.g., JetStream domain and bucket name).
+  rpc Info(InfoRequest) returns (InfoResponse) {}
 }
 
 // GetRequest is the request message for the Get operation.
@@ -94,4 +101,13 @@ message WatchRequest {
 // WatchResponse is the response message streamed by the Watch operation.
 message WatchResponse {
   bytes value = 1;  // The updated value, empty if key was deleted
+}
+
+// InfoRequest is an empty request for the Info operation.
+message InfoRequest {}
+
+// InfoResponse returns static KV configuration info.
+message InfoResponse {
+  string domain = 1;
+  string bucket = 2;
 }

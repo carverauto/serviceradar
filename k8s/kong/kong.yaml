@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kong-gateway
+  template:
+    metadata:
+      labels:
+        app: kong-gateway
+    spec:
+      containers:
+        - name: kong
+          image: kong:latest
+          ports:
+            - containerPort: 8000
+            - containerPort: 8443
+            - containerPort: 8001
+          env:
+            - name: KONG_DATABASE
+              value: off
+            - name: KONG_DECLARATIVE_CONFIG
+              value: /opt/kong/kong.yml
+            - name: KONG_PROXY_LISTEN
+              value: "0.0.0.0:8000, 0.0.0.0:8443 ssl"
+            - name: KONG_ADMIN_LISTEN
+              value: "0.0.0.0:8001"
+          volumeMounts:
+            - name: kong-config
+              mountPath: /opt/kong
+      initContainers:
+        - name: render-jwks
+          image: ghcr.io/carverauto/serviceradar-kong-config:v1.0.53
+          env:
+            - name: JWKS_URL
+              value: http://serviceradar-core:8090/auth/jwks.json
+            - name: KONG_SERVICE_URL
+              value: http://serviceradar-core:8090
+            - name: KONG_ROUTE_PATH
+              value: /api
+          command: ["/usr/local/bin/serviceradar-cli", "render-kong", "--jwks", "$(JWKS_URL)", "--service", "$(KONG_SERVICE_URL)", "--path", "$(KONG_ROUTE_PATH)", "--out", "/opt/kong/kong.yml"]
+          volumeMounts:
+            - name: kong-config
+              mountPath: /opt/kong
+      volumes:
+        - name: kong-config
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-proxy
+spec:
+  selector:
+    app: kong-gateway
+  ports:
+    - name: proxy
+      port: 8000
+      targetPort: 8000
+    - name: proxy-ssl
+      port: 8443
+      targetPort: 8443
+    - name: admin
+      port: 8001
+      targetPort: 8001
