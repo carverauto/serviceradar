@@ -297,3 +297,10 @@ copy_directory(
     out = "public_bundle",
     visibility = ["//visibility:public"],
 )
+
+copy_directory(
+    name = "public_flat",
+    src = "public",
+    out = "public_flat",
+    visibility = ["//visibility:public"],
+)
