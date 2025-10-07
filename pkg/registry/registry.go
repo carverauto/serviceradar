@@ -35,7 +35,11 @@ var (
 )
 
 const (
-	defaultPartition = "default"
+	defaultPartition      = "default"
+	identitySourceArmis   = "armis_id"
+	identitySourceNetbox  = "netbox_id"
+	identitySourceMAC     = "mac"
+	integrationTypeNetbox = "netbox"
 )
 
 // DeviceRegistry is the concrete implementation of the registry.Manager.
@@ -113,11 +117,11 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 			// Rewrite to canonical
 			u.DeviceID = canonicalID
 			switch via {
-			case "armis_id":
+			case identitySourceArmis:
 				canonByArmisID++
-			case "netbox_id":
+			case identitySourceNetbox:
 				canonByNetboxID++
-			case "mac":
+			case identitySourceMAC:
 				canonByMAC++
 			}
 			// Track current IP as alt for searchability
@@ -168,137 +172,6 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	return nil
 }
 
-// lookupCanonicalID attempts to find a canonical device_id for an incoming update
-// using strong identifiers in priority order: Armis ID, then MAC address.
-func (r *DeviceRegistry) lookupCanonicalID(ctx context.Context, u *models.DeviceUpdate) string {
-	// Skip canonicalization for retraction/delete events to preserve original identity markers
-	if u.Metadata != nil {
-		if del, ok := u.Metadata["_deleted"]; ok && strings.EqualFold(del, "true") {
-			return ""
-		}
-		if _, ok := u.Metadata["_merged_into"]; ok {
-			return ""
-		}
-	}
-	// 1) Prefer Armis device ID if present
-	if u.Metadata != nil {
-		if armisID, ok := u.Metadata["armis_device_id"]; ok && armisID != "" {
-			id := r.findDeviceIDByArmisID(ctx, armisID)
-			if id != "" {
-				return id
-			}
-		}
-	}
-
-	// 2) Fall back to MAC
-	if u.MAC != nil && *u.MAC != "" {
-		id := r.findDeviceIDByMAC(ctx, *u.MAC)
-		if id != "" {
-			return id
-		}
-	}
-
-	return ""
-}
-
-// lookupCanonicalIDWithVia is like lookupCanonicalID but returns the reason used
-// for canonicalization: "armis_id" | "mac" | "" (none).
-func (r *DeviceRegistry) lookupCanonicalIDWithVia(ctx context.Context, u *models.DeviceUpdate) (string, string) {
-	// Skip deletes
-	if u.Metadata != nil {
-		if del, ok := u.Metadata["_deleted"]; ok && strings.EqualFold(del, "true") {
-			return "", ""
-		}
-		if _, ok := u.Metadata["_merged_into"]; ok {
-			return "", ""
-		}
-	}
-	if u.Metadata != nil {
-		if armisID, ok := u.Metadata["armis_device_id"]; ok && armisID != "" {
-			if id := r.findDeviceIDByArmisID(ctx, armisID); id != "" {
-				return id, "armis_id"
-			}
-		}
-		// Prefer NetBox device ID if present
-		if integType, ok := u.Metadata["integration_type"]; ok && integType == "netbox" {
-			if nbID, ok2 := u.Metadata["integration_id"]; ok2 && nbID != "" {
-				if id := r.findDeviceIDByNetboxID(ctx, nbID); id != "" {
-					return id, "netbox_id"
-				}
-			}
-			if nbID, ok2 := u.Metadata["netbox_device_id"]; ok2 && nbID != "" { // alternate key
-				if id := r.findDeviceIDByNetboxID(ctx, nbID); id != "" {
-					return id, "netbox_id"
-				}
-			}
-		}
-	}
-	if u.MAC != nil && *u.MAC != "" {
-		if id := r.findDeviceIDByMAC(ctx, *u.MAC); id != "" {
-			return id, "mac"
-		}
-	}
-	return "", ""
-}
-
-func (r *DeviceRegistry) findDeviceIDByArmisID(ctx context.Context, armisID string) string {
-	const q = `SELECT device_id FROM table(unified_devices)
-              WHERE has(map_keys(metadata), 'armis_device_id') AND metadata['armis_device_id'] = $1
-              ORDER BY _tp_time DESC LIMIT 1`
-	rows, err := r.db.ExecuteQuery(ctx, q, armisID)
-	if err != nil {
-		r.logger.Debug().Err(err).Str("armis_id", armisID).Msg("Canonical lookup by Armis ID failed")
-		return ""
-	}
-	if len(rows) == 0 {
-		return ""
-	}
-	if v, ok := rows[0]["device_id"].(string); ok {
-		return v
-	}
-	return ""
-}
-
-func (r *DeviceRegistry) findDeviceIDByMAC(ctx context.Context, mac string) string {
-	// Exact match on stored MAC string
-	const q = `SELECT device_id FROM table(unified_devices)
-              WHERE mac = $1
-              ORDER BY _tp_time DESC LIMIT 1`
-	rows, err := r.db.ExecuteQuery(ctx, q, mac)
-	if err != nil {
-		r.logger.Debug().Err(err).Str("mac", mac).Msg("Canonical lookup by MAC failed")
-		return ""
-	}
-	if len(rows) == 0 {
-		return ""
-	}
-	if v, ok := rows[0]["device_id"].(string); ok {
-		return v
-	}
-	return ""
-}
-
-func (r *DeviceRegistry) findDeviceIDByNetboxID(ctx context.Context, netboxID string) string {
-	// Match by metadata integration_id or netbox_device_id stored in unified_devices
-	const q = `SELECT device_id FROM table(unified_devices)
-              WHERE (has(map_keys(metadata), 'integration_type') AND metadata['integration_type'] = 'netbox')
-                AND ((has(map_keys(metadata), 'integration_id') AND metadata['integration_id'] = $1)
-                  OR (has(map_keys(metadata), 'netbox_device_id') AND metadata['netbox_device_id'] = $1))
-              ORDER BY _tp_time DESC LIMIT 1`
-	rows, err := r.db.ExecuteQuery(ctx, q, netboxID)
-	if err != nil {
-		r.logger.Debug().Err(err).Str("netbox_id", netboxID).Msg("Canonical lookup by NetBox ID failed")
-		return ""
-	}
-	if len(rows) == 0 {
-		return ""
-	}
-	if v, ok := rows[0]["device_id"].(string); ok {
-		return v
-	}
-	return ""
-}
-
 // identityMaps holds batch-resolved mappings from identity → canonical device_id
 type identityMaps struct {
 	armis map[string]string
@@ -327,7 +200,7 @@ func (r *DeviceRegistry) buildIdentityMaps(ctx context.Context, updates []*model
 			if id := u.Metadata["armis_device_id"]; id != "" {
 				armisSet[id] = struct{}{}
 			}
-			if typ := u.Metadata["integration_type"]; typ == "netbox" {
+			if typ := u.Metadata["integration_type"]; typ == integrationTypeNetbox {
 				if id := u.Metadata["integration_id"]; id != "" {
 					netboxSet[id] = struct{}{}
 				}
@@ -371,146 +244,107 @@ func (r *DeviceRegistry) buildIdentityMaps(ctx context.Context, updates []*model
 	return m, nil
 }
 
-func (r *DeviceRegistry) resolveArmisIDs(ctx context.Context, ids []string, out map[string]string) error {
-	if len(ids) == 0 {
+func (r *DeviceRegistry) resolveIdentifiers(
+	ctx context.Context,
+	values []string,
+	out map[string]string,
+	buildQuery func(string) string,
+	extract func(map[string]any) (string, string),
+) error {
+	if len(values) == 0 {
 		return nil
 	}
 	const chunk = 1000
-	for i := 0; i < len(ids); i += chunk {
+	for i := 0; i < len(values); i += chunk {
 		end := i + chunk
-		if end > len(ids) {
-			end = len(ids)
+		if end > len(values) {
+			end = len(values)
 		}
-		list := quoteList(ids[i:end])
-		q := `SELECT device_id, metadata['armis_device_id'] AS id, _tp_time
-              FROM table(unified_devices)
-              WHERE has(map_keys(metadata), 'armis_device_id')
-                AND metadata['armis_device_id'] IN (` + list + `)
-              ORDER BY _tp_time DESC`
-		rows, err := r.db.ExecuteQuery(ctx, q)
+		list := quoteList(values[i:end])
+		rows, err := r.db.ExecuteQuery(ctx, buildQuery(list))
 		if err != nil {
 			return err
 		}
-		// first seen per id wins (ordered by time desc)
 		for _, row := range rows {
-			idVal, _ := row["id"].(string)
-			dev, _ := row["device_id"].(string)
-			if idVal == "" || dev == "" {
+			key, dev := extract(row)
+			if key == "" || dev == "" {
 				continue
 			}
-			if _, exists := out[idVal]; !exists {
-				out[idVal] = dev
+			if _, exists := out[key]; !exists {
+				out[key] = dev
 			}
 		}
 	}
 	return nil
+}
+
+func (r *DeviceRegistry) resolveArmisIDs(ctx context.Context, ids []string, out map[string]string) error {
+	buildQuery := func(list string) string {
+		return fmt.Sprintf(`SELECT device_id, metadata['armis_device_id'] AS id, _tp_time
+              FROM table(unified_devices)
+              WHERE has(map_keys(metadata), 'armis_device_id')
+                AND metadata['armis_device_id'] IN (%s)
+              ORDER BY _tp_time DESC`, list)
+	}
+	extract := func(row map[string]any) (string, string) {
+		idVal, _ := row["id"].(string)
+		dev, _ := row["device_id"].(string)
+		return idVal, dev
+	}
+	return r.resolveIdentifiers(ctx, ids, out, buildQuery, extract)
 }
 
 func (r *DeviceRegistry) resolveNetboxIDs(ctx context.Context, ids []string, out map[string]string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	const chunk = 1000
-	for i := 0; i < len(ids); i += chunk {
-		end := i + chunk
-		if end > len(ids) {
-			end = len(ids)
-		}
-		list := quoteList(ids[i:end])
-		q := `SELECT device_id,
+	buildQuery := func(list string) string {
+		return fmt.Sprintf(`SELECT device_id,
                      if(has(map_keys(metadata),'integration_id'), metadata['integration_id'], metadata['netbox_device_id']) AS id,
                      _tp_time
               FROM table(unified_devices)
-              WHERE has(map_keys(metadata), 'integration_type') AND metadata['integration_type'] = 'netbox'
-                AND ((has(map_keys(metadata), 'integration_id') AND metadata['integration_id'] IN (` + list + `))
-                  OR (has(map_keys(metadata), 'netbox_device_id') AND metadata['netbox_device_id'] IN (` + list + `)))
-              ORDER BY _tp_time DESC`
-		rows, err := r.db.ExecuteQuery(ctx, q)
-		if err != nil {
-			return err
-		}
-		for _, row := range rows {
-			idVal, _ := row["id"].(string)
-			dev, _ := row["device_id"].(string)
-			if idVal == "" || dev == "" {
-				continue
-			}
-			if _, exists := out[idVal]; !exists {
-				out[idVal] = dev
-			}
-		}
+              WHERE has(map_keys(metadata), 'integration_type') AND metadata['integration_type'] = '%s'
+                AND ((has(map_keys(metadata), 'integration_id') AND metadata['integration_id'] IN (%s))
+                  OR (has(map_keys(metadata), 'netbox_device_id') AND metadata['netbox_device_id'] IN (%s)))
+              ORDER BY _tp_time DESC`, integrationTypeNetbox, list, list)
 	}
-	return nil
+	extract := func(row map[string]any) (string, string) {
+		idVal, _ := row["id"].(string)
+		dev, _ := row["device_id"].(string)
+		return idVal, dev
+	}
+	return r.resolveIdentifiers(ctx, ids, out, buildQuery, extract)
 }
 
 func (r *DeviceRegistry) resolveMACs(ctx context.Context, macs []string, out map[string]string) error {
-	if len(macs) == 0 {
-		return nil
-	}
-	const chunk = 1000
-	for i := 0; i < len(macs); i += chunk {
-		end := i + chunk
-		if end > len(macs) {
-			end = len(macs)
-		}
-		list := quoteList(macs[i:end])
-		q := `SELECT device_id, mac AS id, _tp_time
+	buildQuery := func(list string) string {
+		return fmt.Sprintf(`SELECT device_id, mac AS id, _tp_time
               FROM table(unified_devices)
-              WHERE mac IN (` + list + `)
-              ORDER BY _tp_time DESC`
-		rows, err := r.db.ExecuteQuery(ctx, q)
-		if err != nil {
-			return err
-		}
-		for _, row := range rows {
-			idVal, _ := row["id"].(string)
-			dev, _ := row["device_id"].(string)
-			if idVal == "" || dev == "" {
-				continue
-			}
-			if _, exists := out[idVal]; !exists {
-				out[idVal] = dev
-			}
-		}
+              WHERE mac IN (%s)
+              ORDER BY _tp_time DESC`, list)
 	}
-	return nil
+	extract := func(row map[string]any) (string, string) {
+		idVal, _ := row["id"].(string)
+		dev, _ := row["device_id"].(string)
+		return idVal, dev
+	}
+	return r.resolveIdentifiers(ctx, macs, out, buildQuery, extract)
 }
 
 // resolveIPsToCanonical maps IPs to canonical device_ids where the device has a strong identity
 func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string, out map[string]string) error {
-	if len(ips) == 0 {
-		return nil
-	}
-	const chunk = 1000
-	for i := 0; i < len(ips); i += chunk {
-		end := i + chunk
-		if end > len(ips) {
-			end = len(ips)
-		}
-		list := quoteList(ips[i:end])
-		q := `SELECT device_id, ip, _tp_time
+	buildQuery := func(list string) string {
+		return fmt.Sprintf(`SELECT device_id, ip, _tp_time
               FROM table(unified_devices)
-              WHERE ip IN (` + list + `)
+              WHERE ip IN (%s)
                 AND (has(map_keys(metadata),'armis_device_id')
-                     OR (has(map_keys(metadata),'integration_type') AND metadata['integration_type']='netbox')
+                     OR (has(map_keys(metadata),'integration_type') AND metadata['integration_type']='%s')
                      OR (mac IS NOT NULL AND mac != ''))
-              ORDER BY _tp_time DESC`
-		rows, err := r.db.ExecuteQuery(ctx, q)
-		if err != nil {
-			return err
-		}
-		for _, row := range rows {
-			ip, _ := row["ip"].(string)
-			dev, _ := row["device_id"].(string)
-			if ip == "" || dev == "" {
-				continue
-			}
-			if _, exists := out[ip]; !exists {
-				out[ip] = dev
-			}
-		}
+              ORDER BY _tp_time DESC`, list, integrationTypeNetbox)
 	}
-	return nil
+	extract := func(row map[string]any) (string, string) {
+		ip, _ := row["ip"].(string)
+		dev, _ := row["device_id"].(string)
+		return ip, dev
+	}
+	return r.resolveIdentifiers(ctx, ips, out, buildQuery, extract)
 }
 
 func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *identityMaps) (string, string) {
@@ -526,18 +360,18 @@ func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *i
 		}
 		if id := u.Metadata["armis_device_id"]; id != "" {
 			if dev, ok := maps.armis[id]; ok {
-				return dev, "armis_id"
+				return dev, identitySourceArmis
 			}
 		}
-		if typ := u.Metadata["integration_type"]; typ == "netbox" {
+		if typ := u.Metadata["integration_type"]; typ == integrationTypeNetbox {
 			if id := u.Metadata["integration_id"]; id != "" {
 				if dev, ok := maps.netbx[id]; ok {
-					return dev, "netbox_id"
+					return dev, identitySourceNetbox
 				}
 			}
 			if id := u.Metadata["netbox_device_id"]; id != "" {
 				if dev, ok := maps.netbx[id]; ok {
-					return dev, "netbox_id"
+					return dev, identitySourceNetbox
 				}
 			}
 		}
@@ -549,7 +383,7 @@ func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *i
 	}
 	if u.MAC != nil && *u.MAC != "" {
 		if dev, ok := maps.mac[*u.MAC]; ok {
-			return dev, "mac"
+			return dev, identitySourceMAC
 		}
 	}
 	return "", ""
