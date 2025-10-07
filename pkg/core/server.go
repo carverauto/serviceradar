@@ -36,6 +36,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -98,10 +99,14 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 
 	// Initialize the NEW authoritative device registry
 	registryOpts := make([]registry.Option, 0, 1)
-	var identityKVCloser func() error
-	if kvClient, closer, err := cfgutil.NewKVServiceClientFromEnv(ctx, models.RoleCore); err != nil {
+	var (
+		kvClient         proto.KVServiceClient
+		identityKVCloser func() error
+	)
+	if client, closer, err := cfgutil.NewKVServiceClientFromEnv(ctx, models.RoleCore); err != nil {
 		log.Warn().Err(err).Msg("Failed to initialize identity map KV client")
-	} else if kvClient != nil {
+	} else if client != nil {
+		kvClient = client
 		registryOpts = append(registryOpts, registry.WithIdentityPublisher(kvClient, identitymap.DefaultNamespace, 0))
 		identityKVCloser = closer
 	}
@@ -132,6 +137,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		logger:              log,
 		tracer:              otel.Tracer("serviceradar-core"),
+		identityKVClient:    kvClient,
 		identityKVCloser:    identityKVCloser,
 	}
 

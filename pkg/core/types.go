@@ -47,6 +47,7 @@ type sysmonMetricBuffer struct {
 // Server represents the core ServiceRadar server instance with all its dependencies and configuration.
 type Server struct {
 	proto.UnimplementedPollerServiceServer
+	proto.UnimplementedCoreServiceServer
 	mu               sync.RWMutex
 	DB               db.Service
 	alertThreshold   time.Duration
@@ -61,6 +62,7 @@ type Server struct {
 	config           *models.CoreServiceConfig
 	authService      *auth.Auth
 	DeviceRegistry   registry.Manager
+	identityKVClient identityKVClient
 	identityKVCloser func() error
 	eventPublisher   *natsutil.EventPublisher
 	natsConn         *nats.Conn
