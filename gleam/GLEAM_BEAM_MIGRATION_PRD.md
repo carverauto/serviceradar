@@ -82,6 +82,17 @@ graph TB
     style GLEAM_SYNC fill:#4ade80
 ```
 
+### 2.2 Canonical Identity Map (New)
+
+To eliminate duplicate `device_id`s before they reach the Core service, we introduce a shared canonical identity map stored in the KV service. The map tracks strong identifiers (Armis ID, NetBox ID, MAC, partition/IP aliases) and points them to the current canonical `device_id`.
+
+- **Single source of truth**: The Go Core continues to own canonical decisions and publishes them to the KV map whenever a batch is processed.
+- **Subscription model**: Gleam pollers and agents run a dedicated `GenServer` per node that watches KV change streams (or polls with etags) and keeps a hot ETS cache of canonical mappings.
+- **ID rewriting at the edge**: Before emitting a `DeviceUpdate`, the Gleam poller normalizes the ID using the cache. Sweep configs generated on agents also collapse to the canonical entry, so downstream tombstones become rare safeguards instead of routine traffic.
+- **Graceful fallbacks**: If a node loses the cache, it falls back to gRPC lookups against the Core registry; the Core still enforces canonicalization to protect against stale clients.
+
+This model complements BEAM well: ETS offers in-memory consistency with constant-time lookups, supervision trees restart watchers on KV disconnects, and distributed Erlang can replicate the cache across poller nodes without extra infrastructure.
+
 ### 2.2 Service-Specific Architectures
 
 #### 2.2.1 Gleam Poller Architecture
