@@ -46,12 +46,12 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 
 // GetPollerServices retrieves services for a poller.
 func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error) {
-	rows, err := db.Conn.Query(ctx, `
-		SELECT service_name, service_type, available, details, timestamp, agent_id
-		FROM table(service_status)
-		WHERE poller_id = $1
-		ORDER BY service_type, service_name`,
-		pollerID)
+    rows, err := db.Conn.Query(ctx, `
+        SELECT service_name, service_type, available, timestamp, agent_id
+        FROM table(service_status)
+        WHERE poller_id = $1
+        ORDER BY service_type, service_name`,
+        pollerID)
 	if err != nil {
 		return nil, fmt.Errorf("%w poller services: %w", ErrFailedToQuery, err)
 	}
@@ -62,9 +62,9 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]models.
 	for rows.Next() {
 		var s models.ServiceStatus
 
-		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp, &s.AgentID); err != nil {
-			return nil, fmt.Errorf("%w service row: %w", ErrFailedToScan, err)
-		}
+        if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Timestamp, &s.AgentID); err != nil {
+            return nil, fmt.Errorf("%w service row: %w", ErrFailedToScan, err)
+        }
 
 		services = append(services, s)
 	}

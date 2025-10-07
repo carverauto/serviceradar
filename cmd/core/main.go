@@ -45,10 +45,10 @@
 package main
 
 import (
-    "context"
-    "flag"
-    "log"
-    "os"
+	"context"
+	"flag"
+	"log"
+	"os"
 
 	"google.golang.org/grpc"
 
@@ -69,6 +69,9 @@ func main() {
 func run() error {
 	// Parse command line flags
 	configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
+	backfill := flag.Bool("backfill-identities", false, "Run one-time identity backfill (Armis/NetBox) and exit")
+	backfillDryRun := flag.Bool("backfill-dry-run", false, "If set with --backfill-identities, only log actions without writing")
+	backfillIPs := flag.Bool("backfill-ips", true, "Also backfill sweep-only device IDs by IP aliasing into canonical identities")
 	flag.Parse()
 
 	// Load configuration
@@ -118,43 +121,78 @@ func run() error {
 		return err
 	}
 
-	// Create API server with Swagger support
-    // Optionally configure KV client for admin config endpoints
-    var apiOptions []func(*api.APIServer)
-    if kvAddr := os.Getenv("KV_ADDRESS"); kvAddr != "" {
-        apiOptions = append(apiOptions, api.WithKVAddress(kvAddr))
-    }
-    if cfg.Security != nil {
-        apiOptions = append(apiOptions, api.WithKVSecurity(cfg.Security))
-    }
-    // Register KV endpoints from core config if provided
-    if len(cfg.KVEndpoints) > 0 {
-        eps := make(map[string]*api.KVEndpoint)
-        for _, e := range cfg.KVEndpoints {
-            eps[e.ID] = &api.KVEndpoint{ ID: e.ID, Name: e.Name, Address: e.Address, Domain: e.Domain, Type: e.Type, Security: cfg.Security }
-        }
-        apiOptions = append(apiOptions, api.WithKVEndpoints(eps))
-    }
+	// If running backfill only, run job and exit
+	if *backfill {
+		startMsg := "Starting identity backfill (Armis/NetBox) ..."
+		if *backfillDryRun {
+			startMsg = "Starting identity backfill (Armis/NetBox) in DRY-RUN mode ..."
+		}
+		mainLogger.Info().Msg(startMsg)
 
-    // Combine all API server options
-    allOptions := []func(server *api.APIServer){
-        api.WithMetricsManager(server.GetMetricsManager()),
-        api.WithSNMPManager(server.GetSNMPManager()),
-        api.WithAuthService(server.GetAuth()),
-        api.WithRperfManager(server.GetRperfManager()),
-        api.WithQueryExecutor(server.DB),
-        api.WithDBService(server.DB),
-        api.WithDeviceRegistry(server.DeviceRegistry),
-        api.WithLogger(mainLogger),
-    }
-    // Provide RBAC config to API for route protection if configured
-    if cfg.Auth != nil {
-        allOptions = append(allOptions, api.WithRBACConfig(&cfg.Auth.RBAC))
-    }
-    // Add KV options at the end so they override defaults
-    allOptions = append(allOptions, apiOptions...)
-    
-    apiServer := api.NewAPIServer(cfg.CORS, allOptions...)
+		if err := core.BackfillIdentityTombstones(ctx, server.DB, mainLogger, *backfillDryRun); err != nil {
+			return err
+		}
+
+		if *backfillIPs {
+			ipMsg := "Starting IP alias backfill ..."
+			if *backfillDryRun {
+				ipMsg = "Starting IP alias backfill (DRY-RUN) ..."
+			}
+			mainLogger.Info().Msg(ipMsg)
+
+			if err := core.BackfillIPAliasTombstones(ctx, server.DB, mainLogger, *backfillDryRun); err != nil {
+				return err
+			}
+		}
+
+		completionMsg := "Backfill completed. Exiting."
+		if *backfillDryRun {
+			completionMsg = "Backfill DRY-RUN completed. Exiting."
+		}
+		mainLogger.Info().Msg(completionMsg)
+
+		return nil
+	}
+
+	// Optionally configure KV client for admin config endpoints
+	var apiOptions []func(*api.APIServer)
+	if kvAddr := os.Getenv("KV_ADDRESS"); kvAddr != "" {
+		apiOptions = append(apiOptions, api.WithKVAddress(kvAddr))
+	}
+	if cfg.Security != nil {
+		apiOptions = append(apiOptions, api.WithKVSecurity(cfg.Security))
+	}
+	if len(cfg.KVEndpoints) > 0 {
+		eps := make(map[string]*api.KVEndpoint, len(cfg.KVEndpoints))
+		for _, e := range cfg.KVEndpoints {
+			eps[e.ID] = &api.KVEndpoint{
+				ID:       e.ID,
+				Name:     e.Name,
+				Address:  e.Address,
+				Domain:   e.Domain,
+				Type:     e.Type,
+				Security: cfg.Security,
+			}
+		}
+		apiOptions = append(apiOptions, api.WithKVEndpoints(eps))
+	}
+
+	allOptions := []func(server *api.APIServer){
+		api.WithMetricsManager(server.GetMetricsManager()),
+		api.WithSNMPManager(server.GetSNMPManager()),
+		api.WithAuthService(server.GetAuth()),
+		api.WithRperfManager(server.GetRperfManager()),
+		api.WithQueryExecutor(server.DB),
+		api.WithDBService(server.DB),
+		api.WithDeviceRegistry(server.DeviceRegistry),
+		api.WithLogger(mainLogger),
+	}
+	if cfg.Auth != nil {
+		allOptions = append(allOptions, api.WithRBACConfig(&cfg.Auth.RBAC))
+	}
+	allOptions = append(allOptions, apiOptions...)
+
+	apiServer := api.NewAPIServer(cfg.CORS, allOptions...)
 
 	server.SetAPIServer(ctx, apiServer)
 

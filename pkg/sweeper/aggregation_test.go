@@ -440,7 +440,7 @@ func TestMultiIPScanFlow(t *testing.T) {
 		deviceResults:  make(map[string]*DeviceResultAggregator),
 	}
 
-	t.Run("generateTargetsForDeviceTarget with multiple IPs", func(t *testing.T) {
+    t.Run("generateTargetsForDeviceTarget uses only primary IP", func(t *testing.T) {
 		deviceTarget := &models.DeviceTarget{
 			Network:    "192.168.1.1/32",
 			SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
@@ -455,11 +455,11 @@ func TestMultiIPScanFlow(t *testing.T) {
 
 		targets, hostCount := sweeper.generateTargetsForDeviceTarget(deviceTarget)
 
-		// Should generate targets for all 3 IPs with both ICMP and TCP modes
-		// 3 ICMP targets (1 per IP) + 6 TCP targets (3 IPs × 2 ports)
-		expectedTargetCount := 3 + (3 * len(config.Ports))
-		assert.Len(t, targets, expectedTargetCount)
-		assert.Equal(t, 3, hostCount)
+        // Should generate targets only for the primary IP with all modes
+        // 1 ICMP target + N TCP targets (per configured ports)
+        expectedTargetCount := 1 + len(config.Ports)
+        assert.Len(t, targets, expectedTargetCount)
+        assert.Equal(t, 1, hostCount)
 
 		// Verify target generation
 		ipsFound := make(map[string]bool)
@@ -474,118 +474,76 @@ func TestMultiIPScanFlow(t *testing.T) {
 			assert.Equal(t, "192.168.1.1,192.168.1.2,10.0.0.1", target.Metadata["all_ips"])
 		}
 
-		// Verify all IPs are covered
-		assert.True(t, ipsFound["192.168.1.1"])
-		assert.True(t, ipsFound["192.168.1.2"])
-		assert.True(t, ipsFound["10.0.0.1"])
+        // Verify only primary IP is covered
+        assert.True(t, ipsFound["192.168.1.1"])
+        assert.False(t, ipsFound["192.168.1.2"])
+        assert.False(t, ipsFound["10.0.0.1"])
 
-		// Verify mode distribution (3 ICMP + 6 TCP targets for 2 ports)
-		assert.Equal(t, 3, modesFound[models.ModeICMP])
-		assert.Equal(t, 6, modesFound[models.ModeTCP])
-	})
+        // Verify mode distribution (1 ICMP + 2 TCP targets for 2 ports)
+        assert.Equal(t, 1, modesFound[models.ModeICMP])
+        assert.Equal(t, 2, modesFound[models.ModeTCP])
+    })
 
 	t.Run("full aggregation flow", func(t *testing.T) {
-		// Generate targets for our device with multiple IPs
-		targets, err := sweeper.generateTargets()
+        // Generate targets for our device (primary IP only)
+        targets, err := sweeper.generateTargets()
 		require.NoError(t, err)
 		require.NotEmpty(t, targets)
 
 		// Prepare aggregators
 		sweeper.prepareDeviceAggregators(targets)
 
-		// Verify aggregator was created
-		assert.Contains(t, sweeper.deviceResults, "armis:123")
-		aggregator := sweeper.deviceResults["armis:123"]
-		assert.Len(t, aggregator.ExpectedIPs, 9) // 3 IPs × 3 targets each (1 ICMP + 2 TCP ports)
+        // Verify aggregator was created (multiple targets for primary IP)
+        assert.Contains(t, sweeper.deviceResults, "armis:123")
+        aggregator := sweeper.deviceResults["armis:123"]
+        assert.Len(t, aggregator.ExpectedIPs, 3) // 1 IP × 3 targets (1 ICMP + 2 TCP ports)
 
 		// Simulate scan results - need to match what the actual system generates
 		// For 3 IPs with ICMP and TCP modes, we get multiple results per IP
-		mockResults := []*models.Result{
-			// IP 1 - ICMP and TCP results
-			{
-				Target: models.Target{
-					Host: "192.168.1.1",
-					Mode: models.ModeICMP,
-					Metadata: map[string]interface{}{
-						"armis_device_id": "123",
-					},
-				},
-				Available:  true,
-				LastSeen:   time.Now(),
-				RespTime:   time.Millisecond * 25,
-				PacketLoss: 0.0,
-			},
-			{
-				Target: models.Target{
-					Host: "192.168.1.1",
-					Mode: models.ModeTCP,
-					Port: 80,
-					Metadata: map[string]interface{}{
-						"armis_device_id": "123",
-					},
-				},
-				Available:  true,
-				LastSeen:   time.Now(),
-				RespTime:   time.Millisecond * 15,
-				PacketLoss: 0.0,
-			},
-			// IP 2 - ICMP and TCP results
-			{
-				Target: models.Target{
-					Host: "192.168.1.2",
-					Mode: models.ModeICMP,
-					Metadata: map[string]interface{}{
-						"armis_device_id": "123",
-					},
-				},
-				Available:  false,
-				LastSeen:   time.Now(),
-				RespTime:   0,
-				PacketLoss: 100.0,
-			},
-			{
-				Target: models.Target{
-					Host: "192.168.1.2",
-					Mode: models.ModeTCP,
-					Port: 80,
-					Metadata: map[string]interface{}{
-						"armis_device_id": "123",
-					},
-				},
-				Available:  false,
-				LastSeen:   time.Now(),
-				RespTime:   0,
-				PacketLoss: 100.0,
-			},
-			// IP 3 - ICMP and TCP results
-			{
-				Target: models.Target{
-					Host: "10.0.0.1",
-					Mode: models.ModeICMP,
-					Metadata: map[string]interface{}{
-						"armis_device_id": "123",
-					},
-				},
-				Available:  true,
-				LastSeen:   time.Now(),
-				RespTime:   time.Millisecond * 30,
-				PacketLoss: 0.0,
-			},
-			{
-				Target: models.Target{
-					Host: "10.0.0.1",
-					Mode: models.ModeTCP,
-					Port: 80,
-					Metadata: map[string]interface{}{
-						"armis_device_id": "123",
-					},
-				},
-				Available:  true,
-				LastSeen:   time.Now(),
-				RespTime:   time.Millisecond * 10,
-				PacketLoss: 0.0,
-			},
-		}
+        mockResults := []*models.Result{
+            // Primary IP - ICMP and TCP results
+            {
+                Target: models.Target{
+                    Host: "192.168.1.1",
+                    Mode: models.ModeICMP,
+                    Metadata: map[string]interface{}{
+                        "armis_device_id": "123",
+                    },
+                },
+                Available:  true,
+                LastSeen:   time.Now(),
+                RespTime:   time.Millisecond * 25,
+                PacketLoss: 0.0,
+            },
+            {
+                Target: models.Target{
+                    Host: "192.168.1.1",
+                    Mode: models.ModeTCP,
+                    Port: 80,
+                    Metadata: map[string]interface{}{
+                        "armis_device_id": "123",
+                    },
+                },
+                Available:  true,
+                LastSeen:   time.Now(),
+                RespTime:   time.Millisecond * 15,
+                PacketLoss: 0.0,
+            },
+            {
+                Target: models.Target{
+                    Host: "192.168.1.1",
+                    Mode: models.ModeTCP,
+                    Port: 443,
+                    Metadata: map[string]interface{}{
+                        "armis_device_id": "123",
+                    },
+                },
+                Available:  false,
+                LastSeen:   time.Now(),
+                RespTime:   0,
+                PacketLoss: 100.0,
+            },
+        }
 
 		// Set up processor expectations for basic result processing
 		for _, result := range mockResults {
@@ -598,26 +556,25 @@ func TestMultiIPScanFlow(t *testing.T) {
 			assert.True(t, sweeper.shouldAggregateResult(result))
 		}
 
-		// Set up device registry expectation for aggregated result
-		mockDeviceRegistry.EXPECT().
-			UpdateDevice(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, update *models.DeviceUpdate) error {
-				// Verify aggregated metadata - the implementation lists each result's IP
-				// So with 6 results, we get each IP listed twice (once for ICMP, once for TCP)
-				assert.Equal(t, "192.168.1.1,192.168.1.1,192.168.1.2,192.168.1.2,10.0.0.1,10.0.0.1", update.Metadata["scan_all_ips"])
-				assert.Equal(t, "192.168.1.1,192.168.1.1,10.0.0.1,10.0.0.1", update.Metadata["scan_available_ips"])
-				assert.Equal(t, "192.168.1.2,192.168.1.2", update.Metadata["scan_unavailable_ips"])
-				assert.Equal(t, "66.7", update.Metadata["scan_availability_percent"]) // 4 available out of 6 = 66.7%
-				assert.Equal(t, "6", update.Metadata["scan_result_count"])
-				assert.Equal(t, "4", update.Metadata["scan_available_count"])
-				assert.Equal(t, "2", update.Metadata["scan_unavailable_count"])
+        // Set up device registry expectation for aggregated result
+        mockDeviceRegistry.EXPECT().
+            UpdateDevice(gomock.Any(), gomock.Any()).
+            DoAndReturn(func(_ context.Context, update *models.DeviceUpdate) error {
+                // Verify aggregated metadata lists the primary IP once per result
+                assert.Equal(t, "192.168.1.1,192.168.1.1,192.168.1.1", update.Metadata["scan_all_ips"])
+                assert.Equal(t, "192.168.1.1,192.168.1.1", update.Metadata["scan_available_ips"])
+                assert.Equal(t, "192.168.1.1", update.Metadata["scan_unavailable_ips"])
+                assert.Equal(t, "66.7", update.Metadata["scan_availability_percent"]) // 2 available out of 3 = 66.7%
+                assert.Equal(t, "3", update.Metadata["scan_result_count"])
+                assert.Equal(t, "2", update.Metadata["scan_available_count"])
+                assert.Equal(t, "1", update.Metadata["scan_unavailable_count"])
 
-				// Device should be available since some IPs are available
-				assert.True(t, update.IsAvailable)
-				assert.Equal(t, "192.168.1.1", update.IP) // Primary IP should be first available
+                // Device should be available since some IPs are available
+                assert.True(t, update.IsAvailable)
+                assert.Equal(t, "192.168.1.1", update.IP) // Primary IP should be first available
 
-				return nil
-			})
+                return nil
+            })
 
 		// Process results through the normal flow
 		for _, result := range mockResults {

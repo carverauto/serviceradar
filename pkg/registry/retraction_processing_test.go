@@ -77,6 +77,8 @@ func TestDeviceRegistry_ProcessRetractionEvents(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 
@@ -140,6 +142,7 @@ func TestDeviceRegistry_RetractionEventFieldPreservation(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 
@@ -198,6 +201,7 @@ func TestDeviceRegistry_RetractionVsDiscoveryEvents(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 

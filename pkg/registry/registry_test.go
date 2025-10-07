@@ -30,6 +30,13 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+func allowCanonicalizationQueries(mockDB *db.MockService) {
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+}
+
 func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
@@ -37,6 +44,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 
@@ -229,6 +237,7 @@ func TestDeviceRegistry_ProcessDeviceUpdate(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 
@@ -271,6 +280,7 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
 

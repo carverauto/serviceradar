@@ -1,11 +1,11 @@
 package db
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
+	"context"
+	"encoding/json"
+	"fmt"
 
-    "github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // UpdateServiceStatuses updates multiple service statuses in a single batch.
@@ -27,7 +27,7 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*models.Serv
 			status.ServiceName, // service_name
 			status.ServiceType, // service_type
 			status.Available,   // available
-			"",                 // message
+			"",                 // message (legacy column, unused)
 			status.Details,     // details
 			status.Partition,   // partition
 		)
@@ -57,7 +57,7 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *models.ServiceSta
 		status.ServiceName, // service_name
 		status.ServiceType, // service_type
 		status.Available,   // available
-		"",                 // message
+		"",                 // message (legacy column, unused)
 		status.Details,     // details
 		status.Partition,   // partition
 	)
@@ -106,44 +106,44 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 
 // StoreServices stores information about monitored services in the services stream.
 func (db *DB) StoreServices(ctx context.Context, services []*models.Service) error {
-    if len(services) == 0 {
-        return nil
-    }
+	if len(services) == 0 {
+		return nil
+	}
 
-    batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO services (timestamp, poller_id, agent_id, service_name, service_type, config, partition)")
-    if err != nil {
-        return fmt.Errorf("failed to prepare batch: %w", err)
-    }
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO services (timestamp, poller_id, agent_id, service_name, service_type, config, partition)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
 
-    for _, svc := range services {
-        // Serialize config to JSON string (stored in String column)
-        var configJSON string
-        if svc.Config == nil {
-            configJSON = "{}"
-        } else {
-            if b, mErr := json.Marshal(svc.Config); mErr == nil {
-                configJSON = string(b)
-            } else {
-                configJSON = "{}"
-            }
-        }
+	for _, svc := range services {
+		// Serialize config to JSON string (stored in String column)
+		var configJSON string
+		if svc.Config == nil {
+			configJSON = "{}"
+		} else {
+			if b, mErr := json.Marshal(svc.Config); mErr == nil {
+				configJSON = string(b)
+			} else {
+				configJSON = "{}"
+			}
+		}
 
-        if err := batch.Append(
-            svc.Timestamp,   // timestamp
-            svc.PollerID,    // poller_id
-            svc.AgentID,     // agent_id
-            svc.ServiceName, // service_name
-            svc.ServiceType, // service_type
-            configJSON,      // config as JSON string
-            svc.Partition,   // partition
-        ); err != nil {
-            return fmt.Errorf("failed to append service %s: %w", svc.ServiceName, err)
-        }
-    }
+		if err := batch.Append(
+			svc.Timestamp,   // timestamp
+			svc.PollerID,    // poller_id
+			svc.AgentID,     // agent_id
+			svc.ServiceName, // service_name
+			svc.ServiceType, // service_type
+			configJSON,      // config as JSON string
+			svc.Partition,   // partition
+		); err != nil {
+			return fmt.Errorf("failed to append service %s: %w", svc.ServiceName, err)
+		}
+	}
 
-    if err := batch.Send(); err != nil {
-        return fmt.Errorf("%w services: %w", ErrFailedToInsert, err)
-    }
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("%w services: %w", ErrFailedToInsert, err)
+	}
 
-    return nil
+	return nil
 }
