@@ -124,6 +124,34 @@ The Web UI provides a modern dashboard interface that:
 - Communicates with the Core Service API using a secure API key
 - Supports responsive design for mobile and desktop
 
+## Device Identity Canonicalization
+
+Modern environments discover the same device from multiple angles—Armis inventory pushes metadata, KV sweep configurations create synthetic device IDs per partition, and Pollers learn about live status through TCP/ICMP sweeps. Because Timeplus streams are versioned and append-only, every new IP address or partition shuffle historically produced a brand-new `device_id`. That broke history stitching and created duplicate monitors whenever DHCP reassigned an address.
+
+To fix this, the Device Registry now picks a canonical identity per real-world device and keeps all telemetry flowing into that record:
+
+- **Canonical selection**: When Armis or NetBox provide a strong identifier, the registry prefers the most recent `_tp_time` entry for that identifier and treats it as the source of truth (the canonical `device_id`).
+- **Sweep normalization**: Any sweep-only alias (`partition:ip`) is merged into the canonical record so Poller results land on the device the UI already knows about.
+- **Metadata hints**: `_merged_into` markers are written on non-canonical rows so downstream consumers can recognise historical merges.
+
+### Why the backfill exists
+
+Before the canonicalization rules were introduced, the database already contained duplicate `device_id`s—some with long-running poller history. The new registry logic keeps things clean going forward, but we still need to reconcile the backlog so reporting and alerting stay accurate. The one-off backfill job walks the existing Timeplus tables, identifies duplicate identities, and emits tombstone `DeviceUpdate` messages to fold the old IDs into their canonical equivalents.
+
+Run the backfill from the `serviceradar-core` binary when you are ready to migrate historical data:
+
+```bash
+serviceradar-core --config /etc/serviceradar/core.json --backfill-identities
+```
+
+Key CLI flags:
+
+- `--backfill-identities` runs the identity de-duplication and exits without starting gRPC/HTTP services.
+- `--backfill-ips` (default `true`) also merges sweep-generated aliases that only differ by IP.
+- `--backfill-dry-run` prints what would merge without publishing tombstones—use this on staging first to validate cardinality.
+
+When the backfill finishes it logs the totals and exits. After that, the Device Registry enforces the same canonicalization rules for all future DeviceUpdate events flowing from Armis, KV sweeps, and Poller results.
+
 ## Security Architecture
 
 ServiceRadar implements multiple layers of security:
