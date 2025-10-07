@@ -42,18 +42,28 @@ const (
 	integrationTypeNetbox = "netbox"
 )
 
+// Option configures DeviceRegistry behaviour.
+type Option func(*DeviceRegistry)
+
 // DeviceRegistry is the concrete implementation of the registry.Manager.
 type DeviceRegistry struct {
-	db     db.Service
-	logger logger.Logger
+	db                db.Service
+	logger            logger.Logger
+	identityPublisher *identityPublisher
 }
 
 // NewDeviceRegistry creates a new, authoritative device registry.
-func NewDeviceRegistry(database db.Service, log logger.Logger) *DeviceRegistry {
-	return &DeviceRegistry{
+func NewDeviceRegistry(database db.Service, log logger.Logger, opts ...Option) *DeviceRegistry {
+	r := &DeviceRegistry{
 		db:     database,
 		logger: log,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(r)
+		}
+	}
+	return r
 }
 
 // ProcessDeviceUpdate is the single entry point for a new device discovery event.
@@ -146,6 +156,10 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 			tombstoneCount++
 		}
 		canonicalized = append(canonicalized, u)
+	}
+
+	if len(canonicalized) > 0 {
+		r.publishIdentityMap(ctx, canonicalized)
 	}
 
 	batch := canonicalized

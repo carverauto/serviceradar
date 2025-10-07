@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "registry",
     srcs = [
+        "identity_publisher.go",
         "interfaces.go",
         "mock_registry.go",
         "registry.go",
@@ -11,8 +12,11 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/db",
+        "//pkg/identitymap:identitymap",
         "//pkg/logger",
         "//pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
         "@org_uber_go_mock//gomock",
     ],
 )
@@ -21,14 +25,18 @@ go_test(
     name = "registry_test",
     srcs = [
         "batch_optimization_test.go",
+        "identity_publisher_test.go",
         "registry_test.go",
         "retraction_processing_test.go",
     ],
     embed = [":registry"],
     deps = [
         "//pkg/db",
+        "//pkg/identitymap:identitymap",
         "//pkg/logger",
         "//pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_uber_go_mock//gomock",
