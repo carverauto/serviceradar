@@ -93,7 +93,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 	// Extract and validate sweep payload
 	enhancedPayload, sweepMessage := s.extractServicePayload(svc.Message)
-	s.logSweepPayloadInfo(svc.Name, enhancedPayload, sweepMessage)
+	s.logSweepPayloadInfo(svc.Name, sweepMessage)
 
 	// Get context information from enhanced payload
 	contextPollerID, contextPartition, contextAgentID := s.extractContextInfo(svc, enhancedPayload, partition)
@@ -124,16 +124,19 @@ func (s *Server) initSweepProcessingTrace(span trace.Span, svc *api.ServiceStatu
 }
 
 // logSweepPayloadInfo logs information about the extracted sweep payload
-func (s *Server) logSweepPayloadInfo(serviceName string, enhancedPayload *models.ServiceMetricsPayload, sweepMessage []byte) {
-	const maxPreviewLength = 300
-
+func (s *Server) logSweepPayloadInfo(serviceName string, sweepMessage []byte) {
 	// Avoid logging full payloads in production; keep a short summary only
 	s.logger.Debug().Str("service_name", serviceName).Int("sweep_message_length", len(sweepMessage)).Msg("Sweep payload received")
 }
 
 // logContextInfo logs the extracted context information
 func (s *Server) logContextInfo(serviceName, pollerID, partition, agentID string) {
-	s.logger.Debug().Str("service_name", serviceName).Str("poller_id", pollerID).Str("partition", partition).Msg("Sweep context extracted")
+	s.logger.Debug().
+		Str("service_name", serviceName).
+		Str("poller_id", pollerID).
+		Str("partition", partition).
+		Str("agent_id", agentID).
+		Msg("Sweep context extracted")
 }
 
 // prepareSweepData parses, validates and prepares the sweep data for processing
