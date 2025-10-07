@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/pkg/identitymap"
@@ -14,6 +15,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+var errStubPublish = errors.New("identity publisher test boom")
 
 type stubKVClient struct {
 	received *proto.PutManyRequest
@@ -45,7 +48,7 @@ func TestIdentityPublisherPublishSuccess(t *testing.T) {
 	}
 
 	err := pub.Publish(ctx, []*models.DeviceUpdate{update})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	if assert.NotNil(t, client.received) {
 		assert.Len(t, client.received.GetEntries(), 4)
 	}
@@ -58,9 +61,7 @@ func TestIdentityPublisherPublishSuccess(t *testing.T) {
 	}
 
 	for _, entry := range client.received.GetEntries() {
-		if _, ok := expectedKeys[entry.Key]; ok {
-			delete(expectedKeys, entry.Key)
-		}
+		delete(expectedKeys, entry.Key)
 	}
 	assert.Empty(t, expectedKeys, "missing expected keys")
 
@@ -70,7 +71,7 @@ func TestIdentityPublisherPublishSuccess(t *testing.T) {
 }
 
 func TestIdentityPublisherPublishFailure(t *testing.T) {
-	client := &stubKVClient{err: errors.New("boom")}
+	client := &stubKVClient{err: errStubPublish}
 
 	pub := newIdentityPublisher(client, "namespace", 30*time.Second, logger.NewTestLogger())
 	ctx := context.Background()
@@ -78,7 +79,7 @@ func TestIdentityPublisherPublishFailure(t *testing.T) {
 	update := &models.DeviceUpdate{DeviceID: "tenant-b:5.6.7.8", IP: "5.6.7.8"}
 
 	err := pub.Publish(ctx, []*models.DeviceUpdate{update})
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, int64(0), pub.metrics.publishBatches.Load())
 	assert.Equal(t, int64(0), pub.metrics.publishedKeys.Load())
 	assert.Equal(t, int64(1), pub.metrics.failures.Load())
