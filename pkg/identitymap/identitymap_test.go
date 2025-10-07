@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -55,10 +56,10 @@ func TestMarshalRoundtrip(t *testing.T) {
 	}
 
 	bytes, err := MarshalRecord(rec)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	decoded, err := UnmarshalRecord(bytes)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, rec.CanonicalDeviceID, decoded.CanonicalDeviceID)
 	assert.Equal(t, rec.Partition, decoded.Partition)
 	assert.Equal(t, rec.MetadataHash, decoded.MetadataHash)
@@ -68,10 +69,10 @@ func TestMarshalRoundtrip(t *testing.T) {
 
 func TestMarshalRecordErrors(t *testing.T) {
 	_, err := MarshalRecord(nil)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	_, err = UnmarshalRecord(nil)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestHashMetadataDeterministic(t *testing.T) {

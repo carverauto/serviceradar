@@ -16,17 +16,22 @@ import (
 type Kind = identitymappb.IdentityKind
 
 const (
-    KindUnspecified Kind = identitymappb.IdentityKind_IDENTITY_KIND_UNSPECIFIED
-    KindDeviceID    Kind = identitymappb.IdentityKind_IDENTITY_KIND_DEVICE_ID
-    KindArmisID     Kind = identitymappb.IdentityKind_IDENTITY_KIND_ARMIS_ID
-    KindNetboxID    Kind = identitymappb.IdentityKind_IDENTITY_KIND_NETBOX_ID
-    KindMAC         Kind = identitymappb.IdentityKind_IDENTITY_KIND_MAC
-    KindIP          Kind = identitymappb.IdentityKind_IDENTITY_KIND_IP
-    KindPartitionIP Kind = identitymappb.IdentityKind_IDENTITY_KIND_PARTITION_IP
+	KindUnspecified Kind = identitymappb.IdentityKind_IDENTITY_KIND_UNSPECIFIED
+	KindDeviceID    Kind = identitymappb.IdentityKind_IDENTITY_KIND_DEVICE_ID
+	KindArmisID     Kind = identitymappb.IdentityKind_IDENTITY_KIND_ARMIS_ID
+	KindNetboxID    Kind = identitymappb.IdentityKind_IDENTITY_KIND_NETBOX_ID
+	KindMAC         Kind = identitymappb.IdentityKind_IDENTITY_KIND_MAC
+	KindIP          Kind = identitymappb.IdentityKind_IDENTITY_KIND_IP
+	KindPartitionIP Kind = identitymappb.IdentityKind_IDENTITY_KIND_PARTITION_IP
 )
 
 // DefaultNamespace is the root prefix used for canonical identity map entries.
 const DefaultNamespace = "device_canonical_map"
+
+var (
+	errNilRecord   = errors.New("identitymap: record is nil")
+	errEmptyRecord = errors.New("identitymap: empty payload")
+)
 
 // Key represents a lookup identity used to locate a canonical device ID.
 type Key struct {
@@ -190,7 +195,7 @@ func FromProtoRecord(pb *identitymappb.CanonicalRecord) *Record {
 // ToProto converts the identity key into its protobuf representation.
 func (k Key) ToProto() *identitymappb.IdentityKey {
 	return &identitymappb.IdentityKey{
-		Kind:  identitymappb.IdentityKind(k.Kind),
+		Kind:  k.Kind,
 		Value: k.Value,
 	}
 }
@@ -200,13 +205,13 @@ func FromProtoKey(pb *identitymappb.IdentityKey) Key {
 	if pb == nil {
 		return Key{}
 	}
-	return Key{Kind: Kind(pb.GetKind()), Value: pb.GetValue()}
+	return Key{Kind: pb.GetKind(), Value: pb.GetValue()}
 }
 
 // MarshalRecord encodes the record into bytes suitable for KV persistence.
 func MarshalRecord(record *Record) ([]byte, error) {
 	if record == nil {
-		return nil, errors.New("identitymap: record is nil")
+		return nil, errNilRecord
 	}
 	return proto.Marshal(record.ToProto())
 }
@@ -214,7 +219,7 @@ func MarshalRecord(record *Record) ([]byte, error) {
 // UnmarshalRecord decodes bytes retrieved from KV into a Record.
 func UnmarshalRecord(data []byte) (*Record, error) {
 	if len(data) == 0 {
-		return nil, errors.New("identitymap: empty payload")
+		return nil, errEmptyRecord
 	}
 	pb := &identitymappb.CanonicalRecord{}
 	if err := proto.Unmarshal(data, pb); err != nil {
@@ -226,8 +231,8 @@ func UnmarshalRecord(data []byte) (*Record, error) {
 // KeyPath builds the storage path for a key under the provided namespace.
 func (k Key) KeyPath(namespace string) string {
 	ns := strings.Trim(namespace, "/")
-    if ns == "" {
-        ns = DefaultNamespace
+	if ns == "" {
+		ns = DefaultNamespace
 	}
 	return fmt.Sprintf("%s/%s/%s", ns, kindSegment(k.Kind), k.Value)
 }
