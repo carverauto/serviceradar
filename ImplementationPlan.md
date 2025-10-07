@@ -30,24 +30,27 @@ Establish a shared canonical identity map in the KV service so device IDs are no
 ## Work Breakdown
 
 ### 1. Design & Validation
-- Draft KV key format and payload structure (JSON vs protobuf). Prefer protobuf for schema evolution.
-- Confirm KV consistency semantics (watch streams or versioned gets) and document latency expectations.
-- Define conflict resolution order: Armis > NetBox > MAC > partition/IP alias.
-- Review security: ensure KV ACLs allow core/poller both read and write, audit logging for map updates.
+- [x] Draft KV key format and payload structure (protobuf selected for schema evolution).
+- [x] Confirm KV consistency semantics (watch streams or versioned gets) and document latency expectations.  
+  JetStream KV guarantees immediately consistent monotonic writes/reads inside a bucket, with optimistic locking via revision numbers (`Update`) and exclusive creates (`Create`). Direct `Get` calls may be served by followers, so read-your-writes requires targeting the stream leader; latency budgets should assume sub-100 ms on LAN clusters but allow a few hundred ms when replicas need to catch up. We'll expose revision metadata alongside the canonical record payload so pollers/agents can honor freshness timeouts when the KV path lags.
+- [x] Define conflict resolution order: Armis > NetBox > MAC > partition/IP alias.
+- [x] Review security: ensure KV ACLs allow core/poller both read and write, audit logging for map updates.  
+  mTLS identities already gate access (see `pkg/kv/rbac.go`), but we need a writer role for registry/core and read-only role for pollers. Add audit hooks that emit structured logs on `Update`/`Delete`, and ensure the new CAS RPC inherits the same RBAC table before rollout.
 
 ### 2. Shared Library (`pkg/identitymap`)
-- Implement Go package providing:
+- [x] Implement Go package providing:
   - `type IdentityKey struct { Kind enum; Value string }`
   - `type CanonicalRecord struct { DeviceID, Partition, MetadataHash string; UpdatedAt time.Time }`
   - Helpers `BuildKeys(*models.DeviceUpdate)` and `Serialize/Deserialize`.
-- Add unit tests covering key derivation across Armis, NetBox, MAC, partition/IP inputs.
+- [x] Add unit tests covering key derivation across Armis, NetBox, MAC, partition/IP inputs.
 
 ### 3. Registry Publisher Hook
-- Inside `DeviceRegistry.ProcessBatchDeviceUpdates` post canonicalization:
+- [x] Inside `DeviceRegistry.ProcessBatchDeviceUpdates` post canonicalization:
   - Assemble `CanonicalRecord` for the winning device.
-  - Write each identity key to KV via new client (`kv.Client.Put` with CAS to prevent stale overwrites).
+  - Write each identity key to KV via the shared client (per-key `Get` + `PutIfAbsent`/`Update` so CAS metadata is preserved).
   - Record metrics for publish success/failure.
-- Ensure operations are batched and retried with exponential backoff.
+- [x] Ensure operations are retried with exponential backoff / CAS semantics.  
+  Registry publisher now performs per-key `Get` → `PutIfAbsent`/`Update` cycles with exponential backoff (capped at 5s) and leverages the new gRPC `Update` RPC. CAS conflicts surface as `codes.Aborted` and trigger retries; identical metadata hashes short-circuit without rewrites.
 
 ### 4. Core Lookup API
 - Extend proto (`proto/core/service.proto`) with `GetCanonicalDevice` RPC.
@@ -89,4 +92,3 @@ Establish a shared canonical identity map in the KV service so device IDs are no
 - Backfill CLI completes without publishing new tombstones for already merged identities.
 - Metrics dashboards show sustained KV publish success >99.9% and lookup hit rate >95% post-rollout.
 - Documentation and runbooks reviewed with ops team.
-

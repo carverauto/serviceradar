@@ -19,6 +19,7 @@ package kv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -70,12 +71,17 @@ func (s *Server) Stop(_ context.Context) error {
 
 // Get implements the Get RPC.
 func (s *Server) Get(ctx context.Context, req *proto.GetRequest) (*proto.GetResponse, error) {
-	value, found, err := s.store.Get(ctx, req.Key)
+	entry, err := s.store.GetEntry(ctx, req.Key)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get key %s: %v", req.Key, err)
 	}
 
-	return &proto.GetResponse{Value: value, Found: found}, nil
+	resp := &proto.GetResponse{Value: entry.Value, Found: entry.Found}
+	if entry.Found {
+		resp.Revision = entry.Revision
+	}
+
+	return resp, nil
 }
 
 // Put implements the Put RPC.
@@ -92,13 +98,16 @@ func (s *Server) Put(ctx context.Context, req *proto.PutRequest) (*proto.PutResp
 
 // PutIfAbsent implements the PutIfAbsent RPC.
 func (s *Server) PutIfAbsent(ctx context.Context, req *proto.PutRequest) (*proto.PutResponse, error) {
-    ttl := time.Duration(req.TtlSeconds) * time.Second
+	ttl := time.Duration(req.TtlSeconds) * time.Second
 
-    if err := s.store.PutIfAbsent(ctx, req.Key, req.Value, ttl); err != nil {
-        return nil, status.Errorf(codes.Internal, "failed to put-if-absent key %s: %v", req.Key, err)
-    }
+	if err := s.store.PutIfAbsent(ctx, req.Key, req.Value, ttl); err != nil {
+		if errors.Is(err, ErrKeyExists) {
+			return nil, status.Errorf(codes.AlreadyExists, "key %s already exists", req.Key)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to put-if-absent key %s: %v", req.Key, err)
+	}
 
-    return &proto.PutResponse{}, nil
+	return &proto.PutResponse{}, nil
 }
 
 // PutMany implements the PutMany RPC.
@@ -115,6 +124,21 @@ func (s *Server) PutMany(ctx context.Context, req *proto.PutManyRequest) (*proto
 	}
 
 	return &proto.PutManyResponse{}, nil
+}
+
+// Update implements the Update (CAS) RPC.
+func (s *Server) Update(ctx context.Context, req *proto.UpdateRequest) (*proto.UpdateResponse, error) {
+	ttl := time.Duration(req.TtlSeconds) * time.Second
+
+	revision, err := s.store.Update(ctx, req.Key, req.Value, req.Revision, ttl)
+	if err != nil {
+		if errors.Is(err, ErrCASMismatch) {
+			return nil, status.Errorf(codes.Aborted, "cas mismatch for key %s", req.Key)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to update key %s: %v", req.Key, err)
+	}
+
+	return &proto.UpdateResponse{Revision: revision}, nil
 }
 
 // Delete implements the Delete RPC.
@@ -154,8 +178,8 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 // Info implements the Info RPC (domain and bucket for introspection).
 // Note: Requires proto regeneration to compile the new types.
 func (s *Server) Info(_ context.Context, _ *proto.InfoRequest) (*proto.InfoResponse, error) {
-    // We expose the configured domain and bucket from the server's cfg
-    domain := s.config.Domain
-    bucket := s.config.Bucket
-    return &proto.InfoResponse{Domain: domain, Bucket: bucket}, nil
+	// We expose the configured domain and bucket from the server's cfg
+	domain := s.config.Domain
+	bucket := s.config.Bucket
+	return &proto.InfoResponse{Domain: domain, Bucket: bucket}, nil
 }

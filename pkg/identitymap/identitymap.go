@@ -3,7 +3,7 @@ package identitymap
 import (
 	"errors"
 	"fmt"
-	"regexp"
+	"net"
 	"strings"
 	"time"
 
@@ -47,8 +47,6 @@ type Record struct {
 	UpdatedAt         time.Time
 	Attributes        map[string]string
 }
-
-var macRe = regexp.MustCompile(`(?i)[0-9a-f]{2}(?::[0-9a-f]{2}){5}`)
 
 // BuildKeys derives the identity keys that should point at the canonical device for the update.
 func BuildKeys(update *models.DeviceUpdate) []Key {
@@ -115,33 +113,42 @@ func partitionIPValue(partition, ip string) string {
 }
 
 func parseMACList(s string) []string {
-	if s == "" {
-		return nil
-	}
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
 		return nil
 	}
 
-	if macRe.MatchString(trimmed) && !strings.Contains(trimmed, ",") {
-		return []string{strings.ToUpper(macRe.FindString(trimmed))}
+	f := func(r rune) bool {
+		return r == ',' || r == ' ' || r == ';' || r == '\n' || r == '\t'
 	}
 
-	matches := macRe.FindAllString(trimmed, -1)
-	if len(matches) == 0 {
+	potential := strings.FieldsFunc(trimmed, f)
+	if len(potential) == 0 {
 		return nil
 	}
 
-	out := make([]string, 0, len(matches))
+	out := make([]string, 0, len(potential))
 	seen := make(map[string]struct{})
-	for _, match := range matches {
-		mac := strings.ToUpper(match)
+
+	for _, token := range potential {
+		hw, err := net.ParseMAC(token)
+		if err != nil {
+			continue
+		}
+
+		mac := strings.ToUpper(hw.String())
 		if _, ok := seen[mac]; ok {
 			continue
 		}
+
 		seen[mac] = struct{}{}
 		out = append(out, mac)
 	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
 	return out
 }
 
