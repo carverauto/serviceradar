@@ -33,6 +33,7 @@ import (
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -1061,7 +1062,7 @@ func TestProcessDevices(t *testing.T) {
 		2: {Label: "test_query_2", SweepModes: []models.SweepMode{models.ModeICMP}},
 	}
 
-	data, ips, events, deviceTargets := integ.processDevices(devices, deviceLabels, deviceQueries)
+	data, ips, events, deviceTargets := integ.processDevices(context.Background(), devices, deviceLabels, deviceQueries)
 
 	require.Len(t, data, 4) // two device keys and two sweep device entries
 	assert.ElementsMatch(t, []string{"test-agent/192.168.1.1", "test-agent/192.168.1.2"}, keysWithPrefix(data, "test-agent/"))
@@ -1140,6 +1141,86 @@ func TestProcessDevices(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &withMeta))
 	assert.Equal(t, 1, withMeta.ID)
 	assert.Equal(t, "t1", withMeta.Metadata["tag"])
+}
+
+type fakeKVClient struct {
+	getFn func(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
+}
+
+func (f *fakeKVClient) Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error) {
+	if f.getFn != nil {
+		return f.getFn(ctx, in, opts...)
+	}
+	return &proto.GetResponse{}, nil
+}
+
+func (*fakeKVClient) Put(context.Context, *proto.PutRequest, ...grpc.CallOption) (*proto.PutResponse, error) {
+	return &proto.PutResponse{}, nil
+}
+
+func (*fakeKVClient) PutIfAbsent(context.Context, *proto.PutRequest, ...grpc.CallOption) (*proto.PutResponse, error) {
+	return &proto.PutResponse{}, nil
+}
+
+func (*fakeKVClient) PutMany(context.Context, *proto.PutManyRequest, ...grpc.CallOption) (*proto.PutManyResponse, error) {
+	return &proto.PutManyResponse{}, nil
+}
+
+func (*fakeKVClient) Update(context.Context, *proto.UpdateRequest, ...grpc.CallOption) (*proto.UpdateResponse, error) {
+	return &proto.UpdateResponse{}, nil
+}
+
+func (*fakeKVClient) Delete(context.Context, *proto.DeleteRequest, ...grpc.CallOption) (*proto.DeleteResponse, error) {
+	return &proto.DeleteResponse{}, nil
+}
+
+func (*fakeKVClient) Watch(context.Context, *proto.WatchRequest, ...grpc.CallOption) (proto.KVService_WatchClient, error) {
+	return nil, nil
+}
+
+func (*fakeKVClient) Info(context.Context, *proto.InfoRequest, ...grpc.CallOption) (*proto.InfoResponse, error) {
+	return &proto.InfoResponse{}, nil
+}
+
+func TestProcessDevices_AttachesCanonicalMetadata(t *testing.T) {
+	canonical := &identitymap.Record{CanonicalDeviceID: "canon-99", Partition: "prod", MetadataHash: "hash"}
+	payload, err := identitymap.MarshalRecord(canonical)
+	require.NoError(t, err)
+
+	fake := &fakeKVClient{
+		getFn: func(ctx context.Context, req *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
+			if strings.Contains(req.Key, "/armis-id/1") {
+				return &proto.GetResponse{Value: payload, Found: true, Revision: 11}, nil
+			}
+			return &proto.GetResponse{Found: false}, nil
+		},
+	}
+
+	integ := &ArmisIntegration{
+		Config:   &models.SourceConfig{AgentID: "agent", PollerID: "poller", Partition: "part"},
+		KVClient: fake,
+		Logger:   logger.NewTestLogger(),
+	}
+
+	devices := []Device{{ID: 1, IPAddress: "192.168.1.1", MacAddress: "aa:bb", Name: "dev1"}}
+	labels := map[int]string{1: "query"}
+	queries := map[int]models.QueryConfig{1: {Label: "query", SweepModes: []models.SweepMode{models.ModeTCP}}}
+
+	data, _, events, targets := integ.processDevices(context.Background(), devices, labels, queries)
+	require.Len(t, events, 1)
+	require.Equal(t, "canon-99", events[0].Metadata["canonical_device_id"])
+	require.Equal(t, "11", events[0].Metadata["canonical_revision"])
+	require.Equal(t, "prod", events[0].Metadata["canonical_partition"])
+	require.Len(t, targets, 1)
+	require.Equal(t, "canon-99", targets[0].Metadata["canonical_device_id"])
+	require.Equal(t, "11", targets[0].Metadata["canonical_revision"])
+
+	enrichedBlob, ok := data["1"]
+	require.True(t, ok)
+	var enriched DeviceWithMetadata
+	require.NoError(t, json.Unmarshal(enrichedBlob, &enriched))
+	require.Equal(t, "canon-99", enriched.Metadata["canonical_device_id"])
+	require.Equal(t, "prod", enriched.Metadata["canonical_partition"])
 }
 
 // keysWithPrefix returns map keys that have the given prefix

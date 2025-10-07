@@ -58,9 +58,9 @@ Establish a shared canonical identity map in the KV service so device IDs are no
 - [x] Add integration tests using in-memory KV stub.
 
 ### 5. Sync Service Alignment
-- Update Sync writers to call shared library when generating sweep configs.
-- Ensure they populate `canonical_device_id` metadata if map already contains the identity key.
-- Add regression tests for Armis/NetBox sources.
+- [x] Update Sync writers to call shared library when generating sweep configs.
+- [x] Ensure they populate `canonical_device_id` metadata if map already contains the identity key.
+- [x] Add regression tests for Armis/NetBox sources.
 
 ### 6. Backfill Enhancements
 - Modify `BackfillIdentityTombstones` and `BackfillIPAliasTombstones` to:

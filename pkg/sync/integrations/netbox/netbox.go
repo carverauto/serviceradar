@@ -24,10 +24,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -79,7 +81,7 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mo
 	}
 
 	// Process current devices from Netbox API
-	data, ips, currentEvents := n.processDevices(deviceResp)
+	data, ips, currentEvents := n.processDevices(ctx, deviceResp)
 
 	n.Logger.Info().
 		Int("devices_discovered", len(deviceResp.Results)).
@@ -145,7 +147,7 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 	}
 
 	// Process current devices to get current events
-	_, _, currentEvents := n.processDevices(deviceResp)
+	_, _, currentEvents := n.processDevices(ctx, deviceResp)
 
 	// Generate retraction events
 	retractionEvents := n.generateRetractionEvents(currentEvents, existingRadarDevices)
@@ -295,11 +297,15 @@ func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, e
 }
 
 // processDevices converts devices to KV data, extracts IPs, and returns the list of devices.
-func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (
+func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp DeviceResponse) (
 	data map[string][]byte,
 	ips []string,
 	events []*models.DeviceUpdate,
 ) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(deviceResp.Results))
 	events = make([]*models.DeviceUpdate, 0, len(deviceResp.Results))
@@ -372,6 +378,10 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (
 			}
 		}
 
+		if record, revision := n.lookupCanonicalRecord(ctx, identitymap.BuildKeys(event)); record != nil {
+			n.attachCanonicalMetadata(event, record, revision)
+		}
+
 		var metaJSON []byte
 
 		if metaJSON, err = json.Marshal(event.Metadata); err == nil {
@@ -396,6 +406,113 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (
 	}
 
 	return data, ips, events
+}
+
+func (n *NetboxIntegration) lookupCanonicalRecord(ctx context.Context, keys []identitymap.Key) (*identitymap.Record, uint64) {
+	if n.KvClient == nil || len(keys) == 0 {
+		return nil, 0
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ordered := prioritizeIdentityKeys(keys)
+
+	for _, key := range ordered {
+		resp, err := n.KvClient.Get(ctx, &proto.GetRequest{Key: key.KeyPath(identitymap.DefaultNamespace)})
+		if err != nil {
+			n.Logger.Debug().
+				Err(err).
+				Str("identity_kind", key.Kind.String()).
+				Str("identity_value", key.Value).
+				Msg("NetBox identity map lookup failed")
+			continue
+		}
+
+		if !resp.GetFound() || len(resp.GetValue()) == 0 {
+			continue
+		}
+
+		record, err := identitymap.UnmarshalRecord(resp.GetValue())
+		if err != nil {
+			n.Logger.Debug().
+				Err(err).
+				Str("identity_kind", key.Kind.String()).
+				Msg("Failed to unmarshal canonical identity record")
+			continue
+		}
+
+		n.Logger.Debug().
+			Str("identity_kind", key.Kind.String()).
+			Str("identity_value", key.Value).
+			Str("canonical_device_id", record.CanonicalDeviceID).
+			Msg("Resolved canonical identity for NetBox device")
+
+		return record, resp.GetRevision()
+	}
+
+	return nil, 0
+}
+
+func (n *NetboxIntegration) attachCanonicalMetadata(event *models.DeviceUpdate, record *identitymap.Record, revision uint64) {
+	if event == nil || record == nil {
+		return
+	}
+
+	if event.Metadata == nil {
+		event.Metadata = make(map[string]string)
+	}
+
+	event.Metadata["canonical_device_id"] = record.CanonicalDeviceID
+	if record.Partition != "" {
+		event.Metadata["canonical_partition"] = record.Partition
+	}
+	if record.MetadataHash != "" {
+		event.Metadata["canonical_metadata_hash"] = record.MetadataHash
+	}
+	if revision != 0 {
+		event.Metadata["canonical_revision"] = strconv.FormatUint(revision, 10)
+	}
+
+	if hostname, ok := record.Attributes["hostname"]; ok && hostname != "" {
+		event.Metadata["canonical_hostname"] = hostname
+	}
+}
+
+func prioritizeIdentityKeys(keys []identitymap.Key) []identitymap.Key {
+	if len(keys) <= 1 {
+		return keys
+	}
+
+	ordered := make([]identitymap.Key, len(keys))
+	copy(ordered, keys)
+
+	priority := map[identitymap.Kind]int{
+		identitymap.KindArmisID:     0,
+		identitymap.KindNetboxID:    1,
+		identitymap.KindMAC:         2,
+		identitymap.KindPartitionIP: 3,
+		identitymap.KindIP:          4,
+		identitymap.KindDeviceID:    5,
+	}
+
+	sort.SliceStable(ordered, func(i, j int) bool {
+		pi, ok := priority[ordered[i].Kind]
+		if !ok {
+			pi = len(priority)
+		}
+		pj, ok := priority[ordered[j].Kind]
+		if !ok {
+			pj = len(priority)
+		}
+		if pi != pj {
+			return pi < pj
+		}
+		return ordered[i].Value < ordered[j].Value
+	})
+
+	return ordered
 }
 
 // writeSweepConfig generates and writes the sweep Config to KV.
