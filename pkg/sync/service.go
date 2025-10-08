@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,6 +32,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -95,14 +97,14 @@ type SimpleSyncService struct {
 	metrics Metrics
 
 	// Atomic flags to prevent overlapping operations
-    armisUpdateRunning int32
+	armisUpdateRunning int32
 
-    logger logger.Logger
+	logger logger.Logger
 
-    // Hot-reload support
-    discoveryTicker     *time.Ticker
-    armisUpdateTicker   *time.Ticker
-    reloadChan          chan struct{}
+	// Hot-reload support
+	discoveryTicker   *time.Ticker
+	armisUpdateTicker *time.Ticker
+	reloadChan        chan struct{}
 }
 
 // NewSimpleSyncService creates a new simplified sync service
@@ -133,7 +135,7 @@ func NewSimpleSyncServiceWithMetrics(
 
 	serviceCtx, cancel := context.WithCancel(ctx)
 
-    s := &SimpleSyncService{
+	s := &SimpleSyncService{
 		config:     *config,
 		kvClient:   kvClient,
 		sources:    make(map[string]Integration),
@@ -147,10 +149,10 @@ func NewSimpleSyncServiceWithMetrics(
 		ctx:                 serviceCtx,
 		cancel:              cancel,
 		errorChan:           make(chan error, 10), // Buffered channel for error collection
-        metrics:             metrics,
-        logger:              log,
-        reloadChan:          make(chan struct{}, 1),
-    }
+		metrics:             metrics,
+		logger:              log,
+		reloadChan:          make(chan struct{}, 1),
+	}
 
 	s.initializeIntegrations(ctx)
 
@@ -194,11 +196,11 @@ func (s *SimpleSyncService) launchTask(_ context.Context, taskName string, task 
 func (s *SimpleSyncService) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting simplified sync service")
 
-    // Start discovery/update timers
-    s.discoveryTicker = time.NewTicker(s.discoveryInterval)
-    defer s.discoveryTicker.Stop()
-    s.armisUpdateTicker = time.NewTicker(s.armisUpdateInterval)
-    defer s.armisUpdateTicker.Stop()
+	// Start discovery/update timers
+	s.discoveryTicker = time.NewTicker(s.discoveryInterval)
+	defer s.discoveryTicker.Stop()
+	s.armisUpdateTicker = time.NewTicker(s.armisUpdateInterval)
+	defer s.armisUpdateTicker.Stop()
 
 	// Run initial discovery immediately
 	s.launchTask(ctx, "discovery", s.runDiscovery)
@@ -214,18 +216,18 @@ func (s *SimpleSyncService) Start(ctx context.Context) error {
 			s.logger.Error().Err(err).Msg("Critical error in sync service")
 			// Optionally, you can return the error to stop the service on critical errors
 			// return fmt.Errorf("critical error in sync service: %w", err)
-        case <-s.discoveryTicker.C:
-            s.launchTask(ctx, "discovery", s.runDiscovery)
-        case <-s.armisUpdateTicker.C:
-            s.launchTask(ctx, "armis updates", s.runArmisUpdates)
-        case <-s.reloadChan:
-            s.logger.Info().Msg("Reloading sync timers with updated intervals")
-            s.discoveryTicker.Stop()
-            s.armisUpdateTicker.Stop()
-            s.discoveryTicker = time.NewTicker(s.discoveryInterval)
-            s.armisUpdateTicker = time.NewTicker(s.armisUpdateInterval)
-        }
-    }
+		case <-s.discoveryTicker.C:
+			s.launchTask(ctx, "discovery", s.runDiscovery)
+		case <-s.armisUpdateTicker.C:
+			s.launchTask(ctx, "armis updates", s.runArmisUpdates)
+		case <-s.reloadChan:
+			s.logger.Info().Msg("Reloading sync timers with updated intervals")
+			s.discoveryTicker.Stop()
+			s.armisUpdateTicker.Stop()
+			s.discoveryTicker = time.NewTicker(s.discoveryInterval)
+			s.armisUpdateTicker = time.NewTicker(s.armisUpdateInterval)
+		}
+	}
 }
 
 // Stop gracefully stops the sync service
@@ -271,27 +273,32 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 
 // UpdateConfig applies updated intervals and source registry; triggers timer reload if intervals changed.
 func (s *SimpleSyncService) UpdateConfig(newCfg *Config) {
-    if newCfg == nil { return }
-    // Check interval changes
-    newDisc := time.Duration(newCfg.DiscoveryInterval)
-    newUpd := time.Duration(newCfg.UpdateInterval)
-    intervalsChanged := (newDisc != s.discoveryInterval) || (newUpd != s.armisUpdateInterval)
-    s.discoveryInterval = newDisc
-    s.armisUpdateInterval = newUpd
-    // Rebuild integrations if sources changed
-    // For simplicity, rebuild from registry factories using new config
-    if len(newCfg.Sources) > 0 {
-        s.sources = make(map[string]Integration)
-        for name, src := range newCfg.Sources {
-            if f, ok := s.registry[src.Type]; ok {
-                s.sources[name] = s.createIntegration(s.ctx, src, f)
-            }
-        }
-    }
-    if intervalsChanged {
-        select { case s.reloadChan <- struct{}{}: default: }
-    }
-    s.config = *newCfg
+	if newCfg == nil {
+		return
+	}
+	// Check interval changes
+	newDisc := time.Duration(newCfg.DiscoveryInterval)
+	newUpd := time.Duration(newCfg.UpdateInterval)
+	intervalsChanged := (newDisc != s.discoveryInterval) || (newUpd != s.armisUpdateInterval)
+	s.discoveryInterval = newDisc
+	s.armisUpdateInterval = newUpd
+	// Rebuild integrations if sources changed
+	// For simplicity, rebuild from registry factories using new config
+	if len(newCfg.Sources) > 0 {
+		s.sources = make(map[string]Integration)
+		for name, src := range newCfg.Sources {
+			if f, ok := s.registry[src.Type]; ok {
+				s.sources[name] = s.createIntegration(s.ctx, src, f)
+			}
+		}
+	}
+	if intervalsChanged {
+		select {
+		case s.reloadChan <- struct{}{}:
+		default:
+		}
+	}
+	s.config = *newCfg
 }
 
 // runDiscovery executes discovery for all integrations and immediately writes to KV
@@ -340,6 +347,10 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 			Int("devices_discovered", len(devices)).
 			Int("kv_entries_written", len(kvData)).
 			Msg("Discovery completed for source")
+	}
+
+	if err := s.hydrateCanonicalUpdates(ctx, allDeviceUpdates); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to hydrate canonical metadata from KV")
 	}
 
 	// iterate through allDeviceUpdates and print the device names
@@ -487,6 +498,226 @@ func (s *SimpleSyncService) writeToKV(ctx context.Context, sourceName string, da
 		Msg("Successfully wrote entries to KV")
 
 	return nil
+}
+
+func (s *SimpleSyncService) hydrateCanonicalUpdates(ctx context.Context, updates map[string][]*models.DeviceUpdate) error {
+	if s.kvClient == nil || len(updates) == 0 {
+		return nil
+	}
+
+	paths := s.collectUniqueIdentityPaths(updates)
+	if len(paths) == 0 {
+		return nil
+	}
+
+	entries, errs := s.fetchCanonicalEntries(ctx, paths)
+	if len(entries) == 0 {
+		return errs
+	}
+
+	hydrated := s.applyCanonicalMetadata(updates, entries)
+
+	if hydrated > 0 {
+		s.logger.Debug().
+			Int("updates", hydrated).
+			Msg("Hydrated discovery payloads with canonical identity metadata")
+	}
+
+	return errs
+}
+
+// collectUniqueIdentityPaths extracts all unique identity key paths from device updates
+func (s *SimpleSyncService) collectUniqueIdentityPaths(updates map[string][]*models.DeviceUpdate) []string {
+	uniquePaths := make(map[string]struct{})
+	paths := make([]string, 0)
+
+	for _, list := range updates {
+		for _, update := range list {
+			if update == nil {
+				continue
+			}
+			s.addIdentityPathsFromUpdate(update, uniquePaths, &paths)
+		}
+	}
+
+	return paths
+}
+
+// addIdentityPathsFromUpdate adds all identity key path variants from a single update
+func (s *SimpleSyncService) addIdentityPathsFromUpdate(
+	update *models.DeviceUpdate,
+	uniquePaths map[string]struct{},
+	paths *[]string,
+) {
+	keys := identitymap.BuildKeys(update)
+	if len(keys) == 0 {
+		return
+	}
+
+	for _, key := range keys {
+		for _, variant := range key.KeyPathVariants(identitymap.DefaultNamespace) {
+			if variant == "" || s.pathExists(variant, uniquePaths) {
+				continue
+			}
+			uniquePaths[variant] = struct{}{}
+			*paths = append(*paths, variant)
+		}
+	}
+}
+
+// pathExists checks if a path has already been collected
+func (s *SimpleSyncService) pathExists(path string, uniquePaths map[string]struct{}) bool {
+	_, exists := uniquePaths[path]
+	return exists
+}
+
+type canonicalEntry struct {
+	record   *identitymap.Record
+	revision uint64
+}
+
+// fetchCanonicalEntries retrieves canonical identity records from KV store in batches
+func (s *SimpleSyncService) fetchCanonicalEntries(ctx context.Context, paths []string) (map[string]canonicalEntry, error) {
+	const chunkSize = 512
+	entries := make(map[string]canonicalEntry, len(paths))
+	var errs error
+
+	for start := 0; start < len(paths); start += chunkSize {
+		end := start + chunkSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+
+		if err := s.fetchBatchEntries(ctx, paths[start:end], start, entries); err != nil {
+			errs = errors.Join(errs, err)
+		}
+	}
+
+	return entries, errs
+}
+
+// fetchBatchEntries fetches a single batch of canonical entries from KV
+func (s *SimpleSyncService) fetchBatchEntries(
+	ctx context.Context,
+	keys []string,
+	batchStart int,
+	entries map[string]canonicalEntry,
+) error {
+	resp, err := s.kvClient.BatchGet(ctx, &proto.BatchGetRequest{Keys: keys})
+	if err != nil {
+		s.logger.Debug().
+			Err(err).
+			Int("batch_start", batchStart).
+			Int("batch_size", len(keys)).
+			Msg("canonical KV batch lookup failed")
+		return err
+	}
+
+	var errs error
+	for _, entry := range resp.GetResults() {
+		if entry == nil || !entry.GetFound() || len(entry.GetValue()) == 0 {
+			continue
+		}
+
+		record, err := identitymap.UnmarshalRecord(entry.GetValue())
+		if err != nil {
+			errs = errors.Join(errs, err)
+			s.logger.Debug().
+				Err(err).
+				Str("key", entry.GetKey()).
+				Msg("Failed to unmarshal canonical identity record")
+			continue
+		}
+
+		entries[entry.GetKey()] = canonicalEntry{
+			record:   record,
+			revision: entry.GetRevision(),
+		}
+	}
+
+	return errs
+}
+
+// applyCanonicalMetadata applies canonical identity metadata to device updates
+func (s *SimpleSyncService) applyCanonicalMetadata(
+	updates map[string][]*models.DeviceUpdate,
+	entries map[string]canonicalEntry,
+) int {
+	var hydrated int
+
+	for _, list := range updates {
+		for _, update := range list {
+			if update == nil {
+				continue
+			}
+
+			if s.hydrateUpdate(update, entries) {
+				hydrated++
+			}
+		}
+	}
+
+	return hydrated
+}
+
+// hydrateUpdate applies canonical metadata to a single update if a matching record exists
+func (s *SimpleSyncService) hydrateUpdate(update *models.DeviceUpdate, entries map[string]canonicalEntry) bool {
+	keys := identitymap.BuildKeys(update)
+	if len(keys) == 0 {
+		return false
+	}
+
+	record, revision := s.findMatchingCanonicalRecord(keys, entries)
+	if record == nil {
+		return false
+	}
+
+	attachCanonicalMetadataToUpdate(update, record, revision)
+	return true
+}
+
+// findMatchingCanonicalRecord searches for a canonical record matching any of the given keys
+func (s *SimpleSyncService) findMatchingCanonicalRecord(
+	keys []identitymap.Key,
+	entries map[string]canonicalEntry,
+) (*identitymap.Record, uint64) {
+	ordered := identitymap.PrioritizeKeys(keys)
+
+	for _, key := range ordered {
+		for _, variant := range key.KeyPathVariants(identitymap.DefaultNamespace) {
+			if entry, ok := entries[variant]; ok && entry.record != nil {
+				return entry.record, entry.revision
+			}
+		}
+	}
+
+	return nil, 0
+}
+
+func attachCanonicalMetadataToUpdate(update *models.DeviceUpdate, record *identitymap.Record, revision uint64) {
+	if update == nil || record == nil {
+		return
+	}
+
+	if update.Metadata == nil {
+		update.Metadata = make(map[string]string)
+	}
+
+	if record.CanonicalDeviceID != "" {
+		update.Metadata["canonical_device_id"] = record.CanonicalDeviceID
+	}
+	if record.Partition != "" {
+		update.Metadata["canonical_partition"] = record.Partition
+	}
+	if record.MetadataHash != "" {
+		update.Metadata["canonical_metadata_hash"] = record.MetadataHash
+	}
+	if hostname, ok := record.Attributes["hostname"]; ok && hostname != "" {
+		update.Metadata["canonical_hostname"] = hostname
+	}
+	if revision != 0 {
+		update.Metadata["canonical_revision"] = strconv.FormatUint(revision, 10)
+	}
 }
 
 // GetStatus implements simple health check

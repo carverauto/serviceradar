@@ -25,7 +25,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -653,7 +652,7 @@ func (a *ArmisIntegration) processDevices(
 		primaryIP := allIPs[0]
 		event := a.createDeviceUpdateEventWithAllIPs(d, primaryIP, allIPs, deviceLabels[d.ID], now)
 		keys := identitymap.BuildKeys(event)
-		ordered := prioritizeIdentityKeys(keys)
+		ordered := identitymap.PrioritizeKeys(keys)
 
 		contexts = append(contexts, armisDeviceContext{
 			device:      d,
@@ -867,7 +866,7 @@ func (a *ArmisIntegration) lookupCanonicalRecordDirect(ctx context.Context, keys
 		ctx = context.Background()
 	}
 
-	ordered := prioritizeIdentityKeys(keys)
+	ordered := identitymap.PrioritizeKeys(keys)
 	if len(ordered) == 0 {
 		return nil, 0
 	}
@@ -923,41 +922,6 @@ func (a *ArmisIntegration) attachCanonicalMetadata(event *models.DeviceUpdate, r
 	if hostname, ok := record.Attributes["hostname"]; ok && hostname != "" {
 		event.Metadata["canonical_hostname"] = hostname
 	}
-}
-
-func prioritizeIdentityKeys(keys []identitymap.Key) []identitymap.Key {
-	if len(keys) <= 1 {
-		return keys
-	}
-
-	ordered := make([]identitymap.Key, len(keys))
-	copy(ordered, keys)
-
-	priority := map[identitymap.Kind]int{
-		identitymap.KindArmisID:     0,
-		identitymap.KindNetboxID:    1,
-		identitymap.KindMAC:         2,
-		identitymap.KindPartitionIP: 3,
-		identitymap.KindIP:          4,
-		identitymap.KindDeviceID:    5,
-	}
-
-	sort.SliceStable(ordered, func(i, j int) bool {
-		pi, ok := priority[ordered[i].Kind]
-		if !ok {
-			pi = len(priority)
-		}
-		pj, ok := priority[ordered[j].Kind]
-		if !ok {
-			pj = len(priority)
-		}
-		if pi != pj {
-			return pi < pj
-		}
-		return ordered[i].Value < ordered[j].Value
-	})
-
-	return ordered
 }
 
 // createEnrichedDeviceDataWithAllIPs creates enriched device data with all IP addresses in metadata

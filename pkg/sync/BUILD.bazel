@@ -18,6 +18,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/pkg/sync",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/identitymap",
         "//pkg/grpc",
         "//pkg/logger",
         "//pkg/models",
@@ -45,6 +46,7 @@ go_test(
     ],
     embed = [":sync"],
     deps = [
+        "//pkg/identitymap",
         "//pkg/logger",
         "//pkg/models",
         "//pkg/sync/integrations/netbox",
