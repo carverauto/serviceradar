@@ -1295,7 +1295,7 @@ func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {
 		}
 	}
 
-	require.Equal(t, len(uniquePaths), len(captured[0]))
+	require.Len(t, captured[0], len(uniquePaths))
 }
 
 // keysWithPrefix returns map keys that have the given prefix

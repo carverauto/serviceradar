@@ -242,7 +242,7 @@ func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {
 		}
 	}
 
-	require.Equal(t, len(uniquePaths), len(captured[0]))
+	require.Len(t, captured[0], len(uniquePaths))
 }
 
 func TestParseTCPPorts(t *testing.T) {
