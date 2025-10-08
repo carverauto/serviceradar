@@ -165,7 +165,20 @@ data:
           "url": "tls://serviceradar-nats:4222",
           "max_reconnects": 10,
           "reconnect_wait": "2s",
-          "drain_timeout": "30s"
+          "drain_timeout": "30s",
+          "security": {
+            "mode": "mtls",
+            "tls": {
+              "cert_file": "/etc/serviceradar/certs/core.pem",
+              "key_file": "/etc/serviceradar/certs/core-key.pem",
+              "ca_file": "/etc/serviceradar/certs/root.pem"
+            }
+          }
+        },
+        "events": {
+          "enabled": true,
+          "stream_name": "events",
+          "subjects": ["events.>", "snmp.traps"]
         },
         "snmp": {
           "enabled": false,
