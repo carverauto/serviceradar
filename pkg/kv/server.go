@@ -84,6 +84,28 @@ func (s *Server) Get(ctx context.Context, req *proto.GetRequest) (*proto.GetResp
 	return resp, nil
 }
 
+// BatchGet implements the BatchGet RPC.
+func (s *Server) BatchGet(ctx context.Context, req *proto.BatchGetRequest) (*proto.BatchGetResponse, error) {
+	results := make([]*proto.BatchGetEntry, 0, len(req.GetKeys()))
+
+	for _, key := range req.GetKeys() {
+		entry, err := s.store.GetEntry(ctx, key)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to get key %s: %v", key, err)
+		}
+
+		batchEntry := &proto.BatchGetEntry{Key: key, Found: entry.Found}
+		if entry.Found {
+			batchEntry.Value = entry.Value
+			batchEntry.Revision = entry.Revision
+		}
+
+		results = append(results, batchEntry)
+	}
+
+	return &proto.BatchGetResponse{Results: results}, nil
+}
+
 // Put implements the Put RPC.
 func (s *Server) Put(ctx context.Context, req *proto.PutRequest) (*proto.PutResponse, error) {
 	ttl := time.Duration(req.TtlSeconds) * time.Second

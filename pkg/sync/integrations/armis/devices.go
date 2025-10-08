@@ -609,6 +609,17 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 }
 
 // processDevices converts devices to KV data and extracts IPs.
+type armisDeviceContext struct {
+	device      *Device
+	label       string
+	query       models.QueryConfig
+	primaryIP   string
+	allIPs      []string
+	event       *models.DeviceUpdate
+	keys        []identitymap.Key
+	orderedKeys []identitymap.Key
+}
+
 func (a *ArmisIntegration) processDevices(
 	ctx context.Context,
 	devices []Device,
@@ -624,12 +635,12 @@ func (a *ArmisIntegration) processDevices(
 	events = make([]*models.DeviceUpdate, 0, len(devices))
 	deviceTargets = make([]models.DeviceTarget, 0, len(devices)*2) // Allocate more space for multiple targets
 
+	contexts := make([]armisDeviceContext, 0, len(devices))
 	now := time.Now()
 
 	for i := range devices {
 		d := &devices[i]
 
-		// Extract all IPs from the device
 		allIPs := extractAllIPs(d.IPAddress)
 		if len(allIPs) == 0 {
 			a.Logger.Warn().
@@ -639,70 +650,88 @@ func (a *ArmisIntegration) processDevices(
 			continue
 		}
 
-		// Use first IP as primary for backward compatibility
 		primaryIP := allIPs[0]
-
-		// Create device update event with primary IP but include all IPs in metadata
 		event := a.createDeviceUpdateEventWithAllIPs(d, primaryIP, allIPs, deviceLabels[d.ID], now)
+		keys := identitymap.BuildKeys(event)
+		ordered := prioritizeIdentityKeys(keys)
 
+		contexts = append(contexts, armisDeviceContext{
+			device:      d,
+			label:       deviceLabels[d.ID],
+			query:       deviceQueries[d.ID],
+			primaryIP:   primaryIP,
+			allIPs:      allIPs,
+			event:       event,
+			keys:        keys,
+			orderedKeys: ordered,
+		})
+
+	}
+
+	entries, fetchErr := a.prefetchCanonicalEntries(ctx, contexts)
+
+	for _, ctxDevice := range contexts {
 		var (
 			canonicalRecord *identitymap.Record
 			revision        uint64
 		)
 
-		if rec, rev := a.lookupCanonicalRecord(ctx, identitymap.BuildKeys(event)); rec != nil {
-			canonicalRecord = rec
-			revision = rev
-			a.attachCanonicalMetadata(event, canonicalRecord, revision)
+		if len(entries) != 0 {
+			canonicalRecord, revision = a.resolveCanonicalRecord(entries, ctxDevice.orderedKeys)
 		}
 
-		// Process enriched device for KV storage with all IPs in metadata (and canonical data if available)
-		enrichedData, err := a.createEnrichedDeviceDataWithAllIPs(d, deviceLabels[d.ID], allIPs, canonicalRecord)
+		if canonicalRecord == nil && fetchErr != nil {
+			if rec, rev := a.lookupCanonicalRecordDirect(ctx, ctxDevice.keys); rec != nil {
+				canonicalRecord = rec
+				revision = rev
+			}
+		}
+
+		if canonicalRecord != nil {
+			a.attachCanonicalMetadata(ctxDevice.event, canonicalRecord, revision)
+		}
+
+		enrichedData, err := a.createEnrichedDeviceDataWithAllIPs(ctxDevice.device, ctxDevice.label, ctxDevice.allIPs, canonicalRecord)
 		if err != nil {
 			a.Logger.Error().
 				Err(err).
-				Int("device_id", d.ID).
+				Int("device_id", ctxDevice.device.ID).
 				Msg("Failed to create enriched device data")
 
 			continue
 		}
 
-		data[fmt.Sprintf("%d", d.ID)] = enrichedData
+		data[fmt.Sprintf("%d", ctxDevice.device.ID)] = enrichedData
 
-		// Marshal event for KV storage (store under primary IP)
-		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, primaryIP)
-
-		eventData, err := json.Marshal(event)
+		eventData, err := json.Marshal(ctxDevice.event)
 		if err != nil {
 			a.Logger.Error().
 				Err(err).
-				Int("device_id", d.ID).
+				Int("device_id", ctxDevice.device.ID).
 				Msg("Failed to marshal device event")
 
 			continue
 		}
 
+		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, ctxDevice.primaryIP)
 		data[kvKey] = eventData
 
-		events = append(events, event)
-
-		// Create a single device target containing ALL IP addresses in metadata
-		queryConfig := deviceQueries[d.ID]
+		events = append(events, ctxDevice.event)
 
 		deviceTarget := models.DeviceTarget{
-			Network:    primaryIP + "/32",
-			SweepModes: queryConfig.SweepModes,
-			QueryLabel: queryConfig.Label,
+			Network:    ctxDevice.primaryIP + "/32",
+			SweepModes: ctxDevice.query.SweepModes,
+			QueryLabel: ctxDevice.query.Label,
 			Source:     "armis",
 			Metadata: map[string]string{
 				"integration_type": "armis",
-				"integration_id":   fmt.Sprintf("%d", d.ID),
-				"armis_device_id":  fmt.Sprintf("%d", d.ID),
-				"query_label":      queryConfig.Label,
-				"primary_ip":       primaryIP,
-				"all_ips":          strings.Join(allIPs, ","),
-				"ip_count":         fmt.Sprintf("%d", len(allIPs)),
-				"device_name":      d.Name,
+				"integration_id":   fmt.Sprintf("%d", ctxDevice.device.ID),
+				"armis_device_id":  fmt.Sprintf("%d", ctxDevice.device.ID),
+				"query_label":      ctxDevice.query.Label,
+				"primary_ip":       ctxDevice.primaryIP,
+				"all_ips":          strings.Join(ctxDevice.allIPs, ","),
+				"ip_count":         fmt.Sprintf("%d", len(ctxDevice.allIPs)),
+				"device_name":      ctxDevice.device.Name,
 			},
 		}
 
@@ -725,47 +754,95 @@ func (a *ArmisIntegration) processDevices(
 		deviceTargets = append(deviceTargets, deviceTarget)
 
 		a.Logger.Debug().
-			Int("device_id", d.ID).
-			Str("primary_ip", primaryIP).
-			Int("total_ips", len(allIPs)).
-			Strs("all_ips", allIPs).
+			Int("device_id", ctxDevice.device.ID).
+			Str("primary_ip", ctxDevice.primaryIP).
+			Int("total_ips", len(ctxDevice.allIPs)).
+			Strs("all_ips", ctxDevice.allIPs).
 			Msg("Processed device with multiple IPs")
 	}
 
 	return data, ips, events, deviceTargets
 }
 
-func (a *ArmisIntegration) lookupCanonicalRecord(ctx context.Context, keys []identitymap.Key) (*identitymap.Record, uint64) {
-	if a.KVClient == nil || len(keys) == 0 {
-		return nil, 0
+func (a *ArmisIntegration) prefetchCanonicalEntries(ctx context.Context, contexts []armisDeviceContext) (map[string]*proto.BatchGetEntry, error) {
+	if a.KVClient == nil || len(contexts) == 0 {
+		return nil, nil
 	}
 
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	ordered := prioritizeIdentityKeys(keys)
+	seenPaths := make(map[string]struct{})
+	paths := make([]string, 0, len(contexts)*3)
+
+	for _, ctxDevice := range contexts {
+		for _, key := range ctxDevice.orderedKeys {
+			sanitized := key.KeyPath(identitymap.DefaultNamespace)
+			if _, ok := seenPaths[sanitized]; ok {
+				continue
+			}
+			seenPaths[sanitized] = struct{}{}
+			paths = append(paths, sanitized)
+		}
+	}
+
+	if len(paths) == 0 {
+		return nil, nil
+	}
+
+	const chunkSize = 256
+	entries := make(map[string]*proto.BatchGetEntry, len(paths))
+	var firstErr error
+
+	for start := 0; start < len(paths); start += chunkSize {
+		end := start + chunkSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+
+		resp, err := a.KVClient.BatchGet(ctx, &proto.BatchGetRequest{Keys: paths[start:end]})
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			a.Logger.Debug().
+				Err(err).
+				Int("batch_start", start).
+				Int("batch_size", end-start).
+				Msg("Armis identity map prefetch failed")
+			continue
+		}
+
+		for _, entry := range resp.GetResults() {
+			if entry == nil {
+				continue
+			}
+			entries[entry.GetKey()] = entry
+		}
+	}
+
+	return entries, firstErr
+}
+
+func (a *ArmisIntegration) resolveCanonicalRecord(entries map[string]*proto.BatchGetEntry, ordered []identitymap.Key) (*identitymap.Record, uint64) {
+	if len(entries) == 0 || len(ordered) == 0 {
+		return nil, 0
+	}
 
 	for _, key := range ordered {
-		resp, err := a.KVClient.Get(ctx, &proto.GetRequest{Key: key.KeyPath(identitymap.DefaultNamespace)})
+		sanitized := key.KeyPath(identitymap.DefaultNamespace)
+		entry, ok := entries[sanitized]
+		if !ok || !entry.GetFound() || len(entry.GetValue()) == 0 {
+			continue
+		}
+
+		record, err := identitymap.UnmarshalRecord(entry.GetValue())
 		if err != nil {
 			a.Logger.Debug().
 				Err(err).
 				Str("identity_kind", key.Kind.String()).
 				Str("identity_value", key.Value).
-				Msg("Armis identity map lookup failed")
-			continue
-		}
-
-		if !resp.GetFound() || len(resp.GetValue()) == 0 {
-			continue
-		}
-
-		record, err := identitymap.UnmarshalRecord(resp.GetValue())
-		if err != nil {
-			a.Logger.Debug().
-				Err(err).
-				Str("identity_kind", key.Kind.String()).
 				Msg("Failed to unmarshal canonical identity record")
 			continue
 		}
@@ -776,10 +853,52 @@ func (a *ArmisIntegration) lookupCanonicalRecord(ctx context.Context, keys []ide
 			Str("canonical_device_id", record.CanonicalDeviceID).
 			Msg("Resolved canonical identity for Armis device")
 
-		return record, resp.GetRevision()
+		return record, entry.GetRevision()
 	}
 
 	return nil, 0
+}
+
+func (a *ArmisIntegration) lookupCanonicalRecordDirect(ctx context.Context, keys []identitymap.Key) (*identitymap.Record, uint64) {
+	if a.KVClient == nil || len(keys) == 0 {
+		return nil, 0
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ordered := prioritizeIdentityKeys(keys)
+	if len(ordered) == 0 {
+		return nil, 0
+	}
+
+	seenPaths := make(map[string]struct{}, len(ordered))
+	paths := make([]string, 0, len(ordered))
+	for _, key := range ordered {
+		sanitized := key.KeyPath(identitymap.DefaultNamespace)
+		if _, ok := seenPaths[sanitized]; ok {
+			continue
+		}
+		seenPaths[sanitized] = struct{}{}
+		paths = append(paths, sanitized)
+	}
+
+	resp, err := a.KVClient.BatchGet(ctx, &proto.BatchGetRequest{Keys: paths})
+	if err != nil {
+		a.Logger.Debug().Err(err).Msg("Armis identity map lookup failed")
+		return nil, 0
+	}
+
+	entries := make(map[string]*proto.BatchGetEntry, len(resp.GetResults()))
+	for _, entry := range resp.GetResults() {
+		if entry == nil {
+			continue
+		}
+		entries[entry.GetKey()] = entry
+	}
+
+	return a.resolveCanonicalRecord(entries, ordered)
 }
 
 func (a *ArmisIntegration) attachCanonicalMetadata(event *models.DeviceUpdate, record *identitymap.Record, revision uint64) {

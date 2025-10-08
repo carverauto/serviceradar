@@ -53,6 +53,10 @@ func (*mockProtoKVClient) Get(_ context.Context, _ *proto.GetRequest, _ ...grpc.
 	return &proto.GetResponse{}, nil
 }
 
+func (*mockProtoKVClient) BatchGet(_ context.Context, _ *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+	return &proto.BatchGetResponse{}, nil
+}
+
 func (*mockProtoKVClient) Update(_ context.Context, _ *proto.UpdateRequest, _ ...grpc.CallOption) (*proto.UpdateResponse, error) {
 	return &proto.UpdateResponse{}, nil
 }
