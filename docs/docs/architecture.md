@@ -134,6 +134,8 @@ To fix this, the Device Registry now picks a canonical identity per real-world d
 - **Sweep normalization**: Any sweep-only alias (`partition:ip`) is merged into the canonical record so Poller results land on the device the UI already knows about.
 - **Metadata hints**: `_merged_into` markers are written on non-canonical rows so downstream consumers can recognise historical merges.
 
+JetStream key/value buckets disallow characters such as `:` in key segments, so the canonical map encodes each identity value using an `=<HEX>` escape sequence for any disallowed rune (for example, the MAC `AA:BB` is stored as `AA=3ABB`). Clients call into the shared helper in `pkg/identitymap` before hitting the KV service, ensuring lookups and publishes stay consistent regardless of the original identifier format.
+
 ### Why the backfill exists
 
 Before the canonicalization rules were introduced, the database already contained duplicate `device_id`s—some with long-running poller history. The new registry logic keeps things clean going forward, but we still need to reconcile the backlog so reporting and alerting stay accurate. The one-off backfill job walks the existing Timeplus tables, identifies duplicate identities, and emits tombstone `DeviceUpdate` messages to fold the old IDs into their canonical equivalents.

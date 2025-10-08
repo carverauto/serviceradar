@@ -19,7 +19,7 @@ Establish a shared canonical identity map in the KV service so device IDs are no
 - Full automation of backfill executions.
 
 ## Deliverables
-1. **Schema**: `kv://device_canonical_map/<identity-type>/<identity-key>` entries containing canonical `device_id`, partition, metadata checksum, and last-updated timestamp.
+1. **Schema**: `kv://device_canonical_map/<identity-type>/<identity-key>` entries containing canonical `device_id`, partition, metadata checksum, and last-updated timestamp. Identity values that include JetStream-reserved characters (such as `:` in MAC/partition IDs) are hex escaped using an `=<HEX>` sentinel so clients can round-trip the original value while still satisfying KV key constraints.
 2. **Registry publisher**: `DeviceRegistry` emits KV updates after processing batches and reconciling canonical IDs.
 3. **Core lookup API**: new RPC (`GetCanonicalDevice`) to allow legacy pollers/agents to query the map until they move to caches.
 4. **Sync alignment**: Sync service writes canonical IDs when creating sweep configs, using the same helper library as the registry.
