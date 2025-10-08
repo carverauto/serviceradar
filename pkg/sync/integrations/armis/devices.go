@@ -665,7 +665,6 @@ func (a *ArmisIntegration) processDevices(
 			keys:        keys,
 			orderedKeys: ordered,
 		})
-
 	}
 
 	entries, fetchErr := a.prefetchCanonicalEntries(ctx, contexts)
