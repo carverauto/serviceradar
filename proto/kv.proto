@@ -25,6 +25,9 @@ service KVService {
   // Get retrieves the value for a given key.
   rpc Get(GetRequest) returns (GetResponse) {}
 
+  // BatchGet retrieves multiple keys in a single round trip.
+  rpc BatchGet(BatchGetRequest) returns (BatchGetResponse) {}
+
   // Put stores a value for a given key with an optional TTL.
   rpc Put(PutRequest) returns (PutResponse) {}
 
@@ -59,6 +62,24 @@ message GetResponse {
   bytes value = 1;  // The value associated with the key, empty if not found
   bool found = 2;   // Indicates if the key was found
   uint64 revision = 3; // Latest revision number for the key, 0 if not found
+}
+
+// BatchGetRequest is the request message for retrieving multiple keys at once.
+message BatchGetRequest {
+  repeated string keys = 1;
+}
+
+// BatchGetEntry represents a single key/value (with metadata) in a batch response.
+message BatchGetEntry {
+  string key = 1;
+  bytes value = 2;
+  bool found = 3;
+  uint64 revision = 4;
+}
+
+// BatchGetResponse contains the ordered results for the requested keys.
+message BatchGetResponse {
+  repeated BatchGetEntry results = 1;
 }
 
 // PutRequest is the request message for the Put operation.

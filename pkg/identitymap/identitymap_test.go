@@ -99,3 +99,17 @@ func TestKeyPathSanitizesDisallowedCharacters(t *testing.T) {
 	ipv6 := Key{Kind: KindIP, Value: "fe80::1"}
 	assert.Equal(t, "device_canonical_map/ip/fe80=3A=3A1", ipv6.KeyPath(""))
 }
+
+func TestKeyPathVariantsIncludesLegacy(t *testing.T) {
+	key := Key{Kind: KindMAC, Value: "AA:BB:CC:DD:EE:FF"}
+	variants := key.KeyPathVariants("")
+	require.Len(t, variants, 2)
+	assert.Equal(t, "device_canonical_map/mac/AA=3ABB=3ACC=3ADD=3AEE=3AFF", variants[0])
+	assert.Equal(t, "device_canonical_map/mac/AA:BB:CC:DD:EE:FF", variants[1])
+
+	keyDevice := Key{Kind: KindDeviceID, Value: "tenant-a:1.2.3.4"}
+	variants = keyDevice.KeyPathVariants("")
+	require.Len(t, variants, 2)
+	assert.Equal(t, "device_canonical_map/device-id/tenant-a=3A1.2.3.4", variants[0])
+	assert.Equal(t, "device_canonical_map/device-id/tenant-a:1.2.3.4", variants[1])
+}

@@ -260,6 +260,18 @@ func (k Key) KeyPath(namespace string) string {
 	return fmt.Sprintf("%s/%s/%s", ns, kindSegment(k.Kind), sanitizeKeySegment(k.Value))
 }
 
+// KeyPathVariants returns the sanitized key path followed by any legacy representations
+// that may exist from before escaping was introduced. Consumers should try the first
+// element (current format) and fall back to the remaining entries for compatibility.
+func (k Key) KeyPathVariants(namespace string) []string {
+	sanitized := k.KeyPath(namespace)
+	legacy := legacyKeyPath(namespace, k.Kind, k.Value)
+	if sanitized == legacy {
+		return []string{sanitized}
+	}
+	return []string{sanitized, legacy}
+}
+
 func kindSegment(kind Kind) string {
 	switch kind {
 	case KindDeviceID:
@@ -331,4 +343,12 @@ func allowedKeyRune(r rune) bool {
 	default:
 		return false
 	}
+}
+
+func legacyKeyPath(namespace string, kind Kind, value string) string {
+	ns := strings.Trim(namespace, "/")
+	if ns == "" {
+		ns = DefaultNamespace
+	}
+	return fmt.Sprintf("%s/%s/%s", ns, kindSegment(kind), strings.TrimSpace(value))
 }

@@ -106,6 +106,7 @@ func (*Server) extractIdentity(ctx context.Context) (string, error) {
 func (*Server) authorizeMethod(method string, role Role) error {
 	permissions := map[string][]Role{
 		"/proto.KVService/Get":         {RoleReader, RoleWriter},
+		"/proto.KVService/BatchGet":    {RoleReader, RoleWriter},
 		"/proto.KVService/Watch":       {RoleReader, RoleWriter},
 		"/proto.KVService/Put":         {RoleWriter},
 		"/proto.KVService/PutIfAbsent": {RoleWriter},

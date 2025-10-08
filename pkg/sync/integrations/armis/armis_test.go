@@ -899,6 +899,10 @@ func (*mockKVClient) Get(_ context.Context, _ *proto.GetRequest, _ ...grpc.CallO
 	return nil, errNotImplemented
 }
 
+func (*mockKVClient) BatchGet(_ context.Context, _ *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+	return nil, errNotImplemented
+}
+
 func (*mockKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ...grpc.CallOption) (*proto.DeleteResponse, error) {
 	return nil, errNotImplemented
 }
@@ -1144,7 +1148,8 @@ func TestProcessDevices(t *testing.T) {
 }
 
 type fakeKVClient struct {
-	getFn func(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
+	getFn      func(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
+	batchGetFn func(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error)
 }
 
 func (f *fakeKVClient) Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error) {
@@ -1152,6 +1157,28 @@ func (f *fakeKVClient) Get(ctx context.Context, in *proto.GetRequest, opts ...gr
 		return f.getFn(ctx, in, opts...)
 	}
 	return &proto.GetResponse{}, nil
+}
+
+func (f *fakeKVClient) BatchGet(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+	if f.batchGetFn != nil {
+		return f.batchGetFn(ctx, in, opts...)
+	}
+
+	resp := &proto.BatchGetResponse{Results: make([]*proto.BatchGetEntry, 0, len(in.GetKeys()))}
+	for _, key := range in.GetKeys() {
+		single, err := f.Get(ctx, &proto.GetRequest{Key: key}, opts...)
+		if err != nil {
+			return nil, err
+		}
+		resp.Results = append(resp.Results, &proto.BatchGetEntry{
+			Key:      key,
+			Value:    single.GetValue(),
+			Found:    single.GetFound(),
+			Revision: single.GetRevision(),
+		})
+	}
+
+	return resp, nil
 }
 
 func (*fakeKVClient) Put(context.Context, *proto.PutRequest, ...grpc.CallOption) (*proto.PutResponse, error) {
@@ -1221,6 +1248,54 @@ func TestProcessDevices_AttachesCanonicalMetadata(t *testing.T) {
 	require.NoError(t, json.Unmarshal(enrichedBlob, &enriched))
 	require.Equal(t, "canon-99", enriched.Metadata["canonical_device_id"])
 	require.Equal(t, "prod", enriched.Metadata["canonical_partition"])
+}
+
+func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {
+	fake := &fakeKVClient{}
+	var captured [][]string
+	fake.batchGetFn = func(ctx context.Context, req *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+		keys := append([]string(nil), req.GetKeys()...)
+		captured = append(captured, keys)
+		resp := &proto.BatchGetResponse{Results: make([]*proto.BatchGetEntry, len(keys))}
+		for i, key := range keys {
+			resp.Results[i] = &proto.BatchGetEntry{Key: key, Found: false}
+		}
+		return resp, nil
+	}
+
+	integ := &ArmisIntegration{
+		Config:   &models.SourceConfig{AgentID: "agent", PollerID: "poller", Partition: "part"},
+		KVClient: fake,
+		Logger:   logger.NewTestLogger(),
+	}
+
+	devices := []Device{
+		{ID: 1, IPAddress: "10.0.0.1,10.0.0.2", MacAddress: "aa:bb:cc:dd:ee:ff", Name: "dev1"},
+		{ID: 2, IPAddress: "10.0.1.1", MacAddress: "11:22:33:44:55:66", Name: "dev2"},
+	}
+
+	labels := map[int]string{
+		1: "query1",
+		2: "query2",
+	}
+
+	queries := map[int]models.QueryConfig{
+		1: {Label: "query1", SweepModes: []models.SweepMode{models.ModeTCP}},
+		2: {Label: "query2", SweepModes: []models.SweepMode{models.ModeICMP}},
+	}
+
+	_, _, events, _ := integ.processDevices(context.Background(), devices, labels, queries)
+	require.Len(t, events, 2)
+	require.Len(t, captured, 1, "expected a single batched BatchGet call")
+
+	uniquePaths := make(map[string]struct{})
+	for _, event := range events {
+		for _, key := range prioritizeIdentityKeys(identitymap.BuildKeys(event)) {
+			uniquePaths[key.KeyPath(identitymap.DefaultNamespace)] = struct{}{}
+		}
+	}
+
+	require.Equal(t, len(uniquePaths), len(captured[0]))
 }
 
 // keysWithPrefix returns map keys that have the given prefix

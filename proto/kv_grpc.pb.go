@@ -17,7 +17,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.14.0
-// source: kv.proto
+// source: proto/kv.proto
 
 package proto
 
@@ -35,6 +35,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	KVService_Get_FullMethodName         = "/proto.KVService/Get"
+	KVService_BatchGet_FullMethodName    = "/proto.KVService/BatchGet"
 	KVService_Put_FullMethodName         = "/proto.KVService/Put"
 	KVService_PutIfAbsent_FullMethodName = "/proto.KVService/PutIfAbsent"
 	KVService_PutMany_FullMethodName     = "/proto.KVService/PutMany"
@@ -52,6 +53,8 @@ const (
 type KVServiceClient interface {
 	// Get retrieves the value for a given key.
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
+	// BatchGet retrieves multiple keys in a single round trip.
+	BatchGet(ctx context.Context, in *BatchGetRequest, opts ...grpc.CallOption) (*BatchGetResponse, error)
 	// Put stores a value for a given key with an optional TTL.
 	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutResponse, error)
 	// PutIfAbsent stores a value only if the key does not already exist.
@@ -82,6 +85,16 @@ func (c *kVServiceClient) Get(ctx context.Context, in *GetRequest, opts ...grpc.
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetResponse)
 	err := c.cc.Invoke(ctx, KVService_Get_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *kVServiceClient) BatchGet(ctx context.Context, in *BatchGetRequest, opts ...grpc.CallOption) (*BatchGetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchGetResponse)
+	err := c.cc.Invoke(ctx, KVService_BatchGet_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -175,6 +188,8 @@ func (c *kVServiceClient) Info(ctx context.Context, in *InfoRequest, opts ...grp
 type KVServiceServer interface {
 	// Get retrieves the value for a given key.
 	Get(context.Context, *GetRequest) (*GetResponse, error)
+	// BatchGet retrieves multiple keys in a single round trip.
+	BatchGet(context.Context, *BatchGetRequest) (*BatchGetResponse, error)
 	// Put stores a value for a given key with an optional TTL.
 	Put(context.Context, *PutRequest) (*PutResponse, error)
 	// PutIfAbsent stores a value only if the key does not already exist.
@@ -203,6 +218,9 @@ type UnimplementedKVServiceServer struct{}
 
 func (UnimplementedKVServiceServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedKVServiceServer) BatchGet(context.Context, *BatchGetRequest) (*BatchGetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchGet not implemented")
 }
 func (UnimplementedKVServiceServer) Put(context.Context, *PutRequest) (*PutResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Put not implemented")
@@ -260,6 +278,24 @@ func _KVService_Get_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(KVServiceServer).Get(ctx, req.(*GetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KVService_BatchGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchGetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KVServiceServer).BatchGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KVService_BatchGet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KVServiceServer).BatchGet(ctx, req.(*BatchGetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -395,6 +431,10 @@ var KVService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _KVService_Get_Handler,
 		},
 		{
+			MethodName: "BatchGet",
+			Handler:    _KVService_BatchGet_Handler,
+		},
+		{
 			MethodName: "Put",
 			Handler:    _KVService_Put_Handler,
 		},
@@ -426,5 +466,5 @@ var KVService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "kv.proto",
+	Metadata: "proto/kv.proto",
 }

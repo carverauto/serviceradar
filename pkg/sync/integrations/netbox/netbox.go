@@ -297,6 +297,15 @@ func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, e
 }
 
 // processDevices converts devices to KV data, extracts IPs, and returns the list of devices.
+type netboxDeviceContext struct {
+	device      *Device
+	event       *models.DeviceUpdate
+	keys        []identitymap.Key
+	orderedKeys []identitymap.Key
+	kvKey       string
+	network     string
+}
+
 func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp DeviceResponse) (
 	data map[string][]byte,
 	ips []string,
@@ -313,6 +322,8 @@ func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp Devic
 	agentID := n.Config.AgentID
 	pollerID := n.Config.PollerID
 	partition := n.Config.Partition
+
+	contexts := make([]netboxDeviceContext, 0, len(deviceResp.Results))
 
 	now := time.Now()
 
@@ -337,11 +348,12 @@ func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp Devic
 
 		ipStr := ip.String()
 
+		network := fmt.Sprintf("%s/32", ipStr)
 		if n.ExpandSubnets {
-			ips = append(ips, device.PrimaryIP4.Address)
-		} else {
-			ips = append(ips, fmt.Sprintf("%s/32", ipStr))
+			network = device.PrimaryIP4.Address
 		}
+
+		ips = append(ips, network)
 
 		kvKey := fmt.Sprintf("%s/%s", agentID, ipStr)
 
@@ -351,7 +363,6 @@ func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp Devic
 			"site":             device.Site.Name,
 		}
 
-		// Create discovery event (sweep result style)
 		hostname := device.Name
 		deviceID := fmt.Sprintf("%s:%s", partition, ipStr)
 
@@ -378,67 +389,145 @@ func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp Devic
 			}
 		}
 
-		if record, revision := n.lookupCanonicalRecord(ctx, identitymap.BuildKeys(event)); record != nil {
-			n.attachCanonicalMetadata(event, record, revision)
+		keys := identitymap.BuildKeys(event)
+		ordered := prioritizeIdentityKeys(keys)
+
+		contexts = append(contexts, netboxDeviceContext{
+			device:      device,
+			event:       event,
+			keys:        keys,
+			orderedKeys: ordered,
+			kvKey:       kvKey,
+			network:     network,
+		})
+	}
+
+	entries, fetchErr := n.prefetchCanonicalEntries(ctx, contexts)
+
+	for _, ctxDevice := range contexts {
+		var (
+			record   *identitymap.Record
+			revision uint64
+		)
+
+		if len(entries) != 0 {
+			record, revision = n.resolveCanonicalRecord(entries, ctxDevice.orderedKeys)
 		}
 
-		var metaJSON []byte
+		if record == nil && fetchErr != nil {
+			if fallback, rev := n.lookupCanonicalRecordDirect(ctx, ctxDevice.keys); fallback != nil {
+				record = fallback
+				revision = rev
+			}
+		}
 
-		if metaJSON, err = json.Marshal(event.Metadata); err == nil {
+		if record != nil {
+			n.attachCanonicalMetadata(ctxDevice.event, record, revision)
+		}
+
+		metaJSON, err := json.Marshal(ctxDevice.event.Metadata)
+		if err == nil {
 			n.Logger.Debug().
 				Str("metadata", string(metaJSON)).
 				Msg("SweepResult metadata")
 		}
 
-		value, err := json.Marshal(event)
+		value, err := json.Marshal(ctxDevice.event)
 		if err != nil {
 			n.Logger.Error().
 				Err(err).
-				Int("device_id", device.ID).
+				Int("device_id", ctxDevice.device.ID).
 				Msg("Failed to marshal device")
 
 			continue
 		}
 
-		data[kvKey] = value
-		// Add the consistently created device to the slice to be returned.
-		events = append(events, event)
+		data[ctxDevice.kvKey] = value
+		events = append(events, ctxDevice.event)
 	}
 
 	return data, ips, events
 }
 
-func (n *NetboxIntegration) lookupCanonicalRecord(ctx context.Context, keys []identitymap.Key) (*identitymap.Record, uint64) {
-	if n.KvClient == nil || len(keys) == 0 {
-		return nil, 0
+func (n *NetboxIntegration) prefetchCanonicalEntries(ctx context.Context, contexts []netboxDeviceContext) (map[string]*proto.BatchGetEntry, error) {
+	if n.KvClient == nil || len(contexts) == 0 {
+		return nil, nil
 	}
 
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	ordered := prioritizeIdentityKeys(keys)
+	seenPaths := make(map[string]struct{})
+	paths := make([]string, 0, len(contexts)*3)
+
+	for _, ctxDevice := range contexts {
+		for _, key := range ctxDevice.orderedKeys {
+			sanitized := key.KeyPath(identitymap.DefaultNamespace)
+			if _, ok := seenPaths[sanitized]; ok {
+				continue
+			}
+			seenPaths[sanitized] = struct{}{}
+			paths = append(paths, sanitized)
+		}
+	}
+
+	if len(paths) == 0 {
+		return nil, nil
+	}
+
+	const chunkSize = 256
+	entries := make(map[string]*proto.BatchGetEntry, len(paths))
+	var firstErr error
+
+	for start := 0; start < len(paths); start += chunkSize {
+		end := start + chunkSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+
+		resp, err := n.KvClient.BatchGet(ctx, &proto.BatchGetRequest{Keys: paths[start:end]})
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			n.Logger.Debug().
+				Err(err).
+				Int("batch_start", start).
+				Int("batch_size", end-start).
+				Msg("NetBox identity map prefetch failed")
+			continue
+		}
+
+		for _, entry := range resp.GetResults() {
+			if entry == nil {
+				continue
+			}
+			entries[entry.GetKey()] = entry
+		}
+	}
+
+	return entries, firstErr
+}
+
+func (n *NetboxIntegration) resolveCanonicalRecord(entries map[string]*proto.BatchGetEntry, ordered []identitymap.Key) (*identitymap.Record, uint64) {
+	if len(entries) == 0 || len(ordered) == 0 {
+		return nil, 0
+	}
 
 	for _, key := range ordered {
-		resp, err := n.KvClient.Get(ctx, &proto.GetRequest{Key: key.KeyPath(identitymap.DefaultNamespace)})
+		sanitized := key.KeyPath(identitymap.DefaultNamespace)
+		entry, ok := entries[sanitized]
+		if !ok || !entry.GetFound() || len(entry.GetValue()) == 0 {
+			continue
+		}
+
+		record, err := identitymap.UnmarshalRecord(entry.GetValue())
 		if err != nil {
 			n.Logger.Debug().
 				Err(err).
 				Str("identity_kind", key.Kind.String()).
 				Str("identity_value", key.Value).
-				Msg("NetBox identity map lookup failed")
-			continue
-		}
-
-		if !resp.GetFound() || len(resp.GetValue()) == 0 {
-			continue
-		}
-
-		record, err := identitymap.UnmarshalRecord(resp.GetValue())
-		if err != nil {
-			n.Logger.Debug().
-				Err(err).
-				Str("identity_kind", key.Kind.String()).
 				Msg("Failed to unmarshal canonical identity record")
 			continue
 		}
@@ -449,10 +538,52 @@ func (n *NetboxIntegration) lookupCanonicalRecord(ctx context.Context, keys []id
 			Str("canonical_device_id", record.CanonicalDeviceID).
 			Msg("Resolved canonical identity for NetBox device")
 
-		return record, resp.GetRevision()
+		return record, entry.GetRevision()
 	}
 
 	return nil, 0
+}
+
+func (n *NetboxIntegration) lookupCanonicalRecordDirect(ctx context.Context, keys []identitymap.Key) (*identitymap.Record, uint64) {
+	if n.KvClient == nil || len(keys) == 0 {
+		return nil, 0
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ordered := prioritizeIdentityKeys(keys)
+	if len(ordered) == 0 {
+		return nil, 0
+	}
+
+	seenPaths := make(map[string]struct{}, len(ordered))
+	paths := make([]string, 0, len(ordered))
+	for _, key := range ordered {
+		sanitized := key.KeyPath(identitymap.DefaultNamespace)
+		if _, ok := seenPaths[sanitized]; ok {
+			continue
+		}
+		seenPaths[sanitized] = struct{}{}
+		paths = append(paths, sanitized)
+	}
+
+	resp, err := n.KvClient.BatchGet(ctx, &proto.BatchGetRequest{Keys: paths})
+	if err != nil {
+		n.Logger.Debug().Err(err).Msg("NetBox identity map lookup failed")
+		return nil, 0
+	}
+
+	entries := make(map[string]*proto.BatchGetEntry, len(resp.GetResults()))
+	for _, entry := range resp.GetResults() {
+		if entry == nil {
+			continue
+		}
+		entries[entry.GetKey()] = entry
+	}
+
+	return n.resolveCanonicalRecord(entries, ordered)
 }
 
 func (n *NetboxIntegration) attachCanonicalMetadata(event *models.DeviceUpdate, record *identitymap.Record, revision uint64) {
