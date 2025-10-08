@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -556,11 +557,12 @@ func (s *SimpleSyncService) addIdentityPathsFromUpdate(
 
 	for _, key := range keys {
 		for _, variant := range key.KeyPathVariants(identitymap.DefaultNamespace) {
-			if variant == "" || s.pathExists(variant, uniquePaths) {
+			sanitized := identitymap.SanitizeKeyPath(variant)
+			if sanitized == "" || s.pathExists(sanitized, uniquePaths) {
 				continue
 			}
-			uniquePaths[variant] = struct{}{}
-			*paths = append(*paths, variant)
+			uniquePaths[sanitized] = struct{}{}
+			*paths = append(*paths, sanitized)
 		}
 	}
 }
@@ -582,15 +584,45 @@ func (s *SimpleSyncService) fetchCanonicalEntries(ctx context.Context, paths []s
 	entries := make(map[string]canonicalEntry, len(paths))
 	var errs error
 
+	if len(paths) == 0 {
+		return entries, nil
+	}
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(8)
+
+	var mu sync.Mutex
+	var errMu sync.Mutex
+
 	for start := 0; start < len(paths); start += chunkSize {
 		end := start + chunkSize
 		if end > len(paths) {
 			end = len(paths)
 		}
 
-		if err := s.fetchBatchEntries(ctx, paths[start:end], start, entries); err != nil {
-			errs = errors.Join(errs, err)
-		}
+		batch := append([]string(nil), paths[start:end]...)
+		batchStart := start
+
+		g.Go(func() error {
+			batchEntries, err := s.fetchBatchEntries(ctx, batch, batchStart)
+			if len(batchEntries) > 0 {
+				mu.Lock()
+				for k, v := range batchEntries {
+					entries[k] = v
+				}
+				mu.Unlock()
+			}
+			if err != nil {
+				errMu.Lock()
+				errs = errors.Join(errs, err)
+				errMu.Unlock()
+			}
+			return err
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return entries, errs
 	}
 
 	return entries, errs
@@ -601,8 +633,7 @@ func (s *SimpleSyncService) fetchBatchEntries(
 	ctx context.Context,
 	keys []string,
 	batchStart int,
-	entries map[string]canonicalEntry,
-) error {
+) (map[string]canonicalEntry, error) {
 	resp, err := s.kvClient.BatchGet(ctx, &proto.BatchGetRequest{Keys: keys})
 	if err != nil {
 		s.logger.Debug().
@@ -610,10 +641,11 @@ func (s *SimpleSyncService) fetchBatchEntries(
 			Int("batch_start", batchStart).
 			Int("batch_size", len(keys)).
 			Msg("canonical KV batch lookup failed")
-		return err
+		return nil, err
 	}
 
 	var errs error
+	results := make(map[string]canonicalEntry, len(resp.GetResults()))
 	for _, entry := range resp.GetResults() {
 		if entry == nil || !entry.GetFound() || len(entry.GetValue()) == 0 {
 			continue
@@ -629,13 +661,13 @@ func (s *SimpleSyncService) fetchBatchEntries(
 			continue
 		}
 
-		entries[entry.GetKey()] = canonicalEntry{
+		results[entry.GetKey()] = canonicalEntry{
 			record:   record,
 			revision: entry.GetRevision(),
 		}
 	}
 
-	return errs
+	return results, errs
 }
 
 // applyCanonicalMetadata applies canonical identity metadata to device updates

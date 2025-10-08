@@ -388,3 +388,30 @@ func legacyKeyPath(namespace string, kind Kind, value string) string {
 	}
 	return fmt.Sprintf("%s/%s/%s", ns, kindSegment(kind), strings.TrimSpace(value))
 }
+
+// SanitizeKeyPath ensures a key path only contains JetStream-safe characters by reapplying
+// the segment sanitizer used when constructing canonical map keys. This allows callers to
+// normalize legacy paths before issuing KV requests.
+func SanitizeKeyPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	sanitized := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		sanitized = append(sanitized, sanitizeKeySegment(part))
+	}
+
+	if len(sanitized) == 0 {
+		return ""
+	}
+
+	return strings.Join(sanitized, "/")
+}

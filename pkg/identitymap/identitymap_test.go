@@ -113,3 +113,18 @@ func TestKeyPathVariantsIncludesLegacy(t *testing.T) {
 	assert.Equal(t, "device_canonical_map/device-id/tenant-a=3A1.2.3.4", variants[0])
 	assert.Equal(t, "device_canonical_map/device-id/tenant-a:1.2.3.4", variants[1])
 }
+
+func TestSanitizeKeyPath(t *testing.T) {
+	assert.Equal(t,
+		"device_canonical_map/mac/AA=3ABB=3ACC=3ADD=3AEE=3AFF",
+		SanitizeKeyPath("device_canonical_map/mac/AA:BB:CC:DD:EE:FF"),
+	)
+
+	assert.Equal(t,
+		"device_canonical_map/device-id/tenant-a=3A1.2.3.4",
+		SanitizeKeyPath(" /device_canonical_map//device-id//tenant-a:1.2.3.4 "),
+	)
+
+	assert.Equal(t, "", SanitizeKeyPath(""))
+	assert.Equal(t, "", SanitizeKeyPath("///"))
+}
