@@ -91,3 +91,11 @@ func TestKeyPath(t *testing.T) {
 	assert.Equal(t, "device_canonical_map/armis-id/armis-123", key.KeyPath(""))
 	assert.Equal(t, "custom/armis-id/armis-123", key.KeyPath("/custom/"))
 }
+
+func TestKeyPathSanitizesDisallowedCharacters(t *testing.T) {
+	key := Key{Kind: KindMAC, Value: "AA:BB:CC:DD:EE:FF"}
+	assert.Equal(t, "device_canonical_map/mac/AA=3ABB=3ACC=3ADD=3AEE=3AFF", key.KeyPath(""))
+
+	ipv6 := Key{Kind: KindIP, Value: "fe80::1"}
+	assert.Equal(t, "device_canonical_map/ip/fe80=3A=3A1", ipv6.KeyPath(""))
+}

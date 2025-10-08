@@ -256,11 +256,8 @@ func UnmarshalRecord(data []byte) (*Record, error) {
 
 // KeyPath builds the storage path for a key under the provided namespace.
 func (k Key) KeyPath(namespace string) string {
-	ns := strings.Trim(namespace, "/")
-	if ns == "" {
-		ns = DefaultNamespace
-	}
-	return fmt.Sprintf("%s/%s/%s", ns, kindSegment(k.Kind), k.Value)
+	ns := sanitizeNamespace(namespace)
+	return fmt.Sprintf("%s/%s/%s", ns, kindSegment(k.Kind), sanitizeKeySegment(k.Value))
 }
 
 func kindSegment(kind Kind) string {
@@ -279,5 +276,59 @@ func kindSegment(kind Kind) string {
 		return "partition-ip"
 	default:
 		return strings.ToLower(kind.String())
+	}
+}
+
+func sanitizeNamespace(namespace string) string {
+	trimmed := strings.Trim(namespace, "/")
+	if trimmed == "" {
+		return DefaultNamespace
+	}
+	parts := strings.Split(trimmed, "/")
+	cleaned := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		cleaned = append(cleaned, sanitizeKeySegment(part))
+	}
+	if len(cleaned) == 0 {
+		return DefaultNamespace
+	}
+	return strings.Join(cleaned, "/")
+}
+
+func sanitizeKeySegment(segment string) string {
+	if segment == "" {
+		return segment
+	}
+	var b strings.Builder
+	b.Grow(len(segment))
+	for _, r := range segment {
+		if allowedKeyRune(r) {
+			b.WriteRune(r)
+			continue
+		}
+		fmt.Fprintf(&b, "=%X", r)
+	}
+	return b.String()
+}
+
+func allowedKeyRune(r rune) bool {
+	if r >= 'a' && r <= 'z' {
+		return true
+	}
+	if r >= 'A' && r <= 'Z' {
+		return true
+	}
+	if r >= '0' && r <= '9' {
+		return true
+	}
+	switch r {
+	case '_', '-', '.', '=', '/':
+		return true
+	default:
+		return false
 	}
 }
