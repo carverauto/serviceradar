@@ -34,6 +34,13 @@ func (s *Server) GetCanonicalDevice(ctx context.Context, req *proto.GetCanonical
 	ctx, span := s.tracer.Start(ctx, "GetCanonicalDevice")
 	defer span.End()
 
+	start := time.Now()
+	resolvedVia := "error"
+	found := false
+	defer func() {
+		identitymap.RecordLookupLatency(ctx, time.Since(start), resolvedVia, found)
+	}()
+
 	if req == nil || len(req.GetIdentityKeys()) == 0 && strings.TrimSpace(req.GetIpHint()) == "" {
 		span.SetStatus(otelcodes.Error, "missing identity keys")
 		return nil, status.Error(grpccodes.InvalidArgument, "identity keys are required")
@@ -62,6 +69,8 @@ func (s *Server) GetCanonicalDevice(ctx context.Context, req *proto.GetCanonical
 		}
 		if rec != nil {
 			span.SetStatus(otelcodes.Ok, "resolved via kv")
+			resolvedVia = "kv"
+			found = true
 			return &proto.GetCanonicalDeviceResponse{
 				Found:      true,
 				Record:     rec.ToProto(),
@@ -80,6 +89,7 @@ func (s *Server) GetCanonicalDevice(ctx context.Context, req *proto.GetCanonical
 	}
 	if record == nil {
 		span.SetStatus(otelcodes.Ok, "identity not found")
+		resolvedVia = "miss"
 		return &proto.GetCanonicalDeviceResponse{Found: false}, nil
 	}
 
@@ -93,6 +103,8 @@ func (s *Server) GetCanonicalDevice(ctx context.Context, req *proto.GetCanonical
 	}
 
 	span.SetStatus(otelcodes.Ok, "resolved via db fallback")
+	resolvedVia = "db"
+	found = true
 	return &proto.GetCanonicalDeviceResponse{
 		Found:      true,
 		Record:     record.ToProto(),

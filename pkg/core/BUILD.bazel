@@ -11,6 +11,7 @@ go_library(
         "events.go",
         "flush.go",
         "interfaces.go",
+        "identity_lookup.go",
         "metrics.go",
         "mock_server.go",
         "notifications.go",
@@ -48,6 +49,9 @@ go_library(
         "@io_opentelemetry_go_otel//attribute",
         "@io_opentelemetry_go_otel//codes",
         "@io_opentelemetry_go_otel_trace//:trace",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
         "@org_uber_go_mock//gomock",
     ],
 )
@@ -56,6 +60,7 @@ go_test(
     name = "core_test",
     srcs = [
         "discovery_test.go",
+        "identity_lookup_test.go",
         "kv_metadata_test.go",
         "metrics_sweep_test.go",
         "metrics_test.go",

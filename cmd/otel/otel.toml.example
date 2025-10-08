@@ -7,6 +7,11 @@ bind_address = "0.0.0.0"
 # Port to listen on for OTEL traces
 port = 4317
 
+[server.metrics]
+# Address and port for the Prometheus scrape endpoint (GET /metrics)
+bind_address = "0.0.0.0"
+port = 9464
+
 [nats]
 # NATS server URL (required to enable NATS output)
 url = "nats://localhost:4222"

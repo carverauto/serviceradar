@@ -147,12 +147,18 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 			_, err := p.kvClient.PutIfAbsent(ctx, &proto.PutRequest{Key: key, Value: payload, TtlSeconds: p.ttlSeconds})
 			if err != nil {
 				if shouldRetryKV(err) {
+					code := status.Code(err)
+					if code == codes.AlreadyExists || code == codes.Aborted {
+						identitymap.RecordKVConflict(ctx, code.String())
+						p.logger.Debug().Str("key", key).Str("reason", code.String()).Msg("KV identity publish encountered conflict")
+					}
 					return struct{}{}, err
 				}
 				return struct{}{}, backoff.Permanent(err)
 			}
 
 			p.metrics.recordPublish(1)
+			identitymap.RecordKVPublish(ctx, 1, "created")
 			p.logger.Debug().Str("key", key).Msg("Created canonical identity entry in KV")
 			return struct{}{}, nil
 		}
@@ -162,6 +168,7 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 			return struct{}{}, backoff.Permanent(fmt.Errorf("unmarshal existing canonical record: %w", err))
 		}
 		if existing.MetadataHash == metadataHash {
+			identitymap.RecordKVPublish(ctx, 1, "unchanged")
 			return struct{}{}, nil
 		}
 
@@ -173,12 +180,18 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 		})
 		if err != nil {
 			if shouldRetryKV(err) {
+				code := status.Code(err)
+				if code == codes.AlreadyExists || code == codes.Aborted {
+					identitymap.RecordKVConflict(ctx, code.String())
+					p.logger.Debug().Str("key", key).Str("reason", code.String()).Msg("KV identity update encountered conflict")
+				}
 				return struct{}{}, err
 			}
 			return struct{}{}, backoff.Permanent(err)
 		}
 
 		p.metrics.recordPublish(1)
+		identitymap.RecordKVPublish(ctx, 1, "updated")
 		p.logger.Debug().Str("key", key).Msg("Updated canonical identity entry in KV")
 		return struct{}{}, nil
 	}
@@ -187,6 +200,8 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}
+		identitymap.RecordKVConflict(ctx, "retry_exhausted")
+		p.logger.Warn().Str("key", key).Err(err).Msg("KV identity publish exhausted retries")
 		return fmt.Errorf("publish identity key %s: %w", key, err)
 	}
 
