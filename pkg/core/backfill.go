@@ -229,6 +229,110 @@ func buildIdentityAttributes(update *models.DeviceUpdate) map[string]string {
 	return attrs
 }
 
+type identityBackfillStats struct {
+	totalCandidates int
+	totalGroups     int
+	totalTombstones int
+	skippedByKV     int
+}
+
+func processIdentityRows(
+	ctx context.Context,
+	rows []identityRow,
+	seeder *kvSeeder,
+	opts BackfillOptions,
+	emit func(*models.DeviceUpdate) error,
+	log logger.Logger,
+	stats *identityBackfillStats,
+) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	stats.totalCandidates += len(rows)
+
+	groups := make(map[string][]identityRow)
+	for _, row := range rows {
+		if row.key == "" || row.deviceID == "" {
+			continue
+		}
+		groups[row.key] = append(groups[row.key], row)
+	}
+
+	for key, members := range groups {
+		if len(members) <= 1 {
+			continue
+		}
+
+		stats.totalGroups++
+
+		canonical := members[0]
+		for _, candidate := range members[1:] {
+			if candidate.ts.After(canonical.ts) {
+				canonical = candidate
+			}
+		}
+
+		canonicalUpdate := canonical.toDeviceUpdate()
+		record := buildIdentityRecord(canonicalUpdate)
+
+		var matches map[identitymap.Key]bool
+		if seeder != nil && record != nil {
+			seedMatches, seedErr := seeder.seedRecord(ctx, record, identitymap.BuildKeys(canonicalUpdate), opts.DryRun)
+			if seedErr != nil {
+				log.Warn().
+					Err(seedErr).
+					Str("identity_key", key).
+					Msg("Backfill: failed to seed canonical identity in KV")
+			}
+			matches = seedMatches
+		}
+
+		for _, member := range members {
+			if member.deviceID == canonical.deviceID {
+				continue
+			}
+
+			skip := opts.SeedKVOnly
+			if !skip && matches != nil {
+				targetKey := identitymap.Key{Kind: canonical.kind, Value: key}
+				if matched, ok := matches[targetKey]; ok && matched {
+					stats.skippedByKV++
+					skip = true
+				}
+			}
+
+			if skip {
+				continue
+			}
+
+			stats.totalTombstones++
+
+			tombstone := &models.DeviceUpdate{
+				DeviceID:    member.deviceID,
+				Partition:   partitionFromDeviceID(member.deviceID),
+				IP:          member.ip,
+				Source:      models.DiscoverySourceIntegration,
+				Timestamp:   time.Now(),
+				IsAvailable: false,
+				Metadata:    map[string]string{"_merged_into": canonical.deviceID},
+			}
+
+			log.Info().
+				Str("identity_key", key).
+				Str("from_id", member.deviceID).
+				Str("to_id", canonical.deviceID).
+				Msg("Backfill: tombstoning duplicate device")
+
+			if err := emit(tombstone); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 // BackfillIdentityTombstones scans unified_devices for duplicate device_ids that share
 // a strong identity (Armis ID or NetBox ID) and reconciles them against the canonical
 // identity map. When the KV already points at the canonical device the tombstone is
@@ -239,13 +343,9 @@ func BackfillIdentityTombstones(ctx context.Context, database db.Service, kvClie
 	namespace := opts.namespaceOrDefault()
 	seeder := newKVSeeder(kvClient, namespace, log)
 
-	totalCandidates := 0
-	totalGroups := 0
-	totalTombstones := 0
-	skippedByKV := 0
-
 	const chunkSize = 500
 	tombBatch := make([]*models.DeviceUpdate, 0, chunkSize)
+	stats := identityBackfillStats{}
 
 	emit := func(update *models.DeviceUpdate) error {
 		if update == nil {
@@ -269,92 +369,7 @@ func BackfillIdentityTombstones(ctx context.Context, database db.Service, kvClie
 	}
 
 	process := func(rows []identityRow) error {
-		if len(rows) == 0 {
-			return nil
-		}
-
-		totalCandidates += len(rows)
-
-		groups := make(map[string][]identityRow)
-		for _, row := range rows {
-			if row.key == "" || row.deviceID == "" {
-				continue
-			}
-			groups[row.key] = append(groups[row.key], row)
-		}
-
-		for key, members := range groups {
-			if len(members) <= 1 {
-				continue
-			}
-
-			totalGroups++
-
-			canonical := members[0]
-			for _, candidate := range members[1:] {
-				if candidate.ts.After(canonical.ts) {
-					canonical = candidate
-				}
-			}
-
-			canonicalUpdate := canonical.toDeviceUpdate()
-			record := buildIdentityRecord(canonicalUpdate)
-
-			var matches map[identitymap.Key]bool
-			if seeder != nil && record != nil {
-				seedMatches, seedErr := seeder.seedRecord(ctx, record, identitymap.BuildKeys(canonicalUpdate), opts.DryRun)
-				if seedErr != nil {
-					log.Warn().
-						Err(seedErr).
-						Str("identity_key", key).
-						Msg("Backfill: failed to seed canonical identity in KV")
-				}
-				matches = seedMatches
-			}
-
-			for _, member := range members {
-				if member.deviceID == canonical.deviceID {
-					continue
-				}
-
-				skip := opts.SeedKVOnly
-				if !skip && matches != nil {
-					targetKey := identitymap.Key{Kind: canonical.kind, Value: key}
-					if matched, ok := matches[targetKey]; ok && matched {
-						skippedByKV++
-						skip = true
-					}
-				}
-
-				if skip {
-					continue
-				}
-
-				totalTombstones++
-
-				tombstone := &models.DeviceUpdate{
-					DeviceID:    member.deviceID,
-					Partition:   partitionFromDeviceID(member.deviceID),
-					IP:          member.ip,
-					Source:      models.DiscoverySourceIntegration,
-					Timestamp:   time.Now(),
-					IsAvailable: false,
-					Metadata:    map[string]string{"_merged_into": canonical.deviceID},
-				}
-
-				log.Info().
-					Str("identity_key", key).
-					Str("from_id", member.deviceID).
-					Str("to_id", canonical.deviceID).
-					Msg("Backfill: tombstoning duplicate device")
-
-				if err := emit(tombstone); err != nil {
-					return err
-				}
-			}
-		}
-
-		return nil
+		return processIdentityRows(ctx, rows, seeder, opts, emit, log, &stats)
 	}
 
 	armisRows, err := queryIdentityRows(ctx, database, `
@@ -395,10 +410,10 @@ func BackfillIdentityTombstones(ctx context.Context, database db.Service, kvClie
 	if opts.DryRun {
 		log.Info().
 			Bool("dry_run", true).
-			Int("candidate_rows", totalCandidates).
-			Int("duplicate_groups", totalGroups).
-			Int("tombstones_would_emit", totalTombstones).
-			Int("kv_identity_skipped", skippedByKV).
+			Int("candidate_rows", stats.totalCandidates).
+			Int("duplicate_groups", stats.totalGroups).
+			Int("tombstones_would_emit", stats.totalTombstones).
+			Int("kv_identity_skipped", stats.skippedByKV).
 			Msg("Identity backfill DRY-RUN completed")
 
 		return nil
@@ -406,18 +421,18 @@ func BackfillIdentityTombstones(ctx context.Context, database db.Service, kvClie
 
 	if opts.SeedKVOnly {
 		log.Info().
-			Int("candidate_rows", totalCandidates).
-			Int("duplicate_groups", totalGroups).
-			Int("kv_identity_skipped", skippedByKV).
+			Int("candidate_rows", stats.totalCandidates).
+			Int("duplicate_groups", stats.totalGroups).
+			Int("kv_identity_skipped", stats.skippedByKV).
 			Msg("Identity backfill completed with KV seeding only")
 		return nil
 	}
 
 	log.Info().
-		Int("candidate_rows", totalCandidates).
-		Int("duplicate_groups", totalGroups).
-		Int("tombstones_emitted", totalTombstones).
-		Int("kv_identity_skipped", skippedByKV).
+		Int("candidate_rows", stats.totalCandidates).
+		Int("duplicate_groups", stats.totalGroups).
+		Int("tombstones_emitted", stats.totalTombstones).
+		Int("kv_identity_skipped", stats.skippedByKV).
 		Msg("Identity backfill completed")
 
 	return nil

@@ -29,6 +29,11 @@ var meterProvider *sdkmetric.MeterProvider
 var meterMu sync.Mutex
 
 // MetricsConfig captures the information required to initialise the OTEL metrics pipeline.
+const (
+	defaultServiceName    = "serviceradar"
+	defaultServiceVersion = "1.0.0"
+)
+
 type MetricsConfig struct {
 	ServiceName    string
 	ServiceVersion string
@@ -57,12 +62,12 @@ func InitializeMetrics(ctx context.Context, config MetricsConfig) (*sdkmetric.Me
 
 	serviceName := config.ServiceName
 	if serviceName == "" {
-		serviceName = "serviceradar"
+		serviceName = defaultServiceName
 	}
 
 	serviceVersion := config.ServiceVersion
 	if serviceVersion == "" {
-		serviceVersion = "1.0.0"
+		serviceVersion = defaultServiceVersion
 	}
 
 	opts := []otlpmetricgrpc.Option{

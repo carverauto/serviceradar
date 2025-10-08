@@ -18,9 +18,14 @@ const (
 )
 
 var (
-	meterOnce       sync.Once
-	publishCounter  metric.Int64Counter
+	// instrumentation handles are cached globally to avoid re-registering OTEL instruments on every call.
+	//nolint:gochecknoglobals // metrics instruments are shared across the process intentionally
+	meterOnce sync.Once
+	//nolint:gochecknoglobals // metrics instruments are shared across the process intentionally
+	publishCounter metric.Int64Counter
+	//nolint:gochecknoglobals // metrics instruments are shared across the process intentionally
 	conflictCounter metric.Int64Counter
+	//nolint:gochecknoglobals // metrics instruments are shared across the process intentionally
 	lookupHistogram metric.Float64Histogram
 )
 
