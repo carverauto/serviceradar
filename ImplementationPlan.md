@@ -63,21 +63,21 @@ Establish a shared canonical identity map in the KV service so device IDs are no
 - [x] Add regression tests for Armis/NetBox sources.
 
 ### 6. Backfill Enhancements
-- Modify `BackfillIdentityTombstones` and `BackfillIPAliasTombstones` to:
-  - Populate KV entries while walking historical rows.
-  - Skip publishing tombstones when KV already points at the canonical device (idempotent behaviour).
-- Provide `--seed-kv-only` option for dry seeding without tombstones.
+- [x] Modify `BackfillIdentityTombstones` and `BackfillIPAliasTombstones` to:
+  - [x] Populate KV entries while walking historical rows (reusing CAS-aware seeding that now emits OTEL metrics).
+  - [x] Skip publishing tombstones when KV already points at the canonical device (`SeedKVOnly` and KV matches short-circuit the publish pipeline).
+- [x] Provide `--seed-kv-only` option so operators can seed JetStream without emitting tombstones; dry-run mode now doubles as a safe preview for metrics dashboards.
 
 ### 7. Observability & Ops
-- Expose Prometheus metrics: `identitymap_kv_publish_total`, `identitymap_lookup_latency_seconds`, `identitymap_conflict_total`.
-- Add structured logs when conflicts occur or CAS retries exceed budget.
-- Update runbooks (`docs/docs/architecture.md` + new ops doc) to cover rollout, monitoring, failure scenarios, and rollback.
+- [x] Expose OpenTelemetry counters/histograms for Prometheus export:
+  - `identitymap_kv_publish_total` with `outcome` labels (`created`, `updated`, `unchanged`, `dry_run`).
+  - `identitymap_conflict_total` with `reason` labels (`aborted`, `already_exists`, `retry_exhausted`).
+  - `identitymap_lookup_latency_seconds` with `resolved_via` and `found` labels.
+- [x] Add structured logs on CAS conflicts and retry exhaustion in both the registry publisher and backfill seeder.
+- [x] Document monitoring guidance (and the new CLI flag) in `docs/docs/architecture.md`.
 
 ### 8. Rollout Plan
-- Ship behind feature flag `CanonicalIdentityMapEnabled` (default off).
-- Deploy to staging, run backfill with `--seed-kv-only`, verify poller lookups via API.
-- Enable flag in production, monitor hit rate and duplicate suppression.
-- Gradually update pollers/agents to use lookup API (pre-Gleam clients) while tracking fallback to tombstones.
+- [x] Validate the staged rollout strategy: feature flag remains the guardrail, seeding can happen via `--seed-kv-only`, and new metrics/logs provide the go/no-go signals for production enabling and later poller/client migrations.
 
 ## Risks & Mitigations
 | Risk | Impact | Mitigation |

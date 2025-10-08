@@ -2,47 +2,286 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // identityRow holds a single unified_devices row with the identity key extracted.
 type identityRow struct {
 	deviceID string
 	key      string // identity key (armis_id or netbox_id)
+	kind     identitymap.Kind
 	ts       time.Time
 	ip       string
+	metadata map[string]string
 }
 
-// BackfillIdentityTombstones scans unified_devices for duplicate device_ids that share
-// a strong identity (Armis ID or NetBox ID) and emits tombstones for non-canonical IDs.
-// Canonical selection is the most recent (_tp_time) device row per identity key.
-//
-//nolint:gocognit,funlen // Complex legacy backfill logic
-func BackfillIdentityTombstones(ctx context.Context, database db.Service, log logger.Logger, dryRun bool) error {
-	totalCandidates := 0
-	totalGroups := 0
-	totalTombstones := 0
+// BackfillOptions controls how historical identity reconciliation is executed.
+type BackfillOptions struct {
+	DryRun     bool
+	SeedKVOnly bool
+	Namespace  string
+}
 
-	// Helper executes a query, groups by key fn, and returns tombstones.
-	buildTombstones := func(rows []identityRow) []*models.DeviceUpdate {
-		// group by identity key
-		groups := make(map[string][]identityRow)
+func (o BackfillOptions) namespaceOrDefault() string {
+	ns := strings.TrimSpace(o.Namespace)
+	if ns == "" {
+		ns = identitymap.DefaultNamespace
+	}
+	return ns
+}
 
-		for _, r := range rows {
-			if r.key == "" || r.deviceID == "" {
+func cloneMetadata(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return map[string]string{}
+	}
+
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+
+	return dst
+}
+
+func (r identityRow) toDeviceUpdate() *models.DeviceUpdate {
+	if r.deviceID == "" {
+		return nil
+	}
+
+	meta := cloneMetadata(r.metadata)
+
+	update := &models.DeviceUpdate{
+		DeviceID:    r.deviceID,
+		IP:          r.ip,
+		Partition:   partitionFromDeviceID(r.deviceID),
+		Source:      models.DiscoverySourceIntegration,
+		Timestamp:   r.ts,
+		Metadata:    meta,
+		IsAvailable: true,
+	}
+
+	return update
+}
+
+type kvSeeder struct {
+	client    identityKVClient
+	namespace string
+	log       logger.Logger
+}
+
+func newKVSeeder(client identityKVClient, namespace string, log logger.Logger) *kvSeeder {
+	if client == nil {
+		return nil
+	}
+
+	ns := strings.TrimSpace(namespace)
+	if ns == "" {
+		ns = identitymap.DefaultNamespace
+	}
+
+	return &kvSeeder{client: client, namespace: ns, log: log}
+}
+
+func (s *kvSeeder) seedRecord(ctx context.Context, record *identitymap.Record, keys []identitymap.Key, dryRun bool) (map[identitymap.Key]bool, error) {
+	if s == nil || s.client == nil || record == nil || len(keys) == 0 {
+		return nil, nil
+	}
+
+	payload, err := identitymap.MarshalRecord(record)
+	if err != nil {
+		return nil, err
+	}
+
+	matched := make(map[identitymap.Key]bool, len(keys))
+	var seedErr error
+
+	for _, key := range keys {
+		keyPath := key.KeyPath(s.namespace)
+
+		resp, err := s.client.Get(ctx, &proto.GetRequest{Key: keyPath})
+		if err != nil {
+			seedErr = errors.Join(seedErr, fmt.Errorf("kv get %s: %w", keyPath, err))
+			continue
+		}
+
+		if !resp.GetFound() || len(resp.GetValue()) == 0 {
+			matched[key] = false
+
+			if dryRun {
+				identitymap.RecordKVPublish(ctx, 1, "dry_run")
 				continue
 			}
 
-			groups[r.key] = append(groups[r.key], r)
+			if _, err := s.client.PutIfAbsent(ctx, &proto.PutRequest{Key: keyPath, Value: payload}); err != nil {
+				code := status.Code(err)
+				if code == codes.Aborted || code == codes.AlreadyExists {
+					identitymap.RecordKVConflict(ctx, code.String())
+					if s.log != nil {
+						s.log.Debug().Str("key", keyPath).Str("reason", code.String()).Msg("Backfill KV create encountered conflict")
+					}
+				}
+				seedErr = errors.Join(seedErr, fmt.Errorf("kv put %s: %w", keyPath, err))
+				continue
+			}
+
+			identitymap.RecordKVPublish(ctx, 1, "created")
+			if s.log != nil {
+				s.log.Debug().Str("key", keyPath).Msg("Backfill created canonical identity entry in KV")
+			}
+
+			continue
 		}
 
-		var updates []*models.DeviceUpdate
+		existing, err := identitymap.UnmarshalRecord(resp.GetValue())
+		if err != nil {
+			seedErr = errors.Join(seedErr, fmt.Errorf("kv unmarshal %s: %w", keyPath, err))
+			continue
+		}
+
+		if existing.CanonicalDeviceID == record.CanonicalDeviceID && existing.MetadataHash == record.MetadataHash {
+			matched[key] = true
+			identitymap.RecordKVPublish(ctx, 1, "unchanged")
+			continue
+		}
+
+		matched[key] = false
+
+		if dryRun {
+			identitymap.RecordKVPublish(ctx, 1, "dry_run")
+			continue
+		}
+
+		if _, err := s.client.Update(ctx, &proto.UpdateRequest{Key: keyPath, Value: payload, Revision: resp.GetRevision()}); err != nil {
+			code := status.Code(err)
+			if code == codes.Aborted || code == codes.AlreadyExists {
+				identitymap.RecordKVConflict(ctx, code.String())
+				if s.log != nil {
+					s.log.Debug().Str("key", keyPath).Str("reason", code.String()).Msg("Backfill KV update encountered conflict")
+				}
+			}
+			seedErr = errors.Join(seedErr, fmt.Errorf("kv update %s: %w", keyPath, err))
+			continue
+		}
+
+		identitymap.RecordKVPublish(ctx, 1, "updated")
+		if s.log != nil {
+			s.log.Debug().Str("key", keyPath).Msg("Backfill updated canonical identity entry in KV")
+		}
+	}
+
+	return matched, seedErr
+}
+
+func buildIdentityRecord(update *models.DeviceUpdate) *identitymap.Record {
+	if update == nil {
+		return nil
+	}
+
+	return &identitymap.Record{
+		CanonicalDeviceID: update.DeviceID,
+		Partition:         update.Partition,
+		MetadataHash:      identitymap.HashMetadata(update.Metadata),
+		UpdatedAt:         time.Now().UTC(),
+		Attributes:        buildIdentityAttributes(update),
+	}
+}
+
+func buildIdentityAttributes(update *models.DeviceUpdate) map[string]string {
+	if update == nil {
+		return nil
+	}
+
+	attrs := map[string]string{}
+
+	if update.IP != "" {
+		attrs["ip"] = update.IP
+	}
+
+	if update.Partition != "" {
+		attrs["partition"] = update.Partition
+	}
+
+	if update.Hostname != nil {
+		if name := strings.TrimSpace(*update.Hostname); name != "" {
+			attrs["hostname"] = name
+		}
+	}
+
+	if src := strings.TrimSpace(string(update.Source)); src != "" {
+		attrs["source"] = src
+	}
+
+	if len(attrs) == 0 {
+		return nil
+	}
+
+	return attrs
+}
+
+// BackfillIdentityTombstones scans unified_devices for duplicate device_ids that share
+// a strong identity (Armis ID or NetBox ID) and reconciles them against the canonical
+// identity map. When the KV already points at the canonical device the tombstone is
+// skipped, making the job idempotent. Optionally the job can perform KV seeding only.
+//
+//nolint:gocognit,funlen // historical backfill logic remains complex
+func BackfillIdentityTombstones(ctx context.Context, database db.Service, kvClient identityKVClient, log logger.Logger, opts BackfillOptions) error {
+	namespace := opts.namespaceOrDefault()
+	seeder := newKVSeeder(kvClient, namespace, log)
+
+	totalCandidates := 0
+	totalGroups := 0
+	totalTombstones := 0
+	skippedByKV := 0
+
+	const chunkSize = 500
+	tombBatch := make([]*models.DeviceUpdate, 0, chunkSize)
+
+	emit := func(update *models.DeviceUpdate) error {
+		if update == nil {
+			return nil
+		}
+		if opts.DryRun || opts.SeedKVOnly {
+			return nil
+		}
+
+		tombBatch = append(tombBatch, update)
+		if len(tombBatch) < chunkSize {
+			return nil
+		}
+
+		if err := database.PublishBatchDeviceUpdates(ctx, tombBatch); err != nil {
+			return fmt.Errorf("publish tombstones: %w", err)
+		}
+
+		tombBatch = tombBatch[:0]
+		return nil
+	}
+
+	process := func(rows []identityRow) error {
+		if len(rows) == 0 {
+			return nil
+		}
+
+		totalCandidates += len(rows)
+
+		groups := make(map[string][]identityRow)
+		for _, row := range rows {
+			if row.key == "" || row.deviceID == "" {
+				continue
+			}
+			groups[row.key] = append(groups[row.key], row)
+		}
 
 		for key, members := range groups {
 			if len(members) <= 1 {
@@ -51,111 +290,126 @@ func BackfillIdentityTombstones(ctx context.Context, database db.Service, log lo
 
 			totalGroups++
 
-			// pick canonical by latest timestamp
 			canonical := members[0]
-			for _, m := range members[1:] {
-				if m.ts.After(canonical.ts) {
-					canonical = m
+			for _, candidate := range members[1:] {
+				if candidate.ts.After(canonical.ts) {
+					canonical = candidate
 				}
 			}
 
-			for _, m := range members {
-				if m.deviceID == canonical.deviceID {
+			canonicalUpdate := canonical.toDeviceUpdate()
+			record := buildIdentityRecord(canonicalUpdate)
+
+			var matches map[identitymap.Key]bool
+			if seeder != nil && record != nil {
+				seedMatches, seedErr := seeder.seedRecord(ctx, record, identitymap.BuildKeys(canonicalUpdate), opts.DryRun)
+				if seedErr != nil {
+					log.Warn().
+						Err(seedErr).
+						Str("identity_key", key).
+						Msg("Backfill: failed to seed canonical identity in KV")
+				}
+				matches = seedMatches
+			}
+
+			for _, member := range members {
+				if member.deviceID == canonical.deviceID {
 					continue
 				}
 
-				part := partitionFromDeviceID(m.deviceID)
-				updates = append(updates, &models.DeviceUpdate{
-					DeviceID:    m.deviceID,
-					Partition:   part,
-					IP:          m.ip,
+				skip := opts.SeedKVOnly
+				if !skip && matches != nil {
+					targetKey := identitymap.Key{Kind: canonical.kind, Value: key}
+					if matched, ok := matches[targetKey]; ok && matched {
+						skippedByKV++
+						skip = true
+					}
+				}
+
+				if skip {
+					continue
+				}
+
+				totalTombstones++
+
+				tombstone := &models.DeviceUpdate{
+					DeviceID:    member.deviceID,
+					Partition:   partitionFromDeviceID(member.deviceID),
+					IP:          member.ip,
 					Source:      models.DiscoverySourceIntegration,
 					Timestamp:   time.Now(),
 					IsAvailable: false,
 					Metadata:    map[string]string{"_merged_into": canonical.deviceID},
-				})
-				totalTombstones++
+				}
 
 				log.Info().
 					Str("identity_key", key).
-					Str("from_id", m.deviceID).
+					Str("from_id", member.deviceID).
 					Str("to_id", canonical.deviceID).
 					Msg("Backfill: tombstoning duplicate device")
-			}
-		}
 
-		return updates
-	}
-
-	publishBatch := func(batch []*models.DeviceUpdate) error {
-		if len(batch) == 0 {
-			return nil
-		}
-
-		if dryRun {
-			log.Info().Int("tombstones_would_emit", len(batch)).Msg("DRY-RUN: skipping publish of tombstone batch")
-			return nil
-		}
-
-		const chunk = 500
-
-		for i := 0; i < len(batch); i += chunk {
-			end := i + chunk
-			if end > len(batch) {
-				end = len(batch)
-			}
-
-			if err := database.PublishBatchDeviceUpdates(ctx, batch[i:end]); err != nil {
-				return fmt.Errorf("publish tombstones: %w", err)
+				if err := emit(tombstone); err != nil {
+					return err
+				}
 			}
 		}
 
 		return nil
 	}
 
-	// 1) Armis ID groups
 	armisRows, err := queryIdentityRows(ctx, database, `
-        SELECT device_id, ip, metadata['armis_device_id'] AS key, _tp_time
+        SELECT device_id, ip, metadata, metadata['armis_device_id'] AS key, _tp_time
         FROM table(unified_devices)
         WHERE has(map_keys(metadata), 'armis_device_id')
-          AND NOT has(map_keys(metadata), '_merged_into')`)
+          AND NOT has(map_keys(metadata), '_merged_into')`, identitymap.KindArmisID)
 	if err != nil {
 		return err
 	}
 
-	totalCandidates += len(armisRows)
-
-	if errBatch := publishBatch(buildTombstones(armisRows)); errBatch != nil {
-		return errBatch
+	if err := process(armisRows); err != nil {
+		return err
 	}
 
-	// 2) NetBox ID groups
 	netboxRows, err := queryIdentityRows(ctx, database, `
-        SELECT device_id, ip,
+        SELECT device_id, ip, metadata,
                if(has(map_keys(metadata),'integration_id'), metadata['integration_id'], metadata['netbox_device_id']) AS key,
                _tp_time
         FROM table(unified_devices)
         WHERE has(map_keys(metadata), 'integration_type') AND metadata['integration_type'] = 'netbox'
           AND (has(map_keys(metadata),'integration_id') OR has(map_keys(metadata),'netbox_device_id'))
-          AND NOT has(map_keys(metadata), '_merged_into')`)
+          AND NOT has(map_keys(metadata), '_merged_into')`, identitymap.KindNetboxID)
 	if err != nil {
 		return err
 	}
 
-	totalCandidates += len(netboxRows)
-
-	if err := publishBatch(buildTombstones(netboxRows)); err != nil {
+	if err := process(netboxRows); err != nil {
 		return err
 	}
 
-	if dryRun {
+	if len(tombBatch) > 0 {
+		if err := database.PublishBatchDeviceUpdates(ctx, tombBatch); err != nil {
+			return fmt.Errorf("publish tombstones: %w", err)
+		}
+	}
+
+	if opts.DryRun {
 		log.Info().
 			Bool("dry_run", true).
 			Int("candidate_rows", totalCandidates).
 			Int("duplicate_groups", totalGroups).
 			Int("tombstones_would_emit", totalTombstones).
+			Int("kv_identity_skipped", skippedByKV).
 			Msg("Identity backfill DRY-RUN completed")
 
+		return nil
+	}
+
+	if opts.SeedKVOnly {
+		log.Info().
+			Int("candidate_rows", totalCandidates).
+			Int("duplicate_groups", totalGroups).
+			Int("kv_identity_skipped", skippedByKV).
+			Msg("Identity backfill completed with KV seeding only")
 		return nil
 	}
 
@@ -163,22 +417,41 @@ func BackfillIdentityTombstones(ctx context.Context, database db.Service, log lo
 		Int("candidate_rows", totalCandidates).
 		Int("duplicate_groups", totalGroups).
 		Int("tombstones_emitted", totalTombstones).
+		Int("kv_identity_skipped", skippedByKV).
 		Msg("Identity backfill completed")
 
 	return nil
 }
 
 // BackfillIPAliasTombstones finds sweep-only device_ids by IP for canonical identity devices
-// (Armis/NetBox) and emits tombstones for those partition:ip device_ids to merge into the canonical.
-// This captures duplicates created before identity-based canonicalization was enabled.
+// (Armis/NetBox) and reconciles them, optionally seeding the canonical identity map for the
+// partition:ip keys. Like BackfillIdentityTombstones, it skips tombstones when the KV already
+// reflects the canonical device, making the workflow idempotent.
 //
-//nolint:gocognit,gocyclo,funlen // Complex legacy backfill logic
-func BackfillIPAliasTombstones(ctx context.Context, database db.Service, log logger.Logger, dryRun bool) error {
+//nolint:gocognit,gocyclo,funlen // legacy backfill logic remains complex
+func BackfillIPAliasTombstones(ctx context.Context, database db.Service, kvClient identityKVClient, log logger.Logger, opts BackfillOptions) error {
+	namespace := opts.namespaceOrDefault()
+	seeder := newKVSeeder(kvClient, namespace, log)
+
 	type canonical struct {
 		deviceID  string
 		partition string
 		ip        string
 		meta      map[string]string
+	}
+
+	buildCanonicalUpdate := func(c canonical) *models.DeviceUpdate {
+		if c.deviceID == "" {
+			return nil
+		}
+
+		return &models.DeviceUpdate{
+			DeviceID:  c.deviceID,
+			Partition: c.partition,
+			IP:        c.ip,
+			Source:    models.DiscoverySourceIntegration,
+			Metadata:  cloneMetadata(c.meta),
+		}
 	}
 
 	// 1) Fetch canonical devices that have strong identity
@@ -223,6 +496,11 @@ func BackfillIPAliasTombstones(ctx context.Context, database db.Service, log log
 		}
 
 		cands = append(cands, canonical{deviceID: dev, partition: part, ip: ip, meta: meta})
+	}
+
+	canonDetails := make(map[string]canonical, len(cands))
+	for _, c := range cands {
+		canonDetails[c.deviceID] = c
 	}
 
 	// 3) Build a set of target duplicate device_ids per canonical
@@ -274,10 +552,10 @@ func BackfillIPAliasTombstones(ctx context.Context, database db.Service, log log
 	// 4) Check which target device_ids actually exist and are not already merged
 	existing := make(map[string]struct{})
 
-	const chunk = 1000
+	const targetChunk = 1000
 
-	for i := 0; i < len(allTargets); i += chunk {
-		end := i + chunk
+	for i := 0; i < len(allTargets); i += targetChunk {
+		end := i + targetChunk
 		if end > len(allTargets) {
 			end = len(allTargets)
 		}
@@ -303,52 +581,129 @@ func BackfillIPAliasTombstones(ctx context.Context, database db.Service, log log
 	// 5) Emit tombstones for existing, non-canonical target IDs
 	var tombstones []*models.DeviceUpdate
 
-	var would int
+	const tombstoneChunk = 1000
+
+	emit := func(update *models.DeviceUpdate) error {
+		if update == nil {
+			return nil
+		}
+		if opts.DryRun || opts.SeedKVOnly {
+			return nil
+		}
+
+		tombstones = append(tombstones, update)
+		if len(tombstones) < tombstoneChunk {
+			return nil
+		}
+
+		if err := database.PublishBatchDeviceUpdates(ctx, tombstones); err != nil {
+			return fmt.Errorf("publish ip tombstones: %w", err)
+		}
+		tombstones = tombstones[:0]
+		return nil
+	}
+
+	var emitted int
+	skippedByKV := 0
 
 	for canon, targets := range canonToTargets {
 		part := partitionFromDeviceID(canon)
+
+		info, ok := canonDetails[canon]
+		if !ok {
+			info = canonical{deviceID: canon, partition: part}
+		}
+
+		update := buildCanonicalUpdate(info)
+		if update == nil {
+			continue
+		}
+
+		record := buildIdentityRecord(update)
+		if seeder != nil && record != nil {
+			if _, seedErr := seeder.seedRecord(ctx, record, identitymap.BuildKeys(update), opts.DryRun); seedErr != nil {
+				log.Warn().
+					Err(seedErr).
+					Str("canonical_device", canon).
+					Msg("IP backfill: failed to seed canonical identity keys")
+			}
+		}
 
 		for _, t := range targets {
 			if _, ok := existing[t]; !ok {
 				continue
 			}
 			// Build tombstone
-			tombstones = append(tombstones, &models.DeviceUpdate{
+			aliasKey := identitymap.Key{Kind: identitymap.KindPartitionIP, Value: t}
+			aliasMatched := false
+
+			if seeder != nil && record != nil {
+				if matches, seedErr := seeder.seedRecord(ctx, record, []identitymap.Key{aliasKey}, opts.DryRun); seedErr != nil {
+					log.Warn().
+						Err(seedErr).
+						Str("alias_device", t).
+						Str("canonical_device", canon).
+						Msg("IP backfill: failed to seed partition-ip identity")
+				} else if matches != nil && matches[aliasKey] {
+					aliasMatched = true
+				}
+			}
+
+			skip := opts.SeedKVOnly || aliasMatched
+			if skip {
+				if aliasMatched {
+					skippedByKV++
+				}
+				continue
+			}
+
+			emitted++
+			tombstone := &models.DeviceUpdate{
 				DeviceID:    t,
 				Partition:   part,
 				Source:      models.DiscoverySourceIntegration,
 				Timestamp:   time.Now(),
 				IsAvailable: false,
 				Metadata:    map[string]string{"_merged_into": canon},
-			})
-			would++
-			// Flush periodically to avoid large memory
-			if len(tombstones) >= 1000 && !dryRun {
-				if err := database.PublishBatchDeviceUpdates(ctx, tombstones); err != nil {
-					return fmt.Errorf("publish ip tombstones: %w", err)
-				}
+			}
 
-				tombstones = tombstones[:0]
+			if err := emit(tombstone); err != nil {
+				return err
 			}
 		}
 	}
 
-	if dryRun {
-		log.Info().Int("ip_alias_tombstones_would_emit", would).Msg("IP backfill DRY-RUN completed")
+	if opts.DryRun {
+		log.Info().
+			Int("ip_alias_tombstones_would_emit", emitted).
+			Int("kv_identity_skipped", skippedByKV).
+			Msg("IP backfill DRY-RUN completed")
 		return nil
 	}
 
 	if len(tombstones) > 0 {
-		if err := database.PublishBatchDeviceUpdates(ctx, tombstones); err != nil {
+		if opts.SeedKVOnly {
+			tombstones = tombstones[:0]
+		} else if err := database.PublishBatchDeviceUpdates(ctx, tombstones); err != nil {
 			return fmt.Errorf("publish ip tombstones: %w", err)
 		}
 	}
 
-	log.Info().Int("ip_alias_tombstones_emitted", would).Msg("IP backfill completed")
+	if opts.SeedKVOnly {
+		log.Info().
+			Int("kv_identity_skipped", skippedByKV).
+			Msg("IP backfill completed with KV seeding only")
+		return nil
+	}
+
+	log.Info().
+		Int("ip_alias_tombstones_emitted", emitted).
+		Int("kv_identity_skipped", skippedByKV).
+		Msg("IP backfill completed")
 
 	return nil
 }
-func queryIdentityRows(ctx context.Context, database db.Service, sql string) ([]identityRow, error) {
+func queryIdentityRows(ctx context.Context, database db.Service, sql string, kind identitymap.Kind) ([]identityRow, error) {
 	results, err := database.ExecuteQuery(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("identity query failed: %w", err)
@@ -357,7 +712,7 @@ func queryIdentityRows(ctx context.Context, database db.Service, sql string) ([]
 	rows := make([]identityRow, 0, len(results))
 
 	for _, r := range results {
-		rd := identityRow{}
+		rd := identityRow{kind: kind}
 		if v, ok := r["device_id"].(string); ok {
 			rd.deviceID = v
 		}
@@ -368,6 +723,23 @@ func queryIdentityRows(ctx context.Context, database db.Service, sql string) ([]
 		// key may be nil if metadata is malformed; skip in builder
 		if v, ok := r["key"].(string); ok {
 			rd.key = v
+		}
+
+		switch meta := r["metadata"].(type) {
+		case map[string]string:
+			rd.metadata = cloneMetadata(meta)
+		case map[string]interface{}:
+			converted := make(map[string]string, len(meta))
+			for k, v := range meta {
+				if s, ok := v.(string); ok {
+					converted[k] = s
+				}
+			}
+			rd.metadata = converted
+		case nil:
+			rd.metadata = map[string]string{}
+		default:
+			rd.metadata = map[string]string{}
 		}
 
 		switch t := r["_tp_time"].(type) {

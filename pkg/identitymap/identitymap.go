@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"time"
 
@@ -161,15 +162,26 @@ func (r *Record) ToProto() *identitymappb.CanonicalRecord {
 		CanonicalDeviceId: r.CanonicalDeviceID,
 		Partition:         r.Partition,
 		MetadataHash:      r.MetadataHash,
-		Attributes:        make(map[string]string, len(r.Attributes)),
 	}
 
 	if !r.UpdatedAt.IsZero() {
 		pb.UpdatedAtUnixMillis = r.UpdatedAt.UTC().UnixMilli()
 	}
 
-	for k, v := range r.Attributes {
-		pb.Attributes[k] = v
+	if len(r.Attributes) > 0 {
+		keys := make([]string, 0, len(r.Attributes))
+		for k := range r.Attributes {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		pb.Attributes = make([]*identitymappb.Attribute, 0, len(keys))
+		for _, k := range keys {
+			pb.Attributes = append(pb.Attributes, &identitymappb.Attribute{
+				Key:   k,
+				Value: r.Attributes[k],
+			})
+		}
 	}
 
 	return pb
@@ -192,8 +204,15 @@ func FromProtoRecord(pb *identitymappb.CanonicalRecord) *Record {
 		rec.UpdatedAt = time.UnixMilli(pb.GetUpdatedAtUnixMillis()).UTC()
 	}
 
-	for k, v := range pb.GetAttributes() {
-		rec.Attributes[k] = v
+	for _, attr := range pb.GetAttributes() {
+		if attr == nil {
+			continue
+		}
+		key := strings.TrimSpace(attr.GetKey())
+		if key == "" {
+			continue
+		}
+		rec.Attributes[key] = attr.GetValue()
 	}
 
 	return rec

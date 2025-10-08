@@ -22,10 +22,15 @@ message IdentityKey {
 }
 
 // CanonicalRecord stores the canonical device identifier for a given identity key.
+message Attribute {
+  string key = 1;
+  string value = 2;
+}
+
 message CanonicalRecord {
   string canonical_device_id = 1;
   string partition = 2;
   string metadata_hash = 3;
   int64 updated_at_unix_millis = 4;
-  map<string, string> attributes = 5;
+  repeated Attribute attributes = 5;
 }

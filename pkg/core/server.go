@@ -228,6 +228,18 @@ func (s *Server) Stop(ctx context.Context) error {
 	return nil
 }
 
+// IdentityKVClient exposes the KV client used for canonical identity operations.
+func (s *Server) IdentityKVClient() identityKVClient {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.identityKVClient
+}
+
 // GetMetricsManager returns the metrics collector instance.
 func (s *Server) GetMetricsManager() metrics.MetricCollector {
 	return s.metrics

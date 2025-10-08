@@ -4,13 +4,3 @@ alias(
     name = "identity_map",
     actual = "//proto/identitymap/v1:identity_map",
 )
-
-alias(
-    name = "identity_map_go_proto",
-    actual = "//proto/identitymap/v1:identity_map_go_proto",
-)
-
-alias(
-    name = "identity_map_proto",
-    actual = "//proto/identitymap/v1:identity_map_proto",
-)
