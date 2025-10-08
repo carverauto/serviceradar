@@ -171,7 +171,7 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 		Role:       role,
 	}
 
-	provider, err := coregrpc.NewSecurityProvider(ctx, sec, nil)
+	provider, err := coregrpc.NewSecurityProvider(ctx, sec, logger.NewTestLogger())
 	if err != nil {
 		return nil, nil, err
 	}

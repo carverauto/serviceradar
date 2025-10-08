@@ -97,6 +97,8 @@ func TestNew(t *testing.T) {
 		},
 	}
 	kvClient := NewMockKVClient(ctrl)
+	kvClient.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
+	kvClient.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
 	grpcClient := NewMockGRPCClient(ctrl)
 	registry := make(map[string]IntegrationFactory)
 	log := logger.NewTestLogger()

@@ -1290,7 +1290,7 @@ func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {
 
 	uniquePaths := make(map[string]struct{})
 	for _, event := range events {
-		for _, key := range prioritizeIdentityKeys(identitymap.BuildKeys(event)) {
+		for _, key := range identitymap.PrioritizeKeys(identitymap.BuildKeys(event)) {
 			uniquePaths[key.KeyPath(identitymap.DefaultNamespace)] = struct{}{}
 		}
 	}

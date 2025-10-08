@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -390,7 +389,7 @@ func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp Devic
 		}
 
 		keys := identitymap.BuildKeys(event)
-		ordered := prioritizeIdentityKeys(keys)
+		ordered := identitymap.PrioritizeKeys(keys)
 
 		contexts = append(contexts, netboxDeviceContext{
 			device:      device,
@@ -553,7 +552,7 @@ func (n *NetboxIntegration) lookupCanonicalRecordDirect(ctx context.Context, key
 		ctx = context.Background()
 	}
 
-	ordered := prioritizeIdentityKeys(keys)
+	ordered := identitymap.PrioritizeKeys(keys)
 	if len(ordered) == 0 {
 		return nil, 0
 	}
@@ -609,41 +608,6 @@ func (n *NetboxIntegration) attachCanonicalMetadata(event *models.DeviceUpdate, 
 	if hostname, ok := record.Attributes["hostname"]; ok && hostname != "" {
 		event.Metadata["canonical_hostname"] = hostname
 	}
-}
-
-func prioritizeIdentityKeys(keys []identitymap.Key) []identitymap.Key {
-	if len(keys) <= 1 {
-		return keys
-	}
-
-	ordered := make([]identitymap.Key, len(keys))
-	copy(ordered, keys)
-
-	priority := map[identitymap.Kind]int{
-		identitymap.KindArmisID:     0,
-		identitymap.KindNetboxID:    1,
-		identitymap.KindMAC:         2,
-		identitymap.KindPartitionIP: 3,
-		identitymap.KindIP:          4,
-		identitymap.KindDeviceID:    5,
-	}
-
-	sort.SliceStable(ordered, func(i, j int) bool {
-		pi, ok := priority[ordered[i].Kind]
-		if !ok {
-			pi = len(priority)
-		}
-		pj, ok := priority[ordered[j].Kind]
-		if !ok {
-			pj = len(priority)
-		}
-		if pi != pj {
-			return pi < pj
-		}
-		return ordered[i].Value < ordered[j].Value
-	})
-
-	return ordered
 }
 
 // writeSweepConfig generates and writes the sweep Config to KV.

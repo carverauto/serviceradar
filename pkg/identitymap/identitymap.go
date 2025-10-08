@@ -272,6 +272,42 @@ func (k Key) KeyPathVariants(namespace string) []string {
 	return []string{sanitized, legacy}
 }
 
+// PrioritizeKeys sorts identity keys so that the most authoritative identifiers are evaluated first.
+func PrioritizeKeys(keys []Key) []Key {
+	if len(keys) <= 1 {
+		return keys
+	}
+
+	ordered := make([]Key, len(keys))
+	copy(ordered, keys)
+
+	priority := map[Kind]int{
+		KindArmisID:     0,
+		KindNetboxID:    1,
+		KindMAC:         2,
+		KindPartitionIP: 3,
+		KindIP:          4,
+		KindDeviceID:    5,
+	}
+
+	sort.SliceStable(ordered, func(i, j int) bool {
+		pi, ok := priority[ordered[i].Kind]
+		if !ok {
+			pi = len(priority)
+		}
+		pj, ok := priority[ordered[j].Kind]
+		if !ok {
+			pj = len(priority)
+		}
+		if pi != pj {
+			return pi < pj
+		}
+		return ordered[i].Value < ordered[j].Value
+	})
+
+	return ordered
+}
+
 func kindSegment(kind Kind) string {
 	switch kind {
 	case KindDeviceID:
