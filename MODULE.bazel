@@ -512,6 +512,7 @@ use_repo(
     "org_golang_google_protobuf",
     "org_golang_x_crypto",
     "org_golang_x_net",
+    "org_golang_x_sync",
     "org_golang_x_sys",
     "org_uber_go_mock",
 )

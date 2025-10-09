@@ -1052,8 +1052,8 @@ func TestProcessDevices(t *testing.T) {
 	}
 
 	devices := []Device{
-		{ID: 1, IPAddress: "192.168.1.1", MacAddress: "aa:bb", Name: "dev1", Tags: []string{"t1"}},
-		{ID: 2, IPAddress: "192.168.1.2,10.0.0.1", MacAddress: "cc:dd", Name: "dev2"},
+		{ID: 1, IPAddress: "192.168.1.1", MacAddress: "aa:bb:cc:dd:ee:ff", Name: "dev1", Tags: []string{"t1"}},
+		{ID: 2, IPAddress: "192.168.1.2,10.0.0.1", MacAddress: "cc:dd:ee:ff:00:11", Name: "dev2"},
 	}
 
 	deviceLabels := map[int]string{
@@ -1086,7 +1086,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.NotNil(t, events[0].Hostname)
 	assert.Equal(t, "dev1", *events[0].Hostname)
 	assert.NotNil(t, events[0].MAC)
-	assert.Equal(t, "aa:bb", *events[0].MAC)
+	assert.Equal(t, "AA:BB:CC:DD:EE:FF", *events[0].MAC)
 	assert.NotNil(t, events[0].Metadata)
 	assert.Equal(t, "armis", events[0].Metadata["integration_type"])
 	assert.Equal(t, "1", events[0].Metadata["integration_id"])
@@ -1104,7 +1104,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.NotNil(t, events[1].Hostname)
 	assert.Equal(t, "dev2", *events[1].Hostname)
 	assert.NotNil(t, events[1].MAC)
-	assert.Equal(t, "cc:dd", *events[1].MAC)
+	assert.Equal(t, "CC:DD:EE:FF:00:11", *events[1].MAC)
 	assert.NotNil(t, events[1].Metadata)
 	assert.Equal(t, "armis", events[1].Metadata["integration_type"])
 	assert.Equal(t, "2", events[1].Metadata["integration_id"])

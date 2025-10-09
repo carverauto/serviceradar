@@ -42,6 +42,15 @@ import (
 const (
 	// MaxBatchSize defines the maximum number of entries to write to KV in a single batch
 	MaxBatchSize = 500
+
+	// canonicalKVBatchChunkSize controls how many canonical identity keys we fetch per BatchGet call.
+	// Proton ingestion easily emits >50k updates, but each BatchGet response must stay under gRPC's default 4 MiB limit.
+	// 256 strikes a balance between throughput and message size (256 * ~10 KiB record ≈ 2.5 MiB).
+	canonicalKVBatchChunkSize = 256
+
+	// canonicalKVFetchConcurrency caps the number of concurrent BatchGet lookups when hydrating metadata.
+	// Keep this moderate so we avoid hammering KV while still parallelizing large discovery runs.
+	canonicalKVFetchConcurrency = 16
 )
 
 var (
@@ -518,10 +527,23 @@ func (s *SimpleSyncService) hydrateCanonicalUpdates(ctx context.Context, updates
 
 	hydrated := s.applyCanonicalMetadata(updates, entries)
 
-	if hydrated > 0 {
+	totalPaths := len(paths)
+	if hydrated > 0 || totalPaths > 0 {
+		batches := 0
+		if totalPaths > 0 {
+			batches = totalPaths / canonicalKVBatchChunkSize
+			if totalPaths%canonicalKVBatchChunkSize != 0 {
+				batches++
+			}
+		}
+
 		s.logger.Debug().
-			Int("updates", hydrated).
-			Msg("Hydrated discovery payloads with canonical identity metadata")
+			Str("component", "sync").
+			Int("updates_hydrated", hydrated).
+			Int("unique_identity_paths", totalPaths).
+			Int("chunk_size", canonicalKVBatchChunkSize).
+			Int("batches_planned", batches).
+			Msg("Canonical hydration summary")
 	}
 
 	return errs
@@ -580,7 +602,6 @@ type canonicalEntry struct {
 
 // fetchCanonicalEntries retrieves canonical identity records from KV store in batches
 func (s *SimpleSyncService) fetchCanonicalEntries(ctx context.Context, paths []string) (map[string]canonicalEntry, error) {
-	const chunkSize = 512
 	entries := make(map[string]canonicalEntry, len(paths))
 	var errs error
 
@@ -588,14 +609,22 @@ func (s *SimpleSyncService) fetchCanonicalEntries(ctx context.Context, paths []s
 		return entries, nil
 	}
 
+	if event := s.logger.Debug(); event.Enabled() {
+		event.
+			Int("unique_identity_paths", len(paths)).
+			Int("chunk_size", canonicalKVBatchChunkSize).
+			Int("concurrency", canonicalKVFetchConcurrency).
+			Msg("Fetching canonical identity entries from KV")
+	}
+
 	g, ctx := errgroup.WithContext(ctx)
-	g.SetLimit(8)
+	g.SetLimit(canonicalKVFetchConcurrency)
 
 	var mu sync.Mutex
 	var errMu sync.Mutex
 
-	for start := 0; start < len(paths); start += chunkSize {
-		end := start + chunkSize
+	for start := 0; start < len(paths); start += canonicalKVBatchChunkSize {
+		end := start + canonicalKVBatchChunkSize
 		if end > len(paths) {
 			end = len(paths)
 		}
@@ -634,8 +663,46 @@ func (s *SimpleSyncService) fetchBatchEntries(
 	keys []string,
 	batchStart int,
 ) (map[string]canonicalEntry, error) {
+	s.logger.Debug().
+		Str("component", "sync").
+		Int("batch_start", batchStart).
+		Int("batch_index", batchStart/canonicalKVBatchChunkSize).
+		Int("batch_size", len(keys)).
+		Msg("Issuing canonical KV BatchGet")
+
 	resp, err := s.kvClient.BatchGet(ctx, &proto.BatchGetRequest{Keys: keys})
 	if err != nil {
+		st, ok := status.FromError(err)
+		if ok && len(keys) > 1 && (st.Code() == codes.ResourceExhausted || st.Code() == codes.OutOfRange) {
+			mid := len(keys) / 2
+			if mid == 0 {
+				mid = 1
+			}
+
+			if event := s.logger.Debug(); event.Enabled() {
+				event.
+					Err(err).
+					Int("batch_start", batchStart).
+					Int("batch_size", len(keys)).
+					Int("split_left", mid).
+					Int("split_right", len(keys)-mid).
+					Msg("canonical KV batch exceeded gRPC message size; splitting request")
+			}
+
+			left, leftErr := s.fetchBatchEntries(ctx, keys[:mid], batchStart)
+			right, rightErr := s.fetchBatchEntries(ctx, keys[mid:], batchStart+mid)
+
+			results := make(map[string]canonicalEntry, len(left)+len(right))
+			for k, v := range left {
+				results[k] = v
+			}
+			for k, v := range right {
+				results[k] = v
+			}
+
+			return results, errors.Join(leftErr, rightErr)
+		}
+
 		s.logger.Debug().
 			Err(err).
 			Int("batch_start", batchStart).

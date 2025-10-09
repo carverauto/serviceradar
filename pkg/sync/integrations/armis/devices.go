@@ -965,7 +965,12 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 	}
 
 	hostname := d.Name
-	mac := d.MacAddress
+	rawMAC := extractPrimaryMAC(d.MacAddress)
+	var macPtr *string
+	if rawMAC != "" {
+		macCopy := rawMAC
+		macPtr = &macCopy
+	}
 	deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, primaryIP)
 
 	event := &models.DeviceUpdate{
@@ -975,7 +980,7 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 		DeviceID:  deviceID,
 		Partition: a.Config.Partition,
 		IP:        primaryIP,
-		MAC:       &mac,
+		MAC:       macPtr,
 		Hostname:  &hostname,
 		Timestamp: timestamp,
 		Metadata: map[string]string{
@@ -991,6 +996,37 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 	}
 
 	return event
+}
+
+func extractPrimaryMAC(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', ';', ' ', '\n', '\t':
+			return true
+		default:
+			return false
+		}
+	})
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		hw, err := net.ParseMAC(part)
+		if err != nil {
+			continue
+		}
+
+		return strings.ToUpper(hw.String())
+	}
+
+	return ""
 }
 
 // shouldDeleteExistingConfig checks if the existing config should be deleted

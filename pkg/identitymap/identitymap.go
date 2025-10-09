@@ -71,9 +71,12 @@ func BuildKeys(update *models.DeviceUpdate) []Key {
 	}
 
 	add(KindDeviceID, update.DeviceID)
-	add(KindIP, update.IP)
 
-	if update.Partition != "" && update.IP != "" {
+	if shouldIncludeIP(update.DeviceID, update.Partition, update.IP) {
+		add(KindIP, update.IP)
+	}
+
+	if shouldIncludePartitionIP(update.DeviceID, update.Partition, update.IP) {
 		add(KindPartitionIP, partitionIPValue(update.Partition, update.IP))
 	}
 
@@ -99,6 +102,55 @@ func BuildKeys(update *models.DeviceUpdate) []Key {
 	}
 
 	return keys
+}
+
+func shouldIncludeIP(deviceID, partition, ip string) bool {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return false
+	}
+
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return true
+	}
+
+	if strings.EqualFold(deviceID, ip) {
+		return false
+	}
+
+	if strings.TrimSpace(partition) != "" {
+		if strings.EqualFold(deviceID, partition+":"+ip) {
+			return false
+		}
+		if strings.EqualFold(deviceID, partition+"/"+ip) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func shouldIncludePartitionIP(deviceID, partition, ip string) bool {
+	partition = strings.TrimSpace(partition)
+	ip = strings.TrimSpace(ip)
+	if partition == "" || ip == "" {
+		return false
+	}
+
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return true
+	}
+
+	if strings.EqualFold(deviceID, partition+":"+ip) {
+		return false
+	}
+	if strings.EqualFold(deviceID, partition+"/"+ip) {
+		return false
+	}
+
+	return true
 }
 
 func partitionIPValue(partition, ip string) string {
