@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -113,6 +114,263 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 	}
 
 	return devices, nil
+}
+
+type aggregatedDeviceEntry struct {
+	device     Device
+	ipSet      map[string]struct{}
+	ipOrder    []string
+	labelSet   map[string]struct{}
+	labels     []string
+	sweepModes map[models.SweepMode]struct{}
+}
+
+func newAggregatedDeviceEntry(device Device, query models.QueryConfig) *aggregatedDeviceEntry {
+	entry := &aggregatedDeviceEntry{
+		device: Device{
+			ID:               device.ID,
+			IPAddress:        device.IPAddress,
+			MacAddress:       device.MacAddress,
+			Name:             device.Name,
+			Type:             device.Type,
+			Category:         device.Category,
+			Manufacturer:     device.Manufacturer,
+			Model:            device.Model,
+			OperatingSystem:  device.OperatingSystem,
+			FirstSeen:        device.FirstSeen,
+			LastSeen:         device.LastSeen,
+			RiskLevel:        device.RiskLevel,
+			Boundaries:       device.Boundaries,
+			Tags:             append([]string(nil), device.Tags...),
+			CustomProperties: device.CustomProperties,
+			BusinessImpact:   device.BusinessImpact,
+			Visibility:       device.Visibility,
+			Site:             device.Site,
+		},
+		ipSet:      make(map[string]struct{}),
+		ipOrder:    make([]string, 0, 4),
+		labelSet:   make(map[string]struct{}),
+		labels:     make([]string, 0, 1),
+		sweepModes: make(map[models.SweepMode]struct{}),
+	}
+
+	entry.mergeIPs(device.IPAddress)
+	entry.addQuery(query)
+	return entry
+}
+
+func (e *aggregatedDeviceEntry) mergeDevice(device Device) {
+	e.mergeIPs(device.IPAddress)
+
+	if e.device.MacAddress == "" && device.MacAddress != "" {
+		e.device.MacAddress = device.MacAddress
+	}
+
+	if e.device.Name == "" && device.Name != "" {
+		e.device.Name = device.Name
+	}
+
+	if e.device.Type == "" && device.Type != "" {
+		e.device.Type = device.Type
+	}
+
+	if e.device.Category == "" && device.Category != "" {
+		e.device.Category = device.Category
+	}
+
+	if e.device.Manufacturer == "" && device.Manufacturer != "" {
+		e.device.Manufacturer = device.Manufacturer
+	}
+
+	if e.device.Model == "" && device.Model != "" {
+		e.device.Model = device.Model
+	}
+
+	if e.device.OperatingSystem == "" && device.OperatingSystem != "" {
+		e.device.OperatingSystem = device.OperatingSystem
+	}
+
+	if device.LastSeen.After(e.device.LastSeen) {
+		e.device.LastSeen = device.LastSeen
+	}
+
+	if device.FirstSeen.Before(e.device.FirstSeen) && !device.FirstSeen.IsZero() {
+		e.device.FirstSeen = device.FirstSeen
+	}
+
+	if e.device.Boundaries == "" && device.Boundaries != "" {
+		e.device.Boundaries = device.Boundaries
+	}
+
+	if e.device.BusinessImpact == "" && device.BusinessImpact != "" {
+		e.device.BusinessImpact = device.BusinessImpact
+	}
+
+	if e.device.Visibility == "" && device.Visibility != "" {
+		e.device.Visibility = device.Visibility
+	}
+
+	if e.device.CustomProperties == nil && device.CustomProperties != nil {
+		e.device.CustomProperties = device.CustomProperties
+	}
+
+	if e.device.Site == nil && device.Site != nil {
+		e.device.Site = device.Site
+	}
+
+	if len(device.Tags) > 0 {
+		tags := make(map[string]struct{}, len(e.device.Tags))
+		for _, tag := range e.device.Tags {
+			tags[tag] = struct{}{}
+		}
+		for _, tag := range device.Tags {
+			trimmed := strings.TrimSpace(tag)
+			if trimmed == "" {
+				continue
+			}
+			if _, exists := tags[trimmed]; exists {
+				continue
+			}
+			tags[trimmed] = struct{}{}
+			e.device.Tags = append(e.device.Tags, trimmed)
+		}
+	}
+}
+
+func (e *aggregatedDeviceEntry) mergeIPs(ipList string) {
+	for _, ip := range extractAllIPs(ipList) {
+		trimmed := strings.TrimSpace(ip)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := e.ipSet[trimmed]; exists {
+			continue
+		}
+		e.ipSet[trimmed] = struct{}{}
+		e.ipOrder = append(e.ipOrder, trimmed)
+	}
+
+	if len(e.ipOrder) == 0 {
+		return
+	}
+
+	e.device.IPAddress = strings.Join(e.ipOrder, ",")
+}
+
+func (e *aggregatedDeviceEntry) addQuery(query models.QueryConfig) {
+	if query.Label != "" {
+		if _, exists := e.labelSet[query.Label]; !exists {
+			e.labelSet[query.Label] = struct{}{}
+			e.labels = append(e.labels, query.Label)
+		}
+	}
+
+	for _, mode := range query.SweepModes {
+		if mode == "" {
+			continue
+		}
+		e.sweepModes[mode] = struct{}{}
+	}
+}
+
+func (e *aggregatedDeviceEntry) labelSummary() string {
+	if len(e.labels) == 0 {
+		return ""
+	}
+
+	sorted := append([]string(nil), e.labels...)
+	sort.Strings(sorted)
+	return strings.Join(sorted, ",")
+}
+
+func (e *aggregatedDeviceEntry) sweepModeSlice() []models.SweepMode {
+	if len(e.sweepModes) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(e.sweepModes))
+	for mode := range e.sweepModes {
+		names = append(names, string(mode))
+	}
+
+	sort.Strings(names)
+
+	result := make([]models.SweepMode, 0, len(names))
+	for _, name := range names {
+		result = append(result, models.SweepMode(name))
+	}
+
+	return result
+}
+
+type deviceAggregator struct {
+	entries map[int]*aggregatedDeviceEntry
+}
+
+func newDeviceAggregator() *deviceAggregator {
+	return &deviceAggregator{
+		entries: make(map[int]*aggregatedDeviceEntry),
+	}
+}
+
+func (agg *deviceAggregator) addDevices(devices []Device, query models.QueryConfig) {
+	for i := range devices {
+		agg.addDevice(devices[i], query)
+	}
+}
+
+func (agg *deviceAggregator) addDevice(device Device, query models.QueryConfig) {
+	if agg.entries == nil {
+		agg.entries = make(map[int]*aggregatedDeviceEntry)
+	}
+
+	if entry, exists := agg.entries[device.ID]; exists {
+		entry.mergeDevice(device)
+		entry.addQuery(query)
+		return
+	}
+
+	agg.entries[device.ID] = newAggregatedDeviceEntry(device, query)
+}
+
+func (agg *deviceAggregator) materialize() ([]Device, map[int]string, map[int]models.QueryConfig) {
+	if len(agg.entries) == 0 {
+		return nil, map[int]string{}, map[int]models.QueryConfig{}
+	}
+
+	deviceIDs := make([]int, 0, len(agg.entries))
+	for id := range agg.entries {
+		deviceIDs = append(deviceIDs, id)
+	}
+	sort.Ints(deviceIDs)
+
+	allDevices := make([]Device, 0, len(deviceIDs))
+	deviceLabels := make(map[int]string, len(deviceIDs))
+	deviceQueries := make(map[int]models.QueryConfig, len(deviceIDs))
+
+	for _, id := range deviceIDs {
+		entry := agg.entries[id]
+		label := entry.labelSummary()
+		if label == "" {
+			label = "armis_devices"
+		}
+
+		allDevices = append(allDevices, entry.device)
+		deviceLabels[id] = label
+		deviceQueries[id] = models.QueryConfig{
+			Label:      label,
+			SweepModes: entry.sweepModeSlice(),
+		}
+	}
+
+	return allDevices, deviceLabels, deviceQueries
+}
+
+func (agg *deviceAggregator) len() int {
+	if agg == nil {
+		return 0
+	}
+	return len(agg.entries)
 }
 
 // createAndWriteSweepConfig creates a sweep config from the given IPs and device targets and writes it to the KV store.
@@ -324,9 +582,7 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 		Int("query_count", len(a.Config.Queries)).
 		Msg("Starting device fetch for all queries - accumulating in memory before writing sweep config")
 
-	allDevices := make([]Device, 0)
-	deviceLabels := make(map[int]string)              // Map device ID to query label
-	deviceQueries := make(map[int]models.QueryConfig) // Map device ID to query config
+	deviceAgg := newDeviceAggregator()
 
 	// Fetch devices for each query and accumulate them in memory
 	// This ensures we collect ALL devices from ALL queries before writing the sweep config
@@ -346,28 +602,24 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 			Int("query_index", queryIndex).
 			Str("query_label", q.Label).
 			Int("query_device_count", len(devices)).
-			Int("accumulated_device_count", len(allDevices)).
-			Msg("Query completed, accumulating devices in memory")
+			Int("aggregated_device_count_before", deviceAgg.len()).
+			Msg("Query completed, aggregating devices in memory")
 
-		// Track which query discovered each device
-		for i := range devices {
-			deviceLabels[devices[i].ID] = q.Label
-			deviceQueries[devices[i].ID] = q
-		}
-
-		allDevices = append(allDevices, devices...)
+		deviceAgg.addDevices(devices, q)
 
 		a.Logger.Info().
 			Int("query_index", queryIndex).
 			Str("query_label", q.Label).
-			Int("total_accumulated_devices", len(allDevices)).
+			Int("total_unique_devices", deviceAgg.len()).
 			Msg("Devices accumulated from query")
 	}
 
+	allDevices, deviceLabels, deviceQueries := deviceAgg.materialize()
+
 	a.Logger.Info().
-		Int("total_devices_from_all_queries", len(allDevices)).
+		Int("total_unique_devices_from_all_queries", len(allDevices)).
 		Int("total_queries_processed", len(a.Config.Queries)).
-		Msg("All queries completed - processing accumulated devices")
+		Msg("All queries completed - processing aggregated devices")
 
 	// Process devices with query labels and configs
 	data, ips, events, deviceTargets := a.processDevices(ctx, allDevices, deviceLabels, deviceQueries)

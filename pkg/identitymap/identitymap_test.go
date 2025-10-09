@@ -30,6 +30,8 @@ func TestBuildKeys(t *testing.T) {
 
 	assert.ElementsMatch(t, []Key{
 		{Kind: KindDeviceID, Value: "tenant-a:1.2.3.4"},
+		{Kind: KindIP, Value: "1.2.3.4"},
+		{Kind: KindPartitionIP, Value: "tenant-a:1.2.3.4"},
 		{Kind: KindArmisID, Value: "armis-123"},
 		{Kind: KindNetboxID, Value: "nb-42"},
 		{Kind: KindNetboxID, Value: "123"},
