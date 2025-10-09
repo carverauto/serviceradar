@@ -441,3 +441,41 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates_CanonicalizesDuplicatesWithinB
 	assert.Equal(t, primaryID, tombstone.Metadata["_merged_into"])
 	assert.Equal(t, "default:10.0.0.2", tombstone.DeviceID)
 }
+
+func TestLookupCanonicalPrefersMACOverIP(t *testing.T) {
+	registry := &DeviceRegistry{logger: logger.NewTestLogger()}
+	mac := "AA:BB:CC:DD:EE:FF"
+	update := &models.DeviceUpdate{
+		IP:  "10.0.0.10",
+		MAC: &mac,
+	}
+	maps := &identityMaps{
+		armis: map[string]string{},
+		netbx: map[string]string{},
+		mac:   map[string]string{mac: "default:canonical-mac"},
+		ip:    map[string]string{"10.0.0.10": "default:canonical-ip"},
+	}
+
+	canonical, via := registry.lookupCanonicalFromMaps(update, maps)
+
+	require.Equal(t, "default:canonical-mac", canonical)
+	require.Equal(t, identitySourceMAC, via)
+}
+
+func TestLookupCanonicalFallsBackToIP(t *testing.T) {
+	registry := &DeviceRegistry{logger: logger.NewTestLogger()}
+	update := &models.DeviceUpdate{
+		IP: "10.0.0.11",
+	}
+	maps := &identityMaps{
+		armis: map[string]string{},
+		netbx: map[string]string{},
+		mac:   map[string]string{},
+		ip:    map[string]string{"10.0.0.11": "default:canonical-ip"},
+	}
+
+	canonical, via := registry.lookupCanonicalFromMaps(update, maps)
+
+	require.Equal(t, "default:canonical-ip", canonical)
+	require.Equal(t, "ip", via)
+}

@@ -113,7 +113,7 @@ func (*fakeKVClient) Info(context.Context, *proto.InfoRequest, ...grpc.CallOptio
 	return &proto.InfoResponse{}, nil
 }
 
-func TestProcessDevices_AttachesCanonicalMetadata(t *testing.T) {
+func TestProcessDevices_DoesNotHydrateCanonicalMetadata(t *testing.T) {
 	canonical := &identitymap.Record{CanonicalDeviceID: "canonical-42", Partition: "prod", MetadataHash: "hash"}
 	payload, err := identitymap.MarshalRecord(canonical)
 	require.NoError(t, err)
@@ -154,13 +154,12 @@ func TestProcessDevices_AttachesCanonicalMetadata(t *testing.T) {
 
 	data, _, events := integ.processDevices(context.Background(), resp)
 	require.Len(t, events, 1)
-	require.Equal(t, "canonical-42", events[0].Metadata["canonical_device_id"])
-	require.Equal(t, "7", events[0].Metadata["canonical_revision"])
-	require.Equal(t, "prod", events[0].Metadata["canonical_partition"])
+	_, hasCanonical := events[0].Metadata["canonical_device_id"]
+	require.False(t, hasCanonical, "sync should not hydrate canonical metadata")
 	require.Empty(t, data)
 }
 
-func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {
+func TestProcessDevices_SkipsCanonicalPrefetch(t *testing.T) {
 	fake := &fakeKVClient{}
 	var captured [][]string
 	fake.batchGetFn = func(ctx context.Context, req *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
@@ -216,16 +215,7 @@ func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {
 
 	_, _, events := integ.processDevices(context.Background(), resp)
 	require.Len(t, events, 2)
-	require.Len(t, captured, 1, "expected a single batched BatchGet call")
-
-	uniquePaths := make(map[string]struct{})
-	for _, event := range events {
-		for _, key := range identitymap.PrioritizeKeys(identitymap.BuildKeys(event)) {
-			uniquePaths[key.KeyPath(identitymap.DefaultNamespace)] = struct{}{}
-		}
-	}
-
-	require.Len(t, captured[0], len(uniquePaths))
+	require.Empty(t, captured, "sync should not issue KV BatchGet calls")
 }
 
 func TestParseTCPPorts(t *testing.T) {

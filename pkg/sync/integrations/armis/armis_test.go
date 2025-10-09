@@ -1197,7 +1197,7 @@ func (*fakeKVClient) Info(context.Context, *proto.InfoRequest, ...grpc.CallOptio
 	return &proto.InfoResponse{}, nil
 }
 
-func TestProcessDevices_AttachesCanonicalMetadata(t *testing.T) {
+func TestProcessDevices_DoesNotHydrateCanonicalMetadata(t *testing.T) {
 	canonical := &identitymap.Record{CanonicalDeviceID: "canon-99", Partition: "prod", MetadataHash: "hash"}
 	payload, err := identitymap.MarshalRecord(canonical)
 	require.NoError(t, err)
@@ -1223,17 +1223,16 @@ func TestProcessDevices_AttachesCanonicalMetadata(t *testing.T) {
 
 	data, _, events, targets := integ.processDevices(context.Background(), devices, labels, queries)
 	require.Len(t, events, 1)
-	require.Equal(t, "canon-99", events[0].Metadata["canonical_device_id"])
-	require.Equal(t, "11", events[0].Metadata["canonical_revision"])
-	require.Equal(t, "prod", events[0].Metadata["canonical_partition"])
+	_, hasCanonicalID := events[0].Metadata["canonical_device_id"]
+	require.False(t, hasCanonicalID, "sync should no longer hydrate canonical metadata")
 	require.Len(t, targets, 1)
-	require.Equal(t, "canon-99", targets[0].Metadata["canonical_device_id"])
-	require.Equal(t, "11", targets[0].Metadata["canonical_revision"])
+	_, hasTargetCanonical := targets[0].Metadata["canonical_device_id"]
+	require.False(t, hasTargetCanonical, "device targets should not include canonical metadata from sync")
 
 	require.Empty(t, data)
 }
 
-func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {
+func TestProcessDevices_SkipsCanonicalPrefetch(t *testing.T) {
 	fake := &fakeKVClient{}
 	var captured [][]string
 	fake.batchGetFn = func(ctx context.Context, req *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
@@ -1269,16 +1268,7 @@ func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {
 
 	_, _, events, _ := integ.processDevices(context.Background(), devices, labels, queries)
 	require.Len(t, events, 2)
-	require.Len(t, captured, 1, "expected a single batched BatchGet call")
-
-	uniquePaths := make(map[string]struct{})
-	for _, event := range events {
-		for _, key := range identitymap.PrioritizeKeys(identitymap.BuildKeys(event)) {
-			uniquePaths[key.KeyPath(identitymap.DefaultNamespace)] = struct{}{}
-		}
-	}
-
-	require.Len(t, captured[0], len(uniquePaths))
+	require.Empty(t, captured, "sync should not issue KV BatchGet calls for canonical prefetch")
 }
 
 func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {
