@@ -2,9 +2,9 @@
 
 ✅ Verified & approved domains: serviceradar.cloud
 
-✅  GitHub Advanced Security • Enabled
+✅ GitHub Advanced Security • Enabled
 
-❌️ Branch protection rule: Commit requires signature
+✅ Branch protection rule: Commit requires signature
 
 ❓ Security policy • ❓
 
