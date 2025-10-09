@@ -33,6 +33,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/pkg/db",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/deviceupdate",
         "//pkg/logger",
         "//pkg/models",
         "@com_github_timeplus_io_proton_go_driver_v2//:proton-go-driver",

@@ -62,6 +62,7 @@ go_test(
         "discovery_test.go",
         "identity_lookup_test.go",
         "kv_metadata_test.go",
+        "result_processor_test.go",
         "metrics_sweep_test.go",
         "metrics_test.go",
         "performance_integration_test.go",

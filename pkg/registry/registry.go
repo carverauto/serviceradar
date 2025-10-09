@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/deviceupdate"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -93,6 +94,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	var droppedEmptyIP int
 	for _, u := range updates {
 		r.normalizeUpdate(u)
+		deviceupdate.SanitizeMetadata(u)
 		if u.IP == "" {
 			r.logger.Warn().Str("device_id", u.DeviceID).Msg("Dropping update with empty IP")
 			droppedEmptyIP++

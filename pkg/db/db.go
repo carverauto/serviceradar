@@ -31,6 +31,7 @@ import (
 	"github.com/timeplus-io/proton-go-driver/v2"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
 
+	"github.com/carverauto/serviceradar/pkg/deviceupdate"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -202,8 +203,8 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 			"max_result_rows":            0,       // Disable row limit for streaming
 			"result_overflow_mode":       "break", // Allow unlimited results
 			"max_rows_to_read":           0,       // Disable read limit
-            "stream_flush_interval_ms":   100,     // Flush streaming results frequently
-        },
+			"stream_flush_interval_ms":   100,     // Flush streaming results frequently
+		},
 		DialTimeout:     5 * time.Second,
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,
@@ -237,23 +238,23 @@ func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.Co
 		flushInterval = time.Duration(config.WriteBuffer.FlushInterval)
 	}
 
-    // Calculate buffer capacity safely to prevent integer overflow
-    // Normalize and guard values. Compute in int64 and clamp to int range.
-    if maxBufferSize < 0 {
-        maxBufferSize = 0
-    }
-    var bufferCapacity int
-    cap64 := int64(maxBufferSize) * 2 // compute in wider type
-    
-    switch {
-    case cap64 < 0: // defensive: should not happen after clamp above
-        bufferCapacity = 0
-    case cap64 > int64(math.MaxInt):
-        // Prevent integer overflow by capping bufferCapacity
-        bufferCapacity = math.MaxInt
-    default:
-        bufferCapacity = int(cap64)
-    }
+	// Calculate buffer capacity safely to prevent integer overflow
+	// Normalize and guard values. Compute in int64 and clamp to int range.
+	if maxBufferSize < 0 {
+		maxBufferSize = 0
+	}
+	var bufferCapacity int
+	cap64 := int64(maxBufferSize) * 2 // compute in wider type
+
+	switch {
+	case cap64 < 0: // defensive: should not happen after clamp above
+		bufferCapacity = 0
+	case cap64 > int64(math.MaxInt):
+		// Prevent integer overflow by capping bufferCapacity
+		bufferCapacity = math.MaxInt
+	default:
+		bufferCapacity = int(cap64)
+	}
 
 	db := &DB{
 		Conn:          conn,
@@ -433,9 +434,13 @@ func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.D
 		return nil
 	}
 
+	for _, update := range updates {
+		deviceupdate.SanitizeMetadata(update)
+	}
+
 	// Proton's log_max_record_size is typically 10MB
 	// Use much smaller batch to account for serialization overhead and metadata
-	const maxBatchBytes = 5 * 1024 * 1024 // 5MB safety limit (half of the 10MB limit)
+	const maxBatchBytes = 1 * 1024 * 1024 // 1MB safety limit well below Proton 10MB limit
 
 	const maxBatchSize = 500 // Maximum records per batch (reduced from 1000)
 

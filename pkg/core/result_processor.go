@@ -19,9 +19,15 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+const (
+	maxPortResultsDetailed = 512 // limit detailed port results persisted per host
+	maxOpenPortsDetailed   = 256 // limit open ports persisted per host
 )
 
 // processHostResults processes host results and creates sweep results
@@ -31,14 +37,14 @@ func (s *Server) processHostResults(
 
 	for _, host := range hosts {
 		if host.Host == "" {
-        s.logger.Debug().
-            Str("poller_id", pollerID).
-            Str("partition", partition).
-            Str("agent_id", agentID).
-            Str("host", host.Host).
-            Bool("available", host.Available).
-            Str("source", string(models.DiscoverySourceSweep)).
-            Msg("Skipping host with empty host field")
+			s.logger.Debug().
+				Str("poller_id", pollerID).
+				Str("partition", partition).
+				Str("agent_id", agentID).
+				Str("host", host.Host).
+				Bool("available", host.Available).
+				Str("source", string(models.DiscoverySourceSweep)).
+				Msg("Skipping host with empty host field")
 
 			continue
 		}
@@ -83,23 +89,67 @@ func (*Server) buildHostMetadata(host *models.HostResult) map[string]string {
 
 	// Add port results if available
 	if len(host.PortResults) > 0 {
-		portData, _ := json.Marshal(host.PortResults)
-		metadata["port_results"] = string(portData)
-
-		// Also store open ports list for quick reference
-		var openPorts []int
-
-		for _, pr := range host.PortResults {
-			if pr.Available {
-				openPorts = append(openPorts, pr.Port)
-			}
-		}
-
-		if len(openPorts) > 0 {
-			openPortsData, _ := json.Marshal(openPorts)
-			metadata["open_ports"] = string(openPortsData)
-		}
+		addPortMetadata(metadata, host.PortResults)
 	}
 
 	return metadata
+}
+
+func addPortMetadata(metadata map[string]string, portResults []*models.PortResult) {
+	totalPorts := len(portResults)
+	metadata["port_result_count"] = strconv.Itoa(totalPorts)
+
+	trimLimit := maxPortResultsDetailed
+	if trimLimit <= 0 {
+		trimLimit = totalPorts
+	}
+
+	truncated := totalPorts > trimLimit
+	encodedPorts := portResults
+	if truncated {
+		encodedPorts = portResults[:trimLimit]
+		metadata["port_results_truncated"] = "true"
+		metadata["port_results_retained"] = strconv.Itoa(trimLimit)
+	} else {
+		metadata["port_results_truncated"] = "false"
+		metadata["port_results_retained"] = strconv.Itoa(totalPorts)
+	}
+
+	if data, err := json.Marshal(encodedPorts); err == nil {
+		metadata["port_results"] = string(data)
+	} else {
+		metadata["port_results_error"] = err.Error()
+	}
+
+	var openPorts []int
+	for _, pr := range portResults {
+		if pr != nil && pr.Available {
+			openPorts = append(openPorts, pr.Port)
+		}
+	}
+
+	if len(openPorts) == 0 {
+		return
+	}
+
+	metadata["open_port_count"] = strconv.Itoa(len(openPorts))
+
+	openLimit := maxOpenPortsDetailed
+	if openLimit <= 0 {
+		openLimit = len(openPorts)
+	}
+
+	openTruncated := len(openPorts) > openLimit
+	if openTruncated {
+		metadata["open_ports_truncated"] = "true"
+		openPorts = openPorts[:openLimit]
+	} else {
+		metadata["open_ports_truncated"] = "false"
+	}
+
+	if data, err := json.Marshal(openPorts); err == nil {
+		metadata["open_ports"] = string(data)
+	} else {
+		metadata["open_ports_error"] = err.Error()
+	}
 }
