@@ -231,6 +231,9 @@ func shouldSkipIdentityPublish(update *models.DeviceUpdate) bool {
 	if update.DeviceID == "" {
 		return true
 	}
+	if update.Source == models.DiscoverySourceSweep {
+		return true
+	}
 	if update.Metadata != nil {
 		if deleted, ok := update.Metadata["_deleted"]; ok && strings.EqualFold(deleted, "true") {
 			return true

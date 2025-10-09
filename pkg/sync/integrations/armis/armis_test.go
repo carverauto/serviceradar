@@ -1097,6 +1097,44 @@ func TestProcessDevices(t *testing.T) {
 	require.Empty(t, data)
 }
 
+func TestDeviceAggregatorAggregatesByID(t *testing.T) {
+	agg := newDeviceAggregator()
+
+	tcpQuery := models.QueryConfig{Label: "tcp_devices", SweepModes: []models.SweepMode{models.ModeTCP}}
+	icmpQuery := models.QueryConfig{Label: "icmp_devices", SweepModes: []models.SweepMode{models.ModeICMP}}
+
+	device := Device{
+		ID:        42,
+		IPAddress: "10.0.0.1",
+		Name:      "example",
+		Tags:      []string{"tag1"},
+	}
+
+	duplicate := Device{
+		ID:        42,
+		IPAddress: "10.0.0.2,10.0.0.1",
+		Name:      "example",
+		Tags:      []string{"tag2"},
+	}
+
+	agg.addDevice(device, tcpQuery)
+	agg.addDevice(duplicate, icmpQuery)
+
+	devices, labels, queries := agg.materialize()
+
+	require.Len(t, devices, 1)
+	assert.Equal(t, "10.0.0.1,10.0.0.2", devices[0].IPAddress)
+	assert.ElementsMatch(t, []string{"tag1", "tag2"}, devices[0].Tags)
+
+	label, ok := labels[42]
+	require.True(t, ok)
+	assert.Equal(t, "icmp_devices,tcp_devices", label)
+
+	queryCfg, ok := queries[42]
+	require.True(t, ok)
+	assert.ElementsMatch(t, []models.SweepMode{models.ModeTCP, models.ModeICMP}, queryCfg.SweepModes)
+}
+
 type fakeKVClient struct {
 	getFn      func(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
 	batchGetFn func(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error)
