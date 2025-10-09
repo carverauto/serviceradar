@@ -2,7 +2,6 @@ package netbox
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -43,19 +42,7 @@ func TestProcessDevices_UsesIDs(t *testing.T) {
 	data, ips, events := integ.processDevices(context.Background(), resp)
 	require.Len(t, ips, 1)
 	require.Equal(t, "10.0.0.1/32", ips[0])
-	require.Len(t, data, 1)
-
-	b, ok := data["agent/10.0.0.1"]
-	require.True(t, ok)
-
-	var event models.SweepResult
-
-	err := json.Unmarshal(b, &event)
-	require.NoError(t, err)
-
-	require.Equal(t, "poller", event.PollerID)
-	require.Equal(t, "10.0.0.1", event.IP)
-	require.Equal(t, "test-partition", event.Partition)
+	require.Empty(t, data, "netbox sync should omit per-device KV payloads")
 
 	require.Len(t, events, 1)
 	require.Equal(t, "10.0.0.1", events[0].IP)
@@ -170,11 +157,7 @@ func TestProcessDevices_AttachesCanonicalMetadata(t *testing.T) {
 	require.Equal(t, "canonical-42", events[0].Metadata["canonical_device_id"])
 	require.Equal(t, "7", events[0].Metadata["canonical_revision"])
 	require.Equal(t, "prod", events[0].Metadata["canonical_partition"])
-	require.Contains(t, data, "agent/10.0.0.1")
-
-	var stored models.DeviceUpdate
-	require.NoError(t, json.Unmarshal(data["agent/10.0.0.1"], &stored))
-	require.Equal(t, "canonical-42", stored.Metadata["canonical_device_id"])
+	require.Empty(t, data)
 }
 
 func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {

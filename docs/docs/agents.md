@@ -180,6 +180,16 @@ This clears Timeplus/Proton and repopulates it with a fresh discovery crawl from
 - `max_block_size` currently exposes as a session-scoped setting; if you need to override it temporarily, run `proton-sql "SET max_block_size=2048"` before a large replay.
 - Any change for non-demo clusters should be mirrored in the shared config and rolled via `bazel run //docker/images:serviceradar-proton_push` followed by a `kubectl rollout restart deployment/serviceradar-proton -n <namespace>`.
 
+## Canonical Identity Flow
+
+- Sync no longer BatchGets canonical identity keys; the `core` registry now hydrates canonical IDs per batch using the `device_canonical_map` KV (`WithIdentityResolver`).
+- Expect `serviceradar-core` logs to show non-zero `canonicalized_by_*` counters once batches replay. If they stay at 0, recheck KV health via `nats-kv` and ensure `serviceradar-core` pods run the latest image.
+- Toolbox helper to spot-check canonical entries:
+  ```bash
+  proton-sql "SELECT count(), uniq_exact(metadata['armis_device_id']) FROM table(unified_devices)"
+  nats --context serviceradar kv get device_canonical_map/armis-id/<ARMIS_ID>
+  ```
+
 ## Common Error Notes
 
 - `rpc error: code = Unimplemented desc =` – emitted by core when the poller is stopped; safe to ignore while the pipeline is paused.

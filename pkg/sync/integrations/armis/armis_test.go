@@ -262,43 +262,7 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-
-	expectedLen := len(expectedDevices)
-
-	for _, ed := range expectedDevices {
-		ip := extractFirstIP(ed.IPAddress)
-		if ip != "" {
-			expectedLen++
-		}
-	}
-
-	if _, ok := result["_sweep_results"]; ok {
-		expectedLen++
-	}
-
-	assert.Len(t, result, expectedLen)
-
-	for i := range expectedDevices {
-		expected := &expectedDevices[i]
-
-		ip := extractFirstIP(expected.IPAddress)
-		if ip == "" {
-			continue
-		}
-
-		key := fmt.Sprintf("test-agent/%s", ip)
-		deviceData, exists := result[key]
-
-		require.True(t, exists, "device with key %s should exist", key)
-
-		var device models.SweepResult
-
-		err = json.Unmarshal(deviceData, &device)
-		require.NoError(t, err)
-
-		assert.Equal(t, ip, device.IP)
-		assert.Equal(t, "test-poller", device.PollerID)
-	}
+	assert.Empty(t, result, "per-device KV cache is disabled")
 
 	assert.Len(t, events, len(expectedDevices))
 
@@ -366,18 +330,12 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	integration.KVWriter.(*MockKVWriter).
 		EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 
-	result, _, err := integration.Fetch(context.Background())
+	result, events, err := integration.Fetch(context.Background())
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-
-	assert.Len(t, result, 8)
-
-	for i := 1; i <= 4; i++ {
-		key := fmt.Sprintf("test-agent/192.168.1.%d", i)
-		_, exists := result[key]
-		assert.True(t, exists, "Device with key %s should exist in results", key)
-	}
+	assert.Empty(t, result)
+	require.Len(t, events, 4)
 }
 
 func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
@@ -604,10 +562,9 @@ func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
 	assert.Equal(t, 2, corporateEvents, "Should have 2 events from corporate query")
 	assert.Equal(t, 2, guestEvents, "Should have 2 events from guest query")
 
-	// Verify KV data contains entries for all devices
-	assert.Len(t, result, 8, "Should have 8 KV entries: 4 device data + 4 agent/IP entries")
+	assert.Empty(t, result, "Per-device KV entries removed; sweep config handled via KVWriter")
 
-	t.Log("Successfully verified that multiple queries are accumulated in memory and written as single sweep config")
+	t.Log("Successfully verified that multiple queries are accumulated in memory and written as chunked sweep config")
 }
 
 func createSuccessResponse(t *testing.T) *http.Response {
@@ -1068,9 +1025,8 @@ func TestProcessDevices(t *testing.T) {
 
 	data, ips, events, deviceTargets := integ.processDevices(context.Background(), devices, deviceLabels, deviceQueries)
 
-	require.Len(t, data, 4) // two device keys and two sweep device entries
-	assert.ElementsMatch(t, []string{"test-agent/192.168.1.1", "test-agent/192.168.1.2"}, keysWithPrefix(data, "test-agent/"))
-	assert.Empty(t, ips) // ips array is no longer populated since we use device_targets instead
+	require.Empty(t, data, "per-device KV payloads should be omitted")
+	assert.ElementsMatch(t, []string{"192.168.1.1/32", "192.168.1.2/32"}, ips)
 
 	// Verify events were created correctly
 	require.Len(t, events, 2, "should have one event per device")
@@ -1138,13 +1094,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "armis", target2.Source)
 	assert.Equal(t, "2", target2.Metadata["armis_device_id"])
 
-	raw := data["1"]
-
-	var withMeta DeviceWithMetadata
-
-	require.NoError(t, json.Unmarshal(raw, &withMeta))
-	assert.Equal(t, 1, withMeta.ID)
-	assert.Equal(t, "t1", withMeta.Metadata["tag"])
+	require.Empty(t, data)
 }
 
 type fakeKVClient struct {
@@ -1242,12 +1192,7 @@ func TestProcessDevices_AttachesCanonicalMetadata(t *testing.T) {
 	require.Equal(t, "canon-99", targets[0].Metadata["canonical_device_id"])
 	require.Equal(t, "11", targets[0].Metadata["canonical_revision"])
 
-	enrichedBlob, ok := data["1"]
-	require.True(t, ok)
-	var enriched DeviceWithMetadata
-	require.NoError(t, json.Unmarshal(enrichedBlob, &enriched))
-	require.Equal(t, "canon-99", enriched.Metadata["canonical_device_id"])
-	require.Equal(t, "prod", enriched.Metadata["canonical_partition"])
+	require.Empty(t, data)
 }
 
 func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {
@@ -1296,19 +1241,6 @@ func TestProcessDevices_PrefetchesCanonicalRecords(t *testing.T) {
 	}
 
 	require.Len(t, captured[0], len(uniquePaths))
-}
-
-// keysWithPrefix returns map keys that have the given prefix
-func keysWithPrefix(m map[string][]byte, prefix string) []string {
-	var out []string
-
-	for k := range m {
-		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
-			out = append(out, k)
-		}
-	}
-
-	return out
 }
 
 func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {

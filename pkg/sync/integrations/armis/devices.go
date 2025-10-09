@@ -664,6 +664,8 @@ func (a *ArmisIntegration) processDevices(
 			keys:        keys,
 			orderedKeys: ordered,
 		})
+
+		ips = append(ips, primaryIP+"/32")
 	}
 
 	entries, fetchErr := a.prefetchCanonicalEntries(ctx, contexts)
@@ -688,31 +690,6 @@ func (a *ArmisIntegration) processDevices(
 		if canonicalRecord != nil {
 			a.attachCanonicalMetadata(ctxDevice.event, canonicalRecord, revision)
 		}
-
-		enrichedData, err := a.createEnrichedDeviceDataWithAllIPs(ctxDevice.device, ctxDevice.label, ctxDevice.allIPs, canonicalRecord)
-		if err != nil {
-			a.Logger.Error().
-				Err(err).
-				Int("device_id", ctxDevice.device.ID).
-				Msg("Failed to create enriched device data")
-
-			continue
-		}
-
-		data[fmt.Sprintf("%d", ctxDevice.device.ID)] = enrichedData
-
-		eventData, err := json.Marshal(ctxDevice.event)
-		if err != nil {
-			a.Logger.Error().
-				Err(err).
-				Int("device_id", ctxDevice.device.ID).
-				Msg("Failed to marshal device event")
-
-			continue
-		}
-
-		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, ctxDevice.primaryIP)
-		data[kvKey] = eventData
 
 		events = append(events, ctxDevice.event)
 
@@ -922,37 +899,6 @@ func (a *ArmisIntegration) attachCanonicalMetadata(event *models.DeviceUpdate, r
 	if hostname, ok := record.Attributes["hostname"]; ok && hostname != "" {
 		event.Metadata["canonical_hostname"] = hostname
 	}
-}
-
-// createEnrichedDeviceDataWithAllIPs creates enriched device data with all IP addresses in metadata
-func (*ArmisIntegration) createEnrichedDeviceDataWithAllIPs(d *Device, queryLabel string, allIPs []string, canonical *identitymap.Record) ([]byte, error) {
-	tag := ""
-	if len(d.Tags) > 0 {
-		tag = strings.Join(d.Tags, ",")
-	}
-
-	enriched := DeviceWithMetadata{
-		Device: *d,
-		Metadata: map[string]string{
-			"armis_device_id": fmt.Sprintf("%d", d.ID),
-			"tag":             tag,
-			"query_label":     queryLabel,
-			"all_ips":         strings.Join(allIPs, ","),
-			"ip_count":        fmt.Sprintf("%d", len(allIPs)),
-		},
-	}
-
-	if canonical != nil {
-		enriched.Metadata["canonical_device_id"] = canonical.CanonicalDeviceID
-		if canonical.Partition != "" {
-			enriched.Metadata["canonical_partition"] = canonical.Partition
-		}
-		if canonical.MetadataHash != "" {
-			enriched.Metadata["canonical_metadata_hash"] = canonical.MetadataHash
-		}
-	}
-
-	return json.Marshal(enriched)
 }
 
 // createDeviceUpdateEventWithAllIPs creates a DeviceUpdate event with all IP addresses in metadata

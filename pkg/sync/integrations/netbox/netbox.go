@@ -301,7 +301,6 @@ type netboxDeviceContext struct {
 	event       *models.DeviceUpdate
 	keys        []identitymap.Key
 	orderedKeys []identitymap.Key
-	kvKey       string
 	network     string
 }
 
@@ -354,8 +353,6 @@ func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp Devic
 
 		ips = append(ips, network)
 
-		kvKey := fmt.Sprintf("%s/%s", agentID, ipStr)
-
 		metadata := map[string]interface{}{
 			"netbox_device_id": fmt.Sprintf("%d", device.ID),
 			"role":             device.Role.Name,
@@ -396,7 +393,6 @@ func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp Devic
 			event:       event,
 			keys:        keys,
 			orderedKeys: ordered,
-			kvKey:       kvKey,
 			network:     network,
 		})
 	}
@@ -431,17 +427,6 @@ func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp Devic
 				Msg("SweepResult metadata")
 		}
 
-		value, err := json.Marshal(ctxDevice.event)
-		if err != nil {
-			n.Logger.Error().
-				Err(err).
-				Int("device_id", ctxDevice.device.ID).
-				Msg("Failed to marshal device")
-
-			continue
-		}
-
-		data[ctxDevice.kvKey] = value
 		events = append(events, ctxDevice.event)
 	}
 
