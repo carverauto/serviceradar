@@ -1,5 +1,3 @@
-
-
 # Recommended Practices for LF Projects Hosting Code on GitHub
 
 These practices will help you improve your GitHub presence in an effort to help you attract more users and developers to
@@ -57,8 +55,8 @@ new recommendations or update existing ones.
     previousely called the Core Infrastructure Initiative Best Practices Badge) for your project.
     * TODO
 
-14. Identify who on the project will be handling security issues (could be a team) and set up a separate email account.
-    Consider having the project become a CNA (CVE Numbering Authority).
+14. ✅ Identify who on the project will be handling security issues (could be a team) and set up a separate email
+    account. Consider having the project become a CNA (CVE Numbering Authority).
     * [SECURITY](../../SECURITY.md)
 
 15. ❌Include an SPDX short-form identifier in a comment at the top of each file in the repo, wherever reasonably
