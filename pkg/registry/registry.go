@@ -26,6 +26,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/deviceupdate"
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -51,6 +52,7 @@ type DeviceRegistry struct {
 	db                db.Service
 	logger            logger.Logger
 	identityPublisher *identityPublisher
+	identityResolver  *identityResolver
 }
 
 // NewDeviceRegistry creates a new, authoritative device registry.
@@ -105,6 +107,13 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 
 	if len(valid) == 0 {
 		return nil
+	}
+
+	// Hydrate canonical metadata via KV if available
+	if r.identityResolver != nil {
+		if err := r.identityResolver.hydrateCanonical(ctx, valid); err != nil {
+			r.logger.Warn().Err(err).Msg("KV canonical hydration failed")
+		}
 	}
 
 	// Build identity maps once per batch to avoid per-update DB lookups
@@ -257,7 +266,68 @@ func (r *DeviceRegistry) buildIdentityMaps(ctx context.Context, updates []*model
 	if err := r.resolveIPsToCanonical(ctx, toList(ipSet), m.ip); err != nil {
 		return m, err
 	}
+	seedIdentityMapsFromBatch(updates, m)
 	return m, nil
+}
+
+func seedIdentityMapsFromBatch(updates []*models.DeviceUpdate, m *identityMaps) {
+	if len(updates) == 0 || m == nil {
+		return
+	}
+	for _, update := range updates {
+		if update == nil {
+			continue
+		}
+		canonical := canonicalIDCandidate(update)
+		if canonical == "" {
+			continue
+		}
+		for _, key := range identitymap.BuildKeys(update) {
+			switch key.Kind {
+			case identitymap.KindArmisID:
+				setIfMissing(m.armis, key.Value, canonical)
+			case identitymap.KindNetboxID:
+				setIfMissing(m.netbx, key.Value, canonical)
+			case identitymap.KindMAC:
+				setIfMissing(m.mac, key.Value, canonical)
+			case identitymap.KindIP, identitymap.KindPartitionIP:
+				setIfMissing(m.ip, key.Value, canonical)
+			}
+		}
+	}
+}
+
+func canonicalIDCandidate(update *models.DeviceUpdate) string {
+	if update == nil {
+		return ""
+	}
+	if update.Metadata != nil {
+		if canonical := strings.TrimSpace(update.Metadata["canonical_device_id"]); canonical != "" {
+			return canonical
+		}
+	}
+	deviceID := strings.TrimSpace(update.DeviceID)
+	if deviceID != "" {
+		return deviceID
+	}
+	if update.Partition != "" && update.IP != "" {
+		return fmt.Sprintf("%s:%s", strings.TrimSpace(update.Partition), strings.TrimSpace(update.IP))
+	}
+	return strings.TrimSpace(update.IP)
+}
+
+func setIfMissing(dst map[string]string, key, value string) {
+	if dst == nil {
+		return
+	}
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if key == "" || value == "" {
+		return
+	}
+	if _, exists := dst[key]; !exists {
+		dst[key] = value
+	}
 }
 
 func (r *DeviceRegistry) resolveIdentifiers(

@@ -375,3 +375,69 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 func stringPtr(s string) *string {
 	return &s
 }
+
+func TestDeviceRegistry_ProcessBatchDeviceUpdates_CanonicalizesDuplicatesWithinBatch(t *testing.T) {
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
+
+	primaryID := "default:10.0.0.1"
+	updates := []*models.DeviceUpdate{
+		{
+			IP:          "10.0.0.1",
+			DeviceID:    primaryID,
+			Partition:   "default",
+			Source:      models.DiscoverySourceArmis,
+			Timestamp:   time.Now(),
+			IsAvailable: true,
+			Metadata: map[string]string{
+				"armis_device_id": "armis-123",
+			},
+		},
+		{
+			IP:          "10.0.0.2",
+			DeviceID:    "default:10.0.0.2",
+			Partition:   "default",
+			Source:      models.DiscoverySourceArmis,
+			Timestamp:   time.Now(),
+			IsAvailable: true,
+			Metadata: map[string]string{
+				"armis_device_id": "armis-123",
+			},
+		},
+	}
+
+	var published []*models.DeviceUpdate
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, batch []*models.DeviceUpdate) error {
+			published = append([]*models.DeviceUpdate(nil), batch...)
+			return nil
+		})
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
+	require.NoError(t, err)
+	require.Len(t, published, 3, "expected two canonical updates plus tombstone")
+
+	first := published[0]
+	second := published[1]
+	tombstone := published[2]
+
+	assert.Equal(t, primaryID, first.DeviceID)
+	assert.Equal(t, "10.0.0.1", first.IP)
+
+	assert.Equal(t, primaryID, second.DeviceID, "duplicate should re-use canonical id from batch")
+	assert.Equal(t, "10.0.0.2", second.IP)
+	assert.Contains(t, second.Metadata, "alt_ip:10.0.0.2")
+	assert.Equal(t, "armis-123", second.Metadata["armis_device_id"])
+
+	require.Contains(t, tombstone.Metadata, "_merged_into")
+	assert.Equal(t, primaryID, tombstone.Metadata["_merged_into"])
+	assert.Equal(t, "default:10.0.0.2", tombstone.DeviceID)
+}

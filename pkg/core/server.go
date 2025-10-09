@@ -107,7 +107,11 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 		log.Warn().Err(err).Msg("Failed to initialize identity map KV client")
 	} else if client != nil {
 		kvClient = client
-		registryOpts = append(registryOpts, registry.WithIdentityPublisher(kvClient, identitymap.DefaultNamespace, 0))
+		registryOpts = append(
+			registryOpts,
+			registry.WithIdentityPublisher(kvClient, identitymap.DefaultNamespace, 0),
+			registry.WithIdentityResolver(kvClient, identitymap.DefaultNamespace),
+		)
 		identityKVCloser = closer
 	}
 
