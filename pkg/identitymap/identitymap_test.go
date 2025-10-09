@@ -30,8 +30,6 @@ func TestBuildKeys(t *testing.T) {
 
 	assert.ElementsMatch(t, []Key{
 		{Kind: KindDeviceID, Value: "tenant-a:1.2.3.4"},
-		{Kind: KindIP, Value: "1.2.3.4"},
-		{Kind: KindPartitionIP, Value: "tenant-a:1.2.3.4"},
 		{Kind: KindArmisID, Value: "armis-123"},
 		{Kind: KindNetboxID, Value: "nb-42"},
 		{Kind: KindNetboxID, Value: "123"},
@@ -42,6 +40,21 @@ func TestBuildKeys(t *testing.T) {
 func TestBuildKeysNil(t *testing.T) {
 	var update *models.DeviceUpdate
 	assert.Nil(t, BuildKeys(update))
+}
+
+func TestBuildKeysIncludesIPWhenDistinct(t *testing.T) {
+	mac := "aa:bb:cc:dd:ee:ff"
+	update := &models.DeviceUpdate{
+		DeviceID:  "device-123",
+		IP:        "10.0.0.5",
+		Partition: "tenant-a",
+		MAC:       &mac,
+	}
+
+	keys := BuildKeys(update)
+
+	assert.Contains(t, keys, Key{Kind: KindIP, Value: "10.0.0.5"})
+	assert.Contains(t, keys, Key{Kind: KindPartitionIP, Value: "tenant-a:10.0.0.5"})
 }
 
 func TestMarshalRoundtrip(t *testing.T) {
@@ -125,6 +138,6 @@ func TestSanitizeKeyPath(t *testing.T) {
 		SanitizeKeyPath(" /device_canonical_map//device-id//tenant-a:1.2.3.4 "),
 	)
 
-	assert.Equal(t, "", SanitizeKeyPath(""))
-	assert.Equal(t, "", SanitizeKeyPath("///"))
+	assert.Empty(t, SanitizeKeyPath(""))
+	assert.Empty(t, SanitizeKeyPath("///"))
 }

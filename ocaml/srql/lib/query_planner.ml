@@ -16,6 +16,19 @@ let contains_substring s sub =
 let default_time_ref : string option ref = ref None
 let set_default_time (v : string option) = default_time_ref := v
 
+let ensure_stable_order entity stats_opt order =
+  let lower_entity = String.lowercase_ascii entity in
+  let has_field name =
+    let name_l = String.lowercase_ascii name in
+    List.exists (fun (f, _) -> String.equal (String.lowercase_ascii f) name_l) order
+  in
+  let add_if_missing name dir acc = if has_field name then acc else acc @ [ (name, dir) ] in
+  match (lower_entity, stats_opt) with
+  | ("devices" | "sweep_results"), None ->
+      order |> add_if_missing "_tp_time" Desc |> add_if_missing "device_id" Desc
+  | "device_updates", None -> order |> add_if_missing "_tp_time" Desc
+  | _ -> order
+
 let and_opt a b =
   match (a, b) with None, x -> x | x, None -> x | Some l, Some r -> Some (And (l, r))
 
@@ -514,6 +527,11 @@ let plan_to_srql (q : query_spec) : Sql_ir.query option =
               | None, l -> l
             in
             (Some sel, (if gb = [] then None else Some gb), ob, limit')
+      in
+      let order_by =
+        match order_by with
+        | Some order -> Some (ensure_stable_order ent q.stats order)
+        | None -> None
       in
       let having = Option.bind q.having parse_having in
       let q_type = if q.stream then `Stream else `Select in
