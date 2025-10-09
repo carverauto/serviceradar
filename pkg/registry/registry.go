@@ -462,14 +462,14 @@ func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *i
 			}
 		}
 	}
-	if u.IP != "" {
-		if dev, ok := maps.ip[u.IP]; ok {
-			return dev, "ip"
-		}
-	}
 	if u.MAC != nil && *u.MAC != "" {
 		if dev, ok := maps.mac[*u.MAC]; ok {
 			return dev, identitySourceMAC
+		}
+	}
+	if u.IP != "" {
+		if dev, ok := maps.ip[u.IP]; ok {
+			return dev, "ip"
 		}
 	}
 	return "", ""

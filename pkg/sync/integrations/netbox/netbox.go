@@ -434,64 +434,8 @@ func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp Devic
 }
 
 func (n *NetboxIntegration) prefetchCanonicalEntries(ctx context.Context, contexts []netboxDeviceContext) (map[string]*proto.BatchGetEntry, error) {
-	if n.KvClient == nil || len(contexts) == 0 {
-		return nil, nil
-	}
-
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	seenPaths := make(map[string]struct{})
-	paths := make([]string, 0, len(contexts)*3)
-
-	for _, ctxDevice := range contexts {
-		for _, key := range ctxDevice.orderedKeys {
-			sanitized := key.KeyPath(identitymap.DefaultNamespace)
-			if _, ok := seenPaths[sanitized]; ok {
-				continue
-			}
-			seenPaths[sanitized] = struct{}{}
-			paths = append(paths, sanitized)
-		}
-	}
-
-	if len(paths) == 0 {
-		return nil, nil
-	}
-
-	const chunkSize = 256
-	entries := make(map[string]*proto.BatchGetEntry, len(paths))
-	var firstErr error
-
-	for start := 0; start < len(paths); start += chunkSize {
-		end := start + chunkSize
-		if end > len(paths) {
-			end = len(paths)
-		}
-
-		resp, err := n.KvClient.BatchGet(ctx, &proto.BatchGetRequest{Keys: paths[start:end]})
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			n.Logger.Debug().
-				Err(err).
-				Int("batch_start", start).
-				Int("batch_size", end-start).
-				Msg("NetBox identity map prefetch failed")
-			continue
-		}
-
-		for _, entry := range resp.GetResults() {
-			if entry == nil {
-				continue
-			}
-			entries[entry.GetKey()] = entry
-		}
-	}
-
-	return entries, firstErr
+	// Canonical identity resolution is performed by the core registry. Avoid KV reads here.
+	return nil, nil
 }
 
 func (n *NetboxIntegration) resolveCanonicalRecord(entries map[string]*proto.BatchGetEntry, ordered []identitymap.Key) (*identitymap.Record, uint64) {
