@@ -822,6 +822,14 @@ http_file(
     ],
 )
 
+http_file(
+    name = "alpine_glibc_apk",
+    sha256 = "276f43ce9b2d5878422bca94ca94e882a7eb263abe171d233ac037201ffcaf06",
+    urls = [
+        "https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.35-r1/glibc-2.35-r1.apk",
+    ],
+)
+
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
