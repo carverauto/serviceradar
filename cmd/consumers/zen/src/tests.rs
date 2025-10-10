@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 fn testdata_path(relative: &str) -> PathBuf {
     let runfile_rel = Path::new("cmd/consumers/zen").join(relative);
 
-    let mut check_candidates = |base: &Path| {
+    let check_candidates = |base: &Path| {
         let mut candidates = vec![base.join(&runfile_rel)];
 
         if let Ok(ws) = env::var("TEST_WORKSPACE") {

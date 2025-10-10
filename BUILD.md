@@ -4,6 +4,8 @@
 * The recommended linux distro is Ubuntu 24_04.
 * The build process uses Bazel via Bazelisk.
 
+When configuring a VM, have at least 12 GB of RAM and 8 CPU cores available.
+
 ### Install Bazelisk
 
 wget https://github.com/bazelbuild/bazelisk/releases/download/v1.27.0/bazelisk-linux-amd64
@@ -33,7 +35,7 @@ which bazel
 * libssl-dev
 
 `
-sudo apt install -y git clang-18 build-essential bubblewrap rsync ocaml libgmp-dev liblz4-dev libzstd-dev pkg-config
+sudo apt install -y git clang-18 build-essential openjdk-25-jdk bubblewrap rsync ocaml libgmp-dev liblz4-dev libzstd-dev pkg-config libev-dev libssl-dev
 `
 
 ### Clone the project
@@ -41,8 +43,9 @@ sudo apt install -y git clang-18 build-essential bubblewrap rsync ocaml libgmp-d
 git clone https://github.com/carverauto/serviceradar.git
 
 
-### Clone the monorepo 
+### Build the project 
 
 `
-bazel build /... 
+bazel build //... 
 `
+
