@@ -143,6 +143,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 		tracer:              otel.Tracer("serviceradar-core"),
 		identityKVClient:    kvClient,
 		identityKVCloser:    identityKVCloser,
+		canonicalCache:      newCanonicalCache(10 * time.Minute),
 	}
 
 	// Initialize the cache on startup

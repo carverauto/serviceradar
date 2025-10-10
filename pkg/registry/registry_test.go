@@ -335,10 +335,10 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 				IP:          "192.168.1.102",
 				DeviceID:    "malformed-device-id",
 				Partition:   "",
-				Source:      models.DiscoverySourceSweep,
+				Source:      models.DiscoverySourceMapper,
 				Timestamp:   time.Now(),
 				IsAvailable: true,
-				Confidence:  models.GetSourceConfidence(models.DiscoverySourceSweep),
+				Confidence:  models.GetSourceConfidence(models.DiscoverySourceMapper),
 			},
 			validate: func(t *testing.T, normalized *models.DeviceUpdate) {
 				t.Helper()
@@ -478,4 +478,37 @@ func TestLookupCanonicalFallsBackToIP(t *testing.T) {
 
 	require.Equal(t, "default:canonical-ip", canonical)
 	require.Equal(t, "ip", via)
+}
+
+func TestProcessBatchSkipsSweepWithoutIdentity(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			require.Len(t, updates, 0, "sweep without identity should be dropped")
+			return nil
+		})
+
+	update := &models.DeviceUpdate{
+		IP:          "10.1.1.1",
+		DeviceID:    "default:10.1.1.1",
+		Partition:   "default",
+		Source:      models.DiscoverySourceSweep,
+		Timestamp:   time.Now(),
+		IsAvailable: false,
+		Metadata: map[string]string{
+			"icmp_available": "false",
+		},
+	}
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
+	require.NoError(t, err)
 }
