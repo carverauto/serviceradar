@@ -8,44 +8,67 @@ import (
 	"github.com/shirou/gopsutil/v3/cpu"
 )
 
+func withCounts(fn func(context.Context, bool) (int, error)) option {
+	return func(d *collectorDeps) {
+		d.countsWithContext = fn
+	}
+}
+
+func withInfo(fn func(context.Context) ([]cpu.InfoStat, error)) option {
+	return func(d *collectorDeps) {
+		d.infoWithContext = fn
+	}
+}
+
+func withReadSysfs(fn func(int) (float64, bool)) option {
+	return func(d *collectorDeps) {
+		d.readSysfs = fn
+	}
+}
+
+func withSample(fn func(context.Context, int, time.Duration) (float64, error)) option {
+	return func(d *collectorDeps) {
+		d.sampleFrequency = fn
+	}
+}
+
+func withHostfreqResolver(fn func() (string, error)) option {
+	return func(d *collectorDeps) {
+		d.hostfreqPathResolver = fn
+	}
+}
+
+func withHostfreqRunner(fn func(context.Context, string, []string) ([]byte, error)) option {
+	return func(d *collectorDeps) {
+		d.hostfreqCommandRunner = fn
+	}
+}
+
 func TestCollectPerfFallback(t *testing.T) {
 	t.Parallel()
 
-	origCounts := countsWithContext
-	origInfo := infoWithContext
-	origRead := readSysfsFunc
-	origSample := sampleFrequency
-	origResolve := hostfreqPathResolver
-	origRunner := hostfreqCommandRunner
-	t.Cleanup(func() {
-		countsWithContext = origCounts
-		infoWithContext = origInfo
-		readSysfsFunc = origRead
-		sampleFrequency = origSample
-		hostfreqPathResolver = origResolve
-		hostfreqCommandRunner = origRunner
-	})
-
-	countsWithContext = func(context.Context, bool) (int, error) {
-		return 2, nil
-	}
-	infoWithContext = func(context.Context) ([]cpu.InfoStat, error) {
-		return nil, nil
-	}
-	readSysfsFunc = func(int) (float64, bool) {
-		return 0, false
-	}
-	sampleFrequency = func(context.Context, int, time.Duration) (float64, error) {
-		return 2_400_000_000, nil
-	}
-	hostfreqPathResolver = func() (string, error) {
-		return "", ErrFrequencyUnavailable
-	}
-	hostfreqCommandRunner = func(context.Context, string, []string) ([]byte, error) {
-		return nil, ErrFrequencyUnavailable
-	}
-
-	snapshot, err := collect(context.Background(), 50*time.Millisecond)
+	snapshot, err := collect(
+		context.Background(),
+		50*time.Millisecond,
+		withCounts(func(context.Context, bool) (int, error) {
+			return 2, nil
+		}),
+		withInfo(func(context.Context) ([]cpu.InfoStat, error) {
+			return nil, nil
+		}),
+		withReadSysfs(func(int) (float64, bool) {
+			return 0, false
+		}),
+		withSample(func(context.Context, int, time.Duration) (float64, error) {
+			return 2_400_000_000, nil
+		}),
+		withHostfreqResolver(func() (string, error) {
+			return "", ErrFrequencyUnavailable
+		}),
+		withHostfreqRunner(func(context.Context, string, []string) ([]byte, error) {
+			return nil, ErrFrequencyUnavailable
+		}),
+	)
 	if err != nil {
 		t.Fatalf("collect returned error: %v", err)
 	}
@@ -70,41 +93,30 @@ func TestCollectPerfFallback(t *testing.T) {
 func TestCollectUsesProcFallback(t *testing.T) {
 	t.Parallel()
 
-	origCounts := countsWithContext
-	origInfo := infoWithContext
-	origRead := readSysfsFunc
-	origResolve := hostfreqPathResolver
-	origRunner := hostfreqCommandRunner
-	t.Cleanup(func() {
-		countsWithContext = origCounts
-		infoWithContext = origInfo
-		readSysfsFunc = origRead
-		hostfreqPathResolver = origResolve
-		hostfreqCommandRunner = origRunner
-	})
-
-	countsWithContext = func(context.Context, bool) (int, error) {
-		return 2, nil
-	}
-	infoWithContext = func(context.Context) ([]cpu.InfoStat, error) {
-		return []cpu.InfoStat{
-			{CPU: 0, Mhz: 1500},
-			{CPU: 1, Mhz: 2000},
-		}, nil
-	}
-	readSysfsFunc = func(int) (float64, bool) {
-		return 0, false
-	}
-	hostfreqPathResolver = func() (string, error) {
-		return "", ErrFrequencyUnavailable
-	}
-	hostfreqCommandRunner = func(context.Context, string, []string) ([]byte, error) {
-		return nil, ErrFrequencyUnavailable
-	}
-
-	snapshot, err := Collect(context.Background())
+	snapshot, err := collect(
+		context.Background(),
+		defaultSampleWindow,
+		withCounts(func(context.Context, bool) (int, error) {
+			return 2, nil
+		}),
+		withInfo(func(context.Context) ([]cpu.InfoStat, error) {
+			return []cpu.InfoStat{
+				{CPU: 0, Mhz: 1500},
+				{CPU: 1, Mhz: 2000},
+			}, nil
+		}),
+		withReadSysfs(func(int) (float64, bool) {
+			return 0, false
+		}),
+		withHostfreqResolver(func() (string, error) {
+			return "", ErrFrequencyUnavailable
+		}),
+		withHostfreqRunner(func(context.Context, string, []string) ([]byte, error) {
+			return nil, ErrFrequencyUnavailable
+		}),
+	)
 	if err != nil {
-		t.Fatalf("Collect returned error: %v", err)
+		t.Fatalf("collect returned error: %v", err)
 	}
 
 	if len(snapshot.Cores) != 2 {
