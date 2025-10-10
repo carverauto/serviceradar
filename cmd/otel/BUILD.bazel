@@ -47,10 +47,12 @@ rust_test(
 filegroup(
     name = "otel_proto_srcs",
     srcs = [
+        "//cmd/otel/proto/opentelemetry/proto/collector/metrics/v1:proto_src",
         "//cmd/otel/proto/opentelemetry/proto/collector/logs/v1:proto_src",
         "//cmd/otel/proto/opentelemetry/proto/collector/trace/v1:proto_src",
         "//cmd/otel/proto/opentelemetry/proto/common/v1:proto_src",
         "//cmd/otel/proto/opentelemetry/proto/logs/v1:proto_src",
+        "//cmd/otel/proto/opentelemetry/proto/metrics/v1:proto_src",
         "//cmd/otel/proto/opentelemetry/proto/resource/v1:proto_src",
         "//cmd/otel/proto/opentelemetry/proto/trace/v1:proto_src",
     ],

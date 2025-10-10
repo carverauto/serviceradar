@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<clickhouse>
+  <host>serviceradar-proton</host>
+  <port>9440</port>
+  <secure>1</secure>
+  <database>default</database>
+  <compression>true</compression>
+  <max_block_size>65536</max_block_size>
+  <openSSL>
+    <client>
+      <certificateFile>/etc/serviceradar/certs/client.pem</certificateFile>
+      <privateKeyFile>/etc/serviceradar/certs/client-key.pem</privateKeyFile>
+      <caConfig>/etc/serviceradar/certs/root.pem</caConfig>
+      <verify_peer>true</verify_peer>
+      <loadDefaultCAFile>false</loadDefaultCAFile>
+    </client>
+  </openSSL>
+</clickhouse>

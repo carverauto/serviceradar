@@ -108,7 +108,7 @@ func (p *MTLSProvider) setCredentialNeeds() error {
 	}{
 		models.RolePoller:  {true, true},  // Client to Agent/Core, Server for health
 		models.RoleAgent:   {true, true},  // Client to checkers, Server for Poller
-		models.RoleCore:    {false, true}, // Server only
+		models.RoleCore:    {true, true},  // Core now dials external services (KV) and serves RPCs
 		models.RoleKVStore: {true, true},  // Client to NATS, Server for gRPC
 		models.RoleChecker: {false, true}, // Server only
 	}

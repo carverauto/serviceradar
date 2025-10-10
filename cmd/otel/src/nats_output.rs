@@ -9,6 +9,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
+use crate::opentelemetry::proto::collector::metrics::v1::ExportMetricsServiceRequest;
 use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
 
 #[derive(Clone, Debug)]
@@ -53,9 +54,10 @@ impl NATSOutput {
         debug!("Creating/verifying JetStream stream: {}", config.stream);
         // Configure stream to handle traces, logs, and metrics subjects
         let subjects = vec![
-            format!("{}.traces", config.subject),  // events.otel.traces
-            format!("{}.logs", config.subject),    // events.otel.logs
-            format!("{}.metrics", config.subject), // events.otel.metrics (derived analytics)
+            format!("{}.traces", config.subject),      // events.otel.traces
+            format!("{}.logs", config.subject),        // events.otel.logs
+            format!("{}.metrics", config.subject),     // events.otel.metrics (derived analytics)
+            format!("{}.metrics.raw", config.subject), // events.otel.metrics.raw (OTLP payloads)
         ];
         debug!("Stream will handle subjects: {subjects:?}");
 
@@ -323,7 +325,7 @@ impl NATSOutput {
         debug!("Encoded metrics data: {} bytes", json_payload.len());
 
         // Publish to otel metrics subject for derived analytics
-        let otel_metrics_subject = "events.otel.metrics".to_string();
+        let otel_metrics_subject = format!("{}.metrics", self.config.subject);
         debug!("Publishing performance metrics to subject: {otel_metrics_subject}");
 
         if self.disabled || self.jetstream.is_none() {
@@ -362,6 +364,61 @@ impl NATSOutput {
             Err(_) => {
                 warn!("NATS metrics ack timed out after {:?}", self.config.timeout);
                 return Err(anyhow::anyhow!("NATS metrics publish timeout"));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn publish_raw_metrics(
+        &self,
+        metrics_request: &ExportMetricsServiceRequest,
+    ) -> Result<()> {
+        debug!("Publishing raw OTLP metrics request to NATS");
+
+        if self.disabled || self.jetstream.is_none() {
+            debug!("NATS output disabled; dropping raw metrics payload");
+            return Ok(());
+        }
+
+        let mut payload = Vec::new();
+        metrics_request.encode(&mut payload)?;
+        debug!("Encoded raw OTLP metrics payload: {} bytes", payload.len());
+
+        let raw_subject = format!("{}.metrics.raw", self.config.subject);
+        debug!("Publishing OTLP metrics to subject: {raw_subject}");
+
+        let js = self.jetstream.as_ref().unwrap();
+        let ack: PublishAckFuture = js.publish(raw_subject, payload.into()).await.map_err(|e| {
+            error!("Failed to publish raw OTLP metrics to NATS: {e}");
+            e
+        })?;
+
+        debug!(
+            "Waiting for NATS acknowledgment for raw metrics (timeout: {:?})",
+            self.config.timeout
+        );
+        match timeout(self.config.timeout, ack).await {
+            Ok(Ok(ack_result)) => {
+                debug!(
+                    "NATS raw metrics publish acknowledged: stream={}, sequence={}",
+                    ack_result.stream, ack_result.sequence
+                );
+                info!("Successfully published raw OTLP metrics request to NATS");
+            }
+            Ok(Err(e)) => {
+                error!("NATS raw metrics acknowledgment failed: {e}");
+                return Err(anyhow::anyhow!(
+                    "NATS raw metrics acknowledgment failed: {}",
+                    e
+                ));
+            }
+            Err(_) => {
+                warn!(
+                    "NATS raw metrics ack timed out after {:?}",
+                    self.config.timeout
+                );
+                return Err(anyhow::anyhow!("NATS raw metrics publish timeout"));
             }
         }
 

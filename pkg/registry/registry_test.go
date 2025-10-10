@@ -335,10 +335,10 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 				IP:          "192.168.1.102",
 				DeviceID:    "malformed-device-id",
 				Partition:   "",
-				Source:      models.DiscoverySourceSweep,
+				Source:      models.DiscoverySourceMapper,
 				Timestamp:   time.Now(),
 				IsAvailable: true,
-				Confidence:  models.GetSourceConfidence(models.DiscoverySourceSweep),
+				Confidence:  models.GetSourceConfidence(models.DiscoverySourceMapper),
 			},
 			validate: func(t *testing.T, normalized *models.DeviceUpdate) {
 				t.Helper()
@@ -374,4 +374,141 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 // Helper function
 func stringPtr(s string) *string {
 	return &s
+}
+
+func TestDeviceRegistry_ProcessBatchDeviceUpdates_CanonicalizesDuplicatesWithinBatch(t *testing.T) {
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
+
+	primaryID := "default:10.0.0.1"
+	updates := []*models.DeviceUpdate{
+		{
+			IP:          "10.0.0.1",
+			DeviceID:    primaryID,
+			Partition:   "default",
+			Source:      models.DiscoverySourceArmis,
+			Timestamp:   time.Now(),
+			IsAvailable: true,
+			Metadata: map[string]string{
+				"armis_device_id": "armis-123",
+			},
+		},
+		{
+			IP:          "10.0.0.2",
+			DeviceID:    "default:10.0.0.2",
+			Partition:   "default",
+			Source:      models.DiscoverySourceArmis,
+			Timestamp:   time.Now(),
+			IsAvailable: true,
+			Metadata: map[string]string{
+				"armis_device_id": "armis-123",
+			},
+		},
+	}
+
+	var published []*models.DeviceUpdate
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, batch []*models.DeviceUpdate) error {
+			published = append([]*models.DeviceUpdate(nil), batch...)
+			return nil
+		})
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
+	require.NoError(t, err)
+	require.Len(t, published, 3, "expected two canonical updates plus tombstone")
+
+	first := published[0]
+	second := published[1]
+	tombstone := published[2]
+
+	assert.Equal(t, primaryID, first.DeviceID)
+	assert.Equal(t, "10.0.0.1", first.IP)
+
+	assert.Equal(t, primaryID, second.DeviceID, "duplicate should re-use canonical id from batch")
+	assert.Equal(t, "10.0.0.2", second.IP)
+	assert.Contains(t, second.Metadata, "alt_ip:10.0.0.2")
+	assert.Equal(t, "armis-123", second.Metadata["armis_device_id"])
+
+	require.Contains(t, tombstone.Metadata, "_merged_into")
+	assert.Equal(t, primaryID, tombstone.Metadata["_merged_into"])
+	assert.Equal(t, "default:10.0.0.2", tombstone.DeviceID)
+}
+
+func TestLookupCanonicalPrefersMACOverIP(t *testing.T) {
+	registry := &DeviceRegistry{logger: logger.NewTestLogger()}
+	mac := "AA:BB:CC:DD:EE:FF"
+	update := &models.DeviceUpdate{
+		IP:  "10.0.0.10",
+		MAC: &mac,
+	}
+	maps := &identityMaps{
+		armis: map[string]string{},
+		netbx: map[string]string{},
+		mac:   map[string]string{mac: "default:canonical-mac"},
+		ip:    map[string]string{"10.0.0.10": "default:canonical-ip"},
+	}
+
+	canonical, via := registry.lookupCanonicalFromMaps(update, maps)
+
+	require.Equal(t, "default:canonical-mac", canonical)
+	require.Equal(t, identitySourceMAC, via)
+}
+
+func TestLookupCanonicalFallsBackToIP(t *testing.T) {
+	registry := &DeviceRegistry{logger: logger.NewTestLogger()}
+	update := &models.DeviceUpdate{
+		IP: "10.0.0.11",
+	}
+	maps := &identityMaps{
+		armis: map[string]string{},
+		netbx: map[string]string{},
+		mac:   map[string]string{},
+		ip:    map[string]string{"10.0.0.11": "default:canonical-ip"},
+	}
+
+	canonical, via := registry.lookupCanonicalFromMaps(update, maps)
+
+	require.Equal(t, "default:canonical-ip", canonical)
+	require.Equal(t, "ip", via)
+}
+
+func TestProcessBatchSkipsSweepWithoutIdentity(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			require.Empty(t, updates, "sweep without identity should be dropped")
+			return nil
+		})
+
+	update := &models.DeviceUpdate{
+		IP:          "10.1.1.1",
+		DeviceID:    "default:10.1.1.1",
+		Partition:   "default",
+		Source:      models.DiscoverySourceSweep,
+		Timestamp:   time.Now(),
+		IsAvailable: false,
+		Metadata: map[string]string{
+			"icmp_available": "false",
+		},
+	}
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
+	require.NoError(t, err)
 }

@@ -30,17 +30,23 @@ type KVStore interface {
 	// Returns the value as a byte slice, a boolean indicating if the key was found, and an error if the operation fails.
 	Get(ctx context.Context, key string) ([]byte, bool, error)
 
-    // Put stores a value under the given key with an optional TTL (time-to-live).
-    // If ttl is zero, the value persists indefinitely (or until explicitly deleted, depending on the backend).
-    Put(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	// GetEntry retrieves the full metadata for the key, including revision numbers.
+	GetEntry(ctx context.Context, key string) (Entry, error)
 
-    // PutIfAbsent stores a value only if the key does not already exist.
-    // Returns an error if the key exists. TTL semantics mirror Put.
-    PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	// Put stores a value under the given key with an optional TTL (time-to-live).
+	// If ttl is zero, the value persists indefinitely (or until explicitly deleted, depending on the backend).
+	Put(ctx context.Context, key string, value []byte, ttl time.Duration) error
+
+	// PutIfAbsent stores a value only if the key does not already exist.
+	// Returns an error if the key exists. TTL semantics mirror Put.
+	PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
 
 	// PutMany stores multiple key/value pairs in a single operation.
 	// The ttl parameter applies to all entries.
 	PutMany(ctx context.Context, entries []KeyValueEntry, ttl time.Duration) error
+
+	// Update performs a compare-and-swap write using the provided revision.
+	Update(ctx context.Context, key string, value []byte, revision uint64, ttl time.Duration) (uint64, error)
 
 	// Delete removes the key and its associated value from the store.
 	Delete(ctx context.Context, key string) error
@@ -58,4 +64,11 @@ type KVStore interface {
 type KeyValueEntry struct {
 	Key   string
 	Value []byte
+}
+
+// Entry captures the value, revision, and presence metadata for a key lookup.
+type Entry struct {
+	Value    []byte
+	Revision uint64
+	Found    bool
 }

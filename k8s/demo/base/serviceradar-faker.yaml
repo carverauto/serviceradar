@@ -26,6 +26,8 @@ spec:
           value: "info"
         volumeMounts:
         - name: faker-data
+          mountPath: /var/lib/serviceradar/faker
+        - name: faker-data
           mountPath: /data
         readinessProbe:
           httpGet:
