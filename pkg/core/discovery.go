@@ -37,10 +37,10 @@ import (
 )
 
 const (
-	syncDeviceChunkSize           = 64
+	syncDeviceChunkSize           = 16384
 	maxSyncSamplesPerSource       = 2
-	maxStatusProbeBytes     int64 = 1 << 16 // 64 KiB guard when peeking at status payloads
-	maxSyncChunkBytes             = 1 << 20 // 1 MiB target for registry batches
+	maxStatusProbeBytes     int64 = 1 << 16        // 64 KiB guard when peeking at status payloads
+	maxSyncChunkBytes             = 10 * (1 << 20) // ~10 MiB target for registry batches
 )
 
 var syncDeviceSlicePool = sync.Pool{
@@ -212,9 +212,14 @@ func (s *discoveryService) streamSyncDeviceUpdates(
 		if len(chunk) == 0 {
 			return nil
 		}
+		batchBytes := chunkBytes
 		if err := handle(chunk); err != nil {
 			return err
 		}
+		s.logger.Info().
+			Int("update_count", len(chunk)).
+			Int("estimated_bytes", batchBytes).
+			Msg("Sync chunk flushed")
 		for i := range chunk {
 			chunk[i] = nil
 		}
