@@ -155,7 +155,11 @@ double ComputeAverageMHz(CFDictionaryRef channel,
 }
 
 bool HasPrefix(const std::string& value, const char* prefix) {
-    return value.rfind(prefix, 0) == 0;
+    const size_t prefixLen = strlen(prefix);
+    if (prefixLen == 0 || value.size() < prefixLen) {
+        return false;
+    }
+    return std::char_traits<char>::compare(value.data(), prefix, prefixLen) == 0;
 }
 
 CollectorConfig ParseArgs(int argc, const char* argv[]) {
