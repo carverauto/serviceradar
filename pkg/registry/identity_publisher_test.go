@@ -115,6 +115,7 @@ func TestIdentityPublisherPublishesNewEntries(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, update.DeviceID, record.CanonicalDeviceID)
 		require.Equal(t, identitymap.HashMetadata(update.Metadata), record.MetadataHash)
+		require.Equal(t, "armis-1", record.Attributes["armis_device_id"])
 	}
 }
 
@@ -173,4 +174,35 @@ func TestIdentityPublisherRetriesOnCASConflict(t *testing.T) {
 	record, err := identitymap.UnmarshalRecord(entry.value)
 	require.NoError(t, err)
 	require.Equal(t, identitymap.HashMetadata(updated.Metadata), record.MetadataHash)
+}
+
+func TestIdentityPublisherUpdatesWhenAttributesChange(t *testing.T) {
+	t.Parallel()
+
+	kvClient := newFakeIdentityKVClient()
+	pub := newIdentityPublisher(kvClient, identitymap.DefaultNamespace, 0, logger.NewTestLogger())
+
+	metadata := map[string]string{"armis_device_id": "armis-attr"}
+	initialRecord := &identitymap.Record{
+		CanonicalDeviceID: "device-attr",
+		MetadataHash:      identitymap.HashMetadata(metadata),
+		Attributes:        map[string]string{},
+	}
+	payload, err := identitymap.MarshalRecord(initialRecord)
+	require.NoError(t, err)
+
+	key := identitymap.Key{Kind: identitymap.KindDeviceID, Value: "device-attr"}.KeyPath(identitymap.DefaultNamespace)
+	kvClient.entries[key] = &fakeKVEntry{value: payload, revision: 1}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	update := &models.DeviceUpdate{DeviceID: "device-attr", Metadata: metadata}
+	require.NoError(t, pub.Publish(ctx, []*models.DeviceUpdate{update}))
+
+	entry := kvClient.entries[key]
+	require.Equal(t, uint64(2), entry.revision)
+	record, err := identitymap.UnmarshalRecord(entry.value)
+	require.NoError(t, err)
+	require.Equal(t, "armis-attr", record.Attributes["armis_device_id"])
 }

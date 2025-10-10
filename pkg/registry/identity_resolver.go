@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -261,6 +262,31 @@ func attachCanonicalMetadataToUpdate(update *models.DeviceUpdate, record *identi
 	}
 	if hostname, ok := record.Attributes["hostname"]; ok && hostname != "" {
 		update.Metadata["canonical_hostname"] = hostname
+	}
+	if record.Attributes != nil {
+		copyAttr := func(key string) {
+			if update.Metadata == nil {
+				update.Metadata = make(map[string]string)
+			}
+			if existing := strings.TrimSpace(update.Metadata[key]); existing != "" {
+				return
+			}
+			if v, ok := record.Attributes[key]; ok && strings.TrimSpace(v) != "" {
+				update.Metadata[key] = strings.TrimSpace(v)
+			}
+		}
+		copyAttr("armis_device_id")
+		copyAttr("integration_id")
+		copyAttr("integration_type")
+		copyAttr("netbox_device_id")
+		copyAttr("mac")
+
+		if macAttr, ok := record.Attributes["mac"]; ok && strings.TrimSpace(macAttr) != "" {
+			macUpper := strings.ToUpper(strings.TrimSpace(macAttr))
+			if update.MAC == nil || strings.TrimSpace(*update.MAC) == "" {
+				update.MAC = &macUpper
+			}
+		}
 	}
 	if revision != 0 {
 		update.Metadata["canonical_revision"] = strconv.FormatUint(revision, 10)

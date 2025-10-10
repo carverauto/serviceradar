@@ -129,10 +129,24 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	var canonByNetboxID int
 	var canonByMAC int
 	var tombstoneCount int
+	var skippedSweepNoIdentity int
 
 	for _, u := range valid {
 		origID := u.DeviceID
 		canonicalID, via := r.lookupCanonicalFromMaps(u, maps)
+
+		if u.Source == models.DiscoverySourceSweep {
+			hasStrongID := false
+			if u.Metadata != nil {
+				if strings.TrimSpace(u.Metadata["armis_device_id"]) != "" || strings.TrimSpace(u.Metadata["integration_id"]) != "" || strings.TrimSpace(u.Metadata["canonical_device_id"]) != "" {
+					hasStrongID = true
+				}
+			}
+			if !hasStrongID && canonicalID == "" {
+				skippedSweepNoIdentity++
+				continue
+			}
+		}
 
 		if canonicalID != "" && canonicalID != origID {
 			// Rewrite to canonical
@@ -192,6 +206,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		Int("canonicalized_by_netbox_id", canonByNetboxID).
 		Int("canonicalized_by_mac", canonByMAC).
 		Int("tombstones_emitted", tombstoneCount).
+		Int("skipped_sweep_no_identity", skippedSweepNoIdentity).
 		Msg("Registry batch processed")
 
 	return nil
