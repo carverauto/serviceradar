@@ -236,14 +236,23 @@ func mapZerologLevelToOTEL(level string) log.Severity {
 }
 
 func ShutdownOTEL() error {
-	if otelProvider != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-		return otelProvider.Shutdown(ctx)
+	var firstErr error
+
+	if otelProvider != nil {
+		if err := otelProvider.Shutdown(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		otelProvider = nil
 	}
 
-	return nil
+	if err := shutdownMeterProvider(ctx); err != nil && firstErr == nil {
+		firstErr = err
+	}
+
+	return firstErr
 }
 
 func setupTLSConfig(tlsConfig *TLSConfig) (*tls.Config, error) {

@@ -869,6 +869,10 @@ data:
                 {
                     "subject": "events.otel.metrics", 
                     "table": "otel_metrics"
+                },
+                {
+                    "subject": "events.otel.metrics.raw",
+                    "table": "otel_metrics"
                 }
             ],
             "database": {

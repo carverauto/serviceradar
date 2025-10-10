@@ -121,6 +121,7 @@ func TestRunDiscoveryErrorAggregation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockKVClient := NewMockKVClient(ctrl)
+			expectNoopBatchGet(mockKVClient)
 
 			mockGRPCClient := NewMockGRPCClient(ctrl)
 			mockGRPCClient.EXPECT().Close().Return(nil)
@@ -228,6 +229,7 @@ func TestRunArmisUpdatesErrorAggregation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockKVClient := NewMockKVClient(ctrl)
+			expectNoopBatchGet(mockKVClient)
 
 			mockGRPCClient := NewMockGRPCClient(ctrl)
 			mockGRPCClient.EXPECT().Close().Return(nil)
@@ -335,6 +337,7 @@ func TestSafelyRunTask(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockKVClient := NewMockKVClient(ctrl)
+			expectNoopBatchGet(mockKVClient)
 			mockGRPCClient := NewMockGRPCClient(ctrl)
 			mockGRPCClient.EXPECT().Close().Return(nil)
 
@@ -418,6 +421,7 @@ func TestErrorChannelOverflow(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockKVClient := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKVClient)
 	mockGRPCClient := NewMockGRPCClient(ctrl)
 	mockGRPCClient.EXPECT().Close().Return(nil)
 
@@ -480,6 +484,7 @@ func TestGracefulShutdown(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockKVClient := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKVClient)
 	mockGRPCClient := NewMockGRPCClient(ctrl)
 	mockIntegration := NewMockIntegration(ctrl)
 

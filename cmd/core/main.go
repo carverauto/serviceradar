@@ -46,6 +46,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
@@ -71,6 +72,7 @@ func run() error {
 	configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
 	backfill := flag.Bool("backfill-identities", false, "Run one-time identity backfill (Armis/NetBox) and exit")
 	backfillDryRun := flag.Bool("backfill-dry-run", false, "If set with --backfill-identities, only log actions without writing")
+	backfillSeedKV := flag.Bool("seed-kv-only", false, "Seed canonical identity map without emitting tombstones")
 	backfillIPs := flag.Bool("backfill-ips", true, "Also backfill sweep-only device IDs by IP aliasing into canonical identities")
 	flag.Parse()
 
@@ -115,6 +117,23 @@ func run() error {
 		return err
 	}
 
+	if cfg.Logging != nil {
+		if _, metricsErr := logger.InitializeMetrics(ctx, logger.MetricsConfig{
+			ServiceName:    "serviceradar-core",
+			ServiceVersion: "1.0.0",
+			OTel:           &cfg.Logging.OTel,
+		}); metricsErr != nil && !errors.Is(metricsErr, logger.ErrOTelMetricsDisabled) {
+			return metricsErr
+		}
+	}
+
+	defer func() {
+		shutdownErr := lifecycle.ShutdownLogger()
+		if shutdownErr != nil {
+			mainLogger.Error().Err(shutdownErr).Msg("Error shutting down logger")
+		}
+	}()
+
 	// Create core server
 	server, err := core.NewServer(ctx, &cfg)
 	if err != nil {
@@ -129,7 +148,12 @@ func run() error {
 		}
 		mainLogger.Info().Msg(startMsg)
 
-		if err := core.BackfillIdentityTombstones(ctx, server.DB, mainLogger, *backfillDryRun); err != nil {
+		opts := core.BackfillOptions{
+			DryRun:     *backfillDryRun,
+			SeedKVOnly: *backfillSeedKV,
+		}
+
+		if err := core.BackfillIdentityTombstones(ctx, server.DB, server.IdentityKVClient(), mainLogger, opts); err != nil {
 			return err
 		}
 
@@ -137,10 +161,12 @@ func run() error {
 			ipMsg := "Starting IP alias backfill ..."
 			if *backfillDryRun {
 				ipMsg = "Starting IP alias backfill (DRY-RUN) ..."
+			} else if *backfillSeedKV {
+				ipMsg = "Starting IP alias backfill (KV seeding only) ..."
 			}
 			mainLogger.Info().Msg(ipMsg)
 
-			if err := core.BackfillIPAliasTombstones(ctx, server.DB, mainLogger, *backfillDryRun); err != nil {
+			if err := core.BackfillIPAliasTombstones(ctx, server.DB, server.IdentityKVClient(), mainLogger, opts); err != nil {
 				return err
 			}
 		}
@@ -148,6 +174,8 @@ func run() error {
 		completionMsg := "Backfill completed. Exiting."
 		if *backfillDryRun {
 			completionMsg = "Backfill DRY-RUN completed. Exiting."
+		} else if *backfillSeedKV {
+			completionMsg = "Backfill KV seeding completed. Exiting."
 		}
 		mainLogger.Info().Msg(completionMsg)
 
@@ -221,6 +249,7 @@ func run() error {
 	// Create gRPC service registrar
 	registerService := func(s *grpc.Server) error {
 		proto.RegisterPollerServiceServer(s, server)
+		proto.RegisterCoreServiceServer(s, server)
 		return nil
 	}
 

@@ -104,33 +104,27 @@ CREATE STREAM IF NOT EXISTS unified_devices_registry (
 -- Aggregation pipeline MV
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
 INTO unified_devices
-AS SELECT
-                                          s.device_id AS device_id,
-                                          s.ip,
-                                          s.poller_id,
-                                          if(s.hostname IS NOT NULL AND s.hostname != '', s.hostname, u.hostname) AS hostname,
-                                          if(s.mac IS NOT NULL AND s.mac != '', s.mac, u.mac) AS mac,
-                                          if(index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0,
-                                             u.discovery_sources,
-                                             array_push_back(if_null(u.discovery_sources, []), s.discovery_source)) AS discovery_sources,
-                                          coalesce(
-                                                  if(s.discovery_source IN ('netbox', 'armis'), u.is_available, s.available),
-                                                  s.available
-                                          ) AS is_available,
-                                          coalesce(u.first_seen, s.timestamp) AS first_seen,
-                                          s.timestamp AS last_seen,
-                                          if(s.metadata IS NOT NULL,
-                                             if(u.metadata IS NULL, s.metadata, map_update(u.metadata, s.metadata)),
-                                             u.metadata) AS metadata,
-                                          s.agent_id,
-                                          if(u.device_id IS NULL, 'network_device', u.device_type) AS device_type,
-                                          u.service_type,
-                                          u.service_status,
-                                          u.last_heartbeat,
-                                          u.os_info,
-                                          u.version_info
-   FROM device_updates AS s
-            LEFT JOIN unified_devices AS u ON s.device_id = u.device_id;
+AS
+SELECT
+    device_id,
+    arg_max(ip, timestamp) AS ip,
+    arg_max(poller_id, timestamp) AS poller_id,
+    arg_max(agent_id, timestamp) AS agent_id,
+    arg_max(hostname, timestamp) AS hostname,
+    arg_max(mac, timestamp) AS mac,
+    group_uniq_array(discovery_source) AS discovery_sources,
+    arg_max(available, timestamp) AS is_available,
+    min(timestamp) AS first_seen,
+    max(timestamp) AS last_seen,
+    arg_max(metadata, timestamp) AS metadata,
+    'network_device' AS device_type,
+    CAST(NULL AS nullable(string)) AS service_type,
+    CAST(NULL AS nullable(string)) AS service_status,
+    CAST(NULL AS nullable(DateTime64(3))) AS last_heartbeat,
+    CAST(NULL AS nullable(string)) AS os_info,
+    CAST(NULL AS nullable(string)) AS version_info
+FROM device_updates
+GROUP BY device_id;
 
 -- =================================================================
 -- == Network Discovery Streams

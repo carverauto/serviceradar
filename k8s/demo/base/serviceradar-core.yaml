@@ -99,10 +99,22 @@ spec:
             secretKeyRef:
               name: serviceradar-secrets
               key: admin-bcrypt-hash
+        - name: KV_ADDRESS
+          value: "serviceradar-kv:50057"
+        - name: KV_SEC_MODE
+          value: "mtls"
+        - name: KV_CERT_FILE
+          value: "/etc/serviceradar/certs/core.pem"
+        - name: KV_KEY_FILE
+          value: "/etc/serviceradar/certs/core-key.pem"
+        - name: KV_CA_FILE
+          value: "/etc/serviceradar/certs/root.pem"
+        - name: KV_SERVER_NAME
+          value: "kv.serviceradar"
         resources:
           limits:
             cpu: "2"
-            memory: "2Gi"
+            memory: "4Gi"
           requests:
             cpu: "500m"
             memory: "512Mi"

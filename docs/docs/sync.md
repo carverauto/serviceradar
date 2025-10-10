@@ -308,6 +308,8 @@ For discovered IP addresses, the Sync service creates network sweep configuratio
 
 This configuration would be stored at a key like `agents/192.168.2.23/checkers/sweep/sweep.json` in the KV store.
 
+> **KV footprint note (Oct 2025)** – the sync integrations no longer emit per-device cache entries such as `agents/<agent>/<ip>`. Instead, the generated sweep configuration (and its chunked companions `sweep_chunk_<n>.json`) capture the full device list for agents, while discovery events continue to stream to core over gRPC. This keeps KV traffic bounded (~1–N chunked JSON blobs per discovery) and eliminates the prior 50 k `PutMany` writes per run.
+
 ## Installation and Usage
 
 ### 1. Install the Sync Service

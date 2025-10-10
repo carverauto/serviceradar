@@ -17,12 +17,15 @@
 package core
 
 import (
-    "bytes"
-    "context"
-    "encoding/json"
-    "fmt"
-    "net"
-    "strings"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -33,16 +36,38 @@ import (
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
 
+const (
+	syncDeviceChunkSize           = 16384
+	maxSyncSamplesPerSource       = 2
+	maxStatusProbeBytes     int64 = 1 << 16        // 64 KiB guard when peeking at status payloads
+	maxSyncChunkBytes             = 10 * (1 << 20) // ~10 MiB target for registry batches
+)
+
+func newDeviceSlicePool() *sync.Pool {
+	return &sync.Pool{
+		New: func() any {
+			slice := make([]*models.DeviceUpdate, 0, syncDeviceChunkSize)
+			return &slice
+		},
+	}
+}
+
 // discoveryService implements the DiscoveryService interface.
 type discoveryService struct {
-	db     db.Service
-	reg    registry.Manager
-	logger logger.Logger
+	db              db.Service
+	reg             registry.Manager
+	logger          logger.Logger
+	deviceSlicePool *sync.Pool
 }
 
 // NewDiscoveryService creates a new DiscoveryService instance.
 func NewDiscoveryService(dbSvc db.Service, reg registry.Manager, log logger.Logger) DiscoveryService {
-	return &discoveryService{db: dbSvc, reg: reg, logger: log}
+	return &discoveryService{
+		db:              dbSvc,
+		reg:             reg,
+		logger:          log,
+		deviceSlicePool: newDeviceSlicePool(),
+	}
 }
 
 // ProcessSyncResults processes the results of a sync discovery operation.
@@ -57,7 +82,7 @@ func (s *discoveryService) ProcessSyncResults(
 ) error {
 	s.logger.Info().Msg("Processing sync discovery results")
 
-	// First, check if this is a status payload that should be skipped
+	// Quickly detect lightweight status payloads without allocating large objects.
 	if s.isStatusPayload(details) {
 		s.logger.Debug().
 			Str("poller_id", reportingPollerID).
@@ -66,150 +91,245 @@ func (s *discoveryService) ProcessSyncResults(
 		return nil
 	}
 
-	// Parse the device updates
-	sightings, err := s.parseSyncDeviceUpdates(details, reportingPollerID, svc.ServiceName)
-	if err != nil {
+	stats := &syncIngestStats{
+		sourceCounts: make(map[string]int),
+	}
+
+	chunkHandler := func(updates []*models.DeviceUpdate) error {
+		stats.ensureSamplesMap()
+		stats.totalSightings += len(updates)
+		for _, update := range updates {
+			if update == nil {
+				continue
+			}
+			src := string(update.Source)
+			stats.sourceCounts[src]++
+			if stats.samplesLogged[src] < maxSyncSamplesPerSource {
+				s.logger.Debug().
+					Str("source", src).
+					Str("poller_id", reportingPollerID).
+					Str("service_name", svc.ServiceName).
+					Str("ip", update.IP).
+					Str("device_id", update.DeviceID).
+					Bool("is_available", update.IsAvailable).
+					Interface("metadata", update.Metadata).
+					Msgf("CORE DEBUG: %s DeviceUpdate[%d]", update.Source, stats.samplesLogged[src])
+				stats.samplesLogged[src]++
+			}
+		}
+
+		if s.reg == nil || len(updates) == 0 {
+			return nil
+		}
+
+		if err := s.reg.ProcessBatchDeviceUpdates(ctx, updates); err != nil {
+			return fmt.Errorf("process sync chunk (size=%d): %w", len(updates), err)
+		}
+
+		return nil
+	}
+
+	if err := s.streamSyncDeviceUpdates(details, chunkHandler); err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("poller_id", reportingPollerID).
+			Msg("Error processing sync discovery sightings")
+
 		return err
 	}
 
-	if len(sightings) == 0 {
+	if stats.totalSightings == 0 {
 		s.logger.Debug().
 			Str("poller_id", reportingPollerID).
 			Str("service_name", svc.ServiceName).
 			Msg("No sightings found in sync discovery data")
 
-		return nil // Nothing to process
+		return nil
 	}
 
-	// Process the sightings through the registry
-	if s.reg != nil {
-		source := "unknown"
-		if len(sightings) > 0 {
-			source = string(sightings[0].Source) // Use the source from the first sighting
-		}
-
-		s.logger.Info().
-			Int("sighting_count", len(sightings)).
-			Str("source", source).
-			Msg("Processing device sightings from sync service")
-
-		if err := s.reg.ProcessBatchDeviceUpdates(ctx, sightings); err != nil {
-			s.logger.Error().
-				Err(err).
-				Str("poller_id", reportingPollerID).
-				Msg("Error processing sync discovery sightings")
-
-			return err
-		}
-	} else {
-		s.logger.Warn().
-			Int("sighting_count", len(sightings)).
-			Msg("DeviceRegistry not available. Skipping Processing of sync discovery sightings")
-	}
+	s.logger.Info().
+		Int("sighting_count", stats.totalSightings).
+		Str("poller_id", reportingPollerID).
+		Str("service_name", svc.ServiceName).
+		Str("top_source", stats.primarySource()).
+		Interface("source_counts", stats.sourceCounts).
+		Msg("Processed sync discovery sightings in streaming mode")
 
 	return nil
 }
 
-// isStatusPayload checks if the payload is a status response that should be skipped
-func (*discoveryService) isStatusPayload(details json.RawMessage) bool {
-	var statusCheck map[string]interface{}
-
-	if err := json.Unmarshal(details, &statusCheck); err == nil {
-		if _, hasDevices := statusCheck["devices"]; hasDevices {
-			if _, hasStatus := statusCheck["status"]; hasStatus {
-				// This is a status payload from GetResults, skip it
-				return true
-			}
-		}
-	}
-
-	return false
+type syncIngestStats struct {
+	totalSightings int
+	sourceCounts   map[string]int
+	samplesLogged  map[string]int
 }
 
-// parseSyncDeviceUpdates parses device updates from sync service data
-// It handles both single JSON arrays and multiple concatenated JSON arrays from chunked streaming
-func (s *discoveryService) parseSyncDeviceUpdates(details json.RawMessage, pollerID, serviceName string) ([]*models.DeviceUpdate, error) {
-	var sightings []*models.DeviceUpdate
+func (s *syncIngestStats) ensureSamplesMap() {
+	if s.samplesLogged == nil {
+		s.samplesLogged = make(map[string]int)
+	}
+}
 
-	// Log data size for debugging
-	s.logger.Debug().
-		Str("poller_id", pollerID).
-		Int("data_size", len(details)).
-		Msg("CORE DEBUG: Parsing sync service data")
+func (s *syncIngestStats) primarySource() string {
+	var (
+		topSource string
+		topCount  int
+	)
 
-	// First try to parse as a single JSON array
-	err := json.Unmarshal(details, &sightings)
-	if err != nil {
-		// If that fails, try to parse as multiple concatenated JSON arrays from chunked streaming
-		s.logger.Debug().
-			Err(err).
-			Msg("Single array parse failed, trying multiple arrays")
+	for src, count := range s.sourceCounts {
+		if count > topCount {
+			topSource = src
+			topCount = count
+		}
+	}
 
-        decoder := json.NewDecoder(bytes.NewReader(details))
+	if topSource == "" {
+		return "unknown"
+	}
 
-		var allSightings []*models.DeviceUpdate
+	return topSource
+}
+
+type syncChunkHandler func([]*models.DeviceUpdate) error
+
+func (s *discoveryService) streamSyncDeviceUpdates(
+	details json.RawMessage,
+	handle syncChunkHandler,
+) error {
+	if len(details) == 0 {
+		return nil
+	}
+
+	reader := bytes.NewReader(details)
+	decoder := json.NewDecoder(reader)
+	decoder.UseNumber()
+
+	pool := s.deviceSlicePool
+	if pool == nil {
+		pool = newDeviceSlicePool()
+		s.deviceSlicePool = pool
+	}
+
+	chunkPtr := pool.Get().(*[]*models.DeviceUpdate)
+	chunk := (*chunkPtr)[:0]
+	chunkBytes := 0
+
+	defer func() {
+		for i := range chunk {
+			chunk[i] = nil
+		}
+		*chunkPtr = chunk[:0]
+		pool.Put(chunkPtr)
+	}()
+
+	flushChunk := func() error {
+		if len(chunk) == 0 {
+			return nil
+		}
+		batchBytes := chunkBytes
+		if err := handle(chunk); err != nil {
+			return err
+		}
+		s.logger.Info().
+			Int("update_count", len(chunk)).
+			Int("estimated_bytes", batchBytes).
+			Msg("Sync chunk flushed")
+		for i := range chunk {
+			chunk[i] = nil
+		}
+		chunk = chunk[:0]
+		chunkBytes = 0
+		return nil
+	}
+
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read sync payload token: %w", err)
+		}
+
+		delim, isDelim := token.(json.Delim)
+		if !isDelim {
+			continue
+		}
+
+		if delim != '[' {
+			continue
+		}
 
 		for decoder.More() {
-			var chunkSightings []*models.DeviceUpdate
-
-			if chunkErr := decoder.Decode(&chunkSightings); chunkErr != nil {
-				s.logger.Debug().
-					Err(chunkErr).
-					Msg("Failed to decode chunk in sync discovery data")
-				s.logger.Debug().
-					Str("payload", string(details)).
-					Msg("Full raw JSON payload causing unmarshal failure")
-
-				return nil, fmt.Errorf("failed to parse sync discovery data: %w", chunkErr)
+			update := &models.DeviceUpdate{}
+			if err := decoder.Decode(update); err != nil {
+				return fmt.Errorf("decode sync device update: %w", err)
 			}
 
-			allSightings = append(allSightings, chunkSightings...)
-		}
+			est := estimateDeviceUpdateSize(update)
+			if len(chunk) > 0 && chunkBytes+est > maxSyncChunkBytes {
+				if err := flushChunk(); err != nil {
+					return err
+				}
+			}
 
-		sightings = allSightings
-		s.logger.Debug().
-			Int("device_count", len(sightings)).
-			Msg("Successfully parsed device updates from multiple JSON chunks")
-	}
-
-	// Debug logging for successful unmarshal
-	s.logger.Debug().
-		Int("device_count", len(sightings)).
-		Str("poller_id", pollerID).
-		Str("service_name", serviceName).
-		Msg("CORE DEBUG: json.Unmarshal SUCCESS - parsed DeviceUpdate objects")
-
-	// Log source breakdown if we have sightings
-	if len(sightings) > 0 {
-		sourceCounts := make(map[string]int)
-
-		for _, update := range sightings {
-			sourceCounts[string(update.Source)]++
-		}
-
-		s.logger.Debug().
-			Interface("source_counts", sourceCounts).
-			Msg("CORE DEBUG: Device breakdown by source")
-
-		// Log samples from each source
-		samplesLogged := make(map[string]int)
-		for i, update := range sightings {
-			if samplesLogged[string(update.Source)] < 2 {
-				s.logger.Debug().
-					Str("source", string(update.Source)).
-					Int("index", i).
-					Str("ip", update.IP).
-					Str("device_id", update.DeviceID).
-					Bool("is_available", update.IsAvailable).
-					Interface("metadata", update.Metadata).
-					Msgf("CORE DEBUG: %s DeviceUpdate[%d]", update.Source, i)
-
-				samplesLogged[string(update.Source)]++
+			chunk = append(chunk, update)
+			chunkBytes += est
+			if len(chunk) >= syncDeviceChunkSize {
+				if err := flushChunk(); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
-	return sightings, nil
+	return flushChunk()
+}
+
+func estimateDeviceUpdateSize(update *models.DeviceUpdate) int {
+	if update == nil {
+		return 0
+	}
+
+	size := 64 // base overhead for struct metadata
+	size += len(update.AgentID) + len(update.PollerID) + len(update.DeviceID) + len(update.Partition)
+	size += len(update.IP)
+
+	if update.MAC != nil {
+		size += len(*update.MAC)
+	}
+	if update.Hostname != nil {
+		size += len(*update.Hostname)
+	}
+	if update.Metadata != nil {
+		for k, v := range update.Metadata {
+			size += len(k) + len(v) + 4
+		}
+	}
+
+	return size
+}
+
+// isStatusPayload checks if the payload is a status response that should be skipped
+func (*discoveryService) isStatusPayload(details json.RawMessage) bool {
+	trimmed := bytes.TrimLeftFunc(details, func(r rune) bool { return r == ' ' || r == '\n' || r == '\r' || r == '\t' })
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return false
+	}
+
+	limited := io.LimitReader(bytes.NewReader(trimmed), maxStatusProbeBytes)
+	decoder := json.NewDecoder(limited)
+	decoder.UseNumber()
+
+	var probe map[string]json.RawMessage
+	if err := decoder.Decode(&probe); err != nil {
+		return false
+	}
+
+	_, hasDevices := probe["devices"]
+	_, hasStatus := probe["status"]
+
+	return hasDevices && hasStatus
 }
 
 // isLoopbackIP checks if an IP address is a loopback address
@@ -625,18 +745,18 @@ func (s *discoveryService) createCorrelationSighting(
 		metadata = make(map[string]string)
 	}
 
-    // Add alternate IPs to metadata as exact-match keys for reliable lookup
-    if len(alternateIPs) > 0 {
-        if metadata == nil { // safety, though ensured above
-            metadata = make(map[string]string)
-        }
-        for _, ip := range alternateIPs {
-            if ip == "" || isLoopbackIP(ip) {
-                continue
-            }
-            metadata["alt_ip:"+ip] = "1"
-        }
-    }
+	// Add alternate IPs to metadata as exact-match keys for reliable lookup
+	if len(alternateIPs) > 0 {
+		if metadata == nil { // safety, though ensured above
+			metadata = make(map[string]string)
+		}
+		for _, ip := range alternateIPs {
+			if ip == "" || isLoopbackIP(ip) {
+				continue
+			}
+			metadata["alt_ip:"+ip] = "1"
+		}
+	}
 
 	// Create the single, enriched sighting for this device.
 	return &models.DeviceUpdate{

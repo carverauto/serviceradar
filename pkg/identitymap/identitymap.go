@@ -1,0 +1,417 @@
+package identitymap
+
+import (
+	"errors"
+	"fmt"
+	"net"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/carverauto/serviceradar/pkg/models"
+	identitymappb "github.com/carverauto/serviceradar/proto/identitymap/v1"
+	"google.golang.org/protobuf/proto"
+)
+
+// Kind exposes the identity enum used for canonical map lookups.
+type Kind = identitymappb.IdentityKind
+
+const (
+	KindUnspecified Kind = identitymappb.IdentityKind_IDENTITY_KIND_UNSPECIFIED
+	KindDeviceID    Kind = identitymappb.IdentityKind_IDENTITY_KIND_DEVICE_ID
+	KindArmisID     Kind = identitymappb.IdentityKind_IDENTITY_KIND_ARMIS_ID
+	KindNetboxID    Kind = identitymappb.IdentityKind_IDENTITY_KIND_NETBOX_ID
+	KindMAC         Kind = identitymappb.IdentityKind_IDENTITY_KIND_MAC
+	KindIP          Kind = identitymappb.IdentityKind_IDENTITY_KIND_IP
+	KindPartitionIP Kind = identitymappb.IdentityKind_IDENTITY_KIND_PARTITION_IP
+)
+
+// DefaultNamespace is the root prefix used for canonical identity map entries.
+const DefaultNamespace = "device_canonical_map"
+
+var (
+	errNilRecord   = errors.New("identitymap: record is nil")
+	errEmptyRecord = errors.New("identitymap: empty payload")
+)
+
+// Key represents a lookup identity used to locate a canonical device ID.
+type Key struct {
+	Kind  Kind
+	Value string
+}
+
+// Record captures the canonical device information persisted in the KV map.
+type Record struct {
+	CanonicalDeviceID string
+	Partition         string
+	MetadataHash      string
+	UpdatedAt         time.Time
+	Attributes        map[string]string
+}
+
+// BuildKeys derives the identity keys that should point at the canonical device for the update.
+func BuildKeys(update *models.DeviceUpdate) []Key {
+	if update == nil {
+		return nil
+	}
+
+	keys := make([]Key, 0, 8)
+	seen := make(map[string]struct{})
+	add := func(kind Kind, raw string) {
+		val := strings.TrimSpace(raw)
+		if val == "" {
+			return
+		}
+		ref := fmt.Sprintf("%d|%s", kind, val)
+		if _, ok := seen[ref]; ok {
+			return
+		}
+		seen[ref] = struct{}{}
+		keys = append(keys, Key{Kind: kind, Value: val})
+	}
+
+	add(KindDeviceID, update.DeviceID)
+
+	if strings.TrimSpace(update.IP) != "" {
+		add(KindIP, update.IP)
+		add(KindPartitionIP, partitionIPValue(update.Partition, update.IP))
+	}
+
+	if update.Metadata != nil {
+		if armis := update.Metadata["armis_device_id"]; armis != "" {
+			add(KindArmisID, armis)
+		}
+
+		if typ := update.Metadata["integration_type"]; strings.EqualFold(typ, "netbox") {
+			if id := update.Metadata["integration_id"]; id != "" {
+				add(KindNetboxID, id)
+			}
+			if id := update.Metadata["netbox_device_id"]; id != "" {
+				add(KindNetboxID, id)
+			}
+		}
+	}
+
+	if update.MAC != nil {
+		for _, mac := range parseMACList(*update.MAC) {
+			add(KindMAC, mac)
+		}
+	}
+
+	return keys
+}
+
+func partitionIPValue(partition, ip string) string {
+	partition = strings.TrimSpace(partition)
+	ip = strings.TrimSpace(ip)
+	if partition == "" {
+		return ip
+	}
+	if ip == "" {
+		return partition
+	}
+	return fmt.Sprintf("%s:%s", partition, ip)
+}
+
+func parseMACList(s string) []string {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return nil
+	}
+
+	f := func(r rune) bool {
+		return r == ',' || r == ' ' || r == ';' || r == '\n' || r == '\t'
+	}
+
+	potential := strings.FieldsFunc(trimmed, f)
+	if len(potential) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(potential))
+	seen := make(map[string]struct{})
+
+	for _, token := range potential {
+		hw, err := net.ParseMAC(token)
+		if err != nil {
+			continue
+		}
+
+		mac := strings.ToUpper(hw.String())
+		if _, ok := seen[mac]; ok {
+			continue
+		}
+
+		seen[mac] = struct{}{}
+		out = append(out, mac)
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+// ToProto converts the record into the protobuf representation.
+func (r *Record) ToProto() *identitymappb.CanonicalRecord {
+	if r == nil {
+		return nil
+	}
+	pb := &identitymappb.CanonicalRecord{
+		CanonicalDeviceId: r.CanonicalDeviceID,
+		Partition:         r.Partition,
+		MetadataHash:      r.MetadataHash,
+	}
+
+	if !r.UpdatedAt.IsZero() {
+		pb.UpdatedAtUnixMillis = r.UpdatedAt.UTC().UnixMilli()
+	}
+
+	if len(r.Attributes) > 0 {
+		keys := make([]string, 0, len(r.Attributes))
+		for k := range r.Attributes {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		pb.Attributes = make([]*identitymappb.Attribute, 0, len(keys))
+		for _, k := range keys {
+			pb.Attributes = append(pb.Attributes, &identitymappb.Attribute{
+				Key:   k,
+				Value: r.Attributes[k],
+			})
+		}
+	}
+
+	return pb
+}
+
+// FromProtoRecord converts a protobuf representation into a Record struct.
+func FromProtoRecord(pb *identitymappb.CanonicalRecord) *Record {
+	if pb == nil {
+		return nil
+	}
+
+	rec := &Record{
+		CanonicalDeviceID: pb.GetCanonicalDeviceId(),
+		Partition:         pb.GetPartition(),
+		MetadataHash:      pb.GetMetadataHash(),
+		Attributes:        make(map[string]string, len(pb.GetAttributes())),
+	}
+
+	if pb.GetUpdatedAtUnixMillis() != 0 {
+		rec.UpdatedAt = time.UnixMilli(pb.GetUpdatedAtUnixMillis()).UTC()
+	}
+
+	for _, attr := range pb.GetAttributes() {
+		if attr == nil {
+			continue
+		}
+		key := strings.TrimSpace(attr.GetKey())
+		if key == "" {
+			continue
+		}
+		rec.Attributes[key] = attr.GetValue()
+	}
+
+	return rec
+}
+
+// ToProto converts the identity key into its protobuf representation.
+func (k Key) ToProto() *identitymappb.IdentityKey {
+	return &identitymappb.IdentityKey{
+		Kind:  k.Kind,
+		Value: k.Value,
+	}
+}
+
+// FromProtoKey converts a protobuf key message to the internal Key.
+func FromProtoKey(pb *identitymappb.IdentityKey) Key {
+	if pb == nil {
+		return Key{}
+	}
+	return Key{Kind: pb.GetKind(), Value: pb.GetValue()}
+}
+
+// MarshalRecord encodes the record into bytes suitable for KV persistence.
+func MarshalRecord(record *Record) ([]byte, error) {
+	if record == nil {
+		return nil, errNilRecord
+	}
+	return proto.Marshal(record.ToProto())
+}
+
+// UnmarshalRecord decodes bytes retrieved from KV into a Record.
+func UnmarshalRecord(data []byte) (*Record, error) {
+	if len(data) == 0 {
+		return nil, errEmptyRecord
+	}
+	pb := &identitymappb.CanonicalRecord{}
+	if err := proto.Unmarshal(data, pb); err != nil {
+		return nil, fmt.Errorf("identitymap: failed to unmarshal canonical record: %w", err)
+	}
+	return FromProtoRecord(pb), nil
+}
+
+// KeyPath builds the storage path for a key under the provided namespace.
+func (k Key) KeyPath(namespace string) string {
+	ns := sanitizeNamespace(namespace)
+	return fmt.Sprintf("%s/%s/%s", ns, kindSegment(k.Kind), sanitizeKeySegment(k.Value))
+}
+
+// KeyPathVariants returns the sanitized key path followed by any legacy representations
+// that may exist from before escaping was introduced. Consumers should try the first
+// element (current format) and fall back to the remaining entries for compatibility.
+func (k Key) KeyPathVariants(namespace string) []string {
+	sanitized := k.KeyPath(namespace)
+	legacy := legacyKeyPath(namespace, k.Kind, k.Value)
+	if sanitized == legacy {
+		return []string{sanitized}
+	}
+	return []string{sanitized, legacy}
+}
+
+// PrioritizeKeys sorts identity keys so that the most authoritative identifiers are evaluated first.
+func PrioritizeKeys(keys []Key) []Key {
+	if len(keys) <= 1 {
+		return keys
+	}
+
+	ordered := make([]Key, len(keys))
+	copy(ordered, keys)
+
+	priority := map[Kind]int{
+		KindArmisID:     0,
+		KindNetboxID:    1,
+		KindMAC:         2,
+		KindPartitionIP: 3,
+		KindIP:          4,
+		KindDeviceID:    5,
+	}
+
+	sort.SliceStable(ordered, func(i, j int) bool {
+		pi, ok := priority[ordered[i].Kind]
+		if !ok {
+			pi = len(priority)
+		}
+		pj, ok := priority[ordered[j].Kind]
+		if !ok {
+			pj = len(priority)
+		}
+		if pi != pj {
+			return pi < pj
+		}
+		return ordered[i].Value < ordered[j].Value
+	})
+
+	return ordered
+}
+
+func kindSegment(kind Kind) string {
+	switch kind {
+	case KindDeviceID:
+		return "device-id"
+	case KindArmisID:
+		return "armis-id"
+	case KindNetboxID:
+		return "netbox-id"
+	case KindMAC:
+		return "mac"
+	case KindIP:
+		return "ip"
+	case KindPartitionIP:
+		return "partition-ip"
+	default:
+		return strings.ToLower(kind.String())
+	}
+}
+
+func sanitizeNamespace(namespace string) string {
+	trimmed := strings.Trim(namespace, "/")
+	if trimmed == "" {
+		return DefaultNamespace
+	}
+	parts := strings.Split(trimmed, "/")
+	cleaned := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		cleaned = append(cleaned, sanitizeKeySegment(part))
+	}
+	if len(cleaned) == 0 {
+		return DefaultNamespace
+	}
+	return strings.Join(cleaned, "/")
+}
+
+func sanitizeKeySegment(segment string) string {
+	if segment == "" {
+		return segment
+	}
+	var b strings.Builder
+	b.Grow(len(segment))
+	for _, r := range segment {
+		if allowedKeyRune(r) {
+			b.WriteRune(r)
+			continue
+		}
+		fmt.Fprintf(&b, "=%X", r)
+	}
+	return b.String()
+}
+
+func allowedKeyRune(r rune) bool {
+	if r >= 'a' && r <= 'z' {
+		return true
+	}
+	if r >= 'A' && r <= 'Z' {
+		return true
+	}
+	if r >= '0' && r <= '9' {
+		return true
+	}
+	switch r {
+	case '_', '-', '.', '=', '/':
+		return true
+	default:
+		return false
+	}
+}
+
+func legacyKeyPath(namespace string, kind Kind, value string) string {
+	ns := strings.Trim(namespace, "/")
+	if ns == "" {
+		ns = DefaultNamespace
+	}
+	return fmt.Sprintf("%s/%s/%s", ns, kindSegment(kind), strings.TrimSpace(value))
+}
+
+// SanitizeKeyPath ensures a key path only contains JetStream-safe characters by reapplying
+// the segment sanitizer used when constructing canonical map keys. This allows callers to
+// normalize legacy paths before issuing KV requests.
+func SanitizeKeyPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	sanitized := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		sanitized = append(sanitized, sanitizeKeySegment(part))
+	}
+
+	if len(sanitized) == 0 {
+		return ""
+	}
+
+	return strings.Join(sanitized, "/")
+}

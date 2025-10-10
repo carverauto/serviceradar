@@ -32,3 +32,9 @@ var (
 	errKeyFileRequired        = errors.New("tls.key_file is required for mTLS")
 	errCAFileRequired         = errors.New("tls.ca_file is required for mTLS")
 )
+
+// ErrCASMismatch indicates a compare-and-swap failure due to a stale revision.
+var ErrCASMismatch = errors.New("kv: compare-and-swap mismatch")
+
+// ErrKeyExists indicates that a create/put-if-absent operation found an existing value.
+var ErrKeyExists = errors.New("kv: key already exists")
