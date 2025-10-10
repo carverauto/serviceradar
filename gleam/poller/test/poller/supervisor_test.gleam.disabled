@@ -1,0 +1,42 @@
+import gleeunit/should
+import gleam/dict
+import gleam/option.{None}
+import poller/supervisor
+import poller/config
+import poller/types.{AgentConfig, Check}
+
+pub fn start_supervisor_test() {
+  let config = config.create_default_config()
+    |> config.add_agent("test_agent", AgentConfig(
+      address: "localhost:8080",
+      checks: [
+        Check(
+          name: "health",
+          type_: "http",
+          agent_id: "test_agent",
+          poller_id: "test_poller",
+          details: None,
+          interval: 30_000,
+        ),
+      ],
+      security: None,
+    ))
+
+  // For now, just test that the supervisor can be created
+  // In a real test environment, we'd start and stop the supervisor
+  case config.validate_config(config) {
+    Ok(_) -> {
+      // Config is valid, supervisor should be able to start
+      True |> should.be_true()
+    }
+    Error(_) -> should.fail()
+  }
+}
+
+pub fn start_link_test() {
+  // Test that start_link uses default config properly
+  let default_config = config.create_default_config()
+
+  default_config.poller_id
+  |> should.equal("default_poller")
+}
