@@ -18,14 +18,6 @@ gazelle(
 
 exports_files(["VERSION"])
 
-# Setup for Apko chainguard images
-# Run only once as setup: bazel run @@//:apko_bazelrc && chmod +x .apko/range.sh
-# Thereafter, the config is in .apko/.bazelrc
-# When the .apko folder already exists, the setup is already completed.
-load("@rules_apko//apko:defs.bzl", "apko_bazelrc")
-
-apko_bazelrc()
-
 # Custom RBE platform using Oracle Linux 9 based executor image
 platform(
     name = "rbe_platform",

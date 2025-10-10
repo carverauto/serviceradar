@@ -24,9 +24,6 @@ test --action_env=OPENSSL_NO_PKG_CONFIG=1
 test --@io_bazel_rules_go//go/config:pure
 test --flaky_test_attempts=2
 
-# Required for rules_apko to make range requests
-try-import %workspace%/.apko/.bazelrc
-
 # Allow developers to extend configuration locally (ignored in version control).
 try-import %workspace%/.bazelrc.local
 
