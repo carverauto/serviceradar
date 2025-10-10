@@ -35,6 +35,11 @@
                     "details": "127.0.0.1:50083"
                 },
                 {
+                    "service_type": "grpc",
+                    "service_name": "sysmon-vm",
+                    "details": "host.docker.internal:50110"
+                },
+                {
                     "service_type": "sweep",
                     "service_name": "network_sweep",
                     "details": "",

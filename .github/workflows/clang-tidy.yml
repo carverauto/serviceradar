@@ -1,0 +1,58 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: clang-tidy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'cmd/checkers/sysmon-vm/hostmac/**'
+      - 'Makefile'
+      - '.bazelrc'
+      - 'MODULE.bazel'
+      - 'MODULE.bazel.lock'
+      - '.github/workflows/clang-tidy.yml'
+  pull_request:
+    paths:
+      - 'cmd/checkers/sysmon-vm/hostmac/**'
+      - 'Makefile'
+      - '.bazelrc'
+      - 'MODULE.bazel'
+      - 'MODULE.bazel.lock'
+      - '.github/workflows/clang-tidy.yml'
+
+jobs:
+  hostfreq-clang-tidy:
+    runs-on: macos-14
+    permissions:
+      contents: read
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bazelisk
+        uses: bazelbuild/setup-bazelisk@v2
+
+      - name: Configure remote cache
+        if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
+        run: |
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      - name: Run clang-tidy via Bazel
+        run: bazel build --config=clang-tidy //cmd/checkers/sysmon-vm/hostmac:hostfreq
