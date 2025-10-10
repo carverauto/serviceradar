@@ -54,8 +54,8 @@ test:ci --test_tag_filters=-manual --test_output=errors
 # Remote execution profile (opt-in via --config=remote).
 build:remote --remote_executor=grpcs://remote.buildbuddy.io
 build:remote --remote_cache=grpcs://remote.buildbuddy.io
-build:remote --host_platform=//docker:rbe_platform
-build:remote --platforms=//docker:rbe_platform
+build:remote --host_platform=//build/rbe:rbe_platform
+build:remote --platforms=//build/rbe:rbe_platform
 build:remote --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:remote --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
 build:remote --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
