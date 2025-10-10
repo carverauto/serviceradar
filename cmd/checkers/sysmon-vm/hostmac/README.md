@@ -13,6 +13,10 @@ make sysmonvm-host-build
 The build drops `hostfreq` into `dist/sysmonvm/mac-host/bin/`. Requirements:
 - Apple clang (Xcode Command Line Tools) with C++20 support.
 - Access to the private `libIOReport` shim that ships with macOS (available on Apple Silicon).
+- Bazel users can alternatively run `bazel build //cmd/checkers/sysmon-vm/hostmac:hostfreq`
+  (macOS only). Pass `--config=clang-tidy` to enable static analysis during the build.
+  The Bazel path now shells out to `xcrun clang`, so the Command Line Tools alone are
+  sufficient; a full Xcode.app installation is no longer required.
 
 ## Install as launchd service
 

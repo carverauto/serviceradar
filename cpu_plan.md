@@ -107,6 +107,7 @@
 - Install OpenTelemetry Collector (`otelcol-contrib`) on macOS host.
 - Ship native collector (`cmd/checkers/sysmon-vm/hostmac/hostfreq`) using IOReport DVFS counters to emit per-core and per-cluster MHz without shelling out to `powermetrics`.
 - Provide launchd packaging via `sudo make sysmonvm-host-install`; ensure logs land in `/var/log/serviceradar` and IOReport privileges are documented.
+- Publish Bazel targets (`//cmd/checkers/sysmon-vm/hostmac:hostfreq`) so macOS users can build with `bazel build --config=clang-tidy` when static analysis is required.
 - Collect complementary metrics via `hostmetrics` receiver (CPU load, memory, temperature if available).
 - Tag macOS metrics distinctly (resource attribute `service.name=macos-host-monitor`).
 - Validate cross-origin metrics ingestion in ServiceRadar (host and guest metrics distinguished but correlated).
