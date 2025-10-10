@@ -395,7 +395,7 @@ func (s *APIServer) getCPUMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
 	// Query cpu_metrics table directly for per-core data by device_id
 	query := fmt.Sprintf(`
-		SELECT timestamp, agent_id, host_id, core_id, usage_percent
+		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz
 		FROM table(cpu_metrics)
 		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
 		ORDER BY timestamp DESC, core_id ASC`,
@@ -422,7 +422,9 @@ func (s *APIServer) getCPUMetricsForDevice(
 
 		var usagePercent float64
 
-		if err := rows.Scan(&timestamp, &agentID, &hostID, &coreID, &usagePercent); err != nil {
+		var frequencyHz float64
+
+		if err := rows.Scan(&timestamp, &agentID, &hostID, &coreID, &usagePercent, &frequencyHz); err != nil {
 			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error scanning CPU metric row")
 			continue
 		}
@@ -433,6 +435,7 @@ func (s *APIServer) getCPUMetricsForDevice(
 			HostID:       hostID,
 			CoreID:       coreID,
 			UsagePercent: usagePercent,
+			FrequencyHz:  frequencyHz,
 		}
 
 		data[timestamp] = append(data[timestamp], cpu)

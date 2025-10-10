@@ -216,6 +216,7 @@ CREATE STREAM IF NOT EXISTS cpu_metrics (
     host_id           string,
     core_id           int32,
     usage_percent     float64,
+    frequency_hz      float64,
     device_id         string,
     partition         string
 ) ENGINE = Stream(1, 1, rand())

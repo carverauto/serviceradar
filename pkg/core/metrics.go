@@ -702,6 +702,7 @@ func (*Server) buildSysmonMetrics(
 		m.CPUs[i] = models.CPUMetric{
 			CoreID:       cpu.CoreID,
 			UsagePercent: cpu.UsagePercent,
+			FrequencyHz:  cpu.FrequencyHz,
 			Timestamp:    pollerTimestamp,
 			HostID:       payload.Status.HostID,
 			HostIP:       payload.Status.HostIP,
@@ -774,6 +775,8 @@ func (s *Server) processGRPCService(
 	case rperfServiceType:
 		return s.processRperfMetrics(pollerID, partition, serviceData, now)
 	case sysmonServiceType:
+		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
+	case "sysmon-vm":
 		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
 	case syncServiceType:
 		s.logger.Debug().
