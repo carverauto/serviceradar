@@ -493,7 +493,7 @@ func TestProcessBatchSkipsSweepWithoutIdentity(t *testing.T) {
 	mockDB.EXPECT().
 		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
 		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
-			require.Len(t, updates, 0, "sweep without identity should be dropped")
+			require.Empty(t, updates, "sweep without identity should be dropped")
 			return nil
 		})
 

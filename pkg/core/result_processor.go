@@ -30,6 +30,8 @@ import (
 const (
 	maxPortResultsDetailed = 512 // limit detailed port results persisted per host
 	maxOpenPortsDetailed   = 256 // limit open ports persisted per host
+	metadataBoolTrue       = "true"
+	metadataBoolFalse      = "false"
 )
 
 // processHostResults processes host results and creates sweep results
@@ -120,10 +122,10 @@ func addPortMetadata(metadata map[string]string, portResults []*models.PortResul
 	encodedPorts := portResults
 	if truncated {
 		encodedPorts = portResults[:trimLimit]
-		metadata["port_results_truncated"] = "true"
+		metadata["port_results_truncated"] = metadataBoolTrue
 		metadata["port_results_retained"] = strconv.Itoa(trimLimit)
 	} else {
-		metadata["port_results_truncated"] = "false"
+		metadata["port_results_truncated"] = metadataBoolFalse
 		metadata["port_results_retained"] = strconv.Itoa(totalPorts)
 	}
 
@@ -153,10 +155,10 @@ func addPortMetadata(metadata map[string]string, portResults []*models.PortResul
 
 	openTruncated := len(openPorts) > openLimit
 	if openTruncated {
-		metadata["open_ports_truncated"] = "true"
+		metadata["open_ports_truncated"] = metadataBoolTrue
 		openPorts = openPorts[:openLimit]
 	} else {
-		metadata["open_ports_truncated"] = "false"
+		metadata["open_ports_truncated"] = metadataBoolFalse
 	}
 
 	if data, err := json.Marshal(openPorts); err == nil {

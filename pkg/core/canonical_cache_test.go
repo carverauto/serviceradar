@@ -44,11 +44,11 @@ func TestCanonicalCacheExpiry(t *testing.T) {
 
 	hits, misses := cache.getBatch([]string{"10.0.0.5"})
 	require.Len(t, hits, 1)
-	require.Len(t, misses, 0)
+	require.Empty(t, misses)
 
 	cache.setNowFn(func() time.Time { return start.Add(time.Second) })
 	hits, misses = cache.getBatch([]string{"10.0.0.5"})
-	require.Len(t, hits, 0)
+	require.Empty(t, hits)
 	require.Len(t, misses, 1)
 	require.Contains(t, misses, "10.0.0.5")
 }

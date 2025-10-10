@@ -10,6 +10,11 @@ pub mod setup;
 pub mod tls;
 
 pub mod opentelemetry {
+    #![allow(
+        dead_code,
+        clippy::doc_overindented_list_items,
+        clippy::doc_lazy_continuation
+    )]
     pub mod proto {
         pub mod collector {
             pub mod metrics {

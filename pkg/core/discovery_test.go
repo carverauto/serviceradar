@@ -261,12 +261,12 @@ func TestProcessSyncResults_StreamChunking(t *testing.T) {
 		details,
 		time.Now(),
 	)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	require.Equal(t, expectedChunks, len(lengths))
+	require.Len(t, lengths, expectedChunks)
 	sum := 0
 	for _, l := range lengths {
-		require.Greater(t, l, 0)
+		require.Positive(t, l)
 		require.LessOrEqual(t, l, syncDeviceChunkSize)
 		sum += l
 	}
