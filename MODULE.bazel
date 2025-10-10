@@ -51,14 +51,15 @@ use_repo(host_platform_ext, "host_platform")
 java = use_extension("@rules_java//java:extensions.bzl", "toolchains")
 use_repo(
     java,
-    "remotejdk11_linux",
-    "remotejdk11_macos",
-    "remotejdk11_macos_aarch64",
+    "local_jdk",
     "remote_java_tools",
     "remote_java_tools_darwin_arm64",
     "remote_java_tools_darwin_x86_64",
     "remote_java_tools_linux",
     "remote_java_tools_windows",
+    "remotejdk11_linux",
+    "remotejdk11_macos",
+    "remotejdk11_macos_aarch64",
 )
 
 register_toolchains(
@@ -67,6 +68,7 @@ register_toolchains(
     "@remote_java_tools_darwin_x86_64//:all",
     "@remote_java_tools_darwin_arm64//:all",
     "@remote_java_tools_windows//:all",
+    "@local_jdk//:all",
     "@remotejdk11_linux//:all",
     "@remotejdk11_macos//:all",
     "@remotejdk11_macos_aarch64//:all",
