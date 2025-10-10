@@ -23,7 +23,7 @@ platform(
         "@rules_ocaml//platform/executor:sys",
         "@rules_ocaml//platform/emitter:sys",
     ],
-    parents = ["//docker:rbe_platform"],
+    parents = [":rbe_platform"],
     visibility = ["//visibility:public"],
 )
 
@@ -35,6 +35,6 @@ platform(
         "@rules_ocaml//platform/executor:sys",
         "@rules_ocaml//platform/emitter:vm",
     ],
-    parents = ["//docker:rbe_platform"],
+    parents = [":rbe_platform"],
     visibility = ["//visibility:public"],
 )
