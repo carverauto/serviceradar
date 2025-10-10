@@ -495,6 +495,7 @@ use_repo(
     "com_github_markbates_goth",
     "com_github_nats_io_nats_go",
     "com_github_rs_zerolog",
+    "com_github_shirou_gopsutil_v3",
     "com_github_spiffe_go_spiffe_v2",
     "com_github_stretchr_testify",
     "com_github_swaggo_http_swagger",

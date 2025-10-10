@@ -1,0 +1,26 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//visibility:public"])
+
+go_library(
+    name = "cpufreq",
+    srcs = [
+        "collector.go",
+        "perf_linux.go",
+        "perf_other.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/cpufreq",
+    deps = [
+        "@com_github_shirou_gopsutil_v3//cpu:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
+    ],
+)
+
+go_test(
+    name = "cpufreq_test",
+    srcs = ["collector_test.go"],
+    embed = [":cpufreq"],
+    deps = [
+        "@com_github_shirou_gopsutil_v3//cpu:go_default_library",
+    ],
+)
