@@ -16,6 +16,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/pkg/sync/integrations/armis",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/identitymap",
         "//pkg/logger",
         "//pkg/models",
         "//proto",
@@ -32,6 +33,7 @@ go_test(
     ],
     embed = [":armis"],
     deps = [
+        "//pkg/identitymap",
         "//pkg/logger",
         "//pkg/models",
         "//proto",

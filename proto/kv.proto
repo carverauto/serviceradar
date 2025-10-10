@@ -25,6 +25,9 @@ service KVService {
   // Get retrieves the value for a given key.
   rpc Get(GetRequest) returns (GetResponse) {}
 
+  // BatchGet retrieves multiple keys in a single round trip.
+  rpc BatchGet(BatchGetRequest) returns (BatchGetResponse) {}
+
   // Put stores a value for a given key with an optional TTL.
   rpc Put(PutRequest) returns (PutResponse) {}
 
@@ -34,6 +37,10 @@ service KVService {
 
   // PutMany stores multiple key/value pairs in a single request.
   rpc PutMany(PutManyRequest) returns (PutManyResponse) {}
+
+  // Update stores a value for a given key only if the provided revision matches.
+  // This enables optimistic concurrency control (CAS semantics) against JetStream KV buckets.
+  rpc Update(UpdateRequest) returns (UpdateResponse) {}
 
   // Delete removes a key and its value from the store.
   rpc Delete(DeleteRequest) returns (DeleteResponse) {}
@@ -54,6 +61,25 @@ message GetRequest {
 message GetResponse {
   bytes value = 1;  // The value associated with the key, empty if not found
   bool found = 2;   // Indicates if the key was found
+  uint64 revision = 3; // Latest revision number for the key, 0 if not found
+}
+
+// BatchGetRequest is the request message for retrieving multiple keys at once.
+message BatchGetRequest {
+  repeated string keys = 1;
+}
+
+// BatchGetEntry represents a single key/value (with metadata) in a batch response.
+message BatchGetEntry {
+  string key = 1;
+  bytes value = 2;
+  bool found = 3;
+  uint64 revision = 4;
+}
+
+// BatchGetResponse contains the ordered results for the requested keys.
+message BatchGetResponse {
+  repeated BatchGetEntry results = 1;
 }
 
 // PutRequest is the request message for the Put operation.
@@ -82,6 +108,19 @@ message PutManyRequest {
 
 // PutManyResponse is the response message for the PutMany operation.
 message PutManyResponse {}
+
+// UpdateRequest is the request message for the Update (CAS) operation.
+message UpdateRequest {
+  string key = 1;
+  bytes value = 2;
+  uint64 revision = 3;   // Expected revision (from a prior Get/Watch)
+  int64 ttl_seconds = 4; // Optional TTL in seconds, 0 for no expiration
+}
+
+// UpdateResponse returns the new revision after a successful Update call.
+message UpdateResponse {
+  uint64 revision = 1;
+}
 
 // DeleteRequest is the request message for the Delete operation.
 message DeleteRequest {

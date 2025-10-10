@@ -178,7 +178,7 @@ func (s *Server) processSweepHostUpdates(ctx context.Context, span trace.Span, s
 }, contextPollerID, contextPartition, contextAgentID string, now time.Time) error {
 	s.logger.Debug().Str("service_name", serviceName).Int("host_count", len(sweepData.Hosts)).Msg("Processing hosts for device updates")
 
-	updatesToStore := s.processHostResults(sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
+	updatesToStore := s.processHostResults(ctx, sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
 
 	// Add span attributes for host processing results
 	span.SetAttributes(

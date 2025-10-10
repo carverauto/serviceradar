@@ -1,0 +1,21 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "deviceupdate",
+    srcs = ["sanitize.go"],
+    importpath = "github.com/carverauto/serviceradar/pkg/deviceupdate",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/models",
+    ],
+)
+
+go_test(
+    name = "deviceupdate_test",
+    srcs = ["sanitize_test.go"],
+    embed = [":deviceupdate"],
+    deps = [
+        "//pkg/models",
+        "@com_github_stretchr_testify//require",
+    ],
+)

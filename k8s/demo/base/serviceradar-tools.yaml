@@ -52,22 +52,22 @@ spec:
           fi
           
           # ServiceRadar debugging aliases
-          alias test-connectivity='echo "Testing ServiceRadar connectivity..."; nc -zv serviceradar-nats.serviceradar-staging.svc.cluster.local 4222 2>&1 || echo "NATS: Not available"; nc -zv serviceradar-core.serviceradar-staging.svc.cluster.local 8090 2>&1 || echo "Core: Not available"'
+          alias test-connectivity='echo "Testing ServiceRadar connectivity..."; nc -zv serviceradar-nats 4222 2>&1 || echo "NATS: Not available"; nc -zv serviceradar-core 8090 2>&1 || echo "Core: Not available"'
           alias nats-info='nats --context serviceradar server info'
           alias nats-streams='echo "=== NATS Streams ==="; nats --context serviceradar stream ls 2>/dev/null || echo "Streams not available - check NATS connection and JetStream"'
           alias nats-events='echo "=== Events Stream Info ==="; nats --context serviceradar stream info events 2>/dev/null || echo "Events stream not found"'
           alias nats-kv='echo "=== KV Stores ==="; nats --context serviceradar kv ls 2>/dev/null || echo "KV stores not available - check NATS connection and JetStream"'
           alias nats-js-status='echo "=== NATS JetStream Status ==="; nats --context serviceradar server info 2>/dev/null | grep -E "(Cluster|JetStream|Storage|Memory)" || echo "JetStream info not available - check connection"'
-          alias grpc-core='echo "Usage: grpc-core [METHOD] - Examples:"; echo "  grpc-core grpc.health.v1.Health/Check"; echo "  grpc-core list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core.serviceradar-staging.svc.cluster.local:50052'
-          alias grpc-agent='echo "Usage: grpc-agent [METHOD] - Examples:"; echo "  grpc-agent grpc.health.v1.Health/Check"; echo "  grpc-agent list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent.serviceradar-staging.svc.cluster.local:50051'
-          alias grpc-mapper='echo "Usage: grpc-mapper [METHOD] - Examples:"; echo "  grpc-mapper grpc.health.v1.Health/Check"; echo "  grpc-mapper list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper.serviceradar-staging.svc.cluster.local:50056'
-          alias grpc-trapd='echo "Usage: grpc-trapd [METHOD] - Examples:"; echo "  grpc-trapd grpc.health.v1.Health/Check"; echo "  grpc-trapd list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd.serviceradar-staging.svc.cluster.local:50043'
-          alias nc-nats='nc -zv serviceradar-nats.serviceradar-staging.svc.cluster.local 4222'
-          alias ping-nats='ping serviceradar-nats.serviceradar-staging.svc.cluster.local'
+          alias grpc-core='echo "Usage: grpc-core [METHOD] - Examples:"; echo "  grpc-core grpc.health.v1.Health/Check"; echo "  grpc-core list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core:50052'
+          alias grpc-agent='echo "Usage: grpc-agent [METHOD] - Examples:"; echo "  grpc-agent grpc.health.v1.Health/Check"; echo "  grpc-agent list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051'
+          alias grpc-mapper='echo "Usage: grpc-mapper [METHOD] - Examples:"; echo "  grpc-mapper grpc.health.v1.Health/Check"; echo "  grpc-mapper list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper:50056'
+          alias grpc-trapd='echo "Usage: grpc-trapd [METHOD] - Examples:"; echo "  grpc-trapd grpc.health.v1.Health/Check"; echo "  grpc-trapd list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043'
+          alias nc-nats='nc -zv serviceradar-nats 4222'
+          alias ping-nats='ping serviceradar-nats'
           alias sr-devices='serviceradar-cli devices list'
-          alias test-grpc='echo "=== gRPC Service Health Checks ==="; echo "Testing serviceradar-core:50052..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core.serviceradar-staging.svc.cluster.local:50052 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-agent:50051..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent.serviceradar-staging.svc.cluster.local:50051 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-poller:50053..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-poller.serviceradar-staging.svc.cluster.local:50053 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-kv:50057..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-kv.serviceradar-staging.svc.cluster.local:50057 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-mapper:50056..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper.serviceradar-staging.svc.cluster.local:50056 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-trapd:50043..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd.serviceradar-staging.svc.cluster.local:50043 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"'
-          alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client Certificate:"; openssl x509 -in /etc/serviceradar/certs/client.pem -subject -issuer -noout; echo ""; echo "2. Client CA:"; openssl x509 -in /etc/serviceradar/certs/root.pem -subject -issuer -noout; echo ""; echo "3. Testing NATS without client cert (server cert only):"; timeout 5 openssl s_client -connect serviceradar-nats.serviceradar-staging.svc.cluster.local:4222 -CAfile /etc/serviceradar/certs/root.pem -verify_return_error 2>/dev/null || echo "Server cert verification failed"; echo ""; echo "4. Testing NATS with client cert (mTLS):"; timeout 5 openssl s_client -connect serviceradar-nats.serviceradar-staging.svc.cluster.local:4222 -CAfile /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem -verify_return_error 2>/dev/null || echo "mTLS verification failed"'
-          alias nats-skip-verify='echo "=== NOTE: This NATS CLI version does not support --tls-skip-verify ==="; echo "To debug TLS issues, check the NATS server certificate SAN entries"; echo "The server cert must include: serviceradar-nats.serviceradar-staging.svc.cluster.local"'
+          alias test-grpc='echo "=== gRPC Service Health Checks ==="; echo "Testing serviceradar-core:50052..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core:50052 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-agent:50051..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-poller:50053..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-poller:50053 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-kv:50057..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-kv:50057 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-mapper:50056..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper:50056 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-trapd:50043..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"'
+          alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client Certificate:"; openssl x509 -in /etc/serviceradar/certs/client.pem -subject -issuer -noout; echo ""; echo "2. Client CA:"; openssl x509 -in /etc/serviceradar/certs/root.pem -subject -issuer -noout; echo ""; echo "3. Testing NATS without client cert (server cert only):"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -verify_return_error 2>/dev/null || echo "Server cert verification failed"; echo ""; echo "4. Testing NATS with client cert (mTLS):"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem -verify_return_error 2>/dev/null || echo "mTLS verification failed"'
+          alias nats-skip-verify='echo "=== NOTE: This NATS CLI version does not support --tls-skip-verify ==="; echo "To debug TLS issues, check the NATS server certificate SAN entries"; echo "The server cert must include: serviceradar-nats"'
           
           echo "✓ ServiceRadar debugging environment configured"
           EOF
@@ -79,6 +79,9 @@ spec:
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: credentials
+          mountPath: /etc/serviceradar/credentials
           readOnly: true
         - name: nats-context-config
           mountPath: /etc/serviceradar/nats/serviceradar.json
@@ -105,14 +108,30 @@ spec:
           # Start the container with bash as the default shell
           exec /bin/bash -l -c "tail -f /dev/null"
         env:
-        - name: NATS_URL
-          value: "tls://serviceradar-nats.serviceradar-staging.svc.cluster.local:4222"
+        - name: NATS_CA
+          value: "/etc/serviceradar/certs/root.pem"
+        - name: NATS_CERT
+          value: "/etc/serviceradar/certs/client.pem"
+        - name: NATS_KEY
+          value: "/etc/serviceradar/certs/client-key.pem"
+        - name: NATS_CONTEXT
+          value: "serviceradar"
         - name: NATS_CREDS_FILE
           value: "/etc/serviceradar/nats/client.creds"
         - name: API_URL
-          value: "https://serviceradar-core.serviceradar-staging.svc.cluster.local:8090"
+          value: "https://serviceradar-core:8090"
         - name: SHOW_MOTD
           value: "1"
+        - name: PROTON_HOST
+          value: "serviceradar-proton"
+        - name: PROTON_PORT
+          value: "9440"
+        - name: PROTON_DATABASE
+          value: "default"
+        - name: PROTON_SECURE
+          value: "1"
+        - name: PROTON_PASSWORD_FILE
+          value: "/etc/serviceradar/credentials/proton-password"
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
@@ -120,6 +139,9 @@ spec:
         - name: nats-context-config
           mountPath: /etc/serviceradar/nats/serviceradar.json
           subPath: serviceradar.json
+          readOnly: true
+        - name: credentials
+          mountPath: /etc/serviceradar/credentials
           readOnly: true
         - name: tools-config
           mountPath: /etc/serviceradar/nats/setup-nats-context.sh
@@ -154,6 +176,12 @@ spec:
         configMap:
           name: serviceradar-tools-config
           defaultMode: 0755
+      - name: credentials
+        secret:
+          secretName: serviceradar-secrets
+          items:
+          - key: proton-password
+            path: proton-password
       - name: shared-config
         emptyDir: {}
 ---
@@ -180,7 +208,7 @@ data:
   serviceradar.json: |
     {
       "description": "ServiceRadar NATS Context for Debugging",
-      "url": "tls://serviceradar-nats.serviceradar-staging.svc.cluster.local:4222",
+      "url": "tls://serviceradar-nats:4222",
       "user": "",
       "password": "",
       "token": "",
@@ -211,26 +239,38 @@ data:
     
     [*] DEBUGGING COMMANDS:
         test-connectivity    - Test all service connectivity
-        nats-js-status      - Show NATS JetStream status
-        test-grpc           - Health check all gRPC services
-        nats-cert-check     - Diagnose NATS certificate issues
+        nats-js-status       - Show NATS JetStream status
+        test-grpc            - Health check all gRPC services
+        nats-cert-check      - Diagnose NATS certificate issues
+    
+    [*] PROTON HELPERS:
+        proton-cli           - Proton CLI wrapper (mTLS defaults)
+        proton-sql <SQL>     - Run SQL (ex: proton-sql "SELECT 1")
+        proton_sql <SQL>     - Bash helper (login shells only)
+        proton-version       - Print Proton server version via SQL
+        proton-info          - Show Proton host/port/password source
+    
+    [*] PASSWORD SOURCE:
+        /etc/serviceradar/credentials/proton-password (secret mount)
+        Override with PROTON_PASSWORD or PROTON_PASSWORD_FILE if required.
     
     [*] NATS ALIASES:
-        nats-info           - Show NATS server information
-        nats-streams        - List all JetStream streams
-        nats-events         - Show events stream details
-        nats-kv             - Show KV store stream details
+        nats-info            - Show NATS server information
+        nats-streams         - List all JetStream streams
+        nats-events          - Show events stream details
+        nats-kv              - Show KV store stream details
+        nats --context serviceradar <cmd>  - Use preloaded TLS context
     
     [*] gRPC ALIASES:
-        grpc-core           - Connect to core gRPC (add method after)
-        grpc-agent          - Connect to agent gRPC
-        grpc-mapper         - Connect to mapper gRPC
-        grpc-trapd          - Connect to trapd gRPC
+        grpc-core            - Connect to core gRPC (add method after)
+        grpc-agent           - Connect to agent gRPC
+        grpc-mapper          - Connect to mapper gRPC
+        grpc-trapd           - Connect to trapd gRPC
     
     [*] QUICK TESTS:
-        nc-nats             - Test NATS TCP connectivity
-        ping-nats           - Ping NATS server
-        sr-devices          - List devices via ServiceRadar CLI
+        nc-nats              - Test NATS TCP connectivity
+        ping-nats            - Ping NATS server
+        sr-devices           - List devices via ServiceRadar CLI
     
     [*] CERT LOCATIONS:
         /etc/serviceradar/certs/root.pem       - Root CA
@@ -239,10 +279,9 @@ data:
     
     [*] NATS CONTEXT: Auto-configured with proper FQDN and mTLS
     
-    [+] STATUS: All TLS certificates working, JetStream fully operational
-        NATS streams, KV stores, and debugging tools are ready to use
+    [+] STATUS: TLS certs, Proton helpers, and JetStream aliases ready to use
     
-    [!] READY TO USE: All aliases loaded, MOTD shows on connect
+    [!] READY TO USE: MOTD appears on login; environment auto-loads helpers
     
     ===============================================================================
 

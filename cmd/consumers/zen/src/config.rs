@@ -21,6 +21,8 @@ pub enum MessageFormat {
     #[default]
     Json,
     Protobuf,
+    #[serde(rename = "otel_metrics")]
+    OtelMetrics,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -146,8 +148,16 @@ mod tests {
         assert_eq!(cfg.domain.as_deref(), Some("edge"));
         assert_eq!(cfg.stream_name, "events");
         assert_eq!(cfg.consumer_name, "zen-consumer");
-        assert_eq!(cfg.subjects, vec!["events.syslog", "events.snmp"]);
-        assert_eq!(cfg.decision_groups.len(), 2);
+        assert_eq!(
+            cfg.subjects,
+            vec![
+                "events.syslog",
+                "events.snmp",
+                "events.otel.logs",
+                "events.otel.metrics.raw"
+            ]
+        );
+        assert_eq!(cfg.decision_groups.len(), 4);
         assert_eq!(cfg.decision_groups[0].name, "syslog");
         assert_eq!(cfg.decision_groups[0].subjects, vec!["events.syslog"]);
         assert_eq!(cfg.decision_groups[0].rules[0].key, "strip_full_message");
@@ -155,6 +165,15 @@ mod tests {
         assert_eq!(cfg.decision_groups[1].name, "snmp");
         assert_eq!(cfg.decision_groups[1].subjects, vec!["events.snmp"]);
         assert_eq!(cfg.decision_groups[1].rules[0].key, "cef_severity");
+        assert_eq!(cfg.decision_groups[2].name, "otel_logs");
+        assert_eq!(cfg.decision_groups[2].subjects, vec!["events.otel.logs"]);
+        assert_eq!(cfg.decision_groups[2].format, MessageFormat::Protobuf);
+        assert_eq!(cfg.decision_groups[3].name, "otel_metrics_raw");
+        assert_eq!(
+            cfg.decision_groups[3].subjects,
+            vec!["events.otel.metrics.raw"]
+        );
+        assert_eq!(cfg.decision_groups[3].format, MessageFormat::OtelMetrics);
         assert_eq!(cfg.agent_id, "default-agent");
         assert_eq!(cfg.kv_bucket, "serviceradar-kv");
         assert_eq!(cfg.result_subject_suffix.as_deref(), Some(".processed"));
@@ -202,6 +221,10 @@ mod tests {
         assert_eq!(
             cfg.message_format_for_subject("events.otel.logs"),
             MessageFormat::Protobuf
+        );
+        assert_eq!(
+            cfg.message_format_for_subject("events.otel.metrics.raw"),
+            MessageFormat::OtelMetrics
         );
         // Default to JSON for unknown subjects
         assert_eq!(

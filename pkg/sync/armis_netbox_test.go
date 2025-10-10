@@ -38,6 +38,8 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 
 	// Mock dependencies
 	mockKVClient := NewMockKVClient(ctrl)
+	mockKVClient.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
+	mockKVClient.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
 	mockGRPCClient := NewMockGRPCClient(ctrl)
 
 	// Create test config with both Armis and NetBox sources

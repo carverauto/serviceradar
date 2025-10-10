@@ -188,9 +188,20 @@ let translate_query (q : query) : query_with_params =
               let e = lc q.entity in
               let filters = ref [] in
               if e = "devices" then
-                filters := !filters @ [ "coalesce(metadata['_deleted'], '') != 'true'" ];
-              if e = "sweep_results" then
+                filters :=
+                  !filters
+                  @ [
+                      "coalesce(metadata['_deleted'], '') != 'true'";
+                      "NOT has(map_keys(metadata), '_merged_into')";
+                    ];
+              if e = "sweep_results" then (
                 filters := !filters @ [ "has(discovery_sources, 'sweep')" ];
+                filters :=
+                  !filters
+                  @ [
+                      "coalesce(metadata['_deleted'], '') != 'true'";
+                      "NOT has(map_keys(metadata), '_merged_into')";
+                    ]);
               if e = "snmp_results" || e = "snmp_metrics" then
                 filters := !filters @ [ "metric_type = 'snmp'" ];
               !filters
@@ -244,9 +255,20 @@ let translate_query (q : query) : query_with_params =
               let e = lc q.entity in
               let filters = ref [] in
               if e = "devices" then
-                filters := !filters @ [ "coalesce(metadata['_deleted'], '') != 'true'" ];
-              if e = "sweep_results" then
+                filters :=
+                  !filters
+                  @ [
+                      "coalesce(metadata['_deleted'], '') != 'true'";
+                      "NOT has(map_keys(metadata), '_merged_into')";
+                    ];
+              if e = "sweep_results" then (
                 filters := !filters @ [ "has(discovery_sources, 'sweep')" ];
+                filters :=
+                  !filters
+                  @ [
+                      "coalesce(metadata['_deleted'], '') != 'true'";
+                      "NOT has(map_keys(metadata), '_merged_into')";
+                    ]);
               if e = "snmp_results" || e = "snmp_metrics" then
                 filters := !filters @ [ "metric_type = 'snmp'" ];
               !filters

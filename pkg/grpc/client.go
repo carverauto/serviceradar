@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // ClientConfig holds configuration for the gRPC client.
@@ -146,13 +147,18 @@ func RetryInterceptor(maxRetries int, log logger.Logger) grpc.UnaryClientInterce
 
 			err := invoker(ctx, method, req, reply, cc, opts...)
 			if log != nil {
-				log.Debug().
+				event := log.Debug().
 					Str("method", method).
 					Int("attempt", attempt+1).
 					Str("target", cc.Target()).
-					Dur("duration", time.Since(start)).
-					Err(err).
-					Msg("gRPC call")
+					Dur("duration", time.Since(start))
+
+				if batchReq, ok := req.(*proto.BatchGetRequest); ok {
+					event = event.
+						Int("kv_batch_size", len(batchReq.GetKeys()))
+				}
+
+				event.Err(err).Msg("gRPC call")
 			}
 
 			if err == nil {
