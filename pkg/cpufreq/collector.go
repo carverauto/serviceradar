@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 )
@@ -19,6 +20,8 @@ const (
 	FrequencySourceSysfs = "sysfs"
 	// FrequencySourceProcCPU indicates the value came from /proc/cpuinfo via gopsutil.
 	FrequencySourceProcCPU = "procfs"
+	// FrequencySourcePerf indicates the value was derived from perf counters.
+	FrequencySourcePerf = "perf"
 )
 
 // ErrFrequencyUnavailable is returned when no frequency data could be gathered.
@@ -28,7 +31,7 @@ var ErrFrequencyUnavailable = errors.New("cpu frequency data unavailable")
 type CoreFrequency struct {
 	CoreID      int     // zero-based logical core ID
 	FrequencyHz float64 // instantaneous frequency in Hz
-	Source      string  // data source used (sysfs or procfs)
+	Source      string  // data source used (sysfs, procfs, perf)
 }
 
 // Snapshot contains a collection of per-core frequency readings.
@@ -36,10 +39,36 @@ type Snapshot struct {
 	Cores []CoreFrequency
 }
 
+var (
+	countsWithContext = cpu.CountsWithContext
+	infoWithContext   = cpu.InfoWithContext
+	readSysfsFunc     = readSysfs
+	sampleFrequency   = sampleFrequencyWithPerf
+)
+
+const (
+	defaultSampleWindow = 100 * time.Millisecond
+	minSampleWindow     = 10 * time.Millisecond
+)
+
 // Collect gathers per-core CPU frequency readings using cpufreq sysfs where available,
-// falling back to data exposed via /proc/cpuinfo through gopsutil.
+// falling back to data exposed via /proc/cpuinfo through gopsutil and perf counters.
 func Collect(ctx context.Context) (*Snapshot, error) {
-	logicalCount, err := cpu.CountsWithContext(ctx, true)
+	return collect(ctx, defaultSampleWindow)
+}
+
+// NewCollector returns a collection function that samples using the provided window.
+func NewCollector(window time.Duration) func(context.Context) (*Snapshot, error) {
+	if window < minSampleWindow {
+		window = defaultSampleWindow
+	}
+	return func(ctx context.Context) (*Snapshot, error) {
+		return collect(ctx, window)
+	}
+}
+
+func collect(ctx context.Context, window time.Duration) (*Snapshot, error) {
+	logicalCount, err := countsWithContext(ctx, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine logical cpu count: %w", err)
 	}
@@ -48,9 +77,8 @@ func Collect(ctx context.Context) (*Snapshot, error) {
 		return nil, ErrFrequencyUnavailable
 	}
 
-	infoStats, err := cpu.InfoWithContext(ctx)
+	infoStats, err := infoWithContext(ctx)
 	if err != nil {
-		// Treat as warning; fallback path may still succeed.
 		infoStats = nil
 	}
 
@@ -60,7 +88,6 @@ func Collect(ctx context.Context) (*Snapshot, error) {
 		if coreID < 0 || stat.Mhz <= 0 {
 			continue
 		}
-		// cpu.Info reports MHz.
 		fallbackByCore[coreID] = stat.Mhz * 1_000_000
 	}
 
@@ -69,7 +96,7 @@ func Collect(ctx context.Context) (*Snapshot, error) {
 	}
 
 	for core := 0; core < logicalCount; core++ {
-		if hz, ok := readSysfs(core); ok {
+		if hz, ok := readSysfsFunc(core); ok {
 			snapshot.Cores = append(snapshot.Cores, CoreFrequency{
 				CoreID:      core,
 				FrequencyHz: hz,
@@ -86,10 +113,22 @@ func Collect(ctx context.Context) (*Snapshot, error) {
 			})
 			continue
 		}
-	}
 
-	if len(snapshot.Cores) == 0 {
-		return nil, ErrFrequencyUnavailable
+		hz, err := sampleFrequency(ctx, core, window)
+		if err != nil {
+			snapshot.Cores = append(snapshot.Cores, CoreFrequency{
+				CoreID:      core,
+				FrequencyHz: 0,
+				Source:      FrequencySourcePerf,
+			})
+			continue
+		}
+
+		snapshot.Cores = append(snapshot.Cores, CoreFrequency{
+			CoreID:      core,
+			FrequencyHz: hz,
+			Source:      FrequencySourcePerf,
+		})
 	}
 
 	return snapshot, nil

@@ -76,6 +76,46 @@ help: ## Show this help message
 	@echo "$(COLOR_BOLD)Available targets:$(COLOR_RESET)"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_CYAN)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'
 
+.PHONY: sysmonvm-host-setup
+sysmonvm-host-setup: ## Prepare host tooling and workspace for the sysmon-vm AlmaLinux VM
+	@$(if $(WORKSPACE),scripts/sysmonvm/host-setup.sh --workspace "$(WORKSPACE)",scripts/sysmonvm/host-setup.sh)
+
+.PHONY: sysmonvm-fetch-image
+sysmonvm-fetch-image: ## Download the AlmaLinux cloud image referenced in dist/sysmonvm/config.yaml
+	@$(if $(WORKSPACE),scripts/sysmonvm/fetch-image.sh --workspace "$(WORKSPACE)",scripts/sysmonvm/fetch-image.sh)
+
+.PHONY: sysmonvm-vm-create
+sysmonvm-vm-create: ## Create writable VM disk and cloud-init seed ISO for sysmon-vm
+	@$(if $(WORKSPACE),scripts/sysmonvm/vm-create.sh --workspace "$(WORKSPACE)",scripts/sysmonvm/vm-create.sh)
+
+.PHONY: sysmonvm-vm-start
+sysmonvm-vm-start: ## Boot the AlmaLinux VM headless for sysmon-vm testing
+	@$(if $(WORKSPACE),scripts/sysmonvm/vm-start.sh --workspace "$(WORKSPACE)",scripts/sysmonvm/vm-start.sh)
+
+.PHONY: sysmonvm-vm-start-daemon
+sysmonvm-vm-start-daemon: ## Boot the AlmaLinux VM in the background (daemonized, serial logs under dist/sysmonvm/logs)
+	@$(if $(WORKSPACE),scripts/sysmonvm/vm-start.sh --workspace "$(WORKSPACE)" --daemonize,scripts/sysmonvm/vm-start.sh --daemonize)
+
+.PHONY: sysmonvm-vm-destroy
+sysmonvm-vm-destroy: ## Remove VM overlay disk and cloud-init artifacts
+	@$(if $(WORKSPACE),scripts/sysmonvm/vm-destroy.sh --workspace "$(WORKSPACE)",scripts/sysmonvm/vm-destroy.sh)
+
+.PHONY: sysmonvm-vm-ssh
+sysmonvm-vm-ssh: ## SSH into the AlmaLinux VM (pass ARGS="command" for non-interactive usage)
+	@$(if $(WORKSPACE),scripts/sysmonvm/vm-ssh.sh --workspace "$(WORKSPACE)" $(if $(ARGS),-- $(ARGS),),scripts/sysmonvm/vm-ssh.sh $(if $(ARGS),-- $(ARGS),))
+
+.PHONY: sysmonvm-vm-bootstrap
+sysmonvm-vm-bootstrap: ## Install baseline packages inside the VM (dnf upgrade, kernel-tools, etc.)
+	@$(if $(WORKSPACE),scripts/sysmonvm/vm-bootstrap.sh --workspace "$(WORKSPACE)" $(if $(filter 0,$(UPGRADE)),--no-upgrade,),scripts/sysmonvm/vm-bootstrap.sh $(if $(filter 0,$(UPGRADE)),--no-upgrade,))
+
+.PHONY: sysmonvm-build-checker
+sysmonvm-build-checker: ## Cross-compile the sysmon-vm checker for Linux/arm64 into dist/sysmonvm/bin
+	@$(if $(WORKSPACE),scripts/sysmonvm/build-checker.sh --workspace "$(WORKSPACE)",scripts/sysmonvm/build-checker.sh)
+
+.PHONY: sysmonvm-vm-install
+sysmonvm-vm-install: ## Copy the checker binary/config into the VM and install (set SERVICE=0 to skip systemd unit)
+	@$(if $(WORKSPACE),scripts/sysmonvm/vm-install-checker.sh --workspace "$(WORKSPACE)" $(if $(filter 0,$(SERVICE)),--skip-service,),scripts/sysmonvm/vm-install-checker.sh $(if $(filter 0,$(SERVICE)),--skip-service,))
+
 .PHONY: tidy
 tidy: ## Tidy and format Go code
 	@echo "$(COLOR_BOLD)Tidying Go modules and formatting code$(COLOR_RESET)"

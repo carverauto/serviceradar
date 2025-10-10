@@ -74,7 +74,7 @@ type CPUMetric struct {
 	// Usage percentage (0-100)
 	UsagePercent float64 `json:"usage_percent" example:"45.2"`
 	// Instantaneous frequency in Hz, if available.
-	FrequencyHz float64 `json:"frequency_hz,omitempty" example:"2400000000"`
+	FrequencyHz float64 `json:"frequency_hz" example:"2400000000"`
 	// When this metric was collected
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
 	// Host identifier for the agent that collected this metric

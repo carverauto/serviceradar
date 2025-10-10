@@ -33,7 +33,7 @@ Key options:
 3. Start the checker:\
    ```bash
    sudo /usr/local/bin/serviceradar-sysmon-vm --config /etc/serviceradar/checkers/sysmon-vm.json
-   ```
+```
 4. From the ServiceRadar agent configuration, add a gRPC check named `sysmon-vm` that points to the checker’s address, for example:
    ```json
    {
@@ -43,6 +43,35 @@ Key options:
    }
    ```
 5. Restart the agent so the poller discovers the new checker; CPU frequency metrics will flow through the existing sysmon paths.
+
+## Host Preparation (Phase 1)
+- Run `make sysmonvm-host-setup` from the repository root to install QEMU and related tooling (via Homebrew on macOS) and to scaffold the VM workspace under `dist/sysmonvm`.
+- The script seeds `config.yaml` in that workspace using `tools/sysmonvm/config.example.yaml`; review the template and update CPU, memory, disk, and port values before provisioning the VM.
+- On Linux hosts the script currently prints manual install guidance—extend `scripts/sysmonvm/host-setup.sh` once a target distribution matrix is agreed upon.
+
+## Host Preparation (Phase 2)
+- Download the AlmaLinux Generic Cloud image listed in `dist/sysmonvm/config.yaml` by running `make sysmonvm-fetch-image` (or the underlying `scripts/sysmonvm/fetch-image.sh`).
+- After the download completes, compute the SHA-256 checksum with `shasum -a 256 dist/sysmonvm/images/<filename>` and update `config.yaml` so future runs can verify integrity. The script warns when the checksum field is still `sha256:REPLACE_ME`.
+- Use `make sysmonvm-fetch-image WORKSPACE=/custom/path` if you keep VM artifacts outside of `dist/sysmonvm`.
+
+## VM Provisioning (Phase 3)
+- Run `make sysmonvm-vm-create` to build a qcow2 overlay disk and generate the cloud-init seed ISO based on `dist/sysmonvm/config.yaml`. Pass `--force` (via `WORKSPACE` or direct script use) to recreate the assets.
+- Boot the guest with `make sysmonvm-vm-start`; the helper launches `qemu-system-aarch64` headless with port forwards for SSH (`localhost:<ssh_port> → 22`) and any extra ports defined under `networking.forwarded_ports`.
+- Use `make sysmonvm-vm-start-daemon` to run the VM in the background—serial output is captured under `dist/sysmonvm/logs/`, and the QEMU monitor socket is published in `dist/sysmonvm/metadata/`.
+- When you need to reclaim space or rebuild from scratch, run `make sysmonvm-vm-destroy` (use `--yes` to skip the confirmation prompt).
+- While running in headless mode, press `Ctrl+A` followed by `X` to exit QEMU cleanly. Add `--no-headless` to `sysmonvm-vm-start` if you prefer a graphical console.
+- On macOS the scripts rely on `hdiutil` to build the cloud-init ISO; on Linux install `genisoimage` (or another `mkisofs` provider) before running `sysmonvm-vm-create`.
+- Ensure the QEMU edk2 firmware blobs are installed (Homebrew `qemu` already ships `edk2-aarch64-code.fd` and `edk2-arm-vars.fd`). The start script copies the vars template into `dist/sysmonvm/metadata/` automatically.
+- `make sysmonvm-vm-ssh` opens an SSH session to the guest using the configured user and forwarded port. Provide `ARGS="command"` to run a non-interactive command (e.g., `make sysmonvm-vm-ssh ARGS="uptime"`).
+
+## Guest Bootstrap (Phase 4)
+- With the VM running, execute `make sysmonvm-vm-bootstrap` to apply OS updates, install baseline packages (git, curl, jq, kernel-tools, etc.), and enable chronyd.
+- Cross-compile the checker with `make sysmonvm-build-checker`; the binary is written to `dist/sysmonvm/bin/serviceradar-sysmon-vm`.
+- Deploy the checker into the guest using `make sysmonvm-vm-install`. By default this copies the config (`dist/sysmonvm/sysmon-vm.json`), installs the binary under `/usr/local/bin`, and enables the accompanying systemd unit. Set `SERVICE=0` to skip unit installation.
+- Verify the service via `make sysmonvm-vm-ssh ARGS="sudo systemctl status serviceradar-sysmon-vm"` or inspect logs with `journalctl -u serviceradar-sysmon-vm`.
+- In environments where the cpufreq interface is missing (e.g., QEMU on Apple Silicon using Hypervisor.framework), the checker samples hardware performance counters to compute an effective frequency. If the kernel forbids perf events, ensure `kernel.perf_event_paranoid` is ≤1 (handled automatically by `make sysmonvm-vm-bootstrap`).
+
+Refer back to `cpu_plan.md` for Phase 5+ (metric verification, sysmon-vm telemetry plumbing, dashboard work).
 
 ## Migration Notes
 - Apply migration `pkg/db/migrations/00000000000006_cpu_frequency_column.up.sql` (and ensure fresh installs use the updated base migration) so the `cpu_metrics` stream includes the `frequency_hz` column.

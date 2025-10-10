@@ -36,7 +36,7 @@ func NewService(log logger.Logger, sampleInterval time.Duration) *Service {
 	return &Service{
 		log:             log,
 		sampleInterval:  sampleInterval,
-		freqCollector:   cpufreq.Collect,
+        freqCollector:   cpufreq.NewCollector(sampleInterval),
 		usageCollector:  cpu.PercentWithContext,
 		hostIdentifier:  hostIdentifier,
 		localIPResolver: localIP,

@@ -28,12 +28,14 @@
 - Ensure Hypervisor.framework is enabled and user has necessary privileges.
 - Create working directory for VM artifacts (disk images, ISOs, cloud-init configs).
 - Define configuration templates (YAML/JSON) to centralize VM parameters (CPU count, RAM, disk size, networking).
+- Provide automation (`scripts/sysmonvm/host-setup.sh`, exposed as `make sysmonvm-host-setup`) that performs the prerequisite checks, installs tooling via Homebrew, and bootstraps the workspace at `dist/sysmonvm/`.
 
 ### Phase 2 – Acquire AlmaLinux ARM Images
 - Download AlmaLinux 9.4/9.5 ARM64 cloud image (`AlmaLinux-9.x-GenericCloud-aarch64.qcow2`) for unattended provisioning.
 - Optionally mirror boot ISO for manual install or recovery scenarios.
 - Verify image integrity via published checksums and GPG signatures.
 - Store metadata (image version, checksum, download URL) for reproducibility.
+- Automate the download and checksum validation via `scripts/sysmonvm/fetch-image.sh` (exposed as `make sysmonvm-fetch-image`) using the workspace configuration.
 
 ### Phase 3 – VM Provisioning Automation
 - Create a base QCOW2 disk (e.g., 40 GB) and configure QEMU launch scripts:
@@ -50,6 +52,10 @@
   - `make vm-start`
   - `make vm-destroy` (cleanup)
 - Document how to access the VM console (serial, SPICE, VNC) for debugging.
+- Implemented via `scripts/sysmonvm/vm-create.sh`, `scripts/sysmonvm/vm-start.sh`, and `scripts/sysmonvm/vm-destroy.sh` (exposed as `make sysmonvm-vm-create|start|destroy`).
+- Cloud-init ISO creation currently uses `hdiutil` on macOS or `genisoimage` on Linux; ensure the appropriate tool is installed on developer hosts.
+- Added convenience helpers for daemonized boots (`make sysmonvm-vm-start-daemon`) and quick SSH access (`make sysmonvm-vm-ssh`).
+- QEMU start script now mounts the edk2 UEFI firmware (`edk2-aarch64-code.fd` + writable vars file) automatically; confirm the firmware package is present on the host before launching the VM.
 
 ### Phase 4 – Guest OS Bootstrap
 - Update packages (`dnf update -y`) and install baseline tooling (`git`, `curl`, `vim`, `jq`).
@@ -57,19 +63,21 @@
 - Install CPU frequency utilities (`sudo dnf install -y kernel-tools` for `cpupower`).
 - Disable power-saving features that obscure frequency data during validation (`cpupower frequency-set -g performance`).
 - Harden SSH access; ensure firewall rules allow outbound OTLP traffic.
+- Automate the above via `scripts/sysmonvm/vm-bootstrap.sh` (exposed as `make sysmonvm-vm-bootstrap`), which performs the updates, installs required packages, and enables chronyd.
 
-### Phase 5 – Docker & Container Runtime Enablement
-- Install Docker CE (`dnf config-manager --add-repo` for Docker repo; `dnf install docker-ce docker-ce-cli containerd.io`).
-- Enable and start Docker service; configure user permissions for the ServiceRadar agent.
-- Validate container networking and volume mounts (especially `/sys` and `/proc` visibility).
-- Define compose files or systemd units to run the ServiceRadar agent container with necessary capabilities (likely `--privileged` or explicit `--mount type=bind,source=/sys,destination=/sys`).
+### Phase 5 – sysmon-vm Deployment
+- Cross-compile the checker for Linux/arm64 (`scripts/sysmonvm/build-checker.sh` or `make sysmonvm-build-checker`) and stage artifacts under `dist/sysmonvm/bin/`.
+- Copy the checker binary and config into the VM (`scripts/sysmonvm/vm-install-checker.sh` / `make sysmonvm-vm-install`), installing them to `/usr/local/bin` and `/etc/serviceradar/checkers` respectively.
+- Optionally install the bundled systemd unit (`serviceradar-sysmon-vm.service`) to keep the checker running and restart on failure.
+- Record operational runbook steps for updating the binary/config and recycling the service without rebooting the VM.
 
 ### Phase 6 – CPU Frequency Data Path Validation
 - Confirm cpufreq sysfs presence on host VM: `/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq`.
 - Assess availability inside containers; if missing, document mitigations:
   - Run container privileged or with SYS_ADMIN capability.
   - Bind-mount `/sys/devices/system/cpu` read-only into the container.
-  - Use `/proc/cpuinfo` as fallback (less accurate).
+- Use `/proc/cpuinfo` as fallback (less accurate).
+- For nested virtualization on Apple Silicon (HVF), cpufreq files are typically absent; the checker now falls back to perf counters to estimate frequency. Ensure `kernel.perf_event_paranoid` allows access (bootstrap script sets it to `1`).
 - Capture baseline metrics using `cpupower frequency-info` and `watch` on `scaling_cur_freq` for reference values.
 - Record expected frequency ranges for different governors and workloads.
 
@@ -97,8 +105,8 @@
 
 ### Phase 9 – Host macOS Monitoring Strategy
 - Install OpenTelemetry Collector (`otelcol-contrib`) on macOS host.
-- Develop privileged script/binary to parse `powermetrics --samplers cpu_power` output.
-- Schedule collector exec receiver to run script every 5 s; sanitize for sudo usage (e.g., use `/etc/sudoers.d/` entry).
+- Prototype native collector (`tools/sysmonvm/hostfreq/hostfreq`) using IOReport DVFS counters to emit per-core and per-cluster MHz without shelling out to `powermetrics`.
+- Schedule collector exec receiver to run helper every 5 s; document sudo requirements or launchd integration for elevated IOReport access.
 - Collect complementary metrics via `hostmetrics` receiver (CPU load, memory, temperature if available).
 - Tag macOS metrics distinctly (resource attribute `service.name=macos-host-monitor`).
 - Validate cross-origin metrics ingestion in ServiceRadar (host and guest metrics distinguished but correlated).
