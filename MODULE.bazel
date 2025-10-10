@@ -19,6 +19,15 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
+bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
+bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
+bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
+bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
+bazel_dep(name = "aspect_rules_js", version = "2.6.0")
+bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
+bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
+bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
 
 single_version_override(
     module_name = "rules_java",
@@ -32,15 +41,14 @@ use_repo(host_platform_ext, "host_platform")
 java = use_extension("@rules_java//java:extensions.bzl", "toolchains")
 use_repo(
     java,
-    "local_jdk",
+    "remotejdk11_linux",
+     "remotejdk11_macos",
+     "remotejdk11_macos_aarch64",
     "remote_java_tools",
     "remote_java_tools_darwin_arm64",
     "remote_java_tools_darwin_x86_64",
     "remote_java_tools_linux",
     "remote_java_tools_windows",
-    "remotejdk11_linux",
-    "remotejdk11_macos",
-    "remotejdk11_macos_aarch64",
 )
 
 register_toolchains(
@@ -55,21 +63,12 @@ register_toolchains(
     "@remotejdk11_macos_aarch64//:all",
 )
 
-bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
-bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
-bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
-bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
 
 find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
 use_repo(find_rpm, "rules_pkg_rpmbuild")
 
 register_toolchains("@rules_pkg_rpmbuild//:all")
 
-bazel_dep(name = "aspect_rules_js", version = "2.6.0")
-bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
-bazel_dep(name = "rules_cc", version = "0.2.4")
-bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
-bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
 
 cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
 use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
