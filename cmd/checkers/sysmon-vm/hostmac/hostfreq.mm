@@ -7,6 +7,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -250,12 +251,13 @@ CollectFrequencies(IOReportSubscriptionRef subscription,
                    const CollectorConfig& config,
                    double* durationMs) {
     CFDictionaryRef firstSample = IOReportCreateSamples(subscription, subscribedChannels, nullptr);
-    if (!firstSample) {
+    if (firstSample == nullptr) {
         fprintf(stderr, "IOReportCreateSamples returned null (do you need sudo?).\n");
         return std::nullopt;
     }
 
     const mach_timebase_info_data_t timebase = Timebase();
+    // mach_absolute_time() is a monotonic counter suitable for measuring intervals.
     const uint64_t start = mach_absolute_time();
 
     usleep(static_cast<useconds_t>(config.intervalMs * 1000));
@@ -263,7 +265,7 @@ CollectFrequencies(IOReportSubscriptionRef subscription,
     CFDictionaryRef secondSample = IOReportCreateSamples(subscription, subscribedChannels, nullptr);
     const uint64_t end = mach_absolute_time();
 
-    if (!secondSample) {
+    if (secondSample == nullptr) {
         CFRelease(firstSample);
         fprintf(stderr, "IOReportCreateSamples (second) returned null.\n");
         return std::nullopt;
@@ -277,7 +279,7 @@ CollectFrequencies(IOReportSubscriptionRef subscription,
     CFRelease(firstSample);
     CFRelease(secondSample);
 
-    if (!delta) {
+    if (delta == nullptr) {
         fprintf(stderr, "IOReportCreateSamplesDelta returned null.\n");
         return std::nullopt;
     }
