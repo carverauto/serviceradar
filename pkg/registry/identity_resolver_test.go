@@ -34,7 +34,12 @@ func TestIdentityResolverHydratesCanonicalDeviceID(t *testing.T) {
 		CanonicalDeviceID: "default:canonical-123",
 		Partition:         "default",
 		MetadataHash:      "abc123",
-		Attributes:        map[string]string{"hostname": "device-123"},
+		Attributes: map[string]string{
+			"hostname":         "device-123",
+			"armis_device_id":  "armis-123",
+			"mac":              "AA:BB:CC:DD:EE:FF",
+			"integration_type": "armis",
+		},
 	}
 	payload, err := identitymap.MarshalRecord(record)
 	require.NoError(t, err)
@@ -60,6 +65,7 @@ func TestIdentityResolverHydratesCanonicalDeviceID(t *testing.T) {
 	update := &models.DeviceUpdate{
 		DeviceID:  "default:10.0.0.10",
 		Partition: "default",
+		MAC:       nil,
 		Metadata: map[string]string{
 			"armis_device_id": "armis-123",
 		},
@@ -73,4 +79,8 @@ func TestIdentityResolverHydratesCanonicalDeviceID(t *testing.T) {
 	require.Equal(t, "default:canonical-123", update.Metadata["canonical_device_id"])
 	require.Equal(t, "device-123", update.Metadata["canonical_hostname"])
 	require.Equal(t, "9", update.Metadata["canonical_revision"])
+	require.Equal(t, "armis-123", update.Metadata["armis_device_id"])
+	require.Equal(t, "armis", update.Metadata["integration_type"])
+	require.NotNil(t, update.MAC)
+	require.Equal(t, "AA:BB:CC:DD:EE:FF", *update.MAC)
 }

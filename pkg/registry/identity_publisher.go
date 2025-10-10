@@ -114,7 +114,7 @@ func (p *identityPublisher) Publish(ctx context.Context, updates []*models.Devic
 
 		for _, key := range identitymap.BuildKeys(update) {
 			keyPath := key.KeyPath(p.namespace)
-			if err := p.upsertIdentity(ctx, keyPath, payload, record.MetadataHash); err != nil {
+			if err := p.upsertIdentity(ctx, keyPath, payload, record.MetadataHash, record.Attributes); err != nil {
 				publishErr = errors.Join(publishErr, err)
 			}
 		}
@@ -127,7 +127,7 @@ func (p *identityPublisher) Publish(ctx context.Context, updates []*models.Devic
 	return publishErr
 }
 
-func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payload []byte, metadataHash string) error {
+func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payload []byte, metadataHash string, attrs map[string]string) error {
 	bo := backoff.NewExponentialBackOff()
 	bo.InitialInterval = identityInitialBackoff
 	bo.MaxInterval = identityMaxBackoff
@@ -167,7 +167,7 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 		if err != nil {
 			return struct{}{}, backoff.Permanent(fmt.Errorf("unmarshal existing canonical record: %w", err))
 		}
-		if existing.MetadataHash == metadataHash {
+		if existing.MetadataHash == metadataHash && attributesEqual(existing.Attributes, attrs) {
 			identitymap.RecordKVPublish(ctx, 1, "unchanged")
 			return struct{}{}, nil
 		}
@@ -260,10 +260,45 @@ func buildIdentityAttributes(update *models.DeviceUpdate) map[string]string {
 	if src := strings.TrimSpace(string(update.Source)); src != "" {
 		attrs["source"] = src
 	}
+	if update.Metadata != nil {
+		if armis := strings.TrimSpace(update.Metadata["armis_device_id"]); armis != "" {
+			attrs["armis_device_id"] = armis
+		}
+		if integration := strings.TrimSpace(update.Metadata["integration_id"]); integration != "" {
+			attrs["integration_id"] = integration
+		}
+		if netbox := strings.TrimSpace(update.Metadata["netbox_device_id"]); netbox != "" {
+			attrs["netbox_device_id"] = netbox
+		}
+		if typ := strings.TrimSpace(update.Metadata["integration_type"]); typ != "" {
+			attrs["integration_type"] = typ
+		}
+	}
+	if update.MAC != nil {
+		mac := strings.TrimSpace(*update.MAC)
+		if mac != "" {
+			attrs["mac"] = strings.ToUpper(mac)
+		}
+	}
 	if len(attrs) == 0 {
 		return nil
 	}
 	return attrs
+}
+
+func attributesEqual(existing, desired map[string]string) bool {
+	if len(desired) == 0 {
+		return len(existing) == 0
+	}
+	for key, val := range desired {
+		if strings.TrimSpace(val) == "" {
+			continue
+		}
+		if strings.TrimSpace(existing[key]) != strings.TrimSpace(val) {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *DeviceRegistry) publishIdentityMap(ctx context.Context, updates []*models.DeviceUpdate) {
