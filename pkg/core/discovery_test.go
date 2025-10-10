@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -264,29 +263,11 @@ func TestProcessSyncResults_StreamChunking(t *testing.T) {
 	require.Equal(t, total, sum)
 }
 
-type syncPayloadCache struct {
-	once sync.Once
-	data json.RawMessage
-	err  error
-}
-
-var (
-	shortSyncPayload syncPayloadCache
-	fullSyncPayload  syncPayloadCache
-)
-
 func getSyncTestPayload(t *testing.T, total int) json.RawMessage {
-	cache := &fullSyncPayload
-	if testing.Short() {
-		cache = &shortSyncPayload
-	}
-
-	cache.once.Do(func() {
-		cache.data, cache.err = buildSyncPayload(total)
-	})
-
-	require.NoError(t, cache.err)
-	return cache.data
+	t.Helper()
+	data, err := buildSyncPayload(total)
+	require.NoError(t, err)
+	return data
 }
 
 func buildSyncPayload(total int) (json.RawMessage, error) {
