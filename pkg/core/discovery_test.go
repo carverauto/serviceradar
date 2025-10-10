@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -214,27 +215,17 @@ func TestProcessSyncResults_StreamChunking(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
+	if testing.Short() {
+		t.Skip("skipping chunk chunking integration in short mode")
+	}
+
 	mockDB := db.NewMockService(ctrl)
 	mockRegistry := registry.NewMockManager(ctrl)
 	testLogger := logger.NewTestLogger()
 
 	total := syncDeviceChunkSize*2 + 123
-	updates := make([]*models.DeviceUpdate, total)
-	for i := 0; i < total; i++ {
-		updates[i] = &models.DeviceUpdate{
-			AgentID:     "agent1",
-			PollerID:    "poller1",
-			DeviceID:    fmt.Sprintf("partition:%d", i),
-			Partition:   "partition",
-			Source:      models.DiscoverySourceIntegration,
-			IP:          fmt.Sprintf("10.0.0.%d", i%255),
-			Timestamp:   time.Unix(int64(i), 0),
-			IsAvailable: true,
-		}
-	}
-
-	details, err := json.Marshal(updates)
-	require.NoError(t, err)
+	details := getSyncTestPayload(t, total)
+	var err error
 
 	expectedChunks := (total + syncDeviceChunkSize - 1) / syncDeviceChunkSize
 	var lengths []int
@@ -271,6 +262,53 @@ func TestProcessSyncResults_StreamChunking(t *testing.T) {
 		sum += l
 	}
 	require.Equal(t, total, sum)
+}
+
+type syncPayloadCache struct {
+	once sync.Once
+	data json.RawMessage
+	err  error
+}
+
+var (
+	shortSyncPayload syncPayloadCache
+	fullSyncPayload  syncPayloadCache
+)
+
+func getSyncTestPayload(t *testing.T, total int) json.RawMessage {
+	cache := &fullSyncPayload
+	if testing.Short() {
+		cache = &shortSyncPayload
+	}
+
+	cache.once.Do(func() {
+		cache.data, cache.err = buildSyncPayload(total)
+	})
+
+	require.NoError(t, cache.err)
+	return cache.data
+}
+
+func buildSyncPayload(total int) (json.RawMessage, error) {
+	updates := make([]*models.DeviceUpdate, total)
+	for i := 0; i < total; i++ {
+		updates[i] = &models.DeviceUpdate{
+			AgentID:     "agent1",
+			PollerID:    "poller1",
+			DeviceID:    fmt.Sprintf("partition:%d", i),
+			Partition:   "partition",
+			Source:      models.DiscoverySourceIntegration,
+			IP:          fmt.Sprintf("10.0.0.%d", i%255),
+			Timestamp:   time.Unix(int64(i), 0),
+			IsAvailable: true,
+		}
+	}
+
+	data, err := json.Marshal(updates)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func TestProcessSNMPDiscoveryResults(t *testing.T) {
