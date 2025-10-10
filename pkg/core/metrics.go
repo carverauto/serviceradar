@@ -496,7 +496,7 @@ func (s *Server) processSweepService(
 
 	// Use the result processor to convert HostResults to DeviceUpdates
 	// This ensures ICMP metadata is properly extracted and availability is correctly set
-	deviceUpdates := s.processHostResults(sweepSummary.Hosts, pollerID, partition, agentID, now)
+	deviceUpdates := s.processHostResults(ctx, sweepSummary.Hosts, pollerID, partition, agentID, now)
 
 	s.logger.Info().Int("hosts", len(sweepSummary.Hosts)).Int("updates", len(deviceUpdates)).Msg("Sweep processed")
 

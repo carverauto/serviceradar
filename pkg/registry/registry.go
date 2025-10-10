@@ -136,13 +136,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		canonicalID, via := r.lookupCanonicalFromMaps(u, maps)
 
 		if u.Source == models.DiscoverySourceSweep {
-			hasStrongID := false
-			if u.Metadata != nil {
-				if strings.TrimSpace(u.Metadata["armis_device_id"]) != "" || strings.TrimSpace(u.Metadata["integration_id"]) != "" || strings.TrimSpace(u.Metadata["canonical_device_id"]) != "" {
-					hasStrongID = true
-				}
-			}
-			if !hasStrongID && canonicalID == "" {
+			if !hasStrongIdentity(u) && canonicalID == "" {
 				skippedSweepNoIdentity++
 				continue
 			}
@@ -297,6 +291,7 @@ func seedIdentityMapsFromBatch(updates []*models.DeviceUpdate, m *identityMaps) 
 		if canonical == "" {
 			continue
 		}
+		strongIdentity := hasStrongIdentity(update)
 		for _, key := range identitymap.BuildKeys(update) {
 			switch key.Kind {
 			case identitymap.KindArmisID:
@@ -306,6 +301,9 @@ func seedIdentityMapsFromBatch(updates []*models.DeviceUpdate, m *identityMaps) 
 			case identitymap.KindMAC:
 				setIfMissing(m.mac, key.Value, canonical)
 			case identitymap.KindIP, identitymap.KindPartitionIP:
+				if !strongIdentity {
+					continue
+				}
 				setIfMissing(m.ip, key.Value, canonical)
 			}
 		}
@@ -578,6 +576,30 @@ func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 	if update.Confidence == 0 {
 		update.Confidence = models.GetSourceConfidence(update.Source)
 	}
+}
+
+func hasStrongIdentity(update *models.DeviceUpdate) bool {
+	if update == nil {
+		return false
+	}
+	if update.Metadata != nil {
+		if strings.TrimSpace(update.Metadata["armis_device_id"]) != "" {
+			return true
+		}
+		if strings.TrimSpace(update.Metadata["canonical_device_id"]) != "" {
+			return true
+		}
+		if strings.TrimSpace(update.Metadata["integration_id"]) != "" {
+			return true
+		}
+		if strings.TrimSpace(update.Metadata["netbox_device_id"]) != "" {
+			return true
+		}
+	}
+	if update.MAC != nil && strings.TrimSpace(*update.MAC) != "" {
+		return true
+	}
+	return false
 }
 
 func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {

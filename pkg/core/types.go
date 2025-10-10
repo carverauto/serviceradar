@@ -83,6 +83,7 @@ type Server struct {
 	cacheMutex              sync.RWMutex
 	logger                  logger.Logger
 	tracer                  trace.Tracer
+	canonicalCache          *canonicalCache
 }
 
 // OIDStatusData represents the structure of OID status data.
