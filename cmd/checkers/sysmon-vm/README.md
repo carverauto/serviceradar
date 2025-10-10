@@ -71,6 +71,13 @@ Key options:
 - Verify the service via `make sysmonvm-vm-ssh ARGS="sudo systemctl status serviceradar-sysmon-vm"` or inspect logs with `journalctl -u serviceradar-sysmon-vm`.
 - In environments where the cpufreq interface is missing (e.g., QEMU on Apple Silicon using Hypervisor.framework), the checker samples hardware performance counters to compute an effective frequency. If the kernel forbids perf events, ensure `kernel.perf_event_paranoid` is ≤1 (handled automatically by `make sysmonvm-vm-bootstrap`).
 
+## macOS Host Frequency Helper
+- Build the host-side collector with `make sysmonvm-host-build`; the binary is deposited at `dist/sysmonvm/mac-host/bin/hostfreq`.
+- Install the launchd service with `sudo make sysmonvm-host-install`. This stages the binary under `/usr/local/libexec/serviceradar/hostfreq`, registers `com.serviceradar.hostfreq`, and starts continuous sampling (output logged to `/var/log/serviceradar`).
+- You can still run ad-hoc samples locally (e.g., `dist/sysmonvm/mac-host/bin/hostfreq --interval-ms 200 --samples 5`) to verify IOReport access and privilege configuration.
+- The helper must run with privileges that allow IOReport access (typically root or a launchd agent with the appropriate entitlement). The install script exports `SERVICERADAR_HOSTFREQ_PATH` so other components locate the binary reliably.
+- The same install script deploys a macOS build of `serviceradar-sysmon-vm` as `com.serviceradar.sysmonvm`; the checker uses `SERVICERADAR_HOSTFREQ_PATH` to call the helper and merges host MHz data into the gRPC payload. Linux/perf paths remain the fallback for environments where cpufreq/perf are available.
+
 Refer back to `cpu_plan.md` for Phase 5+ (metric verification, sysmon-vm telemetry plumbing, dashboard work).
 
 ## Migration Notes

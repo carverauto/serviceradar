@@ -112,6 +112,22 @@ sysmonvm-vm-bootstrap: ## Install baseline packages inside the VM (dnf upgrade, 
 sysmonvm-build-checker: ## Cross-compile the sysmon-vm checker for Linux/arm64 into dist/sysmonvm/bin
 	@$(if $(WORKSPACE),scripts/sysmonvm/build-checker.sh --workspace "$(WORKSPACE)",scripts/sysmonvm/build-checker.sh)
 
+.PHONY: sysmonvm-build-checker-darwin
+sysmonvm-build-checker-darwin: ## Build the sysmon-vm checker for macOS (arm64) into dist/sysmonvm/mac-host/bin
+	@OUTDIR=$(abspath $(if $(WORKSPACE),$(WORKSPACE),dist/sysmonvm)/mac-host/bin); \
+	mkdir -p "$$OUTDIR"; \
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$$OUTDIR/serviceradar-sysmon-vm" ./cmd/checkers/sysmon-vm
+
+.PHONY: sysmonvm-host-build
+sysmonvm-host-build: ## Build the macOS host frequency helper into dist/sysmonvm/mac-host/bin
+	@OUTDIR=$(abspath $(if $(WORKSPACE),$(WORKSPACE),dist/sysmonvm)/mac-host/bin); \
+	mkdir -p "$$OUTDIR"; \
+	$(MAKE) -C cmd/checkers/sysmon-vm/hostmac OUTDIR="$$OUTDIR"
+
+.PHONY: sysmonvm-host-install
+sysmonvm-host-install: ## Install the macOS host frequency helper launchd service (run with sudo)
+	@scripts/sysmonvm/host-install-macos.sh
+
 .PHONY: sysmonvm-vm-install
 sysmonvm-vm-install: ## Copy the checker binary/config into the VM and install (set SERVICE=0 to skip systemd unit)
 	@$(if $(WORKSPACE),scripts/sysmonvm/vm-install-checker.sh --workspace "$(WORKSPACE)" $(if $(filter 0,$(SERVICE)),--skip-service,),scripts/sysmonvm/vm-install-checker.sh $(if $(filter 0,$(SERVICE)),--skip-service,))
