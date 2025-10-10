@@ -1,8 +1,8 @@
 # Building the project
 
 * Currently, only linux on x86_64 is supported.
-* The recommended distro is Ubuntu 24_04.
-* The build process uses Bazel.
+* The recommended linux distro is Ubuntu 24_04.
+* The build process uses Bazel via Bazelisk.
 
 ### Install Bazelisk
 
@@ -28,6 +28,8 @@ which bazel
 * liblz4-dev 
 * libzstd-dev 
 * pkg-config
+* libev-dev 
+* libssl-dev
 
 `
 sudo apt install -y git clang-18 build-essential bubblewrap rsync ocaml libgmp-dev liblz4-dev libzstd-dev pkg-config
