@@ -25,10 +25,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -114,6 +116,262 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 	return devices, nil
 }
 
+type aggregatedDeviceEntry struct {
+	device     Device
+	ipSet      map[string]struct{}
+	ipOrder    []string
+	labelSet   map[string]struct{}
+	labels     []string
+	sweepModes map[models.SweepMode]struct{}
+}
+
+func newAggregatedDeviceEntry(device Device, query models.QueryConfig) *aggregatedDeviceEntry {
+	entry := &aggregatedDeviceEntry{
+		device: Device{
+			ID:               device.ID,
+			IPAddress:        device.IPAddress,
+			MacAddress:       device.MacAddress,
+			Name:             device.Name,
+			Type:             device.Type,
+			Category:         device.Category,
+			Manufacturer:     device.Manufacturer,
+			Model:            device.Model,
+			OperatingSystem:  device.OperatingSystem,
+			FirstSeen:        device.FirstSeen,
+			LastSeen:         device.LastSeen,
+			RiskLevel:        device.RiskLevel,
+			Boundaries:       device.Boundaries,
+			Tags:             append([]string(nil), device.Tags...),
+			CustomProperties: device.CustomProperties,
+			BusinessImpact:   device.BusinessImpact,
+			Visibility:       device.Visibility,
+			Site:             device.Site,
+		},
+		ipSet:      make(map[string]struct{}),
+		ipOrder:    make([]string, 0, 4),
+		labelSet:   make(map[string]struct{}),
+		labels:     make([]string, 0, 1),
+		sweepModes: make(map[models.SweepMode]struct{}),
+	}
+
+	entry.mergeIPs(device.IPAddress)
+	entry.addQuery(query)
+	return entry
+}
+
+func (e *aggregatedDeviceEntry) mergeDevice(device Device) {
+	e.mergeIPs(device.IPAddress)
+
+	mergeStringIfEmpty(&e.device.MacAddress, device.MacAddress)
+	mergeStringIfEmpty(&e.device.Name, device.Name)
+	mergeStringIfEmpty(&e.device.Type, device.Type)
+	mergeStringIfEmpty(&e.device.Category, device.Category)
+	mergeStringIfEmpty(&e.device.Manufacturer, device.Manufacturer)
+	mergeStringIfEmpty(&e.device.Model, device.Model)
+	mergeStringIfEmpty(&e.device.OperatingSystem, device.OperatingSystem)
+	updateToLatest(&e.device.LastSeen, device.LastSeen)
+	updateToEarliest(&e.device.FirstSeen, device.FirstSeen)
+	mergeStringIfEmpty(&e.device.Boundaries, device.Boundaries)
+	mergeStringIfEmpty(&e.device.BusinessImpact, device.BusinessImpact)
+	mergeStringIfEmpty(&e.device.Visibility, device.Visibility)
+	setInterfaceIfNil(&e.device.CustomProperties, device.CustomProperties)
+	setInterfaceIfNil(&e.device.Site, device.Site)
+	e.mergeTags(device.Tags)
+}
+
+func (e *aggregatedDeviceEntry) mergeIPs(ipList string) {
+	for _, ip := range extractAllIPs(ipList) {
+		trimmed := strings.TrimSpace(ip)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := e.ipSet[trimmed]; exists {
+			continue
+		}
+		e.ipSet[trimmed] = struct{}{}
+		e.ipOrder = append(e.ipOrder, trimmed)
+	}
+
+	if len(e.ipOrder) == 0 {
+		return
+	}
+
+	e.device.IPAddress = strings.Join(e.ipOrder, ",")
+}
+
+func (e *aggregatedDeviceEntry) mergeTags(tags []string) {
+	if len(tags) == 0 {
+		return
+	}
+
+	existing := make(map[string]struct{}, len(e.device.Tags))
+	for _, tag := range e.device.Tags {
+		existing[tag] = struct{}{}
+	}
+
+	for _, tag := range tags {
+		trimmed := strings.TrimSpace(tag)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := existing[trimmed]; ok {
+			continue
+		}
+		existing[trimmed] = struct{}{}
+		e.device.Tags = append(e.device.Tags, trimmed)
+	}
+}
+
+func mergeStringIfEmpty(dst *string, candidate string) {
+	if dst == nil || *dst != "" || candidate == "" {
+		return
+	}
+	*dst = candidate
+}
+
+func updateToLatest(dst *time.Time, candidate time.Time) {
+	if dst == nil || candidate.IsZero() {
+		return
+	}
+	current := *dst
+	if current.IsZero() || candidate.After(current) {
+		*dst = candidate
+	}
+}
+
+func updateToEarliest(dst *time.Time, candidate time.Time) {
+	if dst == nil || candidate.IsZero() {
+		return
+	}
+	current := *dst
+	if current.IsZero() || candidate.Before(current) {
+		*dst = candidate
+	}
+}
+
+func setInterfaceIfNil(dst *interface{}, candidate interface{}) {
+	if dst == nil || *dst != nil || candidate == nil {
+		return
+	}
+	*dst = candidate
+}
+
+func (e *aggregatedDeviceEntry) addQuery(query models.QueryConfig) {
+	if query.Label != "" {
+		if _, exists := e.labelSet[query.Label]; !exists {
+			e.labelSet[query.Label] = struct{}{}
+			e.labels = append(e.labels, query.Label)
+		}
+	}
+
+	for _, mode := range query.SweepModes {
+		if mode == "" {
+			continue
+		}
+		e.sweepModes[mode] = struct{}{}
+	}
+}
+
+func (e *aggregatedDeviceEntry) labelSummary() string {
+	if len(e.labels) == 0 {
+		return ""
+	}
+
+	sorted := append([]string(nil), e.labels...)
+	sort.Strings(sorted)
+	return strings.Join(sorted, ",")
+}
+
+func (e *aggregatedDeviceEntry) sweepModeSlice() []models.SweepMode {
+	if len(e.sweepModes) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(e.sweepModes))
+	for mode := range e.sweepModes {
+		names = append(names, string(mode))
+	}
+
+	sort.Strings(names)
+
+	result := make([]models.SweepMode, 0, len(names))
+	for _, name := range names {
+		result = append(result, models.SweepMode(name))
+	}
+
+	return result
+}
+
+type deviceAggregator struct {
+	entries map[int]*aggregatedDeviceEntry
+}
+
+func newDeviceAggregator() *deviceAggregator {
+	return &deviceAggregator{
+		entries: make(map[int]*aggregatedDeviceEntry),
+	}
+}
+
+func (agg *deviceAggregator) addDevices(devices []Device, query models.QueryConfig) {
+	for i := range devices {
+		agg.addDevice(devices[i], query)
+	}
+}
+
+func (agg *deviceAggregator) addDevice(device Device, query models.QueryConfig) {
+	if agg.entries == nil {
+		agg.entries = make(map[int]*aggregatedDeviceEntry)
+	}
+
+	if entry, exists := agg.entries[device.ID]; exists {
+		entry.mergeDevice(device)
+		entry.addQuery(query)
+		return
+	}
+
+	agg.entries[device.ID] = newAggregatedDeviceEntry(device, query)
+}
+
+func (agg *deviceAggregator) materialize() ([]Device, map[int]string, map[int]models.QueryConfig) {
+	if len(agg.entries) == 0 {
+		return nil, map[int]string{}, map[int]models.QueryConfig{}
+	}
+
+	deviceIDs := make([]int, 0, len(agg.entries))
+	for id := range agg.entries {
+		deviceIDs = append(deviceIDs, id)
+	}
+	sort.Ints(deviceIDs)
+
+	allDevices := make([]Device, 0, len(deviceIDs))
+	deviceLabels := make(map[int]string, len(deviceIDs))
+	deviceQueries := make(map[int]models.QueryConfig, len(deviceIDs))
+
+	for _, id := range deviceIDs {
+		entry := agg.entries[id]
+		label := entry.labelSummary()
+		if label == "" {
+			label = "armis_devices"
+		}
+
+		allDevices = append(allDevices, entry.device)
+		deviceLabels[id] = label
+		deviceQueries[id] = models.QueryConfig{
+			Label:      label,
+			SweepModes: entry.sweepModeSlice(),
+		}
+	}
+
+	return allDevices, deviceLabels, deviceQueries
+}
+
+func (agg *deviceAggregator) len() int {
+	if agg == nil {
+		return 0
+	}
+	return len(agg.entries)
+}
+
 // createAndWriteSweepConfig creates a sweep config from the given IPs and device targets and writes it to the KV store.
 func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string, deviceTargets []models.DeviceTarget) error {
 	// Note: IPs have already been filtered by the blacklist in fetchAndProcessDevices
@@ -156,7 +414,7 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 		Int("network_count", len(finalSweepConfig.Networks)).
 		Int("device_target_count", len(finalSweepConfig.DeviceTargets)).
 		Str("config_key", configKey).
-            Msg("Writing complete sweep config with all devices from all queries")
+		Msg("Writing complete sweep config with all devices from all queries")
 
 	if a.KVWriter == nil {
 		a.Logger.Warn().Msg("KVWriter not configured, skipping sweep config write")
@@ -178,7 +436,7 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 			Int("network_count", len(finalSweepConfig.Networks)).
 			Int("device_target_count", len(finalSweepConfig.DeviceTargets)).
 			Str("config_key", configKey).
-            Msg("Successfully wrote complete sweep config with all devices from all queries")
+			Msg("Successfully wrote complete sweep config with all devices from all queries")
 	}
 
 	return err
@@ -323,9 +581,7 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 		Int("query_count", len(a.Config.Queries)).
 		Msg("Starting device fetch for all queries - accumulating in memory before writing sweep config")
 
-	allDevices := make([]Device, 0)
-	deviceLabels := make(map[int]string)              // Map device ID to query label
-	deviceQueries := make(map[int]models.QueryConfig) // Map device ID to query config
+	deviceAgg := newDeviceAggregator()
 
 	// Fetch devices for each query and accumulate them in memory
 	// This ensures we collect ALL devices from ALL queries before writing the sweep config
@@ -345,31 +601,27 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 			Int("query_index", queryIndex).
 			Str("query_label", q.Label).
 			Int("query_device_count", len(devices)).
-			Int("accumulated_device_count", len(allDevices)).
-			Msg("Query completed, accumulating devices in memory")
+			Int("aggregated_device_count_before", deviceAgg.len()).
+			Msg("Query completed, aggregating devices in memory")
 
-		// Track which query discovered each device
-		for i := range devices {
-			deviceLabels[devices[i].ID] = q.Label
-			deviceQueries[devices[i].ID] = q
-		}
-
-		allDevices = append(allDevices, devices...)
+		deviceAgg.addDevices(devices, q)
 
 		a.Logger.Info().
 			Int("query_index", queryIndex).
 			Str("query_label", q.Label).
-			Int("total_accumulated_devices", len(allDevices)).
+			Int("total_unique_devices", deviceAgg.len()).
 			Msg("Devices accumulated from query")
 	}
 
+	allDevices, deviceLabels, deviceQueries := deviceAgg.materialize()
+
 	a.Logger.Info().
-		Int("total_devices_from_all_queries", len(allDevices)).
+		Int("total_unique_devices_from_all_queries", len(allDevices)).
 		Int("total_queries_processed", len(a.Config.Queries)).
-		Msg("All queries completed - processing accumulated devices")
+		Msg("All queries completed - processing aggregated devices")
 
 	// Process devices with query labels and configs
-	data, ips, events, deviceTargets := a.processDevices(allDevices, deviceLabels, deviceQueries)
+	data, ips, events, deviceTargets := a.processDevices(ctx, allDevices, deviceLabels, deviceQueries)
 
 	a.Logger.Info().
 		Int("total_devices", len(allDevices)).
@@ -607,22 +859,38 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 }
 
 // processDevices converts devices to KV data and extracts IPs.
+type armisDeviceContext struct {
+	device      *Device
+	label       string
+	query       models.QueryConfig
+	primaryIP   string
+	allIPs      []string
+	event       *models.DeviceUpdate
+	keys        []identitymap.Key
+	orderedKeys []identitymap.Key
+}
+
 func (a *ArmisIntegration) processDevices(
+	ctx context.Context,
 	devices []Device,
 	deviceLabels map[int]string,
 	deviceQueries map[int]models.QueryConfig,
 ) (data map[string][]byte, ips []string, events []*models.DeviceUpdate, deviceTargets []models.DeviceTarget) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices)*2) // Allocate more space for multiple IPs per device
 	events = make([]*models.DeviceUpdate, 0, len(devices))
 	deviceTargets = make([]models.DeviceTarget, 0, len(devices)*2) // Allocate more space for multiple targets
 
+	contexts := make([]armisDeviceContext, 0, len(devices))
 	now := time.Now()
 
 	for i := range devices {
 		d := &devices[i]
 
-		// Extract all IPs from the device
 		allIPs := extractAllIPs(d.IPAddress)
 		if len(allIPs) == 0 {
 			a.Logger.Warn().
@@ -632,96 +900,201 @@ func (a *ArmisIntegration) processDevices(
 			continue
 		}
 
-		// Use first IP as primary for backward compatibility
 		primaryIP := allIPs[0]
-
-		// Process enriched device for KV storage with all IPs in metadata
-		enrichedData, err := a.createEnrichedDeviceDataWithAllIPs(d, deviceLabels[d.ID], allIPs)
-		if err != nil {
-			a.Logger.Error().
-				Err(err).
-				Int("device_id", d.ID).
-				Msg("Failed to create enriched device data")
-
-			continue
-		}
-
-		data[fmt.Sprintf("%d", d.ID)] = enrichedData
-
-		// Create device update event with primary IP but include all IPs in metadata
 		event := a.createDeviceUpdateEventWithAllIPs(d, primaryIP, allIPs, deviceLabels[d.ID], now)
+		keys := identitymap.BuildKeys(event)
+		ordered := identitymap.PrioritizeKeys(keys)
 
-		// Marshal event for KV storage (store under primary IP)
-		kvKey := fmt.Sprintf("%s/%s", a.Config.AgentID, primaryIP)
+		contexts = append(contexts, armisDeviceContext{
+			device:      d,
+			label:       deviceLabels[d.ID],
+			query:       deviceQueries[d.ID],
+			primaryIP:   primaryIP,
+			allIPs:      allIPs,
+			event:       event,
+			keys:        keys,
+			orderedKeys: ordered,
+		})
 
-		eventData, err := json.Marshal(event)
-		if err != nil {
-			a.Logger.Error().
-				Err(err).
-				Int("device_id", d.ID).
-				Msg("Failed to marshal device event")
+		ips = append(ips, primaryIP+"/32")
+	}
 
-			continue
+	entries, fetchErr := a.prefetchCanonicalEntries(ctx, contexts)
+
+	for _, ctxDevice := range contexts {
+		var (
+			canonicalRecord *identitymap.Record
+			revision        uint64
+		)
+
+		if len(entries) != 0 {
+			canonicalRecord, revision = a.resolveCanonicalRecord(entries, ctxDevice.orderedKeys)
 		}
 
-		data[kvKey] = eventData
+		if canonicalRecord == nil && fetchErr != nil {
+			if rec, rev := a.lookupCanonicalRecordDirect(ctx, ctxDevice.keys); rec != nil {
+				canonicalRecord = rec
+				revision = rev
+			}
+		}
 
-		events = append(events, event)
+		if canonicalRecord != nil {
+			a.attachCanonicalMetadata(ctxDevice.event, canonicalRecord, revision)
+		}
 
-		// Create a single device target containing ALL IP addresses in metadata
-		queryConfig := deviceQueries[d.ID]
+		events = append(events, ctxDevice.event)
 
-		// Note: No longer adding IPs to networks array since we use DeviceTargets for per-device sweep modes
-
-		// Create a single device target using primary IP but containing all IPs in metadata
 		deviceTarget := models.DeviceTarget{
-			Network:    primaryIP + "/32",
-			SweepModes: queryConfig.SweepModes,
-			QueryLabel: queryConfig.Label,
+			Network:    ctxDevice.primaryIP + "/32",
+			SweepModes: ctxDevice.query.SweepModes,
+			QueryLabel: ctxDevice.query.Label,
 			Source:     "armis",
 			Metadata: map[string]string{
 				"integration_type": "armis",
-				"integration_id":   fmt.Sprintf("%d", d.ID),
-				"armis_device_id":  fmt.Sprintf("%d", d.ID),
-				"query_label":      queryConfig.Label,
-				"primary_ip":       primaryIP,
-				"all_ips":          strings.Join(allIPs, ","),
-				"ip_count":         fmt.Sprintf("%d", len(allIPs)),
-				"device_name":      d.Name,
+				"integration_id":   fmt.Sprintf("%d", ctxDevice.device.ID),
+				"armis_device_id":  fmt.Sprintf("%d", ctxDevice.device.ID),
+				"query_label":      ctxDevice.query.Label,
+				"primary_ip":       ctxDevice.primaryIP,
+				"all_ips":          strings.Join(ctxDevice.allIPs, ","),
+				"ip_count":         fmt.Sprintf("%d", len(ctxDevice.allIPs)),
+				"device_name":      ctxDevice.device.Name,
 			},
 		}
+
+		if canonicalRecord != nil {
+			if deviceTarget.Metadata == nil {
+				deviceTarget.Metadata = make(map[string]string)
+			}
+			deviceTarget.Metadata["canonical_device_id"] = canonicalRecord.CanonicalDeviceID
+			if canonicalRecord.Partition != "" {
+				deviceTarget.Metadata["canonical_partition"] = canonicalRecord.Partition
+			}
+			if canonicalRecord.MetadataHash != "" {
+				deviceTarget.Metadata["canonical_metadata_hash"] = canonicalRecord.MetadataHash
+			}
+			if revision != 0 {
+				deviceTarget.Metadata["canonical_revision"] = strconv.FormatUint(revision, 10)
+			}
+		}
+
 		deviceTargets = append(deviceTargets, deviceTarget)
 
 		a.Logger.Debug().
-			Int("device_id", d.ID).
-			Str("primary_ip", primaryIP).
-			Int("total_ips", len(allIPs)).
-			Strs("all_ips", allIPs).
+			Int("device_id", ctxDevice.device.ID).
+			Str("primary_ip", ctxDevice.primaryIP).
+			Int("total_ips", len(ctxDevice.allIPs)).
+			Strs("all_ips", ctxDevice.allIPs).
 			Msg("Processed device with multiple IPs")
 	}
 
 	return data, ips, events, deviceTargets
 }
 
-// createEnrichedDeviceDataWithAllIPs creates enriched device data with all IP addresses in metadata
-func (*ArmisIntegration) createEnrichedDeviceDataWithAllIPs(d *Device, queryLabel string, allIPs []string) ([]byte, error) {
-	tag := ""
-	if len(d.Tags) > 0 {
-		tag = strings.Join(d.Tags, ",")
+func (a *ArmisIntegration) prefetchCanonicalEntries(ctx context.Context, contexts []armisDeviceContext) (map[string]*proto.BatchGetEntry, error) {
+	// Canonical identity resolution now happens centrally in the core registry.
+	// The sync service should avoid hammering the KV store with speculative reads.
+	return nil, nil
+}
+
+func (a *ArmisIntegration) resolveCanonicalRecord(entries map[string]*proto.BatchGetEntry, ordered []identitymap.Key) (*identitymap.Record, uint64) {
+	if len(entries) == 0 || len(ordered) == 0 {
+		return nil, 0
 	}
 
-	enriched := DeviceWithMetadata{
-		Device: *d,
-		Metadata: map[string]string{
-			"armis_device_id": fmt.Sprintf("%d", d.ID),
-			"tag":             tag,
-			"query_label":     queryLabel,
-			"all_ips":         strings.Join(allIPs, ","),
-			"ip_count":        fmt.Sprintf("%d", len(allIPs)),
-		},
+	for _, key := range ordered {
+		sanitized := key.KeyPath(identitymap.DefaultNamespace)
+		entry, ok := entries[sanitized]
+		if !ok || !entry.GetFound() || len(entry.GetValue()) == 0 {
+			continue
+		}
+
+		record, err := identitymap.UnmarshalRecord(entry.GetValue())
+		if err != nil {
+			a.Logger.Debug().
+				Err(err).
+				Str("identity_kind", key.Kind.String()).
+				Str("identity_value", key.Value).
+				Msg("Failed to unmarshal canonical identity record")
+			continue
+		}
+
+		a.Logger.Debug().
+			Str("identity_kind", key.Kind.String()).
+			Str("identity_value", key.Value).
+			Str("canonical_device_id", record.CanonicalDeviceID).
+			Msg("Resolved canonical identity for Armis device")
+
+		return record, entry.GetRevision()
 	}
 
-	return json.Marshal(enriched)
+	return nil, 0
+}
+
+func (a *ArmisIntegration) lookupCanonicalRecordDirect(ctx context.Context, keys []identitymap.Key) (*identitymap.Record, uint64) {
+	if a.KVClient == nil || len(keys) == 0 {
+		return nil, 0
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ordered := identitymap.PrioritizeKeys(keys)
+	if len(ordered) == 0 {
+		return nil, 0
+	}
+
+	seenPaths := make(map[string]struct{}, len(ordered))
+	paths := make([]string, 0, len(ordered))
+	for _, key := range ordered {
+		sanitized := key.KeyPath(identitymap.DefaultNamespace)
+		if _, ok := seenPaths[sanitized]; ok {
+			continue
+		}
+		seenPaths[sanitized] = struct{}{}
+		paths = append(paths, sanitized)
+	}
+
+	resp, err := a.KVClient.BatchGet(ctx, &proto.BatchGetRequest{Keys: paths})
+	if err != nil {
+		a.Logger.Debug().Err(err).Msg("Armis identity map lookup failed")
+		return nil, 0
+	}
+
+	entries := make(map[string]*proto.BatchGetEntry, len(resp.GetResults()))
+	for _, entry := range resp.GetResults() {
+		if entry == nil {
+			continue
+		}
+		entries[entry.GetKey()] = entry
+	}
+
+	return a.resolveCanonicalRecord(entries, ordered)
+}
+
+func (a *ArmisIntegration) attachCanonicalMetadata(event *models.DeviceUpdate, record *identitymap.Record, revision uint64) {
+	if event == nil || record == nil {
+		return
+	}
+
+	if event.Metadata == nil {
+		event.Metadata = make(map[string]string)
+	}
+
+	event.Metadata["canonical_device_id"] = record.CanonicalDeviceID
+	if record.Partition != "" {
+		event.Metadata["canonical_partition"] = record.Partition
+	}
+	if record.MetadataHash != "" {
+		event.Metadata["canonical_metadata_hash"] = record.MetadataHash
+	}
+	if revision != 0 {
+		event.Metadata["canonical_revision"] = strconv.FormatUint(revision, 10)
+	}
+
+	if hostname, ok := record.Attributes["hostname"]; ok && hostname != "" {
+		event.Metadata["canonical_hostname"] = hostname
+	}
 }
 
 // createDeviceUpdateEventWithAllIPs creates a DeviceUpdate event with all IP addresses in metadata
@@ -734,7 +1107,12 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 	}
 
 	hostname := d.Name
-	mac := d.MacAddress
+	rawMAC := extractPrimaryMAC(d.MacAddress)
+	var macPtr *string
+	if rawMAC != "" {
+		macCopy := rawMAC
+		macPtr = &macCopy
+	}
 	deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, primaryIP)
 
 	event := &models.DeviceUpdate{
@@ -744,7 +1122,7 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 		DeviceID:  deviceID,
 		Partition: a.Config.Partition,
 		IP:        primaryIP,
-		MAC:       &mac,
+		MAC:       macPtr,
 		Hostname:  &hostname,
 		Timestamp: timestamp,
 		Metadata: map[string]string{
@@ -760,6 +1138,37 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 	}
 
 	return event
+}
+
+func extractPrimaryMAC(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', ';', ' ', '\n', '\t':
+			return true
+		default:
+			return false
+		}
+	})
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		hw, err := net.ParseMAC(part)
+		if err != nil {
+			continue
+		}
+
+		return strings.ToUpper(hw.String())
+	}
+
+	return ""
 }
 
 // shouldDeleteExistingConfig checks if the existing config should be deleted

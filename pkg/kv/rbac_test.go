@@ -151,7 +151,7 @@ func TestRBACInterceptor(t *testing.T) {
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
 
-		mockStore.EXPECT().Get(gomock.Any(), "test-key").Return([]byte("value"), true, nil)
+		mockStore.EXPECT().GetEntry(gomock.Any(), "test-key").Return(Entry{Value: []byte("value"), Revision: 7, Found: true}, nil)
 
 		handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 			return s.Get(ctx, req.(*proto.GetRequest))
@@ -169,6 +169,7 @@ func TestRBACInterceptor(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, []byte("value"), getResp.Value)
 		assert.True(t, getResp.Found)
+		assert.Equal(t, uint64(7), getResp.Revision)
 	})
 
 	t.Run("Reader_Put_Denied", func(t *testing.T) {

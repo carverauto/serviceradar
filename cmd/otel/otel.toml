@@ -2,6 +2,10 @@
 bind_address = "127.0.0.1"
 port = 4317
 
+[server.metrics]
+bind_address = "0.0.0.0"
+port = 9464
+
 [nats]
 url = "nats://localhost:4222"
 subject = "events.otel"

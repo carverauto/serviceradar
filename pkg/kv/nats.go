@@ -17,16 +17,16 @@
 package kv
 
 import (
-    "context"
-    "crypto/tls"
-    "crypto/x509"
-    "errors"
-    "fmt"
-    "log"
-    "os"
-    "strings"
-    "sync"
-    "time"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -36,13 +36,13 @@ import (
 )
 
 type NATSStore struct {
-    nc            *nats.Conn
-    ctx           context.Context
-    bucket        string
-    defaultDomain string
-    jsByDomain    map[string]jetstream.JetStream
-    kvByDomain    map[string]jetstream.KeyValue
-    mu            sync.Mutex
+	nc            *nats.Conn
+	ctx           context.Context
+	bucket        string
+	defaultDomain string
+	jsByDomain    map[string]jetstream.JetStream
+	kvByDomain    map[string]jetstream.KeyValue
+	mu            sync.Mutex
 }
 
 func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
@@ -66,22 +66,22 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
 
-    store := &NATSStore{
-        nc:            nc,
-        ctx:           ctx,
-        bucket:        cfg.Bucket,
-        defaultDomain: cfg.Domain,
-        jsByDomain:    make(map[string]jetstream.JetStream),
-        kvByDomain:    make(map[string]jetstream.KeyValue),
-    }
+	store := &NATSStore{
+		nc:            nc,
+		ctx:           ctx,
+		bucket:        cfg.Bucket,
+		defaultDomain: cfg.Domain,
+		jsByDomain:    make(map[string]jetstream.JetStream),
+		kvByDomain:    make(map[string]jetstream.KeyValue),
+	}
 
-    // Warm default domain (may be empty => global)
-    if _, err := store.getKVForDomain(ctx, cfg.Domain); err != nil {
-        nc.Close()
-        return nil, err
-    }
+	// Warm default domain (may be empty => global)
+	if _, err := store.getKVForDomain(ctx, cfg.Domain); err != nil {
+		nc.Close()
+		return nil, err
+	}
 
-    return store, nil
+	return store, nil
 }
 
 const (
@@ -117,73 +117,119 @@ func getTLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
 	}, nil
 }
 
-func (n *NATSStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
-    domain, realKey := n.extractDomain(key)
-    kv, err := n.getKVForDomain(ctx, domain)
-    if err != nil { return nil, false, err }
-    entry, err := kv.Get(ctx, realKey)
-    if errors.Is(err, jetstream.ErrKeyNotFound) {
-        return nil, false, nil
-    }
-
+func (n *NATSStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	entry, err := n.GetEntry(ctx, key)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to get key %s: %w", key, err)
+		return nil, false, err
 	}
 
-	return entry.Value(), true, nil
+	return entry.Value, entry.Found, nil
+}
+
+// GetEntry retrieves the value and revision metadata for a given key.
+func (n *NATSStore) GetEntry(ctx context.Context, key string) (Entry, error) {
+	domain, realKey := n.extractDomain(key)
+	kv, err := n.getKVForDomain(ctx, domain)
+	if err != nil {
+		return Entry{}, err
+	}
+
+	entry, err := kv.Get(ctx, realKey)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return Entry{Found: false}, nil
+	}
+	if err != nil {
+		return Entry{}, fmt.Errorf("failed to get key %s: %w", realKey, err)
+	}
+
+	return Entry{
+		Value:    entry.Value(),
+		Revision: entry.Revision(),
+		Found:    true,
+	}, nil
 }
 
 // Put stores a key-value pair in the NATS key-value store. It accepts a context, key, value, and TTL.
 // The TTL is not used in this implementation, as it is handled at the bucket level.
 func (n *NATSStore) Put(ctx context.Context, key string, value []byte, _ time.Duration) error {
-    domain, realKey := n.extractDomain(key)
-    kv, err := n.getKVForDomain(ctx, domain)
-    if err != nil { return err }
-    _, err = kv.Put(ctx, realKey, value)
-    if err != nil {
-        return fmt.Errorf("failed to put key %s: %w", realKey, err)
-    }
+	domain, realKey := n.extractDomain(key)
+	kv, err := n.getKVForDomain(ctx, domain)
+	if err != nil {
+		return err
+	}
+	_, err = kv.Put(ctx, realKey, value)
+	if err != nil {
+		return fmt.Errorf("failed to put key %s: %w", realKey, err)
+	}
 
-    return nil
+	return nil
 }
 
 // PutIfAbsent stores a key-value pair only if it doesn't already exist.
 func (n *NATSStore) PutIfAbsent(ctx context.Context, key string, value []byte, _ time.Duration) error {
-    domain, realKey := n.extractDomain(key)
-    kv, err := n.getKVForDomain(ctx, domain)
-    if err != nil { return err }
-    _, err = kv.Create(ctx, realKey, value)
-    if err != nil {
-        return fmt.Errorf("failed to create key %s: %w", realKey, err)
-    }
+	domain, realKey := n.extractDomain(key)
+	kv, err := n.getKVForDomain(ctx, domain)
+	if err != nil {
+		return err
+	}
+	_, err = kv.Create(ctx, realKey, value)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrKeyExists) {
+			return fmt.Errorf("key %s already exists: %w", realKey, ErrKeyExists)
+		}
+		return fmt.Errorf("failed to create key %s: %w", realKey, err)
+	}
 
-    return nil
+	return nil
 }
 
 // PutMany stores multiple key/value pairs. TTL is ignored in this implementation.
 func (n *NATSStore) PutMany(ctx context.Context, entries []KeyValueEntry, _ time.Duration) error {
-    for _, e := range entries {
-        domain, realKey := n.extractDomain(e.Key)
-        kv, err := n.getKVForDomain(ctx, domain)
-        if err != nil { return err }
-        if _, err := kv.Put(ctx, realKey, e.Value); err != nil {
-            return fmt.Errorf("failed to put key %s: %w", realKey, err)
-        }
-    }
+	for _, e := range entries {
+		domain, realKey := n.extractDomain(e.Key)
+		kv, err := n.getKVForDomain(ctx, domain)
+		if err != nil {
+			return err
+		}
+		if _, err := kv.Put(ctx, realKey, e.Value); err != nil {
+			return fmt.Errorf("failed to put key %s: %w", realKey, err)
+		}
+	}
 
-    return nil
+	return nil
+}
+
+// Update performs a compare-and-swap using JetStream revisions.
+func (n *NATSStore) Update(ctx context.Context, key string, value []byte, revision uint64, _ time.Duration) (uint64, error) {
+	domain, realKey := n.extractDomain(key)
+	kv, err := n.getKVForDomain(ctx, domain)
+	if err != nil {
+		return 0, err
+	}
+
+	newRevision, err := kv.Update(ctx, realKey, value, revision)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrKeyExists) {
+			return 0, fmt.Errorf("cas conflict on key %s: %w", realKey, ErrCASMismatch)
+		}
+		return 0, fmt.Errorf("failed to update key %s: %w", realKey, err)
+	}
+
+	return newRevision, nil
 }
 
 func (n *NATSStore) Delete(ctx context.Context, key string) error {
-    domain, realKey := n.extractDomain(key)
-    kv, err := n.getKVForDomain(ctx, domain)
-    if err != nil { return err }
-    err = kv.Delete(ctx, realKey)
-    if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
-        return fmt.Errorf("failed to delete key %s: %w", realKey, err)
-    }
+	domain, realKey := n.extractDomain(key)
+	kv, err := n.getKVForDomain(ctx, domain)
+	if err != nil {
+		return err
+	}
+	err = kv.Delete(ctx, realKey)
+	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
+		return fmt.Errorf("failed to delete key %s: %w", realKey, err)
+	}
 
-    return nil
+	return nil
 }
 
 func (n *NATSStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
@@ -244,20 +290,20 @@ func (n *NATSStore) handleWatchWithReconnect(ctx context.Context, key string, ch
 // attemptWatch attempts to establish a single watch session
 // Returns true if context was canceled, false if watcher closed unexpectedly and we should retry.
 func (n *NATSStore) attemptWatch(ctx context.Context, key string, ch chan<- []byte, backoff *time.Duration) bool {
-    const initialBackoff = 1 * time.Second
+	const initialBackoff = 1 * time.Second
 
-    domain, realKey := n.extractDomain(key)
-    kv, err := n.getKVForDomain(ctx, domain)
-    if err != nil {
-        log.Printf("Failed to get KV for domain %s: %v", domain, err)
-        return false
-    }
+	domain, realKey := n.extractDomain(key)
+	kv, err := n.getKVForDomain(ctx, domain)
+	if err != nil {
+		log.Printf("Failed to get KV for domain %s: %v", domain, err)
+		return false
+	}
 
-    watcher, err := kv.Watch(ctx, realKey /* you can add options like jetstream.UpdatesOnly() here if desired */)
-    if err != nil {
-        log.Printf("Failed to create watch for key %s: %v", key, err)
+	watcher, err := kv.Watch(ctx, realKey /* you can add options like jetstream.UpdatesOnly() here if desired */)
+	if err != nil {
+		log.Printf("Failed to create watch for key %s: %v", key, err)
 
-        return false // Will retry
+		return false // Will retry
 	}
 
 	defer func() {
@@ -326,40 +372,44 @@ var _ KVStore = (*NATSStore)(nil)
 // Helpers for domain-aware keys.
 // keys may be provided as: "domains/<domain>/<realKey>" to route to a JS domain.
 func (n *NATSStore) extractDomain(key string) (string, string) {
-    const p = "domains/"
-    if strings.HasPrefix(key, p) {
-        rest := key[len(p):]
-        if idx := strings.IndexByte(rest, '/'); idx > 0 {
-            return rest[:idx], rest[idx+1:]
-        }
-    }
-    return n.defaultDomain, key
+	const p = "domains/"
+	if strings.HasPrefix(key, p) {
+		rest := key[len(p):]
+		if idx := strings.IndexByte(rest, '/'); idx > 0 {
+			return rest[:idx], rest[idx+1:]
+		}
+	}
+	return n.defaultDomain, key
 }
 
 func (n *NATSStore) getKVForDomain(ctx context.Context, domain string) (jetstream.KeyValue, error) {
-    n.mu.Lock()
-    defer n.mu.Unlock()
-    d := domain
-    js, ok := n.jsByDomain[d]
-    if !ok {
-        var err error
-        if d == "" {
-            js, err = jetstream.New(n.nc)
-        } else {
-            js, err = jetstream.NewWithDomain(n.nc, d)
-        }
-        if err != nil { return nil, fmt.Errorf("jetstream init failed for domain %q: %w", d, err) }
-        n.jsByDomain[d] = js
-    }
-    kv, ok := n.kvByDomain[d]
-    if !ok {
-        var err error
-        kv, err = js.KeyValue(ctx, n.bucket)
-        if err != nil {
-            kv, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: n.bucket})
-            if err != nil { return nil, fmt.Errorf("kv bucket init failed for domain %q: %w", d, err) }
-        }
-        n.kvByDomain[d] = kv
-    }
-    return kv, nil
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	d := domain
+	js, ok := n.jsByDomain[d]
+	if !ok {
+		var err error
+		if d == "" {
+			js, err = jetstream.New(n.nc)
+		} else {
+			js, err = jetstream.NewWithDomain(n.nc, d)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("jetstream init failed for domain %q: %w", d, err)
+		}
+		n.jsByDomain[d] = js
+	}
+	kv, ok := n.kvByDomain[d]
+	if !ok {
+		var err error
+		kv, err = js.KeyValue(ctx, n.bucket)
+		if err != nil {
+			kv, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: n.bucket})
+			if err != nil {
+				return nil, fmt.Errorf("kv bucket init failed for domain %q: %w", d, err)
+			}
+		}
+		n.kvByDomain[d] = kv
+	}
+	return kv, nil
 }

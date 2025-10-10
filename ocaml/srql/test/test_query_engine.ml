@@ -29,6 +29,8 @@ let test_devices_today () =
   contains "time today to_date" sql "to_date(";
   contains "time today func" sql ") = today()";
   contains "hostname mapping" sql "hostname = {{";
+  contains "merged filter" sql "NOT has(map_keys(metadata), '_merged_into')";
+  contains "deleted filter" sql "coalesce(metadata['_deleted'], '') != 'true'";
   check bool "hostname parameter present" true
     (List.exists (function _, Column.String "server01" -> true | _ -> false) translation.params)
 

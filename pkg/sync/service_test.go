@@ -41,6 +41,10 @@ var (
 	errStreamSend = errors.New("stream send error")
 )
 
+func expectNoopBatchGet(kv *MockKVClient) {
+	kv.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
+}
+
 func TestSafeIntToInt32(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -133,6 +137,7 @@ func TestNewSimpleSyncService(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockKV := NewMockKVClient(ctrl)
+			expectNoopBatchGet(mockKV)
 			mockGRPC := NewMockGRPCClient(ctrl)
 			registry := make(map[string]IntegrationFactory)
 			log := logger.NewTestLogger()
@@ -184,6 +189,7 @@ func TestSimpleSyncService_Stop(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKV)
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockGRPC.EXPECT().Close().Return(nil)
 
@@ -219,6 +225,7 @@ func TestSimpleSyncService_GetStatus(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKV)
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockGRPC.EXPECT().Close().Return(nil)
 
@@ -275,6 +282,7 @@ func TestSimpleSyncService_GetResults(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKV)
 
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockGRPC.EXPECT().Close().Return(nil)
@@ -364,6 +372,7 @@ func TestSimpleSyncService_writeToKV(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKV)
 
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockGRPC.EXPECT().Close().Return(nil)
@@ -432,6 +441,7 @@ func TestSimpleSyncService_writeToKV_WithDefaultPrefix(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKV)
 
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockGRPC.EXPECT().Close().Return(nil)
@@ -487,6 +497,7 @@ func TestSimpleSyncService_writeToKV_EmptyData(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKV)
 
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockGRPC.EXPECT().Close().Return(nil)
@@ -563,6 +574,7 @@ func TestSimpleSyncService_createIntegration(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKV)
 
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockGRPC.EXPECT().Close().Return(nil)
@@ -615,6 +627,7 @@ func TestSimpleSyncService_createIntegration_WithExistingValues(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKV)
 
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockGRPC.EXPECT().Close().Return(nil)
@@ -694,6 +707,7 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 	}
 
 	mockKV := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKV)
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockGRPC.EXPECT().Close().Return(nil)
 
@@ -807,6 +821,7 @@ func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockKV := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKV)
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockGRPC.EXPECT().Close().Return(nil)
 
@@ -888,6 +903,7 @@ func TestSimpleSyncService_runArmisUpdates_OverlapPrevention(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockKVClient := NewMockKVClient(ctrl)
+	expectNoopBatchGet(mockKVClient)
 
 	mockGRPCClient := NewMockGRPCClient(ctrl)
 	mockGRPCClient.EXPECT().Close().Return(nil)

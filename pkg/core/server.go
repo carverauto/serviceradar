@@ -25,15 +25,18 @@ import (
 
 	"go.opentelemetry.io/otel"
 
+	cfgutil "github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -95,7 +98,24 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 	metricsManager := metrics.NewManager(metricsConfig, database, log)
 
 	// Initialize the NEW authoritative device registry
-	deviceRegistry := registry.NewDeviceRegistry(database, log)
+	registryOpts := make([]registry.Option, 0, 1)
+	var (
+		kvClient         proto.KVServiceClient
+		identityKVCloser func() error
+	)
+	if client, closer, err := cfgutil.NewKVServiceClientFromEnv(ctx, models.RoleCore); err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize identity map KV client")
+	} else if client != nil {
+		kvClient = client
+		registryOpts = append(
+			registryOpts,
+			registry.WithIdentityPublisher(kvClient, identitymap.DefaultNamespace, 0),
+			registry.WithIdentityResolver(kvClient, identitymap.DefaultNamespace),
+		)
+		identityKVCloser = closer
+	}
+
+	deviceRegistry := registry.NewDeviceRegistry(database, log, registryOpts...)
 
 	// Initialize the DiscoveryService
 	discoveryService := NewDiscoveryService(database, deviceRegistry, log)
@@ -121,6 +141,9 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		logger:              log,
 		tracer:              otel.Tracer("serviceradar-core"),
+		identityKVClient:    kvClient,
+		identityKVCloser:    identityKVCloser,
+		canonicalCache:      newCanonicalCache(10 * time.Minute),
 	}
 
 	// Initialize the cache on startup
@@ -138,7 +161,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
 
-    // MCP integration removed
+	// MCP integration removed
 
 	return server, nil
 }
@@ -186,7 +209,14 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.grpcServer.Stop(ctx)
 	}
 
-    // MCP server support removed
+	if s.identityKVCloser != nil {
+		if err := s.identityKVCloser(); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to close identity map KV client")
+		}
+		s.identityKVCloser = nil
+	}
+
+	// MCP server support removed
 
 	if err := s.DB.Close(); err != nil {
 		s.logger.Error().Err(err).Msg("Error closing database")
@@ -201,6 +231,18 @@ func (s *Server) Stop(ctx context.Context) error {
 	close(s.ShutdownChan)
 
 	return nil
+}
+
+// IdentityKVClient exposes the KV client used for canonical identity operations.
+func (s *Server) IdentityKVClient() identityKVClient {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.identityKVClient
 }
 
 // GetMetricsManager returns the metrics collector instance.
@@ -282,7 +324,7 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 	s.apiServer = apiServer
 	apiServer.SetKnownPollers(s.config.KnownPollers)
 
-    // MCP initialization removed; SRQL/MCP is now external
+	// MCP initialization removed; SRQL/MCP is now external
 
 	apiServer.SetPollerHistoryHandler(ctx, func(pollerID string) ([]api.PollerHistoryPoint, error) {
 		ctxWithTimeout, cancel := context.WithTimeout(ctx, defaultShortTimeout)

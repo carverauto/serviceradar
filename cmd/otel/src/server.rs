@@ -12,6 +12,7 @@ use tonic::transport::{Server, ServerTlsConfig};
 
 use crate::ServiceRadarCollector;
 use crate::opentelemetry::proto::collector::logs::v1::logs_service_server::LogsServiceServer;
+use crate::opentelemetry::proto::collector::metrics::v1::metrics_service_server::MetricsServiceServer;
 use crate::opentelemetry::proto::collector::trace::v1::trace_service_server::TraceServiceServer;
 
 /// Creates a ServiceRadar collector with the given NATS configuration
@@ -49,9 +50,14 @@ pub async fn start_server(
         server_builder = server_builder.tls_config(tls)?;
     }
 
+    let trace_collector = collector.clone();
+    let logs_collector = collector.clone();
+    let metrics_collector = collector;
+
     let result = server_builder
-        .add_service(TraceServiceServer::new(collector.clone()))
-        .add_service(LogsServiceServer::new(collector))
+        .add_service(TraceServiceServer::new(trace_collector))
+        .add_service(LogsServiceServer::new(logs_collector))
+        .add_service(MetricsServiceServer::new(metrics_collector))
         .serve(addr)
         .await;
 

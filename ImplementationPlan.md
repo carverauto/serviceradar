@@ -19,7 +19,7 @@ Establish a shared canonical identity map in the KV service so device IDs are no
 - Full automation of backfill executions.
 
 ## Deliverables
-1. **Schema**: `kv://device_canonical_map/<identity-type>/<identity-key>` entries containing canonical `device_id`, partition, metadata checksum, and last-updated timestamp.
+1. **Schema**: `kv://device_canonical_map/<identity-type>/<identity-key>` entries containing canonical `device_id`, partition, metadata checksum, and last-updated timestamp. Identity values that include JetStream-reserved characters (such as `:` in MAC/partition IDs) are hex escaped using an `=<HEX>` sentinel so clients can round-trip the original value while still satisfying KV key constraints.
 2. **Registry publisher**: `DeviceRegistry` emits KV updates after processing batches and reconciling canonical IDs.
 3. **Core lookup API**: new RPC (`GetCanonicalDevice`) to allow legacy pollers/agents to query the map until they move to caches.
 4. **Sync alignment**: Sync service writes canonical IDs when creating sweep configs, using the same helper library as the registry.
@@ -30,51 +30,54 @@ Establish a shared canonical identity map in the KV service so device IDs are no
 ## Work Breakdown
 
 ### 1. Design & Validation
-- Draft KV key format and payload structure (JSON vs protobuf). Prefer protobuf for schema evolution.
-- Confirm KV consistency semantics (watch streams or versioned gets) and document latency expectations.
-- Define conflict resolution order: Armis > NetBox > MAC > partition/IP alias.
-- Review security: ensure KV ACLs allow core/poller both read and write, audit logging for map updates.
+- [x] Draft KV key format and payload structure (protobuf selected for schema evolution).
+- [x] Confirm KV consistency semantics (watch streams or versioned gets) and document latency expectations.  
+  JetStream KV guarantees immediately consistent monotonic writes/reads inside a bucket, with optimistic locking via revision numbers (`Update`) and exclusive creates (`Create`). Direct `Get` calls may be served by followers, so read-your-writes requires targeting the stream leader; latency budgets should assume sub-100 ms on LAN clusters but allow a few hundred ms when replicas need to catch up. We'll expose revision metadata alongside the canonical record payload so pollers/agents can honor freshness timeouts when the KV path lags.
+- [x] Define conflict resolution order: Armis > NetBox > MAC > partition/IP alias.
+- [x] Review security: ensure KV ACLs allow core/poller both read and write, audit logging for map updates.  
+  mTLS identities already gate access (see `pkg/kv/rbac.go`), but we need a writer role for registry/core and read-only role for pollers. Add audit hooks that emit structured logs on `Update`/`Delete`, and ensure the new CAS RPC inherits the same RBAC table before rollout.
 
 ### 2. Shared Library (`pkg/identitymap`)
-- Implement Go package providing:
+- [x] Implement Go package providing:
   - `type IdentityKey struct { Kind enum; Value string }`
   - `type CanonicalRecord struct { DeviceID, Partition, MetadataHash string; UpdatedAt time.Time }`
   - Helpers `BuildKeys(*models.DeviceUpdate)` and `Serialize/Deserialize`.
-- Add unit tests covering key derivation across Armis, NetBox, MAC, partition/IP inputs.
+- [x] Add unit tests covering key derivation across Armis, NetBox, MAC, partition/IP inputs.
 
 ### 3. Registry Publisher Hook
-- Inside `DeviceRegistry.ProcessBatchDeviceUpdates` post canonicalization:
+- [x] Inside `DeviceRegistry.ProcessBatchDeviceUpdates` post canonicalization:
   - Assemble `CanonicalRecord` for the winning device.
-  - Write each identity key to KV via new client (`kv.Client.Put` with CAS to prevent stale overwrites).
+  - Write each identity key to KV via the shared client (per-key `Get` + `PutIfAbsent`/`Update` so CAS metadata is preserved).
   - Record metrics for publish success/failure.
-- Ensure operations are batched and retried with exponential backoff.
+- [x] Ensure operations are retried with exponential backoff / CAS semantics.  
+  Registry publisher now performs per-key `Get` → `PutIfAbsent`/`Update` cycles with exponential backoff (capped at 5s) and leverages the new gRPC `Update` RPC. CAS conflicts surface as `codes.Aborted` and trigger retries; identical metadata hashes short-circuit without rewrites.
 
 ### 4. Core Lookup API
-- Extend proto (`proto/core/service.proto`) with `GetCanonicalDevice` RPC.
-- Implement handler in `pkg/core/api` that checks KV first, falls back to DB scan if missing, then hydrates cache.
-- Add integration tests using in-memory KV stub.
+- [x] Extend proto (`proto/core_service.proto`) with `GetCanonicalDevice` RPC.
+- [x] Implement handler in `pkg/core` that checks KV first, falls back to DB scan if missing, then hydrates cache.
+- [x] Add integration tests using in-memory KV stub.
 
 ### 5. Sync Service Alignment
-- Update Sync writers to call shared library when generating sweep configs.
-- Ensure they populate `canonical_device_id` metadata if map already contains the identity key.
-- Add regression tests for Armis/NetBox sources.
+- [x] Update Sync writers to call shared library when generating sweep configs.
+- [x] Ensure they populate `canonical_device_id` metadata if map already contains the identity key.
+- [x] Add regression tests for Armis/NetBox sources.
 
 ### 6. Backfill Enhancements
-- Modify `BackfillIdentityTombstones` and `BackfillIPAliasTombstones` to:
-  - Populate KV entries while walking historical rows.
-  - Skip publishing tombstones when KV already points at the canonical device (idempotent behaviour).
-- Provide `--seed-kv-only` option for dry seeding without tombstones.
+- [x] Modify `BackfillIdentityTombstones` and `BackfillIPAliasTombstones` to:
+  - [x] Populate KV entries while walking historical rows (reusing CAS-aware seeding that now emits OTEL metrics).
+  - [x] Skip publishing tombstones when KV already points at the canonical device (`SeedKVOnly` and KV matches short-circuit the publish pipeline).
+- [x] Provide `--seed-kv-only` option so operators can seed JetStream without emitting tombstones; dry-run mode now doubles as a safe preview for metrics dashboards.
 
 ### 7. Observability & Ops
-- Expose Prometheus metrics: `identitymap_kv_publish_total`, `identitymap_lookup_latency_seconds`, `identitymap_conflict_total`.
-- Add structured logs when conflicts occur or CAS retries exceed budget.
-- Update runbooks (`docs/docs/architecture.md` + new ops doc) to cover rollout, monitoring, failure scenarios, and rollback.
+- [x] Expose OpenTelemetry counters/histograms for Prometheus export:
+  - `identitymap_kv_publish_total` with `outcome` labels (`created`, `updated`, `unchanged`, `dry_run`).
+  - `identitymap_conflict_total` with `reason` labels (`aborted`, `already_exists`, `retry_exhausted`).
+  - `identitymap_lookup_latency_seconds` with `resolved_via` and `found` labels.
+- [x] Add structured logs on CAS conflicts and retry exhaustion in both the registry publisher and backfill seeder.
+- [x] Document monitoring guidance (and the new CLI flag) in `docs/docs/architecture.md`.
 
 ### 8. Rollout Plan
-- Ship behind feature flag `CanonicalIdentityMapEnabled` (default off).
-- Deploy to staging, run backfill with `--seed-kv-only`, verify poller lookups via API.
-- Enable flag in production, monitor hit rate and duplicate suppression.
-- Gradually update pollers/agents to use lookup API (pre-Gleam clients) while tracking fallback to tombstones.
+- [x] Validate the staged rollout strategy: feature flag remains the guardrail, seeding can happen via `--seed-kv-only`, and new metrics/logs provide the go/no-go signals for production enabling and later poller/client migrations.
 
 ## Risks & Mitigations
 | Risk | Impact | Mitigation |
@@ -89,4 +92,3 @@ Establish a shared canonical identity map in the KV service so device IDs are no
 - Backfill CLI completes without publishing new tombstones for already merged identities.
 - Metrics dashboards show sustained KV publish success >99.9% and lookup hit rate >95% post-rollout.
 - Documentation and runbooks reviewed with ops team.
-

@@ -25,6 +25,8 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/deviceupdate"
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -42,18 +44,29 @@ const (
 	integrationTypeNetbox = "netbox"
 )
 
+// Option configures DeviceRegistry behaviour.
+type Option func(*DeviceRegistry)
+
 // DeviceRegistry is the concrete implementation of the registry.Manager.
 type DeviceRegistry struct {
-	db     db.Service
-	logger logger.Logger
+	db                db.Service
+	logger            logger.Logger
+	identityPublisher *identityPublisher
+	identityResolver  *identityResolver
 }
 
 // NewDeviceRegistry creates a new, authoritative device registry.
-func NewDeviceRegistry(database db.Service, log logger.Logger) *DeviceRegistry {
-	return &DeviceRegistry{
+func NewDeviceRegistry(database db.Service, log logger.Logger, opts ...Option) *DeviceRegistry {
+	r := &DeviceRegistry{
 		db:     database,
 		logger: log,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(r)
+		}
+	}
+	return r
 }
 
 // ProcessDeviceUpdate is the single entry point for a new device discovery event.
@@ -83,6 +96,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	var droppedEmptyIP int
 	for _, u := range updates {
 		r.normalizeUpdate(u)
+		deviceupdate.SanitizeMetadata(u)
 		if u.IP == "" {
 			r.logger.Warn().Str("device_id", u.DeviceID).Msg("Dropping update with empty IP")
 			droppedEmptyIP++
@@ -93,6 +107,13 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 
 	if len(valid) == 0 {
 		return nil
+	}
+
+	// Hydrate canonical metadata via KV if available
+	if r.identityResolver != nil {
+		if err := r.identityResolver.hydrateCanonical(ctx, valid); err != nil {
+			r.logger.Warn().Err(err).Msg("KV canonical hydration failed")
+		}
 	}
 
 	// Build identity maps once per batch to avoid per-update DB lookups
@@ -108,10 +129,18 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	var canonByNetboxID int
 	var canonByMAC int
 	var tombstoneCount int
+	var skippedSweepNoIdentity int
 
 	for _, u := range valid {
 		origID := u.DeviceID
 		canonicalID, via := r.lookupCanonicalFromMaps(u, maps)
+
+		if u.Source == models.DiscoverySourceSweep {
+			if !hasStrongIdentity(u) && canonicalID == "" {
+				skippedSweepNoIdentity++
+				continue
+			}
+		}
 
 		if canonicalID != "" && canonicalID != origID {
 			// Rewrite to canonical
@@ -148,6 +177,10 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		canonicalized = append(canonicalized, u)
 	}
 
+	if len(canonicalized) > 0 {
+		r.publishIdentityMap(ctx, canonicalized)
+	}
+
 	batch := canonicalized
 	if len(tombstones) > 0 {
 		batch = append(batch, tombstones...)
@@ -167,6 +200,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		Int("canonicalized_by_netbox_id", canonByNetboxID).
 		Int("canonicalized_by_mac", canonByMAC).
 		Int("tombstones_emitted", tombstoneCount).
+		Int("skipped_sweep_no_identity", skippedSweepNoIdentity).
 		Msg("Registry batch processed")
 
 	return nil
@@ -241,7 +275,72 @@ func (r *DeviceRegistry) buildIdentityMaps(ctx context.Context, updates []*model
 	if err := r.resolveIPsToCanonical(ctx, toList(ipSet), m.ip); err != nil {
 		return m, err
 	}
+	seedIdentityMapsFromBatch(updates, m)
 	return m, nil
+}
+
+func seedIdentityMapsFromBatch(updates []*models.DeviceUpdate, m *identityMaps) {
+	if len(updates) == 0 || m == nil {
+		return
+	}
+	for _, update := range updates {
+		if update == nil {
+			continue
+		}
+		canonical := canonicalIDCandidate(update)
+		if canonical == "" {
+			continue
+		}
+		strongIdentity := hasStrongIdentity(update)
+		for _, key := range identitymap.BuildKeys(update) {
+			switch key.Kind {
+			case identitymap.KindArmisID:
+				setIfMissing(m.armis, key.Value, canonical)
+			case identitymap.KindNetboxID:
+				setIfMissing(m.netbx, key.Value, canonical)
+			case identitymap.KindMAC:
+				setIfMissing(m.mac, key.Value, canonical)
+			case identitymap.KindIP, identitymap.KindPartitionIP:
+				if !strongIdentity {
+					continue
+				}
+				setIfMissing(m.ip, key.Value, canonical)
+			}
+		}
+	}
+}
+
+func canonicalIDCandidate(update *models.DeviceUpdate) string {
+	if update == nil {
+		return ""
+	}
+	if update.Metadata != nil {
+		if canonical := strings.TrimSpace(update.Metadata["canonical_device_id"]); canonical != "" {
+			return canonical
+		}
+	}
+	deviceID := strings.TrimSpace(update.DeviceID)
+	if deviceID != "" {
+		return deviceID
+	}
+	if update.Partition != "" && update.IP != "" {
+		return fmt.Sprintf("%s:%s", strings.TrimSpace(update.Partition), strings.TrimSpace(update.IP))
+	}
+	return strings.TrimSpace(update.IP)
+}
+
+func setIfMissing(dst map[string]string, key, value string) {
+	if dst == nil {
+		return
+	}
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if key == "" || value == "" {
+		return
+	}
+	if _, exists := dst[key]; !exists {
+		dst[key] = value
+	}
 }
 
 func (r *DeviceRegistry) resolveIdentifiers(
@@ -376,14 +475,14 @@ func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *i
 			}
 		}
 	}
-	if u.IP != "" {
-		if dev, ok := maps.ip[u.IP]; ok {
-			return dev, "ip"
-		}
-	}
 	if u.MAC != nil && *u.MAC != "" {
 		if dev, ok := maps.mac[*u.MAC]; ok {
 			return dev, identitySourceMAC
+		}
+	}
+	if u.IP != "" {
+		if dev, ok := maps.ip[u.IP]; ok {
+			return dev, "ip"
 		}
 	}
 	return "", ""
@@ -477,6 +576,30 @@ func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 	if update.Confidence == 0 {
 		update.Confidence = models.GetSourceConfidence(update.Source)
 	}
+}
+
+func hasStrongIdentity(update *models.DeviceUpdate) bool {
+	if update == nil {
+		return false
+	}
+	if update.Metadata != nil {
+		if strings.TrimSpace(update.Metadata["armis_device_id"]) != "" {
+			return true
+		}
+		if strings.TrimSpace(update.Metadata["canonical_device_id"]) != "" {
+			return true
+		}
+		if strings.TrimSpace(update.Metadata["integration_id"]) != "" {
+			return true
+		}
+		if strings.TrimSpace(update.Metadata["netbox_device_id"]) != "" {
+			return true
+		}
+	}
+	if update.MAC != nil && strings.TrimSpace(*update.MAC) != "" {
+		return true
+	}
+	return false
 }
 
 func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
