@@ -19,7 +19,7 @@ workflows:
             default: "1"
     bazel_commands:
       - "run --config=remote //:buildbuddy_setup_docker_auth"
-      - "run --config=remote //tools/buildbuddy:release_pipeline"
+      - "run --config=remote //build/buildbuddy:release_pipeline"
     env:
       - name: GHCR_USERNAME
         value_from_secret: GHCR_USERNAME
