@@ -1,0 +1,13 @@
+# Important, after having edited this file, re-generate checksum in apko.lock.json
+# by running: bazel run @rules_apko//apko lock images/base_image/apko.yaml
+contents:
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  repositories:
+    - https://packages.wolfi.dev/os
+  packages:
+    - wolfi-base
+cmd: /bin/sh -l
+archs:
+  - x86_64
+  - aarch64
