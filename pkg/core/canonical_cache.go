@@ -93,16 +93,6 @@ func (c *canonicalCache) store(ip string, snapshot canonicalSnapshot) {
 	}
 }
 
-func (c *canonicalCache) purge(ip string) {
-	ip = strings.TrimSpace(ip)
-	if ip == "" {
-		return
-	}
-	c.mu.Lock()
-	delete(c.byIP, ip)
-	c.mu.Unlock()
-}
-
 func cloneSnapshot(src canonicalSnapshot) canonicalSnapshot {
 	dst := canonicalSnapshot{
 		DeviceID: src.DeviceID,

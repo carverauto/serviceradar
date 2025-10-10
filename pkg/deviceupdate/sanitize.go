@@ -16,36 +16,6 @@ const (
 	minMetadataValueBytes = 32
 )
 
-var protectedMetadataKeys = map[string]struct{}{
-	"armis_device_id":           {},
-	"integration_id":            {},
-	"integration_type":          {},
-	"netbox_device_id":          {},
-	"hostname":                  {},
-	"mac":                       {},
-	"ip":                        {},
-	"device_id":                 {},
-	"poller_id":                 {},
-	"agent_id":                  {},
-	"_merged_into":              {},
-	"_deleted":                  {},
-	"confidence":                {},
-	"scan_availability_percent": {},
-}
-
-var preferredDropPrefixes = []string{
-	"port_results",
-	"open_ports",
-	"port_scan_results",
-	"port_scan_payload",
-	"raw_payload",
-	"raw_metrics",
-	"metrics_payload",
-	"event_raw",
-	"kv_cache",
-	"alt_ip:",
-}
-
 type metadataEntry struct {
 	key       string
 	size      int
@@ -114,9 +84,22 @@ func dropPriority(key string) int {
 		return 0
 	}
 
-	for idx, prefix := range preferredDropPrefixes {
+	prefixes := [...]string{
+		"port_results",
+		"open_ports",
+		"port_scan_results",
+		"port_scan_payload",
+		"raw_payload",
+		"raw_metrics",
+		"metrics_payload",
+		"event_raw",
+		"kv_cache",
+		"alt_ip:",
+	}
+
+	for idx, prefix := range prefixes {
 		if strings.HasPrefix(key, prefix) {
-			return len(preferredDropPrefixes) - idx + 1
+			return len(prefixes) - idx + 1
 		}
 	}
 
@@ -124,8 +107,25 @@ func dropPriority(key string) int {
 }
 
 func isProtectedKey(key string) bool {
-	_, ok := protectedMetadataKeys[key]
-	return ok
+	switch key {
+	case "armis_device_id",
+		"integration_id",
+		"integration_type",
+		"netbox_device_id",
+		"hostname",
+		"mac",
+		"ip",
+		"device_id",
+		"poller_id",
+		"agent_id",
+		"_merged_into",
+		"_deleted",
+		"confidence",
+		"scan_availability_percent":
+		return true
+	default:
+		return false
+	}
 }
 
 func dropOversizedMetadata(meta map[string]string, entries []metadataEntry, total int) int {

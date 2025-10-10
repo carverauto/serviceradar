@@ -43,23 +43,27 @@ const (
 	maxSyncChunkBytes             = 10 * (1 << 20) // ~10 MiB target for registry batches
 )
 
-var syncDeviceSlicePool = sync.Pool{
-	New: func() any {
-		slice := make([]*models.DeviceUpdate, 0, syncDeviceChunkSize)
-		return &slice
-	},
-}
-
 // discoveryService implements the DiscoveryService interface.
 type discoveryService struct {
-	db     db.Service
-	reg    registry.Manager
-	logger logger.Logger
+	db              db.Service
+	reg             registry.Manager
+	logger          logger.Logger
+	deviceSlicePool *sync.Pool
 }
 
 // NewDiscoveryService creates a new DiscoveryService instance.
 func NewDiscoveryService(dbSvc db.Service, reg registry.Manager, log logger.Logger) DiscoveryService {
-	return &discoveryService{db: dbSvc, reg: reg, logger: log}
+	return &discoveryService{
+		db:     dbSvc,
+		reg:    reg,
+		logger: log,
+		deviceSlicePool: &sync.Pool{
+			New: func() any {
+				slice := make([]*models.DeviceUpdate, 0, syncDeviceChunkSize)
+				return &slice
+			},
+		},
+	}
 }
 
 // ProcessSyncResults processes the results of a sync discovery operation.
@@ -196,7 +200,7 @@ func (s *discoveryService) streamSyncDeviceUpdates(
 	decoder := json.NewDecoder(reader)
 	decoder.UseNumber()
 
-	chunkPtr := syncDeviceSlicePool.Get().(*[]*models.DeviceUpdate)
+	chunkPtr := s.deviceSlicePool.Get().(*[]*models.DeviceUpdate)
 	chunk := (*chunkPtr)[:0]
 	chunkBytes := 0
 
@@ -205,7 +209,7 @@ func (s *discoveryService) streamSyncDeviceUpdates(
 			chunk[i] = nil
 		}
 		*chunkPtr = chunk[:0]
-		syncDeviceSlicePool.Put(chunkPtr)
+		s.deviceSlicePool.Put(chunkPtr)
 	}()
 
 	flushChunk := func() error {

@@ -162,79 +162,21 @@ func newAggregatedDeviceEntry(device Device, query models.QueryConfig) *aggregat
 func (e *aggregatedDeviceEntry) mergeDevice(device Device) {
 	e.mergeIPs(device.IPAddress)
 
-	if e.device.MacAddress == "" && device.MacAddress != "" {
-		e.device.MacAddress = device.MacAddress
-	}
-
-	if e.device.Name == "" && device.Name != "" {
-		e.device.Name = device.Name
-	}
-
-	if e.device.Type == "" && device.Type != "" {
-		e.device.Type = device.Type
-	}
-
-	if e.device.Category == "" && device.Category != "" {
-		e.device.Category = device.Category
-	}
-
-	if e.device.Manufacturer == "" && device.Manufacturer != "" {
-		e.device.Manufacturer = device.Manufacturer
-	}
-
-	if e.device.Model == "" && device.Model != "" {
-		e.device.Model = device.Model
-	}
-
-	if e.device.OperatingSystem == "" && device.OperatingSystem != "" {
-		e.device.OperatingSystem = device.OperatingSystem
-	}
-
-	if device.LastSeen.After(e.device.LastSeen) {
-		e.device.LastSeen = device.LastSeen
-	}
-
-	if device.FirstSeen.Before(e.device.FirstSeen) && !device.FirstSeen.IsZero() {
-		e.device.FirstSeen = device.FirstSeen
-	}
-
-	if e.device.Boundaries == "" && device.Boundaries != "" {
-		e.device.Boundaries = device.Boundaries
-	}
-
-	if e.device.BusinessImpact == "" && device.BusinessImpact != "" {
-		e.device.BusinessImpact = device.BusinessImpact
-	}
-
-	if e.device.Visibility == "" && device.Visibility != "" {
-		e.device.Visibility = device.Visibility
-	}
-
-	if e.device.CustomProperties == nil && device.CustomProperties != nil {
-		e.device.CustomProperties = device.CustomProperties
-	}
-
-	if e.device.Site == nil && device.Site != nil {
-		e.device.Site = device.Site
-	}
-
-	if len(device.Tags) > 0 {
-		tags := make(map[string]struct{}, len(e.device.Tags))
-		for _, tag := range e.device.Tags {
-			tags[tag] = struct{}{}
-		}
-		for _, tag := range device.Tags {
-			trimmed := strings.TrimSpace(tag)
-			if trimmed == "" {
-				continue
-			}
-			if _, exists := tags[trimmed]; exists {
-				continue
-			}
-			tags[trimmed] = struct{}{}
-			e.device.Tags = append(e.device.Tags, trimmed)
-		}
-	}
+	mergeStringIfEmpty(&e.device.MacAddress, device.MacAddress)
+	mergeStringIfEmpty(&e.device.Name, device.Name)
+	mergeStringIfEmpty(&e.device.Type, device.Type)
+	mergeStringIfEmpty(&e.device.Category, device.Category)
+	mergeStringIfEmpty(&e.device.Manufacturer, device.Manufacturer)
+	mergeStringIfEmpty(&e.device.Model, device.Model)
+	mergeStringIfEmpty(&e.device.OperatingSystem, device.OperatingSystem)
+	updateToLatest(&e.device.LastSeen, device.LastSeen)
+	updateToEarliest(&e.device.FirstSeen, device.FirstSeen)
+	mergeStringIfEmpty(&e.device.Boundaries, device.Boundaries)
+	mergeStringIfEmpty(&e.device.BusinessImpact, device.BusinessImpact)
+	mergeStringIfEmpty(&e.device.Visibility, device.Visibility)
+	setInterfaceIfNil(&e.device.CustomProperties, device.CustomProperties)
+	setInterfaceIfNil(&e.device.Site, device.Site)
+	e.mergeTags(device.Tags)
 }
 
 func (e *aggregatedDeviceEntry) mergeIPs(ipList string) {
@@ -255,6 +197,63 @@ func (e *aggregatedDeviceEntry) mergeIPs(ipList string) {
 	}
 
 	e.device.IPAddress = strings.Join(e.ipOrder, ",")
+}
+
+func (e *aggregatedDeviceEntry) mergeTags(tags []string) {
+	if len(tags) == 0 {
+		return
+	}
+
+	existing := make(map[string]struct{}, len(e.device.Tags))
+	for _, tag := range e.device.Tags {
+		existing[tag] = struct{}{}
+	}
+
+	for _, tag := range tags {
+		trimmed := strings.TrimSpace(tag)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := existing[trimmed]; ok {
+			continue
+		}
+		existing[trimmed] = struct{}{}
+		e.device.Tags = append(e.device.Tags, trimmed)
+	}
+}
+
+func mergeStringIfEmpty(dst *string, candidate string) {
+	if dst == nil || *dst != "" || candidate == "" {
+		return
+	}
+	*dst = candidate
+}
+
+func updateToLatest(dst *time.Time, candidate time.Time) {
+	if dst == nil || candidate.IsZero() {
+		return
+	}
+	current := *dst
+	if current.IsZero() || candidate.After(current) {
+		*dst = candidate
+	}
+}
+
+func updateToEarliest(dst *time.Time, candidate time.Time) {
+	if dst == nil || candidate.IsZero() {
+		return
+	}
+	current := *dst
+	if current.IsZero() || candidate.Before(current) {
+		*dst = candidate
+	}
+}
+
+func setInterfaceIfNil(dst *interface{}, candidate interface{}) {
+	if dst == nil || *dst != nil || candidate == nil {
+		return
+	}
+	*dst = candidate
 }
 
 func (e *aggregatedDeviceEntry) addQuery(query models.QueryConfig) {

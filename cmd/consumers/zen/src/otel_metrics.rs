@@ -3,6 +3,11 @@ use prost::Message;
 use serde_json::{json, Map, Value};
 
 pub mod opentelemetry {
+    #![allow(
+        dead_code,
+        clippy::doc_overindented_list_items,
+        clippy::doc_lazy_continuation
+    )]
     pub mod proto {
         pub mod collector {
             pub mod metrics {
@@ -70,11 +75,7 @@ pub fn otel_metrics_to_json(data: &[u8]) -> Result<Value> {
                 })
             });
 
-            let metrics: Vec<Value> = scope_metrics
-                .metrics
-                .iter()
-                .map(|metric| metric_summary(metric))
-                .collect();
+            let metrics: Vec<Value> = scope_metrics.metrics.iter().map(metric_summary).collect();
 
             scopes.push(json!({
                 "scope": scope_json,
