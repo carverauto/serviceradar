@@ -46,7 +46,7 @@ This clears Timeplus/Proton and repopulates it with a fresh discovery crawl from
    SELECT count() FROM table(unified_devices_registry);
    ```
 
-3. **Ensure the materialized view exists** – drop and recreate `unified_device_pipeline_mv` so it reflects the current schema:
+3. **Ensure the materialized view exists** – drop and recreate `unified_device_pipeline_mv` so it reflects the current schema and filters tombstoned rows (`_merged_into`, `_deleted`):
 
    ```sql
    DROP VIEW IF EXISTS unified_device_pipeline_mv;
@@ -55,30 +55,68 @@ This clears Timeplus/Proton and repopulates it with a fresh discovery crawl from
    INTO unified_devices
    AS
    SELECT
-       s.device_id,
-       s.ip,
-       s.poller_id,
-       s.agent_id,
-       IF(s.hostname != '', s.hostname, u.hostname) AS hostname,
-       IF(s.mac != '', s.mac, u.mac) AS mac,
-       IF(index_of(IFNULL(u.discovery_sources, []), s.discovery_source) > 0,
-          u.discovery_sources,
-          array_push_back(IFNULL(u.discovery_sources, []), s.discovery_source)) AS discovery_sources,
-       coalesce(IF(s.discovery_source IN ('netbox','armis'), u.is_available, s.available), s.available) AS is_available,
-       coalesce(u.first_seen, s.timestamp) AS first_seen,
-       s.timestamp AS last_seen,
-       IF(s.metadata IS NOT NULL,
-          IF(u.metadata IS NULL, s.metadata, map_update(u.metadata, s.metadata)),
-          u.metadata) AS metadata,
-       s.agent_id,
-       IF(u.device_id IS NULL, 'network_device', u.device_type) AS device_type,
-       u.service_type,
-       u.service_status,
-       u.last_heartbeat,
-       u.os_info,
-       u.version_info
-   FROM table(device_updates) AS s
-   LEFT JOIN unified_devices AS u ON s.device_id = u.device_id;
+       device_id,
+       arg_max_if(ip, timestamp, is_active AND has_identity) AS ip,
+       arg_max_if(poller_id, timestamp, is_active AND has_identity) AS poller_id,
+       arg_max_if(agent_id, timestamp, is_active AND has_identity) AS agent_id,
+       arg_max_if(hostname, timestamp, is_active AND has_identity) AS hostname,
+       arg_max_if(mac, timestamp, is_active AND has_identity) AS mac,
+       group_uniq_array_if(discovery_source, is_active AND has_identity) AS discovery_sources,
+       arg_max_if(available, timestamp, is_active AND has_identity) AS is_available,
+       min_if(timestamp, is_active AND has_identity) AS first_seen,
+       max_if(timestamp, is_active AND has_identity) AS last_seen,
+       arg_max_if(metadata, timestamp, is_active AND has_identity) AS metadata,
+       'network_device' AS device_type,
+       CAST(NULL AS nullable(string)) AS service_type,
+       CAST(NULL AS nullable(string)) AS service_status,
+       CAST(NULL AS nullable(DateTime64(3))) AS last_heartbeat,
+       CAST(NULL AS nullable(string)) AS os_info,
+       CAST(NULL AS nullable(string)) AS version_info
+   FROM (
+       SELECT
+           device_id,
+           ip,
+           poller_id,
+           agent_id,
+           hostname,
+           mac,
+           discovery_source,
+           available,
+           timestamp,
+           metadata,
+           coalesce(metadata['_merged_into'], '') AS merged_into,
+           lower(coalesce(metadata['_deleted'], 'false')) AS deleted_flag,
+           coalesce(metadata['armis_device_id'], '') AS armis_device_id,
+           coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') AS external_id,
+           coalesce(mac, '') AS mac_value,
+           (coalesce(metadata['_merged_into'], '') = '' AND lower(coalesce(metadata['_deleted'], 'false')) != 'true') AS is_active,
+           (
+               coalesce(metadata['armis_device_id'], '') != ''
+               OR coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') != ''
+               OR coalesce(mac, '') != ''
+           ) AS has_identity
+       FROM device_updates
+   ) AS src
+   GROUP BY device_id
+   HAVING count_if(is_active AND has_identity) > 0;
+
+   ALTER STREAM unified_devices
+       DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
+          OR lower(coalesce(metadata['_deleted'], 'false')) = 'true'
+          OR (
+               coalesce(metadata['armis_device_id'], '') = ''
+               AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
+               AND coalesce(mac, '') = ''
+          );
+
+   ALTER STREAM unified_devices_registry
+       DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
+          OR lower(coalesce(metadata['_deleted'], 'false')) = 'true'
+          OR (
+               coalesce(metadata['armis_device_id'], '') = ''
+               AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
+               AND ifNull(mac, '') = ''
+          );
    ```
 
 4. **Reseed canonical tables** – replay the current discovery stream into `unified_devices` and `unified_devices_registry`:
