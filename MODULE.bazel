@@ -79,6 +79,7 @@ use_repo(find_rpm, "rules_pkg_rpmbuild")
 
 register_toolchains("@rules_pkg_rpmbuild//:all")
 
+# --- CC Toolchain  ----------------------------------
 
 cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
 use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
@@ -92,6 +93,7 @@ archive_override(
     ],
 )
 
+# --- BuildBuddy Toolchain  ----------------------------------
 
 buildbuddy_toolchain_ext = use_extension(
     "@io_buildbuddy_buildbuddy_toolchain//:extensions.bzl",
@@ -116,6 +118,28 @@ buildbuddy_toolchain_ext.platform(
     container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.9",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
+
+# --- RBE Toolchain and platforms  ----------------------------------
+register_toolchains("//build/toolchains:rbe_cc_toolchain")
+register_execution_platforms(
+    "//build/rbe:rbe_platform",
+    "//build/rbe:ocaml_rbe_ocamlopt",
+    "//build/rbe:ocaml_rbe_ocamlc",
+)
+
+# --- Apko Toolchain  ----------------------------------
+# https://github.com/chainguard-dev/rules_apko
+
+# Translate apko.lock.json to @base_image//:contents
+# https://edu.chainguard.dev/open-source/build-tools/apko/bazel-rules/
+apk = use_extension("@rules_apko//apko:extensions.bzl", "apko")
+apk.translate_lock(
+    name = "base_image",
+    lock = "//build/images/base_image:apko.lock.json",
+)
+use_repo(apk, "base_image")
+
+# --- OCI Toolchain  ----------------------------------
 
 oci_ext = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 oci_ext.pull(
@@ -222,11 +246,15 @@ use_repo(
     "ubuntu_noble_linux_amd64",
 )
 
+# --- Xcode Toolchain  ----------------------------------
+
 xcode_configure_ext = use_extension(
     "@bazel_tools//tools/osx:xcode_configure.bzl",
     "xcode_configure_extension",
 )
 use_repo(xcode_configure_ext, "local_config_xcode")
+
+# --- Ocaml Toolchain  ----------------------------------
 
 archive_override(
     module_name = "rules_ocaml",
@@ -242,12 +270,10 @@ archive_override(
     ],
 )
 
-
 local_path_override(
     module_name = "tools_opam",
     path = "third_party/vendor/tools_opam",
 )
-
 
 archive_override(
     module_name = "obazl_tools_cc",
@@ -312,7 +338,6 @@ archive_override(
     ],
 )
 
-
 archive_override(
     module_name = "semverc",
     integrity = "sha256-d9t+oZ2y7oC3P1BwcK7cKSn1YCY2wapbRZbxaKprpzA=",
@@ -346,8 +371,6 @@ local_path_override(
 )
 
 # Vendored copy of cwalk@1.2.9 (commit e98d23f), pending upstream release tag.
-
-# --- Ocaml Toolchain  ----------------------------------
 
 # TODO(bazel-migration): rules_ocaml is not yet in the Bazel Central Registry.
 # Add an archive_override/use_extension once a release is selected.
@@ -425,13 +448,7 @@ use_repo(opam_dev, "opam.alcotest")
 register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")
 register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")
 
-# --- RBE Toolchain and platforms  ----------------------------------
-register_toolchains("//build/toolchains:rbe_cc_toolchain")
-register_execution_platforms(
-    "//build/rbe:rbe_platform",
-    "//build/rbe:ocaml_rbe_ocamlopt",
-    "//build/rbe:ocaml_rbe_ocamlc",
-)
+
 
 # --- Go toolchain & dependency management ----------------------------------
 
