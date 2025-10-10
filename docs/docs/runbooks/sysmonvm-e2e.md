@@ -1,0 +1,93 @@
+# Sysmon-VM End-to-End Validation (Mac host + Remote AMD64 Stack)
+
+This runbook summarizes the steps we exercised locally while getting the new
+`sysmon-vm` checker ready for testing. Use it as the checklist when you spin up
+the Docker Compose stack on a remote Linux dev box (amd64) while keeping the
+AlmaLinux VM + macOS host collectors running on the laptop.
+
+## 1. Mac Laptop (Apple Silicon) – Host & VM Prep
+
+1. **Bootstrap tooling**
+   - `make sysmonvm-host-setup`
+   - `make sysmonvm-fetch-image`
+2. **Provision / start the AlmaLinux VM**
+   - `make sysmonvm-vm-create` *(skip if the qcow2 already exists)*
+   - `make sysmonvm-vm-start-daemon`
+   - `make sysmonvm-vm-bootstrap`
+3. **Build & install the sysmon-vm checker**
+   - `make sysmonvm-build-checker`
+   - `make sysmonvm-vm-install`
+   - Confirm service: `scripts/sysmonvm/vm-ssh.sh -- sudo systemctl status serviceradar-sysmon-vm`
+4. **Optional: prep load generator**
+   - Inside the VM install stress tooling (already part of bootstrap, but double-check):\
+     `scripts/sysmonvm/vm-ssh.sh -- sudo dnf -y install stress-ng`
+5. **macOS host frequency helper**
+   - `make sysmonvm-host-build`
+   - `sudo make sysmonvm-host-install`
+   - Verify launchd units if needed: `sudo launchctl list | grep serviceradar`
+6. **Keep the gRPC listener reachable**
+   - The checker serves gRPC on the VM’s `0.0.0.0:50110`, forwarded to the host via user-mode networking.
+   - Ensure macOS firewall allows inbound TCP/50110 so the remote Linux server can reach it (from the Linux box use `nc -vz <laptop-ip> 50110`).
+
+## 2. Remote Linux Dev Server (amd64) – Docker Compose Stack
+
+1. **Clone & checkout branch**
+   ```bash
+   git clone git@github.com:carverauto/serviceradar.git
+   cd serviceradar
+   git checkout feat/docker_cpu_monitoring   # or whichever branch you’re testing
+   ```
+2. **Ensure Docker daemon is up** (amd64 host with internet access to GHCR).
+3. **Poller configuration**
+   - We already added a `sysmon-vm` gRPC entry that defaults to `host.docker.internal:50110`.
+   - For a remote server, **override that hostname** so the poller reaches back to the Mac. Two options:
+     - Copy `docker/compose/poller.docker.json` to a temp file and replace the `details` value with `<laptop-ip>:50110`, then mount it via an override file.
+     - Or use an environment override: create `docker/compose/poller.override.json` with just the modified check.
+   - If you also run packaging installers outside of Compose, update `packaging/poller/config/poller.json` similarly (pointing to the Mac IP).
+4. **Bring the stack up (amd64 images)**
+   ```bash
+   docker compose --profile testing up -d
+   ```
+   *(Compose v2 automatically reads `docker-compose.yml`; use `docker compose` syntax if available, otherwise `docker-compose` works as well.)*
+5. **Validate services**
+   - `docker compose ps`
+   - `docker compose logs -f core poller agent`
+6. **Confirm gRPC connectivity to the laptop**
+   ```bash
+   docker compose exec poller \
+     grpcurl -plaintext <laptop-ip>:50110 grpc.health.v1.Health/Check
+   ```
+   You should see `{"status":"SERVING"}`.
+
+## 3. End-to-End Test Flow
+
+1. **Kick off load inside the AlmaLinux guest**
+   ```bash
+   scripts/sysmonvm/vm-ssh.sh -- \
+     sudo stress-ng --cpu 4 --timeout 180 --metrics-brief
+   ```
+2. **Watch poller logs on the Linux server**
+   ```bash
+   docker compose logs -f poller | grep sysmon-vm
+   ```
+   Expect poll attempts and frequency payloads.
+3. **Inspect core metrics**
+   - Proton DB (from the Linux server):\
+     `docker compose exec proton curl -sk -u default:$(cat /var/lib/proton/generated_password.txt) "https://localhost:8443/?database=default&query=SELECT%20*%20FROM%20cpu_metrics%20ORDER%20BY%20timestamp%20DESC%20LIMIT%205"`
+   - Core API (if exposed) at `http://localhost:8090` -> `/pollers/.../sysmon/cpu`.
+4. **Cross-check macOS helper**
+   - `log show --predicate 'process == "hostfreq"' --last 5m`
+   - For spot checks run: `dist/sysmonvm/mac-host/bin/hostfreq --interval-ms 200 --samples 3`
+
+## 4. Notes / Troubleshooting
+
+- If `sysmon-vm` logs warn about missing security, provide TLS settings in `dist/sysmonvm/sysmon-vm.json` before copying into the VM.
+- `host.docker.internal` is only defined for Docker Desktop; for a remote Docker host use the Mac’s routable IP.
+- Network reachability: confirm both directions (Mac → Linux for OTLP, Linux → Mac for gRPC).
+- The Compose stack expects GHCR credentials if the repo is private; log in via `docker login ghcr.io`.
+- To tear everything down:
+  - Linux server: `docker compose down -v`
+  - Mac VM: `make sysmonvm-vm-destroy`
+  - Mac launchd: `sudo launchctl bootout system/com.serviceradar.sysmonvm` and `sudo launchctl bootout system/com.serviceradar.hostfreq`
+
+Keeping this file up to date ensures anyone can repeat the cross-host validation without re-reading the entire `cpu_plan.md`.

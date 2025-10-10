@@ -150,8 +150,14 @@ get-golangcilint: ## Install golangci-lint
 	@echo "$(COLOR_BOLD)Checking golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"
 	@which $(GOLANGCI_LINT) > /dev/null || (echo "golangci-lint not found, please install it" && exit 1)
 
+.PHONY: lint-clang-tidy
+lint-clang-tidy: ## Run clang-tidy diagnostics for macOS host helper
+	@echo "$(COLOR_BOLD)Running clang-tidy for hostfreq via Bazel$(COLOR_RESET)"
+	@bazel build --config=clang-tidy //cmd/checkers/sysmon-vm/hostmac:hostfreq
+
 .PHONY: lint
 lint: get-golangcilint ## Run linting checks
+	@$(MAKE) lint-clang-tidy
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
 	@$(GOLANGCI_LINT) run ./...
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
