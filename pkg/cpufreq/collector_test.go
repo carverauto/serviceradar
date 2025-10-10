@@ -15,11 +15,15 @@ func TestCollectPerfFallback(t *testing.T) {
 	origInfo := infoWithContext
 	origRead := readSysfsFunc
 	origSample := sampleFrequency
+	origResolve := hostfreqPathResolver
+	origRunner := hostfreqCommandRunner
 	t.Cleanup(func() {
 		countsWithContext = origCounts
 		infoWithContext = origInfo
 		readSysfsFunc = origRead
 		sampleFrequency = origSample
+		hostfreqPathResolver = origResolve
+		hostfreqCommandRunner = origRunner
 	})
 
 	countsWithContext = func(context.Context, bool) (int, error) {
@@ -33,6 +37,12 @@ func TestCollectPerfFallback(t *testing.T) {
 	}
 	sampleFrequency = func(context.Context, int, time.Duration) (float64, error) {
 		return 2_400_000_000, nil
+	}
+	hostfreqPathResolver = func() (string, error) {
+		return "", ErrFrequencyUnavailable
+	}
+	hostfreqCommandRunner = func(context.Context, string, []string) ([]byte, error) {
+		return nil, ErrFrequencyUnavailable
 	}
 
 	snapshot, err := collect(context.Background(), 50*time.Millisecond)
@@ -63,10 +73,14 @@ func TestCollectUsesProcFallback(t *testing.T) {
 	origCounts := countsWithContext
 	origInfo := infoWithContext
 	origRead := readSysfsFunc
+	origResolve := hostfreqPathResolver
+	origRunner := hostfreqCommandRunner
 	t.Cleanup(func() {
 		countsWithContext = origCounts
 		infoWithContext = origInfo
 		readSysfsFunc = origRead
+		hostfreqPathResolver = origResolve
+		hostfreqCommandRunner = origRunner
 	})
 
 	countsWithContext = func(context.Context, bool) (int, error) {
@@ -80,6 +94,12 @@ func TestCollectUsesProcFallback(t *testing.T) {
 	}
 	readSysfsFunc = func(int) (float64, bool) {
 		return 0, false
+	}
+	hostfreqPathResolver = func() (string, error) {
+		return "", ErrFrequencyUnavailable
+	}
+	hostfreqCommandRunner = func(context.Context, string, []string) ([]byte, error) {
+		return nil, ErrFrequencyUnavailable
 	}
 
 	snapshot, err := Collect(context.Background())

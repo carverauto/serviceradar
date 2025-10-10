@@ -7,18 +7,32 @@ Apple Silicon host that is running the sysmon VM.
 ## Build
 
 ```
-cd tools/sysmonvm/hostfreq
-make
+make sysmonvm-host-build
 ```
 
-Requirements:
+The build drops `hostfreq` into `dist/sysmonvm/mac-host/bin/`. Requirements:
 - Apple clang (Xcode Command Line Tools) with C++20 support.
 - Access to the private `libIOReport` shim that ships with macOS (available on Apple Silicon).
+
+## Install as launchd service
+
+```
+sudo make sysmonvm-host-install
+```
+
+This installs `/usr/local/libexec/serviceradar/hostfreq`, registers the launchd unit
+`com.serviceradar.hostfreq`, and starts it immediately. The service:
+- Samples continuously with `--interval-ms 1000 --samples 0`
+- Logs to `/var/log/serviceradar/hostfreq.log` and `.err.log`
+- Exports `SERVICERADAR_HOSTFREQ_PATH` for downstream components
+- Installs the macOS build of `serviceradar-sysmon-vm` plus a companion launchd unit
+  (`com.serviceradar.sysmonvm`) that serves the gRPC checker using the shared config at
+  `/usr/local/etc/serviceradar/sysmon-vm.json`
 
 ## Run
 
 ```
-./hostfreq --interval-ms 200 --samples 3
+dist/sysmonvm/mac-host/bin/hostfreq --interval-ms 200 --samples 3
 ```
 
 - `--interval-ms` (default `200`): dwell time between IOReport samples.
@@ -48,4 +62,6 @@ Example output:
   collector, plan to run the helper via `sudo` (e.g., `exec` receiver with a dedicated sudoers
   entry) or a launchd agent that already runs with the correct entitlement.
 - The program currently reports averages across active DVFS states; idle residency is ignored.
-- Extend or wrap the JSON output as needed to forward metrics into ServiceRadar.
+- The sysmon-vm checker on macOS automatically shells out to the installed helper when
+  `SERVICERADAR_HOSTFREQ_PATH` is present, so no additional configuration is required
+  beyond installing the launchd service.

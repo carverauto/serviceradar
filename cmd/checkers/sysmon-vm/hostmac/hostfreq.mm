@@ -13,7 +13,7 @@
 #include <vector>
 
 // The IOReport APIs live in a private library, so declare the pieces we need explicitly.
-typedef struct __IOReportSubscriptionRef* IOReportSubscriptionRef;
+using IOReportSubscriptionRef = struct __IOReportSubscriptionRef*;
 
 extern "C" CFMutableDictionaryRef IOReportCopyChannelsInGroup(NSString* group,
                                                               NSString* subgroup,
@@ -75,6 +75,8 @@ std::vector<double> LoadDvfsTable(CFStringRef propertyKey) {
     table.reserve(16);
     table.push_back(0.0);  // index 0 is unused (idle state placeholder).
 
+    constexpr size_t kDvfsEntryBytes = sizeof(uint32_t) * 2;
+
     io_iterator_t iterator = IO_OBJECT_NULL;
     kern_return_t kr = IOServiceGetMatchingServices(kIOMainPortDefault,
                                                     IOServiceMatching("AppleARMIODevice"),
@@ -92,11 +94,11 @@ std::vector<double> LoadDvfsTable(CFStringRef propertyKey) {
             const uint8_t* bytes = static_cast<const uint8_t*>([data bytes]);
             const NSUInteger length = [data length];
 
-            for (NSUInteger offset = 0; offset + 8 <= length; offset += 8) {
-                uint32_t freqHz = 0;
-                uint32_t voltageMillivolts = 0;
-                memcpy(&freqHz, bytes + offset, sizeof(uint32_t));
-                memcpy(&voltageMillivolts, bytes + offset + 4, sizeof(uint32_t));
+        for (NSUInteger offset = 0; offset + kDvfsEntryBytes <= length; offset += kDvfsEntryBytes) {
+            uint32_t freqHz = 0;
+            uint32_t voltageMillivolts = 0;
+            memcpy(&freqHz, bytes + offset, sizeof(freqHz));
+            memcpy(&voltageMillivolts, bytes + offset + sizeof(freqHz), sizeof(voltageMillivolts));
 
                 if (freqHz == 0) {
                     continue;
@@ -123,11 +125,12 @@ double ComputeAverageMHz(CFDictionaryRef channel,
     }
 
     double activeResidencyTotal = 0.0;
-    std::vector<uint64_t> residencies(static_cast<size_t>(stateCount), 0);
+    std::vector<uint64_t> residencies;
+    residencies.reserve(static_cast<size_t>(stateCount > 1 ? stateCount - 1 : 0));
 
     for (int index = 1; index < stateCount; ++index) {
         uint64_t residency = IOReportStateGetResidency(channel, index);
-        residencies[static_cast<size_t>(index)] = residency;
+        residencies.push_back(residency);
         activeResidencyTotal += static_cast<double>(residency);
     }
 
@@ -137,7 +140,7 @@ double ComputeAverageMHz(CFDictionaryRef channel,
 
     double weightedSumMHz = 0.0;
     for (int index = 1; index < stateCount; ++index) {
-        double residency = static_cast<double>(residencies[static_cast<size_t>(index)]);
+        double residency = static_cast<double>(residencies[static_cast<size_t>(index - 1)]);
         if (residency <= 0.0) {
             continue;
         }
@@ -165,7 +168,7 @@ CollectorConfig ParseArgs(int argc, const char* argv[]) {
             }
             char* end = nullptr;
             long parsed = strtol(next, &end, 10);
-            if (end != next && parsed > 0 && parsed < INT_MAX) {
+            if (end != next && parsed < INT_MAX) {
                 target = static_cast<int>(parsed);
             }
         };
@@ -354,7 +357,7 @@ int main(int argc, const char* argv[]) {
 
         CFRelease(cpuChannels);
 
-        for (int sampleIndex = 0; sampleIndex < config.sampleCount; ++sampleIndex) {
+        auto emitSample = [&](void) -> bool {
             double actualDurationMs = 0.0;
             auto result = CollectFrequencies(subscription,
                                              subscribedChannels,
@@ -363,13 +366,29 @@ int main(int argc, const char* argv[]) {
                                              config,
                                              &actualDurationMs);
             if (!result.has_value()) {
-                CFRelease(subscribedChannels);
-                return 1;
+                return false;
             }
 
             EmitJson(config, actualDurationMs,
                      result->first /* clusters */,
                      result->second /* cores */);
+            return true;
+        };
+
+        if (config.sampleCount == 0) {
+            while (true) {
+                if (!emitSample()) {
+                    CFRelease(subscribedChannels);
+                    return 1;
+                }
+            }
+        } else {
+            for (int sampleIndex = 0; sampleIndex < config.sampleCount; ++sampleIndex) {
+                if (!emitSample()) {
+                    CFRelease(subscribedChannels);
+                    return 1;
+                }
+            }
         }
 
         CFRelease(subscribedChannels);
