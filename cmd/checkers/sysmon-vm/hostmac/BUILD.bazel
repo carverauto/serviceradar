@@ -1,0 +1,27 @@
+genrule(
+    name = "hostfreq",
+    srcs = ["hostfreq.mm"],
+    outs = ["hostfreq"],
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:macos"],
+    cmd = "set -euo pipefail && " +
+          "xcrun clang -std=c++20 -fobjc-arc " +
+          "-framework Foundation " +
+          "-framework IOKit " +
+          "-framework CoreFoundation " +
+          "-lIOReport " +
+          "-lc++ " +
+          "$(location hostfreq.mm) " +
+          "-o $@",
+    executable = True,
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "launchd_plists",
+    srcs = [
+        "com.serviceradar.hostfreq.plist",
+        "com.serviceradar.sysmonvm.plist",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -69,6 +69,10 @@ build:remote --remote_upload_local_results
 build:remote --jobs=100
 test:remote --copt=-Wno-use-after-free
 
+# Enable clang-tidy diagnostics via --config=clang-tidy
+build:clang-tidy --features=clang_tidy
+test:clang-tidy --features=clang_tidy
+
 # OCaml toolchain generated via tools_opam is macOS-hosted, which cannot run on
 # Linux remote executors. Force OCaml compilation/linking actions to run locally
 # until a hermetic Linux toolchain is available.
