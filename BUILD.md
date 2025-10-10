@@ -21,6 +21,7 @@ which bazel
 * git
 * clang-18
 * build-essential
+* openjdk-25-jdk
 * bubblewrap
 * rsync
 * ocaml 
