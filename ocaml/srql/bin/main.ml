@@ -97,11 +97,6 @@ let index_of_sub (s : string) (sub : string) : int option =
   in
   loop 0
 
-let escape_sql_string (s : string) =
-  let b = Buffer.create (String.length s + 8) in
-  String.iter (fun c -> if c = '\'' then Buffer.add_string b "''" else Buffer.add_char b c) s;
-  Buffer.contents b
-
 let decode_cursor_json = function
   | None -> `Null
   | Some s -> (
@@ -113,72 +108,6 @@ let decode_cursor_json = function
           | Error _ -> `Null))
 
 let json_member name = function `Assoc _ as obj -> Yojson.Safe.Util.member name obj | _ -> `Null
-
-(* Build SQL literal from a typed cursor value *)
-let sql_literal_of_typed (typ : string) value : string =
-  match value with
-  | Proton.Column.String s ->
-      let lt = String.lowercase_ascii typ in
-      let has needle = match index_of_sub lt needle with Some _ -> true | None -> false in
-      if has "string" || has "uuid" then "'" ^ escape_sql_string s ^ "'" else s
-  | Proton.Column.DateTime (ts, _tz) -> Printf.sprintf "to_datetime(%Ld)" ts
-  | Proton.Column.DateTime64 (v, p, _tz) -> Printf.sprintf "to_datetime64(%Ld, %d)" v p
-  | _ -> Proton.Column.value_to_string value
-
-(* Build a lexicographic boundary predicate for multi-column ORDER BY. 
-   order: (field, dir) list
-   vals: Each is (name, typ, value) coming from the row/columns
-   direction: Next|Prev
-*)
-let build_boundary_predicate ~(order : (string * Srql_translator.Sql_ir.order_dir) list)
-    ~(vals : (string * string * _) list) ~(direction : dir) : string option =
-  if order = [] then None
-  else
-    (* Map value lookup by field name *)
-    let lookup name =
-      try Some (List.find (fun (n, _, _) -> String.equal n name) vals) with Not_found -> None
-    in
-    (* ensure all keys present *)
-    if List.exists (fun (f, _) -> lookup f = None) order then None
-    else
-      let rec build_terms idx acc_eq =
-        match List.nth order idx with
-        | exception _ -> []
-        | field, odir ->
-            let _, typ, v = Option.get (lookup field) in
-            let lit = sql_literal_of_typed typ v in
-            let cmp =
-              match (odir, direction) with
-              | Srql_translator.Sql_ir.Asc, Next | Srql_translator.Sql_ir.Desc, Prev -> ">"
-              | Srql_translator.Sql_ir.Desc, Next | Srql_translator.Sql_ir.Asc, Prev -> "<"
-            in
-            let this_term =
-              let lhs = field and rhs = lit in
-              let cmp_expr = Printf.sprintf "%s %s %s" lhs cmp rhs in
-              match acc_eq with
-              | [] -> cmp_expr
-              | eqs -> "(" ^ String.concat " AND " eqs ^ ") AND " ^ cmp_expr
-            in
-            this_term :: build_terms (idx + 1) (acc_eq @ [ Printf.sprintf "%s = %s" field lit ])
-      in
-      let terms = build_terms 0 [] in
-      if terms = [] then None
-      else Some ("(" ^ String.concat " OR " (List.map (fun t -> "(" ^ t ^ ")") terms) ^ ")")
-
-let splice_where_predicate (sql : string) (predicate : string) : string =
-  let lsql = String.lowercase_ascii sql in
-  let pos_order =
-    match index_of_sub lsql " order by " with Some i -> i | None -> String.length sql
-  in
-  let head = String.sub sql 0 pos_order in
-  let tail = String.sub sql pos_order (String.length sql - pos_order) in
-  let lhead = String.lowercase_ascii head in
-  let new_head =
-    match index_of_sub lhead " where " with
-    | Some _ -> head ^ " AND (" ^ predicate ^ ")"
-    | None -> head ^ " WHERE " ^ predicate
-  in
-  new_head ^ tail
 
 let parse_to_ast (query_str : string) : Srql_translator.Sql_ir.query =
   (* New default: ASQ syntax is primary. No SRQL fallback. *)
