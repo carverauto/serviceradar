@@ -24,14 +24,22 @@ var (
 // Service implements the monitoring.AgentService gRPC interface for VM-oriented sysmon metrics.
 type Service struct {
 	proto.UnimplementedAgentServiceServer
-	log            logger.Logger
-	sampleInterval time.Duration
+	log             logger.Logger
+	sampleInterval  time.Duration
+	freqCollector   func(context.Context) (*cpufreq.Snapshot, error)
+	usageCollector  func(context.Context, time.Duration, bool) ([]float64, error)
+	hostIdentifier  func() string
+	localIPResolver func(context.Context) string
 }
 
 func NewService(log logger.Logger, sampleInterval time.Duration) *Service {
 	return &Service{
-		log:            log,
-		sampleInterval: sampleInterval,
+		log:             log,
+		sampleInterval:  sampleInterval,
+		freqCollector:   cpufreq.Collect,
+		usageCollector:  cpu.PercentWithContext,
+		hostIdentifier:  hostIdentifier,
+		localIPResolver: localIP,
 	}
 }
 
@@ -45,15 +53,15 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 		Str("poller_id", req.GetPollerId()).
 		Msg("Received sysmon-vm GetStatus request")
 
-	freqSnapshot, err := cpufreq.Collect(ctx)
+	freqSnapshot, err := s.freqCollector(ctx)
 	if err != nil {
 		s.log.Warn().Err(err).Msg("cpufreq collection failed")
-		return s.failureResponse(req, start, fmt.Errorf("%w: %v", errCollectFrequency, err)), nil
+		return s.failureResponse(req, start, errors.Join(errCollectFrequency, err)), nil
 	}
 
 	usagePercent := s.collectUsage(ctx, len(freqSnapshot.Cores))
-	hostID := hostIdentifier()
-	hostIP := localIP()
+	hostID := s.hostIdentifier()
+	hostIP := s.localIPResolver(ctx)
 
 	cpus := make([]models.CPUMetric, 0, len(freqSnapshot.Cores))
 	for _, core := range freqSnapshot.Cores {
@@ -145,7 +153,7 @@ func (s *Service) collectUsage(ctx context.Context, cpuCount int) []float64 {
 		return nil
 	}
 
-	percent, err := cpu.PercentWithContext(ctx, s.sampleInterval, true)
+	percent, err := s.usageCollector(ctx, s.sampleInterval, true)
 	if err != nil {
 		s.log.Warn().Err(err).Msg("cpu.PercentWithContext failed; usage will be zero")
 		return make([]float64, cpuCount)
@@ -169,12 +177,18 @@ func hostIdentifier() string {
 	return "unknown-host"
 }
 
-func localIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+func localIP(ctx context.Context) string {
+	dialer := &net.Dialer{
+		Timeout: time.Second,
+	}
+
+	conn, err := dialer.DialContext(ctx, "udp", "8.8.8.8:80")
 	if err != nil {
 		return "unknown"
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
 	if !ok {
