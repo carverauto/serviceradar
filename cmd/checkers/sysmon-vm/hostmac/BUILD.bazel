@@ -25,3 +25,8 @@ filegroup(
     ],
     visibility = ["//visibility:public"],
 )
+
+exports_files([
+    "com.serviceradar.hostfreq.plist",
+    "com.serviceradar.sysmonvm.plist",
+])
