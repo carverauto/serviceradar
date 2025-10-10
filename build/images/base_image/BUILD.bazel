@@ -12,6 +12,6 @@ apko_image(
 build_test(
     name = "test",
     targets = [
-        ":base_image,
+        ":base_image",
     ],
 )
