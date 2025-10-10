@@ -2,7 +2,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_apko//apko:defs.bzl", "apko_image")
 
 apko_image(
-    name = "wolfi-base",
+    name = "base_image",
     config = "apko.yaml",
     contents = "@base_image//:contents",
     tag = "base_image:latest",
@@ -12,6 +12,6 @@ apko_image(
 build_test(
     name = "test",
     targets = [
-        ":wolfi-base",
+        ":base_image,
     ],
 )
