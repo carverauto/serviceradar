@@ -18,6 +18,11 @@ gazelle(
 
 exports_files(["VERSION"])
 
+# Setup for Apko chainguard images
+load("@rules_apko//apko:defs.bzl", "apko_bazelrc")
+
+apko_bazelrc()
+
 # Custom RBE platform using Oracle Linux 9 based executor image
 platform(
     name = "rbe_platform",
