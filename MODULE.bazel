@@ -19,6 +19,15 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
+bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
+bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
+bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
+bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
+bazel_dep(name = "aspect_rules_js", version = "2.6.0")
+bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
+bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
+bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
 
 single_version_override(
     module_name = "rules_java",
@@ -32,15 +41,14 @@ use_repo(host_platform_ext, "host_platform")
 java = use_extension("@rules_java//java:extensions.bzl", "toolchains")
 use_repo(
     java,
-    "local_jdk",
+    "remotejdk11_linux",
+     "remotejdk11_macos",
+     "remotejdk11_macos_aarch64",
     "remote_java_tools",
     "remote_java_tools_darwin_arm64",
     "remote_java_tools_darwin_x86_64",
     "remote_java_tools_linux",
     "remote_java_tools_windows",
-    "remotejdk11_linux",
-    "remotejdk11_macos",
-    "remotejdk11_macos_aarch64",
 )
 
 register_toolchains(
@@ -55,29 +63,15 @@ register_toolchains(
     "@remotejdk11_macos_aarch64//:all",
 )
 
-bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
-bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
-bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
-bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
-bazel_dep(name = "rules_apple", version = "3.18.0")
-bazel_dep(name = "apple_support", version = "1.23.0")
 
 find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
 use_repo(find_rpm, "rules_pkg_rpmbuild")
 
 register_toolchains("@rules_pkg_rpmbuild//:all")
 
-bazel_dep(name = "aspect_rules_js", version = "2.6.0")
-bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
-bazel_dep(name = "rules_cc", version = "0.2.4")
-bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
-bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
 
 cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
 use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
-
-apple = use_extension("@rules_apple//apple:extensions.bzl", "apple")
-apple.toolchain()
 
 archive_override(
     module_name = "toolchains_buildbuddy",
@@ -484,7 +478,6 @@ go_deps.from_file(go_mod = "//:go.mod")
 use_repo(
     go_deps,
     "com_github_atotto_clipboard",
-    "com_github_cenkalti_backoff_v5",
     "com_github_charmbracelet_bubbles",
     "com_github_charmbracelet_bubbletea",
     "com_github_charmbracelet_lipgloss",
@@ -496,7 +489,6 @@ use_repo(
     "com_github_markbates_goth",
     "com_github_nats_io_nats_go",
     "com_github_rs_zerolog",
-    "com_github_shirou_gopsutil_v3",
     "com_github_spiffe_go_spiffe_v2",
     "com_github_stretchr_testify",
     "com_github_swaggo_http_swagger",
@@ -506,20 +498,16 @@ use_repo(
     "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",
     "io_opentelemetry_go_otel",
     "io_opentelemetry_go_otel_exporters_otlp_otlplog_otlploggrpc",
-    "io_opentelemetry_go_otel_exporters_otlp_otlpmetric_otlpmetricgrpc",
     "io_opentelemetry_go_otel_exporters_otlp_otlptrace_otlptracegrpc",
     "io_opentelemetry_go_otel_log",
-    "io_opentelemetry_go_otel_metric",
     "io_opentelemetry_go_otel_sdk",
     "io_opentelemetry_go_otel_sdk_log",
-    "io_opentelemetry_go_otel_sdk_metric",
     "io_opentelemetry_go_otel_trace",
     "io_opentelemetry_go_proto_otlp",
     "org_golang_google_grpc",
     "org_golang_google_protobuf",
     "org_golang_x_crypto",
     "org_golang_x_net",
-    "org_golang_x_sync",
     "org_golang_x_sys",
     "org_uber_go_mock",
 )
@@ -826,14 +814,6 @@ http_file(
     sha256 = "555948e6b67d4bddc213673843a63bbd3d30548133bdff8aff9e66988285ae7e",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/ncurses-terminfo-base-6.4_p20240420-r2.apk",
-    ],
-)
-
-http_file(
-    name = "alpine_glibc_apk",
-    sha256 = "276f43ce9b2d5878422bca94ca94e882a7eb263abe171d233ac037201ffcaf06",
-    urls = [
-        "https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.35-r1/glibc-2.35-r1.apk",
     ],
 )
 
