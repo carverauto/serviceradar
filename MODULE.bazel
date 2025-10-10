@@ -346,6 +346,8 @@ local_path_override(
 
 # Vendored copy of cwalk@1.2.9 (commit e98d23f), pending upstream release tag.
 
+# --- Ocaml Toolchain  ----------------------------------
+
 # TODO(bazel-migration): rules_ocaml is not yet in the Bazel Central Registry.
 # Add an archive_override/use_extension once a release is selected.
 
@@ -419,17 +421,15 @@ use_repo(
 )
 
 use_repo(opam_dev, "opam.alcotest")
-
 register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")
-
 register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")
 
-register_toolchains("//toolchains:rbe_cc_toolchain")
-
+# --- RBE Toolchain and platforms  ----------------------------------
+register_toolchains("//build/toolchains:rbe_cc_toolchain")
 register_execution_platforms(
-    "//docker:rbe_platform",
-    "//docker:ocaml_rbe_ocamlopt",
-    "//docker:ocaml_rbe_ocamlc",
+    "//build/rbe:rbe_platform",
+    "//build/rbe:ocaml_rbe_ocamlopt",
+    "//build/rbe:ocaml_rbe_ocamlc",
 )
 
 # --- Go toolchain & dependency management ----------------------------------

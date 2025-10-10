@@ -12,6 +12,7 @@
     "https://bcr.bazel.build/modules/abseil-cpp/20240116.1/source.json": "9be551b8d4e3ef76875c0d744b5d6a504a27e3ae67bc6b28f46415fd2d2957da",
     "https://bcr.bazel.build/modules/apple_support/1.23.0/MODULE.bazel": "317d47e3f65b580e7fb4221c160797fda48e32f07d2dfff63d754ef2316dcd25",
     "https://bcr.bazel.build/modules/apple_support/1.23.0/source.json": "cb90a670c368cd37b5a7021486fd3f9a3fb0fcb8f45af43399137938d32ced76",
+    "https://bcr.bazel.build/modules/aspect_bazel_lib/1.40.3/MODULE.bazel": "668e6bcb4d957fc0e284316dba546b705c8d43c857f87119619ee83c4555b859",
     "https://bcr.bazel.build/modules/aspect_bazel_lib/2.0.0/MODULE.bazel": "e118477db5c49419a88d78ebc7a2c2cea9d49600fe0f490c1903324a2c16ecd9",
     "https://bcr.bazel.build/modules/aspect_bazel_lib/2.14.0/MODULE.bazel": "2b31ffcc9bdc8295b2167e07a757dbbc9ac8906e7028e5170a3708cecaac119f",
     "https://bcr.bazel.build/modules/aspect_bazel_lib/2.14.0/source.json": "0cf1826853b0bef8b5cd19c0610d717500f5521aa2b38b72b2ec302ac5e7526c",
@@ -105,6 +106,8 @@
     "https://bcr.bazel.build/modules/re2/2023-09-01/source.json": "e044ce89c2883cd957a2969a43e79f7752f9656f6b20050b62f90ede21ec6eb4",
     "https://bcr.bazel.build/modules/rules_android/0.1.1/MODULE.bazel": "48809ab0091b07ad0182defb787c4c5328bd3a278938415c00a7b69b50c4d3a8",
     "https://bcr.bazel.build/modules/rules_android/0.1.1/source.json": "e6986b41626ee10bdc864937ffb6d6bf275bb5b9c65120e6137d56e6331f089e",
+    "https://bcr.bazel.build/modules/rules_apko/1.4.2/MODULE.bazel": "4f32245a45533db62f8ed8432bb654d87f116f9ac56e712ca61e03e9b045d9f9",
+    "https://bcr.bazel.build/modules/rules_apko/1.4.2/source.json": "84535f0d589636760a4cca73c426ddf141cf19cdc9cd14d89e545c040b2a82d0",
     "https://bcr.bazel.build/modules/rules_cc/0.0.1/MODULE.bazel": "cb2aa0747f84c6c3a78dad4e2049c154f08ab9d166b1273835a8174940365647",
     "https://bcr.bazel.build/modules/rules_cc/0.0.10/MODULE.bazel": "ec1705118f7eaedd6e118508d3d26deba2a4e76476ada7e0e3965211be012002",
     "https://bcr.bazel.build/modules/rules_cc/0.0.13/MODULE.bazel": "0e8529ed7b323dad0775ff924d2ae5af7640b23553dfcd4d34344c7e7a867191",
@@ -574,6 +577,92 @@
         "recordedRepoMappingEntries": [
           [
             "pybind11_bazel+",
+            "bazel_tools",
+            "bazel_tools"
+          ]
+        ]
+      }
+    },
+    "@@rules_apko+//apko:extensions.bzl%apko": {
+      "general": {
+        "bzlTransitiveDigest": "8/SkGaoOq46PFkAqGBCzhfbf0ALgLujsNAbFM+HM7MQ=",
+        "usagesDigest": "umVgn1Ysi85fS8WtfbWFnu0HzUYAwzOxqxQR/N/hyPg=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "apko_darwin_amd64": {
+            "repoRuleId": "@@rules_apko+//apko:repositories.bzl%apko_repositories",
+            "attributes": {
+              "platform": "darwin_amd64",
+              "sha256": "sha256-j3iOAAJWGU1hPZs0ApfdFAW5QEU2O8RMsSkPokD6G4c=",
+              "url": "https://github.com/chainguard-dev/apko/releases/download/v0.27.0/apko_0.27.0_darwin_amd64.tar.gz",
+              "apko_version": "0.27.0",
+              "strip_prefix": "apko_0.27.0_darwin_amd64"
+            }
+          },
+          "apko_darwin_arm64": {
+            "repoRuleId": "@@rules_apko+//apko:repositories.bzl%apko_repositories",
+            "attributes": {
+              "platform": "darwin_arm64",
+              "sha256": "sha256-/7NO3G9Nx/NjDeFGGbnEdBgY0iZ82pfJoPiFEcUh1U4=",
+              "url": "https://github.com/chainguard-dev/apko/releases/download/v0.27.0/apko_0.27.0_darwin_arm64.tar.gz",
+              "apko_version": "0.27.0",
+              "strip_prefix": "apko_0.27.0_darwin_arm64"
+            }
+          },
+          "apko_linux_386": {
+            "repoRuleId": "@@rules_apko+//apko:repositories.bzl%apko_repositories",
+            "attributes": {
+              "platform": "linux_386",
+              "sha256": "sha256-CflsA7c0M0NjQnS5jQ/QXMm8ZjGT5n6u30nLuDZx11Y=",
+              "url": "https://github.com/chainguard-dev/apko/releases/download/v0.27.0/apko_0.27.0_linux_386.tar.gz",
+              "apko_version": "0.27.0",
+              "strip_prefix": "apko_0.27.0_linux_386"
+            }
+          },
+          "apko_linux_amd64": {
+            "repoRuleId": "@@rules_apko+//apko:repositories.bzl%apko_repositories",
+            "attributes": {
+              "platform": "linux_amd64",
+              "sha256": "sha256-RpAKu7dTffDbG8BQUASdXlwQ2BlxNPyTcQQNevpSpmU=",
+              "url": "https://github.com/chainguard-dev/apko/releases/download/v0.27.0/apko_0.27.0_linux_amd64.tar.gz",
+              "apko_version": "0.27.0",
+              "strip_prefix": "apko_0.27.0_linux_amd64"
+            }
+          },
+          "apko_linux_arm64": {
+            "repoRuleId": "@@rules_apko+//apko:repositories.bzl%apko_repositories",
+            "attributes": {
+              "platform": "linux_arm64",
+              "sha256": "sha256-l81qXHccxmJSv7pYHp89r5kW2u0hTMN4Y5vougJp8tk=",
+              "url": "https://github.com/chainguard-dev/apko/releases/download/v0.27.0/apko_0.27.0_linux_arm64.tar.gz",
+              "apko_version": "0.27.0",
+              "strip_prefix": "apko_0.27.0_linux_arm64"
+            }
+          },
+          "apko_toolchains": {
+            "repoRuleId": "@@rules_apko+//apko/private:toolchains_repo.bzl%toolchains_repo",
+            "attributes": {
+              "user_repository_name": "apko",
+              "platforms": [
+                "darwin_amd64",
+                "darwin_arm64",
+                "linux_386",
+                "linux_amd64",
+                "linux_arm64"
+              ]
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "rules_apko+",
+            "bazel_skylib",
+            "bazel_skylib+"
+          ],
+          [
+            "rules_apko+",
             "bazel_tools",
             "bazel_tools"
           ]
