@@ -45,14 +45,27 @@ type Snapshot struct {
 	Cores []CoreFrequency
 }
 
-var (
-	countsWithContext = cpu.CountsWithContext
-	infoWithContext   = cpu.InfoWithContext
-	readSysfsFunc     = readSysfs
-	sampleFrequency   = sampleFrequencyWithPerf
-	hostfreqPathResolver = resolveHostfreqPath
-	hostfreqCommandRunner = runHostfreqCommand
-)
+type collectorDeps struct {
+	countsWithContext     func(context.Context, bool) (int, error)
+	infoWithContext       func(context.Context) ([]cpu.InfoStat, error)
+	readSysfs             func(int) (float64, bool)
+	sampleFrequency       func(context.Context, int, time.Duration) (float64, error)
+	hostfreqPathResolver  func() (string, error)
+	hostfreqCommandRunner func(context.Context, string, []string) ([]byte, error)
+}
+
+func defaultCollectorDeps() collectorDeps {
+	return collectorDeps{
+		countsWithContext:     cpu.CountsWithContext,
+		infoWithContext:       cpu.InfoWithContext,
+		readSysfs:             readSysfs,
+		sampleFrequency:       sampleFrequencyWithPerf,
+		hostfreqPathResolver:  resolveHostfreqPath,
+		hostfreqCommandRunner: runHostfreqCommand,
+	}
+}
+
+type option func(*collectorDeps)
 
 const (
 	defaultSampleWindow = 100 * time.Millisecond
@@ -75,20 +88,25 @@ func NewCollector(window time.Duration) func(context.Context) (*Snapshot, error)
 	}
 }
 
-func collect(ctx context.Context, window time.Duration) (*Snapshot, error) {
+func collect(ctx context.Context, window time.Duration, opts ...option) (*Snapshot, error) {
+	deps := defaultCollectorDeps()
+	for _, opt := range opts {
+		opt(&deps)
+	}
+
 	if runtime.GOOS == "darwin" {
-		if snap, err := collectViaHostfreq(ctx, window); err == nil {
+		if snap, err := collectViaHostfreq(ctx, window, deps); err == nil {
 			return snap, nil
 		} else if !errors.Is(err, ErrFrequencyUnavailable) {
 			return nil, err
 		}
 	}
 
-	return collectStandard(ctx, window)
+	return collectStandard(ctx, window, deps)
 }
 
-func collectStandard(ctx context.Context, window time.Duration) (*Snapshot, error) {
-	logicalCount, err := countsWithContext(ctx, true)
+func collectStandard(ctx context.Context, window time.Duration, deps collectorDeps) (*Snapshot, error) {
+	logicalCount, err := deps.countsWithContext(ctx, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine logical cpu count: %w", err)
 	}
@@ -97,7 +115,7 @@ func collectStandard(ctx context.Context, window time.Duration) (*Snapshot, erro
 		return nil, ErrFrequencyUnavailable
 	}
 
-	infoStats, err := infoWithContext(ctx)
+	infoStats, err := deps.infoWithContext(ctx)
 	if err != nil {
 		infoStats = nil
 	}
@@ -116,7 +134,7 @@ func collectStandard(ctx context.Context, window time.Duration) (*Snapshot, erro
 	}
 
 	for core := 0; core < logicalCount; core++ {
-		if hz, ok := readSysfsFunc(core); ok {
+		if hz, ok := deps.readSysfs(core); ok {
 			snapshot.Cores = append(snapshot.Cores, CoreFrequency{
 				CoreID:      core,
 				FrequencyHz: hz,
@@ -134,7 +152,7 @@ func collectStandard(ctx context.Context, window time.Duration) (*Snapshot, erro
 			continue
 		}
 
-		hz, err := sampleFrequency(ctx, core, window)
+		hz, err := deps.sampleFrequency(ctx, core, window)
 		if err != nil {
 			snapshot.Cores = append(snapshot.Cores, CoreFrequency{
 				CoreID:      core,
@@ -163,8 +181,8 @@ type hostfreqPayload struct {
 	Cores []hostfreqCore `json:"cores"`
 }
 
-func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, error) {
-	path, err := hostfreqPathResolver()
+func collectViaHostfreq(ctx context.Context, window time.Duration, deps collectorDeps) (*Snapshot, error) {
+	path, err := deps.hostfreqPathResolver()
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +197,7 @@ func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, e
 		"--samples", "1",
 	}
 
-	output, err := hostfreqCommandRunner(ctx, path, args)
+	output, err := deps.hostfreqCommandRunner(ctx, path, args)
 	if err != nil {
 		return nil, fmt.Errorf("hostfreq command failed: %w", err)
 	}
