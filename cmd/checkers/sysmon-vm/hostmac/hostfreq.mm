@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <optional>
@@ -170,10 +171,12 @@ CollectorConfig ParseArgs(int argc, const char* argv[]) {
             if (!next) {
                 return;
             }
-            char* end = nullptr;
-            long parsed = strtol(next, &end, 10);
-            if (end != next && parsed < INT_MAX) {
-                target = static_cast<int>(parsed);
+            const char* begin = next;
+            const char* end = begin + strlen(next);
+            int value = 0;
+            auto result = std::from_chars(begin, end, value);
+            if (result.ec == std::errc() && result.ptr != begin) {
+                target = value;
             }
         };
 
