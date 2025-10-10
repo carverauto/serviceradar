@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::config::{Config, MessageFormat};
 use crate::engine::SharedEngine;
-use crate::otel_logs;
+use crate::{otel_logs, otel_metrics};
 
 pub async fn process_message(
     engine: &SharedEngine,
@@ -23,6 +23,7 @@ pub async fn process_message(
     let mut context: serde_json::Value = match format {
         MessageFormat::Json => serde_json::from_slice(&msg.payload)?,
         MessageFormat::Protobuf => otel_logs::otel_logs_to_json(&msg.payload)?,
+        MessageFormat::OtelMetrics => otel_metrics::otel_metrics_to_json(&msg.payload)?,
     };
 
     let rules = cfg.ordered_rules_for_subject(&msg.subject);
@@ -83,7 +84,11 @@ mod tests {
             domain: None,
             stream_name: "test-stream".to_string(),
             consumer_name: "test-consumer".to_string(),
-            subjects: vec!["events.json".to_string(), "events.protobuf".to_string()],
+            subjects: vec![
+                "events.json".to_string(),
+                "events.protobuf".to_string(),
+                "events.metrics".to_string(),
+            ],
             result_subject: None,
             result_subject_suffix: Some(".processed".to_string()),
             decision_keys: vec![],
@@ -105,6 +110,15 @@ mod tests {
                         key: "test_rule".to_string(),
                     }],
                     format: MessageFormat::Protobuf,
+                },
+                DecisionGroupConfig {
+                    name: "metrics_group".to_string(),
+                    subjects: vec!["events.metrics".to_string()],
+                    rules: vec![RuleEntry {
+                        order: 1,
+                        key: "test_rule".to_string(),
+                    }],
+                    format: MessageFormat::OtelMetrics,
                 },
             ],
             kv_bucket: "test-kv".to_string(),
@@ -184,6 +198,10 @@ mod tests {
             MessageFormat::Protobuf
         );
         assert_eq!(
+            cfg.message_format_for_subject("events.metrics"),
+            MessageFormat::OtelMetrics
+        );
+        assert_eq!(
             cfg.message_format_for_subject("events.unknown"),
             MessageFormat::Json
         );
@@ -213,6 +231,23 @@ mod tests {
     }
 
     #[test]
+    fn test_metrics_message_parsing() {
+        let protobuf_data = create_otel_metrics_data();
+        let result = crate::otel_metrics::otel_metrics_to_json(&protobuf_data).unwrap();
+
+        assert_eq!(result["resource_metric_count"], 1);
+        let summaries = result["resource_summaries"].as_array().unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0]["service_name"], "test-service");
+        let scope_metrics = summaries[0]["scope_metrics"].as_array().unwrap();
+        assert_eq!(scope_metrics.len(), 1);
+        let metrics = scope_metrics[0]["metrics"].as_array().unwrap();
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0]["name"], "cpu.usage");
+        assert_eq!(metrics[0]["data_type"], "gauge");
+    }
+
+    #[test]
     fn test_ordered_rules_for_subject() {
         let cfg = create_test_config();
 
@@ -221,5 +256,67 @@ mod tests {
 
         let protobuf_rules = cfg.ordered_rules_for_subject("events.protobuf");
         assert_eq!(protobuf_rules, vec!["test_rule"]);
+
+        let metrics_rules = cfg.ordered_rules_for_subject("events.metrics");
+        assert_eq!(metrics_rules, vec!["test_rule"]);
+    }
+
+    fn create_otel_metrics_data() -> Vec<u8> {
+        use crate::otel_metrics::opentelemetry::proto::{
+            collector::metrics::v1::ExportMetricsServiceRequest,
+            common::v1::{
+                any_value::Value as AnyValueEnum, AnyValue, InstrumentationScope, KeyValue,
+            },
+            metrics::v1::{
+                metric::Data as MetricData, number_data_point::Value as NumberValue, Gauge, Metric,
+                NumberDataPoint, ResourceMetrics, ScopeMetrics,
+            },
+            resource::v1::Resource,
+        };
+
+        let request = ExportMetricsServiceRequest {
+            resource_metrics: vec![ResourceMetrics {
+                resource: Some(Resource {
+                    attributes: vec![KeyValue {
+                        key: "service.name".to_string(),
+                        value: Some(AnyValue {
+                            value: Some(AnyValueEnum::StringValue("test-service".to_string())),
+                        }),
+                    }],
+                    dropped_attributes_count: 0,
+                    entity_refs: vec![],
+                }),
+                scope_metrics: vec![ScopeMetrics {
+                    scope: Some(InstrumentationScope {
+                        name: "test-scope".to_string(),
+                        version: "1.0.0".to_string(),
+                        attributes: vec![],
+                        dropped_attributes_count: 0,
+                    }),
+                    metrics: vec![Metric {
+                        name: "cpu.usage".to_string(),
+                        description: "CPU usage".to_string(),
+                        unit: "%".to_string(),
+                        data: Some(MetricData::Gauge(Gauge {
+                            data_points: vec![NumberDataPoint {
+                                attributes: vec![],
+                                start_time_unix_nano: 0,
+                                time_unix_nano: 1,
+                                exemplars: vec![],
+                                flags: 0,
+                                value: Some(NumberValue::AsDouble(19.5)),
+                            }],
+                        })),
+                        metadata: vec![],
+                    }],
+                    schema_url: "".to_string(),
+                }],
+                schema_url: "".to_string(),
+            }],
+        };
+
+        let mut buf = Vec::new();
+        request.encode(&mut buf).unwrap();
+        buf
     }
 }

@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -66,7 +67,7 @@ func TestProcessSyncResults(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupMocks    func(*db.MockService, *registry.MockManager)
-		sightings     []*models.SweepResult
+		deviceUpdates []*models.DeviceUpdate
 		svc           *proto.ServiceStatus
 		expectError   bool
 		errorContains string
@@ -74,19 +75,21 @@ func TestProcessSyncResults(t *testing.T) {
 		{
 			name: "successful processing with sightings",
 			setupMocks: func(_ *db.MockService, mockReg *registry.MockManager) {
-				mockReg.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).Return(nil)
+				mockReg.EXPECT().
+					ProcessBatchDeviceUpdates(gomock.Any(), gomock.Len(1)).
+					Return(nil)
 			},
-			sightings: []*models.SweepResult{
+			deviceUpdates: []*models.DeviceUpdate{
 				{
-					AgentID:         "agent1",
-					PollerID:        "poller1",
-					DeviceID:        "partition1:192.168.1.1",
-					Partition:       "partition1",
-					DiscoverySource: "sync",
-					IP:              "192.168.1.1",
-					Timestamp:       timestamp,
-					Available:       true,
-					Metadata:        map[string]string{"test": "data"},
+					AgentID:     "agent1",
+					PollerID:    "poller1",
+					DeviceID:    "partition1:192.168.1.1",
+					Partition:   "partition1",
+					Source:      models.DiscoverySourceIntegration,
+					IP:          "192.168.1.1",
+					Timestamp:   timestamp,
+					IsAvailable: true,
+					Metadata:    map[string]string{"test": "data"},
 				},
 			},
 			svc: &proto.ServiceStatus{
@@ -100,7 +103,7 @@ func TestProcessSyncResults(t *testing.T) {
 			setupMocks: func(_ *db.MockService, _ *registry.MockManager) {
 				// No expectations - ProcessBatchDeviceUpdates should not be called
 			},
-			sightings: []*models.SweepResult{},
+			deviceUpdates: []*models.DeviceUpdate{},
 			svc: &proto.ServiceStatus{
 				ServiceName: "sync",
 				AgentId:     "agent1",
@@ -112,21 +115,22 @@ func TestProcessSyncResults(t *testing.T) {
 			setupMocks: func(_ *db.MockService, _ *registry.MockManager) {
 				// No expectations
 			},
-			sightings:     nil, // This will cause JSON unmarshal to fail
+			deviceUpdates: nil, // This will cause JSON decode to fail
 			svc:           &proto.ServiceStatus{ServiceName: "sync"},
 			expectError:   true,
-			errorContains: "failed to parse sync discovery data",
+			errorContains: "read sync payload token",
 		},
 		{
 			name: "registry error",
 			setupMocks: func(_ *db.MockService, mockReg *registry.MockManager) {
-				mockReg.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).
+				mockReg.EXPECT().
+					ProcessBatchDeviceUpdates(gomock.Any(), gomock.Len(1)).
 					Return(errRegistryTest)
 			},
-			sightings: []*models.SweepResult{
+			deviceUpdates: []*models.DeviceUpdate{
 				{
-					DiscoverySource: "sync",
-					IP:              "192.168.1.1",
+					Source: models.DiscoverySourceIntegration,
+					IP:     "192.168.1.1",
 				},
 			},
 			svc:           &proto.ServiceStatus{ServiceName: "sync"},
@@ -153,8 +157,8 @@ func TestProcessSyncResults(t *testing.T) {
 
 			var details json.RawMessage
 
-			if tt.sightings != nil {
-				data, err := json.Marshal(tt.sightings)
+			if tt.deviceUpdates != nil {
+				data, err := json.Marshal(tt.deviceUpdates)
 				require.NoError(t, err)
 
 				details = data
@@ -190,20 +194,102 @@ func TestProcessSyncResults_NilRegistry(t *testing.T) {
 		logger: testLogger,
 	}
 
-	sightings := []*models.SweepResult{
+	deviceUpdates := []*models.DeviceUpdate{
 		{
-			DiscoverySource: "sync",
-			IP:              "192.168.1.1",
+			Source: models.DiscoverySourceIntegration,
+			IP:     "192.168.1.1",
 		},
 	}
 
-	details, err := json.Marshal(sightings)
+	details, err := json.Marshal(deviceUpdates)
 	require.NoError(t, err)
 
 	// Should not error when registry is nil, just log a warning
 	err = svc.ProcessSyncResults(context.Background(), "poller1", "partition1",
 		&proto.ServiceStatus{ServiceName: "sync"}, details, time.Now())
 	assert.NoError(t, err)
+}
+
+func TestProcessSyncResults_StreamChunking(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	if testing.Short() {
+		t.Skip("skipping chunk chunking integration in short mode")
+	}
+
+	mockDB := db.NewMockService(ctrl)
+	mockRegistry := registry.NewMockManager(ctrl)
+	testLogger := logger.NewTestLogger()
+
+	total := syncDeviceChunkSize*2 + 123
+	details := getSyncTestPayload(t, total)
+	var err error
+
+	expectedChunks := (total + syncDeviceChunkSize - 1) / syncDeviceChunkSize
+	var lengths []int
+
+	mockRegistry.EXPECT().
+		ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			lengths = append(lengths, len(updates))
+			return nil
+		}).
+		Times(expectedChunks)
+
+	svc := &discoveryService{
+		db:     mockDB,
+		reg:    mockRegistry,
+		logger: testLogger,
+	}
+
+	err = svc.ProcessSyncResults(
+		context.Background(),
+		"poller1",
+		"partition",
+		&proto.ServiceStatus{ServiceName: "sync"},
+		details,
+		time.Now(),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, lengths, expectedChunks)
+	sum := 0
+	for _, l := range lengths {
+		require.Positive(t, l)
+		require.LessOrEqual(t, l, syncDeviceChunkSize)
+		sum += l
+	}
+	require.Equal(t, total, sum)
+}
+
+func getSyncTestPayload(t *testing.T, total int) json.RawMessage {
+	t.Helper()
+	data, err := buildSyncPayload(total)
+	require.NoError(t, err)
+	return data
+}
+
+func buildSyncPayload(total int) (json.RawMessage, error) {
+	updates := make([]*models.DeviceUpdate, total)
+	for i := 0; i < total; i++ {
+		updates[i] = &models.DeviceUpdate{
+			AgentID:     "agent1",
+			PollerID:    "poller1",
+			DeviceID:    fmt.Sprintf("partition:%d", i),
+			Partition:   "partition",
+			Source:      models.DiscoverySourceIntegration,
+			IP:          fmt.Sprintf("10.0.0.%d", i%255),
+			Timestamp:   time.Unix(int64(i), 0),
+			IsAvailable: true,
+		}
+	}
+
+	data, err := json.Marshal(updates)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func TestProcessSNMPDiscoveryResults(t *testing.T) {

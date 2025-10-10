@@ -63,6 +63,26 @@ func (mr *MockKVClientMockRecorder) Delete(ctx, in any, opts ...any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockKVClient)(nil).Delete), varargs...)
 }
 
+// BatchGet mocks base method.
+func (m *MockKVClient) BatchGet(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "BatchGet", varargs...)
+	ret0, _ := ret[0].(*proto.BatchGetResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BatchGet indicates an expected call of BatchGet.
+func (mr *MockKVClientMockRecorder) BatchGet(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchGet", reflect.TypeOf((*MockKVClient)(nil).BatchGet), varargs...)
+}
+
 // Get mocks base method.
 func (m *MockKVClient) Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error) {
 	m.ctrl.T.Helper()
@@ -161,6 +181,26 @@ func (mr *MockKVClientMockRecorder) PutMany(ctx, in any, opts ...any) *gomock.Ca
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutMany", reflect.TypeOf((*MockKVClient)(nil).PutMany), varargs...)
+}
+
+// Update mocks base method.
+func (m *MockKVClient) Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Update", varargs...)
+	ret0, _ := ret[0].(*proto.UpdateResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Update indicates an expected call of Update.
+func (mr *MockKVClientMockRecorder) Update(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockKVClient)(nil).Update), varargs...)
 }
 
 // Watch mocks base method.

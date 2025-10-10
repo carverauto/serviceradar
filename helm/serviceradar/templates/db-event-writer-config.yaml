@@ -19,7 +19,8 @@ data:
         { "subject": "events.snmp.processed", "table": "events" },
         { "subject": "events.otel.logs", "table": "logs" },
         { "subject": "events.otel.traces", "table": "otel_traces" },
-        { "subject": "events.otel.metrics", "table": "otel_metrics" }
+        { "subject": "events.otel.metrics", "table": "otel_metrics" },
+        { "subject": "events.otel.metrics.raw", "table": "otel_metrics" }
       ],
       "database": {
         "addresses": [ "serviceradar-proton:9440" ],

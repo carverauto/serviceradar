@@ -4,9 +4,9 @@ use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 
-use async_nats::ConnectOptions;
 use async_nats::jetstream::kv::Config as KvConfig;
 use async_nats::jetstream::{self};
+use async_nats::ConnectOptions;
 
 #[derive(Parser, Debug)]
 #[command(name = "zen-put-rule")]

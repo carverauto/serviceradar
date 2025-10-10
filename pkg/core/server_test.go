@@ -42,7 +42,6 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-
 func TestNewServer(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -368,6 +367,11 @@ func TestProcessSweepData(t *testing.T) {
 	now := time.Now()
 	ctx := context.Background()
 	tests := getSweepTestCases(now)
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.UnifiedDevice{}, nil).
+		AnyTimes()
 
 	for i := range tests {
 		t.Run(tests[i].name, func(t *testing.T) {

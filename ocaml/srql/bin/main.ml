@@ -74,6 +74,22 @@ let default_order_for_entity (entity : string) : (string * Srql_translator.Sql_i
   let ts = Srql_translator.Entity_mapping.get_timestamp_field entity in
   [ (ts, Srql_translator.Sql_ir.Desc) ]
 
+let ensure_stable_order entity ~has_aggregates order =
+  if has_aggregates then order
+  else
+    let has_field name =
+      let name_l = String.lowercase_ascii name in
+      List.exists (fun (f, _) -> String.equal (String.lowercase_ascii f) name_l) order
+    in
+    let add_if_missing name dir acc = if has_field name then acc else acc @ [ (name, dir) ] in
+    match String.lowercase_ascii entity with
+    | "devices" | "sweep_results" ->
+        order
+        |> add_if_missing "_tp_time" Srql_translator.Sql_ir.Desc
+        |> add_if_missing "device_id" Srql_translator.Sql_ir.Desc
+    | "device_updates" -> order |> add_if_missing "_tp_time" Srql_translator.Sql_ir.Desc
+    | _ -> order
+
 let index_of_sub (s : string) (sub : string) : int option =
   let ls = String.length s and lsub = String.length sub in
   let rec loop i =
@@ -81,76 +97,17 @@ let index_of_sub (s : string) (sub : string) : int option =
   in
   loop 0
 
-let escape_sql_string (s : string) =
-  let b = Buffer.create (String.length s + 8) in
-  String.iter (fun c -> if c = '\'' then Buffer.add_string b "''" else Buffer.add_char b c) s;
-  Buffer.contents b
+let decode_cursor_json = function
+  | None -> `Null
+  | Some s -> (
+      match Yojson.Safe.from_string s with
+      | json -> json
+      | exception _ -> (
+          match Base64.decode s with
+          | Ok decoded -> ( try Yojson.Safe.from_string decoded with _ -> `Null)
+          | Error _ -> `Null))
 
-(* Build SQL literal from a typed cursor value *)
-let sql_literal_of_typed (typ : string) value : string =
-  match value with
-  | Proton.Column.String s ->
-      let lt = String.lowercase_ascii typ in
-      let has needle = match index_of_sub lt needle with Some _ -> true | None -> false in
-      if has "string" || has "uuid" then "'" ^ escape_sql_string s ^ "'" else s
-  | Proton.Column.DateTime (ts, _tz) -> Printf.sprintf "toDateTime(%Ld)" ts
-  | Proton.Column.DateTime64 (v, p, _tz) -> Printf.sprintf "toDateTime64(%Ld, %d)" v p
-  | _ -> Proton.Column.value_to_string value
-
-(* Build a lexicographic boundary predicate for multi-column ORDER BY. 
-   order: (field, dir) list
-   vals: Each is (name, typ, value) coming from the row/columns
-   direction: Next|Prev
-*)
-let build_boundary_predicate ~(order : (string * Srql_translator.Sql_ir.order_dir) list)
-    ~(vals : (string * string * _) list) ~(direction : dir) : string option =
-  if order = [] then None
-  else
-    (* Map value lookup by field name *)
-    let lookup name =
-      try Some (List.find (fun (n, _, _) -> String.equal n name) vals) with Not_found -> None
-    in
-    (* ensure all keys present *)
-    if List.exists (fun (f, _) -> lookup f = None) order then None
-    else
-      let rec build_terms idx acc_eq =
-        match List.nth order idx with
-        | exception _ -> []
-        | field, odir ->
-            let _, typ, v = Option.get (lookup field) in
-            let lit = sql_literal_of_typed typ v in
-            let cmp =
-              match (odir, direction) with
-              | Srql_translator.Sql_ir.Asc, Next | Srql_translator.Sql_ir.Desc, Prev -> ">"
-              | Srql_translator.Sql_ir.Desc, Next | Srql_translator.Sql_ir.Asc, Prev -> "<"
-            in
-            let this_term =
-              let lhs = field and rhs = lit in
-              let cmp_expr = Printf.sprintf "%s %s %s" lhs cmp rhs in
-              match acc_eq with
-              | [] -> cmp_expr
-              | eqs -> "(" ^ String.concat " AND " eqs ^ ") AND " ^ cmp_expr
-            in
-            this_term :: build_terms (idx + 1) (acc_eq @ [ Printf.sprintf "%s = %s" field lit ])
-      in
-      let terms = build_terms 0 [] in
-      if terms = [] then None
-      else Some ("(" ^ String.concat " OR " (List.map (fun t -> "(" ^ t ^ ")") terms) ^ ")")
-
-let splice_where_predicate (sql : string) (predicate : string) : string =
-  let lsql = String.lowercase_ascii sql in
-  let pos_order =
-    match index_of_sub lsql " order by " with Some i -> i | None -> String.length sql
-  in
-  let head = String.sub sql 0 pos_order in
-  let tail = String.sub sql pos_order (String.length sql - pos_order) in
-  let lhead = String.lowercase_ascii head in
-  let new_head =
-    match index_of_sub lhead " where " with
-    | Some _ -> head ^ " AND (" ^ predicate ^ ")"
-    | None -> head ^ " WHERE " ^ predicate
-  in
-  new_head ^ tail
+let json_member name = function `Assoc _ as obj -> Yojson.Safe.Util.member name obj | _ -> `Null
 
 let parse_to_ast (query_str : string) : Srql_translator.Sql_ir.query =
   (* New default: ASQ syntax is primary. No SRQL fallback. *)
@@ -556,6 +513,9 @@ let () =
                  | _ when has_aggregates -> None
                  | _ -> Some (default_order_for_entity ast0.entity)
                in
+               let order_opt =
+                 Option.map (ensure_stable_order ast0.entity ~has_aggregates) order_opt
+               in
                let limit_eff = match req_limit with Some n -> Some n | None -> ast0.limit in
                (* Auto currently prefers snapshot unless query planner marks streaming explicitly in future.
           We can enhance this later to detect stream-safe queries. *)
@@ -599,96 +559,38 @@ let () =
                let translation = Srql_translator.Translator.translate_query ast in
                let base_sql = translation.sql in
                let base_params = translation.params in
-               let sql_with_boundary =
-                 match (cursor, order_opt) with
-                 | None, _ -> base_sql
-                 | Some _, None -> base_sql
-                 | Some _, Some order -> (
-                     try
-                       let open Yojson.Safe.Util in
-                       let decode_cursor s =
-                         try Yojson.Safe.from_string s
-                         with _ ->
-                           let rev_tbl = Array.make 256 (-1) in
-                           let chars =
-                             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-                           in
-                           String.iteri (fun i c -> rev_tbl.(int_of_char c) <- i) chars;
-                           let len = String.length s in
-                           let buf = Buffer.create len in
-                           let rec sextet i acc bits =
-                             if i >= len then (acc, bits, i)
-                             else
-                               let c = s.[i] in
-                               if c = '=' then (acc, bits, i + 1)
-                               else
-                                 let v = rev_tbl.(int_of_char c) in
-                                 if v < 0 then (acc, bits, i + 1)
-                                 else
-                                   let acc' = (acc lsl 6) lor v in
-                                   sextet (i + 1) acc' (bits + 6)
-                           in
-                           let rec loop i acc bits =
-                             if i >= len then ()
-                             else
-                               let acc', bits', j = sextet i acc bits in
-                               if bits' >= 8 then (
-                                 let b = (acc' lsr (bits' - 8)) land 0xFF in
-                                 Buffer.add_char buf (char_of_int b);
-                                 loop j acc' (bits' - 8))
-                               else loop j acc' bits'
-                           in
-                           loop 0 0 0;
-                           Yojson.Safe.from_string (Buffer.contents buf)
-                       in
-                       let cjson = match cursor with Some s -> decode_cursor s | None -> `Null in
-                       let order_from_cursor =
-                         cjson |> member "order" |> to_list
-                         |> List.map (fun o ->
-                                let f = o |> member "field" |> to_string in
-                                let d = o |> member "dir" |> to_string |> String.lowercase_ascii in
-                                ( f,
-                                  if d = "desc" then Srql_translator.Sql_ir.Desc
-                                  else Srql_translator.Sql_ir.Asc ))
-                       in
-                       let order_used =
-                         if order_from_cursor = [] then order else order_from_cursor
-                       in
-                       let vals =
-                         cjson |> member "values" |> to_list
-                         |> List.filter_map (fun v ->
-                                try
-                                  let name = v |> member "name" |> to_string in
-                                  let typ = v |> member "typ" |> to_string in
-                                  let kind = v |> member "k" |> to_string in
-                                  let value = v |> member "v" |> to_string in
-                                  match kind with
-                                  | "s" -> Some (name, typ, Proton.Column.String value)
-                                  | "n" -> Some (name, typ, Proton.Column.String value)
-                                  | "dt" ->
-                                      Some
-                                        ( name,
-                                          typ,
-                                          Proton.Column.DateTime (Int64.of_string value, None) )
-                                  | "dt64" ->
-                                      let prec = v |> member "p" |> to_int in
-                                      Some
-                                        ( name,
-                                          typ,
-                                          Proton.Column.DateTime64
-                                            (Int64.of_string value, prec, None) )
-                                  | _ -> None
-                                with _ -> None)
-                       in
-                       match build_boundary_predicate ~order:order_used ~vals ~direction with
-                       | None -> base_sql
-                       | Some pred -> splice_where_predicate base_sql pred
-                     with _ -> base_sql)
+               let cursor_json = decode_cursor_json cursor in
+               let cursor_offset =
+                 match json_member "offset" cursor_json with `Int n when n > 0 -> n | _ -> 0
+               in
+               let order_from_cursor =
+                 match json_member "order" cursor_json with
+                 | `List lst ->
+                     List.map
+                       (fun o ->
+                         let f = Yojson.Safe.Util.(o |> member "field" |> to_string) in
+                         let d =
+                           Yojson.Safe.Util.(o |> member "dir" |> to_string)
+                           |> String.lowercase_ascii
+                         in
+                         ( f,
+                           if d = "desc" then Srql_translator.Sql_ir.Desc
+                           else Srql_translator.Sql_ir.Asc ))
+                       lst
+                 | _ -> []
+               in
+               let order_used = match order_opt with Some o -> o | None -> order_from_cursor in
+               let predicate_applied = false in
+               let sql_with_boundary = base_sql in
+               let sql_with_offset =
+                 if cursor_offset > 0 && not predicate_applied then
+                   Printf.sprintf "%s OFFSET %d" sql_with_boundary cursor_offset
+                 else sql_with_boundary
                in
                let sql_with_boundary =
                  match q_type with
-                 | `Stream -> sql_with_boundary
-                 | _ -> wrap_from_with_table sql_with_boundary
+                 | `Stream -> sql_with_offset
+                 | _ -> wrap_from_with_table sql_with_offset
                in
 
                let cfg = config_from_env () in
@@ -700,15 +602,16 @@ let () =
 
                (* Maybe reverse rows for prev direction to retain original ordering *)
                let result =
-                 match (direction, raw_result) with
-                 | Prev, Proton.Client.Rows (rows, cols) -> Proton.Client.Rows (List.rev rows, cols)
+                 match (direction, predicate_applied, raw_result) with
+                 | Prev, true, Proton.Client.Rows (rows, cols) ->
+                     Proton.Client.Rows (List.rev rows, cols)
                  | _ -> raw_result
                in
 
                (* Prepare cursors if possible *)
                let next_cursor, prev_cursor, limit_meta =
-                 match (result, order_opt, limit_eff) with
-                 | Proton.Client.Rows (rows, cols), Some (_ :: _ as ord), Some lim
+                 match (result, order_used, limit_eff) with
+                 | Proton.Client.Rows (rows, cols), (_ :: _ as ord), Some lim
                    when List.length rows = lim -> (
                      let name_to_index =
                        let tbl = Hashtbl.create (List.length cols) in
@@ -764,7 +667,7 @@ let () =
                                ("v", `String (Proton.Column.value_to_string v));
                              ]
                      in
-                     let encode_cursor vals =
+                     let encode_cursor vals offset =
                        `Assoc
                          [
                            ( "order",
@@ -782,13 +685,17 @@ let () =
                                       ])
                                   ord) );
                            ("values", `List (List.map encode_value vals));
+                           ("offset", `Int offset);
                          ]
                        |> Yojson.Safe.to_string
                      in
-                     let next_cur = encode_cursor last_values in
-                     let prev_cur = encode_cursor first_values in
+                     let next_offset = max (cursor_offset + lim) 0 in
+                     let prev_offset = max (cursor_offset - lim) 0 in
+                     let next_cur = encode_cursor last_values next_offset in
+                     let prev_cur = encode_cursor first_values prev_offset in
                      ( Some (`String next_cur),
-                       Some (`String prev_cur),
+                       (if cursor_offset = 0 && prev_offset = 0 then None
+                        else Some (`String prev_cur)),
                        match limit_eff with Some n -> `Int n | None -> `Null ))
                  | _ -> (None, None, match limit_eff with Some n -> `Int n | None -> `Null)
                in

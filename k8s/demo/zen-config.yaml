@@ -8,7 +8,12 @@ data:
       "nats_url": "tls://serviceradar-nats:4222",
       "stream_name": "events",
       "consumer_name": "zen-consumer",
-      "subjects": ["events.syslog", "events.snmp", "events.otel.logs"],
+      "subjects": [
+        "events.syslog",
+        "events.snmp",
+        "events.otel.logs",
+        "events.otel.metrics.raw"
+      ],
       "decision_groups": [
         {
           "name": "syslog",
@@ -34,6 +39,14 @@ data:
             {"order": 1, "key": "passthrough"}
           ],
           "format": "protobuf"
+        },
+        {
+          "name": "otel_metrics_raw",
+          "subjects": ["events.otel.metrics.raw"],
+          "rules": [
+            {"order": 1, "key": "passthrough"}
+          ],
+          "format": "otel_metrics"
         }
       ],
       "agent_id": "k8s-zen-consumer",

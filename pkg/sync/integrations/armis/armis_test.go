@@ -33,6 +33,7 @@ import (
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -261,43 +262,7 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-
-	expectedLen := len(expectedDevices)
-
-	for _, ed := range expectedDevices {
-		ip := extractFirstIP(ed.IPAddress)
-		if ip != "" {
-			expectedLen++
-		}
-	}
-
-	if _, ok := result["_sweep_results"]; ok {
-		expectedLen++
-	}
-
-	assert.Len(t, result, expectedLen)
-
-	for i := range expectedDevices {
-		expected := &expectedDevices[i]
-
-		ip := extractFirstIP(expected.IPAddress)
-		if ip == "" {
-			continue
-		}
-
-		key := fmt.Sprintf("test-agent/%s", ip)
-		deviceData, exists := result[key]
-
-		require.True(t, exists, "device with key %s should exist", key)
-
-		var device models.SweepResult
-
-		err = json.Unmarshal(deviceData, &device)
-		require.NoError(t, err)
-
-		assert.Equal(t, ip, device.IP)
-		assert.Equal(t, "test-poller", device.PollerID)
-	}
+	assert.Empty(t, result, "per-device KV cache is disabled")
 
 	assert.Len(t, events, len(expectedDevices))
 
@@ -365,18 +330,12 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	integration.KVWriter.(*MockKVWriter).
 		EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 
-	result, _, err := integration.Fetch(context.Background())
+	result, events, err := integration.Fetch(context.Background())
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-
-	assert.Len(t, result, 8)
-
-	for i := 1; i <= 4; i++ {
-		key := fmt.Sprintf("test-agent/192.168.1.%d", i)
-		_, exists := result[key]
-		assert.True(t, exists, "Device with key %s should exist in results", key)
-	}
+	assert.Empty(t, result)
+	require.Len(t, events, 4)
 }
 
 func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
@@ -603,10 +562,9 @@ func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
 	assert.Equal(t, 2, corporateEvents, "Should have 2 events from corporate query")
 	assert.Equal(t, 2, guestEvents, "Should have 2 events from guest query")
 
-	// Verify KV data contains entries for all devices
-	assert.Len(t, result, 8, "Should have 8 KV entries: 4 device data + 4 agent/IP entries")
+	assert.Empty(t, result, "Per-device KV entries removed; sweep config handled via KVWriter")
 
-	t.Log("Successfully verified that multiple queries are accumulated in memory and written as single sweep config")
+	t.Log("Successfully verified that multiple queries are accumulated in memory and written as chunked sweep config")
 }
 
 func createSuccessResponse(t *testing.T) *http.Response {
@@ -846,6 +804,22 @@ func (m *mockKVClient) PutMany(ctx context.Context, in *proto.PutManyRequest, op
 	return ret0, ret1
 }
 
+func (m *mockKVClient) Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error) {
+	m.ctrl.T.Helper()
+
+	varargs := []interface{}{ctx, in}
+
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+
+	ret := m.ctrl.Call(m, "Update", varargs...)
+	ret0, _ := ret[0].(*proto.UpdateResponse)
+	ret1, _ := ret[1].(error)
+
+	return ret0, ret1
+}
+
 func (mr *mockKVClientRecorder) PutMany(ctx, in interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 
@@ -862,6 +836,14 @@ func (mr *mockKVClientRecorder) Put(ctx, in interface{}, opts ...interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*mockKVClient)(nil).Put), varargs...)
 }
 
+func (mr *mockKVClientRecorder) Update(ctx, in interface{}, opts ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+
+	varargs := append([]interface{}{ctx, in}, opts...)
+
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*mockKVClient)(nil).Update), varargs...)
+}
+
 func (mr *mockKVClientRecorder) PutIfAbsent(ctx, in interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 
@@ -874,16 +856,20 @@ func (*mockKVClient) Get(_ context.Context, _ *proto.GetRequest, _ ...grpc.CallO
 	return nil, errNotImplemented
 }
 
+func (*mockKVClient) BatchGet(_ context.Context, _ *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+	return nil, errNotImplemented
+}
+
 func (*mockKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ...grpc.CallOption) (*proto.DeleteResponse, error) {
 	return nil, errNotImplemented
 }
 
 func (*mockKVClient) Watch(_ context.Context, _ *proto.WatchRequest, _ ...grpc.CallOption) (proto.KVService_WatchClient, error) {
-    return nil, errNotImplemented
+	return nil, errNotImplemented
 }
 
 func (*mockKVClient) Info(_ context.Context, _ *proto.InfoRequest, _ ...grpc.CallOption) (*proto.InfoResponse, error) {
-    return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
+	return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
 }
 
 func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
@@ -1023,8 +1009,8 @@ func TestProcessDevices(t *testing.T) {
 	}
 
 	devices := []Device{
-		{ID: 1, IPAddress: "192.168.1.1", MacAddress: "aa:bb", Name: "dev1", Tags: []string{"t1"}},
-		{ID: 2, IPAddress: "192.168.1.2,10.0.0.1", MacAddress: "cc:dd", Name: "dev2"},
+		{ID: 1, IPAddress: "192.168.1.1", MacAddress: "aa:bb:cc:dd:ee:ff", Name: "dev1", Tags: []string{"t1"}},
+		{ID: 2, IPAddress: "192.168.1.2,10.0.0.1", MacAddress: "cc:dd:ee:ff:00:11", Name: "dev2"},
 	}
 
 	deviceLabels := map[int]string{
@@ -1037,11 +1023,10 @@ func TestProcessDevices(t *testing.T) {
 		2: {Label: "test_query_2", SweepModes: []models.SweepMode{models.ModeICMP}},
 	}
 
-	data, ips, events, deviceTargets := integ.processDevices(devices, deviceLabels, deviceQueries)
+	data, ips, events, deviceTargets := integ.processDevices(context.Background(), devices, deviceLabels, deviceQueries)
 
-	require.Len(t, data, 4) // two device keys and two sweep device entries
-	assert.ElementsMatch(t, []string{"test-agent/192.168.1.1", "test-agent/192.168.1.2"}, keysWithPrefix(data, "test-agent/"))
-	assert.Empty(t, ips) // ips array is no longer populated since we use device_targets instead
+	require.Empty(t, data, "per-device KV payloads should be omitted")
+	assert.ElementsMatch(t, []string{"192.168.1.1/32", "192.168.1.2/32"}, ips)
 
 	// Verify events were created correctly
 	require.Len(t, events, 2, "should have one event per device")
@@ -1057,7 +1042,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.NotNil(t, events[0].Hostname)
 	assert.Equal(t, "dev1", *events[0].Hostname)
 	assert.NotNil(t, events[0].MAC)
-	assert.Equal(t, "aa:bb", *events[0].MAC)
+	assert.Equal(t, "AA:BB:CC:DD:EE:FF", *events[0].MAC)
 	assert.NotNil(t, events[0].Metadata)
 	assert.Equal(t, "armis", events[0].Metadata["integration_type"])
 	assert.Equal(t, "1", events[0].Metadata["integration_id"])
@@ -1075,7 +1060,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.NotNil(t, events[1].Hostname)
 	assert.Equal(t, "dev2", *events[1].Hostname)
 	assert.NotNil(t, events[1].MAC)
-	assert.Equal(t, "cc:dd", *events[1].MAC)
+	assert.Equal(t, "CC:DD:EE:FF:00:11", *events[1].MAC)
 	assert.NotNil(t, events[1].Metadata)
 	assert.Equal(t, "armis", events[1].Metadata["integration_type"])
 	assert.Equal(t, "2", events[1].Metadata["integration_id"])
@@ -1109,26 +1094,181 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "armis", target2.Source)
 	assert.Equal(t, "2", target2.Metadata["armis_device_id"])
 
-	raw := data["1"]
-
-	var withMeta DeviceWithMetadata
-
-	require.NoError(t, json.Unmarshal(raw, &withMeta))
-	assert.Equal(t, 1, withMeta.ID)
-	assert.Equal(t, "t1", withMeta.Metadata["tag"])
+	require.Empty(t, data)
 }
 
-// keysWithPrefix returns map keys that have the given prefix
-func keysWithPrefix(m map[string][]byte, prefix string) []string {
-	var out []string
+func TestDeviceAggregatorAggregatesByID(t *testing.T) {
+	agg := newDeviceAggregator()
 
-	for k := range m {
-		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
-			out = append(out, k)
-		}
+	tcpQuery := models.QueryConfig{Label: "tcp_devices", SweepModes: []models.SweepMode{models.ModeTCP}}
+	icmpQuery := models.QueryConfig{Label: "icmp_devices", SweepModes: []models.SweepMode{models.ModeICMP}}
+
+	device := Device{
+		ID:        42,
+		IPAddress: "10.0.0.1",
+		Name:      "example",
+		Tags:      []string{"tag1"},
 	}
 
-	return out
+	duplicate := Device{
+		ID:        42,
+		IPAddress: "10.0.0.2,10.0.0.1",
+		Name:      "example",
+		Tags:      []string{"tag2"},
+	}
+
+	agg.addDevice(device, tcpQuery)
+	agg.addDevice(duplicate, icmpQuery)
+
+	devices, labels, queries := agg.materialize()
+
+	require.Len(t, devices, 1)
+	assert.Equal(t, "10.0.0.1,10.0.0.2", devices[0].IPAddress)
+	assert.ElementsMatch(t, []string{"tag1", "tag2"}, devices[0].Tags)
+
+	label, ok := labels[42]
+	require.True(t, ok)
+	assert.Equal(t, "icmp_devices,tcp_devices", label)
+
+	queryCfg, ok := queries[42]
+	require.True(t, ok)
+	assert.ElementsMatch(t, []models.SweepMode{models.ModeTCP, models.ModeICMP}, queryCfg.SweepModes)
+}
+
+type fakeKVClient struct {
+	getFn      func(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
+	batchGetFn func(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error)
+}
+
+func (f *fakeKVClient) Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error) {
+	if f.getFn != nil {
+		return f.getFn(ctx, in, opts...)
+	}
+	return &proto.GetResponse{}, nil
+}
+
+func (f *fakeKVClient) BatchGet(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+	if f.batchGetFn != nil {
+		return f.batchGetFn(ctx, in, opts...)
+	}
+
+	resp := &proto.BatchGetResponse{Results: make([]*proto.BatchGetEntry, 0, len(in.GetKeys()))}
+	for _, key := range in.GetKeys() {
+		single, err := f.Get(ctx, &proto.GetRequest{Key: key}, opts...)
+		if err != nil {
+			return nil, err
+		}
+		resp.Results = append(resp.Results, &proto.BatchGetEntry{
+			Key:      key,
+			Value:    single.GetValue(),
+			Found:    single.GetFound(),
+			Revision: single.GetRevision(),
+		})
+	}
+
+	return resp, nil
+}
+
+func (*fakeKVClient) Put(context.Context, *proto.PutRequest, ...grpc.CallOption) (*proto.PutResponse, error) {
+	return &proto.PutResponse{}, nil
+}
+
+func (*fakeKVClient) PutIfAbsent(context.Context, *proto.PutRequest, ...grpc.CallOption) (*proto.PutResponse, error) {
+	return &proto.PutResponse{}, nil
+}
+
+func (*fakeKVClient) PutMany(context.Context, *proto.PutManyRequest, ...grpc.CallOption) (*proto.PutManyResponse, error) {
+	return &proto.PutManyResponse{}, nil
+}
+
+func (*fakeKVClient) Update(context.Context, *proto.UpdateRequest, ...grpc.CallOption) (*proto.UpdateResponse, error) {
+	return &proto.UpdateResponse{}, nil
+}
+
+func (*fakeKVClient) Delete(context.Context, *proto.DeleteRequest, ...grpc.CallOption) (*proto.DeleteResponse, error) {
+	return &proto.DeleteResponse{}, nil
+}
+
+func (*fakeKVClient) Watch(context.Context, *proto.WatchRequest, ...grpc.CallOption) (proto.KVService_WatchClient, error) {
+	return nil, nil
+}
+
+func (*fakeKVClient) Info(context.Context, *proto.InfoRequest, ...grpc.CallOption) (*proto.InfoResponse, error) {
+	return &proto.InfoResponse{}, nil
+}
+
+func TestProcessDevices_DoesNotHydrateCanonicalMetadata(t *testing.T) {
+	canonical := &identitymap.Record{CanonicalDeviceID: "canon-99", Partition: "prod", MetadataHash: "hash"}
+	payload, err := identitymap.MarshalRecord(canonical)
+	require.NoError(t, err)
+
+	fake := &fakeKVClient{
+		getFn: func(ctx context.Context, req *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
+			if strings.Contains(req.Key, "/armis-id/1") {
+				return &proto.GetResponse{Value: payload, Found: true, Revision: 11}, nil
+			}
+			return &proto.GetResponse{Found: false}, nil
+		},
+	}
+
+	integ := &ArmisIntegration{
+		Config:   &models.SourceConfig{AgentID: "agent", PollerID: "poller", Partition: "part"},
+		KVClient: fake,
+		Logger:   logger.NewTestLogger(),
+	}
+
+	devices := []Device{{ID: 1, IPAddress: "192.168.1.1", MacAddress: "aa:bb", Name: "dev1"}}
+	labels := map[int]string{1: "query"}
+	queries := map[int]models.QueryConfig{1: {Label: "query", SweepModes: []models.SweepMode{models.ModeTCP}}}
+
+	data, _, events, targets := integ.processDevices(context.Background(), devices, labels, queries)
+	require.Len(t, events, 1)
+	_, hasCanonicalID := events[0].Metadata["canonical_device_id"]
+	require.False(t, hasCanonicalID, "sync should no longer hydrate canonical metadata")
+	require.Len(t, targets, 1)
+	_, hasTargetCanonical := targets[0].Metadata["canonical_device_id"]
+	require.False(t, hasTargetCanonical, "device targets should not include canonical metadata from sync")
+
+	require.Empty(t, data)
+}
+
+func TestProcessDevices_SkipsCanonicalPrefetch(t *testing.T) {
+	fake := &fakeKVClient{}
+	var captured [][]string
+	fake.batchGetFn = func(ctx context.Context, req *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+		keys := append([]string(nil), req.GetKeys()...)
+		captured = append(captured, keys)
+		resp := &proto.BatchGetResponse{Results: make([]*proto.BatchGetEntry, len(keys))}
+		for i, key := range keys {
+			resp.Results[i] = &proto.BatchGetEntry{Key: key, Found: false}
+		}
+		return resp, nil
+	}
+
+	integ := &ArmisIntegration{
+		Config:   &models.SourceConfig{AgentID: "agent", PollerID: "poller", Partition: "part"},
+		KVClient: fake,
+		Logger:   logger.NewTestLogger(),
+	}
+
+	devices := []Device{
+		{ID: 1, IPAddress: "10.0.0.1,10.0.0.2", MacAddress: "aa:bb:cc:dd:ee:ff", Name: "dev1"},
+		{ID: 2, IPAddress: "10.0.1.1", MacAddress: "11:22:33:44:55:66", Name: "dev2"},
+	}
+
+	labels := map[int]string{
+		1: "query1",
+		2: "query2",
+	}
+
+	queries := map[int]models.QueryConfig{
+		1: {Label: "query1", SweepModes: []models.SweepMode{models.ModeTCP}},
+		2: {Label: "query2", SweepModes: []models.SweepMode{models.ModeICMP}},
+	}
+
+	_, _, events, _ := integ.processDevices(context.Background(), devices, labels, queries)
+	require.Len(t, events, 2)
+	require.Empty(t, captured, "sync should not issue KV BatchGet calls for canonical prefetch")
 }
 
 func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {

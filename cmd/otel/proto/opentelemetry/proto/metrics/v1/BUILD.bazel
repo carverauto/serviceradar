@@ -1,0 +1,41 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+proto_library(
+    name = "v1_proto",
+    srcs = ["metrics.proto"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cmd/otel/proto/opentelemetry/proto/common/v1:v1_proto",
+        "//cmd/otel/proto/opentelemetry/proto/resource/v1:v1_proto",
+    ],
+    strip_import_prefix = "/cmd/otel/proto",
+)
+
+filegroup(
+    name = "proto_src",
+    srcs = ["metrics.proto"],
+    visibility = ["//visibility:public"],
+)
+
+go_proto_library(
+    name = "v1_go_proto",
+    compilers = [
+        "@io_bazel_rules_go//proto:go_proto",
+    ],
+    importpath = "go.opentelemetry.io/proto/otlp/metrics/v1",
+    proto = ":v1_proto",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cmd/otel/proto/opentelemetry/proto/common/v1:v1_go_proto",
+        "//cmd/otel/proto/opentelemetry/proto/resource/v1:v1_go_proto",
+    ],
+)
+
+go_library(
+    name = "metrics",
+    embed = [":v1_go_proto"],
+    importpath = "go.opentelemetry.io/proto/otlp/metrics/v1",
+    visibility = ["//visibility:public"],
+)

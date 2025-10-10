@@ -478,6 +478,7 @@ go_deps.from_file(go_mod = "//:go.mod")
 use_repo(
     go_deps,
     "com_github_atotto_clipboard",
+    "com_github_cenkalti_backoff_v5",
     "com_github_charmbracelet_bubbles",
     "com_github_charmbracelet_bubbletea",
     "com_github_charmbracelet_lipgloss",
@@ -498,16 +499,20 @@ use_repo(
     "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",
     "io_opentelemetry_go_otel",
     "io_opentelemetry_go_otel_exporters_otlp_otlplog_otlploggrpc",
+    "io_opentelemetry_go_otel_exporters_otlp_otlpmetric_otlpmetricgrpc",
     "io_opentelemetry_go_otel_exporters_otlp_otlptrace_otlptracegrpc",
     "io_opentelemetry_go_otel_log",
+    "io_opentelemetry_go_otel_metric",
     "io_opentelemetry_go_otel_sdk",
     "io_opentelemetry_go_otel_sdk_log",
+    "io_opentelemetry_go_otel_sdk_metric",
     "io_opentelemetry_go_otel_trace",
     "io_opentelemetry_go_proto_otlp",
     "org_golang_google_grpc",
     "org_golang_google_protobuf",
     "org_golang_x_crypto",
     "org_golang_x_net",
+    "org_golang_x_sync",
     "org_golang_x_sys",
     "org_uber_go_mock",
 )
@@ -814,6 +819,14 @@ http_file(
     sha256 = "555948e6b67d4bddc213673843a63bbd3d30548133bdff8aff9e66988285ae7e",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/ncurses-terminfo-base-6.4_p20240420-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_glibc_apk",
+    sha256 = "276f43ce9b2d5878422bca94ca94e882a7eb263abe171d233ac037201ffcaf06",
+    urls = [
+        "https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.35-r1/glibc-2.35-r1.apk",
     ],
 )
 
