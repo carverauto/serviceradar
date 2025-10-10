@@ -46,12 +46,14 @@ single_version_override(
 host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
 use_repo(host_platform_ext, "host_platform")
 
+# --- Java Toolchain  ----------------------------------
+
 java = use_extension("@rules_java//java:extensions.bzl", "toolchains")
 use_repo(
     java,
     "remotejdk11_linux",
-     "remotejdk11_macos",
-     "remotejdk11_macos_aarch64",
+    "remotejdk11_macos",
+    "remotejdk11_macos_aarch64",
     "remote_java_tools",
     "remote_java_tools_darwin_arm64",
     "remote_java_tools_darwin_x86_64",
@@ -65,12 +67,12 @@ register_toolchains(
     "@remote_java_tools_darwin_x86_64//:all",
     "@remote_java_tools_darwin_arm64//:all",
     "@remote_java_tools_windows//:all",
-    "@local_jdk//:all",
     "@remotejdk11_linux//:all",
     "@remotejdk11_macos//:all",
     "@remotejdk11_macos_aarch64//:all",
 )
 
+# --- RPM & package Toolchain  ----------------------------------
 
 find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
 use_repo(find_rpm, "rules_pkg_rpmbuild")
