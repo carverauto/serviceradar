@@ -22,7 +22,7 @@ maybe_write_remote_rc() {
 
 maybe_write_remote_rc
 
-BAZEL_BINARY="${BAZEL_BINARY:-${REPO_ROOT}/tools/bazel/bazel}"
+BAZEL_BINARY="${BAZEL_BINARY:-${REPO_ROOT}/build/bazel/bazel}"
 if [[ ! -x "${BAZEL_BINARY}" ]]; then
     BAZEL_BINARY="bazel"
 fi
