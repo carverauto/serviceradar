@@ -10,8 +10,18 @@ pub mod setup;
 pub mod tls;
 
 pub mod opentelemetry {
+    #![allow(
+        dead_code,
+        clippy::doc_overindented_list_items,
+        clippy::doc_lazy_continuation
+    )]
     pub mod proto {
         pub mod collector {
+            pub mod metrics {
+                pub mod v1 {
+                    tonic::include_proto!("opentelemetry.proto.collector.metrics.v1");
+                }
+            }
             pub mod trace {
                 pub mod v1 {
                     tonic::include_proto!("opentelemetry.proto.collector.trace.v1");
@@ -33,6 +43,11 @@ pub mod opentelemetry {
                 tonic::include_proto!("opentelemetry.proto.logs.v1");
             }
         }
+        pub mod metrics {
+            pub mod v1 {
+                tonic::include_proto!("opentelemetry.proto.metrics.v1");
+            }
+        }
         pub mod resource {
             pub mod v1 {
                 tonic::include_proto!("opentelemetry.proto.resource.v1");
@@ -51,10 +66,16 @@ use opentelemetry::proto::collector::logs::v1::logs_service_server::LogsService;
 use opentelemetry::proto::collector::logs::v1::{
     ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse,
 };
+use opentelemetry::proto::collector::metrics::v1::metrics_service_server::MetricsService;
+use opentelemetry::proto::collector::metrics::v1::{
+    ExportMetricsServiceRequest, ExportMetricsServiceResponse,
+};
 use opentelemetry::proto::collector::trace::v1::trace_service_server::TraceService;
 use opentelemetry::proto::collector::trace::v1::{
     ExportTraceServiceRequest, ExportTraceServiceResponse,
 };
+use opentelemetry::proto::metrics::v1::Metric;
+use opentelemetry::proto::metrics::v1::metric::Data as MetricData;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -367,6 +388,90 @@ impl TraceService for ServiceRadarCollector {
 }
 
 #[tonic::async_trait]
+impl MetricsService for ServiceRadarCollector {
+    async fn export(
+        &self,
+        request: Request<ExportMetricsServiceRequest>,
+    ) -> Result<Response<ExportMetricsServiceResponse>, Status> {
+        let metrics_data = request.into_inner();
+
+        let resource_metric_count = metrics_data.resource_metrics.len();
+        let mut scope_metric_count = 0usize;
+        let mut metric_count = 0usize;
+        let mut data_point_count = 0usize;
+
+        for resource_metrics in &metrics_data.resource_metrics {
+            scope_metric_count += resource_metrics.scope_metrics.len();
+            for scope_metrics in &resource_metrics.scope_metrics {
+                metric_count += scope_metrics.metrics.len();
+                for metric in &scope_metrics.metrics {
+                    data_point_count += count_metric_data_points(metric);
+                }
+            }
+        }
+
+        info!(
+            "Received OTEL metrics export request: {} resource sets, {} scope sets, {} metrics, {} data points",
+            resource_metric_count, scope_metric_count, metric_count, data_point_count
+        );
+
+        if log::log_enabled!(log::Level::Debug) {
+            for (index, resource_metrics) in metrics_data.resource_metrics.iter().enumerate() {
+                let service_name = resource_metrics
+                    .resource
+                    .as_ref()
+                    .and_then(|resource| {
+                        resource
+                            .attributes
+                            .iter()
+                            .find(|kv| kv.key == "service.name")
+                            .and_then(|kv| kv.value.as_ref())
+                            .and_then(|value| {
+                                if let Some(
+                                    opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                                        name,
+                                    ),
+                                ) = &value.value
+                                {
+                                    Some(name.as_str())
+                                } else {
+                                    None
+                                }
+                            })
+                    })
+                    .unwrap_or("unknown_service");
+
+                debug!(
+                    "Resource metrics {}: service='{}', scope_metrics={}, total_metrics={}",
+                    index,
+                    service_name,
+                    resource_metrics.scope_metrics.len(),
+                    resource_metrics
+                        .scope_metrics
+                        .iter()
+                        .map(|sm| sm.metrics.len())
+                        .sum::<usize>()
+                );
+            }
+        }
+
+        if let Some(nats) = &self.nats_output {
+            debug!("Forwarding raw OTLP metrics to NATS");
+            let nats_output = nats.lock().await;
+            if let Err(e) = nats_output.publish_raw_metrics(&metrics_data).await {
+                error!("Failed to publish raw OTLP metrics to NATS: {e}");
+            }
+        } else {
+            debug!("No NATS output configured, metrics received but not forwarded");
+        }
+
+        Ok(Response::new(ExportMetricsServiceResponse {
+            partial_success: None,
+        }))
+    }
+}
+
+#[tonic::async_trait]
 impl LogsService for ServiceRadarCollector {
     async fn export(
         &self,
@@ -441,6 +546,19 @@ impl LogsService for ServiceRadarCollector {
                 error_message: String::new(),
             }),
         }))
+    }
+}
+
+fn count_metric_data_points(metric: &Metric) -> usize {
+    match metric.data {
+        Some(ref data) => match data {
+            MetricData::Gauge(gauge) => gauge.data_points.len(),
+            MetricData::Sum(sum) => sum.data_points.len(),
+            MetricData::Histogram(histogram) => histogram.data_points.len(),
+            MetricData::ExponentialHistogram(histogram) => histogram.data_points.len(),
+            MetricData::Summary(summary) => summary.data_points.len(),
+        },
+        None => 0,
     }
 }
 
@@ -611,6 +729,17 @@ mod tests {
         let response = TraceService::export(&collector, request).await;
 
         // Should still succeed - collector accepts any valid protobuf
+        assert!(response.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_metrics_export_success() {
+        let collector = ServiceRadarCollector::new(None).await.unwrap();
+        let request = tonic::Request::new(ExportMetricsServiceRequest {
+            resource_metrics: vec![],
+        });
+
+        let response = MetricsService::export(&collector, request).await;
         assert!(response.is_ok());
     }
 

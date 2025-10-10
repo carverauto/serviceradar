@@ -189,6 +189,44 @@ tar -czf "$@" -C "$${TMP}/rootfs" .
 )
 
 genrule(
+    name = "apk_glibc_rootfs_amd64",
+    srcs = ["@alpine_glibc_apk//file"],
+    outs = ["apk_glibc_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_glibc_apk//file)
+TMP=$(@D)/glibc_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+# Ensure ld-linux is reachable from /lib64 for glibc binaries.
+mkdir -p "$${TMP}/rootfs/lib64"
+if [ -f "$${TMP}/rootfs/lib/ld-linux-x86-64.so.2" ] && [ ! -e "$${TMP}/rootfs/lib64/ld-linux-x86-64.so.2" ]; then
+  ln -s ../lib/ld-linux-x86-64.so.2 "$${TMP}/rootfs/lib64/ld-linux-x86-64.so.2"
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
     name = "apk_libncursesw_rootfs_amd64",
     srcs = ["@alpine_libncursesw_apk//file"],
     outs = ["apk_libncursesw_rootfs_amd64.tar"],
@@ -1088,19 +1126,35 @@ pkg_tar(
         "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
         "//docker/compose:tools-motd.txt": "etc/motd",
+        "//docker/compose:proton-wrapper.sh": "usr/local/bin/proton",
+        "//docker/compose:proton-client.sh": "usr/local/bin/proton-client",
+        "//docker/compose:proton-client-config.xml": "etc/serviceradar/proton-client/config.xml",
+        "//docker/compose:proton-info.sh": "usr/local/bin/proton-info",
+        "//docker/compose:proton-sql.sh": "usr/local/bin/proton-sql",
+        "//docker/compose:proton-cli.sh": "usr/local/bin/proton-cli",
         "@natscli_linux_amd64//:nats": "usr/local/bin/nats",
+        "@timeplus_proton_linux_x86_64//file": "usr/local/bin/proton.bin",
     },
     modes = {
         "usr/local/bin/serviceradar-cli": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
         "etc/profile.d/serviceradar-tools.sh": "0644",
         "etc/motd": "0644",
+        "usr/local/bin/proton": "0755",
+        "usr/local/bin/proton-client": "0755",
+        "usr/local/bin/proton-info": "0755",
+        "usr/local/bin/proton-sql": "0755",
+        "usr/local/bin/proton-cli": "0755",
+        "etc/serviceradar/proton-client/config.xml": "0644",
+        "usr/local/bin/proton.bin": "0755",
         "usr/local/bin/nats": "0755",
     },
     empty_dirs = [
         "etc/serviceradar/certs",
         "etc/serviceradar/nats",
+        "etc/serviceradar/proton-client",
         "root/.config/nats/context",
+        "root/.config/proton-client",
     ],
     package_dir = "/",
 )
@@ -1114,6 +1168,7 @@ oci_image(
         ":apk_readline_rootfs_amd64",
         ":apk_libncursesw_rootfs_amd64",
         ":apk_ncurses_terminfo_base_rootfs_amd64",
+        ":apk_glibc_rootfs_amd64",
         ":tools_layer_amd64",
         ":common_tools_amd64",
     ],

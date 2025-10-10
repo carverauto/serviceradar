@@ -165,7 +165,20 @@ data:
           "url": "tls://serviceradar-nats:4222",
           "max_reconnects": 10,
           "reconnect_wait": "2s",
-          "drain_timeout": "30s"
+          "drain_timeout": "30s",
+          "security": {
+            "mode": "mtls",
+            "tls": {
+              "cert_file": "/etc/serviceradar/certs/core.pem",
+              "key_file": "/etc/serviceradar/certs/core-key.pem",
+              "ca_file": "/etc/serviceradar/certs/root.pem"
+            }
+          }
+        },
+        "events": {
+          "enabled": true,
+          "stream_name": "events",
+          "subjects": ["events.>", "snmp.traps"]
         },
         "snmp": {
           "enabled": false,
@@ -403,7 +416,12 @@ data:
       "nats_url": "tls://serviceradar-nats:4222",
       "stream_name": "events",
       "consumer_name": "zen-consumer",
-      "subjects": ["events.syslog", "events.snmp", "events.otel.logs"],
+      "subjects": [
+        "events.syslog",
+        "events.snmp",
+        "events.otel.logs",
+        "events.otel.metrics.raw"
+      ],
       "decision_groups": [
         {
           "name": "syslog",
@@ -429,6 +447,14 @@ data:
             {"order": 1, "key": "passthrough"}
           ],
           "format": "protobuf"
+        },
+        {
+          "name": "otel_metrics_raw",
+          "subjects": ["events.otel.metrics.raw"],
+          "rules": [
+            {"order": 1, "key": "passthrough"}
+          ],
+          "format": "otel_metrics"
         }
       ],
       "agent_id": "k8s-zen-consumer",
@@ -903,7 +929,7 @@ data:
       # Maximum storage size
       max_memory_store: 1G
       # Maximum disk storage
-      max_file_store: 10G
+      max_file_store: 20G
     }
 
     # Enable mTLS for secure communication
@@ -1261,7 +1287,8 @@ data:
         "roles": [
           {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
           {"identity": "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
-          {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "admin"},
+          {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
+          {"identity": "CN=serviceradar-sync,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
           {"identity": "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
         ]
       },

@@ -20,6 +20,7 @@ mod kv_loader;
 mod message_processor;
 mod nats;
 mod otel_logs;
+mod otel_metrics;
 mod rule_watcher;
 
 use config::Config;

@@ -77,7 +77,7 @@ func LoadAndOverlayOrExit(ctx context.Context, kvMgr *KVManager, cfgLoader *Conf
 	} else {
 		err = cfgLoader.LoadAndValidate(ctx, configPath, cfg)
 	}
-	
+
 	if err != nil {
 		if kvMgr != nil {
 			_ = kvMgr.Close()
@@ -132,9 +132,22 @@ func (m *KVManager) Close() error {
 
 // createKVClientFromEnv creates a KV client from environment variables
 func createKVClientFromEnv(ctx context.Context, role models.ServiceRole) *kvgrpc.Client {
+	client, closer, err := NewKVServiceClientFromEnv(ctx, role)
+	if err != nil || client == nil {
+		if closer != nil {
+			_ = closer()
+		}
+		return nil
+	}
+	return kvgrpc.New(client, closer)
+}
+
+// NewKVServiceClientFromEnv dials the remote KV service using environment variables suitable for the given role.
+// Returns nil without error when the environment is not configured for KV access.
+func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (proto.KVServiceClient, func() error, error) {
 	addr := os.Getenv("KV_ADDRESS")
 	if addr == "" {
-		return nil
+		return nil, nil, nil
 	}
 
 	secMode := os.Getenv("KV_SEC_MODE")
@@ -144,7 +157,7 @@ func createKVClientFromEnv(ctx context.Context, role models.ServiceRole) *kvgrpc
 	serverName := os.Getenv("KV_SERVER_NAME")
 
 	if secMode != "mtls" || cert == "" || key == "" || ca == "" {
-		return nil
+		return nil, nil, nil
 	}
 
 	sec := &models.SecurityConfig{
@@ -158,9 +171,9 @@ func createKVClientFromEnv(ctx context.Context, role models.ServiceRole) *kvgrpc
 		Role:       role,
 	}
 
-	provider, err := coregrpc.NewSecurityProvider(ctx, sec, nil)
+	provider, err := coregrpc.NewSecurityProvider(ctx, sec, logger.NewTestLogger())
 	if err != nil {
-		return nil
+		return nil, nil, err
 	}
 
 	client, err := coregrpc.NewClient(ctx, coregrpc.ClientConfig{
@@ -169,12 +182,12 @@ func createKVClientFromEnv(ctx context.Context, role models.ServiceRole) *kvgrpc
 	})
 	if err != nil {
 		_ = provider.Close()
-		return nil
+		return nil, nil, err
 	}
 
 	kvClient := proto.NewKVServiceClient(client.GetConnection())
-	return kvgrpc.New(kvClient, func() error {
-		_ = provider.Close()
+	closer := func() error {
 		return client.Close()
-	})
+	}
+	return kvClient, closer, nil
 }
