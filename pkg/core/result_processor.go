@@ -248,6 +248,10 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 				snapshot.Metadata = device.Metadata.Value
 			}
 
+			if !snapshotHasStrongIdentity(snapshot) {
+				continue
+			}
+
 			result[ip] = snapshot
 			if s.canonicalCache != nil {
 				s.canonicalCache.store(ip, snapshot)
@@ -256,6 +260,25 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 	}
 
 	return result
+}
+
+func snapshotHasStrongIdentity(snapshot canonicalSnapshot) bool {
+	if strings.TrimSpace(snapshot.MAC) != "" {
+		return true
+	}
+	if len(snapshot.Metadata) == 0 {
+		return false
+	}
+	if strings.TrimSpace(snapshot.Metadata["armis_device_id"]) != "" {
+		return true
+	}
+	if strings.TrimSpace(snapshot.Metadata["integration_id"]) != "" {
+		return true
+	}
+	if strings.TrimSpace(snapshot.Metadata["netbox_device_id"]) != "" {
+		return true
+	}
+	return false
 }
 
 func (s *Server) applyCanonicalSnapshotToSweep(update *models.DeviceUpdate, snapshot canonicalSnapshot) {
