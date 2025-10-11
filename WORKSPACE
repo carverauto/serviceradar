@@ -2,6 +2,8 @@ workspace(name = "serviceradar")
 
 # All external dependencies are managed through MODULE.bazel (Bzlmod).
 # Avoid declaring http_archive/git_repository here unless absolutely necessary.
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
 http_archive(
     name = "io_buildbuddy_buildbuddy_toolchain",
     integrity = "sha256-VtJjefgP2Vq5S6DiGYczsupNkosybmSBGWwcLUAYz8c=",

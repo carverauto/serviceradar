@@ -84,6 +84,9 @@ register_toolchains("@rules_pkg_rpmbuild//:all")
 cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
 use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
 
+cc_compat_ext = use_extension("@rules_cc//cc:extensions.bzl", "compatibility_proxy")
+use_repo(cc_compat_ext, "cc_compatibility_proxy")
+
 archive_override(
     module_name = "toolchains_buildbuddy",
     integrity = "sha256-e6gcgLHmJHvxCNNbCSQ4OrX8FbGn8TiS7XSVphM1ZU8=",
