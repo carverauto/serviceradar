@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.serviceradar.sysmonvm</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/libexec/serviceradar/serviceradar-sysmon-vm</string>
+        <string>--config</string>
+        <string>/usr/local/etc/serviceradar/sysmon-vm.json</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SERVICERADAR_HOSTFREQ_PATH</key>
+        <string>/usr/local/libexec/serviceradar/hostfreq</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/serviceradar/sysmon-vm.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/serviceradar/sysmon-vm.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

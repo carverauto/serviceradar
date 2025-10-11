@@ -1,0 +1,4 @@
+{
+  "listen_addr": "0.0.0.0:50110",
+  "sample_interval": "250ms"
+}

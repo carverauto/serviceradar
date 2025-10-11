@@ -58,6 +58,8 @@ bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license"
 bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
 bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
 bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
+bazel_dep(name = "rules_apple", version = "3.18.0")
+bazel_dep(name = "apple_support", version = "1.23.0")
 
 find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
 use_repo(find_rpm, "rules_pkg_rpmbuild")
@@ -72,6 +74,9 @@ bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
 
 cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
 use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
+
+apple = use_extension("@rules_apple//apple:extensions.bzl", "apple")
+apple.toolchain()
 
 archive_override(
     module_name = "toolchains_buildbuddy",
@@ -490,6 +495,7 @@ use_repo(
     "com_github_markbates_goth",
     "com_github_nats_io_nats_go",
     "com_github_rs_zerolog",
+    "com_github_shirou_gopsutil_v3",
     "com_github_spiffe_go_spiffe_v2",
     "com_github_stretchr_testify",
     "com_github_swaggo_http_swagger",
