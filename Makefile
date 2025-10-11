@@ -73,6 +73,29 @@ COLOR_CYAN = \033[36m
 
 HOST_OS := $(shell uname -s)
 
+ifeq ($(HOST_OS),Darwin)
+HOSTFREQ_OBJ := pkg/cpufreq/hostfreq_darwin_embed.o
+HOSTFREQ_SRC := pkg/cpufreq/hostfreq_darwin.mm
+HOSTFREQ_HDR := pkg/cpufreq/hostfreq_bridge.h
+
+$(HOSTFREQ_OBJ): $(HOSTFREQ_SRC) $(HOSTFREQ_HDR)
+	@echo "$(COLOR_BOLD)Compiling hostfreq Objective-C++ bridge$(COLOR_RESET)"
+	@xcrun clang++ -arch arm64 -std=c++20 -fobjc-arc -x objective-c++ -I pkg/cpufreq -c $(HOSTFREQ_SRC) -o $@
+
+.PHONY: hostfreq-embed-object
+hostfreq-embed-object: $(HOSTFREQ_OBJ)
+
+TEST_PREREQS := hostfreq-embed-object
+GO_TEST_TAGS := -tags=hostfreq_embed
+else
+.PHONY: hostfreq-embed-object
+hostfreq-embed-object:
+	@true
+
+TEST_PREREQS :=
+GO_TEST_TAGS :=
+endif
+
 .PHONY: help
 help: ## Show this help message
 	@echo "$(COLOR_BOLD)Available targets:$(COLOR_RESET)"
@@ -115,15 +138,10 @@ sysmonvm-build-checker: ## Cross-compile the sysmon-vm checker for Linux/arm64 i
 	@$(if $(WORKSPACE),scripts/sysmonvm/build-checker.sh --workspace "$(WORKSPACE)",scripts/sysmonvm/build-checker.sh)
 
 .PHONY: sysmonvm-build-checker-darwin
-sysmonvm-build-checker-darwin: ## Build the sysmon-vm checker for macOS (arm64) into dist/sysmonvm/mac-host/bin
+sysmonvm-build-checker-darwin: hostfreq-embed-object ## Build the sysmon-vm checker for macOS (arm64) into dist/sysmonvm/mac-host/bin
 	@OUTDIR=$(abspath $(if $(WORKSPACE),$(WORKSPACE),dist/sysmonvm)/mac-host/bin); \
-	OBJ=$(abspath pkg/cpufreq/hostfreq_darwin_embed.o); \
-	SRC=pkg/cpufreq/hostfreq_darwin.mm; \
 	mkdir -p "$$OUTDIR"; \
-	rm -f "$$OBJ"; \
-	xcrun clang++ -std=c++20 -fobjc-arc -x objective-c++ -I pkg/cpufreq -c "$$SRC" -o "$$OBJ"; \
-	if ! GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags hostfreq_embed -trimpath -ldflags "-s -w" -o "$$OUTDIR/serviceradar-sysmon-vm" ./cmd/checkers/sysmon-vm; then rm -f "$$OBJ"; exit 1; fi; \
-	rm -f "$$OBJ"
+	if ! GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags hostfreq_embed -trimpath -ldflags "-s -w" -o "$$OUTDIR/serviceradar-sysmon-vm" ./cmd/checkers/sysmon-vm; then exit 1; fi
 
 .PHONY: sysmonvm-host-install
 sysmonvm-host-install: ## Install the macOS sysmon-vm checker launchd service (run with sudo)
@@ -198,11 +216,11 @@ lint-ocaml-fix: ## Auto-fix OCaml formatting issues
 	@echo "✅ OCaml formatting issues fixed!"
 
 .PHONY: test
-test: ## Run all tests with coverage
+test: $(TEST_PREREQS) ## Run all tests with coverage
 	@echo "$(COLOR_BOLD)Running Go short tests$(COLOR_RESET)"
-	@$(GO) test -timeout=3s -race -count=10 -failfast -shuffle=on -short ./... -coverprofile=./cover.short.profile -covermode=atomic -coverpkg=./...
+	@$(GO) test $(GO_TEST_TAGS) -timeout=3s -race -count=10 -failfast -shuffle=on -short ./... -coverprofile=./cover.short.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Go long tests$(COLOR_RESET)"
-	@$(GO) test -timeout=10s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
+	@$(GO) test $(GO_TEST_TAGS) -timeout=10s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd cmd/checkers/sysmon && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
