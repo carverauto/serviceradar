@@ -18,6 +18,8 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
+bazel_dep(name = "apple_support", version = "1.23.0", repo_name = "build_bazel_apple_support")
+bazel_dep(name = "rules_apple", version = "3.17.0", repo_name = "build_bazel_rules_apple")
 bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
 bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
 bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
@@ -35,14 +37,33 @@ bazel_dep(
     version = "0.0.1",
     repo_name = "io_buildbuddy_buildbuddy_toolchain",
 )
+
 single_version_override(
     module_name = "rules_java",
     patch_strip = 0,
     patches = ["//third_party/patches/rules_java:openbsd_jni_header.patch"],
 )
 
+single_version_override(
+    module_name = "rules_go",
+    patch_strip = 0,
+    patches = ["//third_party/patches/rules_go:skip_cross_sdks.patch"],
+)
+
 host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
 use_repo(host_platform_ext, "host_platform")
+
+apple_cc_config_ext = use_extension(
+    "@build_bazel_apple_support//crosstool:setup.bzl",
+    "apple_cc_configure_extension",
+)
+use_repo(
+    apple_cc_config_ext,
+    "local_config_apple_cc",
+    "local_config_apple_cc_toolchains",
+)
+
+register_toolchains("@local_config_apple_cc_toolchains//:all")
 
 # --- Java Toolchain  ----------------------------------
 
@@ -124,6 +145,7 @@ use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
 # --- RBE Toolchain and platforms  ----------------------------------
 register_toolchains("//build/toolchains:rbe_cc_toolchain")
+
 register_execution_platforms(
     "//build/rbe:rbe_platform",
     "//build/rbe:ocaml_rbe_ocamlopt",
@@ -436,10 +458,10 @@ use_repo(
 )
 
 use_repo(opam_dev, "opam.alcotest")
+
 register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")
+
 register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")
-
-
 
 # --- Go toolchain & dependency management ----------------------------------
 
@@ -451,7 +473,26 @@ go_sdk.from_file(
     name = "go_sdk",
     go_mod = "//:go.mod",
 )
-use_repo(go_sdk, "go_sdk")
+go_sdk.host(
+    name = "go_host_sdk",
+)
+go_sdk.download(
+    name = "go_linux_amd64_sdk",
+    version = "1.25.0",
+    goos = "linux",
+    goarch = "amd64",
+)
+use_repo(
+    go_sdk,
+    "go_sdk",
+    "go_host_sdk",
+    "go_linux_amd64_sdk",
+    "go_toolchains",
+)
+register_toolchains(
+    "@go_sdk//:all",
+    "@go_host_sdk//:all",
+)
 
 go_deps = use_extension(
     "@bazel_gazelle//:extensions.bzl",

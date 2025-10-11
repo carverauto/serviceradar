@@ -3,8 +3,8 @@
 package cpufreq
 
 /*
-#cgo darwin CFLAGS: -fobjc-arc
-#cgo darwin CXXFLAGS: -std=c++20 -fobjc-arc -x objective-c++
+#cgo darwin CFLAGS: -fobjc-arc -I${SRCDIR}
+#cgo darwin CXXFLAGS: -std=c++20 -x objective-c++ -fobjc-arc -I${SRCDIR}
 #cgo darwin LDFLAGS: -framework Foundation -framework IOKit -framework CoreFoundation -lIOReport
 #include "hostfreq_bridge.h"
 */

@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_cc//cc:defs.bzl", "objc_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -8,6 +9,7 @@ go_library(
         "collector.go",
         "hostfreq_darwin.go",
         "hostfreq_other.go",
+        "hostfreq_bridge.h",
         "perf_linux.go",
         "perf_other.go",
     ],
@@ -18,30 +20,21 @@ go_library(
         "@org_golang_x_sys//unix:go_default_library",
     ],
     cdeps = select({
-        "@platforms//os:macos": [":hostfreq_darwin_cc"],
+        "@platforms//os:macos": [":hostfreq_darwin_objc"],
         "//conditions:default": [],
     }),
 )
 
-cc_library(
-    name = "hostfreq_darwin_cc",
-    srcs = ["hostfreq_darwin.cc"],
-    hdrs = [
-        "hostfreq_bridge.h",
-        "hostfreq_darwin.mm",
+objc_library(
+    name = "hostfreq_darwin_objc",
+    srcs = ["hostfreq_darwin.mm"],
+    hdrs = ["hostfreq_bridge.h"],
+    sdk_frameworks = [
+        "CoreFoundation",
+        "Foundation",
+        "IOKit",
     ],
-    copts = [
-        "-std=c++20",
-        "-fobjc-arc",
-        "-xobjective-c++",
-    ],
-    linkopts = [
-        "-framework", "Foundation",
-        "-framework", "IOKit",
-        "-framework", "CoreFoundation",
-        "-lIOReport",
-    ],
-    target_compatible_with = ["@platforms//os:macos"],
+    deps = [],
     visibility = ["//visibility:private"],
 )
 

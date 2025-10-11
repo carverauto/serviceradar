@@ -15,13 +15,12 @@ build --show_timestamps
 build --action_env=OPENSSL_NO_PKG_CONFIG=1
 build --java_runtime_version=local_jdk
 build --tool_java_runtime_version=local_jdk
-build --@io_bazel_rules_go//go/config:pure
+build --@io_bazel_rules_go//go/toolchain:sdk_name=go_sdk
 
 
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
 test --test_output=errors
 test --action_env=OPENSSL_NO_PKG_CONFIG=1
-test --@io_bazel_rules_go//go/config:pure
 test --flaky_test_attempts=2
 
 # Allow developers to extend configuration locally (ignored in version control).
@@ -58,6 +57,7 @@ build:remote --host_platform=//build/rbe:rbe_platform
 build:remote --platforms=//build/rbe:rbe_platform
 build:remote --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:remote --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
+build:remote --extra_toolchains=@go_toolchains//:_0000_go_linux_amd64_sdk_go_linux_amd64
 build:remote --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:remote --copt=-Wno-use-after-free
 build:remote --java_language_version=11
@@ -69,11 +69,14 @@ build:remote --incompatible_strict_action_env
 build:remote --remote_timeout=10m
 build:remote --remote_download_minimal
 build:remote --remote_upload_local_results
+build:remote --@io_bazel_rules_go//go/toolchain:sdk_name=go_linux_amd64_sdk
 build:remote --jobs=100
 build:remote --strategy=ExpandTemplate=local
 build:remote --strategy=NpmPackageExtract=local
 build:remote --strategy=CopyDirectory=local
 test:remote --copt=-Wno-use-after-free
+test:remote --extra_toolchains=@go_toolchains//:_0000_go_linux_amd64_sdk_go_linux_amd64
+test:remote --@io_bazel_rules_go//go/toolchain:sdk_name=go_linux_amd64_sdk
 
 # Enable clang-tidy diagnostics via --config=clang-tidy
 build:clang-tidy --features=clang_tidy
@@ -91,20 +94,21 @@ test:clang-tidy --features=clang_tidy
 build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
 
 build:ci --config=remote
-build:darwin_pkg --platforms=//platforms:darwin_exec
-build:darwin_pkg --host_platform=//platforms:darwin_exec
-build:darwin_pkg --extra_execution_platforms=//platforms:darwin_exec
+build:darwin_pkg --platforms=//build/platforms:darwin_exec
+build:darwin_pkg --host_platform=//build/platforms:darwin_exec
+build:darwin_pkg --extra_execution_platforms=//build/platforms:darwin_exec
 build:darwin_pkg --action_env=DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 build:darwin_pkg --action_env=PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/usr/local/go/bin
+build:darwin_pkg --action_env=PKG_APP_SIGN_IDENTITY
 build:darwin_pkg --action_env=PKG_SIGN_IDENTITY
 build:darwin_pkg --action_env=PKG_NOTARIZE_PROFILE
 build:darwin_pkg --action_env=PKG_VERSION
 build:darwin_pkg --action_env=PKG_IDENTIFIER
-build:darwin_pkg --action_env=PKG_DISABLE_TIMESTAMP=1
 build:darwin_pkg --action_env=XCODE_VERSION_OVERRIDE=26.0
 build:darwin_pkg --remote_default_exec_properties=OSFamily=MacOS
 build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
 build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
-build:darwin_pkg --noremote
-build:darwin_pkg --noremote_accept_cached
+build:darwin_pkg --remote_executor=
+build:darwin_pkg --remote_cache=
+build:darwin_pkg --remote_upload_local_results=false

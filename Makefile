@@ -117,8 +117,13 @@ sysmonvm-build-checker: ## Cross-compile the sysmon-vm checker for Linux/arm64 i
 .PHONY: sysmonvm-build-checker-darwin
 sysmonvm-build-checker-darwin: ## Build the sysmon-vm checker for macOS (arm64) into dist/sysmonvm/mac-host/bin
 	@OUTDIR=$(abspath $(if $(WORKSPACE),$(WORKSPACE),dist/sysmonvm)/mac-host/bin); \
+	OBJ=$(abspath pkg/cpufreq/hostfreq_darwin_embed.o); \
+	SRC=pkg/cpufreq/hostfreq_darwin.mm; \
 	mkdir -p "$$OUTDIR"; \
-	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$$OUTDIR/serviceradar-sysmon-vm" ./cmd/checkers/sysmon-vm
+	rm -f "$$OBJ"; \
+	xcrun clang++ -std=c++20 -fobjc-arc -x objective-c++ -I pkg/cpufreq -c "$$SRC" -o "$$OBJ"; \
+	if ! GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags hostfreq_embed -trimpath -ldflags "-s -w" -o "$$OUTDIR/serviceradar-sysmon-vm" ./cmd/checkers/sysmon-vm; then rm -f "$$OBJ"; exit 1; fi; \
+	rm -f "$$OBJ"
 
 .PHONY: sysmonvm-host-install
 sysmonvm-host-install: ## Install the macOS sysmon-vm checker launchd service (run with sudo)

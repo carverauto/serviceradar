@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+pkg/cpufreq/*.o
 
 # Test binary, built with `go test -c`
 *.test

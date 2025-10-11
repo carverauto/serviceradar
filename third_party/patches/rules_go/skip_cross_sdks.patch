@@ -1,0 +1,13 @@
+diff --git go/private/extensions.bzl go/private/extensions.bzl
+--- go/private/extensions.bzl
++++ go/private/extensions.bzl
+@@ -139,8 +139,1 @@
+-_COMMON_EXEC_PLATFORMS = [
+-    ("darwin", "amd64"),
+-    ("darwin", "arm64"),
+-    ("linux", "amd64"),
+-    ("linux", "arm64"),
+-    ("windows", "amd64"),
+-    ("windows", "arm64"),
+-]
++_COMMON_EXEC_PLATFORMS = []
