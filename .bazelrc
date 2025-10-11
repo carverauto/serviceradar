@@ -45,6 +45,7 @@ build:ci --remote_cache=grpcs://carverauto.buildbuddy.io
 build:ci --remote_timeout=15m
 build:ci --strategy=ExpandTemplate=local
 build:ci --strategy=NpmPackageExtract=local
+build:ci --strategy=CopyDirectory=local
 
 # CI tests should avoid manual-only targets and preserve detailed output.
 test:ci --config=remote
@@ -71,6 +72,7 @@ build:remote --remote_upload_local_results
 build:remote --jobs=100
 build:remote --strategy=ExpandTemplate=local
 build:remote --strategy=NpmPackageExtract=local
+build:remote --strategy=CopyDirectory=local
 test:remote --copt=-Wno-use-after-free
 
 # Enable clang-tidy diagnostics via --config=clang-tidy
