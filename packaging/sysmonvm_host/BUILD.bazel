@@ -8,6 +8,7 @@ genrule(
     srcs = ["//cmd/checkers/sysmon-vm/hostmac:hostfreq"],
     outs = ["hostfreq"],
     cmd = "cp $(location //cmd/checkers/sysmon-vm/hostmac:hostfreq) $@",
+    target_compatible_with = ["@platforms//os:macos"],
 )
 
 genrule(
@@ -15,6 +16,7 @@ genrule(
     srcs = ["//cmd/checkers/sysmon-vm:sysmon-vm"],
     outs = ["serviceradar-sysmon-vm"],
     cmd = "cp $(location //cmd/checkers/sysmon-vm:sysmon-vm) $@",
+    target_compatible_with = ["@platforms//os:macos"],
 )
 
 genrule(
@@ -22,6 +24,7 @@ genrule(
     srcs = ["//cmd/checkers/sysmon-vm:sysmon-vm.json.example"],
     outs = ["sysmon-vm.json"],
     cmd = "cp $(location //cmd/checkers/sysmon-vm:sysmon-vm.json.example) $@",
+    target_compatible_with = ["@platforms//os:macos"],
 )
 
 genrule(
@@ -29,6 +32,7 @@ genrule(
     srcs = ["//cmd/checkers/sysmon-vm/hostmac:com.serviceradar.hostfreq.plist"],
     outs = ["com.serviceradar.hostfreq.plist"],
     cmd = "cp $(location //cmd/checkers/sysmon-vm/hostmac:com.serviceradar.hostfreq.plist) $@",
+    target_compatible_with = ["@platforms//os:macos"],
 )
 
 genrule(
@@ -36,6 +40,7 @@ genrule(
     srcs = ["//cmd/checkers/sysmon-vm/hostmac:com.serviceradar.sysmonvm.plist"],
     outs = ["com.serviceradar.sysmonvm.plist"],
     cmd = "cp $(location //cmd/checkers/sysmon-vm/hostmac:com.serviceradar.sysmonvm.plist) $@",
+    target_compatible_with = ["@platforms//os:macos"],
 )
 
 pkg_files(
@@ -84,6 +89,7 @@ pkg_tar(
     ],
     package_dir = "/",
     extension = "tar.gz",
+    target_compatible_with = ["@platforms//os:macos"],
 )
 
 genrule(
@@ -100,6 +106,7 @@ cp "dist/sysmonvm/serviceradar-sysmonvm-host-macos.pkg" "$@"
     """,
     tools = ["//scripts/sysmonvm:package-host-macos.sh"],
     local = True,
+    target_compatible_with = ["@platforms//os:macos"],
     tags = [
         "no-remote",
         "requires-macos",
