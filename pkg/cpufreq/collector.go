@@ -1,13 +1,10 @@
 package cpufreq
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -46,22 +43,20 @@ type Snapshot struct {
 }
 
 type collectorDeps struct {
-	countsWithContext     func(context.Context, bool) (int, error)
-	infoWithContext       func(context.Context) ([]cpu.InfoStat, error)
-	readSysfs             func(int) (float64, bool)
-	sampleFrequency       func(context.Context, int, time.Duration) (float64, error)
-	hostfreqPathResolver  func() (string, error)
-	hostfreqCommandRunner func(context.Context, string, []string) ([]byte, error)
+	countsWithContext func(context.Context, bool) (int, error)
+	infoWithContext   func(context.Context) ([]cpu.InfoStat, error)
+	readSysfs         func(int) (float64, bool)
+	sampleFrequency   func(context.Context, int, time.Duration) (float64, error)
+	hostfreqCollector func(context.Context, time.Duration) (*Snapshot, error)
 }
 
 func defaultCollectorDeps() collectorDeps {
 	return collectorDeps{
-		countsWithContext:     cpu.CountsWithContext,
-		infoWithContext:       cpu.InfoWithContext,
-		readSysfs:             readSysfs,
-		sampleFrequency:       sampleFrequencyWithPerf,
-		hostfreqPathResolver:  resolveHostfreqPath,
-		hostfreqCommandRunner: runHostfreqCommand,
+		countsWithContext: cpu.CountsWithContext,
+		infoWithContext:   cpu.InfoWithContext,
+		readSysfs:         readSysfs,
+		sampleFrequency:   sampleFrequencyWithPerf,
+		hostfreqCollector: collectViaHostfreq,
 	}
 }
 
@@ -94,8 +89,8 @@ func collect(ctx context.Context, window time.Duration, opts ...option) (*Snapsh
 		opt(&deps)
 	}
 
-	if runtime.GOOS == "darwin" {
-		if snap, err := collectViaHostfreq(ctx, window, deps); err == nil {
+	if runtime.GOOS == "darwin" && deps.hostfreqCollector != nil {
+		if snap, err := deps.hostfreqCollector(ctx, window); err == nil {
 			return snap, nil
 		} else if !errors.Is(err, ErrFrequencyUnavailable) {
 			return nil, err
@@ -170,91 +165,6 @@ func collectStandard(ctx context.Context, window time.Duration, deps collectorDe
 	}
 
 	return snapshot, nil
-}
-
-type hostfreqCore struct {
-	Name   string  `json:"name"`
-	AvgMHz float64 `json:"avg_mhz"`
-}
-
-type hostfreqPayload struct {
-	Cores []hostfreqCore `json:"cores"`
-}
-
-func collectViaHostfreq(ctx context.Context, window time.Duration, deps collectorDeps) (*Snapshot, error) {
-	path, err := deps.hostfreqPathResolver()
-	if err != nil {
-		return nil, err
-	}
-
-	interval := int(window / time.Millisecond)
-	if interval <= 0 {
-		interval = int(defaultSampleWindow / time.Millisecond)
-	}
-
-	args := []string{
-		"--interval-ms", strconv.Itoa(interval),
-		"--samples", "1",
-	}
-
-	output, err := deps.hostfreqCommandRunner(ctx, path, args)
-	if err != nil {
-		return nil, fmt.Errorf("hostfreq command failed: %w", err)
-	}
-
-	decoder := json.NewDecoder(bytes.NewReader(output))
-	var payload hostfreqPayload
-	if err := decoder.Decode(&payload); err != nil {
-		return nil, fmt.Errorf("failed to parse hostfreq output: %w", err)
-	}
-
-	if len(payload.Cores) == 0 {
-		return nil, ErrFrequencyUnavailable
-	}
-
-	snapshot := &Snapshot{
-		Cores: make([]CoreFrequency, 0, len(payload.Cores)),
-	}
-
-	for idx, core := range payload.Cores {
-		hz := core.AvgMHz * 1_000_000
-		if hz < 0 {
-			hz = 0
-		}
-
-		snapshot.Cores = append(snapshot.Cores, CoreFrequency{
-			CoreID:      idx,
-			FrequencyHz: hz,
-			Source:      FrequencySourceHostfreq,
-		})
-	}
-
-	return snapshot, nil
-}
-
-func resolveHostfreqPath() (string, error) {
-	candidates := []string{
-		os.Getenv("SERVICERADAR_HOSTFREQ_PATH"),
-		"/usr/local/libexec/serviceradar/hostfreq",
-		"/usr/local/bin/hostfreq",
-		"/opt/serviceradar/bin/hostfreq",
-	}
-
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-
-	return "", ErrFrequencyUnavailable
-}
-
-func runHostfreqCommand(ctx context.Context, path string, args []string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, path, args...)
-	return cmd.Output()
 }
 
 func readSysfs(core int) (float64, bool) {

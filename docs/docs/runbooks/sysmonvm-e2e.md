@@ -21,10 +21,9 @@ AlmaLinux VM + macOS host collectors running on the laptop.
 4. **Optional: prep load generator**
    - Inside the VM install stress tooling (already part of bootstrap, but double-check):\
      `scripts/sysmonvm/vm-ssh.sh -- sudo dnf -y install stress-ng`
-5. **macOS host frequency helper**
-   - `make sysmonvm-host-build`
+5. **macOS host checker**
    - `sudo make sysmonvm-host-install`
-   - Verify launchd units if needed: `sudo launchctl list | grep serviceradar`
+   - Verify launchd unit if needed: `sudo launchctl list | grep com.serviceradar.sysmonvm`
 6. **Keep the gRPC listener reachable**
    - The checker serves gRPC on the VM’s `0.0.0.0:50110`, forwarded to the host via user-mode networking.
    - Ensure macOS firewall allows inbound TCP/50110 so the remote Linux server can reach it (from the Linux box use `nc -vz <laptop-ip> 50110`).
@@ -75,9 +74,9 @@ AlmaLinux VM + macOS host collectors running on the laptop.
    - Proton DB (from the Linux server):\
      `docker compose exec proton curl -sk -u default:$(cat /var/lib/proton/generated_password.txt) "https://localhost:8443/?database=default&query=SELECT%20*%20FROM%20cpu_metrics%20ORDER%20BY%20timestamp%20DESC%20LIMIT%205"`
    - Core API (if exposed) at `http://localhost:8090` -> `/pollers/.../sysmon/cpu`.
-4. **Cross-check macOS helper**
-   - `log show --predicate 'process == "hostfreq"' --last 5m`
-   - For spot checks run: `dist/sysmonvm/mac-host/bin/hostfreq --interval-ms 200 --samples 3`
+4. **Cross-check macOS checker**
+   - `log show --predicate 'process == "serviceradar-sysmon-vm"' --last 5m`
+   - Inspect `/var/log/serviceradar/sysmon-vm.log` and `.err.log` for IOReport or frequency sampling details.
 
 ## 4. Notes / Troubleshooting
 
@@ -88,7 +87,7 @@ AlmaLinux VM + macOS host collectors running on the laptop.
 - To tear everything down:
   - Linux server: `docker compose down -v`
   - Mac VM: `make sysmonvm-vm-destroy`
-  - Mac launchd: `sudo launchctl bootout system/com.serviceradar.sysmonvm` and `sudo launchctl bootout system/com.serviceradar.hostfreq`
+- Mac launchd: `sudo launchctl bootout system/com.serviceradar.sysmonvm`
 
 ## 5. Building Installable Artifacts
 

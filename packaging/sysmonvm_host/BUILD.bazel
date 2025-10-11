@@ -4,14 +4,6 @@ load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 package(default_visibility = ["//visibility:public"])
 
 genrule(
-    name = "hostfreq_binary",
-    srcs = ["//cmd/checkers/sysmon-vm/hostmac:hostfreq"],
-    outs = ["hostfreq"],
-    cmd = "cp $(location //cmd/checkers/sysmon-vm/hostmac:hostfreq) $@",
-    target_compatible_with = ["@platforms//os:macos"],
-)
-
-genrule(
     name = "sysmonvm_checker_binary",
     srcs = ["//cmd/checkers/sysmon-vm:sysmon-vm"],
     outs = ["serviceradar-sysmon-vm"],
@@ -28,26 +20,11 @@ genrule(
 )
 
 genrule(
-    name = "hostfreq_launchd_plist",
-    srcs = ["//cmd/checkers/sysmon-vm/hostmac:com.serviceradar.hostfreq.plist"],
-    outs = ["com.serviceradar.hostfreq.plist"],
-    cmd = "cp $(location //cmd/checkers/sysmon-vm/hostmac:com.serviceradar.hostfreq.plist) $@",
-    target_compatible_with = ["@platforms//os:macos"],
-)
-
-genrule(
     name = "sysmonvm_launchd_plist",
     srcs = ["//cmd/checkers/sysmon-vm/hostmac:com.serviceradar.sysmonvm.plist"],
     outs = ["com.serviceradar.sysmonvm.plist"],
     cmd = "cp $(location //cmd/checkers/sysmon-vm/hostmac:com.serviceradar.sysmonvm.plist) $@",
     target_compatible_with = ["@platforms//os:macos"],
-)
-
-pkg_files(
-    name = "hostfreq_bin",
-    srcs = [":hostfreq_binary"],
-    prefix = "/usr/local/libexec/serviceradar",
-    attributes = pkg_attributes(mode = "0755"),
 )
 
 pkg_files(
@@ -65,13 +42,6 @@ pkg_files(
 )
 
 pkg_files(
-    name = "sysmonvm_launchd_hostfreq",
-    srcs = [":hostfreq_launchd_plist"],
-    prefix = "/Library/LaunchDaemons",
-    attributes = pkg_attributes(mode = "0644"),
-)
-
-pkg_files(
     name = "sysmonvm_launchd_checker",
     srcs = [":sysmonvm_launchd_plist"],
     prefix = "/Library/LaunchDaemons",
@@ -81,10 +51,8 @@ pkg_files(
 pkg_tar(
     name = "sysmonvm_host_tar",
     srcs = [
-        ":hostfreq_bin",
         ":sysmonvm_host_checker",
         ":sysmonvm_config",
-        ":sysmonvm_launchd_hostfreq",
         ":sysmonvm_launchd_checker",
     ],
     package_dir = "/",

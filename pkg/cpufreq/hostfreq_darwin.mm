@@ -2,19 +2,19 @@
 #import <IOKit/IOKitLib.h>
 #import <mach/mach_time.h>
 
-#include <algorithm>
-#include <climits>
 #include <charconv>
 #include <cmath>
-#include <cstdio>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <dispatch/dispatch.h>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
-// The IOReport APIs live in a private library, so declare the pieces we need explicitly.
+#include "hostfreq_bridge.h"
+
 using IOReportSubscriptionRef = struct __IOReportSubscriptionRef*;
 
 extern "C" CFMutableDictionaryRef IOReportCopyChannelsInGroup(NSString* group,
@@ -49,6 +49,13 @@ extern "C" uint64_t IOReportStateGetResidency(CFDictionaryRef channel, int index
 
 namespace {
 
+enum class Status {
+    kOk = HOSTFREQ_STATUS_OK,
+    kUnavailable = HOSTFREQ_STATUS_UNAVAILABLE,
+    kPermission = HOSTFREQ_STATUS_PERMISSION,
+    kInternal = HOSTFREQ_STATUS_INTERNAL,
+};
+
 struct FrequencySample {
     std::string name;
     double averageMHz{0.0};
@@ -58,6 +65,16 @@ struct CollectorConfig {
     int intervalMs{200};
     int sampleCount{1};
 };
+
+void AppendError(std::string* error, const std::string& message) {
+    if (!error) {
+        return;
+    }
+    if (!error->empty()) {
+        error->append("\n");
+    }
+    error->append(message);
+}
 
 mach_timebase_info_data_t Timebase() {
     static mach_timebase_info_data_t info{};
@@ -75,7 +92,7 @@ double NanosecondsToMilliseconds(uint64_t nanos) {
 std::vector<double> LoadDvfsTable(CFStringRef propertyKey) {
     std::vector<double> table;
     table.reserve(16);
-    table.push_back(0.0);  // index 0 is unused (idle state placeholder).
+    table.push_back(0.0);
 
     constexpr size_t kDvfsEntryBytes = sizeof(uint32_t) * 2;
 
@@ -96,16 +113,13 @@ std::vector<double> LoadDvfsTable(CFStringRef propertyKey) {
             const uint8_t* bytes = static_cast<const uint8_t*>([data bytes]);
             const NSUInteger length = [data length];
 
-        for (NSUInteger offset = 0; offset + kDvfsEntryBytes <= length; offset += kDvfsEntryBytes) {
-            uint32_t freqHz = 0;
-            uint32_t voltageMillivolts = 0;
-            memcpy(&freqHz, bytes + offset, sizeof(freqHz));
-            memcpy(&voltageMillivolts, bytes + offset + sizeof(freqHz), sizeof(voltageMillivolts));
-
+            for (NSUInteger offset = 0; offset + kDvfsEntryBytes <= length; offset += kDvfsEntryBytes) {
+                uint32_t freqHz = 0;
+                memcpy(&freqHz, bytes + offset, sizeof(freqHz));
                 if (freqHz == 0) {
                     continue;
                 }
-                // IOReport encodes frequency in Hz; convert to MHz for readability.
+
                 double frequencyMHz = static_cast<double>(freqHz) / 1e6;
                 table.push_back(frequencyMHz);
             }
@@ -164,33 +178,13 @@ bool HasPrefix(const std::string& value, const char* prefix) {
     return std::char_traits<char>::compare(value.data(), prefix, prefixLen) == 0;
 }
 
-CollectorConfig ParseArgs(int argc, const char* argv[]) {
+CollectorConfig ParseConfig(int intervalMs, int sampleCount) {
     CollectorConfig config;
-    for (int index = 1; index < argc; ++index) {
-        std::string arg(argv[index]);
-        auto parseInt = [&](int& target, const char* next) {
-            if (!next) {
-                return;
-            }
-            const char* begin = next;
-            const char* end = begin + strlen(next);
-            int value = 0;
-            auto result = std::from_chars(begin, end, value);
-            if (result.ec == std::errc() && result.ptr != begin) {
-                target = value;
-            }
-        };
-
-        if (arg == "--interval-ms" && index + 1 < argc) {
-            parseInt(config.intervalMs, argv[index + 1]);
-            ++index;
-        } else if (arg == "--samples" && index + 1 < argc) {
-            parseInt(config.sampleCount, argv[index + 1]);
-            ++index;
-        } else if (arg == "--help" || arg == "-h") {
-            printf("Usage: hostfreq [--interval-ms N] [--samples N]\n");
-            exit(0);
-        }
+    if (intervalMs > 0) {
+        config.intervalMs = intervalMs;
+    }
+    if (sampleCount > 0) {
+        config.sampleCount = sampleCount;
     }
     return config;
 }
@@ -208,10 +202,11 @@ NSMutableArray* SerializeSamples(const std::vector<FrequencySample>& samples) {
     return output;
 }
 
-void EmitJson(const CollectorConfig& config,
-              double durationMs,
-              const std::vector<FrequencySample>& clusterSamples,
-              const std::vector<FrequencySample>& coreSamples) {
+std::optional<std::string> EncodeJson(const CollectorConfig& config,
+                                      double durationMs,
+                                      const std::vector<FrequencySample>& clusterSamples,
+                                      const std::vector<FrequencySample>& coreSamples,
+                                      std::string* error) {
     NSISO8601DateFormatter* formatter = [[NSISO8601DateFormatter alloc] init];
     formatter.formatOptions =
         NSISO8601DateFormatWithInternetDateTime |
@@ -230,17 +225,21 @@ void EmitJson(const CollectorConfig& config,
         root[@"cores"] = SerializeSamples(coreSamples);
     }
 
-    NSError* error = nil;
+    NSError* nsError = nil;
     NSData* jsonData = [NSJSONSerialization dataWithJSONObject:root
                                                        options:NSJSONWritingPrettyPrinted
-                                                         error:&error];
+                                                         error:&nsError];
     if (!jsonData) {
-        fprintf(stderr, "failed to encode JSON: %s\n", error.localizedDescription.UTF8String);
-        return;
+        std::string message = "failed to encode JSON";
+        if (nsError && nsError.localizedDescription) {
+            message.append(": ");
+            message.append(nsError.localizedDescription.UTF8String);
+        }
+        AppendError(error, message);
+        return std::nullopt;
     }
 
-    fwrite(jsonData.bytes, jsonData.length, 1, stdout);
-    fputc('\n', stdout);
+    return std::string(static_cast<const char*>(jsonData.bytes), jsonData.length);
 }
 
 std::optional<std::pair<std::vector<FrequencySample>, std::vector<FrequencySample>>>
@@ -249,15 +248,15 @@ CollectFrequencies(IOReportSubscriptionRef subscription,
                    const std::vector<double>& ecpuTable,
                    const std::vector<double>& pcpuTable,
                    const CollectorConfig& config,
-                   double* durationMs) {
+                   double* durationMs,
+                   std::string* error) {
     CFDictionaryRef firstSample = IOReportCreateSamples(subscription, subscribedChannels, nullptr);
     if (firstSample == nullptr) {
-        fprintf(stderr, "IOReportCreateSamples returned null (do you need sudo?).\n");
+        AppendError(error, "IOReportCreateSamples returned null (requires elevated privileges?)");
         return std::nullopt;
     }
 
     const mach_timebase_info_data_t timebase = Timebase();
-    // mach_absolute_time() is a monotonic counter suitable for measuring intervals.
     const uint64_t start = mach_absolute_time();
 
     usleep(static_cast<useconds_t>(config.intervalMs * 1000));
@@ -267,7 +266,7 @@ CollectFrequencies(IOReportSubscriptionRef subscription,
 
     if (secondSample == nullptr) {
         CFRelease(firstSample);
-        fprintf(stderr, "IOReportCreateSamples (second) returned null.\n");
+        AppendError(error, "IOReportCreateSamples (second) returned null");
         return std::nullopt;
     }
 
@@ -280,7 +279,7 @@ CollectFrequencies(IOReportSubscriptionRef subscription,
     CFRelease(secondSample);
 
     if (delta == nullptr) {
-        fprintf(stderr, "IOReportCreateSamplesDelta returned null.\n");
+        AppendError(error, "IOReportCreateSamplesDelta returned null");
         return std::nullopt;
     }
 
@@ -331,77 +330,171 @@ CollectFrequencies(IOReportSubscriptionRef subscription,
     return std::make_pair(std::move(clusters), std::move(cores));
 }
 
-}  // namespace
+Status CollectJsonInternal(const CollectorConfig& config,
+                           std::string* json,
+                           double* actualDurationMs,
+                           std::string* error) {
+    std::vector<double> ecpuTable = LoadDvfsTable(CFSTR("voltage-states1-sram"));
+    std::vector<double> pcpuTable = LoadDvfsTable(CFSTR("voltage-states5-sram"));
 
-int main(int argc, const char* argv[]) {
-    @autoreleasepool {
-        CollectorConfig config = ParseArgs(argc, argv);
-
-        std::vector<double> ecpuTable = LoadDvfsTable(CFSTR("voltage-states1-sram"));
-        std::vector<double> pcpuTable = LoadDvfsTable(CFSTR("voltage-states5-sram"));
-
-        if (ecpuTable.size() <= 1 && pcpuTable.size() <= 1) {
-            fprintf(stderr,
-                    "Failed to read DVFS tables from IORegistry. Run on Apple Silicon macOS with sudo.\n");
-            return 1;
-        }
-
-        CFMutableDictionaryRef subscribedChannels = nullptr;
-        CFMutableDictionaryRef cpuChannels = IOReportCopyChannelsInGroup(@"CPU Stats", nil, 0, 0, 0);
-        if (!cpuChannels) {
-            fprintf(stderr, "IOReportCopyChannelsInGroup(\"CPU Stats\") returned null.\n");
-            return 1;
-        }
-
-        IOReportSubscriptionRef subscription =
-            IOReportCreateSubscription(nullptr, cpuChannels, &subscribedChannels, 0, nullptr);
-        if (!subscription || !subscribedChannels) {
-            if (cpuChannels) {
-                CFRelease(cpuChannels);
-            }
-            fprintf(stderr,
-                    "IOReportCreateSubscription failed. Try running as a privileged user.\n");
-            return 1;
-        }
-
-        CFRelease(cpuChannels);
-
-        auto emitSample = [&](void) -> bool {
-            double actualDurationMs = 0.0;
-            auto result = CollectFrequencies(subscription,
-                                             subscribedChannels,
-                                             ecpuTable,
-                                             pcpuTable,
-                                             config,
-                                             &actualDurationMs);
-            if (!result.has_value()) {
-                return false;
-            }
-
-            EmitJson(config, actualDurationMs,
-                     result->first /* clusters */,
-                     result->second /* cores */);
-            return true;
-        };
-
-        if (config.sampleCount == 0) {
-            while (true) {
-                if (!emitSample()) {
-                    CFRelease(subscribedChannels);
-                    return 1;
-                }
-            }
-        } else {
-            for (int sampleIndex = 0; sampleIndex < config.sampleCount; ++sampleIndex) {
-                if (!emitSample()) {
-                    CFRelease(subscribedChannels);
-                    return 1;
-                }
-            }
-        }
-
-        CFRelease(subscribedChannels);
+    if (ecpuTable.size() <= 1 && pcpuTable.size() <= 1) {
+        AppendError(error,
+                    "Failed to read DVFS tables from IORegistry. Run on Apple Silicon macOS with sudo.");
+        return Status::kUnavailable;
     }
 
-    return 0;
+    CFMutableDictionaryRef subscribedChannels = nullptr;
+    CFMutableDictionaryRef cpuChannels = IOReportCopyChannelsInGroup(@"CPU Stats", nil, 0, 0, 0);
+    if (!cpuChannels) {
+        AppendError(error, "IOReportCopyChannelsInGroup(\"CPU Stats\") returned null.");
+        return Status::kPermission;
+    }
+
+    IOReportSubscriptionRef subscription =
+        IOReportCreateSubscription(nullptr, cpuChannels, &subscribedChannels, 0, nullptr);
+    CFRelease(cpuChannels);
+
+    if (!subscription || !subscribedChannels) {
+        AppendError(error,
+                    "IOReportCreateSubscription failed. Try running as a privileged user.");
+        if (subscribedChannels) {
+            CFRelease(subscribedChannels);
+        }
+        return Status::kPermission;
+    }
+
+    auto cleanup = [&]() {
+        if (subscribedChannels) {
+            CFRelease(subscribedChannels);
+        }
+        if (subscription) {
+            CFRelease(subscription);
+        }
+    };
+
+    auto emitSample = [&]() -> Status {
+        double actualDuration = 0.0;
+        auto result = CollectFrequencies(subscription,
+                                         subscribedChannels,
+                                         ecpuTable,
+                                         pcpuTable,
+                                         config,
+                                         &actualDuration,
+                                         error);
+        if (!result.has_value()) {
+            return Status::kInternal;
+        }
+
+        auto jsonOutput = EncodeJson(config,
+                                     actualDuration,
+                                     result->first,
+                                     result->second,
+                                     error);
+        if (!jsonOutput.has_value()) {
+            return Status::kInternal;
+        }
+
+        if (actualDurationMs) {
+            *actualDurationMs = actualDuration;
+        }
+
+        if (json) {
+            *json = std::move(*jsonOutput);
+        }
+        return Status::kOk;
+    };
+
+    Status status = Status::kOk;
+    for (int sampleIndex = 0; sampleIndex < config.sampleCount; ++sampleIndex) {
+        status = emitSample();
+        if (status != Status::kOk) {
+            break;
+        }
+    }
+
+    cleanup();
+    return status;
+}
+
+}  // namespace
+
+extern "C" int hostfreq_collect_json(int interval_ms,
+                                     int sample_count,
+                                     char** out_json,
+                                     double* out_actual_interval_ms,
+                                     char** out_error) {
+    @autoreleasepool {
+        CollectorConfig config = ParseConfig(interval_ms, sample_count);
+
+        std::string json;
+        std::string error;
+        double actual = 0.0;
+
+        Status status = CollectJsonInternal(config, &json, &actual, &error);
+
+        if (status == Status::kOk) {
+            if (out_json) {
+                char* buffer = static_cast<char*>(malloc(json.size() + 1));
+                if (!buffer) {
+                    if (out_error) {
+                        *out_error = nullptr;
+                    }
+                    return static_cast<int>(Status::kInternal);
+                }
+                memcpy(buffer, json.data(), json.size());
+                buffer[json.size()] = '\0';
+                *out_json = buffer;
+            }
+            if (out_actual_interval_ms) {
+                *out_actual_interval_ms = actual;
+            }
+            if (out_error) {
+                *out_error = nullptr;
+            }
+        } else {
+            if (out_json) {
+                *out_json = nullptr;
+            }
+            if (out_actual_interval_ms) {
+                *out_actual_interval_ms = 0.0;
+            }
+            if (out_error) {
+                if (!error.empty()) {
+                    char* buffer = static_cast<char*>(malloc(error.size() + 1));
+                    if (buffer) {
+                        memcpy(buffer, error.data(), error.size());
+                        buffer[error.size()] = '\0';
+                        *out_error = buffer;
+                    } else {
+                        *out_error = nullptr;
+                    }
+                } else {
+                    *out_error = nullptr;
+                }
+            }
+        }
+
+        return static_cast<int>(status);
+    }
+}
+
+extern "C" void hostfreq_free(char* ptr) {
+    if (ptr != nullptr) {
+        free(ptr);
+    }
+}
+
+extern "C" const char* hostfreq_status_string(int status) {
+    switch (status) {
+        case HOSTFREQ_STATUS_OK:
+            return "ok";
+        case HOSTFREQ_STATUS_UNAVAILABLE:
+            return "unavailable";
+        case HOSTFREQ_STATUS_PERMISSION:
+            return "permission";
+        case HOSTFREQ_STATUS_INTERNAL:
+            return "internal";
+        default:
+            return "unknown";
+    }
 }
