@@ -71,6 +71,8 @@ COLOR_GREEN = \033[32m
 COLOR_YELLOW = \033[33m
 COLOR_CYAN = \033[36m
 
+HOST_OS := $(shell uname -s)
+
 .PHONY: help
 help: ## Show this help message
 	@echo "$(COLOR_BOLD)Available targets:$(COLOR_RESET)"
@@ -156,8 +158,12 @@ get-golangcilint: ## Install golangci-lint
 
 .PHONY: lint-clang-tidy
 lint-clang-tidy: ## Run clang-tidy diagnostics for macOS host helper
-	@echo "$(COLOR_BOLD)Running clang-tidy for hostfreq via Bazel$(COLOR_RESET)"
-	@bazel build --config=clang-tidy //cmd/checkers/sysmon-vm/hostmac:hostfreq
+	@if [ "$(HOST_OS)" != "Darwin" ]; then \
+		echo "$(COLOR_YELLOW)Skipping clang-tidy for hostfreq (requires macOS toolchain)$(COLOR_RESET)"; \
+	else \
+		echo "$(COLOR_BOLD)Running clang-tidy for hostfreq via Bazel$(COLOR_RESET)"; \
+		bazel build --config=clang-tidy //cmd/checkers/sysmon-vm/hostmac:hostfreq; \
+	fi
 
 .PHONY: lint
 lint: get-golangcilint ## Run linting checks
