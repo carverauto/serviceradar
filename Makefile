@@ -129,7 +129,7 @@ sysmonvm-host-install: ## Install the macOS host frequency helper launchd servic
 	@scripts/sysmonvm/host-install-macos.sh
 
 .PHONY: sysmonvm-host-package
-sysmonvm-host-package: ## Build macOS sysmon-vm host helper tarball bundle
+sysmonvm-host-package: ## Build macOS sysmon-vm host helper tarball and installer package
 	@scripts/sysmonvm/package-host-macos.sh
 
 .PHONY: sysmonvm-vm-install

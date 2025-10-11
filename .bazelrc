@@ -90,7 +90,13 @@ build --extra_execution_platforms=//platforms:darwin_exec
 build:darwin_pkg --platforms=//platforms:darwin_exec
 build:darwin_pkg --host_platform=//platforms:darwin_exec
 build:darwin_pkg --action_env=DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-build:darwin_pkg --action_env=PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+build:darwin_pkg --action_env=PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/usr/local/go/bin
+build:darwin_pkg --action_env=PKG_SIGN_IDENTITY
+build:darwin_pkg --action_env=PKG_NOTARIZE_PROFILE
+build:darwin_pkg --action_env=PKG_VERSION
+build:darwin_pkg --action_env=PKG_IDENTIFIER
+build:darwin_pkg --action_env=PKG_DISABLE_TIMESTAMP=1
+build:darwin_pkg --action_env=XCODE_VERSION_OVERRIDE=26.0
 build:darwin_pkg --remote_default_exec_properties=OSFamily=MacOS
 build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
 build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel

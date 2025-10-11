@@ -188,6 +188,7 @@ jobs:
           echo "$response" | jq '.assets[]? | {name, size, download_count}'
           deb_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".deb"))] | length')
           rpm_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".rpm"))] | length')
+          pkg_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".pkg"))] | length')
           if (( deb_count == 0 )); then
             echo "No .deb assets detected for ${RELEASE_TAG}" >&2
             exit 1
@@ -196,4 +197,8 @@ jobs:
             echo "No .rpm assets detected for ${RELEASE_TAG}" >&2
             exit 1
           fi
-          echo "Validated presence of ${deb_count} .deb and ${rpm_count} .rpm assets."
+          if (( pkg_count == 0 )); then
+            echo "No .pkg assets detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          echo "Validated presence of ${deb_count} .deb, ${rpm_count} .rpm, and ${pkg_count} .pkg assets."
