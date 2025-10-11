@@ -33,6 +33,7 @@ var (
 	errNoVersionComponent     = errors.New("tag does not contain a version component")
 	errUnexpectedDebianName   = errors.New("unexpected debian artifact name")
 	errUnexpectedRPMName      = errors.New("unexpected rpm artifact name")
+	errUnexpectedPkgName      = errors.New("unexpected macOS package name")
 	errUnsupportedArtifactExt = errors.New("unsupported artifact extension")
 )
 
@@ -669,6 +670,13 @@ func resolveUploadName(path, debVersion, rpmVersion, rpmRelease string) (string,
 			return "", fmt.Errorf("%w: %q", errUnexpectedRPMName, filepath.Base(path))
 		}
 		return fmt.Sprintf("%s-%s-%s.%s%s", namePart, rpmVersion, rpmRelease, arch, ext), nil
+	case ".pkg":
+		base := strings.TrimSuffix(filepath.Base(path), ext)
+		base = strings.TrimSpace(base)
+		if base == "" {
+			return "", fmt.Errorf("%w: %q", errUnexpectedPkgName, filepath.Base(path))
+		}
+		return fmt.Sprintf("%s-%s%s", base, debVersion, ext), nil
 	default:
 		return "", fmt.Errorf("%w: %q", errUnsupportedArtifactExt, ext)
 	}

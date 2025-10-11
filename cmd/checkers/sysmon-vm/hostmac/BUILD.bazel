@@ -2,7 +2,12 @@ genrule(
     name = "hostfreq",
     srcs = ["hostfreq.mm"],
     outs = ["hostfreq"],
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "no-remote",
+        "no-sandbox",
+        "requires-macos",
+    ],
     target_compatible_with = ["@platforms//os:macos"],
     cmd = "set -euo pipefail && " +
           "xcrun clang -std=c++20 -fobjc-arc " +
@@ -13,6 +18,7 @@ genrule(
           "-lc++ " +
           "$(location hostfreq.mm) " +
           "-o $@",
+    local = True,
     executable = True,
     visibility = ["//visibility:public"],
 )

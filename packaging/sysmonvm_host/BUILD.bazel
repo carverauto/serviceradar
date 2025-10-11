@@ -85,3 +85,23 @@ pkg_tar(
     package_dir = "/",
     extension = "tar.gz",
 )
+
+genrule(
+    name = "sysmonvm_host_pkg",
+    srcs = ["//scripts/sysmonvm:package-host-macos.sh"],
+    outs = ["serviceradar-sysmonvm-host-macos.pkg"],
+    cmd = """
+set -euo pipefail
+
+SKIP_PKG=0 \
+"$(location //scripts/sysmonvm:package-host-macos.sh)"
+
+cp "dist/sysmonvm/serviceradar-sysmonvm-host-macos.pkg" "$@"
+    """,
+    tools = ["//scripts/sysmonvm:package-host-macos.sh"],
+    local = True,
+    tags = [
+        "no-remote",
+        "requires-macos",
+    ],
+)

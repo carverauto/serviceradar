@@ -90,4 +90,30 @@ AlmaLinux VM + macOS host collectors running on the laptop.
   - Mac VM: `make sysmonvm-vm-destroy`
   - Mac launchd: `sudo launchctl bootout system/com.serviceradar.sysmonvm` and `sudo launchctl bootout system/com.serviceradar.hostfreq`
 
+## 5. Building Installable Artifacts
+
+- **Signed macOS installer package**
+  Ensure the Apple Timestamping Authority certificate is trusted before requesting timestamps:
+  ```bash
+  curl -L -o /tmp/AppleTimestampCA.cer https://www.apple.com/certificateauthority/AppleTimestampCA.cer
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/AppleTimestampCA.cer
+  ```
+  If your network prefers IPv6 and codesign cannot reach the TSA, set `PKG_TIMESTAMP_URL="http://17.32.213.161/ts01"` (the IPv4 endpoint) or rely on the script’s built-in fallback.
+  ```bash
+  PKG_SIGN_IDENTITY="Developer ID Installer: Carver Automation LLC (432Q4W72Q7)" \
+  PKG_NOTARIZE_PROFILE="serviceradar-notary" \  # optional, if configured via `xcrun notarytool store-credentials`
+  make sysmonvm-host-package
+  ```
+  The script emits both the tarball (`dist/sysmonvm/serviceradar-sysmonvm-host-macos.tar.gz`) and the signed `.pkg` (`dist/sysmonvm/serviceradar-sysmonvm-host-macos.pkg`). Skip notarization by omitting `PKG_NOTARIZE_PROFILE`. Use `SKIP_BUILD=1` when the binaries are already present in `dist/sysmonvm/mac-host/bin`.
+
+- **Bazel target for release automation (local macOS executor)**
+```bash
+  PKG_APP_SIGN_IDENTITY="Developer ID Application: Carver Automation LLC (432Q4W72Q7)" \
+  PKG_SIGN_IDENTITY="Developer ID Installer: Carver Automation LLC (432Q4W72Q7)" \
+  PKG_DISABLE_TIMESTAMP=1 \  # skip TSA when offline; drop to get timestamped signatures
+  #PKG_NOTARIZE_PROFILE="serviceradar-notary" \  # optional; requires stored notarytool credentials
+  bazel build --config=darwin_pkg //packaging/sysmonvm_host:sysmonvm_host_pkg
+```
+The resulting `.pkg` is placed under `bazel-bin/packaging/sysmonvm_host/serviceradar-sysmonvm-host-macos.pkg` and is also exposed via the aggregate `//packaging:package_macos` filegroup for release workflows.
+
 Keeping this file up to date ensures anyone can repeat the cross-host validation without re-reading the entire `cpu_plan.md`.
