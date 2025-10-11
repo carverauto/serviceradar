@@ -35,6 +35,7 @@ objc_library(
         "IOKit",
     ],
     deps = [],
+    target_compatible_with = ["@platforms//os:macos"],
     visibility = ["//visibility:private"],
 )
 

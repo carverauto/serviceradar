@@ -83,9 +83,19 @@ build:remote --jobs=100
 build:remote --strategy=ExpandTemplate=local
 build:remote --strategy=NpmPackageExtract=local
 build:remote --strategy=CopyDirectory=local
+build:remote --strategy=CompileOCamlModule=local
+build:remote --strategy=CompileOCamlLibrary=local
+build:remote --strategy=CompileOCamlArchive=local
+build:remote --strategy=OcamlPack=local
+build:remote --strategy=OcamlLink=local
 test:remote --copt=-Wno-use-after-free
 test:remote --extra_toolchains=@go_toolchains//:_0000_go_linux_amd64_sdk_go_linux_amd64
 test:remote --@io_bazel_rules_go//go/toolchain:sdk_name=go_linux_amd64_sdk
+test:remote --strategy=CompileOCamlModule=local
+test:remote --strategy=CompileOCamlLibrary=local
+test:remote --strategy=CompileOCamlArchive=local
+test:remote --strategy=OcamlPack=local
+test:remote --strategy=OcamlLink=local
 
 # Enable clang-tidy diagnostics via --config=clang-tidy
 build:clang-tidy --features=clang_tidy
