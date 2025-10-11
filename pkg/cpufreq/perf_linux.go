@@ -13,6 +13,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var (
+	errPerfTimeEnabledZero   = errors.New("perf timeEnabled zero")
+	errNegativeFrequency     = errors.New("negative frequency")
+	errUnexpectedPerfReadLen = errors.New("unexpected perf read length")
+)
+
 func sampleFrequencyWithPerf(ctx context.Context, core int, window time.Duration) (float64, error) {
 	if window < minSampleWindow {
 		window = defaultSampleWindow
@@ -30,7 +36,9 @@ func sampleFrequencyWithPerf(ctx context.Context, core int, window time.Duration
 	if err != nil {
 		return 0, err
 	}
-	defer unix.Close(fd)
+	defer func() {
+		_ = unix.Close(fd)
+	}()
 
 	if err := unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_RESET, 0); err != nil {
 		return 0, err
@@ -62,7 +70,7 @@ func sampleFrequencyWithPerf(ctx context.Context, core int, window time.Duration
 	timeRunning := float64(buf[2])
 
 	if timeEnabled <= 0 {
-		return 0, errors.New("perf timeEnabled zero")
+		return 0, errPerfTimeEnabledZero
 	}
 
 	effectiveCycles := rawCycles
@@ -72,7 +80,7 @@ func sampleFrequencyWithPerf(ctx context.Context, core int, window time.Duration
 
 	freqHz := effectiveCycles / (timeEnabled / float64(time.Second))
 	if freqHz < 0 {
-		return 0, errors.New("negative frequency")
+		return 0, errNegativeFrequency
 	}
 
 	return freqHz, nil
@@ -85,7 +93,7 @@ func readPerf(fd int, buf []uint64) error {
 		return err
 	}
 	if n != len(bytes) {
-		return fmt.Errorf("unexpected perf read length %d", n)
+		return fmt.Errorf("%w: got %d bytes", errUnexpectedPerfReadLen, n)
 	}
 	for i := range buf {
 		buf[i] = binary.LittleEndian.Uint64(bytes[i*8 : (i+1)*8])
