@@ -128,6 +128,10 @@ sysmonvm-host-build: ## Build the macOS host frequency helper into dist/sysmonvm
 sysmonvm-host-install: ## Install the macOS host frequency helper launchd service (run with sudo)
 	@scripts/sysmonvm/host-install-macos.sh
 
+.PHONY: sysmonvm-host-package
+sysmonvm-host-package: ## Build macOS sysmon-vm host helper tarball bundle
+	@scripts/sysmonvm/package-host-macos.sh
+
 .PHONY: sysmonvm-vm-install
 sysmonvm-vm-install: ## Copy the checker binary/config into the VM and install (set SERVICE=0 to skip systemd unit)
 	@$(if $(WORKSPACE),scripts/sysmonvm/vm-install-checker.sh --workspace "$(WORKSPACE)" $(if $(filter 0,$(SERVICE)),--skip-service,),scripts/sysmonvm/vm-install-checker.sh $(if $(filter 0,$(SERVICE)),--skip-service,))
