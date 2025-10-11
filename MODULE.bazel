@@ -152,6 +152,49 @@ register_execution_platforms(
     "//build/rbe:ocaml_rbe_ocamlc",
 )
 
+# --- Aspect Bazel Lib toolchains ----------------------------------
+
+aspect_toolchains = use_extension("@aspect_bazel_lib//lib:extensions.bzl", "toolchains")
+aspect_toolchains.copy_directory()
+aspect_toolchains.copy_to_directory()
+aspect_toolchains.coreutils()
+aspect_toolchains.expand_template()
+aspect_toolchains.tar()
+aspect_toolchains.zstd()
+aspect_toolchains.jq()
+aspect_toolchains.yq()
+
+use_repo(
+    aspect_toolchains,
+    "copy_directory_toolchains",
+    "copy_to_directory_toolchains",
+    "coreutils_toolchains",
+    "expand_template_toolchains",
+    "bsd_tar_toolchains",
+    "zstd_toolchains",
+    "jq_toolchains",
+    "yq_toolchains",
+)
+
+register_toolchains(
+    "@copy_directory_toolchains//:darwin_arm64_toolchain",
+    "@copy_directory_toolchains//:darwin_amd64_toolchain",
+    "@copy_to_directory_toolchains//:darwin_arm64_toolchain",
+    "@copy_to_directory_toolchains//:darwin_amd64_toolchain",
+    "@coreutils_toolchains//:darwin_arm64_toolchain",
+    "@coreutils_toolchains//:darwin_amd64_toolchain",
+    "@expand_template_toolchains//:darwin_arm64_toolchain",
+    "@expand_template_toolchains//:darwin_amd64_toolchain",
+    "@bsd_tar_toolchains//:darwin_arm64_toolchain",
+    "@bsd_tar_toolchains//:darwin_amd64_toolchain",
+    "@zstd_toolchains//:darwin_arm64_toolchain",
+    "@zstd_toolchains//:darwin_amd64_toolchain",
+    "@jq_toolchains//:darwin_arm64_toolchain",
+    "@jq_toolchains//:darwin_amd64_toolchain",
+    "@yq_toolchains//:darwin_arm64_toolchain",
+    "@yq_toolchains//:darwin_amd64_toolchain",
+)
+
 # --- OCI Toolchain  ----------------------------------
 
 oci_ext = use_extension("@rules_oci//oci:extensions.bzl", "oci")
