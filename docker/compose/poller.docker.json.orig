@@ -80,7 +80,7 @@
                 {
                     "service_type": "grpc",
                     "service_name": "sysmon-vm",
-                    "details": "192.168.1.219:50110"
+                    "details": "host.docker.internal:50110"
                 },
                 {
                     "service_type": "grpc",

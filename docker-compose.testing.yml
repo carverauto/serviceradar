@@ -1,0 +1,25 @@
+services:
+  faker:
+    image: ghcr.io/carverauto/serviceradar-faker:latest
+    container_name: serviceradar-faker
+    profiles:
+      - testing
+    ports:
+      - "8080:8080"
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - faker-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/search/?aql=test&length=1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+volumes:
+  faker-data:
+    driver: local
