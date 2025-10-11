@@ -34,6 +34,13 @@ const (
 	hostfreqStatusInternal    = 3
 )
 
+var (
+	errHostfreqPermission   = errors.New("hostfreq permission error")
+	errHostfreqInternal     = errors.New("hostfreq internal error")
+	errHostfreqNoData       = errors.New("hostfreq returned no data")
+	errHostfreqEmptyPayload = errors.New("hostfreq returned empty payload")
+)
+
 func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, error) {
 	select {
 	case <-ctx.Done():
@@ -50,39 +57,47 @@ func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, e
 	var outError *C.char
 	var actual C.double
 
-	status := C.hostfreq_collect_json(C.int(interval), C.int(1), &outJSON, &actual, &outError)
+	const smoothingEnabled = 1
+	//nolint:gocritic // false positive when analyzing CGO bridge macro.
+	status := int(C.hostfreq_collect_json(
+		C.int(interval),
+		C.int(smoothingEnabled),
+		&outJSON,
+		&actual,
+		&outError,
+	))
 	defer C.hostfreq_free(outJSON)
 	defer C.hostfreq_free(outError)
 
-	if int(status) != hostfreqStatusOK {
+	if status != hostfreqStatusOK {
 		message := ""
 		if outError != nil {
 			message = C.GoString(outError)
 		}
 		if message == "" {
-			message = C.GoString(C.hostfreq_status_string(status))
+			message = C.GoString(C.hostfreq_status_string(C.int(status)))
 		}
 
-		switch int(status) {
+		switch status {
 		case hostfreqStatusUnavailable:
 			if message != "" {
 				return nil, fmt.Errorf("%w: %s", ErrFrequencyUnavailable, message)
 			}
 			return nil, ErrFrequencyUnavailable
 		case hostfreqStatusPermission:
-			return nil, fmt.Errorf("hostfreq permission error: %s", message)
+			return nil, fmt.Errorf("%w: %s", errHostfreqPermission, message)
 		default:
-			return nil, fmt.Errorf("hostfreq internal error: %s", message)
+			return nil, fmt.Errorf("%w: %s", errHostfreqInternal, message)
 		}
 	}
 
 	if outJSON == nil {
-		return nil, errors.New("hostfreq returned no data")
+		return nil, errHostfreqNoData
 	}
 
 	jsonStr := C.GoString(outJSON)
 	if jsonStr == "" {
-		return nil, errors.New("hostfreq returned empty payload")
+		return nil, errHostfreqEmptyPayload
 	}
 
 	var payload hostfreqPayload
