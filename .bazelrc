@@ -91,10 +91,9 @@ test:clang-tidy --features=clang_tidy
 build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
 
 build:ci --config=remote
-build --extra_execution_platforms=//platforms:darwin_exec
-
 build:darwin_pkg --platforms=//platforms:darwin_exec
 build:darwin_pkg --host_platform=//platforms:darwin_exec
+build:darwin_pkg --extra_execution_platforms=//platforms:darwin_exec
 build:darwin_pkg --action_env=DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 build:darwin_pkg --action_env=PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/usr/local/go/bin
 build:darwin_pkg --action_env=PKG_SIGN_IDENTITY
