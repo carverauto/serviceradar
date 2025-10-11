@@ -101,3 +101,5 @@ build:darwin_pkg --remote_default_exec_properties=OSFamily=MacOS
 build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
 build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+build:darwin_pkg --noremote
+build:darwin_pkg --noremote_accept_cached
