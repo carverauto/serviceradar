@@ -1,71 +1,35 @@
-# Host Frequency Sampler
+# macOS Host Frequency Integration
 
-`hostfreq` is an Objective‑C++ helper that snapshots macOS IOReport DVFS counters and emits
-per-core / per-cluster CPU frequency estimates in MHz. The binary is intended to run on the
-Apple Silicon host that is running the sysmon VM.
+The sysmon-vm checker embeds its macOS frequency sampler directly into the Go
+binary via cgo. The Objective-C++ implementation that talks to IOReport now
+lives under `pkg/cpufreq` and is compiled as part of the checker, so no separate
+`hostfreq` executable or launchd service is required.
 
 ## Build
 
 ```
-make sysmonvm-host-build
+make sysmonvm-build-checker-darwin
 ```
 
-The build drops `hostfreq` into `dist/sysmonvm/mac-host/bin/`. Requirements:
-- Apple clang (Xcode Command Line Tools) with C++20 support.
-- Access to the private `libIOReport` shim that ships with macOS (available on Apple Silicon).
-- Bazel users can alternatively run `bazel build //cmd/checkers/sysmon-vm/hostmac:hostfreq`
-  (macOS only). Pass `--config=clang-tidy` to enable static analysis during the build.
-  The Bazel path now shells out to `xcrun clang`, so the Command Line Tools alone are
-  sufficient; a full Xcode.app installation is no longer required.
+The command cross-compiles the checker (including the embedded sampler) into
+`dist/sysmonvm/mac-host/bin/serviceradar-sysmon-vm`.
 
-## Install as launchd service
+## Install
 
 ```
 sudo make sysmonvm-host-install
 ```
 
-This installs `/usr/local/libexec/serviceradar/hostfreq`, registers the launchd unit
-`com.serviceradar.hostfreq`, and starts it immediately. The service:
-- Samples continuously with `--interval-ms 1000 --samples 0`
-- Logs to `/var/log/serviceradar/hostfreq.log` and `.err.log`
-- Exports `SERVICERADAR_HOSTFREQ_PATH` for downstream components
-- Installs the macOS build of `serviceradar-sysmon-vm` plus a companion launchd unit
-  (`com.serviceradar.sysmonvm`) that serves the gRPC checker using the shared config at
-  `/usr/local/etc/serviceradar/sysmon-vm.json`
+The install script copies the checker to
+`/usr/local/libexec/serviceradar/serviceradar-sysmon-vm`, installs the launchd
+unit `com.serviceradar.sysmonvm`, and ensures `/usr/local/etc/serviceradar`
+contains `sysmon-vm.json`. Because the frequency sampler is built in, there is
+no companion `hostfreq` daemon to manage.
 
-## Run
+## Troubleshooting
 
-```
-dist/sysmonvm/mac-host/bin/hostfreq --interval-ms 200 --samples 3
-```
-
-- `--interval-ms` (default `200`): dwell time between IOReport samples.
-- `--samples` (default `1`): number of snapshots to collect; each sample prints a JSON blob.
-
-Example output:
-
-```json
-{
-  "timestamp": "2025-10-10T17:52:54.553Z",
-  "interval_request_ms": 150,
-  "interval_actual_ms": 156.219291,
-  "clusters": [
-    { "name": "ECPU", "avg_mhz": 1594.77 },
-    { "name": "PCPU", "avg_mhz": 2510.12 }
-  ],
-  "cores": [
-    { "name": "ECPU0", "avg_mhz": 1572.97 },
-    { "name": "PCPU0", "avg_mhz": 2810.20 }
-  ]
-}
-```
-
-## Integration Notes
-
-- IOReport DVFS channels usually require elevated privileges. When wiring this into the OTEL
-  collector, plan to run the helper via `sudo` (e.g., `exec` receiver with a dedicated sudoers
-  entry) or a launchd agent that already runs with the correct entitlement.
-- The program currently reports averages across active DVFS states; idle residency is ignored.
-- The sysmon-vm checker on macOS automatically shells out to the installed helper when
-  `SERVICERADAR_HOSTFREQ_PATH` is present, so no additional configuration is required
-  beyond installing the launchd service.
+- The sampler still depends on private IOReport APIs, so the launchd service
+  must run with sufficient privileges (root on Apple Silicon macOS).
+- When the process cannot talk to IOReport, `pkg/cpufreq` reports the wrapped
+  error that previously came from the helper binary. Check
+  `/var/log/serviceradar/sysmon-vm.err.log` for additional detail.
