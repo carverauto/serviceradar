@@ -4,7 +4,7 @@ module(
     repo_name = "serviceradar",
 )
 
-# Core language ecosystems
+# --- Bazel dependencies  ----------------------------------
 bazel_dep(name = "rules_go", version = "0.57.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.45.0", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rust", version = "0.65.0")
@@ -18,7 +18,23 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
-
+bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
+bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
+bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
+bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
+bazel_dep(name = "aspect_rules_js", version = "2.6.0")
+bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
+bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
+bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
+bazel_dep(name = "makeheaders", version = "3.0.0")
+bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
+bazel_dep(name = "tools_opam", version = "1.0.0.beta.1")
+bazel_dep(
+    name = "toolchains_buildbuddy",
+    version = "0.0.1",
+    repo_name = "io_buildbuddy_buildbuddy_toolchain",
+)
 single_version_override(
     module_name = "rules_java",
     patch_strip = 0,
@@ -27,6 +43,8 @@ single_version_override(
 
 host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
 use_repo(host_platform_ext, "host_platform")
+
+# --- Java Toolchain  ----------------------------------
 
 java = use_extension("@rules_java//java:extensions.bzl", "toolchains")
 use_repo(
@@ -54,29 +72,20 @@ register_toolchains(
     "@remotejdk11_macos_aarch64//:all",
 )
 
-bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
-bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
-bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
-bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
-bazel_dep(name = "rules_apple", version = "3.18.0")
-bazel_dep(name = "apple_support", version = "1.23.0")
+# --- RPM & package Toolchain  ----------------------------------
 
 find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
 use_repo(find_rpm, "rules_pkg_rpmbuild")
 
 register_toolchains("@rules_pkg_rpmbuild//:all")
 
-bazel_dep(name = "aspect_rules_js", version = "2.6.0")
-bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
-bazel_dep(name = "rules_cc", version = "0.2.4")
-bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
-bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
+# --- CC Toolchain  ----------------------------------
 
 cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
 use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
 
-apple = use_extension("@rules_apple//apple:extensions.bzl", "apple")
-apple.toolchain()
+cc_compat_ext = use_extension("@rules_cc//cc:extensions.bzl", "compatibility_proxy")
+use_repo(cc_compat_ext, "cc_compatibility_proxy")
 
 archive_override(
     module_name = "toolchains_buildbuddy",
@@ -87,11 +96,7 @@ archive_override(
     ],
 )
 
-bazel_dep(
-    name = "toolchains_buildbuddy",
-    version = "0.0.1",
-    repo_name = "io_buildbuddy_buildbuddy_toolchain",
-)
+# --- BuildBuddy Toolchain  ----------------------------------
 
 buildbuddy_toolchain_ext = use_extension(
     "@io_buildbuddy_buildbuddy_toolchain//:extensions.bzl",
@@ -116,6 +121,16 @@ buildbuddy_toolchain_ext.platform(
     container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.9",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
+
+# --- RBE Toolchain and platforms  ----------------------------------
+register_toolchains("//build/toolchains:rbe_cc_toolchain")
+register_execution_platforms(
+    "//build/rbe:rbe_platform",
+    "//build/rbe:ocaml_rbe_ocamlopt",
+    "//build/rbe:ocaml_rbe_ocamlc",
+)
+
+# --- OCI Toolchain  ----------------------------------
 
 oci_ext = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 oci_ext.pull(
@@ -222,11 +237,15 @@ use_repo(
     "ubuntu_noble_linux_amd64",
 )
 
+# --- Xcode Toolchain  ----------------------------------
+
 xcode_configure_ext = use_extension(
     "@bazel_tools//tools/osx:xcode_configure.bzl",
     "xcode_configure_extension",
 )
 use_repo(xcode_configure_ext, "local_config_xcode")
+
+# --- Ocaml Toolchain  ----------------------------------
 
 archive_override(
     module_name = "rules_ocaml",
@@ -242,14 +261,10 @@ archive_override(
     ],
 )
 
-bazel_dep(name = "rules_ocaml", version = "3.0.0.beta.1")
-
 local_path_override(
     module_name = "tools_opam",
     path = "third_party/vendor/tools_opam",
 )
-
-bazel_dep(name = "tools_opam", version = "1.0.0.beta.1")
 
 archive_override(
     module_name = "obazl_tools_cc",
@@ -313,8 +328,6 @@ archive_override(
         "https://github.com/obazl/makeheaders/archive/refs/tags/3.0.0.tar.gz",
     ],
 )
-
-bazel_dep(name = "makeheaders", version = "3.0.0")
 
 archive_override(
     module_name = "semverc",
@@ -423,18 +436,10 @@ use_repo(
 )
 
 use_repo(opam_dev, "opam.alcotest")
-
 register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")
-
 register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")
 
-register_toolchains("//toolchains:rbe_cc_toolchain")
 
-register_execution_platforms(
-    "//docker:rbe_platform",
-    "//docker:ocaml_rbe_ocamlopt",
-    "//docker:ocaml_rbe_ocamlc",
-)
 
 # --- Go toolchain & dependency management ----------------------------------
 
@@ -805,10 +810,10 @@ http_file(
 )
 
 http_file(
-    name = "alpine_readline_apk",
-    sha256 = "177b9c76718d0a12cd1c27f2a3e422341ad93259ad56d77f55da712563049aed",
+    name = "alpine_glibc_apk",
+    sha256 = "276f43ce9b2d5878422bca94ca94e882a7eb263abe171d233ac037201ffcaf06",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/readline-8.2.10-r0.apk",
+        "https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.35-r1/glibc-2.35-r1.apk",
     ],
 )
 
@@ -829,10 +834,10 @@ http_file(
 )
 
 http_file(
-    name = "alpine_glibc_apk",
-    sha256 = "276f43ce9b2d5878422bca94ca94e882a7eb263abe171d233ac037201ffcaf06",
+    name = "alpine_readline_apk",
+    sha256 = "177b9c76718d0a12cd1c27f2a3e422341ad93259ad56d77f55da712563049aed",
     urls = [
-        "https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.35-r1/glibc-2.35-r1.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/readline-8.2.10-r0.apk",
     ],
 )
 
