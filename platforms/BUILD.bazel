@@ -68,3 +68,11 @@ platform(
     },
     visibility = ["//visibility:public"],
 )
+
+platform(
+    name = "darwin_exec",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:arm64",
+    ],
+)

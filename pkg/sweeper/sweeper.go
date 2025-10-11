@@ -76,18 +76,18 @@ type DeviceRegistryService interface {
 type NetworkSweeper struct {
 	config            *models.Config
 	icmpScanner       scan.Scanner
-	tcpScanner        scan.Scanner      // SYN scanner (fast but breaks conntrack)
-	tcpConnectScanner scan.Scanner      // TCP connect scanner (safe for conntrack)
+	tcpScanner        scan.Scanner // SYN scanner (fast but breaks conntrack)
+	tcpConnectScanner scan.Scanner // TCP connect scanner (safe for conntrack)
 	store             Store
 	processor         ResultProcessor
 	kvStore           KVStore
 	deviceRegistry    DeviceRegistryService
 	configKey         string
 	logger            logger.Logger
-	mu             sync.RWMutex
-	done           chan struct{}
-	watchDone      chan struct{}
-	lastSweep      time.Time
+	mu                sync.RWMutex
+	done              chan struct{}
+	watchDone         chan struct{}
+	lastSweep         time.Time
 	// KV change detection
 	lastConfigTimestamp string
 	lastConfigHash      [32]byte
@@ -154,11 +154,11 @@ func NewNetworkSweeper(
 		processor:         processor,
 		kvStore:           kvStore,
 		deviceRegistry:    deviceRegistry,
-		configKey:      configKey,
-		logger:         log,
-		done:           make(chan struct{}),
-		watchDone:      make(chan struct{}),
-		deviceResults:  make(map[string]*DeviceResultAggregator),
+		configKey:         configKey,
+		logger:            log,
+		done:              make(chan struct{}),
+		watchDone:         make(chan struct{}),
+		deviceResults:     make(map[string]*DeviceResultAggregator),
 	}, nil
 }
 
@@ -221,7 +221,7 @@ func needsTCPConnectScanning(config *models.Config) bool {
 
 // configureSYNScannerOptions configures SYN scanner options from config
 func configureSYNScannerOptions(config *models.Config, log logger.Logger) *scan.SYNScannerOptions {
-    opts := &scan.SYNScannerOptions{}
+	opts := &scan.SYNScannerOptions{}
 
 	// Use TCPSettings.MaxBatch if configured
 	if config.TCPSettings.MaxBatch > 0 {
@@ -236,8 +236,8 @@ func configureSYNScannerOptions(config *models.Config, log logger.Logger) *scan.
 			Msg("Using configured route discovery host for local IP detection")
 	}
 
-    // Configure ring buffer settings
-    configureRingBufferSettings(config, opts, log)
+	// Configure ring buffer settings
+	configureRingBufferSettings(config, opts, log)
 
 	// Configure network interface for multi-homed hosts
 	if config.TCPSettings.Interface != "" {
@@ -252,15 +252,14 @@ func configureSYNScannerOptions(config *models.Config, log logger.Logger) *scan.
 		log.Debug().Msg("RST reply suppression enabled for firewall compatibility")
 	}
 
-    // Configure global memory limit for ring buffers
-    if config.TCPSettings.GlobalRingMemoryMB > 0 {
-        opts.GlobalRingMemoryMB = config.TCPSettings.GlobalRingMemoryMB
-        log.Debug().Int("global_ring_memory_mb", opts.GlobalRingMemoryMB).
-            Msg("Using configured global ring buffer memory limit")
-    }
+	// Configure global memory limit for ring buffers
+	if config.TCPSettings.GlobalRingMemoryMB > 0 {
+		opts.GlobalRingMemoryMB = config.TCPSettings.GlobalRingMemoryMB
+		log.Debug().Int("global_ring_memory_mb", opts.GlobalRingMemoryMB).
+			Msg("Using configured global ring buffer memory limit")
+	}
 
-
-    return opts
+	return opts
 }
 
 // configureRingBufferSettings configures ring buffer settings for SYN scanner
@@ -327,14 +326,14 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner
 	}
 
 	synScanner, err := scan.NewSYNScanner(config.TCPSettings.Timeout, synConcurrency, log, opts)
-	if err == nil {
+	if err != nil {
+		// SYN scanner failed (non-Linux, container without CAP_NET_RAW, etc.)
+		// Gracefully fall back to TCP connect() scanner
+		log.Warn().Err(err).Msg("SYN scanner unavailable; falling back to TCP connect() scanner")
+	} else {
 		log.Info().Int("concurrency", synConcurrency).Msg("Using SYN scanning for improved TCP port detection performance")
 		return synScanner
 	}
-
-	// SYN scanner failed (non-Linux, container without CAP_NET_RAW, etc.)
-	// Gracefully fall back to TCP connect() scanner
-	log.Warn().Err(err).Msg("SYN scanner unavailable; falling back to TCP connect() scanner")
 
 	// Apply connect scanner concurrency upper bound (more restrictive)
 	connectConcurrency := baseConcurrency
@@ -1684,17 +1683,17 @@ func (s *NetworkSweeper) handleContextDone(ctx context.Context, resultBatch []mo
 }
 
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {
-    // Clear previous results so availability reflects the current sweep only
-    // This prevents stale positives from lingering across sweeps when targets change
-    if s.store != nil {
-        // Using age=0 clears all stored results
-        _ = s.store.PruneResults(context.Background(), 0)
-    }
+	// Clear previous results so availability reflects the current sweep only
+	// This prevents stale positives from lingering across sweeps when targets change
+	if s.store != nil {
+		// Using age=0 clears all stored results
+		_ = s.store.PruneResults(context.Background(), 0)
+	}
 
-    targets, err := s.generateTargets()
-    if err != nil {
-        return fmt.Errorf("failed to generate targets: %w", err)
-    }
+	targets, err := s.generateTargets()
+	if err != nil {
+		return fmt.Errorf("failed to generate targets: %w", err)
+	}
 
 	// Prepare device result aggregators for multi-IP devices
 	s.prepareDeviceAggregators(targets)
@@ -1948,20 +1947,20 @@ func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Tar
 
 // generateTargetsForDeviceTarget creates targets for a device target configuration
 func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.DeviceTarget) (targets []models.Target, hostCount int) {
-    // Always expand and use the primary network (e.g., a single /32).
-    // We intentionally ignore any additional IP lists in metadata (e.g., "all_ips").
-    ips, err := scan.ExpandCIDR(deviceTarget.Network)
-    if err != nil {
-        s.logger.Warn().
-            Err(err).
-            Str("network", deviceTarget.Network).
-            Str("query_label", deviceTarget.QueryLabel).
-            Msg("Failed to expand device target CIDR, skipping")
+	// Always expand and use the primary network (e.g., a single /32).
+	// We intentionally ignore any additional IP lists in metadata (e.g., "all_ips").
+	ips, err := scan.ExpandCIDR(deviceTarget.Network)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("network", deviceTarget.Network).
+			Str("query_label", deviceTarget.QueryLabel).
+			Msg("Failed to expand device target CIDR, skipping")
 
-        return targets, hostCount
-    }
+		return targets, hostCount
+	}
 
-    targetIPs := ips
+	targetIPs := ips
 
 	metadata := map[string]interface{}{
 		"network":     deviceTarget.Network,
@@ -1970,10 +1969,10 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 		"query_label": deviceTarget.QueryLabel,
 	}
 
-    // Add device target metadata to the scan metadata (for tracking only)
-    for k, v := range deviceTarget.Metadata {
-        metadata[k] = v
-    }
+	// Add device target metadata to the scan metadata (for tracking only)
+	for k, v := range deviceTarget.Metadata {
+		metadata[k] = v
+	}
 
 	// Use device-specific sweep modes if available, otherwise fall back to global
 	sweepModes := deviceTarget.SweepModes

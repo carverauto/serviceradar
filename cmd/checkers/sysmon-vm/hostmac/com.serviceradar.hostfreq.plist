@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.serviceradar.hostfreq</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/libexec/serviceradar/hostfreq</string>
+        <string>--interval-ms</string>
+        <string>1000</string>
+        <string>--samples</string>
+        <string>0</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SERVICERADAR_HOSTFREQ_PATH</key>
+        <string>/usr/local/libexec/serviceradar/hostfreq</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/serviceradar/hostfreq.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/serviceradar/hostfreq.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

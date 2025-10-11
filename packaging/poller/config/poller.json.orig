@@ -1,0 +1,111 @@
+{
+    "agents": {
+        "local-agent": {
+            "address": ":50051",
+            "security": {
+                "server_name": "127.0.0.1",
+                "mode": "mtls",
+                "cert_dir": "/etc/serviceradar/certs",
+                "tls": {
+                    "cert_file": "agent.pem",
+                    "key_file": "agent-key.pem",
+                    "ca_file": "root.pem",
+                    "client_ca_file": "root.pem"
+                }
+            },
+            "checks": [
+                {
+                    "service_type": "process",
+                    "service_name": "serviceradar-agent",
+                    "details": "serviceradar-agent"
+                },
+                {
+                    "service_type": "port",
+                    "service_name": "SSH",
+                    "details": "127.0.0.1:22"
+                },
+                {
+                    "service_type": "icmp",
+                    "service_name": "ping",
+                    "details": "1.1.1.1"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "sysmon",
+                    "details": "127.0.0.1:50083"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "sysmon-vm",
+                    "details": "host.docker.internal:50110"
+                },
+                {
+                    "service_type": "sweep",
+                    "service_name": "network_sweep",
+                    "details": "",
+                    "results_interval": "18h"
+                }
+            ]
+        },
+        "default-agent": {
+            "address": ":50058",
+            "security": {
+                "server_name": "127.0.0.1",
+                "mode": "mtls",
+                "cert_dir": "/etc/serviceradar/certs",
+                "tls": {
+                    "cert_file": "sync.pem",
+                    "key_file": "sync-key.pem",
+                    "ca_file": "root.pem",
+                    "client_ca_file": "root.pem"
+                }
+            },
+            "checks": [
+                {
+                    "service_type": "sync",
+                    "service_name": "sync",
+                    "details": "",
+                    "results_interval": "30m"
+                }
+            ]
+        }
+    },
+    "core_address": "127.0.0.1:50052",
+    "listen_addr": ":50053",
+    "poll_interval": "30s",
+    "poller_id": "default-poller",
+    "partition": "default",
+    "source_ip": "127.0.0.1",
+    "service_name": "PollerService",
+    "service_type": "grpc",
+    "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "127.0.0.1",
+        "role": "poller",
+        "tls": {
+            "cert_file": "poller.pem",
+            "key_file": "poller-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+        }
+    },
+    "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+            "enabled": true,
+            "endpoint": "192.168.2.23:4317",
+            "service_name": "serviceradar-poller",
+            "batch_timeout": "5s",
+            "insecure": false,
+            "tls": {
+                "cert_file": "/etc/serviceradar/certs/poller.pem",
+                "key_file": "/etc/serviceradar/certs/poller-key.pem",
+                "ca_file": "/etc/serviceradar/certs/root.pem"
+            }
+        }
+    }
+}

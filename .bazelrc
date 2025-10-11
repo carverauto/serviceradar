@@ -43,6 +43,9 @@ build:ci --bes_backend=grpcs://remote.buildbuddy.io
 build:ci --bes_backend=grpcs://carverauto.buildbuddy.io
 build:ci --remote_cache=grpcs://carverauto.buildbuddy.io
 build:ci --remote_timeout=15m
+build:ci --strategy=ExpandTemplate=local
+build:ci --strategy=NpmPackageExtract=local
+build:ci --strategy=CopyDirectory=local
 
 # CI tests should avoid manual-only targets and preserve detailed output.
 test:ci --config=remote
@@ -67,7 +70,14 @@ build:remote --remote_timeout=10m
 build:remote --remote_download_minimal
 build:remote --remote_upload_local_results
 build:remote --jobs=100
+build:remote --strategy=ExpandTemplate=local
+build:remote --strategy=NpmPackageExtract=local
+build:remote --strategy=CopyDirectory=local
 test:remote --copt=-Wno-use-after-free
+
+# Enable clang-tidy diagnostics via --config=clang-tidy
+build:clang-tidy --features=clang_tidy
+test:clang-tidy --features=clang_tidy
 
 # OCaml toolchain generated via tools_opam is macOS-hosted, which cannot run on
 # Linux remote executors. Force OCaml compilation/linking actions to run locally
@@ -81,3 +91,20 @@ test:remote --copt=-Wno-use-after-free
 build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
 
 build:ci --config=remote
+build:darwin_pkg --platforms=//platforms:darwin_exec
+build:darwin_pkg --host_platform=//platforms:darwin_exec
+build:darwin_pkg --extra_execution_platforms=//platforms:darwin_exec
+build:darwin_pkg --action_env=DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+build:darwin_pkg --action_env=PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/usr/local/go/bin
+build:darwin_pkg --action_env=PKG_SIGN_IDENTITY
+build:darwin_pkg --action_env=PKG_NOTARIZE_PROFILE
+build:darwin_pkg --action_env=PKG_VERSION
+build:darwin_pkg --action_env=PKG_IDENTIFIER
+build:darwin_pkg --action_env=PKG_DISABLE_TIMESTAMP=1
+build:darwin_pkg --action_env=XCODE_VERSION_OVERRIDE=26.0
+build:darwin_pkg --remote_default_exec_properties=OSFamily=MacOS
+build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
+build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
+build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+build:darwin_pkg --noremote
+build:darwin_pkg --noremote_accept_cached
