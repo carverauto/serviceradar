@@ -120,14 +120,8 @@ sysmonvm-build-checker-darwin: ## Build the sysmon-vm checker for macOS (arm64) 
 	mkdir -p "$$OUTDIR"; \
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$$OUTDIR/serviceradar-sysmon-vm" ./cmd/checkers/sysmon-vm
 
-.PHONY: sysmonvm-host-build
-sysmonvm-host-build: ## Build the macOS host frequency helper into dist/sysmonvm/mac-host/bin
-	@OUTDIR=$(abspath $(if $(WORKSPACE),$(WORKSPACE),dist/sysmonvm)/mac-host/bin); \
-	mkdir -p "$$OUTDIR"; \
-	$(MAKE) -C cmd/checkers/sysmon-vm/hostmac OUTDIR="$$OUTDIR"
-
 .PHONY: sysmonvm-host-install
-sysmonvm-host-install: ## Install the macOS host frequency helper launchd service (run with sudo)
+sysmonvm-host-install: ## Install the macOS sysmon-vm checker launchd service (run with sudo)
 	@scripts/sysmonvm/host-install-macos.sh
 
 .PHONY: sysmonvm-host-package
@@ -156,18 +150,8 @@ get-golangcilint: ## Install golangci-lint
 	@echo "$(COLOR_BOLD)Checking golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"
 	@which $(GOLANGCI_LINT) > /dev/null || (echo "golangci-lint not found, please install it" && exit 1)
 
-.PHONY: lint-clang-tidy
-lint-clang-tidy: ## Run clang-tidy diagnostics for macOS host helper
-	@if [ "$(HOST_OS)" != "Darwin" ]; then \
-		echo "$(COLOR_YELLOW)Skipping clang-tidy for hostfreq (requires macOS toolchain)$(COLOR_RESET)"; \
-	else \
-		echo "$(COLOR_BOLD)Running clang-tidy for hostfreq via Bazel$(COLOR_RESET)"; \
-		bazel build --config=clang-tidy //cmd/checkers/sysmon-vm/hostmac:hostfreq; \
-	fi
-
 .PHONY: lint
 lint: get-golangcilint ## Run linting checks
-	@$(MAKE) lint-clang-tidy
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
 	@$(GOLANGCI_LINT) run ./...
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"

@@ -20,6 +20,7 @@ on:
       - main
     paths:
       - 'cmd/checkers/sysmon-vm/hostmac/**'
+      - 'pkg/cpufreq/**'
       - 'Makefile'
       - '.bazelrc'
       - 'MODULE.bazel'
@@ -28,6 +29,7 @@ on:
   pull_request:
     paths:
       - 'cmd/checkers/sysmon-vm/hostmac/**'
+      - 'pkg/cpufreq/**'
       - 'Makefile'
       - '.bazelrc'
       - 'MODULE.bazel'
@@ -35,7 +37,7 @@ on:
       - '.github/workflows/clang-tidy.yml'
 
 jobs:
-  hostfreq-clang-tidy:
+  cpufreq-clang-tidy:
     runs-on: macos-14
     permissions:
       contents: read
@@ -55,4 +57,4 @@ jobs:
           printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
 
       - name: Run clang-tidy via Bazel
-        run: bazel build --config=clang-tidy //cmd/checkers/sysmon-vm/hostmac:hostfreq
+        run: bazel build --config=clang-tidy //pkg/cpufreq:hostfreq_darwin_cc

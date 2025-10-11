@@ -32,15 +32,9 @@ func withSample(fn func(context.Context, int, time.Duration) (float64, error)) o
 	}
 }
 
-func withHostfreqResolver(fn func() (string, error)) option {
+func withHostfreqCollector(fn func(context.Context, time.Duration) (*Snapshot, error)) option {
 	return func(d *collectorDeps) {
-		d.hostfreqPathResolver = fn
-	}
-}
-
-func withHostfreqRunner(fn func(context.Context, string, []string) ([]byte, error)) option {
-	return func(d *collectorDeps) {
-		d.hostfreqCommandRunner = fn
+		d.hostfreqCollector = fn
 	}
 }
 
@@ -62,10 +56,7 @@ func TestCollectPerfFallback(t *testing.T) {
 		withSample(func(context.Context, int, time.Duration) (float64, error) {
 			return 2_400_000_000, nil
 		}),
-		withHostfreqResolver(func() (string, error) {
-			return "", ErrFrequencyUnavailable
-		}),
-		withHostfreqRunner(func(context.Context, string, []string) ([]byte, error) {
+		withHostfreqCollector(func(context.Context, time.Duration) (*Snapshot, error) {
 			return nil, ErrFrequencyUnavailable
 		}),
 	)
@@ -108,10 +99,7 @@ func TestCollectUsesProcFallback(t *testing.T) {
 		withReadSysfs(func(int) (float64, bool) {
 			return 0, false
 		}),
-		withHostfreqResolver(func() (string, error) {
-			return "", ErrFrequencyUnavailable
-		}),
-		withHostfreqRunner(func(context.Context, string, []string) ([]byte, error) {
+		withHostfreqCollector(func(context.Context, time.Duration) (*Snapshot, error) {
 			return nil, ErrFrequencyUnavailable
 		}),
 	)
