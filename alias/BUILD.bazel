@@ -1,0 +1,226 @@
+package(default_visibility = ["//visibility:public"])
+
+# pkg/agent
+alias(
+    name = "agent",
+    actual = "//pkg/agent:agent",
+)
+
+# pkg/checker
+alias(
+    name = "checker",
+    actual = "//pkg/checker:checker",
+)
+
+alias(
+    name = "dusk",
+    actual = "//pkg/checker/dusk:dusk",
+)
+
+alias(
+    name = "snmp",
+    actual = "//pkg/checker/snmp:snmp",
+)
+
+alias(
+    name = "sysmonvm",
+    actual = "//pkg/checker/sysmonvm:sysmonvm",
+)
+
+# pkg/cli
+alias(
+    name = "cli",
+    actual = "//pkg/cli:cli",
+)
+
+# pkg/config
+alias(
+    name = "config",
+    actual = "//pkg/config:config",
+)
+
+# pkg/consumers
+alias(
+    name = "db-event-writer",
+    actual = "//pkg/consumers/db-event-writer:db-event-writer",
+)
+
+alias(
+    name = "netflow",
+    actual = "//pkg/consumers/netflow:netflow",
+)
+
+# pkg/core
+alias(
+    name = "core",
+    actual = "//pkg/core:core",
+)
+
+alias(
+    name = "alerts",
+    actual = "//pkg/core/alerts:alerts",
+)
+
+alias(
+    name = "api",
+    actual = "//pkg/core/api:api",
+)
+
+alias(
+    name = "auth",
+    actual = "//pkg/core/auth:auth",
+)
+
+# pkg/cpufreq
+alias(
+    name = "cpufreq",
+    actual = "//pkg/cpufreq:cpufreq",
+)
+
+# pkg/db
+alias(
+    name = "db",
+    actual = "//pkg/db:db",
+)
+
+# pkg/deviceupdate
+alias(
+    name = "deviceupdate",
+    actual = "//pkg/deviceupdate:deviceupdate",
+)
+
+# pkg/grpc
+alias(
+    name = "grpc",
+    actual = "//pkg/grpc:grpc",
+)
+
+# pkg/http
+alias(
+    name = "http",
+    actual = "//pkg/http:http",
+)
+
+# pkg/identitymap
+alias(
+    name = "identitymap",
+    actual = "//pkg/identitymap:identitymap",
+)
+
+# pkg/integration_test
+alias(
+    name = "integration_test",
+    actual = "//pkg/integration_test:integration_test",
+)
+
+# pkg/kv
+alias(
+    name = "kv",
+    actual = "//pkg/kv:kv",
+)
+
+# pkg/lifecycle
+alias(
+    name = "lifecycle",
+    actual = "//pkg/lifecycle:lifecycle",
+)
+
+# pkg/logger
+alias(
+    name = "logger",
+    actual = "//pkg/logger:logger",
+)
+
+# pkg/mapper
+alias(
+    name = "mapper",
+    actual = "//pkg/mapper:mapper",
+)
+
+# pkg/mcp
+alias(
+    name = "mcp",
+    actual = "//pkg/mcp:mcp",
+)
+
+# pkg/metrics
+alias(
+    name = "metrics",
+    actual = "//pkg/metrics:metrics",
+)
+
+# pkg/metricstore
+alias(
+    name = "metricstore",
+    actual = "//pkg/metricstore:metricstore",
+)
+
+# pkg/models
+alias(
+    name = "models",
+    actual = "//pkg/models:models",
+)
+
+# pkg/monitoring
+alias(
+    name = "monitoring",
+    actual = "//pkg/monitoring:monitoring",
+)
+
+# pkg/natsutil
+alias(
+    name = "natsutil",
+    actual = "//pkg/natsutil:natsutil",
+)
+
+# pkg/poller
+alias(
+    name = "poller",
+    actual = "//pkg/poller:poller",
+)
+
+# pkg/registry
+alias(
+    name = "registry",
+    actual = "//pkg/registry:registry",
+)
+
+# pkg/scan
+alias(
+    name = "scan",
+    actual = "//pkg/scan:scan",
+)
+
+# pkg/swagger
+alias(
+    name = "swagger",
+    actual = "//pkg/swagger:swagger",
+)
+
+# pkg/sweeper
+alias(
+    name = "sweeper",
+    actual = "//pkg/sweeper:sweeper",
+)
+
+# pkg/sync
+alias(
+    name = "sync",
+    actual = "//pkg/sync:sync",
+)
+
+alias(
+    name = "armis",
+    actual = "//pkg/sync/integrations/armis:armis",
+)
+
+alias(
+    name = "netbox",
+    actual = "//pkg/sync/integrations/netbox:netbox",
+)
+
+# pkg/version
+alias(
+    name = "version",
+    actual = "//pkg/version:version",
+)

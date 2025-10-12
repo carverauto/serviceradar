@@ -35,6 +35,7 @@ bazel_dep(
     version = "0.0.1",
     repo_name = "io_buildbuddy_buildbuddy_toolchain",
 )
+
 single_version_override(
     module_name = "rules_java",
     patch_strip = 0,
@@ -124,6 +125,7 @@ use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
 # --- RBE Toolchain and platforms  ----------------------------------
 register_toolchains("//build/toolchains:rbe_cc_toolchain")
+
 register_execution_platforms(
     "//build/rbe:rbe_platform",
     "//build/rbe:ocaml_rbe_ocamlopt",
@@ -436,10 +438,10 @@ use_repo(
 )
 
 use_repo(opam_dev, "opam.alcotest")
+
 register_toolchains("@opam.ocamlsdk//toolchain/selectors/local:all")
+
 register_toolchains("@opam.ocamlsdk//toolchain/profiles:all")
-
-
 
 # --- Go toolchain & dependency management ----------------------------------
 

@@ -6,9 +6,9 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/cmd/kv",
     visibility = ["//visibility:private"],
     deps = [
-        "//pkg/config",
-        "//pkg/kv",
-        "//pkg/lifecycle",
+        "//alias:config",
+        "//alias:kv",
+        "//alias:lifecycle",
         "//proto",
         "@org_golang_google_grpc//:grpc",
     ],
