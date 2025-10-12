@@ -4,7 +4,7 @@ The `sysmon-vm` checker is a lightweight gRPC service that exposes CPU metrics (
 
 ## Features
 - Collects per-core CPU usage via `github.com/shirou/gopsutil/v3/cpu`.
-- Samples per-core frequency using `pkg/cpufreq`, which reads the Linux cpufreq sysfs interface and falls back to `/proc/cpuinfo`.
+- Samples per-core frequency using `pkg/cpufreq`, which reads the Linux cpufreq sysfs interface (falling back to `/proc/cpuinfo` and perf counters) and, on macOS, calls the embedded Objective-C++ IOReport collector.
 - Reports metrics through the standard `monitoring.AgentService` gRPC API so existing agent/poller/core pipelines ingest the data with no downstream changes.
 
 ## Configuration
@@ -71,12 +71,11 @@ Key options:
 - Verify the service via `make sysmonvm-vm-ssh ARGS="sudo systemctl status serviceradar-sysmon-vm"` or inspect logs with `journalctl -u serviceradar-sysmon-vm`.
 - In environments where the cpufreq interface is missing (e.g., QEMU on Apple Silicon using Hypervisor.framework), the checker samples hardware performance counters to compute an effective frequency. If the kernel forbids perf events, ensure `kernel.perf_event_paranoid` is ≤1 (handled automatically by `make sysmonvm-vm-bootstrap`).
 
-## macOS Host Frequency Helper
-- Build the host-side collector with `make sysmonvm-host-build`; the binary is deposited at `dist/sysmonvm/mac-host/bin/hostfreq`.
-- Install the launchd service with `sudo make sysmonvm-host-install`. This stages the binary under `/usr/local/libexec/serviceradar/hostfreq`, registers `com.serviceradar.hostfreq`, and starts continuous sampling (output logged to `/var/log/serviceradar`).
-- You can still run ad-hoc samples locally (e.g., `dist/sysmonvm/mac-host/bin/hostfreq --interval-ms 200 --samples 5`) to verify IOReport access and privilege configuration.
-- The helper must run with privileges that allow IOReport access (typically root or a launchd agent with the appropriate entitlement). The install script exports `SERVICERADAR_HOSTFREQ_PATH` so other components locate the binary reliably.
-- The same install script deploys a macOS build of `serviceradar-sysmon-vm` as `com.serviceradar.sysmonvm`; the checker uses `SERVICERADAR_HOSTFREQ_PATH` to call the helper and merges host MHz data into the gRPC payload. Linux/perf paths remain the fallback for environments where cpufreq/perf are available.
+## macOS Host Deployment
+- Build the macOS checker with `make sysmonvm-build-checker-darwin`; the binary is written to `dist/sysmonvm/mac-host/bin/serviceradar-sysmon-vm`.
+- Install it with `sudo make sysmonvm-host-install`, which stages the checker under `/usr/local/libexec/serviceradar/serviceradar-sysmon-vm`, ensures `/usr/local/etc/serviceradar/sysmon-vm.json` exists, and loads the `com.serviceradar.sysmonvm` launchd unit.
+- The embedded IOReport sampler runs inside the checker process, so no standalone `hostfreq` binary or environment variables are required.
+- Logs land in `/var/log/serviceradar/sysmon-vm.log` and `.err.log`; IOReport permission issues are surfaced there as well.
 
 Refer back to `cpu_plan.md` for Phase 5+ (metric verification, sysmon-vm telemetry plumbing, dashboard work).
 

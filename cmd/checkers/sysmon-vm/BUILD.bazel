@@ -20,8 +20,6 @@ go_library(
 go_binary(
     name = "sysmon-vm",
     embed = [":sysmon_vm_lib"],
-    goos = "darwin",
-    goarch = "arm64",
 )
 
 exports_files(["sysmon-vm.json.example"])
