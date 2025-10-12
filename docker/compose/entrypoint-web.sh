@@ -85,4 +85,35 @@ echo "  JWT_SECRET=[REDACTED]"
 
 # Start the Next.js application
 echo "Starting Next.js application..."
+
+# Ensure Next.js standalone bundle can locate static assets.
+STATIC_SRC="/app/.next/static"
+STANDALONE_DIST="/app/.next/standalone/.next"
+STANDALONE_STATIC="${STANDALONE_DIST}/static"
+if [ -d "${STATIC_SRC}" ]; then
+    if [ ! -d "${STANDALONE_DIST}" ]; then
+        mkdir -p "${STANDALONE_DIST}"
+    fi
+    if [ -e "${STANDALONE_STATIC}" ]; then
+        rm -rf "${STANDALONE_STATIC}"
+    fi
+    echo "Linking Next.js static assets into standalone bundle..."
+    ln -s "${STATIC_SRC}" "${STANDALONE_STATIC}"
+fi
+
+# Flatten Bazel-packaged public assets that land under web/public_flat.
+PUBLIC_ROOT="/app/public"
+NESTED_PUBLIC="${PUBLIC_ROOT}/web/public_flat"
+if [ -d "${NESTED_PUBLIC}" ]; then
+    echo "Flattening public assets into ${PUBLIC_ROOT}..."
+    cp -R "${NESTED_PUBLIC}/." "${PUBLIC_ROOT}/"
+fi
+
+STANDALONE_PUBLIC_ROOT="/app/.next/standalone/public"
+NESTED_STANDALONE_PUBLIC="${STANDALONE_PUBLIC_ROOT}/web/public_flat"
+if [ -d "${NESTED_STANDALONE_PUBLIC}" ]; then
+    echo "Flattening standalone public assets..."
+    cp -R "${NESTED_STANDALONE_PUBLIC}/." "${STANDALONE_PUBLIC_ROOT}/"
+fi
+
 exec "$@"

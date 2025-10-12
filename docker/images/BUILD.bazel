@@ -945,12 +945,14 @@ pkg_tar(
     name = "web_public_root_amd64",
     srcs = ["//web:public_flat"],
     package_dir = "/app/public",
+    strip_prefix = "web/public_flat",
 )
 
 pkg_tar(
     name = "web_public_standalone_amd64",
     srcs = ["//web:public_flat"],
     package_dir = "/app/.next/standalone/public",
+    strip_prefix = "web/public_flat",
 )
 
 genrule(
