@@ -75,6 +75,8 @@ func initRegistry(log logger.Logger) checker.Registry {
 			switch serviceName {
 			case "sysmon":
 				actualGrpcServiceCheckName = defaultMonitoringServiceName
+			case "sysmon-vm":
+				actualGrpcServiceCheckName = defaultMonitoringServiceName
 			case "mapper":
 				// For mapper, we should use the monitoring.AgentService
 				// but the CheckHealth method needs to be modified to handle this

@@ -22,9 +22,14 @@ maybe_write_remote_rc() {
 
 maybe_write_remote_rc
 
-BAZEL_BINARY="${BAZEL_BINARY:-${REPO_ROOT}/build/bazel/bazel}"
-if [[ ! -x "${BAZEL_BINARY}" ]]; then
-    BAZEL_BINARY="bazel"
+BAZEL_BINARY="${BAZEL_BINARY:-bazelisk}"
+if ! command -v "${BAZEL_BINARY}" >/dev/null 2>&1; then
+    if command -v bazel >/dev/null 2>&1; then
+        BAZEL_BINARY="bazel"
+    else
+        echo "Neither bazelisk nor bazel is available on PATH. Set BAZEL_BINARY to a valid executable." >&2
+        exit 1
+    fi
 fi
 
 BAZEL_FLAGS=()

@@ -227,6 +227,6 @@ dune-workspace
 .bazel_output/
 third_party/ocaml_stdlib/
 k8s/buildbuddy/values.yaml
-MODULE.bazel.lock
+#MODULE.bazel.lock
 
 .gomodcache/

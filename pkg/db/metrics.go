@@ -303,7 +303,7 @@ func (db *DB) GetMetricsByType(
 func (db *DB) GetCPUMetrics(
 	ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, agent_id, host_id, core_id, usage_percent
+		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz
 		FROM table(cpu_metrics)
 		WHERE poller_id = $1 AND core_id = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp`,
@@ -322,7 +322,7 @@ func (db *DB) GetCPUMetrics(
 
 		var agentID, hostID string
 
-		if err := rows.Scan(&m.Timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent); err != nil {
+		if err := rows.Scan(&m.Timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent, &m.FrequencyHz); err != nil {
 			return nil, fmt.Errorf("failed to scan CPU metric: %w", err)
 		}
 
@@ -570,7 +570,7 @@ func (db *DB) storeCPUMetrics(
 	return db.executeBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		for _, cpu := range cpus {
 			if err := batch.Append(timestamp, pollerID, agentID, hostID,
-				cpu.CoreID, cpu.UsagePercent, deviceID, partition); err != nil {
+				cpu.CoreID, cpu.UsagePercent, cpu.FrequencyHz, deviceID, partition); err != nil {
 				db.logger.Error().Err(err).Int("core_id", int(cpu.CoreID)).Msg("Failed to append CPU metric")
 				continue
 			}
@@ -705,7 +705,7 @@ func (db *DB) storeProcessMetrics(
 func (db *DB) GetAllCPUMetrics(
 	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, agent_id, host_id, core_id, usage_percent
+		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz
 		FROM table(cpu_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, core_id ASC`,
@@ -726,7 +726,7 @@ func (db *DB) GetAllCPUMetrics(
 
 		var timestamp time.Time
 
-		if err := rows.Scan(&timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent); err != nil {
+		if err := rows.Scan(&timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent, &m.FrequencyHz); err != nil {
 			db.logger.Error().Err(err).Msg("Error scanning CPU metric row")
 			continue
 		}
