@@ -230,3 +230,4 @@ k8s/buildbuddy/values.yaml
 #MODULE.bazel.lock
 
 .gomodcache/
+pkg/cpufreq/hostfreq_darwin_embed.o
