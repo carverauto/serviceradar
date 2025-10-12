@@ -1,0 +1,33 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//visibility:public"])
+
+go_library(
+    name = "sysmonvm",
+    srcs = [
+        "config.go",
+        "service.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/checker/sysmonvm",
+    deps = [
+        "//pkg/cpufreq",
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@com_github_shirou_gopsutil_v3//cpu:go_default_library",
+    ],
+)
+
+go_test(
+    name = "sysmonvm_test",
+    srcs = ["service_test.go"],
+    embed = [":sysmonvm"],
+    deps = [
+        "//pkg/cpufreq",
+        "//pkg/logger",
+        "//proto",
+        "@com_github_shirou_gopsutil_v3//cpu:go_default_library",
+        "@com_github_stretchr_testify//assert:go_default_library",
+        "@com_github_stretchr_testify//require:go_default_library",
+    ],
+)

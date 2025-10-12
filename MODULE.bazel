@@ -84,6 +84,9 @@ register_toolchains("@rules_pkg_rpmbuild//:all")
 cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
 use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
 
+cc_compat_ext = use_extension("@rules_cc//cc:extensions.bzl", "compatibility_proxy")
+use_repo(cc_compat_ext, "cc_compatibility_proxy")
+
 archive_override(
     module_name = "toolchains_buildbuddy",
     integrity = "sha256-e6gcgLHmJHvxCNNbCSQ4OrX8FbGn8TiS7XSVphM1ZU8=",
@@ -497,6 +500,7 @@ use_repo(
     "com_github_markbates_goth",
     "com_github_nats_io_nats_go",
     "com_github_rs_zerolog",
+    "com_github_shirou_gopsutil_v3",
     "com_github_spiffe_go_spiffe_v2",
     "com_github_stretchr_testify",
     "com_github_swaggo_http_swagger",
@@ -806,10 +810,10 @@ http_file(
 )
 
 http_file(
-    name = "alpine_readline_apk",
-    sha256 = "177b9c76718d0a12cd1c27f2a3e422341ad93259ad56d77f55da712563049aed",
+    name = "alpine_glibc_apk",
+    sha256 = "276f43ce9b2d5878422bca94ca94e882a7eb263abe171d233ac037201ffcaf06",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/readline-8.2.10-r0.apk",
+        "https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.35-r1/glibc-2.35-r1.apk",
     ],
 )
 
@@ -830,10 +834,10 @@ http_file(
 )
 
 http_file(
-    name = "alpine_glibc_apk",
-    sha256 = "276f43ce9b2d5878422bca94ca94e882a7eb263abe171d233ac037201ffcaf06",
+    name = "alpine_readline_apk",
+    sha256 = "177b9c76718d0a12cd1c27f2a3e422341ad93259ad56d77f55da712563049aed",
     urls = [
-        "https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.35-r1/glibc-2.35-r1.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/readline-8.2.10-r0.apk",
     ],
 )
 

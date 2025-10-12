@@ -20,6 +20,7 @@ func (m *Manager) StoreSysmonMetrics(
 		dbMetrics.CPUs[i] = models.CPUMetric{
 			CoreID:       cpu.CoreID,
 			UsagePercent: cpu.UsagePercent,
+			FrequencyHz:  cpu.FrequencyHz,
 			Timestamp:    timestamp,
 			HostID:       hostID,
 			HostIP:       hostIP,
