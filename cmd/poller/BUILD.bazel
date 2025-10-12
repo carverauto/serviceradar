@@ -6,11 +6,11 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/cmd/poller",
     visibility = ["//visibility:private"],
     deps = [
-        "//alias/config",
-        "//alias/lifecycle",
-        "//alias/logger",
-        "//alias/models",
-        "//alias/poller",
+        "//alias:config",
+        "//alias:lifecycle",
+        "//alias:logger",
+        "//alias:models",
+        "//alias:poller",
         "@org_golang_google_grpc//:grpc",
     ],
 )
