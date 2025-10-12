@@ -6,9 +6,9 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/cmd/checkers/dusk",
     visibility = ["//visibility:private"],
     deps = [
-        "//pkg/checker/dusk",
-        "//pkg/config",
-        "//pkg/lifecycle",
+        "//alias/checker/dusk",
+        "//alias/config",
+        "//alias/lifecycle",
         "//proto",
         "@org_golang_google_grpc//:grpc",
     ],
