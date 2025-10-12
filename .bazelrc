@@ -91,9 +91,9 @@ test:clang-tidy --features=clang_tidy
 build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
 
 build:ci --config=remote
-build:darwin_pkg --platforms=//platforms:darwin_exec
-build:darwin_pkg --host_platform=//platforms:darwin_exec
-build:darwin_pkg --extra_execution_platforms=//platforms:darwin_exec
+build:darwin_pkg --platforms=//build/platforms:darwin_exec
+build:darwin_pkg --host_platform=//build/platforms:darwin_exec
+build:darwin_pkg --extra_execution_platforms=//build/platforms:darwin_exec
 build:darwin_pkg --action_env=DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 build:darwin_pkg --action_env=PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/usr/local/go/bin
 build:darwin_pkg --action_env=PKG_SIGN_IDENTITY
@@ -106,5 +106,6 @@ build:darwin_pkg --remote_default_exec_properties=OSFamily=MacOS
 build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
 build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
-build:darwin_pkg --noremote
-build:darwin_pkg --noremote_accept_cached
+build:darwin_pkg --remote_executor=
+build:darwin_pkg --remote_cache=
+build:darwin_pkg --remote_upload_local_results=false
