@@ -12,12 +12,6 @@
         <string>/usr/local/etc/serviceradar/sysmon-vm.json</string>
     </array>
 
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>SERVICERADAR_HOSTFREQ_PATH</key>
-        <string>/usr/local/libexec/serviceradar/hostfreq</string>
-    </dict>
-
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
