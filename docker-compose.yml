@@ -270,7 +270,7 @@ services:
     image: ghcr.io/carverauto/serviceradar-kong-config:latest
     container_name: serviceradar-kong-config
     user: "0:0"
-    command: ["--jwks","${JWKS_URL:-http://core:8090/auth/jwks.json}","--service","${KONG_SERVICE_URL:-http://core:8090}","--path","${KONG_ROUTE_PATH:-/api}","--srql-service","${SRQL_SERVICE_URL:-http://srql:8080}","--srql-path","${SRQL_ROUTE_PATH:-/api/query}","--out","/out/kong.yml"]
+    command: ["render-kong","--jwks","${JWKS_URL:-http://core:8090/auth/jwks.json}","--service","${KONG_SERVICE_URL:-http://core:8090}","--path","${KONG_ROUTE_PATH:-/api}","--srql-service","${SRQL_SERVICE_URL:-http://srql:8080}","--srql-path","${SRQL_ROUTE_PATH:-/api/query}","--out","/out/kong.yml"]
     volumes:
       - kong_config:/out
     depends_on:
@@ -312,7 +312,7 @@ services:
       - serviceradar-net
     # runs as part of default stack (no profile)
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8001/"]
+      test: ["CMD", "kong", "health"]
       interval: 10s
       timeout: 5s
       retries: 12
