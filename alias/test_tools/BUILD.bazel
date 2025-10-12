@@ -1,0 +1,56 @@
+package(default_visibility = ["//visibility:public"])
+
+alias(
+    name = "runtime",
+    actual = "@bazel_tools//tools/test:runtime",
+)
+
+alias(
+    name = "test_setup",
+    actual = "@bazel_tools//tools/test:test_setup",
+)
+
+alias(
+    name = "test_xml_generator",
+    actual = "@bazel_tools//tools/test:test_xml_generator",
+)
+
+alias(
+    name = "collect_coverage",
+    actual = "@bazel_tools//tools/test:collect_coverage",
+)
+
+alias(
+    name = "collect_cc_coverage",
+    actual = "@bazel_tools//tools/test:collect_cc_coverage",
+)
+
+alias(
+    name = "coverage_support",
+    actual = "@bazel_tools//tools/test:coverage_support",
+)
+
+alias(
+    name = "coverage_report_generator",
+    actual = "@bazel_tools//tools/test:coverage_report_generator",
+)
+
+alias(
+    name = "lcov_merger",
+    actual = "@bazel_tools//tools/test:lcov_merger",
+)
+
+alias(
+    name = "test_wrapper",
+    actual = "@bazel_tools//tools/test:test_wrapper",
+)
+
+alias(
+    name = "xml_writer",
+    actual = "@bazel_tools//tools/test:xml_writer",
+)
+
+alias(
+    name = "bzl_srcs",
+    actual = "@bazel_tools//tools/test:bzl_srcs",
+)
