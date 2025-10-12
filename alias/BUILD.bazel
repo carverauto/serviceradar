@@ -39,16 +39,6 @@ alias(
     actual = "//pkg/config:config",
 )
 
-alias(
-    name = "config_kv",
-    actual = "//pkg/config/kv:kv",
-)
-
-alias(
-    name = "config_kvgrpc",
-    actual = "//pkg/config/kvgrpc:kvgrpc",
-)
-
 # pkg/consumers
 alias(
     name = "db-event-writer",

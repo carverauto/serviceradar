@@ -6,12 +6,12 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/cmd/consumers/netflow",
     visibility = ["//visibility:private"],
     deps = [
-        "//pkg/config",
-        "//pkg/consumers/netflow",
-        "//pkg/db",
-        "//pkg/lifecycle",
-        "//pkg/logger",
-        "//pkg/models",
+        "//alias/config",
+        "//alias/consumers/netflow",
+        "//alias/db",
+        "//alias/lifecycle",
+        "//alias/logger",
+        "//alias/models",
     ],
 )
 

@@ -6,9 +6,9 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/cmd/mapper",
     visibility = ["//visibility:private"],
     deps = [
-        "//pkg/config",
-        "//pkg/lifecycle",
-        "//pkg/mapper",
+        "//alias/config",
+        "//alias/lifecycle",
+        "//alias/mapper",
         "//proto",
         "//proto/discovery",
         "@org_golang_google_grpc//:grpc",
