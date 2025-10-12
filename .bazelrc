@@ -34,6 +34,14 @@ try-import %workspace%/.bazelrc.remote
 # Metadata for buildbuddy
 build --workspace_status_command=$(pwd)/scripts/workspace_status.sh
 
+# Disable remote execution/caching when explicitly requested.
+build:no_remote --remote_executor=
+build:no_remote --remote_cache=
+build:no_remote --remote_upload_local_results=false
+build:no_remote --remote_download_minimal
+build:no_remote --bes_backend=
+build:no_remote --bes_results_url=
+
 # CI profile can layer on top of the remote config without re-declaring values.
 build:ci --keep_going --build_tag_filters=-manual
 build:ci --config=remote
@@ -100,12 +108,10 @@ build:darwin_pkg --action_env=PKG_SIGN_IDENTITY
 build:darwin_pkg --action_env=PKG_NOTARIZE_PROFILE
 build:darwin_pkg --action_env=PKG_VERSION
 build:darwin_pkg --action_env=PKG_IDENTIFIER
-build:darwin_pkg --action_env=PKG_DISABLE_TIMESTAMP=1
+build:darwin_pkg --action_env=PKG_DISABLE_TIMESTAMP=0
 build:darwin_pkg --action_env=XCODE_VERSION_OVERRIDE=26.0
 build:darwin_pkg --remote_default_exec_properties=OSFamily=MacOS
 build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
 build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
-build:darwin_pkg --remote_executor=
-build:darwin_pkg --remote_cache=
-build:darwin_pkg --remote_upload_local_results=false
+build:darwin_pkg --config=no_remote
