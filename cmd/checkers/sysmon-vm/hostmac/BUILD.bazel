@@ -1,6 +1,6 @@
 genrule(
     name = "hostfreq",
-    srcs = ["hostfreq.mm"],
+    srcs = ["host_freq.mm"],
     outs = ["hostfreq"],
     tags = [
         "manual",
@@ -16,7 +16,7 @@ genrule(
           "-framework CoreFoundation " +
           "-lIOReport " +
           "-lc++ " +
-          "$(location hostfreq.mm) " +
+          "$(location host_freq.mm) " +
           "-o $@",
     local = True,
     executable = True,
