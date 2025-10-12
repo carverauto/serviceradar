@@ -1,7 +1,7 @@
 # Bazel
 
 
-In addition to Cargo and related tools, the entire mono-repo is configured to build and test with Bazel. 
+This mono-repo is configured to build and test with Bazel. 
 Please [install bazelisk ](https://github.com/bazelbuild/bazelisk)as it is the only requirement to build the repo with Bazel.
 
 To query available crate aliases with Bazel, run:
@@ -31,7 +31,7 @@ To test all targets with Bazel, run:
     bazel test //...
 ```
 
-To test only a specific target, run:
+To test only a specific target group, run:
 
 ```bash 
     bazel test //cmd/...
@@ -43,7 +43,7 @@ To query all available tests to find, for example, all agent tests, run:
     bazel query "kind('go_test', //...)" | grep agent_test 
 ```
 
-To run the located test targets, run:
+To run the located test targets:
 
 
 ```bash 
