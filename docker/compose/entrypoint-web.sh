@@ -83,6 +83,32 @@ echo "  AUTH_ENABLED=$AUTH_ENABLED"
 echo "  API_KEY=[REDACTED]"
 echo "  JWT_SECRET=[REDACTED]"
 
+# Optionally wait for core HTTP API before starting Next.js
+if [ "${WAIT_FOR_CORE:-true}" != "false" ]; then
+    CORE_HOST=${CORE_HOST:-core}
+    CORE_PORT=${CORE_PORT:-8090}
+    MAX_ATTEMPTS=${WAIT_FOR_CORE_ATTEMPTS:-60}
+    SLEEP_INTERVAL=${WAIT_FOR_CORE_INTERVAL:-2}
+
+    echo "Waiting for core at ${CORE_HOST}:${CORE_PORT} (attempts=${MAX_ATTEMPTS}, interval=${SLEEP_INTERVAL}s)..."
+
+    attempt=1
+    while [ $attempt -le $MAX_ATTEMPTS ]; do
+        if curl -s -o /dev/null "http://${CORE_HOST}:${CORE_PORT}/"; then
+            echo "Core is reachable at attempt ${attempt}"
+            break
+        fi
+        echo "Core not ready yet (attempt ${attempt}/${MAX_ATTEMPTS})..."
+        attempt=$((attempt + 1))
+        sleep "${SLEEP_INTERVAL}"
+    done
+
+    if [ $attempt -gt $MAX_ATTEMPTS ]; then
+        echo "ERROR: Core did not become reachable after ${MAX_ATTEMPTS} attempts."
+        exit 1
+    fi
+fi
+
 # Start the Next.js application
 echo "Starting Next.js application..."
 
