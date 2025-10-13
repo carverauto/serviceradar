@@ -206,7 +206,14 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                     </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {devices.map(device => (
+                    {devices.map(device => {
+                        const metadata = device.metadata || {};
+                        const sysmonServiceHint = typeof metadata === 'object' &&
+                            metadata !== null &&
+                            typeof metadata.checker_service === 'string' &&
+                            metadata.checker_service.toLowerCase().includes('sysmon');
+
+                        return (
                         <Fragment key={device.device_id}>
                             <tr className="hover:bg-gray-700/30">
                                 <td className="pl-4">
@@ -230,6 +237,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                             deviceId={device.device_id} 
                                             compact={true}
                                             hasMetrics={sysmonStatusesLoading ? undefined : sysmonStatuses[device.device_id]?.hasMetrics}
+                                            serviceHint={sysmonServiceHint}
                                         />
                                         <SNMPStatusIndicator 
                                             deviceId={device.device_id} 
@@ -297,7 +305,8 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                 </tr>
                             )}
                         </Fragment>
-                    ))}
+                        );
+                    })}
                 </tbody>
             </table>
         </div>

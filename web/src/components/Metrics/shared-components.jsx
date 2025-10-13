@@ -120,7 +120,7 @@ export const CustomTooltip = ({ active, payload, label, metricData }) => {
     return null;
 };
 
-export const MetricCard = ({ title, current, unit, warning, critical, change, icon, children }) => {
+export const MetricCard = ({ title, current, unit, warning, critical, change, icon, children, max = 100 }) => {
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow transition-colors">
             <div className="flex justify-between items-center mb-2">
@@ -145,6 +145,7 @@ export const MetricCard = ({ title, current, unit, warning, critical, change, ic
                 value={current}
                 warning={warning}
                 critical={critical}
+                max={max}
             />
             {children}
         </div>

@@ -22,8 +22,11 @@ import { fetchSystemData, getCombinedChartData } from './data-service';
 import { CustomTooltip } from './shared-components';
 import {
     CpuCard,
+    CpuFrequencyCard,
     CpuChart,
+    CpuFrequencyChart,
     CpuCoresChart,
+    CpuFrequencyDetails,
     MemoryCard,
     MemoryChart,
     MemoryDetails,
@@ -255,8 +258,9 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                             <CpuCard data={data.cpu} />
+                            {data.cpuFrequency && <CpuFrequencyCard data={data.cpuFrequency} />}
                             <MemoryCard data={data.memory} />
                             <FilesystemCard data={data.disk} />
                             {data.process && <ProcessCard data={data.process} />}
@@ -267,6 +271,7 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
                 {activeTab === 'trends' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <CpuChart data={data.cpu} />
+                        {data.cpuFrequency && <CpuFrequencyChart data={data.cpuFrequency} />}
                         <MemoryChart data={data.memory} />
                         <FilesystemChart data={data.disk} />
                         {data.process && <ProcessChart data={data.process} />}
@@ -275,6 +280,7 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
 
                 {activeTab === 'details' && (
                     <div className="space-y-6">
+                        {data.cpuFrequency && <CpuFrequencyDetails data={data.cpuFrequency} />}
                         <CpuCoresChart cores={data.cpu.cores} />
                         <FilesystemDetails drives={data.disk.drives} />
                         <MemoryDetails data={data.memory} />

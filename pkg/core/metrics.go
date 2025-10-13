@@ -680,6 +680,20 @@ func (s *Server) parseSysmonPayload(details json.RawMessage, pollerID string, ti
 			Msg("Invalid timestamp in sysmon data, using server timestamp")
 
 		pollerTimestamp = timestamp
+	} else {
+		const maxAllowedSkew = 10 * time.Minute
+
+		skew := pollerTimestamp.Sub(timestamp)
+		if skew > maxAllowedSkew || skew < -maxAllowedSkew {
+			s.logger.Warn().
+				Str("poller_id", pollerID).
+				Str("reported_time", payload.Status.Timestamp).
+				Time("ingest_time", timestamp).
+				Dur("skew", skew).
+				Msg("Sysmon payload timestamp skew exceeds threshold; using ingest timestamp")
+
+			pollerTimestamp = timestamp
+		}
 	}
 
 	return &payload, pollerTimestamp, nil

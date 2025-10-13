@@ -39,20 +39,33 @@ wait_for_proton() {
     log_error "Proton failed to start within 60 seconds"
 }
 
-# Generate password if not provided
+# Generate or recover password
 if [ -z "$PROTON_PASSWORD" ]; then
-    log_info "Generating random password..."
-    PROTON_PASSWORD=$(openssl rand -hex 16)
-    echo "$PROTON_PASSWORD" > /etc/proton-server/generated_password.txt
-    chmod 600 /etc/proton-server/generated_password.txt
-    log_info "Generated password saved to /etc/proton-server/generated_password.txt"
-    
-    # Also save to shared credentials volume for other services
-    if [ -d "/etc/serviceradar/credentials" ]; then
-        echo "$PROTON_PASSWORD" > /etc/serviceradar/credentials/proton-password
-        chmod 644 /etc/serviceradar/credentials/proton-password
-        log_info "Password also saved to shared credentials volume"
+    # First preference: existing shared credential file
+    if [ -f /etc/serviceradar/credentials/proton-password ] && \
+       [ -s /etc/serviceradar/credentials/proton-password ]; then
+        PROTON_PASSWORD=$(cat /etc/serviceradar/credentials/proton-password)
+        log_info "Reusing Proton password from shared credentials volume"
+    # Second preference: previously generated password inside Proton data dir
+    elif [ -f /etc/proton-server/generated_password.txt ] && \
+         [ -s /etc/proton-server/generated_password.txt ]; then
+        PROTON_PASSWORD=$(cat /etc/proton-server/generated_password.txt)
+        log_info "Reusing Proton password from generated_password.txt"
+    else
+        log_info "Generating random password..."
+        PROTON_PASSWORD=$(openssl rand -hex 16)
+        log_info "Generated new Proton password"
     fi
+fi
+
+# Persist password to both expected locations to keep services aligned
+echo "$PROTON_PASSWORD" > /etc/proton-server/generated_password.txt
+chmod 600 /etc/proton-server/generated_password.txt
+
+if [ -d "/etc/serviceradar/credentials" ]; then
+    echo "$PROTON_PASSWORD" > /etc/serviceradar/credentials/proton-password
+    chmod 644 /etc/serviceradar/credentials/proton-password
+    log_info "Password synchronized to shared credentials volume"
 fi
 
 # Create password hash

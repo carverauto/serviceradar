@@ -15,7 +15,7 @@
  */
 
 import React from 'react';
-import { Cpu, HardDrive, BarChart3, Activity } from 'lucide-react';
+import { Cpu, HardDrive, BarChart3, Activity, Gauge } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { MetricCard, CustomTooltip, ProgressBar } from './shared-components';
 import { escapeSrqlValue } from '@/lib/srql';
@@ -31,6 +31,36 @@ export const CpuCard = ({ data }) => {
             change={data.change}
             icon={<Cpu size={16} className="mr-2 text-green-500 dark:text-green-400" />}
         />
+    );
+};
+
+export const CpuFrequencyCard = ({ data }) => {
+    if (!data) {
+        return null;
+    }
+
+    const currentValue = Number.isFinite(data.current) ? data.current : 0;
+    const observedMax = Number.isFinite(data.max) && data.max > 0 ? data.max : currentValue || 1;
+    const coresReporting = Array.isArray(data.cores) ? data.cores.length : 0;
+    const unit = data.unit || 'GHz';
+
+    return (
+        <MetricCard
+            title="CPU Frequency"
+            current={parseFloat(currentValue.toFixed(2))}
+            unit={unit}
+            warning={Number.POSITIVE_INFINITY}
+            critical={Number.POSITIVE_INFINITY}
+            change={data.change}
+            icon={<Gauge size={16} className="mr-2 text-purple-500 dark:text-purple-400" />}
+            max={observedMax}
+        >
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {coresReporting > 0
+                    ? `${coresReporting} core${coresReporting === 1 ? '' : 's'} reporting`
+                    : 'No per-core samples available'}
+            </div>
+        </MetricCard>
     );
 };
 
@@ -70,6 +100,102 @@ export const CpuCoresChart = ({ cores }) => {
                     </BarChart>
                 </ResponsiveContainer>
             </div>
+        </div>
+    );
+};
+
+export const CpuFrequencyChart = ({ data }) => {
+    if (!data) {
+        return null;
+    }
+
+    const unit = data.unit || 'GHz';
+    const chartData = Array.isArray(data.data)
+        ? data.data.filter(point => point && point.value !== null)
+        : [];
+    const maxValue = Number.isFinite(data.max) && data.max > 0 ? data.max : null;
+    const domainMax = maxValue ? parseFloat((maxValue * 1.1).toFixed(2)) : 'auto';
+
+    if (chartData.length === 0) {
+        return (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+                <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">CPU Frequency Trend</h3>
+                <div className="text-center py-6 text-gray-500 dark:text-gray-400">
+                    No frequency samples available for this range.
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">CPU Frequency Trend</h3>
+            <div style={{ height: '180px' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#D1D5DB dark:#374151" />
+                        <XAxis dataKey="formattedTime" stroke="#6B7280" tick={{ fontSize: 12 }} />
+                        <YAxis
+                            stroke="#6B7280"
+                            tick={{ fontSize: 12 }}
+                            domain={[0, domainMax]}
+                            tickFormatter={(value) => `${value.toFixed ? value.toFixed(2) : value} ${unit}`}
+                        />
+                        <Tooltip formatter={(value) => [`${value.toFixed(2)} ${unit}`, 'Frequency']} />
+                        <Area
+                            type="monotone"
+                            dataKey="value"
+                            stroke="#8B5CF6"
+                            fill="#8B5CF6"
+                            fillOpacity={0.2}
+                            name={`Frequency (${unit})`}
+                        />
+                    </AreaChart>
+                </ResponsiveContainer>
+            </div>
+        </div>
+    );
+};
+
+export const CpuFrequencyDetails = ({ data }) => {
+    if (!data) {
+        return null;
+    }
+
+    const unit = data.unit || 'GHz';
+    const cores = Array.isArray(data.cores)
+        ? data.cores.filter(core => core && core.value !== null)
+        : [];
+    const yMax = cores.length > 0
+        ? Math.max(...cores.map(core => core.value))
+        : 0;
+    const domainMax = yMax > 0 ? parseFloat((yMax * 1.1).toFixed(2)) : 1;
+
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Per-Core Frequencies</h3>
+            {cores.length === 0 ? (
+                <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                    No per-core frequency samples available.
+                </div>
+            ) : (
+                <div style={{ height: '200px' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={cores} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#D1D5DB dark:#374151" />
+                            <XAxis dataKey="name" stroke="#6B7280" />
+                            <YAxis
+                                stroke="#6B7280"
+                                domain={[0, domainMax]}
+                                tickFormatter={(value) => `${value.toFixed ? value.toFixed(2) : value}`}
+                                label={{ value: unit, angle: -90, position: 'insideLeft', offset: -5 }}
+                            />
+                            <Tooltip formatter={(value) => [`${value.toFixed(2)} ${unit}`, 'Frequency']} />
+                            <Bar dataKey="value" name={`Frequency (${unit})`} fill="#8B5CF6" />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            )}
         </div>
     );
 };
