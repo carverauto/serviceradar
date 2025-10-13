@@ -64,7 +64,7 @@ chmod 600 /etc/proton-server/generated_password.txt
 
 if [ -d "/etc/serviceradar/credentials" ]; then
     echo "$PROTON_PASSWORD" > /etc/serviceradar/credentials/proton-password
-    chmod 644 /etc/serviceradar/credentials/proton-password
+    chmod 600 /etc/serviceradar/credentials/proton-password
     log_info "Password synchronized to shared credentials volume"
 fi
 
