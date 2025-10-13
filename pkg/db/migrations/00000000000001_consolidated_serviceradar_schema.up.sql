@@ -217,9 +217,14 @@ CREATE STREAM IF NOT EXISTS cpu_metrics (
     partition         string
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
-ORDER BY (timestamp, device_id, host_id, core_id)
-TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
-SETTINGS index_granularity = 8192;
+ORDER BY (timestamp, device_id, host_id, cluster, core_id)
+ TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+ SETTINGS index_granularity = 8192;
+
+ALTER STREAM cpu_metrics
+  ADD INDEX IF NOT EXISTS idx_cluster cluster TYPE bloom_filter GRANULARITY 1;
+ALTER STREAM cpu_metrics
+  ADD INDEX IF NOT EXISTS idx_label label TYPE bloom_filter GRANULARITY 1;
 
 CREATE STREAM IF NOT EXISTS cpu_cluster_metrics (
     timestamp         DateTime64(3),
@@ -232,10 +237,12 @@ CREATE STREAM IF NOT EXISTS cpu_cluster_metrics (
     partition         string
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
-ORDER BY (timestamp, device_id, host_id, cluster)
+ORDER BY (timestamp, cluster, host_id, device_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
 SETTINGS index_granularity = 8192;
 
+ALTER STREAM cpu_cluster_metrics
+  ADD INDEX IF NOT EXISTS idx_cluster cluster TYPE bloom_filter GRANULARITY 1;
 CREATE STREAM IF NOT EXISTS disk_metrics (
     timestamp         DateTime64(3),
     poller_id         string,
