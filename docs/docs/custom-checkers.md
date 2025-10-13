@@ -3,461 +3,221 @@ sidebar_position: 7
 title: Creating a Custom Checker Plugin
 ---
 
-# Creating a Custom Checker Plugin for ServiceRadar
+# Building Custom Checkers
 
-ServiceRadar's modular architecture allows you to extend its monitoring capabilities by creating custom checkers (plugins). These checkers integrate with the Agent to monitor specific services or systems and report their status via gRPC. This tutorial walks you through the process of creating, packaging, and deploying a custom checker plugin, using the existing Dusk checker as an example.
+ServiceRadar treats checkers as independent gRPC services that hang off an
+agent. The poller asks the agent for status, the agent proxies the request to
+each checker, and the poller forwards the aggregated responses to core. Core
+adds device metadata automatically so the UI can light up as soon as a checker
+starts returning data.
 
-## Overview
+## Architecture At A Glance
 
-A checker plugin in ServiceRadar is a standalone binary that:
-
-- Implements the Checker interface (and optionally StatusProvider or HealthChecker) from the checker package
-- Communicates with the Agent via gRPC or other supported protocols
-- Can be configured via JSON files in `/etc/serviceradar/checkers/`
-- Runs as a systemd service for continuous operation
-
-This guide covers:
-- Understanding the checker architecture
-- Writing a custom checker in Go
-- Configuring the checker
-- Packaging it as a Debian package
-- Deploying and integrating it with ServiceRadar
-
-## Prerequisites
-
-- Go 1.18+ installed (see [Installation Guide](./installation.md) for build setup)
-- Basic understanding of gRPC and ServiceRadar's architecture (see [Architecture](./architecture.md))
-- Access to a ServiceRadar deployment with an Agent running
-- Root or sudo privileges for deployment
-
-## Step 1: Understand the Checker Architecture
-
-ServiceRadar uses a plugin-based system for checkers, managed through the checker.Registry. The core interfaces are defined in pkg/checker/interfaces.go:
-
-```go
-// Checker defines how to check a service's status.
-type Checker interface {
-    Check(ctx context.Context) (bool, string)
-}
-
-// StatusProvider allows plugins to provide detailed status data.
-type StatusProvider interface {
-    GetStatusData() json.RawMessage
-}
-
-// HealthChecker combines basic checking with detailed status.
-type HealthChecker interface {
-    Checker
-    StatusProvider
-}
+```mermaid
+flowchart LR
+    subgraph Monitored_Site
+        Checker["Checker<br/>(monitoring.AgentService)"] --> Agent
+    end
+    Agent -->|gRPC AgentService| Poller
+    Poller -->|ReportStatus / StreamStatus| Core
+    Core -->|DeviceUpdate| DeviceRegistry
+    Core -->|REST & GraphQL| WebUI
 ```
 
-- `Check(ctx context.Context) (bool, string)`: Returns the service's availability (true/false) and a status message.
-- `GetStatusData() json.RawMessage`: (Optional) Returns detailed status data as JSON.
+- **Checker** – Collects metrics from the target system and exposes the
+  `monitoring.AgentService` gRPC API (mainly `GetStatus`, optionally
+  `GetResults` / `StreamResults`).
+- **Agent** (`pkg/agent/server.go`) – Maintains checker connections via the
+  registry in `pkg/agent/registry.go`, adds security, and returns a unified
+  `StatusResponse`.
+- **Poller** (`pkg/poller/poller.go`) – Reads `poller.json`, executes each
+  check via `AgentService.GetStatus`, wraps the payload with poller/agent ids,
+  and ships everything to core.
+- **Core** (`pkg/core/pollers.go`) – Calls `processServicePayload`, which now
+  invokes `ensureServiceDevice` to register devices for any checker that reports
+  a host IP. Core fans out to the device registry and metrics stores so the UI
+  and SRQL can query the data.
 
-The checker.Registry allows dynamic registration of checker factories, which are called by the Agent based on the service_type in the Poller's configuration (e.g., `/etc/serviceradar/poller.json`).
+## Request/Response Sequence
 
-## Step 2: Write a Custom Checker
-
-Let's create a simple checker to monitor a hypothetical "Weather Service" API, which returns weather data via HTTP. The checker will verify the API's availability and provide status details.
-
-### Directory Structure
-
-```
-serviceradar/
-├── cmd/
-│   └── checkers/
-│       └── weather/
-│           └── main.go
-├── pkg/
-│   └── checker/
-│       └── weather/
-│           └── weather.go
-└── proto/
-    └── (existing protobuf files)
-```
-
-### 1. Define the Checker Logic (pkg/checker/weather/weather.go)
-
-```go
-package weather
-
-import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "net/http"
-    "time"
-
-    "github.com/carverauto/serviceradar/pkg/checker"
-)
-
-// Config holds the weather checker configuration.
-type Config struct {
-    Endpoint string        `json:"endpoint"`
-    Timeout  time.Duration `json:"timeout"`
-}
-
-// WeatherChecker implements the HealthChecker interface.
-type WeatherChecker struct {
-    config Config
-}
-
-// NewWeatherChecker creates a new WeatherChecker instance.
-func NewWeatherChecker(config Config) *WeatherChecker {
-    return &WeatherChecker{config: config}
-}
-
-// Check verifies the weather service availability.
-func (w *WeatherChecker) Check(ctx context.Context) (bool, string) {
-    client := &http.Client{Timeout: w.config.Timeout}
-    req, err := http.NewRequestWithContext(ctx, "GET", w.config.Endpoint, nil)
-    if err != nil {
-        return false, fmt.Sprintf("Failed to create request: %v", err)
-    }
-
-    resp, err := client.Do(req)
-    if err != nil {
-        return false, fmt.Sprintf("Weather service unavailable: %v", err)
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        return false, fmt.Sprintf("Weather service returned status: %d", resp.StatusCode)
-    }
-
-    return true, "Weather service is operational"
-}
-
-// GetStatusData provides detailed weather status as JSON.
-func (w *WeatherChecker) GetStatusData() json.RawMessage {
-    // Mock data for this example
-    data := map[string]interface{}{
-        "status":      "healthy",
-        "last_checked": time.Now().Format(time.RFC3339),
-    }
-    jsonData, _ := json.Marshal(data)
-    return jsonData
-}
-
-// Factory creates a new WeatherChecker instance for the registry.
-func Factory(ctx context.Context, serviceName, details string) (checker.Checker, error) {
-    var config Config
-    if err := json.Unmarshal([]byte(details), &config); err != nil {
-        return nil, fmt.Errorf("Failed to parse config: %v", err)
-    }
-    if config.Endpoint == "" {
-        config.Endpoint = "https://api.weather.example.com" // Default endpoint
-    }
-    if config.Timeout == 0 {
-        config.Timeout = 10 * time.Second // Default timeout
-    }
-    return NewWeatherChecker(config), nil
-}
+```mermaid
+sequenceDiagram
+    Poller->>Agent: GetStatus(service_name, service_type, details)
+    Agent->>Checker: GetStatus(...)
+    Checker-->>Agent: StatusResponse{message, available}
+    Agent-->>Poller: ServiceStatus(message, agent_id, source="getStatus")
+    Poller->>Core: ReportStatus(ServiceStatus[])
+    Core->>DeviceRegistry: ProcessDeviceUpdate(checker metadata)
+    Core-->>UI: /api/devices/.../sysmon
 ```
 
-### 2. Create the Main Program (cmd/checkers/weather/main.go)
+> The `details` field from `poller.json` is passed verbatim to the agent and on
+> to the checker. For gRPC checkers it must be `host:port`.
 
-```go
-package main
+## Checker Responsibilities
 
-import (
-	"context"
-	"flag"
-	"fmt"
-	"log"
+1. **Implement the gRPC surface**  
+   Use `proto/monitoring.proto` and register an `AgentService` in your `main`.
+   The poller only calls `GetStatus`, but implement `GetResults`/`StreamResults`
+   if you need paginated or chunked results.
 
-	"github.com/carverauto/serviceradar/pkg/checker/weather"
-	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/lifecycle"
-	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc"
-)
+2. **Respond quickly & always populate host identity**  
+   `GetStatus` must return within ~30 seconds. Include the following fields in
+   the JSON payload stored under `status`:
 
-var (
-	errFailedToLoadConfig = fmt.Errorf("failed to load config")
-)
+   ```json
+   {
+     "status": {
+       "timestamp": "2025-10-12T21:16:42Z",
+       "host_ip": "192.168.1.219",
+       "host_id": "sysmonvm.local",
+       "hostname": "sysmonvm.local",
+       "...": "..."
+     }
+   }
+   ```
 
-func main() {
-	if err := run(); err != nil {
-		log.Fatalf("Fatal error: %v", err)
-	}
-}
+   Core’s `ensureServiceDevice` (see `pkg/core/devices.go:31`) looks for
+   `status.host_ip`, `host_ip`, or any field whose key contains `ip`. As soon as
+   the checker reports a stable IP, core emits a `DiscoverySourceSelfReported`
+   update and the device appears in the UI.
 
-func run() error {
-	log.Printf("Starting Weather checker...")
+3. **Expose a health endpoint**  
+   External checkers must answer gRPC health checks. If you reuse
+   `monitoring.AgentService` for health, no extra work is needed—the agent
+   falls back to that automatically (`pkg/agent/registry.go:52`).
 
-	// Parse command line flags
-	configPath := flag.String("config", "/etc/serviceradar/checkers/weather.json", "Path to config file")
-	flag.Parse()
+4. **Return useful metadata**  
+   Include fields like CPU, memory, ports, or custom measurements. Use simple
+   JSON primitives—core stores the payload verbatim and higher layers render it.
 
-	// Setup a context we can use for loading the config and running the server
-	ctx := context.Background()
+## Agent & Registry Overview
 
-	// Initialize configuration loader
-	cfgLoader := config.NewConfig()
+- The agent loads checker configs from `CheckersDir` and/or KV (see
+  `pkg/agent/server.go:1432`). For gRPC checks the poller-provided `details`
+  value is sufficient—you do not need an extra config file.
+- Service types are registered in `pkg/agent/registry.go`. Most new checkers can
+  use the existing `"grpc"` entry. Register a new type only if you need a
+  bespoke transport.
+- `ExternalChecker` (`pkg/agent/external_checker.go`) manages the TLS session,
+  retries, and health checks. It creates a single gRPC channel and reuses it for
+  subsequent calls.
 
-	// Load configuration with context
-	var cfg weather.Config
+## Poller Behaviour
 
-	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
-		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
-	}
+- `poller.json` defines agents and checks. A minimal gRPC checker entry looks
+  like:
 
-	// Create the checker
-	checker := &weather.WeatherChecker{
-		Config: cfg,
-		Done:   make(chan struct{}),
-	}
-
-	// Create health server and API service
-	weatherService := weather.NewWeatherService(checker)
-
-	// Create gRPC service registrar
-	registerServices := func(s *grpc.Server) error {
-		proto.RegisterAgentServiceServer(s, weatherService)
-		return nil
-	}
-
-	// Create and configure service options
-	opts := lifecycle.ServerOptions{
-		ListenAddr:           cfg.ListenAddr,
-		Service:              &weatherService{checker: checker},
-		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerServices},
-		EnableHealthCheck:    true,
-		Security:             cfg.Security,
-	}
-
-	// Run service with lifecycle management
-	if err := lifecycle.RunServer(ctx, &opts); err != nil {
-		return fmt.Errorf("server error: %w", err)
-	}
-
-	return nil
-}
-
-// weatherService wraps the WeatherChecker to implement lifecycle.Service.
-type weatherService struct {
-	checker *weather.WeatherChecker
-}
-
-func (s *weatherService) Start(ctx context.Context) error {
-	log.Printf("Starting Weather service...")
-
-	return s.checker.StartMonitoring(ctx)
-}
-
-func (s *weatherService) Stop(_ context.Context) error {
-	log.Printf("Stopping Weather service...")
-	close(s.checker.Done)
-
-	return nil
-}
-```
-
-#### Explanation
-
-- **Checker Logic**: The WeatherChecker sends an HTTP request to the weather API and checks the response. It also provides status data as JSON.
-- **gRPC Server**: The main.go sets up a gRPC server to expose the checker's health status, integrating with ServiceRadar's Agent.
-- **Factory**: The Factory function allows the Agent to instantiate the checker dynamically based on the Poller's configuration.
-
-## Step 3: Configure the Checker
-
-Create a configuration file at `/etc/serviceradar/checkers/weather.json`:
-
-```json
-{
-  "endpoint": "https://api.weather.example.com",
-  "timeout": "10s",
-  "listen_addr": ":50055",
-  "security": {
-    "mode": "none",
-    "cert_dir": "/etc/serviceradar/certs",
-    "role": "checker"
+  ```json
+  {
+    "service_type": "grpc",
+    "service_name": "sysmon-vm",
+    "details": "192.168.1.219:50110"
   }
-}
-```
+  ```
 
-Update the Poller configuration (`/etc/serviceradar/poller.json`) to include the new checker:
+- `AgentPoller.ExecuteChecks` (`pkg/poller/agent_poller.go:52`) fans out across
+  checks, calling `AgentService.GetStatus` in parallel and attaching the agent
+  name when the checker does not return an `agent_id`.
+- Before reporting to core, `poller.enhanceServicePayload`
+  (`pkg/poller/poller.go:680`) wraps the raw checker JSON inside an envelope
+  that records the poller id, agent id, and partition. Core depends on that.
 
-```json
-{
-  "agents": {
-    "local-agent": {
-      "address": "localhost:50051",
-      "security": { "mode": "none" },
-      "checks": [
-        {
-          "service_type": "weather",
-          "service_name": "weather-api",
-          "details": "{\"endpoint\": \"https://api.weather.example.com\", \"timeout\": \"10s\"}"
-        }
-      ]
-    }
-  },
-  "core_address": "localhost:50052",
-  "listen_addr": ":50053",
-  "poll_interval": "30s",
-  "poller_id": "my-poller",
-  "service_name": "PollerService",
-  "service_type": "grpc",
-  "security": { "mode": "none" }
-}
-```
+## Core Ingestion Path
 
-## Step 4: Package the Checker as a Debian Package
+- `ReportStatus` (`pkg/core/pollers.go:803`) receives the batched
+  `ServiceStatus` messages.
+- `processServicePayload` (`pkg/core/metrics.go:797`) peels off the poller
+  envelope. Right after parsing it calls `ensureServiceDevice`, which:
+  - Extracts the host IP/hostname with `extractCheckerHostIdentity`.
+  - Emits a `DiscoverySourceSelfReported` `DeviceUpdate` tagged with
+    `checker_service`, `collector_agent_id`, and `collector_poller_id`.
+  - Relies on the poller-provided agent id (the poller now fills it in
+    automatically `pkg/poller/agent_poller.go:233`).
+- Type-specific handlers (`processSysmonMetrics`, SNMP, ICMP, etc.) can still
+  add richer metric objects; the device registration happens independently.
 
-Use the existing packaging scripts (e.g., setup-deb-dusk-checker.sh) as a template.
+## Building a New gRPC Checker
 
-### Packaging Script (scripts/setup-deb-weather-checker.sh)
+1. **Bootstrap the project**
+   - Depend on `proto/monitoring.proto`.
+   - Register `proto.RegisterAgentServiceServer`.
 
-```bash
-#!/bin/bash
-set -e
+2. **Implement `GetStatus`**
+   - Collect metrics and marshal them into a JSON structure nested beneath
+     `status`.
+   - Populate `status.host_ip` and `status.hostname`.
+   - Fill in the top-level `StatusResponse` fields: `available`, `service_name`,
+     `service_type`, `response_time`.
 
-VERSION=${VERSION:-1.0.0}
-echo "Building serviceradar-weather-checker version ${VERSION}"
+3. **Optional: implement `GetResults` / `StreamResults`** if the checker needs
+   to return large datasets. The poller uses `results_interval` in `poller.json`
+   to schedule those calls.
 
-echo "Setting up package structure..."
-PKG_ROOT="serviceradar-weather-checker_${VERSION}"
-mkdir -p "${PKG_ROOT}/DEBIAN"
-mkdir -p "${PKG_ROOT}/usr/local/bin"
-mkdir -p "${PKG_ROOT}/etc/serviceradar/checkers"
-mkdir -p "${PKG_ROOT}/lib/systemd/system"
+4. **Provide a health probe**
+   - Either implement the gRPC health service (`grpc.health.v1.Health`), or
+     reuse the same `GetStatus` handler—the agent calls it with the checker’s
+     name when `grpcServiceCheckName` is `monitoring.AgentService`.
 
-echo "Building Go binary..."
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/weather-checker" ./cmd/checkers/weather
+5. **Wire up TLS (optional but recommended)**
+   - The agent clones its `SecurityConfig` for each checker, overriding
+     `server_name` with the host portion of `details`. Ship certificates under
+     `/etc/serviceradar/certs`.
 
-echo "Creating package files..."
-cat > "${PKG_ROOT}/DEBIAN/control" << EOF
-Package: serviceradar-weather-checker
-Version: ${VERSION}
-Section: utils
-Priority: optional
-Architecture: amd64
-Depends: systemd
-Maintainer: Your Name <your.email@example.com>
-Description: ServiceRadar Weather API checker
- Provides monitoring capabilities for weather APIs.
-Config: /etc/serviceradar/checkers/weather.json
-EOF
+6. **Run the checker as a service**
+   - Package it with systemd or launchd (see `tools/sysmonvm` for examples).
+   - Ensure the port in `details` is reachable from the agent host.
 
-cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
-/etc/serviceradar/checkers/weather.json
-EOF
+## Configuring the Pipeline
 
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-weather-checker.service" << EOF
-[Unit]
-Description=ServiceRadar Weather Checker
-After=network.target
+1. **Update the poller** – Add the checker entry to each agent section in
+   `poller.json`. Restart or hot-reload the poller (`systemctl reload
+   serviceradar-poller`).
+2. **Confirm agent connectivity** – `docker compose logs agent` or
+   `journalctl -u serviceradar-agent` should show “Connecting to checker
+   service” without errors.
+3. **Verify poller reports** – `docker compose logs poller | grep service_name`
+   should show the checker in each polling cycle.
+4. **Check core ingestion** – `docker compose logs core | grep checker` should
+   include “checker device through device registry” warnings only if the checker
+   omits host identity.
 
-[Service]
-Type=simple
-User=serviceradar
-ExecStart=/usr/local/bin/weather-checker -config /etc/serviceradar/checkers/weather.json
-Restart=always
-RestartSec=10
-LimitNPROC=512
-LimitNOFILE=65535
+## Testing The End-to-End Flow
 
-[Install]
-WantedBy=multi-user.target
-EOF
-
-cat > "${PKG_ROOT}/etc/serviceradar/checkers/weather.json" << EOF
-{
-  "endpoint": "https://api.weather.example.com",
-  "timeout": "10s",
-  "listen_addr": ":50055",
-  "security": {
-    "mode": "none",
-    "cert_dir": "/etc/serviceradar/certs",
-    "role": "checker"
-  }
-}
-EOF
-
-cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
-#!/bin/bash
-set -e
-if ! id -u serviceradar >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin serviceradar
-fi
-chown -R serviceradar:serviceradar /etc/serviceradar
-chmod 755 /usr/local/bin/weather-checker
-systemctl daemon-reload
-systemctl enable serviceradar-weather-checker
-systemctl start serviceradar-weather-checker
-exit 0
-EOF
-
-cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
-#!/bin/bash
-set -e
-systemctl stop serviceradar-weather-checker || true
-systemctl disable serviceradar-weather-checker || true
-exit 0
-EOF
-
-chmod 755 "${PKG_ROOT}/DEBIAN/postinst" "${PKG_ROOT}/DEBIAN/prerm"
-
-echo "Building Debian package..."
-mkdir -p ./release-artifacts
-dpkg-deb --root-owner-group --build "${PKG_ROOT}"
-mv "${PKG_ROOT}.deb" "./release-artifacts/"
-echo "Package built: release-artifacts/${PKG_ROOT}.deb"
-```
-
-Run the script:
-
-```bash
-chmod +x scripts/setup-deb-weather-checker.sh
-./scripts/setup-deb-weather-checker.sh
-```
-
-## Step 5: Deploy and Integrate
-
-### Install the Package:
-
-```bash
-sudo dpkg -i release-artifacts/serviceradar-weather-checker_1.0.0.deb
-```
-
-### Restart Services:
-
-```bash
-sudo systemctl restart serviceradar-agent
-sudo systemctl restart serviceradar-poller
-```
-
-### Verify Operation:
-
-Check the checker's status:
-
-```bash
-sudo systemctl status serviceradar-weather-checker
-```
-
-Use grpcurl to test the health endpoint:
-
-```bash
-grpcurl -plaintext localhost:50055 grpc.health.v1.Health/Check
-```
-
-### Secure with mTLS (Optional):
-
-Update the security section in weather.json and generate certificates as described in [TLS Security](./tls-security.md).
+- Unit tests:
+  - `go test ./pkg/agent/...` exercises the registry and checker wiring.
+  - `go test ./pkg/poller/...` ensures the poller packets embed metadata.
+  - `go test ./pkg/core/...` covers `ensureServiceDevice` and payload parsing.
+- Manual smoke test:
+  1. Launch the checker locally.
+  2. Run the agent with the checker configured and use `grpcurl` against
+     `GetStatus`.
+  3. Start the poller and core (Docker compose or binaries).
+  4. Load `/api/devices/<partition:ip>` in the UI or call
+     `/api/devices/<id>/sysmon/cpu`.
 
 ## Troubleshooting
 
-- **Service Won't Start**: Check logs with `journalctl -u serviceradar-weather-checker`.
-- **Agent Can't Find Checker**: Ensure the service_type matches the registry key (weather) and the checker is running.
-- **gRPC Errors**: Verify the port (`:50055`) is not in use and is open in your firewall.
+- **Checker never appears** – Confirm the JSON payload includes a valid
+  `host_ip`. Without it, core cannot derive the device id.
+- **Agent logs invalid address** – Ensure `details` is `host:port`. The agent
+  validates with `net.SplitHostPort`.
+- **Health check failures** – If the checker does not implement gRPC health,
+  add a case to `pkg/agent/registry.go` to set `grpcServiceCheckName` to
+  `monitoring.AgentService`, or implement the health service.
+- **Stale data warnings** – Poller caches checker health for a short window. If
+  `GetStatus` is expensive, increase the checker’s own sampling interval and
+  return cached metrics quickly.
 
-## Next Steps
+## Extending Beyond gRPC
 
-- Enhance your checker with additional metrics or status data.
-- Explore integrating with the KV store for dynamic configuration (see [Configuration Basics](./configuration.md)).
-- Contribute your checker to the ServiceRadar community!
+- To introduce a brand-new `service_type`, register it in
+  `pkg/agent/registry.go` and provide a `checker.Checker` implementation.
+- For long-running collectors (e.g., sweep, SNMP) leverage the existing service
+  scaffolding under `pkg/agent`.
+- Any checker that emits device identity will automatically take advantage of
+  the new core-side device registration path—no extra integration needed.
 
-For more details, refer to the [Architecture](./architecture.md) and [TLS Security](./tls-security.md) documentation.
+With this flow, new checker authors can focus solely on their collector logic
+and JSON payloads. The agent, poller, and core layers handle transport, device
+registration, and UI surfacing without additional plumbing.
