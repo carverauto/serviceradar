@@ -27,6 +27,8 @@ import {
     CpuFrequencyChart,
     CpuCoresChart,
     CpuFrequencyDetails,
+    SysmonHostCard,
+    CpuClusterDetails,
     MemoryCard,
     MemoryChart,
     MemoryDetails,
@@ -255,17 +257,22 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
                                         />
                                     </LineChart>
                                 </ResponsiveContainer>
-                            </div>
                         </div>
+                    </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
-                            <CpuCard data={data.cpu} />
-                            {data.cpuFrequency && <CpuFrequencyCard data={data.cpuFrequency} />}
-                            <MemoryCard data={data.memory} />
-                            <FilesystemCard data={data.disk} />
-                            {data.process && <ProcessCard data={data.process} />}
-                        </div>
-                    </>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+                        {data.cpu?.metadata && (
+                            <div className="sm:col-span-2 xl:col-span-2">
+                                <SysmonHostCard metadata={data.cpu.metadata} />
+                            </div>
+                        )}
+                        <CpuCard data={data.cpu} />
+                        {data.cpuFrequency && <CpuFrequencyCard data={data.cpuFrequency} />}
+                        <MemoryCard data={data.memory} />
+                        <FilesystemCard data={data.disk} />
+                        {data.process && <ProcessCard data={data.process} />}
+                    </div>
+                </>
                 )}
 
                 {activeTab === 'trends' && (
@@ -280,6 +287,9 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
 
                 {activeTab === 'details' && (
                     <div className="space-y-6">
+                        {data.cpu?.clusters && data.cpu.clusters.length > 0 && (
+                            <CpuClusterDetails clusters={data.cpu.clusters} />
+                        )}
                         {data.cpuFrequency && <CpuFrequencyDetails data={data.cpuFrequency} />}
                         <CpuCoresChart cores={data.cpu.cores} />
                         <FilesystemDetails drives={data.disk.drives} />
