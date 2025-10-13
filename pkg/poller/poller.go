@@ -465,7 +465,7 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		p.logger.Warn().Err(err).Msg("Reporting to core failed, attempting reconnect")
 
 		if reconnectErr := p.reconnectCore(ctx); reconnectErr != nil {
-			return fmt.Errorf("core report failed (%v) and reconnect attempt failed: %w", err, reconnectErr)
+			return fmt.Errorf("core report failed after reconnect attempt: %w", errors.Join(err, reconnectErr))
 		}
 
 		p.logger.Info().Msg("Successfully reconnected to core, retrying status report")
@@ -509,7 +509,22 @@ func (p *Poller) shouldReconnect(err error) bool {
 		switch statusErr.Code() {
 		case codes.Unavailable, codes.ResourceExhausted, codes.DeadlineExceeded:
 			return true
-		case codes.Canceled:
+		case codes.Canceled,
+			codes.OK,
+			codes.Unknown,
+			codes.InvalidArgument,
+			codes.NotFound,
+			codes.AlreadyExists,
+			codes.PermissionDenied,
+			codes.FailedPrecondition,
+			codes.Aborted,
+			codes.OutOfRange,
+			codes.Unimplemented,
+			codes.Internal,
+			codes.DataLoss,
+			codes.Unauthenticated:
+			return false
+		default:
 			return false
 		}
 	}

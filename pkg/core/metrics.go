@@ -610,7 +610,6 @@ func (s *Server) processICMPMetrics(
 }
 
 func (s *Server) processSysmonMetrics(
-	ctx context.Context,
 	pollerID, partition, agentID string,
 	details json.RawMessage,
 	timestamp time.Time) error {
@@ -650,14 +649,14 @@ type sysmonPayload struct {
 	Available    bool  `json:"available"`
 	ResponseTime int64 `json:"response_time"`
 	Status       struct {
-		Timestamp string                 `json:"timestamp"`
-		HostID    string                 `json:"host_id"`
-		HostIP    string                 `json:"host_ip"`
-		CPUs      []models.CPUMetric     `json:"cpus"`
+		Timestamp string                    `json:"timestamp"`
+		HostID    string                    `json:"host_id"`
+		HostIP    string                    `json:"host_ip"`
+		CPUs      []models.CPUMetric        `json:"cpus"`
 		Clusters  []models.CPUClusterMetric `json:"clusters,omitempty"`
-		Disks     []models.DiskMetric    `json:"disks"`
-		Memory    models.MemoryMetric    `json:"memory"`
-		Processes []models.ProcessMetric `json:"processes"`
+		Disks     []models.DiskMetric       `json:"disks"`
+		Memory    models.MemoryMetric       `json:"memory"`
+		Processes []models.ProcessMetric    `json:"processes"`
 	} `json:"status"`
 }
 
@@ -802,9 +801,9 @@ func (s *Server) processGRPCService(
 	case rperfServiceType:
 		return s.processRperfMetrics(pollerID, partition, serviceData, now)
 	case sysmonServiceType:
-		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
+		return s.processSysmonMetrics(pollerID, partition, agentID, serviceData, now)
 	case "sysmon-vm":
-		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
+		return s.processSysmonMetrics(pollerID, partition, agentID, serviceData, now)
 	case syncServiceType:
 		s.logger.Debug().
 			Str("poller_id", pollerID).
