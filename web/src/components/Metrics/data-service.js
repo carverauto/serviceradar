@@ -32,6 +32,24 @@ const bytesToGB = (bytes) => {
     return isNaN(parsedBytes) ? 0 : (parsedBytes / 1024 / 1024 / 1024).toFixed(1);
 };
 
+const hzToGHz = (hz) => {
+    const value = Number(hz);
+    if (!Number.isFinite(value) || value <= 0) {
+        return null;
+    }
+
+    return value / 1_000_000_000;
+};
+
+const average = (values) => {
+    if (!Array.isArray(values) || values.length === 0) {
+        return null;
+    }
+
+    const total = values.reduce((sum, val) => sum + val, 0);
+    return total / values.length;
+};
+
 // Safe property access helper
 const safeGet = (obj, path, defaultValue = null) => {
     try {
@@ -119,6 +137,9 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
         let cpuDataPoints = [];
         let currentCpuValue = 0;
         let cpuCores = [];
+        let cpuFrequencyDataPoints = [];
+        let currentCpuFrequency = null;
+        let cpuFrequencyCores = [];
 
         if (cpuResponse) {
             try {
@@ -135,9 +156,28 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
                         };
                     });
                     cpuCores = safeGet(cpuResponse[0], 'cpus', []);
+                    cpuFrequencyDataPoints = cpuResponse.map(point => {
+                        const rawTimestamp = safeGet(point, 'timestamp', new Date().toISOString());
+                        const cores = safeGet(point, 'cpus', []);
+                        const frequencies = cores
+                            .map(core => hzToGHz(safeGet(core, 'frequency_hz', null)))
+                            .filter(value => value !== null);
+                        const avgFreq = average(frequencies);
+
+                        return {
+                            timestamp: rawTimestamp,
+                            formattedTime: new Date(rawTimestamp).toLocaleTimeString(),
+                            value: avgFreq !== null ? parseFloat(avgFreq.toFixed(3)) : null,
+                        };
+                    });
                     currentCpuValue = cpuCores.length > 0
                         ? cpuCores.reduce((sum, core) => sum + safeGet(core, 'usage_percent', 0), 0) / cpuCores.length
                         : 0;
+
+                    const latestFrequencyPoint = cpuFrequencyDataPoints.find(point => point.value !== null);
+                    if (latestFrequencyPoint) {
+                        currentCpuFrequency = latestFrequencyPoint.value;
+                    }
                 } else {
                     cpuCores = safeGet(cpuResponse, 'cpus', []);
                     currentCpuValue = cpuCores.length > 0
@@ -148,10 +188,37 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
                         formattedTime: new Date(safeGet(cpuResponse, 'timestamp', new Date())).toLocaleTimeString(),
                         value: parseFloat(currentCpuValue.toFixed(1)),
                     }];
+
+                    const frequencies = cpuCores
+                        .map(core => hzToGHz(safeGet(core, 'frequency_hz', null)))
+                        .filter(value => value !== null);
+                    const avgFreq = average(frequencies);
+                    const rawTimestamp = safeGet(cpuResponse, 'timestamp', new Date().toISOString());
+                    cpuFrequencyDataPoints = [{
+                        timestamp: rawTimestamp,
+                        formattedTime: new Date(rawTimestamp).toLocaleTimeString(),
+                        value: avgFreq !== null ? parseFloat(avgFreq.toFixed(3)) : null,
+                    }];
+
+                    if (avgFreq !== null) {
+                        currentCpuFrequency = parseFloat(avgFreq.toFixed(3));
+                    }
                 }
             } catch (err) {
                 console.error('Error processing CPU data:', err);
             }
+        }
+
+        if (cpuCores.length > 0) {
+            cpuFrequencyCores = cpuCores
+                .map(core => {
+                    const frequency = hzToGHz(safeGet(core, 'frequency_hz', null));
+                    return {
+                        name: `Core ${safeGet(core, 'core_id', 'Unknown')}`,
+                        value: frequency !== null ? parseFloat(frequency.toFixed(3)) : null,
+                    };
+                })
+                .filter(core => core.value !== null);
         }
 
         // Process memory metrics with proper null checks
@@ -306,6 +373,24 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
             change: 0,
         };
 
+        let cpuFrequency = null;
+        const nonNullFrequencyPoints = cpuFrequencyDataPoints.filter(point => point && point.value !== null);
+        if (nonNullFrequencyPoints.length > 0) {
+            const latestFrequency = currentCpuFrequency ?? nonNullFrequencyPoints[0].value;
+            const frequencyValues = nonNullFrequencyPoints.map(point => point.value);
+            const maxFrequency = Math.max(...frequencyValues);
+
+            cpuFrequency = {
+                current: parseFloat(latestFrequency.toFixed(3)),
+                unit: 'GHz',
+                min: 0,
+                max: parseFloat(maxFrequency.toFixed(3)),
+                data: cpuFrequencyDataPoints,
+                change: 0,
+                cores: cpuFrequencyCores,
+            };
+        }
+
         const memory = {
             current: parseFloat(memPercent.toFixed(1)),
             warning: 85,
@@ -360,6 +445,9 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
         };
 
         const result = { cpu, memory, disk, process };
+        if (cpuFrequency) {
+            result.cpuFrequency = cpuFrequency;
+        }
         console.log('Processed data points:', {
             cpuPoints: cpuDataPoints.length,
             memoryPoints: memoryDataPoints.length,

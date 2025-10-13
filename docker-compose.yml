@@ -74,6 +74,8 @@ services:
     image: ghcr.io/carverauto/serviceradar-proton:latest
     container_name: serviceradar-proton
     user: "0:0"
+    mem_limit: 8g
+    mem_reservation: 6g
     ports:
       - "8123:8123"  # HTTP port for JDBC driver, batch mode
       - "8463:8463"  # Native TCP port
@@ -87,12 +89,7 @@ services:
     environment:
       - PROTON_PASSWORD=${PROTON_PASSWORD:-}  # Will generate if not set
       - PROTON_LOG_LEVEL=${PROTON_LOG_LEVEL:-error}
-    deploy:
-      resources:
-        limits:
-          memory: 8G
-        reservations:
-          memory: 4G
+      - PROTON_DISABLE_TASKSTATS=1
     ulimits:
       nofile:
         soft: 1048576
