@@ -661,9 +661,9 @@ SELECT
     service_set
 FROM otel_trace_summaries;
 
-CREATE VIEW otel_trace_summaries_final       AS SELECT * FROM otel_trace_summaries_dedup;
-CREATE VIEW otel_trace_summaries_final_v2    AS SELECT * FROM otel_trace_summaries_dedup;
-CREATE VIEW otel_trace_summaries_deduplicated AS SELECT * FROM otel_trace_summaries_dedup;
+CREATE OR REPLACE VIEW otel_trace_summaries_final       AS SELECT * FROM otel_trace_summaries_dedup;
+CREATE OR REPLACE VIEW otel_trace_summaries_final_v2    AS SELECT * FROM otel_trace_summaries_dedup;
+CREATE OR REPLACE VIEW otel_trace_summaries_deduplicated AS SELECT * FROM otel_trace_summaries_dedup;
 
 -- =================================================================
 -- == PERFORMANCE INDEXES

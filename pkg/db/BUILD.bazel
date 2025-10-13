@@ -20,11 +20,7 @@ go_library(
         "sweep.go",
         "unified_devices.go",
     ],
-    embedsrcs = [
-        "migrations/schema.sql",
-        "migrations/trace_verification_queries.sql",
-        "migrations/verify_clean_install.sql",
-    ],
+    embedsrcs = glob(["migrations/*.sql"]),
     importpath = "github.com/carverauto/serviceradar/pkg/db",
     visibility = ["//visibility:public"],
     deps = [
