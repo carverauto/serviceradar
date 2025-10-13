@@ -654,6 +654,7 @@ type sysmonPayload struct {
 		HostID    string                 `json:"host_id"`
 		HostIP    string                 `json:"host_ip"`
 		CPUs      []models.CPUMetric     `json:"cpus"`
+		Clusters  []models.CPUClusterMetric `json:"clusters,omitempty"`
 		Disks     []models.DiskMetric    `json:"disks"`
 		Memory    models.MemoryMetric    `json:"memory"`
 		Processes []models.ProcessMetric `json:"processes"`
@@ -705,6 +706,7 @@ func (*Server) buildSysmonMetrics(
 
 	m := &models.SysmonMetrics{
 		CPUs:      make([]models.CPUMetric, len(payload.Status.CPUs)),
+		Clusters:  make([]models.CPUClusterMetric, len(payload.Status.Clusters)),
 		Disks:     make([]models.DiskMetric, len(payload.Status.Disks)),
 		Memory:    &models.MemoryMetric{},
 		Processes: make([]models.ProcessMetric, len(payload.Status.Processes)),
@@ -715,10 +717,23 @@ func (*Server) buildSysmonMetrics(
 			CoreID:       cpu.CoreID,
 			UsagePercent: cpu.UsagePercent,
 			FrequencyHz:  cpu.FrequencyHz,
+			Label:        cpu.Label,
+			Cluster:      cpu.Cluster,
 			Timestamp:    pollerTimestamp,
 			HostID:       payload.Status.HostID,
 			HostIP:       payload.Status.HostIP,
 			AgentID:      agentID,
+		}
+	}
+
+	for i, cluster := range payload.Status.Clusters {
+		m.Clusters[i] = models.CPUClusterMetric{
+			Name:        cluster.Name,
+			FrequencyHz: cluster.FrequencyHz,
+			Timestamp:   pollerTimestamp,
+			HostID:      payload.Status.HostID,
+			HostIP:      payload.Status.HostIP,
+			AgentID:     agentID,
 		}
 	}
 

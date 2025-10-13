@@ -59,6 +59,21 @@ const formatMilliseconds = (value: number): string => `${value.toFixed(2)} ms`;
 
 const formatGiB = (value: number): string => `${value.toFixed(2)} GiB`;
 
+const deriveClusterName = (core: SysmonVmCpuCore): string => {
+    if (core && typeof core.cluster === 'string' && core.cluster.trim().length > 0) {
+        return core.cluster.trim();
+    }
+
+    if (core && typeof core.label === 'string' && core.label.trim().length > 0) {
+        const match = core.label.trim().match(/^[A-Za-z]+/);
+        if (match && match[0]) {
+            return match[0];
+        }
+    }
+
+    return 'Unassigned';
+};
+
 const computeClusterSummaries = (
     cores: SysmonVmCpuCore[],
     clusters: SysmonVmCluster[] = [],
@@ -71,7 +86,7 @@ const computeClusterSummaries = (
     }>();
 
     cores.forEach((core) => {
-        const clusterName = core.cluster || 'Unassigned';
+        const clusterName = deriveClusterName(core);
         const existing = summaryMap.get(clusterName) || {
             label: clusterName,
             coreCount: 0,
@@ -370,18 +385,19 @@ const SysmonVmDetails: React.FC<SysmonVmDetailsProps> = ({ service, details }) =
                                     </th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {cores.map(core => {
-                                    const name = core.label || `Core ${core.core_id}`;
-                                    const frequencyGHz = hzToGHz(core.frequency_hz);
-                                    return (
-                                        <tr key={`${core.cluster ?? 'cluster'}-${core.core_id}`}>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                                                {name}
-                                            </td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                                                {core.cluster || 'N/A'}
-                                            </td>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {cores.map(core => {
+                    const name = core.label || `Core ${core.core_id}`;
+                    const derivedCluster = deriveClusterName(core);
+                    const frequencyGHz = hzToGHz(core.frequency_hz);
+                    return (
+                        <tr key={`${derivedCluster}-${core.core_id}`}>
+                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                                {name}
+                            </td>
+                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                                {derivedCluster || 'N/A'}
+                            </td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-gray-900 dark:text-gray-100">
                                                 {formatPercent(core.usage_percent || 0)}
                                             </td>
