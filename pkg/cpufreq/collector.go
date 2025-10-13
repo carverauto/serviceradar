@@ -33,16 +33,17 @@ var ErrFrequencyUnavailable = errors.New("cpu frequency data unavailable")
 // CoreFrequency represents the current frequency reading for a logical CPU.
 type CoreFrequency struct {
 	CoreID      int     // zero-based logical core ID
+	Label       string  // platform-specific identifier (e.g. ECPU0)
+	Cluster     string  // logical cluster this core belongs to (e.g. ECPU)
 	FrequencyHz float64 // instantaneous frequency in Hz
-	Label       string  // human-readable label (if available)
-	Cluster     string  // logical cluster the core belongs to (if available)
-	Source      string  // data source used (sysfs, procfs, perf)
+	Source      string  // data source used (sysfs, procfs, perf, hostfreq)
 }
 
 // ClusterFrequency represents the current frequency reading for a CPU cluster.
 type ClusterFrequency struct {
-	Name        string  // cluster name (e.g., ECPU, PCPU)
-	FrequencyHz float64 // instantaneous/average frequency in Hz
+	Name        string  // cluster label (e.g. ECPU, PCPU)
+	FrequencyHz float64 // instantaneous frequency in Hz
+	Source      string  // data source used
 }
 
 // Snapshot contains a collection of per-core frequency readings.

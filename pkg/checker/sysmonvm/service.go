@@ -75,10 +75,10 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 
 		cpus = append(cpus, models.CPUMetric{
 			CoreID:       int32(core.CoreID),
-			UsagePercent: usage,
-			FrequencyHz:  core.FrequencyHz,
 			Label:        core.Label,
 			Cluster:      core.Cluster,
+			UsagePercent: usage,
+			FrequencyHz:  core.FrequencyHz,
 			Timestamp:    now,
 			HostID:       hostID,
 			HostIP:       hostIP,
