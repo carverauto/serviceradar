@@ -31,6 +31,9 @@ services:
       - cert-data:/etc/serviceradar/certs
       - generated-config:/etc/serviceradar/config
       - ./packaging/core/config:/config:ro
+      - ./docker/compose:/templates:ro
+    environment:
+      - SYSMON_VM_ADDRESS=${SYSMON_VM_ADDRESS:-192.168.1.219:50110}
     depends_on:
       cert-generator:
         condition: service_completed_successfully
@@ -195,7 +198,7 @@ services:
       config-updater:
         condition: service_completed_successfully
       core:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:3000/"]
       interval: 30s
@@ -251,7 +254,7 @@ services:
       - ./docker/compose/entrypoint-nginx.sh:/docker-entrypoint.d/50-serviceradar.sh:ro
     depends_on:
       web:
-        condition: service_healthy
+        condition: service_started
       core:
         condition: service_healthy
       kong:
@@ -326,20 +329,23 @@ services:
     image: ghcr.io/carverauto/serviceradar-poller:latest
     container_name: serviceradar-poller
     volumes:
-      - ./docker/compose/poller.docker.json:/etc/serviceradar/poller.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
       - poller-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
       # Config path
-      - CONFIG_PATH=/etc/serviceradar/poller.json
+      - CONFIG_PATH=/etc/serviceradar/config/poller.json
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-generator:
         condition: service_completed_successfully
+      config-updater:
+        condition: service_completed_successfully
       core:
         condition: service_healthy
+    command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/poller.pem", "-key", "/etc/serviceradar/certs/poller-key.pem", "-servername", "poller.serviceradar", "localhost:50053", "grpc.health.v1.Health/Check"]
       interval: 30s
@@ -358,8 +364,8 @@ services:
     container_name: serviceradar-agent
     volumes:
       - ./docker/compose/agent.docker.json:/etc/serviceradar/agent.json:ro
-      - ./docker/compose/sysmon-vm.checker.json:/etc/serviceradar/checkers/sysmon-vm.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
       - agent-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -376,6 +382,9 @@ services:
     depends_on:
       cert-generator:
         condition: service_completed_successfully
+      config-updater:
+        condition: service_completed_successfully
+    command: ["/bin/sh","-c","if [ -f /etc/serviceradar/config/checkers/sysmon-vm.json ]; then cp /etc/serviceradar/config/checkers/sysmon-vm.json /etc/serviceradar/checkers/sysmon-vm.json; fi; exec /usr/local/bin/serviceradar-agent -config /etc/serviceradar/agent.json"]
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/agent.pem", "-key", "/etc/serviceradar/certs/agent-key.pem", "-servername", "agent.serviceradar", "localhost:50051", "grpc.health.v1.Health/Check"]
       interval: 30s
