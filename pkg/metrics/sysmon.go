@@ -11,6 +11,7 @@ func (m *Manager) StoreSysmonMetrics(
 	ctx context.Context, pollerID, agentID, hostID, partition, hostIP string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	dbMetrics := &models.SysmonMetrics{
 		CPUs:      make([]models.CPUMetric, len(metrics.CPUs)),
+		Clusters:  make([]models.CPUClusterMetric, len(metrics.Clusters)),
 		Disks:     make([]models.DiskMetric, len(metrics.Disks)),
 		Memory:    &models.MemoryMetric{},
 		Processes: make([]models.ProcessMetric, len(metrics.Processes)),
@@ -21,10 +22,23 @@ func (m *Manager) StoreSysmonMetrics(
 			CoreID:       cpu.CoreID,
 			UsagePercent: cpu.UsagePercent,
 			FrequencyHz:  cpu.FrequencyHz,
+			Label:        cpu.Label,
+			Cluster:      cpu.Cluster,
 			Timestamp:    timestamp,
 			HostID:       hostID,
 			HostIP:       hostIP,
 			AgentID:      agentID,
+		}
+	}
+
+	for i, cluster := range metrics.Clusters {
+		dbMetrics.Clusters[i] = models.CPUClusterMetric{
+			Name:        cluster.Name,
+			FrequencyHz: cluster.FrequencyHz,
+			Timestamp:   timestamp,
+			HostID:      hostID,
+			HostIP:      hostIP,
+			AgentID:     agentID,
 		}
 	}
 
@@ -85,9 +99,13 @@ func (m *Manager) GetCPUMetrics(
 		metrics[i] = models.CPUMetric{
 			CoreID:       dm.CoreID,
 			UsagePercent: dm.UsagePercent,
+			FrequencyHz:  dm.FrequencyHz,
 			Timestamp:    dm.Timestamp,
 			HostID:       dm.HostID,
+			HostIP:       dm.HostIP,
 			AgentID:      dm.AgentID,
+			Label:        dm.Label,
+			Cluster:      dm.Cluster,
 		}
 	}
 

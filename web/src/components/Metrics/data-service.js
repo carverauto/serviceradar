@@ -71,6 +71,31 @@ const buildClusterSummaries = (cores) => {
         return [];
     }
 
+    const deriveClusterName = (core) => {
+        const rawCluster = safeGet(core, 'cluster', null);
+        if (rawCluster && typeof rawCluster === 'string' && rawCluster.trim().length > 0) {
+            return rawCluster.trim();
+        }
+
+        const label = safeGet(core, 'label', null);
+        if (typeof label === 'string' && label.trim().length > 0) {
+            const match = label.trim().match(/^[A-Za-z]+/);
+            if (match && match[0]) {
+                return match[0];
+            }
+        }
+
+        const name = safeGet(core, 'name', null);
+        if (typeof name === 'string' && name.trim().length > 0) {
+            const match = name.trim().match(/^[A-Za-z]+/);
+            if (match && match[0]) {
+                return match[0];
+            }
+        }
+
+        return 'Unassigned';
+    };
+
     const clusterMap = new Map();
 
     cores.forEach((core) => {
@@ -78,7 +103,7 @@ const buildClusterSummaries = (cores) => {
             return;
         }
 
-        const clusterName = core.cluster || 'Unassigned';
+        const clusterName = deriveClusterName(core);
         if (!clusterMap.has(clusterName)) {
             clusterMap.set(clusterName, {
                 name: clusterName,
@@ -455,11 +480,39 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
             unit: '%',
             min: 0,
             max: 100,
-            cores: cpuCores.map(core => ({
-                name: safeGet(core, 'label', null) || `Core ${safeGet(core, 'core_id', 'Unknown')}`,
-                value: safeGet(core, 'usage_percent', 0),
-                cluster: safeGet(core, 'cluster', null),
-            })),
+            cores: cpuCores.map(core => {
+        const label = safeGet(core, 'label', null);
+        const coreId = safeGet(core, 'core_id', 'Unknown');
+        const rawCluster = safeGet(core, 'cluster', null);
+        const cluster = (() => {
+            if (rawCluster && typeof rawCluster === 'string' && rawCluster.trim().length > 0) {
+                return rawCluster.trim();
+            }
+            if (typeof label === 'string' && label.trim().length > 0) {
+                const match = label.trim().match(/^[A-Za-z]+/);
+                if (match && match[0]) {
+                    return match[0];
+                }
+            }
+            return null;
+        })();
+        const baseName = label || `Core ${coreId}`;
+        const includeCluster = cluster && !String(baseName).toLowerCase().includes(String(cluster).toLowerCase());
+        const displayName = includeCluster ? `${baseName} (${cluster})` : baseName;
+        const usagePercent = safeGet(core, 'usage_percent', 0);
+        const frequencyHz = toNumberOrNull(safeGet(core, 'frequency_hz', null));
+                const frequencyGHz = Number.isFinite(frequencyHz) && frequencyHz > 0 ? hzToGHz(frequencyHz) : null;
+
+                return {
+                    name: displayName,
+                    rawLabel: baseName,
+                    coreId,
+                    value: usagePercent,
+                    cluster,
+                    frequencyHz,
+                    frequencyGHz,
+                };
+            }),
             change: 0,
             clusters: cpuClusters,
             metadata: cpuMetadata,

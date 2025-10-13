@@ -34,12 +34,21 @@ var ErrFrequencyUnavailable = errors.New("cpu frequency data unavailable")
 type CoreFrequency struct {
 	CoreID      int     // zero-based logical core ID
 	FrequencyHz float64 // instantaneous frequency in Hz
+	Label       string  // human-readable label (if available)
+	Cluster     string  // logical cluster the core belongs to (if available)
 	Source      string  // data source used (sysfs, procfs, perf)
+}
+
+// ClusterFrequency represents the current frequency reading for a CPU cluster.
+type ClusterFrequency struct {
+	Name        string  // cluster name (e.g., ECPU, PCPU)
+	FrequencyHz float64 // instantaneous/average frequency in Hz
 }
 
 // Snapshot contains a collection of per-core frequency readings.
 type Snapshot struct {
-	Cores []CoreFrequency
+	Cores    []CoreFrequency
+	Clusters []ClusterFrequency
 }
 
 type collectorDeps struct {
@@ -123,16 +132,19 @@ func collectStandard(ctx context.Context, window time.Duration, deps collectorDe
 		}
 		fallbackByCore[coreID] = stat.Mhz * 1_000_000
 	}
-
 	snapshot := &Snapshot{
-		Cores: make([]CoreFrequency, 0, logicalCount),
+		Cores:    make([]CoreFrequency, 0, logicalCount),
+		Clusters: []ClusterFrequency{},
 	}
 
 	for core := 0; core < logicalCount; core++ {
+		label := fmt.Sprintf("CPU%d", core)
 		if hz, ok := deps.readSysfs(core); ok {
 			snapshot.Cores = append(snapshot.Cores, CoreFrequency{
 				CoreID:      core,
 				FrequencyHz: hz,
+				Label:       label,
+				Cluster:     "",
 				Source:      FrequencySourceSysfs,
 			})
 			continue
@@ -142,6 +154,8 @@ func collectStandard(ctx context.Context, window time.Duration, deps collectorDe
 			snapshot.Cores = append(snapshot.Cores, CoreFrequency{
 				CoreID:      core,
 				FrequencyHz: hz,
+				Label:       label,
+				Cluster:     "",
 				Source:      FrequencySourceProcCPU,
 			})
 			continue
@@ -152,6 +166,8 @@ func collectStandard(ctx context.Context, window time.Duration, deps collectorDe
 			snapshot.Cores = append(snapshot.Cores, CoreFrequency{
 				CoreID:      core,
 				FrequencyHz: 0,
+				Label:       label,
+				Cluster:     "",
 				Source:      FrequencySourcePerf,
 			})
 			continue
@@ -160,6 +176,8 @@ func collectStandard(ctx context.Context, window time.Duration, deps collectorDe
 		snapshot.Cores = append(snapshot.Cores, CoreFrequency{
 			CoreID:      core,
 			FrequencyHz: hz,
+			Label:       label,
+			Cluster:     "",
 			Source:      FrequencySourcePerf,
 		})
 	}

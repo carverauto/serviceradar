@@ -395,7 +395,7 @@ func (s *APIServer) getCPUMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
 	// Query cpu_metrics table directly for per-core data by device_id
 	query := fmt.Sprintf(`
-		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz
+		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz, label, cluster
 		FROM table(cpu_metrics)
 		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
 		ORDER BY timestamp DESC, core_id ASC`,
@@ -412,19 +412,21 @@ func (s *APIServer) getCPUMetricsForDevice(
 	}()
 
 	data := make(map[time.Time][]models.CPUMetric)
+	clusterData := make(map[time.Time][]models.CPUClusterMetric)
 
 	for rows.Next() {
-		var timestamp time.Time
+		var (
+			timestamp    time.Time
+			agentID      string
+			hostID       string
+			coreID       int32
+			usagePercent float64
+			frequencyHz  float64
+			label        string
+			cluster      string
+		)
 
-		var agentID, hostID string
-
-		var coreID int32
-
-		var usagePercent float64
-
-		var frequencyHz float64
-
-		if err := rows.Scan(&timestamp, &agentID, &hostID, &coreID, &usagePercent, &frequencyHz); err != nil {
+		if err := rows.Scan(&timestamp, &agentID, &hostID, &coreID, &usagePercent, &frequencyHz, &label, &cluster); err != nil {
 			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error scanning CPU metric row")
 			continue
 		}
@@ -436,6 +438,8 @@ func (s *APIServer) getCPUMetricsForDevice(
 			CoreID:       coreID,
 			UsagePercent: usagePercent,
 			FrequencyHz:  frequencyHz,
+			Label:        label,
+			Cluster:      cluster,
 		}
 
 		data[timestamp] = append(data[timestamp], cpu)
@@ -445,10 +449,57 @@ func (s *APIServer) getCPUMetricsForDevice(
 		return nil, fmt.Errorf("error iterating CPU metrics rows for device %s: %w", deviceID, err)
 	}
 
+	clusterQuery := fmt.Sprintf(`
+		SELECT timestamp, agent_id, host_id, cluster, frequency_hz
+		FROM table(cpu_cluster_metrics)
+		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
+		ORDER BY timestamp DESC, cluster ASC`,
+		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	clusterRows, err := s.dbService.(*db.DB).Conn.Query(ctx, clusterQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query CPU cluster metrics for device %s: %w", deviceID, err)
+	}
+	defer func() {
+		if err := clusterRows.Close(); err != nil {
+			slog.Error("failed to close cluster rows", "error", err)
+		}
+	}()
+
+	for clusterRows.Next() {
+		var (
+			timestamp time.Time
+			agentID   string
+			hostID    string
+			name      string
+			freqHz    float64
+		)
+
+		if err := clusterRows.Scan(&timestamp, &agentID, &hostID, &name, &freqHz); err != nil {
+			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error scanning CPU cluster metric row")
+			continue
+		}
+
+		clusterMetric := models.CPUClusterMetric{
+			Name:        name,
+			FrequencyHz: freqHz,
+			Timestamp:   timestamp,
+			AgentID:     agentID,
+			HostID:      hostID,
+		}
+
+		clusterData[timestamp] = append(clusterData[timestamp], clusterMetric)
+	}
+
+	if err := clusterRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating CPU cluster metrics for device %s: %w", deviceID, err)
+	}
+
 	result := make([]models.SysmonCPUResponse, 0, len(data))
 	for ts, cpus := range data {
 		result = append(result, models.SysmonCPUResponse{
 			Cpus:      cpus,
+			Clusters:  clusterData[ts],
 			Timestamp: ts,
 		})
 	}

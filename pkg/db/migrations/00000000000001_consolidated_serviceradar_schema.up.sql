@@ -211,11 +211,28 @@ CREATE STREAM IF NOT EXISTS cpu_metrics (
     core_id           int32,
     usage_percent     float64,
     frequency_hz      float64,
+    label             string,
+    cluster           string,
     device_id         string,
     partition         string
 ) ENGINE = Stream(1, 1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, device_id, host_id, core_id)
+TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
+SETTINGS index_granularity = 8192;
+
+CREATE STREAM IF NOT EXISTS cpu_cluster_metrics (
+    timestamp         DateTime64(3),
+    poller_id         string,
+    agent_id          string,
+    host_id           string,
+    cluster           string,
+    frequency_hz      float64,
+    device_id         string,
+    partition         string
+) ENGINE = Stream(1, 1, rand())
+PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+ORDER BY (timestamp, device_id, host_id, cluster)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
 SETTINGS index_granularity = 8192;
 
