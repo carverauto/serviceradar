@@ -90,6 +90,10 @@ services:
       - PROTON_PASSWORD=${PROTON_PASSWORD:-}  # Will generate if not set
       - PROTON_LOG_LEVEL=${PROTON_LOG_LEVEL:-error}
       - PROTON_DISABLE_TASKSTATS=1
+      # Align Proton memory usage with container limits to reduce OOM risk
+      - PROTON_MAX_SERVER_MEMORY=6g
+      - PROTON_MAX_QUERY_MEMORY=4g
+      - PROTON_MAX_PARTITION_BYTES=256m
     ulimits:
       nofile:
         soft: 1048576

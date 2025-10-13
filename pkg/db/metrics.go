@@ -852,13 +852,13 @@ func (db *DB) GetAllCPUMetrics(
 			db.logger.Error().Err(err).Msg("Error scanning CPU metric row")
 			continue
 		}
-
+		key := timestamp.Truncate(time.Second)
 		m.Timestamp = timestamp
 		m.AgentID = agentID
 		m.HostID = hostID
 		m.Label = label
 		m.Cluster = cluster
-		data[timestamp] = append(data[timestamp], m)
+		data[key] = append(data[key], m)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -888,9 +888,9 @@ func (db *DB) GetAllCPUMetrics(
 			db.logger.Error().Err(err).Msg("Error scanning CPU cluster metric row")
 			continue
 		}
-
+		key := timestamp.Truncate(time.Second)
 		c.Timestamp = timestamp
-		clustersByTimestamp[timestamp] = append(clustersByTimestamp[timestamp], c)
+		clustersByTimestamp[key] = append(clustersByTimestamp[key], c)
 	}
 
 	if err := clusterRows.Err(); err != nil {
@@ -905,7 +905,7 @@ func (db *DB) GetAllCPUMetrics(
 		result = append(result, models.SysmonCPUResponse{
 			Cpus:      cpus,
 			Clusters:  clustersByTimestamp[ts],
-			Timestamp: ts,
+			Timestamp: cpus[0].Timestamp,
 		})
 	}
 

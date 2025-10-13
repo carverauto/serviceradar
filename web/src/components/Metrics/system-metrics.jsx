@@ -287,13 +287,13 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
 
                 {activeTab === 'details' && (
                     <div className="space-y-6">
-                        {data.cpu?.clusters && data.cpu.clusters.length > 0 && (
+                        {Array.isArray(data?.cpu?.clusters) && data.cpu.clusters.length > 0 && (
                             <CpuClusterDetails clusters={data.cpu.clusters} />
                         )}
-                        {data.cpuFrequency && <CpuFrequencyDetails data={data.cpuFrequency} />}
-                        <CpuCoresChart cores={data.cpu.cores} />
-                        <FilesystemDetails drives={data.disk.drives} />
-                        <MemoryDetails data={data.memory} />
+                        {data?.cpuFrequency && <CpuFrequencyDetails data={data.cpuFrequency} />}
+                        {Array.isArray(data?.cpu?.cores) && <CpuCoresChart cores={data.cpu.cores} />}
+                        {Array.isArray(data?.disk?.drives) && <FilesystemDetails drives={data.disk.drives} />}
+                        {data?.memory && <MemoryDetails data={data.memory} />}
                         {data.process && <ProcessDetails targetId={actualId} idType={actualIdType} />}
                     </div>
                 )}

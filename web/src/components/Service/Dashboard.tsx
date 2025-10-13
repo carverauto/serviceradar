@@ -277,11 +277,14 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
             );
         }
 
-        if (serviceData.service_name === 'sysmon-vm' || serviceData.name === 'sysmon-vm') {
+        if (
+            serviceData &&
+            (serviceData.service_name === "sysmon-vm" || serviceData.name === "sysmon-vm")
+        ) {
             return (
                 <SysmonVmDetails
                     service={serviceData}
-                    details={serviceData.details}
+                    details={serviceData.details ?? {}}
                 />
             );
         }
