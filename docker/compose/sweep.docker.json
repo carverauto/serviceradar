@@ -1,7 +1,5 @@
 {
-    "networks": [
-        "172.28.0.0/16"
-    ],
+    "networks": [],
     "ports": [
         22,
         80,
@@ -14,6 +12,7 @@
         50053
     ],
     "sweep_modes": [
+	"icmp",
         "tcp"
     ],
     "interval": "10m",

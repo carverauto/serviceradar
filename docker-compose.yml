@@ -301,7 +301,7 @@ services:
       # run Kong in foreground (no daemon) when using 'kong start'
       KONG_NGINX_DAEMON: off
       KONG_LOG_LEVEL: debug
-    command: ["sh","-lc","if [ ! -f /opt/kong/kong.yml ]; then cp /default-kong.yml /opt/kong/kong.yml 2>/dev/null || true; fi; until [ -f /opt/kong/kong.yml ]; do echo '[kong] waiting for /opt/kong/kong.yml'; sleep 2; done; exec kong start --vv"]
+    command: ["sh","-lc","if [ ! -f /opt/kong/kong.yml ]; then cp /default-kong.yml /opt/kong/kong.yml 2>/dev/null || true; fi; until [ -f /opt/kong/kong.yml ]; do echo '[kong] waiting for /opt/kong/kong.yml'; sleep 2; done; rm -f /opt/kong/pids/nginx.pid; exec kong start --vv"]
     volumes:
       - kong_config:/opt/kong
       - ./docker/kong/kong.yaml:/default-kong.yml:ro
@@ -357,6 +357,7 @@ services:
     container_name: serviceradar-agent
     volumes:
       - ./docker/compose/agent.docker.json:/etc/serviceradar/agent.json:ro
+      - ./docker/compose/sysmon-vm.checker.json:/etc/serviceradar/checkers/sysmon-vm.json:ro
       - cert-data:/etc/serviceradar/certs:ro
       - agent-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar

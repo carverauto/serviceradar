@@ -18,50 +18,230 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
-func (s *Server) createSysmonDeviceRecord(
+func (s *Server) ensureServiceDevice(
 	ctx context.Context,
-	agentID, pollerID, partition, deviceID string, payload *sysmonPayload, pollerTimestamp time.Time) {
-	if payload.Status.HostIP == "" || payload.Status.HostIP == "unknown" {
+	agentID, pollerID, partition string,
+	svc *proto.ServiceStatus,
+	serviceData json.RawMessage,
+	timestamp time.Time,
+) {
+	if svc == nil {
 		return
 	}
+
+	// Only gRPC checkers embed host context in a way we can reason about; skip other service types.
+	if svc.ServiceType != grpcServiceType {
+		return
+	}
+
+	// Ignore result streams such as sync/multi-part responses; they set Source to "results".
+	if svc.Source != "" && !strings.EqualFold(svc.Source, "getstatus") {
+		return
+	}
+
+	hostIP, hostname, hostID := extractCheckerHostIdentity(serviceData)
+	hostIP = normalizeHostIdentifier(hostIP)
+	if hostIP == "" || strings.EqualFold(hostIP, "unknown") {
+		return
+	}
+
+	if partition == "" {
+		partition = "default"
+	}
+
+	deviceID := fmt.Sprintf("%s:%s", partition, hostIP)
+
+	metadata := map[string]string{
+		"source":             "checker",
+		"checker_service":    svc.ServiceName,
+		"checker_service_id": svc.ServiceName,
+		"last_update":        timestamp.Format(time.RFC3339),
+	}
+
+	if svc.ServiceType != "" {
+		metadata["checker_service_type"] = svc.ServiceType
+	}
+
+	if agentID != "" {
+		metadata["collector_agent_id"] = agentID
+	}
+
+	if pollerID != "" {
+		metadata["collector_poller_id"] = pollerID
+	}
+
+	if hostID != "" {
+		metadata["checker_host_id"] = hostID
+	}
+
+	metadata["checker_host_ip"] = hostIP
 
 	deviceUpdate := &models.DeviceUpdate{
 		AgentID:     agentID,
 		PollerID:    pollerID,
 		Partition:   partition,
 		DeviceID:    deviceID,
-		Source:      models.DiscoverySourceSysmon,
-		IP:          payload.Status.HostIP,
-		Hostname:    &payload.Status.HostID,
-		Timestamp:   pollerTimestamp,
+		Source:      models.DiscoverySourceSelfReported,
+		IP:          hostIP,
+		Timestamp:   timestamp,
 		IsAvailable: true,
-		Metadata: map[string]string{
-			"source":      "sysmon",
-			"last_update": pollerTimestamp.Format(time.RFC3339),
-		},
+		Metadata:    metadata,
+		Confidence:  models.GetSourceConfidence(models.DiscoverySourceSelfReported),
 	}
 
-	s.logger.Debug().
-		Str("device_id", deviceID).
-		Str("hostname", payload.Status.HostID).
-		Str("ip", payload.Status.HostIP).
-		Msg("Created/updated device record for sysmon device")
+	if hostname != "" {
+		deviceUpdate.Hostname = &hostname
+	}
 
-	// Also process through device registry for unified device management
 	if s.DeviceRegistry != nil {
 		if err := s.DeviceRegistry.ProcessDeviceUpdate(ctx, deviceUpdate); err != nil {
 			s.logger.Warn().
 				Err(err).
 				Str("device_id", deviceID).
-				Msg("Failed to process sysmon device through device registry")
+				Str("service_name", svc.ServiceName).
+				Msg("Failed to process checker device through device registry")
+		}
+	} else {
+		s.logger.Warn().
+			Str("device_id", deviceID).
+			Str("service_name", svc.ServiceName).
+			Msg("DeviceRegistry not available for checker device registration")
+	}
+}
+
+func extractCheckerHostIdentity(serviceData json.RawMessage) (hostIP, hostname, hostID string) {
+	if len(serviceData) == 0 {
+		return "", "", ""
+	}
+
+	var payload any
+	if err := json.Unmarshal(serviceData, &payload); err != nil {
+		return "", "", ""
+	}
+
+	hostIP = firstStringMatch(payload,
+		[]string{"status", "host_ip"},
+		[]string{"status", "ip"},
+		[]string{"status", "ip_address"},
+		[]string{"host_ip"},
+		[]string{"ip"},
+		[]string{"ip_address"},
+	)
+	if hostIP == "" {
+		hostIP = findStringByKeySubstring(payload, "ip")
+	}
+
+	hostID = firstStringMatch(payload,
+		[]string{"status", "host_id"},
+		[]string{"host_id"},
+	)
+
+	hostname = firstStringMatch(payload,
+		[]string{"status", "hostname"},
+		[]string{"status", "host_name"},
+		[]string{"hostname"},
+		[]string{"host_name"},
+	)
+
+	if hostname == "" {
+		hostname = hostID
+	}
+
+	return hostIP, hostname, hostID
+}
+
+func firstStringMatch(node any, paths ...[]string) string {
+	for _, path := range paths {
+		if value, ok := traverseForString(node, path); ok {
+			return value
 		}
 	}
+
+	return ""
+}
+
+func traverseForString(node any, path []string) (string, bool) {
+	if len(path) == 0 {
+		if str, ok := node.(string); ok {
+			trimmed := strings.TrimSpace(str)
+			if trimmed != "" {
+				return trimmed, true
+			}
+		}
+		return "", false
+	}
+
+	switch typed := node.(type) {
+	case map[string]any:
+		next, ok := typed[path[0]]
+		if !ok {
+			return "", false
+		}
+		return traverseForString(next, path[1:])
+	case []any:
+		for _, item := range typed {
+			if value, ok := traverseForString(item, path); ok {
+				return value, true
+			}
+		}
+	}
+
+	return "", false
+}
+
+func findStringByKeySubstring(node any, substring string) string {
+	switch typed := node.(type) {
+	case map[string]any:
+		for key, value := range typed {
+			if strings.Contains(strings.ToLower(key), substring) {
+				if str, ok := value.(string); ok && strings.TrimSpace(str) != "" {
+					return strings.TrimSpace(str)
+				}
+			}
+
+			if nested := findStringByKeySubstring(value, substring); nested != "" {
+				return nested
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if nested := findStringByKeySubstring(item, substring); nested != "" {
+				return nested
+			}
+		}
+	}
+
+	return ""
+}
+
+func normalizeHostIdentifier(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		return host
+	}
+
+	if strings.HasPrefix(value, "[") && strings.Contains(value, "]") {
+		trimmed := strings.TrimSuffix(strings.TrimPrefix(value, "["), "]")
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return value
 }
 
 // createSNMPTargetDeviceUpdate creates a DeviceUpdate for an SNMP target device.

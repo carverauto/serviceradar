@@ -235,6 +235,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 			Available:   false,
 			Message:     message,
 			ServiceType: sc.check.Type,
+			AgentId:     sc.agentName,
 			PollerId:    sc.pollerID,
 			Source:      "getStatus",
 			KvStoreId:   sc.kvStoreId,
@@ -248,13 +249,18 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		Bool("available", getStatus.Available).
 		Msg("Service check completed successfully")
 
+	agentID := getStatus.AgentId
+	if agentID == "" {
+		agentID = sc.agentName
+	}
+
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,
 		Available:    getStatus.Available,
 		Message:      getStatus.Message,
 		ServiceType:  sc.check.Type,
 		ResponseTime: getStatus.ResponseTime,
-		AgentId:      getStatus.AgentId,
+		AgentId:      agentID,
 		PollerId:     sc.pollerID,
 		Source:       "getStatus",
 		KvStoreId:    sc.kvStoreId,

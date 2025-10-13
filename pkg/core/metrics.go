@@ -643,8 +643,6 @@ func (s *Server) processSysmonMetrics(
 		Str("timestamp", sysmonPayload.Status.Timestamp).
 		Msg("Parsed sysmon metrics")
 
-	s.createSysmonDeviceRecord(ctx, agentID, pollerID, partition, deviceID, sysmonPayload, pollerTimestamp)
-
 	return nil
 }
 
@@ -823,6 +821,8 @@ func (s *Server) processServicePayload(
 		contextPartition = enhancedPayload.Partition
 		contextAgentID = enhancedPayload.AgentID
 	}
+
+	s.ensureServiceDevice(ctx, contextAgentID, contextPollerID, contextPartition, svc, serviceData, now)
 
 	switch svc.ServiceType {
 	case snmpServiceType:
