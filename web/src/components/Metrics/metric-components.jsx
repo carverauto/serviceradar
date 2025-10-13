@@ -15,7 +15,7 @@
  */
 
 import React from 'react';
-import { Cpu, HardDrive, BarChart3, Activity, Gauge } from 'lucide-react';
+import { Cpu, HardDrive, BarChart3, Activity, Gauge, Server, Clock } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { MetricCard, CustomTooltip, ProgressBar } from './shared-components';
 import { escapeSrqlValue } from '@/lib/srql';
@@ -196,6 +196,120 @@ export const CpuFrequencyDetails = ({ data }) => {
                     </ResponsiveContainer>
                 </div>
             )}
+        </div>
+    );
+};
+
+export const SysmonHostCard = ({ metadata }) => {
+    if (!metadata) {
+        return null;
+    }
+
+    const { hostId, hostIp, agentId, responseTimeNs, timestamp } = metadata;
+    const responseMs = Number.isFinite(responseTimeNs)
+        ? parseFloat((responseTimeNs / 1_000_000).toFixed(2))
+        : null;
+    const formattedTimestamp = timestamp ? new Date(timestamp).toLocaleString() : 'Unknown';
+
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow transition-colors">
+            <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center">
+                    <Server size={16} className="mr-2 text-blue-500 dark:text-blue-400" />
+                    <span className="text-sm font-medium text-gray-600 dark:text-gray-300">sysmon-vm Host</span>
+                </div>
+                {responseMs !== null && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center">
+                        <Clock size={14} className="mr-1" />
+                        {responseMs} ms response
+                    </div>
+                )}
+            </div>
+            <dl className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 space-y-1">
+                {hostId && (
+                    <div className="flex justify-between">
+                        <dt className="font-medium text-gray-500 dark:text-gray-400">Host ID</dt>
+                        <dd className="text-gray-900 dark:text-gray-100 ml-2 break-all text-right">{hostId}</dd>
+                    </div>
+                )}
+                {hostIp && (
+                    <div className="flex justify-between">
+                        <dt className="font-medium text-gray-500 dark:text-gray-400">Host IP</dt>
+                        <dd className="text-gray-900 dark:text-gray-100 ml-2 break-all text-right">{hostIp}</dd>
+                    </div>
+                )}
+                {agentId && (
+                    <div className="flex justify-between">
+                        <dt className="font-medium text-gray-500 dark:text-gray-400">Agent</dt>
+                        <dd className="text-gray-900 dark:text-gray-100 ml-2 break-all text-right">{agentId}</dd>
+                    </div>
+                )}
+                <div className="flex justify-between">
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Last Sample</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 ml-2 text-right">{formattedTimestamp}</dd>
+                </div>
+            </dl>
+        </div>
+    );
+};
+
+export const CpuClusterDetails = ({ clusters }) => {
+    if (!Array.isArray(clusters) || clusters.length === 0) {
+        return null;
+    }
+
+    const hzToGHzValue = (hz) => {
+        const numeric = Number(hz);
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+            return null;
+        }
+        return numeric / 1_000_000_000;
+    };
+
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">CPU Clusters</h3>
+            <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-xs sm:text-sm">
+                    <thead className="bg-gray-50 dark:bg-gray-900/50">
+                        <tr>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Cluster
+                            </th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Cores
+                            </th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Avg Usage
+                            </th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Avg Frequency
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {clusters.map((cluster) => {
+                            const freqGHz = hzToGHzValue(cluster.averageFrequencyHz);
+                            return (
+                                <tr key={cluster.name}>
+                                    <td className="px-3 py-2 whitespace-nowrap text-gray-900 dark:text-gray-100">
+                                        {cluster.name}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-right text-gray-900 dark:text-gray-100">
+                                        {cluster.cores}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-right text-gray-900 dark:text-gray-100">
+                                        {cluster.averageUsage ? `${cluster.averageUsage.toFixed(1)}%` : '—'}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-right text-gray-900 dark:text-gray-100">
+                                        {freqGHz !== null ? `${freqGHz.toFixed(2)} GHz` : '—'}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 };
