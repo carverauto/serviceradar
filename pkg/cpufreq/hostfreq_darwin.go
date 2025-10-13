@@ -15,8 +15,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 )
 
 type hostfreqCore struct {
@@ -30,8 +33,9 @@ type hostfreqCluster struct {
 }
 
 type hostfreqPayload struct {
-	Cores    []hostfreqCore    `json:"cores"`
-	Clusters []hostfreqCluster `json:"clusters"`
+	Cores     []hostfreqCore    `json:"cores"`
+	Clusters  []hostfreqCluster `json:"clusters"`
+	Timestamp string            `json:"timestamp"`
 }
 
 const (
@@ -39,6 +43,9 @@ const (
 	hostfreqStatusUnavailable = 1
 	hostfreqStatusPermission  = 2
 	hostfreqStatusInternal    = 3
+
+	hostfreqMinInterval = 1 * time.Second
+	hostfreqCacheTTL    = 2 * time.Second
 )
 
 var (
@@ -48,6 +55,12 @@ var (
 	errHostfreqEmptyPayload = errors.New("hostfreq returned empty payload")
 )
 
+var hostfreqCache struct {
+	mu       sync.Mutex
+	snapshot *Snapshot
+	fetched  time.Time
+}
+
 func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, error) {
 	select {
 	case <-ctx.Done():
@@ -55,9 +68,16 @@ func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, e
 	default:
 	}
 
+	if snap := hostfreqCacheSnapshot(); snap != nil {
+		return snap, nil
+	}
+
 	interval := int(window / time.Millisecond)
 	if interval <= 0 {
 		interval = int(defaultSampleWindow / time.Millisecond)
+	}
+	if min := int(hostfreqMinInterval / time.Millisecond); interval < min {
+		interval = min
 	}
 
 	var outJSON *C.char
@@ -116,62 +136,129 @@ func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, e
 		return nil, ErrFrequencyUnavailable
 	}
 
+	snapshot, err := payloadToSnapshot(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	hostfreqCacheStore(snapshot)
+
+	return hostfreqCacheSnapshot(), nil
+}
+
+func payloadToSnapshot(payload hostfreqPayload) (*Snapshot, error) {
+	if len(payload.Cores) == 0 {
+		return nil, ErrFrequencyUnavailable
+	}
+
 	snapshot := &Snapshot{
 		Cores:    make([]CoreFrequency, 0, len(payload.Cores)),
 		Clusters: make([]ClusterFrequency, 0, len(payload.Clusters)),
 	}
 
+	hasFrequency := false
+
 	for idx, core := range payload.Cores {
+		if math.IsNaN(core.AvgMHz) || math.IsInf(core.AvgMHz, 0) {
+			continue
+		}
+
 		hz := core.AvgMHz * 1_000_000
 		if hz < 0 {
 			hz = 0
 		}
 
+		if hz > 0 {
+			hasFrequency = true
+		}
+
 		label := core.Name
-		cluster := deriveClusterFromLabel(label)
+		cluster := clusterFromLabel(label)
+
 		snapshot.Cores = append(snapshot.Cores, CoreFrequency{
 			CoreID:      idx,
-			FrequencyHz: hz,
 			Label:       label,
 			Cluster:     cluster,
+			FrequencyHz: hz,
 			Source:      FrequencySourceHostfreq,
 		})
 	}
 
 	for _, cluster := range payload.Clusters {
+		if math.IsNaN(cluster.AvgMHz) || math.IsInf(cluster.AvgMHz, 0) {
+			continue
+		}
+
 		hz := cluster.AvgMHz * 1_000_000
 		if hz < 0 {
 			hz = 0
 		}
 
-		name := cluster.Name
-		if name == "" {
-			continue
+		if hz > 0 {
+			hasFrequency = true
 		}
 
 		snapshot.Clusters = append(snapshot.Clusters, ClusterFrequency{
-			Name:        strings.ToUpper(name),
+			Name:        cluster.Name,
 			FrequencyHz: hz,
+			Source:      FrequencySourceHostfreq,
 		})
+	}
+
+	if !hasFrequency {
+		return nil, ErrFrequencyUnavailable
 	}
 
 	return snapshot, nil
 }
 
-func deriveClusterFromLabel(label string) string {
+func clusterFromLabel(label string) string {
 	label = strings.TrimSpace(label)
 	if label == "" {
 		return ""
 	}
+	trimmed := strings.TrimRightFunc(label, func(r rune) bool {
+		return unicode.IsDigit(r)
+	})
+	if trimmed == "" {
+		return ""
+	}
+	return trimmed
+}
 
-	for idx := 0; idx < len(label); idx++ {
-		if label[idx] >= '0' && label[idx] <= '9' {
-			if idx == 0 {
-				return strings.ToUpper(label)
-			}
-			return strings.ToUpper(label[:idx])
-		}
+func hostfreqCacheSnapshot() *Snapshot {
+	hostfreqCache.mu.Lock()
+	defer hostfreqCache.mu.Unlock()
+
+	if hostfreqCache.snapshot == nil {
+		return nil
 	}
 
-	return strings.ToUpper(label)
+	if time.Since(hostfreqCache.fetched) > hostfreqCacheTTL {
+		return nil
+	}
+
+	return snapshotClone(hostfreqCache.snapshot)
+}
+
+func hostfreqCacheStore(snapshot *Snapshot) {
+	hostfreqCache.mu.Lock()
+	defer hostfreqCache.mu.Unlock()
+
+	hostfreqCache.snapshot = snapshotClone(snapshot)
+	hostfreqCache.fetched = time.Now()
+}
+
+func snapshotClone(src *Snapshot) *Snapshot {
+	if src == nil {
+		return nil
+	}
+
+	out := &Snapshot{
+		Cores:    make([]CoreFrequency, len(src.Cores)),
+		Clusters: make([]ClusterFrequency, len(src.Clusters)),
+	}
+	copy(out.Cores, src.Cores)
+	copy(out.Clusters, src.Clusters)
+	return out
 }
