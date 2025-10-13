@@ -19,6 +19,8 @@ package poller
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -257,7 +259,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,
 		Available:    getStatus.Available,
-		Message:      getStatus.Message,
+		Message:      enrichServiceMessageWithAddress(getStatus.Message, sc.check),
 		ServiceType:  sc.check.Type,
 		ResponseTime: getStatus.ResponseTime,
 		AgentId:      agentID,
@@ -265,4 +267,59 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		Source:       "getStatus",
 		KvStoreId:    sc.kvStoreId,
 	}
+}
+
+func enrichServiceMessageWithAddress(message []byte, check Check) []byte {
+	if len(message) == 0 || check.Type != "grpc" || check.Details == "" {
+		return message
+	}
+
+	hostCandidate := strings.TrimSpace(check.Details)
+	host, _, err := net.SplitHostPort(hostCandidate)
+	if err != nil {
+		host = hostCandidate
+	}
+
+	if host == "" || net.ParseIP(host) == nil {
+		return message
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(message, &payload); err != nil {
+		return message
+	}
+
+	statusNode, ok := payload["status"].(map[string]any)
+	if !ok || statusNode == nil {
+		statusNode = make(map[string]any)
+	}
+
+	getString := func(key string) string {
+		if raw, exists := statusNode[key]; exists {
+			if str, ok := raw.(string); ok {
+				return strings.TrimSpace(str)
+			}
+		}
+
+		return ""
+	}
+
+	if hostIP := getString("host_ip"); hostIP != "" && !strings.EqualFold(hostIP, host) {
+		statusNode["reported_host_ip"] = hostIP
+	}
+	statusNode["host_ip"] = host
+
+	if hostID := getString("host_id"); hostID != "" && !strings.EqualFold(hostID, host) {
+		statusNode["reported_host_id"] = hostID
+	}
+	statusNode["host_id"] = host
+
+	payload["status"] = statusNode
+
+	enriched, err := json.Marshal(payload)
+	if err != nil {
+		return message
+	}
+
+	return enriched
 }

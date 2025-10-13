@@ -21,12 +21,7 @@ go_library(
         "unified_devices.go",
     ],
     embedsrcs = [
-        "migrations/00000000000001_consolidated_serviceradar_schema.down.sql",
-        "migrations/00000000000001_consolidated_serviceradar_schema.up.sql",
-        "migrations/00000000000002_ocsf_core_event_streams.up.sql",
-        "migrations/00000000000003_ocsf_entity_state_streams.up.sql",
-        "migrations/00000000000004_ocsf_observable_index.up.sql",
-        "migrations/00000000000005_ocsf_materialized_views.up.sql",
+        "migrations/schema.sql",
         "migrations/trace_verification_queries.sql",
         "migrations/verify_clean_install.sql",
     ],

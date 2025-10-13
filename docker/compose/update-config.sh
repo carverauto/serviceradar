@@ -25,8 +25,14 @@ mkdir -p "$CONFIG_DIR"
 
 echo "Updating ServiceRadar configurations with generated secrets..."
 
-# Copy template config to generated config directory
-cp /config/core.docker.json "$CORE_CONFIG"
+# Seed core.json from template only on first run so we preserve generated keys between restarts
+if [ ! -f "$CORE_CONFIG" ]; then
+    echo "Seeding core.json from template for the first time..."
+    cp /config/core.docker.json "$CORE_CONFIG"
+    echo "✅ Created core.json from template"
+else
+    echo "core.json already exists; preserving existing auth keys and settings"
+fi
 
 # Generate JWT secret and API key if they don't exist
 if [ ! -f "$CERT_DIR/jwt-secret" ]; then

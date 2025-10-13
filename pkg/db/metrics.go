@@ -568,12 +568,28 @@ func (db *DB) storeCPUMetrics(
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		appended := 0
+		var appendErr error
+
 		for _, cpu := range cpus {
 			if err := batch.Append(timestamp, pollerID, agentID, hostID,
 				cpu.CoreID, cpu.UsagePercent, cpu.FrequencyHz, deviceID, partition); err != nil {
 				db.logger.Error().Err(err).Int("core_id", int(cpu.CoreID)).Msg("Failed to append CPU metric")
+				if appendErr == nil {
+					appendErr = err
+				}
 				continue
 			}
+
+			appended++
+		}
+
+		if appended == 0 {
+			if appendErr != nil {
+				return fmt.Errorf("no cpu metrics appended: %w", appendErr)
+			}
+
+			return fmt.Errorf("no cpu metrics appended")
 		}
 
 		return nil
@@ -591,6 +607,9 @@ func (db *DB) storeDiskMetrics(
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		appended := 0
+		var appendErr error
+
 		for _, disk := range disks {
 			// Calculate missing fields for the 12-column schema
 			availableBytes := uint64(0)
@@ -620,8 +639,21 @@ func (db *DB) storeDiskMetrics(
 				partition,       // partition
 			); err != nil {
 				db.logger.Error().Err(err).Str("mount_point", disk.MountPoint).Msg("Failed to append disk metric")
+				if appendErr == nil {
+					appendErr = err
+				}
 				continue
 			}
+
+			appended++
+		}
+
+		if appended == 0 {
+			if appendErr != nil {
+				return fmt.Errorf("no disk metrics appended: %w", appendErr)
+			}
+
+			return fmt.Errorf("no disk metrics appended")
 		}
 
 		return nil
@@ -676,6 +708,9 @@ func (db *DB) storeProcessMetrics(
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO process_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		appended := 0
+		var appendErr error
+
 		for i := range processes {
 			process := &processes[i]
 			if err := batch.Append(
@@ -693,8 +728,21 @@ func (db *DB) storeProcessMetrics(
 				partition,           // partition
 			); err != nil {
 				db.logger.Error().Err(err).Int("pid", int(process.PID)).Str("process_name", process.Name).Msg("Failed to append process metric")
+				if appendErr == nil {
+					appendErr = err
+				}
 				continue
 			}
+
+			appended++
+		}
+
+		if appended == 0 {
+			if appendErr != nil {
+				return fmt.Errorf("no process metrics appended: %w", appendErr)
+			}
+
+			return fmt.Errorf("no process metrics appended")
 		}
 
 		return nil

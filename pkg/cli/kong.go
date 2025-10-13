@@ -170,6 +170,20 @@ func renderKongDBLess(serviceURL, routePath, srqlService, srqlPath, keyClaim str
 	b.WriteString("  - name: core-api\n")
 	b.WriteString("    url: " + serviceURL + "\n")
 	b.WriteString("    routes:\n")
+	authBase := strings.TrimSuffix(routePath, "/")
+	authPaths := []string{
+		authBase + "/auth/login",
+		authBase + "/auth/refresh",
+	}
+	b.WriteString("      - name: core-auth-route\n")
+	b.WriteString("        paths:\n")
+	for _, p := range authPaths {
+		b.WriteString("          - " + p + "\n")
+	}
+	b.WriteString("        methods:\n")
+	b.WriteString("          - POST\n")
+	b.WriteString("          - OPTIONS\n")
+	b.WriteString("        strip_path: true\n\n")
 	b.WriteString("      - name: core-api-routes\n")
 	b.WriteString("        paths:\n")
 	b.WriteString("          - " + routePath + "\n")

@@ -17,18 +17,21 @@
 package poller
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "math"
-    "strings"
-    "sync"
-    "time"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -81,18 +84,18 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 		clock = realClock{}
 	}
 
-    p := &Poller{
-        config: *config,
-        agents: make(map[string]*AgentPoller),
-        done:   make(chan struct{}),
-        clock:  clock,
-        logger: log,
-        reloadCh: make(chan time.Duration, 1),
-    }
+	p := &Poller{
+		config:   *config,
+		agents:   make(map[string]*AgentPoller),
+		done:     make(chan struct{}),
+		clock:    clock,
+		logger:   log,
+		reloadCh: make(chan time.Duration, 1),
+	}
 
-    if p.config.KVDomain != "" {
-        p.logger.Info().Str("kv_domain", p.config.KVDomain).Msg("Poller configured KV JetStream domain")
-    }
+	if p.config.KVDomain != "" {
+		p.logger.Info().Str("kv_domain", p.config.KVDomain).Msg("Poller configured KV JetStream domain")
+	}
 
 	if p.config.CoreAddress != "" && p.PollFunc == nil {
 		if err := p.connectToCore(ctx); err != nil {
@@ -115,10 +118,14 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 
 // Start implements the lifecycle.Service interface.
 func (p *Poller) Start(ctx context.Context) error {
-    interval := time.Duration(p.config.PollInterval)
-    p.ticker = p.clock.Ticker(interval)
+	interval := time.Duration(p.config.PollInterval)
+	p.ticker = p.clock.Ticker(interval)
 
-    defer func(){ if p.ticker != nil { p.ticker.Stop() } }()
+	defer func() {
+		if p.ticker != nil {
+			p.ticker.Stop()
+		}
+	}()
 
 	p.logger.Info().Dur("interval", interval).Msg("Starting poller")
 
@@ -138,25 +145,25 @@ func (p *Poller) Start(ctx context.Context) error {
 			return ctx.Err()
 		case <-p.done:
 			return nil
-        case <-p.ticker.Chan():
-            p.wg.Add(1)
+		case <-p.ticker.Chan():
+			p.wg.Add(1)
 
-            go func() {
-                defer p.wg.Done()
+			go func() {
+				defer p.wg.Done()
 
-                if err := p.poll(ctx); err != nil {
-                    p.logger.Error().Err(err).Msg("Error during poll")
-                }
-            }()
-        case newInterval := <-p.reloadCh:
-            // Hot-reload: update ticker interval
-            if p.ticker != nil {
-                p.ticker.Stop()
-            }
-            p.ticker = p.clock.Ticker(newInterval)
-            p.logger.Info().Dur("interval", newInterval).Msg("Poll interval hot-reloaded")
-        }
-    }
+				if err := p.poll(ctx); err != nil {
+					p.logger.Error().Err(err).Msg("Error during poll")
+				}
+			}()
+		case newInterval := <-p.reloadCh:
+			// Hot-reload: update ticker interval
+			if p.ticker != nil {
+				p.ticker.Stop()
+			}
+			p.ticker = p.clock.Ticker(newInterval)
+			p.logger.Info().Dur("interval", newInterval).Msg("Poll interval hot-reloaded")
+		}
+	}
 }
 
 // Stop implements the lifecycle.Service interface.
@@ -423,29 +430,100 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		}
 	}
 
-	// Use streaming if data is large OR if we have many services
-	if totalDataSize > maxSafeMessageSize || len(statuses) > streamingServiceCountThreshold {
-		p.logger.Info().
-			Int("service_count", len(statuses)).
-			Int("total_data_size_bytes", totalDataSize).
-			Int("max_safe_size_bytes", maxSafeMessageSize).
-			Msg("Using streaming to report large dataset to core")
+	useStreaming := totalDataSize > maxSafeMessageSize || len(statuses) > streamingServiceCountThreshold
 
-		return p.reportToCoreStreaming(ctx, statuses)
+	sendReport := func() error {
+		if useStreaming {
+			p.logger.Info().
+				Int("service_count", len(statuses)).
+				Int("total_data_size_bytes", totalDataSize).
+				Int("max_safe_size_bytes", maxSafeMessageSize).
+				Msg("Using streaming to report large dataset to core")
+
+			return p.reportToCoreStreaming(ctx, statuses)
+		}
+
+		_, err := p.coreClient.ReportStatus(ctx, &proto.PollerStatusRequest{
+			Services:  statuses,
+			PollerId:  p.config.PollerID,
+			Timestamp: time.Now().Unix(),
+			Partition: p.config.Partition,
+			SourceIp:  p.config.SourceIP,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to report serviceStatus to core: %w", err)
+		}
+
+		return nil
 	}
 
-	_, err := p.coreClient.ReportStatus(ctx, &proto.PollerStatusRequest{
-		Services:  statuses,
-		PollerId:  p.config.PollerID,
-		Timestamp: time.Now().Unix(),
-		Partition: p.config.Partition,
-		SourceIp:  p.config.SourceIP,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to report serviceStatus to core: %w", err)
+	if err := sendReport(); err != nil {
+		if !p.shouldReconnect(err) {
+			return err
+		}
+
+		p.logger.Warn().Err(err).Msg("Reporting to core failed, attempting reconnect")
+
+		if reconnectErr := p.reconnectCore(ctx); reconnectErr != nil {
+			return fmt.Errorf("core report failed (%v) and reconnect attempt failed: %w", err, reconnectErr)
+		}
+
+		p.logger.Info().Msg("Successfully reconnected to core, retrying status report")
+
+		if retryErr := sendReport(); retryErr != nil {
+			return retryErr
+		}
 	}
 
 	return nil
+}
+
+func (p *Poller) reconnectCore(ctx context.Context) error {
+	reconnectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.grpcClient != nil {
+		if err := p.grpcClient.Close(); err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to close existing core client during reconnect")
+		}
+		p.grpcClient = nil
+		p.coreClient = nil
+	}
+
+	return p.connectToCore(reconnectCtx)
+}
+
+func (p *Poller) shouldReconnect(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	if statusErr, ok := status.FromError(err); ok {
+		switch statusErr.Code() {
+		case codes.Unavailable, codes.ResourceExhausted, codes.DeadlineExceeded:
+			return true
+		case codes.Canceled:
+			return false
+		}
+	}
+
+	errMsg := err.Error()
+	if errMsg == "" {
+		return false
+	}
+
+	return strings.Contains(errMsg, "connection error") ||
+		strings.Contains(errMsg, "transport: Error while dialing") ||
+		strings.Contains(errMsg, "name resolver error") ||
+		strings.Contains(errMsg, "connection refused") ||
+		strings.Contains(errMsg, "i/o timeout")
 }
 
 // reportToCoreStreaming sends service statuses to core using streaming for large datasets
@@ -478,55 +556,75 @@ func (p *Poller) reportToCoreStreaming(ctx context.Context, statuses []*proto.Se
 // UpdateConfig applies updated configuration at runtime.
 // PollInterval changes will be picked up on next restart; agents/core/security trigger immediate reconnection/rebuild.
 func (p *Poller) UpdateConfig(ctx context.Context, cfg *Config) error {
-    if cfg == nil { return nil }
-    // Update logger level if configured
-    if cfg.Logging != nil {
-        lvl := strings.ToLower(cfg.Logging.Level)
-        switch lvl { case "debug": p.logger.SetDebug(true); default: p.logger.SetDebug(false) }
-        p.logger.Info().Str("level", cfg.Logging.Level).Msg("Poller logger level updated")
-    }
-    // Determine if core connection needs to be rebuilt
-    reconnectCore := (cfg.CoreAddress != p.config.CoreAddress)
-    if (cfg.Security != nil && p.config.Security != nil) && (cfg.Security.TLS != p.config.Security.TLS || cfg.Security.Mode != p.config.Security.Mode) {
-        reconnectCore = true
-    }
-    // Detect poll interval change
-    intervalChanged := time.Duration(cfg.PollInterval) != time.Duration(p.config.PollInterval)
-    // Apply config
-    p.config = *cfg
-    // If interval changed, request ticker reload (non-blocking, drop stale)
-    if intervalChanged {
-        newDur := time.Duration(cfg.PollInterval)
-        select {
-        case <-p.done:
-            // shutting down; ignore
-        default:
-            // try to drain existing queued value to avoid backlog
-            select { case <-p.reloadCh: default: }
-            select { case p.reloadCh <- newDur: default: }
-        }
-    }
-    if reconnectCore {
-        if p.grpcClient != nil { _ = p.grpcClient.Close(); p.grpcClient = nil; p.coreClient = nil }
-        if err := p.connectToCore(ctx); err != nil {
-            p.logger.Error().Err(err).Msg("Failed to reconnect to core")
-        } else {
-            p.logger.Info().Msg("Reconnected to core after config change")
-        }
-    }
-    // Rebuild agent pollers
-    p.mu.Lock()
-    for name, ap := range p.agents {
-        if ap.clientConn != nil { _ = ap.clientConn.Close(); p.logger.Info().Str("agent", name).Msg("Closed agent connection") }
-    }
-    p.agents = make(map[string]*AgentPoller)
-    p.mu.Unlock()
-    if err := p.initializeAgentPollers(ctx); err != nil {
-        p.logger.Error().Err(err).Msg("Failed to rebuild agent pollers")
-    } else {
-        p.logger.Info().Msg("Rebuilt agent pollers from updated config")
-    }
-    return nil
+	if cfg == nil {
+		return nil
+	}
+	// Update logger level if configured
+	if cfg.Logging != nil {
+		lvl := strings.ToLower(cfg.Logging.Level)
+		switch lvl {
+		case "debug":
+			p.logger.SetDebug(true)
+		default:
+			p.logger.SetDebug(false)
+		}
+		p.logger.Info().Str("level", cfg.Logging.Level).Msg("Poller logger level updated")
+	}
+	// Determine if core connection needs to be rebuilt
+	reconnectCore := (cfg.CoreAddress != p.config.CoreAddress)
+	if (cfg.Security != nil && p.config.Security != nil) && (cfg.Security.TLS != p.config.Security.TLS || cfg.Security.Mode != p.config.Security.Mode) {
+		reconnectCore = true
+	}
+	// Detect poll interval change
+	intervalChanged := time.Duration(cfg.PollInterval) != time.Duration(p.config.PollInterval)
+	// Apply config
+	p.config = *cfg
+	// If interval changed, request ticker reload (non-blocking, drop stale)
+	if intervalChanged {
+		newDur := time.Duration(cfg.PollInterval)
+		select {
+		case <-p.done:
+			// shutting down; ignore
+		default:
+			// try to drain existing queued value to avoid backlog
+			select {
+			case <-p.reloadCh:
+			default:
+			}
+			select {
+			case p.reloadCh <- newDur:
+			default:
+			}
+		}
+	}
+	if reconnectCore {
+		if p.grpcClient != nil {
+			_ = p.grpcClient.Close()
+			p.grpcClient = nil
+			p.coreClient = nil
+		}
+		if err := p.connectToCore(ctx); err != nil {
+			p.logger.Error().Err(err).Msg("Failed to reconnect to core")
+		} else {
+			p.logger.Info().Msg("Reconnected to core after config change")
+		}
+	}
+	// Rebuild agent pollers
+	p.mu.Lock()
+	for name, ap := range p.agents {
+		if ap.clientConn != nil {
+			_ = ap.clientConn.Close()
+			p.logger.Info().Str("agent", name).Msg("Closed agent connection")
+		}
+	}
+	p.agents = make(map[string]*AgentPoller)
+	p.mu.Unlock()
+	if err := p.initializeAgentPollers(ctx); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to rebuild agent pollers")
+	} else {
+		p.logger.Info().Msg("Rebuilt agent pollers from updated config")
+	}
+	return nil
 }
 
 // chunkPlan holds the chunking strategy for streaming
