@@ -19,6 +19,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -32,6 +33,13 @@ import (
 
 const (
 	rperfBitsPerSecondDivisor = 1e6 // To convert bps to Mbps
+)
+
+var (
+	ErrNoCPUMetricsAppended        = errors.New("no cpu metrics appended")
+	ErrNoCPUClusterMetricsAppended = errors.New("no cpu cluster metrics appended")
+	ErrNoDiskMetricsAppended       = errors.New("no disk metrics appended")
+	ErrNoProcessMetricsAppended    = errors.New("no process metrics appended")
 )
 
 // convertValueToFloat64 converts a string value to float64, logging errors but not failing the operation
@@ -604,10 +612,10 @@ func (db *DB) storeCPUMetrics(
 
 		if appended == 0 {
 			if appendErr != nil {
-				return fmt.Errorf("no cpu metrics appended: %w", appendErr)
+				return errors.Join(ErrNoCPUMetricsAppended, appendErr)
 			}
 
-			return fmt.Errorf("no cpu metrics appended")
+			return ErrNoCPUMetricsAppended
 		}
 
 		return nil
@@ -651,10 +659,10 @@ func (db *DB) storeCPUClusterMetrics(
 
 		if appended == 0 {
 			if appendErr != nil {
-				return fmt.Errorf("no cpu cluster metrics appended: %w", appendErr)
+				return errors.Join(ErrNoCPUClusterMetricsAppended, appendErr)
 			}
 
-			return fmt.Errorf("no cpu cluster metrics appended")
+			return ErrNoCPUClusterMetricsAppended
 		}
 
 		return nil
@@ -715,10 +723,10 @@ func (db *DB) storeDiskMetrics(
 
 		if appended == 0 {
 			if appendErr != nil {
-				return fmt.Errorf("no disk metrics appended: %w", appendErr)
+				return errors.Join(ErrNoDiskMetricsAppended, appendErr)
 			}
 
-			return fmt.Errorf("no disk metrics appended")
+			return ErrNoDiskMetricsAppended
 		}
 
 		return nil
@@ -804,10 +812,10 @@ func (db *DB) storeProcessMetrics(
 
 		if appended == 0 {
 			if appendErr != nil {
-				return fmt.Errorf("no process metrics appended: %w", appendErr)
+				return errors.Join(ErrNoProcessMetricsAppended, appendErr)
 			}
 
-			return fmt.Errorf("no process metrics appended")
+			return ErrNoProcessMetricsAppended
 		}
 
 		return nil
