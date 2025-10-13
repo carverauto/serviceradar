@@ -1,4 +1,14 @@
 {
   "listen_addr": "0.0.0.0:50110",
-  "sample_interval": "250ms"
+  "sample_interval": "250ms",
+  "security": {
+    "mode": "mtls",
+    "role": "agent",
+    "cert_dir": "/etc/serviceradar/certs",
+    "tls": {
+      "cert_file": "client.pem",
+      "key_file": "client-key.pem",
+      "ca_file": "root.pem"
+    }
+  }
 }
