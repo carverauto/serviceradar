@@ -517,14 +517,13 @@ func (s *APIServer) getCPUMetricsForDevice(
 // getMemoryMetricsForDevice queries memory metrics by device_id from memory_metrics table
 func (s *APIServer) getMemoryMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
-	query := fmt.Sprintf(`
+	const query = `
 		SELECT timestamp, agent_id, host_id, used_bytes, total_bytes
 		FROM table(memory_metrics)
-		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
-		ORDER BY timestamp DESC`,
-		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC`
 
-	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query, deviceID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query memory metrics for device %s: %w", deviceID, err)
 	}
@@ -572,14 +571,13 @@ func (s *APIServer) getMemoryMetricsForDevice(
 // getDiskMetricsForDevice queries disk metrics by device_id from disk_metrics table
 func (s *APIServer) getDiskMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
-	query := fmt.Sprintf(`
+	const query = `
 		SELECT timestamp, agent_id, host_id, mount_point, used_bytes, total_bytes
 		FROM table(disk_metrics)
-		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
-		ORDER BY timestamp DESC, mount_point ASC`,
-		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, mount_point ASC`
 
-	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query, deviceID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query disk metrics for device %s: %w", deviceID, err)
 	}
@@ -637,14 +635,13 @@ func (s *APIServer) getDiskMetricsForDevice(
 // getProcessMetricsForDevice queries process metrics by device_id from process_metrics table
 func (s *APIServer) getProcessMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
-	query := fmt.Sprintf(`
+	const query = `
 		SELECT timestamp, agent_id, host_id, pid, name, cpu_usage, memory_usage, status, start_time
 		FROM table(process_metrics)
-		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
-		ORDER BY timestamp DESC, pid ASC`,
-		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, pid ASC`
 
-	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query, deviceID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query process metrics for device %s: %w", deviceID, err)
 	}
