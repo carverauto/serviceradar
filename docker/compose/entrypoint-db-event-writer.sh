@@ -15,6 +15,9 @@
 
 set -e
 
+# Default attempt count for dependency waits (2 minutes at 2s interval)
+DEFAULT_WAIT_ATTEMPTS="${WAIT_FOR_ATTEMPTS_DEFAULT:-60}"
+
 # Helper to resolve service hosts depending on the environment (Docker vs. Kubernetes)
 resolve_service_host() {
     service_name="$1"
@@ -49,7 +52,7 @@ if [ -n "${WAIT_FOR_NATS:-}" ]; then
     NATS_PORT_VALUE=$(resolve_service_port NATS_PORT "4222")
     echo "Waiting for NATS service at ${NATS_HOST_VALUE}:${NATS_PORT_VALUE}..."
 
-    NATS_ATTEMPTS="${WAIT_FOR_NATS_ATTEMPTS:-0}"
+    NATS_ATTEMPTS="${WAIT_FOR_NATS_ATTEMPTS:-$DEFAULT_WAIT_ATTEMPTS}"
     if wait-for-port \
         --host "${NATS_HOST_VALUE}" \
         --port "${NATS_PORT_VALUE}" \
@@ -68,7 +71,7 @@ if [ -n "${WAIT_FOR_PROTON:-}" ]; then
     PROTON_PORT_VALUE=$(resolve_service_port PROTON_PORT "9440")
     echo "Waiting for Proton database at ${PROTON_HOST_VALUE}:${PROTON_PORT_VALUE}..."
 
-    PROTON_ATTEMPTS="${WAIT_FOR_PROTON_ATTEMPTS:-0}"
+    PROTON_ATTEMPTS="${WAIT_FOR_PROTON_ATTEMPTS:-$DEFAULT_WAIT_ATTEMPTS}"
     if wait-for-port \
         --host "${PROTON_HOST_VALUE}" \
         --port "${PROTON_PORT_VALUE}" \
