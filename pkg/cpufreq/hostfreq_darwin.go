@@ -66,16 +66,21 @@ var hostfreqSampler = newBufferedSampler(
 )
 
 // StartHostfreqSampler initializes the background hostfreq sampler with the provided parent context.
-// If called multiple times, only the first non-nil context is used.
-func StartHostfreqSampler(ctx context.Context) {
-	hostfreqSampler.start(ctx)
+// If called multiple times, only the first invocation with a non-nil context starts the sampler.
+func StartHostfreqSampler(ctx context.Context) error {
+	return hostfreqSampler.start(ctx)
+}
+
+// StopHostfreqSampler stops the background hostfreq sampler.
+func StopHostfreqSampler() {
+	hostfreqSampler.stop()
 }
 
 func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, error) {
-	hostfreqSampler.start(nil)
-
-	if snap, ok := hostfreqSampler.latest(); ok {
-		return snap, nil
+	if hostfreqSampler.running() {
+		if snap, ok := hostfreqSampler.latest(); ok {
+			return snap, nil
+		}
 	}
 
 	snapshot, err := collectHostfreqSnapshot(ctx, window)
@@ -83,7 +88,9 @@ func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, e
 		return nil, err
 	}
 
-	hostfreqSampler.record(snapshot, time.Now())
+	if hostfreqSampler.running() {
+		hostfreqSampler.record(snapshot, time.Now())
+	}
 
 	return snapshotClone(snapshot), nil
 }

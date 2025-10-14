@@ -10,6 +10,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker/sysmonvm"
 	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/cpufreq"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
@@ -58,7 +59,7 @@ func run() error {
 
 	opts := lifecycle.ServerOptions{
 		ListenAddr:           cfg.ListenAddr,
-		Service:              noopService{},
+		Service:              samplerService{},
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{register},
 		EnableHealthCheck:    true,
 		Security:             cfg.Security,
@@ -72,7 +73,13 @@ func run() error {
 	return nil
 }
 
-type noopService struct{}
+type samplerService struct{}
 
-func (noopService) Start(context.Context) error { return nil }
-func (noopService) Stop(context.Context) error  { return nil }
+func (samplerService) Start(ctx context.Context) error {
+	return cpufreq.StartHostfreqSampler(ctx)
+}
+
+func (samplerService) Stop(context.Context) error {
+	cpufreq.StopHostfreqSampler()
+	return nil
+}
