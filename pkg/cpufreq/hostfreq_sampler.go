@@ -4,6 +4,7 @@ package cpufreq
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -21,8 +22,6 @@ type bufferedSampler struct {
 	timeout   time.Duration
 	collect   samplerCollector
 
-	startOnce sync.Once
-
 	ctxMu  sync.RWMutex
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -32,6 +31,8 @@ type bufferedSampler struct {
 	next    int
 	count   int
 }
+
+var errSamplerNoContext = errors.New("buffered sampler requires a context")
 
 func newBufferedSampler(interval, retention, timeout time.Duration, collect samplerCollector) *bufferedSampler {
 	if interval <= 0 {
@@ -58,35 +59,47 @@ func newBufferedSampler(interval, retention, timeout time.Duration, collect samp
 	}
 }
 
-func (s *bufferedSampler) start(parent context.Context) {
-	s.ensureContext(parent)
+func (s *bufferedSampler) start(parent context.Context) error {
+	s.ctxMu.Lock()
+	defer s.ctxMu.Unlock()
 
-	s.startOnce.Do(func() {
-		go s.loop()
-	})
+	if s.ctx != nil {
+		return nil
+	}
+
+	if parent == nil {
+		return errSamplerNoContext
+	}
+
+	ctx, cancel := context.WithCancel(parent)
+	s.ctx = ctx
+	s.cancel = cancel
+
+	go s.loop(ctx)
+
+	return nil
 }
 
-func (s *bufferedSampler) loop() {
+func (s *bufferedSampler) loop(ctx context.Context) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		ctx := s.context()
+	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-ticker.C:
 		}
-		s.collectOnce()
+
+		s.collectOnce(ctx)
 	}
 }
 
-func (s *bufferedSampler) collectOnce() {
+func (s *bufferedSampler) collectOnce(parent context.Context) {
 	if s.collect == nil {
 		return
 	}
 
-	parent := s.context()
 	ctx, cancel := context.WithTimeout(parent, s.timeout)
 	defer cancel()
 
@@ -147,32 +160,27 @@ func (s *bufferedSampler) latest() (*Snapshot, bool) {
 	return snapshotClone(entry.snapshot), true
 }
 
-func (s *bufferedSampler) ensureContext(parent context.Context) {
-	s.ctxMu.Lock()
-	defer s.ctxMu.Unlock()
-
-	if s.ctx != nil {
-		return
-	}
-
-	if parent == nil {
-		parent = context.Background()
-	}
-
-	s.ctx, s.cancel = context.WithCancel(parent)
-}
-
 func (s *bufferedSampler) context() context.Context {
 	s.ctxMu.RLock()
 	ctx := s.ctx
 	s.ctxMu.RUnlock()
 
-	if ctx == nil {
-		s.ensureContext(nil)
-		s.ctxMu.RLock()
-		ctx = s.ctx
-		s.ctxMu.RUnlock()
-	}
-
 	return ctx
+}
+
+func (s *bufferedSampler) running() bool {
+	s.ctxMu.RLock()
+	defer s.ctxMu.RUnlock()
+	return s.ctx != nil
+}
+
+func (s *bufferedSampler) stop() {
+	s.ctxMu.Lock()
+	defer s.ctxMu.Unlock()
+
+	if s.cancel != nil {
+		s.cancel()
+		s.cancel = nil
+		s.ctx = nil
+	}
 }
