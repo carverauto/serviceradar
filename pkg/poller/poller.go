@@ -98,9 +98,12 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 	}
 
 	if p.config.CoreAddress != "" && p.PollFunc == nil {
-		if err := p.connectToCore(ctx); err != nil {
+		grpcClient, coreClient, err := p.connectToCore(ctx)
+		if err != nil {
 			return nil, fmt.Errorf("failed to connect to core service: %w", err)
 		}
+		p.grpcClient = grpcClient
+		p.coreClient = coreClient
 	}
 
 	if p.PollFunc == nil {
@@ -231,7 +234,7 @@ func (p *Poller) Close() error {
 	return nil
 }
 
-func (p *Poller) connectToCore(ctx context.Context) error {
+func (p *Poller) connectToCore(ctx context.Context) (*grpc.Client, proto.PollerServiceClient, error) {
 	clientCfg := grpc.ClientConfig{
 		Address:    p.config.CoreAddress,
 		MaxRetries: grpcRetries,
@@ -241,7 +244,7 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 	if p.config.Security != nil {
 		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security, p.logger)
 		if err != nil {
-			return fmt.Errorf("failed to create security provider: %w", err)
+			return nil, nil, fmt.Errorf("failed to create security provider: %w", err)
 		}
 
 		clientCfg.SecurityProvider = provider
@@ -251,13 +254,12 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 
 	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
-		return fmt.Errorf("failed to create core client: %w", err)
+		return nil, nil, fmt.Errorf("failed to create core client: %w", err)
 	}
 
-	p.grpcClient = client
-	p.coreClient = proto.NewPollerServiceClient(client.GetConnection())
+	coreClient := proto.NewPollerServiceClient(client.GetConnection())
 
-	return nil
+	return client, coreClient, nil
 }
 
 func (p *Poller) initializeAgentPollers(ctx context.Context) error {
@@ -483,9 +485,8 @@ func (p *Poller) reconnectCore(ctx context.Context) error {
 	defer cancel()
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.grpcClient != nil {
+		// Close the existing client while holding the lock to prevent its use.
 		if err := p.grpcClient.Close(); err != nil {
 			p.logger.Warn().Err(err).Msg("Failed to close existing core client during reconnect")
 		}
@@ -493,7 +494,19 @@ func (p *Poller) reconnectCore(ctx context.Context) error {
 		p.coreClient = nil
 	}
 
-	return p.connectToCore(reconnectCtx)
+	p.mu.Unlock()
+
+	grpcClient, coreClient, err := p.connectToCore(reconnectCtx)
+	if err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	p.grpcClient = grpcClient
+	p.coreClient = coreClient
+	p.mu.Unlock()
+
+	return nil
 }
 
 func (p *Poller) shouldReconnect(err error) bool {
@@ -613,14 +626,24 @@ func (p *Poller) UpdateConfig(ctx context.Context, cfg *Config) error {
 		}
 	}
 	if reconnectCore {
+		p.mu.Lock()
 		if p.grpcClient != nil {
-			_ = p.grpcClient.Close()
+			if err := p.grpcClient.Close(); err != nil {
+				p.logger.Warn().Err(err).Msg("Failed to close core client before config reconnect")
+			}
 			p.grpcClient = nil
 			p.coreClient = nil
 		}
-		if err := p.connectToCore(ctx); err != nil {
+		p.mu.Unlock()
+
+		grpcClient, coreClient, err := p.connectToCore(ctx)
+		if err != nil {
 			p.logger.Error().Err(err).Msg("Failed to reconnect to core")
 		} else {
+			p.mu.Lock()
+			p.grpcClient = grpcClient
+			p.coreClient = coreClient
+			p.mu.Unlock()
 			p.logger.Info().Msg("Reconnected to core after config change")
 		}
 	}
