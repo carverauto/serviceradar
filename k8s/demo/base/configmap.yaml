@@ -264,8 +264,7 @@ data:
             { "service_type": "grpc",    "service_name": "trapd",             "details": "serviceradar-trapd:50043" },
             { "service_type": "grpc",    "service_name": "flowgger",          "details": "serviceradar-flowgger:50044" },
             { "service_type": "grpc",    "service_name": "sync",              "details": "serviceradar-sync:50058", "results_interval": "30s" },
-            { "service_type": "grpc",    "service_name": "kv",                "details": "serviceradar-kv:50057" },
-            { "service_type": "grpc",    "service_name": "nats",              "details": "serviceradar-nats:4222" }
+            { "service_type": "grpc",    "service_name": "kv",                "details": "serviceradar-kv:50057" }
           ]
         }
       },
@@ -1122,6 +1121,12 @@ data:
     
     # Timeout for NATS operations in seconds (default: 30)
     timeout_secs = 30
+    
+    # Maximum retained size of the events stream (default: 2 GiB)
+    max_bytes = 2147483648
+    
+    # Maximum retention window for the events stream in seconds (default: 30 minutes)
+    max_age_secs = 1800
     
     # mTLS configuration for NATS
     [nats.tls]

@@ -32,6 +32,7 @@ spec:
             --srql-service http://serviceradar-srql:8080 \
             --srql-path /api/query \
             --out /opt/kong/kong.yml
+          chmod 0644 /opt/kong/kong.yml
         volumeMounts:
         - name: kong-config
           mountPath: /opt/kong
@@ -114,6 +115,7 @@ spec:
             if render "$tmp_file"; then
               if [ ! -f /opt/kong/kong.yml ] || ! cmp -s "$tmp_file" /opt/kong/kong.yml; then
                 mv "$tmp_file" /opt/kong/kong.yml
+                chmod 0644 /opt/kong/kong.yml
                 http_code=$(curl -s -o /tmp/kong-config-apply.log -w "%{http_code}" -X POST http://127.0.0.1:8001/config -F "config=@/opt/kong/kong.yml") || true
                 echo "Applied Kong config update (HTTP ${http_code:-000})" >&2
               else

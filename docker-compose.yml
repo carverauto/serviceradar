@@ -133,6 +133,8 @@ services:
   core:
     image: ghcr.io/carverauto/serviceradar-core:latest
     container_name: serviceradar-core
+    mem_limit: 8g
+    mem_reservation: 4g
     # Expose core ports for debugging authentication
     ports:
       - "8090:8090"  # HTTP API
@@ -434,6 +436,7 @@ services:
   kv:
     image: ghcr.io/carverauto/serviceradar-kv:latest
     container_name: serviceradar-kv
+    cpus: "2.0"
     ports:
       - "50057:50057"  # gRPC port
     volumes:

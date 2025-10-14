@@ -41,10 +41,10 @@ spec:
           value: "info"
         resources:
           limits:
-            cpu: "500m"
+            cpu: "2"
             memory: "512Mi"
           requests:
-            cpu: "100m"
+            cpu: "500m"
             memory: "128Mi"
         livenessProbe:
           exec:
