@@ -274,7 +274,7 @@ func enrichServiceMessageWithAddress(message []byte, check Check) []byte {
 		return message
 	}
 
-	hostCandidate := strings.TrimSpace(check.Details)
+	hostCandidate := sanitizeTelemetryString(check.Details)
 	host, _, err := net.SplitHostPort(hostCandidate)
 	if err != nil {
 		host = hostCandidate
@@ -284,6 +284,7 @@ func enrichServiceMessageWithAddress(message []byte, check Check) []byte {
 		return message
 	}
 
+	safeHost := sanitizeTelemetryString(host)
 	var payload map[string]any
 	if err := json.Unmarshal(message, &payload); err != nil {
 		return message
@@ -297,7 +298,7 @@ func enrichServiceMessageWithAddress(message []byte, check Check) []byte {
 	getString := func(key string) string {
 		if raw, exists := statusNode[key]; exists {
 			if str, ok := raw.(string); ok {
-				return strings.TrimSpace(str)
+				return sanitizeTelemetryString(str)
 			}
 		}
 
@@ -307,12 +308,12 @@ func enrichServiceMessageWithAddress(message []byte, check Check) []byte {
 	if hostIP := getString("host_ip"); hostIP != "" && !strings.EqualFold(hostIP, host) {
 		statusNode["reported_host_ip"] = hostIP
 	}
-	statusNode["host_ip"] = host
+	statusNode["host_ip"] = safeHost
 
 	if hostID := getString("host_id"); hostID != "" && !strings.EqualFold(hostID, host) {
 		statusNode["reported_host_id"] = hostID
 	}
-	statusNode["host_id"] = host
+	statusNode["host_id"] = safeHost
 
 	payload["status"] = statusNode
 
@@ -322,4 +323,27 @@ func enrichServiceMessageWithAddress(message []byte, check Check) []byte {
 	}
 
 	return enriched
+}
+
+// sanitizeTelemetryString trims and removes control characters from telemetry-derived
+// strings to reduce the risk of log/HTML injection when the data is rendered later.
+const maxTelemetryStringLength = 512
+
+func sanitizeTelemetryString(in string) string {
+	trimmed := strings.TrimSpace(in)
+	if len(trimmed) > maxTelemetryStringLength {
+		trimmed = trimmed[:maxTelemetryStringLength]
+	}
+
+	builder := strings.Builder{}
+	builder.Grow(len(trimmed))
+
+	for _, r := range trimmed {
+		if r < 0x20 && r != '\n' && r != '\r' && r != '\t' {
+			continue
+		}
+		builder.WriteRune(r)
+	}
+
+	return builder.String()
 }
