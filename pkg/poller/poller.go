@@ -45,6 +45,7 @@ const (
 
 var (
 	errStreamStatusNotReceived = fmt.Errorf("core indicated streaming status report was not received")
+	errCoreClientUnavailable   = fmt.Errorf("core client not initialized")
 )
 
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
@@ -475,6 +476,11 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 	useStreaming := totalDataSize > maxSafeMessageSize || len(statuses) > streamingServiceCountThreshold
 
 	sendReport := func() error {
+		coreClient := p.getCoreClient()
+		if coreClient == nil {
+			return errCoreClientUnavailable
+		}
+
 		if useStreaming {
 			p.logger.Info().
 				Int("service_count", len(statuses)).
@@ -482,10 +488,10 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 				Int("max_safe_size_bytes", maxSafeMessageSize).
 				Msg("Using streaming to report large dataset to core")
 
-			return p.reportToCoreStreaming(ctx, statuses)
+			return p.reportToCoreStreaming(ctx, coreClient, statuses)
 		}
 
-		_, err := p.coreClient.ReportStatus(ctx, &proto.PollerStatusRequest{
+		_, err := coreClient.ReportStatus(ctx, &proto.PollerStatusRequest{
 			Services:  statuses,
 			PollerId:  p.config.PollerID,
 			Timestamp: time.Now().Unix(),
@@ -557,6 +563,10 @@ func (p *Poller) shouldReconnect(err error) bool {
 		return false
 	}
 
+	if errors.Is(err, errCoreClientUnavailable) {
+		return true
+	}
+
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
@@ -597,9 +607,20 @@ func (p *Poller) shouldReconnect(err error) bool {
 		strings.Contains(errMsg, "i/o timeout")
 }
 
+func (p *Poller) getCoreClient() proto.PollerServiceClient {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.coreClient
+}
+
 // reportToCoreStreaming sends service statuses to core using streaming for large datasets
-func (p *Poller) reportToCoreStreaming(ctx context.Context, statuses []*proto.ServiceStatus) error {
-	stream, err := p.coreClient.StreamStatus(ctx)
+func (p *Poller) reportToCoreStreaming(ctx context.Context, coreClient proto.PollerServiceClient, statuses []*proto.ServiceStatus) error {
+	if coreClient == nil {
+		return errCoreClientUnavailable
+	}
+
+	stream, err := coreClient.StreamStatus(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create stream to core: %w", err)
 	}

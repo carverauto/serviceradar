@@ -55,6 +55,10 @@ pub struct NATSConfigTOML {
     pub stream: String,
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
+    #[serde(default = "default_max_age_secs")]
+    pub max_age_secs: u64,
     pub tls: Option<NATSTLSConfig>,
 }
 
@@ -148,6 +152,8 @@ impl Config {
                 subject: nats.subject.clone(),
                 stream: nats.stream.clone(),
                 timeout: Duration::from_secs(nats.timeout_secs),
+                max_bytes: nats.max_bytes,
+                max_age: Duration::from_secs(nats.max_age_secs),
                 tls_cert,
                 tls_key,
                 tls_ca,
@@ -171,6 +177,8 @@ impl Config {
                 subject: "events.otel".to_string(),
                 stream: "events".to_string(),
                 timeout_secs: 30,
+                max_bytes: default_max_bytes(),
+                max_age_secs: default_max_age_secs(),
                 tls: Some(NATSTLSConfig {
                     cert_file: "/path/to/nats-client.crt".to_string(),
                     key_file: "/path/to/nats-client.key".to_string(),
@@ -208,6 +216,14 @@ fn default_nats_stream() -> String {
 
 fn default_timeout_secs() -> u64 {
     30
+}
+
+fn default_max_bytes() -> i64 {
+    2 * 1024 * 1024 * 1024 // 2 GiB
+}
+
+fn default_max_age_secs() -> u64 {
+    30 * 60 // 30 minutes
 }
 
 fn default_metrics_bind_address() -> String {
@@ -410,6 +426,8 @@ key_file = "/grpc.key"
                 subject: "test.subject".to_string(),
                 stream: "test_stream".to_string(),
                 timeout_secs: 45,
+                max_bytes: default_max_bytes(),
+                max_age_secs: default_max_age_secs(),
                 tls: Some(NATSTLSConfig {
                     cert_file: "/cert.pem".to_string(),
                     key_file: "/key.pem".to_string(),
@@ -424,6 +442,11 @@ key_file = "/grpc.key"
         assert_eq!(nats_config.subject, "test.subject");
         assert_eq!(nats_config.stream, "test_stream");
         assert_eq!(nats_config.timeout, Duration::from_secs(45));
+        assert_eq!(nats_config.max_bytes, default_max_bytes());
+        assert_eq!(
+            nats_config.max_age,
+            Duration::from_secs(default_max_age_secs())
+        );
         assert_eq!(nats_config.tls_cert.unwrap(), PathBuf::from("/cert.pem"));
         assert_eq!(nats_config.tls_key.unwrap(), PathBuf::from("/key.pem"));
         assert_eq!(nats_config.tls_ca.unwrap(), PathBuf::from("/ca.pem"));
