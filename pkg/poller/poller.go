@@ -181,25 +181,44 @@ func (p *Poller) Stop(ctx context.Context) error {
 	p.startWg.Wait()
 	p.wg.Wait()
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	type agentConn struct {
+		name string
+		conn *grpc.Client
+	}
 
-	if p.coreClient != nil {
-		if err := p.grpcClient.Close(); err != nil {
+	var (
+		coreClientToClose *grpc.Client
+		agentConns        []agentConn
+	)
+
+	p.mu.Lock()
+	if p.grpcClient != nil {
+		coreClientToClose = p.grpcClient
+		p.grpcClient = nil
+		p.coreClient = nil
+	}
+	for name, agentPoller := range p.agents {
+		if agentPoller.clientConn != nil {
+			agentConns = append(agentConns, agentConn{name: name, conn: agentPoller.clientConn})
+			agentPoller.clientConn = nil
+		}
+	}
+	p.agents = make(map[string]*AgentPoller)
+	p.mu.Unlock()
+
+	if coreClientToClose != nil {
+		if err := coreClientToClose.Close(); err != nil {
 			p.logger.Error().Err(err).Msg("Error closing core client")
 		}
 	}
-
-	for name, agentPoller := range p.agents {
-		if agentPoller.clientConn != nil {
-			if err := agentPoller.clientConn.Close(); err != nil {
-				p.logger.Error().Err(err).Str("agent", name).Msg("Error closing agent connection")
-			}
+	for _, ac := range agentConns {
+		if ac.conn == nil {
+			continue
+		}
+		if err := ac.conn.Close(); err != nil {
+			p.logger.Error().Err(err).Str("agent", ac.name).Msg("Error closing agent connection")
 		}
 	}
-
-	p.agents = make(map[string]*AgentPoller)
-	p.coreClient = nil
 
 	return nil
 }
@@ -209,21 +228,42 @@ func (p *Poller) Close() error {
 	var errs []error
 
 	p.closeOnce.Do(func() { close(p.done) })
+	type agentConn struct {
+		name string
+		conn *grpc.Client
+	}
+
+	var (
+		coreClientToClose *grpc.Client
+		agentConns        []agentConn
+	)
+
 	p.mu.Lock()
-
-	defer p.mu.Unlock()
-
 	if p.grpcClient != nil {
-		if err := p.grpcClient.Close(); err != nil {
+		coreClientToClose = p.grpcClient
+		p.grpcClient = nil
+		p.coreClient = nil
+	}
+	for name, agentPoller := range p.agents {
+		if agentPoller.clientConn != nil {
+			agentConns = append(agentConns, agentConn{name: name, conn: agentPoller.clientConn})
+			agentPoller.clientConn = nil
+		}
+	}
+	p.agents = make(map[string]*AgentPoller)
+	p.mu.Unlock()
+
+	if coreClientToClose != nil {
+		if err := coreClientToClose.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("error closing core client: %w", err))
 		}
 	}
-
-	for name, agentPoller := range p.agents {
-		if agentPoller.clientConn != nil {
-			if err := agentPoller.clientConn.Close(); err != nil {
-				errs = append(errs, fmt.Errorf("%w: %s (%w)", errClosing, name, err))
-			}
+	for _, ac := range agentConns {
+		if ac.conn == nil {
+			continue
+		}
+		if err := ac.conn.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("%w: %s (%w)", errClosing, ac.name, err))
 		}
 	}
 
@@ -484,17 +524,20 @@ func (p *Poller) reconnectCore(ctx context.Context) error {
 	reconnectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
+	var clientToClose *grpc.Client
 	p.mu.Lock()
 	if p.grpcClient != nil {
-		// Close the existing client while holding the lock to prevent its use.
-		if err := p.grpcClient.Close(); err != nil {
-			p.logger.Warn().Err(err).Msg("Failed to close existing core client during reconnect")
-		}
+		clientToClose = p.grpcClient
 		p.grpcClient = nil
 		p.coreClient = nil
 	}
-
 	p.mu.Unlock()
+
+	if clientToClose != nil {
+		if err := clientToClose.Close(); err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to close existing core client during reconnect")
+		}
+	}
 
 	grpcClient, coreClient, err := p.connectToCore(reconnectCtx)
 	if err != nil {
@@ -627,14 +670,19 @@ func (p *Poller) UpdateConfig(ctx context.Context, cfg *Config) error {
 	}
 	if reconnectCore {
 		p.mu.Lock()
+		var clientToClose *grpc.Client
 		if p.grpcClient != nil {
-			if err := p.grpcClient.Close(); err != nil {
-				p.logger.Warn().Err(err).Msg("Failed to close core client before config reconnect")
-			}
+			clientToClose = p.grpcClient
 			p.grpcClient = nil
 			p.coreClient = nil
 		}
 		p.mu.Unlock()
+
+		if clientToClose != nil {
+			if err := clientToClose.Close(); err != nil {
+				p.logger.Warn().Err(err).Msg("Failed to close core client before config reconnect")
+			}
+		}
 
 		grpcClient, coreClient, err := p.connectToCore(ctx)
 		if err != nil {
