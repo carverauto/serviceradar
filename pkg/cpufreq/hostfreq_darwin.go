@@ -65,8 +65,14 @@ var hostfreqSampler = newBufferedSampler(
 	},
 )
 
+// StartHostfreqSampler initializes the background hostfreq sampler with the provided parent context.
+// If called multiple times, only the first non-nil context is used.
+func StartHostfreqSampler(ctx context.Context) {
+	hostfreqSampler.start(ctx)
+}
+
 func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, error) {
-	hostfreqSampler.start()
+	hostfreqSampler.start(nil)
 
 	if snap, ok := hostfreqSampler.latest(); ok {
 		return snap, nil
