@@ -21,9 +21,13 @@ type bufferedSampler struct {
 	timeout   time.Duration
 	collect   samplerCollector
 
-	once sync.Once
-	mu   sync.RWMutex
+	startOnce sync.Once
 
+	ctxMu  sync.RWMutex
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	mu      sync.RWMutex
 	entries []bufferEntry
 	next    int
 	count   int
@@ -54,8 +58,10 @@ func newBufferedSampler(interval, retention, timeout time.Duration, collect samp
 	}
 }
 
-func (s *bufferedSampler) start() {
-	s.once.Do(func() {
+func (s *bufferedSampler) start(parent context.Context) {
+	s.ensureContext(parent)
+
+	s.startOnce.Do(func() {
 		go s.loop()
 	})
 }
@@ -64,9 +70,13 @@ func (s *bufferedSampler) loop() {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
-	s.collectOnce()
-
 	for range ticker.C {
+		ctx := s.context()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		s.collectOnce()
 	}
 }
@@ -76,7 +86,8 @@ func (s *bufferedSampler) collectOnce() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	parent := s.context()
+	ctx, cancel := context.WithTimeout(parent, s.timeout)
 	defer cancel()
 
 	snapshot, err := s.collect(ctx)
@@ -134,4 +145,34 @@ func (s *bufferedSampler) latest() (*Snapshot, bool) {
 	}
 
 	return snapshotClone(entry.snapshot), true
+}
+
+func (s *bufferedSampler) ensureContext(parent context.Context) {
+	s.ctxMu.Lock()
+	defer s.ctxMu.Unlock()
+
+	if s.ctx != nil {
+		return
+	}
+
+	if parent == nil {
+		parent = context.Background()
+	}
+
+	s.ctx, s.cancel = context.WithCancel(parent)
+}
+
+func (s *bufferedSampler) context() context.Context {
+	s.ctxMu.RLock()
+	ctx := s.ctx
+	s.ctxMu.RUnlock()
+
+	if ctx == nil {
+		s.ensureContext(nil)
+		s.ctxMu.RLock()
+		ctx = s.ctx
+		s.ctxMu.RUnlock()
+	}
+
+	return ctx
 }
