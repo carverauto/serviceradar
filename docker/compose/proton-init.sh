@@ -105,13 +105,23 @@ done
 
 # Generate DH parameters if not present (for SSL security)
 log_info "Checking DH parameters..."
-if [ ! -f "/etc/proton-server/dhparam.pem" ]; then
-    log_info "Generating DH parameters (this may take a few minutes for security)..."
-    openssl dhparam -out /etc/proton-server/dhparam.pem 2048
-    chmod 644 /etc/proton-server/dhparam.pem
-    log_info "DH parameters generated successfully"
+DH_PARAMS_PERSIST="/var/lib/proton/dhparam.pem"
+DH_PARAMS_TARGET="/etc/proton-server/dhparam.pem"
+mkdir -p "$(dirname "$DH_PARAMS_PERSIST")"
+
+if [ -f "$DH_PARAMS_TARGET" ]; then
+    log_info "DH parameters already present at ${DH_PARAMS_TARGET}"
+elif [ -f "$DH_PARAMS_PERSIST" ]; then
+    log_info "Restoring DH parameters from persistent storage"
+    cp "$DH_PARAMS_PERSIST" "$DH_PARAMS_TARGET"
+    chmod 644 "$DH_PARAMS_TARGET"
 else
-    log_info "DH parameters already exist"
+    log_info "Generating DH parameters (this may take a few minutes for security)..."
+    openssl dhparam -out "$DH_PARAMS_TARGET" 2048
+    chmod 644 "$DH_PARAMS_TARGET"
+    cp "$DH_PARAMS_TARGET" "$DH_PARAMS_PERSIST"
+    chmod 644 "$DH_PARAMS_PERSIST"
+    log_info "DH parameters generated and saved to persistent storage"
 fi
 
 # Verify certificate access
