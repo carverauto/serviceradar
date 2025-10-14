@@ -94,6 +94,7 @@ This clears Timeplus/Proton and repopulates it with a fresh discovery crawl from
                coalesce(metadata['armis_device_id'], '') != ''
                OR coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') != ''
                OR coalesce(mac, '') != ''
+               OR (discovery_source != 'sweep' AND coalesce(ip, '') != '')
            ) AS has_identity
        FROM device_updates
    ) AS src
@@ -107,6 +108,10 @@ This clears Timeplus/Proton and repopulates it with a fresh discovery crawl from
                coalesce(metadata['armis_device_id'], '') = ''
                AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
                AND coalesce(mac, '') = ''
+               AND (
+                   has(discovery_sources, 'sweep')
+                   OR ip = ''
+               )
           );
 
    ALTER STREAM unified_devices_registry
@@ -115,7 +120,11 @@ This clears Timeplus/Proton and repopulates it with a fresh discovery crawl from
           OR (
                coalesce(metadata['armis_device_id'], '') = ''
                AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
-               AND ifNull(mac, '') = ''
+               AND coalesce(mac, '') = ''
+               AND (
+                   has(discovery_sources, 'sweep')
+                   OR ip = ''
+               )
           );
    ```
 

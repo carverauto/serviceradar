@@ -15,12 +15,60 @@
  */
 
 import React from 'react';
-import { Cpu, HardDrive, BarChart3, Activity } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { Cpu, HardDrive, BarChart3, Activity, Gauge, Server, Clock } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { MetricCard, CustomTooltip, ProgressBar } from './shared-components';
 import { escapeSrqlValue } from '@/lib/srql';
 
+const CLUSTER_COLOR_PALETTE = [
+    '#0EA5E9', // sky-500
+    '#F97316', // orange-500
+    '#22C55E', // green-500
+    '#A855F7', // purple-500
+    '#FACC15', // yellow-400
+    '#EC4899', // pink-500
+];
+
+const stringToColorIndex = (value) => {
+    if (!value) {
+        return 0;
+    }
+
+    const hash = Array.from(String(value)).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return Math.abs(hash) % CLUSTER_COLOR_PALETTE.length;
+};
+
+const getClusterColor = (clusterName) => CLUSTER_COLOR_PALETTE[stringToColorIndex(clusterName)];
+
+const withAlpha = (hex, alpha = 0.15) => {
+    if (!hex) {
+        return 'rgba(107,114,128,0.15)'; // gray-500 fallback
+    }
+
+    const normalized = hex.replace('#', '');
+    const bigint = parseInt(normalized, 16);
+
+    if (Number.isNaN(bigint)) {
+        return 'rgba(107,114,128,0.15)';
+    }
+
+    const r = (bigint >> 16) & 255;
+    const g = (bigint >> 8) & 255;
+    const b = bigint & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 export const CpuCard = ({ data }) => {
+    const clusters = Array.isArray(data?.clusters) ? data.clusters : [];
+
+    const formatFrequency = (hz) => {
+        const numeric = Number(hz);
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+            return null;
+        }
+        return `${(numeric / 1_000_000_000).toFixed(2)} GHz`;
+    };
+
     return (
         <MetricCard
             title="CPU Usage"
@@ -30,7 +78,68 @@ export const CpuCard = ({ data }) => {
             critical={data.critical}
             change={data.change}
             icon={<Cpu size={16} className="mr-2 text-green-500 dark:text-green-400" />}
-        />
+        >
+            {clusters.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                    {clusters.map((cluster) => {
+                        const clusterName = cluster.name || 'Unassigned';
+                        const color = getClusterColor(clusterName);
+                        const freqLabel = formatFrequency(cluster.averageFrequencyHz);
+                        return (
+                            <span
+                                key={clusterName}
+                                className="inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium"
+                                style={{
+                                    borderColor: color,
+                                    backgroundColor: withAlpha(color),
+                                    color,
+                                }}
+                            >
+                                <span>{clusterName}</span>
+                                <span className="mx-1 text-[10px] opacity-70">•</span>
+                                <span>{cluster.cores} cores</span>
+                                {freqLabel && (
+                                    <>
+                                        <span className="mx-1 text-[10px] opacity-70">•</span>
+                                        <span>{freqLabel}</span>
+                                    </>
+                                )}
+                            </span>
+                        );
+                    })}
+                </div>
+            )}
+        </MetricCard>
+    );
+};
+
+export const CpuFrequencyCard = ({ data }) => {
+    if (!data) {
+        return null;
+    }
+
+    const currentValue = Number.isFinite(data.current) ? data.current : 0;
+    const observedMax = Number.isFinite(data.max) && data.max > 0 ? data.max : currentValue || 1;
+    const coresReporting = Array.isArray(data.cores) ? data.cores.length : 0;
+    const unit = data.unit || 'GHz';
+
+    return (
+        <MetricCard
+            title="CPU Frequency"
+            current={parseFloat(currentValue.toFixed(2))}
+            unit={unit}
+            warning={Number.POSITIVE_INFINITY}
+            critical={Number.POSITIVE_INFINITY}
+            change={data.change}
+            icon={<Gauge size={16} className="mr-2 text-purple-500 dark:text-purple-400" />}
+            max={observedMax}
+        >
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {coresReporting > 0
+                    ? `${coresReporting} core${coresReporting === 1 ? '' : 's'} reporting`
+                    : 'No per-core samples available'}
+            </div>
+        </MetricCard>
     );
 };
 
@@ -56,19 +165,308 @@ export const CpuChart = ({ data }) => {
 };
 
 export const CpuCoresChart = ({ cores }) => {
+    const coreSamples = Array.isArray(cores) ? cores : [];
+    if (coreSamples.length === 0) {
+        return (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+                <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">CPU Cores Usage</h3>
+                <div className="text-center text-sm text-gray-500 dark:text-gray-400 py-6">
+                    No per-core samples available for the selected range.
+                </div>
+            </div>
+        );
+    }
+
+    const coreTooltip = ({ active, payload }) => {
+        if (!active || !payload || payload.length === 0) {
+            return null;
+        }
+
+        const [{ payload: corePayload }] = payload;
+        if (!corePayload) {
+            return null;
+        }
+
+        const {
+            rawLabel,
+            cluster,
+            value,
+            frequencyGHz,
+        } = corePayload;
+
+        return (
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 shadow">
+                <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">{rawLabel}</div>
+                {cluster && (
+                    <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                        Cluster: {cluster}
+                    </div>
+                )}
+                <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                    Usage: {value.toFixed(1)}%
+                </div>
+                {Number.isFinite(frequencyGHz) && frequencyGHz > 0 && (
+                    <div className="text-xs text-gray-600 dark:text-gray-300">
+                        Frequency: {frequencyGHz.toFixed(2)} GHz
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const uniqueClusters = Array.from(new Set(coreSamples.map(core => core.cluster || 'Unassigned')));
+
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">CPU Cores Usage</h3>
             <div style={{ height: '180px' }}>
                 <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={cores} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <BarChart data={coreSamples} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#D1D5DB dark:#374151" />
                         <XAxis dataKey="name" stroke="#6B7280" />
                         <YAxis domain={[0, 100]} stroke="#6B7280" />
-                        <Tooltip />
-                        <Bar dataKey="value" name="Usage (%)" fill="#50FA7B" />
+                        <Tooltip content={coreTooltip} />
+                        <Bar dataKey="value" name="Usage (%)">
+                            {coreSamples.map((core) => (
+                                <Cell
+                                    key={`${core.cluster || 'cluster'}-${core.coreId}`}
+                                    fill={getClusterColor(core.cluster || 'Unassigned')}
+                                />
+                            ))}
+                        </Bar>
                     </BarChart>
                 </ResponsiveContainer>
+            </div>
+            {uniqueClusters.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                    {uniqueClusters.map((clusterName) => {
+                        const color = getClusterColor(clusterName);
+                        return (
+                            <span
+                                key={clusterName}
+                                className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium"
+                                style={{
+                                    borderColor: color,
+                                    backgroundColor: withAlpha(color),
+                                    color,
+                                }}
+                            >
+                                <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: color }} />
+                                {clusterName}
+                            </span>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
+
+export const CpuFrequencyChart = ({ data }) => {
+    if (!data) {
+        return null;
+    }
+
+    const unit = data.unit || 'GHz';
+    const chartData = Array.isArray(data.data)
+        ? data.data.filter(point => point && point.value !== null)
+        : [];
+    const maxValue = Number.isFinite(data.max) && data.max > 0 ? data.max : null;
+    const domainMax = maxValue ? parseFloat((maxValue * 1.1).toFixed(2)) : 'auto';
+
+    if (chartData.length === 0) {
+        return (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+                <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">CPU Frequency Trend</h3>
+                <div className="text-center py-6 text-gray-500 dark:text-gray-400">
+                    No frequency samples available for this range.
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">CPU Frequency Trend</h3>
+            <div style={{ height: '180px' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#D1D5DB dark:#374151" />
+                        <XAxis dataKey="formattedTime" stroke="#6B7280" tick={{ fontSize: 12 }} />
+                        <YAxis
+                            stroke="#6B7280"
+                            tick={{ fontSize: 12 }}
+                            domain={[0, domainMax]}
+                            tickFormatter={(value) => `${value.toFixed ? value.toFixed(2) : value} ${unit}`}
+                        />
+                        <Tooltip formatter={(value) => [`${value.toFixed(2)} ${unit}`, 'Frequency']} />
+                        <Area
+                            type="monotone"
+                            dataKey="value"
+                            stroke="#8B5CF6"
+                            fill="#8B5CF6"
+                            fillOpacity={0.2}
+                            name={`Frequency (${unit})`}
+                        />
+                    </AreaChart>
+                </ResponsiveContainer>
+            </div>
+        </div>
+    );
+};
+
+export const CpuFrequencyDetails = ({ data }) => {
+    if (!data) {
+        return null;
+    }
+
+    const unit = data.unit || 'GHz';
+    const cores = Array.isArray(data.cores)
+        ? data.cores.filter(core => core && core.value !== null)
+        : [];
+    const yMax = cores.length > 0
+        ? Math.max(...cores.map(core => core.value))
+        : 0;
+    const domainMax = yMax > 0 ? parseFloat((yMax * 1.1).toFixed(2)) : 1;
+
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Per-Core Frequencies</h3>
+            {cores.length === 0 ? (
+                <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                    No per-core frequency samples available.
+                </div>
+            ) : (
+                <div style={{ height: '200px' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={cores} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#D1D5DB dark:#374151" />
+                            <XAxis dataKey="name" stroke="#6B7280" />
+                            <YAxis
+                                stroke="#6B7280"
+                                domain={[0, domainMax]}
+                                tickFormatter={(value) => `${value.toFixed ? value.toFixed(2) : value}`}
+                                label={{ value: unit, angle: -90, position: 'insideLeft', offset: -5 }}
+                            />
+                            <Tooltip formatter={(value) => [`${value.toFixed(2)} ${unit}`, 'Frequency']} />
+                            <Bar dataKey="value" name={`Frequency (${unit})`} fill="#8B5CF6" />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export const SysmonHostCard = ({ metadata }) => {
+    if (!metadata) {
+        return null;
+    }
+
+    const { hostId, hostIp, agentId, responseTimeNs, timestamp } = metadata;
+    const responseMs = Number.isFinite(responseTimeNs)
+        ? parseFloat((responseTimeNs / 1_000_000).toFixed(2))
+        : null;
+    const formattedTimestamp = timestamp ? new Date(timestamp).toLocaleString() : 'Unknown';
+
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow transition-colors">
+            <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center">
+                    <Server size={16} className="mr-2 text-blue-500 dark:text-blue-400" />
+                    <span className="text-sm font-medium text-gray-600 dark:text-gray-300">sysmon-vm Host</span>
+                </div>
+                {responseMs !== null && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center">
+                        <Clock size={14} className="mr-1" />
+                        {responseMs} ms response
+                    </div>
+                )}
+            </div>
+            <dl className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 space-y-1">
+                {hostId && (
+                    <div className="flex justify-between">
+                        <dt className="font-medium text-gray-500 dark:text-gray-400">Host ID</dt>
+                        <dd className="text-gray-900 dark:text-gray-100 ml-2 break-all text-right">{hostId}</dd>
+                    </div>
+                )}
+                {hostIp && (
+                    <div className="flex justify-between">
+                        <dt className="font-medium text-gray-500 dark:text-gray-400">Host IP</dt>
+                        <dd className="text-gray-900 dark:text-gray-100 ml-2 break-all text-right">{hostIp}</dd>
+                    </div>
+                )}
+                {agentId && (
+                    <div className="flex justify-between">
+                        <dt className="font-medium text-gray-500 dark:text-gray-400">Agent</dt>
+                        <dd className="text-gray-900 dark:text-gray-100 ml-2 break-all text-right">{agentId}</dd>
+                    </div>
+                )}
+                <div className="flex justify-between">
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Last Sample</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 ml-2 text-right">{formattedTimestamp}</dd>
+                </div>
+            </dl>
+        </div>
+    );
+};
+
+export const CpuClusterDetails = ({ clusters }) => {
+    if (!Array.isArray(clusters) || clusters.length === 0) {
+        return null;
+    }
+
+    const hzToGHzValue = (hz) => {
+        const numeric = Number(hz);
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+            return null;
+        }
+        return numeric / 1_000_000_000;
+    };
+
+    return (
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">CPU Clusters</h3>
+            <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-xs sm:text-sm">
+                    <thead className="bg-gray-50 dark:bg-gray-900/50">
+                        <tr>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Cluster
+                            </th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Cores
+                            </th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Avg Usage
+                            </th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Avg Frequency
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {clusters.map((cluster) => {
+                            const freqGHz = hzToGHzValue(cluster.averageFrequencyHz);
+                            return (
+                                <tr key={cluster.name}>
+                                    <td className="px-3 py-2 whitespace-nowrap text-gray-900 dark:text-gray-100">
+                                        {cluster.name}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-right text-gray-900 dark:text-gray-100">
+                                        {cluster.cores}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-right text-gray-900 dark:text-gray-100">
+                                        {cluster.averageUsage ? `${cluster.averageUsage.toFixed(1)}%` : '—'}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-right text-gray-900 dark:text-gray-100">
+                                        {freqGHz !== null ? `${freqGHz.toFixed(2)} GHz` : '—'}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
             </div>
         </div>
     );

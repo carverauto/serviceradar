@@ -31,6 +31,9 @@ services:
       - cert-data:/etc/serviceradar/certs
       - generated-config:/etc/serviceradar/config
       - ./packaging/core/config:/config:ro
+      - ./docker/compose:/templates:ro
+    environment:
+      - SYSMON_VM_ADDRESS=${SYSMON_VM_ADDRESS:-192.168.1.219:50110}
     depends_on:
       cert-generator:
         condition: service_completed_successfully
@@ -74,6 +77,8 @@ services:
     image: ghcr.io/carverauto/serviceradar-proton:latest
     container_name: serviceradar-proton
     user: "0:0"
+    mem_limit: 8g
+    mem_reservation: 6g
     ports:
       - "8123:8123"  # HTTP port for JDBC driver, batch mode
       - "8463:8463"  # Native TCP port
@@ -87,12 +92,11 @@ services:
     environment:
       - PROTON_PASSWORD=${PROTON_PASSWORD:-}  # Will generate if not set
       - PROTON_LOG_LEVEL=${PROTON_LOG_LEVEL:-error}
-    deploy:
-      resources:
-        limits:
-          memory: 8G
-        reservations:
-          memory: 4G
+      - PROTON_DISABLE_TASKSTATS=1
+      # Align Proton memory usage with container limits to reduce OOM risk
+      - PROTON_MAX_SERVER_MEMORY=6g
+      - PROTON_MAX_QUERY_MEMORY=4g
+      - PROTON_MAX_PARTITION_BYTES=256m
     ulimits:
       nofile:
         soft: 1048576
@@ -194,7 +198,7 @@ services:
       config-updater:
         condition: service_completed_successfully
       core:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:3000/"]
       interval: 30s
@@ -250,7 +254,7 @@ services:
       - ./docker/compose/entrypoint-nginx.sh:/docker-entrypoint.d/50-serviceradar.sh:ro
     depends_on:
       web:
-        condition: service_healthy
+        condition: service_started
       core:
         condition: service_healthy
       kong:
@@ -301,7 +305,7 @@ services:
       # run Kong in foreground (no daemon) when using 'kong start'
       KONG_NGINX_DAEMON: off
       KONG_LOG_LEVEL: debug
-    command: ["sh","-lc","if [ ! -f /opt/kong/kong.yml ]; then cp /default-kong.yml /opt/kong/kong.yml 2>/dev/null || true; fi; until [ -f /opt/kong/kong.yml ]; do echo '[kong] waiting for /opt/kong/kong.yml'; sleep 2; done; exec kong start --vv"]
+    command: ["sh","-lc","if [ ! -f /opt/kong/kong.yml ]; then cp /default-kong.yml /opt/kong/kong.yml 2>/dev/null || true; fi; until [ -f /opt/kong/kong.yml ]; do echo '[kong] waiting for /opt/kong/kong.yml'; sleep 2; done; rm -f /usr/local/kong/pids/nginx.pid /opt/kong/pids/nginx.pid 2>/dev/null || true; exec kong start --vv"]
     volumes:
       - kong_config:/opt/kong
       - ./docker/kong/kong.yaml:/default-kong.yml:ro
@@ -325,20 +329,23 @@ services:
     image: ghcr.io/carverauto/serviceradar-poller:latest
     container_name: serviceradar-poller
     volumes:
-      - ./docker/compose/poller.docker.json:/etc/serviceradar/poller.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
       - poller-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
       # Config path
-      - CONFIG_PATH=/etc/serviceradar/poller.json
+      - CONFIG_PATH=/etc/serviceradar/config/poller.json
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-generator:
         condition: service_completed_successfully
+      config-updater:
+        condition: service_completed_successfully
       core:
         condition: service_healthy
+    command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/poller.pem", "-key", "/etc/serviceradar/certs/poller-key.pem", "-servername", "poller.serviceradar", "localhost:50053", "grpc.health.v1.Health/Check"]
       interval: 30s
@@ -358,6 +365,7 @@ services:
     volumes:
       - ./docker/compose/agent.docker.json:/etc/serviceradar/agent.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
       - agent-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -374,6 +382,9 @@ services:
     depends_on:
       cert-generator:
         condition: service_completed_successfully
+      config-updater:
+        condition: service_completed_successfully
+    command: ["/bin/sh","-c","if [ -f /etc/serviceradar/config/checkers/sysmon-vm.json ]; then cp /etc/serviceradar/config/checkers/sysmon-vm.json /etc/serviceradar/checkers/sysmon-vm.json; fi; exec /usr/local/bin/serviceradar-agent -config /etc/serviceradar/agent.json"]
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/agent.pem", "-key", "/etc/serviceradar/certs/agent-key.pem", "-servername", "agent.serviceradar", "localhost:50051", "grpc.health.v1.Health/Check"]
       interval: 30s

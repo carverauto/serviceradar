@@ -120,7 +120,11 @@ export const CustomTooltip = ({ active, payload, label, metricData }) => {
     return null;
 };
 
-export const MetricCard = ({ title, current, unit, warning, critical, change, icon, children }) => {
+export const MetricCard = ({ title, current, unit, warning, critical, change, icon, children, max = 100 }) => {
+    const safeMax = Number.isFinite(max) && max > 0 ? max : 100;
+    const rawValue = Number.isFinite(current) ? current : 0;
+    const clampedValue = Math.min(Math.max(rawValue, 0), safeMax);
+
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow transition-colors">
             <div className="flex justify-between items-center mb-2">
@@ -129,22 +133,23 @@ export const MetricCard = ({ title, current, unit, warning, critical, change, ic
                     <span className="text-sm font-medium text-gray-600 dark:text-gray-300">{title}</span>
                 </div>
                 <StatusIndicator
-                    value={current}
+                    value={clampedValue}
                     warning={warning}
                     critical={critical}
                 />
             </div>
             <ValueDisplay
-                value={current}
+                value={clampedValue}
                 unit={unit}
                 warning={warning}
                 critical={critical}
                 change={change}
             />
             <ProgressBar
-                value={current}
+                value={clampedValue}
                 warning={warning}
                 critical={critical}
+                max={safeMax}
             />
             {children}
         </div>

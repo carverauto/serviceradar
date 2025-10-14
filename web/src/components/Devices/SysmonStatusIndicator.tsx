@@ -26,6 +26,7 @@ interface SysmonStatusIndicatorProps {
     pollerId?: string; // Keep for backward compatibility
     compact?: boolean;
     hasMetrics?: boolean; // Pre-fetched status from bulk API
+    serviceHint?: boolean; // Indicates checker reported sysmon capability even if metrics are stale
 }
 
 interface SysmonStatus {
@@ -40,7 +41,8 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
     deviceId,
     pollerId, 
     compact = false,
-    hasMetrics
+    hasMetrics,
+    serviceHint = false
 }) => {
     // Use deviceId if available, otherwise fall back to pollerId for backward compatibility
     const targetId = deviceId || pollerId;
@@ -146,7 +148,10 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
         }
     }, [targetId, idType, token, hasMetrics, deviceId]);
 
-    if (loading) {
+    const shouldShowFromHint = serviceHint && !status.hasData;
+    const effectiveHasData = status.hasData || shouldShowFromHint;
+
+    if (loading && !shouldShowFromHint) {
         return compact ? (
             <div className="w-3 h-3 bg-gray-300 dark:bg-gray-600 rounded-full animate-pulse"></div>
         ) : (
@@ -159,6 +164,7 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
 
     const getStatusColor = () => {
         if (status.hasData) return 'text-green-500';
+        if (shouldShowFromHint) return 'text-gray-400 dark:text-gray-500';
         return 'text-gray-400 dark:text-gray-500';
     };
 
@@ -171,13 +177,25 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
         if (status.hasData) {
             return `View system metrics - Last update: ${status.lastUpdate?.toLocaleTimeString()}`;
         }
+        if (shouldShowFromHint) {
+            return 'Sysmon checker detected; metrics may take a few minutes to arrive';
+        }
         return `No system metrics available${status.error ? ` - ${status.error}` : ''}`;
     };
 
     if (compact) {
         // Only render in compact mode if there's actual sysmon data
-        if (!status.hasData) {
-            return null;
+        if (!effectiveHasData) {
+            return serviceHint ? (
+                <div title={getTooltipText()} className="flex items-center justify-center">
+                    <Link 
+                        href={`/metrics?${idType === 'device' ? 'deviceId' : 'pollerId'}=${targetId}`} 
+                        className="inline-flex items-center justify-center p-1 rounded hover:bg-gray-700/50 transition-colors"
+                    >
+                        <BarChart3 className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+                    </Link>
+                </div>
+            ) : null;
         }
         
         return (
@@ -194,17 +212,17 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
 
     return (
         <div className="flex items-center space-x-2">
-            {getStatusIcon()}
+            {shouldShowFromHint ? <AlertCircle className={`h-3 w-3 text-gray-400 dark:text-gray-500`} /> : getStatusIcon()}
             <div className="flex flex-col">
                 <span className={`text-xs ${getStatusColor()}`}>
-                    {status.hasData ? 'Sysmon Active' : 'No Sysmon Data'}
+                    {effectiveHasData ? (status.hasData ? 'Sysmon Active' : 'Sysmon Available') : 'No Sysmon Data'}
                 </span>
                 {status.hasData && status.lastUpdate && (
                     <span className="text-xs text-gray-500 dark:text-gray-400">
                         {status.lastUpdate.toLocaleTimeString()}
                     </span>
                 )}
-                {status.hasData && (
+                {effectiveHasData && (
                     <Link 
                         href={`/metrics?${idType === 'device' ? 'deviceId' : 'pollerId'}=${targetId}`}
                         className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 flex items-center space-x-1 mt-1"

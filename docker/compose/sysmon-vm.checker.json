@@ -1,0 +1,9 @@
+{
+  "name": "sysmon-vm",
+  "type": "grpc",
+  "address": "${SYSMON_VM_ADDRESS:-sysmon-vm:50110}",
+  "security": {
+    "mode": "none",
+    "role": "agent"
+  }
+}

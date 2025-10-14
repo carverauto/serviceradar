@@ -19,6 +19,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -32,6 +33,13 @@ import (
 
 const (
 	rperfBitsPerSecondDivisor = 1e6 // To convert bps to Mbps
+)
+
+var (
+	ErrNoCPUMetricsAppended        = errors.New("no cpu metrics appended")
+	ErrNoCPUClusterMetricsAppended = errors.New("no cpu cluster metrics appended")
+	ErrNoDiskMetricsAppended       = errors.New("no disk metrics appended")
+	ErrNoProcessMetricsAppended    = errors.New("no process metrics appended")
 )
 
 // convertValueToFloat64 converts a string value to float64, logging errors but not failing the operation
@@ -303,7 +311,7 @@ func (db *DB) GetMetricsByType(
 func (db *DB) GetCPUMetrics(
 	ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz
+		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz, label, cluster
 		FROM table(cpu_metrics)
 		WHERE poller_id = $1 AND core_id = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp`,
@@ -320,14 +328,16 @@ func (db *DB) GetCPUMetrics(
 	for rows.Next() {
 		var m models.CPUMetric
 
-		var agentID, hostID string
+		var agentID, hostID, label, cluster string
 
-		if err := rows.Scan(&m.Timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent, &m.FrequencyHz); err != nil {
+		if err := rows.Scan(&m.Timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent, &m.FrequencyHz, &label, &cluster); err != nil {
 			return nil, fmt.Errorf("failed to scan CPU metric: %w", err)
 		}
 
 		m.AgentID = agentID
 		m.HostID = hostID
+		m.Label = label
+		m.Cluster = cluster
 
 		metrics = append(metrics, m)
 	}
@@ -539,6 +549,11 @@ func (db *DB) StoreSysmonMetrics(
 		return fmt.Errorf("failed to store CPU metrics: %w", err)
 	}
 
+	if err := db.storeCPUClusterMetrics(ctx, pollerID, agentID, hostID, deviceID,
+		partition, metrics.Clusters, timestamp); err != nil {
+		return fmt.Errorf("failed to store CPU cluster metrics: %w", err)
+	}
+
 	if err := db.storeDiskMetrics(ctx, pollerID, agentID, hostID, deviceID,
 		partition, metrics.Disks, timestamp); err != nil {
 		return fmt.Errorf("failed to store disk metrics: %w", err)
@@ -568,12 +583,86 @@ func (db *DB) storeCPUMetrics(
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		appended := 0
+		var appendErr error
+
 		for _, cpu := range cpus {
-			if err := batch.Append(timestamp, pollerID, agentID, hostID,
-				cpu.CoreID, cpu.UsagePercent, cpu.FrequencyHz, deviceID, partition); err != nil {
+			if err := batch.Append(
+				timestamp,        // timestamp
+				pollerID,         // poller_id
+				agentID,          // agent_id
+				hostID,           // host_id
+				cpu.CoreID,       // core_id
+				cpu.UsagePercent, // usage_percent
+				cpu.FrequencyHz,  // frequency_hz
+				cpu.Label,        // label
+				cpu.Cluster,      // cluster
+				deviceID,         // device_id
+				partition,        // partition
+			); err != nil {
 				db.logger.Error().Err(err).Int("core_id", int(cpu.CoreID)).Msg("Failed to append CPU metric")
+				if appendErr == nil {
+					appendErr = err
+				}
 				continue
 			}
+
+			appended++
+		}
+
+		if appended == 0 {
+			if appendErr != nil {
+				return errors.Join(ErrNoCPUMetricsAppended, appendErr)
+			}
+
+			return ErrNoCPUMetricsAppended
+		}
+
+		return nil
+	})
+}
+
+// storeCPUClusterMetrics stores CPU cluster metrics in a batch.
+func (db *DB) storeCPUClusterMetrics(
+	ctx context.Context,
+	pollerID, agentID, hostID, deviceID, partition string,
+	clusters []models.CPUClusterMetric,
+	timestamp time.Time) error {
+	if len(clusters) == 0 {
+		return nil
+	}
+
+	return db.executeBatch(ctx, "INSERT INTO cpu_cluster_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		appended := 0
+		var appendErr error
+
+		for _, cluster := range clusters {
+			if err := batch.Append(
+				timestamp,           // timestamp
+				pollerID,            // poller_id
+				agentID,             // agent_id
+				hostID,              // host_id
+				cluster.Name,        // cluster
+				cluster.FrequencyHz, // frequency_hz
+				deviceID,            // device_id
+				partition,           // partition
+			); err != nil {
+				db.logger.Error().Err(err).Str("cluster", cluster.Name).Msg("Failed to append CPU cluster metric")
+				if appendErr == nil {
+					appendErr = err
+				}
+				continue
+			}
+
+			appended++
+		}
+
+		if appended == 0 {
+			if appendErr != nil {
+				return errors.Join(ErrNoCPUClusterMetricsAppended, appendErr)
+			}
+
+			return ErrNoCPUClusterMetricsAppended
 		}
 
 		return nil
@@ -591,6 +680,9 @@ func (db *DB) storeDiskMetrics(
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		appended := 0
+		var appendErr error
+
 		for _, disk := range disks {
 			// Calculate missing fields for the 12-column schema
 			availableBytes := uint64(0)
@@ -620,8 +712,21 @@ func (db *DB) storeDiskMetrics(
 				partition,       // partition
 			); err != nil {
 				db.logger.Error().Err(err).Str("mount_point", disk.MountPoint).Msg("Failed to append disk metric")
+				if appendErr == nil {
+					appendErr = err
+				}
 				continue
 			}
+
+			appended++
+		}
+
+		if appended == 0 {
+			if appendErr != nil {
+				return errors.Join(ErrNoDiskMetricsAppended, appendErr)
+			}
+
+			return ErrNoDiskMetricsAppended
 		}
 
 		return nil
@@ -676,6 +781,9 @@ func (db *DB) storeProcessMetrics(
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO process_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		appended := 0
+		var appendErr error
+
 		for i := range processes {
 			process := &processes[i]
 			if err := batch.Append(
@@ -693,8 +801,21 @@ func (db *DB) storeProcessMetrics(
 				partition,           // partition
 			); err != nil {
 				db.logger.Error().Err(err).Int("pid", int(process.PID)).Str("process_name", process.Name).Msg("Failed to append process metric")
+				if appendErr == nil {
+					appendErr = err
+				}
 				continue
 			}
+
+			appended++
+		}
+
+		if appended == 0 {
+			if appendErr != nil {
+				return errors.Join(ErrNoProcessMetricsAppended, appendErr)
+			}
+
+			return ErrNoProcessMetricsAppended
 		}
 
 		return nil
@@ -705,7 +826,7 @@ func (db *DB) storeProcessMetrics(
 func (db *DB) GetAllCPUMetrics(
 	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz
+		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz, label, cluster
 		FROM table(cpu_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, core_id ASC`,
@@ -718,27 +839,62 @@ func (db *DB) GetAllCPUMetrics(
 	defer db.CloseRows(rows)
 
 	data := make(map[time.Time][]models.CPUMetric)
+	clustersByTimestamp := make(map[time.Time][]models.CPUClusterMetric)
 
 	for rows.Next() {
 		var m models.CPUMetric
 
-		var agentID, hostID string
+		var agentID, hostID, label, cluster string
 
 		var timestamp time.Time
 
-		if err := rows.Scan(&timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent, &m.FrequencyHz); err != nil {
+		if err := rows.Scan(&timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent, &m.FrequencyHz, &label, &cluster); err != nil {
 			db.logger.Error().Err(err).Msg("Error scanning CPU metric row")
 			continue
 		}
-
+		key := timestamp.Truncate(time.Second)
 		m.Timestamp = timestamp
 		m.AgentID = agentID
 		m.HostID = hostID
-		data[timestamp] = append(data[timestamp], m)
+		m.Label = label
+		m.Cluster = cluster
+		data[key] = append(data[key], m)
 	}
 
 	if err := rows.Err(); err != nil {
 		db.logger.Error().Err(err).Msg("Error iterating CPU metrics rows")
+
+		return nil, err
+	}
+
+	clusterRows, err := db.Conn.Query(ctx, `
+		SELECT timestamp, agent_id, host_id, cluster, frequency_hz
+		FROM table(cpu_cluster_metrics)
+		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, cluster ASC`,
+		pollerID, start, end)
+	if err != nil {
+		db.logger.Error().Err(err).Msg("Error querying CPU cluster metrics")
+
+		return nil, fmt.Errorf("failed to query CPU cluster metrics: %w", err)
+	}
+	defer db.CloseRows(clusterRows)
+
+	for clusterRows.Next() {
+		var c models.CPUClusterMetric
+		var timestamp time.Time
+
+		if err := clusterRows.Scan(&timestamp, &c.AgentID, &c.HostID, &c.Name, &c.FrequencyHz); err != nil {
+			db.logger.Error().Err(err).Msg("Error scanning CPU cluster metric row")
+			continue
+		}
+		key := timestamp.Truncate(time.Second)
+		c.Timestamp = timestamp
+		clustersByTimestamp[key] = append(clustersByTimestamp[key], c)
+	}
+
+	if err := clusterRows.Err(); err != nil {
+		db.logger.Error().Err(err).Msg("Error iterating CPU cluster metric rows")
 
 		return nil, err
 	}
@@ -748,7 +904,8 @@ func (db *DB) GetAllCPUMetrics(
 	for ts, cpus := range data {
 		result = append(result, models.SysmonCPUResponse{
 			Cpus:      cpus,
-			Timestamp: ts,
+			Clusters:  clustersByTimestamp[ts],
+			Timestamp: cpus[0].Timestamp,
 		})
 	}
 

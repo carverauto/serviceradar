@@ -610,7 +610,6 @@ func (s *Server) processICMPMetrics(
 }
 
 func (s *Server) processSysmonMetrics(
-	ctx context.Context,
 	pollerID, partition, agentID string,
 	details json.RawMessage,
 	timestamp time.Time) error {
@@ -643,8 +642,6 @@ func (s *Server) processSysmonMetrics(
 		Str("timestamp", sysmonPayload.Status.Timestamp).
 		Msg("Parsed sysmon metrics")
 
-	s.createSysmonDeviceRecord(ctx, agentID, pollerID, partition, deviceID, sysmonPayload, pollerTimestamp)
-
 	return nil
 }
 
@@ -652,13 +649,14 @@ type sysmonPayload struct {
 	Available    bool  `json:"available"`
 	ResponseTime int64 `json:"response_time"`
 	Status       struct {
-		Timestamp string                 `json:"timestamp"`
-		HostID    string                 `json:"host_id"`
-		HostIP    string                 `json:"host_ip"`
-		CPUs      []models.CPUMetric     `json:"cpus"`
-		Disks     []models.DiskMetric    `json:"disks"`
-		Memory    models.MemoryMetric    `json:"memory"`
-		Processes []models.ProcessMetric `json:"processes"`
+		Timestamp string                    `json:"timestamp"`
+		HostID    string                    `json:"host_id"`
+		HostIP    string                    `json:"host_ip"`
+		CPUs      []models.CPUMetric        `json:"cpus"`
+		Clusters  []models.CPUClusterMetric `json:"clusters,omitempty"`
+		Disks     []models.DiskMetric       `json:"disks"`
+		Memory    models.MemoryMetric       `json:"memory"`
+		Processes []models.ProcessMetric    `json:"processes"`
 	} `json:"status"`
 }
 
@@ -682,6 +680,20 @@ func (s *Server) parseSysmonPayload(details json.RawMessage, pollerID string, ti
 			Msg("Invalid timestamp in sysmon data, using server timestamp")
 
 		pollerTimestamp = timestamp
+	} else {
+		const maxAllowedSkew = 10 * time.Minute
+
+		skew := pollerTimestamp.Sub(timestamp)
+		if skew > maxAllowedSkew || skew < -maxAllowedSkew {
+			s.logger.Warn().
+				Str("poller_id", pollerID).
+				Str("reported_time", payload.Status.Timestamp).
+				Time("ingest_time", timestamp).
+				Dur("skew", skew).
+				Msg("Sysmon payload timestamp skew exceeds threshold; using ingest timestamp")
+
+			pollerTimestamp = timestamp
+		}
 	}
 
 	return &payload, pollerTimestamp, nil
@@ -693,6 +705,7 @@ func (*Server) buildSysmonMetrics(
 
 	m := &models.SysmonMetrics{
 		CPUs:      make([]models.CPUMetric, len(payload.Status.CPUs)),
+		Clusters:  make([]models.CPUClusterMetric, len(payload.Status.Clusters)),
 		Disks:     make([]models.DiskMetric, len(payload.Status.Disks)),
 		Memory:    &models.MemoryMetric{},
 		Processes: make([]models.ProcessMetric, len(payload.Status.Processes)),
@@ -703,10 +716,23 @@ func (*Server) buildSysmonMetrics(
 			CoreID:       cpu.CoreID,
 			UsagePercent: cpu.UsagePercent,
 			FrequencyHz:  cpu.FrequencyHz,
+			Label:        cpu.Label,
+			Cluster:      cpu.Cluster,
 			Timestamp:    pollerTimestamp,
 			HostID:       payload.Status.HostID,
 			HostIP:       payload.Status.HostIP,
 			AgentID:      agentID,
+		}
+	}
+
+	for i, cluster := range payload.Status.Clusters {
+		m.Clusters[i] = models.CPUClusterMetric{
+			Name:        cluster.Name,
+			FrequencyHz: cluster.FrequencyHz,
+			Timestamp:   pollerTimestamp,
+			HostID:      payload.Status.HostID,
+			HostIP:      payload.Status.HostIP,
+			AgentID:     agentID,
 		}
 	}
 
@@ -775,9 +801,9 @@ func (s *Server) processGRPCService(
 	case rperfServiceType:
 		return s.processRperfMetrics(pollerID, partition, serviceData, now)
 	case sysmonServiceType:
-		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
+		return s.processSysmonMetrics(pollerID, partition, agentID, serviceData, now)
 	case "sysmon-vm":
-		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
+		return s.processSysmonMetrics(pollerID, partition, agentID, serviceData, now)
 	case syncServiceType:
 		s.logger.Debug().
 			Str("poller_id", pollerID).
@@ -823,6 +849,8 @@ func (s *Server) processServicePayload(
 		contextPartition = enhancedPayload.Partition
 		contextAgentID = enhancedPayload.AgentID
 	}
+
+	s.ensureServiceDevice(ctx, contextAgentID, contextPollerID, contextPartition, svc, serviceData, now)
 
 	switch svc.ServiceType {
 	case snmpServiceType:

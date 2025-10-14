@@ -394,14 +394,13 @@ func (s *APIServer) handleDeviceSysmonMetrics(
 func (s *APIServer) getCPUMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
 	// Query cpu_metrics table directly for per-core data by device_id
-	query := fmt.Sprintf(`
-		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz
+	const cpuQuery = `
+		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz, label, cluster
 		FROM table(cpu_metrics)
-		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
-		ORDER BY timestamp DESC, core_id ASC`,
-		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, core_id ASC`
 
-	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, cpuQuery, deviceID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query CPU metrics for device %s: %w", deviceID, err)
 	}
@@ -412,22 +411,26 @@ func (s *APIServer) getCPUMetricsForDevice(
 	}()
 
 	data := make(map[time.Time][]models.CPUMetric)
+	clusterData := make(map[time.Time][]models.CPUClusterMetric)
 
 	for rows.Next() {
-		var timestamp time.Time
+		var (
+			timestamp    time.Time
+			agentID      string
+			hostID       string
+			coreID       int32
+			usagePercent float64
+			frequencyHz  float64
+			label        string
+			cluster      string
+		)
 
-		var agentID, hostID string
-
-		var coreID int32
-
-		var usagePercent float64
-
-		var frequencyHz float64
-
-		if err := rows.Scan(&timestamp, &agentID, &hostID, &coreID, &usagePercent, &frequencyHz); err != nil {
+		if err := rows.Scan(&timestamp, &agentID, &hostID, &coreID, &usagePercent, &frequencyHz, &label, &cluster); err != nil {
 			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error scanning CPU metric row")
 			continue
 		}
+
+		key := timestamp.Truncate(time.Second)
 
 		cpu := models.CPUMetric{
 			Timestamp:    timestamp,
@@ -436,20 +439,70 @@ func (s *APIServer) getCPUMetricsForDevice(
 			CoreID:       coreID,
 			UsagePercent: usagePercent,
 			FrequencyHz:  frequencyHz,
+			Label:        label,
+			Cluster:      cluster,
 		}
 
-		data[timestamp] = append(data[timestamp], cpu)
+		data[key] = append(data[key], cpu)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating CPU metrics rows for device %s: %w", deviceID, err)
 	}
 
+	const clusterQuery = `
+		SELECT timestamp, agent_id, host_id, cluster, frequency_hz
+		FROM table(cpu_cluster_metrics)
+		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, cluster ASC`
+
+	clusterRows, err := s.dbService.(*db.DB).Conn.Query(ctx, clusterQuery, deviceID, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query CPU cluster metrics for device %s: %w", deviceID, err)
+	}
+	defer func() {
+		if err := clusterRows.Close(); err != nil {
+			slog.Error("failed to close cluster rows", "error", err)
+		}
+	}()
+
+	for clusterRows.Next() {
+		var (
+			timestamp time.Time
+			agentID   string
+			hostID    string
+			name      string
+			freqHz    float64
+		)
+
+		if err := clusterRows.Scan(&timestamp, &agentID, &hostID, &name, &freqHz); err != nil {
+			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error scanning CPU cluster metric row")
+			continue
+		}
+
+		key := timestamp.Truncate(time.Second)
+
+		clusterMetric := models.CPUClusterMetric{
+			Name:        name,
+			FrequencyHz: freqHz,
+			Timestamp:   timestamp,
+			AgentID:     agentID,
+			HostID:      hostID,
+		}
+
+		clusterData[key] = append(clusterData[key], clusterMetric)
+	}
+
+	if err := clusterRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating CPU cluster metrics for device %s: %w", deviceID, err)
+	}
+
 	result := make([]models.SysmonCPUResponse, 0, len(data))
-	for ts, cpus := range data {
+	for tsKey, cpus := range data {
 		result = append(result, models.SysmonCPUResponse{
 			Cpus:      cpus,
-			Timestamp: ts,
+			Clusters:  clusterData[tsKey],
+			Timestamp: cpus[0].Timestamp,
 		})
 	}
 
@@ -464,14 +517,13 @@ func (s *APIServer) getCPUMetricsForDevice(
 // getMemoryMetricsForDevice queries memory metrics by device_id from memory_metrics table
 func (s *APIServer) getMemoryMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
-	query := fmt.Sprintf(`
+	const query = `
 		SELECT timestamp, agent_id, host_id, used_bytes, total_bytes
 		FROM table(memory_metrics)
-		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
-		ORDER BY timestamp DESC`,
-		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC`
 
-	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query, deviceID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query memory metrics for device %s: %w", deviceID, err)
 	}
@@ -519,14 +571,13 @@ func (s *APIServer) getMemoryMetricsForDevice(
 // getDiskMetricsForDevice queries disk metrics by device_id from disk_metrics table
 func (s *APIServer) getDiskMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
-	query := fmt.Sprintf(`
+	const query = `
 		SELECT timestamp, agent_id, host_id, mount_point, used_bytes, total_bytes
 		FROM table(disk_metrics)
-		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
-		ORDER BY timestamp DESC, mount_point ASC`,
-		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, mount_point ASC`
 
-	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query, deviceID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query disk metrics for device %s: %w", deviceID, err)
 	}
@@ -584,14 +635,13 @@ func (s *APIServer) getDiskMetricsForDevice(
 // getProcessMetricsForDevice queries process metrics by device_id from process_metrics table
 func (s *APIServer) getProcessMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
-	query := fmt.Sprintf(`
+	const query = `
 		SELECT timestamp, agent_id, host_id, pid, name, cpu_usage, memory_usage, status, start_time
 		FROM table(process_metrics)
-		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
-		ORDER BY timestamp DESC, pid ASC`,
-		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, pid ASC`
 
-	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query, deviceID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query process metrics for device %s: %w", deviceID, err)
 	}

@@ -51,6 +51,7 @@ type Server struct {
 	setupKVStore       func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (KVStore, error)
 	logger             logger.Logger
 }
+
 // Duration represents a time duration that can be unmarshaled from JSON.
 type Duration time.Duration
 
@@ -71,28 +72,29 @@ type SweepConfig struct {
 
 // CheckerConfig defines the configuration for individual checker services.
 type CheckerConfig struct {
-	Name       string          `json:"name"`
-	Type       string          `json:"type"`
-	Address    string          `json:"address,omitempty"`
-	Port       int             `json:"port,omitempty"`
-	Timeout    Duration        `json:"timeout,omitempty"`
-	ListenAddr string          `json:"listen_addr,omitempty"`
-	Additional json.RawMessage `json:"additional,omitempty"`
-	Details    json.RawMessage `json:"details,omitempty"`
+	Name       string                 `json:"name"`
+	Type       string                 `json:"type"`
+	Address    string                 `json:"address,omitempty"`
+	Port       int                    `json:"port,omitempty"`
+	Timeout    Duration               `json:"timeout,omitempty"`
+	ListenAddr string                 `json:"listen_addr,omitempty"`
+	Additional json.RawMessage        `json:"additional,omitempty"`
+	Details    json.RawMessage        `json:"details,omitempty"`
+	Security   *models.SecurityConfig `json:"security,omitempty"`
 }
 
 // ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
-    AgentID     string                 `json:"agent_id"`             // Unique identifier for this agent
-    AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
-    HostIP      string                 `json:"host_ip,omitempty"`    // Host IP address for device correlation
-    Partition   string                 `json:"partition,omitempty"`  // Partition for device correlation
-    ListenAddr  string                 `json:"listen_addr"`
-    Security    *models.SecurityConfig `json:"security" hot:"rebuild"`
-    KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
-    KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
-    CheckersDir string                 `json:"checkers_dir"`
-    Logging     *logger.Config         `json:"logging,omitempty" hot:"reload"`
+	AgentID     string                 `json:"agent_id"`             // Unique identifier for this agent
+	AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
+	HostIP      string                 `json:"host_ip,omitempty"`    // Host IP address for device correlation
+	Partition   string                 `json:"partition,omitempty"`  // Partition for device correlation
+	ListenAddr  string                 `json:"listen_addr"`
+	Security    *models.SecurityConfig `json:"security" hot:"rebuild"`
+	KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
+	KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
+	CheckersDir string                 `json:"checkers_dir"`
+	Logging     *logger.Config         `json:"logging,omitempty" hot:"reload"`
 }
 
 // CheckerConnection represents a connection to an external checker service.

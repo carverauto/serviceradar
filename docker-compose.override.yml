@@ -1,0 +1,9 @@
+services:
+  core:
+    image: ghcr.io/carverauto/serviceradar-core:local
+
+  poller:
+    image: ghcr.io/carverauto/serviceradar-poller:local
+
+  agent:
+    image: ghcr.io/carverauto/serviceradar-agent:local
