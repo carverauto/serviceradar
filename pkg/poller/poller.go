@@ -98,9 +98,12 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 	}
 
 	if p.config.CoreAddress != "" && p.PollFunc == nil {
-		if err := p.connectToCore(ctx); err != nil {
+		grpcClient, coreClient, err := p.connectToCore(ctx)
+		if err != nil {
 			return nil, fmt.Errorf("failed to connect to core service: %w", err)
 		}
+		p.grpcClient = grpcClient
+		p.coreClient = coreClient
 	}
 
 	if p.PollFunc == nil {
@@ -178,25 +181,44 @@ func (p *Poller) Stop(ctx context.Context) error {
 	p.startWg.Wait()
 	p.wg.Wait()
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	type agentConn struct {
+		name string
+		conn *grpc.Client
+	}
 
-	if p.coreClient != nil {
-		if err := p.grpcClient.Close(); err != nil {
+	var (
+		coreClientToClose *grpc.Client
+		agentConns        []agentConn
+	)
+
+	p.mu.Lock()
+	if p.grpcClient != nil {
+		coreClientToClose = p.grpcClient
+		p.grpcClient = nil
+		p.coreClient = nil
+	}
+	for name, agentPoller := range p.agents {
+		if agentPoller.clientConn != nil {
+			agentConns = append(agentConns, agentConn{name: name, conn: agentPoller.clientConn})
+			agentPoller.clientConn = nil
+		}
+	}
+	p.agents = make(map[string]*AgentPoller)
+	p.mu.Unlock()
+
+	if coreClientToClose != nil {
+		if err := coreClientToClose.Close(); err != nil {
 			p.logger.Error().Err(err).Msg("Error closing core client")
 		}
 	}
-
-	for name, agentPoller := range p.agents {
-		if agentPoller.clientConn != nil {
-			if err := agentPoller.clientConn.Close(); err != nil {
-				p.logger.Error().Err(err).Str("agent", name).Msg("Error closing agent connection")
-			}
+	for _, ac := range agentConns {
+		if ac.conn == nil {
+			continue
+		}
+		if err := ac.conn.Close(); err != nil {
+			p.logger.Error().Err(err).Str("agent", ac.name).Msg("Error closing agent connection")
 		}
 	}
-
-	p.agents = make(map[string]*AgentPoller)
-	p.coreClient = nil
 
 	return nil
 }
@@ -206,21 +228,42 @@ func (p *Poller) Close() error {
 	var errs []error
 
 	p.closeOnce.Do(func() { close(p.done) })
+	type agentConn struct {
+		name string
+		conn *grpc.Client
+	}
+
+	var (
+		coreClientToClose *grpc.Client
+		agentConns        []agentConn
+	)
+
 	p.mu.Lock()
-
-	defer p.mu.Unlock()
-
 	if p.grpcClient != nil {
-		if err := p.grpcClient.Close(); err != nil {
+		coreClientToClose = p.grpcClient
+		p.grpcClient = nil
+		p.coreClient = nil
+	}
+	for name, agentPoller := range p.agents {
+		if agentPoller.clientConn != nil {
+			agentConns = append(agentConns, agentConn{name: name, conn: agentPoller.clientConn})
+			agentPoller.clientConn = nil
+		}
+	}
+	p.agents = make(map[string]*AgentPoller)
+	p.mu.Unlock()
+
+	if coreClientToClose != nil {
+		if err := coreClientToClose.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("error closing core client: %w", err))
 		}
 	}
-
-	for name, agentPoller := range p.agents {
-		if agentPoller.clientConn != nil {
-			if err := agentPoller.clientConn.Close(); err != nil {
-				errs = append(errs, fmt.Errorf("%w: %s (%w)", errClosing, name, err))
-			}
+	for _, ac := range agentConns {
+		if ac.conn == nil {
+			continue
+		}
+		if err := ac.conn.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("%w: %s (%w)", errClosing, ac.name, err))
 		}
 	}
 
@@ -231,7 +274,7 @@ func (p *Poller) Close() error {
 	return nil
 }
 
-func (p *Poller) connectToCore(ctx context.Context) error {
+func (p *Poller) connectToCore(ctx context.Context) (*grpc.Client, proto.PollerServiceClient, error) {
 	clientCfg := grpc.ClientConfig{
 		Address:    p.config.CoreAddress,
 		MaxRetries: grpcRetries,
@@ -241,7 +284,7 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 	if p.config.Security != nil {
 		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security, p.logger)
 		if err != nil {
-			return fmt.Errorf("failed to create security provider: %w", err)
+			return nil, nil, fmt.Errorf("failed to create security provider: %w", err)
 		}
 
 		clientCfg.SecurityProvider = provider
@@ -251,13 +294,12 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 
 	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
-		return fmt.Errorf("failed to create core client: %w", err)
+		return nil, nil, fmt.Errorf("failed to create core client: %w", err)
 	}
 
-	p.grpcClient = client
-	p.coreClient = proto.NewPollerServiceClient(client.GetConnection())
+	coreClient := proto.NewPollerServiceClient(client.GetConnection())
 
-	return nil
+	return client, coreClient, nil
 }
 
 func (p *Poller) initializeAgentPollers(ctx context.Context) error {
@@ -482,18 +524,32 @@ func (p *Poller) reconnectCore(ctx context.Context) error {
 	reconnectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
+	var clientToClose *grpc.Client
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.grpcClient != nil {
-		if err := p.grpcClient.Close(); err != nil {
-			p.logger.Warn().Err(err).Msg("Failed to close existing core client during reconnect")
-		}
+		clientToClose = p.grpcClient
 		p.grpcClient = nil
 		p.coreClient = nil
 	}
+	p.mu.Unlock()
 
-	return p.connectToCore(reconnectCtx)
+	if clientToClose != nil {
+		if err := clientToClose.Close(); err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to close existing core client during reconnect")
+		}
+	}
+
+	grpcClient, coreClient, err := p.connectToCore(reconnectCtx)
+	if err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	p.grpcClient = grpcClient
+	p.coreClient = coreClient
+	p.mu.Unlock()
+
+	return nil
 }
 
 func (p *Poller) shouldReconnect(err error) bool {
@@ -613,14 +669,29 @@ func (p *Poller) UpdateConfig(ctx context.Context, cfg *Config) error {
 		}
 	}
 	if reconnectCore {
+		p.mu.Lock()
+		var clientToClose *grpc.Client
 		if p.grpcClient != nil {
-			_ = p.grpcClient.Close()
+			clientToClose = p.grpcClient
 			p.grpcClient = nil
 			p.coreClient = nil
 		}
-		if err := p.connectToCore(ctx); err != nil {
+		p.mu.Unlock()
+
+		if clientToClose != nil {
+			if err := clientToClose.Close(); err != nil {
+				p.logger.Warn().Err(err).Msg("Failed to close core client before config reconnect")
+			}
+		}
+
+		grpcClient, coreClient, err := p.connectToCore(ctx)
+		if err != nil {
 			p.logger.Error().Err(err).Msg("Failed to reconnect to core")
 		} else {
+			p.mu.Lock()
+			p.grpcClient = grpcClient
+			p.coreClient = coreClient
+			p.mu.Unlock()
 			p.logger.Info().Msg("Reconnected to core after config change")
 		}
 	}
