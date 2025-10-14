@@ -741,43 +741,40 @@ export const clearMetricsCache = () => {
 export const getCombinedChartData = (data) => {
     if (!data) return [];
 
-    // Find the dataset with the most points to use as base
-    let baseData = [];
-    let baseKey = '';
+    const SERIES_KEYS = ['cpu', 'memory', 'disk', 'process'];
+    const pointMap = new Map();
 
-    for (const key of ['cpu', 'memory', 'disk', 'process']) {
-        if (data[key] && Array.isArray(data[key].data) && data[key].data.length > baseData.length) {
-            baseData = data[key].data;
-            baseKey = key;
+    SERIES_KEYS.forEach((key) => {
+        const series = data[key];
+        if (!series || !Array.isArray(series.data)) {
+            return;
         }
-    }
 
-    if (baseData.length === 0) {
+        series.data.forEach((point) => {
+            if (!point || !point.timestamp) {
+                return;
+            }
+
+            const bucket = pointMap.get(point.timestamp) ?? {
+                timestamp: point.timestamp,
+                formattedTime: point.formattedTime,
+            };
+
+            // Preserve the first non-null formatted time we encounter
+            if (!bucket.formattedTime && point.formattedTime) {
+                bucket.formattedTime = point.formattedTime;
+            }
+
+            bucket[key] = point.value ?? null;
+            pointMap.set(point.timestamp, bucket);
+        });
+    });
+
+    if (pointMap.size === 0) {
         console.warn('No data available for combined chart');
         return [];
     }
 
-    // Create combined dataset using timestamps from the base dataset
-    return baseData.map(basePoint => {
-        const result = {
-            timestamp: basePoint.timestamp,
-            formattedTime: basePoint.formattedTime,
-        };
-
-        // Add data points for each metric type (cpu, memory, disk, process)
-        for (const key of ['cpu', 'memory', 'disk', 'process']) {
-            if (key === baseKey) {
-                // For the base dataset, use values directly
-                result[key] = basePoint.value;
-            } else if (data[key] && Array.isArray(data[key].data)) {
-                // For other datasets, find matching timestamp or use null
-                const matchingPoint = data[key].data.find(p => p.timestamp === basePoint.timestamp);
-                result[key] = matchingPoint ? matchingPoint.value : null;
-            } else {
-                result[key] = null;
-            }
-        }
-
-        return result;
-    });
+    return Array.from(pointMap.values())
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 };
