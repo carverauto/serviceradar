@@ -221,11 +221,6 @@ ORDER BY (timestamp, device_id, host_id, cluster, core_id)
  TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
  SETTINGS index_granularity = 8192;
 
-ALTER STREAM cpu_metrics
-  ADD INDEX IF NOT EXISTS idx_cluster cluster TYPE bloom_filter GRANULARITY 1;
-ALTER STREAM cpu_metrics
-  ADD INDEX IF NOT EXISTS idx_label label TYPE bloom_filter GRANULARITY 1;
-
 CREATE STREAM IF NOT EXISTS cpu_cluster_metrics (
     timestamp         DateTime64(3),
     poller_id         string,
