@@ -12,6 +12,7 @@ go_library(
         "//alias:config",
         "//alias:lifecycle",
         "//alias:logger",
+        "//pkg/cpufreq:cpufreq",
         "//proto",
         "@org_golang_google_grpc//:grpc",
     ],

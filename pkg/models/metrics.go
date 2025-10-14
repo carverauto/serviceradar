@@ -58,7 +58,7 @@ const MetricPointSize = 32 // 8 bytes timestamp + 8 bytes response + 16 bytes na
 type SysmonMetrics struct {
 	// CPU usage metrics for individual cores
 	CPUs []CPUMetric `json:"cpus"`
-	// CPU cluster-level frequency metrics
+	// Aggregate CPU cluster metrics (e.g., big.LITTLE clusters)
 	Clusters []CPUClusterMetric `json:"clusters,omitempty"`
 	// Disk usage metrics for various mount points
 	Disks []DiskMetric `json:"disks"`
@@ -73,9 +73,9 @@ type SysmonMetrics struct {
 type CPUMetric struct {
 	// ID number of the CPU core
 	CoreID int32 `json:"core_id" example:"0"`
-	// Human-readable label for the core (platform-dependent)
+	// Platform label for the CPU core (e.g., ECPU0, PCPU3)
 	Label string `json:"label,omitempty" example:"ECPU0"`
-	// Logical cluster identifier the core belongs to (platform-dependent)
+	// Cluster identifier this core belongs to (e.g., ECPU, PCPU)
 	Cluster string `json:"cluster,omitempty" example:"ECPU"`
 	// Usage percentage (0-100)
 	UsagePercent float64 `json:"usage_percent" example:"45.2"`
@@ -91,13 +91,13 @@ type CPUMetric struct {
 	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }
 
-// CPUClusterMetric represents aggregate frequency information for a CPU cluster.
-// @Description Aggregated CPU cluster metrics (for big.LITTLE style architectures).
+// CPUClusterMetric represents aggregated CPU cluster telemetry.
+// @Description Aggregated metrics for a logical CPU cluster (e.g., efficiency or performance cores).
 type CPUClusterMetric struct {
-	// Logical cluster name (e.g. ECPU, PCPU)
+	// Cluster name (e.g., ECPU, PCPU)
 	Name string `json:"name" example:"ECPU"`
-	// Average frequency in Hz for the cluster
-	FrequencyHz float64 `json:"frequency_hz" example:"1300000000"`
+	// Instantaneous frequency in Hz, if available.
+	FrequencyHz float64 `json:"frequency_hz" example:"1700000000"`
 	// When this metric was collected
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
 	// Host identifier for the agent that collected this metric
