@@ -32,6 +32,29 @@ const bytesToGB = (bytes) => {
     return isNaN(parsedBytes) ? 0 : (parsedBytes / 1024 / 1024 / 1024).toFixed(1);
 };
 
+const hzToGHz = (hz) => {
+    const value = Number(hz);
+    if (!Number.isFinite(value) || value <= 0) {
+        return null;
+    }
+
+    return value / 1_000_000_000;
+};
+
+const average = (values) => {
+    if (!Array.isArray(values) || values.length === 0) {
+        return null;
+    }
+
+    const total = values.reduce((sum, val) => sum + val, 0);
+    return total / values.length;
+};
+
+const toNumberOrNull = (value) => {
+    const asNumber = Number(value);
+    return Number.isFinite(asNumber) ? asNumber : null;
+};
+
 // Safe property access helper
 const safeGet = (obj, path, defaultValue = null) => {
     try {
@@ -41,6 +64,106 @@ const safeGet = (obj, path, defaultValue = null) => {
         console.warn(`Error accessing property path: ${path}`, e);
         return defaultValue;
     }
+};
+
+const buildClusterSummaries = (cores) => {
+    if (!Array.isArray(cores) || cores.length === 0) {
+        return [];
+    }
+
+    const deriveClusterName = (core) => {
+        const rawCluster = safeGet(core, 'cluster', null);
+        if (rawCluster && typeof rawCluster === 'string' && rawCluster.trim().length > 0) {
+            return rawCluster.trim();
+        }
+
+        const label = safeGet(core, 'label', null);
+        if (typeof label === 'string' && label.trim().length > 0) {
+            const match = label.trim().match(/^[A-Za-z]+/);
+            if (match && match[0]) {
+                return match[0];
+            }
+        }
+
+        const name = safeGet(core, 'name', null);
+        if (typeof name === 'string' && name.trim().length > 0) {
+            const match = name.trim().match(/^[A-Za-z]+/);
+            if (match && match[0]) {
+                return match[0];
+            }
+        }
+
+        return 'Unassigned';
+    };
+
+    const clusterMap = new Map();
+
+    cores.forEach((core) => {
+        if (!core) {
+            return;
+        }
+
+        const clusterName = deriveClusterName(core);
+        if (!clusterMap.has(clusterName)) {
+            clusterMap.set(clusterName, {
+                name: clusterName,
+                cores: 0,
+                usageSum: 0,
+                frequencySum: 0,
+                frequencySamples: 0,
+            });
+        }
+
+        const entry = clusterMap.get(clusterName);
+        entry.cores += 1;
+
+        const usage = toNumberOrNull(core.usage_percent);
+        if (usage !== null) {
+            entry.usageSum += usage;
+        }
+
+        const freq = toNumberOrNull(core.frequency_hz);
+        if (freq !== null) {
+            entry.frequencySum += freq;
+            entry.frequencySamples += 1;
+        }
+    });
+
+    return Array.from(clusterMap.values()).map((entry) => ({
+        name: entry.name,
+        cores: entry.cores,
+        averageUsage: entry.cores > 0 ? entry.usageSum / entry.cores : 0,
+        averageFrequencyHz: entry.frequencySamples > 0
+            ? entry.frequencySum / entry.frequencySamples
+            : null,
+    }));
+};
+
+const extractSysmonMetadata = (sample) => {
+    if (!sample || typeof sample !== 'object') {
+        return null;
+    }
+
+    const metadataSource = sample.status || {};
+    const coreSample = Array.isArray(sample.cpus) ? sample.cpus.find(Boolean) : null;
+
+    const hostId = coreSample?.host_id || metadataSource.host_id || null;
+    const hostIp = coreSample?.host_ip || metadataSource.host_ip || null;
+    const agentId = coreSample?.agent_id || metadataSource.agent_id || null;
+    const responseTimeNs = toNumberOrNull(sample.response_time || metadataSource.response_time);
+    const timestamp = sample.timestamp || metadataSource.timestamp || null;
+
+    if (!hostId && !hostIp && !agentId && !timestamp) {
+        return null;
+    }
+
+    return {
+        hostId,
+        hostIp,
+        agentId,
+        responseTimeNs,
+        timestamp,
+    };
 };
 
 // Fetch system data from API
@@ -119,10 +242,16 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
         let cpuDataPoints = [];
         let currentCpuValue = 0;
         let cpuCores = [];
+        let cpuFrequencyDataPoints = [];
+        let currentCpuFrequency = null;
+        let cpuFrequencyCores = [];
+        let cpuClusters = [];
+        let cpuMetadata = null;
 
         if (cpuResponse) {
             try {
                 if (Array.isArray(cpuResponse)) {
+                    const latestSample = cpuResponse.length > 0 ? cpuResponse[0] : null;
                     cpuDataPoints = cpuResponse.map(point => {
                         const cores = safeGet(point, 'cpus', []);
                         const avgUsage = cores.length > 0
@@ -134,12 +263,36 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
                             value: parseFloat(avgUsage.toFixed(1)),
                         };
                     });
-                    cpuCores = safeGet(cpuResponse[0], 'cpus', []);
+                    const latestCores = safeGet(latestSample, 'cpus', []);
+                    cpuMetadata = extractSysmonMetadata(latestSample);
+                    cpuClusters = buildClusterSummaries(latestCores);
+                    cpuCores = latestCores;
+                    cpuFrequencyDataPoints = cpuResponse.map(point => {
+                        const rawTimestamp = safeGet(point, 'timestamp', new Date().toISOString());
+                        const cores = safeGet(point, 'cpus', []);
+                        const frequencies = cores
+                            .map(core => hzToGHz(safeGet(core, 'frequency_hz', null)))
+                            .filter(value => value !== null);
+                        const avgFreq = average(frequencies);
+
+                        return {
+                            timestamp: rawTimestamp,
+                            formattedTime: new Date(rawTimestamp).toLocaleTimeString(),
+                            value: avgFreq !== null ? parseFloat(avgFreq.toFixed(3)) : null,
+                        };
+                    });
                     currentCpuValue = cpuCores.length > 0
                         ? cpuCores.reduce((sum, core) => sum + safeGet(core, 'usage_percent', 0), 0) / cpuCores.length
                         : 0;
+
+                    const latestFrequencyPoint = cpuFrequencyDataPoints.find(point => point.value !== null);
+                    if (latestFrequencyPoint) {
+                        currentCpuFrequency = latestFrequencyPoint.value;
+                    }
                 } else {
                     cpuCores = safeGet(cpuResponse, 'cpus', []);
+                    cpuMetadata = extractSysmonMetadata(cpuResponse);
+                    cpuClusters = buildClusterSummaries(cpuCores);
                     currentCpuValue = cpuCores.length > 0
                         ? cpuCores.reduce((sum, core) => sum + safeGet(core, 'usage_percent', 0), 0) / cpuCores.length
                         : 0;
@@ -148,10 +301,38 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
                         formattedTime: new Date(safeGet(cpuResponse, 'timestamp', new Date())).toLocaleTimeString(),
                         value: parseFloat(currentCpuValue.toFixed(1)),
                     }];
+
+                    const frequencies = cpuCores
+                        .map(core => hzToGHz(safeGet(core, 'frequency_hz', null)))
+                        .filter(value => value !== null);
+                    const avgFreq = average(frequencies);
+                    const rawTimestamp = safeGet(cpuResponse, 'timestamp', new Date().toISOString());
+                    cpuFrequencyDataPoints = [{
+                        timestamp: rawTimestamp,
+                        formattedTime: new Date(rawTimestamp).toLocaleTimeString(),
+                        value: avgFreq !== null ? parseFloat(avgFreq.toFixed(3)) : null,
+                    }];
+
+                    if (avgFreq !== null) {
+                        currentCpuFrequency = parseFloat(avgFreq.toFixed(3));
+                    }
                 }
             } catch (err) {
                 console.error('Error processing CPU data:', err);
             }
+        }
+
+        if (cpuCores.length > 0) {
+            cpuFrequencyCores = cpuCores
+                .map(core => {
+                    const frequency = hzToGHz(safeGet(core, 'frequency_hz', null));
+                    return {
+                        cluster: safeGet(core, 'cluster', null),
+                        name: safeGet(core, 'label', null) || `Core ${safeGet(core, 'core_id', 'Unknown')}`,
+                        value: frequency !== null ? parseFloat(frequency.toFixed(3)) : null,
+                    };
+                })
+                .filter(core => core.value !== null);
         }
 
         // Process memory metrics with proper null checks
@@ -299,12 +480,63 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
             unit: '%',
             min: 0,
             max: 100,
-            cores: cpuCores.map(core => ({
-                name: `Core ${safeGet(core, 'core_id', 'Unknown')}`,
-                value: safeGet(core, 'usage_percent', 0),
-            })),
+            cores: cpuCores.map(core => {
+        const label = safeGet(core, 'label', null);
+        const coreId = safeGet(core, 'core_id', 'Unknown');
+        const rawCluster = safeGet(core, 'cluster', null);
+        const cluster = (() => {
+            if (rawCluster && typeof rawCluster === 'string' && rawCluster.trim().length > 0) {
+                return rawCluster.trim();
+            }
+            if (typeof label === 'string' && label.trim().length > 0) {
+                const match = label.trim().match(/^[A-Za-z]+/);
+                if (match && match[0]) {
+                    return match[0];
+                }
+            }
+            return null;
+        })();
+        const baseName = label || `Core ${coreId}`;
+        const includeCluster = cluster && !String(baseName).toLowerCase().includes(String(cluster).toLowerCase());
+        const displayName = includeCluster ? `${baseName} (${cluster})` : baseName;
+        const usagePercent = safeGet(core, 'usage_percent', 0);
+        const frequencyHz = toNumberOrNull(safeGet(core, 'frequency_hz', null));
+                const frequencyGHz = Number.isFinite(frequencyHz) && frequencyHz > 0 ? hzToGHz(frequencyHz) : null;
+
+                return {
+                    name: displayName,
+                    rawLabel: baseName,
+                    coreId,
+                    value: usagePercent,
+                    cluster,
+                    frequencyHz,
+                    frequencyGHz,
+                };
+            }),
             change: 0,
+            clusters: cpuClusters,
+            metadata: cpuMetadata,
         };
+
+        let cpuFrequency = null;
+        const nonNullFrequencyPoints = cpuFrequencyDataPoints.filter(point => point && point.value !== null);
+        if (nonNullFrequencyPoints.length > 0) {
+            const latestFrequency = currentCpuFrequency ?? nonNullFrequencyPoints[0].value;
+            const frequencyValues = nonNullFrequencyPoints.map(point => point.value);
+            const maxFrequency = Math.max(...frequencyValues);
+
+            cpuFrequency = {
+                current: parseFloat(latestFrequency.toFixed(3)),
+                unit: 'GHz',
+                min: 0,
+                max: parseFloat(maxFrequency.toFixed(3)),
+                data: cpuFrequencyDataPoints,
+                change: 0,
+                cores: cpuFrequencyCores,
+                clusters: cpuClusters,
+                metadata: cpuMetadata,
+            };
+        }
 
         const memory = {
             current: parseFloat(memPercent.toFixed(1)),
@@ -360,6 +592,9 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
         };
 
         const result = { cpu, memory, disk, process };
+        if (cpuFrequency) {
+            result.cpuFrequency = cpuFrequency;
+        }
         console.log('Processed data points:', {
             cpuPoints: cpuDataPoints.length,
             memoryPoints: memoryDataPoints.length,
@@ -506,43 +741,40 @@ export const clearMetricsCache = () => {
 export const getCombinedChartData = (data) => {
     if (!data) return [];
 
-    // Find the dataset with the most points to use as base
-    let baseData = [];
-    let baseKey = '';
+    const SERIES_KEYS = ['cpu', 'memory', 'disk', 'process'];
+    const pointMap = new Map();
 
-    for (const key of ['cpu', 'memory', 'disk', 'process']) {
-        if (data[key] && Array.isArray(data[key].data) && data[key].data.length > baseData.length) {
-            baseData = data[key].data;
-            baseKey = key;
+    SERIES_KEYS.forEach((key) => {
+        const series = data[key];
+        if (!series || !Array.isArray(series.data)) {
+            return;
         }
-    }
 
-    if (baseData.length === 0) {
+        series.data.forEach((point) => {
+            if (!point || !point.timestamp) {
+                return;
+            }
+
+            const bucket = pointMap.get(point.timestamp) ?? {
+                timestamp: point.timestamp,
+                formattedTime: point.formattedTime,
+            };
+
+            // Preserve the first non-null formatted time we encounter
+            if (!bucket.formattedTime && point.formattedTime) {
+                bucket.formattedTime = point.formattedTime;
+            }
+
+            bucket[key] = point.value ?? null;
+            pointMap.set(point.timestamp, bucket);
+        });
+    });
+
+    if (pointMap.size === 0) {
         console.warn('No data available for combined chart');
         return [];
     }
 
-    // Create combined dataset using timestamps from the base dataset
-    return baseData.map(basePoint => {
-        const result = {
-            timestamp: basePoint.timestamp,
-            formattedTime: basePoint.formattedTime,
-        };
-
-        // Add data points for each metric type (cpu, memory, disk, process)
-        for (const key of ['cpu', 'memory', 'disk', 'process']) {
-            if (key === baseKey) {
-                // For the base dataset, use values directly
-                result[key] = basePoint.value;
-            } else if (data[key] && Array.isArray(data[key].data)) {
-                // For other datasets, find matching timestamp or use null
-                const matchingPoint = data[key].data.find(p => p.timestamp === basePoint.timestamp);
-                result[key] = matchingPoint ? matchingPoint.value : null;
-            } else {
-                result[key] = null;
-            }
-        }
-
-        return result;
-    });
+    return Array.from(pointMap.values())
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 };

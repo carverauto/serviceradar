@@ -36,7 +36,7 @@ func NewService(log logger.Logger, sampleInterval time.Duration) *Service {
 	return &Service{
 		log:             log,
 		sampleInterval:  sampleInterval,
-        freqCollector:   cpufreq.NewCollector(sampleInterval),
+		freqCollector:   cpufreq.NewCollector(sampleInterval),
 		usageCollector:  cpu.PercentWithContext,
 		hostIdentifier:  hostIdentifier,
 		localIPResolver: localIP,
@@ -64,6 +64,9 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 	hostIP := s.localIPResolver(ctx)
 
 	cpus := make([]models.CPUMetric, 0, len(freqSnapshot.Cores))
+	now := time.Now().UTC()
+	agentID := req.GetAgentId()
+
 	for _, core := range freqSnapshot.Cores {
 		usage := 0.0
 		if core.CoreID >= 0 && core.CoreID < len(usagePercent) {
@@ -74,6 +77,24 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 			CoreID:       int32(core.CoreID),
 			UsagePercent: usage,
 			FrequencyHz:  core.FrequencyHz,
+			Label:        core.Label,
+			Cluster:      core.Cluster,
+			Timestamp:    now,
+			HostID:       hostID,
+			HostIP:       hostIP,
+			AgentID:      agentID,
+		})
+	}
+
+	clusterMetrics := make([]models.CPUClusterMetric, 0, len(freqSnapshot.Clusters))
+	for _, cluster := range freqSnapshot.Clusters {
+		clusterMetrics = append(clusterMetrics, models.CPUClusterMetric{
+			Name:        cluster.Name,
+			FrequencyHz: cluster.FrequencyHz,
+			Timestamp:   now,
+			HostID:      hostID,
+			HostIP:      hostIP,
+			AgentID:     agentID,
 		})
 	}
 
@@ -81,13 +102,14 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 		Available    bool  `json:"available"`
 		ResponseTime int64 `json:"response_time"`
 		Status       struct {
-			Timestamp string                 `json:"timestamp"`
-			HostID    string                 `json:"host_id"`
-			HostIP    string                 `json:"host_ip"`
-			CPUs      []models.CPUMetric     `json:"cpus"`
-			Disks     []models.DiskMetric    `json:"disks"`
-			Memory    models.MemoryMetric    `json:"memory"`
-			Processes []models.ProcessMetric `json:"processes"`
+			Timestamp string                    `json:"timestamp"`
+			HostID    string                    `json:"host_id"`
+			HostIP    string                    `json:"host_ip"`
+			CPUs      []models.CPUMetric        `json:"cpus"`
+			Clusters  []models.CPUClusterMetric `json:"clusters,omitempty"`
+			Disks     []models.DiskMetric       `json:"disks"`
+			Memory    models.MemoryMetric       `json:"memory"`
+			Processes []models.ProcessMetric    `json:"processes"`
 		} `json:"status"`
 	}{
 		Available:    true,
@@ -98,6 +120,7 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 	payload.Status.HostID = hostID
 	payload.Status.HostIP = hostIP
 	payload.Status.CPUs = cpus
+	payload.Status.Clusters = clusterMetrics
 	payload.Status.Disks = []models.DiskMetric{}
 	payload.Status.Memory = models.MemoryMetric{}
 	payload.Status.Processes = []models.ProcessMetric{}

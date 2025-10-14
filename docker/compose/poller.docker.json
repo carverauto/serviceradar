@@ -80,7 +80,7 @@
                 {
                     "service_type": "grpc",
                     "service_name": "sysmon-vm",
-                    "details": "192.168.1.219:50110"
+                    "details": "${SYSMON_VM_ADDRESS:-sysmon-vm:50110}"
                 },
                 {
                     "service_type": "grpc",

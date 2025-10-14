@@ -19,14 +19,23 @@ CERT_DIR="/etc/serviceradar/certs"
 CONFIG_DIR="/etc/serviceradar/config"
 CORE_CONFIG="$CONFIG_DIR/core.json"
 API_ENV="$CONFIG_DIR/api.env"
+CHECKERS_DIR="$CONFIG_DIR/checkers"
+SYSMON_VM_ADDRESS="${SYSMON_VM_ADDRESS:-192.168.1.219:50110}"
 
 # Create config directory
 mkdir -p "$CONFIG_DIR"
+mkdir -p "$CHECKERS_DIR"
 
 echo "Updating ServiceRadar configurations with generated secrets..."
 
-# Copy template config to generated config directory
-cp /config/core.docker.json "$CORE_CONFIG"
+# Seed core.json from template only on first run so we preserve generated keys between restarts
+if [ ! -f "$CORE_CONFIG" ]; then
+    echo "Seeding core.json from template for the first time..."
+    cp /config/core.docker.json "$CORE_CONFIG"
+    echo "✅ Created core.json from template"
+else
+    echo "core.json already exists; preserving existing auth keys and settings"
+fi
 
 # Generate JWT secret and API key if they don't exist
 if [ ! -f "$CERT_DIR/jwt-secret" ]; then
@@ -145,3 +154,27 @@ fi
 # configurations are only used within the running containers.
 
 echo "🎉 Configuration update complete!"
+
+# Generate sysmon-vm checker configuration with runtime overrides
+cat > "$CHECKERS_DIR/sysmon-vm.json" <<EOF
+{
+  "name": "sysmon-vm",
+  "type": "grpc",
+  "address": "$SYSMON_VM_ADDRESS",
+  "security": {
+    "mode": "none",
+    "role": "agent"
+  }
+}
+EOF
+echo "✅ Generated sysmon-vm checker config with address $SYSMON_VM_ADDRESS"
+
+# Prepare poller configuration with sysmon-vm override
+if [ -f /templates/poller.docker.json ]; then
+    cp /templates/poller.docker.json "$CONFIG_DIR/poller.json"
+    jq --arg addr "$SYSMON_VM_ADDRESS" '
+        (.agents[]?.checks[]? | select(.service_name == "sysmon-vm")).details = $addr
+    ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
+    mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
+    echo "✅ Generated poller.json with sysmon-vm address $SYSMON_VM_ADDRESS"
+fi

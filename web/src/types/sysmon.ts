@@ -71,3 +71,58 @@ export interface SysmonData {
         change: number;
     };
 }
+
+export interface SysmonVmCpuCore {
+    core_id: number;
+    label?: string;
+    cluster?: string;
+    usage_percent: number;
+    frequency_hz?: number;
+    timestamp?: string;
+}
+
+export interface SysmonVmCluster {
+    name: string;
+    frequency_hz?: number;
+    timestamp?: string;
+}
+
+export interface SysmonVmMemory {
+    used_bytes?: number;
+    total_bytes?: number;
+    timestamp?: string;
+}
+
+export interface SysmonVmDisk {
+    mount_point?: string;
+    filesystem?: string;
+    total_bytes?: number;
+    used_bytes?: number;
+    used_percent?: number;
+    timestamp?: string;
+}
+
+export interface SysmonVmProcess {
+    pid?: number;
+    name?: string;
+    cpu_usage?: number;
+    memory_usage?: number;
+    status?: string;
+    start_time?: string;
+}
+
+export interface SysmonVmStatusPayload {
+    available: boolean;
+    response_time: number;
+    error?: string;
+    status?: {
+        timestamp?: string;
+        host_id?: string;
+        host_ip?: string;
+        cpus?: SysmonVmCpuCore[];
+        clusters?: SysmonVmCluster[];
+        disks?: SysmonVmDisk[];
+        memory?: SysmonVmMemory;
+        processes?: SysmonVmProcess[];
+    };
+}

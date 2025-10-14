@@ -157,7 +157,7 @@
 - **2025-10-10:** Replaced poller enrichment with dedicated `sysmon-vm` gRPC checker service, integrating CPU-frequency telemetry through the standard agent/core pipeline.
 
 ## Operational Checklist
-- [ ] Apply migration `00000000000006_cpu_frequency_column.up.sql` (or redeploy using the updated base schema) so `cpu_metrics.frequency_hz` exists before rolling out the checker.
+- [ ] Apply migration `00000000000007_cpu_frequency_column.up.sql` (or redeploy using the updated base schema) so `cpu_metrics.frequency_hz` exists before rolling out the checker.
 - [ ] Package and deploy the `sysmon-vm` checker binary/config with appropriate TLS materials.
 - [ ] Register a new gRPC check (`name=sysmon-vm`) in the agent configuration/KV pointing to the checker instance.
 - [ ] Confirm frequency data is present via the `/pollers/{id}/sysmon/cpu` API or Proton SQL queries using `frequency_hz`.

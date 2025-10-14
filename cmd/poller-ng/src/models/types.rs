@@ -34,6 +34,19 @@ pub struct ServiceStatus {
 pub struct CPUMetric {
     pub core_id: i32,
     pub usage_percent: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_hz: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cluster: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CPUClusterMetric {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_hz: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,6 +67,8 @@ pub struct SysmonMetrics {
     pub timestamp: String,
     pub host_id: String,
     pub cpus: Vec<CPUMetric>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clusters: Vec<CPUClusterMetric>,
     pub disks: Vec<DiskMetric>,
     pub memory: MemoryMetric,
 }

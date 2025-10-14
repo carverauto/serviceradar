@@ -80,5 +80,5 @@ Key options:
 Refer back to `cpu_plan.md` for Phase 5+ (metric verification, sysmon-vm telemetry plumbing, dashboard work).
 
 ## Migration Notes
-- Apply migration `pkg/db/migrations/00000000000006_cpu_frequency_column.up.sql` (and ensure fresh installs use the updated base migration) so the `cpu_metrics` stream includes the `frequency_hz` column.
+- Apply migration `pkg/db/migrations/00000000000007_cpu_frequency_column.up.sql` (and ensure fresh installs use the updated base migration) so the `cpu_metrics` stream includes the `frequency_hz` column.
 - If you roll back, run the matching `.down.sql` to drop the column.

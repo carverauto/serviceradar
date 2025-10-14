@@ -58,6 +58,8 @@ const MetricPointSize = 32 // 8 bytes timestamp + 8 bytes response + 16 bytes na
 type SysmonMetrics struct {
 	// CPU usage metrics for individual cores
 	CPUs []CPUMetric `json:"cpus"`
+	// CPU cluster-level frequency metrics
+	Clusters []CPUClusterMetric `json:"clusters,omitempty"`
 	// Disk usage metrics for various mount points
 	Disks []DiskMetric `json:"disks"`
 	// Memory usage metrics
@@ -71,10 +73,31 @@ type SysmonMetrics struct {
 type CPUMetric struct {
 	// ID number of the CPU core
 	CoreID int32 `json:"core_id" example:"0"`
+	// Human-readable label for the core (platform-dependent)
+	Label string `json:"label,omitempty" example:"ECPU0"`
+	// Logical cluster identifier the core belongs to (platform-dependent)
+	Cluster string `json:"cluster,omitempty" example:"ECPU"`
 	// Usage percentage (0-100)
 	UsagePercent float64 `json:"usage_percent" example:"45.2"`
 	// Instantaneous frequency in Hz, if available.
 	FrequencyHz float64 `json:"frequency_hz" example:"2400000000"`
+	// When this metric was collected
+	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
+	// Host identifier for the agent that collected this metric
+	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// Host IP address for the agent that collected this metric
+	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
+	// ServiceRadar agent identifier
+	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
+}
+
+// CPUClusterMetric represents aggregate frequency information for a CPU cluster.
+// @Description Aggregated CPU cluster metrics (for big.LITTLE style architectures).
+type CPUClusterMetric struct {
+	// Logical cluster name (e.g. ECPU, PCPU)
+	Name string `json:"name" example:"ECPU"`
+	// Average frequency in Hz for the cluster
+	FrequencyHz float64 `json:"frequency_hz" example:"1300000000"`
 	// When this metric was collected
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
 	// Host identifier for the agent that collected this metric
@@ -268,8 +291,9 @@ type SysmonMemoryResponse struct {
 
 // SysmonCPUResponse represents a CPU metrics response grouped by timestamp.
 type SysmonCPUResponse struct {
-	Cpus      []CPUMetric `json:"cpus"`
-	Timestamp time.Time   `json:"timestamp"`
+	Cpus      []CPUMetric        `json:"cpus"`
+	Clusters  []CPUClusterMetric `json:"clusters,omitempty"`
+	Timestamp time.Time          `json:"timestamp"`
 }
 
 // SysmonProcessResponse represents a process metrics response grouped by timestamp.

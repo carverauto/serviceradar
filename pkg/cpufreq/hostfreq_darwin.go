@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -23,8 +24,14 @@ type hostfreqCore struct {
 	AvgMHz float64 `json:"avg_mhz"`
 }
 
+type hostfreqCluster struct {
+	Name   string  `json:"name"`
+	AvgMHz float64 `json:"avg_mhz"`
+}
+
 type hostfreqPayload struct {
-	Cores []hostfreqCore `json:"cores"`
+	Cores    []hostfreqCore    `json:"cores"`
+	Clusters []hostfreqCluster `json:"clusters"`
 }
 
 const (
@@ -110,7 +117,8 @@ func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, e
 	}
 
 	snapshot := &Snapshot{
-		Cores: make([]CoreFrequency, 0, len(payload.Cores)),
+		Cores:    make([]CoreFrequency, 0, len(payload.Cores)),
+		Clusters: make([]ClusterFrequency, 0, len(payload.Clusters)),
 	}
 
 	for idx, core := range payload.Cores {
@@ -119,12 +127,51 @@ func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, e
 			hz = 0
 		}
 
+		label := core.Name
+		cluster := deriveClusterFromLabel(label)
 		snapshot.Cores = append(snapshot.Cores, CoreFrequency{
 			CoreID:      idx,
 			FrequencyHz: hz,
+			Label:       label,
+			Cluster:     cluster,
 			Source:      FrequencySourceHostfreq,
 		})
 	}
 
+	for _, cluster := range payload.Clusters {
+		hz := cluster.AvgMHz * 1_000_000
+		if hz < 0 {
+			hz = 0
+		}
+
+		name := cluster.Name
+		if name == "" {
+			continue
+		}
+
+		snapshot.Clusters = append(snapshot.Clusters, ClusterFrequency{
+			Name:        strings.ToUpper(name),
+			FrequencyHz: hz,
+		})
+	}
+
 	return snapshot, nil
+}
+
+func deriveClusterFromLabel(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return ""
+	}
+
+	for idx := 0; idx < len(label); idx++ {
+		if label[idx] >= '0' && label[idx] <= '9' {
+			if idx == 0 {
+				return strings.ToUpper(label)
+			}
+			return strings.ToUpper(label[:idx])
+		}
+	}
+
+	return strings.ToUpper(label)
 }
