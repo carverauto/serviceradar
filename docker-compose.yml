@@ -247,7 +247,7 @@ services:
     image: nginx:alpine
     container_name: serviceradar-nginx
     ports:
-      - "80:80"      # HTTP
+      - "${SERVICERADAR_HTTP_PORT:-80}:80"      # HTTP
       # - "443:443"  # HTTPS (add SSL termination later)
     environment:
       API_UPSTREAM: ${API_UPSTREAM:-http://kong:8000}
