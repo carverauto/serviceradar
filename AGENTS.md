@@ -49,6 +49,11 @@ Reference `docs/docs/agents.md` for: faker deployment details, Proton truncate/r
            curl -sk -u default:<PASSWORD> --data-binary @/tmp/query.sql \
            https://serviceradar-proton:8443/?database=default"
   ```
+- GH client is installed and authenticated
+- 'bb' (BuildBuddy) client is available for any build issues
+- bazel is our build system, we use it to build and push images
+
+We track work in Beads instead of Markdown. Run `bd quickstart` to see how.
 
 ## When Updating This File
 
