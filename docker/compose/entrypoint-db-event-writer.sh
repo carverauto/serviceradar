@@ -49,10 +49,11 @@ if [ -n "${WAIT_FOR_NATS:-}" ]; then
     NATS_PORT_VALUE=$(resolve_service_port NATS_PORT "4222")
     echo "Waiting for NATS service at ${NATS_HOST_VALUE}:${NATS_PORT_VALUE}..."
 
+    NATS_ATTEMPTS="${WAIT_FOR_NATS_ATTEMPTS:-0}"
     if wait-for-port \
         --host "${NATS_HOST_VALUE}" \
         --port "${NATS_PORT_VALUE}" \
-        --attempts 30 \
+        --attempts "${NATS_ATTEMPTS}" \
         --interval 2s \
         --quiet; then
         echo "NATS service is ready!"
@@ -67,10 +68,11 @@ if [ -n "${WAIT_FOR_PROTON:-}" ]; then
     PROTON_PORT_VALUE=$(resolve_service_port PROTON_PORT "9440")
     echo "Waiting for Proton database at ${PROTON_HOST_VALUE}:${PROTON_PORT_VALUE}..."
 
+    PROTON_ATTEMPTS="${WAIT_FOR_PROTON_ATTEMPTS:-0}"
     if wait-for-port \
         --host "${PROTON_HOST_VALUE}" \
         --port "${PROTON_PORT_VALUE}" \
-        --attempts 30 \
+        --attempts "${PROTON_ATTEMPTS}" \
         --interval 2s \
         --quiet; then
         echo "Proton database is ready!"

@@ -18,6 +18,8 @@ pub struct NATSConfig {
     pub subject: String,
     pub stream: String,
     pub timeout: Duration,
+    pub max_bytes: i64,
+    pub max_age: Duration,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub tls_ca: Option<PathBuf>,
@@ -30,6 +32,8 @@ impl Default for NATSConfig {
             subject: "events.otel".to_string(),
             stream: "events".to_string(),
             timeout: Duration::from_secs(30),
+            max_bytes: 2 * 1024 * 1024 * 1024,
+            max_age: Duration::from_secs(30 * 60),
             tls_cert: None,
             tls_key: None,
             tls_ca: None,
@@ -61,20 +65,23 @@ impl NATSOutput {
         ];
         debug!("Stream will handle subjects: {subjects:?}");
 
-        let stream_config = jetstream::stream::Config {
+        let desired_config = jetstream::stream::Config {
             name: config.stream.clone(),
             subjects: subjects.clone(),
             storage: StorageType::File,
+            max_bytes: config.max_bytes,
+            max_age: config.max_age,
             ..Default::default()
         };
 
         // Try to get or create the stream
-        match jetstream.get_or_create_stream(stream_config.clone()).await {
+        match jetstream.get_or_create_stream(desired_config.clone()).await {
             Ok(mut stream) => {
                 let stream_info = stream.info().await?;
                 let existing_subjects = &stream_info.config.subjects;
+                let mut needs_update = false;
+                let mut updated_config = stream_info.config.clone();
 
-                // Check if all required subjects are present
                 let missing_subjects: Vec<_> = subjects
                     .iter()
                     .filter(|s| !existing_subjects.contains(s))
@@ -87,31 +94,52 @@ impl NATSOutput {
                     );
                     warn!("Current subjects: {existing_subjects:?}");
 
-                    // Update the stream to include missing subjects
-                    let mut updated_config = stream_info.config.clone();
                     for subject in subjects {
                         if !updated_config.subjects.contains(&subject) {
                             updated_config.subjects.push(subject);
+                            needs_update = true;
                         }
                     }
+                }
 
+                if updated_config.max_bytes != config.max_bytes {
                     debug!(
-                        "Updating stream with new subjects: {:?}",
-                        updated_config.subjects
+                        "Updating stream '{}' max_bytes from {} to {}",
+                        config.stream, updated_config.max_bytes, config.max_bytes
                     );
+                    updated_config.max_bytes = config.max_bytes;
+                    needs_update = true;
+                }
+
+                if updated_config.max_age != config.max_age {
+                    debug!(
+                        "Updating stream '{}' max_age from {:?} to {:?}",
+                        config.stream, updated_config.max_age, config.max_age
+                    );
+                    updated_config.max_age = config.max_age;
+                    needs_update = true;
+                }
+
+                if needs_update {
+                    debug!("Applying stream config update: {:?}", updated_config);
                     match jetstream.update_stream(updated_config).await {
                         Ok(updated_info) => {
                             info!(
-                                "Successfully updated stream '{}' with subjects: {:?}",
-                                config.stream, updated_info.config.subjects
+                                "Successfully updated stream '{}' configuration",
+                                config.stream
+                            );
+                            debug!(
+                                "Updated config: subjects={:?}, max_bytes={}, max_age={:?}",
+                                updated_info.config.subjects,
+                                updated_info.config.max_bytes,
+                                updated_info.config.max_age
                             );
                         }
                         Err(e) => {
                             error!(
-                                "Failed to update stream '{}' with new subjects: {e}",
+                                "Failed to update stream '{}' configuration: {e}",
                                 config.stream
                             );
-                            warn!("Stream exists but may not handle all message types correctly");
                         }
                     }
                 } else {
@@ -126,7 +154,7 @@ impl NATSOutput {
                     "Failed to create/verify JetStream stream '{}': {e}",
                     config.stream
                 );
-                error!("Stream config was: {stream_config:?}");
+                error!("Stream config was: {desired_config:?}");
                 return Err(e.into());
             }
         }
