@@ -52,12 +52,12 @@ Reference `docs/docs/agents.md` for: faker deployment details, Proton truncate/r
 - GH client is installed and authenticated
 - 'bb' (BuildBuddy) client is available for any build issues
 - bazel is our build system, we use it to build and push images
+- Sysmon-vm hostfreq sampler buffers ~5 minutes of 250 ms samples; keep pollers querying at least once per retention window so cached CPU data stays fresh.
 
 We track work in Beads instead of Markdown. Run `bd quickstart` to see how.
 
 ## When Updating This File
 
 - Add new build/test commands when tooling changes.
-- Document any new services, runbooks, or operational quirks.
-- Keep instructions synchronized with `docs/docs/agents.md` and other documentation updates.
-
+- Document any new services, runbooks, or operational quirks using `bd`.
+- Keep instructions synchronized with the latest bead notes and related documentation updates.

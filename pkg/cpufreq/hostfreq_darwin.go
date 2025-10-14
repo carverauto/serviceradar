@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 )
@@ -44,8 +43,10 @@ const (
 	hostfreqStatusPermission  = 2
 	hostfreqStatusInternal    = 3
 
-	hostfreqMinInterval = 1 * time.Second
-	hostfreqCacheTTL    = 2 * time.Second
+	hostfreqMinInterval        = 250 * time.Millisecond
+	hostfreqBackgroundInterval = 250 * time.Millisecond
+	hostfreqRetentionWindow    = 5 * time.Minute
+	hostfreqRequestTimeout     = 1 * time.Second
 )
 
 var (
@@ -55,21 +56,37 @@ var (
 	errHostfreqEmptyPayload = errors.New("hostfreq returned empty payload")
 )
 
-var hostfreqCache struct {
-	mu       sync.Mutex
-	snapshot *Snapshot
-	fetched  time.Time
-}
+var hostfreqSampler = newBufferedSampler(
+	hostfreqBackgroundInterval,
+	hostfreqRetentionWindow,
+	hostfreqRequestTimeout,
+	func(ctx context.Context) (*Snapshot, error) {
+		return collectHostfreqSnapshot(ctx, hostfreqBackgroundInterval)
+	},
+)
 
 func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, error) {
+	hostfreqSampler.start()
+
+	if snap, ok := hostfreqSampler.latest(); ok {
+		return snap, nil
+	}
+
+	snapshot, err := collectHostfreqSnapshot(ctx, window)
+	if err != nil {
+		return nil, err
+	}
+
+	hostfreqSampler.record(snapshot, time.Now())
+
+	return snapshotClone(snapshot), nil
+}
+
+func collectHostfreqSnapshot(ctx context.Context, window time.Duration) (*Snapshot, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
-	}
-
-	if snap := hostfreqCacheSnapshot(); snap != nil {
-		return snap, nil
 	}
 
 	interval := int(window / time.Millisecond)
@@ -132,21 +149,6 @@ func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, e
 		return nil, fmt.Errorf("failed to parse hostfreq output: %w", err)
 	}
 
-	if len(payload.Cores) == 0 {
-		return nil, ErrFrequencyUnavailable
-	}
-
-	snapshot, err := payloadToSnapshot(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	hostfreqCacheStore(snapshot)
-
-	return hostfreqCacheSnapshot(), nil
-}
-
-func payloadToSnapshot(payload hostfreqPayload) (*Snapshot, error) {
 	if len(payload.Cores) == 0 {
 		return nil, ErrFrequencyUnavailable
 	}
@@ -224,41 +226,4 @@ func clusterFromLabel(label string) string {
 		return ""
 	}
 	return trimmed
-}
-
-func hostfreqCacheSnapshot() *Snapshot {
-	hostfreqCache.mu.Lock()
-	defer hostfreqCache.mu.Unlock()
-
-	if hostfreqCache.snapshot == nil {
-		return nil
-	}
-
-	if time.Since(hostfreqCache.fetched) > hostfreqCacheTTL {
-		return nil
-	}
-
-	return snapshotClone(hostfreqCache.snapshot)
-}
-
-func hostfreqCacheStore(snapshot *Snapshot) {
-	hostfreqCache.mu.Lock()
-	defer hostfreqCache.mu.Unlock()
-
-	hostfreqCache.snapshot = snapshotClone(snapshot)
-	hostfreqCache.fetched = time.Now()
-}
-
-func snapshotClone(src *Snapshot) *Snapshot {
-	if src == nil {
-		return nil
-	}
-
-	out := &Snapshot{
-		Cores:    make([]CoreFrequency, len(src.Cores)),
-		Clusters: make([]ClusterFrequency, len(src.Clusters)),
-	}
-	copy(out.Cores, src.Cores)
-	copy(out.Clusters, src.Clusters)
-	return out
 }
