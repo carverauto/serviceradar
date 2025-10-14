@@ -10,12 +10,16 @@ use {
     async_nats::jetstream::{context::PublishAckFuture, stream::StorageType},
     async_nats::{jetstream, Client, ConnectOptions},
     std::{
+        cmp::min,
         path::PathBuf,
         sync::{mpsc::Receiver, Arc, Mutex},
         thread,
         time::Duration,
     },
-    tokio::{runtime::Builder as RtBuilder, time::timeout},
+    tokio::{
+        runtime::Builder as RtBuilder,
+        time::{sleep, timeout},
+    },
 };
 
 #[cfg(feature = "nats-output")]
@@ -35,6 +39,9 @@ struct NATSConfig {
     tls_cert: Option<PathBuf>,
     tls_key: Option<PathBuf>,
     tls_ca: Option<PathBuf>,
+    connect_attempts: u32,
+    connect_initial_backoff: Duration,
+    connect_max_backoff: Duration,
 }
 
 #[cfg(feature = "nats-output")]
@@ -79,6 +86,23 @@ impl NATSOutput {
         let workers = cfg
             .lookup("output.nats_threads")
             .map_or(1, |v| v.as_integer().unwrap() as u32);
+        let connect_attempts = cfg
+            .lookup("output.nats_connect_attempts")
+            .map_or(0, |v| v.as_integer().unwrap() as u32);
+        let mut connect_initial_backoff = Duration::from_millis(
+            cfg.lookup("output.nats_connect_initial_backoff_ms")
+                .map_or(500, |v| v.as_integer().unwrap() as u64),
+        );
+        let mut connect_max_backoff = Duration::from_millis(
+            cfg.lookup("output.nats_connect_max_backoff_ms")
+                .map_or(30_000, |v| v.as_integer().unwrap() as u64),
+        );
+        if connect_initial_backoff.is_zero() {
+            connect_initial_backoff = Duration::from_millis(1);
+        }
+        if connect_max_backoff.is_zero() {
+            connect_max_backoff = connect_initial_backoff;
+        }
 
         Self {
             cfg: NATSConfig {
@@ -90,6 +114,9 @@ impl NATSOutput {
                 tls_cert,
                 tls_key,
                 tls_ca,
+                connect_attempts,
+                connect_initial_backoff,
+                connect_max_backoff,
             },
             workers,
         }
@@ -105,7 +132,7 @@ struct NATSWorker {
 
 #[cfg(feature = "nats-output")]
 impl NATSWorker {
-    async fn connect(&self) -> Result<(Client, jetstream::Context), async_nats::Error> {
+    async fn connect_once(&self) -> Result<(Client, jetstream::Context), async_nats::Error> {
         // Start with default connect options.
         let mut options = ConnectOptions::new();
 
@@ -135,8 +162,57 @@ impl NATSWorker {
         Ok((client, js))
     }
 
+    async fn connect_with_retry(&self) -> Result<(Client, jetstream::Context), async_nats::Error> {
+        let mut attempt: u32 = 0;
+        let mut backoff = min(
+            self.cfg.connect_initial_backoff,
+            self.cfg.connect_max_backoff,
+        );
+
+        loop {
+            attempt += 1;
+            match self.connect_once().await {
+                Ok(conn) => return Ok(conn),
+                Err(err) => {
+                    let limit = self.cfg.connect_attempts;
+
+                    if limit != 0 && attempt >= limit {
+                        eprintln!(
+                            "NATS connection attempt {attempt} failed: {err}. Giving up after {limit} attempts."
+                        );
+                        return Err(err);
+                    }
+
+                    eprintln!(
+                        "NATS connection attempt {attempt} failed: {err}. Retrying in {:?}...",
+                        backoff
+                    );
+                    sleep(backoff).await;
+
+                    let doubled = backoff
+                        .checked_mul(2)
+                        .unwrap_or(self.cfg.connect_max_backoff);
+                    backoff = min(doubled, self.cfg.connect_max_backoff);
+                }
+            }
+        }
+    }
+
     async fn run(self) {
-        let (_, js) = self.connect().await.expect("NATS connection failed");
+        let (_, js) = match self.connect_with_retry().await {
+            Ok(conn) => conn,
+            Err(err) => {
+                if self.cfg.connect_attempts == 0 {
+                    eprintln!("NATS connection failed after unlimited retries: {err}");
+                } else {
+                    eprintln!(
+                        "NATS connection failed after {} attempts: {err}",
+                        self.cfg.connect_attempts
+                    );
+                }
+                std::process::exit(1);
+            }
+        };
 
         loop {
             // Pull a record from Flowgger’s queue synchronously.
