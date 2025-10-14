@@ -15,8 +15,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type hostfreqCore struct {
@@ -30,8 +32,9 @@ type hostfreqCluster struct {
 }
 
 type hostfreqPayload struct {
-	Cores    []hostfreqCore    `json:"cores"`
-	Clusters []hostfreqCluster `json:"clusters"`
+	Cores     []hostfreqCore    `json:"cores"`
+	Clusters  []hostfreqCluster `json:"clusters"`
+	Timestamp string            `json:"timestamp"`
 }
 
 const (
@@ -39,6 +42,11 @@ const (
 	hostfreqStatusUnavailable = 1
 	hostfreqStatusPermission  = 2
 	hostfreqStatusInternal    = 3
+
+	hostfreqMinInterval        = 250 * time.Millisecond
+	hostfreqBackgroundInterval = 250 * time.Millisecond
+	hostfreqRetentionWindow    = 5 * time.Minute
+	hostfreqRequestTimeout     = 1 * time.Second
 )
 
 var (
@@ -48,7 +56,46 @@ var (
 	errHostfreqEmptyPayload = errors.New("hostfreq returned empty payload")
 )
 
+var hostfreqSampler = newBufferedSampler(
+	hostfreqBackgroundInterval,
+	hostfreqRetentionWindow,
+	hostfreqRequestTimeout,
+	func(ctx context.Context) (*Snapshot, error) {
+		return collectHostfreqSnapshot(ctx, hostfreqBackgroundInterval)
+	},
+)
+
+// StartHostfreqSampler initializes the background hostfreq sampler with the provided parent context.
+// If called multiple times, only the first invocation with a non-nil context starts the sampler.
+func StartHostfreqSampler(ctx context.Context) error {
+	return hostfreqSampler.start(ctx)
+}
+
+// StopHostfreqSampler stops the background hostfreq sampler.
+func StopHostfreqSampler() {
+	hostfreqSampler.stop()
+}
+
 func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, error) {
+	if hostfreqSampler.running() {
+		if snap, ok := hostfreqSampler.latest(); ok {
+			return snap, nil
+		}
+	}
+
+	snapshot, err := collectHostfreqSnapshot(ctx, window)
+	if err != nil {
+		return nil, err
+	}
+
+	if hostfreqSampler.running() {
+		hostfreqSampler.record(snapshot, time.Now())
+	}
+
+	return snapshotClone(snapshot), nil
+}
+
+func collectHostfreqSnapshot(ctx context.Context, window time.Duration) (*Snapshot, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -58,6 +105,9 @@ func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, e
 	interval := int(window / time.Millisecond)
 	if interval <= 0 {
 		interval = int(defaultSampleWindow / time.Millisecond)
+	}
+	if min := int(hostfreqMinInterval / time.Millisecond); interval < min {
+		interval = min
 	}
 
 	var outJSON *C.char
@@ -121,57 +171,72 @@ func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, e
 		Clusters: make([]ClusterFrequency, 0, len(payload.Clusters)),
 	}
 
+	hasFrequency := false
+
 	for idx, core := range payload.Cores {
+		if math.IsNaN(core.AvgMHz) || math.IsInf(core.AvgMHz, 0) {
+			continue
+		}
+
 		hz := core.AvgMHz * 1_000_000
 		if hz < 0 {
 			hz = 0
 		}
 
+		if hz > 0 {
+			hasFrequency = true
+		}
+
 		label := core.Name
-		cluster := deriveClusterFromLabel(label)
+		cluster := clusterFromLabel(label)
+
 		snapshot.Cores = append(snapshot.Cores, CoreFrequency{
 			CoreID:      idx,
-			FrequencyHz: hz,
 			Label:       label,
 			Cluster:     cluster,
+			FrequencyHz: hz,
 			Source:      FrequencySourceHostfreq,
 		})
 	}
 
 	for _, cluster := range payload.Clusters {
+		if math.IsNaN(cluster.AvgMHz) || math.IsInf(cluster.AvgMHz, 0) {
+			continue
+		}
+
 		hz := cluster.AvgMHz * 1_000_000
 		if hz < 0 {
 			hz = 0
 		}
 
-		name := cluster.Name
-		if name == "" {
-			continue
+		if hz > 0 {
+			hasFrequency = true
 		}
 
 		snapshot.Clusters = append(snapshot.Clusters, ClusterFrequency{
-			Name:        strings.ToUpper(name),
+			Name:        cluster.Name,
 			FrequencyHz: hz,
+			Source:      FrequencySourceHostfreq,
 		})
+	}
+
+	if !hasFrequency {
+		return nil, ErrFrequencyUnavailable
 	}
 
 	return snapshot, nil
 }
 
-func deriveClusterFromLabel(label string) string {
+func clusterFromLabel(label string) string {
 	label = strings.TrimSpace(label)
 	if label == "" {
 		return ""
 	}
-
-	for idx := 0; idx < len(label); idx++ {
-		if label[idx] >= '0' && label[idx] <= '9' {
-			if idx == 0 {
-				return strings.ToUpper(label)
-			}
-			return strings.ToUpper(label[:idx])
-		}
+	trimmed := strings.TrimRightFunc(label, func(r rune) bool {
+		return unicode.IsDigit(r)
+	})
+	if trimmed == "" {
+		return ""
 	}
-
-	return strings.ToUpper(label)
+	return trimmed
 }
