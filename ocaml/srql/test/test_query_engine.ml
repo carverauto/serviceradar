@@ -27,7 +27,8 @@ let not_contains msg hay needle =
   let len_h = String.length lhay and len_n = String.length lneedle in
   let rec loop i =
     if i + len_n > len_h then false
-    else if String.sub lhay i len_n = lneedle then true else loop (i + 1)
+    else if String.sub lhay i len_n = lneedle then true
+    else loop (i + 1)
   in
   if loop 0 then fail (Printf.sprintf "%s: did not expect '%s' in '%s'" msg needle hay)
 
@@ -94,7 +95,9 @@ let test_devices_search_router () =
   contains "search includes ip wildcard" sql "ip ILIKE {{";
   not_contains "search excludes sys_descr" sql "sys_descr ILIKE {{";
   check bool "router wildcard param present" true
-    (List.exists (function _, Column.String "%router-01%" -> true | _ -> false) translation.params)
+    (List.exists
+       (function _, Column.String "%router-01%" -> true | _ -> false)
+       translation.params)
 
 let test_devices_search_ipv4 () =
   let translation = translation_of "in:devices search:\"10.139.236.7\"" in
@@ -108,8 +111,7 @@ let test_devices_search_ipv4 () =
        translation.params);
   check bool "ip wildcard param present" true
     (List.exists
-       (function _, Column.String value ->
-          String.equal value "%10.139.236.7%" | _ -> false)
+       (function _, Column.String value -> String.equal value "%10.139.236.7%" | _ -> false)
        translation.params)
 
 let test_devices_search_numeric_literal () =
@@ -273,7 +275,8 @@ let test_devices_discovery_sources_both () =
     (List.exists (function _, Column.String "armis" -> true | _ -> false) translation.params);
   contains "both AND" sql "AND"
 
-let suite_arrays = [ ("devices discovery_sources both", `Quick, test_devices_discovery_sources_both) ]
+let suite_arrays =
+  [ ("devices discovery_sources both", `Quick, test_devices_discovery_sources_both) ]
 
 let () = Alcotest.run "asq_arrays" [ ("arrays", suite_arrays) ]
 
