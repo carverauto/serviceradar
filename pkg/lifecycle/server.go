@@ -66,6 +66,8 @@ type ServerOptions struct {
 	Security             *models.SecurityConfig
 	LoggerConfig         *logger.Config
 	Logger               logger.Logger // Optional: if provided, uses this logger instead of creating a new one
+	DisableTelemetry     bool
+	TelemetryFilter      grpc.TelemetryFilter
 }
 
 // RunServer starts a service with the provided options and handles lifecycle.
@@ -136,6 +138,14 @@ func setupGRPCServer(ctx context.Context, opts *ServerOptions, log logger.Logger
 	serverOpts, err := configureServerOptions(ctx, securityProvider, log)
 	if err != nil {
 		return nil, err
+	}
+
+	if opts.DisableTelemetry {
+		serverOpts = append(serverOpts, grpc.WithTelemetryDisabled())
+	}
+
+	if opts.TelemetryFilter != nil {
+		serverOpts = append(serverOpts, grpc.WithTelemetryFilter(opts.TelemetryFilter))
 	}
 
 	grpcServer := grpc.NewServer(opts.ListenAddr, log, serverOpts...)

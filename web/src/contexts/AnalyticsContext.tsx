@@ -39,8 +39,8 @@ interface AnalyticsData {
   recentErrorLogs: unknown[];
   totalMetrics: number;
   totalTraces: number;
-  slowMetrics: number;
-  errorMetrics: number;
+  slowTraces: number;
+  errorTraces: number;
   recentSlowSpans: unknown[];
   devicesLatest: unknown[];
   servicesLatest: unknown[];

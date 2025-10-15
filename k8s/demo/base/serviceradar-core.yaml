@@ -3,6 +3,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: serviceradar-core
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 spec:
   replicas: 1
   strategy:
@@ -10,10 +12,12 @@ spec:
   selector:
     matchLabels:
       app: serviceradar-core
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
         app: serviceradar-core
+        app.kubernetes.io/part-of: serviceradar
     spec:
       imagePullSecrets:
         - name: ghcr-io-cred
@@ -26,9 +30,32 @@ spec:
         - -c
         - |
           set -e
+          TEMPLATE=/etc/serviceradar/core.json
+          TARGET=/var/lib/serviceradar/core.json
           mkdir -p /var/lib/serviceradar
-          cp /etc/serviceradar/core.json /var/lib/serviceradar/core.json
-          serviceradar-cli generate-jwt-keys --file /var/lib/serviceradar/core.json --bits 2048
+
+          PRESERVE_PRIV=""
+          PRESERVE_KID=""
+          if [ -f "$TARGET" ]; then
+            PRESERVE_PRIV=$(jq -r '.auth.jwt_private_key_pem // empty' "$TARGET")
+            PRESERVE_KID=$(jq -r '.auth.jwt_key_id // empty' "$TARGET")
+          fi
+
+          cp "$TEMPLATE" "${TARGET}.tmp"
+
+          if [ -n "$PRESERVE_PRIV" ]; then
+            jq --arg priv "$PRESERVE_PRIV" --arg kid "$PRESERVE_KID" '
+              .auth = (.auth // {}) |
+              .auth.jwt_algorithm = "RS256" |
+              .auth.jwt_private_key_pem = $priv |
+              (if $kid != "" then .auth.jwt_key_id = $kid else . end)
+            ' "${TARGET}.tmp" > "$TARGET"
+            rm -f "${TARGET}.tmp"
+          else
+            mv "${TARGET}.tmp" "$TARGET"
+          fi
+
+          serviceradar-cli generate-jwt-keys --file "$TARGET" --bits 2048
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar

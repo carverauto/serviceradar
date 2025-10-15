@@ -50,8 +50,10 @@ import (
 	"flag"
 	"log"
 	"os"
+	"strings"
 
 	"google.golang.org/grpc"
+	grpcstats "google.golang.org/grpc/stats"
 
 	"github.com/carverauto/serviceradar/pkg/core"
 	"github.com/carverauto/serviceradar/pkg/core/api"
@@ -260,5 +262,8 @@ func run() error {
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerService},
 		EnableHealthCheck:    true,
 		Security:             cfg.Security,
+		TelemetryFilter: func(info *grpcstats.RPCTagInfo) bool {
+			return !strings.HasPrefix(info.FullMethodName, "/proto.KVService/")
+		},
 	})
 }

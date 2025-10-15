@@ -59,6 +59,7 @@ func main() {
 		Service:           server,
 		EnableHealthCheck: true,
 		Security:          cfg.Security,
+		DisableTelemetry:  true,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
 			func(srv *ggrpc.Server) error {
 				proto.RegisterKVServiceServer(srv, server)

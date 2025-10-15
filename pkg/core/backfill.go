@@ -191,7 +191,7 @@ func buildIdentityRecord(update *models.DeviceUpdate) *identitymap.Record {
 	return &identitymap.Record{
 		CanonicalDeviceID: update.DeviceID,
 		Partition:         update.Partition,
-		MetadataHash:      identitymap.HashMetadata(update.Metadata),
+		MetadataHash:      identitymap.HashIdentityMetadata(update),
 		UpdatedAt:         time.Now().UTC(),
 		Attributes:        buildIdentityAttributes(update),
 	}

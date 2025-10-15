@@ -28,9 +28,9 @@ import {
     ChevronsDown
 } from 'lucide-react';
 import { useDebounce } from 'use-debounce';
-import { cachedQuery } from '@/lib/cached-query';
 import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
 import { escapeSrqlValue } from '@/lib/srql';
+import { useTraceCounts } from '@/hooks/useTraceCounts';
 
 const StatCard = ({
     title,
@@ -139,15 +139,18 @@ const TracesDashboard = () => {
     const { token } = useAuth();
     const [traces, setTraces] = useState<TraceSummary[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
-    const [stats, setStats] = useState<TraceStats>({
-        total: 0,
-        successful: 0,
-        errors: 0,
+    const {
+        counts: traceCounts,
+        loading: traceCountsLoading,
+        error: traceCountsError,
+        refresh: refreshTraceCounts,
+    } = useTraceCounts();
+    const [durationStats, setDurationStats] = useState({
         avg_duration_ms: 0,
         p95_duration_ms: 0,
-        services_count: 0
+        services_count: 0,
     });
-    const [statsLoading, setStatsLoading] = useState(true);
+    const [durationLoading, setDurationLoading] = useState(true);
     const [tracesLoading, setTracesLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -174,6 +177,25 @@ const TracesDashboard = () => {
     
     // Track if user is viewing the latest traces (for auto-advance behavior)
     const [autoFollowLatest, setAutoFollowLatest] = useState(true);
+
+    const stats: TraceStats = useMemo(
+        () => ({
+            total: traceCounts.total,
+            successful: traceCounts.successful,
+            errors: traceCounts.errors,
+            avg_duration_ms: durationStats.avg_duration_ms,
+            p95_duration_ms: durationStats.p95_duration_ms,
+            services_count: durationStats.services_count,
+        }),
+        [durationStats.avg_duration_ms, durationStats.p95_duration_ms, durationStats.services_count, traceCounts.errors, traceCounts.successful, traceCounts.total]
+    );
+    const statsLoading = traceCountsLoading || durationLoading;
+
+    useEffect(() => {
+        if (traceCountsError) {
+            console.error('Failed to fetch trace count aggregates:', traceCountsError);
+        }
+    }, [traceCountsError]);
 
     const postQuery = useCallback(async <T,>(
         query: string,
@@ -206,31 +228,6 @@ const TracesDashboard = () => {
         return response.json();
     }, [token]);
 
-    const fetchStats = useCallback(async () => {
-        setStatsLoading(true);
-
-        try {
-            const [totalRes, successRes, errorRes] = await Promise.all([
-                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries status_code:1 stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
-                cachedQuery<{ results: [{ total: number }] }>('in:otel_trace_summaries status_code!=1 stats:"count() as total" sort:total:desc time:last_24h', token || undefined, 30000),
-            ]);
-
-            setStats({
-                total: totalRes.results[0]?.total || 0,
-                successful: successRes.results[0]?.total || 0,
-                errors: errorRes.results[0]?.total || 0,
-                avg_duration_ms: 0, // Will calculate from current data
-                p95_duration_ms: 0, // Will calculate from current data
-                services_count: 0, // Will calculate from current data
-            });
-        } catch (e) {
-            console.error("Failed to fetch trace stats:", e);
-        } finally {
-            setStatsLoading(false);
-        }
-    }, [token]);
-
     const fetchServices = useCallback(async () => {
         try {
             const query = 'in:otel_trace_summaries root_service_name:* time:last_24h stats:"count() as total by root_service_name" limit:200';
@@ -245,6 +242,7 @@ const TracesDashboard = () => {
 
     const fetchTraces = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
         setTracesLoading(true);
+        setDurationLoading(true);
         setError(null);
 
         try {
@@ -298,20 +296,31 @@ const TracesDashboard = () => {
                     trace.root_service_name
                 ).filter(Boolean));
                 
-                setStats(prevStats => ({
-                    ...prevStats,
+                setDurationStats({
                     avg_duration_ms: avgDuration,
                     p95_duration_ms: p95Duration,
-                    services_count: uniqueServices.size
-                }));
+                    services_count: uniqueServices.size,
+                });
+            } else {
+                setDurationStats({
+                    avg_duration_ms: 0,
+                    p95_duration_ms: 0,
+                    services_count: 0,
+                });
             }
         } catch (e) {
             console.error("Failed to fetch traces:", e);
             setError(e instanceof Error ? e.message : 'Failed to fetch traces');
             setTraces([]);
             setPagination(null);
+            setDurationStats({
+                avg_duration_ms: 0,
+                p95_duration_ms: 0,
+                services_count: 0,
+            });
         } finally {
             setTracesLoading(false);
+            setDurationLoading(false);
         }
     }, [postQuery, debouncedSearchTerm, filterService, filterStatus, sortBy, sortOrder]);
 
@@ -500,9 +509,9 @@ const TracesDashboard = () => {
     }, [streamingEnabled, startStreaming]);
 
     useEffect(() => {
-        fetchStats();
+        refreshTraceCounts();
         fetchServices();
-    }, [fetchStats, fetchServices]);
+    }, [refreshTraceCounts, fetchServices]);
 
     useEffect(() => {
         // Fetch traces when dependencies change (only if streaming is disabled)

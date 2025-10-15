@@ -67,6 +67,31 @@ The latest schemas can be found in @pkg/db/migrations
 
    Once the sync pod reports “Completed streaming results”, the canonical tables will match the faker dataset.
 
+## Proton Reset (PVC Rotation)
+
+If the telemetry tables balloon again, it is faster to rotate Proton’s volume than to hand-truncate every dependent stream. The helper script below scales Proton down, recreates the PVC, brings Proton back online, and restarts core so it can rebuild the schema from scratch:
+
+```bash
+# from repo root; defaults to the demo namespace
+scripts/reset-proton.sh
+
+# or explicitly choose a namespace
+scripts/reset-proton.sh staging
+```
+
+What the script does:
+
+- `kubectl scale deployment/serviceradar-proton --replicas=0`
+- Delete and recreate the `serviceradar-proton-data` PVC (512 Gi by default, override with `PVC_SIZE` and `STORAGE_CLASS`)
+- Scale Proton back up and wait for the rollout to finish
+- `kubectl rollout restart deployment/serviceradar-core` so the schema is reseeded immediately
+
+After the reset:
+
+1. Spot-check counts with either `/api/query` or the Proton client (`SELECT count() FROM otel_traces`, `otel_spans_enriched`, `otel_metrics`, `otel_trace_summaries`).
+2. Tail `kubectl -n <ns> logs deploy/serviceradar-otel --tail=20` to confirm span batches stay in the single digits.
+3. Hard-refresh the dashboards so cached trace totals drop.
+
 ## Proton Client From `serviceradar-tools`
 
 - Launch the toolbox with `kubectl exec -it -n demo deploy/serviceradar-tools -- bash`. The image ships the upstream Proton CLI (`/usr/local/bin/proton.bin`) plus a wrapper (`/usr/local/bin/proton-client`) that applies ServiceRadar TLS defaults and the new glibc runtime automatically.

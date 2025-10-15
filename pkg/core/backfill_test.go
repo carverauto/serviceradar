@@ -175,7 +175,17 @@ func TestBackfillIPAliasTombstonesSkipsWhenKVCanonical(t *testing.T) {
 	)
 	mockDB.EXPECT().PublishBatchDeviceUpdates(gomock.Any(), gomock.Any()).Times(0)
 
-	record := &identitymap.Record{CanonicalDeviceID: "default:canonical", Partition: "default", MetadataHash: identitymap.HashMetadata(map[string]string{"armis_device_id": "ARM-1", "all_ips": "10.0.0.2"})}
+	record := &identitymap.Record{
+		CanonicalDeviceID: "default:canonical",
+		Partition:         "default",
+		MetadataHash: identitymap.HashIdentityMetadata(&models.DeviceUpdate{
+			DeviceID:  "default:canonical",
+			Partition: "default",
+			IP:        "10.0.0.1",
+			Source:    models.DiscoverySourceIntegration,
+			Metadata:  map[string]string{"armis_device_id": "ARM-1", "all_ips": "10.0.0.2"},
+		}),
+	}
 	payload, err := identitymap.MarshalRecord(record)
 	require.NoError(t, err)
 

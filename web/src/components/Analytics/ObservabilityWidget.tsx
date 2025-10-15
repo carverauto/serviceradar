@@ -21,6 +21,7 @@ import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { BarChart3, TrendingUp, Clock, Activity, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { formatNumber, formatDuration, formatPercentage } from '@/utils/formatters';
+import { useTraceCounts } from '@/hooks/useTraceCounts';
 
 
 interface SlowSpan {
@@ -32,38 +33,49 @@ interface SlowSpan {
 }
 
 const ObservabilityWidget = () => {
-    const { data: analyticsData, loading, error } = useAnalytics();
-    
-    const { stats, recentSlowSpans } = useMemo(() => {
-        if (!analyticsData) {
-            return {
-                stats: { totalMetrics: 0, totalTraces: 0, avgDuration: 0, errorRate: 0, slowSpans: 0 },
-                recentSlowSpans: []
-            };
-        }
+    const {
+        data: analyticsData,
+        loading: analyticsLoading,
+        error: analyticsError,
+    } = useAnalytics();
+    const {
+        counts: traceCounts,
+        loading: traceCountsLoading,
+        error: traceCountsError,
+    } = useTraceCounts();
 
-        const totalMetrics = analyticsData.totalMetrics;
-        const totalErrors = analyticsData.errorMetrics;
-        const totalTraces = analyticsData.totalTraces;
-        const slowSpans = analyticsData.slowMetrics;
-        
-        // Calculate average duration - for now use 0, can be enhanced later
-        const avgDuration = 0;
-        
-        const stats = {
+    const stats = useMemo(() => {
+        const totalMetrics = analyticsData?.totalMetrics ?? 0;
+        const totalTraces =
+            traceCounts.total !== undefined
+                ? traceCounts.total
+                : analyticsData?.totalTraces ?? 0;
+        const errorTraces =
+            traceCounts.errors !== undefined
+                ? traceCounts.errors
+                : analyticsData?.errorTraces ?? 0;
+        const slowSpans =
+            traceCounts.slow !== undefined
+                ? traceCounts.slow
+                : analyticsData?.slowTraces ?? 0;
+
+        const avgDuration = 0; // Placeholder until we add latency aggregates
+
+        return {
             totalMetrics,
             totalTraces,
             avgDuration,
-            errorRate: totalMetrics > 0 ? totalErrors / totalMetrics : 0,
-            slowSpans
+            errorRate: totalTraces > 0 ? errorTraces / totalTraces : 0,
+            slowSpans,
         };
+    }, [analyticsData, traceCounts.errors, traceCounts.slow, traceCounts.total]);
 
-        const recentSlowSpans = (analyticsData.recentSlowSpans as SlowSpan[] || []).slice(0, 3);
-        
-        return { stats, recentSlowSpans };
+    const recentSlowSpans = useMemo(() => {
+        const spans = (analyticsData?.recentSlowSpans as SlowSpan[] | undefined) ?? [];
+        return spans.slice(0, 3);
     }, [analyticsData]);
 
-    if (loading) {
+    if (analyticsLoading || traceCountsLoading) {
         return (
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px]">
                 <div className="flex justify-between items-start mb-4">
@@ -76,7 +88,7 @@ const ObservabilityWidget = () => {
         );
     }
 
-    if (error) {
+    if (analyticsError || traceCountsError) {
         return (
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px]">
                 <div className="flex justify-between items-start mb-4">
@@ -86,6 +98,11 @@ const ObservabilityWidget = () => {
                     <div className="text-center text-red-500 dark:text-red-400">
                         <Activity className="h-8 w-8 mx-auto mb-2" />
                         <p className="text-sm">Failed to load observability data</p>
+                        {(traceCountsError || analyticsError) && (
+                            <p className="text-xs mt-1 text-red-400 dark:text-red-300">
+                                {(traceCountsError || analyticsError) as string}
+                            </p>
+                        )}
                     </div>
                 </div>
             </div>

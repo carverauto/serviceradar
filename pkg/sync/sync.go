@@ -139,9 +139,10 @@ func setupGRPCClient(ctx context.Context, config *Config, log logger.Logger) (pr
 	}
 
 	clientCfg := ggrpc.ClientConfig{
-		Address:    config.KVAddress,
-		MaxRetries: 3,
-		Logger:     log,
+		Address:          config.KVAddress,
+		MaxRetries:       3,
+		Logger:           log,
+		DisableTelemetry: true,
 	}
 
 	if config.Security != nil {

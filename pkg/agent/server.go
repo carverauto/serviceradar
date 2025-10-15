@@ -157,9 +157,10 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 	}
 
 	clientCfg := grpc.ClientConfig{
-		Address:    cfg.KVAddress,
-		MaxRetries: 3,
-		Logger:     log,
+		Address:          cfg.KVAddress,
+		MaxRetries:       3,
+		Logger:           log,
+		DisableTelemetry: true,
 	}
 
 	securityConfig := cfg.Security
