@@ -38,21 +38,75 @@ var (
 	ErrFailedToReadChunk = errors.New("failed to read chunk")
 )
 
+// Option configures a NetworkSweeper instance.
+type Option func(*NetworkSweeper)
+
 const (
 	defaultInterval      = 5 * time.Minute
 	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
 	defaultResultTimeout = 500 * time.Millisecond
-	// KV Watch auto-reconnect parameters
-	kvWatchInitialBackoff = 1 * time.Second
-	kvWatchMaxBackoff     = 5 * time.Minute
-	kvWatchBackoffFactor  = 2.0
-	kvWatchJitterFactor   = 0.1 // 10% jitter
-
 	// Deployment size thresholds
 	smallScaleThreshold  = 100
 	mediumScaleThreshold = 10000
 	largeScaleThreshold  = 100000
 )
+
+type kvWatchBackoffSettings struct {
+	initial time.Duration
+	max     time.Duration
+	factor  float64
+	jitter  float64
+}
+
+func defaultKVWatchBackoffSettings() kvWatchBackoffSettings {
+	return kvWatchBackoffSettings{
+		initial: 1 * time.Second,
+		max:     5 * time.Minute,
+		factor:  2.0,
+		jitter:  0.1, // 10% jitter
+	}
+}
+
+func sanitizeKVWatchBackoffSettings(cfg kvWatchBackoffSettings) kvWatchBackoffSettings {
+	defaults := defaultKVWatchBackoffSettings()
+
+	if cfg.initial <= 0 {
+		cfg.initial = defaults.initial
+	}
+
+	if cfg.max <= 0 || cfg.max < cfg.initial {
+		cfg.max = defaults.max
+	}
+
+	if cfg.factor <= 1 {
+		cfg.factor = defaults.factor
+	}
+
+	if cfg.jitter < 0 {
+		cfg.jitter = defaults.jitter
+	}
+
+	return cfg
+}
+
+// WithKVWatchBackoff overrides the KV watch backoff behaviour (primarily used in tests).
+func WithKVWatchBackoff(initial, max time.Duration, factor, jitter float64) Option {
+	return func(ns *NetworkSweeper) {
+		ns.kvBackoff = sanitizeKVWatchBackoffSettings(kvWatchBackoffSettings{
+			initial: initial,
+			max:     max,
+			factor:  factor,
+			jitter:  jitter,
+		})
+	}
+}
+
+func (s *NetworkSweeper) kvWatchBackoff() kvWatchBackoffSettings {
+	cfg := sanitizeKVWatchBackoffSettings(s.kvBackoff)
+	s.kvBackoff = cfg
+
+	return cfg
+}
 
 // minInt returns the minimum of two integers
 func minInt(a, b int) int {
@@ -84,6 +138,7 @@ type NetworkSweeper struct {
 	deviceRegistry    DeviceRegistryService
 	configKey         string
 	logger            logger.Logger
+	kvBackoff         kvWatchBackoffSettings
 	mu                sync.RWMutex
 	done              chan struct{}
 	watchDone         chan struct{}
@@ -129,7 +184,8 @@ func NewNetworkSweeper(
 	kvStore KVStore,
 	deviceRegistry DeviceRegistryService,
 	configKey string,
-	log logger.Logger) (*NetworkSweeper, error) {
+	log logger.Logger,
+	opts ...Option) (*NetworkSweeper, error) {
 	if config == nil {
 		return nil, errNilConfig
 	}
@@ -145,7 +201,7 @@ func NewNetworkSweeper(
 
 	log.Info().Dur("interval", config.Interval).Msg("Creating NetworkSweeper")
 
-	return &NetworkSweeper{
+	ns := &NetworkSweeper{
 		config:            config,
 		icmpScanner:       icmpScanner,
 		tcpScanner:        tcpScanner,
@@ -156,10 +212,17 @@ func NewNetworkSweeper(
 		deviceRegistry:    deviceRegistry,
 		configKey:         configKey,
 		logger:            log,
+		kvBackoff:         defaultKVWatchBackoffSettings(),
 		done:              make(chan struct{}),
 		watchDone:         make(chan struct{}),
 		deviceResults:     make(map[string]*DeviceResultAggregator),
-	}, nil
+	}
+
+	for _, opt := range opts {
+		opt(ns)
+	}
+
+	return ns, nil
 }
 
 // initializeICMPScanner creates an ICMP scanner if needed based on config
@@ -705,9 +768,11 @@ func (s *NetworkSweeper) handleCancellation(ctx context.Context, initialConfigRe
 func (s *NetworkSweeper) handleBackoffWait(
 	ctx context.Context, backoff time.Duration, initialConfigReceived bool, configReady chan<- struct{},
 ) bool {
+	cfg := s.kvWatchBackoff()
+
 	// Reset backoff on successful initial config to avoid long delays on subsequent reconnects
 	if initialConfigReceived {
-		backoff = kvWatchInitialBackoff
+		backoff = cfg.initial
 	}
 
 	// Add jitter to prevent thundering herd
@@ -757,7 +822,8 @@ func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, confi
 	s.logger.Info().Str("configKey", s.configKey).Msg("Starting KV watch with auto-reconnect")
 
 	initialConfigReceived := false
-	backoff := kvWatchInitialBackoff
+	cfg := s.kvWatchBackoff()
+	backoff := cfg.initial
 	// Auto-reconnect loop with exponential backoff and jitter
 	for {
 		// Check for cancellation
@@ -786,8 +852,8 @@ func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, confi
 
 			// Exponentially increase backoff, capped at maximum
 			backoff = time.Duration(math.Min(
-				float64(backoff)*kvWatchBackoffFactor,
-				float64(kvWatchMaxBackoff),
+				float64(backoff)*cfg.factor,
+				float64(cfg.max),
 			))
 		}
 	}
@@ -857,8 +923,8 @@ func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceiv
 }
 
 // addJitter adds random jitter to backoff duration to prevent thundering herd
-func (*NetworkSweeper) addJitter(backoff time.Duration) time.Duration {
-	jitter := time.Duration(float64(backoff) * kvWatchJitterFactor * (rand.Float64()*2 - 1))
+func (s *NetworkSweeper) addJitter(backoff time.Duration) time.Duration {
+	jitter := time.Duration(float64(backoff) * s.kvBackoff.jitter * (rand.Float64()*2 - 1))
 	jitteredBackoff := backoff + jitter
 
 	// Ensure jittered backoff is positive

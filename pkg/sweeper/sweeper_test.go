@@ -19,6 +19,7 @@ package sweeper
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,6 +35,28 @@ var (
 	// errKVConnectionFailed is used in tests to simulate KV connection failures
 	errKVConnectionFailed = errors.New("KV connection failed")
 )
+
+const (
+	testWatchReconnectDelay = 5 * time.Millisecond
+	testWatchBackoffDelay   = 3 * time.Millisecond
+	testWatchContextTimeout = 80 * time.Millisecond
+)
+
+const (
+	testKVWatchInitial = 2 * time.Millisecond
+	testKVWatchMax     = 5 * time.Millisecond
+	testKVWatchFactor  = 1.1
+	testKVWatchJitter  = 0.01
+)
+
+func newTestKVBackoff() kvWatchBackoffSettings {
+	return sanitizeKVWatchBackoffSettings(kvWatchBackoffSettings{
+		initial: testKVWatchInitial,
+		max:     testKVWatchMax,
+		factor:  testKVWatchFactor,
+		jitter:  testKVWatchJitter,
+	})
+}
 
 func TestMockSweeper(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -128,8 +151,9 @@ func TestNetworkSweeper_UpdateConfig_IntervalPreservation(t *testing.T) {
 	}
 
 	sweeper := &NetworkSweeper{
-		config: initialConfig,
-		logger: logger.NewTestLogger(),
+		config:    initialConfig,
+		logger:    logger.NewTestLogger(),
+		kvBackoff: defaultKVWatchBackoffSettings(),
 	}
 
 	t.Run("UpdateConfig preserves fields when new config has zero/nil values", func(t *testing.T) {
@@ -208,6 +232,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			configKey: "test-config-key",
 			watchDone: make(chan struct{}),
 			done:      make(chan struct{}),
+			kvBackoff: newTestKVBackoff(),
 		}
 
 		// Mock KV config with new networks
@@ -225,9 +250,21 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			AnyTimes()
 
 		configReady := make(chan struct{})
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), testWatchContextTimeout)
 
-		defer cancel()
+		t.Cleanup(func() {
+			cancel()
+			if sweeper.done != nil {
+				select {
+				case <-sweeper.done:
+				default:
+					close(sweeper.done)
+				}
+			}
+			if sweeper.watchDone != nil {
+				<-sweeper.watchDone
+			}
+		})
 
 		go sweeper.watchConfigWithInitialSignal(ctx, configReady)
 
@@ -259,12 +296,22 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			kvStore:   nil, // No KV store
 			configKey: "test-config-key",
 			watchDone: make(chan struct{}),
+			done:      make(chan struct{}),
+			kvBackoff: newTestKVBackoff(),
 		}
 
 		configReady := make(chan struct{})
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), testWatchContextTimeout)
 
-		defer cancel()
+		t.Cleanup(func() {
+			cancel()
+			select {
+			case <-sweeper.done:
+			default:
+				close(sweeper.done)
+			}
+			<-sweeper.watchDone
+		})
 
 		go sweeper.watchConfigWithInitialSignal(ctx, configReady)
 
@@ -302,6 +349,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			configKey: "test-config-key",
 			watchDone: make(chan struct{}),
 			done:      make(chan struct{}),
+			kvBackoff: newTestKVBackoff(),
 		}
 
 		subMockKVStore.EXPECT().
@@ -310,9 +358,17 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			AnyTimes()
 
 		configReady := make(chan struct{})
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), testWatchContextTimeout)
 
-		defer cancel()
+		t.Cleanup(func() {
+			cancel()
+			select {
+			case <-sweeper.done:
+			default:
+				close(sweeper.done)
+			}
+			<-sweeper.watchDone
+		})
 
 		go sweeper.watchConfigWithInitialSignal(ctx, configReady)
 
@@ -808,8 +864,9 @@ func TestNetworkSweeper_generateTargets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sweeper := &NetworkSweeper{
-				config: tt.config,
-				logger: logger.NewTestLogger(),
+				config:    tt.config,
+				logger:    logger.NewTestLogger(),
+				kvBackoff: defaultKVWatchBackoffSettings(),
 			}
 
 			targets, err := sweeper.generateTargets()
@@ -875,10 +932,11 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 		watchDone: make(chan struct{}),
 		done:      make(chan struct{}),
 		logger:    log,
+		kvBackoff: newTestKVBackoff(),
 	}
 
 	configReady := make(chan struct{})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testWatchContextTimeout)
 
 	defer cancel()
 
@@ -898,35 +956,40 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 		Return(watchCh2, nil).
 		Times(1)
 
+	var wg sync.WaitGroup
+
 	// Start the watch in a goroutine
-	go sweeper.watchConfigWithInitialSignal(ctx, configReady)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sweeper.watchConfigWithInitialSignal(ctx, configReady)
+	}()
 
 	// Simulate spurious channel closure after a brief delay
+	wg.Add(1)
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		defer wg.Done()
+		time.Sleep(testWatchReconnectDelay)
 		close(watchCh1) // This should trigger auto-reconnect
 	}()
 
 	// After the backoff delay, send a config update on the second channel
+	wg.Add(1)
 	go func() {
-		time.Sleep(50 * time.Millisecond) // Very minimal wait - test environment doesn't need full backoff
+		defer wg.Done()
+		time.Sleep(testWatchBackoffDelay)
 
 		configData := []byte(`{"networks": ["10.0.0.0/24"], "ports": [443], "sweep_modes": ["icmp"]}`)
 		select {
 		case watchCh2 <- configData:
-			t.Log("Sent config data on watchCh2")
 		case <-ctx.Done():
-			t.Log("Context canceled while trying to send config data")
 		}
 	}()
 
 	// Should eventually receive config ready signal after auto-reconnect
-	t.Log("Waiting for config ready signal...")
-
 	select {
 	case <-configReady:
 		// Config ready signal received - auto-reconnect worked
-		t.Log("Successfully received initial config after auto-reconnect")
 	case <-ctx.Done():
 		t.Fatal("Timeout waiting for config ready signal after auto-reconnect")
 	}
@@ -934,12 +997,17 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 	// Clean shutdown
 	close(sweeper.done)
 	<-sweeper.watchDone
+	cancel()
+	wg.Wait()
 }
 
 // TestKVWatchJitterDistribution tests that jitter is properly distributed
 func TestKVWatchJitterDistribution(t *testing.T) {
 	log := logger.NewTestLogger()
-	sweeper := &NetworkSweeper{logger: log}
+	sweeper := &NetworkSweeper{
+		logger:    log,
+		kvBackoff: defaultKVWatchBackoffSettings(),
+	}
 
 	baseBackoff := 1 * time.Second
 	samples := 100
@@ -950,8 +1018,9 @@ func TestKVWatchJitterDistribution(t *testing.T) {
 	}
 
 	// Check that jittered values are distributed around the base
-	minJitter := baseBackoff - time.Duration(float64(baseBackoff)*kvWatchJitterFactor)
-	maxJitter := baseBackoff + time.Duration(float64(baseBackoff)*kvWatchJitterFactor)
+	cfg := sweeper.kvWatchBackoff()
+	minJitter := baseBackoff - time.Duration(float64(baseBackoff)*cfg.jitter)
+	maxJitter := baseBackoff + time.Duration(float64(baseBackoff)*cfg.jitter)
 
 	allWithinRange := true
 

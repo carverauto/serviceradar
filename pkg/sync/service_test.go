@@ -41,6 +41,11 @@ var (
 	errStreamSend = errors.New("stream send error")
 )
 
+const (
+	testOperationDelay = 5 * time.Millisecond
+	testWaitTimeout    = 250 * time.Millisecond
+)
+
 func expectNoopBatchGet(kv *MockKVClient) {
 	kv.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
 }
@@ -951,7 +956,7 @@ func TestSimpleSyncService_runArmisUpdates_OverlapPrevention(t *testing.T) {
 
 		// Simulate slow operation - use shorter duration for tests
 		select {
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(testOperationDelay):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -985,14 +990,14 @@ func TestSimpleSyncService_runArmisUpdates_OverlapPrevention(t *testing.T) {
 	select {
 	case err := <-firstCallDone:
 		require.NoError(t, err, "First call should succeed")
-	case <-time.After(1 * time.Second):
+	case <-time.After(testWaitTimeout):
 		t.Fatal("First call did not complete in time")
 	}
 
 	select {
 	case err := <-secondCallDone:
 		require.NoError(t, err, "Second call should return nil (skipped due to overlap prevention)")
-	case <-time.After(1 * time.Second):
+	case <-time.After(testWaitTimeout):
 		t.Fatal("Second call did not complete in time")
 	}
 
