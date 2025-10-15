@@ -20,7 +20,6 @@ import React, { useMemo, useCallback } from 'react';
 import {
     AlertTriangle, Activity, ServerOff, Server
 } from 'lucide-react';
-import {GenericServiceDetails} from "@/types/types";
 import { useRouter } from 'next/navigation';
 import { AnalyticsProvider, useAnalytics } from '@/contexts/AnalyticsContext';
 import { SysmonProvider } from '@/contexts/SysmonContext';
@@ -95,31 +94,8 @@ const DashboardContent = () => {
             return { totalDevices: 0, offlineDevices: 0, highLatencyServices: 0, failingServices: 0 };
         }
 
-        let failingServices = 0;
-        let highLatencyServices = 0;
-        const latencyThreshold = 100 * 1000000; // 100ms in nanoseconds
-
-        (analyticsData.pollers as Array<{ services?: Array<{ available: boolean; type: string; details?: unknown; }> }>).forEach((poller) => {
-            poller.services?.forEach((service) => {
-                if (!service.available) {
-                    failingServices++;
-                }
-                if (service.type === 'icmp' && service.available && service.details) {
-                    try {
-                        const details = (typeof service.details === 'string' ? JSON.parse(service.details) : service.details) as GenericServiceDetails;
-                        // Handle both direct response_time and nested data.response_time (enhanced payload)
-                        let responseTime = details?.response_time;
-                        if (!responseTime && details?.data?.response_time) {
-                            responseTime = details.data.response_time;
-                        }
-                        
-                        if (responseTime && responseTime > latencyThreshold) {
-                            highLatencyServices++;
-                        }
-                    } catch { /* ignore parse errors */ }
-                }
-            });
-        });
+        const failingServices = analyticsData.failingServiceCount ?? 0;
+        const highLatencyServices = analyticsData.highLatencyServiceCount ?? 0;
 
         return {
             totalDevices: analyticsData.totalDevices,

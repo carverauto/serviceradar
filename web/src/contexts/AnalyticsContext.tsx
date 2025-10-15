@@ -44,7 +44,9 @@ interface AnalyticsData {
   recentSlowSpans: unknown[];
   devicesLatest: unknown[];
   servicesLatest: unknown[];
-  pollers: unknown[];
+  failingServiceCount: number;
+  highLatencyServiceCount: number;
+  serviceLatencyBuckets: Array<{ name: string; responseTimeMs: number }>;
 }
 
 interface AnalyticsContextType {

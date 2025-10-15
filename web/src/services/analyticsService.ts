@@ -12,7 +12,14 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
+*/
+
+import { GenericServiceDetails } from '@/types/types';
+
+export interface ServiceLatencyBucket {
+  name: string;
+  responseTimeMs: number;
+}
 
 export interface AnalyticsData {
   // Device stats
@@ -47,9 +54,9 @@ export interface AnalyticsData {
   // Device data for widgets
   devicesLatest: unknown[];
   servicesLatest: unknown[];
-  
-  // Pollers data
-  pollers: unknown[];
+  failingServiceCount: number;
+  highLatencyServiceCount: number;
+  serviceLatencyBuckets: ServiceLatencyBucket[];
 }
 
 interface CachedAnalyticsData {
@@ -80,6 +87,7 @@ class AnalyticsService {
   private cache: CachedAnalyticsData | null = null;
   private readonly CACHE_DURATION = 30000; // 30 seconds cache
   private subscribers: Set<() => void> = new Set();
+  private readonly LATENCY_THRESHOLD_NS = 100 * 1_000_000; // 100ms
 
   async getAnalyticsData(token?: string): Promise<AnalyticsData> {
     const now = Date.now();
@@ -189,16 +197,8 @@ class AnalyticsService {
       }
     });
 
-    // Get pollers data
-    const pollersPromise = fetch('/api/pollers', { headers })
-      .then(res => res.ok ? res.json() : [])
-      .catch(() => []);
-
     // Wait for all data
-    const [queryResults, pollers] = await Promise.all([
-      Promise.all(queryPromises),
-      pollersPromise
-    ]);
+    const queryResults = await Promise.all(queryPromises);
 
     // Parse results
     const [
@@ -209,38 +209,45 @@ class AnalyticsService {
       errorTracesRes, slowTracesRes, slowTraceListRes, devicesLatestRes, servicesLatestRes
     ] = queryResults;
 
-    const totalDevices = totalDevicesRes.results[0]?.total || 0;
-    const offlineDevices = offlineDevicesRes.results[0]?.total || 0;
+    const servicesLatest = Array.isArray(servicesLatestRes?.results) ? servicesLatestRes.results : [];
+    const {
+      failingCount,
+      highLatencyCount,
+      latencyBuckets
+    } = this.computeServiceStats(servicesLatest);
+
+    const totalDevices = Array.isArray(totalDevicesRes?.results) ? totalDevicesRes.results[0]?.total || 0 : 0;
+    const offlineDevices = Array.isArray(offlineDevicesRes?.results) ? offlineDevicesRes.results[0]?.total || 0 : 0;
 
     return {
       // Device stats
       totalDevices,
       offlineDevices,
-      onlineDevices: totalDevices - offlineDevices,
+      onlineDevices: Math.max(totalDevices - offlineDevices, 0),
       
       // Event stats
-      totalEvents: totalEventsRes.results[0]?.total || 0,
-      criticalEvents: criticalEventsRes.results[0]?.total || 0,
-      highEvents: highEventsRes.results[0]?.total || 0,
-      mediumEvents: mediumEventsRes.results[0]?.total || 0,
-      lowEvents: lowEventsRes.results[0]?.total || 0,
-      recentCriticalEvents: (recentCriticalEventsRes.results || []).slice(0, 5),
+      totalEvents: this.extractTotal(totalEventsRes),
+      criticalEvents: this.extractTotal(criticalEventsRes),
+      highEvents: this.extractTotal(highEventsRes),
+      mediumEvents: this.extractTotal(mediumEventsRes),
+      lowEvents: this.extractTotal(lowEventsRes),
+      recentCriticalEvents: this.sliceResults(recentCriticalEventsRes, 5),
       
       // Log stats
-      totalLogs: totalLogsRes.results[0]?.total || 0,
-      fatalLogs: fatalLogsRes.results[0]?.total || 0,
-      errorLogs: errorLogsRes.results[0]?.total || 0,
-      warningLogs: warningLogsRes.results[0]?.total || 0,
-      infoLogs: infoLogsRes.results[0]?.total || 0,
-      debugLogs: debugLogsRes.results[0]?.total || 0,
-      recentErrorLogs: (recentErrorLogsRes.results || []).slice(0, 5),
+      totalLogs: this.extractTotal(totalLogsRes),
+      fatalLogs: this.extractTotal(fatalLogsRes),
+      errorLogs: this.extractTotal(errorLogsRes),
+      warningLogs: this.extractTotal(warningLogsRes),
+      infoLogs: this.extractTotal(infoLogsRes),
+      debugLogs: this.extractTotal(debugLogsRes),
+      recentErrorLogs: this.sliceResults(recentErrorLogsRes, 5),
       
       // Observability stats
-      totalMetrics: totalMetricsRes.results[0]?.total || 0,
-      totalTraces: totalTracesRes.results[0]?.total || 0,
-      slowTraces: slowTracesRes.results[0]?.total || 0,
-      errorTraces: errorTracesRes.results[0]?.total || 0,
-      recentSlowSpans: (slowTraceListRes.results || []).slice(0, 5).map((trace: SlowTraceResult): RecentSlowSpan => ({
+      totalMetrics: this.extractTotal(totalMetricsRes),
+      totalTraces: this.extractTotal(totalTracesRes),
+      slowTraces: this.extractTotal(slowTracesRes),
+      errorTraces: this.extractTotal(errorTracesRes),
+      recentSlowSpans: this.sliceResults<SlowTraceResult>(slowTraceListRes, 5).map((trace): RecentSlowSpan => ({
         trace_id: trace.trace_id ?? 'unknown_trace',
         service_name: trace.root_service_name || trace.service_name || 'Unknown Service',
         span_name: trace.root_span_name || 'Root Span',
@@ -249,9 +256,11 @@ class AnalyticsService {
       })),
       
       // Raw data for widgets
-      devicesLatest: devicesLatestRes.results || [],
-      servicesLatest: servicesLatestRes.results || [],
-      pollers: pollers || []
+      devicesLatest: Array.isArray(devicesLatestRes?.results) ? devicesLatestRes.results : [],
+      servicesLatest,
+      failingServiceCount: failingCount,
+      highLatencyServiceCount: highLatencyCount,
+      serviceLatencyBuckets: latencyBuckets
     };
   }
 
@@ -261,7 +270,7 @@ class AnalyticsService {
       totalEvents: 0, criticalEvents: 0, highEvents: 0, mediumEvents: 0, lowEvents: 0, recentCriticalEvents: [],
       totalLogs: 0, fatalLogs: 0, errorLogs: 0, warningLogs: 0, infoLogs: 0, debugLogs: 0, recentErrorLogs: [],
       totalMetrics: 0, totalTraces: 0, slowTraces: 0, errorTraces: 0, recentSlowSpans: [],
-      devicesLatest: [], servicesLatest: [], pollers: []
+      devicesLatest: [], servicesLatest: [], failingServiceCount: 0, highLatencyServiceCount: 0, serviceLatencyBuckets: []
     };
   }
 
@@ -286,6 +295,161 @@ class AnalyticsService {
     if (!this.cache) return false;
     const now = Date.now();
     return (now - this.cache.timestamp) < this.CACHE_DURATION;
+  }
+
+  private computeServiceStats(
+    services: unknown[]
+  ): { failingCount: number; highLatencyCount: number; latencyBuckets: ServiceLatencyBucket[] } {
+    let failingCount = 0;
+    let highLatencyCount = 0;
+    const latencyBuckets: ServiceLatencyBucket[] = [];
+
+    services.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return;
+      }
+
+      const service = entry as Record<string, unknown>;
+      const available = this.normalizeBoolean(service.available);
+
+      if (available === false) {
+        failingCount += 1;
+      }
+
+      const serviceType = this.normalizeString(service.service_type) ?? this.normalizeString(service.type);
+      if (serviceType !== 'icmp') {
+        return;
+      }
+
+      if (available === false) {
+        return;
+      }
+
+      const responseTimeNs = this.extractResponseTime(service);
+      if (typeof responseTimeNs !== 'number') {
+        return;
+      }
+
+      const responseTimeMs = responseTimeNs / 1_000_000;
+      const name =
+        this.normalizeDisplayName(service.name) ??
+        this.normalizeDisplayName(service.service_name) ??
+        'unknown';
+
+      latencyBuckets.push({ name, responseTimeMs });
+      if (responseTimeNs > this.LATENCY_THRESHOLD_NS) {
+        highLatencyCount += 1;
+      }
+    });
+
+    latencyBuckets.sort((a, b) => b.responseTimeMs - a.responseTimeMs);
+    return { failingCount, highLatencyCount, latencyBuckets };
+  }
+
+  private extractResponseTime(service: Record<string, unknown>): number | undefined {
+    const direct = service.response_time;
+    if (typeof direct === 'number' && Number.isFinite(direct)) {
+      return direct;
+    }
+
+    const directMs = service.response_time_ms;
+    if (typeof directMs === 'number' && Number.isFinite(directMs)) {
+      return directMs * 1_000_000;
+    }
+
+    const detailsRaw = service.details ?? service.detail;
+    if (!detailsRaw) {
+      return undefined;
+    }
+
+    let details: GenericServiceDetails | undefined;
+    if (typeof detailsRaw === 'string') {
+      try {
+        details = JSON.parse(detailsRaw) as GenericServiceDetails;
+      } catch {
+        return undefined;
+      }
+    } else if (typeof detailsRaw === 'object') {
+      details = detailsRaw as GenericServiceDetails;
+    }
+
+    if (!details) {
+      return undefined;
+    }
+
+    if (typeof details.response_time === 'number' && Number.isFinite(details.response_time)) {
+      return details.response_time;
+    }
+
+    const nested = details.data;
+    if (nested && typeof nested === 'object') {
+      const nestedRecord = nested as Record<string, unknown>;
+      const nestedNs = nestedRecord.response_time;
+      if (typeof nestedNs === 'number' && Number.isFinite(nestedNs)) {
+        return nestedNs;
+      }
+      const nestedMs = nestedRecord.response_time_ms;
+      if (typeof nestedMs === 'number' && Number.isFinite(nestedMs)) {
+        return nestedMs * 1_000_000;
+      }
+    }
+
+    return undefined;
+  }
+
+  private normalizeString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : undefined;
+  }
+
+  private normalizeDisplayName(value: unknown): string | undefined {
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+    return undefined;
+  }
+
+  private normalizeBoolean(value: unknown): boolean | undefined {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'true') {
+        return true;
+      }
+      if (normalized === 'false') {
+        return false;
+      }
+    }
+    if (typeof value === 'number') {
+      if (value === 1) {
+        return true;
+      }
+      if (value === 0) {
+        return false;
+      }
+    }
+    return undefined;
+  }
+
+  private extractTotal(result: unknown): number {
+    if (!result || typeof result !== 'object') {
+      return 0;
+    }
+    const payload = result as { results?: Array<{ total?: number }> };
+    const total = payload.results?.[0]?.total;
+    return typeof total === 'number' && Number.isFinite(total) ? total : 0;
+  }
+
+  private sliceResults<T = unknown>(result: unknown, limit: number): T[] {
+    if (!result || typeof result !== 'object') {
+      return [];
+    }
+    const payload = result as { results?: T[] };
+    if (!Array.isArray(payload.results)) {
+      return [];
+    }
+    return payload.results.slice(0, limit);
   }
 }
 
