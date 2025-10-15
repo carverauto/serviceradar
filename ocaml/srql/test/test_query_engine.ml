@@ -124,6 +124,27 @@ let test_devices_search_numeric_literal () =
        (function _, Column.String value -> String.equal value "%10%" | _ -> false)
        translation.params)
 
+let test_sysmon_stats_argmax () =
+  let translation =
+    translation_of
+      "in:cpu_metrics time:last_2h stats:\"argMax(agent_id, timestamp) as agent_id, \
+       argMax(poller_id, timestamp) as poller_id, avg(usage_percent) as avg_cpu_usage by \
+       device_id\""
+  in
+  let sql = translation.sql in
+  contains "argmax preserved" sql "argMax(agent_id, timestamp)";
+  contains "poller argmax" sql "argMax(poller_id, timestamp)";
+  contains "avg usage present" sql "avg(usage_percent)";
+  contains "group by device" sql "GROUP BY device_id";
+  contains "time filter last_2h" sql "INTERVAL 2 HOUR"
+
+let test_rperf_metrics_mapping () =
+  let translation = translation_of "in:rperf_metrics metric_type:rperf time:last_1h" in
+  let sql = translation.sql in
+  contains "rperf metrics table" sql "from table(timeseries_metrics)";
+  contains "metric_type filter" sql "metric_type = {{";
+  contains "time filter last_1h" sql "INTERVAL 1 HOUR"
+
 let suite =
   [
     ("devices today mapping", `Quick, test_devices_today);
@@ -134,6 +155,8 @@ let suite =
     ("devices search wildcard fanout", `Quick, test_devices_search_router);
     ("devices search ipv4 equality", `Quick, test_devices_search_ipv4);
     ("devices search numeric literal", `Quick, test_devices_search_numeric_literal);
+    ("sysmon stats argmax", `Quick, test_sysmon_stats_argmax);
+    ("rperf metrics mapping", `Quick, test_rperf_metrics_mapping);
   ]
 
 let () = Alcotest.run "query_engine" [ ("planner+translator", suite) ]
