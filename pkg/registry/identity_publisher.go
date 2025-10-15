@@ -318,8 +318,8 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 		p.metrics.recordPublish(1)
 		identitymap.RecordKVPublish(ctx, 1, "updated")
 		p.logger.Debug().Str("key", key).Msg("Updated canonical identity entry in KV")
-		newRevision := resp.GetRevision()
-		if updateResp != nil && updateResp.GetRevision() != 0 {
+		var newRevision uint64
+		if updateResp != nil {
 			newRevision = updateResp.GetRevision()
 		}
 		p.cache.set(key, metadataHash, attrsHash, newRevision)

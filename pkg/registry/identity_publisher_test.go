@@ -21,6 +21,9 @@ type fakeIdentityKVClient struct {
 	mu             sync.Mutex
 	entries        map[string]*fakeKVEntry
 	failUpdateOnce map[string]int
+	omitUpdateResp map[string]bool
+	updateCalls    map[string]int
+	revisionMiss   map[string]int
 }
 
 type fakeKVEntry struct {
@@ -32,6 +35,9 @@ func newFakeIdentityKVClient() *fakeIdentityKVClient {
 	return &fakeIdentityKVClient{
 		entries:        make(map[string]*fakeKVEntry),
 		failUpdateOnce: make(map[string]int),
+		omitUpdateResp: make(map[string]bool),
+		updateCalls:    make(map[string]int),
+		revisionMiss:   make(map[string]int),
 	}
 }
 
@@ -64,6 +70,9 @@ func (f *fakeIdentityKVClient) Update(_ context.Context, in *proto.UpdateRequest
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	key := in.Key
+	f.updateCalls[key]++
+
 	if remaining, ok := f.failUpdateOnce[in.Key]; ok && remaining > 0 {
 		f.failUpdateOnce[in.Key] = remaining - 1
 		return nil, status.Error(codes.Aborted, "conflict")
@@ -75,11 +84,17 @@ func (f *fakeIdentityKVClient) Update(_ context.Context, in *proto.UpdateRequest
 	}
 
 	if in.Revision != entry.revision {
+		f.revisionMiss[key]++
 		return nil, status.Error(codes.Aborted, "revision mismatch")
 	}
 
 	entry.revision++
 	entry.value = append(entry.value[:0], in.Value...)
+
+	if f.omitUpdateResp[key] {
+		return nil, nil
+	}
+
 	return &proto.UpdateResponse{Revision: entry.revision}, nil
 }
 
