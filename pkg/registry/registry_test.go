@@ -18,6 +18,7 @@ package registry
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -435,6 +436,94 @@ func TestDeviceRegistry_FirstSeenPreservedFromExistingRecord(t *testing.T) {
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
 	require.NoError(t, err)
+}
+
+func TestAnnotateFirstSeenUsesEarliestAcrossBatch(t *testing.T) {
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.Any()).
+		Return([]*models.UnifiedDevice{}, nil).
+		Times(1)
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
+
+	deviceID := "default:10.0.0.42"
+	later := time.Date(2025, 1, 2, 15, 4, 5, 0, time.UTC)
+	earlier := later.Add(-48 * time.Hour)
+
+	updates := []*models.DeviceUpdate{
+		{
+			DeviceID:  deviceID,
+			Partition: "default",
+			Timestamp: later,
+		},
+		{
+			DeviceID:  deviceID,
+			Partition: "default",
+			Timestamp: later.Add(time.Hour),
+			Metadata: map[string]string{
+				"_first_seen": earlier.Format(time.RFC3339Nano),
+			},
+		},
+	}
+
+	err := registry.annotateFirstSeen(ctx, updates)
+	require.NoError(t, err)
+
+	for _, update := range updates {
+		require.NotNil(t, update.Metadata, "metadata should be populated")
+		require.NotEmpty(t, update.Metadata["_first_seen"], "expected _first_seen to be set")
+
+		got, err := time.Parse(time.RFC3339Nano, update.Metadata["_first_seen"])
+		require.NoError(t, err)
+		assert.Equal(t, earlier, got)
+	}
+}
+
+func TestAnnotateFirstSeenChunksDeviceLookups(t *testing.T) {
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+
+	const chunkSize = 3
+
+	callCount := 0
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
+		DoAndReturn(func(_ context.Context, _ []string, ids []string) ([]*models.UnifiedDevice, error) {
+			callCount++
+			require.LessOrEqual(t, len(ids), chunkSize, "chunk size exceeded")
+			return nil, nil
+		}).
+		Times(3)
+
+	registry := NewDeviceRegistry(
+		mockDB,
+		logger.NewTestLogger(),
+		WithFirstSeenLookupChunkSize(chunkSize),
+	)
+
+	var updates []*models.DeviceUpdate
+	for i := 0; i < 7; i++ {
+		deviceID := fmt.Sprintf("default:10.0.0.%d", i)
+		updates = append(updates, &models.DeviceUpdate{
+			DeviceID:  deviceID,
+			Partition: "default",
+			Timestamp: time.Now(),
+		})
+	}
+
+	err := registry.annotateFirstSeen(ctx, updates)
+	require.NoError(t, err)
+	require.Equal(t, 3, callCount)
 }
 
 // Helper function

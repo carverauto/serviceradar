@@ -37,11 +37,12 @@ var (
 )
 
 const (
-	defaultPartition      = "default"
-	identitySourceArmis   = "armis_id"
-	identitySourceNetbox  = "netbox_id"
-	identitySourceMAC     = "mac"
-	integrationTypeNetbox = "netbox"
+	defaultPartition                = "default"
+	identitySourceArmis             = "armis_id"
+	identitySourceNetbox            = "netbox_id"
+	identitySourceMAC               = "mac"
+	integrationTypeNetbox           = "netbox"
+	defaultFirstSeenLookupChunkSize = 512
 )
 
 // Option configures DeviceRegistry behaviour.
@@ -49,17 +50,19 @@ type Option func(*DeviceRegistry)
 
 // DeviceRegistry is the concrete implementation of the registry.Manager.
 type DeviceRegistry struct {
-	db                db.Service
-	logger            logger.Logger
-	identityPublisher *identityPublisher
-	identityResolver  *identityResolver
+	db                       db.Service
+	logger                   logger.Logger
+	identityPublisher        *identityPublisher
+	identityResolver         *identityResolver
+	firstSeenLookupChunkSize int
 }
 
 // NewDeviceRegistry creates a new, authoritative device registry.
 func NewDeviceRegistry(database db.Service, log logger.Logger, opts ...Option) *DeviceRegistry {
 	r := &DeviceRegistry{
-		db:     database,
-		logger: log,
+		db:                       database,
+		logger:                   log,
+		firstSeenLookupChunkSize: defaultFirstSeenLookupChunkSize,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -67,6 +70,16 @@ func NewDeviceRegistry(database db.Service, log logger.Logger, opts ...Option) *
 		}
 	}
 	return r
+}
+
+// WithFirstSeenLookupChunkSize overrides the chunk size used when fetching existing
+// first_seen timestamps. Values <= 0 fall back to the default.
+func WithFirstSeenLookupChunkSize(size int) Option {
+	return func(r *DeviceRegistry) {
+		if size > 0 {
+			r.firstSeenLookupChunkSize = size
+		}
+	}
 }
 
 // ProcessDeviceUpdate is the single entry point for a new device discovery event.
@@ -536,6 +549,26 @@ func (r *DeviceRegistry) annotateFirstSeen(ctx context.Context, updates []*model
 		return nil
 	}
 
+	deviceIDs := collectDeviceIDs(updates)
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+
+	existing, err := r.fetchExistingFirstSeen(ctx, deviceIDs)
+	if err != nil {
+		return err
+	}
+
+	firstSeen := computeBatchFirstSeen(updates, existing)
+	applyFirstSeenMetadata(updates, firstSeen)
+	return nil
+}
+
+func collectDeviceIDs(updates []*models.DeviceUpdate) []string {
+	if len(updates) == 0 {
+		return nil
+	}
+
 	idSet := make(map[string]struct{}, len(updates))
 	for _, update := range updates {
 		if update == nil || update.DeviceID == "" {
@@ -552,22 +585,52 @@ func (r *DeviceRegistry) annotateFirstSeen(ctx context.Context, updates []*model
 	for id := range idSet {
 		deviceIDs = append(deviceIDs, id)
 	}
+	return deviceIDs
+}
 
-	existingFirstSeen := make(map[string]time.Time, len(deviceIDs))
-	devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, deviceIDs)
-	if err != nil {
-		return fmt.Errorf("lookup existing devices: %w", err)
+func (r *DeviceRegistry) fetchExistingFirstSeen(ctx context.Context, deviceIDs []string) (map[string]time.Time, error) {
+	result := make(map[string]time.Time, len(deviceIDs))
+	if len(deviceIDs) == 0 {
+		return result, nil
 	}
 
-	for _, device := range devices {
-		if device == nil || device.DeviceID == "" || device.FirstSeen.IsZero() {
+	chunkSize := r.firstSeenLookupChunkSize
+	if chunkSize <= 0 {
+		chunkSize = len(deviceIDs)
+	}
+
+	for start := 0; start < len(deviceIDs); start += chunkSize {
+		end := start + chunkSize
+		if end > len(deviceIDs) {
+			end = len(deviceIDs)
+		}
+
+		devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, deviceIDs[start:end])
+		if err != nil {
+			return nil, fmt.Errorf("lookup existing devices: %w", err)
+		}
+
+		for _, device := range devices {
+			if device != nil && device.DeviceID != "" && !device.FirstSeen.IsZero() {
+				result[device.DeviceID] = device.FirstSeen.UTC()
+			}
+		}
+	}
+
+	return result, nil
+}
+
+func computeBatchFirstSeen(updates []*models.DeviceUpdate, seed map[string]time.Time) map[string]time.Time {
+	result := make(map[string]time.Time, len(seed)+len(updates))
+	for id, ts := range seed {
+		if ts.IsZero() {
 			continue
 		}
-		existingFirstSeen[device.DeviceID] = device.FirstSeen.UTC()
+		result[id] = ts.UTC()
 	}
 
 	for _, update := range updates {
-		if update == nil {
+		if update == nil || update.DeviceID == "" {
 			continue
 		}
 
@@ -587,17 +650,39 @@ func (r *DeviceRegistry) annotateFirstSeen(ctx context.Context, updates []*model
 			}
 		}
 
-		if existing, ok := existingFirstSeen[update.DeviceID]; ok && !existing.IsZero() && existing.Before(earliest) {
+		if existing, ok := result[update.DeviceID]; ok && !existing.IsZero() && existing.Before(earliest) {
 			earliest = existing
+		}
+
+		if current, ok := result[update.DeviceID]; !ok || earliest.Before(current) {
+			result[update.DeviceID] = earliest.UTC()
+		}
+	}
+
+	return result
+}
+
+func applyFirstSeenMetadata(updates []*models.DeviceUpdate, firstSeen map[string]time.Time) {
+	if len(firstSeen) == 0 {
+		return
+	}
+
+	for _, update := range updates {
+		if update == nil || update.DeviceID == "" {
+			continue
+		}
+
+		earliest, ok := firstSeen[update.DeviceID]
+		if !ok || earliest.IsZero() {
+			continue
 		}
 
 		if update.Metadata == nil {
 			update.Metadata = make(map[string]string)
 		}
+
 		update.Metadata["_first_seen"] = earliest.UTC().Format(time.RFC3339Nano)
 	}
-
-	return nil
 }
 
 func parseFirstSeenTimestamp(raw string) (time.Time, bool) {
