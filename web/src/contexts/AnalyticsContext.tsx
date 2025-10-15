@@ -17,37 +17,8 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { analyticsService } from '@/services/analyticsService';
+import { dataService, AnalyticsData } from '@/services/dataService';
 import { useAuth } from '@/components/AuthProvider';
-
-interface AnalyticsData {
-  totalDevices: number;
-  offlineDevices: number;
-  onlineDevices: number;
-  totalEvents: number;
-  criticalEvents: number;
-  highEvents: number;
-  mediumEvents: number;
-  lowEvents: number;
-  recentCriticalEvents: unknown[];
-  totalLogs: number;
-  fatalLogs: number;
-  errorLogs: number;
-  warningLogs: number;
-  infoLogs: number;
-  debugLogs: number;
-  recentErrorLogs: unknown[];
-  totalMetrics: number;
-  totalTraces: number;
-  slowTraces: number;
-  errorTraces: number;
-  recentSlowSpans: unknown[];
-  devicesLatest: unknown[];
-  servicesLatest: unknown[];
-  failingServiceCount: number;
-  highLatencyServiceCount: number;
-  serviceLatencyBuckets: Array<{ name: string; responseTimeMs: number }>;
-}
 
 interface AnalyticsContextType {
   data: AnalyticsData | null;
@@ -76,7 +47,7 @@ export const AnalyticsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       console.log('[AnalyticsProvider] Fetching analytics data');
       setError(null);
-      const analyticsData = await analyticsService.getAnalyticsData(token ?? undefined);
+      const analyticsData = await dataService.getAnalyticsData(token ?? undefined);
       setData(analyticsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch analytics data');

@@ -21,7 +21,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { Activity, Server } from 'lucide-react';
 import { ErrorMessage, EmptyState, LoadingState } from './error-components';
 import SystemMetrics from './system-metrics';
-import { sysmonService, SysmonAgentSummary } from '@/services/sysmonService';
+import { dataService, SysmonAgentSummary } from '@/services/dataService';
 
 // Type annotation for the SystemMetrics component
 interface SystemMetricsProps {
@@ -107,7 +107,7 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({
             setError(null);
 
             try {
-                const summaries = await sysmonService.getSysmonData(token ?? undefined);
+                const summaries = await dataService.getSysmonData(token ?? undefined);
                 if (cancelled) {
                     return;
                 }
@@ -156,7 +156,7 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({
 
         void loadSysmonSummaries();
 
-        const unsubscribe = sysmonService.subscribe(() => {
+        const unsubscribe = dataService.subscribeSysmon(() => {
             void loadSysmonSummaries();
         });
 
