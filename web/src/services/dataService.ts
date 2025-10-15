@@ -899,10 +899,10 @@ class DataService {
       }
     });
 
-    return Array.from(grouped.entries()).map(([pollerId, metrics]) => {
-      metrics.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-      return { pollerId, rperfMetrics: metrics };
-    });
+    return Array.from(grouped.entries()).map(([pollerId, rperfMetrics]) => ({
+      pollerId,
+      rperfMetrics
+    }));
   }
 
   private rowToMetric(row: SrqlRperfRow): { pollerId: string; metric: RperfMetric } | null {
