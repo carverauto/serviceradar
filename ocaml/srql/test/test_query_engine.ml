@@ -22,6 +22,16 @@ let contains msg hay needle =
   if not (sub lhay lneedle) then
     fail (Printf.sprintf "%s: expected to find '%s' in '%s'" msg needle hay)
 
+let not_contains msg hay needle =
+  let lhay = String.lowercase_ascii hay and lneedle = String.lowercase_ascii needle in
+  let len_h = String.length lhay and len_n = String.length lneedle in
+  let rec loop i =
+    if i + len_n > len_h then false
+    else if String.sub lhay i len_n = lneedle then true
+    else loop (i + 1)
+  in
+  if loop 0 then fail (Printf.sprintf "%s: did not expect '%s' in '%s'" msg needle hay)
+
 let test_devices_today () =
   let translation = translation_of "in:devices name:server01 time:today" in
   let sql = translation.sql in
@@ -57,11 +67,73 @@ let test_validation_having_error () =
       | Ok () -> fail "expected validation error"
       | Error _ -> ())
 
+let test_devices_ip_equality () =
+  let translation = translation_of "in:devices ip:\"10.139.236.7\"" in
+  let sql = translation.sql in
+  contains "ip equality condition" sql "ip = {{";
+  check bool "ip parameter present" true
+    (List.exists
+       (function _, Column.String value -> String.equal value "10.139.236.7" | _ -> false)
+       translation.params)
+
+let test_devices_ipaddress_alias () =
+  let translation = translation_of "in:devices ipAddress:\"10.238.179.157\"" in
+  let sql = translation.sql in
+  contains "ipAddress alias maps to ip" sql "ip = {{";
+  check bool "ipAddress parameter present" true
+    (List.exists
+       (function _, Column.String value -> String.equal value "10.238.179.157" | _ -> false)
+       translation.params)
+
+let test_devices_search_router () =
+  let translation = translation_of "in:devices search:\"router-01\"" in
+  let sql = translation.sql in
+  contains "search includes hostname match" sql "hostname ILIKE {{";
+  contains "search includes device_id match" sql "device_id ILIKE {{";
+  contains "search includes poller match" sql "poller_id ILIKE {{";
+  contains "search includes mac match" sql "mac ILIKE {{";
+  contains "search includes ip wildcard" sql "ip ILIKE {{";
+  not_contains "search excludes sys_descr" sql "sys_descr ILIKE {{";
+  check bool "router wildcard param present" true
+    (List.exists
+       (function _, Column.String "%router-01%" -> true | _ -> false)
+       translation.params)
+
+let test_devices_search_ipv4 () =
+  let translation = translation_of "in:devices search:\"10.139.236.7\"" in
+  let sql = translation.sql in
+  contains "search includes ip equality" sql "ip = {{";
+  contains "search includes ip wildcard" sql "ip ILIKE {{";
+  not_contains "search excludes observables_ip" sql "has(observables_ip, {{";
+  check bool "ip equality param present" true
+    (List.exists
+       (function _, Column.String value -> String.equal value "10.139.236.7" | _ -> false)
+       translation.params);
+  check bool "ip wildcard param present" true
+    (List.exists
+       (function _, Column.String value -> String.equal value "%10.139.236.7%" | _ -> false)
+       translation.params)
+
+let test_devices_search_numeric_literal () =
+  let translation = translation_of "in:devices search:\"10\"" in
+  let sql = translation.sql in
+  contains "numeric search uses wildcard" sql "ip ILIKE {{";
+  not_contains "numeric search avoids raw column compare" sql "search =";
+  check bool "numeric wildcard param present" true
+    (List.exists
+       (function _, Column.String value -> String.equal value "%10%" | _ -> false)
+       translation.params)
+
 let suite =
   [
     ("devices today mapping", `Quick, test_devices_today);
     ("flows topk_by ranking", `Quick, test_flows_topk_by);
     ("having invalid reference", `Quick, test_validation_having_error);
+    ("devices ip equality filter", `Quick, test_devices_ip_equality);
+    ("devices ipAddress alias", `Quick, test_devices_ipaddress_alias);
+    ("devices search wildcard fanout", `Quick, test_devices_search_router);
+    ("devices search ipv4 equality", `Quick, test_devices_search_ipv4);
+    ("devices search numeric literal", `Quick, test_devices_search_numeric_literal);
   ]
 
 let () = Alcotest.run "query_engine" [ ("planner+translator", suite) ]
@@ -138,7 +210,7 @@ let test_negation_list_devices () =
 let test_negation_like_services () =
   let translation = translation_of "in:services !name:%ssh% timeFrame:\"7 Days\"" in
   let sql = translation.sql in
-  contains "not like emitted" sql "NOT name LIKE {{";
+  contains "not like emitted" sql "NOT name ILIKE {{";
   contains "7 days timeframe" sql "INTERVAL 7 DAY"
 
 let suite_neg =
@@ -161,7 +233,7 @@ let test_devices_boundary_alias () =
 let test_services_like_positive () =
   let translation = translation_of "in:services name:%ssh%" in
   let sql = translation.sql in
-  contains "like emitted" sql "name LIKE {{";
+  contains "like emitted" sql "name ILIKE {{";
   check bool "ssh pattern param" true
     (List.exists (function _, Column.String "%ssh%" -> true | _ -> false) translation.params)
 
@@ -213,14 +285,14 @@ let () = Alcotest.run "asq_arrays" [ ("arrays", suite_arrays) ]
 let test_devices_like_hostname () =
   let translation = translation_of "in:devices hostname:%cam%" in
   let sql = translation.sql in
-  contains "hostname LIKE" sql "hostname LIKE {{";
+  contains "hostname LIKE" sql "hostname ILIKE {{";
   check bool "hostname pattern param" true
     (List.exists (function _, Column.String "%cam%" -> true | _ -> false) translation.params)
 
 let test_devices_not_like_hostname () =
   let translation = translation_of "in:devices !hostname:%cam%" in
   let sql = translation.sql in
-  contains "hostname NOT LIKE" sql "NOT hostname LIKE {{";
+  contains "hostname NOT LIKE" sql "NOT hostname ILIKE {{";
   check bool "hostname not pattern param" true
     (List.exists (function _, Column.String "%cam%" -> true | _ -> false) translation.params)
 
@@ -228,14 +300,14 @@ let test_activity_like_nested_decision_host () =
   let translation = translation_of "in:activity decisionData:(host:(%ipinfo.%))" in
   let sql = translation.sql in
   contains "events table" sql "from table(events)";
-  contains "nested LIKE" sql "decisionData_host LIKE {{";
+  contains "nested LIKE" sql "decisionData_host ILIKE {{";
   check bool "decision host param" true
     (List.exists (function _, Column.String "%ipinfo.%" -> true | _ -> false) translation.params)
 
 let test_activity_not_like_nested_decision_host () =
   let translation = translation_of "in:activity decisionData:(host:(!%ipinfo.%))" in
   let sql = translation.sql in
-  contains "nested NOT LIKE" sql "NOT decisionData_host LIKE {{";
+  contains "nested NOT LIKE" sql "NOT decisionData_host ILIKE {{";
   check bool "decision host not param" true
     (List.exists (function _, Column.String "%ipinfo.%" -> true | _ -> false) translation.params)
 

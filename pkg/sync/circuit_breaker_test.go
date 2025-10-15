@@ -37,8 +37,8 @@ func TestCircuitBreaker_BasicFunctionality(t *testing.T) {
 	config := CircuitBreakerConfig{
 		FailureThreshold: 2,
 		SuccessThreshold: 1,
-		Timeout:          100 * time.Millisecond,
-		ResetTimeout:     200 * time.Millisecond,
+		Timeout:          10 * time.Millisecond,
+		ResetTimeout:     20 * time.Millisecond,
 	}
 
 	log := logger.NewTestLogger()
@@ -68,24 +68,19 @@ func TestCircuitBreaker_BasicFunctionality(t *testing.T) {
 	assert.Contains(t, err.Error(), "circuit breaker is open: test")
 
 	// Wait for timeout to transition to half-open - retry approach for robustness
-	var finalErr error
+	var (
+		finalErr   error
+		finalState CircuitBreakerState
+	)
 
-	var finalState CircuitBreakerState
-
-	for i := 0; i < 10; i++ {
-		time.Sleep(30 * time.Millisecond) // Check every 30ms, total timeout ~300ms
-
-		// Try to execute - should succeed once in half-open state
+	require.Eventually(t, func() bool {
 		finalErr = cb.Execute(context.Background(), func() error { return nil })
 		finalState = cb.GetState()
+		return finalErr == nil && finalState == StateClosed
+	}, 50*time.Millisecond, 2*time.Millisecond, "Should close after successful call")
 
-		if finalErr == nil && finalState == StateClosed {
-			break // Successfully transitioned through half-open to closed
-		}
-	}
-
-	require.NoError(t, finalErr, "Should eventually allow call when circuit transitions to half-open")
-	assert.Equal(t, StateClosed, finalState, "Should close after successful call")
+	require.NoError(t, finalErr)
+	assert.Equal(t, StateClosed, finalState)
 }
 
 func TestCircuitBreaker_GetMetrics(t *testing.T) {

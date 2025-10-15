@@ -90,7 +90,7 @@ let rec translate_condition builder ~entity = function
               Printf.sprintf "%s IN %s" field placeholder)
       | Like ->
           let placeholder = render_value builder value in
-          Printf.sprintf "%s LIKE %s" field placeholder
+          Printf.sprintf "%s ILIKE %s" field placeholder
       | ArrayContains ->
           let placeholder = render_value builder value in
           Printf.sprintf "has(%s, %s)" field placeholder)
@@ -120,8 +120,9 @@ let rec translate_condition builder ~entity = function
       Printf.sprintf "%s IN (%s)" f items
 
 (* Smart array field detection - these fields should use has() instead of = *)
-let is_array_field field =
-  let array_fields =
+let is_array_field ~entity field =
+  let lower_field = String.lowercase_ascii field in
+  let always_arrays =
     [
       "discovery_sources";
       "discovery_source";
@@ -131,25 +132,28 @@ let is_array_field field =
       "ssl_certificates";
       "networks";
       "labels";
-      (* common arrays in device and OCSF schemas *)
-      "ip";
-      "mac";
-      "device_ip";
-      "device_mac";
       "observables_ip";
       "observables_mac";
       "observables_hostname";
     ]
   in
-  List.mem (String.lowercase_ascii field) array_fields
+  if List.mem lower_field always_arrays then true
+  else
+    let lower_entity = String.lowercase_ascii entity in
+    match (lower_entity, lower_field) with
+    | ("ocsf_devices_current" | "ocsf_device_inventory"), ("device_ip" | "device_mac") -> true
+    | _ -> false
 
 (* Convert Eq operator to ArrayContains for known array fields *)
-let rec smart_condition_conversion = function
-  | Condition (field, Eq, value) when is_array_field field -> Condition (field, ArrayContains, value)
+let rec smart_condition_conversion ~entity = function
+  | Condition (field, Eq, value) when is_array_field ~entity field ->
+      Condition (field, ArrayContains, value)
   | Condition (field, op, value) -> Condition (field, op, value)
-  | And (left, right) -> And (smart_condition_conversion left, smart_condition_conversion right)
-  | Or (left, right) -> Or (smart_condition_conversion left, smart_condition_conversion right)
-  | Not c -> Not (smart_condition_conversion c)
+  | And (left, right) ->
+      And (smart_condition_conversion ~entity left, smart_condition_conversion ~entity right)
+  | Or (left, right) ->
+      Or (smart_condition_conversion ~entity left, smart_condition_conversion ~entity right)
+  | Not c -> Not (smart_condition_conversion ~entity c)
   | Between (f, v1, v2) -> Between (f, v1, v2)
   | IsNull f -> IsNull f
   | IsNotNull f -> IsNotNull f
@@ -162,7 +166,9 @@ let translate_query (q : query) : query_with_params =
 
   (* Apply smart condition conversion for array fields *)
   let conditions =
-    match q.conditions with Some conds -> Some (smart_condition_conversion conds) | None -> None
+    match q.conditions with
+    | Some conds -> Some (smart_condition_conversion ~entity:q.entity conds)
+    | None -> None
   in
 
   let sql =

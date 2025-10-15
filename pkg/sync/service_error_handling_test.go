@@ -45,6 +45,12 @@ var (
 	errOverflow         = errors.New("overflow error")
 )
 
+const (
+	testErrorOperationDelay = 5 * time.Millisecond
+	testErrorShortTimeout   = 200 * time.Millisecond
+	testErrorStopTimeout    = 1 * time.Second
+)
+
 // TestRunDiscoveryErrorAggregation validates that runDiscovery properly aggregates errors
 func TestRunDiscoveryErrorAggregation(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -391,7 +397,7 @@ func TestSafelyRunTask(t *testing.T) {
 			select {
 			case <-done:
 				// Task completed
-			case <-time.After(500 * time.Millisecond):
+			case <-time.After(testErrorShortTimeout):
 				t.Fatal("Task did not complete in time")
 			}
 
@@ -400,7 +406,7 @@ func TestSafelyRunTask(t *testing.T) {
 				select {
 				case err := <-s.errorChan:
 					assert.Contains(t, err.Error(), tt.expectedError)
-				case <-time.After(500 * time.Millisecond):
+				case <-time.After(testErrorShortTimeout):
 					t.Fatal("Expected error not received")
 				}
 			} else {
@@ -473,7 +479,7 @@ func TestErrorChannelOverflow(t *testing.T) {
 	select {
 	case <-done:
 		// Good, sendError didn't block
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(testErrorShortTimeout):
 		t.Fatal("sendError blocked when channel was full")
 	}
 }
@@ -530,7 +536,7 @@ func TestGracefulShutdown(t *testing.T) {
 
 		// Use context-aware sleep to allow cancellation
 		select {
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(testErrorOperationDelay):
 			// Normal completion after 50ms (shorter for tests)
 			taskCompleted.Store(true)
 			return nil, nil, nil
@@ -550,7 +556,7 @@ func TestGracefulShutdown(t *testing.T) {
 	select {
 	case <-taskStartedChan:
 		// Task started successfully
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(testErrorShortTimeout):
 		t.Fatal("Task did not start in time")
 	}
 
@@ -566,7 +572,7 @@ func TestGracefulShutdown(t *testing.T) {
 	select {
 	case stopErr := <-stopDone:
 		require.NoError(t, stopErr)
-	case <-time.After(5 * time.Second):
+	case <-time.After(testErrorStopTimeout):
 		t.Fatal("Stop() did not complete within 5 seconds - likely WaitGroup deadlock")
 	}
 

@@ -41,8 +41,8 @@ let map_field_name ~entity (field : string) : string =
       | "devices" -> (
           match f with
           | "name" | "host" | "device_name" -> "hostname"
-          | "ip_address" | "device.ip" -> "ip"
-          | "mac_address" | "device.mac" -> "mac"
+          | "ip_address" | "ipaddress" | "device.ip" -> "ip"
+          | "mac_address" | "macaddress" | "device.mac" -> "mac"
           | "uid" | "device.uid" -> "device_id"
           | "domain" | "device_domain" -> "device_domain"
           | "site" | "location" | "device_location" -> "device_location"
