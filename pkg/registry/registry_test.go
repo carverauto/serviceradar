@@ -35,6 +35,10 @@ func allowCanonicalizationQueries(mockDB *db.MockService) {
 		ExecuteQuery(gomock.Any(), gomock.Any()).
 		Return([]map[string]interface{}{}, nil).
 		AnyTimes()
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.UnifiedDevice{}, nil).
+		AnyTimes()
 }
 
 func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
@@ -86,6 +90,9 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 				assert.Equal(t, "tonka01", *result.Hostname)
 				assert.True(t, result.IsAvailable)
 				assert.Equal(t, `["192.168.10.1"]`, result.Metadata["alternate_ips"])
+				require.NotEmpty(t, result.Metadata["_first_seen"])
+				_, err := time.Parse(time.RFC3339Nano, result.Metadata["_first_seen"])
+				require.NoError(t, err, "expected _first_seen to be RFC3339Nano timestamp")
 			},
 		},
 		{
@@ -264,6 +271,9 @@ func TestDeviceRegistry_ProcessDeviceUpdate(t *testing.T) {
 		assert.Equal(t, "192.168.1.1", update.IP)
 		assert.Equal(t, "single-device", *update.Hostname)
 		assert.Equal(t, "value", update.Metadata["test"])
+		require.NotEmpty(t, update.Metadata["_first_seen"])
+		_, err := time.Parse(time.RFC3339Nano, update.Metadata["_first_seen"])
+		require.NoError(t, err)
 
 		return nil
 	})
@@ -369,6 +379,62 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 			t.Logf("✅ Test passed: %s", tt.description)
 		})
 	}
+}
+
+func TestDeviceRegistry_FirstSeenPreservedFromExistingRecord(t *testing.T) {
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	existingFirstSeen := time.Date(2024, 12, 1, 15, 4, 5, 0, time.UTC)
+	deviceID := "default:10.0.0.5"
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ []string, _ []string) ([]*models.UnifiedDevice, error) {
+			t.Helper()
+			t.Log("GetUnifiedDevicesByIPsOrIDs called")
+			return []*models.UnifiedDevice{
+				{
+					DeviceID:  deviceID,
+					FirstSeen: existingFirstSeen,
+				},
+			}, nil
+		}).
+		Times(1)
+
+	allowCanonicalizationQueries(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger)
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			require.Len(t, updates, 1)
+			update := updates[0]
+			require.Equal(t, deviceID, update.DeviceID)
+			require.NotEmpty(t, update.Metadata["_first_seen"])
+
+			parsed, err := time.Parse(time.RFC3339Nano, update.Metadata["_first_seen"])
+			require.NoError(t, err)
+			assert.Equal(t, existingFirstSeen, parsed)
+
+			return nil
+		})
+
+	update := &models.DeviceUpdate{
+		DeviceID:    deviceID,
+		IP:          "10.0.0.5",
+		Partition:   "default",
+		Source:      models.DiscoverySourceIntegration,
+		Timestamp:   time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+		IsAvailable: true,
+	}
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
+	require.NoError(t, err)
 }
 
 // Helper function

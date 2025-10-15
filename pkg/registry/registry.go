@@ -181,6 +181,10 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		r.publishIdentityMap(ctx, canonicalized)
 	}
 
+	if err := r.annotateFirstSeen(ctx, canonicalized); err != nil {
+		r.logger.Warn().Err(err).Msg("Failed to annotate _first_seen metadata")
+	}
+
 	batch := canonicalized
 	if len(tombstones) > 0 {
 		batch = append(batch, tombstones...)
@@ -525,6 +529,97 @@ func parseMACList(s string) []string {
 		out = append(out, mac)
 	}
 	return out
+}
+
+func (r *DeviceRegistry) annotateFirstSeen(ctx context.Context, updates []*models.DeviceUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	idSet := make(map[string]struct{}, len(updates))
+	for _, update := range updates {
+		if update == nil || update.DeviceID == "" {
+			continue
+		}
+		idSet[update.DeviceID] = struct{}{}
+	}
+
+	if len(idSet) == 0 {
+		return nil
+	}
+
+	deviceIDs := make([]string, 0, len(idSet))
+	for id := range idSet {
+		deviceIDs = append(deviceIDs, id)
+	}
+
+	existingFirstSeen := make(map[string]time.Time, len(deviceIDs))
+	devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, deviceIDs)
+	if err != nil {
+		return fmt.Errorf("lookup existing devices: %w", err)
+	}
+
+	for _, device := range devices {
+		if device == nil || device.DeviceID == "" || device.FirstSeen.IsZero() {
+			continue
+		}
+		existingFirstSeen[device.DeviceID] = device.FirstSeen.UTC()
+	}
+
+	for _, update := range updates {
+		if update == nil {
+			continue
+		}
+
+		earliest := update.Timestamp
+		if earliest.IsZero() {
+			earliest = time.Now()
+		}
+
+		if update.Metadata != nil {
+			if ts, ok := parseFirstSeenTimestamp(update.Metadata["_first_seen"]); ok && ts.Before(earliest) {
+				earliest = ts
+			}
+			for _, key := range []string{"first_seen", "integration_first_seen", "armis_first_seen"} {
+				if ts, ok := parseFirstSeenTimestamp(update.Metadata[key]); ok && ts.Before(earliest) {
+					earliest = ts
+				}
+			}
+		}
+
+		if existing, ok := existingFirstSeen[update.DeviceID]; ok && !existing.IsZero() && existing.Before(earliest) {
+			earliest = existing
+		}
+
+		if update.Metadata == nil {
+			update.Metadata = make(map[string]string)
+		}
+		update.Metadata["_first_seen"] = earliest.UTC().Format(time.RFC3339Nano)
+	}
+
+	return nil
+}
+
+func parseFirstSeenTimestamp(raw string) (time.Time, bool) {
+	if strings.TrimSpace(raw) == "" {
+		return time.Time{}, false
+	}
+
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999",
+		"2006-01-02 15:04:05.999",
+		"2006-01-02 15:04:05",
+	}
+
+	for _, layout := range layouts {
+		if ts, err := time.Parse(layout, raw); err == nil {
+			return ts.UTC(), true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 // normalizeUpdate ensures a DeviceUpdate has the minimum required information.
