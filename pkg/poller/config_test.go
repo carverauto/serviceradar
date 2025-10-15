@@ -187,7 +187,7 @@ func TestConfig_ValidateWithAllFields(t *testing.T) {
 		CoreAddress:  "localhost:50052",
 		ListenAddr:   ":50053",
 		ServiceName:  "PollerService",
-		PollInterval: models.Duration(5 * time.Minute),
+		PollInterval: models.Duration(30 * time.Second),
 		PollerID:     "test-poller",
 		Partition:    "default",
 		SourceIP:     "192.168.1.1",

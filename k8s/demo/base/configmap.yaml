@@ -281,7 +281,7 @@ data:
         }
       },
       "listen_addr": ":50053",
-      "poll_interval": "5m",
+      "poll_interval": "30s",
       "poller_id": "k8s-poller",
       "partition": "default",
       "source_ip": "poller",

@@ -634,7 +634,7 @@ Update `/etc/serviceradar/poller.json`:
   },
   "core_address": "192.168.2.23:50052",
   "listen_addr": ":50053",
-  "poll_interval": "5m",
+  "poll_interval": "30s",
   "poller_id": "my-poller",
   "service_name": "PollerService",
   "service_type": "grpc",
