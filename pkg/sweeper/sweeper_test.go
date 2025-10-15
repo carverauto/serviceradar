@@ -19,7 +19,6 @@ package sweeper
 import (
 	"context"
 	"errors"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -43,25 +42,20 @@ const (
 	testWatchContextTimeout = 80 * time.Millisecond
 )
 
-func TestMain(m *testing.M) {
-	originalInitialBackoff := kvWatchInitialBackoff
-	originalMaxBackoff := kvWatchMaxBackoff
-	originalBackoffFactor := kvWatchBackoffFactor
-	originalJitterFactor := kvWatchJitterFactor
+const (
+	testKVWatchInitial = 2 * time.Millisecond
+	testKVWatchMax     = 5 * time.Millisecond
+	testKVWatchFactor  = 1.1
+	testKVWatchJitter  = 0.01
+)
 
-	kvWatchInitialBackoff = 2 * time.Millisecond
-	kvWatchMaxBackoff = 5 * time.Millisecond
-	kvWatchBackoffFactor = 1.1
-	kvWatchJitterFactor = 0.01
-
-	code := m.Run()
-
-	kvWatchInitialBackoff = originalInitialBackoff
-	kvWatchMaxBackoff = originalMaxBackoff
-	kvWatchBackoffFactor = originalBackoffFactor
-	kvWatchJitterFactor = originalJitterFactor
-
-	os.Exit(code)
+func newTestKVBackoff() kvWatchBackoffSettings {
+	return sanitizeKVWatchBackoffSettings(kvWatchBackoffSettings{
+		initial: testKVWatchInitial,
+		max:     testKVWatchMax,
+		factor:  testKVWatchFactor,
+		jitter:  testKVWatchJitter,
+	})
 }
 
 func TestMockSweeper(t *testing.T) {
@@ -157,8 +151,9 @@ func TestNetworkSweeper_UpdateConfig_IntervalPreservation(t *testing.T) {
 	}
 
 	sweeper := &NetworkSweeper{
-		config: initialConfig,
-		logger: logger.NewTestLogger(),
+		config:    initialConfig,
+		logger:    logger.NewTestLogger(),
+		kvBackoff: defaultKVWatchBackoffSettings(),
 	}
 
 	t.Run("UpdateConfig preserves fields when new config has zero/nil values", func(t *testing.T) {
@@ -237,6 +232,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			configKey: "test-config-key",
 			watchDone: make(chan struct{}),
 			done:      make(chan struct{}),
+			kvBackoff: newTestKVBackoff(),
 		}
 
 		// Mock KV config with new networks
@@ -301,6 +297,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			configKey: "test-config-key",
 			watchDone: make(chan struct{}),
 			done:      make(chan struct{}),
+			kvBackoff: newTestKVBackoff(),
 		}
 
 		configReady := make(chan struct{})
@@ -352,6 +349,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			configKey: "test-config-key",
 			watchDone: make(chan struct{}),
 			done:      make(chan struct{}),
+			kvBackoff: newTestKVBackoff(),
 		}
 
 		subMockKVStore.EXPECT().
@@ -866,8 +864,9 @@ func TestNetworkSweeper_generateTargets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sweeper := &NetworkSweeper{
-				config: tt.config,
-				logger: logger.NewTestLogger(),
+				config:    tt.config,
+				logger:    logger.NewTestLogger(),
+				kvBackoff: defaultKVWatchBackoffSettings(),
 			}
 
 			targets, err := sweeper.generateTargets()
@@ -933,6 +932,7 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 		watchDone: make(chan struct{}),
 		done:      make(chan struct{}),
 		logger:    log,
+		kvBackoff: newTestKVBackoff(),
 	}
 
 	configReady := make(chan struct{})
@@ -1004,7 +1004,10 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 // TestKVWatchJitterDistribution tests that jitter is properly distributed
 func TestKVWatchJitterDistribution(t *testing.T) {
 	log := logger.NewTestLogger()
-	sweeper := &NetworkSweeper{logger: log}
+	sweeper := &NetworkSweeper{
+		logger:    log,
+		kvBackoff: defaultKVWatchBackoffSettings(),
+	}
 
 	baseBackoff := 1 * time.Second
 	samples := 100
@@ -1015,8 +1018,9 @@ func TestKVWatchJitterDistribution(t *testing.T) {
 	}
 
 	// Check that jittered values are distributed around the base
-	minJitter := baseBackoff - time.Duration(float64(baseBackoff)*kvWatchJitterFactor)
-	maxJitter := baseBackoff + time.Duration(float64(baseBackoff)*kvWatchJitterFactor)
+	cfg := sweeper.kvWatchBackoff()
+	minJitter := baseBackoff - time.Duration(float64(baseBackoff)*cfg.jitter)
+	maxJitter := baseBackoff + time.Duration(float64(baseBackoff)*cfg.jitter)
 
 	allWithinRange := true
 
