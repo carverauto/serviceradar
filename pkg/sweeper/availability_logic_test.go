@@ -42,6 +42,7 @@ func TestDeviceAvailabilityLogic(t *testing.T) {
 		config:        config,
 		logger:        logger.NewTestLogger(),
 		deviceResults: make(map[string]*DeviceResultAggregator),
+		kvBackoff:     defaultKVWatchBackoffSettings(),
 	}
 
 	t.Run("single IP available - device should be available", func(t *testing.T) {
@@ -329,6 +330,7 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 		deviceRegistry: mockDeviceRegistry,
 		logger:         logger.NewTestLogger(),
 		deviceResults:  make(map[string]*DeviceResultAggregator),
+		kvBackoff:      defaultKVWatchBackoffSettings(),
 	}
 
 	t.Run("end-to-end: only last IP responds - device available", func(t *testing.T) {
@@ -557,6 +559,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 		deviceRegistry: mockDeviceRegistry,
 		logger:         logger.NewTestLogger(),
 		deviceResults:  make(map[string]*DeviceResultAggregator),
+		kvBackoff:      defaultKVWatchBackoffSettings(),
 	}
 
 	t.Run("TCP-only: single port success marks device available", func(t *testing.T) {
