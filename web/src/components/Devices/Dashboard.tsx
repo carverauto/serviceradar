@@ -23,6 +23,7 @@ import {Server, Search, Loader2, AlertTriangle, CheckCircle, XCircle} from 'luci
 import DeviceTable from './DeviceTable';
 import { useDebounce } from 'use-debounce';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
+
 const StatCard = ({ title, value, icon, isLoading, colorScheme = 'blue' }: { title: string; value: string | number; icon: React.ReactNode; isLoading: boolean; colorScheme?: 'blue' | 'green' | 'red' }) => {
     const bgColors = {
         blue: 'bg-blue-50 dark:bg-blue-900/30',
@@ -128,9 +129,10 @@ const Dashboard = () => {
                 queryParts.push(`is_available:${filterStatus === 'online'}`);
             }
 
-            if (debouncedSearchTerm) {
-                const escapedTerm = escapeSrqlValue(debouncedSearchTerm);
-                queryParts.push(`hostname:%${escapedTerm}%`);
+            const trimmedSearch = debouncedSearchTerm.trim();
+            if (trimmedSearch) {
+                const escapedTerm = escapeSrqlValue(trimmedSearch);
+                queryParts.push(`search:"${escapedTerm}"`);
             }
 
             const query = queryParts.join(' ');
