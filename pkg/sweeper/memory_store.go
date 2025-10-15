@@ -44,6 +44,48 @@ const (
 	minShardCapacity = 1024
 )
 
+type inMemoryStoreConfig struct {
+	maxResults      int
+	cleanupInterval time.Duration
+	preallocate     bool
+}
+
+// InMemoryStoreOption configures optional behaviour for NewInMemoryStore.
+type InMemoryStoreOption func(*inMemoryStoreConfig)
+
+func defaultInMemoryStoreConfig() inMemoryStoreConfig {
+	return inMemoryStoreConfig{
+		maxResults:      defaultMaxResults,
+		cleanupInterval: defaultCleanupInterval,
+		preallocate:     true,
+	}
+}
+
+// WithMaxResults overrides the default result preallocation hint.
+func WithMaxResults(max int) InMemoryStoreOption {
+	return func(cfg *inMemoryStoreConfig) {
+		if max > 0 {
+			cfg.maxResults = max
+		}
+	}
+}
+
+// WithCleanupInterval overrides the background cleanup interval. Passing zero or a negative
+// duration disables the background cleanup goroutine, which is helpful in tight unit tests.
+func WithCleanupInterval(interval time.Duration) InMemoryStoreOption {
+	return func(cfg *inMemoryStoreConfig) {
+		cfg.cleanupInterval = interval
+	}
+}
+
+// WithoutPreallocation disables up-front slice/map capacity hints. Useful for tests that need
+// to avoid large allocations while still exercising core behaviour.
+func WithoutPreallocation() InMemoryStoreOption {
+	return func(cfg *inMemoryStoreConfig) {
+		cfg.preallocate = false
+	}
+}
+
 // InMemoryStore implements Store interface for temporary storage.
 type InMemoryStore struct {
 	// Sharded to reduce lock contention under high write rates
@@ -53,6 +95,7 @@ type InMemoryStore struct {
 	maxResults  int
 	cleanupDone chan struct{}
 	lastCleanup time.Time
+	cleanupInterval time.Duration
 	logger      logger.Logger
 }
 
@@ -64,7 +107,7 @@ type storeShard struct {
 }
 
 // NewInMemoryStore creates a new in-memory store for sweep results.
-func NewInMemoryStore(processor ResultProcessor, log logger.Logger) Store {
+func NewInMemoryStore(processor ResultProcessor, log logger.Logger, opts ...InMemoryStoreOption) Store {
 	// Choose shard count based on CPUs for better parallel writes.
 	const (
 		minShards = 4  // Minimum shards for decent parallelism
@@ -80,37 +123,63 @@ func NewInMemoryStore(processor ResultProcessor, log logger.Logger) Store {
 		shards = maxShards
 	}
 
+	cfg := defaultInMemoryStoreConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	var cleanupChan chan struct{}
+	if cfg.cleanupInterval > 0 {
+		cleanupChan = make(chan struct{})
+	}
+
 	s := &InMemoryStore{
 		shards:      make([]*storeShard, shards),
 		shardCount:  shards,
 		processor:   processor,
-		maxResults:  defaultMaxResults,
-		cleanupDone: make(chan struct{}),
+		maxResults:  cfg.maxResults,
+		cleanupDone: cleanupChan,
+		cleanupInterval: cfg.cleanupInterval,
 		logger:      log,
 	}
 
 	// Pre-allocate per-shard capacity to reduce growslice.
 	// We divide the max across shards; this is a hint, not a hard cap.
-	perCap := defaultMaxResults / shards
-	if perCap < minShardCapacity {
-		perCap = minShardCapacity
+	var perCap int
+	if cfg.preallocate && cfg.maxResults > 0 {
+		perCap = cfg.maxResults / shards
+		if perCap < 1 {
+			perCap = cfg.maxResults
+		}
+		if perCap < minShardCapacity {
+			perCap = minShardCapacity
+		}
 	}
 
 	for i := 0; i < shards; i++ {
+		resultsCap := 0
+		indexCap := 0
+		if perCap > 0 {
+			resultsCap = perCap
+			indexCap = perCap
+		}
+
 		s.shards[i] = &storeShard{
-			results: make([]models.Result, 0, perCap),
-			index:   make(map[resultKey]int, perCap),
+			results: make([]models.Result, 0, resultsCap),
+			index:   make(map[resultKey]int, indexCap),
 		}
 	}
 
 	// Start cleanup goroutine
-	go s.periodicCleanup()
+	if s.cleanupInterval > 0 {
+		go s.periodicCleanup()
+	}
 
 	return s
 }
 
 func (s *InMemoryStore) periodicCleanup() {
-	ticker := time.NewTicker(defaultCleanupInterval)
+	ticker := time.NewTicker(s.cleanupInterval)
 	defer ticker.Stop()
 
 	for {
@@ -199,7 +268,9 @@ func (s *InMemoryStore) cleanOldResults() {
 }
 
 func (s *InMemoryStore) Close() error {
-	close(s.cleanupDone)
+	if s.cleanupDone != nil {
+		close(s.cleanupDone)
+	}
 
 	return nil
 }
