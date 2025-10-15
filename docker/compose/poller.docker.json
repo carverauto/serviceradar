@@ -98,7 +98,7 @@
     },
     "core_address": "core:50052",
     "listen_addr": ":50053",
-    "poll_interval": "5m",
+    "poll_interval": "30s",
     "poller_id": "docker-poller",
     "partition": "default",
     "source_ip": "poller",

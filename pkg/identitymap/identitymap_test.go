@@ -10,8 +10,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const testMACAddress = "aa:bb:cc:dd:ee:ff"
+
 func TestBuildKeys(t *testing.T) {
-	mac := "aa:bb:cc:dd:ee:ff"
+	mac := testMACAddress
 	update := &models.DeviceUpdate{
 		DeviceID:  "tenant-a:1.2.3.4",
 		IP:        "1.2.3.4",
@@ -45,7 +47,7 @@ func TestBuildKeysNil(t *testing.T) {
 }
 
 func TestBuildKeysIncludesIPWhenDistinct(t *testing.T) {
-	mac := "aa:bb:cc:dd:ee:ff"
+	mac := testMACAddress
 	update := &models.DeviceUpdate{
 		DeviceID:  "device-123",
 		IP:        "10.0.0.5",
@@ -146,7 +148,7 @@ func TestSanitizeKeyPath(t *testing.T) {
 
 func TestHashIdentityMetadataIgnoresNoise(t *testing.T) {
 	host := "sensor01"
-	mac := "aa:bb:cc:dd:ee:ff"
+	mac := testMACAddress
 	update := &models.DeviceUpdate{
 		DeviceID:  "tenant-a:1.2.3.4",
 		IP:        "1.2.3.4",

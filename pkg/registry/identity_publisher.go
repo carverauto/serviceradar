@@ -108,7 +108,7 @@ func (c *identityCache) get(key string) *identityCacheEntry {
 
 	if !entry.expiresAt.IsZero() && time.Now().After(entry.expiresAt) {
 		c.mu.Lock()
-		if current, ok := c.entries[key]; ok && current.expiresAt == entry.expiresAt {
+		if current, ok := c.entries[key]; ok && current.expiresAt.Equal(entry.expiresAt) {
 			delete(c.entries, key)
 		}
 		c.mu.Unlock()
