@@ -42,7 +42,7 @@ export interface AnalyticsData {
   totalTraces: number;
   slowTraces: number;
   errorTraces: number;
-  recentSlowSpans: unknown[];
+  recentSlowSpans: RecentSlowSpan[];
   
   // Device data for widgets
   devicesLatest: unknown[];
@@ -56,6 +56,24 @@ interface CachedAnalyticsData {
   data: AnalyticsData;
   timestamp: number;
   promise?: Promise<AnalyticsData>;
+}
+
+interface SlowTraceResult {
+  trace_id?: string;
+  root_service_name?: string;
+  service_name?: string;
+  root_span_name?: string;
+  duration_ms?: number;
+  timestamp?: string;
+  start_time_unix_nano?: string | number;
+}
+
+interface RecentSlowSpan {
+  trace_id: string;
+  service_name: string;
+  span_name: string;
+  duration_ms: number;
+  timestamp: string | number | null;
 }
 
 class AnalyticsService {
@@ -222,8 +240,8 @@ class AnalyticsService {
       totalTraces: totalTracesRes.results[0]?.total || 0,
       slowTraces: slowTracesRes.results[0]?.total || 0,
       errorTraces: errorTracesRes.results[0]?.total || 0,
-      recentSlowSpans: (slowTraceListRes.results || []).slice(0, 5).map((trace: any) => ({
-        trace_id: trace.trace_id,
+      recentSlowSpans: (slowTraceListRes.results || []).slice(0, 5).map((trace: SlowTraceResult): RecentSlowSpan => ({
+        trace_id: trace.trace_id ?? 'unknown_trace',
         service_name: trace.root_service_name || trace.service_name || 'Unknown Service',
         span_name: trace.root_span_name || 'Root Span',
         duration_ms: trace.duration_ms || 0,
