@@ -185,16 +185,75 @@ let parse_having (s : string) : Sql_ir.condition option =
         String.sub s (i + String.length sym) (String.length s - i - String.length sym)
         |> String.trim
       in
-      let v =
-        match float_of_string_opt rhs with
-        | Some f -> Float f
-        | None -> ( match int_of_string_opt rhs with Some n -> Int n | None -> String rhs)
-      in
-      Some (Condition (lhs, op, v))
+  let v =
+    match float_of_string_opt rhs with
+    | Some f -> Float f
+    | None -> ( match int_of_string_opt rhs with Some n -> Int n | None -> String rhs)
+  in
+  Some (Condition (lhs, op, v))
 
-let condition_of_filter ~timestamp_field = function
+let is_ipv4_literal (s : string) : bool =
+  let segments = String.split_on_char '.' s in
+  match segments with
+  | [ a; b; c; d ] -> (
+      let valid_octet part =
+        let len = String.length part in
+        len > 0
+        && len <= 3
+        && String.for_all (function '0' .. '9' -> true | _ -> false) part
+        &&
+        let value = int_of_string part in
+        value >= 0 && value <= 255
+      in
+      try List.for_all valid_octet [ a; b; c; d ] with Failure _ -> false)
+  | _ -> false
+
+let contains_wildcards (s : string) =
+  String.contains s '%' || String.contains s '_'
+
+let or_chain (conds : Sql_ir.condition list) : Sql_ir.condition option =
+  let rec build = function
+    | [] -> None
+    | [ single ] -> Some single
+    | first :: rest -> (
+        match build rest with None -> Some first | Some tail -> Some (Or (first, tail)))
+  in
+  build conds
+
+let condition_of_filter ~entity ~timestamp_field = function
   | AttributeFilter (k, op, v) -> (
       match (v, op) with
+      | ((String _ | Int _ | Float _ | Bool _) as raw), Eq
+        when String.lowercase_ascii entity = "devices"
+             && String.lowercase_ascii k = "search" ->
+          let term =
+            let raw_string =
+              match raw with
+              | String s -> s
+              | Int i -> string_of_int i
+              | Float f -> Printf.sprintf "%.15g" f
+              | Bool b -> string_of_bool b
+              | _ -> ""
+            in
+            String.trim raw_string
+          in
+          if term = "" then None
+          else
+            let wildcard =
+              if contains_wildcards term then term else "%" ^ term ^ "%"
+            in
+            let base_like = String wildcard in
+            let conditions = ref [] in
+            let push cond = conditions := cond :: !conditions in
+            (* Always search hostname/device_id/poller_id/mac with wildcard matching *)
+            push (Condition ("hostname", Like, base_like));
+            push (Condition ("device_id", Like, base_like));
+            push (Condition ("poller_id", Like, base_like));
+            push (Condition ("mac", Like, base_like));
+            (* IP-specific handling: allow both partial and exact matches, plus observable arrays *)
+            if is_ipv4_literal term then push (Condition ("ip", Eq, String term));
+            push (Condition ("ip", Like, base_like));
+            or_chain !conditions
       | String s, Eq when String.contains s '%' -> Some (Condition (k, Like, v))
       | String s, Neq when String.contains s '%' -> Some (Not (Condition (k, Like, v)))
       | String s, Eq
@@ -313,11 +372,14 @@ let plan_to_srql (q : query_spec) : Sql_ir.query option =
         |> List.filter_map (fun f ->
                match f with
                | AttributeFilter (k, op, v) ->
-                   condition_of_filter ~timestamp_field (AttributeFilter (map_key k, op, v))
+                   condition_of_filter ~entity:ent ~timestamp_field
+                     (AttributeFilter (map_key k, op, v))
                | AttributeListFilter (k, vs) ->
-                   condition_of_filter ~timestamp_field (AttributeListFilter (map_key k, vs))
+                   condition_of_filter ~entity:ent ~timestamp_field
+                     (AttributeListFilter (map_key k, vs))
                | AttributeListFilterNot (k, vs) ->
-                   condition_of_filter ~timestamp_field (AttributeListFilterNot (map_key k, vs))
+                   condition_of_filter ~entity:ent ~timestamp_field
+                     (AttributeListFilterNot (map_key k, vs))
                | _ -> None)
       in
       let cond = attr_conds |> List.fold_left (fun acc c -> and_opt acc (Some c)) None in
