@@ -17,18 +17,11 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { sysmonService } from '@/services/sysmonService';
+import { dataService, SysmonAgentSummary } from '@/services/dataService';
 import { useAuth } from '@/components/AuthProvider';
 
-interface SysmonData {
-    pollerId: string;
-    cpuData: unknown[];
-    memoryData: unknown[];
-    diskData: unknown[];
-}
-
 interface SysmonContextType {
-    data: SysmonData[] | null;
+    data: SysmonAgentSummary[] | null;
     loading: boolean;
     error: string | null;
     refresh: () => Promise<void>;
@@ -38,14 +31,14 @@ const SysmonContext = createContext<SysmonContextType | null>(null);
 
 export const SysmonProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { token } = useAuth();
-    const [data, setData] = useState<SysmonData[] | null>(null);
+    const [data, setData] = useState<SysmonAgentSummary[] | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const fetchData = useCallback(async () => {
         try {
             setError(null);
-            const sysmonData = await sysmonService.getSysmonData(token ?? undefined);
+            const sysmonData = await dataService.getSysmonData(token ?? undefined);
             setData(sysmonData);
         } catch (err) {
             console.error('Failed to fetch sysmon data:', err);
@@ -67,7 +60,7 @@ export const SysmonProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const interval = setInterval(fetchData, 60000);
         
         // Subscribe to service updates
-        const unsubscribe = sysmonService.subscribe(() => {
+        const unsubscribe = dataService.subscribeSysmon(() => {
             fetchData();
         });
 

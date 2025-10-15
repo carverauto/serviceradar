@@ -20,8 +20,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Activity, Server } from 'lucide-react';
 import { ErrorMessage, EmptyState, LoadingState } from './error-components';
-import { fetchAPI } from '@/lib/client-api';
 import SystemMetrics from './system-metrics';
+import { dataService, SysmonAgentSummary } from '@/services/dataService';
 
 // Type annotation for the SystemMetrics component
 interface SystemMetricsProps {
@@ -60,67 +60,111 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({
     const targetId = deviceId || pollerId;
     
     // Always call hooks at the top level
-    useAuth(); // Still need to call this to ensure auth context is available
+    const { token } = useAuth();
     const [sysmonServices, setSysmonServices] = useState<SysmonService[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedService, setSelectedService] = useState<string | null>(null);
-    
+
+    const buildServiceId = (summary: SysmonAgentSummary) => {
+        return summary.agentId || summary.deviceId || summary.hostId || summary.pollerId || 'sysmon';
+    };
+
+    const matchesTarget = (summary: SysmonAgentSummary, candidateId: string | undefined, mode: 'device' | 'poller') => {
+        if (!candidateId) {
+            return false;
+        }
+
+        const normalizedTarget = candidateId.toLowerCase();
+        const possibleIds = [
+            summary.deviceId,
+            summary.pollerId,
+            summary.hostId,
+            summary.partition && summary.hostId ? `${summary.partition}:${summary.hostId}` : undefined
+        ]
+            .filter((value): value is string => Boolean(value))
+            .map((value) => value.toLowerCase());
+
+        if (mode === 'device') {
+            return possibleIds.includes(normalizedTarget);
+        }
+
+        return summary.pollerId?.toLowerCase() === normalizedTarget;
+    };
+
     useEffect(() => {
-        const checkSysmonAvailability = async () => {
+        let cancelled = false;
+
+        const loadSysmonSummaries = async () => {
+            if (!targetId) {
+                setSysmonServices([]);
+                setSelectedService(null);
+                setLoading(false);
+                return;
+            }
+
             setLoading(true);
             setError(null);
 
             try {
-                // Instead of looking for sysmon in the services API, 
-                // check if sysmon data is available by testing the sysmon endpoints
-                const end = new Date();
-                const start = new Date(end.getTime() - 60 * 60 * 1000); // Last hour
-                const queryParams = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
-                
-                // Determine API endpoint based on idType
-                const endpoint = idType === 'device' ? 'devices' : 'pollers';
-                
-                // Test if any sysmon data is available
-                const [cpuData, memoryData] = await Promise.all([
-                    fetchAPI(`/api/${endpoint}/${targetId}/sysmon/cpu${queryParams}`).catch(() => null),
-                    fetchAPI(`/api/${endpoint}/${targetId}/sysmon/memory${queryParams}`).catch(() => null)
-                ]);
+                const summaries = await dataService.getSysmonData(token ?? undefined);
+                if (cancelled) {
+                    return;
+                }
 
-                // Check if we got any sysmon data
-                const hasCpuData = cpuData !== null;
-                const hasMemoryData = memoryData !== null;
-                
-                if (hasCpuData || hasMemoryData) {
-                    // Create a virtual sysmon service since the data is available
-                    const virtualSysmonService: SysmonService = {
-                        agent_id: preselectedAgentId || 'default-agent',
-                        poller_id: targetId || '',
-                        name: 'sysmon',
-                        available: true,
-                        type: 'sysmon',
-                        service_name: 'sysmon',
-                        service_type: 'sysmon'
-                    };
-                    
-                    setSysmonServices([virtualSysmonService]);
-                    setSelectedService(virtualSysmonService.agent_id);
+                const matches = summaries
+                    .filter((summary) => matchesTarget(summary, targetId, idType))
+                    .map((summary) => {
+                        const serviceId = buildServiceId(summary);
+                        return {
+                            agent_id: summary.agentId || serviceId,
+                            poller_id: summary.pollerId || targetId,
+                            name: summary.deviceId || summary.hostId || 'sysmon',
+                            available: Boolean(summary.lastTimestamp),
+                            type: 'sysmon',
+                            service_name: 'sysmon',
+                            service_type: 'sysmon'
+                        };
+                    });
+
+                setSysmonServices(matches);
+
+                if (matches.length === 0) {
+                    setSelectedService(null);
+                    return;
+                }
+
+                if (preselectedAgentId) {
+                    const hasPreferred = matches.some((service) => service.agent_id === preselectedAgentId);
+                    setSelectedService(hasPreferred ? preselectedAgentId : matches[0].agent_id);
                 } else {
-                    // No sysmon data available
-                    setSysmonServices([]);
+                    setSelectedService(matches[0].agent_id);
                 }
             } catch (err) {
-                console.error('Error checking sysmon availability:', err);
-                setError('Failed to check sysmon availability');
+                if (!cancelled) {
+                    console.error('Error loading sysmon summaries:', err);
+                    setError('Failed to load sysmon availability');
+                    setSysmonServices([]);
+                    setSelectedService(null);
+                }
             } finally {
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
         };
 
-        if (targetId) {
-            checkSysmonAvailability();
-        }
-    }, [targetId, idType, preselectedAgentId]);
+        void loadSysmonSummaries();
+
+        const unsubscribe = dataService.subscribeSysmon(() => {
+            void loadSysmonSummaries();
+        });
+
+        return () => {
+            cancelled = true;
+            unsubscribe();
+        };
+    }, [targetId, idType, preselectedAgentId, token]);
 
     if (!targetId) {
         return (

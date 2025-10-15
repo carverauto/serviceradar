@@ -17,14 +17,8 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { rperfService } from '@/services/rperfService';
+import { dataService, RperfData } from '@/services/dataService';
 import { useAuth } from '@/components/AuthProvider';
-import { RperfMetric } from '@/types/rperf';
-
-interface RperfData {
-    pollerId: string;
-    rperfMetrics: RperfMetric[];
-}
 
 interface RperfContextType {
     data: RperfData[] | null;
@@ -44,7 +38,7 @@ export const RperfProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const fetchData = useCallback(async () => {
         try {
             setError(null);
-            const rperfData = await rperfService.getRperfData(token ?? undefined);
+            const rperfData = await dataService.getRperfData(token ?? undefined);
             setData(rperfData);
         } catch (err) {
             console.error('Failed to fetch rperf data:', err);
@@ -66,7 +60,7 @@ export const RperfProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const interval = setInterval(fetchData, 60000);
         
         // Subscribe to service updates
-        const unsubscribe = rperfService.subscribe(() => {
+        const unsubscribe = dataService.subscribeRperf(() => {
             fetchData();
         });
 

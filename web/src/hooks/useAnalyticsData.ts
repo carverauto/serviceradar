@@ -16,8 +16,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { analyticsService, AnalyticsData } from '@/services/analyticsService';
-import { Poller, GenericServiceDetails, ServiceEntry } from '@/types/types';
+import { dataService, AnalyticsData } from '@/services/dataService';
+import { ServiceEntry } from '@/types/types';
 import { Device } from '@/types/devices';
 
 interface AnalyticsStats {
@@ -42,8 +42,6 @@ const EMPTY_STATS: AnalyticsStats = {
 };
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
-const LATENCY_THRESHOLD_NS = 100 * 1_000_000; // 100ms expressed in nanoseconds
-
 export const useAnalyticsData = () => {
     const { token } = useAuth();
     const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
@@ -56,8 +54,8 @@ export const useAnalyticsData = () => {
         const updateFromService = async (forceRefresh = false) => {
             try {
                 const data = forceRefresh
-                    ? await analyticsService.refresh(token || undefined)
-                    : await analyticsService.getAnalyticsData(token || undefined);
+                    ? await dataService.refreshAnalytics(token || undefined)
+                    : await dataService.getAnalyticsData(token || undefined);
                 if (!cancelled) {
                     setAnalyticsData(data);
                     setError(null);
@@ -78,7 +76,7 @@ export const useAnalyticsData = () => {
         updateFromService();
 
         // Subscribe to cache updates so other consumers keep us fresh
-        const unsubscribe = analyticsService.subscribe(() => {
+        const unsubscribe = dataService.subscribeAnalytics(() => {
             updateFromService();
         });
 
@@ -107,35 +105,16 @@ export const useAnalyticsData = () => {
             };
         }
 
-        const pollerData = (analyticsData.pollers as Poller[]) || [];
-        let failingServices = 0;
-        let highLatencyServices = 0;
-        const latencyBuckets: { name: string; value: number }[] = [];
-
-        pollerData.forEach((poller) => {
-            poller.services?.forEach((service) => {
-                if (!service.available) {
-                    failingServices += 1;
-                }
-                if (service.type === 'icmp' && service.available && service.details) {
-                    try {
-                        const details = (typeof service.details === 'string'
-                            ? JSON.parse(service.details)
-                            : service.details) as GenericServiceDetails;
-                        const responseTime = details?.response_time ?? details?.data?.response_time;
-                        if (responseTime) {
-                            const responseTimeMs = responseTime / 1_000_000;
-                            latencyBuckets.push({ name: service.name ?? 'unknown', value: responseTimeMs });
-                            if (responseTime > LATENCY_THRESHOLD_NS) {
-                                highLatencyServices += 1;
-                            }
-                        }
-                    } catch {
-                        // ignore malformed payloads
-                    }
-                }
-            });
-        });
+        const failingServices = analyticsData.failingServiceCount ?? 0;
+        const highLatencyServices = analyticsData.highLatencyServiceCount ?? 0;
+        const latencyBuckets = (analyticsData.serviceLatencyBuckets ?? [])
+            .filter((bucket): bucket is { name: string; responseTimeMs: number } =>
+                Boolean(bucket && typeof bucket.name === 'string' && Number.isFinite(bucket.responseTimeMs)))
+            .map((bucket) => ({
+                name: bucket.name,
+                value: bucket.responseTimeMs,
+            }))
+            .sort((a, b) => b.value - a.value);
 
         const computedStats: AnalyticsStats = {
             totalDevices: analyticsData.totalDevices,
@@ -153,7 +132,6 @@ export const useAnalyticsData = () => {
         ];
 
         const topLatencyServices = latencyBuckets
-            .sort((a, b) => b.value - a.value)
             .slice(0, 5)
             .map((item, index) => ({
                 ...item,

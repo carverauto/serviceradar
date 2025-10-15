@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { analyticsService, AnalyticsData } from '@/services/analyticsService';
+import { dataService, AnalyticsData } from '@/services/dataService';
 import { useAuth } from '@/components/AuthProvider';
 
 export const useAnalytics = () => {
@@ -27,7 +27,7 @@ export const useAnalytics = () => {
   const fetchData = useCallback(async () => {
     try {
       setError(null);
-      const analyticsData = await analyticsService.getAnalyticsData(token ?? undefined);
+      const analyticsData = await dataService.getAnalyticsData(token ?? undefined);
       setData(analyticsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch analytics data');
@@ -40,7 +40,7 @@ export const useAnalytics = () => {
     setLoading(true);
     try {
       setError(null);
-      const analyticsData = await analyticsService.refresh(token ?? undefined);
+      const analyticsData = await dataService.refreshAnalytics(token ?? undefined);
       setData(analyticsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh analytics data');
@@ -54,7 +54,7 @@ export const useAnalytics = () => {
     fetchData();
 
     // Subscribe to updates
-    const unsubscribe = analyticsService.subscribe(() => {
+    const unsubscribe = dataService.subscribeAnalytics(() => {
       fetchData();
     });
 
@@ -74,6 +74,6 @@ export const useAnalytics = () => {
     loading,
     error,
     refresh,
-    isStale: !analyticsService.isCacheValid()
+    isStale: !dataService.isAnalyticsCacheValid()
   };
 };
