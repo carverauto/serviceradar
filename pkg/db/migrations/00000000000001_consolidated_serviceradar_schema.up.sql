@@ -724,9 +724,19 @@ ALTER STREAM services ADD INDEX IF NOT EXISTS idx_service_name service_name TYPE
 -- This migration creates the foundational OCSF-aligned streams for ServiceRadar
 -- Based on OCSF schema with Timeplus Proton streaming constraints
 
+-- Tear down dependent materialized views before recreating core OCSF streams
+DROP VIEW IF EXISTS ocsf_observable_stats_mv SYNC;
+DROP VIEW IF EXISTS ocsf_observable_netflow_dst_ips_mv SYNC;
+DROP VIEW IF EXISTS ocsf_observable_netflow_src_ips_mv SYNC;
+DROP VIEW IF EXISTS ocsf_observable_device_hostnames_mv SYNC;
+DROP VIEW IF EXISTS ocsf_observable_device_macs_mv SYNC;
+DROP VIEW IF EXISTS ocsf_observable_device_ips_mv SYNC;
+DROP VIEW IF EXISTS ocsf_users_aggregator_mv SYNC;
+DROP VIEW IF EXISTS ocsf_devices_aggregator_mv SYNC;
+
 -- Device Inventory Events (discovery.device_inventory_info)
 -- OCSF Class: 5001 (Device Inventory Info)
-DROP STREAM IF EXISTS ocsf_device_inventory;
+DROP STREAM IF EXISTS ocsf_device_inventory SYNC;
 CREATE STREAM ocsf_device_inventory (
     -- OCSF Core Fields
     time DateTime64(3) DEFAULT now64(),
@@ -770,7 +780,7 @@ SETTINGS index_granularity = 8192;
 
 -- Network Activity Events (network.network_activity)
 -- OCSF Class: 4001 (Network Activity)
-DROP STREAM IF EXISTS ocsf_network_activity;
+DROP STREAM IF EXISTS ocsf_network_activity SYNC;
 CREATE STREAM ocsf_network_activity (
     -- OCSF Core Fields
     time DateTime64(3) DEFAULT now64(),
@@ -830,7 +840,7 @@ SETTINGS index_granularity = 8192;
 
 -- User Inventory Events (discovery.user_inventory_info)
 -- OCSF Class: 5002 (User Inventory Info)
-DROP STREAM IF EXISTS ocsf_user_inventory;
+DROP STREAM IF EXISTS ocsf_user_inventory SYNC;
 CREATE STREAM ocsf_user_inventory (
     -- OCSF Core Fields
     time DateTime64(3) DEFAULT now64(),
@@ -876,7 +886,7 @@ SETTINGS index_granularity = 8192;
 
 -- System Activity Events (system.system_activity)
 -- OCSF Class: 1001 (System Activity)
-DROP STREAM IF EXISTS ocsf_system_activity;
+DROP STREAM IF EXISTS ocsf_system_activity SYNC;
 CREATE STREAM ocsf_system_activity (
     -- OCSF Core Fields
     time DateTime64(3) DEFAULT now64(),
@@ -930,7 +940,7 @@ SETTINGS index_granularity = 8192;
 
 -- Current Device State (versioned_kv)
 -- Maintains the latest known state for each device across all discovery sources
-DROP STREAM IF EXISTS ocsf_devices_current;
+DROP STREAM IF EXISTS ocsf_devices_current SYNC;
 CREATE STREAM ocsf_devices_current (
     -- Primary Key and Timestamps
     device_uid string,                     -- Primary key - unique device identifier
@@ -980,7 +990,7 @@ SETTINGS mode='versioned_kv';
 
 -- Current User State (versioned_kv)
 -- Maintains the latest known state for each user account
-DROP STREAM IF EXISTS ocsf_users_current;
+DROP STREAM IF EXISTS ocsf_users_current SYNC;
 CREATE STREAM ocsf_users_current (
     -- Primary Key and Timestamps
     user_uid string,                       -- Primary key - unique user identifier
@@ -1032,7 +1042,7 @@ SETTINGS mode='versioned_kv';
 
 -- Current Vulnerability State (versioned_kv)
 -- Tracks current vulnerability findings across all affected resources
-DROP STREAM IF EXISTS ocsf_vulnerabilities_current;
+DROP STREAM IF EXISTS ocsf_vulnerabilities_current SYNC;
 CREATE STREAM ocsf_vulnerabilities_current (
     -- Primary Key and Timestamps
     vulnerability_cve_uid string,          -- Primary key - CVE ID or internal vuln ID
@@ -1083,7 +1093,7 @@ SETTINGS mode='versioned_kv';
 
 -- Current Service State (versioned_kv)
 -- Tracks discovered services and applications
-DROP STREAM IF EXISTS ocsf_services_current;
+DROP STREAM IF EXISTS ocsf_services_current SYNC;
 CREATE STREAM ocsf_services_current (
     -- Primary Key and Timestamps
     service_uid string,                    -- Primary key - service identifier
@@ -1138,7 +1148,7 @@ SETTINGS mode='versioned_kv';
 
 -- Observable Index Stream
 -- Maps observable values (IPs, MACs, CVEs, etc.) to entities that contain them
-DROP STREAM IF EXISTS ocsf_observable_index;
+DROP STREAM IF EXISTS ocsf_observable_index SYNC;
 CREATE STREAM ocsf_observable_index (
     -- Observable Identification
     observable_type string,               -- 'ip_address', 'mac_address', 'hostname', 'cve', etc.
@@ -1186,7 +1196,7 @@ SETTINGS index_granularity = 8192;
 
 -- Observable Statistics Stream
 -- Track frequency and relationships of observables over time
-DROP STREAM IF EXISTS ocsf_observable_statistics;
+DROP STREAM IF EXISTS ocsf_observable_statistics SYNC;
 CREATE STREAM ocsf_observable_statistics (
     -- Observable Identity
     observable_type string,
@@ -1231,7 +1241,7 @@ SETTINGS index_granularity = 8192;
 
 -- Entity Relationship Stream
 -- Track relationships between entities discovered through shared observables
-DROP STREAM IF EXISTS ocsf_entity_relationships;
+DROP STREAM IF EXISTS ocsf_entity_relationships SYNC;
 CREATE STREAM ocsf_entity_relationships (
     -- Relationship Identity
     relationship_uid string,              -- Unique identifier for this relationship
@@ -1278,7 +1288,7 @@ SETTINGS index_granularity = 8192;
 
 -- Search Query Performance Stream
 -- Track query patterns and performance for observable-based searches
-DROP STREAM IF EXISTS ocsf_search_performance;
+DROP STREAM IF EXISTS ocsf_search_performance SYNC;
 CREATE STREAM ocsf_search_performance (
     -- Query Identity
     query_id string DEFAULT '',
@@ -1666,16 +1676,16 @@ INTO unified_devices
 AS
 SELECT
     device_id,
-    arg_max_if(ip, timestamp, is_active AND has_identity) AS ip,
-    arg_max_if(poller_id, timestamp, is_active AND has_identity) AS poller_id,
-    arg_max_if(agent_id, timestamp, is_active AND has_identity) AS agent_id,
-    arg_max_if(hostname, timestamp, is_active AND has_identity) AS hostname,
-    arg_max_if(mac, timestamp, is_active AND has_identity) AS mac,
-    group_uniq_array_if(discovery_source, is_active AND has_identity) AS discovery_sources,
-    arg_max_if(available, timestamp, is_active AND has_identity) AS is_available,
-    min_if(timestamp, is_active AND has_identity) AS first_seen,
-    max_if(timestamp, is_active AND has_identity) AS last_seen,
-    arg_max_if(metadata, timestamp, is_active AND has_identity) AS metadata,
+    arg_max(ip, timestamp) AS ip,
+    arg_max(poller_id, timestamp) AS poller_id,
+    arg_max(agent_id, timestamp) AS agent_id,
+    arg_max(hostname, timestamp) AS hostname,
+    arg_max(mac, timestamp) AS mac,
+    group_uniq_array(discovery_source) AS discovery_sources,
+    arg_max(available, timestamp) AS is_available,
+    min(first_seen_candidate) AS first_seen,
+    max(timestamp) AS last_seen,
+    arg_max(metadata, timestamp) AS metadata,
     'network_device' AS device_type,
     CAST(NULL AS nullable(string)) AS service_type,
     CAST(NULL AS nullable(string)) AS service_status,
@@ -1694,21 +1704,20 @@ FROM (
         available,
         timestamp,
         metadata,
-        coalesce(metadata['_merged_into'], '') AS merged_into,
-        lower(coalesce(metadata['_deleted'], 'false')) AS deleted_flag,
-        coalesce(metadata['armis_device_id'], '') AS armis_device_id,
-        coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') AS external_id,
-        coalesce(mac, '') AS mac_value,
-        (coalesce(metadata['_merged_into'], '') = '' AND lower(coalesce(metadata['_deleted'], 'false')) != 'true') AS is_active,
-        (
-            coalesce(metadata['armis_device_id'], '') != ''
-            OR coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') != ''
-            OR coalesce(mac, '') != ''
-        ) AS has_identity
+        coalesce(
+            parse_datetime64_best_effort_or_null(metadata['_first_seen'], 3),
+            timestamp
+        ) AS first_seen_candidate
     FROM device_updates
-) AS src
-GROUP BY device_id
-HAVING count_if(is_active AND has_identity) > 0;
+    WHERE coalesce(metadata['_merged_into'], '') = ''
+      AND lower(coalesce(metadata['_deleted'], 'false')) != 'true'
+      AND (
+            coalesce(metadata['armis_device_id'], '') != ''
+         OR coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') != ''
+         OR coalesce(mac, '') != ''
+      )
+) AS filtered
+GROUP BY device_id;
 
 ALTER STREAM unified_devices
     DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
@@ -1736,16 +1745,16 @@ INTO unified_devices
 AS
 SELECT
     device_id,
-    arg_max_if(ip, timestamp, is_active AND has_identity) AS ip,
-    arg_max_if(poller_id, timestamp, is_active AND has_identity) AS poller_id,
-    arg_max_if(agent_id, timestamp, is_active AND has_identity) AS agent_id,
-    arg_max_if(hostname, timestamp, is_active AND has_identity) AS hostname,
-    arg_max_if(mac, timestamp, is_active AND has_identity) AS mac,
-    group_uniq_array_if(discovery_source, is_active AND has_identity) AS discovery_sources,
-    arg_max_if(available, timestamp, is_active AND has_identity) AS is_available,
-    min_if(timestamp, is_active AND has_identity) AS first_seen,
-    max_if(timestamp, is_active AND has_identity) AS last_seen,
-    arg_max_if(metadata, timestamp, is_active AND has_identity) AS metadata,
+    arg_max(ip, timestamp) AS ip,
+    arg_max(poller_id, timestamp) AS poller_id,
+    arg_max(agent_id, timestamp) AS agent_id,
+    arg_max(hostname, timestamp) AS hostname,
+    arg_max(mac, timestamp) AS mac,
+    group_uniq_array(discovery_source) AS discovery_sources,
+    arg_max(available, timestamp) AS is_available,
+    min(first_seen_candidate) AS first_seen,
+    max(timestamp) AS last_seen,
+    arg_max(metadata, timestamp) AS metadata,
     'network_device' AS device_type,
     CAST(NULL AS nullable(string)) AS service_type,
     CAST(NULL AS nullable(string)) AS service_status,
@@ -1764,22 +1773,21 @@ FROM (
         available,
         timestamp,
         metadata,
-        coalesce(metadata['_merged_into'], '') AS merged_into,
-        lower(coalesce(metadata['_deleted'], 'false')) AS deleted_flag,
-        coalesce(metadata['armis_device_id'], '') AS armis_device_id,
-        coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') AS external_id,
-        coalesce(mac, '') AS mac_value,
-        (coalesce(metadata['_merged_into'], '') = '' AND lower(coalesce(metadata['_deleted'], 'false')) != 'true') AS is_active,
-        (
-            coalesce(metadata['armis_device_id'], '') != ''
-            OR coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') != ''
-            OR coalesce(mac, '') != ''
-            OR (discovery_source != 'sweep' AND coalesce(ip, '') != '')
-        ) AS has_identity
+        coalesce(
+            parse_datetime64_best_effort_or_null(metadata['_first_seen'], 3),
+            timestamp
+        ) AS first_seen_candidate
     FROM device_updates
-) AS src
-GROUP BY device_id
-HAVING count_if(is_active AND has_identity) > 0;
+    WHERE coalesce(metadata['_merged_into'], '') = ''
+      AND lower(coalesce(metadata['_deleted'], 'false')) != 'true'
+      AND (
+            coalesce(metadata['armis_device_id'], '') != ''
+         OR coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') != ''
+         OR coalesce(mac, '') != ''
+         OR (discovery_source != 'sweep' AND coalesce(ip, '') != '')
+      )
+) AS filtered
+GROUP BY device_id;
 
 ALTER STREAM unified_devices
     DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
