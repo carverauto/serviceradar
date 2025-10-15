@@ -295,10 +295,29 @@ func buildRecordFromUnifiedDevice(device *models.UnifiedDevice) *identitymap.Rec
 		metadata = device.Metadata.Value
 	}
 
+	update := &models.DeviceUpdate{
+		DeviceID:  device.DeviceID,
+		Partition: partition,
+		IP:        device.IP,
+		Metadata:  metadata,
+	}
+
+	if len(device.DiscoverySources) > 0 {
+		update.Source = device.DiscoverySources[0].Source
+	}
+	if device.Hostname != nil {
+		host := device.Hostname.Value
+		update.Hostname = &host
+	}
+	if device.MAC != nil {
+		mac := device.MAC.Value
+		update.MAC = &mac
+	}
+
 	return &identitymap.Record{
 		CanonicalDeviceID: device.DeviceID,
 		Partition:         partition,
-		MetadataHash:      identitymap.HashMetadata(metadata),
+		MetadataHash:      identitymap.HashIdentityMetadata(update),
 		Attributes:        attrs,
 	}
 }

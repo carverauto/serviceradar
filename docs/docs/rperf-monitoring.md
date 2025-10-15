@@ -216,7 +216,7 @@ Update `/etc/serviceradar/poller.json` to include the rperf checker:
   },
   "core_address": "localhost:50052",
   "listen_addr": ":50053",
-  "poll_interval": "30s",
+  "poll_interval": "5m",
   "poller_id": "my-poller",
   "service_name": "PollerService",
   "service_type": "grpc",

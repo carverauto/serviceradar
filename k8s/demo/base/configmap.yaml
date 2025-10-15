@@ -263,7 +263,7 @@ data:
             { "service_type": "grpc",    "service_name": "zen",               "details": "serviceradar-zen:50040" },
             { "service_type": "grpc",    "service_name": "trapd",             "details": "serviceradar-trapd:50043" },
             { "service_type": "grpc",    "service_name": "flowgger",          "details": "serviceradar-flowgger:50044" },
-            { "service_type": "grpc",    "service_name": "sync",              "details": "serviceradar-sync:50058", "results_interval": "30s" },
+            { "service_type": "grpc",    "service_name": "sync",              "details": "serviceradar-sync:50058", "results_interval": "5m" },
             { "service_type": "grpc",    "service_name": "kv",                "details": "serviceradar-kv:50057" }
           ]
         }
@@ -281,7 +281,7 @@ data:
         }
       },
       "listen_addr": ":50053",
-      "poll_interval": "30s",
+      "poll_interval": "5m",
       "poller_id": "k8s-poller",
       "partition": "default",
       "source_ip": "poller",
