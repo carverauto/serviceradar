@@ -72,7 +72,7 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		if s.kvAddress == "" {
 			return ErrKVAddressNotConfigured
 		}
-		clientCfg := coregrpc.ClientConfig{Address: s.kvAddress, MaxRetries: 3, Logger: s.logger}
+		clientCfg := coregrpc.ClientConfig{Address: s.kvAddress, MaxRetries: 3, Logger: s.logger, DisableTelemetry: true}
 		if s.kvSecurity != nil {
 			sec := *s.kvSecurity
 			sec.Role = models.RolePoller
@@ -98,7 +98,7 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		if s.kvAddress == "" {
 			return nil, false, ErrKVAddressNotConfigured
 		}
-		clientCfg := coregrpc.ClientConfig{Address: s.kvAddress, MaxRetries: 3, Logger: s.logger}
+		clientCfg := coregrpc.ClientConfig{Address: s.kvAddress, MaxRetries: 3, Logger: s.logger, DisableTelemetry: true}
 		if s.kvSecurity != nil {
 			sec := *s.kvSecurity
 			sec.Role = models.RolePoller
@@ -217,7 +217,7 @@ func (s *APIServer) getKVClient(ctx context.Context, id string) (proto.KVService
 	if ep == nil || ep.Address == "" {
 		return nil, func() {}, ErrKVAddressNotConfigured
 	}
-	clientCfg := coregrpc.ClientConfig{Address: ep.Address, MaxRetries: 3, Logger: s.logger}
+	clientCfg := coregrpc.ClientConfig{Address: ep.Address, MaxRetries: 3, Logger: s.logger, DisableTelemetry: true}
 	var closer func()
 	if ep.Security != nil {
 		sec := *ep.Security

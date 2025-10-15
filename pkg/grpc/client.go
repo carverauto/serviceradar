@@ -37,6 +37,7 @@ type ClientConfig struct {
 	SecurityProvider SecurityProvider
 	MaxRetries       int
 	Logger           logger.Logger
+	DisableTelemetry bool
 }
 
 // Client manages a gRPC client connection.
@@ -88,16 +89,21 @@ func createDialOptions(ctx context.Context, cfg ClientConfig) ([]grpc.DialOption
 		return nil, fmt.Errorf("failed to get client credentials: %w", err)
 	}
 
-	return []grpc.DialOption{
+	opts := []grpc.DialOption{
 		creds,
-		grpc.WithStatsHandler(otelgrpc.NewClientHandler()), // Add OTel tracing
 		grpc.WithUnaryInterceptor(RetryInterceptor(cfg.MaxRetries, cfg.Logger)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                120 * time.Second, // Match server
 			Timeout:             20 * time.Second,
 			PermitWithoutStream: false,
 		}),
-	}, nil
+	}
+
+	if !cfg.DisableTelemetry {
+		opts = append(opts, grpc.WithStatsHandler(otelgrpc.NewClientHandler())) // Add OTel tracing
+	}
+
+	return opts, nil
 }
 
 // GetConnection returns the underlying gRPC connection.

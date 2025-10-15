@@ -70,7 +70,7 @@
                     "service_type": "grpc",
                     "service_name": "sync",
                     "details": "sync:50058",
-                    "results_interval": "30s"
+                    "results_interval": "5m"
                 },
                 {
                     "service_type": "grpc",

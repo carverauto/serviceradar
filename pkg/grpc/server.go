@@ -33,6 +33,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
+	grpcstats "google.golang.org/grpc/stats"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
@@ -64,21 +65,34 @@ const (
 
 // Server wraps a gRPC server with additional functionality.
 type Server struct {
-	srv              *grpc.Server
-	healthCheck      *health.Server
-	addr             string
-	logger           logger.Logger
-	mu               sync.RWMutex
-	services         map[string]struct{}
-	serverOpts       []grpc.ServerOption // Store server options
-	healthRegistered bool
+	srv               *grpc.Server
+	healthCheck       *health.Server
+	addr              string
+	logger            logger.Logger
+	mu                sync.RWMutex
+	services          map[string]struct{}
+	serverOpts        []grpc.ServerOption // Store server options
+	healthRegistered  bool
+	telemetryDisabled bool
+	telemetryFilter   TelemetryFilter
 }
 
 // NewServer creates a new gRPC server with the given configuration.
 func NewServer(addr string, log logger.Logger, opts ...ServerOption) *Server {
+	s := &Server{
+		addr:             addr,
+		logger:           log,
+		services:         make(map[string]struct{}),
+		healthRegistered: false,
+	}
+
+	// Apply custom options
+	for _, opt := range opts {
+		opt(s)
+	}
+
 	// Initialize with default interceptors
 	defaultOpts := []grpc.ServerOption{
-		grpc.StatsHandler(otelgrpc.NewServerHandler()), // Add OTel tracing
 		grpc.ChainUnaryInterceptor(
 			LoggingInterceptor(log),
 			RecoveryInterceptor(log),
@@ -96,18 +110,18 @@ func NewServer(addr string, log logger.Logger, opts ...ServerOption) *Server {
 		}),
 	}
 
-	s := &Server{
-		addr:             addr,
-		logger:           log,
-		services:         make(map[string]struct{}),
-		serverOpts:       defaultOpts,
-		healthRegistered: false,
+	if !s.telemetryDisabled {
+		handlerOpts := []otelgrpc.Option{}
+		if s.telemetryFilter != nil {
+			handlerOpts = append(handlerOpts, otelgrpc.WithFilter(func(info *grpcstats.RPCTagInfo) bool {
+				return s.telemetryFilter(info)
+			}))
+		}
+
+		defaultOpts = append([]grpc.ServerOption{grpc.StatsHandler(otelgrpc.NewServerHandler(handlerOpts...))}, defaultOpts...)
 	}
 
-	// Apply custom options
-	for _, opt := range opts {
-		opt(s)
-	}
+	s.serverOpts = append(defaultOpts, s.serverOpts...)
 
 	// Create the gRPC server with all options
 	s.srv = grpc.NewServer(s.serverOpts...)
@@ -154,6 +168,23 @@ func (s *Server) RegisterHealthServer() error {
 func WithServerOptions(opt ...grpc.ServerOption) ServerOption {
 	return func(s *Server) {
 		s.serverOpts = append(s.serverOpts, opt...)
+	}
+}
+
+// TelemetryFilter allows callers to suppress traces for matching RPCs.
+type TelemetryFilter func(*grpcstats.RPCTagInfo) bool
+
+// WithTelemetryFilter configures a filter to determine which RPCs emit telemetry.
+func WithTelemetryFilter(filter TelemetryFilter) ServerOption {
+	return func(s *Server) {
+		s.telemetryFilter = filter
+	}
+}
+
+// WithTelemetryDisabled disables OpenTelemetry stats handling for the server.
+func WithTelemetryDisabled() ServerOption {
+	return func(s *Server) {
+		s.telemetryDisabled = true
 	}
 }
 

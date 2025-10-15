@@ -276,6 +276,17 @@ impl TraceService for ServiceRadarCollector {
                         },
                     };
 
+                    let should_export = is_slow;
+
+                    if !should_export {
+                        // Skip publishing metrics for spans that completed within the fast-path threshold
+                        debug!(
+                            "Skipping perf metric export for fast span '{}' (service: '{}', duration: {:.3}ms)",
+                            span.name, service_name, duration_ms
+                        );
+                        continue;
+                    }
+
                     // Add base span metric
                     performance_metrics.push(base_metric.clone());
 
@@ -313,11 +324,18 @@ impl TraceService for ServiceRadarCollector {
                         performance_metrics.push(slow_metric);
                     }
 
-                    // Still log for immediate visibility in logs
-                    info!(
-                        "PERF METRIC - Service: '{}', Span: '{}', Duration: {:.3}ms, TraceID: {}, SpanID: {}",
-                        service_name, span.name, duration_ms, trace_id, span_id
-                    );
+                    // Only log slow spans at warn level; otherwise emit debug-level breadcrumbs
+                    if is_slow {
+                        warn!(
+                            "PERF METRIC - Service: '{}', Span: '{}', Duration: {:.3}ms, TraceID: {}, SpanID: {}",
+                            service_name, span.name, duration_ms, trace_id, span_id
+                        );
+                    } else {
+                        debug!(
+                            "PERF METRIC - Service: '{}', Span: '{}', Duration: {:.3}ms, TraceID: {}, SpanID: {}",
+                            service_name, span.name, duration_ms, trace_id, span_id
+                        );
+                    }
                 }
             }
         }
