@@ -22,6 +22,7 @@ let entity_mappings =
     ("memory_metrics", { table_name = "memory_metrics"; timestamp_field = "timestamp" });
     ("process_metrics", { table_name = "process_metrics"; timestamp_field = "timestamp" });
     ("snmp_metrics", { table_name = "timeseries_metrics"; timestamp_field = "timestamp" });
+    ("rperf_metrics", { table_name = "timeseries_metrics"; timestamp_field = "timestamp" });
     ("otel_traces", { table_name = "otel_traces"; timestamp_field = "timestamp" });
     ("otel_metrics", { table_name = "otel_metrics"; timestamp_field = "timestamp" });
     ( "otel_trace_summaries",
