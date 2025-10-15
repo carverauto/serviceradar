@@ -205,7 +205,7 @@ func testMemoryReleaseAfterCleanup(t *testing.T, config *models.Config) {
 
 	// Force GC and minimal wait
 	runtime.GC()
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(2 * time.Millisecond)
 
 	var memBefore runtime.MemStats
 
@@ -229,7 +229,7 @@ func testMemoryReleaseAfterCleanup(t *testing.T, config *models.Config) {
 
 	// Force GC after cleanup with minimal wait
 	runtime.GC()
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(2 * time.Millisecond)
 
 	var memAfter runtime.MemStats
 

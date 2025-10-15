@@ -185,12 +185,12 @@ let parse_having (s : string) : Sql_ir.condition option =
         String.sub s (i + String.length sym) (String.length s - i - String.length sym)
         |> String.trim
       in
-  let v =
-    match float_of_string_opt rhs with
-    | Some f -> Float f
-    | None -> ( match int_of_string_opt rhs with Some n -> Int n | None -> String rhs)
-  in
-  Some (Condition (lhs, op, v))
+      let v =
+        match float_of_string_opt rhs with
+        | Some f -> Float f
+        | None -> ( match int_of_string_opt rhs with Some n -> Int n | None -> String rhs)
+      in
+      Some (Condition (lhs, op, v))
 
 let is_ipv4_literal (s : string) : bool =
   let segments = String.split_on_char '.' s in
@@ -198,8 +198,7 @@ let is_ipv4_literal (s : string) : bool =
   | [ a; b; c; d ] -> (
       let valid_octet part =
         let len = String.length part in
-        len > 0
-        && len <= 3
+        len > 0 && len <= 3
         && String.for_all (function '0' .. '9' -> true | _ -> false) part
         &&
         let value = int_of_string part in
@@ -208,8 +207,7 @@ let is_ipv4_literal (s : string) : bool =
       try List.for_all valid_octet [ a; b; c; d ] with Failure _ -> false)
   | _ -> false
 
-let contains_wildcards (s : string) =
-  String.contains s '%' || String.contains s '_'
+let contains_wildcards (s : string) = String.contains s '%' || String.contains s '_'
 
 let or_chain (conds : Sql_ir.condition list) : Sql_ir.condition option =
   let rec build = function
@@ -224,8 +222,7 @@ let condition_of_filter ~entity ~timestamp_field = function
   | AttributeFilter (k, op, v) -> (
       match (v, op) with
       | ((String _ | Int _ | Float _ | Bool _) as raw), Eq
-        when String.lowercase_ascii entity = "devices"
-             && String.lowercase_ascii k = "search" ->
+        when String.lowercase_ascii entity = "devices" && String.lowercase_ascii k = "search" ->
           let term =
             let raw_string =
               match raw with
@@ -239,9 +236,7 @@ let condition_of_filter ~entity ~timestamp_field = function
           in
           if term = "" then None
           else
-            let wildcard =
-              if contains_wildcards term then term else "%" ^ term ^ "%"
-            in
+            let wildcard = if contains_wildcards term then term else "%" ^ term ^ "%" in
             let base_like = String wildcard in
             let conditions = ref [] in
             let push cond = conditions := cond :: !conditions in

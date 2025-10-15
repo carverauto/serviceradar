@@ -42,16 +42,18 @@ const (
 	defaultInterval      = 5 * time.Minute
 	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
 	defaultResultTimeout = 500 * time.Millisecond
-	// KV Watch auto-reconnect parameters
-	kvWatchInitialBackoff = 1 * time.Second
-	kvWatchMaxBackoff     = 5 * time.Minute
-	kvWatchBackoffFactor  = 2.0
-	kvWatchJitterFactor   = 0.1 // 10% jitter
-
 	// Deployment size thresholds
 	smallScaleThreshold  = 100
 	mediumScaleThreshold = 10000
 	largeScaleThreshold  = 100000
+)
+
+var (
+	// KV Watch auto-reconnect parameters (overridable in tests)
+	kvWatchInitialBackoff = 1 * time.Second
+	kvWatchMaxBackoff     = 5 * time.Minute
+	kvWatchBackoffFactor  = 2.0
+	kvWatchJitterFactor   = 0.1 // 10% jitter
 )
 
 // minInt returns the minimum of two integers
