@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { analyticsService, AnalyticsData } from '@/services/analyticsService';
+import { dataService, AnalyticsData } from '@/services/dataService';
 import { ServiceEntry } from '@/types/types';
 import { Device } from '@/types/devices';
 
@@ -54,8 +54,8 @@ export const useAnalyticsData = () => {
         const updateFromService = async (forceRefresh = false) => {
             try {
                 const data = forceRefresh
-                    ? await analyticsService.refresh(token || undefined)
-                    : await analyticsService.getAnalyticsData(token || undefined);
+                    ? await dataService.refreshAnalytics(token || undefined)
+                    : await dataService.getAnalyticsData(token || undefined);
                 if (!cancelled) {
                     setAnalyticsData(data);
                     setError(null);
@@ -76,7 +76,7 @@ export const useAnalyticsData = () => {
         updateFromService();
 
         // Subscribe to cache updates so other consumers keep us fresh
-        const unsubscribe = analyticsService.subscribe(() => {
+        const unsubscribe = dataService.subscribeAnalytics(() => {
             updateFromService();
         });
 
