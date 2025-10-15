@@ -114,7 +114,7 @@ func TestIdentityPublisherPublishesNewEntries(t *testing.T) {
 		record, err := identitymap.UnmarshalRecord(entry.value)
 		require.NoError(t, err)
 		require.Equal(t, update.DeviceID, record.CanonicalDeviceID)
-		require.Equal(t, identitymap.HashMetadata(update.Metadata), record.MetadataHash)
+		require.Equal(t, identitymap.HashIdentityMetadata(update), record.MetadataHash)
 		require.Equal(t, "armis-1", record.Attributes["armis_device_id"])
 	}
 }
@@ -173,7 +173,7 @@ func TestIdentityPublisherRetriesOnCASConflict(t *testing.T) {
 	require.Equal(t, uint64(2), entry.revision)
 	record, err := identitymap.UnmarshalRecord(entry.value)
 	require.NoError(t, err)
-	require.Equal(t, identitymap.HashMetadata(updated.Metadata), record.MetadataHash)
+	require.Equal(t, identitymap.HashIdentityMetadata(updated), record.MetadataHash)
 }
 
 func TestIdentityPublisherUpdatesWhenAttributesChange(t *testing.T) {
@@ -185,8 +185,11 @@ func TestIdentityPublisherUpdatesWhenAttributesChange(t *testing.T) {
 	metadata := map[string]string{"armis_device_id": "armis-attr"}
 	initialRecord := &identitymap.Record{
 		CanonicalDeviceID: "device-attr",
-		MetadataHash:      identitymap.HashMetadata(metadata),
-		Attributes:        map[string]string{},
+		MetadataHash: identitymap.HashIdentityMetadata(&models.DeviceUpdate{
+			DeviceID: "device-attr",
+			Metadata: metadata,
+		}),
+		Attributes: map[string]string{},
 	}
 	payload, err := identitymap.MarshalRecord(initialRecord)
 	require.NoError(t, err)

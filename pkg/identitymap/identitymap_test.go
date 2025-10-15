@@ -143,3 +143,48 @@ func TestSanitizeKeyPath(t *testing.T) {
 	assert.Empty(t, SanitizeKeyPath(""))
 	assert.Empty(t, SanitizeKeyPath("///"))
 }
+
+func TestHashIdentityMetadataIgnoresNoise(t *testing.T) {
+	host := "sensor01"
+	mac := "aa:bb:cc:dd:ee:ff"
+	update := &models.DeviceUpdate{
+		DeviceID:  "tenant-a:1.2.3.4",
+		IP:        "1.2.3.4",
+		Partition: "tenant-a",
+		Hostname:  &host,
+		MAC:       &mac,
+		Source:    models.DiscoverySourceNetbox,
+		Metadata: map[string]string{
+			"armis_device_id":      "armis-123",
+			"integration_id":       "nb-42",
+			"integration_type":     "netbox",
+			"netbox_device_id":     "123",
+			"port_scan_payload":    "changed",
+			"alt_ip:1.2.3.4":       "1",
+			"random_noise":         "value",
+			"armis_device_id_copy": "ignored",
+		},
+	}
+
+	hash1 := HashIdentityMetadata(update)
+
+	update.Metadata["port_scan_payload"] = "changed-again"
+	update.Metadata["random_noise"] = "different"
+
+	hash2 := HashIdentityMetadata(update)
+	assert.Equal(t, hash1, hash2)
+}
+
+func TestHashIdentityMetadataChangesOnCanonicalFields(t *testing.T) {
+	update := &models.DeviceUpdate{
+		DeviceID: "device-1",
+		Metadata: map[string]string{"armis_device_id": "armis-123"},
+	}
+
+	original := HashIdentityMetadata(update)
+	require.NotEmpty(t, original)
+
+	update.Metadata["armis_device_id"] = "armis-124"
+	changed := HashIdentityMetadata(update)
+	assert.NotEqual(t, original, changed)
+}

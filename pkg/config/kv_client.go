@@ -179,6 +179,7 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 	client, err := coregrpc.NewClient(ctx, coregrpc.ClientConfig{
 		Address:          addr,
 		SecurityProvider: provider,
+		DisableTelemetry: true,
 	})
 	if err != nil {
 		_ = provider.Close()

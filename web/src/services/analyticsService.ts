@@ -40,8 +40,8 @@ export interface AnalyticsData {
   // Observability stats
   totalMetrics: number;
   totalTraces: number;
-  slowMetrics: number;
-  errorMetrics: number;
+  slowTraces: number;
+  errorTraces: number;
   recentSlowSpans: unknown[];
   
   // Device data for widgets
@@ -142,10 +142,10 @@ class AnalyticsService {
       'in:logs severity_text:debug stats:"count() as total" sort:total:desc time:last_24h',
       'in:logs severity_text:(fatal,error) time:last_24h sort:timestamp:desc limit:100',
       'in:otel_metrics stats:"count() as total" sort:total:desc time:last_24h',
-      'in:otel_traces stats:"count() as total" sort:total:desc time:last_24h',
-      'in:otel_metrics is_slow:true stats:"count() as total" sort:total:desc time:last_24h',
-      'in:otel_metrics http_status_code:[400,] stats:"count() as total" sort:total:desc time:last_24h',
-      'in:otel_metrics is_slow:true time:last_24h sort:timestamp:desc limit:100',
+      'in:otel_trace_summaries stats:"count() as total" sort:total:desc time:last_24h',
+      'in:otel_trace_summaries status_code!=1 stats:"count() as total" sort:total:desc time:last_24h',
+      'in:otel_trace_summaries duration_ms>100 stats:"count() as total" sort:total:desc time:last_24h',
+      'in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:100',
       `in:devices time:[${last7DaysIso},] sort:last_seen:desc limit:100`,
       'in:services sort:timestamp:desc limit:200'
     ];
@@ -188,7 +188,7 @@ class AnalyticsService {
       highEventsRes, mediumEventsRes, lowEventsRes, recentCriticalEventsRes,
       totalLogsRes, fatalLogsRes, errorLogsRes, warningLogsRes, infoLogsRes,
       debugLogsRes, recentErrorLogsRes, totalMetricsRes, totalTracesRes,
-      slowMetricsRes, errorMetricsRes, recentSlowSpansRes, devicesLatestRes, servicesLatestRes
+      errorTracesRes, slowTracesRes, slowTraceListRes, devicesLatestRes, servicesLatestRes
     ] = queryResults;
 
     const totalDevices = totalDevicesRes.results[0]?.total || 0;
@@ -220,9 +220,15 @@ class AnalyticsService {
       // Observability stats
       totalMetrics: totalMetricsRes.results[0]?.total || 0,
       totalTraces: totalTracesRes.results[0]?.total || 0,
-      slowMetrics: slowMetricsRes.results[0]?.total || 0,
-      errorMetrics: errorMetricsRes.results[0]?.total || 0,
-      recentSlowSpans: (recentSlowSpansRes.results || []).slice(0, 5),
+      slowTraces: slowTracesRes.results[0]?.total || 0,
+      errorTraces: errorTracesRes.results[0]?.total || 0,
+      recentSlowSpans: (slowTraceListRes.results || []).slice(0, 5).map((trace: any) => ({
+        trace_id: trace.trace_id,
+        service_name: trace.root_service_name || trace.service_name || 'Unknown Service',
+        span_name: trace.root_span_name || 'Root Span',
+        duration_ms: trace.duration_ms || 0,
+        timestamp: trace.timestamp || trace.start_time_unix_nano || null,
+      })),
       
       // Raw data for widgets
       devicesLatest: devicesLatestRes.results || [],
@@ -236,7 +242,7 @@ class AnalyticsService {
       totalDevices: 0, offlineDevices: 0, onlineDevices: 0,
       totalEvents: 0, criticalEvents: 0, highEvents: 0, mediumEvents: 0, lowEvents: 0, recentCriticalEvents: [],
       totalLogs: 0, fatalLogs: 0, errorLogs: 0, warningLogs: 0, infoLogs: 0, debugLogs: 0, recentErrorLogs: [],
-      totalMetrics: 0, totalTraces: 0, slowMetrics: 0, errorMetrics: 0, recentSlowSpans: [],
+      totalMetrics: 0, totalTraces: 0, slowTraces: 0, errorTraces: 0, recentSlowSpans: [],
       devicesLatest: [], servicesLatest: [], pollers: []
     };
   }

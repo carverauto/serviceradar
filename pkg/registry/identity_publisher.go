@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -31,12 +32,14 @@ type identityPublisher struct {
 	ttlSeconds int64
 	metrics    *identityPublisherMetrics
 	logger     logger.Logger
+	cache      *identityCache
 }
 
 const (
 	identityInitialBackoff = 50 * time.Millisecond
 	identityMaxBackoff     = 750 * time.Millisecond
 	identityMaxElapsed     = 5 * time.Second
+	identityCacheTTL       = 5 * time.Minute
 )
 
 // WithIdentityPublisher wires a KV-backed identity map publisher into the device registry.
@@ -68,6 +71,84 @@ func (m *identityPublisherMetrics) recordFailure() {
 	m.failures.Add(1)
 }
 
+type identityCache struct {
+	mu      sync.RWMutex
+	ttl     time.Duration
+	entries map[string]identityCacheEntry
+}
+
+type identityCacheEntry struct {
+	metadataHash   string
+	attributesHash string
+	revision       uint64
+	expiresAt      time.Time
+}
+
+func newIdentityCache(ttl time.Duration) *identityCache {
+	if ttl < 0 {
+		ttl = 0
+	}
+	return &identityCache{
+		ttl:     ttl,
+		entries: make(map[string]identityCacheEntry),
+	}
+}
+
+func (c *identityCache) get(key string) *identityCacheEntry {
+	if c == nil {
+		return nil
+	}
+
+	c.mu.RLock()
+	entry, ok := c.entries[key]
+	c.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+
+	if !entry.expiresAt.IsZero() && time.Now().After(entry.expiresAt) {
+		c.mu.Lock()
+		if current, ok := c.entries[key]; ok && current.expiresAt == entry.expiresAt {
+			delete(c.entries, key)
+		}
+		c.mu.Unlock()
+		return nil
+	}
+
+	e := entry
+	return &e
+}
+
+func (c *identityCache) set(key, metadataHash, attrsHash string, revision uint64) {
+	if c == nil {
+		return
+	}
+
+	var expiresAt time.Time
+	if c.ttl > 0 {
+		expiresAt = time.Now().Add(c.ttl)
+	}
+
+	c.mu.Lock()
+	c.entries[key] = identityCacheEntry{
+		metadataHash:   metadataHash,
+		attributesHash: attrsHash,
+		revision:       revision,
+		expiresAt:      expiresAt,
+	}
+	c.mu.Unlock()
+}
+
+func (c *identityCache) delete(key string) {
+	if c == nil {
+		return
+	}
+
+	c.mu.Lock()
+	delete(c.entries, key)
+	c.mu.Unlock()
+}
+
 func newIdentityPublisher(client kvIdentityClient, namespace string, ttl time.Duration, log logger.Logger) *identityPublisher {
 	if client == nil {
 		return nil
@@ -82,6 +163,7 @@ func newIdentityPublisher(client kvIdentityClient, namespace string, ttl time.Du
 		ttlSeconds: int64(ttl / time.Second),
 		metrics:    newIdentityPublisherMetrics(),
 		logger:     log,
+		cache:      newIdentityCache(identityCacheTTL),
 	}
 }
 
@@ -101,7 +183,7 @@ func (p *identityPublisher) Publish(ctx context.Context, updates []*models.Devic
 		record := &identitymap.Record{
 			CanonicalDeviceID: update.DeviceID,
 			Partition:         update.Partition,
-			MetadataHash:      identitymap.HashMetadata(update.Metadata),
+			MetadataHash:      identitymap.HashIdentityMetadata(update),
 			UpdatedAt:         now,
 			Attributes:        buildIdentityAttributes(update),
 		}
@@ -128,6 +210,44 @@ func (p *identityPublisher) Publish(ctx context.Context, updates []*models.Devic
 }
 
 func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payload []byte, metadataHash string, attrs map[string]string) error {
+	attrsHash := identitymap.HashMetadata(attrs)
+
+	if cached := p.cache.get(key); cached != nil {
+		if cached.metadataHash == metadataHash && cached.attributesHash == attrsHash {
+			identitymap.RecordKVPublish(ctx, 1, "unchanged")
+			return nil
+		}
+		if cached.revision > 0 {
+			resp, err := p.kvClient.Update(ctx, &proto.UpdateRequest{
+				Key:        key,
+				Value:      payload,
+				Revision:   cached.revision,
+				TtlSeconds: p.ttlSeconds,
+			})
+			if err == nil {
+				p.metrics.recordPublish(1)
+				identitymap.RecordKVPublish(ctx, 1, "updated")
+				newRevision := uint64(0)
+				if resp != nil {
+					newRevision = resp.GetRevision()
+				}
+				p.cache.set(key, metadataHash, attrsHash, newRevision)
+				p.logger.Debug().Str("key", key).Msg("Updated canonical identity entry in KV (cache fast-path)")
+				return nil
+			}
+			if shouldRetryKV(err) {
+				p.cache.delete(key)
+				code := status.Code(err)
+				if code == codes.AlreadyExists || code == codes.Aborted {
+					identitymap.RecordKVConflict(ctx, code.String())
+					p.logger.Debug().Str("key", key).Str("reason", code.String()).Msg("KV identity update conflict on cache fast-path")
+				}
+			} else {
+				return err
+			}
+		}
+	}
+
 	bo := backoff.NewExponentialBackOff()
 	bo.InitialInterval = identityInitialBackoff
 	bo.MaxInterval = identityMaxBackoff
@@ -160,6 +280,7 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 			p.metrics.recordPublish(1)
 			identitymap.RecordKVPublish(ctx, 1, "created")
 			p.logger.Debug().Str("key", key).Msg("Created canonical identity entry in KV")
+			p.cache.set(key, metadataHash, attrsHash, 0)
 			return struct{}{}, nil
 		}
 
@@ -167,12 +288,15 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 		if err != nil {
 			return struct{}{}, backoff.Permanent(fmt.Errorf("unmarshal existing canonical record: %w", err))
 		}
+
+		existingAttrsHash := identitymap.HashMetadata(existing.Attributes)
+		p.cache.set(key, existing.MetadataHash, existingAttrsHash, resp.GetRevision())
 		if existing.MetadataHash == metadataHash && attributesEqual(existing.Attributes, attrs) {
 			identitymap.RecordKVPublish(ctx, 1, "unchanged")
 			return struct{}{}, nil
 		}
 
-		_, err = p.kvClient.Update(ctx, &proto.UpdateRequest{
+		updateResp, err := p.kvClient.Update(ctx, &proto.UpdateRequest{
 			Key:        key,
 			Value:      payload,
 			Revision:   resp.GetRevision(),
@@ -185,6 +309,7 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 					identitymap.RecordKVConflict(ctx, code.String())
 					p.logger.Debug().Str("key", key).Str("reason", code.String()).Msg("KV identity update encountered conflict")
 				}
+				p.cache.delete(key)
 				return struct{}{}, err
 			}
 			return struct{}{}, backoff.Permanent(err)
@@ -193,6 +318,11 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 		p.metrics.recordPublish(1)
 		identitymap.RecordKVPublish(ctx, 1, "updated")
 		p.logger.Debug().Str("key", key).Msg("Updated canonical identity entry in KV")
+		newRevision := resp.GetRevision()
+		if updateResp != nil && updateResp.GetRevision() != 0 {
+			newRevision = updateResp.GetRevision()
+		}
+		p.cache.set(key, metadataHash, attrsHash, newRevision)
 		return struct{}{}, nil
 	}
 

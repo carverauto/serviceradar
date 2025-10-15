@@ -43,9 +43,9 @@ const ObservabilityWidget = () => {
         }
 
         const totalMetrics = analyticsData.totalMetrics;
-        const totalErrors = analyticsData.errorMetrics;
+        const errorTraces = analyticsData.errorTraces;
         const totalTraces = analyticsData.totalTraces;
-        const slowSpans = analyticsData.slowMetrics;
+        const slowSpans = analyticsData.slowTraces;
         
         // Calculate average duration - for now use 0, can be enhanced later
         const avgDuration = 0;
@@ -54,7 +54,7 @@ const ObservabilityWidget = () => {
             totalMetrics,
             totalTraces,
             avgDuration,
-            errorRate: totalMetrics > 0 ? totalErrors / totalMetrics : 0,
+            errorRate: totalTraces > 0 ? errorTraces / totalTraces : 0,
             slowSpans
         };
 

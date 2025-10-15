@@ -101,6 +101,56 @@ func BuildKeys(update *models.DeviceUpdate) []Key {
 	return keys
 }
 
+// HashIdentityMetadata produces a stable fingerprint of identity-relevant fields for a device update.
+func HashIdentityMetadata(update *models.DeviceUpdate) string {
+	if update == nil {
+		return ""
+	}
+
+	meta := make(map[string]string)
+
+	if id := strings.TrimSpace(update.DeviceID); id != "" {
+		meta["device_id"] = id
+	}
+	if partition := strings.TrimSpace(update.Partition); partition != "" {
+		meta["partition"] = partition
+	}
+	if ip := strings.TrimSpace(update.IP); ip != "" {
+		meta["ip"] = ip
+	}
+	if update.Hostname != nil {
+		if hostname := strings.TrimSpace(*update.Hostname); hostname != "" {
+			meta["hostname"] = hostname
+		}
+	}
+	if update.MAC != nil {
+		if mac := strings.TrimSpace(*update.MAC); mac != "" {
+			meta["mac"] = strings.ToUpper(mac)
+		}
+	}
+	if src := strings.TrimSpace(string(update.Source)); src != "" {
+		meta["source"] = src
+	}
+
+	if update.Metadata != nil {
+		appendMetadata := func(key string) {
+			if val := strings.TrimSpace(update.Metadata[key]); val != "" {
+				meta[key] = val
+			}
+		}
+		appendMetadata("armis_device_id")
+		appendMetadata("integration_id")
+		appendMetadata("integration_type")
+		appendMetadata("netbox_device_id")
+	}
+
+	if len(meta) == 0 {
+		return ""
+	}
+
+	return HashMetadata(meta)
+}
+
 func partitionIPValue(partition, ip string) string {
 	partition = strings.TrimSpace(partition)
 	ip = strings.TrimSpace(ip)
