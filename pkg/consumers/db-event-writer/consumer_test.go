@@ -42,16 +42,38 @@ func (f *fakeMessageBatch) Error() error {
 func TestConsumerProcessMessagesReturnsFatalError(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	c := &Consumer{
-		streamName:   "events",
-		consumerName: "writer",
-		consumer:     &fakePullConsumer{err: nats.ErrConnectionClosed},
-		logger:       logger.NewTestLogger(),
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "connection closed",
+			err:  nats.ErrConnectionClosed,
+		},
+		{
+			name: "no responders",
+			err:  nats.ErrNoResponders,
+		},
 	}
 
-	err := c.ProcessMessages(ctx, nil)
-	require.ErrorIs(t, err, nats.ErrConnectionClosed)
+	for _, tc := range tests {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			c := &Consumer{
+				streamName:   "events",
+				consumerName: "writer",
+				consumer:     &fakePullConsumer{err: tc.err},
+				logger:       logger.NewTestLogger(),
+			}
+
+			err := c.ProcessMessages(ctx, nil)
+			require.ErrorIs(t, err, tc.err)
+		})
+	}
 }
