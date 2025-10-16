@@ -101,6 +101,40 @@ func BuildKeys(update *models.DeviceUpdate) []Key {
 	return keys
 }
 
+// BuildKeysFromRecord reconstructs the identity keys for a canonical record.
+func BuildKeysFromRecord(record *Record) []Key {
+	if record == nil {
+		return nil
+	}
+
+	update := &models.DeviceUpdate{
+		DeviceID:  record.CanonicalDeviceID,
+		Partition: record.Partition,
+	}
+
+	if record.Attributes != nil {
+		if ip := strings.TrimSpace(record.Attributes["ip"]); ip != "" {
+			update.IP = ip
+		}
+		if mac := strings.TrimSpace(record.Attributes["mac"]); mac != "" {
+			macUpper := strings.ToUpper(mac)
+			update.MAC = &macUpper
+		}
+
+		metaKeys := []string{"armis_device_id", "integration_id", "integration_type", "netbox_device_id"}
+		for _, key := range metaKeys {
+			if val := strings.TrimSpace(record.Attributes[key]); val != "" {
+				if update.Metadata == nil {
+					update.Metadata = make(map[string]string)
+				}
+				update.Metadata[key] = val
+			}
+		}
+	}
+
+	return BuildKeys(update)
+}
+
 // HashIdentityMetadata produces a stable fingerprint of identity-relevant fields for a device update.
 func HashIdentityMetadata(update *models.DeviceUpdate) string {
 	if update == nil {
