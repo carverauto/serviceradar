@@ -1,7 +1,9 @@
 package kv
 
 import (
+	"fmt"
 	"log"
+	"math"
 	"path/filepath"
 )
 
@@ -22,6 +24,10 @@ func (c *Config) Validate() error {
 	c.normalizeCertPaths()
 	c.setDefaultBucket()
 	c.setDefaultBucketOptions()
+
+	if c.BucketHistory > math.MaxUint8 {
+		return fmt.Errorf("%w: got %d", errBucketHistoryTooLarge, c.BucketHistory)
+	}
 
 	return nil
 }
