@@ -37,6 +37,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-X main.Version=${VERSION} -X main.BuildID=${BUILD_ID}" \
     -o /usr/local/bin/serviceradar-db-event-writer \
     ./cmd/consumers/db-event-writer
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -o /usr/local/bin/wait-for-port \
+    ./cmd/tools/waitforport
 
 # Runtime stage - using Alpine for small size
 FROM alpine:3.20
@@ -66,6 +69,9 @@ RUN mkdir -p /etc/serviceradar/consumers /etc/serviceradar/templates /var/log/se
 # Copy binary from builder
 COPY --from=builder /usr/local/bin/serviceradar-db-event-writer /usr/local/bin/serviceradar-db-event-writer
 RUN chmod +x /usr/local/bin/serviceradar-db-event-writer
+
+COPY --from=builder /usr/local/bin/wait-for-port /usr/local/bin/wait-for-port
+RUN chmod +x /usr/local/bin/wait-for-port
 
 # Copy entrypoint script
 COPY docker/compose/entrypoint-db-event-writer.sh /usr/local/bin/entrypoint.sh

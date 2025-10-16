@@ -39,6 +39,9 @@ RUN CGO_ENABLED=0 GOOS=linux \
     -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=${VERSION} \
               -X github.com/carverauto/serviceradar/pkg/version.buildID=${BUILD_ID}" \
     -o serviceradar-kv ./cmd/kv
+RUN CGO_ENABLED=0 GOOS=linux \
+    go build \
+    -o wait-for-port ./cmd/tools/waitforport
 
 # Runtime stage - using Ubuntu for better compatibility
 FROM ubuntu:22.04
@@ -66,6 +69,9 @@ RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
 # Copy binary from builder
 COPY --from=builder /src/serviceradar-kv /usr/local/bin/serviceradar-kv
 RUN chmod +x /usr/local/bin/serviceradar-kv
+
+COPY --from=builder /src/wait-for-port /usr/local/bin/wait-for-port
+RUN chmod +x /usr/local/bin/wait-for-port
 
 # Copy entrypoint script
 COPY docker/compose/entrypoint-kv.sh /usr/local/bin/entrypoint.sh
