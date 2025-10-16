@@ -298,11 +298,14 @@ impl NATSOutput {
             Err(e) => {
                 error!("Failed to publish traces to NATS: {e}");
                 if Self::publish_error_indicates_missing_stream(&e) {
-                    if let Err(recover_err) = self.recover_stream().await {
-                        error!(
-                            "Failed to recover JetStream stream '{}' after traces publish error: {recover_err}",
-                            self.config.stream
-                        );
+                    match self.recover_stream().await {
+                        Ok(_) => {}
+                        Err(recover_err) => {
+                            error!(
+                                "Failed to recover JetStream stream '{}' after traces publish error: {recover_err}",
+                                self.config.stream
+                            );
+                        }
                     }
                 }
                 return Err(e.into());
@@ -384,11 +387,14 @@ impl NATSOutput {
             Err(e) => {
                 error!("Failed to publish logs to NATS: {e}");
                 if Self::publish_error_indicates_missing_stream(&e) {
-                    if let Err(recover_err) = self.recover_stream().await {
-                        error!(
-                            "Failed to recover JetStream stream '{}' after logs publish error: {recover_err}",
-                            self.config.stream
-                        );
+                    match self.recover_stream().await {
+                        Ok(_) => {}
+                        Err(recover_err) => {
+                            error!(
+                                "Failed to recover JetStream stream '{}' after logs publish error: {recover_err}",
+                                self.config.stream
+                            );
+                        }
                     }
                 }
                 return Err(e.into());
@@ -461,11 +467,14 @@ impl NATSOutput {
             Err(e) => {
                 error!("Failed to publish metrics to NATS: {e}");
                 if Self::publish_error_indicates_missing_stream(&e) {
-                    if let Err(recover_err) = self.recover_stream().await {
-                        error!(
-                            "Failed to recover JetStream stream '{}' after metrics publish error: {recover_err}",
-                            self.config.stream
-                        );
+                    match self.recover_stream().await {
+                        Ok(_) => {}
+                        Err(recover_err) => {
+                            error!(
+                                "Failed to recover JetStream stream '{}' after metrics publish error: {recover_err}",
+                                self.config.stream
+                            );
+                        }
                     }
                 }
                 return Err(e.into());
@@ -537,11 +546,14 @@ impl NATSOutput {
             Err(e) => {
                 error!("Failed to publish raw OTLP metrics to NATS: {e}");
                 if Self::publish_error_indicates_missing_stream(&e) {
-                    if let Err(recover_err) = self.recover_stream().await {
-                        error!(
-                            "Failed to recover JetStream stream '{}' after raw metrics publish error: {recover_err}",
-                            self.config.stream
-                        );
+                    match self.recover_stream().await {
+                        Ok(_) => {}
+                        Err(recover_err) => {
+                            error!(
+                                "Failed to recover JetStream stream '{}' after raw metrics publish error: {recover_err}",
+                                self.config.stream
+                            );
+                        }
                     }
                 }
                 return Err(e.into());
