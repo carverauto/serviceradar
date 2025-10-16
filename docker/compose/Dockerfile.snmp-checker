@@ -37,6 +37,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-X main.Version=${VERSION} -X main.BuildID=${BUILD_ID}" \
     -o /usr/local/bin/serviceradar-snmp-checker \
     ./cmd/checkers/snmp
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -o /usr/local/bin/wait-for-port \
+    ./cmd/tools/waitforport
 
 # Runtime stage - using Alpine for small size
 FROM alpine:3.20
@@ -62,6 +65,9 @@ RUN mkdir -p /etc/serviceradar/checkers /var/log/serviceradar /var/lib/servicera
 # Copy binary from builder
 COPY --from=builder /usr/local/bin/serviceradar-snmp-checker /usr/local/bin/serviceradar-snmp-checker
 RUN chmod +x /usr/local/bin/serviceradar-snmp-checker
+
+COPY --from=builder /usr/local/bin/wait-for-port /usr/local/bin/wait-for-port
+RUN chmod +x /usr/local/bin/wait-for-port
 
 # Copy entrypoint script
 COPY docker/compose/entrypoint-snmp-checker.sh /usr/local/bin/entrypoint.sh
