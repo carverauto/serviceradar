@@ -181,6 +181,7 @@ func isFatalFetchError(err error) bool {
 		return false
 	case errors.Is(err, nats.ErrConnectionClosed),
 		errors.Is(err, nats.ErrNoServers),
+		errors.Is(err, nats.ErrNoResponders),
 		errors.Is(err, jetstream.ErrConsumerDeleted),
 		errors.Is(err, jetstream.ErrConsumerNotFound),
 		errors.Is(err, jetstream.ErrJetStreamNotEnabled),

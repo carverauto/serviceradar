@@ -1,5 +1,8 @@
-use anyhow::Result;
-use async_nats::jetstream::{context::PublishAckFuture, stream::StorageType};
+use anyhow::{Result, anyhow};
+use async_nats::jetstream::{
+    context::{PublishAckFuture, PublishErrorKind},
+    stream::StorageType,
+};
 use async_nats::{Client, ConnectOptions, jetstream};
 use log::{debug, error, info, warn};
 use prost::Message;
@@ -47,117 +50,119 @@ pub struct NATSOutput {
     disabled: bool,
 }
 
+async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> Result<()> {
+    debug!("Creating/verifying JetStream stream: {}", config.stream);
+    let subjects = vec![
+        format!("{}.traces", config.subject),
+        format!("{}.logs", config.subject),
+        format!("{}.metrics", config.subject),
+        format!("{}.metrics.raw", config.subject),
+    ];
+    debug!("Stream will handle subjects: {subjects:?}");
+
+    let desired_config = jetstream::stream::Config {
+        name: config.stream.clone(),
+        subjects: subjects.clone(),
+        storage: StorageType::File,
+        max_bytes: config.max_bytes,
+        max_age: config.max_age,
+        ..Default::default()
+    };
+
+    match jetstream.get_or_create_stream(desired_config.clone()).await {
+        Ok(mut stream) => {
+            let stream_info = stream.info().await?;
+            let existing_subjects = &stream_info.config.subjects;
+            let mut needs_update = false;
+            let mut updated_config = stream_info.config.clone();
+
+            let missing_subjects: Vec<_> = subjects
+                .iter()
+                .filter(|s| !existing_subjects.contains(s))
+                .collect();
+
+            if !missing_subjects.is_empty() {
+                warn!(
+                    "Stream '{}' exists but is missing subjects: {:?}",
+                    config.stream, missing_subjects
+                );
+                warn!("Current subjects: {existing_subjects:?}");
+
+                for subject in subjects {
+                    if !updated_config.subjects.contains(&subject) {
+                        updated_config.subjects.push(subject);
+                        needs_update = true;
+                    }
+                }
+            }
+
+            if updated_config.max_bytes != config.max_bytes {
+                debug!(
+                    "Updating stream '{}' max_bytes from {} to {}",
+                    config.stream, updated_config.max_bytes, config.max_bytes
+                );
+                updated_config.max_bytes = config.max_bytes;
+                needs_update = true;
+            }
+
+            if updated_config.max_age != config.max_age {
+                debug!(
+                    "Updating stream '{}' max_age from {:?} to {:?}",
+                    config.stream, updated_config.max_age, config.max_age
+                );
+                updated_config.max_age = config.max_age;
+                needs_update = true;
+            }
+
+            if needs_update {
+                debug!("Applying stream config update: {:?}", updated_config);
+                match jetstream.update_stream(updated_config).await {
+                    Ok(updated_info) => {
+                        info!(
+                            "Successfully updated stream '{}' configuration",
+                            config.stream
+                        );
+                        debug!(
+                            "Updated config: subjects={:?}, max_bytes={}, max_age={:?}",
+                            updated_info.config.subjects,
+                            updated_info.config.max_bytes,
+                            updated_info.config.max_age
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to update stream '{}' configuration: {e}",
+                            config.stream
+                        );
+                    }
+                }
+            } else {
+                info!(
+                    "JetStream stream '{}' ready with subjects: {:?}",
+                    config.stream, existing_subjects
+                );
+            }
+        }
+        Err(e) => {
+            error!(
+                "Failed to create/verify JetStream stream '{}': {e}",
+                config.stream
+            );
+            error!("Stream config was: {desired_config:?}");
+            return Err(e.into());
+        }
+    }
+
+    Ok(())
+}
+
 impl NATSOutput {
     pub async fn new(config: NATSConfig) -> Result<Self> {
         info!("Initializing NATS output");
         debug!("NATS config: {config:?}");
 
         let (_client, jetstream) = Self::connect(&config).await?;
-
-        // Ensure the target stream exists
-        debug!("Creating/verifying JetStream stream: {}", config.stream);
-        // Configure stream to handle traces, logs, and metrics subjects
-        let subjects = vec![
-            format!("{}.traces", config.subject),      // events.otel.traces
-            format!("{}.logs", config.subject),        // events.otel.logs
-            format!("{}.metrics", config.subject),     // events.otel.metrics (derived analytics)
-            format!("{}.metrics.raw", config.subject), // events.otel.metrics.raw (OTLP payloads)
-        ];
-        debug!("Stream will handle subjects: {subjects:?}");
-
-        let desired_config = jetstream::stream::Config {
-            name: config.stream.clone(),
-            subjects: subjects.clone(),
-            storage: StorageType::File,
-            max_bytes: config.max_bytes,
-            max_age: config.max_age,
-            ..Default::default()
-        };
-
-        // Try to get or create the stream
-        match jetstream.get_or_create_stream(desired_config.clone()).await {
-            Ok(mut stream) => {
-                let stream_info = stream.info().await?;
-                let existing_subjects = &stream_info.config.subjects;
-                let mut needs_update = false;
-                let mut updated_config = stream_info.config.clone();
-
-                let missing_subjects: Vec<_> = subjects
-                    .iter()
-                    .filter(|s| !existing_subjects.contains(s))
-                    .collect();
-
-                if !missing_subjects.is_empty() {
-                    warn!(
-                        "Stream '{}' exists but is missing subjects: {:?}",
-                        config.stream, missing_subjects
-                    );
-                    warn!("Current subjects: {existing_subjects:?}");
-
-                    for subject in subjects {
-                        if !updated_config.subjects.contains(&subject) {
-                            updated_config.subjects.push(subject);
-                            needs_update = true;
-                        }
-                    }
-                }
-
-                if updated_config.max_bytes != config.max_bytes {
-                    debug!(
-                        "Updating stream '{}' max_bytes from {} to {}",
-                        config.stream, updated_config.max_bytes, config.max_bytes
-                    );
-                    updated_config.max_bytes = config.max_bytes;
-                    needs_update = true;
-                }
-
-                if updated_config.max_age != config.max_age {
-                    debug!(
-                        "Updating stream '{}' max_age from {:?} to {:?}",
-                        config.stream, updated_config.max_age, config.max_age
-                    );
-                    updated_config.max_age = config.max_age;
-                    needs_update = true;
-                }
-
-                if needs_update {
-                    debug!("Applying stream config update: {:?}", updated_config);
-                    match jetstream.update_stream(updated_config).await {
-                        Ok(updated_info) => {
-                            info!(
-                                "Successfully updated stream '{}' configuration",
-                                config.stream
-                            );
-                            debug!(
-                                "Updated config: subjects={:?}, max_bytes={}, max_age={:?}",
-                                updated_info.config.subjects,
-                                updated_info.config.max_bytes,
-                                updated_info.config.max_age
-                            );
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to update stream '{}' configuration: {e}",
-                                config.stream
-                            );
-                        }
-                    }
-                } else {
-                    info!(
-                        "JetStream stream '{}' ready with subjects: {:?}",
-                        config.stream, existing_subjects
-                    );
-                }
-            }
-            Err(e) => {
-                error!(
-                    "Failed to create/verify JetStream stream '{}': {e}",
-                    config.stream
-                );
-                error!("Stream config was: {desired_config:?}");
-                return Err(e.into());
-            }
-        }
+        ensure_stream(&jetstream, &config).await?;
 
         info!("NATS output initialized successfully");
         Ok(Self {
@@ -209,7 +214,54 @@ impl NATSOutput {
         Ok((client, jetstream))
     }
 
-    pub async fn publish_traces(&self, traces: &ExportTraceServiceRequest) -> Result<()> {
+    async fn recover_stream(&mut self) -> Result<()> {
+        warn!(
+            "Attempting to recover NATS JetStream context for stream '{}'",
+            self.config.stream
+        );
+        match Self::connect(&self.config).await {
+            Ok((_client, jetstream)) => {
+                ensure_stream(&jetstream, &self.config).await?;
+                self.jetstream = Some(jetstream);
+                info!(
+                    "Successfully recovered JetStream stream '{}'",
+                    self.config.stream
+                );
+                Ok(())
+            }
+            Err(e) => {
+                error!(
+                    "Failed to reconnect to NATS while recovering stream '{}': {e}",
+                    self.config.stream
+                );
+                self.jetstream = None;
+                Err(e)
+            }
+        }
+    }
+
+    async fn get_or_recover_jetstream(&mut self) -> Result<jetstream::Context> {
+        if let Some(js) = self.jetstream.clone() {
+            return Ok(js);
+        }
+
+        warn!(
+            "JetStream context missing before publish; attempting reconnect for stream '{}'",
+            self.config.stream
+        );
+        self.recover_stream().await?;
+        self.jetstream
+            .clone()
+            .ok_or_else(|| anyhow!("JetStream context unavailable after recovery"))
+    }
+
+    fn publish_error_indicates_missing_stream(err: &dyn std::fmt::Display) -> bool {
+        err.to_string()
+            .to_ascii_lowercase()
+            .contains("no stream found")
+    }
+
+    pub async fn publish_traces(&mut self, traces: &ExportTraceServiceRequest) -> Result<()> {
         let span_count = traces
             .resource_spans
             .iter()
@@ -236,18 +288,26 @@ impl NATSOutput {
         // Publish with acknowledgment - use traces-specific subject
         let traces_subject = format!("{}.traces", self.config.subject); // events.otel.traces
         debug!("Publishing traces to subject: {traces_subject}");
-        if self.disabled || self.jetstream.is_none() {
+        if self.disabled {
             debug!("NATS output disabled; dropping traces");
             return Ok(());
         }
-        let js = self.jetstream.as_ref().unwrap();
-        let ack: PublishAckFuture =
-            js.publish(traces_subject, payload.into())
-                .await
-                .map_err(|e| {
-                    error!("Failed to publish traces to NATS: {e}");
-                    e
-                })?;
+        let js = self.get_or_recover_jetstream().await?;
+        let ack: PublishAckFuture = match js.publish(traces_subject, payload.into()).await {
+            Ok(future) => future,
+            Err(e) => {
+                error!("Failed to publish traces to NATS: {e}");
+                if Self::publish_error_indicates_missing_stream(&e) {
+                    if let Err(recover_err) = self.recover_stream().await {
+                        error!(
+                            "Failed to recover JetStream stream '{}' after traces publish error: {recover_err}",
+                            self.config.stream
+                        );
+                    }
+                }
+                return Err(e.into());
+            }
+        };
 
         // Wait for acknowledgment with timeout
         debug!(
@@ -264,6 +324,18 @@ impl NATSOutput {
             }
             Ok(Err(e)) => {
                 error!("NATS acknowledgment failed: {e}");
+                if e.kind() == PublishErrorKind::StreamNotFound {
+                    warn!(
+                        "JetStream stream '{}' missing during traces publish acknowledgment; attempting recovery",
+                        self.config.stream
+                    );
+                    if let Err(recover_err) = self.recover_stream().await {
+                        error!(
+                            "Failed to recover JetStream stream '{}' after traces ack error: {recover_err}",
+                            self.config.stream
+                        );
+                    }
+                }
                 return Err(anyhow::anyhow!("NATS acknowledgment failed: {}", e));
             }
             Err(_) => {
@@ -275,7 +347,7 @@ impl NATSOutput {
         Ok(())
     }
 
-    pub async fn publish_logs(&self, logs: &ExportLogsServiceRequest) -> Result<()> {
+    pub async fn publish_logs(&mut self, logs: &ExportLogsServiceRequest) -> Result<()> {
         let logs_count = logs
             .resource_logs
             .iter()
@@ -302,18 +374,26 @@ impl NATSOutput {
         // Publish with acknowledgment - use a different subject for logs
         let logs_subject = format!("{}.logs", self.config.subject);
         debug!("Publishing to subject: {logs_subject}");
-        if self.disabled || self.jetstream.is_none() {
+        if self.disabled {
             debug!("NATS output disabled; dropping logs");
             return Ok(());
         }
-        let js = self.jetstream.as_ref().unwrap();
-        let ack: PublishAckFuture =
-            js.publish(logs_subject, payload.into())
-                .await
-                .map_err(|e| {
-                    error!("Failed to publish logs to NATS: {e}");
-                    e
-                })?;
+        let js = self.get_or_recover_jetstream().await?;
+        let ack: PublishAckFuture = match js.publish(logs_subject, payload.into()).await {
+            Ok(future) => future,
+            Err(e) => {
+                error!("Failed to publish logs to NATS: {e}");
+                if Self::publish_error_indicates_missing_stream(&e) {
+                    if let Err(recover_err) = self.recover_stream().await {
+                        error!(
+                            "Failed to recover JetStream stream '{}' after logs publish error: {recover_err}",
+                            self.config.stream
+                        );
+                    }
+                }
+                return Err(e.into());
+            }
+        };
 
         // Wait for acknowledgment with timeout
         debug!(
@@ -330,6 +410,18 @@ impl NATSOutput {
             }
             Ok(Err(e)) => {
                 error!("NATS logs acknowledgment failed: {e}");
+                if e.kind() == PublishErrorKind::StreamNotFound {
+                    warn!(
+                        "JetStream stream '{}' missing during logs publish acknowledgment; attempting recovery",
+                        self.config.stream
+                    );
+                    if let Err(recover_err) = self.recover_stream().await {
+                        error!(
+                            "Failed to recover JetStream stream '{}' after logs ack error: {recover_err}",
+                            self.config.stream
+                        );
+                    }
+                }
                 return Err(anyhow::anyhow!("NATS logs acknowledgment failed: {}", e));
             }
             Err(_) => {
@@ -341,7 +433,7 @@ impl NATSOutput {
         Ok(())
     }
 
-    pub async fn publish_metrics(&self, metrics: &[PerformanceMetric]) -> Result<()> {
+    pub async fn publish_metrics(&mut self, metrics: &[PerformanceMetric]) -> Result<()> {
         if metrics.is_empty() {
             return Ok(());
         }
@@ -356,18 +448,29 @@ impl NATSOutput {
         let otel_metrics_subject = format!("{}.metrics", self.config.subject);
         debug!("Publishing performance metrics to subject: {otel_metrics_subject}");
 
-        if self.disabled || self.jetstream.is_none() {
+        if self.disabled {
             debug!("NATS output disabled; dropping metrics");
             return Ok(());
         }
-        let js = self.jetstream.as_ref().unwrap();
-        let ack: PublishAckFuture = js
+        let js = self.get_or_recover_jetstream().await?;
+        let ack: PublishAckFuture = match js
             .publish(otel_metrics_subject, json_payload.into())
             .await
-            .map_err(|e| {
+        {
+            Ok(future) => future,
+            Err(e) => {
                 error!("Failed to publish metrics to NATS: {e}");
-                e
-            })?;
+                if Self::publish_error_indicates_missing_stream(&e) {
+                    if let Err(recover_err) = self.recover_stream().await {
+                        error!(
+                            "Failed to recover JetStream stream '{}' after metrics publish error: {recover_err}",
+                            self.config.stream
+                        );
+                    }
+                }
+                return Err(e.into());
+            }
+        };
 
         // Wait for acknowledgment with timeout
         debug!(
@@ -387,6 +490,18 @@ impl NATSOutput {
             }
             Ok(Err(e)) => {
                 error!("NATS metrics acknowledgment failed: {e}");
+                if e.kind() == PublishErrorKind::StreamNotFound {
+                    warn!(
+                        "JetStream stream '{}' missing during metrics publish acknowledgment; attempting recovery",
+                        self.config.stream
+                    );
+                    if let Err(recover_err) = self.recover_stream().await {
+                        error!(
+                            "Failed to recover JetStream stream '{}' after metrics ack error: {recover_err}",
+                            self.config.stream
+                        );
+                    }
+                }
                 return Err(anyhow::anyhow!("NATS metrics acknowledgment failed: {}", e));
             }
             Err(_) => {
@@ -399,12 +514,12 @@ impl NATSOutput {
     }
 
     pub async fn publish_raw_metrics(
-        &self,
+        &mut self,
         metrics_request: &ExportMetricsServiceRequest,
     ) -> Result<()> {
         debug!("Publishing raw OTLP metrics request to NATS");
 
-        if self.disabled || self.jetstream.is_none() {
+        if self.disabled {
             debug!("NATS output disabled; dropping raw metrics payload");
             return Ok(());
         }
@@ -416,11 +531,22 @@ impl NATSOutput {
         let raw_subject = format!("{}.metrics.raw", self.config.subject);
         debug!("Publishing OTLP metrics to subject: {raw_subject}");
 
-        let js = self.jetstream.as_ref().unwrap();
-        let ack: PublishAckFuture = js.publish(raw_subject, payload.into()).await.map_err(|e| {
-            error!("Failed to publish raw OTLP metrics to NATS: {e}");
-            e
-        })?;
+        let js = self.get_or_recover_jetstream().await?;
+        let ack: PublishAckFuture = match js.publish(raw_subject, payload.into()).await {
+            Ok(future) => future,
+            Err(e) => {
+                error!("Failed to publish raw OTLP metrics to NATS: {e}");
+                if Self::publish_error_indicates_missing_stream(&e) {
+                    if let Err(recover_err) = self.recover_stream().await {
+                        error!(
+                            "Failed to recover JetStream stream '{}' after raw metrics publish error: {recover_err}",
+                            self.config.stream
+                        );
+                    }
+                }
+                return Err(e.into());
+            }
+        };
 
         debug!(
             "Waiting for NATS acknowledgment for raw metrics (timeout: {:?})",
@@ -436,6 +562,18 @@ impl NATSOutput {
             }
             Ok(Err(e)) => {
                 error!("NATS raw metrics acknowledgment failed: {e}");
+                if e.kind() == PublishErrorKind::StreamNotFound {
+                    warn!(
+                        "JetStream stream '{}' missing during raw metrics acknowledgment; attempting recovery",
+                        self.config.stream
+                    );
+                    if let Err(recover_err) = self.recover_stream().await {
+                        error!(
+                            "Failed to recover JetStream stream '{}' after raw metrics ack error: {recover_err}",
+                            self.config.stream
+                        );
+                    }
+                }
                 return Err(anyhow::anyhow!(
                     "NATS raw metrics acknowledgment failed: {}",
                     e
