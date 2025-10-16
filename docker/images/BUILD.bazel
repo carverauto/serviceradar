@@ -922,7 +922,10 @@ pkg_tar(
 oci_image(
     name = "nginx_image_amd64",
     base = "@nginx_alpine_linux_amd64//:nginx_alpine_linux_amd64",
-    tars = [":nginx_layer_amd64"],
+    tars = [
+        ":common_tools_amd64",
+        ":nginx_layer_amd64",
+    ],
     exposed_ports = ["80/tcp"],
     labels = {
         "org.opencontainers.image.title": "serviceradar-nginx",
