@@ -19,7 +19,9 @@ package poller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -41,24 +43,32 @@ func newAgentPoller(
 	}
 
 	ap := &AgentPoller{
-		name:    name,
-		config:  filteredConfig,
-		client:  client,
-		timeout: defaultTimeout,
-		poller:  poller,
+		name:       name,
+		config:     filteredConfig,
+		client:     client,
+		timeout:    defaultTimeout,
+		poller:     poller,
+		deviceIP:   "",
+		deviceHost: "",
 	}
+
+	deviceIP, deviceHost := resolveAgentHostMetadata(name, config, poller.resolvedSourceIP, poller.logger)
+	ap.deviceIP = deviceIP
+	ap.deviceHost = deviceHost
 
 	for _, check := range config.Checks {
 		if check.ResultsInterval != nil {
 			// Checks with results_interval go to results pollers
 			resultsPoller := &ResultsPoller{
-				client:    client,
-				check:     check,
-				pollerID:  poller.config.PollerID,
-				agentName: name,
-				interval:  time.Duration(*check.ResultsInterval),
-				poller:    poller,
-				logger:    poller.logger,
+				client:     client,
+				check:      check,
+				pollerID:   poller.config.PollerID,
+				agentName:  name,
+				interval:   time.Duration(*check.ResultsInterval),
+				poller:     poller,
+				logger:     poller.logger,
+				deviceIP:   deviceIP,
+				deviceHost: deviceHost,
 				kvStoreId: func() string {
 					if poller.config.KVDomain != "" {
 						return poller.config.KVDomain
@@ -83,6 +93,95 @@ func newAgentPoller(
 	return ap
 }
 
+func resolveAgentHostMetadata(agentName string, config *AgentConfig, fallbackIP string, log logger.Logger) (ip string, host string) {
+	candidates := make([]string, 0, 4)
+
+	// Environment override takes precedence (allowing explicit configuration per agent)
+	envKey := fmt.Sprintf("SERVICERADAR_AGENT_%s_IP", strings.ToUpper(strings.ReplaceAll(agentName, "-", "_")))
+	if envIP := os.Getenv(envKey); envIP != "" {
+		candidates = append(candidates, envIP)
+	}
+
+	if config.Address != "" {
+		hostCandidate := config.Address
+		if hostPart, _, err := net.SplitHostPort(config.Address); err == nil && hostPart != "" {
+			hostCandidate = hostPart
+		}
+		candidates = append(candidates, hostCandidate)
+	}
+
+	// Agent name may be resolvable in some environments (e.g., bare-metal DNS)
+	candidates = append(candidates, agentName)
+
+	// Finally fall back to the poller's resolved source IP if we need to co-locate
+	if fallbackIP != "" {
+		candidates = append(candidates, fallbackIP)
+	}
+
+	for _, candidate := range candidates {
+		cleaned := sanitizeTelemetryString(candidate)
+		if cleaned == "" {
+			continue
+		}
+
+		if host == "" && !strings.HasPrefix(cleaned, ":") {
+			host = cleaned
+		}
+
+		if ip != "" {
+			continue
+		}
+
+		if parsed := net.ParseIP(cleaned); parsed != nil {
+			if v4 := parsed.To4(); v4 != nil {
+				ip = v4.String()
+				break
+			}
+			ip = parsed.String()
+			break
+		}
+
+		addrs, err := lookupHostIPs(cleaned)
+		if err != nil {
+			log.Debug().
+				Str("agent", agentName).
+				Str("candidate", cleaned).
+				Err(err).
+				Msg("Failed to resolve agent host candidate")
+			continue
+		}
+
+		for _, addr := range addrs {
+			if v4 := addr.To4(); v4 != nil {
+				ip = v4.String()
+				break
+			}
+		}
+
+		if ip == "" && len(addrs) > 0 {
+			ip = addrs[0].String()
+		}
+
+		if ip != "" {
+			break
+		}
+	}
+
+	if ip == "" && fallbackIP != "" {
+		ip = fallbackIP
+		log.Debug().
+			Str("agent", agentName).
+			Str("fallback_ip", fallbackIP).
+			Msg("Using poller source IP as fallback agent address")
+	}
+
+	if host == "" {
+		host = agentName
+	}
+
+	return ip, host
+}
+
 // ExecuteChecks runs all configured service checks for the agent.
 func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus {
 	checkCtx, cancel := context.WithTimeout(ctx, ap.timeout)
@@ -103,7 +202,7 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 			if kvID == "" {
 				kvID = ap.poller.config.KVAddress
 			}
-			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID, ap.name, kvID, ap.poller.logger)
+			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID, ap.name, kvID, ap.deviceIP, ap.deviceHost, ap.poller.logger)
 
 			results <- svcCheck.execute(checkCtx)
 		}(check)
@@ -183,14 +282,25 @@ func (ap *AgentPoller) ExecuteResults(ctx context.Context) []*proto.ServiceStatu
 	return statuses
 }
 
-func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID, agentName, kvStoreId string, logger logger.Logger) *ServiceCheck {
+func newServiceCheck(
+	client proto.AgentServiceClient,
+	check Check,
+	pollerID,
+	agentName,
+	kvStoreId,
+	deviceIP,
+	deviceHost string,
+	logger logger.Logger,
+) *ServiceCheck {
 	return &ServiceCheck{
-		client:    client,
-		check:     check,
-		pollerID:  pollerID,
-		agentName: agentName,
-		logger:    logger,
-		kvStoreId: kvStoreId,
+		client:     client,
+		check:      check,
+		pollerID:   pollerID,
+		agentName:  agentName,
+		deviceIP:   deviceIP,
+		deviceHost: deviceHost,
+		logger:     logger,
+		kvStoreId:  kvStoreId,
 	}
 }
 
@@ -231,6 +341,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 
 			message = []byte(msg)
 		}
+		message = enrichServiceMessageWithAddress(message, sc.check, sc.deviceIP, sc.deviceHost)
 
 		return &proto.ServiceStatus{
 			ServiceName: sc.check.Name,
@@ -256,10 +367,12 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		agentID = sc.agentName
 	}
 
+	enriched := enrichServiceMessageWithAddress(getStatus.Message, sc.check, sc.deviceIP, sc.deviceHost)
+
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,
 		Available:    getStatus.Available,
-		Message:      enrichServiceMessageWithAddress(getStatus.Message, sc.check),
+		Message:      enriched,
 		ServiceType:  sc.check.Type,
 		ResponseTime: getStatus.ResponseTime,
 		AgentId:      agentID,
@@ -269,60 +382,26 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 	}
 }
 
-func enrichServiceMessageWithAddress(message []byte, check Check) []byte {
-	if len(message) == 0 || check.Type != "grpc" || check.Details == "" {
+func enrichServiceMessageWithAddress(message []byte, check Check, deviceIP, deviceHost string) []byte {
+	sanitizedIP := sanitizeTelemetryString(deviceIP)
+	sanitizedHost := sanitizeTelemetryString(deviceHost)
+
+	detailsHost := extractHostFromCheck(check)
+	if sanitizedHost == "" {
+		sanitizedHost = detailsHost
+	}
+
+	normalizedIP := pickBestIP(sanitizedIP, sanitizedHost, detailsHost)
+
+	if normalizedIP == "" {
 		return message
 	}
 
-	hostCandidate := sanitizeTelemetryString(check.Details)
-	host, _, err := net.SplitHostPort(hostCandidate)
-	if err != nil {
-		host = hostCandidate
+	if sanitizedHost == "" {
+		sanitizedHost = normalizedIP
 	}
 
-	if host == "" || net.ParseIP(host) == nil {
-		return message
-	}
-
-	safeHost := sanitizeTelemetryString(host)
-	var payload map[string]any
-	if err := json.Unmarshal(message, &payload); err != nil {
-		return message
-	}
-
-	statusNode, ok := payload["status"].(map[string]any)
-	if !ok || statusNode == nil {
-		statusNode = make(map[string]any)
-	}
-
-	getString := func(key string) string {
-		if raw, exists := statusNode[key]; exists {
-			if str, ok := raw.(string); ok {
-				return sanitizeTelemetryString(str)
-			}
-		}
-
-		return ""
-	}
-
-	if hostIP := getString("host_ip"); hostIP != "" && !strings.EqualFold(hostIP, host) {
-		statusNode["reported_host_ip"] = hostIP
-	}
-	statusNode["host_ip"] = safeHost
-
-	if hostID := getString("host_id"); hostID != "" && !strings.EqualFold(hostID, host) {
-		statusNode["reported_host_id"] = hostID
-	}
-	statusNode["host_id"] = safeHost
-
-	payload["status"] = statusNode
-
-	enriched, err := json.Marshal(payload)
-	if err != nil {
-		return message
-	}
-
-	return enriched
+	return enrichPayloadWithHost(message, normalizedIP, sanitizedHost)
 }
 
 // sanitizeTelemetryString trims and removes control characters from telemetry-derived
@@ -346,4 +425,93 @@ func sanitizeTelemetryString(in string) string {
 	}
 
 	return builder.String()
+}
+
+func extractHostFromCheck(check Check) string {
+	if check.Details == "" {
+		return ""
+	}
+
+	candidate := sanitizeTelemetryString(check.Details)
+	if candidate == "" {
+		return ""
+	}
+
+	if host, _, err := net.SplitHostPort(candidate); err == nil && host != "" {
+		return sanitizeTelemetryString(host)
+	}
+
+	return candidate
+}
+
+func pickBestIP(deviceIP, deviceHost, detailsHost string) string {
+	candidates := []string{
+		deviceIP,
+		deviceHost,
+		detailsHost,
+	}
+
+	for _, candidate := range candidates {
+		cleaned := sanitizeTelemetryString(candidate)
+		if cleaned == "" {
+			continue
+		}
+
+		if parsed := net.ParseIP(cleaned); parsed != nil {
+			if v4 := parsed.To4(); v4 != nil {
+				return v4.String()
+			}
+			return parsed.String()
+		}
+	}
+
+	return ""
+}
+
+func enrichPayloadWithHost(message []byte, ip, host string) []byte {
+	payload := make(map[string]any)
+	if len(message) > 0 {
+		if err := json.Unmarshal(message, &payload); err != nil {
+			payload = make(map[string]any)
+		}
+	}
+
+	var statusNode map[string]any
+	switch current := payload["status"].(type) {
+	case map[string]any:
+		statusNode = current
+	case nil:
+		statusNode = make(map[string]any)
+	default:
+		// Preserve original status text if present
+		payload["status_text"] = current
+		statusNode = make(map[string]any)
+	}
+
+	if ip != "" {
+		statusNode["host_ip"] = ip
+		statusNode["ip"] = ip
+		payload["host_ip"] = ip
+		payload["ip"] = ip
+	}
+
+	if host != "" {
+		statusNode["host_name"] = host
+		if _, exists := statusNode["hostname"]; !exists {
+			statusNode["hostname"] = host
+		}
+		payload["host_name"] = host
+		if _, exists := payload["hostname"]; !exists {
+			payload["hostname"] = host
+		}
+	}
+
+	payload["status"] = statusNode
+
+	enriched, err := json.Marshal(payload)
+	if err != nil {
+		return message
+	}
+
+	return enriched
 }

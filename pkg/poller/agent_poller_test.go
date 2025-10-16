@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -274,11 +275,24 @@ func TestAgentPoller_ExecuteChecks_WithErrors(t *testing.T) {
 
 	// Verify working service
 	assert.True(t, workingStatus.Available)
-	assert.JSONEq(t, `{"status": "ok"}`, string(workingStatus.Message))
+	var workingPayload map[string]any
+	require.NoError(t, json.Unmarshal(workingStatus.Message, &workingPayload))
+	assert.Equal(t, "127.0.0.1", workingPayload["host_ip"])
+	assert.Equal(t, "localhost", workingPayload["hostname"])
+	statusNode, ok := workingPayload["status"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "127.0.0.1", statusNode["host_ip"])
+	assert.Equal(t, "ok", workingPayload["status_text"])
 
-	// Verify failing service
+	// Verify failing service still reports host context and error payload
 	assert.False(t, failingStatus.Available)
-	assert.Contains(t, string(failingStatus.Message), "error")
+	var failingPayload map[string]any
+	require.NoError(t, json.Unmarshal(failingStatus.Message, &failingPayload))
+	assert.Equal(t, "127.0.0.1", failingPayload["host_ip"])
+	statusNode, ok = failingPayload["status"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "127.0.0.1", statusNode["host_ip"])
+	assert.Contains(t, fmt.Sprint(failingPayload["error"]), "Service check failed")
 }
 
 func TestAgentPoller_ExecuteResults(t *testing.T) {
@@ -386,7 +400,7 @@ func TestServiceCheck_Execute_Success(t *testing.T) {
 		Details: "test-details",
 	}
 
-	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", mockLogger)
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", "", "", mockLogger)
 
 	expectedReq := &proto.StatusRequest{
 		ServiceName: "test-service",
@@ -434,7 +448,7 @@ func TestServiceCheck_Execute_PortType(t *testing.T) {
 		Port: 8080,
 	}
 
-	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", mockLogger)
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", "", "", mockLogger)
 
 	expectedReq := &proto.StatusRequest{
 		ServiceName: "port-service",
@@ -475,7 +489,7 @@ func TestServiceCheck_Execute_Error(t *testing.T) {
 		Name: "failing-service",
 	}
 
-	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", mockLogger)
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", "", "", mockLogger)
 
 	expectedErr := errConnectionFailed
 	mockClient.EXPECT().
@@ -513,7 +527,7 @@ func TestServiceCheck_Execute_JSONMarshalError(t *testing.T) {
 		Name: "failing-service",
 	}
 
-	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", mockLogger)
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", "", "", "", mockLogger)
 
 	expectedErr := errConnectionFailed
 	mockClient.EXPECT().
@@ -554,7 +568,7 @@ func TestServiceCheck_WithKVStoreId(t *testing.T) {
 	}
 
 	kvStoreId := "kv-store-123"
-	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", kvStoreId, mockLogger)
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", kvStoreId, "", "", mockLogger)
 
 	expectedResp := &proto.StatusResponse{
 		Available:    true,
@@ -646,7 +660,7 @@ func TestNewServiceCheck_WithKVStoreId(t *testing.T) {
 	}
 
 	kvStoreId := "test-kv-store"
-	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", kvStoreId, mockLogger)
+	sc := newServiceCheck(mockClient, check, "test-poller", "test-agent", kvStoreId, "", "", mockLogger)
 
 	// Verify the service check is properly configured with KV store ID
 	assert.Equal(t, mockClient, sc.client)
@@ -723,4 +737,62 @@ func TestAgentPoller_ExecuteResults_IntervalLogic(t *testing.T) {
 			assert.True(t, rp.lastResults.After(now.Add(-1*time.Second)))
 		}
 	}
+}
+
+func TestResolveAgentHostMetadata_EnvOverride(t *testing.T) {
+	log := logger.NewTestLogger()
+	envKey := "SERVICERADAR_AGENT_TEST_AGENT_IP"
+	require.NoError(t, os.Setenv(envKey, "198.51.100.25"))
+	t.Cleanup(func() {
+		require.NoError(t, os.Unsetenv(envKey))
+	})
+
+	ip, host := resolveAgentHostMetadata("test-agent", &AgentConfig{Address: "test-agent:50051"}, "10.1.2.3", log)
+
+	assert.Equal(t, "198.51.100.25", ip)
+	assert.Equal(t, "198.51.100.25", host)
+}
+
+func TestResolveAgentHostMetadata_FallbackToPollerIP(t *testing.T) {
+	log := logger.NewTestLogger()
+	ip, host := resolveAgentHostMetadata("lonely-agent", &AgentConfig{Address: ":50051"}, "203.0.113.77", log)
+
+	assert.Equal(t, "203.0.113.77", ip)
+	assert.Equal(t, "lonely-agent", host)
+}
+
+func TestEnrichServiceMessageWithAddress_UsesDeviceMetadata(t *testing.T) {
+	check := Check{Type: "process", Name: "serviceradar-agent"}
+	message := []byte(`{"status":"active"}`)
+
+	enriched := enrichServiceMessageWithAddress(message, check, "10.50.1.25", "k8s-agent")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(enriched, &payload))
+
+	assert.Equal(t, "10.50.1.25", payload["host_ip"])
+	assert.Equal(t, "active", payload["status_text"])
+
+	statusNode, ok := payload["status"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, "10.50.1.25", statusNode["host_ip"])
+	assert.Equal(t, "k8s-agent", statusNode["host_name"])
+	assert.Equal(t, "k8s-agent", statusNode["hostname"])
+}
+
+func TestEnrichServiceMessageWithAddress_FallsBackToDetails(t *testing.T) {
+	check := Check{Type: "grpc", Name: "external-service", Details: "192.168.99.12:5000"}
+	message := []byte(`{"status":{"state":"ok"}}`)
+
+	enriched := enrichServiceMessageWithAddress(message, check, "", "")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(enriched, &payload))
+
+	assert.Equal(t, "192.168.99.12", payload["host_ip"])
+
+	statusNode, ok := payload["status"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "192.168.99.12", statusNode["host_ip"])
 }

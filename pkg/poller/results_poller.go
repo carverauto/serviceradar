@@ -430,7 +430,7 @@ func (rp *ResultsPoller) convertToServiceStatus(results *proto.ResultsResponse) 
 	return &proto.ServiceStatus{
 		ServiceName:  rp.check.Name,
 		Available:    results.Available,
-		Message:      results.Data,
+		Message:      enrichServiceMessageWithAddress(results.Data, rp.check, rp.deviceIP, rp.deviceHost),
 		ServiceType:  serviceType,
 		ResponseTime: results.ResponseTime,
 		AgentId:      results.AgentId,
