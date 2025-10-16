@@ -2,9 +2,11 @@ package dbeventwriter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -15,8 +17,12 @@ type Consumer struct {
 	js           jetstream.JetStream
 	streamName   string
 	consumerName string
-	consumer     jetstream.Consumer
+	consumer     pullConsumer
 	logger       logger.Logger
+}
+
+type pullConsumer interface {
+	Fetch(batch int, opts ...jetstream.FetchOpt) (jetstream.MessageBatch, error)
 }
 
 // NewConsumer creates or retrieves a pull consumer for the given stream.
@@ -68,6 +74,7 @@ const (
 	defaultMaxPullMessages = 50
 	defaultPullExpiry      = 30 * time.Second
 	defaultMaxRetries      = 3
+	reconnectDelay         = 5 * time.Second
 )
 
 func (c *Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, processor *Processor) {
@@ -98,7 +105,7 @@ func (c *Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, proces
 }
 
 // ProcessMessages continuously fetches and processes messages.
-func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
+func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) error {
 	c.logger.Info().
 		Str("stream_name", c.streamName).
 		Str("consumer_name", c.consumerName).
@@ -108,12 +115,24 @@ func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 		select {
 		case <-ctx.Done():
 			c.logger.Info().Msg("Stopping message processing due to context cancellation")
-			return
+			return ctx.Err()
 		default:
 			msgs, err := c.consumer.Fetch(defaultMaxPullMessages, jetstream.FetchMaxWait(defaultPullExpiry))
 			if err != nil {
+				if isContextError(err) {
+					return err
+				}
+
+				if isFatalFetchError(err) {
+					return err
+				}
+
 				c.logger.Error().Err(err).Msg("Failed to fetch messages")
-				time.Sleep(time.Second)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(reconnectDelay):
+				}
 
 				continue
 			}
@@ -138,8 +157,36 @@ func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 			}
 
 			if fetchErr := msgs.Error(); fetchErr != nil {
+				if isContextError(fetchErr) {
+					return fetchErr
+				}
+
+				if isFatalFetchError(fetchErr) {
+					return fetchErr
+				}
+
 				c.logger.Error().Err(fetchErr).Msg("Fetch error")
 			}
 		}
+	}
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func isFatalFetchError(err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, nats.ErrConnectionClosed),
+		errors.Is(err, nats.ErrNoServers),
+		errors.Is(err, jetstream.ErrConsumerDeleted),
+		errors.Is(err, jetstream.ErrConsumerNotFound),
+		errors.Is(err, jetstream.ErrJetStreamNotEnabled),
+		errors.Is(err, jetstream.ErrStreamNotFound):
+		return true
+	default:
+		return false
 	}
 }
