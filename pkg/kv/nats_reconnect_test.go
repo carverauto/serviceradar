@@ -43,12 +43,15 @@ func TestNATSStoreReconnectsAfterConnectionClosure(t *testing.T) {
 	var attempts atomic.Int32
 
 	store := &NATSStore{
-		ctx:           ctx,
-		natsURL:       url,
-		bucket:        "test-kv",
-		defaultDomain: "",
-		jsByDomain:    make(map[string]jetstream.JetStream),
-		kvByDomain:    make(map[string]jetstream.KeyValue),
+		ctx:            ctx,
+		natsURL:        url,
+		bucket:         "test-kv",
+		defaultDomain:  "",
+		bucketHistory:  1,
+		bucketTTL:      0,
+		bucketMaxBytes: 0,
+		jsByDomain:     make(map[string]jetstream.JetStream),
+		kvByDomain:     make(map[string]jetstream.KeyValue),
 	}
 
 	store.connectFn = func() (*nats.Conn, error) {

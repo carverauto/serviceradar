@@ -25,6 +25,7 @@ var (
 	errFailedToLoadClientCert = errors.New("failed to load client certificate")
 	errFailedToReadCACert     = errors.New("failed to read CA certificate")
 	errFailedToParseCACert    = errors.New("failed to parse CA certificate")
+	errBucketMaxBytesNegative = errors.New("bucket_max_bytes cannot be negative")
 	errNilConfig              = errors.New("kv: nil config provided")
 	errNATSNotConfigured      = errors.New("kv: nats connection not configured")
 	errNATSReconnectDisabled  = errors.New("kv: nats reconnect unavailable")

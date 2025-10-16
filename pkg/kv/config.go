@@ -11,12 +11,17 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	if c.BucketMaxBytes < 0 {
+		return errBucketMaxBytesNegative
+	}
+
 	if err := c.validateSecurity(); err != nil {
 		return err
 	}
 
 	c.normalizeCertPaths()
 	c.setDefaultBucket()
+	c.setDefaultBucketOptions()
 
 	return nil
 }
@@ -92,5 +97,17 @@ func (c *Config) normalizeCertPaths() {
 func (c *Config) setDefaultBucket() {
 	if c.Bucket == "" {
 		c.Bucket = "serviceradar-kv"
+	}
+}
+
+func (c *Config) setDefaultBucketOptions() {
+	if c.BucketHistory == 0 {
+		c.BucketHistory = 1
+	}
+	if c.BucketTTL < 0 {
+		c.BucketTTL = 0
+	}
+	if c.BucketMaxBytes < 0 {
+		c.BucketMaxBytes = 0
 	}
 }
