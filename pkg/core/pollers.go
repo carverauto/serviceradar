@@ -269,6 +269,7 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 				Err(err).
 				Str("poller_id", pollerID).
 				Msg("Failed to publish poller offline event")
+			s.handleEventPublishError(err, "poller_offline")
 		} else {
 			s.logger.Info().
 				Str("poller_id", pollerID).
@@ -330,6 +331,7 @@ func (s *Server) handlePollerRecovery(
 				Err(err).
 				Str("poller_id", pollerID).
 				Msg("Failed to publish poller recovery event")
+			s.handleEventPublishError(err, "poller_recovery")
 		} else {
 			s.logger.Info().
 				Str("poller_id", pollerID).
@@ -614,6 +616,7 @@ func (s *Server) processStatusReport(
 				Err(err).
 				Str("poller_id", req.PollerId).
 				Msg("Failed to publish poller first seen event")
+			s.handleEventPublishError(err, "poller_first_seen")
 		} else {
 			s.logger.Info().
 				Str("poller_id", req.PollerId).
@@ -820,21 +823,21 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 		Time("timestamp", time.Now()).
 		Msg("Received status report")
 
-    // Summarize services received to avoid log spam
-    var totalBytes int
-    var sweepCount int
-    for _, svc := range req.Services {
-        totalBytes += len(svc.Message)
-        if svc.ServiceType == sweepService {
-            sweepCount++
-        }
-    }
-    s.logger.Info().
-        Str("poller_id", req.PollerId).
-        Int("services", len(req.Services)).
-        Int("sweep_services", sweepCount).
-        Int("payload_bytes", totalBytes).
-        Msg("Status report summary")
+	// Summarize services received to avoid log spam
+	var totalBytes int
+	var sweepCount int
+	for _, svc := range req.Services {
+		totalBytes += len(svc.Message)
+		if svc.ServiceType == sweepService {
+			sweepCount++
+		}
+	}
+	s.logger.Info().
+		Str("poller_id", req.PollerId).
+		Int("services", len(req.Services)).
+		Int("sweep_services", sweepCount).
+		Int("payload_bytes", totalBytes).
+		Msg("Status report summary")
 
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
@@ -910,21 +913,21 @@ func (s *Server) StreamStatus(stream proto.PollerService_StreamStatusServer) err
 		Int("total_service_count", len(allServices)).
 		Msg("Completed streaming reception")
 
-    // Summarize services received via streaming
-    var streamBytes int
-    var streamSweepCount int
-    for _, svc := range allServices {
-        streamBytes += len(svc.Message)
-        if svc.ServiceType == sweepService {
-            streamSweepCount++
-        }
-    }
-    s.logger.Info().
-        Str("poller_id", metadata.pollerID).
-        Int("services", len(allServices)).
-        Int("sweep_services", streamSweepCount).
-        Int("payload_bytes", streamBytes).
-        Msg("StreamStatus summary")
+	// Summarize services received via streaming
+	var streamBytes int
+	var streamSweepCount int
+	for _, svc := range allServices {
+		streamBytes += len(svc.Message)
+		if svc.ServiceType == sweepService {
+			streamSweepCount++
+		}
+	}
+	s.logger.Info().
+		Str("poller_id", metadata.pollerID).
+		Int("services", len(allServices)).
+		Int("sweep_services", streamSweepCount).
+		Int("payload_bytes", streamBytes).
+		Msg("StreamStatus summary")
 
 	// Validate and process the assembled data
 	return s.processStreamedStatus(ctx, stream, allServices, metadata)
