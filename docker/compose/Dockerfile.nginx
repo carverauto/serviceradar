@@ -12,10 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+FROM golang:1.22-alpine AS waitforport-builder
+
+RUN apk add --no-cache git
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY cmd/tools/waitforport ./cmd/tools/waitforport
+RUN CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./cmd/tools/waitforport
+
 FROM nginx:alpine
 
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
+
+COPY --from=waitforport-builder /wait-for-port /usr/local/bin/wait-for-port
+RUN chmod +x /usr/local/bin/wait-for-port
 
 # Copy nginx configuration template
 COPY docker/compose/nginx.conf.template /etc/nginx/templates/default.conf.template

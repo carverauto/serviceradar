@@ -244,7 +244,7 @@ services:
 
   # Nginx Reverse Proxy
   nginx:
-    image: nginx:alpine
+    image: ghcr.io/carverauto/serviceradar-nginx:latest
     container_name: serviceradar-nginx
     ports:
       - "${SERVICERADAR_HTTP_PORT:-80}:80"      # HTTP

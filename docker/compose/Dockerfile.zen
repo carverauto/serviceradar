@@ -1,3 +1,16 @@
+# Build wait-for-port helper used by entrypoint scripts
+FROM golang:1.22-alpine AS waitforport-builder
+
+RUN apk add --no-cache git
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY cmd/tools/waitforport ./cmd/tools/waitforport
+RUN CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./cmd/tools/waitforport
+
 # Multi-stage build for ServiceRadar Zen service (Rust) - FIXED
 FROM rust:latest AS builder
 
@@ -52,6 +65,9 @@ RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
 COPY --from=builder /usr/src/target/release/serviceradar-zen /usr/local/bin/serviceradar-zen
 COPY --from=builder /usr/src/target/release/zen-put-rule /usr/local/bin/zen-put-rule
 RUN chmod +x /usr/local/bin/serviceradar-zen /usr/local/bin/zen-put-rule
+
+COPY --from=waitforport-builder /wait-for-port /usr/local/bin/wait-for-port
+RUN chmod +x /usr/local/bin/wait-for-port
 
 # Copy rule data files
 COPY cmd/consumers/zen/data /var/lib/serviceradar/data
