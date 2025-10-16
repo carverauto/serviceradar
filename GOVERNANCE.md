@@ -1,7 +1,5 @@
 # ServiceRadar Governance
 
-This document outlines the governance structure for the ServiceRadar project. As a  project, we adhere to the principles of open and transparent governance.
-
 ## Overview
 
 ServiceRadar is an open-source project dedicated to providing a comprehensive monitoring and observability platform. This document describes how the project is governed and how to participate.
@@ -24,7 +22,37 @@ New maintainers are added based on their contributions to the project. Contribut
 
 ## Decision Making
 
-Decisions in the ServiceRadar project are made by consensus among the maintainers. If consensus cannot be reached, the maintainers will vote. In the event of a tie, the project will follow the guidance of the CNCF's Technical Oversight Committee (TOC).
+Decisions in the ServiceRadar project are made by consensus among the maintainers. If consensus cannot be reached, the maintainers will vote.
+
+### Voting
+
+For a vote to pass, it must receive a simple majority of the votes from the maintainers. Votes are cast on a pull request or an issue. The voting period is 72 hours.
+
+## Release Process and Versioning
+
+The ServiceRadar project follows a release process that is automated using GitHub Actions. The versioning strategy is based on the `VERSION` file in the root of the repository.
+
+### Versioning
+
+The version is stored in the `VERSION` file and follows the format `v*` (e.g., `v1.0.53-pre14`). Pre-release strings are handled for RPM packages.
+
+### Release Process
+
+A GitHub Actions workflow, defined in `.github/workflows/release.yml`, is triggered by tags that follow the `v*` convention. The release process includes the following steps:
+
+1.  **Tagging**: A maintainer pushes a new tag to the repository. The `scripts/cut-release.sh` script can be used to automate this process.
+2.  **Build and Publish**: The GitHub Actions workflow builds and publishes the container images to GHCR and the Debian/RPM packages to a GitHub release.
+3.  **Verification**: The workflow verifies that the release was successful.
+
+For more details on the release process, please refer to the [RELEASE.md](RELEASE.md) file.
+
+## Communication
+
+The ServiceRadar project uses the following channels for communication:
+
+*   **Community Slack**: Join our [community Slack](https://discord.gg/JhhH7wqS) to chat with other users and contributors.
+*   **GitHub Discussions**: For questions and discussions, please use [GitHub Discussions](https://github.com/carverauto/serviceradar/discussions).
+*   **GitHub Issues**: To report bugs and request features, please open an [issue](https://github.com/carverauto/serviceradar/issues).
 
 ## Contributing
 
