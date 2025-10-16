@@ -38,22 +38,22 @@ const navItems = [
     { href: '/admin', label: 'Settings', icon: Settings },
 ];
 
+type BuildInfo = {
+    version?: string;
+    buildTime?: string;
+    webBuildId?: string;
+    coreBuildId?: string;
+};
+
 export default function Sidebar() {
     const pathname = usePathname();
-    const [buildInfo, setBuildInfo] = React.useState<{version?: string; buildId?: string}>({});
+    const [buildInfo, setBuildInfo] = React.useState<BuildInfo>({});
 
     React.useEffect(() => {
-        // Try to fetch build info from public file
         fetch('/build-info.json')
-            .then(res => res.json())
-            .then(data => setBuildInfo(data))
-            .catch(() => {
-                // Fallback to environment variables if file doesn't exist
-                setBuildInfo({
-                    version: process.env.NEXT_PUBLIC_VERSION || '1.0.0',
-                    buildId: process.env.NEXT_PUBLIC_BUILD_ID || 'dev'
-                });
-            });
+            .then(res => (res.ok ? res.json() : Promise.reject()))
+            .then((data: BuildInfo) => setBuildInfo(data))
+            .catch(() => setBuildInfo({}));
     }, []);
 
     return (
@@ -76,13 +76,19 @@ export default function Sidebar() {
                 })}
             </nav>
             <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
-                <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {buildInfo.version && (
+                <div className="text-[11px] leading-4 text-gray-500 dark:text-gray-400 space-y-1">
+                    {buildInfo.version ? (
                         <div>Version: {buildInfo.version}</div>
-                    )}
-                    {buildInfo.buildId && (
-                        <div>Build: {buildInfo.buildId}</div>
-                    )}
+                    ) : null}
+                    {buildInfo.webBuildId ? (
+                        <div>Web Build: {buildInfo.webBuildId}</div>
+                    ) : null}
+                    {buildInfo.coreBuildId ? (
+                        <div>Core Build: {buildInfo.coreBuildId}</div>
+                    ) : null}
+                    {buildInfo.buildTime ? (
+                        <div>Built: {buildInfo.buildTime}</div>
+                    ) : null}
                 </div>
             </div>
         </aside>

@@ -995,7 +995,7 @@ pkg_tar(
 )
 
 oci_image(
-    name = "web_image_amd64",
+    name = "web_image_base_amd64",
     base = "@node_20_alpine_linux_amd64//:node_20_alpine_linux_amd64",
     tars = [
         ":common_tools_amd64",
@@ -1018,6 +1018,113 @@ oci_image(
     labels = {
         "org.opencontainers.image.title": "serviceradar-web",
     },
+)
+
+genrule(
+    name = "web_build_info_json",
+    srcs = [
+        ":web_image_base_amd64.digest",
+        "//docker/images:core_image_amd64.digest",
+        "//:VERSION",
+    ],
+    outs = ["web_build_info.json"],
+    cmd = """
+set -euo pipefail
+
+web_digest_file="$(location :web_image_base_amd64.digest)"
+core_digest_file="$(location //docker/images:core_image_amd64.digest)"
+version_file="$(location //:VERSION)"
+
+web_digest=$$(cat "$$web_digest_file")
+if [[ "$$web_digest" != sha256:* ]]; then
+  echo "unexpected web digest format: $$web_digest" >&2
+  exit 1
+fi
+
+web_short=$${web_digest#sha256:}
+web_short=$$(printf '%s' "$$web_short" | cut -c1-12)
+
+core_digest=$$(cat "$$core_digest_file")
+if [[ "$$core_digest" != sha256:* ]]; then
+  echo "unexpected core digest format: $$core_digest" >&2
+  exit 1
+fi
+
+core_short=$${core_digest#sha256:}
+core_short=$$(printf '%s' "$$core_short" | cut -c1-12)
+
+if [[ -f "$$version_file" ]]; then
+  version=$$(tr -d '\\n' < "$$version_file")
+else
+  version="dev"
+fi
+
+build_time="$$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+cat > "$@" <<EOF
+{
+  "version": "$$version",
+  "buildTime": "$$build_time",
+  "webBuildId": "sha-$$web_short",
+  "coreBuildId": "sha-$$core_short"
+}
+EOF
+""",
+)
+
+pkg_tar(
+    name = "web_build_info_root_layer_amd64",
+    files = {
+        ":web_build_info_json": "app/public/build-info.json",
+    },
+    modes = {
+        "app/public/build-info.json": "0644",
+    },
+    package_dir = "/",
+)
+
+pkg_tar(
+    name = "web_build_info_root_nested_layer_amd64",
+    files = {
+        ":web_build_info_json": "app/public/web/public_flat/build-info.json",
+    },
+    modes = {
+        "app/public/web/public_flat/build-info.json": "0644",
+    },
+    package_dir = "/",
+)
+
+pkg_tar(
+    name = "web_build_info_standalone_layer_amd64",
+    files = {
+        ":web_build_info_json": "app/.next/standalone/public/build-info.json",
+    },
+    modes = {
+        "app/.next/standalone/public/build-info.json": "0644",
+    },
+    package_dir = "/",
+)
+
+pkg_tar(
+    name = "web_build_info_standalone_nested_layer_amd64",
+    files = {
+        ":web_build_info_json": "app/.next/standalone/public/web/public_flat/build-info.json",
+    },
+    modes = {
+        "app/.next/standalone/public/web/public_flat/build-info.json": "0644",
+    },
+    package_dir = "/",
+)
+
+oci_image(
+    name = "web_image_amd64",
+    base = ":web_image_base_amd64",
+    tars = [
+        ":web_build_info_root_layer_amd64",
+        ":web_build_info_root_nested_layer_amd64",
+        ":web_build_info_standalone_layer_amd64",
+        ":web_build_info_standalone_nested_layer_amd64",
+    ],
 )
 
 oci_load(
