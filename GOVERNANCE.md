@@ -50,7 +50,7 @@ For more details on the release process, please refer to the [RELEASE.md](RELEAS
 
 The ServiceRadar project uses the following channels for communication:
 
-*   **Community Slack**: Join our [community Slack](https://discord.gg/JhhH7wqS) to chat with other users and contributors.
+*   **Community Discord**: Join our [community Discord](https://discord.gg/JhhH7wqS) to chat with other users and contributors.
 *   **GitHub Discussions**: For questions and discussions, please use [GitHub Discussions](https://github.com/carverauto/serviceradar/discussions).
 *   **GitHub Issues**: To report bugs and request features, please open an [issue](https://github.com/carverauto/serviceradar/issues).
 
