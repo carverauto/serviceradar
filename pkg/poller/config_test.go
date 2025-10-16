@@ -204,5 +204,22 @@ func TestConfig_ValidateWithAllFields(t *testing.T) {
 	}
 
 	err := cfg.Validate()
-	assert.NoError(t, err)
+	require.NoError(t, err)
+}
+
+func TestConfig_Validate_DefaultsSourceIP(t *testing.T) {
+	cfg := &Config{
+		Agents: map[string]AgentConfig{
+			"test": {Address: ":50051", Checks: []Check{{Type: "grpc", Name: "svc"}}},
+		},
+		CoreAddress: "localhost:50052",
+		ListenAddr:  ":50053",
+		PollerID:    "test-poller",
+		Partition:   "default",
+		// SourceIP intentionally omitted
+	}
+
+	err := cfg.Validate()
+	require.NoError(t, err)
+	assert.Equal(t, "auto", cfg.SourceIP)
 }
