@@ -239,8 +239,8 @@ data:
     {
       "agents": {
         "k8s-agent": {
-          "address": "serviceradar-agent:50051",
-          "security": {
+            "address": "serviceradar-agent:50051",
+            "security": {
             "server_name": "agent.serviceradar",
             "mode": "mtls",
             "cert_dir": "/etc/serviceradar/certs",

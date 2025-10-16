@@ -33,6 +33,8 @@ type AgentPoller struct {
 	clientConn     *grpc.Client // Store grpc.Client for lifecycle management
 	name           string
 	config         *AgentConfig
+	deviceIP       string
+	deviceHost     string
 	timeout        time.Duration
 	poller         *Poller
 	resultsPollers []*ResultsPoller
@@ -53,6 +55,8 @@ type Poller struct {
 	wg         sync.WaitGroup
 	startWg    sync.WaitGroup
 	logger     logger.Logger
+	// resolvedSourceIP caches the concrete IPv4 address used when registering devices.
+	resolvedSourceIP string
 	// hot-reload support
 	reloadCh chan time.Duration
 	ticker   Ticker
@@ -60,26 +64,30 @@ type Poller struct {
 
 // ServiceCheck manages a single service check operation.
 type ServiceCheck struct {
-    client     proto.AgentServiceClient
-    check      Check
-    pollerID   string
-    agentName  string
-    logger     logger.Logger
-    kvStoreId  string // KV store identifier (JetStream domain) for this service
+	client     proto.AgentServiceClient
+	check      Check
+	pollerID   string
+	agentName  string
+	deviceIP   string
+	deviceHost string
+	logger     logger.Logger
+	kvStoreId  string // KV store identifier (JetStream domain) for this service
 }
 
 // ResultsPoller manages GetResults polling for services that support it.
 type ResultsPoller struct {
-    client       proto.AgentServiceClient
-    check        Check
-    pollerID     string
-    agentName    string
-    lastResults  time.Time
-    interval     time.Duration
-    lastSequence string  // Track last sequence received from service
-    poller       *Poller // Reference to parent poller for completion aggregation
-    logger       logger.Logger
-    kvStoreId    string  // KV store identifier (JetStream domain) for this service
+	client       proto.AgentServiceClient
+	check        Check
+	pollerID     string
+	agentName    string
+	deviceIP     string
+	deviceHost   string
+	lastResults  time.Time
+	interval     time.Duration
+	lastSequence string  // Track last sequence received from service
+	poller       *Poller // Reference to parent poller for completion aggregation
+	logger       logger.Logger
+	kvStoreId    string // KV store identifier (JetStream domain) for this service
 }
 
 // Duration is a wrapper around time.Duration for JSON unmarshaling.
