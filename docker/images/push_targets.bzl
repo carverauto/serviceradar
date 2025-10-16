@@ -21,7 +21,7 @@ GHCR_PUSH_TARGETS = [
     ("zen_image_amd64", "ghcr.io/carverauto/serviceradar-zen"),
     ("config_updater_image_amd64", "ghcr.io/carverauto/serviceradar-config-updater"),
     ("nginx_image_amd64", "ghcr.io/carverauto/serviceradar-nginx"),
-    ("web_image_amd64", "ghcr.io/carverauto/serviceradar-web"),
+    ("web_image_amd64", "ghcr.io/carverauto/serviceradar-web", ":web_image_base_amd64.digest"),
     ("srql_image_amd64", "ghcr.io/carverauto/serviceradar-srql"),
     ("kong_config_image_amd64", "ghcr.io/carverauto/serviceradar-kong-config"),
     ("cert_generator_image_amd64", "ghcr.io/carverauto/serviceradar-cert-generator"),
@@ -35,7 +35,12 @@ def declare_ghcr_push_targets():
 
     push_command_targets = []
 
-    for image, repository in GHCR_PUSH_TARGETS:
+    for target in GHCR_PUSH_TARGETS:
+        if len(target) == 2:
+            image, repository = target
+            digest_label = ":{}.digest".format(image)
+        else:
+            image, repository, digest_label = target
         expand_template(
             name = "{}_commit_tag".format(image),
             template = ["sha-{{STABLE_COMMIT_SHA}}"],
@@ -47,7 +52,7 @@ def declare_ghcr_push_targets():
 
         immutable_push_tags(
             name = "{}_push_tags".format(image),
-            digest = ":{}.digest".format(image),
+            digest = digest_label,
             commit_tags = ":{}_commit_tag".format(image),
             static_tags = ["latest"],
         )
