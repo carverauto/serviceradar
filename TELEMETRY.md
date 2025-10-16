@@ -45,4 +45,4 @@ The telemetry data collected by ServiceRadar is owned and managed by the Service
 
 We are committed to protecting our users' privacy. We will never collect any personally identifiable information without your explicit consent. We will always be transparent about what data we collect and how we use it.
 
-If you have any questions or concerns about our telemetry policy, please open an issue on our [GitHub repository](https://github.com/serviceradar/serviceradar).
+If you have any questions or concerns about our telemetry policy, please open an issue on our [GitHub repository](https://github.com/carverauto/serviceradar).
