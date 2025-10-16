@@ -14,7 +14,7 @@ ServiceRadar is maintained by a group of individuals who are responsible for the
 
 The current list of maintainers can be found in the [CODEOWNERS](CODEOWNERS) file.
 
-The current maintainer is:
+The current maintainer are:
 *   [@mfreeman451](https://github.com/mfreeman451)
 *   [@marvin-hansen](https://github.com/marvin-hansen)
 
