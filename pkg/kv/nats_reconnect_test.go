@@ -16,6 +16,10 @@ import (
 func TestNATSStoreReconnectsAfterConnectionClosure(t *testing.T) {
 	t.Parallel()
 
+	if testing.Short() {
+		t.Skip("skipping reconnect test in short mode")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

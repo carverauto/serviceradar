@@ -262,7 +262,7 @@ func TestIdentityPublisherDeletesStaleIdentityKeys(t *testing.T) {
 	partIPKey := identitymap.Key{Kind: identitymap.KindPartitionIP, Value: "tenant-a:10.0.0.10"}.KeyPath(identitymap.DefaultNamespace)
 	require.Contains(t, kvClient.entries, ipKey)
 	require.Contains(t, kvClient.entries, partIPKey)
-	require.Equal(t, len(initialKeys), len(kvClient.entries))
+	require.Len(t, kvClient.entries, len(initialKeys))
 
 	updated := &models.DeviceUpdate{
 		DeviceID:  initial.DeviceID,
@@ -278,6 +278,6 @@ func TestIdentityPublisherDeletesStaleIdentityKeys(t *testing.T) {
 	require.False(t, partIPStillPresent, "expected old partition IP key to be deleted")
 
 	newKeys := identitymap.BuildKeys(updated)
-	require.Equal(t, len(newKeys), len(kvClient.entries))
+	require.Len(t, kvClient.entries, len(newKeys))
 	require.Equal(t, int64(2), pub.metrics.deletedKeys.Load())
 }
