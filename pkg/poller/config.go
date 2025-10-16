@@ -28,7 +28,6 @@ var (
 	errAgentAddressRequired = fmt.Errorf("agent address is required")
 	errPollerIDRequired     = fmt.Errorf("poller id is required")
 	errCoreAddressRequired  = fmt.Errorf("core address is required")
-	errSourceIPRequired     = fmt.Errorf("source_ip is required")
 )
 
 const (
@@ -78,7 +77,7 @@ func (c *Config) Validate() error {
 	}
 
 	if c.SourceIP == "" {
-		return errSourceIPRequired
+		c.SourceIP = "auto"
 	}
 
 	if c.Partition == "" {

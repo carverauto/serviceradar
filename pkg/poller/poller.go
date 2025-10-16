@@ -22,6 +22,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +48,7 @@ const (
 var (
 	errStreamStatusNotReceived = fmt.Errorf("core indicated streaming status report was not received")
 	errCoreClientUnavailable   = fmt.Errorf("core client not initialized")
+	errNoNonLoopbackInterface  = errors.New("no suitable non-loopback interface")
 )
 
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
@@ -79,6 +82,124 @@ func formatBytes(bytes int) string {
 	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
+func resolveSourceIP(raw string, log logger.Logger) string {
+	if override := strings.TrimSpace(os.Getenv("SERVICERADAR_SOURCE_IP")); override != "" {
+		if ip := parseSourceCandidate(override, log); ip != "" {
+			return ip
+		}
+	}
+
+	if ip := parseSourceCandidate(raw, log); ip != "" {
+		return ip
+	}
+
+	if ip, err := detectLocalIPv4(); err == nil && ip != "" {
+		log.Debug().Str("resolved_source_ip", ip).Msg("Detected poller source IP from local interfaces")
+		return ip
+	}
+
+	return ""
+}
+
+func parseSourceCandidate(value string, log logger.Logger) string {
+	candidate := strings.TrimSpace(value)
+	if candidate == "" {
+		return ""
+	}
+
+	switch strings.ToLower(candidate) {
+	case "auto", "poller", "agent", "localhost":
+		return ""
+	}
+
+	if parsed := net.ParseIP(candidate); parsed != nil {
+		if v4 := parsed.To4(); v4 != nil {
+			return v4.String()
+		}
+		return parsed.String()
+	}
+
+	if host, _, err := net.SplitHostPort(candidate); err == nil && host != "" {
+		candidate = host
+	}
+
+	addrs, err := lookupHostIPs(candidate)
+	if err != nil {
+		log.Debug().Str("candidate", candidate).Err(err).Msg("Failed to resolve poller source IP candidate")
+		return ""
+	}
+
+	for _, addr := range addrs {
+		if v4 := addr.To4(); v4 != nil {
+			return v4.String()
+		}
+	}
+
+	if len(addrs) > 0 {
+		return addrs[0].String()
+	}
+
+	return ""
+}
+
+func detectLocalIPv4() (string, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			var ip net.IP
+
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+
+			if v4 := ip.To4(); v4 != nil {
+				return v4.String(), nil
+			}
+		}
+	}
+
+	return "", errNoNonLoopbackInterface
+}
+
+func lookupHostIPs(host string) ([]net.IP, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ipAddrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+
+	ips := make([]net.IP, 0, len(ipAddrs))
+	for _, addr := range ipAddrs {
+		if addr.IP != nil {
+			ips = append(ips, addr.IP)
+		}
+	}
+
+	return ips, nil
+}
+
 // New creates a new poller instance.
 func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*Poller, error) {
 	if clock == nil {
@@ -92,6 +213,16 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 		clock:    clock,
 		logger:   log,
 		reloadCh: make(chan time.Duration, 1),
+	}
+
+	if resolved := resolveSourceIP(p.config.SourceIP, log); resolved != "" {
+		if resolved != p.config.SourceIP {
+			log.Info().Str("source_ip", resolved).Msg("Resolved poller source IP")
+		}
+		p.config.SourceIP = resolved
+		p.resolvedSourceIP = resolved
+	} else {
+		p.resolvedSourceIP = p.config.SourceIP
 	}
 
 	if p.config.KVDomain != "" {
