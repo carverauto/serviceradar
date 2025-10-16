@@ -19,7 +19,7 @@ func TestStickyAvailability_WhenPortListChanges_WithoutPrune(t *testing.T) {
 
 	cfg := &models.Config{SweepModes: []models.SweepMode{models.ModeTCP, models.ModeICMP}}
 	processor := NewBaseProcessor(cfg, log)
-	store := NewInMemoryStore(processor, log)
+	store := NewInMemoryStore(processor, log, WithoutPreallocation(), WithCleanupInterval(0))
 	if closer, ok := store.(interface{ Close() error }); ok {
 		t.Cleanup(func() { _ = closer.Close() })
 	}

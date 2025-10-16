@@ -65,6 +65,10 @@ func TestSyncResultsPerformanceOptimization(t *testing.T) {
 				ExecuteQuery(gomock.Any(), gomock.Any()).
 				Return([]map[string]interface{}{}, nil).
 				AnyTimes()
+			mockDB.EXPECT().
+				GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+				Return([]*models.UnifiedDevice{}, nil).
+				AnyTimes()
 			testLogger := logger.NewTestLogger()
 			realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
 
@@ -128,6 +132,10 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 	mockDB.EXPECT().
 		ExecuteQuery(gomock.Any(), gomock.Any()).
 		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.UnifiedDevice{}, nil).
 		AnyTimes()
 	testLogger := logger.NewTestLogger()
 	realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
@@ -223,6 +231,11 @@ func TestDatabaseCallCounting(t *testing.T) {
 		Times(1)
 
 	// Execute
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.UnifiedDevice{}, nil).
+		AnyTimes()
+
 	err := discoveryService.ProcessSyncResults(ctx, "test-poller", "test", serviceStatus, sightingsJSON, time.Now())
 	require.NoError(t, err)
 
