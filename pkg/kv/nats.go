@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -542,6 +543,10 @@ func (n *NATSStore) ensureDomainLocked(ctx context.Context, domain string) (jets
 
 	kv, err := js.KeyValue(ctx, n.bucket)
 	if err != nil {
+		if n.bucketHistory > math.MaxUint8 {
+			return nil, fmt.Errorf("%w: got %d", errBucketHistoryTooLarge, n.bucketHistory)
+		}
+
 		cfg := jetstream.KeyValueConfig{
 			Bucket:  n.bucket,
 			History: uint8(n.bucketHistory),
