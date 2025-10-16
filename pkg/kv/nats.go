@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -36,16 +37,19 @@ import (
 )
 
 type NATSStore struct {
-	nc            *nats.Conn
-	ctx           context.Context
-	natsURL       string
-	security      *models.SecurityConfig
-	bucket        string
-	defaultDomain string
-	jsByDomain    map[string]jetstream.JetStream
-	kvByDomain    map[string]jetstream.KeyValue
-	mu            sync.Mutex
-	connectFn     func() (*nats.Conn, error)
+	nc             *nats.Conn
+	ctx            context.Context
+	natsURL        string
+	security       *models.SecurityConfig
+	bucket         string
+	defaultDomain  string
+	bucketHistory  uint32
+	bucketTTL      time.Duration
+	bucketMaxBytes int64
+	jsByDomain     map[string]jetstream.JetStream
+	kvByDomain     map[string]jetstream.KeyValue
+	mu             sync.Mutex
+	connectFn      func() (*nats.Conn, error)
 }
 
 func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
@@ -54,13 +58,26 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 	}
 
 	store := &NATSStore{
-		ctx:           ctx,
-		natsURL:       cfg.NATSURL,
-		security:      cloneSecurityConfig(cfg.Security),
-		bucket:        cfg.Bucket,
-		defaultDomain: cfg.Domain,
-		jsByDomain:    make(map[string]jetstream.JetStream),
-		kvByDomain:    make(map[string]jetstream.KeyValue),
+		ctx:            ctx,
+		natsURL:        cfg.NATSURL,
+		security:       cloneSecurityConfig(cfg.Security),
+		bucket:         cfg.Bucket,
+		defaultDomain:  cfg.Domain,
+		bucketHistory:  cfg.BucketHistory,
+		bucketTTL:      time.Duration(cfg.BucketTTL),
+		bucketMaxBytes: cfg.BucketMaxBytes,
+		jsByDomain:     make(map[string]jetstream.JetStream),
+		kvByDomain:     make(map[string]jetstream.KeyValue),
+	}
+
+	if store.bucketHistory == 0 {
+		store.bucketHistory = 1
+	}
+	if store.bucketTTL < 0 {
+		store.bucketTTL = 0
+	}
+	if store.bucketMaxBytes < 0 {
+		store.bucketMaxBytes = 0
 	}
 
 	store.connectFn = store.connect
@@ -526,7 +543,22 @@ func (n *NATSStore) ensureDomainLocked(ctx context.Context, domain string) (jets
 
 	kv, err := js.KeyValue(ctx, n.bucket)
 	if err != nil {
-		kv, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: n.bucket})
+		if n.bucketHistory > math.MaxUint8 {
+			return nil, fmt.Errorf("%w: got %d", errBucketHistoryTooLarge, n.bucketHistory)
+		}
+
+		cfg := jetstream.KeyValueConfig{
+			Bucket:  n.bucket,
+			History: uint8(n.bucketHistory),
+		}
+		if n.bucketTTL > 0 {
+			cfg.TTL = n.bucketTTL
+		}
+		if n.bucketMaxBytes > 0 {
+			cfg.MaxBytes = n.bucketMaxBytes
+		}
+
+		kv, err = js.CreateKeyValue(ctx, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("kv bucket init failed for domain %q: %w", domain, err)
 		}

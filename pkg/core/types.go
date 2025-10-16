@@ -48,25 +48,27 @@ type sysmonMetricBuffer struct {
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	proto.UnimplementedCoreServiceServer
-	mu               sync.RWMutex
-	DB               db.Service
-	alertThreshold   time.Duration
-	webhooks         []alerts.AlertService
-	apiServer        api.Service
-	ShutdownChan     chan struct{}
-	pollerPatterns   []string
-	grpcServer       *grpc.Server
-	metrics          *metrics.Manager
-	snmpManager      metricstore.SNMPManager
-	rperfManager     metricstore.RperfManager
-	config           *models.CoreServiceConfig
-	authService      *auth.Auth
-	DeviceRegistry   registry.Manager
-	identityKVClient identityKVClient
-	identityKVCloser func() error
-	eventPublisher   *natsutil.EventPublisher
-	natsConn         *nats.Conn
-	discoveryService DiscoveryService
+	mu                  sync.RWMutex
+	DB                  db.Service
+	alertThreshold      time.Duration
+	webhooks            []alerts.AlertService
+	apiServer           api.Service
+	ShutdownChan        chan struct{}
+	pollerPatterns      []string
+	grpcServer          *grpc.Server
+	metrics             *metrics.Manager
+	snmpManager         metricstore.SNMPManager
+	rperfManager        metricstore.RperfManager
+	config              *models.CoreServiceConfig
+	authService         *auth.Auth
+	DeviceRegistry      registry.Manager
+	identityKVClient    identityKVClient
+	identityKVCloser    func() error
+	eventPublisher      *natsutil.EventPublisher
+	natsConn            *nats.Conn
+	discoveryService    DiscoveryService
+	natsReconnectMu     sync.Mutex
+	natsReconnectActive bool
 	// MCP removed from Go server; SRQL tooling moved out of process
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus
