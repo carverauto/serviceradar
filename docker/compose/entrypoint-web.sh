@@ -132,14 +132,22 @@ PUBLIC_ROOT="/app/public"
 NESTED_PUBLIC="${PUBLIC_ROOT}/web/public_flat"
 if [ -d "${NESTED_PUBLIC}" ]; then
     echo "Flattening public assets into ${PUBLIC_ROOT}..."
+    rm -f "${NESTED_PUBLIC}/build-info.json"
     cp -R "${NESTED_PUBLIC}/." "${PUBLIC_ROOT}/"
+    if [ -f "${PUBLIC_ROOT}/build-info.json" ]; then
+        cp "${PUBLIC_ROOT}/build-info.json" "${NESTED_PUBLIC}/build-info.json"
+    fi
 fi
 
 STANDALONE_PUBLIC_ROOT="/app/.next/standalone/public"
 NESTED_STANDALONE_PUBLIC="${STANDALONE_PUBLIC_ROOT}/web/public_flat"
 if [ -d "${NESTED_STANDALONE_PUBLIC}" ]; then
     echo "Flattening standalone public assets..."
+    rm -f "${NESTED_STANDALONE_PUBLIC}/build-info.json"
     cp -R "${NESTED_STANDALONE_PUBLIC}/." "${STANDALONE_PUBLIC_ROOT}/"
+    if [ -f "${STANDALONE_PUBLIC_ROOT}/build-info.json" ]; then
+        cp "${STANDALONE_PUBLIC_ROOT}/build-info.json" "${NESTED_STANDALONE_PUBLIC}/build-info.json"
+    fi
 fi
 
 exec "$@"

@@ -1,5 +1,6 @@
 {
-  "version": "1.0.53",
-  "buildId": "031300f9",
-  "buildTime": "2025-09-03T18:01:00Z"
+  "version": "dev",
+  "buildTime": "1970-01-01T00:00:00Z",
+  "webBuildId": "development",
+  "coreBuildId": "development"
 }
