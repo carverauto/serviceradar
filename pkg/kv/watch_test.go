@@ -63,10 +63,13 @@ func TestNatsStoreWatch_ForwardUpdates(t *testing.T) {
 
 	kv := &fakeKV{watcher: watcher}
 	ns := &NATSStore{
-		ctx: context.Background(),
-		kvByDomain: map[string]jetstream.KeyValue{"": kv},
-		jsByDomain: map[string]jetstream.JetStream{"": nil}, // fake js to avoid creation
-		defaultDomain: "",
+		ctx:            context.Background(),
+		kvByDomain:     map[string]jetstream.KeyValue{"": kv},
+		jsByDomain:     map[string]jetstream.JetStream{"": nil}, // fake js to avoid creation
+		defaultDomain:  "",
+		bucketHistory:  1,
+		bucketTTL:      0,
+		bucketMaxBytes: 0,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -97,10 +100,13 @@ func TestNatsStoreWatch_ContextCancel(t *testing.T) {
 
 	kv := &fakeKV{watcher: watcher}
 	ns := &NATSStore{
-		ctx: context.Background(),
-		kvByDomain: map[string]jetstream.KeyValue{"": kv},
-		jsByDomain: map[string]jetstream.JetStream{"": nil}, // fake js to avoid creation
-		defaultDomain: "",
+		ctx:            context.Background(),
+		kvByDomain:     map[string]jetstream.KeyValue{"": kv},
+		jsByDomain:     map[string]jetstream.JetStream{"": nil}, // fake js to avoid creation
+		defaultDomain:  "",
+		bucketHistory:  1,
+		bucketTTL:      0,
+		bucketMaxBytes: 0,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

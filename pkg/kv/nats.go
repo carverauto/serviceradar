@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -36,52 +37,116 @@ import (
 )
 
 type NATSStore struct {
-	nc            *nats.Conn
-	ctx           context.Context
-	bucket        string
-	defaultDomain string
-	jsByDomain    map[string]jetstream.JetStream
-	kvByDomain    map[string]jetstream.KeyValue
-	mu            sync.Mutex
+	nc             *nats.Conn
+	ctx            context.Context
+	natsURL        string
+	security       *models.SecurityConfig
+	bucket         string
+	defaultDomain  string
+	bucketHistory  uint32
+	bucketTTL      time.Duration
+	bucketMaxBytes int64
+	jsByDomain     map[string]jetstream.JetStream
+	kvByDomain     map[string]jetstream.KeyValue
+	mu             sync.Mutex
+	connectFn      func() (*nats.Conn, error)
 }
 
 func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
-	tlsConfig, err := getTLSConfig(cfg.Security)
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure TLS: %w", err)
-	}
-
-	nc, err := nats.Connect(cfg.NATSURL,
-		nats.Secure(tlsConfig),
-		nats.RootCAs(cfg.Security.TLS.CAFile),
-		nats.ClientCert(cfg.Security.TLS.CertFile, cfg.Security.TLS.KeyFile),
-		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
-			log.Printf("NATS error: %v", err)
-		}),
-		nats.ConnectHandler(func(nc *nats.Conn) {
-			log.Printf("Connected to NATS: %s", nc.ConnectedUrl())
-		}),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
+	if cfg == nil {
+		return nil, errNilConfig
 	}
 
 	store := &NATSStore{
-		nc:            nc,
-		ctx:           ctx,
-		bucket:        cfg.Bucket,
-		defaultDomain: cfg.Domain,
-		jsByDomain:    make(map[string]jetstream.JetStream),
-		kvByDomain:    make(map[string]jetstream.KeyValue),
+		ctx:            ctx,
+		natsURL:        cfg.NATSURL,
+		security:       cloneSecurityConfig(cfg.Security),
+		bucket:         cfg.Bucket,
+		defaultDomain:  cfg.Domain,
+		bucketHistory:  cfg.BucketHistory,
+		bucketTTL:      time.Duration(cfg.BucketTTL),
+		bucketMaxBytes: cfg.BucketMaxBytes,
+		jsByDomain:     make(map[string]jetstream.JetStream),
+		kvByDomain:     make(map[string]jetstream.KeyValue),
 	}
 
-	// Warm default domain (may be empty => global)
+	if store.bucketHistory == 0 {
+		store.bucketHistory = 1
+	}
+	if store.bucketTTL < 0 {
+		store.bucketTTL = 0
+	}
+	if store.bucketMaxBytes < 0 {
+		store.bucketMaxBytes = 0
+	}
+
+	store.connectFn = store.connect
+
+	// Warm the default domain so consumers fail fast on misconfiguration.
 	if _, err := store.getKVForDomain(ctx, cfg.Domain); err != nil {
-		nc.Close()
+		if cerr := store.Close(); cerr != nil {
+			log.Printf("failed to close NATS store after init error: %v", cerr)
+		}
 		return nil, err
 	}
 
 	return store, nil
+}
+
+func cloneSecurityConfig(sec *models.SecurityConfig) *models.SecurityConfig {
+	if sec == nil {
+		return nil
+	}
+
+	copy := *sec
+	copy.TLS = sec.TLS
+
+	return &copy
+}
+
+func (n *NATSStore) connect() (*nats.Conn, error) {
+	if n.security == nil {
+		return nil, errMTLSRequired
+	}
+
+	tlsConfig, err := getTLSConfig(n.security)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure TLS: %w", err)
+	}
+
+	opts := []nats.Option{
+		nats.Secure(tlsConfig),
+		nats.RootCAs(n.security.TLS.CAFile),
+		nats.ClientCert(n.security.TLS.CertFile, n.security.TLS.KeyFile),
+		nats.MaxReconnects(-1),
+		nats.RetryOnFailedConnect(true),
+		nats.ReconnectWait(2 * time.Second),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			if err != nil {
+				log.Printf("Disconnected from NATS: %v", err)
+			} else {
+				log.Printf("Disconnected from NATS")
+			}
+		}),
+		nats.ReconnectHandler(func(nc *nats.Conn) {
+			log.Printf("Reconnected to NATS: %s", nc.ConnectedUrl())
+		}),
+		nats.ClosedHandler(func(nc *nats.Conn) {
+			log.Printf("NATS connection closed (status=%s)", nc.Status())
+		}),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			if err != nil {
+				log.Printf("NATS error: %v", err)
+			}
+		}),
+	}
+
+	conn, err := nats.Connect(n.natsURL, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
+	}
+
+	return conn, nil
 }
 
 const (
@@ -360,7 +425,16 @@ func (n *NATSStore) sendUpdate(ctx context.Context, ch chan<- []byte, value []by
 }
 
 func (n *NATSStore) Close() error {
-	n.nc.Close()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.nc != nil {
+		n.nc.Close()
+		n.nc = nil
+	}
+
+	n.jsByDomain = nil
+	n.kvByDomain = nil
 
 	return nil
 }
@@ -385,31 +459,122 @@ func (n *NATSStore) extractDomain(key string) (string, string) {
 func (n *NATSStore) getKVForDomain(ctx context.Context, domain string) (jetstream.KeyValue, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	d := domain
-	js, ok := n.jsByDomain[d]
-	if !ok {
+
+	if kv, ok := n.kvByDomain[domain]; ok && kv != nil {
+		if n.connectFn == nil {
+			return kv, nil
+		}
+
+		if !n.connectionNeedsRefreshLocked() {
+			return kv, nil
+		}
+
+		n.resetConnectionLocked()
+	}
+
+	if n.connectFn == nil {
+		return nil, errNATSNotConfigured
+	}
+
+	if n.connectionNeedsRefreshLocked() {
+		if err := n.reconnectLocked(); err != nil {
+			return nil, err
+		}
+	}
+
+	return n.ensureDomainLocked(ctx, domain)
+}
+
+func (n *NATSStore) connectionNeedsRefreshLocked() bool {
+	if n.nc == nil {
+		return true
+	}
+
+	status := n.nc.Status()
+	switch status {
+	case nats.CONNECTED:
+		return false
+	case nats.DISCONNECTED, nats.CLOSED, nats.RECONNECTING, nats.CONNECTING, nats.DRAINING_SUBS, nats.DRAINING_PUBS:
+		return true
+	default:
+		return true
+	}
+}
+
+func (n *NATSStore) reconnectLocked() error {
+	if n.connectFn == nil {
+		return errNATSReconnectDisabled
+	}
+
+	conn, err := n.connectFn()
+	if err != nil {
+		return fmt.Errorf("failed to connect to NATS: %w", err)
+	}
+
+	if n.nc != nil {
+		n.nc.Close()
+	}
+
+	n.nc = conn
+	n.jsByDomain = make(map[string]jetstream.JetStream)
+	n.kvByDomain = make(map[string]jetstream.KeyValue)
+
+	return nil
+}
+
+func (n *NATSStore) ensureDomainLocked(ctx context.Context, domain string) (jetstream.KeyValue, error) {
+	if kv, ok := n.kvByDomain[domain]; ok && kv != nil {
+		return kv, nil
+	}
+
+	js, ok := n.jsByDomain[domain]
+	if !ok || js == nil {
 		var err error
-		if d == "" {
+		if domain == "" {
 			js, err = jetstream.New(n.nc)
 		} else {
-			js, err = jetstream.NewWithDomain(n.nc, d)
+			js, err = jetstream.NewWithDomain(n.nc, domain)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("jetstream init failed for domain %q: %w", d, err)
+			return nil, fmt.Errorf("jetstream init failed for domain %q: %w", domain, err)
 		}
-		n.jsByDomain[d] = js
+		n.jsByDomain[domain] = js
 	}
-	kv, ok := n.kvByDomain[d]
-	if !ok {
-		var err error
-		kv, err = js.KeyValue(ctx, n.bucket)
+
+	kv, err := js.KeyValue(ctx, n.bucket)
+	if err != nil {
+		if n.bucketHistory > math.MaxUint8 {
+			return nil, fmt.Errorf("%w: got %d", errBucketHistoryTooLarge, n.bucketHistory)
+		}
+
+		cfg := jetstream.KeyValueConfig{
+			Bucket:  n.bucket,
+			History: uint8(n.bucketHistory),
+		}
+		if n.bucketTTL > 0 {
+			cfg.TTL = n.bucketTTL
+		}
+		if n.bucketMaxBytes > 0 {
+			cfg.MaxBytes = n.bucketMaxBytes
+		}
+
+		kv, err = js.CreateKeyValue(ctx, cfg)
 		if err != nil {
-			kv, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: n.bucket})
-			if err != nil {
-				return nil, fmt.Errorf("kv bucket init failed for domain %q: %w", d, err)
-			}
+			return nil, fmt.Errorf("kv bucket init failed for domain %q: %w", domain, err)
 		}
-		n.kvByDomain[d] = kv
 	}
+
+	n.kvByDomain[domain] = kv
+
 	return kv, nil
+}
+
+func (n *NATSStore) resetConnectionLocked() {
+	if n.nc != nil {
+		n.nc.Close()
+	}
+
+	n.nc = nil
+	n.jsByDomain = make(map[string]jetstream.JetStream)
+	n.kvByDomain = make(map[string]jetstream.KeyValue)
 }
