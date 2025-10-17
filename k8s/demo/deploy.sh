@@ -593,7 +593,10 @@ data:
           {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
         ]
       },
-      "bucket": "serviceradar-kv"
+      "bucket": "serviceradar-kv",
+      "bucket_history": 1,
+      "bucket_ttl": "24h",
+      "bucket_max_bytes": 5368709120
     }
 
   agent.json: |

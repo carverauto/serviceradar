@@ -50,7 +50,7 @@ export default function Sidebar() {
     const [buildInfo, setBuildInfo] = React.useState<BuildInfo>({});
 
     React.useEffect(() => {
-        fetch('/build-info.json')
+        fetch('/build-info.json', { cache: 'no-store' })
             .then(res => (res.ok ? res.json() : Promise.reject()))
             .then((data: BuildInfo) => setBuildInfo(data))
             .catch(() => setBuildInfo({}));

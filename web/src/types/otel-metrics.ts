@@ -4,6 +4,7 @@ import { Pagination } from './devices';
 
 export interface OtelMetric {
     timestamp: string;
+    _tp_time?: string;
     trace_id: string;
     span_id: string;
     service_name: string;

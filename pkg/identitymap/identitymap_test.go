@@ -61,6 +61,41 @@ func TestBuildKeysIncludesIPWhenDistinct(t *testing.T) {
 	assert.Contains(t, keys, Key{Kind: KindPartitionIP, Value: "tenant-a:10.0.0.5"})
 }
 
+func TestBuildKeysFromRecord(t *testing.T) {
+	mac := "aa:bb:cc:dd:ee:ff"
+	update := &models.DeviceUpdate{
+		DeviceID:  "tenant-a:device-42",
+		IP:        "10.1.2.3",
+		Partition: "tenant-a",
+		MAC:       &mac,
+		Metadata: map[string]string{
+			"armis_device_id":  "armis-42",
+			"integration_id":   "nb-42",
+			"integration_type": "netbox",
+			"netbox_device_id": "device-42",
+		},
+	}
+
+	record := &Record{
+		CanonicalDeviceID: update.DeviceID,
+		Partition:         update.Partition,
+		MetadataHash:      HashIdentityMetadata(update),
+		Attributes: map[string]string{
+			"ip":               update.IP,
+			"mac":              "AA:BB:CC:DD:EE:FF",
+			"armis_device_id":  update.Metadata["armis_device_id"],
+			"integration_id":   update.Metadata["integration_id"],
+			"integration_type": update.Metadata["integration_type"],
+			"netbox_device_id": update.Metadata["netbox_device_id"],
+		},
+	}
+
+	keysFromRecord := BuildKeysFromRecord(record)
+	keysFromUpdate := BuildKeys(update)
+
+	assert.ElementsMatch(t, keysFromUpdate, keysFromRecord)
+}
+
 func TestMarshalRoundtrip(t *testing.T) {
 	rec := &Record{
 		CanonicalDeviceID: "tenant-a:canonical",

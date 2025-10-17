@@ -31,6 +31,7 @@ import { useDebounce } from 'use-debounce';
 import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
 import { escapeSrqlValue } from '@/lib/srql';
 import { useTraceCounts } from '@/hooks/useTraceCounts';
+import { normalizeTraceSummaryTimestamp, resolveTraceTimestampMs } from '@/utils/traceTimestamp';
 
 const StatCard = ({
     title,
@@ -278,12 +279,13 @@ const TracesDashboard = () => {
             const query = queryParts.join(' ');
 
             const response = await postQuery<TraceSummariesApiResponse>(query, cursor, direction);
-            setTraces(response.results || []);
+            const normalizedResults = (response.results || []).map(normalizeTraceSummaryTimestamp);
+            setTraces(normalizedResults);
             setPagination(response.pagination);
             
             // Update stats with calculated values from the fetched data
-            if (response.results && response.results.length > 0) {
-                const durations = response.results.map(trace => trace.duration_ms || 0).sort((a, b) => a - b);
+            if (normalizedResults.length > 0) {
+                const durations = normalizedResults.map(trace => trace.duration_ms || 0).sort((a, b) => a - b);
                 const totalDuration = durations.reduce((sum, duration) => sum + duration, 0);
                 const avgDuration = totalDuration / durations.length;
                 
@@ -292,7 +294,7 @@ const TracesDashboard = () => {
                 const p95Duration = durations[p95Index] || 0;
                 
                 // Get unique services
-                const uniqueServices = new Set(response.results.map(trace => 
+                const uniqueServices = new Set(normalizedResults.map(trace => 
                     trace.root_service_name
                 ).filter(Boolean));
                 
@@ -399,12 +401,13 @@ const TracesDashboard = () => {
                     span_count: (data.span_count as number) || 0,
                     error_count: (data.error_count as number) || 0
                 };
+                const normalizedTrace = normalizeTraceSummaryTimestamp(trace);
                 
                 // Only add trace if streaming is not paused
                 if (!streamingPaused) {
                     setStreamingTraces(prev => {
                         // Append new trace to the end (CloudWatch style)
-                        const newTraces = [...prev, trace];
+                        const newTraces = [...prev, normalizedTrace];
                         // Debug: Log the count every 50 messages (every ~1/5 cycle)
                         if (newTraces.length % 50 === 0) {
                             console.log(`📊 Streaming traces count: ${newTraces.length} (${Math.floor(newTraces.length / 250)} cycles)`);
@@ -531,8 +534,8 @@ const TracesDashboard = () => {
         // When streaming is enabled, show only streaming traces
         // Sort streaming traces by timestamp - in streaming mode we want oldest first (chronological)
         const sortedTraces = [...streamingTraces].sort((a, b) => {
-            const dateA = new Date(a.timestamp).getTime();
-            const dateB = new Date(b.timestamp).getTime();
+            const dateA = resolveTraceTimestampMs(a) ?? 0;
+            const dateB = resolveTraceTimestampMs(b) ?? 0;
             // Always chronological order (oldest first) in streaming mode
             return dateA - dateB;
         });
@@ -836,6 +839,8 @@ const TracesDashboard = () => {
                                 (streamingEnabled ? paginatedStreamingTraces : allTraces).map((trace, index) => {
                                     const uniqueKey = `${trace.trace_id}-${trace.timestamp}-${index}`;
                                     const expandKey = `${trace.trace_id}-${trace.timestamp}-${index}`;
+                                    const timestampMs = resolveTraceTimestampMs(trace);
+                                    const timestampDate = typeof timestampMs === 'number' ? new Date(timestampMs) : null;
                                     return (
                                         <Fragment key={uniqueKey}>
                                             <tr className="hover:bg-gray-100 dark:hover:bg-gray-700/30">
@@ -853,10 +858,10 @@ const TracesDashboard = () => {
                                                 </td>
                                                 <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-300">
                                                     <div className="font-medium">
-                                                        {new Date(trace.timestamp).toLocaleDateString()}
+                                                        {timestampDate ? timestampDate.toLocaleDateString() : '—'}
                                                     </div>
                                                     <div className="text-gray-500 dark:text-gray-400">
-                                                        {new Date(trace.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        {timestampDate ? timestampDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
                                                     </div>
                                                 </td>
                                                 <td className="px-3 py-2 whitespace-nowrap hidden lg:table-cell">
