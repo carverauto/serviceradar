@@ -53,7 +53,7 @@ ServiceRadar provides secure-by-design network management for cloud-native envir
 
 - **Multi-tenant isolation**: Agent/poller/checker architecture supporting overlapping IP spaces and separate security domains
 - **Cloud-native deployment**: Kubernetes-native with Helm charts, microservices secured by mTLS via SPIFFE/SPIRE
-- **Event-driven architecture**: NATS JetStream for reliable message delivery and horizontal scalability
+- **Event-driven architecture**: NATS JetStream for reliable message delivery and horizontal scalability, using CloudEvents for event standardization
 - **Stream processing**: Timeplus Proton for real-time data processing and analysis
 - **Stateless rules**: ZenEngine-based rule editor (web UI) for event transformation without service restarts
 - **Centralized configuration**: NATS KV-based fleet management (ETA: November 2025)
@@ -217,13 +217,13 @@ ServiceRadar provides its own:
 
 #### Design Principles
 
-| Principle | Implementation | Benefit |
-|-----------|----------------|---------|
-| **Secure by Default** | mTLS enforced, Rust for network-facing code, no default passwords | Zero trust networking, memory safety |
-| **Event-Driven Scalability** | NATS JetStream messaging, async processing | Horizontal scaling, fault isolation |
-| **Fault Tolerant** | Distributed pollers, circuit breakers, retry logic | 99.9% availability during component failures |
-| **Cloud Native** | SPIFFE/SPIRE identity, Kubernetes-first, container-native | Easy deployment, vendor-neutral |
-| **Multi-tenant Isolation** | RBAC, network policies, tenant-scoped queries | Security compliance, MSP-ready |
+| Principle | Implementation | Benefit                                                |
+|-----------|----------------|--------------------------------------------------------|
+| **Secure by Default** | mTLS enforced, Rust for network-facing code, no default passwords | Zero trust networking, memory safety                   |
+| **Event-Driven Scalability** | NATS JetStream messaging, async processing | Horizontal scaling, fault isolation, CloudEvents based |
+| **Fault Tolerant** | Distributed pollers, circuit breakers, retry logic | 99.9% availability during component failures           |
+| **Cloud Native** | SPIFFE/SPIRE identity, Kubernetes-first, container-native | Easy deployment, vendor-neutral                        |
+| **Multi-tenant Isolation** | RBAC, network policies, tenant-scoped queries | Security compliance, MSP-ready                         |
 
 #### Architecture Requirements
 
@@ -1428,7 +1428,7 @@ ServiceRadar is a production-ready, cloud-native network management platform cur
 **Key strengths:**
 - Carrier-grade scalability (100k+ devices validated through load testing)
 - Security-first design (mTLS, RBAC, memory-safe languages)
-- Cloud-native integration (Kubernetes, SPIFFE, NATS, OpenTelemetry)
+- Cloud-native integration (Kubernetes, SPIFFE, CloudEvents, NATS, OpenTelemetry)
 - Multi-tenant architecture suitable for MSP deployments
 
 **Current limitations:**

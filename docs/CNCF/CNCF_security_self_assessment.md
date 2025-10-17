@@ -58,7 +58,7 @@ serviceradar-nats: NATS JetStream offers message broker and KV services. Hub/Lea
 serviceradar-kv: gRPC API for the NATS JetStream KV service.
 serviceradar-nginx: nginx ingress configured to route /api calls through kong API gateway
 serviceradar-otel: lightweight OTEL processor, receives OTEL logs, traces, and metrics, puts messages on the NATS JetStream message bus for processing by consumers.
-serviceradar-zen: GoRules/zenEngine based stateless rule engine -- used to transform syslog messages and other events, transformed messages are placed into a new NATS JetStream stream to be processed by database consumers.
+serviceradar-zen: GoRules/zenEngine based stateless rule engine -- used to transform syslog messages and other events, transformed messages are turned into CloudEvents and placed into a new NATS JetStream stream to be processed by database consumers.
 serviceradar-db-event-writer: NATS JetStream consumer, processes messages off of the message queues and inserts data in batches into proton database. Scales horizontally due to use of subscription queue groups in NATS JetStream.
 serviceradar-flowgger: SYSLOG/Gelf receiver, receives messages and places them on NATS JetStream stream for processing by serviceradar-zen.
 serviceradar-rperf-checker: RPerf bandwidth (iperf3 clone) measurement tool. Client/server model, servers live on remote systems and serve as endpoints for rperf-client (serviceradar-rperf-checker). Bandwidth measurements are collected through agent/poller and forwarded to the Core and stored in proton database.
@@ -159,6 +159,7 @@ Core CNCF Integrations:
 * Kubernetes: Native deployment via Helm charts and Kubernetes operators for all components
 * SPIFFE/SPIRE: Workload identity and mTLS certificate management across all microservices
 * NATS JetStream: CNCF-incubating messaging system for high-performance event streaming
+* CloudEvents: Event format standard for interoperability with other observability tools
 * OpenTelemetry: Native OTLP protocol support for metrics, traces, and logs
 * Prometheus: Built-in metrics endpoints and alerting integration
 
@@ -170,6 +171,7 @@ Key Differentiators in CNCF Ecosystem:
 
 * Multi-tenant isolation at the network management layer (unlike single-tenant tools)
 * Horizontal scaling of data collection without single points of failure
+* Event-driven architecture leveraging NATS JetStream and CloudEvents for real-time processing
 * Native support for edge deployments via NATS hub/leaf topology
 * Integration with service mesh security models via SPIFFE
 
