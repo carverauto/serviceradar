@@ -12,11 +12,13 @@
 
 ✅ Licence file
 
-Open topics:
+✅ Dependency and license scan 
 
-* Dependency scans
+✅ OpenSSF badge added to README
 
-* OpenSSF badge 
+Open topic:
+* Roadmap needs to be written
+* General Technical Review (GTR) questions need to be answered
 
 Progress tracked under issue:
 https://github.com/carverauto/serviceradar/issues/1731
