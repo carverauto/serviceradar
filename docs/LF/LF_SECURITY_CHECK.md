@@ -1,4 +1,4 @@
-## Github Security
+## Github Security Best Practices
 
 ✅ Verified & approved domains: serviceradar.cloud
 
@@ -6,14 +6,12 @@
 
 ✅ Branch protection rule: Commit requires signature
 
-❓ Security policy • ❓
+✅ Security policy:  [SECURITY](../../SECURITY.md)
 
-❓ Security advisories • ❓
+✅ Dependabot alerts • Enabled
 
-❓ Private vulnerability reporting • ❓
+✅ Code scanning alerts • Enabled
 
-❓ Dependabot alerts • ❓
+✅ Secret scanning alerts • Enabled
 
-❓ Code scanning alerts • ❓
-
-❓ Secret scanning alerts • ❓
+✅  Private vulnerability reporting • [SECURITY_CONTACTS](../../SECURITY_CONTACTS.md)
