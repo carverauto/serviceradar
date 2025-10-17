@@ -24,6 +24,7 @@ type kvIdentityClient interface {
 	Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
 	PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
 	Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error)
+	Delete(ctx context.Context, in *proto.DeleteRequest, opts ...grpc.CallOption) (*proto.DeleteResponse, error)
 }
 
 type identityPublisher struct {
@@ -55,6 +56,7 @@ func WithIdentityPublisher(client kvIdentityClient, namespace string, ttl time.D
 type identityPublisherMetrics struct {
 	publishBatches atomic.Int64
 	publishedKeys  atomic.Int64
+	deletedKeys    atomic.Int64
 	failures       atomic.Int64
 }
 
@@ -65,6 +67,13 @@ func newIdentityPublisherMetrics() *identityPublisherMetrics {
 func (m *identityPublisherMetrics) recordPublish(keyCount int) {
 	m.publishBatches.Add(1)
 	m.publishedKeys.Add(int64(keyCount))
+}
+
+func (m *identityPublisherMetrics) recordDelete(keyCount int) {
+	if keyCount <= 0 {
+		return
+	}
+	m.deletedKeys.Add(int64(keyCount))
 }
 
 func (m *identityPublisherMetrics) recordFailure() {
@@ -194,10 +203,29 @@ func (p *identityPublisher) Publish(ctx context.Context, updates []*models.Devic
 			continue
 		}
 
+		snapshot, snapErr := p.existingIdentitySnapshot(ctx, update.DeviceID)
+		if snapErr != nil {
+			publishErr = errors.Join(publishErr, snapErr)
+		}
+		if snapshot != nil && snapshot.canonicalKey != "" {
+			p.cache.set(snapshot.canonicalKey, snapshot.metadataHash, snapshot.attrsHash, snapshot.revision)
+		}
+
+		newKeySet := make(map[string]struct{})
+
 		for _, key := range identitymap.BuildKeys(update) {
 			keyPath := key.KeyPath(p.namespace)
+			newKeySet[keyPath] = struct{}{}
 			if err := p.upsertIdentity(ctx, keyPath, payload, record.MetadataHash, record.Attributes); err != nil {
 				publishErr = errors.Join(publishErr, err)
+			}
+		}
+
+		if snapshot != nil {
+			if stale := snapshot.staleKeys(newKeySet); len(stale) > 0 {
+				if err := p.deleteIdentityKeys(ctx, stale); err != nil {
+					publishErr = errors.Join(publishErr, err)
+				}
 			}
 		}
 	}
@@ -438,4 +466,96 @@ func (r *DeviceRegistry) publishIdentityMap(ctx context.Context, updates []*mode
 	if err := r.identityPublisher.Publish(ctx, updates); err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to publish identity map updates")
 	}
+}
+
+type identitySnapshot struct {
+	keys         map[string]struct{}
+	canonicalKey string
+	metadataHash string
+	attrsHash    string
+	revision     uint64
+}
+
+func (s *identitySnapshot) staleKeys(newKeys map[string]struct{}) []string {
+	if s == nil || len(s.keys) == 0 {
+		return nil
+	}
+
+	stale := make([]string, 0, len(s.keys))
+	for key := range s.keys {
+		if _, ok := newKeys[key]; !ok {
+			stale = append(stale, key)
+		}
+	}
+	return stale
+}
+
+func (p *identityPublisher) existingIdentitySnapshot(ctx context.Context, deviceID string) (*identitySnapshot, error) {
+	if p == nil || p.kvClient == nil || strings.TrimSpace(deviceID) == "" {
+		return nil, nil
+	}
+
+	key := identitymap.Key{Kind: identitymap.KindDeviceID, Value: deviceID}.KeyPath(p.namespace)
+	resp, err := p.kvClient.Get(ctx, &proto.GetRequest{Key: key})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.GetFound() || len(resp.GetValue()) == 0 {
+		return nil, nil
+	}
+
+	record, err := identitymap.UnmarshalRecord(resp.GetValue())
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal canonical record for device %s: %w", deviceID, err)
+	}
+
+	keys := identitymap.BuildKeysFromRecord(record)
+	keySet := make(map[string]struct{}, len(keys))
+	for _, identityKey := range keys {
+		keySet[identityKey.KeyPath(p.namespace)] = struct{}{}
+	}
+
+	return &identitySnapshot{
+		keys:         keySet,
+		canonicalKey: key,
+		metadataHash: record.MetadataHash,
+		attrsHash:    identitymap.HashMetadata(record.Attributes),
+		revision:     resp.GetRevision(),
+	}, nil
+}
+
+func (p *identityPublisher) deleteIdentityKeys(ctx context.Context, keys []string) error {
+	if p == nil || p.kvClient == nil || len(keys) == 0 {
+		return nil
+	}
+
+	var deleteErr error
+	var deletedCount int
+
+	for _, key := range keys {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+
+		_, err := p.kvClient.Delete(ctx, &proto.DeleteRequest{Key: key})
+		if err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+				p.logger.Debug().Str("key", key).Msg("Stale identity key already removed from KV")
+				p.cache.delete(key)
+				continue
+			}
+			deleteErr = errors.Join(deleteErr, err)
+			continue
+		}
+
+		deletedCount++
+		p.cache.delete(key)
+		p.logger.Debug().Str("key", key).Msg("Deleted stale identity entry from KV")
+	}
+
+	if deletedCount > 0 {
+		p.metrics.recordDelete(deletedCount)
+	}
+
+	return deleteErr
 }

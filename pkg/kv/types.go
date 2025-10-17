@@ -42,6 +42,9 @@ type Config struct {
 	RBAC       struct {
 		Roles []RBACRule `json:"roles"`
 	} `json:"rbac"`
-	Bucket string `json:"bucket,omitempty"` // Added for NATS KV bucket
-	Domain string `json:"domain,omitempty"`
+	Bucket         string          `json:"bucket,omitempty"`           // KV bucket name
+	Domain         string          `json:"domain,omitempty"`           // Optional JetStream domain
+	BucketMaxBytes int64           `json:"bucket_max_bytes,omitempty"` // Hard cap for bucket size (bytes)
+	BucketTTL      models.Duration `json:"bucket_ttl,omitempty"`       // TTL for entries (0 = no expiry)
+	BucketHistory  uint32          `json:"bucket_history,omitempty"`   // History depth per key
 }

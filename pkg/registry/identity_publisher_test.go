@@ -24,6 +24,7 @@ type fakeIdentityKVClient struct {
 	omitUpdateResp map[string]bool
 	updateCalls    map[string]int
 	revisionMiss   map[string]int
+	deleted        map[string]int
 }
 
 type fakeKVEntry struct {
@@ -38,6 +39,7 @@ func newFakeIdentityKVClient() *fakeIdentityKVClient {
 		omitUpdateResp: make(map[string]bool),
 		updateCalls:    make(map[string]int),
 		revisionMiss:   make(map[string]int),
+		deleted:        make(map[string]int),
 	}
 }
 
@@ -96,6 +98,19 @@ func (f *fakeIdentityKVClient) Update(_ context.Context, in *proto.UpdateRequest
 	}
 
 	return &proto.UpdateResponse{Revision: entry.revision}, nil
+}
+
+func (f *fakeIdentityKVClient) Delete(_ context.Context, in *proto.DeleteRequest, _ ...grpc.CallOption) (*proto.DeleteResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if _, ok := f.entries[in.Key]; !ok {
+		return nil, status.Error(codes.NotFound, "missing")
+	}
+
+	delete(f.entries, in.Key)
+	f.deleted[in.Key]++
+	return &proto.DeleteResponse{}, nil
 }
 
 func TestIdentityPublisherPublishesNewEntries(t *testing.T) {
@@ -223,4 +238,46 @@ func TestIdentityPublisherUpdatesWhenAttributesChange(t *testing.T) {
 	record, err := identitymap.UnmarshalRecord(entry.value)
 	require.NoError(t, err)
 	require.Equal(t, "armis-attr", record.Attributes["armis_device_id"])
+}
+
+func TestIdentityPublisherDeletesStaleIdentityKeys(t *testing.T) {
+	t.Parallel()
+
+	kvClient := newFakeIdentityKVClient()
+	pub := newIdentityPublisher(kvClient, identitymap.DefaultNamespace, 0, logger.NewTestLogger())
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	initial := &models.DeviceUpdate{
+		DeviceID:  "device-stale",
+		IP:        "10.0.0.10",
+		Partition: "tenant-a",
+	}
+
+	require.NoError(t, pub.Publish(ctx, []*models.DeviceUpdate{initial}))
+
+	initialKeys := identitymap.BuildKeys(initial)
+	ipKey := identitymap.Key{Kind: identitymap.KindIP, Value: initial.IP}.KeyPath(identitymap.DefaultNamespace)
+	partIPKey := identitymap.Key{Kind: identitymap.KindPartitionIP, Value: "tenant-a:10.0.0.10"}.KeyPath(identitymap.DefaultNamespace)
+	require.Contains(t, kvClient.entries, ipKey)
+	require.Contains(t, kvClient.entries, partIPKey)
+	require.Len(t, kvClient.entries, len(initialKeys))
+
+	updated := &models.DeviceUpdate{
+		DeviceID:  initial.DeviceID,
+		IP:        "10.0.0.11",
+		Partition: initial.Partition,
+	}
+
+	require.NoError(t, pub.Publish(ctx, []*models.DeviceUpdate{updated}))
+
+	_, ipStillPresent := kvClient.entries[ipKey]
+	_, partIPStillPresent := kvClient.entries[partIPKey]
+	require.False(t, ipStillPresent, "expected old IP key to be deleted")
+	require.False(t, partIPStillPresent, "expected old partition IP key to be deleted")
+
+	newKeys := identitymap.BuildKeys(updated)
+	require.Len(t, kvClient.entries, len(newKeys))
+	require.Equal(t, int64(2), pub.metrics.deletedKeys.Load())
 }
