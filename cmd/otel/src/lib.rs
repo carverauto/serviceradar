@@ -348,7 +348,7 @@ impl TraceService for ServiceRadarCollector {
                 "Publishing {} performance metrics to NATS",
                 performance_metrics.len()
             );
-            let nats_output = nats.lock().await;
+            let mut nats_output = nats.lock().await;
             if let Err(e) = nats_output.publish_metrics(&performance_metrics).await {
                 error!("Failed to publish performance metrics to NATS: {e}");
                 // Don't fail the request, just log the error
@@ -389,7 +389,7 @@ impl TraceService for ServiceRadarCollector {
         // Send to NATS if configured
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding traces to NATS");
-            let nats_output = nats.lock().await;
+            let mut nats_output = nats.lock().await;
             if let Err(e) = nats_output.publish_traces(&trace_data).await {
                 error!("Failed to publish traces to NATS: {e}");
                 // Don't fail the request, just log the error
@@ -475,7 +475,7 @@ impl MetricsService for ServiceRadarCollector {
 
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding raw OTLP metrics to NATS");
-            let nats_output = nats.lock().await;
+            let mut nats_output = nats.lock().await;
             if let Err(e) = nats_output.publish_raw_metrics(&metrics_data).await {
                 error!("Failed to publish raw OTLP metrics to NATS: {e}");
             }
@@ -548,7 +548,7 @@ impl LogsService for ServiceRadarCollector {
         // Send to NATS if configured
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding logs to NATS");
-            let nats_output = nats.lock().await;
+            let mut nats_output = nats.lock().await;
             if let Err(e) = nats_output.publish_logs(&logs_data).await {
                 error!("Failed to publish logs to NATS: {e}");
                 // Don't fail the request, just log the error

@@ -20,6 +20,7 @@ import {
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
 import { escapeSrqlValue } from '@/lib/srql';
+import { normalizeTimestampString, resolveTraceTimestampMs } from '@/utils/traceTimestamp';
 
 const StatCard = ({
     title,
@@ -255,13 +256,18 @@ const MetricsDashboard = () => {
             const query = queryParts.join(' ');
 
             const response = await postQuery<OtelMetricsApiResponse>(query, cursor, direction);
-            setMetrics(response.results || []);
+            const normalizedResults = (response.results || []).map(metric => {
+                const rawTimestamp = metric.timestamp || metric._tp_time;
+                const normalizedTimestamp = normalizeTimestampString(rawTimestamp);
+                return normalizedTimestamp ? { ...metric, timestamp: normalizedTimestamp } : metric;
+            });
+            setMetrics(normalizedResults);
             setPagination(response.pagination || null);
             
             // Update stats with calculated averages from the fetched data
-            if (response.results && response.results.length > 0) {
-                const totalDuration = response.results.reduce((sum, metric) => sum + (metric.duration_ms || 0), 0);
-                const avgDuration = totalDuration / response.results.length;
+            if (normalizedResults.length > 0) {
+                const totalDuration = normalizedResults.reduce((sum, metric) => sum + (metric.duration_ms || 0), 0);
+                const avgDuration = totalDuration / normalizedResults.length;
                 
                 setStats(prevStats => ({
                     ...prevStats,
@@ -470,14 +476,16 @@ const MetricsDashboard = () => {
                             ) : (
                                 metrics.map((metric, index) => {
                                     const uniqueKey = `${metric.trace_id}-${metric.span_id}-${index}`;
+                                    const timestampMs = resolveTraceTimestampMs(metric);
+                                    const timestampDate = typeof timestampMs === 'number' ? new Date(timestampMs) : null;
                                     return (
                                         <tr key={uniqueKey} className="hover:bg-gray-100 dark:hover:bg-gray-700/30">
                                             <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-300">
                                                 <div className="font-medium">
-                                                    {new Date(metric.timestamp).toLocaleDateString()}
+                                                    {timestampDate ? timestampDate.toLocaleDateString() : '—'}
                                                 </div>
                                                 <div className="text-gray-500 dark:text-gray-400">
-                                                    {new Date(metric.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    {timestampDate ? timestampDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
                                                 </div>
                                             </td>
                                             <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
