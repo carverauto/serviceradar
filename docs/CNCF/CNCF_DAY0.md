@@ -136,21 +136,49 @@ Persistent data store is required for NATS JetStream and TimePlus database.
 
 * Please outline the project’s API Design:
     * Describe the project’s API topology and conventions
+
+    The ServiceRadar API is protected by the Kong API gateway and is a composed of multiple microservices. The original monolithic golang based API endpoints are documented and available directly or through the Swagger interface.
+
+    The new updated SRQL /api/query endpoint allows you to use SRQL syntax to make ad-hoc queries and can be used to create composable dashboards or other integrations.
+
     * Describe the project defaults
+
+    N/A
+
     * Outline any additional configurations from default to make reasonable use of the project
+
+    N/A
+
     * Describe any new or changed API types and calls \- including to cloud providers \- that will result from this project being enabled and used
+
+    N/A
+
     * Describe compatibility of any new or changed APIs with API servers, including the Kubernetes API server
+
+    N/A
+
     * Describe versioning of any new or changed APIs, including how breaking changes are handled
+
+    API methods will be frozen in future releases, API will be versioned like '/api/v2/' or '/api/v3'
+
 * Describe the project’s release processes, including major, minor and patch releases.
+
+Currently our `main` tree is our primary development branch and releases are tagged following SemVer semantics.
 
 ### Installation
 
 * Describe how the project is installed and initialized, e.g. a minimal install with a few lines of code or does it require more complex integration and configuration?
+
+Helm (future), k8s manifests, docker, or bare metal package installation on Debian and RedHat based systems.
+
 * How does an adopter test and validate the installation?
+
+docker compose up -d
 
 ### Security
 
 * Please provide a link to the project’s cloud native [security self assessment](https://tag-security.cncf.io/community/assessments/).
+
 * Please review the [Cloud Native Security Tenets](https://github.com/cncf/tag-security/blob/main/community/resources/security-whitepaper/secure-defaults-cloud-native-8.md) from TAG Security.
     * How are you satisfying the tenets of cloud native security projects?
     * Describe how each of the cloud native principles apply to your project.
