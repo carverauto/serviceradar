@@ -116,6 +116,7 @@ ServiceRadar is a distributed network monitoring and observability platform that
 - [ ] **Mature Plugin System**: Comprehensive checker/plugin framework with marketplace
 - [ ] **Edge Computing**: Lightweight edge deployment for IoT and remote sites
 - [ ] **Service Mesh Integration**: Istio/Linkerd integration for microservices observability
+- [ ] **Causal Inference/Discovery**: Integration with [DeepCausality](https://github.com/deepcausality-rs/deep_causality) library for [AIOps](https://github.com/carverauto/serviceradar/blob/main/sr-architecture-and-design/prd/10-ai-ops.md)
 
 ### Advanced Analytics
 - [ ] **ML/AI Pipeline**: Integrated ML pipeline for predictive analytics
