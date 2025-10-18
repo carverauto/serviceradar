@@ -20,68 +20,68 @@ spec:
       imagePullSecrets:
         - name: ghcr-io-cred
       containers:
-      - name: web
-        image: ghcr.io/carverauto/serviceradar-web:latest
-        imagePullPolicy: Always
-        args:
-        - /bin/sh
-        - -c
-        - |
-          mkdir -p /app/.next/standalone/.next
-          if [ ! -e /app/.next/standalone/.next/static ]; then
-            ln -sfn /app/.next/static /app/.next/standalone/.next/static
-          fi
-          exec node .next/standalone/server.js
-        ports:
-        - containerPort: 3000
-          name: http
-        env:
-        - name: NODE_ENV
-          value: "production"
-        - name: NEXT_PUBLIC_API_URL
-          value: "http://localhost/api"
-        - name: NEXT_INTERNAL_API_URL
-          value: "http://serviceradar-core:8090"
-        - name: NEXT_INTERNAL_SRQL_URL
-          value: "http://serviceradar-kong:8000"
-        - name: AUTH_ENABLED
-          value: "true"
-        - name: API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: serviceradar-secrets
-              key: api-key
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: serviceradar-secrets
-              key: jwt-secret
-        envFrom:
-        - secretRef:
-            name: serviceradar-secrets
-        resources:
-          limits:
-            cpu: "1"
-            memory: "1Gi"
-          requests:
-            cpu: "200m"
-            memory: "512Mi"
-        livenessProbe:
-          httpGet:
-            path: /login
-            port: 3000
-          initialDelaySeconds: 30
-          periodSeconds: 30
-          timeoutSeconds: 10
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /login
-            port: 3000
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+        - name: web
+          image: ghcr.io/carverauto/serviceradar-web:latest
+          imagePullPolicy: Always
+          args:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /app/.next/standalone/.next
+              if [ ! -e /app/.next/standalone/.next/static ]; then
+                ln -sfn /app/.next/static /app/.next/standalone/.next/static
+              fi
+              exec node .next/standalone/server.js
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: NEXT_PUBLIC_API_URL
+              value: "http://localhost/api"
+            - name: NEXT_INTERNAL_API_URL
+              value: "http://serviceradar-core:8090"
+            - name: NEXT_INTERNAL_SRQL_URL
+              value: "http://serviceradar-kong:8000"
+            - name: AUTH_ENABLED
+              value: "false"
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: serviceradar-secrets
+                  key: api-key
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: serviceradar-secrets
+                  key: jwt-secret
+          envFrom:
+            - secretRef:
+                name: serviceradar-secrets
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service
@@ -94,6 +94,6 @@ spec:
     app: serviceradar-web
     app.kubernetes.io/part-of: serviceradar
   ports:
-  - name: http
-    port: 3000
-    targetPort: http
+    - name: http
+      port: 3000
+      targetPort: http
