@@ -58,7 +58,7 @@ ServiceRadar is a distributed network monitoring and observability platform that
 - [ ] **Documentation**: Comprehensive deployment, operations, and troubleshooting guides
 - [ ] **Security Audit**: Third-party security assessment and remediation
 - [ ] **Performance Benchmarks**: Published performance characteristics and tuning guides
-- [ ] **CNCF Sandbox Application**: Submit project for CNCF Sandbox status
+- [x] **CNCF Sandbox Application**: Submit project for CNCF Sandbox status
 
 ### Q2 2026: Enhanced Observability
 - [ ] **OCSF Alignment**: Migrate to Open Cybersecurity Schema Framework data formats
