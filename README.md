@@ -167,7 +167,7 @@ Connect to our live-system. This instance is part of our continuous-deployment s
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please feel free to submit a Pull Request. Join our [Discord](https://discord.gg/dhaNgF9d3g)! 
 
 ## License
 
