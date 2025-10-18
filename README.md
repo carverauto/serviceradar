@@ -163,7 +163,7 @@ Documentation topics include:
 
 Connect to our live-system. This instance is part of our continuous-deployment system and may contain previews of upcoming builds or features, or may not work at all.
 
-**[https://demo.serviceradar.cloud](https://demo.serviceradar.cloud)**
+**[https://demo.serviceradar.cloud](https://demo.serviceradar.cloud)** (admin:tu3kMPfO5GZ1)
 
 ## Contributing
 
