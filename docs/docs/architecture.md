@@ -203,7 +203,7 @@ Conflicts are also logged with the key path and gRPC status code whenever JetStr
 ### Rollout checklist
 
 1. **Staging seed:** run `serviceradar-core --config /etc/serviceradar/core.json --backfill-identities --seed-kv-only --backfill-dry-run` to pre-populate NATS KV without mutating history. Watch `identitymap_kv_publish_total{outcome="dry_run"}` to confirm keys are enumerated.
-2. **Validate signals:** scrape `identitymap_lookup_latency_seconds` and `identitymap_conflict_total` for at least one sweep interval. Conflicts should stay at zero and lookup latency below the alert threshold (<250 ms p95).
+2. **Validate signals:** scrape `identitymap_lookup_latency_seconds` and `identitymap_conflict_total` for at least one sweep interval. Conflicts should stay at zero and keep lookup latency below the alert threshold (p95 under 250 ms).
 3. **Commit the backfill:** rerun the job without `--backfill-dry-run` (and optionally with `--seed-kv-only=false`) to emit the tombstones and fold historical rows.
 4. **Flip the feature flag:** deploy the updated core configuration so the registry publishes canonical IDs by default (keeping the legacy tombstone path as a safety net). Repeat the same sequence in production once staging metrics hold steady.
 5. **Post-rollout watch:** leave the Prometheus alerts in place for at least one week; any sustained rise in `identitymap_conflict_total{reason="retry_exhausted"}` should trigger an incident to investigate duplicate identifiers.
