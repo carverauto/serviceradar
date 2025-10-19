@@ -164,7 +164,7 @@ Execute raw SRQL queries for advanced users.
 **Example:**
 ```json
 {
-  "query": "SHOW devices WHERE ip LIKE '192.168.1.%' ORDER BY last_seen DESC LIMIT 10"
+  "query": "in:devices device.ip:192.168.1.% sort:last_seen:desc limit:10"
 }
 ```
 
@@ -214,7 +214,7 @@ The MCP server exposes endpoints under `/api/mcp/`:
   "result": {
     "devices": [...],
     "count": 10,
-    "query": "SHOW devices WHERE available = true LIMIT 10"
+    "query": "in:devices available:true limit:10"
   }
 }
 ```
@@ -232,38 +232,38 @@ The MCP server exposes endpoints under `/api/mcp/`:
 
 ## SRQL Query Language Basics
 
-ServiceRadar Query Language (SRQL) is used for data queries. Basic syntax:
+ServiceRadar Query Language (SRQL) uses key:value selectors. Always start with `in:<entity>` to pick a dataset, then add filters, sorting, limits, and analytics directives.
 
-### Show Data
-```sql
-SHOW devices
-SHOW logs WHERE level = 'error'
-SHOW events WHERE severity = 'critical'
+### Listing Data
+```text
+in:devices limit:20 sort:last_seen:desc
+in:logs severity_text:error time:last_1h sort:timestamp:desc
+in:activity severity_id:critical
 ```
 
 ### Filtering
-```sql
-SHOW devices WHERE available = true
-SHOW logs WHERE timestamp > NOW() - INTERVAL 1 HOUR
-SHOW events WHERE event_type = 'network_down' AND severity IN ('high', 'critical')
+```text
+in:devices available:false sort:last_seen:desc
+in:activity connection.src_endpoint_ip:10.% connection.dst_endpoint_port:(22,2222)
+in:logs !service_name:"serviceradar-web"
 ```
 
 ### Sorting and Limiting
-```sql
-SHOW devices ORDER BY last_seen DESC LIMIT 50
-SHOW logs WHERE level = 'error' ORDER BY timestamp DESC LIMIT 100
+```text
+in:devices sort:last_seen:desc limit:50
+in:logs severity_text:error sort:timestamp:desc limit:100
 ```
 
 ### Time Ranges
-```sql
-SHOW events WHERE timestamp BETWEEN '2025-01-01' AND '2025-01-02'
-SHOW logs WHERE timestamp > NOW() - INTERVAL 24 HOUR
+```text
+in:activity time:[2025-01-01T00:00:00Z,2025-01-02T00:00:00Z]
+in:logs time:last_24h
 ```
 
-### Aggregation
-```sql
-COUNT devices GROUP BY poller_id
-COUNT events GROUP BY severity
+### Aggregations
+```text
+in:devices stats:"count() as total by poller_id" sort:total:desc
+in:activity time:last_1h stats:"count() as events by severity_id" having:"events>100"
 ```
 
 ## Example Use Cases
@@ -312,7 +312,7 @@ Execute complex analysis queries:
 {
   "name": "srql.query",
   "arguments": {
-    "query": "SHOW devices WHERE ip LIKE '10.%' AND available = false ORDER BY last_seen DESC"
+    "query": "in:devices device.ip:10.% available:false sort:last_seen:desc"
   }
 }
 ```
