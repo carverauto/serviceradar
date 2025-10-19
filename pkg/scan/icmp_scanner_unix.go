@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"syscall"
 	"time"
@@ -41,21 +42,37 @@ const (
 )
 
 type ICMPSweeper struct {
-	rateLimit   int
-	timeout     time.Duration
-	identifier  int
-	rawSocketFD int
-	conn        *icmp.PacketConn
-	mu          sync.Mutex
-	results     map[string]models.Result
-	cancel      context.CancelFunc
-	logger      logger.Logger
+	rateLimit           int
+	timeout             time.Duration
+	identifier          int
+	rawSocketFD         int
+	conn                icmpPacketConn
+	mu                  sync.Mutex
+	results             map[string]models.Result
+	cancel              context.CancelFunc
+	logger              logger.Logger
+	rawSend             rawSendFunc
+	invalidDestinations map[string]struct{}
 
 	// Streaming results callback for immediate result emission
 	resultCallback func(models.Result)
 }
 
 var _ Scanner = (*ICMPSweeper)(nil)
+
+type icmpPacketConn interface {
+	SetReadDeadline(time.Time) error
+	ReadFrom([]byte) (int, net.Addr, error)
+	WriteTo([]byte, net.Addr) (int, error)
+	Close() error
+}
+
+type rawSendFunc func(fd int, data []byte, addr *syscall.SockaddrInet4) error
+
+var (
+	errInvalidICMPDestination = errors.New("icmp destination rejected by kernel")
+	errInvalidIPv4Address     = errors.New("invalid IPv4 address")
+)
 
 const (
 	defaultIdentifierMod = 65536
@@ -93,13 +110,17 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger) (*I
 	}
 
 	s := &ICMPSweeper{
-		rateLimit:   rateLimit,
-		timeout:     timeout,
-		identifier:  identifier,
-		rawSocketFD: fd,
-		conn:        conn,
-		results:     make(map[string]models.Result),
-		logger:      log,
+		rateLimit:           rateLimit,
+		timeout:             timeout,
+		identifier:          identifier,
+		rawSocketFD:         fd,
+		conn:                conn,
+		results:             make(map[string]models.Result),
+		logger:              log,
+		invalidDestinations: make(map[string]struct{}),
+		rawSend: func(fd int, data []byte, addr *syscall.SockaddrInet4) error {
+			return syscall.Sendto(fd, data, 0, addr)
+		},
 	}
 
 	return s, nil
@@ -300,6 +321,14 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte) {
 	ipAddr := net.ParseIP(target.Host)
 	if ipAddr == nil || ipAddr.To4() == nil {
 		s.logger.Warn().Str("host", target.Host).Msg("Invalid IPv4 address")
+		s.recordInitialResult(target, fmt.Errorf("%w: %s", errInvalidIPv4Address, target.Host))
+
+		return
+	}
+
+	if s.shouldSkipInvalidDestination(target.Host) {
+		s.logger.Debug().Str("host", target.Host).Msg("Skipping ICMP send for previously invalid destination")
+		s.recordInitialResult(target, errInvalidICMPDestination)
 
 		return
 	}
@@ -308,15 +337,70 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte) {
 	copy(addr[:], ipAddr.To4())
 	sockaddr := &syscall.SockaddrInet4{Addr: addr}
 
-	if err := syscall.Sendto(s.rawSocketFD, data, 0, sockaddr); err != nil {
-		s.logger.Error().Err(err).Str("host", target.Host).Msg("Error sending ICMP")
+	var sendErr error
+	if err := s.sendRawPacket(data, sockaddr); err != nil {
+		if handled, fallbackErr := s.tryFallbackSend(ipAddr, data, err); handled {
+			sendErr = nil
+		} else {
+			sendErr = fallbackErr
+		}
 	}
 
-	s.recordInitialResult(target)
+	if sendErr != nil {
+		if isInvalidDestinationError(sendErr) {
+			wrappedErr := errors.Join(errInvalidICMPDestination, sendErr)
+			s.markInvalidDestination(target.Host)
+			s.logger.Warn().
+				Err(sendErr).
+				Str("host", target.Host).
+				Msg("ICMP destination rejected, suppressing future attempts")
+			s.recordInitialResult(target, wrappedErr)
+
+			return
+		}
+
+		s.logger.Error().Err(sendErr).Str("host", target.Host).Msg("Error sending ICMP")
+		s.recordInitialResult(target, sendErr)
+
+		return
+	}
+
+	s.recordInitialResult(target, nil)
+}
+
+func (s *ICMPSweeper) sendRawPacket(data []byte, sockaddr *syscall.SockaddrInet4) error {
+	if s.rawSend != nil {
+		return s.rawSend(s.rawSocketFD, data, sockaddr)
+	}
+
+	return syscall.Sendto(s.rawSocketFD, data, 0, sockaddr)
+}
+
+func (s *ICMPSweeper) tryFallbackSend(ipAddr net.IP, data []byte, rawErr error) (bool, error) {
+	if s.conn == nil {
+		return false, rawErr
+	}
+
+	var errno syscall.Errno
+	if !errors.As(rawErr, &errno) {
+		return false, rawErr
+	}
+
+	if errno != syscall.EINVAL && errno != syscall.EADDRNOTAVAIL && errno != syscall.EAFNOSUPPORT {
+		return false, rawErr
+	}
+
+	if _, err := s.conn.WriteTo(data, &net.IPAddr{IP: ipAddr}); err != nil {
+		return false, err
+	}
+
+	s.logger.Debug().Err(rawErr).Str("host", ipAddr.String()).Msg("Fell back to PacketConn ICMP send")
+
+	return true, nil
 }
 
 // recordInitialResult stores the initial ping result.
-func (s *ICMPSweeper) recordInitialResult(target models.Target) {
+func (s *ICMPSweeper) recordInitialResult(target models.Target, sendErr error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -327,8 +411,46 @@ func (s *ICMPSweeper) recordInitialResult(target models.Target) {
 		FirstSeen:  now,
 		LastSeen:   now,
 		PacketLoss: 100,
+		Error:      sendErr,
 	}
 	s.emitResult(target.Host, &result)
+}
+
+func (s *ICMPSweeper) shouldSkipInvalidDestination(host string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, exists := s.invalidDestinations[host]
+
+	return exists
+}
+
+func (s *ICMPSweeper) markInvalidDestination(host string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.invalidDestinations[host] = struct{}{}
+}
+
+func isInvalidDestinationError(err error) bool {
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		if errno == syscall.EINVAL || errno == syscall.EADDRNOTAVAIL || errno == syscall.EAFNOSUPPORT {
+			return true
+		}
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return isInvalidDestinationError(opErr.Err)
+	}
+
+	var syscallErr *os.SyscallError
+	if errors.As(err, &syscallErr) {
+		return isInvalidDestinationError(syscallErr.Err)
+	}
+
+	return false
 }
 
 const (
@@ -496,6 +618,8 @@ func (s *ICMPSweeper) Stop() error {
 
 			return err
 		}
+
+		s.conn = nil
 	}
 
 	if s.rawSocketFD != 0 {

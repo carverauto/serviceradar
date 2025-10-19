@@ -1,10 +1,14 @@
 package scan
 
 import (
+	"errors"
+	"net"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -68,4 +72,143 @@ func TestProcessResults(t *testing.T) {
 			t.Errorf("Expected 1.1.1.1 to be unavailable")
 		}
 	}
+}
+
+func TestICMPSweeperSendPingFallback(t *testing.T) {
+	mockConn := &mockICMPConn{}
+	sweeper := &ICMPSweeper{
+		rawSocketFD: 1,
+		conn:        mockConn,
+		results:     make(map[string]models.Result),
+		logger:      logger.NewTestLogger(),
+		rawSend: func(_ int, _ []byte, _ *syscall.SockaddrInet4) error {
+			return syscall.EINVAL
+		},
+	}
+
+	target := models.Target{Host: "10.42.111.75", Mode: models.ModeICMP}
+	sweeper.sendPingToTarget(target, []byte{0x8, 0x0})
+
+	if mockConn.writes != 1 {
+		t.Fatalf("expected fallback to perform one write, got %d", mockConn.writes)
+	}
+
+	if mockConn.lastDest == nil || mockConn.lastDest.String() != target.Host {
+		t.Fatalf("unexpected fallback destination: %#v", mockConn.lastDest)
+	}
+
+	if _, exists := sweeper.invalidDestinations[target.Host]; exists {
+		t.Fatalf("did not expect host %s to be marked invalid", target.Host)
+	}
+
+	result, ok := sweeper.results[target.Host]
+	if !ok {
+		t.Fatalf("expected result for host %s", target.Host)
+	}
+	if result.Error != nil {
+		t.Fatalf("expected nil error after successful fallback, got %v", result.Error)
+	}
+}
+
+func TestICMPSweeperSendPingNoFallbackForOtherErrors(t *testing.T) {
+	mockConn := &mockICMPConn{}
+	sweeper := &ICMPSweeper{
+		rawSocketFD: 1,
+		conn:        mockConn,
+		results:     make(map[string]models.Result),
+		logger:      logger.NewTestLogger(),
+		rawSend: func(_ int, _ []byte, _ *syscall.SockaddrInet4) error {
+			return syscall.EPERM
+		},
+	}
+
+	target := models.Target{Host: "10.42.111.75", Mode: models.ModeICMP}
+	sweeper.sendPingToTarget(target, []byte{0x8, 0x0})
+
+	if mockConn.writes != 0 {
+		t.Fatalf("expected no fallback writes, got %d", mockConn.writes)
+	}
+
+	result, ok := sweeper.results[target.Host]
+	if !ok {
+		t.Fatalf("expected result for host %s", target.Host)
+	}
+	if !errors.Is(result.Error, syscall.EPERM) {
+		t.Fatalf("expected EPERM error, got %v", result.Error)
+	}
+
+	if _, exists := sweeper.invalidDestinations[target.Host]; exists {
+		t.Fatalf("did not expect host %s to be marked invalid", target.Host)
+	}
+}
+
+func TestICMPSweeperMarksInvalidDestinations(t *testing.T) {
+	mockConn := &mockICMPConn{
+		writeErr: syscall.EINVAL,
+	}
+
+	sweeper := &ICMPSweeper{
+		rawSocketFD: 1,
+		conn:        mockConn,
+		results:     make(map[string]models.Result),
+		logger:      logger.NewTestLogger(),
+		rawSend: func(_ int, _ []byte, _ *syscall.SockaddrInet4) error {
+			return syscall.EINVAL
+		},
+		invalidDestinations: make(map[string]struct{}),
+	}
+
+	target := models.Target{Host: "10.42.111.80", Mode: models.ModeICMP}
+
+	sweeper.sendPingToTarget(target, []byte{0x8, 0x0})
+
+	if mockConn.writes != 1 {
+		t.Fatalf("expected fallback attempt, got %d writes", mockConn.writes)
+	}
+
+	if _, exists := sweeper.invalidDestinations[target.Host]; !exists {
+		t.Fatalf("expected host %s to be marked invalid", target.Host)
+	}
+
+	result, ok := sweeper.results[target.Host]
+	if !ok {
+		t.Fatalf("expected result for host %s", target.Host)
+	}
+	if !errors.Is(result.Error, errInvalidICMPDestination) {
+		t.Fatalf("expected errInvalidICMPDestination, got %v", result.Error)
+	}
+
+	// Subsequent sends should be skipped without invoking fallback again.
+	sweeper.sendPingToTarget(target, []byte{0x8, 0x0})
+	if mockConn.writes != 1 {
+		t.Fatalf("expected no additional writes after marking invalid, got %d", mockConn.writes)
+	}
+}
+
+type mockICMPConn struct {
+	writes   int
+	lastDest net.Addr
+	writeErr error
+}
+
+func (m *mockICMPConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (m *mockICMPConn) ReadFrom([]byte) (int, net.Addr, error) {
+	return 0, nil, nil
+}
+
+func (m *mockICMPConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+	m.writes++
+	m.lastDest = addr
+	if m.writeErr != nil {
+		return 0, m.writeErr
+	}
+
+	return len(b), nil
+}
+
+func (m *mockICMPConn) Close() error {
+	return nil
 }
