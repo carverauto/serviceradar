@@ -32,6 +32,35 @@ Traps complement polling by pushing urgent events:
 2. Expose the trap listener service in Kubernetes with a `LoadBalancer` or NodePort, or map it locally in Docker Compose.
 3. Confirm delivery with `tcpdump` or `kubectl logs` on the trap receiver pod.
 
+`serviceradar-trapd` is stateless; see `helm/serviceradar/files/serviceradar-config.yaml` or `packaging/trapd/config/trapd.json` for base settings you can override through the KV overlay.
+
+## Trap Processing Pipeline
+
+1. `serviceradar-trapd` publishes each decoded trap as JSON to the NATS JetStream stream `events`. The default subject is `snmp.traps`; if you prefer the zen defaults, set it to `events.snmp` so the decision group matches without additional rewrites.
+2. `serviceradar-zen` attaches to the same stream using the `zen-consumer` durable. The SNMP decision group listens for `events.snmp`, mutates the payload, and republishes it with the `.processed` suffix (`events.snmp.processed`).
+3. `serviceradar-db-event-writer` drains the `.processed` subjects and bulk loads the results into Proton. Keeping raw and processed subjects in one stream lets you replay traps after adjusting rules.
+
+## Default Trap Rules
+
+- `snmp_severity` normalizes the severity field to a known value if the trap does not supply one. Review the JSON under `packaging/zen/rules/snmp_severity.json`.
+- `passthrough` is available for cases where you only need the `.processed` suffix without transformations; it copies the input event unchanged.
+
+These and the syslog-focused rules share the same GoRules/zen runtime. A Web UI rule builder backed by GoRules is on the roadmap so you can compose new branches without editing JSON directly.
+
+## Managing Rules
+
+- Rules live in the `serviceradar-kv` bucket under `agents/<agent-id>/<stream>/<subject>/<rule>.json`. For the demo stack that becomes `agents/default-agent/events/events.snmp/snmp_severity.json`.
+- Update or add rules with the `zen-put-rule` helper inside the `serviceradar-tools` container. Example:
+
+  ```bash
+  kubectl -n demo exec deploy/serviceradar-tools -- \
+    zen-put-rule --agent default-agent --stream events \
+    --subject events.snmp --rule snmp_severity \
+    --file /etc/serviceradar/zen/rules/snmp_severity.json
+  ```
+
+  Substitute `passthrough` when you want to register the no-op rule for additional subjects (for example OTEL logs).
+
 ## Validate Collection
 
 - Use `serviceradarctl poller check` to run ad-hoc queries against new devices.
