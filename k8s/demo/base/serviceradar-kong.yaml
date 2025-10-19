@@ -3,15 +3,19 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: serviceradar-kong
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: serviceradar-kong
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
         app: serviceradar-kong
+        app.kubernetes.io/part-of: serviceradar
     spec:
       initContainers:
       - name: render-kong-config
@@ -144,9 +148,12 @@ apiVersion: v1
 kind: Service
 metadata:
   name: serviceradar-kong
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 spec:
   selector:
     app: serviceradar-kong
+    app.kubernetes.io/part-of: serviceradar
   ports:
   - name: proxy
     port: 8000
