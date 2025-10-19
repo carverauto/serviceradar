@@ -1,0 +1,21 @@
+# prod/serviceradar-core-grpc-external.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-core-grpc-external
+  namespace: demo
+  annotations:
+    metallb.universe.tf/address-pool: k3s-pool
+    metallb.universe.tf/allow-shared-ip: serviceradar-core
+spec:
+  type: LoadBalancer
+  selector:
+    app: serviceradar-core
+    app.kubernetes.io/part-of: serviceradar
+  loadBalancerSourceRanges:
+    - 192.168.6.87/32
+  ports:
+    - name: grpc
+      port: 50052
+      protocol: TCP
+      targetPort: grpc
