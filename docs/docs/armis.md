@@ -31,7 +31,7 @@ ServiceRadar ingests Armis device intelligence to enrich inventory, surface unma
 
 2. Deploy or restart the `serviceradar-sync` workload. Watch `kubectl logs` for `armis_sync` messages confirming pagination progress.
 3. Confirm imported devices in the registry via `srql`:  
-   `SELECT uid, hostname, risk_score FROM registry.devices WHERE source = 'armis' LIMIT 20;`.
+   `in:devices source:armis sort:risk_score:desc limit:20`.
 
 ## Demo and Testing
 

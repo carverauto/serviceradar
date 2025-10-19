@@ -52,7 +52,7 @@ The NetBox connector keeps ServiceRadar's registry synchronized with your source
 
 ## Validation
 
-- Run `SELECT hostname, site FROM registry.devices WHERE source='netbox' LIMIT 20;` in SRQL to confirm imports.
+- Run `in:devices source:netbox sort:hostname limit:20` in SRQL to confirm imports.
 - Compare interface counts against NetBox inventory; mismatches usually stem from stale caching.
 - Use the [Service Port Map](./service-port-map.md) to confirm Layer 2/3 relationships were derived correctly.
 
