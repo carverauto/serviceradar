@@ -18,6 +18,7 @@ ServiceRadar offers:
 - Specialized monitoring for specific node types (e.g., Dusk Network)
 - Secure communication with mTLS support
 - Modern web UI with dashboard visualization
+- SRQL key:value query language for unified analytics across devices, events, and telemetry
 - User authentication with local login support
 - JWT-based session management
 - KV Store for dynamic configuration
@@ -41,6 +42,7 @@ ServiceRadar consists of several main components:
 4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
 5. **KV Store** - Provides dynamic configuration capabilities using NATS JetStream
 6. **Sync Service** - Integrates with external inventory and security systems
+7. **SRQL Service** - OCaml query engine behind `/api/query` for unified analytics across devices, events, and telemetry
 
 For a detailed explanation of the architecture, please see the [Architecture](./architecture.md) page.
 

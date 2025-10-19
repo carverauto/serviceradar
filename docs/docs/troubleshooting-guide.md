@@ -39,6 +39,8 @@ Use this guide as a first stop when onboarding ServiceRadar or operating the dem
 ## Discovery
 
 - **Empty results**: Confirm scopes exist in KV under `discovery/jobs/*`. Reconcile job ownership using the [Discovery guide](./discovery.md).
+- **Mapper stalled**: Tail `serviceradar-mapper` logs for `scheduler` messages. Ensure `/etc/serviceradar/mapper.json` has at least one enabled `scheduled_jobs` entry and that credentials cover the target CIDRs.
+- **Missing interfaces/topology**: Verify `stream_config` in `mapper.json` still points to `discovered_interfaces` and `topology_discovery_events`. Mapper only emits interface/topology data when those fields are present.
 - **Duplicate devices**: Enable canonical matching in Sync so NetBox and Armis merges succeed.
 - **Sweep failures**: Check poller network reachability and throttling limits.
 
