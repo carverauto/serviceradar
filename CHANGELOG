@@ -1,3 +1,15 @@
+# ServiceRadar v1.0.53-pre20
+
+GHCR manifest refresh and release automation updates.
+
+## Whats New
+
+**1.0.53-pre20**
+- Republished every ServiceRadar container image so `latest` tags resolve correctly in Docker Compose.
+- GitHub release workflow now authenticates to GHCR and pushes Bazel-built images before uploading packages.
+- Docker quick start docs now require `docker-compose pull` to ensure deployments use the refreshed images.
+- Removed the default compose override that forced `:local` tags, eliminating manifest errors for fresh installs.
+
 # ServiceRadar v1.0.53-pre19
 
 Bazel container fixes for runtime parity.
