@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.53-pre21
+
+SRQL credential fix for Proton access.
+
+## Whats New
+
+**1.0.53-pre21**
+- Relaxed permissions on the shared Proton password secret so non-root services (SRQL, tools) can read it during startup.
+- Updated all deployment paths (Docker Compose, Helm demo, K8s demo) to use the new permissions, keeping Proton’s internal copy locked down.
+
 # ServiceRadar v1.0.53-pre20
 
 GHCR manifest refresh and release automation updates.
