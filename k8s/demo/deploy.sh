@@ -321,7 +321,7 @@ data:
         # Also save to shared credentials volume for other services
         if [ -d "/etc/serviceradar/credentials" ]; then
             echo "\$PROTON_PASSWORD" > /etc/serviceradar/credentials/proton-password
-            chmod 600 /etc/serviceradar/credentials/proton-password
+            chmod 644 /etc/serviceradar/credentials/proton-password
             echo "[Proton K8s Init] Password also saved to shared credentials volume"
         fi
     else
