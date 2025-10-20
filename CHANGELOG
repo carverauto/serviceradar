@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.53
+
+Stability and packaging cleanup for the Compose stack.
+
+## Whats New
+
+**1.0.53**
+- Relaxed Proton password secret permissions so SRQL and tooling pods can authenticate without running as root.
+- Republished every GHCR image and updated the release workflow to push containers before packages, eliminating `manifest unknown` pull failures.
+- Refreshed Docker quick start guidance (explicit `docker compose pull`, removed `:local` override) to keep fresh installs aligned with published tags.
+
 # ServiceRadar v1.0.53-pre21
 
 SRQL credential fix for Proton access.
