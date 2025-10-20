@@ -9,6 +9,24 @@ This guide gets you started with ServiceRadar using Docker Compose in under 5 mi
 - 8GB+ RAM
 - 50GB+ disk space
 
+## Build Images Locally (Bazel)
+
+ServiceRadar container images are built with Bazel. Load the agent image into your local Docker daemon before starting Compose:
+
+```bash
+bazel run //docker/images:agent_image_amd64_tar
+```
+
+To publish the agent image (and the rest of the stack) to GHCR using the same Bazel targets:
+
+```bash
+# Push just the agent image
+bazel run //docker/images:agent_image_amd64_push
+
+# Or push every image in one go
+bazel run //docker/images:push_all
+```
+
 ## Quick Start
 
 1. **Clone and navigate**:
@@ -17,17 +35,22 @@ This guide gets you started with ServiceRadar using Docker Compose in under 5 mi
    cd serviceradar
    ```
 
-2. **Start ServiceRadar**:
+2. **Pull the images** (ensures the latest tags are present before the first run):
+   ```bash
+   SERVICERADAR_VERSION=latest docker-compose pull
+   ```
+
+3. **Start ServiceRadar**:
    ```bash
    SERVICERADAR_VERSION=latest docker-compose up -d
    ```
 
-3. **Get your admin password**:
+4. **Get your admin password**:
    ```bash
    docker-compose logs config-updater | grep "Password:"
    ```
 
-4. **Access ServiceRadar**:
+5. **Access ServiceRadar**:
    - Web Interface: http://localhost
    - Username: `admin`
    - Password: (from step 3)
