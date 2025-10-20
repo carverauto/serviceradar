@@ -60,6 +60,10 @@ jobs:
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GHCR_DOCKER_AUTH: ${{ secrets.GHCR_DOCKER_AUTH }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GHCR_REGISTRY: ghcr.io
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -135,6 +139,22 @@ jobs:
 
       - name: Build Kong vendor artifacts
         run: ./scripts/build-kong-vendor.sh
+
+      - name: Authenticate Docker for GHCR
+        run: |
+          set -euo pipefail
+          bazel run --config=remote //:buildbuddy_setup_docker_auth
+
+      - name: Publish container images
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cmd=(bazel run --config=remote --stamp //docker/images:push_all)
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            cmd+=(-- --tag "${RELEASE_TAG}")
+          fi
+          "${cmd[@]}"
 
       - name: Publish Debian and RPM packages
         env:
