@@ -590,7 +590,7 @@ data:
             {
               "label": "all_devices",
               "query": "in:devices",
-              "sweep_modes": ["icmp", "tcp"]
+              "sweep_modes": ["icmp"]
             }
           ]
         }
