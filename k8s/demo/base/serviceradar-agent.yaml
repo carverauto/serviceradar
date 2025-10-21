@@ -24,9 +24,10 @@ spec:
           image: busybox:1.36
           imagePullPolicy: Always
           command: ['sh', '-c', '
-          mkdir -p /etc/serviceradar/checkers/sweep && 
+          mkdir -p /etc/serviceradar/checkers/sweep &&
           cp /config/snmp.json /etc/serviceradar/checkers/snmp.json &&
-          cp /config/external.json /etc/serviceradar/checkers/external.json
+          cp /config/external.json /etc/serviceradar/checkers/external.json &&
+          cp /config/sweep.json /etc/serviceradar/checkers/sweep/sweep.json
         ']
           volumeMounts:
             - name: serviceradar-config

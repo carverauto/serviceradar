@@ -38,6 +38,8 @@ var (
 	ErrNoHostsFieldFound = errors.New("no hosts field found in chunk data")
 	// ErrHostsFieldNotArray is returned when hosts field is not an array
 	ErrHostsFieldNotArray = errors.New("hosts field is not an array in chunk data")
+	// ErrSweepServiceNotConfigured is returned when the upstream agent has no sweep service registered
+	ErrSweepServiceNotConfigured = errors.New("sweep service not configured")
 )
 
 // executeGetResults now routes to the correct method based on service type.
@@ -109,6 +111,24 @@ func (rp *ResultsPoller) executeStreamResults(ctx context.Context, req *proto.Re
 
 	mergedDevices, finalChunk, metadata, err := rp.processStreamChunks(ctx, stream, req.ServiceName)
 	if err != nil {
+		if errors.Is(err, ErrSweepServiceNotConfigured) {
+			rp.logger.Warn().
+				Str("service_name", req.ServiceName).
+				Msg("Sweep service not configured on agent; returning unavailable response")
+
+			return &proto.ResultsResponse{
+				Available:    false,
+				Data:         []byte(`{"error": "No sweep service configured"}`),
+				ServiceName:  req.ServiceName,
+				ServiceType:  req.ServiceType,
+				ResponseTime: time.Since(startTime).Nanoseconds(),
+				AgentId:      req.AgentId,
+				PollerId:     req.PollerId,
+				Timestamp:    time.Now().Unix(),
+				HasNewData:   false,
+			}, nil
+		}
+
 		return nil, err
 	}
 
@@ -131,6 +151,16 @@ func (rp *ResultsPoller) processStreamChunks(
 		}
 
 		if streamErr != nil {
+			if st, ok := status.FromError(streamErr); ok && st.Code() == codes.NotFound {
+				rp.logger.Warn().
+					Err(streamErr).
+					Str("service_name", serviceName).
+					Msg("Stream aborted - sweep service not configured upstream")
+
+				err = ErrSweepServiceNotConfigured
+				return mergedDevices, finalChunk, metadata, err
+			}
+
 			rp.logger.Error().Err(streamErr).
 				Str("service_name", serviceName).
 				Int("chunks_received", chunksReceived).
@@ -216,28 +246,66 @@ func (rp *ResultsPoller) parseChunkData(
 		}
 
 		// Extract hosts from the object
-		hostsInterface, ok := chunkData["hosts"]
-		if !ok {
-			err = ErrNoHostsFieldFound
-			return devices, metadata, err
+		knownKeys := []string{"hosts", "devices", "results", "entries", "data"}
+		var selectedKey string
+
+		// Helper to create metadata without the selected devices key
+		copyWithoutKey := func(src map[string]interface{}, skip string) map[string]interface{} {
+			meta := make(map[string]interface{}, len(src))
+			for key, value := range src {
+				if skip != "" && key == skip {
+					continue
+				}
+				meta[key] = value
+			}
+			return meta
 		}
 
-		hosts, ok := hostsInterface.([]interface{})
-		if !ok {
-			err = ErrHostsFieldNotArray
-			return devices, metadata, err
-		}
+		for _, key := range knownKeys {
+			value, ok := chunkData[key]
+			if !ok {
+				continue
+			}
 
-		devices = hosts
+			switch typed := value.(type) {
+			case []interface{}:
+				devices = typed
+			case map[string]interface{}:
+				flattened := make([]interface{}, 0, len(typed))
+				for _, v := range typed {
+					flattened = append(flattened, v)
+				}
+				devices = flattened
+			case nil:
+				devices = []interface{}{}
+			case string:
+				if strings.HasPrefix(typed, "[") {
+					var arr []interface{}
+					if err := json.Unmarshal([]byte(typed), &arr); err == nil {
+						devices = arr
+					}
+				}
+			}
 
-		// Store metadata (excluding hosts array)
-		metadata = make(map[string]interface{})
-
-		for key, value := range chunkData {
-			if key != "hosts" {
-				metadata[key] = value
+			if devices != nil {
+				selectedKey = key
+				break
 			}
 		}
+
+		if devices == nil {
+			rp.logger.Warn().
+				Str("service_name", serviceName).
+				Int("chunk_index", int(chunk.ChunkIndex)).
+				Msg("No known hosts field found in sweep chunk; preserving metadata only")
+
+			metadata = copyWithoutKey(chunkData, "")
+			devices = []interface{}{}
+
+			return devices, metadata, nil
+		}
+
+		metadata = copyWithoutKey(chunkData, selectedKey)
 	}
 
 	return devices, metadata, err
@@ -266,6 +334,10 @@ func (rp *ResultsPoller) buildFinalResponse(
 	var mergedData []byte
 
 	var err error
+
+	if mergedDevices == nil {
+		mergedDevices = []interface{}{}
+	}
 
 	// For sweep services, we need to reconstruct the original object format
 	if req.ServiceType == "sweep" && metadata != nil {
