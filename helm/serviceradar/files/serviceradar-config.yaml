@@ -470,7 +470,7 @@ data:
         # Also save to shared credentials volume for other services
         if [ -d "/etc/serviceradar/credentials" ]; then
             echo "$PROTON_PASSWORD" > /etc/serviceradar/credentials/proton-password
-            chmod 600 /etc/serviceradar/credentials/proton-password
+            chmod 644 /etc/serviceradar/credentials/proton-password
             echo "[Proton K8s Init] Password also saved to shared credentials volume"
         fi
     fi
@@ -631,13 +631,24 @@ data:
     fi
     
     # Wait for Proton to be ready
-    if [ "${WAIT_FOR_PROTON:-false}" = "true" ]; then
+    if [ "${WAIT_FOR_PROTON:-true}" = "true" ]; then
         PROTON_TLS_ADDR="${PROTON_HOST:-serviceradar-proton}:9440"
         PROTON_HTTP_ADDR="${PROTON_HOST:-serviceradar-proton}:8123"
+        PROTON_TLS_HOST="${PROTON_TLS_ADDR%%:*}"
+        PROTON_TLS_PORT="${PROTON_TLS_ADDR##*:}"
         echo "Waiting for Proton TLS port at $PROTON_TLS_ADDR..."
+        TLS_READY=false
         for i in {1..30}; do
-            # First check if TLS port is listening (using openssl to test TLS connectivity)
-            if echo "QUIT" | openssl s_client -connect $PROTON_TLS_ADDR -cert /etc/serviceradar/certs/core.pem -key /etc/serviceradar/certs/core-key.pem -CAfile /etc/serviceradar/certs/root.pem -servername proton.serviceradar -quiet > /dev/null 2>&1; then
+            if command -v openssl >/dev/null 2>&1; then
+                if echo "QUIT" | openssl s_client -connect "$PROTON_TLS_ADDR" -cert /etc/serviceradar/certs/core.pem -key /etc/serviceradar/certs/core-key.pem -CAfile /etc/serviceradar/certs/root.pem -servername proton.serviceradar -quiet > /dev/null 2>&1; then
+                    TLS_READY=true
+                fi
+            else
+                if timeout 5 bash -lc "exec 3<>/dev/tcp/${PROTON_TLS_HOST}/${PROTON_TLS_PORT}" > /dev/null 2>&1; then
+                    TLS_READY=true
+                fi
+            fi
+            if [ "$TLS_READY" = "true" ]; then
                 echo "Proton TLS port is ready!"
                 # Also verify HTTP for initialization queries (optional)
                 if [ -n "$PROTON_PASSWORD" ]; then
@@ -654,6 +665,9 @@ data:
             echo "Waiting for Proton TLS... ($i/30)"
             sleep 2
         done
+        if [ "$TLS_READY" != "true" ]; then
+            echo "Warning: Proton TLS port did not respond after 30 attempts; proceeding anyway" >&2
+        fi
     fi
     
     # Initialize database if requested

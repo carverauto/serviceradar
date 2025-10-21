@@ -50,7 +50,7 @@ CREATE STREAM IF NOT EXISTS device_updates (
     available boolean,
     metadata map(string, string)
 ) ENGINE = Stream(1, 1, rand())
-PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+PARTITION BY to_start_of_day(timestamp)
 ORDER BY (timestamp, device_id, poller_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
 SETTINGS index_granularity = 8192;
@@ -598,7 +598,7 @@ CREATE STREAM IF NOT EXISTS otel_trace_summaries (
     span_count        uint32 CODEC(ZSTD(1)),
     error_count       uint32 CODEC(ZSTD(1))
 ) ENGINE = Stream(1, 1, rand())
-PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
+PARTITION BY to_start_of_day(timestamp)
 ORDER BY (timestamp, trace_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
 SETTINGS index_granularity = 8192;

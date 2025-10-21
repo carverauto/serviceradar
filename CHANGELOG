@@ -1,3 +1,46 @@
+# ServiceRadar v1.0.54-pre1
+
+Dependency refresh and frontend framework upgrade ahead of the next stable cut.
+
+## Whats New
+
+**1.0.54-pre1**
+- Upgraded the web UI stack to the latest Next.js/React release, unlocking faster builds and improved developer ergonomics.
+- Refreshed Go and JavaScript dependencies across the services to pull in the latest security and bug-fix patches.
+
+# ServiceRadar v1.0.53
+
+Stability and packaging cleanup for the Compose stack.
+
+## Whats New
+
+**1.0.53**
+- Relaxed Proton password secret permissions so SRQL and tooling pods can authenticate without running as root.
+- Republished every GHCR image and updated the release workflow to push containers before packages, eliminating `manifest unknown` pull failures.
+- Refreshed Docker quick start guidance (explicit `docker compose pull`, removed `:local` override) to keep fresh installs aligned with published tags.
+
+# ServiceRadar v1.0.53-pre21
+
+SRQL credential fix for Proton access.
+
+## Whats New
+
+**1.0.53-pre21**
+- Relaxed permissions on the shared Proton password secret so non-root services (SRQL, tools) can read it during startup.
+- Updated all deployment paths (Docker Compose, Helm demo, K8s demo) to use the new permissions, keeping Proton’s internal copy locked down.
+
+# ServiceRadar v1.0.53-pre20
+
+GHCR manifest refresh and release automation updates.
+
+## Whats New
+
+**1.0.53-pre20**
+- Republished every ServiceRadar container image so `latest` tags resolve correctly in Docker Compose.
+- GitHub release workflow now authenticates to GHCR and pushes Bazel-built images before uploading packages.
+- Docker quick start docs now require `docker-compose pull` to ensure deployments use the refreshed images.
+- Removed the default compose override that forced `:local` tags, eliminating manifest errors for fresh installs.
+
 # ServiceRadar v1.0.53-pre19
 
 Bazel container fixes for runtime parity.

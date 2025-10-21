@@ -11,54 +11,72 @@ ServiceRadar uses a distributed, multi-layered architecture designed for flexibi
 
 ```mermaid
 graph TD
-    subgraph "User Access"
+    subgraph "User Edge"
         Browser[Web Browser]
+        WebUI[Web UI<br/>Next.js + Nginx]
+        Kong[Kong API Gateway<br/>:9080]
+        JWKS[Core JWKS<br/>/auth/jwks.json]
+
+        Browser -->|HTTPS| WebUI
+        WebUI -->|REST + JWT| Kong
+        Kong -->|Fetch keys| JWKS
     end
 
     subgraph "Service Layer"
-        WebUI[Web UI<br>:80/nginx]
-        CoreAPI[Core Service<br>:8090/:50052]
-        WebUI -->|API calls<br>w/key auth| CoreAPI
-        Browser -->|HTTP/HTTPS| WebUI
+        CoreAPI[Core Service<br/>:8090/:50052]
+        SRQL[SRQL Service<br/>:8080/:api/query]
+        Kong -->|Validated request| CoreAPI
+        Kong -->|Validated request| SRQL
     end
 
     subgraph "Monitoring Layer"
-        Poller1[Poller 1<br>:50053]
-        Poller2[Poller 2<br>:50053]
-        CoreAPI ---|gRPC<br>bidirectional| Poller1
-        CoreAPI ---|gRPC<br>bidirectional| Poller2
+        Poller1[Poller 1<br/>:50053]
+        Poller2[Poller 2<br/>:50053]
+        CoreAPI ---|gRPC<br/>bidirectional| Poller1
+        CoreAPI ---|gRPC<br/>bidirectional| Poller2
     end
 
     subgraph "Target Infrastructure"
-        Agent1[Agent 1<br>:50051]
-        Agent2[Agent 2<br>:50051]
-        Agent3[Agent 3<br>:50051]
-        
-        Poller1 ---|gRPC<br>checks| Agent1
-        Poller1 ---|gRPC<br>checks| Agent2
-        Poller2 ---|gRPC<br>checks| Agent3
-        
-        Agent1 --- Service1[Services<br>Processes<br>Ports]
-        Agent2 --- Service2[Services<br>Processes<br>Ports]
-        Agent3 --- Service3[Services<br>Processes<br>Ports]
+        Agent1[Agent 1<br/>:50051]
+        Agent2[Agent 2<br/>:50051]
+        Agent3[Agent 3<br/>:50051]
+
+        Poller1 ---|gRPC<br/>checks| Agent1
+        Poller1 ---|gRPC<br/>checks| Agent2
+        Poller2 ---|gRPC<br/>checks| Agent3
+
+        Agent1 --- Service1[Services<br/>Processes<br/>Ports]
+        Agent2 --- Service2[Services<br/>Processes<br/>Ports]
+        Agent3 --- Service3[Services<br/>Processes<br/>Ports]
+    end
+
+    subgraph "Data Layer"
+        Proton[Proton / Timeplus]
+        CoreAPI -->|Ingest + Queries| Proton
+        SRQL -->|SQL Translation| Proton
     end
 
     subgraph "Alerting"
         CoreAPI -->|Webhooks| Discord[Discord]
-        CoreAPI -->|Webhooks| Other[Other<br>Services]
+        CoreAPI -->|Webhooks| Other[Other<br/>Services]
     end
 
     style Browser fill:#f9f,stroke:#333,stroke-width:1px
     style WebUI fill:#b9c,stroke:#333,stroke-width:1px
+    style Kong fill:#f5b,stroke:#333,stroke-width:1px
+    style JWKS fill:#ffd,stroke:#333,stroke-width:1px
     style CoreAPI fill:#9bc,stroke:#333,stroke-width:2px
     style Poller1 fill:#adb,stroke:#333,stroke-width:1px
     style Poller2 fill:#adb,stroke:#333,stroke-width:1px
     style Agent1 fill:#fd9,stroke:#333,stroke-width:1px
     style Agent2 fill:#fd9,stroke:#333,stroke-width:1px
     style Agent3 fill:#fd9,stroke:#333,stroke-width:1px
+    style Proton fill:#cfc,stroke:#333,stroke-width:1px
     style Discord fill:#c9d,stroke:#333,stroke-width:1px
     style Other fill:#c9d,stroke:#333,stroke-width:1px
 ```
+
+Kong now sits between the Web UI and the backend APIs as the policy enforcement point. It validates RS256-signed JWTs against the Core’s JWKS endpoint before forwarding traffic to either the Core service or the dedicated SRQL microservice. Downstream, SRQL translates `/api/query` requests into Proton SQL while the Core continues handling control-plane APIs. Pollers and agents still rely on mTLS for gRPC communication, keeping user traffic, edge policy, and service-to-service links cleanly separated.
 
 ## Key Components
 
@@ -116,13 +134,31 @@ The Web UI provides a modern dashboard interface that:
 - Visualizes the status of monitored services
 - Displays historical performance data
 - Provides configuration management
-- Securely communicates with the Core Service API
+- Proxies all authenticated API calls through the Kong gateway
 
 **Technical Details:**
 - Built with Next.js in SSR mode for security and performance
 - Uses Nginx as a reverse proxy on port 80
-- Communicates with the Core Service API using a secure API key
+- Exchanges JWTs with Kong, which validates them against the Core JWKS endpoint
 - Supports responsive design for mobile and desktop
+
+### API Gateway (Kong)
+
+The Kong API gateway enforces edge security and traffic policy:
+
+- Terminates incoming Web UI API traffic on port 9080 (HTTP) or 9443 (HTTPS)
+- Validates RS256-signed JWTs using the Core service’s JWKS published at `/auth/jwks.json`
+- Applies rate limits, request shaping, and header normalization before forwarding to the Core API
+- Caches JWKS responses and refreshes keys automatically when the Core rotates signing material
+
+### SRQL Service (Query Engine)
+
+The SRQL microservice executes ServiceRadar Query Language requests:
+
+- Exposes `/api/query` (HTTP) and `/api/stream` (WebSocket) for bounded and streaming query execution
+- Runs as an OCaml/Dream application that translates SRQL to Proton SQL before dispatching the query
+- Shares Kong’s JWT policy; validated user tokens grant access to query endpoints without additional secrets
+- Streams results back to the Web UI, which renders them in explorers and dashboards
 
 ## Device Identity Canonicalization
 
@@ -203,7 +239,7 @@ Conflicts are also logged with the key path and gRPC status code whenever JetStr
 ### Rollout checklist
 
 1. **Staging seed:** run `serviceradar-core --config /etc/serviceradar/core.json --backfill-identities --seed-kv-only --backfill-dry-run` to pre-populate NATS KV without mutating history. Watch `identitymap_kv_publish_total{outcome="dry_run"}` to confirm keys are enumerated.
-2. **Validate signals:** scrape `identitymap_lookup_latency_seconds` and `identitymap_conflict_total` for at least one sweep interval. Conflicts should stay at zero and lookup latency below the alert threshold (<250 ms p95).
+2. **Validate signals:** scrape `identitymap_lookup_latency_seconds` and `identitymap_conflict_total` for at least one sweep interval. Conflicts should stay at zero and keep lookup latency below the alert threshold (p95 under 250 ms).
 3. **Commit the backfill:** rerun the job without `--backfill-dry-run` (and optionally with `--seed-kv-only=false`) to emit the tombstones and fold historical rows.
 4. **Flip the feature flag:** deploy the updated core configuration so the registry publishes canonical IDs by default (keeping the legacy tombstone path as a safety net). Repeat the same sequence in production once staging metrics hold steady.
 5. **Post-rollout watch:** leave the Prometheus alerts in place for at least one week; any sustained rise in `identitymap_conflict_total{reason="retry_exhausted"}` should trigger an incident to investigate duplicate identifiers.
@@ -260,25 +296,40 @@ SweepCheck[Network Sweep]
     class SNMPCheck,DuskCheck,SweepCheck client
 ```
 
-### API Authentication
+### API Gateway Authentication Flow
 
-The Web UI communicates with the Core Service using API key authentication:
+Kong validates every user-facing API call before it reaches the Core service:
 
 ```mermaid
 sequenceDiagram
     participant User as User (Browser)
     participant WebUI as Web UI (Next.js)
-    participant API as Core API
-    
-    User->>WebUI: HTTP Request
-    Note over WebUI: Server-side middleware<br>loads API key
-    WebUI->>API: Request with API Key
-    API->>API: Validate API Key
-    API->>WebUI: Response
-    WebUI->>User: Rendered UI
+    participant Kong as Kong Gateway
+    participant Core as Core API
+    participant SRQL as SRQL Service
+
+    User->>WebUI: Submit credentials
+    WebUI->>Kong: POST /api/auth/login
+    Kong->>Core: Forward request
+    Core-->>WebUI: RS256 JWT + refresh token
+    WebUI->>Kong: Subsequent API call with JWT
+    Kong->>Kong: Validate JWT via cached JWKS
+    alt Control-plane request
+        Kong->>Core: Forward authorized request
+        Core-->>Kong: Response data
+    else SRQL query
+        Kong->>SRQL: Forward /api/query
+        SRQL-->>Kong: Query results
+    end
+    Kong-->>WebUI: Response
+    WebUI-->>User: Rendered UI
 ```
 
-For details on configuring security, see the [TLS Security](./tls-security.md) documentation.
+- The Core publishes its signing keys at `https://<core-host>/auth/jwks.json`. Kong’s JWT plugin fetches and caches those keys, refreshing when it sees a new `kid`.
+- JWTs are issued with short expirations; the Web UI rotates them server-side using the refresh token flow.
+- Downstream services (pollers, sync workers) continue to use mTLS and service credentials, while end-user requests are always funneled through Kong.
+
+For deployment specifics, pair this section with the [Authentication Configuration](./auth-configuration.md) and [TLS Security](./tls-security.md) guides.
 
 ## Deployment Models
 

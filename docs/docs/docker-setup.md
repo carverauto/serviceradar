@@ -131,6 +131,23 @@ Default exposed ports:
 | Flowgger | 514 | UDP | Syslog collection |
 | Trapd | 162 | UDP | SNMP trap collection |
 
+### Mapper Service Configuration
+
+Docker Compose mounts `docker/compose/mapper.docker.json` into `/etc/serviceradar/mapper.json` for the `serviceradar-mapper` container. Update this file when you need to adjust SNMP discovery:
+
+- Set **`workers`**, **`max_active_jobs`**, and timeouts to match how many concurrent SNMP sessions your network can handle.
+- Populate **`default_credentials`** for blanket SNMP access, then add **`credentials[]`** entries for per-CIDR overrides (v2c or v3). Place the most specific subnets first.
+- Extend the **`oids`** blocks if you want Mapper to gather vendor-specific identifiers during `basic`, `interfaces`, or `topology` runs.
+- Use **`stream_config`** to tag events and, if needed, rename the Proton streams used for devices (`device_stream`), interfaces, and topology discovery. The defaults align with the pipelines described in the [Discovery guide](./discovery.md#mapper-service-overview).
+- Configure **`scheduled_jobs[]`** with `seeds`, discovery `type`, interval, concurrency, and retries. Jobs start immediately on boot and then honor their interval.
+- Add optional **`unifi_apis[]`** entries to poll UniFi Network controllers as part of discovery. Provide `base_url`, `api_key`, and only set `insecure_skip_verify` for lab testing.
+
+After saving changes, redeploy Mapper so it reloads the file:
+
+```bash
+docker-compose up -d mapper
+```
+
 ## Device Configuration
 
 ### SNMP Device Setup

@@ -38,12 +38,14 @@ spec:
           env:
             - name: NODE_ENV
               value: "production"
-            - name: NEXT_PUBLIC_API_URL
-              value: "http://localhost/api"
-            - name: NEXT_INTERNAL_API_URL
-              value: "http://serviceradar-core:8090"
-            - name: AUTH_ENABLED
-              value: "false"
+        - name: NEXT_PUBLIC_API_URL
+          value: "http://localhost/api"
+        - name: NEXT_INTERNAL_API_URL
+          value: "http://serviceradar-core:8090"
+        - name: NEXT_INTERNAL_SRQL_URL
+          value: "http://serviceradar-kong:8000"
+        - name: AUTH_ENABLED
+          value: "false"
             - name: API_KEY
               valueFrom:
                 secretKeyRef:

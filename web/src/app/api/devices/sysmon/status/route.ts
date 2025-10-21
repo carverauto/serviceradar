@@ -16,7 +16,7 @@
 
 // src/app/api/devices/sysmon/status/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { getInternalApiUrl, getApiKey } from '@/lib/config';
+import { getInternalApiUrl, getInternalSrqlUrl, getApiKey } from '@/lib/config';
 import { escapeSrqlValue } from '@/lib/srql';
 
 // Simple in-memory cache for sysmon status results
@@ -34,6 +34,7 @@ const CACHE_TTL = 30 * 1000; // 30 seconds cache
 export async function POST(req: NextRequest) {
     const apiKey = getApiKey();
     const apiUrl = getInternalApiUrl();
+    const srqlUrl = getInternalSrqlUrl();
 
     try {
         const body = await req.json();
@@ -73,6 +74,7 @@ export async function POST(req: NextRequest) {
         // Get authentication headers from the incoming request
         const authHeader = req.headers.get('authorization');
         const xApiKey = req.headers.get('x-api-key');
+        const cookieHeader = req.headers.get('cookie');
         
         const headers: HeadersInit = {
             'Content-Type': 'application/json',
@@ -86,6 +88,9 @@ export async function POST(req: NextRequest) {
             headers['X-API-Key'] = xApiKey;
         } else if (apiKey) {
             headers['X-API-Key'] = apiKey;
+        }
+        if (cookieHeader) {
+            headers['Cookie'] = cookieHeader;
         }
 
         // Create and store the promise for the SRQL query to enable request deduplication
@@ -106,7 +111,7 @@ export async function POST(req: NextRequest) {
                     limit: deviceIds.length * 2 // Reasonable limit based on number of devices
                 };
 
-            const queryResponse = await fetch(`${apiUrl}/api/query`, {
+            const queryResponse = await fetch(`${srqlUrl}/api/query`, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(srqlQuery),

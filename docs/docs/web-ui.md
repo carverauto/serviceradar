@@ -11,26 +11,29 @@ ServiceRadar includes a modern web interface built with Next.js that provides a 
 
 The ServiceRadar web interface:
 - Provides a visual dashboard for monitoring your infrastructure
-- Communicates securely with the ServiceRadar API
+- Communicates securely with the ServiceRadar API through the Kong gateway
 - Uses Nginx as a reverse proxy to handle HTTP requests
-- Automatically configures security with API key authentication
+- Issues and refreshes JSON Web Tokens (JWTs) that Kong validates against the Core JWKS endpoint
+- Executes SRQL queries through a dedicated microservice reachable at `/api/query`
 
 ## Architecture
 
 ```mermaid
 graph LR
     subgraph "ServiceRadar Server"
-        A[Web Browser] -->|HTTP/80| B[Nginx]
-        B -->|Proxy /api| C[Core API<br/>:8090]
-        B -->|Proxy /| D[Next.js<br/>:3000]
-        D -->|API Requests with<br/>Injected API Key| C
+        A[Web Browser] -->|HTTPS| B[Nginx + Next.js]
+        B -->|/api proxied| C[Kong API Gateway<br/>:9080]
+        C -->|JWT validated via JWKS| D[Core API<br/>:8090]
+        C -->|JWT validated via JWKS| E[SRQL Service<br/>:8080]
     end
 ```
 
 - **Nginx** runs on port 80 and acts as the main entry point
-- **Next.js** provides the web UI on port 3000
-- **Core API** service runs on port 8090
-- API requests from the UI are secured with an automatically generated API key
+- **Next.js** provides the web UI on port 3000 and manages user sessions
+- **Kong** enforces JWT validation, rate limiting, and header policies before forwarding to the Core API
+- **Core API** service runs on port 8090 and exposes `/auth/jwks.json` for Kong JWKS lookups
+- **SRQL service** runs on port 8080 and handles `/api/query` and `/api/stream` endpoints for SRQL execution
+- API requests from the UI are signed with short-lived JWTs issued by the Core service
 
 ## Installation
 
@@ -124,36 +127,72 @@ server {
 
 You can customize this file for your specific domain or add SSL configuration.
 
-## API Key Security
+### Kong Configuration
 
-ServiceRadar uses an API key to secure communication between the web UI and the core API. This key is automatically generated during installation and stored in:
+The Web UI expects Kong to sit in front of the Core API on port 9080 (or 9443 for TLS). After deploying Kong, enable the JWT plugin and point it at the Core JWKS endpoint:
 
+```bash
+# Configure the ServiceRadar upstream
+kong config apply -s '
+_format_version: "3.0"
+services:
+- name: serviceradar-core
+  url: http://127.0.0.1:8090
+  routes:
+  - name: serviceradar-api
+    paths:
+    - /api
+    strip_path: false
+- name: serviceradar-srql
+  url: http://127.0.0.1:8080
+  routes:
+  - name: serviceradar-query
+    paths:
+    - /api/query
+    - /api/stream
+    strip_path: false
+plugins:
+- name: jwt
+  config:
+    key_claim_name: kid
+    secret_is_base64: false
+    claims_to_verify:
+    - exp
+    uri_param_names:
+    - token
+    header_names:
+    - Authorization
+    run_on_preflight: true
+    jwks_uri: https://serviceradar-core.local/auth/jwks.json
+'
 ```
-/etc/serviceradar/api.env
-```
 
-The file contains an environment variable:
+Adjust hostnames, upstream URLs, and plugin settings to match your deployment. Kong will automatically cache JWKS responses and only re-fetch keys when the `kid` changes. Register additional SRQL routes (for example, `/api/query`, `/api/stream`) so analytics features reach the OCaml backend.
 
-```
-API_KEY=your_generated_key
-```
+## JWT & Kong Gateway
 
-This API key is:
-1. Automatically generated during `serviceradar-core` installation
-2. Used by the web UI's Next.js middleware to authenticate API requests
-3. Securely injected into backend requests without exposing it to clients
+ServiceRadar issues RS256-signed JSON Web Tokens (JWTs) for every authenticated user session. Kong validates those tokens before forwarding requests to the Core API.
+
+1. **Login flow** – The Web UI posts credentials to `/api/auth/login` (proxied through Kong). The Core responds with a short-lived access token and a refresh token.
+2. **Token storage** – Next.js stores the refresh token in an HttpOnly cookie and keeps the access token server-side. Browser requests never see the raw bearer token.
+3. **Gateway enforcement** – Kong’s JWT plugin fetches the signing keys from `https://<core-host>/auth/jwks.json`, caches them, and rejects any request with an invalid signature, issuer, or audience.
+4. **Automatic rotation** – When the Core rotates its signing key (new `kid`), Kong automatically refreshes the JWKS cache and continues validating new tokens.
+
+To enable RS256 + JWKS, update the core `auth` block as described in the [Authentication Configuration](./auth-configuration.md) guide. Kong should be configured with the `jwt` (or `openid-connect`) plugin pointing at that JWKS URL and the expected issuer (`iss`) claim.
 
 :::caution
-Keep the API key secure. Don't share the content of the `api.env` file.
+Protect the refresh token cookies with the `Secure` and `HttpOnly` flags and only expose Kong over HTTPS. Never surface the RS256 private key outside the Core service.
 :::
+
+SRQL endpoints exposed at `/api/query` and `/api/stream` reuse the exact same JWT validation path, so no additional secrets or API keys are required.
 
 ## Security Features
 
 The web UI includes several security features:
 
 1. **Server-side rendering**: The Next.js application runs in SSR mode, which keeps sensitive code on the server
-2. **API middleware**: Requests to the Core API are handled via middleware that injects the API key
-3. **Proxy architecture**: Direct client access to the API is prevented through the proxy setup
+2. **JWT-aware middleware**: Server-side handlers attach validated access tokens to upstream API requests
+3. **Gateway enforcement**: Kong validates JWTs, rate limits traffic, and strips untrusted headers before the Core sees any request
 4. **Isolation**: The web UI runs as a separate service with limited permissions
 
 ## Custom Domain and SSL
@@ -195,7 +234,9 @@ Common issues and solutions:
 
 2. **API connection errors**
     - Verify the Core API is running: `systemctl status serviceradar-core`
-    - Check API key exists and is properly formatted
+    - Confirm Kong is running and can reach the Core upstream
+    - Confirm the SRQL service is healthy: `systemctl status serviceradar-srql` (or the relevant deployment)
+    - Inspect Kong logs for JWT validation failures or stale JWKS caches
     - Verify API URL in web.json is correct
 
 3. **Permission issues**

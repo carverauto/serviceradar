@@ -35,6 +35,12 @@ if [ -z "$NEXT_INTERNAL_API_URL" ]; then
     echo "Setting NEXT_INTERNAL_API_URL=$NEXT_INTERNAL_API_URL"
 fi
 
+# Set internal SRQL URL (proxied via Kong)
+if [ -z "$NEXT_INTERNAL_SRQL_URL" ]; then
+    export NEXT_INTERNAL_SRQL_URL="http://kong:8000"
+    echo "Setting NEXT_INTERNAL_SRQL_URL=$NEXT_INTERNAL_SRQL_URL"
+fi
+
 # Set public API URL for client-side calls (browser to API via nginx)
 # Always use web.json config value if available, otherwise use existing env var or fallback
 if [ -n "$WEB_API_URL" ]; then
@@ -78,6 +84,7 @@ echo "  NODE_ENV=$NODE_ENV"
 echo "  HOSTNAME=$HOSTNAME"
 echo "  PORT=$PORT"
 echo "  NEXT_INTERNAL_API_URL=$NEXT_INTERNAL_API_URL"
+echo "  NEXT_INTERNAL_SRQL_URL=$NEXT_INTERNAL_SRQL_URL"
 echo "  NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL"
 echo "  AUTH_ENABLED=$AUTH_ENABLED"
 echo "  API_KEY=[REDACTED]"
