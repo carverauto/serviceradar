@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Device } from '@/types/devices';
 import { 
     CheckCircle, 
@@ -46,6 +46,8 @@ const SweepResultsQueryTable: React.FC<SweepResultsQueryTableProps> = ({
     const [viewMode, setViewMode] = useState<'summary' | 'table'>('summary');
     const [searchTerm, setSearchTerm] = useState('');
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
+    const SUMMARY_PAGE_SIZE = 10;
+    const [summaryPage, setSummaryPage] = useState(0);
 
     const parseMetadata = (metadata: Record<string, unknown> | string | undefined): Record<string, unknown> => {
         if (!metadata) return {};
@@ -124,6 +126,24 @@ const SweepResultsQueryTable: React.FC<SweepResultsQueryTableProps> = ({
             (device.hostname && device.hostname.toLowerCase().includes(searchTerm.toLowerCase()))
         );
     }, [devices, searchTerm]);
+
+    const totalSummaryPages = Math.max(1, Math.ceil(filteredDevices.length / SUMMARY_PAGE_SIZE));
+
+    useEffect(() => {
+        setSummaryPage(0);
+    }, [devices, searchTerm]);
+
+    useEffect(() => {
+        if (summaryPage > totalSummaryPages - 1) {
+            setSummaryPage(totalSummaryPages - 1);
+        }
+    }, [summaryPage, totalSummaryPages]);
+
+    const startIndex = summaryPage * SUMMARY_PAGE_SIZE;
+    const endIndex = Math.min(startIndex + SUMMARY_PAGE_SIZE, filteredDevices.length);
+    const currentSummaryDevices = filteredDevices.slice(startIndex, endIndex);
+    const showingFrom = filteredDevices.length === 0 ? 0 : startIndex + 1;
+    const showingTo = filteredDevices.length === 0 ? 0 : endIndex;
 
     if (devices.length === 0) {
         return (
@@ -217,7 +237,7 @@ const SweepResultsQueryTable: React.FC<SweepResultsQueryTableProps> = ({
             {/* Content */}
             {viewMode === 'summary' ? (
                 <div className="space-y-3">
-                    {filteredDevices.slice(0, 10).map((device, index) => {
+                    {currentSummaryDevices.map((device, index) => {
                         const metadata = parseMetadata(device.metadata);
                         const responseTime = typeof metadata.response_time_ns === 'number' ? metadata.response_time_ns / 1000000 : null;
                         let openPorts: unknown[] = [];
@@ -274,9 +294,36 @@ const SweepResultsQueryTable: React.FC<SweepResultsQueryTableProps> = ({
                         );
                     })}
                     
-                    {filteredDevices.length > 10 && (
+                    {currentSummaryDevices.length === 0 && (
                         <div className="text-center p-4 text-gray-600 dark:text-gray-400">
-                            Showing first 10 of {filteredDevices.length} results. Use table view to see all.
+                            No sweep results match the current filters.
+                        </div>
+                    )}
+
+                    {filteredDevices.length > SUMMARY_PAGE_SIZE && (
+                        <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                                Showing {showingFrom}-{showingTo} of {filteredDevices.length} hosts
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setSummaryPage((prev) => Math.max(prev - 1, 0))}
+                                    disabled={summaryPage === 0}
+                                    className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 dark:hover:bg-gray-600"
+                                >
+                                    Previous
+                                </button>
+                                <span className="text-sm text-gray-600 dark:text-gray-400">
+                                    Page {summaryPage + 1} of {totalSummaryPages}
+                                </span>
+                                <button
+                                    onClick={() => setSummaryPage((prev) => Math.min(prev + 1, totalSummaryPages - 1))}
+                                    disabled={summaryPage >= totalSummaryPages - 1}
+                                    className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 dark:hover:bg-gray-600"
+                                >
+                                    Next
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>

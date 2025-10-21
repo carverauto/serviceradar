@@ -46,6 +46,27 @@ export function getInternalApiUrl(): string {
   return normalizeBaseUrl(publicUrl);
 }
 
+// For server-side SRQL calls (container-to-container to SRQL service)
+export function getInternalSrqlUrl(): string {
+  if (typeof window === "undefined") {
+    const internalSrqlUrl =
+      process.env.NEXT_INTERNAL_SRQL_URL || process.env.NEXT_INTERNAL_API_URL;
+    if (internalSrqlUrl) {
+      return normalizeBaseUrl(internalSrqlUrl);
+    }
+
+    // Fallback for local development
+    return normalizeBaseUrl("http://localhost:8080");
+  }
+
+  // Client-side fallback (only used when explicitly needed)
+  const publicSrqlUrl =
+    process.env.NEXT_PUBLIC_SRQL_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "http://localhost:8080";
+  return normalizeBaseUrl(publicSrqlUrl);
+}
+
 // For client-side API calls (browser to API)
 export function getPublicApiUrl(): string {
   // Client-side can use either next-runtime-env or process.env
@@ -78,6 +99,7 @@ export const config = {
     internal: getInternalApiUrl(),
     public: getPublicApiUrl(),
     key: getApiKey(),
+    srqlInternal: getInternalSrqlUrl(),
   },
   auth: {
     enabled: isAuthEnabled(),

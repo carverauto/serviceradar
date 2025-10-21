@@ -34,16 +34,19 @@ RUN cp next.config.docker.ts next.config.ts
 # Build arguments for API configuration
 ARG NEXT_PUBLIC_API_URL=http://localhost
 ARG NEXT_INTERNAL_API_URL=http://core:8090
+ARG NEXT_INTERNAL_SRQL_URL=http://kong:8000
 
 # Set build-time environment variables explicitly for Docker builds
 # These MUST be set before npm run build to ensure correct compilation
 ENV DOCKER_BUILD=true \
     NEXT_INTERNAL_API_URL=${NEXT_INTERNAL_API_URL} \
+    NEXT_INTERNAL_SRQL_URL=${NEXT_INTERNAL_SRQL_URL} \
     NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
 # Build the application with Docker-specific environment
 # The environment variables above will be inlined into the compiled code
 RUN NEXT_INTERNAL_API_URL=${NEXT_INTERNAL_API_URL} \
+    NEXT_INTERNAL_SRQL_URL=${NEXT_INTERNAL_SRQL_URL} \
     NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
     DOCKER_BUILD=true \
     npm run build
