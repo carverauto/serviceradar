@@ -430,7 +430,9 @@ func TestResultsPoller_parseChunkDataKnownHostsKey(t *testing.T) {
 	assert.Equal(t, "10.0.0.1", device["host"])
 
 	require.NotNil(t, metadata)
-	assert.Equal(t, float64(1), metadata["total_hosts"])
+	totalHosts, ok := metadata["total_hosts"].(float64)
+	require.True(t, ok)
+	assert.InDelta(t, 1.0, totalHosts, 1e-9)
 }
 
 func TestResultsPoller_parseChunkDataFallbackDevicesKey(t *testing.T) {
@@ -451,7 +453,9 @@ func TestResultsPoller_parseChunkDataFallbackDevicesKey(t *testing.T) {
 	assert.Equal(t, "10.0.0.2", device["host"])
 
 	require.NotNil(t, metadata)
-	assert.Equal(t, float64(1), metadata["available_hosts"])
+	availableHosts, ok := metadata["available_hosts"].(float64)
+	require.True(t, ok)
+	assert.InDelta(t, 1.0, availableHosts, 1e-9)
 }
 
 func TestResultsPoller_parseChunkDataNoKnownHostsKey(t *testing.T) {
@@ -467,8 +471,13 @@ func TestResultsPoller_parseChunkDataNoKnownHostsKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, devices)
 	require.NotNil(t, metadata)
-	assert.Equal(t, float64(5), metadata["total_hosts"])
-	assert.Equal(t, float64(2), metadata["available_hosts"])
+	totalHosts, ok := metadata["total_hosts"].(float64)
+	require.True(t, ok)
+	assert.InDelta(t, 5.0, totalHosts, 1e-9)
+
+	availableHosts, ok := metadata["available_hosts"].(float64)
+	require.True(t, ok)
+	assert.InDelta(t, 2.0, availableHosts, 1e-9)
 }
 
 func TestResultsPoller_executeGetResults_StreamingRoute(t *testing.T) {
