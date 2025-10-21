@@ -578,21 +578,20 @@ func extractSpeedFromOctetString(value interface{}) uint64 {
 func (e *DiscoveryEngine) updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	var speed uint64
 
-	//nolint:exhaustive // gosnmp exposes many ASN.1 BER variants; we only handle supported speed types.
-	switch pdu.Type {
-	case gosnmp.Gauge32:
+	switch uint8(pdu.Type) {
+	case uint8(gosnmp.Gauge32):
 		speed = e.extractSpeedFromGauge32(pdu.Value)
-	case gosnmp.Counter32:
+	case uint8(gosnmp.Counter32):
 		speed = extractSpeedFromCounter32(pdu.Value)
-	case gosnmp.Counter64:
+	case uint8(gosnmp.Counter64):
 		speed = extractSpeedFromCounter64(pdu.Value)
-	case gosnmp.Integer:
+	case uint8(gosnmp.Integer):
 		speed = extractSpeedFromInteger(pdu.Value)
-	case gosnmp.Uinteger32:
+	case uint8(gosnmp.Uinteger32):
 		speed = extractSpeedFromUinteger32(pdu.Value)
-	case gosnmp.OctetString:
+	case uint8(gosnmp.OctetString):
 		speed = extractSpeedFromOctetString(pdu.Value)
-	case gosnmp.NoSuchObject, gosnmp.NoSuchInstance:
+	case uint8(gosnmp.NoSuchObject), uint8(gosnmp.NoSuchInstance):
 		// Interface doesn't support speed reporting
 		e.logger.Debug().Int("if_index", int(iface.IfIndex)).
 			Msg("ifSpeed not supported (NoSuchObject/Instance)")
@@ -967,17 +966,15 @@ const (
 func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	var ipString string
 
-	//nolint:exhaustive // ipAdEntAddr only returns IP-typed PDUs; other types are ignored by design.
-	switch pdu.Type {
-	case gosnmp.IPAddress:
+	switch uint8(pdu.Type) {
+	case uint8(gosnmp.IPAddress):
 		ipString = pdu.Value.(string)
-	case gosnmp.OctetString:
+	case uint8(gosnmp.OctetString):
 		// Some devices return IP as octet string
 		ipBytes := pdu.Value.([]byte)
 		if len(ipBytes) == defaultIPBytesLength {
 			ipString = fmt.Sprintf("%d.%d.%d.%d", ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3])
 		}
-	default:
 	}
 
 	// If we got an IP, extract the IP from the OID too (for matching)
