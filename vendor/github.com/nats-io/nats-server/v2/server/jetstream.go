@@ -14,6 +14,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
@@ -40,15 +41,15 @@ import (
 // JetStreamConfig determines this server's configuration.
 // MaxMemory and MaxStore are in bytes.
 type JetStreamConfig struct {
-	MaxMemory    int64         `json:"max_memory"`
-	MaxStore     int64         `json:"max_storage"`
-	StoreDir     string        `json:"store_dir,omitempty"`
-	SyncInterval time.Duration `json:"sync_interval,omitempty"`
-	SyncAlways   bool          `json:"sync_always,omitempty"`
-	Domain       string        `json:"domain,omitempty"`
-	CompressOK   bool          `json:"compress_ok,omitempty"`
-	UniqueTag    string        `json:"unique_tag,omitempty"`
-	Strict       bool          `json:"strict,omitempty"`
+	MaxMemory    int64         `json:"max_memory"`              // MaxMemory is the maximum size of memory type streams
+	MaxStore     int64         `json:"max_storage"`             // MaxStore is the maximum size of file store type streams
+	StoreDir     string        `json:"store_dir,omitempty"`     // StoreDir is where storage files are stored
+	SyncInterval time.Duration `json:"sync_interval,omitempty"` // SyncInterval is how frequently we sync to disk in the background by calling fsync
+	SyncAlways   bool          `json:"sync_always,omitempty"`   // SyncAlways indicates flushes are done after every write
+	Domain       string        `json:"domain,omitempty"`        // Domain is the JetStream domain
+	CompressOK   bool          `json:"compress_ok,omitempty"`   // CompressOK indicates if compression is supported
+	UniqueTag    string        `json:"unique_tag,omitempty"`    // UniqueTag is the unique tag assigned to this instance
+	Strict       bool          `json:"strict,omitempty"`        // Strict indicates if strict JSON parsing is performed
 }
 
 // Statistics about JetStream for this server.
@@ -91,11 +92,12 @@ type JetStreamAccountStats struct {
 	Tiers         map[string]JetStreamTier `json:"tiers,omitempty"` // indexed by tier name
 }
 
+// JetStreamAPIStats holds stats about the API usage for this server
 type JetStreamAPIStats struct {
-	Level    int    `json:"level"`
-	Total    uint64 `json:"total"`
-	Errors   uint64 `json:"errors"`
-	Inflight uint64 `json:"inflight,omitempty"`
+	Level    int    `json:"level"`              // Level is the active API level this server implements
+	Total    uint64 `json:"total"`              // Total is the total API requests received since start
+	Errors   uint64 `json:"errors"`             // Errors is the total API requests that resulted in error responses
+	Inflight uint64 `json:"inflight,omitempty"` // Inflight are the number of API requests currently being served
 }
 
 // This is for internal accounting for JetStream for this server.
@@ -154,8 +156,8 @@ type jsAccount struct {
 	storeDir  string
 	inflight  sync.Map
 	streams   map[string]*stream
-	templates map[string]*streamTemplate
-	store     TemplateStore
+	templates map[string]*streamTemplate // Deprecated: stream templates are deprecated and will be removed in a future version.
+	store     TemplateStore              // Deprecated: stream templates are deprecated and will be removed in a future version.
 
 	// From server
 	sendq *ipQueue[*pubMsg]
@@ -233,7 +235,6 @@ func (s *Server) EnableJetStream(config *JetStreamConfig) error {
 type keyGen func(context []byte) ([]byte, error)
 
 // Return a key generation function or nil if encryption not enabled.
-// keyGen defined in filestore.go - keyGen func(iv, context []byte) []byte
 func (s *Server) jsKeyGen(jsKey, info string) keyGen {
 	if ek := jsKey; ek != _EMPTY_ {
 		return func(context []byte) ([]byte, error) {
@@ -559,7 +560,7 @@ func (s *Server) restartJetStream() error {
 		MaxMemory:    opts.JetStreamMaxMemory,
 		MaxStore:     opts.JetStreamMaxStore,
 		Domain:       opts.JetStreamDomain,
-		Strict:       opts.JetStreamStrict,
+		Strict:       !opts.NoJetStreamStrict,
 	}
 	s.Noticef("Restarting JetStream")
 	err := s.EnableJetStream(&cfg)
@@ -1333,8 +1334,58 @@ func (a *Account) EnableJetStream(limits map[string]JetStreamAccountLimits) erro
 		}
 
 		var cfg FileStreamInfo
-		if err := json.Unmarshal(buf, &cfg); err != nil {
-			s.Warnf("  Error unmarshalling stream metafile %q: %v", metafile, err)
+		decoder := json.NewDecoder(bytes.NewReader(buf))
+		decoder.DisallowUnknownFields()
+		strictErr := decoder.Decode(&cfg)
+		if strictErr != nil {
+			cfg = FileStreamInfo{}
+			if err := json.Unmarshal(buf, &cfg); err != nil {
+				s.Warnf("  Error unmarshalling stream metafile %q: %v", metafile, err)
+				continue
+			}
+		}
+		if supported := supportsRequiredApiLevel(cfg.Metadata); !supported || strictErr != nil {
+			var offlineReason string
+			if !supported {
+				apiLevel := getRequiredApiLevel(cfg.Metadata)
+				if strictErr != nil {
+					offlineReason = fmt.Sprintf("unsupported - config error: %s", strings.TrimPrefix(strictErr.Error(), "json: "))
+				} else {
+					offlineReason = fmt.Sprintf("unsupported - required API level: %s, current API level: %d", apiLevel, JSApiLevel)
+				}
+				s.Warnf("  Detected unsupported stream '%s > %s': %s", a.Name, cfg.StreamConfig.Name, offlineReason)
+			} else {
+				offlineReason = fmt.Sprintf("decoding error: %v", strictErr)
+				s.Warnf("  Error unmarshalling stream metafile %q: %v", metafile, strictErr)
+			}
+			singleServerMode := !s.JetStreamIsClustered() && s.standAloneMode()
+			if singleServerMode {
+				// Fake a stream, so we can respond to API requests as single-server.
+				mset := &stream{
+					acc:           a,
+					jsa:           jsa,
+					cfg:           cfg.StreamConfig,
+					js:            js,
+					srv:           s,
+					stype:         cfg.Storage,
+					consumers:     make(map[string]*consumer),
+					active:        false,
+					created:       time.Now().UTC(),
+					offlineReason: offlineReason,
+				}
+				if !cfg.Created.IsZero() {
+					mset.created = cfg.Created
+				}
+				mset.closed.Store(true)
+
+				jsa.mu.Lock()
+				jsa.streams[cfg.Name] = mset
+				jsa.mu.Unlock()
+
+				// Now do the consumers.
+				odir := filepath.Join(sdir, fi.Name(), consumerDir)
+				consumers = append(consumers, &ce{mset, odir})
+			}
 			continue
 		}
 
@@ -1404,6 +1455,61 @@ func (a *Account) EnableJetStream(limits map[string]JetStreamAccountLimits) erro
 			mset.setCreatedTime(cfg.Created)
 		}
 
+		// Might need to recover from a partial batch write, but only if a single replica stream.
+		if cfg.AllowAtomicPublish && cfg.Replicas == 1 {
+			var (
+				ok            bool
+				smv           StoreMsg
+				batchId       string
+				batchSeq      uint64
+				commit        bool
+				batchStoreDir string
+				store         StreamStore
+				state         StreamState
+			)
+			// Check if the last message was part of a batch.
+			sm, err := mset.store.LoadLastMsg(fwcs, &smv)
+			if err != nil || sm == nil {
+				goto SKIP
+			}
+			batchId = getBatchId(sm.hdr)
+			batchSeq, ok = getBatchSequence(sm.hdr)
+			commit = len(sliceHeader(JSBatchCommit, sm.hdr)) != 0
+			if batchId == _EMPTY_ || !ok || commit {
+				goto SKIP
+			}
+			// We've observed a partial batch write. Write the remainder of the batch.
+			batchSeq++
+			_, batchStoreDir = getBatchStoreDir(mset, batchId)
+			if _, err = os.Stat(batchStoreDir); err != nil {
+				s.Errorf("  Failed restoring partial batch write for stream '%s > %s' at sequence %d: %v",
+					mset.accName(), mset.name(), batchSeq, err)
+				goto SKIP
+			}
+			store, err = newBatchStore(mset, batchId)
+			if err != nil {
+				s.Errorf("  Failed restoring partial batch write for stream '%s > %s' at sequence %d: %v",
+					mset.accName(), mset.name(), batchSeq, err)
+				goto SKIP
+			}
+			store.FastState(&state)
+			s.Noticef("  Restoring partial batch write for stream '%s > %s' (seq %d to %d)",
+				mset.accName(), mset.name(), batchSeq, state.LastSeq)
+			// Loop through items that weren't persisted yet.
+			for seq := batchSeq; seq <= state.LastSeq; seq++ {
+				sm, err = store.LoadMsg(seq, &smv)
+				if err != nil || sm == nil {
+					s.Errorf("  Failed restoring partial batch write for stream '%s > %s' at sequence %d: %v",
+						mset.accName(), mset.name(), seq, err)
+					break
+				}
+				mset.processJetStreamMsg(sm.subj, _EMPTY_, sm.hdr, sm.msg, 0, 0, nil, false, true)
+			}
+			store.Delete(true)
+		SKIP:
+			os.RemoveAll(filepath.Join(sdir, fi.Name(), batchesDir))
+		}
+
 		state := mset.state()
 		s.Noticef("  Restored %s messages for stream '%s > %s' in %v",
 			comma(int64(state.Msgs)), mset.accName(), mset.name(), time.Since(rt).Round(time.Millisecond))
@@ -1455,13 +1561,70 @@ func (a *Account) EnableJetStream(limits map[string]JetStreamAccountLimits) erro
 			}
 
 			var cfg FileConsumerInfo
-			if err := json.Unmarshal(buf, &cfg); err != nil {
-				s.Warnf("    Error unmarshalling consumer metafile %q: %v", metafile, err)
+			decoder := json.NewDecoder(bytes.NewReader(buf))
+			decoder.DisallowUnknownFields()
+			strictErr := decoder.Decode(&cfg)
+			if strictErr != nil {
+				cfg = FileConsumerInfo{}
+				if err := json.Unmarshal(buf, &cfg); err != nil {
+					s.Warnf("    Error unmarshalling consumer metafile %q: %v", metafile, err)
+					continue
+				}
+			}
+			if supported := supportsRequiredApiLevel(cfg.Metadata); !supported || strictErr != nil {
+				var offlineReason string
+				if !supported {
+					apiLevel := getRequiredApiLevel(cfg.Metadata)
+					if strictErr != nil {
+						offlineReason = fmt.Sprintf("unsupported - config error: %s", strings.TrimPrefix(strictErr.Error(), "json: "))
+					} else {
+						offlineReason = fmt.Sprintf("unsupported - required API level: %s, current API level: %d", apiLevel, JSApiLevel)
+					}
+					s.Warnf("  Detected unsupported consumer '%s > %s > %s': %s", a.Name, e.mset.name(), cfg.Name, offlineReason)
+				} else {
+					offlineReason = fmt.Sprintf("decoding error: %v", strictErr)
+					s.Warnf("  Error unmarshalling consumer metafile %q: %v", metafile, strictErr)
+				}
+				singleServerMode := !s.JetStreamIsClustered() && s.standAloneMode()
+				if singleServerMode {
+					if !e.mset.closed.Load() {
+						s.Warnf("  Stopping unsupported stream '%s > %s'", a.Name, e.mset.name())
+						e.mset.mu.Lock()
+						e.mset.offlineReason = fmt.Sprintf("stopped - unsupported consumer %q", cfg.Name)
+						e.mset.mu.Unlock()
+						e.mset.stop(false, false)
+					}
+
+					// Fake a consumer, so we can respond to API requests as single-server.
+					o := &consumer{
+						mset:          e.mset,
+						js:            s.getJetStream(),
+						acc:           a,
+						srv:           s,
+						cfg:           cfg.ConsumerConfig,
+						active:        false,
+						stream:        e.mset.name(),
+						name:          cfg.Name,
+						dseq:          1,
+						sseq:          1,
+						created:       time.Now().UTC(),
+						closed:        true,
+						offlineReason: offlineReason,
+					}
+					if !cfg.Created.IsZero() {
+						o.created = cfg.Created
+					}
+
+					e.mset.mu.Lock()
+					e.mset.setConsumer(o)
+					e.mset.mu.Unlock()
+				}
 				continue
 			}
+
 			isEphemeral := !isDurableConsumer(&cfg.ConsumerConfig)
 			if isEphemeral {
-				// This is an ephermal consumer and this could fail on restart until
+				// This is an ephemeral consumer and this could fail on restart until
 				// the consumer can reconnect. We will create it as a durable and switch it.
 				cfg.ConsumerConfig.Durable = ofi.Name()
 			}
@@ -1657,12 +1820,12 @@ func diffCheckedLimits(a, b map[string]JetStreamAccountLimits) map[string]JetStr
 	return diff
 }
 
-// Return reserved bytes for memory and store for this account on this server.
+// Return reserved bytes for memory and file store streams for this account on this server.
 // Lock should be held.
 func (jsa *jsAccount) reservedStorage(tier string) (mem, store uint64) {
 	for _, mset := range jsa.streams {
 		cfg := &mset.cfg
-		if tier == _EMPTY_ || tier == tierName(cfg.Replicas) && cfg.MaxBytes > 0 {
+		if (tier == _EMPTY_ || tier == tierName(cfg.Replicas)) && cfg.MaxBytes > 0 {
 			switch cfg.Storage {
 			case FileStorage:
 				store += uint64(cfg.MaxBytes)
@@ -1674,12 +1837,12 @@ func (jsa *jsAccount) reservedStorage(tier string) (mem, store uint64) {
 	return mem, store
 }
 
-// Return reserved bytes for memory and store for this account in clustered mode.
+// Return reserved bytes for memory and file store streams for this account in clustered mode.
 // js lock should be held.
 func reservedStorage(sas map[string]*streamAssignment, tier string) (mem, store uint64) {
 	for _, sa := range sas {
 		cfg := sa.Config
-		if tier == _EMPTY_ || tier == tierName(cfg.Replicas) && cfg.MaxBytes > 0 {
+		if (tier == _EMPTY_ || tier == tierName(cfg.Replicas)) && cfg.MaxBytes > 0 {
 			switch cfg.Storage {
 			case FileStorage:
 				store += uint64(cfg.MaxBytes)
@@ -2540,7 +2703,7 @@ func (s *Server) dynJetStreamConfig(storeDir string, maxStore, maxMem int64) *Je
 	opts := s.getOpts()
 
 	// Strict mode.
-	jsc.Strict = opts.JetStreamStrict
+	jsc.Strict = !opts.NoJetStreamStrict
 
 	// Sync options.
 	jsc.SyncInterval = opts.SyncInterval
@@ -2587,6 +2750,7 @@ func (a *Account) checkForJetStream() (*Server, *jsAccount, error) {
 
 // StreamTemplateConfig allows a configuration to auto-create streams based on this template when a message
 // is received that matches. Each new stream will use the config as the template config to create them.
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 type StreamTemplateConfig struct {
 	Name       string        `json:"name"`
 	Config     *StreamConfig `json:"config"`
@@ -2594,12 +2758,14 @@ type StreamTemplateConfig struct {
 }
 
 // StreamTemplateInfo
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 type StreamTemplateInfo struct {
 	Config  *StreamTemplateConfig `json:"config"`
 	Streams []string              `json:"streams"`
 }
 
 // streamTemplate
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 type streamTemplate struct {
 	mu  sync.Mutex
 	tc  *client
@@ -2608,6 +2774,7 @@ type streamTemplate struct {
 	streams []string
 }
 
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (t *StreamTemplateConfig) deepCopy() *StreamTemplateConfig {
 	copy := *t
 	cfg := *t.Config
@@ -2616,6 +2783,7 @@ func (t *StreamTemplateConfig) deepCopy() *StreamTemplateConfig {
 }
 
 // addStreamTemplate will add a stream template to this account that allows auto-creation of streams.
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (a *Account) addStreamTemplate(tc *StreamTemplateConfig) (*streamTemplate, error) {
 	s, jsa, err := a.checkForJetStream()
 	if err != nil {
@@ -2672,6 +2840,7 @@ func (a *Account) addStreamTemplate(tc *StreamTemplateConfig) (*streamTemplate, 
 	return t, nil
 }
 
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (t *streamTemplate) createTemplateSubscriptions() error {
 	if t == nil {
 		return fmt.Errorf("no template")
@@ -2695,6 +2864,7 @@ func (t *streamTemplate) createTemplateSubscriptions() error {
 	return nil
 }
 
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (t *streamTemplate) processInboundTemplateMsg(_ *subscription, pc *client, acc *Account, subject, reply string, msg []byte) {
 	if t == nil || t.jsa == nil {
 		return
@@ -2742,6 +2912,7 @@ func (t *streamTemplate) processInboundTemplateMsg(_ *subscription, pc *client, 
 }
 
 // lookupStreamTemplate looks up the names stream template.
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (a *Account) lookupStreamTemplate(name string) (*streamTemplate, error) {
 	_, jsa, err := a.checkForJetStream()
 	if err != nil {
@@ -2760,6 +2931,7 @@ func (a *Account) lookupStreamTemplate(name string) (*streamTemplate, error) {
 }
 
 // This function will check all named streams and make sure they are valid.
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (a *Account) validateStreams(t *streamTemplate) {
 	t.mu.Lock()
 	var vstreams []string
@@ -2772,6 +2944,7 @@ func (a *Account) validateStreams(t *streamTemplate) {
 	t.mu.Unlock()
 }
 
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (t *streamTemplate) delete() error {
 	if t == nil {
 		return fmt.Errorf("nil stream template")
@@ -2830,6 +3003,7 @@ func (t *streamTemplate) delete() error {
 	return lastErr
 }
 
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (a *Account) deleteStreamTemplate(name string) error {
 	t, err := a.lookupStreamTemplate(name)
 	if err != nil {
@@ -2838,6 +3012,7 @@ func (a *Account) deleteStreamTemplate(name string) error {
 	return t.delete()
 }
 
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (a *Account) templates() []*streamTemplate {
 	var ts []*streamTemplate
 	_, jsa, err := a.checkForJetStream()
@@ -2856,6 +3031,7 @@ func (a *Account) templates() []*streamTemplate {
 }
 
 // Will add a stream to a template, this is for recovery.
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (jsa *jsAccount) addStreamNameToTemplate(tname, mname string) error {
 	if jsa.templates == nil {
 		return fmt.Errorf("template not found")
@@ -2873,6 +3049,7 @@ func (jsa *jsAccount) addStreamNameToTemplate(tname, mname string) error {
 
 // This will check if a template owns this stream.
 // jsAccount lock should be held
+// Deprecated: stream templates are deprecated and will be removed in a future version.
 func (jsa *jsAccount) checkTemplateOwnership(tname, sname string) bool {
 	if jsa.templates == nil {
 		return false
@@ -2922,12 +3099,12 @@ func canonicalName(name string) string {
 }
 
 // To throttle the out of resources errors.
-func (s *Server) resourcesExceededError() {
+func (s *Server) resourcesExceededError(storeType StorageType) {
 	var didAlert bool
 
 	s.rerrMu.Lock()
 	if now := time.Now(); now.Sub(s.rerrLast) > 10*time.Second {
-		s.Errorf("JetStream resource limits exceeded for server")
+		s.Errorf("JetStream %s resource limits exceeded for server", strings.ToLower(storeType.String()))
 		s.rerrLast = now
 		didAlert = true
 	}

@@ -1,4 +1,4 @@
-// Copyright 2020-2024 The NATS Authors
+// Copyright 2020-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -514,7 +514,7 @@ func (s *Server) startMQTT() {
 	hp := net.JoinHostPort(o.Host, strconv.Itoa(port))
 	s.mu.Lock()
 	s.mqtt.sessmgr.sessions = make(map[string]*mqttAccountSessionManager)
-	hl, err = net.Listen("tcp", hp)
+	hl, err = natsListen("tcp", hp)
 	s.mqtt.listenerErr = err
 	if err != nil {
 		s.mu.Unlock()
@@ -647,7 +647,7 @@ func (s *Server) createMQTTClient(conn net.Conn, ws *websocket) *client {
 	if tlsRequired {
 		c.Debugf("TLS handshake complete")
 		cs := c.nc.(*tls.Conn).ConnectionState()
-		c.Debugf("TLS version %s, cipher suite %s", tlsVersion(cs.Version), tlsCipher(cs.CipherSuite))
+		c.Debugf("TLS version %s, cipher suite %s", tlsVersion(cs.Version), tls.CipherSuiteName(cs.CipherSuite))
 	}
 
 	c.mu.Unlock()
@@ -1100,7 +1100,7 @@ func mqttParsePubRelNATSHeader(headerBytes []byte) uint16 {
 	if len(pubrelValue) == 0 {
 		return 0
 	}
-	pi, _ := strconv.Atoi(string(pubrelValue))
+	pi, _ := strconv.ParseUint(string(pubrelValue), 10, 16)
 	return uint16(pi)
 }
 

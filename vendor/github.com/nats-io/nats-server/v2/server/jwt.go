@@ -1,4 +1,4 @@
-// Copyright 2018-2024 The NATS Authors
+// Copyright 2018-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -70,10 +70,23 @@ func wipeSlice(buf []byte) {
 func validateTrustedOperators(o *Options) error {
 	if len(o.TrustedOperators) == 0 {
 		// if we have no operator, default sentinel shouldn't be set
-		if o.DefaultSentinel != "" {
+		if o.DefaultSentinel != _EMPTY_ {
 			return fmt.Errorf("default sentinel requires operators and accounts")
 		}
 		return nil
+	}
+	if o.DefaultSentinel != _EMPTY_ {
+		juc, err := jwt.DecodeUserClaims(o.DefaultSentinel)
+		if err != nil {
+			return fmt.Errorf("default sentinel JWT not valid")
+		}
+
+		if !juc.BearerToken && juc.IssuerAccount != "" && juc.HasEmptyPermissions() {
+			// we cannot resolve the account yet - but this looks like a scoped user
+			// it will be rejected at runtime if not valid
+		} else if !juc.BearerToken {
+			return fmt.Errorf("default sentinel must be a bearer token")
+		}
 	}
 	if o.AccountResolver == nil {
 		return fmt.Errorf("operators require an account resolver to be configured")
