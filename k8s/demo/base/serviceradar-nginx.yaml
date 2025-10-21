@@ -8,10 +8,12 @@ spec:
   selector:
     matchLabels:
       app: serviceradar-nginx
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
         app: serviceradar-nginx
+        app.kubernetes.io/part-of: serviceradar
     spec:
       containers:
       - name: nginx
