@@ -8,6 +8,7 @@ spec:
   selector:
     matchLabels:
       app: serviceradar-trapd
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:

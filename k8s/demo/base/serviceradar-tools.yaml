@@ -10,7 +10,6 @@ spec:
   selector:
     matchLabels:
       app: serviceradar-tools
-      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
@@ -198,7 +197,6 @@ metadata:
 spec:
   selector:
     app: serviceradar-tools
-    app.kubernetes.io/part-of: serviceradar
   ports:
   - name: debug-port
     port: 22

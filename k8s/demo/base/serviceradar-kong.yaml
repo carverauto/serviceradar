@@ -10,7 +10,6 @@ spec:
   selector:
     matchLabels:
       app: serviceradar-kong
-      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
@@ -153,7 +152,6 @@ metadata:
 spec:
   selector:
     app: serviceradar-kong
-    app.kubernetes.io/part-of: serviceradar
   ports:
   - name: proxy
     port: 8000
