@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.54-pre1
+
+Dependency refresh and frontend framework upgrade ahead of the next stable cut.
+
+## Whats New
+
+**1.0.54-pre1**
+- Upgraded the web UI stack to the latest Next.js/React release, unlocking faster builds and improved developer ergonomics.
+- Refreshed Go and JavaScript dependencies across the services to pull in the latest security and bug-fix patches.
+
 # ServiceRadar v1.0.53
 
 Stability and packaging cleanup for the Compose stack.
