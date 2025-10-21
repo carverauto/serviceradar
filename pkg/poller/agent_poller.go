@@ -472,6 +472,13 @@ func enrichPayloadWithHost(message []byte, ip, host string) []byte {
 	payload := make(map[string]any)
 	if len(message) > 0 {
 		if err := json.Unmarshal(message, &payload); err != nil {
+			// Some services (e.g. sync discovery) return raw JSON arrays. If we can't
+			// parse the payload as an object without allocating a wrapper, leave the
+			// payload untouched so downstream processors still see the original data.
+			var arrayPayload []any
+			if err := json.Unmarshal(message, &arrayPayload); err == nil {
+				return message
+			}
 			payload = make(map[string]any)
 		}
 	}
