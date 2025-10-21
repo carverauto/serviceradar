@@ -77,21 +77,8 @@ ALTER STREAM otel_trace_summaries ADD INDEX IF NOT EXISTS idx_trace_id trace_id 
 ALTER STREAM otel_trace_summaries ADD INDEX IF NOT EXISTS idx_service root_service_name TYPE bloom_filter GRANULARITY 1;
 ALTER STREAM otel_trace_summaries ADD INDEX IF NOT EXISTS idx_duration duration_ms TYPE minmax GRANULARITY 1;
 
-INSERT INTO otel_trace_summaries
-SELECT
-    min(timestamp) AS timestamp,
-    trace_id,
-    any_if(span_id, is_root) AS root_span_id,
-    any_if(name, is_root) AS root_span_name,
-    any_if(service_name, is_root) AS root_service_name,
-    any_if(kind, is_root) AS root_span_kind,
-    min(start_time_unix_nano) AS start_time_unix_nano,
-    max(end_time_unix_nano) AS end_time_unix_nano,
-    any_if(duration_ms, is_root) AS duration_ms,
-    max(status_code) AS status_code,
-    group_uniq_array(service_name) AS service_set,
-    count() AS span_count,
-    0 AS error_count
-FROM otel_spans_enriched
-GROUP BY trace_id
-SETTINGS max_partitions_per_insert_block = 0;
+-- NOTE: Historical data backfill is intentionally omitted here. The original
+-- migration attempted to read from otel_spans_enriched (Stream engine) and
+-- would block on empty deployments. New installs receive the updated schema
+-- directly from the consolidated migration, and existing clusters will
+-- repopulate the summaries via the live materialized view pipeline.
