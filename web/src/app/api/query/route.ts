@@ -1,10 +1,10 @@
 // src/app/api/query/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getInternalApiUrl, getApiKey, isAuthEnabled } from "@/lib/config";
+import { getInternalSrqlUrl, getApiKey, isAuthEnabled } from "@/lib/config";
 
 export async function POST(req: NextRequest) {
   const apiKey = getApiKey();
-  const apiUrl = getInternalApiUrl();
+  const srqlUrl = getInternalSrqlUrl();
   const authEnabled = isAuthEnabled();
 
   try {
@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Query is required" }, { status: 400 });
     }
 
-    const authHeader = req.headers.get("Authorization");
+    const authHeader = req.headers.get("Authorization") || req.headers.get("authorization");
+    const cookieHeader = req.headers.get("cookie");
     const headersToBackend: HeadersInit = {
       "Content-Type": "application/json",
       "X-API-Key": apiKey,
@@ -34,8 +35,11 @@ export async function POST(req: NextRequest) {
       // Depending on how strict AUTH_ENABLED is, you might return 401 here,
       // but the Go backend will likely do it if it's missing.
     }
+    if (cookieHeader) {
+      headersToBackend["Cookie"] = cookieHeader;
+    }
 
-    const backendResponse = await fetch(`${apiUrl}/api/query`, {
+    const backendResponse = await fetch(`${srqlUrl}/api/query`, {
       method: "POST",
       headers: headersToBackend,
       body: JSON.stringify(body),

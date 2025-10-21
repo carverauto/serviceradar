@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
   env: {
     // These are inlined at build time for Docker
     NEXT_INTERNAL_API_URL: 'http://core:8090',
+    NEXT_INTERNAL_SRQL_URL: 'http://kong:8000',
     NEXT_PUBLIC_API_URL: 'http://localhost',
   },
 };
