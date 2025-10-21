@@ -28,12 +28,12 @@ spec:
               value: "1"
             - name: PROTON_INSECURE_SKIP_VERIFY
               value: "1"
-        - name: PROTON_VERIFY_HOSTNAME
-          value: "0"
-        - name: AUTH_ENABLED
-          value: "false"
-        - name: SRQL_REQUIRE_BEARER
-          value: "true"
+            - name: PROTON_VERIFY_HOSTNAME
+              value: "0"
+            - name: AUTH_ENABLED
+              value: "true"
+            - name: SRQL_REQUIRE_BEARER
+              value: "true"
             - name: PROTON_PASSWORD
               valueFrom:
                 secretKeyRef:
