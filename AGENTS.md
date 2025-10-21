@@ -54,6 +54,26 @@ Reference `docs/docs/agents.md` for: faker deployment details, Proton truncate/r
 - bazel is our build system, we use it to build and push images
 - Sysmon-vm hostfreq sampler buffers ~5 minutes of 250 ms samples; keep pollers querying at least once per retention window so cached CPU data stays fresh.
 
+## Release Playbook
+
+1. Prep metadata:
+   - Update `VERSION` with the new semver (example: `1.0.54-pre1`).
+   - Add a matching entry at the top of `CHANGELOG` that summarizes the release highlights.
+   - Run `scripts/cut-release.sh --version <version> --dry-run` to confirm the changelog entry is detected before committing.
+2. Tag the release:
+   - Execute `scripts/cut-release.sh --version <version>` to stage `VERSION`/`CHANGELOG`, create the release commit, and author the annotated tag (append `--push` when you are ready to publish the refs).
+3. Build and push Bazel images:
+   - Authenticate to GHCR if needed: `./scripts/docker-login.sh`.
+   - Run `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
+   - Run `bazel run --config=remote //docker/images:push_all`. This reuses the build artifacts, publishes `latest`, `sha-<commit>`, and short-digest tags, and refreshes the embedded `build-info.json`.
+   - If a single image needs republishing, run `bazel run //docker/images:<target>_push` (for example `//docker/images:web_image_amd64_push`).
+   - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
+4. Roll the demo namespace:
+   - Restart workloads with `kubectl get deploy -n demo -o name | xargs -r -L1 kubectl rollout restart -n demo`.
+   - Update any digest-pinned workloads (currently the `serviceradar-web` Deployment) so they point at the freshly pushed build, e.g. `kubectl set image deployment/serviceradar-web web=ghcr.io/carverauto/serviceradar-web:sha-$(git rev-parse HEAD) -n demo`.
+   - Watch for readiness: `kubectl get pods -n demo` until all pods are `1/1` and `Running`.
+5. Close out: verify the demo web UI reports the new version, file follow-up docs, and proceed with GitHub release packaging if required.
+
 We track work in Beads instead of Markdown. Run `bd quickstart` to see how.
 
 ## When Updating This File
