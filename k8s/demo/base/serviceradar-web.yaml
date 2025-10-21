@@ -42,6 +42,8 @@ spec:
           value: "http://localhost/api"
         - name: NEXT_INTERNAL_API_URL
           value: "http://serviceradar-core:8090"
+        - name: NEXT_INTERNAL_SRQL_URL
+          value: "http://serviceradar-kong:8000"
         - name: AUTH_ENABLED
           value: "true"
         - name: API_KEY

@@ -39,6 +39,7 @@ import { cachedQuery } from '@/lib/cached-query';
 import { escapeSrqlValue } from '@/lib/srql';
 import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
 import DeviceTable from '@/components/Devices/DeviceTable';
+import { normalizeTimestampString } from '@/utils/traceTimestamp';
 
 // Current device updates format from SRQL devices
 interface DeviceUpdates {
@@ -73,6 +74,80 @@ interface ServiceWithPoller extends Service {
 }
 
 type TabName = 'overview' | 'discovery' | 'sweeps' | 'snmp' | 'applications' | 'netflow';
+
+const TIMESTAMP_FIELDS = [
+    'timestamp',
+    '_tp_time',
+    'last_seen',
+    'first_seen',
+    'created_at',
+    'updated_at',
+    'observed_at',
+    'last_checked',
+    'last_sweep',
+];
+
+const SUMMARY_PAGE_SIZE = 10;
+
+const normalizeTimestampValue = (value: unknown): string | undefined => {
+    if (typeof value === 'string') {
+        const normalized = normalizeTimestampString(value);
+        if (normalized) {
+            return normalized;
+        }
+        const numeric = Number(value);
+        if (!Number.isNaN(numeric)) {
+            return normalizeTimestampValue(numeric);
+        }
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        const millis = value > 1_000_000_000_000 ? value : value * 1000;
+        try {
+            return new Date(millis).toISOString();
+        } catch {
+            return undefined;
+        }
+    }
+
+    return undefined;
+};
+
+const normalizeResultTimestamps = <T extends Record<string, unknown>>(result: T): T => {
+    const normalized: Record<string, unknown> = { ...result };
+    for (const field of TIMESTAMP_FIELDS) {
+        if (field in normalized) {
+            const candidate = normalized[field];
+            const replacement = normalizeTimestampValue(candidate);
+            if (replacement) {
+                normalized[field] = replacement;
+            }
+        }
+    }
+    return normalized as T;
+};
+
+const parseSrqlTimestamp = (raw?: string | null): Date | null => {
+    if (!raw) {
+        return null;
+    }
+    const normalized = normalizeTimestampString(raw);
+    if (!normalized) {
+        return null;
+    }
+    const parsed = Date.parse(normalized);
+    return Number.isNaN(parsed) ? null : new Date(parsed);
+};
+
+const toTimestampMs = (raw?: string | null): number => {
+    const date = parseSrqlTimestamp(raw);
+    return date ? date.getTime() : 0;
+};
+
+const formatSrqlTimestamp = (raw?: string | null): string => {
+    const date = parseSrqlTimestamp(raw);
+    return date ? date.toLocaleString() : 'Invalid Date';
+};
 
 // Helper: Stat Card Component
 const StatCard = ({
@@ -323,7 +398,9 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
         nextCursor: string | null;
         prevCursor: string | null;
         hasMore: boolean;
-    }>({ nextCursor: null, prevCursor: null, hasMore: false });
+        limit: number;
+    }>({ nextCursor: null, prevCursor: null, hasMore: false, limit: 1000 });
+    const [summaryPage, setSummaryPage] = useState(0);
 
     const fetchDeviceUpdates = useCallback(async (cursor?: string, direction: 'next' | 'prev' = 'next', limit = 1000) => {
         setLoading(true);
@@ -349,13 +426,32 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
             }
 
             const data = await response.json();
-            setDeviceUpdates(data.results || []);
+            const normalizedResults = Array.isArray(data?.results)
+                ? (data.results as unknown[]).reduce((acc: DeviceUpdates[], entry: unknown) => {
+                    if (!entry || typeof entry !== 'object') {
+                        return acc;
+                    }
+                    const normalized = normalizeResultTimestamps(entry as Record<string, unknown>);
+                    acc.push(normalized as unknown as DeviceUpdates);
+                    return acc;
+                }, [])
+                : [];
+
+            setDeviceUpdates(normalizedResults);
             
             // Update pagination info
+            const paginationData = data?.pagination ?? {};
+            const nextCursor = typeof paginationData.next_cursor === 'string' ? paginationData.next_cursor : null;
+            const prevCursor = typeof paginationData.prev_cursor === 'string' ? paginationData.prev_cursor : null;
+            const limitValue = typeof paginationData.limit === 'number' && Number.isFinite(paginationData.limit)
+                ? paginationData.limit
+                : limit;
+
             setPagination({
-                nextCursor: data.pagination?.next_cursor || null,
-                prevCursor: data.pagination?.prev_cursor || null,
-                hasMore: !!(data.pagination?.next_cursor)
+                nextCursor,
+                prevCursor,
+                hasMore: Boolean(nextCursor),
+                limit: limitValue
             });
         } catch (e) {
             setError(e instanceof Error ? e.message : "Failed to fetch sweep results.");
@@ -386,12 +482,14 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
         const hostMap = new Map<string, DeviceUpdates>();
         deviceUpdates.forEach(result => {
             const existing = hostMap.get(result.ip);
-            if (!existing || new Date(result.last_seen) > new Date(existing.last_seen)) {
+            const currentTs = toTimestampMs(result.last_seen);
+            const existingTs = existing ? toTimestampMs(existing.last_seen) : 0;
+            if (!existing || currentTs > existingTs) {
                 hostMap.set(result.ip, result);
             }
         });
-        return Array.from(hostMap.values()).sort((a, b) => 
-            new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()
+        return Array.from(hostMap.values()).sort(
+            (a, b) => toTimestampMs(b.last_seen) - toTimestampMs(a.last_seen)
         );
     }, [deviceUpdates]);
 
@@ -460,6 +558,23 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
             (result.hostname && result.hostname.toLowerCase().includes(searchTerm.toLowerCase()))
         );
     }, [uniqueHosts, searchTerm]);
+
+    const totalSummaryPages = Math.max(1, Math.ceil(filteredResults.length / SUMMARY_PAGE_SIZE));
+    const startIndex = summaryPage * SUMMARY_PAGE_SIZE;
+    const endIndex = Math.min(startIndex + SUMMARY_PAGE_SIZE, filteredResults.length);
+    const currentSummaryResults = filteredResults.slice(startIndex, endIndex);
+    const showingFrom = filteredResults.length === 0 ? 0 : startIndex + 1;
+    const showingTo = filteredResults.length === 0 ? 0 : endIndex;
+
+    useEffect(() => {
+        setSummaryPage(0);
+    }, [searchTerm, viewMode, deviceUpdates.length]);
+
+    useEffect(() => {
+        if (summaryPage > totalSummaryPages - 1) {
+            setSummaryPage(Math.max(totalSummaryPages - 1, 0));
+        }
+    }, [summaryPage, totalSummaryPages]);
 
     if (loading) {
         return (
@@ -564,19 +679,18 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                         Recent Sweep Results ({uniqueHosts.length} unique hosts, {deviceUpdates.length} total records)
                     </h3>
                     
-                    {uniqueHosts.length === 0 ? (
+                    {filteredResults.length === 0 ? (
                         <div className="text-center p-8 text-gray-600 dark:text-gray-400">
-                            No sweep results found.
+                            No sweep hosts match the current filters.
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            {uniqueHosts.slice(0, 10).map((result, index) => {
+                            {currentSummaryResults.map((result, index) => {
                                 const metadata = parseMetadata(result.metadata);
                                 const responseTime = typeof metadata.response_time_ns === 'number' ? metadata.response_time_ns / 1000000 : null;
                                 let openPorts: unknown[] = [];
                                 const rawOpenPorts = metadata.open_ports;
                                 
-                                // Parse open_ports if it's a JSON string  
                                 if (typeof rawOpenPorts === 'string') {
                                     try {
                                         openPorts = JSON.parse(rawOpenPorts);
@@ -590,14 +704,14 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                                 }
                                 
                                 return (
-                                    <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                                    <div key={`${result.ip}-${index}`} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                                         <div className="flex justify-between items-start mb-2">
                                             <div>
                                                 <h4 className="font-medium text-gray-900 dark:text-white">
                                                     {result.hostname || result.ip}
                                                 </h4>
                                                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                                                    {result.ip} • {new Date(result.last_seen).toLocaleString()}
+                                                    {result.ip} • {formatSrqlTimestamp(result.last_seen)}
                                                 </p>
                                             </div>
                                             <div className="text-right">
@@ -629,6 +743,33 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                                     </div>
                                 );
                             })}
+                        </div>
+                    )}
+
+                    {filteredResults.length > SUMMARY_PAGE_SIZE && (
+                        <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 dark:border-gray-700 pt-3">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                                Showing {showingFrom}-{showingTo} of {filteredResults.length} hosts
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setSummaryPage((prev) => Math.max(prev - 1, 0))}
+                                    disabled={summaryPage === 0}
+                                    className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 dark:hover:bg-gray-600"
+                                >
+                                    Previous
+                                </button>
+                                <span className="text-sm text-gray-600 dark:text-gray-400">
+                                    Page {summaryPage + 1} of {totalSummaryPages}
+                                </span>
+                                <button
+                                    onClick={() => setSummaryPage((prev) => Math.min(prev + 1, totalSummaryPages - 1))}
+                                    disabled={summaryPage >= totalSummaryPages - 1}
+                                    className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 dark:hover:bg-gray-600"
+                                >
+                                    Next
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -752,7 +893,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
 
                                             <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
                                                 <div>Agent: {result.agent_id}</div>
-                                                <div>Scanned: {new Date(result.last_seen).toLocaleString()}</div>
+                                                <div>Scanned: {formatSrqlTimestamp(result.last_seen)}</div>
                                                 {result.mac && <div>MAC: {result.mac}</div>}
                                             </div>
                                         </div>
@@ -763,27 +904,27 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                     </div>
                     
                     {/* Pagination Controls */}
-                    {(pagination.nextCursor || pagination.prevCursor) && (
-                        <div className="mt-6 flex justify-between items-center">
-                            <button
-                                onClick={() => pagination.prevCursor && fetchDeviceUpdates(pagination.prevCursor, 'prev')}
-                                disabled={!pagination.prevCursor || loading}
-                                className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
-                            >
-                                Previous
-                            </button>
+                        {(pagination.nextCursor || pagination.prevCursor) && (
+                            <div className="mt-6 flex justify-between items-center">
+                                <button
+                                    onClick={() => pagination.prevCursor && fetchDeviceUpdates(pagination.prevCursor, 'prev', pagination.limit)}
+                                    disabled={!pagination.prevCursor || loading}
+                                    className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
+                                >
+                                    Previous
+                                </button>
                             
-                            <span className="text-sm text-gray-600 dark:text-gray-400">
-                                Showing {deviceUpdates.length} results
-                            </span>
+                                <span className="text-sm text-gray-600 dark:text-gray-400">
+                                    Showing {deviceUpdates.length} results (page size {pagination.limit})
+                                </span>
                             
-                            <button
-                                onClick={() => pagination.nextCursor && fetchDeviceUpdates(pagination.nextCursor, 'next')}
-                                disabled={!pagination.nextCursor || loading}
-                                className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
-                            >
-                                Next
-                            </button>
+                                <button
+                                    onClick={() => pagination.nextCursor && fetchDeviceUpdates(pagination.nextCursor, 'next', pagination.limit)}
+                                    disabled={!pagination.nextCursor || loading}
+                                    className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
+                                >
+                                    Next
+                                </button>
                         </div>
                     )}
                 </div>
