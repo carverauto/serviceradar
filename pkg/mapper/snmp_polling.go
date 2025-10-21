@@ -578,7 +578,8 @@ func extractSpeedFromOctetString(value interface{}) uint64 {
 func (e *DiscoveryEngine) updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	var speed uint64
 
-	switch pdu.Type { //nolint:exhaustive // gosnmp exposes many ASN.1 BER variants; we only handle supported speed types.
+	// gosnmp exposes many ASN.1 BER variants; we only handle supported speed types.
+	switch pdu.Type { //nolint:exhaustive
 	case gosnmp.Gauge32:
 		speed = e.extractSpeedFromGauge32(pdu.Value)
 	case gosnmp.Counter32:
@@ -966,7 +967,8 @@ const (
 func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	var ipString string
 
-	switch pdu.Type { //nolint:exhaustive // ipAdEntAddr only returns IP-typed PDUs; other types are ignored by design.
+	// ipAdEntAddr only returns IP-typed PDUs; other types are ignored by design.
+	switch pdu.Type { //nolint:exhaustive
 	case gosnmp.IPAddress:
 		ipString = pdu.Value.(string)
 	case gosnmp.OctetString:
