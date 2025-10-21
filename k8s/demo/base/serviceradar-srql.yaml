@@ -31,7 +31,7 @@ spec:
             - name: PROTON_VERIFY_HOSTNAME
               value: "0"
             - name: AUTH_ENABLED
-              value: "false"
+              value: "true"
             - name: SRQL_REQUIRE_BEARER
               value: "true"
             - name: PROTON_PASSWORD
