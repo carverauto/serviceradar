@@ -22,6 +22,8 @@ const nextConfig = {
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090",
     // WebSocket authentication uses cookies only - no API keys in query parameters
   },
+  // NOTE: NEXT_INTERNAL_SRQL_URL is resolved at runtime so deployments can point
+  // at environment-specific Kong hosts without rebuilding the web image.
   serverRuntimeConfig: {
     // Will only be available on the server side
     apiKey: process.env.API_KEY || "",

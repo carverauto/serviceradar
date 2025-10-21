@@ -19,6 +19,7 @@
 import React, { useState, Fragment } from 'react';
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, Clock, Server } from 'lucide-react';
 import ReactJson from '@/components/Common/DynamicReactJson';
+import { normalizeTimestampString } from '@/utils/traceTimestamp';
 
 export interface SweepResult {
     _tp_time: string;
@@ -53,30 +54,41 @@ const SweepResultsTable: React.FC<SweepResultsTableProps> = ({
         return available ? 'text-green-500' : 'text-red-500';
     };
 
-    const formatTimestamp = (timestamp: string) => {
-        try {
-            return new Date(timestamp).toLocaleString();
-        } catch {
-            return 'Invalid Date';
+    const parseTimestamp = (raw?: string | null): Date | null => {
+        if (!raw) {
+            return null;
         }
+
+        const normalized = normalizeTimestampString(raw);
+        if (!normalized) {
+            return null;
+        }
+
+        const parsed = Date.parse(normalized);
+        return Number.isNaN(parsed) ? null : new Date(parsed);
     };
 
-    const getRelativeTime = (timestamp: string) => {
-        try {
-            const date = new Date(timestamp);
-            const now = new Date();
-            const diffMs = now.getTime() - date.getTime();
-            const diffMinutes = Math.floor(diffMs / (1000 * 60));
-            const diffHours = Math.floor(diffMinutes / 60);
-            const diffDays = Math.floor(diffHours / 24);
+    const formatTimestamp = (timestamp?: string | null) => {
+        const date = parseTimestamp(timestamp);
+        return date ? date.toLocaleString() : 'Invalid Date';
+    };
 
-            if (diffMinutes < 1) return 'Just now';
-            if (diffMinutes < 60) return `${diffMinutes}m ago`;
-            if (diffHours < 24) return `${diffHours}h ago`;
-            return `${diffDays}d ago`;
-        } catch {
+    const getRelativeTime = (timestamp?: string | null) => {
+        const date = parseTimestamp(timestamp);
+        if (!date) {
             return 'Unknown';
         }
+
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+        const diffHours = Math.floor(diffMinutes / 60);
+        const diffDays = Math.floor(diffHours / 24);
+
+        if (diffMinutes < 1) return 'Just now';
+        if (diffMinutes < 60) return `${diffMinutes}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        return `${diffDays}d ago`;
     };
 
     if (!sweepResults || sweepResults.length === 0) {

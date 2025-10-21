@@ -412,6 +412,74 @@ func TestResultsPoller_executeStreamResults_StreamError(t *testing.T) {
 	assert.Nil(t, results)
 }
 
+func TestResultsPoller_parseChunkDataKnownHostsKey(t *testing.T) {
+	rp := &ResultsPoller{
+		logger: logger.NewTestLogger(),
+	}
+
+	chunk := &proto.ResultsChunk{
+		Data: []byte(`{"hosts":[{"host":"10.0.0.1"}],"total_hosts":1}`),
+	}
+
+	devices, metadata, err := rp.parseChunkData(chunk, "network_sweep")
+	require.NoError(t, err)
+	require.Len(t, devices, 1)
+
+	device, ok := devices[0].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "10.0.0.1", device["host"])
+
+	require.NotNil(t, metadata)
+	totalHosts, ok := metadata["total_hosts"].(float64)
+	require.True(t, ok)
+	assert.InDelta(t, 1.0, totalHosts, 1e-9)
+}
+
+func TestResultsPoller_parseChunkDataFallbackDevicesKey(t *testing.T) {
+	rp := &ResultsPoller{
+		logger: logger.NewTestLogger(),
+	}
+
+	chunk := &proto.ResultsChunk{
+		Data: []byte(`{"devices":[{"host":"10.0.0.2"}],"available_hosts":1}`),
+	}
+
+	devices, metadata, err := rp.parseChunkData(chunk, "network_sweep")
+	require.NoError(t, err)
+	require.Len(t, devices, 1)
+
+	device, ok := devices[0].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "10.0.0.2", device["host"])
+
+	require.NotNil(t, metadata)
+	availableHosts, ok := metadata["available_hosts"].(float64)
+	require.True(t, ok)
+	assert.InDelta(t, 1.0, availableHosts, 1e-9)
+}
+
+func TestResultsPoller_parseChunkDataNoKnownHostsKey(t *testing.T) {
+	rp := &ResultsPoller{
+		logger: logger.NewTestLogger(),
+	}
+
+	chunk := &proto.ResultsChunk{
+		Data: []byte(`{"total_hosts":5,"available_hosts":2}`),
+	}
+
+	devices, metadata, err := rp.parseChunkData(chunk, "network_sweep")
+	require.NoError(t, err)
+	assert.Empty(t, devices)
+	require.NotNil(t, metadata)
+	totalHosts, ok := metadata["total_hosts"].(float64)
+	require.True(t, ok)
+	assert.InDelta(t, 5.0, totalHosts, 1e-9)
+
+	availableHosts, ok := metadata["available_hosts"].(float64)
+	require.True(t, ok)
+	assert.InDelta(t, 2.0, availableHosts, 1e-9)
+}
+
 func TestResultsPoller_executeGetResults_StreamingRoute(t *testing.T) {
 	setupMockAndTestGetResults(t, "sync-service", "sync", func(mock *proto.MockAgentServiceClient) {
 		// Test that it calls StreamResults instead of GetResults for sync type

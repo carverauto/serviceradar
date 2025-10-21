@@ -61,13 +61,13 @@ func TestBufferedSamplerCollectOnceUsesCollector(t *testing.T) {
 		return snapshots[index], nil
 	})
 
-	sampler.collectOnce()
+	sampler.collectOnce(context.Background())
 	got, ok := sampler.latest()
 	if !ok || got.Cores[0].FrequencyHz != 100 {
 		t.Fatalf("expected first snapshot frequency 100, got %+v (ok=%v)", got, ok)
 	}
 
-	sampler.collectOnce()
+	sampler.collectOnce(context.Background())
 	got, ok = sampler.latest()
 	if !ok || got.Cores[0].FrequencyHz != 200 {
 		t.Fatalf("expected second snapshot frequency 200, got %+v (ok=%v)", got, ok)

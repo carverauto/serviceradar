@@ -163,11 +163,11 @@ Documentation topics include:
 
 Connect to our live-system. This instance is part of our continuous-deployment system and may contain previews of upcoming builds or features, or may not work at all.
 
-**[https://demo.serviceradar.cloud](https://demo.serviceradar.cloud)**
+**[https://demo.serviceradar.cloud](https://demo.serviceradar.cloud)** (admin:tu3kMPfO5GZ1)
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please feel free to submit a Pull Request. Join our [Discord](https://discord.gg/dhaNgF9d3g)! 
 
 ## License
 

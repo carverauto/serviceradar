@@ -189,7 +189,8 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://localhost/api
-      - NEXT_INTERNAL_API_URL=http://kong:8000
+      - NEXT_INTERNAL_API_URL=http://core:8090
+      - NEXT_INTERNAL_SRQL_URL=http://kong:8000
       - AUTH_ENABLED=true
       # API_KEY and JWT_SECRET will be loaded from generated config volume at runtime
     volumes:

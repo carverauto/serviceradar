@@ -58,7 +58,7 @@ ServiceRadar is a distributed network monitoring and observability platform that
 - [ ] **Documentation**: Comprehensive deployment, operations, and troubleshooting guides
 - [ ] **Security Audit**: Third-party security assessment and remediation
 - [ ] **Performance Benchmarks**: Published performance characteristics and tuning guides
-- [ ] **CNCF Sandbox Application**: Submit project for CNCF Sandbox status
+- [x] **CNCF Sandbox Application**: Submit project for CNCF Sandbox status
 
 ### Q2 2026: Enhanced Observability
 - [ ] **OCSF Alignment**: Migrate to Open Cybersecurity Schema Framework data formats
@@ -116,6 +116,7 @@ ServiceRadar is a distributed network monitoring and observability platform that
 - [ ] **Mature Plugin System**: Comprehensive checker/plugin framework with marketplace
 - [ ] **Edge Computing**: Lightweight edge deployment for IoT and remote sites
 - [ ] **Service Mesh Integration**: Istio/Linkerd integration for microservices observability
+- [ ] **Causal Inference/Discovery**: Integration with [DeepCausality](https://github.com/deepcausality-rs/deep_causality) library for [AIOps](https://github.com/carverauto/serviceradar/blob/main/sr-architecture-and-design/prd/10-ai-ops.md)
 
 ### Advanced Analytics
 - [ ] **ML/AI Pipeline**: Integrated ML pipeline for predictive analytics
