@@ -56,7 +56,7 @@ var (
 	errHostfreqEmptyPayload = errors.New("hostfreq returned empty payload")
 )
 
-var hostfreqSampler = newBufferedSampler(
+var hostfreqSampler = newBufferedSampler( //nolint:gochecknoglobals // shared buffered sampler for hostfreq background collection
 	hostfreqBackgroundInterval,
 	hostfreqRetentionWindow,
 	hostfreqRequestTimeout,
@@ -232,9 +232,7 @@ func clusterFromLabel(label string) string {
 	if label == "" {
 		return ""
 	}
-	trimmed := strings.TrimRightFunc(label, func(r rune) bool {
-		return unicode.IsDigit(r)
-	})
+	trimmed := strings.TrimRightFunc(label, unicode.IsDigit)
 	if trimmed == "" {
 		return ""
 	}
