@@ -8,6 +8,7 @@ spec:
   selector:
     matchLabels:
       app: serviceradar-faker
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:

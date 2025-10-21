@@ -8,6 +8,7 @@ spec:
     metadata:
       labels:
         app: serviceradar-cert-generator
+        app.kubernetes.io/part-of: serviceradar
     spec:
       restartPolicy: OnFailure
       containers:

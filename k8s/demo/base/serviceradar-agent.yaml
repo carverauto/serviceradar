@@ -10,10 +10,12 @@ spec:
   selector:
     matchLabels:
       app: serviceradar-agent
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
         app: serviceradar-agent
+        app.kubernetes.io/part-of: serviceradar
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
