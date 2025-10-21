@@ -8,10 +8,12 @@ spec:
   selector:
     matchLabels:
       app: serviceradar-rperf-client
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
         app: serviceradar-rperf-client
+        app.kubernetes.io/part-of: serviceradar
     spec:
       imagePullSecrets:
         - name: ghcr-io-cred

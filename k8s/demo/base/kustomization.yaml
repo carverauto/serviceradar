@@ -32,6 +32,5 @@ resources:
 # Note: configmap.yaml now includes NATS configuration with proper authorization
 
 labels:
-- includeSelectors: true
-  pairs:
+- pairs:
     app.kubernetes.io/part-of: serviceradar
