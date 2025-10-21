@@ -1028,6 +1028,7 @@ genrule(
         "//:VERSION",
     ],
     outs = ["web_build_info.json"],
+    stamp = 1,
     cmd = """
 set -euo pipefail
 
@@ -1059,7 +1060,7 @@ else
   version="dev"
 fi
 
-build_time="$$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+build_time="$${BUILD_TIMESTAMP:-$$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
 
 cat > "$@" <<EOF
 {
