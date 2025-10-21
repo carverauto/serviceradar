@@ -160,14 +160,6 @@ func (s *bufferedSampler) latest() (*Snapshot, bool) {
 	return snapshotClone(entry.snapshot), true
 }
 
-func (s *bufferedSampler) context() context.Context {
-	s.ctxMu.RLock()
-	ctx := s.ctx
-	s.ctxMu.RUnlock()
-
-	return ctx
-}
-
 func (s *bufferedSampler) running() bool {
 	s.ctxMu.RLock()
 	defer s.ctxMu.RUnlock()
