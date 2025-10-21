@@ -88,6 +88,10 @@ const TIMESTAMP_FIELDS = [
 ];
 
 const SUMMARY_PAGE_SIZE = 10;
+const HOSTS_PAGE_SIZE = 30;
+const DEFAULT_SWEEP_FETCH_LIMIT = 1000;
+const SWEEP_FETCH_STEP = 500;
+const MAX_SWEEP_FETCH_LIMIT_FALLBACK = 20000;
 
 const normalizeTimestampValue = (value: unknown): string | undefined => {
     if (typeof value === 'string') {
@@ -142,6 +146,26 @@ const parseSrqlTimestamp = (raw?: string | null): Date | null => {
 const toTimestampMs = (raw?: string | null): number => {
     const date = parseSrqlTimestamp(raw);
     return date ? date.getTime() : 0;
+};
+
+const dedupeDeviceUpdates = (records: DeviceUpdates[]): DeviceUpdates[] => {
+    if (records.length === 0) {
+        return [];
+    }
+
+    const hostMap = new Map<string, DeviceUpdates>();
+    for (const record of records) {
+        const existing = hostMap.get(record.ip);
+        const currentTs = toTimestampMs(record.last_seen);
+        const existingTs = existing ? toTimestampMs(existing.last_seen) : 0;
+        if (!existing || currentTs > existingTs) {
+            hostMap.set(record.ip, record);
+        }
+    }
+
+    return Array.from(hostMap.values()).sort(
+        (a, b) => toTimestampMs(b.last_seen) - toTimestampMs(a.last_seen)
+    );
 };
 
 const formatSrqlTimestamp = (raw?: string | null): string => {
@@ -394,22 +418,23 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'summary' | 'hosts'>('summary');
     const [searchTerm, setSearchTerm] = useState('');
-    const [pagination, setPagination] = useState<{
-        nextCursor: string | null;
-        prevCursor: string | null;
-        hasMore: boolean;
-        limit: number;
-    }>({ nextCursor: null, prevCursor: null, hasMore: false, limit: 1000 });
+    const [currentFetchLimit, setCurrentFetchLimit] = useState(DEFAULT_SWEEP_FETCH_LIMIT);
+    const [isExpandingResults, setIsExpandingResults] = useState(false);
     const [summaryPage, setSummaryPage] = useState(0);
+    const [hostPage, setHostPage] = useState(0);
+    const [overallCounts, setOverallCounts] = useState<{ totalHosts: number | null; availableHosts: number | null }>({
+        totalHosts: null,
+        availableHosts: null,
+    });
+    const [countsError, setCountsError] = useState<string | null>(null);
 
-    const fetchDeviceUpdates = useCallback(async (cursor?: string, direction: 'next' | 'prev' = 'next', limit = 1000) => {
+    const fetchDeviceUpdates = useCallback(async (limit: number): Promise<DeviceUpdates[]> => {
         setLoading(true);
         setError(null);
 
         try {
             const params = new URLSearchParams({
                 limit: limit.toString(),
-                ...(cursor && { cursor, direction })
             });
 
             const response = await fetch(`/api/devices/sweep?${params}`, {
@@ -438,33 +463,52 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                 : [];
 
             setDeviceUpdates(normalizedResults);
-            
-            // Update pagination info
-            const paginationData = data?.pagination ?? {};
-            const nextCursor = typeof paginationData.next_cursor === 'string' ? paginationData.next_cursor : null;
-            const prevCursor = typeof paginationData.prev_cursor === 'string' ? paginationData.prev_cursor : null;
-            const limitValue = typeof paginationData.limit === 'number' && Number.isFinite(paginationData.limit)
-                ? paginationData.limit
-                : limit;
+            setCurrentFetchLimit(limit);
 
-            setPagination({
-                nextCursor,
-                prevCursor,
-                hasMore: Boolean(nextCursor),
-                limit: limitValue
-            });
+            return normalizedResults;
         } catch (e) {
-            setError(e instanceof Error ? e.message : "Failed to fetch sweep results.");
+            const message = e instanceof Error ? e.message : 'Failed to fetch sweep results.';
+            setError(message);
+            throw (e instanceof Error ? e : new Error(message));
         } finally {
             setLoading(false);
         }
     }, [token]);
 
-    useEffect(() => {
-        fetchDeviceUpdates();
-    }, [fetchDeviceUpdates]);
+    const fetchSweepCounts = useCallback(async () => {
+        try {
+            const [totalRes, availableRes] = await Promise.all([
+                cachedQuery<{ results: Array<{ total: number }> }>(
+                    'in:devices discovery_sources:(sweep) stats:"count() as total" time:last_24h',
+                    token || undefined,
+                    60000
+                ),
+                cachedQuery<{ results: Array<{ total: number }> }>(
+                    'in:devices discovery_sources:(sweep) is_available:true stats:"count() as total" time:last_24h',
+                    token || undefined,
+                    60000
+                ),
+            ]);
 
-    const parseMetadata = (metadata: Record<string, unknown> | string | undefined): Record<string, unknown> => {
+            setOverallCounts({
+                totalHosts: totalRes?.results?.[0]?.total ?? 0,
+                availableHosts: availableRes?.results?.[0]?.total ?? 0,
+            });
+            setCountsError(null);
+        } catch (err) {
+            console.error('Failed to fetch sweep counts:', err);
+            setCountsError(err instanceof Error ? err.message : 'Failed to fetch sweep totals');
+        }
+    }, [token]);
+
+    useEffect(() => {
+        fetchDeviceUpdates(DEFAULT_SWEEP_FETCH_LIMIT).catch(() => {
+            /* error is surfaced via state */
+        });
+        fetchSweepCounts();
+    }, [fetchDeviceUpdates, fetchSweepCounts]);
+
+    const parseMetadata = useCallback((metadata: Record<string, unknown> | string | undefined): Record<string, unknown> => {
         if (!metadata) return {};
         if (typeof metadata === 'string') {
             try {
@@ -474,81 +518,71 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
             }
         }
         return metadata;
-    };
+    }, []);
 
 
     // Create unique hosts from sweep results (deduplicate by IP)
-    const uniqueHosts = useMemo(() => {
-        const hostMap = new Map<string, DeviceUpdates>();
-        deviceUpdates.forEach(result => {
-            const existing = hostMap.get(result.ip);
-            const currentTs = toTimestampMs(result.last_seen);
-            const existingTs = existing ? toTimestampMs(existing.last_seen) : 0;
-            if (!existing || currentTs > existingTs) {
-                hostMap.set(result.ip, result);
-            }
-        });
-        return Array.from(hostMap.values()).sort(
-            (a, b) => toTimestampMs(b.last_seen) - toTimestampMs(a.last_seen)
-        );
-    }, [deviceUpdates]);
+    const uniqueHosts = useMemo(() => dedupeDeviceUpdates(deviceUpdates), [deviceUpdates]);
 
     const aggregatedStats = useMemo(() => {
-        if (!uniqueHosts.length) return null;
-
-        const totalHosts = uniqueHosts.length;
-        const respondingHosts = uniqueHosts.filter(result => result.is_available).length;
+        const fallbackResponding = uniqueHosts.filter(result => result.is_available).length;
+        const totalHosts = overallCounts.totalHosts ?? uniqueHosts.length;
+        const respondingHosts = overallCounts.availableHosts ?? fallbackResponding;
         
-        // Try to parse metadata for detailed stats (if available)
         let totalOpenPorts = 0;
         let avgResponseTime = 0;
         
-        try {
-            const hostsWithMetadata = uniqueHosts.filter(result => result.metadata && result.metadata !== '{}');
-            if (hostsWithMetadata.length > 0) {
-                hostsWithMetadata.forEach(result => {
-                    const metadata = parseMetadata(result.metadata);
-                    let openPorts: unknown[] = [];
-                    const rawOpenPorts = metadata.open_ports;
-                    
-                    // Parse open_ports if it's a JSON string
-                    if (typeof rawOpenPorts === 'string') {
-                        try {
-                            openPorts = JSON.parse(rawOpenPorts);
-                        } catch {
+        if (uniqueHosts.length > 0) {
+            try {
+                const hostsWithMetadata = uniqueHosts.filter(result => result.metadata && result.metadata !== '{}');
+                if (hostsWithMetadata.length > 0) {
+                    hostsWithMetadata.forEach(result => {
+                        const metadata = parseMetadata(result.metadata);
+                        let openPorts: unknown[] = [];
+                        const rawOpenPorts = metadata.open_ports;
+                        
+                        if (typeof rawOpenPorts === 'string') {
+                            try {
+                                openPorts = JSON.parse(rawOpenPorts);
+                            } catch {
+                                openPorts = [];
+                            }
+                        } else if (Array.isArray(rawOpenPorts)) {
+                            openPorts = rawOpenPorts;
+                        } else {
                             openPorts = [];
                         }
-                    } else if (Array.isArray(rawOpenPorts)) {
-                        openPorts = rawOpenPorts;
-                    } else {
-                        openPorts = [];
-                    }
+                        
+                        totalOpenPorts += Array.isArray(openPorts) ? openPorts.length : 0;
+                    });
                     
-                    totalOpenPorts += Array.isArray(openPorts) ? openPorts.length : 0;
-                });
-                
-                const responseTimes = hostsWithMetadata
-                    .map(result => {
-                        const metadata = parseMetadata(result.metadata);
-                        const responseTime = metadata.response_time_ns;
-                        return typeof responseTime === 'number' ? responseTime : 0;
-                    })
-                    .filter(time => time > 0);
-                
-                avgResponseTime = responseTimes.length > 0 ?
-                    responseTimes.reduce((acc, time) => acc + time, 0) / responseTimes.length / 1000000 : 0;
+                    const responseTimes = hostsWithMetadata
+                        .map(result => {
+                            const metadata = parseMetadata(result.metadata);
+                            const responseTime = metadata.response_time_ns;
+                            return typeof responseTime === 'number' ? responseTime : 0;
+                        })
+                        .filter(time => time > 0);
+                    
+                    avgResponseTime = responseTimes.length > 0
+                        ? responseTimes.reduce((acc, time) => acc + time, 0) / responseTimes.length / 1_000_000
+                        : 0;
+                }
+            } catch (error) {
+                console.warn('Error parsing sweep metadata:', error);
             }
-        } catch (error) {
-            console.warn('Error parsing sweep metadata:', error);
         }
 
         return {
             totalHosts,
             respondingHosts,
             totalOpenPorts,
-            avgResponseTime
+            avgResponseTime,
         };
-    }, [uniqueHosts]);
+    }, [overallCounts, uniqueHosts, parseMetadata]);
+
+    const totalHostsDisplay = aggregatedStats.totalHosts ?? 0;
+    const reachableHostsDisplay = aggregatedStats.respondingHosts ?? 0;
 
     const filteredResults = useMemo(() => {
         if (!searchTerm) return uniqueHosts;
@@ -559,22 +593,132 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
         );
     }, [uniqueHosts, searchTerm]);
 
-    const totalSummaryPages = Math.max(1, Math.ceil(filteredResults.length / SUMMARY_PAGE_SIZE));
-    const startIndex = summaryPage * SUMMARY_PAGE_SIZE;
-    const endIndex = Math.min(startIndex + SUMMARY_PAGE_SIZE, filteredResults.length);
-    const currentSummaryResults = filteredResults.slice(startIndex, endIndex);
-    const showingFrom = filteredResults.length === 0 ? 0 : startIndex + 1;
-    const showingTo = filteredResults.length === 0 ? 0 : endIndex;
+    const totalHostsLabel = totalHostsDisplay > 0 ? totalHostsDisplay : filteredResults.length;
+
+    const ensureUniqueHosts = useCallback(async (requiredCount: number) => {
+        const initialUniqueCount = uniqueHosts.length;
+        if (requiredCount <= 0 || requiredCount <= initialUniqueCount) {
+            return initialUniqueCount;
+        }
+
+        if (isExpandingResults) {
+            return initialUniqueCount;
+        }
+
+        let nextLimit = Math.max(currentFetchLimit, DEFAULT_SWEEP_FETCH_LIMIT);
+        let previousUniqueCount = initialUniqueCount;
+        let currentUniqueCount = initialUniqueCount;
+        const estimatedTotalHosts = overallCounts.totalHosts && overallCounts.totalHosts > 0
+            ? overallCounts.totalHosts
+            : MAX_SWEEP_FETCH_LIMIT_FALLBACK;
+        const maxLimit = Math.max(estimatedTotalHosts, nextLimit);
+
+        setIsExpandingResults(true);
+        try {
+            while (requiredCount > currentUniqueCount && nextLimit < maxLimit) {
+                nextLimit = Math.min(
+                    maxLimit,
+                    Math.max(
+                        nextLimit + SWEEP_FETCH_STEP,
+                        Math.ceil(requiredCount * 1.1),
+                        Math.floor(nextLimit * 1.5)
+                    )
+                );
+
+                let deduped: DeviceUpdates[] = [];
+                try {
+                    const results = await fetchDeviceUpdates(nextLimit);
+                    deduped = dedupeDeviceUpdates(results);
+                } catch {
+                    break;
+                }
+                currentUniqueCount = deduped.length;
+
+                if (currentUniqueCount >= requiredCount) {
+                    break;
+                }
+
+                if (currentUniqueCount <= previousUniqueCount) {
+                    break;
+                }
+
+                previousUniqueCount = currentUniqueCount;
+            }
+        } finally {
+            setIsExpandingResults(false);
+        }
+
+        return currentUniqueCount;
+    }, [uniqueHosts.length, isExpandingResults, currentFetchLimit, overallCounts.totalHosts, fetchDeviceUpdates]);
+
+    const summaryTotalBasis = Math.max(totalHostsLabel, filteredResults.length);
+    const totalSummaryPages = Math.max(1, Math.ceil(summaryTotalBasis / SUMMARY_PAGE_SIZE));
+    const summaryStartIndex = summaryPage * SUMMARY_PAGE_SIZE;
+    const summaryEndIndex = Math.min(summaryStartIndex + SUMMARY_PAGE_SIZE, filteredResults.length);
+    const currentSummaryResults = filteredResults.slice(summaryStartIndex, summaryEndIndex);
+    const summaryShowingFrom = currentSummaryResults.length === 0 ? 0 : summaryStartIndex + 1;
+    const summaryShowingTo = currentSummaryResults.length === 0 ? 0 : summaryStartIndex + currentSummaryResults.length;
+
+    const hostsTotalBasis = Math.max(totalHostsLabel, filteredResults.length);
+    const totalHostPages = Math.max(1, Math.ceil(hostsTotalBasis / HOSTS_PAGE_SIZE));
+    const hostStartIndex = hostPage * HOSTS_PAGE_SIZE;
+    const hostEndIndex = Math.min(hostStartIndex + HOSTS_PAGE_SIZE, filteredResults.length);
+    const currentHostResults = filteredResults.slice(hostStartIndex, hostEndIndex);
+    const hostShowingFrom = currentHostResults.length === 0 ? 0 : hostStartIndex + 1;
+    const hostShowingTo = currentHostResults.length === 0 ? 0 : hostStartIndex + currentHostResults.length;
 
     useEffect(() => {
         setSummaryPage(0);
-    }, [searchTerm, viewMode, deviceUpdates.length]);
+    }, [searchTerm, viewMode]);
+
+    useEffect(() => {
+        setHostPage(0);
+    }, [searchTerm, viewMode]);
 
     useEffect(() => {
         if (summaryPage > totalSummaryPages - 1) {
             setSummaryPage(Math.max(totalSummaryPages - 1, 0));
         }
     }, [summaryPage, totalSummaryPages]);
+
+    useEffect(() => {
+        if (hostPage > totalHostPages - 1) {
+            setHostPage(Math.max(totalHostPages - 1, 0));
+        }
+    }, [hostPage, totalHostPages]);
+
+    const handleSummaryNext = useCallback(async () => {
+        if (loading || isExpandingResults || summaryPage >= totalSummaryPages - 1) {
+            return;
+        }
+
+        const nextPage = summaryPage + 1;
+        const requiredCount = nextPage * SUMMARY_PAGE_SIZE + 1;
+        const uniqueCount = await ensureUniqueHosts(requiredCount);
+
+        if (uniqueCount > summaryPage * SUMMARY_PAGE_SIZE) {
+            setSummaryPage(nextPage);
+        }
+    }, [loading, isExpandingResults, summaryPage, totalSummaryPages, ensureUniqueHosts]);
+
+    const handleHostNext = useCallback(async () => {
+        if (loading || isExpandingResults || hostPage >= totalHostPages - 1) {
+            return;
+        }
+
+        const nextPage = hostPage + 1;
+        const requiredCount = nextPage * HOSTS_PAGE_SIZE + 1;
+        const uniqueCount = await ensureUniqueHosts(requiredCount);
+
+        if (uniqueCount > hostPage * HOSTS_PAGE_SIZE) {
+            setHostPage(nextPage);
+        }
+    }, [loading, isExpandingResults, hostPage, totalHostPages, ensureUniqueHosts]);
+
+    const disableSummaryPrev = loading || isExpandingResults || summaryPage === 0;
+    const disableSummaryNext = loading || isExpandingResults || summaryPage >= totalSummaryPages - 1;
+    const disableHostPrev = loading || isExpandingResults || hostPage === 0;
+    const disableHostNext = loading || isExpandingResults || hostPage >= totalHostPages - 1;
 
     if (loading) {
         return (
@@ -675,16 +819,21 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
             {/* Content */}
             {viewMode === 'summary' ? (
                 <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Recent Sweep Results ({uniqueHosts.length} unique hosts, {deviceUpdates.length} total records)
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                        Recent Sweep Results ({totalHostsLabel.toLocaleString()} hosts via sweep • {reachableHostsDisplay.toLocaleString()} reachable)
                     </h3>
+                    {countsError && (
+                        <div className="mb-3 text-sm text-yellow-600 dark:text-yellow-400">
+                            Unable to refresh aggregate counts right now; showing current page totals.
+                        </div>
+                    )}
                     
                     {filteredResults.length === 0 ? (
                         <div className="text-center p-8 text-gray-600 dark:text-gray-400">
                             No sweep hosts match the current filters.
                         </div>
                     ) : (
-                        <div className="space-y-4">
+                        <div className="mt-3 space-y-4">
                             {currentSummaryResults.map((result, index) => {
                                 const metadata = parseMetadata(result.metadata);
                                 const responseTime = typeof metadata.response_time_ns === 'number' ? metadata.response_time_ns / 1000000 : null;
@@ -746,15 +895,15 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                         </div>
                     )}
 
-                    {filteredResults.length > SUMMARY_PAGE_SIZE && (
+                    {summaryTotalBasis > SUMMARY_PAGE_SIZE && (
                         <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 dark:border-gray-700 pt-3">
                             <span className="text-sm text-gray-600 dark:text-gray-400">
-                                Showing {showingFrom}-{showingTo} of {filteredResults.length} hosts
+                                Showing {summaryShowingFrom}-{summaryShowingTo} of {totalHostsLabel.toLocaleString()} hosts
                             </span>
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => setSummaryPage((prev) => Math.max(prev - 1, 0))}
-                                    disabled={summaryPage === 0}
+                                    disabled={disableSummaryPrev}
                                     className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 dark:hover:bg-gray-600"
                                 >
                                     Previous
@@ -763,8 +912,8 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                                     Page {summaryPage + 1} of {totalSummaryPages}
                                 </span>
                                 <button
-                                    onClick={() => setSummaryPage((prev) => Math.min(prev + 1, totalSummaryPages - 1))}
-                                    disabled={summaryPage >= totalSummaryPages - 1}
+                                    onClick={handleSummaryNext}
+                                    disabled={disableSummaryNext}
                                     className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 dark:hover:bg-gray-600"
                                 >
                                     Next
@@ -788,7 +937,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {filteredResults.map((result, index) => {
+                                {currentHostResults.map((result, index) => {
                                     const metadata = parseMetadata(typeof result.metadata === 'string' ? result.metadata : JSON.stringify(result.metadata) || '{}');
                                     const responseTime = typeof metadata.response_time_ns === 'number' ? metadata.response_time_ns / 1000000 : null;
                                     // Parse port_results if it's a JSON string
@@ -813,8 +962,8 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                                     const packetLoss = typeof metadata.packet_loss === 'number' ? metadata.packet_loss : 0;
                                     
                                     return (
-                                        <div 
-                                            key={index}
+                                        <div
+                                            key={`${result.ip}-${result.hostname ?? 'host'}-${index}`}
                                             className="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
                                         >
                                             <div className="flex justify-between items-center mb-3">
@@ -903,28 +1052,30 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                         )}
                     </div>
                     
-                    {/* Pagination Controls */}
-                        {(pagination.nextCursor || pagination.prevCursor) && (
-                            <div className="mt-6 flex justify-between items-center">
+                    {hostsTotalBasis > HOSTS_PAGE_SIZE && (
+                        <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 dark:border-gray-700 pt-3">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                                Showing {hostShowingFrom}-{hostShowingTo} of {totalHostsLabel.toLocaleString()} hosts
+                            </span>
+                            <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => pagination.prevCursor && fetchDeviceUpdates(pagination.prevCursor, 'prev', pagination.limit)}
-                                    disabled={!pagination.prevCursor || loading}
-                                    className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
+                                    onClick={() => setHostPage((prev) => Math.max(prev - 1, 0))}
+                                    disabled={disableHostPrev}
+                                    className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 dark:hover:bg-gray-600"
                                 >
                                     Previous
                                 </button>
-                            
                                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                                    Showing {deviceUpdates.length} results (page size {pagination.limit})
+                                    Page {hostPage + 1} of {totalHostPages}
                                 </span>
-                            
                                 <button
-                                    onClick={() => pagination.nextCursor && fetchDeviceUpdates(pagination.nextCursor, 'next', pagination.limit)}
-                                    disabled={!pagination.nextCursor || loading}
-                                    className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600"
+                                    onClick={handleHostNext}
+                                    disabled={disableHostNext}
+                                    className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 dark:hover:bg-gray-600"
                                 >
                                     Next
                                 </button>
+                            </div>
                         </div>
                     )}
                 </div>
