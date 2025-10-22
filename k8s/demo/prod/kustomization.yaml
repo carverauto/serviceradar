@@ -5,38 +5,38 @@ kind: Kustomization
 namespace: demo
 
 resources:
-  - ../base
-  - namespace.yaml
-  - service-aliases.demo.yaml
-  - ingress.yaml
-  - serviceradar-core-grpc-external.yaml
-  - serviceradar-flowgger-external.yaml
-  - metallb-internal.yaml
+- ../base
+- namespace.yaml
+- service-aliases.demo.yaml
+- ingress.yaml
+- serviceradar-core-grpc-external.yaml
+- serviceradar-flowgger-external.yaml
+- metallb-internal.yaml
 
-patchesJson6902:
-  - target:
-      kind: IPAddressPool
-      name: k3s-lan-pool
-    patch: |-
-      - op: replace
-        path: /metadata/namespace
-        value: metallb-system
-  - target:
-      kind: L2Advertisement
-      name: k3s-lan-pool
-    patch: |-
-      - op: replace
-        path: /metadata/namespace
-        value: metallb-system
 
 images:
-  - name: ghcr.io/carverauto/serviceradar-core
-    newTag: latest
-  - name: ghcr.io/carverauto/serviceradar-web
-    newTag: latest
-  - name: ghcr.io/carverauto/serviceradar-agent
-    newTag: latest
-  - name: ghcr.io/carverauto/serviceradar-poller
-    newTag: latest
-  - name: ghcr.io/carverauto/serviceradar-snmp-checker
-    newTag: latest
+- name: ghcr.io/carverauto/serviceradar-core
+  newTag: latest
+- name: ghcr.io/carverauto/serviceradar-web
+  newTag: latest
+- name: ghcr.io/carverauto/serviceradar-agent
+  newTag: latest
+- name: ghcr.io/carverauto/serviceradar-poller
+  newTag: latest
+- name: ghcr.io/carverauto/serviceradar-snmp-checker
+  newTag: latest
+patches:
+- patch: |-
+    - op: replace
+      path: /metadata/namespace
+      value: metallb-system
+  target:
+    kind: IPAddressPool
+    name: k3s-lan-pool
+- patch: |-
+    - op: replace
+      path: /metadata/namespace
+      value: metallb-system
+  target:
+    kind: L2Advertisement
+    name: k3s-lan-pool

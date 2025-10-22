@@ -25,10 +25,8 @@ interface CacheEntry<T> {
 }
 
 // Cache store for query results
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const queryCache = new Map<string, CacheEntry<any>>();
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const pendingQueries = new Map<string, Promise<any>>();
+const queryCache = new Map<string, CacheEntry<unknown>>();
+const pendingQueries = new Map<string, Promise<unknown>>();
 
 // Cache configuration
 const CACHE_TTL = 30000; // 30 seconds cache TTL

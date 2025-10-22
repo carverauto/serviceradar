@@ -43,27 +43,28 @@ const queryClient = new QueryClient({
 });
 
 export function Providers({ children }: { children: ReactNode }) {
-    const [darkMode, setDarkMode] = useState(true); // Default to dark
-    const [mounted, setMounted] = useState(false);
-
-    // Effect for initial load of dark mode preference
-    useEffect(() => {
-        const savedMode = localStorage.getItem('darkMode');
-        // Set dark mode based on saved preference, or default to true
-        setDarkMode(savedMode !== null ? savedMode === 'true' : true);
-        setMounted(true);
-    }, []);
-
-    // Effect to save dark mode preference when it changes
-    useEffect(() => {
-        if (mounted) {
-            localStorage.setItem('darkMode', String(darkMode));
-            document.documentElement.classList.toggle('dark', darkMode);
+    const isBrowser = typeof window !== 'undefined';
+    const [darkMode, setDarkMode] = useState<boolean>(() => {
+        if (!isBrowser) {
+            return true;
         }
-    }, [darkMode, mounted]);
+        const savedMode = window.localStorage.getItem('darkMode');
+        const preferred = savedMode !== null ? savedMode === 'true' : true;
+        if (typeof document !== 'undefined') {
+            document.documentElement.classList.toggle('dark', preferred);
+        }
+        return preferred;
+    });
 
-    // Prevents a flash of the incorrect theme on page load
-    if (!mounted) {
+    useEffect(() => {
+        if (!isBrowser) {
+            return;
+        }
+        window.localStorage.setItem('darkMode', String(darkMode));
+        document.documentElement.classList.toggle('dark', darkMode);
+    }, [darkMode, isBrowser]);
+
+    if (!isBrowser) {
         return null;
     }
 

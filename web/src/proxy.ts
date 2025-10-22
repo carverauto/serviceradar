@@ -19,7 +19,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { env } from "next-runtime-env";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const apiKey = env("API_KEY") || "";
   const isAuthEnabled = env("AUTH_ENABLED") === "true";
   const requestHeaders = new Headers(request.headers);
