@@ -126,6 +126,12 @@ func (s *Server) lookupIdentityFromKV(ctx context.Context, namespace string, key
 	}
 	rec, err := identitymap.UnmarshalRecord(resp.GetValue())
 	if err != nil {
+		if errors.Is(err, identitymap.ErrCorruptRecord) {
+			if s.logger != nil {
+				s.logger.Warn().Err(err).Str("key", key.KeyPath(namespace)).Msg("Skipping corrupt canonical identity record from KV")
+			}
+			return nil, resp.GetRevision(), nil
+		}
 		return nil, 0, err
 	}
 	return rec, resp.GetRevision(), nil
@@ -237,9 +243,15 @@ func (s *Server) hydrateIdentityKV(ctx context.Context, namespace string, key id
 		}
 		existing, unmarshalErr := identitymap.UnmarshalRecord(resp.GetValue())
 		if unmarshalErr != nil {
-			return false, unmarshalErr
+			if errors.Is(unmarshalErr, identitymap.ErrCorruptRecord) {
+				if s.logger != nil {
+					s.logger.Warn().Err(unmarshalErr).Str("key", key.KeyPath(namespace)).Msg("Overwriting corrupt canonical identity entry during hydration")
+				}
+			} else {
+				return false, unmarshalErr
+			}
 		}
-		if existing.MetadataHash == record.MetadataHash {
+		if existing != nil && existing.MetadataHash == record.MetadataHash {
 			return false, nil
 		}
 		_, updErr := s.identityKVClient.Update(ctx, &proto.UpdateRequest{
