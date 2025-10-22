@@ -18,6 +18,8 @@ package logger
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -128,5 +130,69 @@ func TestMapZerologLevelToOTel(t *testing.T) {
 			t.Errorf("mapZerologLevelToOTEL(%s) = %s, expected %s",
 				test.zerologLevel, result.String(), test.expected)
 		}
+	}
+}
+
+func TestSanitizeLogEntryTruncatesLargeStrings(t *testing.T) {
+	largeValue := strings.Repeat("x", maxAttributeValueLength+128)
+
+	sanitized, truncated := sanitizeLogEntry(map[string]interface{}{
+		"payload": largeValue,
+	})
+
+	got, ok := sanitized["payload"]
+	if !ok {
+		t.Fatalf("expected sanitized payload attribute")
+	}
+
+	if len(got) > maxAttributeValueLength+3 {
+		t.Fatalf("expected truncated payload length <= %d, got %d", maxAttributeValueLength+3, len(got))
+	}
+
+	if !strings.HasSuffix(got, "...") {
+		t.Fatalf("expected truncated payload to end with ellipsis, got %q", got[len(got)-4:])
+	}
+
+	if len(truncated) != 1 || truncated[0] != "payload" {
+		t.Fatalf("expected payload to be marked as truncated, got %v", truncated)
+	}
+}
+
+func TestSanitizeLogEntrySummariesLargeSlices(t *testing.T) {
+	var devices []interface{}
+	for i := 0; i < 100; i++ {
+		devices = append(devices, fmt.Sprintf("device-%03d", i))
+	}
+
+	sanitized, truncated := sanitizeLogEntry(map[string]interface{}{
+		"devices": devices,
+	})
+
+	got := sanitized["devices"]
+	if !strings.Contains(got, "total=100") {
+		t.Fatalf("expected summary to include total count, got %q", got)
+	}
+
+	if !strings.Contains(got, "truncated") {
+		t.Fatalf("expected summary to note truncation, got %q", got)
+	}
+
+	if len(truncated) != 1 || truncated[0] != "devices" {
+		t.Fatalf("expected devices to be marked truncated, got %v", truncated)
+	}
+}
+
+func TestSanitizeLogEntryKeepsSmallSlicesVerbatim(t *testing.T) {
+	sanitized, truncated := sanitizeLogEntry(map[string]interface{}{
+		"sample": []interface{}{"alpha", "beta"},
+	})
+
+	expected := `["alpha","beta"]`
+	if sanitized["sample"] != expected {
+		t.Fatalf("expected verbatim slice JSON %q, got %q", expected, sanitized["sample"])
+	}
+
+	if len(truncated) != 0 {
+		t.Fatalf("expected no truncation markers, got %v", truncated)
 	}
 }
