@@ -314,14 +314,19 @@ func (p *identityPublisher) upsertIdentity(ctx context.Context, key string, payl
 
 		existing, err := identitymap.UnmarshalRecord(resp.GetValue())
 		if err != nil {
-			return struct{}{}, backoff.Permanent(fmt.Errorf("unmarshal existing canonical record: %w", err))
-		}
-
-		existingAttrsHash := identitymap.HashMetadata(existing.Attributes)
-		p.cache.set(key, existing.MetadataHash, existingAttrsHash, resp.GetRevision())
-		if existing.MetadataHash == metadataHash && attributesEqual(existing.Attributes, attrs) {
-			identitymap.RecordKVPublish(ctx, 1, "unchanged")
-			return struct{}{}, nil
+			if errors.Is(err, identitymap.ErrCorruptRecord) {
+				p.logger.Warn().Str("key", key).Err(err).Msg("Replacing corrupt canonical identity entry in KV")
+				p.cache.delete(key)
+			} else {
+				return struct{}{}, backoff.Permanent(fmt.Errorf("unmarshal existing canonical record: %w", err))
+			}
+		} else {
+			existingAttrsHash := identitymap.HashMetadata(existing.Attributes)
+			p.cache.set(key, existing.MetadataHash, existingAttrsHash, resp.GetRevision())
+			if existing.MetadataHash == metadataHash && attributesEqual(existing.Attributes, attrs) {
+				identitymap.RecordKVPublish(ctx, 1, "unchanged")
+				return struct{}{}, nil
+			}
 		}
 
 		updateResp, err := p.kvClient.Update(ctx, &proto.UpdateRequest{
@@ -506,6 +511,10 @@ func (p *identityPublisher) existingIdentitySnapshot(ctx context.Context, device
 
 	record, err := identitymap.UnmarshalRecord(resp.GetValue())
 	if err != nil {
+		if errors.Is(err, identitymap.ErrCorruptRecord) {
+			p.logger.Warn().Str("key", key).Str("device_id", deviceID).Err(err).Msg("Ignoring corrupt canonical identity entry in KV")
+			return nil, nil
+		}
 		return nil, fmt.Errorf("unmarshal canonical record for device %s: %w", deviceID, err)
 	}
 
