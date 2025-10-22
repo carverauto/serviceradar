@@ -9,21 +9,17 @@ import { useAuth } from '@/components/AuthProvider';
 import { cachedQuery } from '@/lib/cached-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-const TRACE_TOTAL_QUERY =
-    'in:otel_trace_summaries stats:"count() as total" sort:total:desc time:last_24h';
-const TRACE_SUCCESS_QUERY =
-    'in:otel_trace_summaries status_code:1 stats:"count() as total" sort:total:desc time:last_24h';
-const TRACE_ERROR_QUERY =
-    'in:otel_trace_summaries status_code!=1 stats:"count() as total" sort:total:desc time:last_24h';
-const TRACE_SLOW_QUERY =
-    'in:otel_trace_summaries duration_ms>100 stats:"count() as total" sort:total:desc time:last_24h';
+import {
+    DEFAULT_COUNTS,
+    parseTraceCounts,
+    TraceAggregateRow,
+    TraceCounts
+} from './traceCountsUtils';
 
-export interface TraceCounts {
-    total: number;
-    successful: number;
-    errors: number;
-    slow: number;
-}
+export type { TraceCounts } from './traceCountsUtils';
+
+const TRACE_AGGREGATE_QUERY =
+    'in:otel_trace_summaries time:last_24h stats:"count() as total, sum(if(status_code = 1, 1, 0)) as successful, sum(if(status_code != 1, 1, 0)) as errors, sum(if(duration_ms > 100, 1, 0)) as slow"';
 
 interface UseTraceCountsOptions {
     refreshInterval?: number;
@@ -36,12 +32,7 @@ export const useTraceCounts = (
     { refreshInterval = DEFAULT_REFRESH_INTERVAL, ttl }: UseTraceCountsOptions = {}
 ) => {
     const { token } = useAuth();
-    const [counts, setCounts] = useState<TraceCounts>({
-        total: 0,
-        successful: 0,
-        errors: 0,
-        slow: 0,
-    });
+    const [counts, setCounts] = useState<TraceCounts>(DEFAULT_COUNTS);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [hasFetched, setHasFetched] = useState(false);
@@ -55,35 +46,13 @@ export const useTraceCounts = (
         }
 
         try {
-            const [totalRes, successRes, errorRes, slowRes] = await Promise.all([
-                cachedQuery<{ results: Array<{ total?: number }> }>(
-                    TRACE_TOTAL_QUERY,
-                    authToken,
-                    queryTtl
-                ),
-                cachedQuery<{ results: Array<{ total?: number }> }>(
-                    TRACE_SUCCESS_QUERY,
-                    authToken,
-                    queryTtl
-                ),
-                cachedQuery<{ results: Array<{ total?: number }> }>(
-                    TRACE_ERROR_QUERY,
-                    authToken,
-                    queryTtl
-                ),
-                cachedQuery<{ results: Array<{ total?: number }> }>(
-                    TRACE_SLOW_QUERY,
-                    authToken,
-                    queryTtl
-                ),
-            ]);
-
-            setCounts({
-                total: totalRes.results?.[0]?.total ?? 0,
-                successful: successRes.results?.[0]?.total ?? 0,
-                errors: errorRes.results?.[0]?.total ?? 0,
-                slow: slowRes.results?.[0]?.total ?? 0,
-            });
+            const response = await cachedQuery<{ results?: TraceAggregateRow[] }>(
+                TRACE_AGGREGATE_QUERY,
+                authToken,
+                queryTtl
+            );
+            const nextCounts = parseTraceCounts(response.results?.[0]);
+            setCounts(nextCounts);
             setError(null);
         } catch (err) {
             const message =
@@ -119,4 +88,3 @@ export const useTraceCounts = (
         [counts, error, executeQueries, loading]
     );
 };
-
