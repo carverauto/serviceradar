@@ -25,9 +25,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	log "go.opentelemetry.io/otel/log"
@@ -42,6 +44,13 @@ import (
 var (
 	ErrOTelLoggingDisabled  = errors.New("OTel logging is disabled")
 	ErrOTelEndpointRequired = errors.New("OTel endpoint is required when enabled")
+)
+
+const (
+	maxAttributeValueLength   = 4096
+	maxStructuredPreviewCount = 5
+	maxPreviewElementLength   = 64
+	truncatedKeysAttribute    = "otel.truncated_keys"
 )
 
 type OTelWriter struct {
@@ -204,13 +213,179 @@ func (w *OTelWriter) Write(p []byte) (n int, err error) {
 	w.mu.Unlock()
 
 	// Add all remaining fields as attributes.
-	for key, value := range logEntry {
-		record.AddAttributes(log.String(key, fmt.Sprintf("%v", value)))
+	sanitized, truncatedKeys := sanitizeLogEntry(logEntry)
+	for key, value := range sanitized {
+		record.AddAttributes(log.String(key, value))
+	}
+
+	if len(truncatedKeys) > 0 {
+		record.AddAttributes(log.String(truncatedKeysAttribute, strings.Join(truncatedKeys, ",")))
 	}
 
 	logger.Emit(w.ctx, record)
 
 	return len(p), nil
+}
+
+func sanitizeLogEntry(logEntry map[string]interface{}) (map[string]string, []string) {
+	sanitized := make(map[string]string, len(logEntry))
+	truncated := make([]string, 0, len(logEntry))
+
+	for key, value := range logEntry {
+		formatted, wasTruncated := formatAttributeValue(value)
+		sanitized[key] = formatted
+
+		if wasTruncated {
+			truncated = append(truncated, key)
+		}
+	}
+
+	sort.Strings(truncated)
+	return sanitized, truncated
+}
+
+func formatAttributeValue(value interface{}) (string, bool) {
+	switch v := value.(type) {
+	case nil:
+		return "null", false
+	case string:
+		return truncateString(v, maxAttributeValueLength)
+	case bool:
+		return fmt.Sprintf("%t", v), false
+	case float64, float32,
+		int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf("%v", v), false
+	case json.Number:
+		return v.String(), false
+	case []byte:
+		return fmt.Sprintf("<bytes len=%d>", len(v)), len(v) > maxPreviewElementLength
+	case []interface{}:
+		return summarizeSlice(v)
+	case map[string]interface{}:
+		return summarizeMap(v)
+	default:
+		if stringer, ok := value.(fmt.Stringer); ok {
+			return truncateString(stringer.String(), maxAttributeValueLength)
+		}
+
+		if marshaled, err := json.Marshal(value); err == nil {
+			return truncateString(string(marshaled), maxAttributeValueLength)
+		}
+
+		return truncateString(fmt.Sprintf("%v", value), maxAttributeValueLength)
+	}
+}
+
+func summarizeSlice(items []interface{}) (string, bool) {
+	length := len(items)
+	if length == 0 {
+		return "[]", false
+	}
+
+	if length <= maxStructuredPreviewCount {
+		if payload, err := json.Marshal(items); err == nil {
+			return truncateString(string(payload), maxAttributeValueLength)
+		}
+	}
+
+	previewCount := maxStructuredPreviewCount
+	if length < previewCount {
+		previewCount = length
+	}
+
+	previews := make([]string, 0, previewCount)
+	for i := 0; i < previewCount; i++ {
+		previews = append(previews, previewString(items[i]))
+	}
+
+	builder := strings.Builder{}
+	builder.Grow(maxAttributeValueLength)
+	builder.WriteString("[")
+	builder.WriteString(strings.Join(previews, ", "))
+	if length > previewCount {
+		builder.WriteString(", ...")
+	}
+	builder.WriteString("] (total=")
+	builder.WriteString(fmt.Sprintf("%d", length))
+	builder.WriteString(", truncated)")
+
+	result, _ := truncateString(builder.String(), maxAttributeValueLength)
+	return result, true
+}
+
+func summarizeMap(values map[string]interface{}) (string, bool) {
+	totalKeys := len(values)
+	if totalKeys == 0 {
+		return "{}", false
+	}
+
+	if totalKeys <= maxStructuredPreviewCount {
+		if payload, err := json.Marshal(values); err == nil {
+			return truncateString(string(payload), maxAttributeValueLength)
+		}
+	}
+
+	preview := make([]string, 0, maxStructuredPreviewCount)
+	for key := range values {
+		preview = append(preview, key)
+		if len(preview) == maxStructuredPreviewCount {
+			break
+		}
+	}
+
+	builder := strings.Builder{}
+	builder.Grow(maxAttributeValueLength)
+	builder.WriteString("{keys=")
+	builder.WriteString(fmt.Sprintf("%d", totalKeys))
+	if len(preview) > 0 {
+		builder.WriteString(", sample=[")
+		builder.WriteString(strings.Join(preview, ", "))
+		if totalKeys > len(preview) {
+			builder.WriteString(", ...")
+		}
+		builder.WriteString("]")
+	}
+	builder.WriteString(", truncated}")
+
+	result, _ := truncateString(builder.String(), maxAttributeValueLength)
+	return result, true
+}
+
+func previewString(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		truncated, _ := truncateString(v, maxPreviewElementLength)
+		return fmt.Sprintf("%q", truncated)
+	case map[string]interface{}:
+		return fmt.Sprintf("map(len=%d)", len(v))
+	case []interface{}:
+		return fmt.Sprintf("slice(len=%d)", len(v))
+	default:
+		truncated, _ := truncateString(fmt.Sprintf("%v", v), maxPreviewElementLength)
+		return truncated
+	}
+}
+
+func truncateString(value string, limit int) (string, bool) {
+	if len(value) <= limit {
+		return value, false
+	}
+
+	if limit <= 3 {
+		truncated := value[:limit]
+		for !utf8.ValidString(truncated) && len(truncated) > 0 {
+			truncated = truncated[:len(truncated)-1]
+		}
+		return truncated, true
+	}
+
+	truncated := value[:limit-3]
+	for !utf8.ValidString(truncated) && len(truncated) > 0 {
+		truncated = truncated[:len(truncated)-1]
+	}
+
+	return truncated + "...", true
 }
 
 // func mapZerologLevelToOTEL(level string) log.Severity {
