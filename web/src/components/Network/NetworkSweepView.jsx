@@ -17,6 +17,7 @@
 import { useState, useMemo } from 'react';
 import ExportButton from '../Utils/ExportButton';
 import { Filter, Search, ChevronDown, ChevronUp, Info, X } from 'lucide-react';
+import { formatTimestampForDisplay } from '@/utils/traceTimestamp';
 
 const compareIPAddresses = (ip1, ip2) => {
     // Split IPs into their octets and convert to numbers
@@ -132,8 +133,8 @@ const HostDetailsView = ({ host }) => {
                 })()}
 
                 <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-                    <div>First seen: {new Date(host.first_seen).toLocaleString()}</div>
-                    <div>Last seen: {new Date(host.last_seen).toLocaleString()}</div>
+                    <div>First seen: {formatTimestampForDisplay(host.first_seen)}</div>
+                    <div>Last seen: {formatTimestampForDisplay(host.last_seen)}</div>
                 </div>
             </div>
         </div>

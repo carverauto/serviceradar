@@ -23,6 +23,7 @@ import { Device } from '@/types/devices';
 import SysmonStatusIndicator from './SysmonStatusIndicator';
 import SNMPStatusIndicator from './SNMPStatusIndicator';
 import ICMPSparkline from './ICMPSparkline';
+import { formatTimestampForDisplay } from '@/utils/traceTimestamp';
 
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
@@ -140,13 +141,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
         return 'bg-gray-100 text-gray-800 dark:bg-gray-600/50 dark:text-gray-200';
     };
 
-    const formatDate = (dateString: string) => {
-        try {
-            return new Date(dateString).toLocaleString();
-        } catch {
-            return 'Invalid Date';
-        }
-    };
+    const formatDate = (dateString: string) => formatTimestampForDisplay(dateString);
 
     /**
      * Determines the display status of a device by checking metadata first.

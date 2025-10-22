@@ -27,6 +27,7 @@ import {
     Eye,
     EyeOff 
 } from 'lucide-react';
+import { formatTimestampForDisplay } from '@/utils/traceTimestamp';
 
 interface SweepResultsQueryTableProps {
     devices: Device[];
@@ -261,7 +262,7 @@ const SweepResultsQueryTable: React.FC<SweepResultsQueryTableProps> = ({
                                             {device.hostname || device.ip}
                                         </h4>
                                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                                            {device.ip} • {new Date(device.last_seen).toLocaleString()}
+                                            {device.ip} • {formatTimestampForDisplay(device.last_seen)}
                                         </p>
                                     </div>
                                     <div className="flex items-center gap-2">
@@ -425,7 +426,7 @@ const SweepResultsQueryTable: React.FC<SweepResultsQueryTableProps> = ({
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                                {new Date(device.last_seen).toLocaleString()}
+                                                {formatTimestampForDisplay(device.last_seen)}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                 <button
@@ -452,7 +453,7 @@ const SweepResultsQueryTable: React.FC<SweepResultsQueryTableProps> = ({
                                                             </div>
                                                             <div>
                                                                 <span className="font-medium text-gray-700 dark:text-gray-300">First Seen:</span>
-                                                                <span className="ml-2 text-gray-600 dark:text-gray-400">{new Date(device.first_seen).toLocaleString()}</span>
+                                                                <span className="ml-2 text-gray-600 dark:text-gray-400">{formatTimestampForDisplay(device.first_seen)}</span>
                                                             </div>
                                                             {device.mac && (
                                                                 <div>
