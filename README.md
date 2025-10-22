@@ -67,6 +67,11 @@ docker-compose logs config-updater
 docker-compose down
 ```
 
+> **Running with Podman (Oracle Linux 9+)**  
+> Install `podman`, `podman-docker`, and `docker-compose-plugin`, then use  
+> `sudo -E CONTAINER_ENGINE=podman make -f Makefile.docker start`  
+> for the same one-command startup. See `docs/docs/podman.md` for the full checklist.
+
 ### Option 2: Native Installation
 
 ServiceRadar provides a simple installation script for deploying components natively:

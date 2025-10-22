@@ -8,6 +8,10 @@ docker-compose up
 
 Uses pre-built images from GitHub Container Registry (GHCR). Fast, consistent, and production-ready.
 
+> **Podman (Oracle Linux 9+)**  
+> Install `podman`, `docker-compose-plugin`, and `podman-compose`, then run:  
+> `sudo -E CONTAINER_ENGINE=podman make -f Makefile.docker start`
+
 ## Development (Local Build)
 
 ```bash

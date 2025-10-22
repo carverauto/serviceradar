@@ -3,6 +3,28 @@
 
 .PHONY: help build up down logs clean rebuild status shell db-shell docker-login docker-build docker-push
 
+# Container engine configuration (override with CONTAINER_ENGINE=podman, etc.)
+CONTAINER_ENGINE ?= docker
+DOCKER_COMPOSE_BIN := $(shell command -v docker-compose 2>/dev/null)
+PODMAN_COMPOSE_BIN := $(shell command -v podman-compose 2>/dev/null)
+
+ifeq ($(CONTAINER_ENGINE),podman)
+  ifneq ($(PODMAN_COMPOSE_BIN),)
+    COMPOSE_BIN := podman-compose
+  else
+    COMPOSE_BIN := podman compose
+  endif
+else
+  ifneq ($(DOCKER_COMPOSE_BIN),)
+    COMPOSE_BIN ?= docker-compose
+  else
+    COMPOSE_BIN ?= docker compose
+  endif
+endif
+
+# Allow manual override when neither compose front-end is auto-detected
+COMPOSE_BIN ?= $(CONTAINER_ENGINE) compose
+
 # Default target
 help:
 	@echo "ServiceRadar Docker Commands:"
@@ -25,6 +47,8 @@ help:
 	@echo "  make -f Makefile.docker docker-login    - Login to GitHub Container Registry"
 	@echo "  make -f Makefile.docker docker-build    - Build images locally"
 	@echo "  make -f Makefile.docker docker-push     - Build and push images to GHCR"
+	@echo ""
+	@echo "Set CONTAINER_ENGINE=podman (or another compatible CLI) to switch engines."
 
 # Generate mTLS certificates
 certs:
@@ -35,44 +59,44 @@ certs:
 
 # Build Docker images (certificates generated automatically)
 build:
-	docker-compose build --no-cache
+	$(COMPOSE_BIN) build --no-cache
 
 # Start everything (one command - certificates, build, start)
 start:
-	docker-compose up -d
+	$(COMPOSE_BIN) up -d
 
 # Start core services (Proton + Core)
 up:
-	docker-compose up -d proton core
+	$(COMPOSE_BIN) up -d proton core
 	@echo "Waiting for services to be healthy..."
 	@sleep 5
-	@make -f Makefile.docker status
+	@$(MAKE) -f Makefile.docker status CONTAINER_ENGINE=$(CONTAINER_ENGINE)
 
 # Start all services including optional ones
 up-full:
-	docker-compose --profile full up -d
+	$(COMPOSE_BIN) --profile full up -d
 	@echo "Waiting for services to be healthy..."
 	@sleep 5
-	@make -f Makefile.docker status
+	@$(MAKE) -f Makefile.docker status CONTAINER_ENGINE=$(CONTAINER_ENGINE)
 
 # Stop all services
 down:
-	docker-compose down
+	$(COMPOSE_BIN) down
 
 # View logs
 logs:
-	docker-compose logs -f
+	$(COMPOSE_BIN) logs -f
 
 # View logs for specific service
 logs-core:
-	docker-compose logs -f core
+	$(COMPOSE_BIN) logs -f core
 
 logs-proton:
-	docker-compose logs -f proton
+	$(COMPOSE_BIN) logs -f proton
 
 # Clean up everything (containers, volumes, networks)
 clean:
-	docker-compose down -v --remove-orphans
+	$(COMPOSE_BIN) down -v --remove-orphans
 	@echo "Cleaned up all containers, volumes, and networks"
 
 # Rebuild and restart
@@ -81,50 +105,50 @@ rebuild: down build up
 # Show service status
 status:
 	@echo "=== ServiceRadar Docker Status ==="
-	@docker-compose ps
+	@$(COMPOSE_BIN) ps
 	@echo ""
 	@echo "=== Service Health ==="
-	@docker-compose ps | grep -E "(healthy|unhealthy|starting)" || echo "Services starting..."
+	@$(COMPOSE_BIN) ps | grep -E "(healthy|unhealthy|starting)" || echo "Services starting..."
 	@echo ""
 	@echo "=== Network Info ==="
-	@docker network ls | grep serviceradar || echo "No ServiceRadar network found"
+	@$(CONTAINER_ENGINE) network ls | grep serviceradar || echo "No ServiceRadar network found"
 	@echo ""
 	@echo "=== Volumes ==="
-	@docker volume ls | grep serviceradar || echo "No ServiceRadar volumes found"
+	@$(CONTAINER_ENGINE) volume ls | grep serviceradar || echo "No ServiceRadar volumes found"
 
 # Shell into core container
 shell:
-	docker-compose exec core /bin/bash
+	$(COMPOSE_BIN) exec core /bin/bash
 
 # Shell into Proton database
 db-shell:
-	docker-compose exec proton clickhouse-client --host localhost --port 8463
+	$(COMPOSE_BIN) exec proton clickhouse-client --host localhost --port 8463
 
 # Run database queries
 db-query:
 	@read -p "Enter SQL query: " query; \
-	docker-compose exec proton clickhouse-client --host localhost --port 8463 --query "$$query"
+	$(COMPOSE_BIN) exec proton clickhouse-client --host localhost --port 8463 --query "$$query"
 
 # Initialize database tables
 db-init:
-	docker-compose exec core serviceradar-core init-db --config /etc/serviceradar/core.json
+	$(COMPOSE_BIN) exec core serviceradar-core init-db --config /etc/serviceradar/core.json
 
 # Export configuration template
 config-template:
 	@echo "Generating configuration template..."
 	@mkdir -p configs/docker
-	@docker-compose run --rm core serviceradar-core config-template > configs/docker/core-template.json
+	@$(COMPOSE_BIN) run --rm core serviceradar-core config-template > configs/docker/core-template.json
 	@echo "Configuration template saved to configs/docker/core-template.json"
 
 # Development mode with live reload (requires source mount)
 dev:
-	CONFIG_SOURCE=file docker-compose up -d
-	docker-compose logs -f core
+	CONFIG_SOURCE=file $(COMPOSE_BIN) up -d
+	$(COMPOSE_BIN) logs -f core
 
 # Production build with specific version
 prod-build:
 	@read -p "Enter version (e.g., 1.0.0): " version; \
-	VERSION=$$version BUILD_ID=$$(date +%Y%m%d%H%M%S) docker-compose build --no-cache
+	VERSION=$$version BUILD_ID=$$(date +%Y%m%d%H%M%S) $(COMPOSE_BIN) build --no-cache
 
 # Test connectivity
 test:

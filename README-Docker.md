@@ -55,6 +55,19 @@ bazel run //docker/images:push_all
    - Username: `admin`
    - Password: (from step 3)
 
+### Podman on Oracle Linux 9
+
+ServiceRadar’s Compose workflow now accepts a container engine override. To run the stack with Podman:
+
+1. Install `podman`, `podman-docker`, `docker-compose-plugin`, and `podman-compose`.
+2. Use the `CONTAINER_ENGINE` environment variable when invoking the Makefile shortcuts:
+   ```bash
+   sudo -E CONTAINER_ENGINE=podman make -f Makefile.docker start
+   sudo -E CONTAINER_ENGINE=podman make -f Makefile.docker status
+   sudo -E CONTAINER_ENGINE=podman make -f Makefile.docker down
+   ```
+3. See [`docs/docs/podman.md`](docs/docs/podman.md) for more details, including troubleshooting tips and GHCR authentication with `podman login`.
+
 ## Test Your Setup
 
 Run the included test script:
