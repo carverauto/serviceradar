@@ -21,11 +21,32 @@ import { Activity, AlertTriangle, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useSysmon } from '@/contexts/SysmonContext';
 
+const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+
 const SysmonOverviewWidget: React.FC = () => {
     const { data, loading, error } = useSysmon();
 
+    const latestTimestamp = useMemo(() => {
+        if (!data || data.length === 0) {
+            return null;
+        }
+        return data.reduce<number | null>((latest, agent) => {
+            if (!agent.lastTimestamp) {
+                return latest;
+            }
+            const parsed = Date.parse(agent.lastTimestamp);
+            if (Number.isNaN(parsed)) {
+                return latest;
+            }
+            if (latest === null || parsed > latest) {
+                return parsed;
+            }
+            return latest;
+        }, null);
+    }, [data]);
+
     const stats = useMemo(() => {
-        if (!data) {
+        if (!data || latestTimestamp === null) {
             return {
                 totalAgents: 0,
                 activeAgents: 0,
@@ -34,10 +55,10 @@ const SysmonOverviewWidget: React.FC = () => {
             };
         }
 
-        const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+        const threshold = latestTimestamp - TWO_HOURS_MS;
         const activeAgents = data.filter((agent) => {
             const lastTs = agent.lastTimestamp ? Date.parse(agent.lastTimestamp) : undefined;
-            return lastTs ? lastTs > twoHoursAgo : false;
+            return lastTs ? lastTs > threshold : false;
         });
 
         const avgCpu =
@@ -53,16 +74,16 @@ const SysmonOverviewWidget: React.FC = () => {
             avgCpuUsage: Number.isFinite(avgCpu) ? avgCpu : 0,
             avgMemoryUsage: Number.isFinite(avgMemory) ? avgMemory : 0
         };
-    }, [data]);
+    }, [data, latestTimestamp]);
 
     const parsedAgents = useMemo(() => {
-        if (!data) {
+        if (!data || latestTimestamp === null) {
             return [];
         }
-        const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+        const threshold = latestTimestamp - TWO_HOURS_MS;
         return data.map((agent) => {
             const lastTs = agent.lastTimestamp ? Date.parse(agent.lastTimestamp) : undefined;
-            const isActive = lastTs ? lastTs > twoHoursAgo : false;
+            const isActive = lastTs ? lastTs > threshold : false;
             const ipFromDevice =
                 agent.deviceId && agent.deviceId.includes(':')
                     ? agent.deviceId.split(':')[1]
@@ -86,7 +107,7 @@ const SysmonOverviewWidget: React.FC = () => {
                 isActive
             };
         });
-    }, [data]);
+    }, [data, latestTimestamp]);
 
     const metricsLink = useMemo(() => {
         if (parsedAgents.length === 0) {

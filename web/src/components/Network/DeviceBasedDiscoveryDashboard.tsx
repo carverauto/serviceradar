@@ -61,10 +61,7 @@ interface DiscoveredInterface {
     [key: string]: unknown;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-interface DeviceBasedDiscoveryDashboardProps {
-    // No props needed since we're using device_id based queries
-}
+interface DeviceBasedDiscoveryDashboardProps {}
 
 type FilterType = 'all' | 'devices' | 'interfaces';
 type SortBy = 'name' | 'ip' | 'status';

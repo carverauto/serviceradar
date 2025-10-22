@@ -28,6 +28,30 @@ interface DeviceAvailabilityData {
     color: string;
 }
 
+interface DeviceAvailabilityTooltipProps {
+    active?: boolean;
+    payload?: Array<{ payload: DeviceAvailabilityData }>;
+    totalDevices: number;
+}
+
+const DeviceAvailabilityTooltip: React.FC<DeviceAvailabilityTooltipProps> = ({ active, payload, totalDevices }) => {
+    if (active && payload && payload.length) {
+        const datum = payload[0].payload;
+        const percentage = totalDevices > 0 ? ((datum.value / totalDevices) * 100).toFixed(1) : '0';
+        return (
+            <div className="bg-gray-900 border border-gray-700 p-2 rounded-md shadow-lg">
+                <p className="text-white text-sm">
+                    {datum.name}: {datum.value} ({percentage}%)
+                </p>
+                <p className="text-gray-300 text-xs mt-1">
+                    Click to view details
+                </p>
+            </div>
+        );
+    }
+    return null;
+};
+
 const DeviceAvailabilityWidget = () => {
     const router = useRouter();
     const { data: analyticsData, loading: isLoading, error } = useAnalytics();
@@ -54,27 +78,6 @@ const DeviceAvailabilityWidget = () => {
         const encodedQuery = encodeURIComponent(query);
         router.push(`/query?q=${encodedQuery}`);
     }, [router]);
-
-    const CustomTooltip = ({ active, payload }: { 
-        active?: boolean; 
-        payload?: Array<{ payload: DeviceAvailabilityData }> 
-    }) => {
-        if (active && payload && payload.length) {
-            const data = payload[0].payload;
-            const percentage = totalDevices > 0 ? ((data.value / totalDevices) * 100).toFixed(1) : '0';
-            return (
-                <div className="bg-gray-900 border border-gray-700 p-2 rounded-md shadow-lg">
-                    <p className="text-white text-sm">
-                        {data.name}: {data.value} ({percentage}%)
-                    </p>
-                    <p className="text-gray-300 text-xs mt-1">
-                        Click to view details
-                    </p>
-                </div>
-            );
-        }
-        return null;
-    };
 
     if (error) {
         return (
@@ -148,7 +151,7 @@ const DeviceAvailabilityWidget = () => {
                                             />
                                         ))}
                                     </Pie>
-                                    <Tooltip content={<CustomTooltip />} />
+                                    <Tooltip content={<DeviceAvailabilityTooltip totalDevices={totalDevices} />} />
                                 </PieChart>
                             </ResponsiveContainer>
                         </div>

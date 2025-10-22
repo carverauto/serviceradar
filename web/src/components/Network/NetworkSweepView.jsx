@@ -33,6 +33,45 @@ const compareIPAddresses = (ip1, ip2) => {
     return 0;
 };
 
+const parsePortResults = (portResults) => {
+    if (!portResults) return [];
+
+    if (typeof portResults === 'string') {
+        try {
+            const parsed = JSON.parse(portResults);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+
+    return Array.isArray(portResults) ? portResults : [];
+};
+
+const sortAndFilterHosts = (hosts, term) => {
+    if (!hosts) return [];
+    const normalizedTerm = term.trim().toLowerCase();
+    return [...hosts]
+        .filter((host) => host.host.toLowerCase().includes(normalizedTerm))
+        .sort((a, b) => compareIPAddresses(a.host, b.host));
+};
+
+const getRespondingHosts = (hosts) => {
+    if (!hosts) return [];
+
+    return hosts.filter((host) => {
+        if (host.available) {
+            return true;
+        }
+
+        const portResults = parsePortResults(host.port_results);
+        const hasOpenPorts = portResults.some((port) => port.available);
+        const hasICMPResponse = host.icmp_status?.available === true;
+
+        return hasOpenPorts || hasICMPResponse;
+    });
+};
+
 // Host details subcomponent with ICMP and port results
 const HostDetailsView = ({ host }) => {
     const [expanded, setExpanded] = useState(false);
@@ -155,24 +194,6 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
         ? JSON.parse(service.details)
         : service.details;
 
-    // Helper function to parse port results
-    const parsePortResults = (portResults) => {
-        if (!portResults) return [];
-        
-        // If port_results is a string, parse it as JSON
-        if (typeof portResults === 'string') {
-            try {
-                const parsed = JSON.parse(portResults);
-                return Array.isArray(parsed) ? parsed : [];
-            } catch {
-                return [];
-            }
-        }
-        
-        // Ensure it's an array
-        return Array.isArray(portResults) ? portResults : [];
-    };
-
     // Network list handling
     const networks = useMemo(() => {
         if (!sweepDetails?.network) return [];
@@ -190,45 +211,21 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
         ).slice(0, 10); // Show max of 10 matches
     }, [networks, networkSearchTerm]);
 
-    // Sort and filter hosts
-    const sortAndFilterHosts = (hosts) => {
-        if (!hosts) return [];
-        return [...hosts]
-            .filter((host) =>
-                host.host.toLowerCase().includes(searchTerm.toLowerCase())
-            )
-            .sort((a, b) => compareIPAddresses(a.host, b.host));
-    };
-
-    // Get hosts that are responding
-    const getRespondingHosts = (hosts) => {
-        if (!hosts) return [];
-
-        return hosts.filter((host) => {
-            // If the host is explicitly marked as available, include it
-            if (host.available) {
-                return true;
-            }
-
-            // Check for available port results
-            const portResults = parsePortResults(host.port_results);
-            const hasOpenPorts = portResults.some((port) => port.available);
-
-            // Simpler ICMP check that doesn't impose arbitrary time limits
-            const hasICMPResponse = host.icmp_status?.available === true;
-
-            return hasOpenPorts || hasICMPResponse;
-        });
-    };
-
-    const respondingHosts = getRespondingHosts(sweepDetails.hosts);
+    const respondingHosts = useMemo(
+        () => getRespondingHosts(sweepDetails.hosts),
+        [sweepDetails.hosts],
+    );
 
     // Filter and sort hosts for display
-    const filteredHosts = sweepDetails.hosts
-        ? sortAndFilterHosts(respondingHosts).filter((host) =>
-            host.host.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-        : [];
+    const filteredHosts = useMemo(() => {
+        if (!respondingHosts.length) {
+            return [];
+        }
+        const normalizedSearch = searchTerm.trim().toLowerCase();
+        return sortAndFilterHosts(respondingHosts).filter((host) =>
+            host.host.toLowerCase().includes(normalizedSearch),
+        );
+    }, [respondingHosts, searchTerm]);
 
     // Paginate filtered hosts for display
     const paginatedHosts = useMemo(() => {
@@ -359,7 +356,7 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
 
                         {networkSearchTerm !== '' && filteredNetworks.length < networkCount && (
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Showing {filteredNetworks.length} of {networkCount} networks matching "{networkSearchTerm}".
+                                Showing {filteredNetworks.length} of {networkCount} networks matching &quot;{networkSearchTerm}&quot;.
                             </p>
                         )}
                     </div>

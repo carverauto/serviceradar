@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { Router, ExternalLink, AlertCircle, ChartLine } from 'lucide-react';
 import Link from 'next/link';
 
@@ -45,26 +45,16 @@ const SNMPStatusIndicator: React.FC<SNMPStatusIndicatorProps> = ({
     const targetId = deviceId || pollerId;
     const idType = deviceId ? 'device' : 'poller';
 
-    const [status, setStatus] = useState<SNMPStatus>({ hasData: false });
-    const [loading, setLoading] = useState(true);
+    const isLoading = hasMetrics === undefined;
 
-    useEffect(() => {
-        // The component is loading if the primary source of truth, `hasMetrics`, is undefined.
-        const isLoading = hasMetrics === undefined;
-        setLoading(isLoading);
-
-        if (!isLoading) {
-            // Once loading is complete, set the status based on the definitive `hasMetrics` prop.
-            // This prevents a premature decision based on the `hasSnmpSource` fallback.
-            setStatus({ hasData: hasMetrics });
-        } else {
-            // While loading, ensure the status is reset to a neutral state to prevent showing a stale icon.
-            setStatus({ hasData: false });
+    const status = useMemo<SNMPStatus>(() => {
+        if (isLoading) {
+            return { hasData: false };
         }
-    }, [hasMetrics]);
+        return { hasData: Boolean(hasMetrics) };
+    }, [isLoading, hasMetrics]);
 
-
-    if (loading) {
+    if (isLoading) {
         return compact ? (
             <div className="w-3 h-3 bg-gray-300 dark:bg-gray-600 rounded-full animate-pulse"></div>
         ) : (
