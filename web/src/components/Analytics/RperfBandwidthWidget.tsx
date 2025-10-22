@@ -213,7 +213,7 @@ const RperfBandwidthWidget = () => {
         );
     };
 
-    const HeatmapView = () => (
+    const renderHeatmapView = () => (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
             {targets.map((target) => (
                 <div
@@ -312,7 +312,7 @@ const RperfBandwidthWidget = () => {
             ) : (
                 <div className="flex-1 overflow-hidden">
                     {viewMode === 'heatmap' ? (
-                        <HeatmapView />
+                        renderHeatmapView()
                     ) : (
                         <div className="h-full overflow-y-auto">
                             <div className="space-y-1">

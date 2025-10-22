@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useCallback, useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useState, useEffect, useMemo, startTransition } from 'react';
 import { CartesianGrid, Legend, Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle } from 'lucide-react';
@@ -69,15 +69,22 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
     const searchParams = useSearchParams();
     const { token } = useAuth(); // Get authentication token from AuthProvider
     const [snmpData, setSNMPData] = useState<SnmpDataPoint[]>(initialData);
-    const [processedData, setProcessedData] = useState<ProcessedSnmpDataPoint[]>([]);
-    const [combinedData, setCombinedData] = useState<GroupedChartData[]>([]);
     const [timeRange, setTimeRange] = useState<string>(searchParams.get('timeRange') || initialTimeRange);
     const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
-    const [availableMetrics, setAvailableMetrics] = useState<string[]>([]);
     const [chartHeight, setChartHeight] = useState<number>(384); // Default height
     const [viewMode, setViewMode] = useState<'combined' | 'single'>('combined'); // Default to combined view
     const [selectedGroupIndex, setSelectedGroupIndex] = useState<number>(0); // For interface selection
     const [showAllInterfaces, setShowAllInterfaces] = useState<boolean>(false); // Toggle for showing all vs selected
+
+    const availableMetrics = useMemo((): string[] => {
+        if (!snmpData.length) {
+            return [];
+        }
+        const metrics = snmpData
+            .map((item) => item.oid_name)
+            .filter((name): name is string => Boolean(name));
+        return Array.from(new Set(metrics));
+    }, [snmpData]);
 
     // Improved metric label formatting
     const getMetricLabel = useCallback((metric: string): string => {
@@ -172,6 +179,162 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
             });
     }, [availableMetrics]);
 
+    // Process SNMP counter data to show rates instead of raw values
+    const processCounterData = useCallback((data: SnmpDataPoint[]): ProcessedSnmpDataPoint[] => {
+        console.log('processCounterData: Input data length:', data?.length || 0);
+        console.log('processCounterData: Sample data points:', data?.slice(0, 3));
+
+        if (!data || data.length === 0) {
+            console.log('processCounterData: No data provided');
+            return [];
+        }
+
+        const sortedData = [...data].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        console.log('processCounterData: Sorted data timestamps:', sortedData.map(p => p.timestamp));
+
+        if (sortedData.length < 2) {
+            console.log('processCounterData: Not enough data points for rate calculation, showing raw values');
+            const processedRaw = sortedData.map(point => ({
+                ...point,
+                rate: parseFloat(point.value as string) || 0,
+            }));
+            console.log('processCounterData: Raw values output:', processedRaw);
+            return processedRaw;
+        }
+
+        try {
+            const processed = sortedData.map((point, index) => {
+                if (index === 0) return { ...point, rate: 0 };
+
+                const prevPoint = sortedData[index - 1];
+                const timeDiff = (new Date(point.timestamp).getTime() - new Date(prevPoint.timestamp).getTime()) / 1000;
+                console.log(`processCounterData: Point ${index} - timeDiff: ${timeDiff}s`);
+
+                if (timeDiff <= 0) return { ...point, rate: 0 };
+
+                const currentValue = parseFloat(point.value as string) || 0;
+                const prevValue = parseFloat(prevPoint.value as string) || 0;
+                console.log(`processCounterData: Point ${index} - currentValue: ${currentValue}, prevValue: ${prevValue}`);
+                console.log(`processCounterData: Point ${index} - raw values: "${point.value}" -> ${currentValue}, "${prevPoint.value}" -> ${prevValue}`);
+
+                let rate = 0;
+                if (currentValue >= prevValue) {
+                    rate = (currentValue - prevValue) / timeDiff;
+                    console.log(`processCounterData: Point ${index} - calculated rate: ${rate}`);
+                } else {
+                    const is32Bit = prevValue <= 4294967295;
+                    const maxVal = is32Bit ? 4294967295 : 18446744073709551615;
+                    if (currentValue < prevValue && (maxVal - prevValue) > 0) {
+                        rate = ((maxVal - prevValue) + currentValue) / timeDiff;
+                        console.log(`processCounterData: Point ${index} - rollover rate: ${rate}`);
+                    } else {
+                        rate = 0;
+                        console.log(`processCounterData: Point ${index} - reset detected, rate: 0`);
+                    }
+                }
+
+                console.log(`processCounterData: Point ${index} - actual calculated rate: ${rate} B/s`);
+
+                if (rate > 10000000) {
+                    console.warn(`Unrealistic rate detected: ${rate} B/s at ${point.timestamp}`);
+                    rate = 0;
+                }
+
+                return {
+                    ...point,
+                    rate,
+                };
+            });
+
+            console.log('processCounterData: Final processed data sample:', processed.slice(0, 3));
+            return processed;
+        } catch (error) {
+            console.error("Error processing counter data:", error);
+            return sortedData as ProcessedSnmpDataPoint[];
+        }
+    }, []);
+
+    const defaultMetric = metricGroups.length > 0 ? metricGroups[0].metrics[0] ?? null : null;
+
+    const activeMetric = useMemo(() => {
+        if (selectedMetric && availableMetrics.includes(selectedMetric)) {
+            return selectedMetric;
+        }
+        return defaultMetric;
+    }, [selectedMetric, availableMetrics, defaultMetric]);
+
+    const timeWindowMs = useMemo(() => {
+        const ranges: Record<string, number> = {
+            '1h': 60 * 60 * 1000,
+            '6h': 6 * 60 * 60 * 1000,
+            '24h': 24 * 60 * 60 * 1000,
+        };
+        return ranges[timeRange] ?? 60 * 60 * 1000;
+    }, [timeRange]);
+
+    const latestTimestamp = useMemo(() => {
+        if (!snmpData.length) {
+            return null;
+        }
+        return snmpData.reduce<number | null>((latest, item) => {
+            const ts = new Date(item.timestamp).getTime();
+            if (!Number.isFinite(ts)) {
+                return latest;
+            }
+            if (latest === null || ts > latest) {
+                return ts;
+            }
+            return latest;
+        }, null);
+    }, [snmpData]);
+
+    const timeFilteredData = useMemo(() => {
+        if (!snmpData.length || latestTimestamp === null) {
+            return snmpData;
+        }
+        const windowStart = latestTimestamp - timeWindowMs;
+        return snmpData.filter((item) => {
+            const ts = new Date(item.timestamp).getTime();
+            return Number.isFinite(ts) && ts >= windowStart && ts <= latestTimestamp;
+        });
+    }, [snmpData, latestTimestamp, timeWindowMs]);
+
+    const processedData = useMemo(() => {
+        if (!activeMetric) {
+            return [];
+        }
+        const metricData = timeFilteredData.filter((item) => item.oid_name === activeMetric);
+        return processCounterData(metricData);
+    }, [activeMetric, timeFilteredData, processCounterData]);
+
+    const combinedData = useMemo(() => {
+        if (!metricGroups.length) {
+            return [];
+        }
+        return metricGroups.map((group) => {
+            const allMetricsData: { [key: number]: CombinedDataPoint } = {};
+
+            group.metrics.forEach((metric) => {
+                const metricData = timeFilteredData.filter((item) => item.oid_name === metric);
+                const processed = processCounterData(metricData);
+
+                processed.forEach((point) => {
+                    const timestamp = new Date(point.timestamp).getTime();
+                    const roundedTimestamp = Math.round(timestamp / 10000) * 10000;
+                    if (!allMetricsData[roundedTimestamp]) {
+                        allMetricsData[roundedTimestamp] = { timestamp: roundedTimestamp };
+                    }
+                    allMetricsData[roundedTimestamp][metric] = point.rate || 0;
+                });
+            });
+
+            return {
+                group,
+                data: Object.values(allMetricsData).sort((a, b) => a.timestamp - b.timestamp),
+            };
+        });
+    }, [metricGroups, timeFilteredData, processCounterData]);
+
     // Adjust chart height based on screen size
     useEffect(() => {
         const handleResize = () => {
@@ -256,213 +419,11 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
     // Update SNMP data when initialData changes from server
     useEffect(() => {
         if (initialData && initialData.length > 0) {
-            setSNMPData(initialData);
+            startTransition(() => {
+                setSNMPData(initialData);
+            });
         }
     }, [initialData]);
-
-    // Process SNMP counter data to show rates instead of raw values
-    const processCounterData = useCallback((data: SnmpDataPoint[]): ProcessedSnmpDataPoint[] => {
-        console.log('processCounterData: Input data length:', data?.length || 0);
-        console.log('processCounterData: Sample data points:', data?.slice(0, 3));
-        
-        if (!data || data.length === 0) {
-            console.log('processCounterData: No data provided');
-            return [];
-        }
-        
-        // Sort data by timestamp to ensure proper order for rate calculation
-        const sortedData = [...data].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-        console.log('processCounterData: Sorted data timestamps:', sortedData.map(p => p.timestamp));
-        
-        if (sortedData.length < 2) {
-            console.log('processCounterData: Not enough data points for rate calculation, showing raw values');
-            // Show raw values when we don't have enough data for rate calculation
-            const processedRaw = sortedData.map(point => ({
-                ...point,
-                rate: parseFloat(point.value as string) || 0
-            }));
-            console.log('processCounterData: Raw values output:', processedRaw);
-            return processedRaw;
-        }
-
-        try {
-            const processed = sortedData.map((point, index) => {
-                if (index === 0) return { ...point, rate: 0 };
-
-                const prevPoint = sortedData[index - 1];
-                const timeDiff = (new Date(point.timestamp).getTime() - new Date(prevPoint.timestamp).getTime()) / 1000;
-                console.log(`processCounterData: Point ${index} - timeDiff: ${timeDiff}s`);
-                
-                if (timeDiff <= 0) return { ...point, rate: 0 };
-
-                const currentValue = parseFloat(point.value as string) || 0;
-                const prevValue = parseFloat(prevPoint.value as string) || 0;
-                console.log(`processCounterData: Point ${index} - currentValue: ${currentValue}, prevValue: ${prevValue}`);
-                console.log(`processCounterData: Point ${index} - raw values: "${point.value}" -> ${currentValue}, "${prevPoint.value}" -> ${prevValue}`);
-
-                let rate = 0;
-                if (currentValue >= prevValue) {
-                    rate = (currentValue - prevValue) / timeDiff;
-                    console.log(`processCounterData: Point ${index} - calculated rate: ${rate}`);
-                } else {
-                    // Check for rollover or reset
-                    const is32Bit = prevValue <= 4294967295;
-                    const maxVal = is32Bit ? 4294967295 : 18446744073709551615; // Support 64-bit counters
-                    if (currentValue < prevValue && (maxVal - prevValue) > 0) {
-                        rate = ((maxVal - prevValue) + currentValue) / timeDiff;
-                        console.log(`processCounterData: Point ${index} - rollover rate: ${rate}`);
-                    } else {
-                        // Likely a reset (e.g., device reboot), skip this interval
-                        rate = 0;
-                        console.log(`processCounterData: Point ${index} - reset detected, rate: 0`);
-                    }
-                }
-
-                // Log the actual calculated rate before any scaling
-                console.log(`processCounterData: Point ${index} - actual calculated rate: ${rate} B/s`);
-                
-                // If rate is very small or 0, it might be real - don't scale yet
-                // if (rate === 0 || rate < 0.01) {
-                //     // Use current value scaled down to a reasonable range for visualization
-                //     rate = currentValue / 1000000; // Scale down by 1M to make it visible
-                //     console.log(`processCounterData: Point ${index} - using scaled raw value: ${rate} (from ${currentValue})`);
-                // }
-
-                // Sanity check: Cap unrealistic rates
-                if (rate > 10000000) { // 10 MB/s threshold - adjust based on your network
-                    console.warn(`Unrealistic rate detected: ${rate} B/s at ${point.timestamp}`);
-                    rate = 0;
-                }
-
-                return {
-                    ...point,
-                    rate,
-                };
-            });
-            
-            console.log('processCounterData: Final processed data sample:', processed.slice(0, 3));
-            return processed;
-        } catch (error) {
-            console.error("Error processing counter data:", error);
-            return sortedData as ProcessedSnmpDataPoint[];
-        }
-    }, []);
-
-    // Initialize metrics and selection
-    useEffect(() => {
-        if (snmpData.length > 0) {
-            console.log('SNMPDashboard: Processing data, length:', snmpData.length);
-            console.log('SNMPDashboard: Sample data:', snmpData.slice(0, 3));
-            const metrics = [...new Set(snmpData.map(item => item.oid_name).filter(Boolean))];
-            console.log('SNMPDashboard: Available metrics:', metrics);
-            setAvailableMetrics(metrics);
-
-            if (!selectedMetric && metrics.length > 0) {
-                setSelectedMetric(metrics[0]);
-                console.log('SNMPDashboard: Selected metric:', metrics[0]);
-            }
-        } else {
-            console.log('SNMPDashboard: No SNMP data available');
-        }
-    }, [snmpData, selectedMetric]);
-
-    // Process data for single metric view
-    useEffect(() => {
-        if (snmpData.length > 0 && selectedMetric && viewMode === 'single') {
-            try {
-                const end = new Date();
-                const start = new Date();
-                switch (timeRange) {
-                    case '1h':
-                        start.setHours(end.getHours() - 1);
-                        break;
-                    case '6h':
-                        start.setHours(end.getHours() - 6);
-                        break;
-                    case '24h':
-                        start.setHours(end.getHours() - 24);
-                        break;
-                    default:
-                        start.setHours(end.getHours() - 1);
-                }
-
-                const timeFilteredData = snmpData.filter(item => {
-                    const timestamp = new Date(item.timestamp);
-                    return timestamp >= start && timestamp <= end;
-                });
-
-                const metricData = timeFilteredData.filter(item => item.oid_name === selectedMetric);
-                const processed = processCounterData(metricData);
-                setProcessedData(processed);
-            } catch (err) {
-                console.error('Error processing metric data:', err);
-            }
-        }
-    }, [selectedMetric, snmpData, timeRange, processCounterData, viewMode]);
-
-    // Process data for combined view with timestamp alignment - now handles all groups
-    useEffect(() => {
-        if (snmpData.length > 0 && viewMode === 'combined' && metricGroups.length > 0) {
-            try {
-                const end = new Date();
-                const start = new Date();
-                switch (timeRange) {
-                    case '1h':
-                        start.setHours(end.getHours() - 1);
-                        break;
-                    case '6h':
-                        start.setHours(end.getHours() - 6);
-                        break;
-                    case '24h':
-                        start.setHours(end.getHours() - 24);
-                        break;
-                    default:
-                        start.setHours(end.getHours() - 1);
-                }
-
-                const timeFilteredData = snmpData.filter(item => {
-                    const timestamp = new Date(item.timestamp);
-                    return timestamp >= start && timestamp <= end;
-                });
-
-                // Process data for each metric group separately
-                const groupedData = metricGroups.map(group => {
-                    const allMetricsData: { [key: number]: CombinedDataPoint } = {};
-
-                    group.metrics.forEach(metric => {
-                        const metricData = timeFilteredData.filter(item => item.oid_name === metric);
-                        const processed = processCounterData(metricData);
-
-                        processed.forEach(point => {
-                            const timestamp = new Date(point.timestamp).getTime();
-                            // Round to the nearest 10 seconds to align timestamps
-                            const roundedTimestamp = Math.round(timestamp / 10000) * 10000;
-                            if (!allMetricsData[roundedTimestamp]) {
-                                allMetricsData[roundedTimestamp] = { timestamp: roundedTimestamp };
-                            }
-                            allMetricsData[roundedTimestamp][metric] = point.rate || 0;
-                        });
-                    });
-
-                    return {
-                        group,
-                        data: Object.values(allMetricsData).sort((a, b) => a.timestamp - b.timestamp)
-                    };
-                });
-
-                console.log('SNMPDashboard: Grouped data:', groupedData.map(g => ({ group: g.group.baseKey, dataLength: g.data.length })));
-                setCombinedData(groupedData);
-
-                // Set selected metric from first group if needed
-                if (metricGroups.length > 0 && metricGroups[0].metrics.length > 0 && 
-                    (!selectedMetric || !metricGroups[0].metrics.includes(selectedMetric))) {
-                    setSelectedMetric(metricGroups[0].metrics[0]);
-                }
-            } catch (err) {
-                console.error('Error processing combined data:', err);
-            }
-        }
-    }, [snmpData, timeRange, viewMode, processCounterData, metricGroups, selectedMetric]);
 
     const handleTimeRangeChange = (range: string) => {
         setTimeRange(range);
@@ -515,7 +476,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
         );
     }
 
-    if (viewMode === 'single' && !processedData.length && selectedMetric) {
+    if (viewMode === 'single' && !processedData.length && activeMetric) {
         return (
             <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
@@ -602,7 +563,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
                     {viewMode === 'single' && (
                         <select
-                            value={selectedMetric || ''}
+                            value={activeMetric || ''}
                             onChange={(e) => setSelectedMetric(e.target.value)}
                             className="px-3 py-1 border rounded text-sm text-gray-800 dark:text-gray-200 dark:bg-gray-700 dark:border-gray-600"
                         >

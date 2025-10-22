@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import dynamic from 'next/dynamic';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Activity, Clock, BarChart3, Link as LinkIcon } from 'lucide-react';
 // Dynamically import all dashboards to prevent SSR issues
 const LogsDashboard = dynamic(
@@ -48,14 +48,23 @@ const tabs = [
 
 export default function ObservabilityPage() {
     const searchParams = useSearchParams();
-    const [activeTab, setActiveTab] = useState<TabType>('traces');
+    const router = useRouter();
+    const pathname = usePathname();
 
-    useEffect(() => {
-        const tabParam = searchParams.get('tab') as TabType;
-        if (tabParam && ['logs', 'traces', 'metrics', 'correlation'].includes(tabParam)) {
-            setActiveTab(tabParam);
+    const tabParam = searchParams.get('tab') as TabType | null;
+    const activeTab = tabs.some((tab) => tab.id === tabParam) ? (tabParam as TabType) : 'traces';
+
+    const setActiveTab = (tabId: TabType) => {
+        const params = new URLSearchParams(searchParams.toString());
+        if (tabId === 'traces') {
+            params.delete('tab');
+        } else {
+            params.set('tab', tabId);
         }
-    }, [searchParams]);
+        const query = params.toString();
+        const target = query ? `${pathname}?${query}` : pathname;
+        router.replace(target, { scroll: false });
+    };
 
     const renderTabContent = () => {
         const traceId = searchParams.get('trace_id');
