@@ -20,6 +20,7 @@ import React, { useState, Fragment } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import ReactJson from '@/components/Common/DynamicReactJson';
 import { Log } from '@/types/logs';
+import { parseOtelAttributes } from '@/utils/otelAttributes';
 
 interface LogTableProps {
     logs: Log[];
@@ -58,23 +59,6 @@ const LogTable: React.FC<LogTableProps> = ({
             return new Date(dateString).toLocaleString();
         } catch {
             return 'Invalid Date';
-        }
-    };
-
-    const parseAttributes = (attrString: string): Record<string, string> => {
-        if (!attrString || attrString.trim() === '') return {};
-        try {
-            const attrs: Record<string, string> = {};
-            const pairs = attrString.split(',');
-            for (const pair of pairs) {
-                const [key, value] = pair.split('=');
-                if (key && value) {
-                    attrs[key.trim()] = value.trim();
-                }
-            }
-            return attrs;
-        } catch {
-            return {};
         }
     };
 
@@ -192,11 +176,11 @@ const LogTable: React.FC<LogTableProps> = ({
                                                             Attributes
                                                         </h5>
                                                         <div className="bg-gray-200 dark:bg-gray-700 p-2 rounded text-xs font-mono">
-                                                            {Object.entries(parseAttributes(log.attributes)).map(([key, value]) => (
-                                                                <div key={key}>
-                                                                    <span className="text-gray-600 dark:text-gray-400">{key}:</span> {value}
-                                                                </div>
-                                                            ))}
+                                                {Object.entries(parseOtelAttributes(log.attributes)).map(([key, value]) => (
+                                                    <div key={key}>
+                                                        <span className="text-gray-600 dark:text-gray-400">{key}:</span> {value}
+                                                    </div>
+                                                ))}
                                                         </div>
                                                     </div>
                                                 )}
