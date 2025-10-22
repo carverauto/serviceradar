@@ -3,7 +3,9 @@ package natsutil
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,17 +19,19 @@ import (
 
 // EventPublisher provides methods for publishing CloudEvents to NATS JetStream.
 type EventPublisher struct {
-	js     jetstream.JetStream
-	stream string
-	logger zerolog.Logger
+	js       jetstream.JetStream
+	stream   string
+	subjects []string
+	logger   zerolog.Logger
 }
 
 // NewEventPublisher creates a new EventPublisher for the specified stream.
-func NewEventPublisher(js jetstream.JetStream, streamName string) *EventPublisher {
+func NewEventPublisher(js jetstream.JetStream, streamName string, subjects []string) *EventPublisher {
 	return &EventPublisher{
-		js:     js,
-		stream: streamName,
-		logger: logger.WithComponent("natsutil.events"),
+		js:       js,
+		stream:   streamName,
+		subjects: append([]string(nil), subjects...),
+		logger:   logger.WithComponent("natsutil.events"),
 	}
 }
 
@@ -52,6 +56,14 @@ func (p *EventPublisher) PublishPollerHealthEvent(
 
 	// Publish to NATS with the event subject
 	ack, err := p.js.Publish(ctx, event.Subject, eventBytes)
+	if err != nil && isStreamMissingErr(err) {
+		if ensureErr := p.ensureStream(ctx, event.Subject); ensureErr != nil {
+			return fmt.Errorf("failed to ensure stream for poller health event: %w", ensureErr)
+		}
+
+		ack, err = p.js.Publish(ctx, event.Subject, eventBytes)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to publish poller health event: %w", err)
 	}
@@ -132,23 +144,28 @@ func ConnectWithEventPublisher(
 		return nil, nil, fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
-	// Ensure the stream exists
-	_, err = js.Stream(ctx, streamName)
+	subjects := []string{"events.>", "snmp.traps"}
+
+	stream, err := js.Stream(ctx, streamName)
 	if err != nil {
-		// Try to create the stream if it doesn't exist
 		streamConfig := jetstream.StreamConfig{
 			Name:     streamName,
-			Subjects: []string{"events.>", "snmp.traps"},
+			Subjects: subjects,
 		}
 
-		_, err = js.CreateOrUpdateStream(ctx, streamConfig)
+		stream, err = js.CreateOrUpdateStream(ctx, streamConfig)
 		if err != nil {
 			nc.Close()
 			return nil, nil, fmt.Errorf("failed to create or get stream %s: %w", streamName, err)
 		}
+		if info, infoErr := stream.Info(ctx); infoErr == nil && info != nil {
+			subjects = append([]string(nil), info.Config.Subjects...)
+		}
+	} else if info, infoErr := stream.Info(ctx); infoErr == nil && info != nil {
+		subjects = append([]string(nil), info.Config.Subjects...)
 	}
 
-	publisher := NewEventPublisher(js, streamName)
+	publisher := NewEventPublisher(js, streamName, subjects)
 
 	return publisher, nc, nil
 }
@@ -210,7 +227,6 @@ func CreateEventPublisher(
 func CreateEventPublisherWithDomain(
 	ctx context.Context, nc *nats.Conn, domain, streamName string, subjects []string) (*EventPublisher, error) {
 	var js jetstream.JetStream
-
 	var err error
 
 	if domain != "" {
@@ -227,26 +243,141 @@ func CreateEventPublisherWithDomain(
 		}
 	}
 
-	// Ensure the stream exists
-	_, err = js.Stream(ctx, streamName)
-	if err != nil {
-		// Try to create the stream if it doesn't exist
-		if len(subjects) == 0 {
-			subjects = []string{"events.poller.*", "events.syslog.*", "events.snmp.*"}
-		}
+	if len(subjects) == 0 {
+		subjects = []string{"events.poller.*", "events.syslog.*", "events.snmp.*"}
+	}
 
+	streamSubjects := append([]string(nil), subjects...)
+
+	stream, err := js.Stream(ctx, streamName)
+	if err != nil {
 		streamConfig := jetstream.StreamConfig{
 			Name:     streamName,
-			Subjects: subjects,
+			Subjects: streamSubjects,
 		}
 
-		_, err = js.CreateOrUpdateStream(ctx, streamConfig)
+		stream, err = js.CreateOrUpdateStream(ctx, streamConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create or get stream %s: %w", streamName, err)
 		}
 
 		logger.Info().Str("stream", streamName).Msg("Created NATS JetStream stream")
+		if info, infoErr := stream.Info(ctx); infoErr == nil && info != nil {
+			streamSubjects = append([]string(nil), info.Config.Subjects...)
+		}
+	} else if info, infoErr := stream.Info(ctx); infoErr == nil && info != nil {
+		streamSubjects = append([]string(nil), info.Config.Subjects...)
 	}
 
-	return NewEventPublisher(js, streamName), nil
+	return NewEventPublisher(js, streamName, streamSubjects), nil
+}
+
+func (p *EventPublisher) ensureStream(ctx context.Context, subject string) error {
+	var stream jetstream.Stream
+	stream, err := p.js.Stream(ctx, p.stream)
+	switch {
+	case err == nil:
+		info, infoErr := stream.Info(ctx)
+		if infoErr != nil {
+			return fmt.Errorf("failed to fetch stream info for %s: %w", p.stream, infoErr)
+		}
+
+		currentSubjects := append([]string(nil), info.Config.Subjects...)
+		updatedSubjects := ensureSubjectList(currentSubjects, subject)
+
+		if len(updatedSubjects) != len(info.Config.Subjects) {
+			cfg := info.Config
+			cfg.Subjects = updatedSubjects
+
+			stream, err = p.js.CreateOrUpdateStream(ctx, cfg)
+			if err != nil {
+				return fmt.Errorf("failed to update stream %s subjects: %w", p.stream, err)
+			}
+
+			p.logger.Info().
+				Str("stream", p.stream).
+				Str("subject", subject).
+				Msg("Updated JetStream stream subjects for event publishing")
+		}
+	case errors.Is(err, jetstream.ErrStreamNotFound), errors.Is(err, nats.ErrStreamNotFound):
+		configuredSubjects := ensureSubjectList(append([]string(nil), p.subjects...), subject)
+		if len(configuredSubjects) == 0 {
+			configuredSubjects = []string{subject}
+		}
+
+		streamConfig := jetstream.StreamConfig{
+			Name:     p.stream,
+			Subjects: configuredSubjects,
+		}
+
+		stream, err = p.js.CreateOrUpdateStream(ctx, streamConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create stream %s: %w", p.stream, err)
+		}
+
+		p.logger.Info().
+			Str("stream", p.stream).
+			Msg("Created JetStream stream for event publishing")
+	default:
+		return fmt.Errorf("failed to lookup stream %s: %w", p.stream, err)
+	}
+
+	if stream != nil {
+		if info, infoErr := stream.Info(ctx); infoErr == nil && info != nil {
+			p.subjects = append([]string(nil), info.Config.Subjects...)
+		}
+	}
+
+	return nil
+}
+
+func ensureSubjectList(subjects []string, subject string) []string {
+	if len(subjects) == 0 {
+		return []string{subject}
+	}
+
+	for _, existing := range subjects {
+		if matchesSubject(existing, subject) {
+			return subjects
+		}
+	}
+
+	return append(subjects, subject)
+}
+
+func matchesSubject(pattern, subject string) bool {
+	if pattern == subject || pattern == ">" {
+		return true
+	}
+
+	patternTokens := strings.Split(pattern, ".")
+	subjectTokens := strings.Split(subject, ".")
+
+	for i, token := range patternTokens {
+		if token == ">" {
+			return true
+		}
+
+		if i >= len(subjectTokens) {
+			return false
+		}
+
+		if token == "*" {
+			continue
+		}
+
+		if token != subjectTokens[i] {
+			return false
+		}
+	}
+
+	return len(patternTokens) == len(subjectTokens)
+}
+
+func isStreamMissingErr(err error) bool {
+	return errors.Is(err, jetstream.ErrStreamNotFound) ||
+		errors.Is(err, jetstream.ErrNoStreamResponse) ||
+		errors.Is(err, nats.ErrStreamNotFound) ||
+		errors.Is(err, nats.ErrNoStreamResponse) ||
+		errors.Is(err, nats.ErrNoResponders)
 }
