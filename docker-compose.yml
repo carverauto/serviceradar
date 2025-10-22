@@ -130,6 +130,21 @@ services:
           - proton.serviceradar
     restart: unless-stopped
 
+  # Ensure Proton credentials are readable by application containers
+  credentials-permissions-fixer:
+    image: alpine:3.20
+    container_name: serviceradar-credentials-permissions-fixer
+    volumes:
+      - credentials:/etc/serviceradar/credentials
+      - ./docker/compose/fix-credentials-permissions.sh:/fix-credentials-permissions.sh:ro
+    command: sh /fix-credentials-permissions.sh
+    depends_on:
+      proton:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   # ServiceRadar Core Service
   core:
     image: ghcr.io/carverauto/serviceradar-core:latest
@@ -167,6 +182,8 @@ services:
       core-jwks-init:
         condition: service_completed_successfully
       cert-permissions-fixer:
+        condition: service_completed_successfully
+      credentials-permissions-fixer:
         condition: service_completed_successfully
       proton:
         condition: service_healthy
@@ -230,6 +247,8 @@ services:
       - credentials:/etc/serviceradar/credentials:ro
     depends_on:
       config-updater:
+        condition: service_completed_successfully
+      credentials-permissions-fixer:
         condition: service_completed_successfully
       proton:
         condition: service_healthy
@@ -687,6 +706,8 @@ services:
         condition: service_started
       proton:
         condition: service_healthy
+      credentials-permissions-fixer:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/db-event-writer.pem", "-key", "/etc/serviceradar/certs/db-event-writer-key.pem", "-servername", "db-event-writer.serviceradar", "localhost:50041", "grpc.health.v1.Health/Check"]
       interval: 30s

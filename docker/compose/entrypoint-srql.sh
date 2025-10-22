@@ -39,8 +39,28 @@ if [ -z "$PROTON_CLIENT_KEY" ] && [ -f /etc/serviceradar/certs/srql-key.pem ]; t
 fi
 
 # Load Proton password from shared credentials volume if present
-if [ -z "$PROTON_PASSWORD" ] && [ -f /etc/serviceradar/credentials/proton-password ]; then
-    export PROTON_PASSWORD="$(cat /etc/serviceradar/credentials/proton-password)"
+if [ -z "$PROTON_PASSWORD" ]; then
+    PASSWORD_FILE="${PROTON_PASSWORD_FILE:-/etc/serviceradar/credentials/proton-password}"
+    if [ -n "$PASSWORD_FILE" ]; then
+        if [ ! -r "$PASSWORD_FILE" ]; then
+            echo "Waiting for Proton credentials at ${PASSWORD_FILE}..."
+            waited=0
+            max_wait="${PROTON_PASSWORD_WAIT_SECONDS:-60}"
+            while [ $waited -lt "$max_wait" ]; do
+                if [ -r "$PASSWORD_FILE" ] && [ -s "$PASSWORD_FILE" ]; then
+                    break
+                fi
+                sleep 2
+                waited=$((waited + 2))
+            done
+        fi
+
+        if [ -r "$PASSWORD_FILE" ] && [ -s "$PASSWORD_FILE" ]; then
+            export PROTON_PASSWORD="$(cat "$PASSWORD_FILE")"
+        else
+            echo "Warning: Proton password file ${PASSWORD_FILE} not available; continuing without password"
+        fi
+    fi
 fi
 
 # API key enforcement for SRQL service
