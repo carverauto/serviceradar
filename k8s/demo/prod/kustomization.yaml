@@ -10,6 +10,24 @@ resources:
   - service-aliases.demo.yaml
   - ingress.yaml
   - serviceradar-core-grpc-external.yaml
+  - serviceradar-flowgger-external.yaml
+  - metallb-internal.yaml
+
+patchesJson6902:
+  - target:
+      kind: IPAddressPool
+      name: k3s-lan-pool
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: metallb-system
+  - target:
+      kind: L2Advertisement
+      name: k3s-lan-pool
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: metallb-system
 
 images:
   - name: ghcr.io/carverauto/serviceradar-core
