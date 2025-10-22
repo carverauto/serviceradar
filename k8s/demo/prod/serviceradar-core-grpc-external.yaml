@@ -16,3 +16,7 @@ spec:
       port: 50052
       protocol: TCP
       targetPort: grpc
+    - name: core
+      port: 8090
+      protocol: TCP
+      targetPort: core

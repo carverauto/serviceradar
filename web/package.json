@@ -16,10 +16,10 @@
     "lodash": "^4.17.21",
     "lodash.set": "^4.3.2",
     "lucide-react": "^0.476.0",
-    "next": "^15.5.6",
+    "next": "16.0.0",
     "next-runtime-env": "^3.3.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
     "recharts": "^2.15.1",
     "styled-jsx": "^5.1.6",
     "tailwindcss-animate": "^1.0.7",
@@ -31,10 +31,10 @@
     "@types/lodash": "^4.17.16",
     "@types/lodash.set": "^4.3.9",
     "@types/node": "20.17.30",
-    "@types/react": "19.1.2",
-    "@types/react-dom": "^19",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
     "eslint": "^9",
-    "eslint-config-next": "15.1.7",
+    "eslint-config-next": "16.0.0",
     "postcss": "8.5.6",
     "tailwindcss": "^3.4.1",
     "typescript": "5.8.3",
@@ -47,5 +47,9 @@
     "onlyBuiltDependencies": [
       "unrs-resolver"
     ]
+  },
+  "overrides": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2"
   }
 }
