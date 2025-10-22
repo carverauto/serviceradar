@@ -34,6 +34,7 @@ import {
 import Link from 'next/link';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { fetchAPI } from '@/lib/client-api';
+import { formatTimestampForDisplay } from '@/utils/traceTimestamp';
 
 interface TimeseriesMetric {
     name: string;
@@ -273,7 +274,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                                 <div className="flex items-center">
                                     <Clock className="h-4 w-4 mr-1 text-gray-500" />
                                     <span className="text-sm text-gray-500">
-                                        Last seen: {new Date(device.last_seen).toLocaleString()}
+                                        Last seen: {formatTimestampForDisplay(device.last_seen)}
                                     </span>
                                 </div>
                             </div>

@@ -17,6 +17,7 @@
 import React from 'react';
 import * as XLSX from 'xlsx';
 import { Download } from 'lucide-react';
+import { formatTimestampForDisplay } from '@/utils/traceTimestamp';
 
 const ExportButton = ({ sweepDetails }) => {
     const handleExport = () => {
@@ -85,8 +86,8 @@ const ExportButton = ({ sweepDetails }) => {
                     'Open Ports': openPorts,
                     'ICMP Status': icmpStatus,
                     'Response Time': responseTime,
-                    'First Seen': new Date(host.first_seen).toLocaleString(),
-                    'Last Seen': new Date(host.last_seen).toLocaleString(),
+                    'First Seen': formatTimestampForDisplay(host.first_seen),
+                    'Last Seen': formatTimestampForDisplay(host.last_seen),
                 };
             });
 
