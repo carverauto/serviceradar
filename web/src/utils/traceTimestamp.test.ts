@@ -3,6 +3,9 @@ import {
     normalizeTimestampString,
     resolveTraceTimestampMs,
     normalizeTraceSummaryTimestamp,
+    parseNormalizedTimestamp,
+    resolveTimestampMs,
+    formatTimestampForDisplay,
 } from './traceTimestamp';
 import type { TraceSummary } from '../types/traces';
 
@@ -52,6 +55,19 @@ describe('normalizeTimestampString', () => {
     it('returns null for empty or whitespace strings', () => {
         expect(normalizeTimestampString('')).toBeNull();
         expect(normalizeTimestampString('   ')).toBeNull();
+    });
+});
+
+describe('parseNormalizedTimestamp', () => {
+    it('parses timestamps with misplaced timezone fraction', () => {
+        const parsed = parseNormalizedTimestamp('2025-10-21T03:30:33Z.519');
+        expect(parsed).not.toBeNull();
+        expect(parsed?.toISOString()).toBe('2025-10-21T03:30:33.519Z');
+    });
+
+    it('returns null for empty values', () => {
+        expect(parseNormalizedTimestamp(undefined)).toBeNull();
+        expect(parseNormalizedTimestamp('')).toBeNull();
     });
 });
 
@@ -119,5 +135,28 @@ describe('normalizeTraceSummaryTimestamp', () => {
         const normalized = normalizeTraceSummaryTimestamp(trace);
         const expectedIso = new Date(Math.floor(startNano / 1_000_000)).toISOString();
         expect(normalized.timestamp).toBe(expectedIso);
+    });
+});
+
+describe('resolveTimestampMs', () => {
+    it('returns epoch milliseconds for normalized timestamps', () => {
+        const result = resolveTimestampMs('2025-10-16 05:30:59.123456');
+        expect(result).toBe(Date.UTC(2025, 9, 16, 5, 30, 59, 123));
+    });
+
+    it('returns null for invalid values', () => {
+        expect(resolveTimestampMs('not-a-date')).toBeNull();
+    });
+});
+
+describe('formatTimestampForDisplay', () => {
+    it('formats valid timestamps using locale settings', () => {
+        const formatted = formatTimestampForDisplay('2025-10-16T05:30:59Z.750');
+        expect(formatted).not.toBe('Invalid Date');
+    });
+
+    it('returns fallback for invalid timestamps', () => {
+        const formatted = formatTimestampForDisplay('', undefined, undefined, 'N/A');
+        expect(formatted).toBe('N/A');
     });
 });

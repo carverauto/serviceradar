@@ -101,3 +101,41 @@ export const normalizeTraceSummaryTimestamp = (trace: TraceSummary): TraceSummar
         timestamp: new Date(resolvedMs).toISOString(),
     };
 };
+
+export const parseNormalizedTimestamp = (timestamp?: string | null): Date | null => {
+    const normalized = normalizeTimestampString(timestamp ?? undefined);
+    if (!normalized) {
+        return null;
+    }
+
+    const parsed = Date.parse(normalized);
+    return Number.isNaN(parsed) ? null : new Date(parsed);
+};
+
+export const resolveTimestampMs = (timestamp?: string | null): number | null => {
+    const normalized = normalizeTimestampString(timestamp ?? undefined);
+    if (!normalized) {
+        return null;
+    }
+
+    const parsed = Date.parse(normalized);
+    return Number.isNaN(parsed) ? null : parsed;
+};
+
+export const formatTimestampForDisplay = (
+    timestamp?: string | null,
+    locale?: string | string[],
+    options?: Intl.DateTimeFormatOptions,
+    fallback = 'Invalid Date',
+): string => {
+    const date = parseNormalizedTimestamp(timestamp);
+    if (!date) {
+        return fallback;
+    }
+
+    try {
+        return date.toLocaleString(locale, options);
+    } catch {
+        return date.toISOString();
+    }
+};
