@@ -1,18 +1,18 @@
-# prod/serviceradar-core-grpc-external.yaml
+# prod/serviceradar-flowgger-external.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: serviceradar-core-grpc-external
+  name: serviceradar-flowgger-external
   namespace: demo
   annotations:
     metallb.universe.tf/address-pool: k3s-pool
 spec:
   type: LoadBalancer
   selector:
-    app: serviceradar-core
+    app: serviceradar-flowgger
     app.kubernetes.io/part-of: serviceradar
   ports:
-    - name: grpc
-      port: 50052
-      protocol: TCP
-      targetPort: grpc
+    - name: syslog
+      port: 514
+      protocol: UDP
+      targetPort: syslog
