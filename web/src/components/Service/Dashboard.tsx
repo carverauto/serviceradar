@@ -109,15 +109,30 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
         data: { timestamp: string; response_time: number }[],
         range: string,
     ) => {
-        const now = Date.now();
-        const ranges: { [key: string]: number } = {
+        if (!data.length) {
+            return data;
+        }
+        const ranges: Record<string, number> = {
             "1h": 60 * 60 * 1000,
             "6h": 6 * 60 * 60 * 1000,
             "24h": 24 * 60 * 60 * 1000,
         };
-        const timeLimit = now - ranges[range];
+        const referenceTime = data.reduce<number | null>((latest, point) => {
+            const ts = new Date(point.timestamp).getTime();
+            if (!Number.isFinite(ts)) {
+                return latest;
+            }
+            if (latest === null || ts > latest) {
+                return ts;
+            }
+            return latest;
+        }, null);
+        if (referenceTime === null) {
+            return data;
+        }
+        const timeLimit = referenceTime - (ranges[range] ?? ranges["1h"]);
         return data.filter(
-            (point) => new Date(point.timestamp).getTime() >= timeLimit,
+            (point) => new Date(point.timestamp).getTime() >= timeLimit && new Date(point.timestamp).getTime() <= referenceTime,
         );
     };
 

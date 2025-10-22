@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 
 // Constants
@@ -36,19 +36,15 @@ const formatPacketLoss = (loss) => {
 // Individual ping status component with auto-refresh
 const PingStatus = ({ details, pollerId: pollerId, serviceName }) => {
     const router = useRouter();
-    const [pingData, setPingData] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
-
-    // Initialize from props
-    useEffect(() => {
+    const pingData = useMemo(() => {
+        if (typeof details === 'undefined') {
+            return undefined;
+        }
         try {
-            const parsedDetails = typeof details === 'string' ? JSON.parse(details) : details;
-            setPingData(parsedDetails);
-            setIsLoading(false);
+            return typeof details === 'string' ? JSON.parse(details) : details;
         } catch (e) {
             console.error('Error parsing ping details:', e);
-            setPingData(null);
-            setIsLoading(false);
+            return null;
         }
     }, [details]);
 
@@ -63,7 +59,7 @@ const PingStatus = ({ details, pollerId: pollerId, serviceName }) => {
         return () => clearInterval(interval);
     }, [router, pollerId, serviceName]);
 
-    if (isLoading) {
+    if (pingData === undefined) {
         return (
             <div className="grid grid-cols-2 gap-2 text-sm transition-colors">
                 <div className="font-medium text-gray-600 dark:text-gray-400">Loading ping data...</div>

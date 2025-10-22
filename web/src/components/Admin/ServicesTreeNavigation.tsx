@@ -270,7 +270,6 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   };
 
   // Simple virtualization for service lists
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const ServiceList: React.FC<{ items: ServiceTreeService[]; render: (svc: ServiceTreeService) => React.ReactNode; height?: number; itemHeight?: number; }>
     = ({ items, render, height = 320, itemHeight = 28 }) => {
     const [scrollTop, setScrollTop] = useState(0);
@@ -296,7 +295,6 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   };
 
   // Simple virtualization for agent lists
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const AgentList: React.FC<{ items: ServiceTreeAgent[]; render: (a: ServiceTreeAgent) => React.ReactNode; height?: number; itemHeight?: number; }>
     = ({ items, render, height = 300, itemHeight = 26 }) => {
     const [scrollTop, setScrollTop] = useState(0);

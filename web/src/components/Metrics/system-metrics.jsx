@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ErrorMessage, EmptyState, LoadingState } from './error-components';
@@ -52,47 +52,44 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
     const [activeTab, setActiveTab] = useState('overview');
     const [timeRange, setTimeRange] = useState('1h');
 
-    useEffect(() => {
-        if (!initialData) {
-            const loadData = async () => {
-                try {
-                    setLoading(true);
-                    const result = await fetchSystemData(actualId, timeRange, actualIdType);
-                    setData(result);
-                    setLastUpdated(new Date());
-                    setError(null);
-                } catch (err) {
-                    console.error('Error loading system data:', err);
-                    setError('Failed to load system data');
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            loadData();
-        }
-
-        const intervalId = setInterval(() => {
-            handleRefresh();
-        }, 30000);
-
-        return () => clearInterval(intervalId);
-    }, [actualId, actualIdType, timeRange, initialData]);
-
-    const handleRefresh = async () => {
-        try {
+    const fetchAndUpdate = useCallback(async ({ showSpinner, errorMessage }) => {
+        if (showSpinner) {
+            setLoading(true);
+        } else {
             setRefreshing(true);
+        }
+        try {
             const result = await fetchSystemData(actualId, timeRange, actualIdType);
             setData(result);
             setLastUpdated(new Date());
             setError(null);
         } catch (err) {
-            console.error('Error refreshing system data:', err);
-            setError('Failed to refresh system data');
+            console.error('Error loading system data:', err);
+            setError(errorMessage);
         } finally {
-            setRefreshing(false);
+            if (showSpinner) {
+                setLoading(false);
+            } else {
+                setRefreshing(false);
+            }
         }
-    };
+    }, [actualId, actualIdType, timeRange]);
+
+    const handleRefresh = useCallback(async () => {
+        await fetchAndUpdate({ showSpinner: false, errorMessage: 'Failed to refresh system data' });
+    }, [fetchAndUpdate]);
+
+    useEffect(() => {
+        if (!initialData) {
+            void fetchAndUpdate({ showSpinner: true, errorMessage: 'Failed to load system data' });
+        }
+
+        const intervalId = setInterval(() => {
+            void fetchAndUpdate({ showSpinner: false, errorMessage: 'Failed to refresh system data' });
+        }, 30000);
+
+        return () => clearInterval(intervalId);
+    }, [fetchAndUpdate, initialData]);
 
     if (loading && !data) {
         return <LoadingState message="Loading system metrics data..." />;
