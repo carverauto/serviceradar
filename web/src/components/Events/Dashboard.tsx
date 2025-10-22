@@ -20,6 +20,9 @@ import ReactJson from '@/components/Common/DynamicReactJson';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
 import { escapeSrqlValue } from '@/lib/srql';
+import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
+import { DEFAULT_EVENTS_QUERY } from '@/lib/srqlQueries';
+import { usePathname } from 'next/navigation';
 
 type SortableKeys = 'event_timestamp' | 'host' | 'severity';
 
@@ -53,6 +56,8 @@ const StatCard = ({
 
 const EventsDashboard = () => {
     const { token } = useAuth();
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
+    const pathname = usePathname();
     const [events, setEvents] = useState<Event[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const [stats, setStats] = useState({
@@ -128,6 +133,12 @@ const EventsDashboard = () => {
         }
     }, [token]);
 
+    const eventsViewPath = `${pathname ?? '/events'}`;
+
+    useEffect(() => {
+        setSrqlQuery(DEFAULT_EVENTS_QUERY, { origin: 'view', viewPath: eventsViewPath });
+    }, [eventsViewPath, setSrqlQuery]);
+
     const fetchEvents = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
         setEventsLoading(true);
         setError(null);
@@ -152,6 +163,7 @@ const EventsDashboard = () => {
 
             const query = queryParts.join(' ');
 
+            setSrqlQuery(query, { origin: 'view', viewPath: eventsViewPath });
             const data = await postQuery<EventsApiResponse>(query, cursor, direction);
             setEvents(data.results || []);
             setPagination(data.pagination || null);
@@ -162,7 +174,7 @@ const EventsDashboard = () => {
         } finally {
             setEventsLoading(false);
         }
-    }, [postQuery, debouncedSearchTerm, filterSeverity, sortBy, sortOrder]);
+    }, [postQuery, debouncedSearchTerm, filterSeverity, sortBy, sortOrder, setSrqlQuery, eventsViewPath]);
 
     useEffect(() => {
         // Fetch stats on mount

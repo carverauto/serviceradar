@@ -22,6 +22,8 @@ import { escapeSrqlValue } from '@/lib/srql';
 import {Server, Search, Loader2, AlertTriangle, CheckCircle, XCircle} from 'lucide-react';
 import DeviceTable from './DeviceTable';
 import { useDebounce } from 'use-debounce';
+import { useSrqlQuery, DEFAULT_SRQL_QUERY } from '@/contexts/SrqlQueryContext';
+import { usePathname } from 'next/navigation';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
 const StatCard = ({ title, value, icon, isLoading, colorScheme = 'blue' }: { title: string; value: string | number; icon: React.ReactNode; isLoading: boolean; colorScheme?: 'blue' | 'green' | 'red' }) => {
@@ -49,6 +51,8 @@ const StatCard = ({ title, value, icon, isLoading, colorScheme = 'blue' }: { tit
 };
 const Dashboard = () => {
     const {token} = useAuth();
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
+    const pathname = usePathname();
     const [devices, setDevices] = useState<Device[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const [stats, setStats] = useState({
@@ -114,6 +118,12 @@ const Dashboard = () => {
         }
     }, [token]);
 
+    const viewPath = pathname ?? '/devices';
+
+    useEffect(() => {
+        setSrqlQuery(DEFAULT_SRQL_QUERY, { origin: 'view', viewPath });
+    }, [setSrqlQuery, viewPath]);
+
     const fetchDevices = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
         setDevicesLoading(true);
         setError(null);
@@ -137,6 +147,7 @@ const Dashboard = () => {
 
             const query = queryParts.join(' ');
 
+            setSrqlQuery(query, { origin: 'view', viewPath });
             const data = await postQuery<DevicesApiResponse>(query, cursor, direction);
             setDevices(data.results || []);
             setPagination(data.pagination || null);
@@ -147,7 +158,7 @@ const Dashboard = () => {
         } finally {
             setDevicesLoading(false);
         }
-    }, [postQuery, debouncedSearchTerm, filterStatus, sortBy, sortOrder]);
+    }, [postQuery, debouncedSearchTerm, filterStatus, sortBy, sortOrder, setSrqlQuery, viewPath]);
 
     useEffect(() => {
         fetchStats();

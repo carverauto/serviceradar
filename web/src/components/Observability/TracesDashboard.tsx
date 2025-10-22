@@ -32,6 +32,9 @@ import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
 import { escapeSrqlValue } from '@/lib/srql';
 import { useTraceCounts } from '@/hooks/useTraceCounts';
 import { normalizeTraceSummaryTimestamp, resolveTraceTimestampMs } from '@/utils/traceTimestamp';
+import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
+import { DEFAULT_TRACES_QUERY } from '@/lib/srqlQueries';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 const StatCard = ({
     title,
@@ -138,6 +141,14 @@ const formatDuration = (ms: number): string => {
 
 const TracesDashboard = () => {
     const { token } = useAuth();
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const tracesViewPath = useMemo(() => {
+        const base = pathname ?? '/observability';
+        const searchString = searchParams?.toString();
+        return searchString ? `${base}?${searchString}` : base;
+    }, [pathname, searchParams]);
     const [traces, setTraces] = useState<TraceSummary[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const {
@@ -178,6 +189,10 @@ const TracesDashboard = () => {
     
     // Track if user is viewing the latest traces (for auto-advance behavior)
     const [autoFollowLatest, setAutoFollowLatest] = useState(true);
+
+    useEffect(() => {
+        setSrqlQuery(DEFAULT_TRACES_QUERY, { origin: 'view', viewPath: tracesViewPath });
+    }, [setSrqlQuery, tracesViewPath]);
 
     const stats: TraceStats = useMemo(
         () => ({
@@ -278,6 +293,7 @@ const TracesDashboard = () => {
 
             const query = queryParts.join(' ');
 
+            setSrqlQuery(query, { origin: 'view', viewPath: tracesViewPath });
             const response = await postQuery<TraceSummariesApiResponse>(query, cursor, direction);
             const normalizedResults = (response.results || []).map(normalizeTraceSummaryTimestamp);
             setTraces(normalizedResults);
@@ -324,7 +340,7 @@ const TracesDashboard = () => {
             setTracesLoading(false);
             setDurationLoading(false);
         }
-    }, [postQuery, debouncedSearchTerm, filterService, filterStatus, sortBy, sortOrder]);
+    }, [postQuery, debouncedSearchTerm, filterService, filterStatus, sortBy, sortOrder, setSrqlQuery, tracesViewPath]);
 
     const buildStreamingQuery = useCallback(() => {
         const queryParts = [
@@ -380,6 +396,7 @@ const TracesDashboard = () => {
 
         const query = buildStreamingQuery();
         console.log('📡 Creating new streaming client for query:', query);
+        setSrqlQuery(query, { origin: 'view', viewPath: tracesViewPath });
         
         streamingClient.current = createStreamingClient({
             onData: (data) => {
@@ -448,7 +465,7 @@ const TracesDashboard = () => {
         });
 
         streamingClient.current.connect(query);
-    }, [buildStreamingQuery, streamingPaused]);
+    }, [buildStreamingQuery, setSrqlQuery, streamingPaused, tracesViewPath]);
 
     const stopStreaming = useCallback(() => {
         if (streamingClient.current) {
