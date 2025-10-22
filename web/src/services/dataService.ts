@@ -196,7 +196,7 @@ interface RperfMetadataPayload {
   version?: string;
 }
 
-class DataService {
+export class DataService {
   private readonly cache = new Map<DataKey, CacheEntry<DataStore[DataKey]>>();
   private readonly subscribers = new Map<DataKey, Set<() => void>>();
   private readonly CACHE_DURATION = 30_000; // 30 seconds
@@ -394,40 +394,57 @@ class DataService {
     const last24HoursIso = new Date(now - 24 * 60 * 60 * 1000).toISOString();
     const last7DaysIso = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const queries = [
-      'in:devices stats:"count() as total" sort:total:desc',
-      'in:devices is_available:false stats:"count() as total" sort:total:desc',
-      `in:events time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`,
-      `in:events severity:Critical time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`,
-      `in:events severity:High time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`,
-      `in:events severity:Medium time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`,
-      `in:events severity:Low time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`,
-      `in:events severity:(Critical,High) time:[${last24HoursIso},] sort:event_timestamp:desc limit:100`,
-      'in:logs stats:"count() as total" sort:total:desc time:last_24h',
-      'in:logs severity_text:fatal stats:"count() as total" sort:total:desc time:last_24h',
-      'in:logs severity_text:error stats:"count() as total" sort:total:desc time:last_24h',
-      'in:logs severity_text:(warning,warn) stats:"count() as total" sort:total:desc time:last_24h',
-      'in:logs severity_text:info stats:"count() as total" sort:total:desc time:last_24h',
-      'in:logs severity_text:debug stats:"count() as total" sort:total:desc time:last_24h',
-      'in:logs severity_text:(fatal,error) time:last_24h sort:timestamp:desc limit:100',
-      'in:otel_metrics stats:"count() as total" sort:total:desc time:last_24h',
-      'in:otel_trace_summaries stats:"count() as total" sort:total:desc time:last_24h',
-      'in:otel_trace_summaries status_code!=1 stats:"count() as total" sort:total:desc time:last_24h',
-      'in:otel_trace_summaries duration_ms>100 stats:"count() as total" sort:total:desc time:last_24h',
-      'in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:100',
-      `in:devices time:[${last7DaysIso},] sort:last_seen:desc limit:100`,
-      'in:services sort:timestamp:desc limit:200'
+    const slowTraceListQuery = 'in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:25';
+    const queryConfigs: Array<{ query: string; limit?: number }> = [
+      { query: 'in:devices stats:"count() as total" sort:total:desc' },
+      { query: 'in:devices is_available:false stats:"count() as total" sort:total:desc' },
+      { query: `in:events time:[${last24HoursIso},] stats:"count() as total" sort:total:desc` },
+      {
+        query: `in:events severity:Critical time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
+      },
+      {
+        query: `in:events severity:High time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
+      },
+      {
+        query: `in:events severity:Medium time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
+      },
+      {
+        query: `in:events severity:Low time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
+      },
+      {
+        query: `in:events severity:(Critical,High) time:[${last24HoursIso},] sort:event_timestamp:desc limit:50`,
+        limit: 50
+      },
+      { query: 'in:logs stats:"count() as total" sort:total:desc time:last_24h' },
+      { query: 'in:logs severity_text:fatal stats:"count() as total" sort:total:desc time:last_24h' },
+      { query: 'in:logs severity_text:error stats:"count() as total" sort:total:desc time:last_24h' },
+      {
+        query:
+          'in:logs severity_text:(warning,warn) stats:"count() as total" sort:total:desc time:last_24h'
+      },
+      { query: 'in:logs severity_text:info stats:"count() as total" sort:total:desc time:last_24h' },
+      { query: 'in:logs severity_text:debug stats:"count() as total" sort:total:desc time:last_24h' },
+      {
+        query: 'in:logs severity_text:(fatal,error) time:last_24h sort:timestamp:desc limit:50',
+        limit: 50
+      },
+      { query: 'in:otel_metrics stats:"count() as total" sort:total:desc time:last_24h' },
+      {
+        query:
+          'in:otel_trace_summaries time:last_24h stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"'
+      },
+      { query: `in:devices time:[${last7DaysIso},] sort:last_seen:desc limit:120`, limit: 120 },
+      { query: 'in:services sort:timestamp:desc limit:150', limit: 150 }
     ];
 
-    const queryResults = await Promise.all(
-      queries.map(async (query, index) => {
-        try {
-          return await this.requestSrql(query, token, index < 15 ? 1000 : 100);
-        } catch (error) {
-          console.warn(`Query failed: ${query}`, error);
-          return { results: [] } as SrqlResponse;
-        }
-      })
+    const results = await Promise.all(
+      queryConfigs.map(({ query, limit }) =>
+        this.requestSrql(query, token, typeof limit === 'number' ? limit : query.includes('time:') ? 100 : 1000)
+          .catch((error) => {
+            console.warn(`Query failed: ${query}`, error);
+            return { results: [] } as SrqlResponse;
+          })
+      )
     );
 
     const [
@@ -447,13 +464,10 @@ class DataService {
       debugLogsRes,
       recentErrorLogsRes,
       totalMetricsRes,
-      totalTracesRes,
-      errorTracesRes,
-      slowTracesRes,
-      slowTraceListRes,
+      traceAggregatesRes,
       devicesLatestRes,
       servicesLatestRes
-    ] = queryResults;
+    ] = results;
 
     const servicesLatest = Array.isArray(servicesLatestRes?.results) ? servicesLatestRes.results : [];
     const {
@@ -464,41 +478,85 @@ class DataService {
 
     const totalDevices = this.extractTotal(totalDevicesRes);
     const offlineDevices = this.extractTotal(offlineDevicesRes);
+    const totalEvents = this.extractTotal(totalEventsRes);
+    const criticalEvents = this.extractTotal(criticalEventsRes);
+    const highEvents = this.extractTotal(highEventsRes);
+    const mediumEvents = this.extractTotal(mediumEventsRes);
+    const lowEvents = this.extractTotal(lowEventsRes);
+    const totalLogs = this.extractTotal(totalLogsRes);
+    const fatalLogs = this.extractTotal(fatalLogsRes);
+    const errorLogs = this.extractTotal(errorLogsRes);
+    const warningLogs = this.extractTotal(warningLogsRes);
+    const infoLogs = this.extractTotal(infoLogsRes);
+    const debugLogs = this.extractTotal(debugLogsRes);
+    const totalMetrics = this.extractTotal(totalMetricsRes);
+    const totalTraces = this.extractField(traceAggregatesRes, 'total');
+    const slowTraces = this.extractField(traceAggregatesRes, 'slow_traces');
+    const errorTraces = this.extractField(traceAggregatesRes, 'error_traces');
 
-    return {
+    const previousSlowSpans =
+      ((this.cache.get('analytics')?.data as AnalyticsData | undefined)?.recentSlowSpans) ?? [];
+
+    const data: AnalyticsData = {
       totalDevices,
       offlineDevices,
       onlineDevices: Math.max(totalDevices - offlineDevices, 0),
-      totalEvents: this.extractTotal(totalEventsRes),
-      criticalEvents: this.extractTotal(criticalEventsRes),
-      highEvents: this.extractTotal(highEventsRes),
-      mediumEvents: this.extractTotal(mediumEventsRes),
-      lowEvents: this.extractTotal(lowEventsRes),
+      totalEvents,
+      criticalEvents,
+      highEvents,
+      mediumEvents,
+      lowEvents,
       recentCriticalEvents: this.sliceResults(recentCriticalEventsRes, 5),
-      totalLogs: this.extractTotal(totalLogsRes),
-      fatalLogs: this.extractTotal(fatalLogsRes),
-      errorLogs: this.extractTotal(errorLogsRes),
-      warningLogs: this.extractTotal(warningLogsRes),
-      infoLogs: this.extractTotal(infoLogsRes),
-      debugLogs: this.extractTotal(debugLogsRes),
+      totalLogs,
+      fatalLogs,
+      errorLogs,
+      warningLogs,
+      infoLogs,
+      debugLogs,
       recentErrorLogs: this.sliceResults(recentErrorLogsRes, 5),
-      totalMetrics: this.extractTotal(totalMetricsRes),
-      totalTraces: this.extractTotal(totalTracesRes),
-      slowTraces: this.extractTotal(slowTracesRes),
-      errorTraces: this.extractTotal(errorTracesRes),
-      recentSlowSpans: this.sliceResults<SlowTraceResult>(slowTraceListRes, 5).map((trace): RecentSlowSpan => ({
-        trace_id: trace.trace_id ?? 'unknown_trace',
-        service_name: trace.root_service_name || trace.service_name || 'Unknown Service',
-        span_name: trace.root_span_name || 'Root Span',
-        duration_ms: trace.duration_ms || 0,
-        timestamp: trace.timestamp || trace.start_time_unix_nano || null
-      })),
+      totalMetrics,
+      totalTraces,
+      slowTraces,
+      errorTraces,
+      recentSlowSpans: previousSlowSpans,
       devicesLatest: Array.isArray(devicesLatestRes?.results) ? devicesLatestRes.results : [],
       servicesLatest,
       failingServiceCount: failingCount,
       highLatencyServiceCount: highLatencyCount,
       serviceLatencyBuckets: latencyBuckets
     };
+
+    void this.requestSrql<SlowTraceResult>(slowTraceListQuery, token, 25)
+      .then((slowTraceListRes) => {
+        const slowSpans = this.sliceResults<SlowTraceResult>(slowTraceListRes, 5).map(
+          (trace): RecentSlowSpan => ({
+            trace_id: trace.trace_id ?? 'unknown_trace',
+            service_name: trace.root_service_name || trace.service_name || 'Unknown Service',
+            span_name: trace.root_span_name || 'Root Span',
+            duration_ms: trace.duration_ms || 0,
+            timestamp: trace.timestamp || trace.start_time_unix_nano || null
+          })
+        );
+
+        const entry = this.cache.get('analytics');
+        if (!entry) {
+          return;
+        }
+
+        const currentData = entry.data as AnalyticsData;
+        const merged: AnalyticsData = {
+          ...currentData,
+          recentSlowSpans: slowSpans
+        };
+
+        this.cache.set('analytics', { data: merged, timestamp: Date.now() });
+        this.notifySubscribers('analytics');
+      })
+      .catch((error) => {
+        console.warn(`Query failed: ${slowTraceListQuery}`, error);
+      });
+
+    return data;
   }
 
   private getEmptyAnalyticsData(): AnalyticsData {
@@ -666,6 +724,23 @@ class DataService {
       }
     }
     return undefined;
+  }
+
+  private extractField(result: unknown, field: string): number {
+    if (!result || typeof result !== 'object') {
+      return 0;
+    }
+    const payload = result as { results?: Array<Record<string, unknown>> };
+    if (!Array.isArray(payload.results) || payload.results.length === 0) {
+      return 0;
+    }
+    const row = payload.results[0];
+    if (!row || typeof row !== 'object') {
+      return 0;
+    }
+    const value = (row as Record<string, unknown>)[field];
+    const numeric = this.toNumber(value as number | string | undefined);
+    return numeric ?? 0;
   }
 
   private extractTotal(result: unknown): number {
