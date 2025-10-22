@@ -20,7 +20,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Poller, Service } from '@/types/types';
 import { Device, DevicesApiResponse, Pagination } from '@/types/devices';
 import { useAuth } from '@/components/AuthProvider';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
     Router as RouterIcon,
     Network,
@@ -40,6 +40,16 @@ import { escapeSrqlValue } from '@/lib/srql';
 import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
 import DeviceTable from '@/components/Devices/DeviceTable';
 import { normalizeTimestampString } from '@/utils/traceTimestamp';
+import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
+import {
+    APPLICATION_SERVICES_QUERY,
+    DEFAULT_DEVICES_QUERY,
+    DISCOVERY_DEVICES_QUERY,
+    DISCOVERY_INTERFACES_QUERY,
+    NETFLOW_DEFAULT_QUERY,
+    SNMP_DEVICES_QUERY,
+    buildSweepQueryWithLimit,
+} from '@/lib/srqlQueries';
 
 // Current device updates format from SRQL devices
 interface DeviceUpdates {
@@ -244,6 +254,9 @@ const TabButton = ({
 // SNMP Devices View using shared DeviceTable component
 const SNMPDevicesView: React.FC = React.memo(() => {
     const { token } = useAuth();
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
+    const pathname = usePathname();
+    const snmpViewPath = useMemo(() => `${pathname ?? '/network'}#snmp`, [pathname]);
     const [devices, setDevices] = useState<Device[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const [loading, setLoading] = useState(true);
@@ -278,6 +291,10 @@ const SNMPDevicesView: React.FC = React.memo(() => {
         return response.json();
     }, [token]);
 
+    useEffect(() => {
+        setSrqlQuery(SNMP_DEVICES_QUERY, { origin: 'view', viewPath: snmpViewPath });
+    }, [setSrqlQuery, snmpViewPath]);
+
     const fetchDevices = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
         setLoading(true);
         setError(null);
@@ -297,6 +314,7 @@ const SNMPDevicesView: React.FC = React.memo(() => {
             }
 
             const query = queryParts.join(' ');
+            setSrqlQuery(query, { origin: 'view', viewPath: snmpViewPath });
             const data = await postQuery<DevicesApiResponse>(query, cursor, direction);
 
             setDevices(data.results || []);
@@ -306,7 +324,7 @@ const SNMPDevicesView: React.FC = React.memo(() => {
         } finally {
             setLoading(false);
         }
-    }, [postQuery, debouncedSearchTerm, sortBy, sortOrder]);
+    }, [postQuery, debouncedSearchTerm, sortBy, sortOrder, setSrqlQuery, snmpViewPath]);
 
     useEffect(() => {
         fetchDevices();
@@ -413,6 +431,8 @@ SNMPDevicesView.displayName = 'SNMPDevicesView';
 // Sweep Results View with detailed sweep information
 const DeviceUpdatesView: React.FC = React.memo(() => {
     const { token } = useAuth();
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
+    const pathname = usePathname();
     const [deviceUpdates, setDeviceUpdates] = useState<DeviceUpdates[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -427,6 +447,15 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
         availableHosts: null,
     });
     const [countsError, setCountsError] = useState<string | null>(null);
+
+    const sweepsViewPath = `${pathname ?? '/network'}#sweeps`;
+
+    useEffect(() => {
+        setSrqlQuery(buildSweepQueryWithLimit(currentFetchLimit), {
+            origin: 'view',
+            viewPath: sweepsViewPath,
+        });
+    }, [currentFetchLimit, setSrqlQuery, sweepsViewPath]);
 
     const fetchDeviceUpdates = useCallback(async (limit: number): Promise<DeviceUpdates[]> => {
         setLoading(true);
@@ -1094,6 +1123,27 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     const [loadingStats, setLoadingStats] = useState(true);
     const router = useRouter();
     const { token } = useAuth();
+    const pathname = usePathname();
+    const networkBasePath = pathname ?? '/network';
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
+
+    useEffect(() => {
+        const viewPath = `${networkBasePath}#${activeTab}`;
+        switch (activeTab) {
+            case 'overview':
+                setSrqlQuery(DEFAULT_DEVICES_QUERY, { origin: 'view', viewPath });
+                break;
+            case 'applications':
+                setSrqlQuery(APPLICATION_SERVICES_QUERY, { origin: 'view', viewPath });
+                break;
+            case 'netflow':
+                setSrqlQuery(NETFLOW_DEFAULT_QUERY, { origin: 'view', viewPath });
+                break;
+            default:
+                // Other tabs manage their own SRQL synchronization.
+                break;
+        }
+    }, [activeTab, networkBasePath, setSrqlQuery]);
 
     // Click handlers for stat cards
     const handleDiscoveredDevicesClick = () => {

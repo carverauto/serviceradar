@@ -32,6 +32,9 @@ import { cachedQuery } from '@/lib/cached-query';
 import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
 import { escapeSrqlValue } from '@/lib/srql';
 import { parseOtelAttributes } from '@/utils/otelAttributes';
+import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
+import { DEFAULT_LOGS_QUERY } from '@/lib/srqlQueries';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 const StatCard = ({
     title,
@@ -88,6 +91,14 @@ const severityQueryMap: Record<'FATAL' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG', st
 
 const LogsDashboard = () => {
     const { token } = useAuth();
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const logsViewPath = useMemo(() => {
+        const base = pathname ?? '/observability';
+        const searchString = searchParams?.toString();
+        return searchString ? `${base}?${searchString}` : base;
+    }, [pathname, searchParams]);
     const [logs, setLogs] = useState<Log[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const [stats, setStats] = useState({
@@ -125,6 +136,10 @@ const LogsDashboard = () => {
     
     // Track if user is viewing the latest logs (for auto-advance behavior)
     const [autoFollowLatest, setAutoFollowLatest] = useState(true);
+
+    useEffect(() => {
+        setSrqlQuery(DEFAULT_LOGS_QUERY, { origin: 'view', viewPath: logsViewPath });
+    }, [logsViewPath, setSrqlQuery]);
 
     const postQuery = useCallback(async <T,>(
         query: string,
@@ -241,6 +256,7 @@ const LogsDashboard = () => {
 
             const query = queryParts.join(' ');
 
+            setSrqlQuery(query, { origin: 'view', viewPath: logsViewPath });
             const data = await postQuery<LogsApiResponse>(query, cursor, direction);
             setLogs(data.results || []);
             setPagination(data.pagination || null);
@@ -251,7 +267,7 @@ const LogsDashboard = () => {
         } finally {
             setLogsLoading(false);
         }
-    }, [postQuery, debouncedSearchTerm, filterSeverity, filterService, sortBy, sortOrder]);
+    }, [postQuery, debouncedSearchTerm, filterSeverity, filterService, sortBy, sortOrder, setSrqlQuery, logsViewPath]);
 
     const buildStreamingQuery = useCallback(() => {
         const queryParts = [
@@ -299,6 +315,7 @@ const LogsDashboard = () => {
 
         const query = buildStreamingQuery();
         console.log('📡 Creating new streaming client for query:', query);
+        setSrqlQuery(query, { origin: 'view', viewPath: logsViewPath });
         
         streamingClient.current = createStreamingClient({
             onData: (data) => {
@@ -367,7 +384,7 @@ const LogsDashboard = () => {
         });
 
         streamingClient.current.connect(query);
-    }, [buildStreamingQuery, streamingPaused]);
+    }, [buildStreamingQuery, logsViewPath, setSrqlQuery, streamingPaused]);
 
     const stopStreaming = useCallback(() => {
         if (streamingClient.current) {

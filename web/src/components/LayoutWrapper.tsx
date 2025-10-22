@@ -16,27 +16,32 @@
 
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
+import { SrqlQueryProvider } from '@/contexts/SrqlQueryContext';
 
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const isLoginPage = pathname === '/login';
+    const searchParams = useSearchParams();
+    const initialQuery = searchParams.get('q');
 
     if (isLoginPage) {
         return <>{children}</>;
     }
 
     return (
-        <div className="flex h-screen overflow-hidden">
-            <Sidebar />
-            <div className="flex-1 flex flex-col">
-                <Header />
-                <main className="flex-1 p-6 overflow-y-auto">
-                    {children}
-                </main>
+        <SrqlQueryProvider initialQuery={initialQuery}>
+            <div className="flex h-screen overflow-hidden">
+                <Sidebar />
+                <div className="flex-1 flex flex-col">
+                    <Header />
+                    <main className="flex-1 p-6 overflow-y-auto">
+                        {children}
+                    </main>
+                </div>
             </div>
-        </div>
+        </SrqlQueryProvider>
     );
 }

@@ -17,7 +17,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
     Network,
     Monitor,
@@ -38,6 +38,8 @@ import { useAuth } from '@/components/AuthProvider';
 import { Device } from '@/types/devices';
 import InterfaceTable from './InterfaceTable';
 import { cachedQuery } from '@/lib/cached-query';
+import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
+import { DISCOVERY_DEVICES_QUERY, DISCOVERY_INTERFACES_QUERY } from '@/lib/srqlQueries';
 
 /**
  * Interface represents a discovered network interface from the device_id centric model
@@ -70,6 +72,9 @@ type ViewMode = 'grid' | 'table';
 
 const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps> = () => {
     const router = useRouter();
+    const pathname = usePathname();
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
+    const discoveryViewPath = useMemo(() => `${pathname ?? '/network'}#discovery`, [pathname]);
     const { token } = useAuth();
     const [devices, setDevices] = useState<Device[]>([]);
     const [interfaces, setInterfaces] = useState<DiscoveredInterface[]>([]);
@@ -176,6 +181,11 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
             setIsLoading(false);
         }
     }, [fetchDevices, fetchInterfaces, fetchStats]);
+
+    useEffect(() => {
+        const baseQuery = filterType === 'interfaces' ? DISCOVERY_INTERFACES_QUERY : DISCOVERY_DEVICES_QUERY;
+        setSrqlQuery(baseQuery, { origin: 'view', viewPath: discoveryViewPath });
+    }, [filterType, setSrqlQuery, discoveryViewPath]);
 
     // Initial load
     useEffect(() => {
