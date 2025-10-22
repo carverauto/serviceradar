@@ -1,0 +1,108 @@
+---
+slug: blazing-fast-go-syn-scanner
+title: "From 19 Hours to Under a Second: Building a Blazing-Fast TCP Scanner in Go"
+authors: [mfreeman]
+tags: [network-scanning, go, linux, cbpf, performance]
+date: 2025-10-22
+description: "How ServiceRadar's Issue #1857 turned a 19-hour TCP discovery job into a sub-second SYN scan by leaning on raw sockets, BPF, and Go assembly."
+---
+
+Our network discovery workflow used to take longer than a transatlantic flight. A full sweep across 21,000 devices required **19 hours** with the TCP `connect()` scanner we shipped in early 2025. That left ServiceRadar’s inventory stale by the time scans finished. Internally, we challenged ourselves to deliver near-real-time visibility—and the result is a Go-powered SYN scanner that now finishes the same job in **under one second**.
+
+<!-- truncate -->
+
+This post walks through the engineering journey behind that 19,000× speedup: the raw sockets we had to tame, the kernel offloads we embraced, and the Go-level optimizations that made everything click.
+
+## Introduction: The Need for Speed
+
+* **The bottleneck.** Our original scanner (`pkg/scan/tcp_scanner.go`) leans on `net.Dialer` to complete a full TCP handshake for every target. It is reliable, portable, and easy to maintain—but it serializes the handshake cost across tens of thousands of connections.
+* **The goal.** Produce results fast enough to refresh the ServiceRadar UI while operators are still on the incident bridge.
+* **The hook.** The new half-open SYN scanner condenses a 19-hour run into a sub-second lapse. The rest of this article explains how we squeezed latency out of every layer of the stack.
+
+## Why `connect()` Is Slow (and SYN Scanning Isn’t)
+
+The three-way handshake (`SYN → SYN-ACK → ACK`) is a blocking round trip per target. Even with thousands of goroutines, the kernel still allocates sockets, tracks state, and tears everything down. Half-open scanning flips the model:
+
+1. Emit a single SYN from a raw socket.
+2. Listen for `SYN-ACK` (open) or `RST` (closed) replies.
+3. Skip the final ACK and never establish connection state.
+
+By skipping allocation-heavy steps and aggressively batching packets, half-open probing trades completeness for a huge performance win—perfect for inventory discovery where false positives hurt more than half-open connections.
+
+## Architecture of a Sub-Second Scanner
+
+### Going Low-Level with Raw Sockets
+
+* **Crafted packets.** `syscall.Socket(AF_INET, SOCK_RAW, IPPROTO_TCP)` with `IP_HDRINCL` lets us populate every byte of IPv4 and TCP headers. The shared `packetTemplate` in `pkg/scan/syn_scanner.go` initializes immutable fields so per-target work touches only sequence numbers, ports, and checksums.
+* **Direct capture.** We open `AF_PACKET` sniffers per CPU core to receive replies straight from the NIC, bypassing the kernel’s TCP stack altogether.
+
+### Peak Efficiency for Sending and Receiving
+
+* **Bulk transmit with `sendmmsg`.** Architecture-specific shims in `pkg/scan/mmsghdr_linux_*.go` build the correct `mmsghdr` layout across amd64, arm64, and 386. Each worker batches up to 64 SYNs per syscall, slashing context-switch overhead.
+* **Zero-copy ingest via `TPACKET_V3`.** `setupTPacketV3` pins a shared memory ring that the NIC DMA fills directly. Listener goroutines read packet metadata without copying buffers out of kernel space, and we tune block sizes to respect NUMA budgets.
+
+### Scaling and Filtering in the Kernel
+
+* **`PACKET_FANOUT` load balancing.** We hash incoming frames across ring readers so every CPU participates. That keeps latency flat as device counts climb.
+* **cBPF filters.** The hand-written filter in `attachBPF` whitelists only TCP replies hitting our source IP and ephemeral port window—even across VLAN tags—dropping noise before user space ever wakes up.
+
+### Hand-Assembled Packets with Zero Dependencies
+
+* `packetPool` reuses pre-sized 40-byte buffers from a `sync.Pool`, and `packetTemplate` seeds frame headers. That means no heap churn in the transmit hot path.
+* Checksums are delegated to `internal/fastsum`, which exposes architecture-tuned intrinsics so we never pay the cost of generic Go loops.
+
+## Go-Specific Performance Optimizations
+
+### Assembly-Accelerated Checksums
+
+* **AMD64:** `sum_amd64.s` emits a tight unrolled routine for folding 16-bit words.
+* **ARM64:** We ship both scalar and NEON-enabled loops, automatically dispatching to SIMD when the CPU supports it.
+* The result: checksum computation—once the hottest portion of the profile—vanished from the top 10 when scanning at 200k packets per second.
+
+### Elite Concurrency Management
+
+* **Lock-free port allocation.** `pkg/scan/ports.go` introduces `PortAllocator`, a CAS-backed ring with optional channel fast-path. It guarantees unique source ports per in-flight target and releases them without contended locks.
+* **Deadline reaper.** Instead of spawning timers per SYN, we batch expirations inside a dedicated reaper goroutine, reducing timer heap pressure while keeping port reuse safe.
+* **Kernel-aware rate limiting.** The scanner can self-throttle via `allowN` to respect NIC pacing, ensuring we never overrun ring buffers even on smaller hosts.
+
+## Putting It All Together: The Anatomy of a Scan
+
+### 1. Initialization (`NewSYNScanner`)
+
+1. Create a raw send socket and size its buffer to 8 MiB for bursty output.
+2. Detect a safe source-port range by interrogating `/proc/sys/net/ipv4/ip_local_port_range` and reserved-port lists, falling back only with loud warnings.
+3. Spin up `AF_PACKET` receivers for each CPU core: enable `PACKET_FANOUT`, attach the cBPF filter, and map a `TPACKET_V3` ring into user space.
+
+### 2. Execution (`Scan`)
+
+1. Targets enter a channel where worker goroutines chunk them into batches.
+2. Each worker reserves unique ports via the `PortAllocator`, stamps packets from the shared template, and enqueues them into a `sendmmsg` vector.
+3. A single syscall emits the entire burst. The port deadline table records expected response windows for the reaper.
+
+### 3. Reply Path
+
+1. NIC DMA writes replies into the ring; the kernel updates block headers atomically.
+2. Listener goroutines poll their assigned rings, parse Ethernet/IP/TCP headers in place, and look up the destination port in `portTargetMap`.
+3. Results are marked definitive on first `SYN-ACK` (open) or `RST` (closed), the reaper releases associated ports, and the caller’s result channel receives the verdict.
+
+## The Results: From Hours to Milliseconds
+
+* **Legacy sweep:** 21,000 devices × standard handshake = **19 hours** of wall-clock time.
+* **SYN scanner:** Identical target set completes in **~930 ms** on a 32-core AMD EPYC host with a 100 GbE NIC. Even commodity 8-core nodes finish in under five seconds.
+* **Visibility leap:** ServiceRadar’s topology view can now refresh while engineers watch, unlocking workflows that were impossible with overnight scans.
+
+## Challenges and Lessons Learned
+
+* **Owning the stack.** Raw sockets meant recreating TCP header logic, routing decisions, and retransmission policies ourselves. Every byte mattered.
+* **Guardrails required.** Without the cBPF filter and rate limiter, we could overwhelm both the scanner and peer networks. The kernel filtering strategy is the unsung hero.
+* **Architecture quirks.** `mmsghdr` padding differs between amd64 and arm64, and we hit mysterious `EINVAL` codes until we wrote per-arch shims. Assembly for checksums was another deep dive, but the payoff justified the effort.
+
+## Conclusion: Embracing the Platform to Unlock Performance
+
+We transformed a day-long chore into a sub-second insight by meeting the Linux networking stack on its own terms: raw sockets for control, `PACKET_FANOUT` for parallelism, `TPACKET_V3` for zero-copy capture, and Go for ergonomic concurrency. This effort proves that performance is rarely about a single trick—it is a disciplined stack of optimizations from syscalls to assembly.
+
+The roadmap continues. IPv6 support, smarter adaptive rate control, and GPU offloads for massive environments are under active investigation. If you crave that next 10× speedup, we would love your help.
+
+### Call to Action
+
+Curious about the implementation details? Explore the source, file issues, or open a pull request on [GitHub](https://github.com/carverauto/serviceradar). We are eager to hear how the new scanner performs in your network.
