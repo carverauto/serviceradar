@@ -31,6 +31,7 @@ import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
 import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
 import { escapeSrqlValue } from '@/lib/srql';
+import { parseOtelAttributes } from '@/utils/otelAttributes';
 
 const StatCard = ({
     title,
@@ -537,23 +538,6 @@ const LogsDashboard = () => {
         }
     };
 
-    const parseAttributes = (attrString: string): Record<string, string> => {
-        if (!attrString || attrString.trim() === '') return {};
-        try {
-            const attrs: Record<string, string> = {};
-            const pairs = attrString.split(',');
-            for (const pair of pairs) {
-                const [key, value] = pair.split('=');
-                if (key && value) {
-                    attrs[key.trim()] = value.trim();
-                }
-            }
-            return attrs;
-        } catch {
-            return {};
-        }
-    };
-
     const TableHeader = ({
         aKey,
         label
@@ -878,7 +862,7 @@ const LogsDashboard = () => {
                                                                 Attributes
                                                             </h5>
                                                             <div className="bg-gray-200 dark:bg-gray-700 p-2 rounded text-xs font-mono">
-                                                                {Object.entries(parseAttributes(log.attributes)).map(([key, value]) => (
+                                                                {Object.entries(parseOtelAttributes(log.attributes)).map(([key, value]) => (
                                                                     <div key={key}>
                                                                         <span className="text-gray-600 dark:text-gray-400">{key}:</span> {value}
                                                                     </div>
