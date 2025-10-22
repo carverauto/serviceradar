@@ -8,6 +8,8 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+var errTestFixture = errors.New("fixture error")
+
 func TestEnsureSubjectList(t *testing.T) {
 	t.Parallel()
 
@@ -44,7 +46,6 @@ func TestEnsureSubjectList(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			result := ensureSubjectList(append([]string(nil), tc.subjects...), tc.subject)
@@ -79,7 +80,6 @@ func TestMatchesSubject(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := matchesSubject(tc.pattern, tc.subject); got != tc.expected {
@@ -102,11 +102,10 @@ func TestIsStreamMissingErr(t *testing.T) {
 		{"nats no stream response", nats.ErrNoStreamResponse, true},
 		{"nats stream not found", nats.ErrStreamNotFound, true},
 		{"nats no responders", nats.ErrNoResponders, true},
-		{"other error", errors.New("boom"), false},
+		{"other error", errTestFixture, false},
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := isStreamMissingErr(tc.err); got != tc.expected {

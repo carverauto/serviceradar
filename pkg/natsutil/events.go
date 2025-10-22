@@ -158,6 +158,9 @@ func ConnectWithEventPublisher(
 			nc.Close()
 			return nil, nil, fmt.Errorf("failed to create or get stream %s: %w", streamName, err)
 		}
+		if info, infoErr := stream.Info(ctx); infoErr == nil && info != nil {
+			subjects = append([]string(nil), info.Config.Subjects...)
+		}
 	} else if info, infoErr := stream.Info(ctx); infoErr == nil && info != nil {
 		subjects = append([]string(nil), info.Config.Subjects...)
 	}
@@ -259,6 +262,9 @@ func CreateEventPublisherWithDomain(
 		}
 
 		logger.Info().Str("stream", streamName).Msg("Created NATS JetStream stream")
+		if info, infoErr := stream.Info(ctx); infoErr == nil && info != nil {
+			streamSubjects = append([]string(nil), info.Config.Subjects...)
+		}
 	} else if info, infoErr := stream.Info(ctx); infoErr == nil && info != nil {
 		streamSubjects = append([]string(nil), info.Config.Subjects...)
 	}
