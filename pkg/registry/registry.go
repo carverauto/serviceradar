@@ -686,25 +686,118 @@ func applyFirstSeenMetadata(updates []*models.DeviceUpdate, firstSeen map[string
 }
 
 func parseFirstSeenTimestamp(raw string) (time.Time, bool) {
-	if strings.TrimSpace(raw) == "" {
+	candidates := normalizeTimestampCandidates(raw)
+	if len(candidates) == 0 {
 		return time.Time{}, false
 	}
 
-	layouts := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02 15:04:05.999999",
-		"2006-01-02 15:04:05.999",
-		"2006-01-02 15:04:05",
+	for _, candidate := range candidates {
+		for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+			if ts, err := time.Parse(layout, candidate); err == nil {
+				return ts.UTC(), true
+			}
+		}
 	}
 
-	for _, layout := range layouts {
-		if ts, err := time.Parse(layout, raw); err == nil {
-			return ts.UTC(), true
+	for _, candidate := range candidates {
+		for _, layout := range []string{
+			"2006-01-02 15:04:05.999999",
+			"2006-01-02 15:04:05.999",
+			"2006-01-02 15:04:05",
+		} {
+			if ts, err := time.Parse(layout, candidate); err == nil {
+				return ts.UTC(), true
+			}
 		}
 	}
 
 	return time.Time{}, false
+}
+
+func normalizeTimestampCandidates(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, 6)
+	push := func(candidate string) {
+		if candidate == "" {
+			return
+		}
+		if _, ok := seen[candidate]; ok {
+			return
+		}
+		seen[candidate] = struct{}{}
+	}
+
+	push(trimmed)
+
+	upper := strings.ToUpper(trimmed)
+	if strings.HasSuffix(upper, " UTC") {
+		base := strings.TrimSpace(trimmed[:len(trimmed)-4])
+		push(base + "Z")
+	}
+
+	if len(trimmed) > 10 && trimmed[10] == ' ' {
+		push(trimmed[:10] + "T" + trimmed[11:])
+	}
+
+	initialCandidates := make([]string, 0, len(seen))
+	for candidate := range seen {
+		initialCandidates = append(initialCandidates, candidate)
+	}
+
+	for _, candidate := range initialCandidates {
+		if colonized := insertTimezoneColon(candidate); colonized != candidate {
+			push(colonized)
+		}
+
+		if len(candidate) > 10 && candidate[10] == ' ' {
+			withT := candidate[:10] + "T" + candidate[11:]
+			push(withT)
+			if colonized := insertTimezoneColon(withT); colonized != withT {
+				push(colonized)
+			}
+		}
+	}
+
+	results := make([]string, 0, len(seen))
+	for candidate := range seen {
+		results = append(results, candidate)
+	}
+
+	return results
+}
+
+func insertTimezoneColon(ts string) string {
+	idx := strings.LastIndexAny(ts, "+-")
+	if idx == -1 || idx < len(ts)-5 {
+		return ts
+	}
+
+	tz := ts[idx:]
+	if len(tz) != 5 {
+		return ts
+	}
+
+	if (tz[0] != '+' && tz[0] != '-') || !allDigits(tz[1:]) {
+		return ts
+	}
+
+	return ts[:idx] + fmt.Sprintf("%c%s:%s", tz[0], tz[1:3], tz[3:])
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // normalizeUpdate ensures a DeviceUpdate has the minimum required information.
