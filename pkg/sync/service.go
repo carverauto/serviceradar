@@ -545,12 +545,12 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 			Msg("SYNC DEBUG: Source devices")
 
 		if len(devices) > 0 {
-			if jsonBytes, err := json.Marshal(devices[0]); err == nil {
-				s.logger.Debug().
-					Str("source_name", sourceName).
-					Str("sample_device", string(jsonBytes)).
-					Msg("SYNC DEBUG: Sample device JSON")
-			}
+			s.logger.Debug().
+				Str("source_name", sourceName).
+				Str("sample_device_ip", devices[0].IP).
+				Str("sample_device_source", string(devices[0].Source)).
+				Int("sample_device_metadata_keys", len(devices[0].Metadata)).
+				Msg("SYNC DEBUG: Sample device summary")
 		}
 
 		allDeviceUpdates = append(allDeviceUpdates, devices...)
@@ -610,7 +610,7 @@ func (s *SimpleSyncService) collectDeviceUpdates() []*models.DeviceUpdate {
 				Str("source_name", sourceName).
 				Str("sample_device_ip", sampleDevice.IP).
 				Str("sample_device_source", string(sampleDevice.Source)).
-				Interface("sample_device_metadata", sampleDevice.Metadata).
+				Int("sample_device_metadata_keys", len(sampleDevice.Metadata)).
 				Msg("StreamResults - sample device from source")
 		}
 
@@ -701,12 +701,13 @@ func (s *SimpleSyncService) sendSingleChunk(
 		Msg("SYNC DEBUG: Successfully marshaled chunk")
 
 	if len(chunkDevices) > 0 {
-		if sampleJSON, err := json.Marshal(chunkDevices[0]); err == nil {
-			s.logger.Debug().
-				Int("chunk_index", chunkIndex).
-				Str("sample_device", string(sampleJSON)).
-				Msg("SYNC DEBUG: Sample device in chunk")
-		}
+		sample := chunkDevices[0]
+		s.logger.Debug().
+			Int("chunk_index", chunkIndex).
+			Str("sample_device_ip", sample.IP).
+			Str("sample_device_source", string(sample.Source)).
+			Int("sample_device_metadata_keys", len(sample.Metadata)).
+			Msg("SYNC DEBUG: Sample device summary in chunk")
 	}
 
 	chunk := &proto.ResultsChunk{
