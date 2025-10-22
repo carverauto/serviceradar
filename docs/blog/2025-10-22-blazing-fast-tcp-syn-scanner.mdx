@@ -4,7 +4,7 @@ title: "From 19 Hours to Under a Second: Building a Blazing-Fast TCP Scanner in 
 authors: [mfreeman]
 tags: [network-scanning, go, linux, cbpf, performance]
 date: 2025-10-22
-description: "How ServiceRadar's Issue #1857 turned a 19-hour TCP discovery job into a sub-second SYN scan by leaning on raw sockets, BPF, and Go assembly."
+description: "How ServiceRadar turned a 19-hour TCP discovery job into a sub-second SYN scan by leaning on raw sockets, BPF, and Go assembly."
 ---
 
 Our network discovery workflow used to take longer than a transatlantic flight. A full sweep across 21,000 devices required **19 hours** with the TCP `connect()` scanner we shipped in early 2025. That left ServiceRadar’s inventory stale by the time scans finished. Internally, we challenged ourselves to deliver near-real-time visibility—and the result is a Go-powered SYN scanner that now finishes the same job in **under one second**.
