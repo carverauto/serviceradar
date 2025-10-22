@@ -34,6 +34,9 @@ var (
 	errEmptyRecord = errors.New("identitymap: empty payload")
 )
 
+// ErrCorruptRecord indicates the stored canonical record could not be decoded.
+var ErrCorruptRecord = errors.New("identitymap: corrupt canonical record")
+
 // Key represents a lookup identity used to locate a canonical device ID.
 type Key struct {
 	Kind  Kind
@@ -333,7 +336,7 @@ func UnmarshalRecord(data []byte) (*Record, error) {
 	}
 	pb := &identitymappb.CanonicalRecord{}
 	if err := proto.Unmarshal(data, pb); err != nil {
-		return nil, fmt.Errorf("identitymap: failed to unmarshal canonical record: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrCorruptRecord, err)
 	}
 	return FromProtoRecord(pb), nil
 }

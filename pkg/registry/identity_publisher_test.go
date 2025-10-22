@@ -206,6 +206,43 @@ func TestIdentityPublisherRetriesOnCASConflict(t *testing.T) {
 	require.Equal(t, identitymap.HashIdentityMetadata(updated), record.MetadataHash)
 }
 
+func TestIdentityPublisherRecoversFromCorruptedRecord(t *testing.T) {
+	t.Parallel()
+
+	kvClient := newFakeIdentityKVClient()
+	pub := newIdentityPublisher(kvClient, identitymap.DefaultNamespace, 0, logger.NewTestLogger())
+
+	deviceID := "device-corrupted"
+	canonicalKey := identitymap.Key{Kind: identitymap.KindDeviceID, Value: deviceID}.KeyPath(identitymap.DefaultNamespace)
+	kvClient.entries[canonicalKey] = &fakeKVEntry{
+		value:    []byte("totally-not-a-proto"),
+		revision: 3,
+	}
+
+	update := &models.DeviceUpdate{
+		DeviceID:  deviceID,
+		Partition: "tenant-corrupt",
+		IP:        "10.99.0.18",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	err := pub.Publish(ctx, []*models.DeviceUpdate{update})
+	require.NoError(t, err)
+
+	entry, ok := kvClient.entries[canonicalKey]
+	require.True(t, ok, "canonical key missing after publish")
+
+	record, err := identitymap.UnmarshalRecord(entry.value)
+	require.NoError(t, err)
+	require.Equal(t, update.DeviceID, record.CanonicalDeviceID)
+	require.Equal(t, update.Partition, record.Partition)
+	require.Equal(t, identitymap.HashIdentityMetadata(update), record.MetadataHash)
+	require.NotZero(t, record.UpdatedAt.UnixMilli())
+	require.Equal(t, "10.99.0.18", record.Attributes["ip"])
+}
+
 func TestIdentityPublisherUpdatesWhenAttributesChange(t *testing.T) {
 	t.Parallel()
 

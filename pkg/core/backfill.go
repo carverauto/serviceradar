@@ -145,17 +145,24 @@ func (s *kvSeeder) seedRecord(ctx context.Context, record *identitymap.Record, k
 
 		existing, err := identitymap.UnmarshalRecord(resp.GetValue())
 		if err != nil {
-			seedErr = errors.Join(seedErr, fmt.Errorf("kv unmarshal %s: %w", keyPath, err))
-			continue
-		}
+			if errors.Is(err, identitymap.ErrCorruptRecord) {
+				matched[key] = false
+				if s.log != nil {
+					s.log.Warn().Str("key", keyPath).Err(err).Msg("Backfill replacing corrupt canonical identity entry in KV")
+				}
+			} else {
+				seedErr = errors.Join(seedErr, fmt.Errorf("kv unmarshal %s: %w", keyPath, err))
+				continue
+			}
+		} else {
+			if existing.CanonicalDeviceID == record.CanonicalDeviceID && existing.MetadataHash == record.MetadataHash {
+				matched[key] = true
+				identitymap.RecordKVPublish(ctx, 1, "unchanged")
+				continue
+			}
 
-		if existing.CanonicalDeviceID == record.CanonicalDeviceID && existing.MetadataHash == record.MetadataHash {
-			matched[key] = true
-			identitymap.RecordKVPublish(ctx, 1, "unchanged")
-			continue
+			matched[key] = false
 		}
-
-		matched[key] = false
 
 		if dryRun {
 			identitymap.RecordKVPublish(ctx, 1, "dry_run")
