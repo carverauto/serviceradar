@@ -23,6 +23,11 @@ monitoring:
     permalink: /monitoring
     description: Monitoring tag description
 
+network-scanning:
+    label: Network Scanning
+    permalink: /network-scanning
+    description: Network Scanning tag description
+
 security:
     label: Security
     permalink: /security
@@ -57,3 +62,18 @@ network-monitoring:
     label: Network Monitoring
     permalink: /network-monitoring
     description: Network Monitoring tag description
+
+go:
+    label: Go
+    permalink: /go
+    description: Go programming language
+
+linux:
+    label: Linux
+    permalink: /linux
+    description: Linux platform
+
+cbpf:
+    label: cBPF
+    permalink: /cbpf
+    description: Classic Berkeley Packet Filter
