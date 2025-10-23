@@ -24,6 +24,7 @@ import DeviceTable from './DeviceTable';
 import { useDebounce } from 'use-debounce';
 import { useSrqlQuery, DEFAULT_SRQL_QUERY } from '@/contexts/SrqlQueryContext';
 import { usePathname } from 'next/navigation';
+import selectDevicesQuery from './deviceQueryUtils';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
 const StatCard = ({
@@ -235,11 +236,35 @@ const Dashboard = () => {
     );
 
     useEffect(() => {
-        if (activeViewId && activeViewId !== 'devices:inventory') {
+        if (activeViewId === 'devices:inventory') {
+            fetchDevicesFromState();
             return;
         }
-        fetchDevicesFromState();
-    }, [activeViewId, fetchDevicesFromState]);
+
+        if (!viewPath || !viewPath.startsWith('/devices')) {
+            return;
+        }
+
+        const normalizedIncoming = normalizeQuery(activeSrqlQuery);
+        const nextQuery = selectDevicesQuery(normalizedIncoming, buildQueryFromState());
+
+        suppressStateSyncRef.current = true;
+        setSrqlQuery(nextQuery, {
+            origin: 'view',
+            viewPath,
+            viewId: 'devices:inventory',
+        });
+        void runDevicesQuery(nextQuery, { syncContext: false });
+    }, [
+        activeSrqlQuery,
+        activeViewId,
+        buildQueryFromState,
+        fetchDevicesFromState,
+        normalizeQuery,
+        runDevicesQuery,
+        setSrqlQuery,
+        viewPath,
+    ]);
 
     useEffect(() => {
         if (activeViewId !== 'devices:inventory') {
