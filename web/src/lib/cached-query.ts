@@ -31,12 +31,17 @@ const pendingQueries = new Map<string, Promise<unknown>>();
 // Cache configuration
 const CACHE_TTL = 30000; // 30 seconds cache TTL
 
+interface CachedQueryOptions {
+    limit?: number;
+}
+
 export async function cachedQuery<T>(
     query: string,
     token?: string,
-    ttl: number = CACHE_TTL
+    ttl: number = CACHE_TTL,
+    options: CachedQueryOptions = {}
 ): Promise<T> {
-    const cacheKey = `query:${query}`;
+    const cacheKey = `query:${query}${options.limit ? `|limit:${options.limit}` : ''}`;
     const now = Date.now();
     
     // Check if we have valid cached data
@@ -57,13 +62,18 @@ export async function cachedQuery<T>(
         try {
             console.log(`[Query Fetch] Executing: ${query}`);
             
+            const body: Record<string, unknown> = { query };
+            if (typeof options.limit === 'number') {
+                body.limit = options.limit;
+            }
+
             const data = await fetchAPI<T>('/api/query', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     ...(token && { Authorization: `Bearer ${token}` }),
                 },
-                body: JSON.stringify({ query }),
+                body: JSON.stringify(body),
             });
             
             // Cache the successful response

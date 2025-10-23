@@ -26,15 +26,42 @@ import { useSrqlQuery, DEFAULT_SRQL_QUERY } from '@/contexts/SrqlQueryContext';
 import { usePathname } from 'next/navigation';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
-const StatCard = ({ title, value, icon, isLoading, colorScheme = 'blue' }: { title: string; value: string | number; icon: React.ReactNode; isLoading: boolean; colorScheme?: 'blue' | 'green' | 'red' }) => {
+const StatCard = ({
+    title,
+    value,
+    icon,
+    isLoading,
+    colorScheme = 'blue',
+    onClick,
+    isActive = false,
+}: {
+    title: string;
+    value: string | number;
+    icon: React.ReactNode;
+    isLoading: boolean;
+    colorScheme?: 'blue' | 'green' | 'red';
+    onClick?: () => void;
+    isActive?: boolean;
+}) => {
     const bgColors = {
         blue: 'bg-blue-50 dark:bg-blue-900/30',
         green: 'bg-green-50 dark:bg-green-900/30',
         red: 'bg-red-50 dark:bg-red-900/30'
     };
+    const ringColors = {
+        blue: 'focus:ring-blue-500',
+        green: 'focus:ring-green-500',
+        red: 'focus:ring-red-500'
+    };
+    const Component = onClick ? 'button' : 'div';
     
     return (
-        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
+        <Component
+            type={onClick ? 'button' : undefined}
+            onClick={onClick}
+            aria-pressed={isActive}
+            className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg ${onClick ? 'text-left transition hover:border-gray-400 dark:hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-900 ' + ringColors[colorScheme] : ''} ${isActive ? 'border-blue-500 dark:border-blue-400' : ''}`}
+        >
             <div className="flex items-center">
                 <div className={`p-3 ${bgColors[colorScheme]} rounded-lg mr-4`}>{icon}</div>
                 <div>
@@ -46,7 +73,7 @@ const StatCard = ({ title, value, icon, isLoading, colorScheme = 'blue' }: { tit
                     )}
                 </div>
             </div>
-        </div>
+        </Component>
     );
 };
 const Dashboard = () => {
@@ -255,21 +282,39 @@ const Dashboard = () => {
     };
 
 
+    const handleStatCardFilter = useCallback((status: 'all' | 'online' | 'offline') => {
+        setFilterStatus(prev => {
+            if (prev === status) {
+                // If the filter is already active, rerun the current query explicitly.
+                suppressStateSyncRef.current = false;
+                fetchDevicesFromState();
+                return prev;
+            }
+            return status;
+        });
+    }, [fetchDevicesFromState]);
+
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <StatCard title="Total Devices" value={stats.total.toLocaleString()}
-                          icon={<Server className="h-6 w-6 text-blue-600 dark:text-blue-400"/>} 
+                          icon={<Server className="h-6 w-6 text-blue-600 dark:text-blue-400"/>}
                           isLoading={statsLoading}
-                          colorScheme="blue"/>
+                          colorScheme="blue"
+                          onClick={() => handleStatCardFilter('all')}
+                          isActive={filterStatus === 'all'}/>
                 <StatCard title="Online" value={stats.online.toLocaleString()}
-                          icon={<CheckCircle className="h-6 w-6 text-green-600 dark:text-green-400"/>} 
+                          icon={<CheckCircle className="h-6 w-6 text-green-600 dark:text-green-400"/>}
                           isLoading={statsLoading}
-                          colorScheme="green"/>
+                          colorScheme="green"
+                          onClick={() => handleStatCardFilter('online')}
+                          isActive={filterStatus === 'online'}/>
                 <StatCard title="Offline" value={stats.offline.toLocaleString()}
-                          icon={<XCircle className="h-6 w-6 text-red-600 dark:text-red-400"/>} 
+                          icon={<XCircle className="h-6 w-6 text-red-600 dark:text-red-400"/>}
                           isLoading={statsLoading}
-                          colorScheme="red"/>
+                          colorScheme="red"
+                          onClick={() => handleStatCardFilter('offline')}
+                          isActive={filterStatus === 'offline'}/>
             </div>
 
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg">
