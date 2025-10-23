@@ -164,7 +164,7 @@ const MetricsDashboard = () => {
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
     useEffect(() => {
-        setSrqlQuery(DEFAULT_METRICS_QUERY, { origin: 'view', viewPath: metricsViewPath });
+        setSrqlQuery(DEFAULT_METRICS_QUERY, { origin: 'view', viewPath: metricsViewPath, viewId: 'observability:metrics' });
     }, [metricsViewPath, setSrqlQuery]);
 
     const postQuery = useCallback(async <T,>(
@@ -270,7 +270,7 @@ const MetricsDashboard = () => {
 
             const query = queryParts.join(' ');
 
-            setSrqlQuery(query, { origin: 'view', viewPath: metricsViewPath });
+            setSrqlQuery(query, { origin: 'view', viewPath: metricsViewPath, viewId: 'observability:metrics' });
             const response = await postQuery<OtelMetricsApiResponse>(query, cursor, direction);
             const normalizedResults = (response.results || []).map(metric => {
                 const rawTimestamp = metric.timestamp || metric._tp_time;

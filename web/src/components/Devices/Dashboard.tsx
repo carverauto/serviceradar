@@ -14,7 +14,7 @@
 * limitations under the License.
 */
 'use client';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Device, Pagination, DevicesApiResponse } from '@/types/devices';
 import { cachedQuery } from '@/lib/cached-query';
@@ -51,7 +51,11 @@ const StatCard = ({ title, value, icon, isLoading, colorScheme = 'blue' }: { tit
 };
 const Dashboard = () => {
     const {token} = useAuth();
-    const { setQuery: setSrqlQuery } = useSrqlQuery();
+    const {
+        query: activeSrqlQuery,
+        viewId: activeViewId,
+        setQuery: setSrqlQuery,
+    } = useSrqlQuery();
     const pathname = usePathname();
     const [devices, setDevices] = useState<Device[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
@@ -120,53 +124,126 @@ const Dashboard = () => {
 
     const viewPath = pathname ?? '/devices';
 
+    const normalizeQuery = useCallback(
+        (value: string): string => value.replace(/\s+/g, ' ').trim(),
+        []
+    );
+
+    const [currentQuery, setCurrentQuery] = useState(DEFAULT_SRQL_QUERY);
+    const suppressStateSyncRef = useRef(false);
+
+    const runDevicesQuery = useCallback(
+        async (
+            query: string,
+            options?: { cursor?: string; direction?: 'next' | 'prev'; syncContext?: boolean },
+        ) => {
+            setDevicesLoading(true);
+            setError(null);
+            try {
+                const data = await postQuery<DevicesApiResponse>(query, options?.cursor, options?.direction);
+                setDevices(data.results || []);
+                setPagination(data.pagination || null);
+                setCurrentQuery(query);
+
+                if (options?.syncContext !== false) {
+                    setSrqlQuery(query, {
+                        origin: 'view',
+                        viewPath,
+                        viewId: 'devices:inventory',
+                    });
+                }
+            } catch (e) {
+                setError(e instanceof Error ? e.message : 'An unknown error occurred.');
+                setDevices([]);
+                setPagination(null);
+            } finally {
+                setDevicesLoading(false);
+            }
+        },
+        [postQuery, setSrqlQuery, viewPath],
+    );
+
+    const buildQueryFromState = useCallback(() => {
+        const queryParts = [
+            'in:devices',
+            'time:last_7d',
+            `sort:${sortBy}:${sortOrder}`,
+            'limit:20',
+        ];
+
+        if (filterStatus !== 'all') {
+            queryParts.push(`is_available:${filterStatus === 'online'}`);
+        }
+
+        const trimmedSearch = debouncedSearchTerm.trim();
+        if (trimmedSearch) {
+            const escapedTerm = escapeSrqlValue(trimmedSearch);
+            queryParts.push(`search:"${escapedTerm}"`);
+        }
+
+        return queryParts.join(' ');
+    }, [debouncedSearchTerm, filterStatus, sortBy, sortOrder]);
+
+    const fetchDevicesFromState = useCallback(
+        (cursor?: string, direction?: 'next' | 'prev') => {
+            if (suppressStateSyncRef.current) {
+                suppressStateSyncRef.current = false;
+                return;
+            }
+            const query = buildQueryFromState();
+            void runDevicesQuery(query, { cursor, direction });
+        },
+        [buildQueryFromState, runDevicesQuery],
+    );
+
+    const handlePageChange = useCallback(
+        (cursor?: string, direction?: 'next' | 'prev') => {
+            if (!cursor) {
+                return;
+            }
+            void runDevicesQuery(currentQuery, { cursor, direction, syncContext: false });
+        },
+        [currentQuery, runDevicesQuery],
+    );
+
     useEffect(() => {
-        setSrqlQuery(DEFAULT_SRQL_QUERY, { origin: 'view', viewPath });
+        setSrqlQuery(DEFAULT_SRQL_QUERY, { origin: 'view', viewPath, viewId: 'devices:inventory' });
+        setCurrentQuery(DEFAULT_SRQL_QUERY);
+        suppressStateSyncRef.current = false;
     }, [setSrqlQuery, viewPath]);
 
-    const fetchDevices = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
-        setDevicesLoading(true);
-        setError(null);
-        try {
-            const queryParts = [
-                'in:devices',
-                'time:last_7d',
-                `sort:${sortBy}:${sortOrder}`,
-                'limit:20'
-            ];
+    useEffect(() => {
+        fetchDevicesFromState();
+    }, [fetchDevicesFromState]);
 
-            if (filterStatus !== 'all') {
-                queryParts.push(`is_available:${filterStatus === 'online'}`);
-            }
-
-            const trimmedSearch = debouncedSearchTerm.trim();
-            if (trimmedSearch) {
-                const escapedTerm = escapeSrqlValue(trimmedSearch);
-                queryParts.push(`search:"${escapedTerm}"`);
-            }
-
-            const query = queryParts.join(' ');
-
-            setSrqlQuery(query, { origin: 'view', viewPath });
-            const data = await postQuery<DevicesApiResponse>(query, cursor, direction);
-            setDevices(data.results || []);
-            setPagination(data.pagination || null);
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "An unknown error occurred.");
-            setDevices([]);
-            setPagination(null);
-        } finally {
-            setDevicesLoading(false);
+    useEffect(() => {
+        if (activeViewId !== 'devices:inventory') {
+            return;
         }
-    }, [postQuery, debouncedSearchTerm, filterStatus, sortBy, sortOrder, setSrqlQuery, viewPath]);
+
+        const normalizedIncoming = normalizeQuery(activeSrqlQuery);
+        if (!normalizedIncoming) {
+            return;
+        }
+
+        const normalizedCurrent = normalizeQuery(currentQuery);
+        if (normalizedIncoming === normalizedCurrent) {
+            return;
+        }
+
+        suppressStateSyncRef.current = true;
+        void runDevicesQuery(activeSrqlQuery, { syncContext: false });
+    }, [
+        activeSrqlQuery,
+        activeViewId,
+        currentQuery,
+        normalizeQuery,
+        runDevicesQuery,
+    ]);
 
     useEffect(() => {
         fetchStats();
     }, [fetchStats]);
-
-    useEffect(() => {
-        fetchDevices();
-    }, [fetchDevices]);
 
     const handleSort = (key: SortableKeys) => {
         if (sortBy === key) {
@@ -244,14 +321,14 @@ const Dashboard = () => {
                 {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
                     <div className="p-4 flex items-center justify-between border-t border-gray-700">
                         <button
-                            onClick={() => fetchDevices(pagination.prev_cursor, 'prev')}
+                            onClick={() => handlePageChange(pagination.prev_cursor, 'prev')}
                             disabled={!pagination.prev_cursor || devicesLoading}
                             className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Previous
                         </button>
                         <button
-                            onClick={() => fetchDevices(pagination.next_cursor, 'next')}
+                            onClick={() => handlePageChange(pagination.next_cursor, 'next')}
                             disabled={!pagination.next_cursor || devicesLoading}
                             className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                         >
