@@ -38,7 +38,7 @@ RUN CGO_ENABLED=0 GOOS=linux \
     go build \
     -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=${VERSION} \
               -X github.com/carverauto/serviceradar/pkg/version.buildID=${BUILD_ID}" \
-    -o serviceradar-kv ./cmd/kv
+    -o serviceradar-kv ./cmd/data-services
 RUN CGO_ENABLED=0 GOOS=linux \
     go build \
     -o wait-for-port ./cmd/tools/waitforport

@@ -23,6 +23,7 @@ func (c *Config) Validate() error {
 
 	c.normalizeCertPaths()
 	c.setDefaultBucket()
+	c.setDefaultObjectBucket()
 	c.setDefaultBucketOptions()
 
 	if c.BucketHistory > math.MaxUint8 {
@@ -103,6 +104,12 @@ func (c *Config) normalizeCertPaths() {
 func (c *Config) setDefaultBucket() {
 	if c.Bucket == "" {
 		c.Bucket = "serviceradar-kv"
+	}
+}
+
+func (c *Config) setDefaultObjectBucket() {
+	if c.ObjectBucket == "" {
+		c.ObjectBucket = "serviceradar-objects"
 	}
 }
 

@@ -22,9 +22,11 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,11 +48,20 @@ type NATSStore struct {
 	bucketHistory  uint32
 	bucketTTL      time.Duration
 	bucketMaxBytes int64
+	objectBucket   string
 	jsByDomain     map[string]jetstream.JetStream
 	kvByDomain     map[string]jetstream.KeyValue
+	objectStores   map[string]jetstream.ObjectStore
 	mu             sync.Mutex
 	connectFn      func() (*nats.Conn, error)
 }
+
+const (
+	metaKeyContentType = "content_type"
+	metaKeyCompression = "compression"
+	metaKeyTotalSize   = "total_size"
+	metaKeySHA256Hint  = "sha256_hint"
+)
 
 func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 	if cfg == nil {
@@ -66,8 +77,10 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 		bucketHistory:  cfg.BucketHistory,
 		bucketTTL:      time.Duration(cfg.BucketTTL),
 		bucketMaxBytes: cfg.BucketMaxBytes,
+		objectBucket:   cfg.ObjectBucket,
 		jsByDomain:     make(map[string]jetstream.JetStream),
 		kvByDomain:     make(map[string]jetstream.KeyValue),
+		objectStores:   make(map[string]jetstream.ObjectStore),
 	}
 
 	if store.bucketHistory == 0 {
@@ -424,6 +437,88 @@ func (n *NATSStore) sendUpdate(ctx context.Context, ch chan<- []byte, value []by
 	}
 }
 
+func (n *NATSStore) PutObject(ctx context.Context, key string, reader io.Reader, meta ObjectMetadata) (*ObjectInfo, error) {
+	domain, realKey := n.extractDomain(key)
+	store, err := n.getObjectStoreForDomain(ctx, domain)
+	if err != nil {
+		return nil, err
+	}
+
+	jsMeta := &jetstream.ObjectMeta{
+		Name:     realKey,
+		Metadata: buildMetadataMap(meta),
+	}
+
+	info, err := store.Put(ctx, *jsMeta, reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to store object %s: %w", key, err)
+	}
+
+	return convertObjectInfo(domain, realKey, info), nil
+}
+
+func (n *NATSStore) GetObject(ctx context.Context, key string) (io.ReadCloser, *ObjectInfo, error) {
+	domain, realKey := n.extractDomain(key)
+	store, err := n.getObjectStoreForDomain(ctx, domain)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, err := store.Get(ctx, realKey)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrObjectNotFound) {
+			return nil, nil, ErrObjectNotFound
+		}
+
+		return nil, nil, fmt.Errorf("failed to fetch object %s: %w", key, err)
+	}
+
+	info, err := result.Info()
+	if err != nil {
+		_ = result.Close()
+		return nil, nil, fmt.Errorf("failed to fetch metadata for object %s: %w", key, err)
+	}
+
+	return result, convertObjectInfo(domain, realKey, info), nil
+}
+
+func (n *NATSStore) DeleteObject(ctx context.Context, key string) error {
+	domain, realKey := n.extractDomain(key)
+	store, err := n.getObjectStoreForDomain(ctx, domain)
+	if err != nil {
+		return err
+	}
+
+	if err := store.Delete(ctx, realKey); err != nil {
+		if errors.Is(err, jetstream.ErrObjectNotFound) {
+			return ErrObjectNotFound
+		}
+
+		return fmt.Errorf("failed to delete object %s: %w", key, err)
+	}
+
+	return nil
+}
+
+func (n *NATSStore) GetObjectInfo(ctx context.Context, key string) (*ObjectInfo, bool, error) {
+	domain, realKey := n.extractDomain(key)
+	store, err := n.getObjectStoreForDomain(ctx, domain)
+	if err != nil {
+		return nil, false, err
+	}
+
+	info, err := store.GetInfo(ctx, realKey)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrObjectNotFound) {
+			return nil, false, nil
+		}
+
+		return nil, false, fmt.Errorf("failed to fetch metadata for object %s: %w", key, err)
+	}
+
+	return convertObjectInfo(domain, realKey, info), true, nil
+}
+
 func (n *NATSStore) Close() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -435,6 +530,7 @@ func (n *NATSStore) Close() error {
 
 	n.jsByDomain = nil
 	n.kvByDomain = nil
+	n.objectStores = nil
 
 	return nil
 }
@@ -454,6 +550,87 @@ func (n *NATSStore) extractDomain(key string) (string, string) {
 		}
 	}
 	return n.defaultDomain, key
+}
+
+func buildMetadataMap(meta ObjectMetadata) map[string]string {
+	metadata := make(map[string]string, len(meta.Attributes)+4)
+	for k, v := range meta.Attributes {
+		metadata[k] = v
+	}
+
+	if meta.ContentType != "" {
+		metadata[metaKeyContentType] = meta.ContentType
+	}
+	if meta.Compression != "" {
+		metadata[metaKeyCompression] = meta.Compression
+	}
+	if meta.TotalSize > 0 {
+		metadata[metaKeyTotalSize] = strconv.FormatInt(meta.TotalSize, 10)
+	}
+	if meta.SHA256 != "" {
+		metadata[metaKeySHA256Hint] = meta.SHA256
+	}
+
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	return metadata
+}
+
+func convertObjectInfo(domain, realKey string, info *jetstream.ObjectInfo) *ObjectInfo {
+	if info == nil {
+		return nil
+	}
+
+	metadata := ObjectMetadata{
+		Domain:     domain,
+		Attributes: make(map[string]string, len(info.Metadata)),
+	}
+
+	for k, v := range info.Metadata {
+		switch k {
+		case metaKeyContentType:
+			metadata.ContentType = v
+		case metaKeyCompression:
+			metadata.Compression = v
+		case metaKeyTotalSize:
+			if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+				metadata.TotalSize = parsed
+			}
+		case metaKeySHA256Hint:
+			metadata.SHA256 = v
+		default:
+			metadata.Attributes[k] = v
+		}
+	}
+
+	if len(metadata.Attributes) == 0 {
+		metadata.Attributes = nil
+	}
+
+	sha := strings.TrimPrefix(info.Digest, "SHA-256=")
+	key := composeDomainKey(domain, realKey)
+	modUnix := info.ModTime.Unix()
+
+	return &ObjectInfo{
+		Key:            key,
+		Domain:         domain,
+		SHA256:         sha,
+		Size:           int64(info.Size),
+		CreatedAtUnix:  modUnix,
+		ModifiedAtUnix: modUnix,
+		Chunks:         uint64(info.Chunks),
+		Metadata:       metadata,
+	}
+}
+
+func composeDomainKey(domain, key string) string {
+	if domain == "" {
+		return key
+	}
+
+	return fmt.Sprintf("domains/%s/%s", domain, key)
 }
 
 func (n *NATSStore) getKVForDomain(ctx context.Context, domain string) (jetstream.KeyValue, error) {
@@ -483,6 +660,26 @@ func (n *NATSStore) getKVForDomain(ctx context.Context, domain string) (jetstrea
 	}
 
 	return n.ensureDomainLocked(ctx, domain)
+}
+
+func (n *NATSStore) getObjectStoreForDomain(ctx context.Context, domain string) (jetstream.ObjectStore, error) {
+	if _, err := n.getKVForDomain(ctx, domain); err != nil {
+		return nil, err
+	}
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if store, ok := n.objectStores[domain]; ok && store != nil {
+		return store, nil
+	}
+
+	js := n.jsByDomain[domain]
+	if js == nil {
+		return nil, errNATSNotConfigured
+	}
+
+	return n.ensureObjectStoreLocked(ctx, domain, js)
 }
 
 func (n *NATSStore) connectionNeedsRefreshLocked() bool {
@@ -566,7 +763,39 @@ func (n *NATSStore) ensureDomainLocked(ctx context.Context, domain string) (jets
 
 	n.kvByDomain[domain] = kv
 
+	if _, err := n.ensureObjectStoreLocked(ctx, domain, js); err != nil {
+		return nil, err
+	}
+
 	return kv, nil
+}
+
+func (n *NATSStore) ensureObjectStoreLocked(ctx context.Context, domain string, js jetstream.JetStream) (jetstream.ObjectStore, error) {
+	if n.objectStores == nil {
+		n.objectStores = make(map[string]jetstream.ObjectStore)
+	}
+
+	if store, ok := n.objectStores[domain]; ok && store != nil {
+		return store, nil
+	}
+
+	bucket := n.objectBucket
+	if bucket == "" {
+		bucket = "serviceradar-objects"
+	}
+
+	store, err := js.ObjectStore(ctx, bucket)
+	if err != nil {
+		cfg := jetstream.ObjectStoreConfig{Bucket: bucket}
+		store, err = js.CreateObjectStore(ctx, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("object store init failed for domain %q: %w", domain, err)
+		}
+	}
+
+	n.objectStores[domain] = store
+
+	return store, nil
 }
 
 func (n *NATSStore) resetConnectionLocked() {
@@ -577,4 +806,5 @@ func (n *NATSStore) resetConnectionLocked() {
 	n.nc = nil
 	n.jsByDomain = make(map[string]jetstream.JetStream)
 	n.kvByDomain = make(map[string]jetstream.KeyValue)
+	n.objectStores = make(map[string]jetstream.ObjectStore)
 }

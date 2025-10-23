@@ -156,7 +156,7 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//cmd/kv:kv",
+            "target": "//cmd/data-services:data_services",
             "dest": "/usr/local/bin/serviceradar-kv",
         },
         "files": [

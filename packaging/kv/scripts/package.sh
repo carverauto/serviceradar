@@ -39,7 +39,7 @@ mkdir -p lib/systemd/system
 echo "Building Go binary..."
 
 # Build Go binary
-cd "${BASE_DIR}/cmd/kv"
+cd "${BASE_DIR}/cmd/data-services"
 GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-kv-build/usr/local/bin/serviceradar-kv"
 cd "${BASE_DIR}"
 

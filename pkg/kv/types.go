@@ -44,6 +44,7 @@ type Config struct {
 	} `json:"rbac"`
 	Bucket         string          `json:"bucket,omitempty"`           // KV bucket name
 	Domain         string          `json:"domain,omitempty"`           // Optional JetStream domain
+	ObjectBucket   string          `json:"object_bucket,omitempty"`    // JetStream object store bucket name
 	BucketMaxBytes int64           `json:"bucket_max_bytes,omitempty"` // Hard cap for bucket size (bytes)
 	BucketTTL      models.Duration `json:"bucket_ttl,omitempty"`       // TTL for entries (0 = no expiry)
 	BucketHistory  uint32          `json:"bucket_history,omitempty"`   // History depth per key

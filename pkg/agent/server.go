@@ -19,6 +19,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,8 +45,6 @@ import (
 var (
 	// ErrAgentIDRequired indicates agent_id is required in configuration
 	ErrAgentIDRequired = errors.New("agent_id is required in configuration")
-	// ErrInvalidChunkCount indicates invalid chunk_count format in metadata
-	ErrInvalidChunkCount = errors.New("invalid chunk_count format in metadata")
 	// ErrInvalidJSONResponse indicates invalid JSON response from checker
 	ErrInvalidJSONResponse = errors.New("invalid JSON response from checker")
 )
@@ -77,15 +77,16 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 
 	s := initializeServer(configDir, cfg, log)
 
-	kvStore, err := setupKVStore(ctx, cfgLoader, cfg, log)
+	configStore, objectStore, err := s.setupDataStores(ctx, cfgLoader, cfg, log)
 	if err != nil {
 		return nil, err
 	}
 
-	s.kvStore = kvStore
+	s.configStore = configStore
+	s.objectStore = objectStore
 
-	s.createSweepService = func(ctx context.Context, sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
-		return createSweepService(ctx, sweepConfig, kvStore, cfg, log)
+	s.createSweepService = func(ctx context.Context, sweepConfig *SweepConfig, configStore KVStore, objectStore ObjectStore) (Service, error) {
+		return createSweepService(ctx, sweepConfig, configStore, objectStore, cfg, log)
 	}
 
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
@@ -93,7 +94,7 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 	}
 
 	// Bootstrap default configs for common services in KV (PutIfAbsent), best-effort.
-	if s.kvStore != nil && cfg.AgentID != "" {
+	if s.configStore != nil && cfg.AgentID != "" {
 		s.bootstrapKVDefaults(ctx, cfg.AgentID)
 	}
 
@@ -105,7 +106,7 @@ func (s *Server) bootstrapKVDefaults(ctx context.Context, agentID string) {
 	type putIfAbsent interface {
 		PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	}
-	pfa, hasPFA := any(s.kvStore).(putIfAbsent)
+	pfa, hasPFA := any(s.configStore).(putIfAbsent)
 	// Conventional keys for agent-local checkers
 	entries := map[string][]byte{
 		fmt.Sprintf("agents/%s/checkers/snmp/snmp.json", agentID):     []byte(`{"enabled": false, "targets": []}`),
@@ -124,8 +125,8 @@ func (s *Server) bootstrapKVDefaults(ctx context.Context, agentID string) {
 			}
 		}
 		// Fallback: check then put
-		if _, found, err := s.kvStore.Get(ctx, key); err == nil && !found {
-			if err := s.kvStore.Put(ctx, key, val, 0); err == nil {
+		if _, found, err := s.configStore.Get(ctx, key); err == nil && !found {
+			if err := s.configStore.Put(ctx, key, val, 0); err == nil {
 				s.logger.Info().Str("key", key).Msg("Bootstrapped default config in KV (fallback)")
 			}
 		}
@@ -135,25 +136,26 @@ func (s *Server) bootstrapKVDefaults(ctx context.Context, agentID string) {
 // initializeServer creates a new Server struct with default values.
 func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *Server {
 	return &Server{
-		checkers:     make(map[string]checker.Checker),
-		checkerConfs: make(map[string]*CheckerConfig),
-		configDir:    configDir,
-		services:     make([]Service, 0),
-		listenAddr:   cfg.ListenAddr,
-		registry:     initRegistry(log),
-		errChan:      make(chan error, defaultErrChansize),
-		done:         make(chan struct{}),
-		config:       cfg,
-		connections:  make(map[string]*CheckerConnection),
-		logger:       log,
+		checkers:        make(map[string]checker.Checker),
+		checkerConfs:    make(map[string]*CheckerConfig),
+		configDir:       configDir,
+		services:        make([]Service, 0),
+		listenAddr:      cfg.ListenAddr,
+		registry:        initRegistry(log),
+		errChan:         make(chan error, defaultErrChansize),
+		done:            make(chan struct{}),
+		config:          cfg,
+		connections:     make(map[string]*CheckerConnection),
+		logger:          log,
+		setupDataStores: setupDataStores,
 	}
 }
 
-// setupKVStore configures the KV store if an address is provided.
-func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, error) {
+// setupDataStores configures the KV and object stores if an address is provided.
+func setupDataStores(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, ObjectStore, error) {
 	if cfg.KVAddress == "" {
 		log.Info().Msg("KVAddress not set, skipping KV store setup")
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	clientCfg := grpc.ClientConfig{
@@ -169,42 +171,60 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 	}
 
 	if securityConfig == nil {
-		return nil, errNoSecurityConfigKV
+		return nil, nil, errNoSecurityConfigKV
 	}
 
 	provider, err := grpc.NewSecurityProvider(ctx, securityConfig, log)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create KV security provider: %w", err)
+		return nil, nil, fmt.Errorf("failed to create KV security provider: %w", err)
 	}
 
 	clientCfg.SecurityProvider = provider
 
 	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create KV gRPC client: %w", err)
+		return nil, nil, fmt.Errorf("failed to create KV gRPC client: %w", err)
 	}
 
-	kvStore := &grpcKVStore{
-		client: proto.NewKVServiceClient(client.GetConnection()),
-		conn:   client,
+	conn := client.GetConnection()
+	store := &grpcRemoteStore{
+		configClient: proto.NewKVServiceClient(conn),
+		objectClient: proto.NewDataServiceClient(conn),
+		conn:         client,
 	}
 
-	if kvStore.client == nil {
+	if store.configClient == nil {
 		if err := client.Close(); err != nil {
 			log.Error().Err(err).Msg("Error closing client")
-			return nil, err
+			return nil, nil, err
 		}
 
-		return nil, errFailedToInitializeKVClient
+		return nil, nil, errFailedToInitializeKVClient
 	}
 
-	cfgLoader.SetKVStore(kvStore)
+	if store.objectClient == nil {
+		if err := client.Close(); err != nil {
+			log.Error().Err(err).Msg("Error closing client")
+			return nil, nil, err
+		}
 
-	return kvStore, nil
+		return nil, nil, fmt.Errorf("failed to initialize DataService client")
+	}
+
+	cfgLoader.SetKVStore(store)
+
+	return store, store, nil
 }
 
 // createSweepService constructs a new SweepService instance.
-func createSweepService(ctx context.Context, sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerConfig, log logger.Logger) (Service, error) {
+func createSweepService(
+	ctx context.Context,
+	sweepConfig *SweepConfig,
+	configStore KVStore,
+	objectStore ObjectStore,
+	cfg *ServerConfig,
+	log logger.Logger,
+) (Service, error) {
 	if sweepConfig == nil {
 		return nil, errSweepConfigNil
 	}
@@ -242,7 +262,7 @@ func createSweepService(ctx context.Context, sweepConfig *SweepConfig, kvStore K
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
 
-	return NewSweepService(ctx, c, kvStore, configKey, log)
+	return NewSweepService(ctx, c, configStore, objectStore, configKey, log)
 }
 
 func (s *Server) loadSweepService(
@@ -275,7 +295,7 @@ func (s *Server) loadSweepService(
 		s.logger.Info().Str("kvPath", kvPath).Msg("Successfully merged KV updates into file config")
 	}
 
-	service, err := s.createSweepService(ctx, &sweepConfig, s.kvStore) // Pass s.kvStore
+	service, err := s.createSweepService(ctx, &sweepConfig, s.configStore, s.objectStore)
 	if err != nil {
 		return nil, err
 	}
@@ -284,12 +304,12 @@ func (s *Server) loadSweepService(
 }
 
 func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *SweepConfig) (Service, error) {
-	if s.kvStore == nil {
+	if s.configStore == nil {
 		s.logger.Info().Msg("KV store not initialized, skipping KV fetch for sweep config")
 		return nil, nil
 	}
 
-	value, found, err := s.kvStore.Get(ctx, kvPath)
+	value, found, err := s.configStore.Get(ctx, kvPath)
 	if err != nil {
 		s.logger.Error().Err(err).Str("kvPath", kvPath).Msg("Failed to get sweep config from KV")
 		return nil, err
@@ -300,6 +320,51 @@ func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *
 		return nil, nil
 	}
 
+	var metadata map[string]any
+	if err := json.Unmarshal(value, &metadata); err == nil {
+		if storage, ok := metadata["storage"].(string); ok && storage == "data_service" {
+			objectKey, hasKey := metadata["object_key"].(string)
+			if !hasKey || objectKey == "" {
+				return nil, fmt.Errorf("invalid sweep metadata at %s: missing object_key", kvPath)
+			}
+
+			if s.objectStore == nil {
+				return nil, fmt.Errorf("object store unavailable for sweep metadata at %s", kvPath)
+			}
+
+			objectData, err := s.objectStore.DownloadObject(ctx, objectKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to download sweep config object %s: %w", objectKey, err)
+			}
+
+			payload := objectData
+			if overrides, ok := metadata["overrides"]; ok {
+				if merged, mergeErr := mergeSweepConfigOverrides(objectData, overrides); mergeErr != nil {
+					s.logger.Warn().Err(mergeErr).Str("object_key", objectKey).Msg("Failed to merge sweep overrides; using base object")
+				} else {
+					payload = merged
+				}
+			}
+
+			if err := json.Unmarshal(payload, sweepConfig); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal sweep object %s: %w", objectKey, err)
+			}
+
+			s.logger.Info().
+				Str("kvPath", kvPath).
+				Str("object_key", objectKey).
+				Int("deviceTargets", len(sweepConfig.DeviceTargets)).
+				Msg("Loaded sweep config from DataService object")
+
+			service, err := s.createSweepService(ctx, sweepConfig, s.configStore, s.objectStore)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create sweep service from DataService config: %w", err)
+			}
+
+			return service, nil
+		}
+	}
+
 	if err = json.Unmarshal(value, sweepConfig); err != nil {
 		s.logger.Error().Err(err).Str("kvPath", kvPath).Msg("Failed to unmarshal sweep config from KV")
 		return nil, err
@@ -307,7 +372,7 @@ func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *
 
 	s.logger.Info().Str("kvPath", kvPath).Msg("Loaded sweep config from KV")
 
-	service, err := s.createSweepService(ctx, sweepConfig, s.kvStore) // Pass s.kvStore
+	service, err := s.createSweepService(ctx, sweepConfig, s.configStore, s.objectStore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sweep service from KV config: %w", err)
 	}
@@ -410,16 +475,56 @@ func (s *Server) mergeDuration(fieldName string, fileValue, kvValue Duration, me
 	}
 }
 
+func mergeSweepConfigOverrides(base []byte, overrides any) ([]byte, error) {
+	if overrides == nil {
+		return base, nil
+	}
+
+	var baseMap map[string]any
+	if err := json.Unmarshal(base, &baseMap); err != nil {
+		return nil, err
+	}
+
+	overrideBytes, err := json.Marshal(overrides)
+	if err != nil {
+		return nil, err
+	}
+
+	var overrideMap map[string]any
+	if err := json.Unmarshal(overrideBytes, &overrideMap); err != nil {
+		return nil, err
+	}
+
+	merged := mergeMapRecursive(baseMap, overrideMap)
+	return json.Marshal(merged)
+}
+
+func mergeMapRecursive(dst, src map[string]any) map[string]any {
+	for k, v := range src {
+		if srcMap, ok := v.(map[string]any); ok {
+			if dstMap, ok := dst[k].(map[string]any); ok {
+				dst[k] = mergeMapRecursive(dstMap, srcMap)
+			} else {
+				dst[k] = srcMap
+			}
+			continue
+		}
+
+		dst[k] = v
+	}
+
+	return dst
+}
+
 func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *SweepConfig) (*SweepConfig, error) {
 	s.logger.Info().Str("kvPath", kvPath).Msg("*** ENHANCED DEBUG VERSION: mergeKVUpdates called ***")
 
-	if s.kvStore == nil {
+	if s.configStore == nil {
 		s.logger.Debug().Msg("KV store not initialized, skipping merge")
 		return nil, nil
 	}
 
-	// Try to get KV config
-	kvValue, found, err := s.kvStore.Get(ctx, kvPath)
+	kvValue, found, err := s.configStore.Get(ctx, kvPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config from KV store: %w", err)
 	}
@@ -429,161 +534,115 @@ func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *
 		return nil, nil
 	}
 
-	// First check if this is chunked metadata indicating chunked config
-	s.logger.Info().Str("kvValue", string(kvValue)).Msg("DEBUG: Processing KV value for chunked detection")
+	var (
+		objectConfig   *SweepConfig
+		overrideConfig *SweepConfig
+	)
 
-	var metadataCheck map[string]interface{}
+	var metadata map[string]interface{}
+	isDataService := false
 
-	if err := json.Unmarshal(kvValue, &metadataCheck); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal KV value for chunk detection: %w", err)
+	if err := json.Unmarshal(kvValue, &metadata); err == nil {
+		s.logger.Info().Interface("metadataCheck", metadata).Msg("DEBUG: Unmarshaled KV value")
+
+		if storage, ok := metadata["storage"].(string); ok && storage == "data_service" {
+			isDataService = true
+
+			objectKey, hasKey := metadata["object_key"].(string)
+			if !hasKey || objectKey == "" {
+				s.logger.Warn().Str("kvPath", kvPath).Msg("Invalid sweep metadata: missing object_key for DataService storage")
+			} else if s.objectStore == nil {
+				s.logger.Warn().
+					Str("kvPath", kvPath).
+					Str("object_key", objectKey).
+					Msg("Object store client unavailable; cannot download sweep config object")
+			} else {
+				objectData, downloadErr := s.objectStore.DownloadObject(ctx, objectKey)
+				if downloadErr != nil {
+					if errors.Is(downloadErr, errDataServiceUnavailable) {
+						s.logger.Warn().
+							Str("kvPath", kvPath).
+							Str("object_key", objectKey).
+							Msg("DataService object unavailable; continuing without sweep object overlay")
+					} else {
+						return nil, fmt.Errorf("failed to download sweep config object %s: %w", objectKey, downloadErr)
+					}
+				} else {
+					expectedSHA, _ := metadata["sha256"].(string)
+					actualHash := sha256.Sum256(objectData)
+					actualSHA := hex.EncodeToString(actualHash[:])
+					if expectedSHA != "" && !strings.EqualFold(expectedSHA, actualSHA) {
+						s.logger.Warn().
+							Str("kvPath", kvPath).
+							Str("object_key", objectKey).
+							Str("expected_sha", expectedSHA).
+							Str("actual_sha", actualSHA).
+							Msg("Checksum mismatch for sweep config object")
+					}
+
+					var oc SweepConfig
+					if err := json.Unmarshal(objectData, &oc); err != nil {
+						return nil, fmt.Errorf("failed to unmarshal sweep config object: %w", err)
+					}
+
+					objectConfig = &oc
+				}
+			}
+
+			if rawOverrides, ok := metadata["overrides"]; ok {
+				if overrideBytes, err := json.Marshal(rawOverrides); err != nil {
+					s.logger.Warn().Err(err).Msg("Failed to encode sweep overrides from metadata")
+				} else {
+					var oc SweepConfig
+					if err := json.Unmarshal(overrideBytes, &oc); err != nil {
+						s.logger.Warn().Err(err).Msg("Failed to unmarshal sweep overrides from metadata")
+					} else {
+						overrideConfig = &oc
+					}
+				}
+			}
+		}
 	}
 
-	s.logger.Info().Interface("metadataCheck", metadataCheck).Msg("DEBUG: Unmarshaled KV value")
+	mergedConfig := *fileConfig
 
-	// Check if this is a metadata file with chunk information
-	if chunkCount, exists := metadataCheck["chunk_count"]; exists {
+	var kvConfig *SweepConfig
+	if !isDataService {
+		var cfg SweepConfig
+		if err := json.Unmarshal(kvValue, &cfg); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal KV config: %w", err)
+		}
+		kvConfig = &cfg
+	}
+
+	mergeFromConfig := func(source *SweepConfig) {
+		if source == nil {
+			return
+		}
+
+		s.mergeStringSlice("networks", mergedConfig.Networks, source.Networks, &mergedConfig)
+		s.mergeIntSlice("ports", mergedConfig.Ports, source.Ports, &mergedConfig)
+		s.mergeSweepModes(mergedConfig.SweepModes, source.SweepModes, &mergedConfig)
+		s.mergeDeviceTargets(mergedConfig.DeviceTargets, source.DeviceTargets, &mergedConfig)
+		s.mergeInt("concurrency", mergedConfig.Concurrency, source.Concurrency, &mergedConfig)
+		s.mergeDuration("interval", mergedConfig.Interval, source.Interval, &mergedConfig)
+		s.mergeDuration("timeout", mergedConfig.Timeout, source.Timeout, &mergedConfig)
+	}
+
+	mergeFromConfig(kvConfig)
+	mergeFromConfig(overrideConfig)
+
+	if objectConfig != nil {
 		s.logger.Info().
-			Interface("metadata", metadataCheck).
-			Interface("chunkCount", chunkCount).
-			Msg("Detected chunked sweep config during initial load - processing chunks")
+			Int("device_target_count", len(objectConfig.DeviceTargets)).
+			Msg("Merged device targets from DataService object")
 
-		// Process chunked configuration by reading all chunks and combining them
-		chunkCountInt, ok := chunkCount.(float64)
-		if !ok {
-			return nil, fmt.Errorf("%w: %v", errInvalidChunkCountFormat, chunkCount)
-		}
-
-		return s.processChunkedSweepConfig(ctx, kvPath, int(chunkCountInt), fileConfig)
+		s.mergeStringSlice("networks", mergedConfig.Networks, objectConfig.Networks, &mergedConfig)
+		s.mergeDeviceTargets(mergedConfig.DeviceTargets, objectConfig.DeviceTargets, &mergedConfig)
+		s.mergeSweepModes(mergedConfig.SweepModes, objectConfig.SweepModes, &mergedConfig)
 	}
-
-	var kvConfig SweepConfig
-	if err := json.Unmarshal(kvValue, &kvConfig); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal KV config: %w", err)
-	}
-
-	// Create merged config starting with file config as base
-	mergedConfig := *fileConfig
-
-	// Merge fields using helper functions
-	s.mergeStringSlice("networks", fileConfig.Networks, kvConfig.Networks, &mergedConfig)
-	s.mergeIntSlice("ports", fileConfig.Ports, kvConfig.Ports, &mergedConfig)
-	s.mergeSweepModes(fileConfig.SweepModes, kvConfig.SweepModes, &mergedConfig)
-	s.mergeDeviceTargets(fileConfig.DeviceTargets, kvConfig.DeviceTargets, &mergedConfig)
-	s.mergeInt("concurrency", fileConfig.Concurrency, kvConfig.Concurrency, &mergedConfig)
-	s.mergeDuration("interval", fileConfig.Interval, kvConfig.Interval, &mergedConfig)
-	s.mergeDuration("timeout", fileConfig.Timeout, kvConfig.Timeout, &mergedConfig)
 
 	return &mergedConfig, nil
-}
-
-// processChunkedSweepConfig reads all chunks from KV and combines them into a single SweepConfig
-func (s *Server) processChunkedSweepConfig(
-	ctx context.Context, baseKVPath string, chunkCount int, fileConfig *SweepConfig,
-) (*SweepConfig, error) {
-	s.logger.Info().
-		Str("baseKVPath", baseKVPath).
-		Int("chunkCount", chunkCount).
-		Msg("Processing chunked sweep configuration")
-
-	// Start with file config as base
-	mergedConfig := *fileConfig
-
-	var combinedNetworks []string
-
-	var combinedDeviceTargets []models.DeviceTarget
-
-	// Extract base path without .json extension for chunk naming
-	basePath := strings.TrimSuffix(baseKVPath, ".json")
-
-	// Read and combine all chunks
-	for i := 0; i < chunkCount; i++ {
-		chunkConfig, err := s.readChunk(ctx, basePath, i)
-		if err != nil {
-			return nil, err
-		}
-
-		if chunkConfig == nil {
-			continue // Chunk not found, skip
-		}
-
-		// Combine networks and device targets from this chunk
-		combinedNetworks = append(combinedNetworks, chunkConfig.Networks...)
-		combinedDeviceTargets = append(combinedDeviceTargets, chunkConfig.DeviceTargets...)
-
-		// Use settings from first chunk if file config doesn't have them
-		if i == 0 {
-			s.applyChunkSettings(&mergedConfig, chunkConfig)
-		}
-	}
-
-	// Set the combined networks and device targets
-	mergedConfig.Networks = combinedNetworks
-	mergedConfig.DeviceTargets = combinedDeviceTargets
-
-	s.logger.Info().
-		Int("totalNetworks", len(combinedNetworks)).
-		Int("totalDeviceTargets", len(combinedDeviceTargets)).
-		Int("chunksProcessed", chunkCount).
-		Msg("Successfully processed and combined all chunks")
-
-	return &mergedConfig, nil
-}
-
-// readChunk reads a single chunk from KV store
-func (s *Server) readChunk(ctx context.Context, basePath string, chunkIndex int) (*SweepConfig, error) {
-	chunkKey := fmt.Sprintf("%s_chunk_%d.json", basePath, chunkIndex)
-
-	s.logger.Debug().
-		Str("chunkKey", chunkKey).
-		Int("chunkIndex", chunkIndex).
-		Msg("Reading chunk from KV")
-
-	chunkData, found, err := s.kvStore.Get(ctx, chunkKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get chunk %d from KV store: %w", chunkIndex, err)
-	}
-
-	if !found {
-		s.logger.Warn().Str("chunkKey", chunkKey).Msg("Chunk not found in KV store")
-		return nil, nil
-	}
-
-	// Parse chunk as SweepConfig
-	var chunkConfig SweepConfig
-	if err := json.Unmarshal(chunkData, &chunkConfig); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal chunk %d: %w", chunkIndex, err)
-	}
-
-	s.logger.Debug().
-		Int("chunkIndex", chunkIndex).
-		Int("networks", len(chunkConfig.Networks)).
-		Int("deviceTargets", len(chunkConfig.DeviceTargets)).
-		Msg("Successfully parsed chunk")
-
-	return &chunkConfig, nil
-}
-
-// applyChunkSettings applies settings from chunk to merged config if they're not set
-func (*Server) applyChunkSettings(mergedConfig, chunkConfig *SweepConfig) {
-	if mergedConfig.Interval == 0 && chunkConfig.Interval > 0 {
-		mergedConfig.Interval = chunkConfig.Interval
-	}
-
-	if mergedConfig.Timeout == 0 && chunkConfig.Timeout > 0 {
-		mergedConfig.Timeout = chunkConfig.Timeout
-	}
-
-	if mergedConfig.Concurrency == 0 && chunkConfig.Concurrency > 0 {
-		mergedConfig.Concurrency = chunkConfig.Concurrency
-	}
-
-	if len(mergedConfig.Ports) == 0 && len(chunkConfig.Ports) > 0 {
-		mergedConfig.Ports = chunkConfig.Ports
-	}
-
-	if len(mergedConfig.SweepModes) == 0 && len(chunkConfig.SweepModes) > 0 {
-		mergedConfig.SweepModes = chunkConfig.SweepModes
-	}
 }
 
 func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Config) error {
@@ -622,7 +681,7 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 
 // getLogSuffix returns appropriate suffix based on KV store availability.
 func (s *Server) getLogSuffix() string {
-	if s.kvStore != nil {
+	if s.configStore != nil {
 		return " " + fallBackSuffix
 	}
 
@@ -744,8 +803,8 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 
 	cfgLoader := config.NewConfig(s.logger)
 
-	if s.kvStore != nil {
-		cfgLoader.SetKVStore(s.kvStore)
+	if s.configStore != nil {
+		cfgLoader.SetKVStore(s.configStore)
 	}
 
 	for _, file := range files {
@@ -1444,7 +1503,7 @@ func (s *Server) loadCheckerConfig(ctx context.Context, cfgLoader *config.Config
 	// Try KV if available
 	var err error
 
-	if s.kvStore != nil {
+	if s.configStore != nil {
 		if err = cfgLoader.LoadAndValidate(ctx, kvPath, &conf); err == nil {
 			s.logger.Info().Str("kvPath", kvPath).Msg("Loaded checker config from KV")
 
@@ -1460,7 +1519,7 @@ func (s *Server) loadCheckerConfig(ctx context.Context, cfgLoader *config.Config
 	}
 
 	suffix := ""
-	if s.kvStore != nil {
+	if s.configStore != nil {
 		suffix = " " + fallBackSuffix
 	}
 

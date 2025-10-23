@@ -691,7 +691,7 @@
       "release": "1"
     },
     "binary": {
-      "source_path": "cmd/kv",
+      "source_path": "cmd/data-services",
       "build_method": "go",
       "output_path": "/usr/local/bin/serviceradar-kv"
     },

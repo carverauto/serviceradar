@@ -43,3 +43,6 @@ var ErrCASMismatch = errors.New("kv: compare-and-swap mismatch")
 
 // ErrKeyExists indicates that a create/put-if-absent operation found an existing value.
 var ErrKeyExists = errors.New("kv: key already exists")
+
+// ErrObjectNotFound indicates that a requested object does not exist.
+var ErrObjectNotFound = errors.New("kv: object not found")

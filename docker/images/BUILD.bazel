@@ -483,7 +483,7 @@ oci_load(
 pkg_tar(
     name = "kv_layer_amd64",
     files = {
-        "//cmd/kv:kv": "usr/local/bin/serviceradar-kv",
+        "//cmd/data-services:data_services": "usr/local/bin/serviceradar-kv",
         "//docker/compose:entrypoint-kv.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:kv.docker.json": "etc/serviceradar/kv.json",
     },
