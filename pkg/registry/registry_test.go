@@ -635,7 +635,7 @@ func TestLookupCanonicalFallsBackToIP(t *testing.T) {
 	require.Equal(t, "ip", via)
 }
 
-func TestProcessBatchSkipsSweepWithoutIdentity(t *testing.T) {
+func TestProcessBatchPublishesSweepWithoutIdentity(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -648,7 +648,9 @@ func TestProcessBatchSkipsSweepWithoutIdentity(t *testing.T) {
 	mockDB.EXPECT().
 		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
 		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
-			require.Empty(t, updates, "sweep without identity should be dropped")
+			require.Len(t, updates, 1, "sweep without strong identity should still publish")
+			require.Equal(t, models.DiscoverySourceSweep, updates[0].Source)
+			require.Equal(t, "default:10.1.1.1", updates[0].DeviceID)
 			return nil
 		})
 
