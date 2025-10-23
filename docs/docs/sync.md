@@ -223,7 +223,7 @@ The Sync service **requires** mTLS for security. The following settings are mand
 
 ### KV Store RBAC Configuration
 
-The Sync service requires `writer` access to the KV store. Update your KV service configuration (`/etc/serviceradar/kv.json`) to include the Sync service's certificate identity:
+The Sync service requires `writer` access to the KV store. Update your KV service configuration (`/etc/serviceradar/datasvc.json`) to include the Sync service's certificate identity:
 
 ```json
 "rbac": {
@@ -354,7 +354,7 @@ Verify that data is being stored in the KV store:
 
 ```bash
 # Verify data in the KV store using the NATS CLI
-nats kv get serviceradar-kv agents/192.168.2.23/checkers/sweep/sweep.json \
+nats kv get serviceradar-datasvc agents/192.168.2.23/checkers/sweep/sweep.json \
   --server tls://192.168.2.23:4222 \ 
   --tlscert /etc/serviceradar/certs/client.pem \
   --tlskey /etc/serviceradar/certs/client-key.pem \

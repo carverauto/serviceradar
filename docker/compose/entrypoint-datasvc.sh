@@ -43,12 +43,12 @@ resolve_service_port() {
 }
 
 # Default config path
-CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/kv.json}"
+CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/datasvc.json}"
 
 # Check that config file exists
 if [ ! -f "$CONFIG_PATH" ]; then
     echo "ERROR: Configuration file not found at $CONFIG_PATH"
-    echo "Please mount the config file from docker/compose/kv.docker.json"
+    echo "Please mount the config file from docker/compose/datasvc.docker.json"
     exit 1
 fi
 

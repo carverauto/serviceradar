@@ -669,10 +669,10 @@
     ]
   },
   {
-    "name": "kv",
-    "package_name": "serviceradar-kv",
+    "name": "datasvc",
+    "package_name": "serviceradar-datasvc",
     "version": "1.0.53",
-    "description": "ServiceRadar Key-Value store",
+    "description": "ServiceRadar data service (KV + object store)",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "utils",
@@ -693,26 +693,26 @@
     "binary": {
       "source_path": "cmd/data-services",
       "build_method": "go",
-      "output_path": "/usr/local/bin/serviceradar-kv"
+      "output_path": "/usr/local/bin/serviceradar-datasvc"
     },
     "config_files": [
       {
-        "source": "packaging/kv/config/kv.json",
-        "dest": "/etc/serviceradar/kv.json"
+        "source": "packaging/datasvc/config/datasvc.json",
+        "dest": "/etc/serviceradar/datasvc.json"
       }
     ],
     "systemd_service": {
-      "source": "packaging/kv/systemd/serviceradar-kv.service",
-      "dest": "/lib/systemd/system/serviceradar-kv.service"
+      "source": "packaging/datasvc/systemd/serviceradar-datasvc.service",
+      "dest": "/lib/systemd/system/serviceradar-datasvc.service"
     },
     "postinst": {
-      "source": "packaging/kv/scripts/postinstall.sh"
+      "source": "packaging/datasvc/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/kv/scripts/preremove.sh"
+      "source": "packaging/datasvc/scripts/preremove.sh"
     },
     "conffiles": [
-      "/etc/serviceradar/kv.json"
+      "/etc/serviceradar/datasvc.json"
     ]
   },
   {

@@ -1,21 +1,26 @@
+# base/serviceradar-datasvc.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: serviceradar-kv
+  name: serviceradar-datasvc
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: serviceradar-kv
+      app: serviceradar-datasvc
+      app.kubernetes.io/part-of: serviceradar
   template:
     metadata:
       labels:
-        app: serviceradar-kv
+        app: serviceradar-datasvc
+        app.kubernetes.io/part-of: serviceradar
     spec:
-      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      imagePullSecrets:
+        - name: ghcr-io-cred
       containers:
-      - name: kv
-        image: ghcr.io/carverauto/serviceradar-kv:{{ .Values.image.tags.kv }}
+      - name: datasvc
+        image: ghcr.io/carverauto/serviceradar-datasvc:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 50057
           name: grpc
@@ -25,21 +30,23 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        - name: kv-data
+        - name: datasvc-data
           mountPath: /var/lib/serviceradar
         env:
         - name: CONFIG_PATH
-          value: "/etc/serviceradar/kv.json"
+          value: "/etc/serviceradar/datasvc.json"
         - name: WAIT_FOR_NATS
           value: "true"
+        - name: NATS_HOST
+          value: "serviceradar-nats"
         - name: LOG_LEVEL
           value: "info"
         resources:
           limits:
-            cpu: "500m"
+            cpu: "2"
             memory: "512Mi"
           requests:
-            cpu: "100m"
+            cpu: "500m"
             memory: "128Mi"
         livenessProbe:
           exec:
@@ -48,11 +55,11 @@ spec:
             - -cacert
             - /etc/serviceradar/certs/root.pem
             - -cert
-            - /etc/serviceradar/certs/kv.pem
+            - /etc/serviceradar/certs/datasvc.pem
             - -key
-            - /etc/serviceradar/certs/kv-key.pem
+            - /etc/serviceradar/certs/datasvc-key.pem
             - -servername
-            - kv.serviceradar
+            - datasvc.serviceradar
             - localhost:50057
             - grpc.health.v1.Health/Check
           initialDelaySeconds: 60
@@ -66,11 +73,11 @@ spec:
             - -cacert
             - /etc/serviceradar/certs/root.pem
             - -cert
-            - /etc/serviceradar/certs/kv.pem
+            - /etc/serviceradar/certs/datasvc.pem
             - -key
-            - /etc/serviceradar/certs/kv-key.pem
+            - /etc/serviceradar/certs/datasvc-key.pem
             - -servername
-            - kv.serviceradar
+            - datasvc.serviceradar
             - localhost:50057
             - grpc.health.v1.Health/Check
           initialDelaySeconds: 30
@@ -84,17 +91,17 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
-      - name: kv-data
+      - name: datasvc-data
         persistentVolumeClaim:
-          claimName: serviceradar-kv-data
+          claimName: serviceradar-datasvc-data
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: serviceradar-kv
+  name: serviceradar-datasvc
 spec:
   selector:
-    app: serviceradar-kv
+    app: serviceradar-datasvc
   ports:
   - name: grpc
     port: 50057
@@ -103,7 +110,7 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: serviceradar-kv-data
+  name: serviceradar-datasvc-data
 spec:
   accessModes:
     - ReadWriteOnce

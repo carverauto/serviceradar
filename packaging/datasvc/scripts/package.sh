@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# package.sh for serviceradar-kv component - Prepares files for Debian packaging
+# package.sh for serviceradar-datasvc component - Prepares files for Debian packaging
 set -e
 
 # Define package version
@@ -27,8 +27,8 @@ PACKAGING_DIR="${BASE_DIR}/packaging"
 echo "Using PACKAGING_DIR: $PACKAGING_DIR"
 
 # Create the build directory
-mkdir -p serviceradar-kv-build
-cd serviceradar-kv-build
+mkdir -p serviceradar-datasvc-build
+cd serviceradar-datasvc-build
 
 # Create package directory structure (Debian paths)
 mkdir -p DEBIAN
@@ -40,13 +40,13 @@ echo "Building Go binary..."
 
 # Build Go binary
 cd "${BASE_DIR}/cmd/data-services"
-GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-kv-build/usr/local/bin/serviceradar-kv"
+GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-datasvc-build/usr/local/bin/serviceradar-datasvc"
 cd "${BASE_DIR}"
 
-echo "Preparing ServiceRadar KV package files..."
+echo "Preparing ServiceRadar Data Service package files..."
 
 # Copy control file
-CONTROL_SRC="${PACKAGING_DIR}/kv/DEBIAN/control"
+CONTROL_SRC="${PACKAGING_DIR}/datasvc/DEBIAN/control"
 if [ -f "$CONTROL_SRC" ]; then
     cp "$CONTROL_SRC" DEBIAN/control
     echo "Copied control file from $CONTROL_SRC"
@@ -56,7 +56,7 @@ else
 fi
 
 # Copy conffiles
-CONFFILES_SRC="${PACKAGING_DIR}/kv/DEBIAN/conffiles"
+CONFFILES_SRC="${PACKAGING_DIR}/datasvc/DEBIAN/conffiles"
 if [ -f "$CONFFILES_SRC" ]; then
     cp "$CONFFILES_SRC" DEBIAN/conffiles
     echo "Copied conffiles from $CONFFILES_SRC"
@@ -66,27 +66,27 @@ else
 fi
 
 # Copy systemd service file
-SERVICE_SRC="${PACKAGING_DIR}/kv/systemd/serviceradar-kv.service"
+SERVICE_SRC="${PACKAGING_DIR}/datasvc/systemd/serviceradar-datasvc.service"
 if [ -f "$SERVICE_SRC" ]; then
-    cp "$SERVICE_SRC" lib/systemd/system/serviceradar-kv.service
-    echo "Copied serviceradar-kv.service from $SERVICE_SRC"
+    cp "$SERVICE_SRC" lib/systemd/system/serviceradar-datasvc.service
+    echo "Copied serviceradar-datasvc.service from $SERVICE_SRC"
 else
-    echo "Error: serviceradar-kv.service not found at $SERVICE_SRC"
+    echo "Error: serviceradar-datasvc.service not found at $SERVICE_SRC"
     exit 1
 fi
 
 # Copy default config file (only if it doesn't exist on the target system)
-CONFIG_SRC="${PACKAGING_DIR}/kv/config/kv.json"
-if [ ! -f "/etc/serviceradar/kv.json" ] && [ -f "$CONFIG_SRC" ]; then
-    cp "$CONFIG_SRC" etc/serviceradar/kv.json
-    echo "Copied kv.json from $CONFIG_SRC"
+CONFIG_SRC="${PACKAGING_DIR}/datasvc/config/datasvc.json"
+if [ ! -f "/etc/serviceradar/datasvc.json" ] && [ -f "$CONFIG_SRC" ]; then
+    cp "$CONFIG_SRC" etc/serviceradar/datasvc.json
+    echo "Copied datasvc.json from $CONFIG_SRC"
 elif [ ! -f "$CONFIG_SRC" ]; then
-    echo "Error: kv.json not found at $CONFIG_SRC"
+    echo "Error: datasvc.json not found at $CONFIG_SRC"
     exit 1
 fi
 
 # Copy postinst script
-POSTINST_SRC="${PACKAGING_DIR}/kv/scripts/postinstall.sh"
+POSTINST_SRC="${PACKAGING_DIR}/datasvc/scripts/postinstall.sh"
 if [ -f "$POSTINST_SRC" ]; then
     cp "$POSTINST_SRC" DEBIAN/postinst
     chmod 755 DEBIAN/postinst
@@ -97,7 +97,7 @@ else
 fi
 
 # Copy prerm script
-PRERM_SRC="${PACKAGING_DIR}/kv/scripts/preremove.sh"
+PRERM_SRC="${PACKAGING_DIR}/datasvc/scripts/preremove.sh"
 if [ -f "$PRERM_SRC" ]; then
     cp "$PRERM_SRC" DEBIAN/prerm
     chmod 755 DEBIAN/prerm
@@ -113,9 +113,9 @@ echo "Building Debian package..."
 mkdir -p "${BASE_DIR}/release-artifacts"
 
 # Build the package
-dpkg-deb --root-owner-group --build . "serviceradar-kv_${VERSION}.deb"
+dpkg-deb --root-owner-group --build . "serviceradar-datasvc_${VERSION}.deb"
 
 # Move the deb file to the release-artifacts directory
-mv "serviceradar-kv_${VERSION}.deb" "${BASE_DIR}/release-artifacts/"
+mv "serviceradar-datasvc_${VERSION}.deb" "${BASE_DIR}/release-artifacts/"
 
-echo "Package built: ${BASE_DIR}/release-artifacts/serviceradar-kv_${VERSION}.deb"
+echo "Package built: ${BASE_DIR}/release-artifacts/serviceradar-datasvc_${VERSION}.deb"

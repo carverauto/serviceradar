@@ -5,7 +5,7 @@ kind: Kustomization
 resources:
 - serviceradar-proton.yaml
 - serviceradar-nats.yaml
-- serviceradar-kv.yaml
+- serviceradar-datasvc.yaml
 - serviceradar-core.yaml
 - serviceradar-web.yaml
 - serviceradar-agent.yaml

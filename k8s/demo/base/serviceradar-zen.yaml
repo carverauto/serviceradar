@@ -48,7 +48,7 @@ spec:
         - name: NO_WAIT
           value: "true"
         - name: KV_URL
-          value: "serviceradar-kv:50057"
+          value: "serviceradar-datasvc:50057"
         - name: NATS_TLS
           value: "true"
         - name: USE_TLS

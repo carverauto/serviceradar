@@ -106,7 +106,7 @@ BUILD_AGENT=false
 BUILD_CONFIG_UPDATER=false
 BUILD_DB_EVENT_WRITER=false
 BUILD_FLOWGGER=false
-BUILD_KV=false
+BUILD_DATASVC=false
 BUILD_MAPPER=false
 BUILD_NGINX=false
 BUILD_OTEL=false
@@ -169,8 +169,8 @@ while [[ $# -gt 0 ]]; do
             BUILD_FLOWGGER=true
             shift
             ;;
-        --kv)
-            BUILD_KV=true
+        --datasvc|--kv)
+            BUILD_DATASVC=true
             shift
             ;;
         --mapper)
@@ -248,7 +248,7 @@ done
 # If no specific image is selected, build all
 if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == false && "$BUILD_WEB" == false && "$BUILD_CERT_GEN" == false && \
       "$BUILD_AGENT" == false && "$BUILD_CONFIG_UPDATER" == false && "$BUILD_DB_EVENT_WRITER" == false && "$BUILD_FLOWGGER" == false && \
-      "$BUILD_KV" == false && "$BUILD_MAPPER" == false && "$BUILD_NGINX" == false && "$BUILD_OTEL" == false && "$BUILD_POLLER" == false && \
+      "$BUILD_DATASVC" == false && "$BUILD_MAPPER" == false && "$BUILD_NGINX" == false && "$BUILD_OTEL" == false && "$BUILD_POLLER" == false && \
       "$BUILD_RPERF_CLIENT" == false && "$BUILD_SNMP_CHECKER" == false && "$BUILD_SYNC" == false && "$BUILD_TOOLS" == false && \
       "$BUILD_TRAPD" == false && "$BUILD_ZEN" == false && "$BUILD_SRQL" == false && "$BUILD_KONG_CONFIG" == false ]]; then
     BUILD_ALL=true
@@ -455,9 +455,9 @@ if [[ "$BUILD_ALL" == true || "$BUILD_FLOWGGER" == true ]]; then
     build_image "flowgger" "docker/compose/Dockerfile.flowgger" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
 fi
 
-# Build KV service
-if [[ "$BUILD_ALL" == true || "$BUILD_KV" == true ]]; then
-    build_image "kv" "docker/compose/Dockerfile.kv" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+# Build data service
+if [[ "$BUILD_ALL" == true || "$BUILD_DATASVC" == true ]]; then
+    build_image "datasvc" "docker/compose/Dockerfile.datasvc" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
 fi
 
 # Build Mapper service

@@ -146,9 +146,9 @@ PACKAGES = {
             "/etc/serviceradar/mapper.json",
         ],
     },
-    "kv": {
-        "package_name": "serviceradar-kv",
-        "description": "ServiceRadar Key/Value Service",
+    "datasvc": {
+        "package_name": "serviceradar-datasvc",
+        "description": "ServiceRadar Data Service (KV + object store)",
         "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
         "architecture": "amd64",
         "section": "utils",
@@ -157,24 +157,24 @@ PACKAGES = {
         "rpm_requires": ["systemd"],
         "binary": {
             "target": "//cmd/data-services:data_services",
-            "dest": "/usr/local/bin/serviceradar-kv",
+            "dest": "/usr/local/bin/serviceradar-datasvc",
         },
         "files": [
             {
-                "src": "config/kv.json",
-                "dest": "/etc/serviceradar/kv.json",
+                "src": "config/datasvc.json",
+                "dest": "/etc/serviceradar/datasvc.json",
                 "mode": "0644",
                 "rpm_filetag": "config(noreplace)",
             },
         ],
         "systemd": {
-            "src": "systemd/serviceradar-kv.service",
-            "dest": "/lib/systemd/system/serviceradar-kv.service",
+            "src": "systemd/serviceradar-datasvc.service",
+            "dest": "/lib/systemd/system/serviceradar-datasvc.service",
         },
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
         "conffiles": [
-            "/etc/serviceradar/kv.json",
+            "/etc/serviceradar/datasvc.json",
         ],
     },
     "sync": {

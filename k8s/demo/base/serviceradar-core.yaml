@@ -127,7 +127,7 @@ spec:
               name: serviceradar-secrets
               key: admin-bcrypt-hash
         - name: KV_ADDRESS
-          value: "serviceradar-kv:50057"
+          value: "serviceradar-datasvc:50057"
         - name: KV_SEC_MODE
           value: "mtls"
         - name: KV_CERT_FILE
@@ -137,7 +137,7 @@ spec:
         - name: KV_CA_FILE
           value: "/etc/serviceradar/certs/root.pem"
         - name: KV_SERVER_NAME
-          value: "kv.serviceradar"
+          value: "datasvc.serviceradar"
         resources:
           limits:
             cpu: "3"

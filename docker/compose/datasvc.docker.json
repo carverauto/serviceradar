@@ -5,10 +5,10 @@
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "nats.serviceradar",
-    "role": "kv",
+    "role": "datasvc",
     "tls": {
-      "cert_file": "/etc/serviceradar/certs/kv.pem",
-      "key_file": "/etc/serviceradar/certs/kv-key.pem",
+      "cert_file": "/etc/serviceradar/certs/datasvc.pem",
+      "key_file": "/etc/serviceradar/certs/datasvc-key.pem",
       "ca_file": "/etc/serviceradar/certs/root.pem",
       "client_ca_file": "/etc/serviceradar/certs/root.pem"
     }
@@ -20,5 +20,5 @@
       {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "reader"}
     ]
   },
-  "bucket": "serviceradar-kv"
+  "bucket": "serviceradar-datasvc"
 }

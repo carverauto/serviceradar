@@ -61,20 +61,21 @@ if [ -n "${WAIT_FOR_NATS:-}" ]; then
     fi
 fi
 
-if [ -n "${WAIT_FOR_KV:-}" ]; then
-    KV_HOST_VALUE=$(resolve_service_host "serviceradar-kv" KV_HOST "kv")
-    KV_PORT_VALUE=$(resolve_service_port KV_PORT "50057")
-    echo "Waiting for KV service at ${KV_HOST_VALUE}:${KV_PORT_VALUE}..."
+WAIT_FOR_DATASVC_OR_KV="${WAIT_FOR_DATASVC:-${WAIT_FOR_KV:-}}"
+if [ -n "${WAIT_FOR_DATASVC_OR_KV}" ]; then
+    DATASVC_HOST_VALUE=$(resolve_service_host "serviceradar-datasvc" DATASVC_HOST "datasvc")
+    DATASVC_PORT_VALUE=$(resolve_service_port DATASVC_PORT "50057")
+    echo "Waiting for data service at ${DATASVC_HOST_VALUE}:${DATASVC_PORT_VALUE}..."
 
     if wait-for-port \
-        --host "${KV_HOST_VALUE}" \
-        --port "${KV_PORT_VALUE}" \
+        --host "${DATASVC_HOST_VALUE}" \
+        --port "${DATASVC_PORT_VALUE}" \
         --attempts 30 \
         --interval 2s \
         --quiet; then
-        echo "KV service is ready!"
+        echo "Data service is ready!"
     else
-        echo "ERROR: Timed out waiting for KV at ${KV_HOST_VALUE}:${KV_PORT_VALUE}" >&2
+        echo "ERROR: Timed out waiting for data service at ${DATASVC_HOST_VALUE}:${DATASVC_PORT_VALUE}" >&2
         exit 1
     fi
 fi

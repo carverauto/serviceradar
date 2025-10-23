@@ -344,7 +344,7 @@ build: generate-proto ## Build all binaries
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-poller cmd/poller/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-kv cmd/data-services/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-datasvc cmd/data-services/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-sync cmd/sync/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cli cmd/cli/main.go
