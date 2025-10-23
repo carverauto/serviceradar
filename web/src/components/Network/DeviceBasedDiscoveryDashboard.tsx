@@ -69,6 +69,17 @@ type FilterType = 'all' | 'devices' | 'interfaces';
 type SortBy = 'name' | 'ip' | 'status';
 type SortOrder = 'asc' | 'desc';
 type ViewMode = 'grid' | 'table';
+const DISCOVERY_RESULTS_LIMIT = 50;
+const statCardButtonClass = (isActive: boolean): string =>
+    [
+        'w-full text-left bg-white dark:bg-gray-800 p-4 rounded-lg shadow border transition',
+        'hover:border-gray-300 dark:hover:border-gray-600',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+        'focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900',
+        isActive
+            ? 'border-blue-500 dark:border-blue-400 ring-1 ring-blue-300 dark:ring-blue-500/40'
+            : 'border-transparent',
+    ].join(' ');
 
 const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps> = () => {
     const router = useRouter();
@@ -97,13 +108,13 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     // Fetch discovered devices using device_id centric queries
     const fetchDevices = useCallback(async () => {
         try {
-            const query = 'in:devices discovery_sources:* time:last_7d limit:10000';
             const response = await cachedQuery<{ results: Device[] }>(
-                query,
+                DISCOVERY_DEVICES_QUERY,
                 token || undefined,
-                30000
+                30000,
+                { limit: DISCOVERY_RESULTS_LIMIT }
             );
-            return response.results || [];
+            return Array.isArray(response.results) ? response.results : [];
         } catch (error) {
             console.error('Failed to fetch discovered devices:', error);
             throw error;
@@ -113,13 +124,13 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     // Fetch discovered interfaces using device_id centric queries
     const fetchInterfaces = useCallback(async () => {
         try {
-            const query = 'in:interfaces time:last_7d limit:10000';
             const response = await cachedQuery<{ results: DiscoveredInterface[] }>(
-                query,
+                DISCOVERY_INTERFACES_QUERY,
                 token || undefined,
-                30000
+                30000,
+                { limit: DISCOVERY_RESULTS_LIMIT }
             );
-            return response.results || [];
+            return Array.isArray(response.results) ? response.results : [];
         } catch (error) {
             console.error('Failed to fetch discovered interfaces:', error);
             throw error;
@@ -181,6 +192,22 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
             setIsLoading(false);
         }
     }, [fetchDevices, fetchInterfaces, fetchStats]);
+
+    const handleTotalDevicesCardClick = useCallback(() => {
+        if (filterType === 'all') {
+            void fetchData();
+            return;
+        }
+        setFilterType('all');
+    }, [fetchData, filterType]);
+
+    const handleInterfacesCardClick = useCallback(() => {
+        if (filterType === 'interfaces') {
+            void fetchData();
+            return;
+        }
+        setFilterType('interfaces');
+    }, [fetchData, filterType]);
 
     useEffect(() => {
         const baseQuery = filterType === 'interfaces' ? DISCOVERY_INTERFACES_QUERY : DISCOVERY_DEVICES_QUERY;
@@ -391,7 +418,11 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <button
+                    type="button"
+                    onClick={handleTotalDevicesCardClick}
+                    className={statCardButtonClass(filterType === 'all')}
+                >
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Total Devices</p>
@@ -401,7 +432,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                         </div>
                         <Monitor className="h-8 w-8 text-blue-500" />
                     </div>
-                </div>
+                </button>
 
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <div className="flex items-center justify-between">
@@ -415,7 +446,11 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                     </div>
                 </div>
 
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <button
+                    type="button"
+                    onClick={handleInterfacesCardClick}
+                    className={statCardButtonClass(filterType === 'interfaces')}
+                >
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Interfaces</p>
@@ -425,7 +460,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                         </div>
                         <Network className="h-8 w-8 text-green-500" />
                     </div>
-                </div>
+                </button>
 
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <div className="flex items-center justify-between">
