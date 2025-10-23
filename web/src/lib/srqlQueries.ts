@@ -22,7 +22,7 @@ export const DEFAULT_METRICS_QUERY =
     'in:otel_metrics time:last_24h sort:timestamp:desc limit:20';
 
 export const DISCOVERY_DEVICES_QUERY =
-    'in:devices discovery_sources:* time:last_7d sort:last_seen:desc limit:50';
+    'in:devices time:last_7d sort:last_seen:desc limit:50';
 
 export const DISCOVERY_INTERFACES_QUERY =
     'in:interfaces time:last_7d sort:timestamp:desc limit:50';

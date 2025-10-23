@@ -1148,7 +1148,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
 
     // Click handlers for stat cards
     const handleDiscoveredDevicesClick = () => {
-        const query = 'in:devices discovery_sources:* time:last_7d sort:last_seen:desc limit:50';
+        const query = 'in:devices time:last_7d sort:last_seen:desc limit:50';
         setSrqlQuery(query, { origin: 'view', viewPath: '/devices', viewId: 'devices:inventory' });
         router.push('/devices');
     };
@@ -1156,6 +1156,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     const handleDiscoveredInterfacesClick = () => {
         const query = 'in:interfaces time:last_7d sort:timestamp:desc limit:50';
         const viewPath = `${networkBasePath}#discovery`;
+        setActiveTab('discovery');
         setSrqlQuery(query, { origin: 'view', viewPath, viewId: 'network:discovery' });
         router.push(viewPath);
     };
@@ -1163,6 +1164,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     const handleActiveSweepsClick = () => {
         const query = 'in:sweep_results time:last_7d sort:last_seen:desc limit:50';
         const viewPath = `${networkBasePath}#sweeps`;
+        setActiveTab('sweeps');
         setSrqlQuery(query, { origin: 'view', viewPath, viewId: 'network:sweeps' });
         router.push(viewPath);
     };
@@ -1219,7 +1221,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
             // Use cached queries to prevent duplicates
             const [devicesRes, interfacesRes] = await Promise.all([
                 cachedQuery<{ results: [{ total: number }] }>(
-                    'in:devices discovery_sources:* stats:"count() as total" sort:total:desc time:last_7d',
+                    'in:devices stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000 // 30 second cache
                 ),
