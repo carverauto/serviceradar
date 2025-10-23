@@ -131,8 +131,9 @@ kind: PersistentVolumeClaim
 metadata:
   name: serviceradar-proton-data
 spec:
+  storageClassName: local-path
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 512Gi
+      storage: 1Ti

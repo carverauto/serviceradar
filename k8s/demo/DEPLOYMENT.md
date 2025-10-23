@@ -198,10 +198,10 @@ kubectl scale deployment serviceradar-web --replicas=2 -n serviceradar-staging
 ## Persistence
 
 ### Persistent Volumes
-- **Proton Data**: 20Gi for database storage
-- **Core Data**: 5Gi for application data
-- **NATS Data**: 1Gi for message persistence
-- **Certificates**: 100Mi for TLS certificates
+- **Proton Data**: 1Ti for analytics storage (local-path); resize via `k8s/demo/resize-proton-pvc.sh`
+- **Core Data**: 5Gi for application metadata
+- **NATS Data**: 30Gi for message persistence
+- **Certificates**: 1Gi shared TLS material
 
 ### Backup Considerations
 - Regular backups of Proton database recommended
