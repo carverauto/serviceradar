@@ -948,11 +948,15 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 }
 
 func TestDefaultKVWriter_WriteSweepConfigChunks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping chunk regression in short mode; exercised in long test suite")
+	}
+
 	const (
-		totalDevices  = 1500
-		metadataSize  = 2048
+		totalDevices  = 1100
 		expectedLimit = 512 * bytesPerKB
 	)
+	payload := strings.Repeat("x", 3072)
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -972,7 +976,7 @@ func TestDefaultKVWriter_WriteSweepConfigChunks(t *testing.T) {
 			Source:  "armis",
 			Metadata: map[string]string{
 				"device_id": fmt.Sprintf("%d", i),
-				"payload":   strings.Repeat("x", metadataSize),
+				"payload":   payload,
 			},
 		}
 	}
@@ -1004,13 +1008,16 @@ func TestDefaultKVWriter_WriteSweepConfigChunks(t *testing.T) {
 				var chunkCfg models.SweepConfig
 				require.NoError(t, json.Unmarshal(entry.Value, &chunkCfg))
 				totalDevicesWritten += len(chunkCfg.DeviceTargets)
-				require.Greater(t, len(chunkCfg.DeviceTargets), 0)
+				require.NotEmpty(t, chunkCfg.DeviceTargets)
 			case strings.HasSuffix(entry.Key, "/sweep.json"):
 				var metadata map[string]any
 				require.NoError(t, json.Unmarshal(entry.Value, &metadata))
 
-				countVal, ok := metadata["chunk_count"].(float64)
-				require.True(t, ok, "chunk_count metadata missing")
+				countValRaw, ok := metadata["chunk_count"]
+				require.Truef(t, ok, "chunk_count metadata missing (keys=%v)", metadata)
+
+				countVal, ok := countValRaw.(float64)
+				require.Truef(t, ok, "chunk_count unexpected type %T", countValRaw)
 				metaChunkCount = int(countVal)
 			default:
 				t.Fatalf("unexpected key written: %s", entry.Key)
@@ -1389,11 +1396,12 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 		Logger:        logger.NewTestLogger(),
 	}
 
-	// Create test data with 2500 devices (should be split into 5 batches of 500 each)
-	const totalDevices = 2500
+	// Create test data with 1500 devices (should be split into 3 batches of 500 each)
+	const totalDevices = 1500
 
 	devices := make([]Device, totalDevices)
 	sweepResults := make([]SweepResult, totalDevices)
+	now := time.Now()
 
 	for i := 0; i < totalDevices; i++ {
 		devices[i] = Device{
@@ -1404,15 +1412,15 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 		sweepResults[i] = SweepResult{
 			IP:        fmt.Sprintf("192.168.%d.%d", (i/254)+1, (i%254)+1),
 			Available: i%2 == 0, // Alternate between available and unavailable
-			Timestamp: time.Now(),
+			Timestamp: now,
 		}
 	}
 
-	// Expect exactly 5 calls to UpdateMultipleDeviceCustomAttributes (500 devices each)
+	// Expect exactly 3 calls to UpdateMultipleDeviceCustomAttributes (500 devices each)
 	mockUpdater.EXPECT().
 		UpdateMultipleDeviceCustomAttributes(gomock.Any(), gomock.Len(500)).
 		Return(nil).
-		Times(5)
+		Times(3)
 
 	// Execute the batch update
 	ctx := context.Background()
