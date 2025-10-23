@@ -4,6 +4,6 @@ load("//packaging:packages.bzl", "PACKAGES")
 package(default_visibility = ["//visibility:public"])
 
 serviceradar_package_from_config(
-    name = "kv",
-    config = PACKAGES["kv"],
+    name = "datasvc",
+    config = PACKAGES["datasvc"],
 )

@@ -71,11 +71,11 @@ sudo systemctl status serviceradar-nats
 
 ##### Install ServiceRadar KV Service
 
-To enable the KV store functionality in ServiceRadar, install the `serviceradar-kv` package:
+To enable the KV store functionality in ServiceRadar, install the `serviceradar-datasvc` package:
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-kv_1.0.52.deb
-sudo dpkg -i serviceradar-kv_1.0.52.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-datasvc_1.0.52.deb
+sudo dpkg -i serviceradar-datasvc_1.0.52.deb
 ```
 
 #### SNMP Monitoring
@@ -169,7 +169,7 @@ systemctl status serviceradar-core
 systemctl status nats
 
 # Check KV service status (if installed)
-systemctl status serviceradar-kv
+systemctl status serviceradar-datasvc
 ```
 
 ### Firewall Configuration
@@ -191,7 +191,7 @@ sudo ufw allow 8090/tcp   # For API (internal use)
 sudo ufw allow 80/tcp     # For web interface
 
 # If using NATS JetStream for KV store
-sudo ufw allow 50054/tcp  # For serviceradar-kv gRPC service
+sudo ufw allow 50054/tcp  # For serviceradar-datasvc gRPC service
 ```
 
 > **Security Note:** By default, NATS Server is configured to listen only on 127.0.0.1 (localhost), so port 4222 does not need to be opened in the firewall. The Next.js service (port 3000) is also not exposed externally as Nginx (port 80) proxies requests to it.
@@ -339,8 +339,8 @@ sudo systemctl status nats
 To enable the KV store functionality:
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-kv-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-kv-1.0.52-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-datasvc-1.0.52-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-datasvc-1.0.52-1.el9.x86_64.rpm
 ```
 
 > **Security Note:** By default, the NATS Server is configured to listen only on the loopback interface (127.0.0.1) for security, preventing external network access. ServiceRadar's KV service communicates with NATS Server locally, so you don't need to open port 4222 in your firewall unless NATS Server needs to be accessed from other hosts. This configuration significantly enhances the security of your deployment.
@@ -375,7 +375,7 @@ sudo firewall-cmd --permanent --add-port=8090/tcp    # Core API
 sudo firewall-cmd --permanent --add-port=50051/tcp   # Agent
 sudo firewall-cmd --permanent --add-port=50052/tcp   # Core gRPC / Dusk Checker
 sudo firewall-cmd --permanent --add-port=50053/tcp   # Poller
-sudo firewall-cmd --permanent --add-port=50057/tcp   # serviceradar-kv
+sudo firewall-cmd --permanent --add-port=50057/tcp   # serviceradar-datasvc
 sudo firewall-cmd --permanent --add-port=50058/tcp   # serviceradar-sync
 sudo firewall-cmd --reload
 ```
@@ -423,7 +423,7 @@ sudo systemctl status serviceradar-poller
 sudo systemctl status nats
 
 # Check KV service (if installed)
-sudo systemctl status serviceradar-kv
+sudo systemctl status serviceradar-datasvc
 ```
 
 ### Accessing the Dashboard
@@ -508,7 +508,7 @@ sudo chown serviceradar:serviceradar /etc/serviceradar/api.env
 
 ### NATS Connection Issues
 
-If the `serviceradar-kv` service cannot connect to NATS:
+If the `serviceradar-datasvc` service cannot connect to NATS:
 
 ```bash
 # Check NATS Server logs
@@ -528,14 +528,14 @@ If needed, you can uninstall ServiceRadar components:
 #### Debian/Ubuntu:
 ```bash
 sudo apt remove -y serviceradar-core serviceradar-web serviceradar-agent serviceradar-poller
-sudo apt remove -y serviceradar-nats serviceradar-kv
+sudo apt remove -y serviceradar-nats serviceradar-datasvc
 sudo apt remove -y nats-server
 ```
 
 #### RHEL/Oracle Linux:
 ```bash
 sudo dnf remove -y serviceradar-core serviceradar-web serviceradar-agent serviceradar-poller
-sudo dnf remove -y serviceradar-nats serviceradar-kv
+sudo dnf remove -y serviceradar-nats serviceradar-datasvc
 sudo dnf remove -y nats-server
 ```
 

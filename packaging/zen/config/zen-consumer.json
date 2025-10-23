@@ -45,7 +45,7 @@
     }
   ],
   "agent_id": "default-agent",
-  "kv_bucket": "serviceradar-kv",
+  "kv_bucket": "serviceradar-datasvc",
   "listen_addr": "0.0.0.0:50040",
   "result_subject_suffix": ".processed",
   "security": {

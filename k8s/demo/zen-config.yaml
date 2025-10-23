@@ -50,7 +50,7 @@ data:
         }
       ],
       "agent_id": "k8s-zen-consumer",
-      "kv_bucket": "serviceradar-kv",
+      "kv_bucket": "serviceradar-datasvc",
       "listen_addr": "0.0.0.0:50040",
       "result_subject_suffix": ".processed",
       "security": {

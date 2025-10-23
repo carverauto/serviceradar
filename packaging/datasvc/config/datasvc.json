@@ -5,10 +5,10 @@
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "PLACEHOLDER_NATS_SERVER_NAME",
-    "role": "kv",
+    "role": "datasvc",
     "tls": {
-      "cert_file": "kv.pem",
-      "key_file": "kv-key.pem",
+      "cert_file": "datasvc.pem",
+      "key_file": "datasvc-key.pem",
       "ca_file": "root.pem",
       "client_ca_file": "root.pem"
     }
@@ -18,7 +18,7 @@
       {"identity": "CN=PLACEHOLDER_IDENTITY,O=ServiceRadar", "role": "reader"}
     ]
   },
-  "bucket": "serviceradar-kv",
+  "bucket": "serviceradar-datasvc",
   "bucket_history": 1,
   "bucket_ttl": "24h",
   "bucket_max_bytes": 5368709120

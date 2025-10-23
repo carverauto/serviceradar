@@ -481,16 +481,16 @@ oci_load(
 )
 
 pkg_tar(
-    name = "kv_layer_amd64",
+    name = "datasvc_layer_amd64",
     files = {
-        "//cmd/data-services:data_services": "usr/local/bin/serviceradar-kv",
-        "//docker/compose:entrypoint-kv.sh": "usr/local/bin/entrypoint.sh",
-        "//docker/compose:kv.docker.json": "etc/serviceradar/kv.json",
+        "//cmd/data-services:data_services": "usr/local/bin/serviceradar-datasvc",
+        "//docker/compose:entrypoint-datasvc.sh": "usr/local/bin/entrypoint.sh",
+        "//docker/compose:datasvc.docker.json": "etc/serviceradar/datasvc.json",
     },
     modes = {
-        "usr/local/bin/serviceradar-kv": "0755",
+        "usr/local/bin/serviceradar-datasvc": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
-        "etc/serviceradar/kv.json": "0644",
+        "etc/serviceradar/datasvc.json": "0644",
     },
     empty_dirs = [
         "var/lib/serviceradar",
@@ -500,25 +500,25 @@ pkg_tar(
 )
 
 oci_image(
-    name = "kv_image_amd64",
+    name = "datasvc_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":kv_layer_amd64"],
+    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":datasvc_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
-    cmd = ["/usr/local/bin/serviceradar-kv"],
+    cmd = ["/usr/local/bin/serviceradar-datasvc"],
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
     },
     workdir = "/var/lib/serviceradar",
     exposed_ports = ["50057/tcp"],
     labels = {
-        "org.opencontainers.image.title": "serviceradar-kv",
+        "org.opencontainers.image.title": "serviceradar-datasvc",
     },
 )
 
 oci_load(
-    name = "kv_image_amd64_tar",
-    image = ":kv_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-kv:local"],
+    name = "datasvc_image_amd64_tar",
+    image = ":datasvc_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-datasvc:local"],
 )
 
 pkg_tar(

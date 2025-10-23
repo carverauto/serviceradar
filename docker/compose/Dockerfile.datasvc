@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Multi-stage build for ServiceRadar KV service
+# Multi-stage build for ServiceRadar data services (KV + object store)
 FROM golang:latest AS builder
 
 WORKDIR /src
@@ -33,12 +33,12 @@ COPY . .
 ARG VERSION=dev
 ARG BUILD_ID=docker
 
-# Build the kv service (detect architecture automatically)
+# Build the data service (detect architecture automatically)
 RUN CGO_ENABLED=0 GOOS=linux \
     go build \
     -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=${VERSION} \
               -X github.com/carverauto/serviceradar/pkg/version.buildID=${BUILD_ID}" \
-    -o serviceradar-kv ./cmd/data-services
+    -o serviceradar-datasvc ./cmd/data-services
 RUN CGO_ENABLED=0 GOOS=linux \
     go build \
     -o wait-for-port ./cmd/tools/waitforport
@@ -67,14 +67,14 @@ RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
 
 # Copy binary from builder
-COPY --from=builder /src/serviceradar-kv /usr/local/bin/serviceradar-kv
-RUN chmod +x /usr/local/bin/serviceradar-kv
+COPY --from=builder /src/serviceradar-datasvc /usr/local/bin/serviceradar-datasvc
+RUN chmod +x /usr/local/bin/serviceradar-datasvc
 
 COPY --from=builder /src/wait-for-port /usr/local/bin/wait-for-port
 RUN chmod +x /usr/local/bin/wait-for-port
 
 # Copy entrypoint script
-COPY docker/compose/entrypoint-kv.sh /usr/local/bin/entrypoint.sh
+COPY docker/compose/entrypoint-datasvc.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Switch to non-root user
@@ -92,4 +92,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 # Set entrypoint
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["serviceradar-kv"]
+CMD ["serviceradar-datasvc"]

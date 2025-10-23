@@ -51,7 +51,7 @@ struct Config {
 }
 
 fn default_kv_bucket() -> String {
-    "serviceradar-kv".to_string()
+    "serviceradar-datasvc".to_string()
 }
 
 impl Config {

@@ -33,7 +33,7 @@ metadata:
   namespace: demo
 spec:
   type: ExternalName
-  externalName: serviceradar-kv.demo.svc.cluster.local
+  externalName: serviceradar-datasvc.demo.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service

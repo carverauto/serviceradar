@@ -103,7 +103,7 @@ func (c *Config) normalizeCertPaths() {
 // setDefaultBucket assigns a default bucket name if none is specified.
 func (c *Config) setDefaultBucket() {
 	if c.Bucket == "" {
-		c.Bucket = "serviceradar-kv"
+		c.Bucket = "serviceradar-datasvc"
 	}
 }
 

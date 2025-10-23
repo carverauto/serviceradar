@@ -14,7 +14,7 @@ The ServiceRadar demo cluster bundles the core platform services into a single K
 | Poller | Coordinates health checks against agents and external targets. | `deploy/serviceradar-poller` |
 | Sync | Ingests metadata from external systems (e.g., NetBox, Armis) and keeps the registry current. | `deploy/serviceradar-sync` |
 | Registry | Stores canonical device inventory and service relationships. | `statefulset/serviceradar-registry` |
-| KV | Provides dynamic configuration via NATS JetStream. | `statefulset/serviceradar-kv` |
+| KV | Provides dynamic configuration via NATS JetStream. | `statefulset/serviceradar-datasvc` |
 | Web UI | Serves dashboards and embeds SRQL explorers. | `deploy/serviceradar-web` |
 
 Each deployment surfaces the `serviceradar.io/component` label; use it to filter logs and metrics when debugging clustered issues.

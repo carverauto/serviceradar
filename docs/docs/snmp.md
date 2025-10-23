@@ -49,7 +49,7 @@ These and the syslog-focused rules share the same GoRules/zen runtime. A Web UI 
 
 ## Managing Rules
 
-- Rules live in the `serviceradar-kv` bucket under `agents/<agent-id>/<stream>/<subject>/<rule>.json`. For the demo stack that becomes `agents/default-agent/events/events.snmp/snmp_severity.json`.
+- Rules live in the `serviceradar-datasvc` bucket under `agents/<agent-id>/<stream>/<subject>/<rule>.json`. For the demo stack that becomes `agents/default-agent/events/events.snmp/snmp_severity.json`.
 - Update or add rules with the `zen-put-rule` helper inside the `serviceradar-tools` container. Example:
 
   ```bash

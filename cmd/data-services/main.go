@@ -30,7 +30,7 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "/etc/serviceradar/kv.json", "Path to config file")
+	configPath := flag.String("config", "/etc/serviceradar/datasvc.json", "Path to config file")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -48,14 +48,14 @@ func main() {
 
 	server, err := kv.NewServer(ctx, &cfg)
 	if err != nil {
-		log.Fatalf("Failed to create KV server: %v", err)
+		log.Fatalf("Failed to create data service server: %v", err)
 	}
 
 	cfgLoader.SetKVStore(server.Store())
 
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        cfg.ListenAddr,
-		ServiceName:       "kv",
+		ServiceName:       "datasvc",
 		Service:           server,
 		EnableHealthCheck: true,
 		Security:          cfg.Security,

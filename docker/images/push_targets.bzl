@@ -10,7 +10,7 @@ GHCR_PUSH_TARGETS = [
     ("agent_image_amd64", "ghcr.io/carverauto/serviceradar-agent"),
     ("db_event_writer_image_amd64", "ghcr.io/carverauto/serviceradar-db-event-writer"),
     ("mapper_image_amd64", "ghcr.io/carverauto/serviceradar-mapper"),
-    ("kv_image_amd64", "ghcr.io/carverauto/serviceradar-kv"),
+    ("datasvc_image_amd64", "ghcr.io/carverauto/serviceradar-datasvc"),
     ("flowgger_image_amd64", "ghcr.io/carverauto/serviceradar-flowgger"),
     ("trapd_image_amd64", "ghcr.io/carverauto/serviceradar-trapd"),
     ("otel_image_amd64", "ghcr.io/carverauto/serviceradar-otel"),

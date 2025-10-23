@@ -1,0 +1,18 @@
+[Unit]
+Description=ServiceRadar Data Service
+After=network.target
+
+[Service]
+Type=simple
+User=serviceradar
+ExecStart=/usr/local/bin/serviceradar-datasvc -config /etc/serviceradar/datasvc.json
+Restart=always
+RestartSec=10
+LimitNPROC=512
+LimitNOFILE=65535
+
+StandardOutput=append:/var/log/serviceradar/datasvc.log
+StandardError=append:/var/log/serviceradar/datasvc-error.log
+
+[Install]
+WantedBy=multi-user.target
