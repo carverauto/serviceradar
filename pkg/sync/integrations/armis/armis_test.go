@@ -947,6 +947,86 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 	}
 }
 
+func TestDefaultKVWriter_WriteSweepConfigChunks(t *testing.T) {
+	const (
+		totalDevices  = 1500
+		metadataSize  = 2048
+		expectedLimit = 512 * bytesPerKB
+	)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := newMockKVClient(ctrl)
+
+	kvWriter := &DefaultKVWriter{
+		KVClient: mockKV,
+		AgentID:  "k8s-agent",
+		Logger:   logger.NewTestLogger(),
+	}
+
+	deviceTargets := make([]models.DeviceTarget, totalDevices)
+	for i := range deviceTargets {
+		deviceTargets[i] = models.DeviceTarget{
+			Network: fmt.Sprintf("10.0.%d.%d/32", i/256, i%256),
+			Source:  "armis",
+			Metadata: map[string]string{
+				"device_id": fmt.Sprintf("%d", i),
+				"payload":   strings.Repeat("x", metadataSize),
+			},
+		}
+	}
+
+	sweepConfig := &models.SweepConfig{
+		DeviceTargets: deviceTargets,
+		Ports:         []int{22, 80, 443},
+		SweepModes:    []string{string(models.ModeICMP)},
+		Interval:      "5m",
+		Timeout:       "15s",
+	}
+
+	var (
+		chunkCalls          int
+		totalDevicesWritten int
+		metaChunkCount      int
+	)
+
+	mockKV.EXPECT().PutMany(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req *proto.PutManyRequest, _ ...grpc.CallOption) (*proto.PutManyResponse, error) {
+			require.Len(t, req.Entries, 1)
+			entry := req.Entries[0]
+
+			switch {
+			case strings.Contains(entry.Key, "sweep_chunk_"):
+				chunkCalls++
+				require.LessOrEqualf(t, len(entry.Value), expectedLimit, "chunk %s exceeded size limit", entry.Key)
+
+				var chunkCfg models.SweepConfig
+				require.NoError(t, json.Unmarshal(entry.Value, &chunkCfg))
+				totalDevicesWritten += len(chunkCfg.DeviceTargets)
+				require.Greater(t, len(chunkCfg.DeviceTargets), 0)
+			case strings.HasSuffix(entry.Key, "/sweep.json"):
+				var metadata map[string]any
+				require.NoError(t, json.Unmarshal(entry.Value, &metadata))
+
+				countVal, ok := metadata["chunk_count"].(float64)
+				require.True(t, ok, "chunk_count metadata missing")
+				metaChunkCount = int(countVal)
+			default:
+				t.Fatalf("unexpected key written: %s", entry.Key)
+			}
+
+			return &proto.PutManyResponse{}, nil
+		}).AnyTimes()
+
+	err := kvWriter.WriteSweepConfig(context.Background(), sweepConfig)
+	require.NoError(t, err)
+
+	require.Greater(t, chunkCalls, 1, "expected multiple chunk writes")
+	require.Equal(t, chunkCalls, metaChunkCount, "metadata chunk count mismatch")
+	require.Equal(t, totalDevices, totalDevicesWritten)
+}
+
 func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
