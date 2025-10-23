@@ -17,23 +17,31 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-// grpcKVStore adapts the gRPC KV client to the KVStore interface.
-type grpcKVStore struct {
-    client proto.KVServiceClient
-    conn   *grpc.Client
+// grpcRemoteStore adapts the gRPC KV/DataService clients to the agent interfaces.
+type grpcRemoteStore struct {
+	configClient proto.KVServiceClient
+	objectClient proto.DataServiceClient
+	conn         *grpc.Client
 }
 
-var _ KVStore = (*grpcKVStore)(nil) // Ensure grpcKVStore implements KVStore
+var (
+	_ KVStore     = (*grpcRemoteStore)(nil)
+	_ ObjectStore = (*grpcRemoteStore)(nil)
+)
 
-func (g *grpcKVStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
-	resp, err := g.client.Get(ctx, &proto.GetRequest{Key: key})
+func (s *grpcRemoteStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
+	resp, err := s.configClient.Get(ctx, &proto.GetRequest{Key: key})
 	if err != nil {
 		return nil, false, err
 	}
@@ -41,26 +49,26 @@ func (g *grpcKVStore) Get(ctx context.Context, key string) (value []byte, found 
 	return resp.Value, resp.Found, nil
 }
 
-func (g *grpcKVStore) Put(ctx context.Context, key string, value []byte, ttl time.Duration) error {
-    _, err := g.client.Put(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
-
-    return err
-}
-
-// PutIfAbsent is available when KV server supports it; falls back to error if unimplemented.
-func (g *grpcKVStore) PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error {
-    _, err := g.client.PutIfAbsent(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
-    return err
-}
-
-func (g *grpcKVStore) Delete(ctx context.Context, key string) error {
-	_, err := g.client.Delete(ctx, &proto.DeleteRequest{Key: key})
+func (s *grpcRemoteStore) Put(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	_, err := s.configClient.Put(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
 
 	return err
 }
 
-func (g *grpcKVStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
-	stream, err := g.client.Watch(ctx, &proto.WatchRequest{Key: key})
+// PutIfAbsent is available when KV server supports it; falls back to error if unimplemented.
+func (s *grpcRemoteStore) PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	_, err := s.configClient.PutIfAbsent(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
+	return err
+}
+
+func (s *grpcRemoteStore) Delete(ctx context.Context, key string) error {
+	_, err := s.configClient.Delete(ctx, &proto.DeleteRequest{Key: key})
+
+	return err
+}
+
+func (s *grpcRemoteStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
+	stream, err := s.configClient.Watch(ctx, &proto.WatchRequest{Key: key})
 	if err != nil {
 		return nil, err
 	}
@@ -87,6 +95,57 @@ func (g *grpcKVStore) Watch(ctx context.Context, key string) (<-chan []byte, err
 	return ch, nil
 }
 
-func (g *grpcKVStore) Close() error {
-	return g.conn.Close()
+func (s *grpcRemoteStore) DownloadObject(ctx context.Context, key string) ([]byte, error) {
+	if s.objectClient == nil {
+		return nil, errDataServiceUnavailable
+	}
+
+	stream, err := s.objectClient.DownloadObject(ctx, &proto.DownloadObjectRequest{Key: key})
+	if err != nil {
+		return nil, translateDataServiceError(err)
+	}
+
+	var buf bytes.Buffer
+
+	for {
+		chunk, recvErr := stream.Recv()
+		if recvErr == io.EOF {
+			break
+		}
+
+		if recvErr != nil {
+			return nil, translateDataServiceError(recvErr)
+		}
+
+		if data := chunk.GetData(); len(data) > 0 {
+			if _, writeErr := buf.Write(data); writeErr != nil {
+				return nil, writeErr
+			}
+		}
+
+		if chunk.GetIsFinal() {
+			break
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (s *grpcRemoteStore) Close() error {
+	return s.conn.Close()
+}
+
+func translateDataServiceError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if st, ok := status.FromError(err); ok {
+		switch st.Code() {
+		case codes.Unimplemented, codes.NotFound, codes.PermissionDenied, codes.FailedPrecondition:
+			return errDataServiceUnavailable
+		}
+	}
+
+	return err
 }

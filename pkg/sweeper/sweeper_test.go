@@ -225,15 +225,15 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			Interval: 5 * time.Minute,
 		}
 
-		sweeper := &NetworkSweeper{
-			config:    initialConfig,
-			logger:    logger.NewTestLogger(),
-			kvStore:   subMockKVStore,
-			configKey: "test-config-key",
-			watchDone: make(chan struct{}),
-			done:      make(chan struct{}),
-			kvBackoff: newTestKVBackoff(),
-		}
+        sweeper := &NetworkSweeper{
+            config:      initialConfig,
+            logger:      logger.NewTestLogger(),
+            configStore: subMockKVStore,
+            configKey:   "test-config-key",
+            watchDone:   make(chan struct{}),
+            done:        make(chan struct{}),
+            kvBackoff:   newTestKVBackoff(),
+        }
 
 		// Mock KV config with new networks
 		kvConfigJSON := `{"networks":["10.0.0.0/8","172.16.0.0/12"],"ports":null,"interval":""}`
@@ -293,7 +293,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 		sweeper := &NetworkSweeper{
 			config:    initialConfig,
 			logger:    logger.NewTestLogger(),
-			kvStore:   nil, // No KV store
+            configStore:   nil, // No KV store
 			configKey: "test-config-key",
 			watchDone: make(chan struct{}),
 			done:      make(chan struct{}),
@@ -345,7 +345,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 		sweeper := &NetworkSweeper{
 			config:    initialConfig,
 			logger:    logger.NewTestLogger(),
-			kvStore:   subMockKVStore,
+            configStore:   subMockKVStore,
 			configKey: "test-config-key",
 			watchDone: make(chan struct{}),
 			done:      make(chan struct{}),
@@ -920,20 +920,20 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 	mockKVStore := NewMockKVStore(ctrl)
 	log := logger.NewTestLogger()
 
-	sweeper := &NetworkSweeper{
-		config: &models.Config{
-			Networks:   []string{"192.168.1.0/24"},
-			Ports:      []int{22, 80},
-			SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
-			Interval:   5 * time.Minute,
-		},
-		kvStore:   mockKVStore,
-		configKey: "test-config-key",
-		watchDone: make(chan struct{}),
-		done:      make(chan struct{}),
-		logger:    log,
-		kvBackoff: newTestKVBackoff(),
-	}
+    sweeper := &NetworkSweeper{
+        config: &models.Config{
+            Networks:   []string{"192.168.1.0/24"},
+            Ports:      []int{22, 80},
+            SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+            Interval:   5 * time.Minute,
+        },
+        configStore: mockKVStore,
+        configKey:   "test-config-key",
+        watchDone:   make(chan struct{}),
+        done:        make(chan struct{}),
+        logger:      log,
+        kvBackoff:   newTestKVBackoff(),
+    }
 
 	configReady := make(chan struct{})
 	ctx, cancel := context.WithTimeout(context.Background(), testWatchContextTimeout)

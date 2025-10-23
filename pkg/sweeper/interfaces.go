@@ -23,7 +23,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_sweeper.go -package=sweeper github.com/carverauto/serviceradar/pkg/sweeper Sweeper,ResultProcessor,Store,Reporter,SweepService,KVStore,DeviceRegistryService
+//go:generate mockgen -destination=mock_sweeper.go -package=sweeper github.com/carverauto/serviceradar/pkg/sweeper Sweeper,ResultProcessor,Store,Reporter,SweepService,KVStore,ObjectStore,DeviceRegistryService
 
 // ResultProcessor defines how to process and aggregate sweep results.
 type ResultProcessor interface {
@@ -88,4 +88,8 @@ type SweepService interface {
 type KVStore interface {
 	Get(ctx context.Context, key string) (value []byte, found bool, err error)
 	Watch(ctx context.Context, key string) (<-chan []byte, error)
+}
+
+type ObjectStore interface {
+	DownloadObject(ctx context.Context, key string) ([]byte, error)
 }

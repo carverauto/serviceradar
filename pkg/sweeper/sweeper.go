@@ -19,8 +19,8 @@ package sweeper
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -31,11 +31,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
-)
-
-var (
-	// ErrFailedToReadChunk is returned when a chunk cannot be read
-	ErrFailedToReadChunk = errors.New("failed to read chunk")
 )
 
 // Option configures a NetworkSweeper instance.
@@ -134,7 +129,8 @@ type NetworkSweeper struct {
 	tcpConnectScanner scan.Scanner // TCP connect scanner (safe for conntrack)
 	store             Store
 	processor         ResultProcessor
-	kvStore           KVStore
+	configStore       KVStore
+	objectStore       ObjectStore
 	deviceRegistry    DeviceRegistryService
 	configKey         string
 	logger            logger.Logger
@@ -143,9 +139,9 @@ type NetworkSweeper struct {
 	done              chan struct{}
 	watchDone         chan struct{}
 	lastSweep         time.Time
-	// KV change detection
-	lastConfigTimestamp string
-	lastConfigHash      [32]byte
+	// Config change detection
+	lastConfigHash [32]byte
+	lastObjectHash [32]byte
 	// Device result aggregation for multi-IP devices
 	deviceResults map[string]*DeviceResultAggregator
 	resultsMu     sync.Mutex
@@ -181,7 +177,8 @@ func NewNetworkSweeper(
 	config *models.Config,
 	store Store,
 	processor ResultProcessor,
-	kvStore KVStore,
+	configStore KVStore,
+	objectStore ObjectStore,
 	deviceRegistry DeviceRegistryService,
 	configKey string,
 	log logger.Logger,
@@ -208,7 +205,8 @@ func NewNetworkSweeper(
 		tcpConnectScanner: tcpConnectScanner,
 		store:             store,
 		processor:         processor,
-		kvStore:           kvStore,
+		configStore:       configStore,
+		objectStore:       objectStore,
 		deviceRegistry:    deviceRegistry,
 		configKey:         configKey,
 		logger:            log,
@@ -812,14 +810,14 @@ func (s *NetworkSweeper) handleBackoffWait(
 func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, configReady chan<- struct{}) {
 	defer close(s.watchDone)
 
-	if s.kvStore == nil {
-		s.logger.Debug().Msg("No KV store configured, skipping config watch")
+	if s.configStore == nil {
+		s.logger.Debug().Msg("No config store configured, skipping config watch")
 		close(configReady) // Signal immediately since there's no KV config to wait for
 
 		return
 	}
 
-	s.logger.Info().Str("configKey", s.configKey).Msg("Starting KV watch with auto-reconnect")
+	s.logger.Info().Str("configKey", s.configKey).Msg("Starting config watch with auto-reconnect")
 
 	initialConfigReceived := false
 	cfg := s.kvWatchBackoff()
@@ -870,7 +868,7 @@ const (
 
 // performKVWatch performs a single KV watch session and returns the reason it ended
 func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceived *bool, configReady chan<- struct{}) watchResult {
-	ch, err := s.kvStore.Watch(ctx, s.configKey)
+	ch, err := s.configStore.Watch(ctx, s.configKey)
 	if err != nil {
 		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to watch KV key")
 		// If we can't establish the watch and haven't received initial config, signal to proceed with file config
@@ -909,7 +907,7 @@ func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceiv
 				return watchResultChannelClosed
 			}
 
-			s.processConfigUpdate(value)
+			s.processConfigUpdate(ctx, value)
 
 			// Signal that initial config has been received
 			if !*initialConfigReceived {
@@ -936,383 +934,110 @@ func (s *NetworkSweeper) addJitter(backoff time.Duration) time.Duration {
 }
 
 // processConfigUpdate processes a config update from the KV store.
-func (s *NetworkSweeper) processConfigUpdate(value []byte) {
+func (s *NetworkSweeper) processConfigUpdate(ctx context.Context, value []byte) {
 	s.logger.Debug().
 		Int("valueLength", len(value)).
-		Msg("Processing KV config update")
+		Msg("Processing config update")
 
-	// Calculate hash of the incoming config to detect changes
 	configHash := sha256.Sum256(value)
 
-	// Check if we've already processed this exact configuration
 	s.mu.Lock()
-
 	if s.lastConfigHash == configHash {
 		s.mu.Unlock()
-		s.logger.Debug().Msg("Configuration unchanged, skipping processing")
-
+		s.logger.Debug().Msg("Configuration pointer unchanged, skipping")
 		return
 	}
-
 	s.mu.Unlock()
 
-	// First check if this is a metadata file indicating chunked config
-	var metadataCheck map[string]interface{}
+	configPayload := value
+	var objectHash [32]byte
 
-	if err := json.Unmarshal(value, &metadataCheck); err != nil {
-		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to unmarshal config")
-
-		return
-	}
-
-	// Check if this is a metadata file with chunk information
-	if chunkCount, exists := metadataCheck["chunk_count"]; exists {
-		// For chunked config, also check timestamp
-		timestamp, timestampExists := metadataCheck["timestamp"].(string)
-		if timestampExists {
-			s.mu.Lock()
-
-			if s.lastConfigTimestamp == timestamp {
-				s.mu.Unlock()
-				s.logger.Debug().
-					Str("timestamp", timestamp).
-					Msg("Chunked configuration timestamp unchanged, skipping processing")
-
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(value, &metadata); err == nil {
+		if storage, ok := metadata["storage"].(string); ok && storage == "data_service" {
+			objectKey, hasKey := metadata["object_key"].(string)
+			if !hasKey || objectKey == "" {
+				s.logger.Warn().Str("configKey", s.configKey).Msg("DataService metadata missing object_key")
 				return
 			}
 
-			s.lastConfigTimestamp = timestamp
+			if s.objectStore == nil {
+				s.logger.Warn().Str("configKey", s.configKey).Msg("Object store unavailable; cannot hydrate sweep config")
+				return
+			}
+
+			objectData, err := s.objectStore.DownloadObject(ctx, objectKey)
+			if err != nil {
+				s.logger.Error().Err(err).Str("objectKey", objectKey).Msg("Failed to download sweep config object")
+				return
+			}
+
+			if expectedSHA, ok := metadata["sha256"].(string); ok && expectedSHA != "" {
+				actualHash := sha256.Sum256(objectData)
+				actualSHA := hex.EncodeToString(actualHash[:])
+				if !strings.EqualFold(expectedSHA, actualSHA) {
+					s.logger.Warn().
+						Str("objectKey", objectKey).
+						Str("expected_sha", expectedSHA).
+						Str("actual_sha", actualSHA).
+						Msg("Checksum mismatch for sweep config object")
+				}
+			}
+
+			configPayload = objectData
+
+			if overrides, ok := metadata["overrides"]; ok {
+				if merged, err := mergeSweepOverrides(configPayload, overrides); err != nil {
+					s.logger.Warn().Err(err).Msg("Failed to merge sweep overrides; using base object")
+				} else {
+					configPayload = merged
+				}
+			}
+
+			objectHash = sha256.Sum256(configPayload)
+
+			s.mu.Lock()
+			if s.lastObjectHash == objectHash {
+				s.lastConfigHash = configHash
+				s.mu.Unlock()
+				s.logger.Debug().Msg("Sweep object unchanged, skipping")
+				return
+			}
 			s.mu.Unlock()
 		}
+	}
 
-		s.logger.Info().
-			Int("chunkCount", int(chunkCount.(float64))).
-			Str("timestamp", timestamp).
-			Msg("Detected new chunked sweep config, reading chunks")
-
-		s.processChunkedConfig(metadataCheck)
-
-		// Update hash after successful processing
-		s.mu.Lock()
-		s.lastConfigHash = configHash
-		s.mu.Unlock()
-
+	if err := s.processSingleConfig(configPayload); err != nil {
 		return
 	}
 
-	s.logger.Debug().Msg("Processing as single config file")
-
-	// Process as single file (legacy format)
-	s.processSingleConfig(value, configHash)
+	s.mu.Lock()
+	s.lastConfigHash = configHash
+	s.lastObjectHash = objectHash
+	s.mu.Unlock()
 }
 
 // processSingleConfig handles the original single-file config format
-func (s *NetworkSweeper) processSingleConfig(value []byte, configHash [32]byte) {
+func (s *NetworkSweeper) processSingleConfig(value []byte) error {
 	var temp unmarshalConfig
 	if err := json.Unmarshal(value, &temp); err != nil {
 		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to unmarshal single config")
-		return
+		return err
 	}
 
 	newConfig := s.createConfigFromUnmarshal(&temp)
 
 	if err := s.UpdateConfig(&newConfig); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to apply single config update")
+		return err
 	} else {
-		// Update hash after successful processing
-		s.mu.Lock()
-		s.lastConfigHash = configHash
-		s.mu.Unlock()
-
 		s.logger.Info().
 			Int("networks", len(newConfig.Networks)).
 			Int("deviceTargets", len(newConfig.DeviceTargets)).
 			Msg("Successfully updated sweep config from single KV file")
 	}
-}
 
-// processChunkedConfig handles the new chunked config format
-func (s *NetworkSweeper) processChunkedConfig(metadata map[string]interface{}) {
-	if s.kvStore == nil {
-		s.logger.Error().Msg("KV store is nil, cannot read chunked config")
-		return
-	}
-
-	chunkCount, ok := s.extractChunkCount(metadata)
-	if !ok {
-		return
-	}
-
-	baseConfig, combinedNetworks, combinedDeviceTargets, ok := s.readAndParseChunks(chunkCount)
-	if !ok {
-		return
-	}
-
-	s.applyChunkedConfig(&baseConfig, combinedNetworks, combinedDeviceTargets, chunkCount)
-}
-
-// extractChunkCount extracts and validates chunk count from metadata
-func (s *NetworkSweeper) extractChunkCount(metadata map[string]interface{}) (int, bool) {
-	chunkCountFloat, ok := metadata["chunk_count"].(float64)
-	if !ok {
-		s.logger.Error().Msg("Invalid chunk_count in metadata")
-		return 0, false
-	}
-
-	chunkCount := int(chunkCountFloat)
-	s.logger.Info().
-		Int("chunkCount", chunkCount).
-		Str("baseConfigKey", s.getBaseConfigKey()).
-		Msg("Reading chunked sweep configuration")
-
-	return chunkCount, true
-}
-
-// chunkResult holds the result of reading and parsing a single chunk
-type chunkResult struct {
-	config unmarshalConfig
-	index  int
-	err    error
-}
-
-// readAndParseChunks reads all chunks in parallel and combines their data
-func (s *NetworkSweeper) readAndParseChunks(chunkCount int) (unmarshalConfig, []string, []models.DeviceTarget, bool) {
-	startTime := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-
-	defer cancel()
-
-	// Get chunk configurations in parallel
-	chunkConfigs, successCount, ok := s.readChunksInParallel(ctx, chunkCount)
-	if !ok {
-		s.logger.Error().
-			Int("chunkCount", chunkCount).
-			Dur("duration", time.Since(startTime)).
-			Msg("No valid chunks found")
-
-		return unmarshalConfig{}, nil, nil, false
-	}
-
-	// Combine all valid chunk configurations
-	baseConfig, networks, deviceTargets := s.combineChunkConfigs(chunkConfigs, chunkCount)
-
-	s.logger.Info().
-		Int("chunkCount", chunkCount).
-		Int("successCount", successCount).
-		Int("totalNetworks", len(networks)).
-		Int("totalDeviceTargets", len(deviceTargets)).
-		Dur("duration", time.Since(startTime)).
-		Msg("Parallel chunk processing completed")
-
-	return baseConfig, networks, deviceTargets, true
-}
-
-// readChunksInParallel reads chunk configurations using parallel workers.
-func (s *NetworkSweeper) readChunksInParallel(ctx context.Context, chunkCount int) ([]unmarshalConfig, int, bool) {
-	results := make(chan chunkResult, chunkCount)
-
-	var wg sync.WaitGroup
-
-	// Launch parallel workers to read chunks
-	workerCount := minInt(chunkCount, 10) // Limit concurrent KV operations
-	chunkJobs := make(chan int, chunkCount)
-
-	s.startChunkWorkers(ctx, &wg, chunkJobs, results, workerCount)
-	s.sendChunkJobs(ctx, chunkJobs, chunkCount)
-
-	// Close results channel when all workers are done
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	return s.collectChunkResults(results, chunkCount)
-}
-
-// startChunkWorkers starts parallel workers to read chunk data.
-func (s *NetworkSweeper) startChunkWorkers(ctx context.Context, wg *sync.WaitGroup,
-	chunkJobs <-chan int, results chan<- chunkResult, workerCount int) {
-	// Start workers
-	for i := 0; i < workerCount; i++ {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			for chunkIndex := range chunkJobs {
-				chunkKey := fmt.Sprintf("%s_chunk_%d.json", s.getBaseConfigKey(), chunkIndex)
-
-				chunkConfig, ok := s.readSingleChunk(ctx, chunkKey, chunkIndex)
-				if ok {
-					results <- chunkResult{
-						config: chunkConfig,
-						index:  chunkIndex,
-						err:    nil,
-					}
-				} else {
-					results <- chunkResult{
-						index: chunkIndex,
-						err:   fmt.Errorf("%w %d", ErrFailedToReadChunk, chunkIndex),
-					}
-				}
-			}
-		}()
-	}
-}
-
-// sendChunkJobs sends chunk indices to worker goroutines.
-func (*NetworkSweeper) sendChunkJobs(ctx context.Context, chunkJobs chan<- int, chunkCount int) {
-	go func() {
-		defer close(chunkJobs)
-
-		for i := 0; i < chunkCount; i++ {
-			select {
-			case chunkJobs <- i:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-}
-
-// collectChunkResults collects and validates results from chunk workers.
-func (s *NetworkSweeper) collectChunkResults(results <-chan chunkResult, chunkCount int) ([]unmarshalConfig, int, bool) {
-	chunkConfigs := make([]unmarshalConfig, chunkCount)
-	validChunks := make([]bool, chunkCount)
-	successCount := 0
-
-	for result := range results {
-		if result.err == nil {
-			chunkConfigs[result.index] = result.config
-			validChunks[result.index] = true
-			successCount++
-		} else {
-			s.logger.Warn().
-				Err(result.err).
-				Int("chunkIndex", result.index).
-				Msg("Failed to read chunk")
-		}
-	}
-
-	if successCount == 0 {
-		return nil, 0, false
-	}
-
-	// Create final slice with only valid configs, maintaining order
-	finalConfigs := make([]unmarshalConfig, 0, successCount)
-
-	for i := 0; i < chunkCount; i++ {
-		if validChunks[i] {
-			finalConfigs = append(finalConfigs, chunkConfigs[i])
-		}
-	}
-
-	return finalConfigs, successCount, true
-}
-
-// combineChunkConfigs combines all chunk configurations into final result.
-func (s *NetworkSweeper) combineChunkConfigs(chunkConfigs []unmarshalConfig, chunkCount int) (
-	unmarshalConfig, []string, []models.DeviceTarget) {
-	// Pre-allocate slices with estimated capacity to reduce allocations
-	const estimatedDevicesPerChunk = 1000
-
-	estimatedTotalDevices := chunkCount * estimatedDevicesPerChunk
-
-	combinedNetworks := make([]string, 0, estimatedTotalDevices)
-	combinedDeviceTargets := make([]models.DeviceTarget, 0, estimatedTotalDevices)
-
-	var baseConfig unmarshalConfig
-
-	var configSet bool
-
-	// Combine results in order
-	for i := 0; i < len(chunkConfigs); i++ {
-		chunkConfig := chunkConfigs[i]
-		// Use first valid chunk for base configuration
-		if !configSet {
-			baseConfig = chunkConfig
-			configSet = true
-		}
-
-		// Accumulate networks and device targets
-		combinedNetworks = append(combinedNetworks, chunkConfig.Networks...)
-		combinedDeviceTargets = append(combinedDeviceTargets, chunkConfig.DeviceTargets...)
-
-		s.logger.Debug().
-			Int("chunkIndex", i).
-			Int("networks", len(chunkConfig.Networks)).
-			Int("deviceTargets", len(chunkConfig.DeviceTargets)).
-			Int("totalNetworks", len(combinedNetworks)).
-			Int("totalDeviceTargets", len(combinedDeviceTargets)).
-			Msg("Combined config chunk")
-	}
-
-	return baseConfig, combinedNetworks, combinedDeviceTargets
-}
-
-// readSingleChunk reads and parses a single chunk
-func (s *NetworkSweeper) readSingleChunk(ctx context.Context, chunkKey string, chunkIndex int) (unmarshalConfig, bool) {
-	s.logger.Debug().Str("chunkKey", chunkKey).Int("chunkIndex", chunkIndex).Msg("Reading config chunk")
-
-	chunkData, found, err := s.kvStore.Get(ctx, chunkKey)
-	if err != nil {
-		s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("Failed to get chunk data")
-		return unmarshalConfig{}, false
-	}
-
-	if !found {
-		s.logger.Warn().Str("chunkKey", chunkKey).Msg("Chunk data not found")
-		return unmarshalConfig{}, false
-	}
-
-	if len(chunkData) == 0 {
-		s.logger.Warn().Str("chunkKey", chunkKey).Msg("Empty chunk data")
-		return unmarshalConfig{}, false
-	}
-
-	s.logger.Debug().Str("chunkKey", chunkKey).Int("dataLength", len(chunkData)).Msg("Successfully retrieved chunk data")
-
-	var chunkConfig unmarshalConfig
-	if err := json.Unmarshal(chunkData, &chunkConfig); err != nil {
-		s.logger.Error().Err(err).Str("chunkKey", chunkKey).Msg("Failed to unmarshal chunk config")
-		return unmarshalConfig{}, false
-	}
-
-	return chunkConfig, true
-}
-
-// applyChunkedConfig creates and applies the final combined configuration
-func (s *NetworkSweeper) applyChunkedConfig(
-	baseConfig *unmarshalConfig,
-	combinedNetworks []string,
-	combinedDeviceTargets []models.DeviceTarget,
-	chunkCount int,
-) {
-	baseConfig.Networks = combinedNetworks
-	baseConfig.DeviceTargets = combinedDeviceTargets
-
-	s.logger.Debug().
-		Int("totalChunks", chunkCount).
-		Int("totalNetworks", len(combinedNetworks)).
-		Int("totalDeviceTargets", len(combinedDeviceTargets)).
-		Msg("Successfully assembled chunked sweep configuration")
-
-	newConfig := s.createConfigFromUnmarshal(baseConfig)
-
-	// Apply adaptive configuration based on target count
-	s.applyAdaptiveConfiguration(&newConfig, combinedNetworks, combinedDeviceTargets)
-
-	if err := s.UpdateConfig(&newConfig); err != nil {
-		s.logger.Error().Err(err).Msg("Failed to apply chunked config update")
-	} else {
-		s.logger.Debug().
-			Int("totalChunks", chunkCount).
-			Int("networks", len(newConfig.Networks)).
-			Int("deviceTargets", len(newConfig.DeviceTargets)).
-			Int("adaptedConcurrency", newConfig.Concurrency).
-			Int("adaptedICMPRateLimit", newConfig.ICMPRateLimit).
-			Msg("Successfully updated sweep config from chunked KV data with adaptive settings")
-	}
+	return nil
 }
 
 // applyAdaptiveConfiguration adjusts configuration parameters based on target count
@@ -1575,6 +1300,47 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 		EnableHighPerformanceICMP: temp.EnableHighPerformanceICMP,
 		ICMPRateLimit:             temp.ICMPRateLimit,
 	}
+}
+
+func mergeSweepOverrides(base []byte, overrides any) ([]byte, error) {
+	if overrides == nil {
+		return base, nil
+	}
+
+	var baseMap map[string]any
+	if err := json.Unmarshal(base, &baseMap); err != nil {
+		return nil, err
+	}
+
+	overrideBytes, err := json.Marshal(overrides)
+	if err != nil {
+		return nil, err
+	}
+
+	var overrideMap map[string]any
+	if err := json.Unmarshal(overrideBytes, &overrideMap); err != nil {
+		return nil, err
+	}
+
+	merged := mergeMapRecursive(baseMap, overrideMap)
+	return json.Marshal(merged)
+}
+
+func mergeMapRecursive(dst, src map[string]any) map[string]any {
+	for k, v := range src {
+		if srcMap, ok := v.(map[string]any); ok {
+			if dstMap, ok := dst[k].(map[string]any); ok {
+				dst[k] = mergeMapRecursive(dstMap, srcMap)
+			} else {
+				dst[k] = srcMap
+			}
+			continue
+		}
+
+		dst[k] = v
+	}
+
+	return dst
 }
 
 // estimateTargetCount calculates the total number of targets.

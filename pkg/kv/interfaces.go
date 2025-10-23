@@ -21,6 +21,7 @@ package kv
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -56,6 +57,18 @@ type KVStore interface {
 	// The returned channel is closed when the context is canceled or the KV store is closed.
 	Watch(ctx context.Context, key string) (<-chan []byte, error)
 
+	// PutObject streams an object payload into the JetStream object store.
+	PutObject(ctx context.Context, key string, reader io.Reader, meta ObjectMetadata) (*ObjectInfo, error)
+
+	// GetObject retrieves an object payload from the JetStream object store.
+	GetObject(ctx context.Context, key string) (io.ReadCloser, *ObjectInfo, error)
+
+	// DeleteObject removes an object from the JetStream object store.
+	DeleteObject(ctx context.Context, key string) error
+
+	// GetObjectInfo returns object metadata without downloading payload data.
+	GetObjectInfo(ctx context.Context, key string) (*ObjectInfo, bool, error)
+
 	// Close shuts down the KV store, releasing any resources (e.g., connections).
 	Close() error
 }
@@ -71,4 +84,26 @@ type Entry struct {
 	Value    []byte
 	Revision uint64
 	Found    bool
+}
+
+// ObjectMetadata captures descriptive attributes for JetStream objects.
+type ObjectMetadata struct {
+	Domain      string
+	ContentType string
+	Compression string
+	SHA256      string
+	TotalSize   int64
+	Attributes  map[string]string
+}
+
+// ObjectInfo reflects server-observed metadata for stored objects.
+type ObjectInfo struct {
+	Key            string
+	Domain         string
+	SHA256         string
+	Size           int64
+	CreatedAtUnix  int64
+	ModifiedAtUnix int64
+	Chunks         uint64
+	Metadata       ObjectMetadata
 }

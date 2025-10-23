@@ -11,6 +11,7 @@ package kv
 
 import (
 	context "context"
+	io "io"
 	reflect "reflect"
 	time "time"
 
@@ -170,4 +171,65 @@ func (m *MockKVStore) Watch(ctx context.Context, key string) (<-chan []byte, err
 func (mr *MockKVStoreMockRecorder) Watch(ctx, key any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Watch", reflect.TypeOf((*MockKVStore)(nil).Watch), ctx, key)
+}
+
+// PutObject mocks base method.
+func (m *MockKVStore) PutObject(ctx context.Context, key string, reader io.Reader, meta ObjectMetadata) (*ObjectInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PutObject", ctx, key, reader, meta)
+	ret0, _ := ret[0].(*ObjectInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PutObject indicates an expected call of PutObject.
+func (mr *MockKVStoreMockRecorder) PutObject(ctx, key, reader, meta any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutObject", reflect.TypeOf((*MockKVStore)(nil).PutObject), ctx, key, reader, meta)
+}
+
+// GetObject mocks base method.
+func (m *MockKVStore) GetObject(ctx context.Context, key string) (io.ReadCloser, *ObjectInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetObject", ctx, key)
+	ret0, _ := ret[0].(io.ReadCloser)
+	ret1, _ := ret[1].(*ObjectInfo)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetObject indicates an expected call of GetObject.
+func (mr *MockKVStoreMockRecorder) GetObject(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetObject", reflect.TypeOf((*MockKVStore)(nil).GetObject), ctx, key)
+}
+
+// DeleteObject mocks base method.
+func (m *MockKVStore) DeleteObject(ctx context.Context, key string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteObject", ctx, key)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteObject indicates an expected call of DeleteObject.
+func (mr *MockKVStoreMockRecorder) DeleteObject(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteObject", reflect.TypeOf((*MockKVStore)(nil).DeleteObject), ctx, key)
+}
+
+// GetObjectInfo mocks base method.
+func (m *MockKVStore) GetObjectInfo(ctx context.Context, key string) (*ObjectInfo, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetObjectInfo", ctx, key)
+	ret0, _ := ret[0].(*ObjectInfo)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetObjectInfo indicates an expected call of GetObjectInfo.
+func (mr *MockKVStoreMockRecorder) GetObjectInfo(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetObjectInfo", reflect.TypeOf((*MockKVStore)(nil).GetObjectInfo), ctx, key)
 }
