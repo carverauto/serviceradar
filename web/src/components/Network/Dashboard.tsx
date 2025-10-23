@@ -50,6 +50,7 @@ import {
     SNMP_DEVICES_QUERY,
     buildSweepQueryWithLimit,
 } from '@/lib/srqlQueries';
+import { coerceSweepCount } from './sweepStatsUtils';
 
 // Current device updates format from SRQL devices
 interface DeviceUpdates {
@@ -463,17 +464,19 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
         setError(null);
 
         try {
-            const params = new URLSearchParams({
-                limit: limit.toString(),
-            });
+            const body: Record<string, unknown> = {
+                query: buildSweepQueryWithLimit(limit),
+            };
 
-            const response = await fetch(`/api/devices/sweep?${params}`, {
-                method: 'GET',
+            const response = await fetch('/api/query', {
+                method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...(token && { Authorization: `Bearer ${token}` })
+                    ...(token && { Authorization: `Bearer ${token}` }),
                 },
+                credentials: 'include',
                 cache: 'no-store',
+                body: JSON.stringify(body),
             });
 
             if (!response.ok) {
@@ -520,9 +523,12 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
                 ),
             ]);
 
+            const totalHosts = coerceSweepCount(totalRes?.results?.[0]?.total);
+            const availableHosts = coerceSweepCount(availableRes?.results?.[0]?.total);
+
             setOverallCounts({
-                totalHosts: totalRes?.results?.[0]?.total ?? 0,
-                availableHosts: availableRes?.results?.[0]?.total ?? 0,
+                totalHosts,
+                availableHosts,
             });
             setCountsError(null);
         } catch (err) {
@@ -617,10 +623,15 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
     const filteredResults = useMemo(() => {
         if (!searchTerm) return uniqueHosts;
         
-        return uniqueHosts.filter(result => 
-            result.ip.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (result.hostname && result.hostname.toLowerCase().includes(searchTerm.toLowerCase()))
-        );
+        return uniqueHosts.filter(result => {
+            const ip = typeof result.ip === 'string' ? result.ip : '';
+            const hostname = typeof result.hostname === 'string' ? result.hostname : '';
+            const deviceId = typeof result.device_id === 'string' ? result.device_id : '';
+            const needle = searchTerm.toLowerCase();
+            return ip.toLowerCase().includes(needle) ||
+                hostname.toLowerCase().includes(needle) ||
+                deviceId.toLowerCase().includes(needle);
+        });
     }, [uniqueHosts, searchTerm]);
 
     const totalHostsLabel = totalHostsDisplay > 0 ? totalHostsDisplay : filteredResults.length;
