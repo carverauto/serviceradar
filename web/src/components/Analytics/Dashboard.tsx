@@ -31,6 +31,7 @@ import ObservabilityWidget from './ObservabilityWidget';
 import DeviceAvailabilityWidget from './DeviceAvailabilityWidget';
 import RperfBandwidthWidget from './RperfBandwidthWidget';
 import { formatNumber } from '@/utils/formatters';
+import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
 
 // Reusable component for the top statistic cards
 const StatCard = ({ 
@@ -86,6 +87,7 @@ const StatCard = ({
 
 const DashboardContent = () => {
     const router = useRouter();
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
     const { data: analyticsData, loading: isLoading, error } = useAnalytics();
 
     // Calculate derived stats from shared analytics data
@@ -107,12 +109,19 @@ const DashboardContent = () => {
 
     const handleStatCardClick = useCallback((type: 'total' | 'offline' | 'latency' | 'failing') => {
         let query = '';
+        let targetRoute: string | null = null;
+        let viewId: string | null = null;
+
         switch (type) {
             case 'total':
                 query = 'in:devices time:last_7d sort:last_seen:desc limit:100';
+                targetRoute = '/devices';
+                viewId = 'devices:inventory';
                 break;
             case 'offline':
                 query = 'in:devices is_available:false time:last_7d sort:last_seen:desc limit:100';
+                targetRoute = '/devices';
+                viewId = 'devices:inventory';
                 break;
             case 'latency':
                 query = 'in:services type:icmp response_time:[100000000,] sort:timestamp:desc limit:100';
@@ -121,9 +130,15 @@ const DashboardContent = () => {
                 query = 'in:services available:false sort:timestamp:desc limit:100';
                 break;
         }
+        if (targetRoute && viewId) {
+            setSrqlQuery(query, { origin: 'view', viewPath: targetRoute, viewId });
+            router.push(targetRoute);
+            return;
+        }
+
         const encodedQuery = encodeURIComponent(query);
         router.push(`/query?q=${encodedQuery}`);
-    }, [router]);
+    }, [router, setSrqlQuery]);
 
     return (
         <div className="space-y-6">
