@@ -17,6 +17,7 @@
 // src/app/api/devices/sweep/route.ts
 import {NextRequest, NextResponse} from "next/server";
 import { getInternalSrqlUrl, getApiKey } from "@/lib/config";
+import { SWEEP_DEVICES_QUERY } from "@/lib/srqlQueries";
 import { normalizeTimestampString } from "@/utils/traceTimestamp";
 
 interface PaginationData {
@@ -154,7 +155,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Query the devices using SRQL syntax with proper pagination
-    const query = 'in:devices discovery_sources:(sweep) time:last_24h sort:last_seen:desc';
+    const query = SWEEP_DEVICES_QUERY;
     
     // Build request body with pagination
     const requestBody: {

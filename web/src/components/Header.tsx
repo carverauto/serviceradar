@@ -16,12 +16,14 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, Settings, ChevronDown, Send, ExternalLink, Sun, Moon, User, LogOut } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { useTheme } from '@/app/providers';
 import { cachedQuery } from '@/lib/cached-query';
+import { useSrqlQuery, DEFAULT_SRQL_QUERY } from '@/contexts/SrqlQueryContext';
+import shouldReuseViewForSearch from '@/lib/srqlNavigation';
 
 interface Poller {
     poller_id: string;
@@ -30,6 +32,17 @@ interface Poller {
 interface Partition {
     partition: string;
 }
+
+const buildDevicesQueryWithFilters = (pollerId: string | null, partition: string | null): string => {
+    let query = DEFAULT_SRQL_QUERY;
+    if (pollerId) {
+        query += ` poller_id:"${pollerId}"`;
+    }
+    if (partition) {
+        query += ` partition:"${partition}"`;
+    }
+    return query;
+};
 
 export default function Header() {
     const [selectedPoller, setSelectedPoller] = useState<string | null>(null);
@@ -40,26 +53,30 @@ export default function Header() {
     const [showPartitions, setShowPartitions] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
-    const [queryInput, setQueryInput] = useState('');
     const router = useRouter();
     const searchParams = useSearchParams();
     const { token, user, logout } = useAuth();
     const { darkMode, setDarkMode } = useTheme();
+    const {
+        query: activeQuery,
+        viewPath,
+        viewId,
+        setQuery: setSrqlQuery,
+    } = useSrqlQuery();
+    const [queryInput, setQueryInput] = useState(activeQuery);
+
+    useEffect(() => {
+        setQueryInput(activeQuery);
+    }, [activeQuery]);
 
     // Derive query from URL params or selections
     const urlQuery = searchParams.get('q');
-    const derivedQuery = useMemo(() => {
-        if (urlQuery) return urlQuery;
-        
-        let newQuery = 'in:devices time:last_24h sort:last_seen:desc limit:20';
-        if (selectedPoller) {
-            newQuery += ` poller_id:"${selectedPoller}"`;
+
+    useEffect(() => {
+        if (urlQuery && urlQuery.trim().length > 0) {
+            setSrqlQuery(urlQuery, { origin: 'header', viewPath: null, viewId: null });
         }
-        if (selectedPartition) {
-            newQuery += ` partition:"${selectedPartition}"`;
-        }
-        return newQuery;
-    }, [urlQuery, selectedPoller, selectedPartition]);
+    }, [setSrqlQuery, urlQuery]);
 
     useEffect(() => {
         const fetchPollers = async () => {
@@ -113,11 +130,6 @@ export default function Header() {
         fetchPartitions();
     }, [token]);
 
-    // Initialize query input when derived query changes
-    useEffect(() => {
-        setQueryInput(derivedQuery);
-    }, [derivedQuery]);
-
     // Close dropdowns when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -137,18 +149,47 @@ export default function Header() {
     const handlePollerSelect = (pollerId: string | null) => {
         setSelectedPoller(pollerId);
         setShowPollers(false);
+        const newQuery = buildDevicesQueryWithFilters(pollerId, selectedPartition);
+        setSrqlQuery(newQuery, { origin: 'header', viewPath: null, viewId: null });
+        setQueryInput(newQuery);
     };
 
     const handlePartitionSelect = (partition: string | null) => {
         setSelectedPartition(partition);
         setShowPartitions(false);
+        const newQuery = buildDevicesQueryWithFilters(selectedPoller, partition);
+        setSrqlQuery(newQuery, { origin: 'header', viewPath: null, viewId: null });
+        setQueryInput(newQuery);
     };
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        if (queryInput.trim()) {
-            router.push(`/query?q=${encodeURIComponent(queryInput)}`);
+        const trimmed = queryInput.trim();
+        if (!trimmed) {
+            return;
         }
+
+        setQueryInput(trimmed);
+
+        const reuseView = shouldReuseViewForSearch(
+            {
+                activeQuery,
+                viewPath,
+                viewId,
+            },
+            trimmed,
+        );
+
+        if (reuseView) {
+            setSrqlQuery(trimmed, { origin: 'view', viewPath, viewId });
+            if (viewPath) {
+                router.push(viewPath);
+            }
+            return;
+        }
+
+        setSrqlQuery(trimmed, { origin: 'header', viewPath: null, viewId: null });
+        router.push(`/query?q=${encodeURIComponent(trimmed)}`);
     };
 
     // Get user initials for profile icon

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { OtelMetric, OtelMetricsApiResponse, MetricsStats, SortableMetricKeys } from '@/types/otel-metrics';
 import { Pagination } from '@/types/devices';
@@ -21,6 +21,9 @@ import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
 import { escapeSrqlValue } from '@/lib/srql';
 import { normalizeTimestampString, resolveTraceTimestampMs } from '@/utils/traceTimestamp';
+import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
+import { DEFAULT_METRICS_QUERY } from '@/lib/srqlQueries';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 const StatCard = ({
     title,
@@ -131,6 +134,14 @@ const TraceIdCell = ({ traceId }: { traceId: string }) => {
 
 const MetricsDashboard = () => {
     const { token } = useAuth();
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const metricsViewPath = useMemo(() => {
+        const base = pathname ?? '/observability';
+        const query = searchParams?.toString();
+        return query ? `${base}?${query}` : base;
+    }, [pathname, searchParams]);
     const [metrics, setMetrics] = useState<OtelMetric[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const [stats, setStats] = useState<MetricsStats>({
@@ -151,6 +162,10 @@ const MetricsDashboard = () => {
     const [services, setServices] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<SortableMetricKeys>('timestamp');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+    useEffect(() => {
+        setSrqlQuery(DEFAULT_METRICS_QUERY, { origin: 'view', viewPath: metricsViewPath, viewId: 'observability:metrics' });
+    }, [metricsViewPath, setSrqlQuery]);
 
     const postQuery = useCallback(async <T,>(
         query: string,
@@ -255,6 +270,7 @@ const MetricsDashboard = () => {
 
             const query = queryParts.join(' ');
 
+            setSrqlQuery(query, { origin: 'view', viewPath: metricsViewPath, viewId: 'observability:metrics' });
             const response = await postQuery<OtelMetricsApiResponse>(query, cursor, direction);
             const normalizedResults = (response.results || []).map(metric => {
                 const rawTimestamp = metric.timestamp || metric._tp_time;
@@ -282,7 +298,7 @@ const MetricsDashboard = () => {
         } finally {
             setMetricsLoading(false);
         }
-    }, [postQuery, debouncedSearchTerm, filterService, filterSlow, sortBy, sortOrder]);
+    }, [postQuery, debouncedSearchTerm, filterService, filterSlow, sortBy, sortOrder, metricsViewPath, setSrqlQuery]);
 
     useEffect(() => {
         fetchStats();

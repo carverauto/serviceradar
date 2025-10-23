@@ -14,7 +14,7 @@
 * limitations under the License.
 */
 'use client';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Device, Pagination, DevicesApiResponse } from '@/types/devices';
 import { cachedQuery } from '@/lib/cached-query';
@@ -22,17 +22,46 @@ import { escapeSrqlValue } from '@/lib/srql';
 import {Server, Search, Loader2, AlertTriangle, CheckCircle, XCircle} from 'lucide-react';
 import DeviceTable from './DeviceTable';
 import { useDebounce } from 'use-debounce';
+import { useSrqlQuery, DEFAULT_SRQL_QUERY } from '@/contexts/SrqlQueryContext';
+import { usePathname } from 'next/navigation';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
-const StatCard = ({ title, value, icon, isLoading, colorScheme = 'blue' }: { title: string; value: string | number; icon: React.ReactNode; isLoading: boolean; colorScheme?: 'blue' | 'green' | 'red' }) => {
+const StatCard = ({
+    title,
+    value,
+    icon,
+    isLoading,
+    colorScheme = 'blue',
+    onClick,
+    isActive = false,
+}: {
+    title: string;
+    value: string | number;
+    icon: React.ReactNode;
+    isLoading: boolean;
+    colorScheme?: 'blue' | 'green' | 'red';
+    onClick?: () => void;
+    isActive?: boolean;
+}) => {
     const bgColors = {
         blue: 'bg-blue-50 dark:bg-blue-900/30',
         green: 'bg-green-50 dark:bg-green-900/30',
         red: 'bg-red-50 dark:bg-red-900/30'
     };
+    const ringColors = {
+        blue: 'focus:ring-blue-500',
+        green: 'focus:ring-green-500',
+        red: 'focus:ring-red-500'
+    };
+    const Component = onClick ? 'button' : 'div';
     
     return (
-        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
+        <Component
+            type={onClick ? 'button' : undefined}
+            onClick={onClick}
+            aria-pressed={isActive}
+            className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg ${onClick ? 'text-left transition hover:border-gray-400 dark:hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-900 ' + ringColors[colorScheme] : ''} ${isActive ? 'border-blue-500 dark:border-blue-400' : ''}`}
+        >
             <div className="flex items-center">
                 <div className={`p-3 ${bgColors[colorScheme]} rounded-lg mr-4`}>{icon}</div>
                 <div>
@@ -44,11 +73,17 @@ const StatCard = ({ title, value, icon, isLoading, colorScheme = 'blue' }: { tit
                     )}
                 </div>
             </div>
-        </div>
+        </Component>
     );
 };
 const Dashboard = () => {
     const {token} = useAuth();
+    const {
+        query: activeSrqlQuery,
+        viewId: activeViewId,
+        setQuery: setSrqlQuery,
+    } = useSrqlQuery();
+    const pathname = usePathname();
     const [devices, setDevices] = useState<Device[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const [stats, setStats] = useState({
@@ -64,6 +99,7 @@ const Dashboard = () => {
     const [filterStatus, setFilterStatus] = useState<'all' | 'online' | 'offline'>('all');
     const [sortBy, setSortBy] = useState<SortableKeys>('last_seen');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const pendingFilterRef = useRef<'all' | 'online' | 'offline' | null>(null);
     const postQuery = useCallback(async <T, >(query: string, cursor?: string, direction?: 'next' | 'prev'): Promise<T> => {
         const body: Record<string, unknown> = {
             query,
@@ -114,48 +150,161 @@ const Dashboard = () => {
         }
     }, [token]);
 
-    const fetchDevices = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
-        setDevicesLoading(true);
-        setError(null);
-        try {
-            const queryParts = [
-                'in:devices',
-                'time:last_7d',
-                `sort:${sortBy}:${sortOrder}`,
-                'limit:20'
-            ];
+    const viewPath = pathname ?? '/devices';
 
-            if (filterStatus !== 'all') {
-                queryParts.push(`is_available:${filterStatus === 'online'}`);
+    const normalizeQuery = useCallback(
+        (value: string): string => value.replace(/\s+/g, ' ').trim(),
+        []
+    );
+
+    const [currentQuery, setCurrentQuery] = useState(DEFAULT_SRQL_QUERY);
+    const suppressStateSyncRef = useRef(false);
+
+    const runDevicesQuery = useCallback(
+        async (
+            query: string,
+            options?: { cursor?: string; direction?: 'next' | 'prev'; syncContext?: boolean },
+        ) => {
+            setDevicesLoading(true);
+            setError(null);
+            try {
+                const data = await postQuery<DevicesApiResponse>(query, options?.cursor, options?.direction);
+                setDevices(data.results || []);
+                setPagination(data.pagination || null);
+                setCurrentQuery(query);
+
+                if (options?.syncContext !== false) {
+                    setSrqlQuery(query, {
+                        origin: 'view',
+                        viewPath,
+                        viewId: 'devices:inventory',
+                    });
+                }
+            } catch (e) {
+                setError(e instanceof Error ? e.message : 'An unknown error occurred.');
+                setDevices([]);
+                setPagination(null);
+            } finally {
+                setDevicesLoading(false);
             }
+        },
+        [postQuery, setSrqlQuery, viewPath],
+    );
 
-            const trimmedSearch = debouncedSearchTerm.trim();
-            if (trimmedSearch) {
-                const escapedTerm = escapeSrqlValue(trimmedSearch);
-                queryParts.push(`search:"${escapedTerm}"`);
-            }
+    const buildQueryFromState = useCallback(() => {
+        const queryParts = [
+            'in:devices',
+            'time:last_7d',
+            `sort:${sortBy}:${sortOrder}`,
+            'limit:20',
+        ];
 
-            const query = queryParts.join(' ');
-
-            const data = await postQuery<DevicesApiResponse>(query, cursor, direction);
-            setDevices(data.results || []);
-            setPagination(data.pagination || null);
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "An unknown error occurred.");
-            setDevices([]);
-            setPagination(null);
-        } finally {
-            setDevicesLoading(false);
+        if (filterStatus !== 'all') {
+            queryParts.push(`is_available:${filterStatus === 'online'}`);
         }
-    }, [postQuery, debouncedSearchTerm, filterStatus, sortBy, sortOrder]);
+
+        const trimmedSearch = debouncedSearchTerm.trim();
+        if (trimmedSearch) {
+            const escapedTerm = escapeSrqlValue(trimmedSearch);
+            queryParts.push(`search:"${escapedTerm}"`);
+        }
+
+        return queryParts.join(' ');
+    }, [debouncedSearchTerm, filterStatus, sortBy, sortOrder]);
+
+    const fetchDevicesFromState = useCallback(
+        (cursor?: string, direction?: 'next' | 'prev') => {
+            if (suppressStateSyncRef.current) {
+                suppressStateSyncRef.current = false;
+                return;
+            }
+            const query = buildQueryFromState();
+            void runDevicesQuery(query, { cursor, direction });
+        },
+        [buildQueryFromState, runDevicesQuery],
+    );
+
+    const handlePageChange = useCallback(
+        (cursor?: string, direction?: 'next' | 'prev') => {
+            if (!cursor) {
+                return;
+            }
+            void runDevicesQuery(currentQuery, { cursor, direction, syncContext: false });
+        },
+        [currentQuery, runDevicesQuery],
+    );
+
+    useEffect(() => {
+        if (activeViewId && activeViewId !== 'devices:inventory') {
+            return;
+        }
+        fetchDevicesFromState();
+    }, [activeViewId, fetchDevicesFromState]);
+
+    useEffect(() => {
+        if (activeViewId !== 'devices:inventory') {
+            return;
+        }
+
+        const normalizedIncoming = normalizeQuery(activeSrqlQuery);
+        if (!normalizedIncoming) {
+            return;
+        }
+
+        const normalizedCurrent = normalizeQuery(currentQuery);
+        if (normalizedIncoming === normalizedCurrent) {
+            return;
+        }
+
+        suppressStateSyncRef.current = true;
+        void runDevicesQuery(activeSrqlQuery, { syncContext: false });
+    }, [activeSrqlQuery, activeViewId, currentQuery, normalizeQuery, runDevicesQuery]);
+
+    useEffect(() => {
+        if (activeViewId !== 'devices:inventory') {
+            return;
+        }
+
+        const normalized = normalizeQuery(activeSrqlQuery).toLowerCase();
+        const hasOnline = normalized.includes('is_available:true');
+        const hasOffline = normalized.includes('is_available:false');
+        const pending = pendingFilterRef.current;
+
+        if (pending) {
+            const matchesPending =
+                (pending === 'online' && hasOnline) ||
+                (pending === 'offline' && hasOffline) ||
+                (pending === 'all' && !hasOnline && !hasOffline);
+
+            if (matchesPending) {
+                pendingFilterRef.current = null;
+            } else {
+                return;
+            }
+        }
+
+        if (hasOnline) {
+            if (filterStatus !== 'online') {
+                setFilterStatus('online');
+            }
+            return;
+        }
+
+        if (hasOffline) {
+            if (filterStatus !== 'offline') {
+                setFilterStatus('offline');
+            }
+            return;
+        }
+
+        if (filterStatus !== 'all') {
+            setFilterStatus('all');
+        }
+    }, [activeSrqlQuery, activeViewId, filterStatus, normalizeQuery]);
 
     useEffect(() => {
         fetchStats();
     }, [fetchStats]);
-
-    useEffect(() => {
-        fetchDevices();
-    }, [fetchDevices]);
 
     const handleSort = (key: SortableKeys) => {
         if (sortBy === key) {
@@ -167,21 +316,38 @@ const Dashboard = () => {
     };
 
 
+    const handleStatCardFilter = useCallback((status: 'all' | 'online' | 'offline') => {
+        if (filterStatus === status) {
+            suppressStateSyncRef.current = false;
+            fetchDevicesFromState();
+            return;
+        }
+
+        pendingFilterRef.current = status;
+        setFilterStatus(status);
+    }, [fetchDevicesFromState, filterStatus]);
+
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <StatCard title="Total Devices" value={stats.total.toLocaleString()}
-                          icon={<Server className="h-6 w-6 text-blue-600 dark:text-blue-400"/>} 
+                          icon={<Server className="h-6 w-6 text-blue-600 dark:text-blue-400"/>}
                           isLoading={statsLoading}
-                          colorScheme="blue"/>
+                          colorScheme="blue"
+                          onClick={() => handleStatCardFilter('all')}
+                          isActive={filterStatus === 'all'}/>
                 <StatCard title="Online" value={stats.online.toLocaleString()}
-                          icon={<CheckCircle className="h-6 w-6 text-green-600 dark:text-green-400"/>} 
+                          icon={<CheckCircle className="h-6 w-6 text-green-600 dark:text-green-400"/>}
                           isLoading={statsLoading}
-                          colorScheme="green"/>
+                          colorScheme="green"
+                          onClick={() => handleStatCardFilter('online')}
+                          isActive={filterStatus === 'online'}/>
                 <StatCard title="Offline" value={stats.offline.toLocaleString()}
-                          icon={<XCircle className="h-6 w-6 text-red-600 dark:text-red-400"/>} 
+                          icon={<XCircle className="h-6 w-6 text-red-600 dark:text-red-400"/>}
                           isLoading={statsLoading}
-                          colorScheme="red"/>
+                          colorScheme="red"
+                          onClick={() => handleStatCardFilter('offline')}
+                          isActive={filterStatus === 'offline'}/>
             </div>
 
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg">
@@ -233,14 +399,14 @@ const Dashboard = () => {
                 {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
                     <div className="p-4 flex items-center justify-between border-t border-gray-700">
                         <button
-                            onClick={() => fetchDevices(pagination.prev_cursor, 'prev')}
+                            onClick={() => handlePageChange(pagination.prev_cursor, 'prev')}
                             disabled={!pagination.prev_cursor || devicesLoading}
                             className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Previous
                         </button>
                         <button
-                            onClick={() => fetchDevices(pagination.next_cursor, 'next')}
+                            onClick={() => handlePageChange(pagination.next_cursor, 'next')}
                             disabled={!pagination.next_cursor || devicesLoading}
                             className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                         >

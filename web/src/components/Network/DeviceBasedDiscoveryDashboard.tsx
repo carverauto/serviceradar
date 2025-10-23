@@ -17,7 +17,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
     Network,
     Monitor,
@@ -38,6 +38,8 @@ import { useAuth } from '@/components/AuthProvider';
 import { Device } from '@/types/devices';
 import InterfaceTable from './InterfaceTable';
 import { cachedQuery } from '@/lib/cached-query';
+import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
+import { DISCOVERY_DEVICES_QUERY, DISCOVERY_INTERFACES_QUERY } from '@/lib/srqlQueries';
 
 /**
  * Interface represents a discovered network interface from the device_id centric model
@@ -64,12 +66,31 @@ interface DiscoveredInterface {
 interface DeviceBasedDiscoveryDashboardProps {}
 
 type FilterType = 'all' | 'devices' | 'interfaces';
+type AvailabilityFilter = 'any' | 'available';
 type SortBy = 'name' | 'ip' | 'status';
 type SortOrder = 'asc' | 'desc';
 type ViewMode = 'grid' | 'table';
+const DISCOVERY_RESULTS_LIMIT = 50;
+const statCardButtonClass = (isActive: boolean): string =>
+    [
+        'w-full text-left bg-white dark:bg-gray-800 p-4 rounded-lg shadow border transition',
+        'hover:border-gray-300 dark:hover:border-gray-600',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+        'focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900',
+        isActive
+            ? 'border-blue-500 dark:border-blue-400 ring-1 ring-blue-300 dark:ring-blue-500/40'
+            : 'border-transparent',
+    ].join(' ');
 
 const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps> = () => {
     const router = useRouter();
+    const pathname = usePathname();
+    const {
+        setQuery: setSrqlQuery,
+        query: activeSrqlQuery,
+        viewId: activeViewId,
+    } = useSrqlQuery();
+    const discoveryViewPath = useMemo(() => `${pathname ?? '/network'}#discovery`, [pathname]);
     const { token } = useAuth();
     const [devices, setDevices] = useState<Device[]>([]);
     const [interfaces, setInterfaces] = useState<DiscoveredInterface[]>([]);
@@ -88,17 +109,45 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
         totalInterfaces: 0,
         onlineInterfaces: 0
     });
+    const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>('any');
+
+    const buildDevicesQuery = useCallback((availability: AvailabilityFilter): string => {
+        if (availability === 'available') {
+            const limitMatch = DISCOVERY_DEVICES_QUERY.match(/limit:\s*\d+/i);
+            const limitClause = limitMatch ? limitMatch[0] : 'limit:50';
+            return `${DISCOVERY_DEVICES_QUERY.replace(/limit:\s*\d+/gi, '').trim()} is_available:true ${limitClause}`
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+        return DISCOVERY_DEVICES_QUERY;
+    }, []);
+
+    const setDiscoverySrql = useCallback(
+        (nextFilter: FilterType, nextAvailability: AvailabilityFilter) => {
+            const nextQuery =
+                nextFilter === 'interfaces'
+                    ? DISCOVERY_INTERFACES_QUERY
+                    : buildDevicesQuery(nextAvailability);
+
+            setSrqlQuery(nextQuery, {
+                origin: 'view',
+                viewPath: discoveryViewPath,
+                viewId: 'network:discovery',
+            });
+        },
+        [buildDevicesQuery, discoveryViewPath, setSrqlQuery]
+    );
 
     // Fetch discovered devices using device_id centric queries
     const fetchDevices = useCallback(async () => {
         try {
-            const query = 'in:devices discovery_sources:* time:last_7d limit:10000';
             const response = await cachedQuery<{ results: Device[] }>(
-                query,
+                DISCOVERY_DEVICES_QUERY,
                 token || undefined,
-                30000
+                30000,
+                { limit: DISCOVERY_RESULTS_LIMIT }
             );
-            return response.results || [];
+            return Array.isArray(response.results) ? response.results : [];
         } catch (error) {
             console.error('Failed to fetch discovered devices:', error);
             throw error;
@@ -108,13 +157,13 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     // Fetch discovered interfaces using device_id centric queries
     const fetchInterfaces = useCallback(async () => {
         try {
-            const query = 'in:interfaces time:last_7d limit:10000';
             const response = await cachedQuery<{ results: DiscoveredInterface[] }>(
-                query,
+                DISCOVERY_INTERFACES_QUERY,
                 token || undefined,
-                30000
+                30000,
+                { limit: DISCOVERY_RESULTS_LIMIT }
             );
-            return response.results || [];
+            return Array.isArray(response.results) ? response.results : [];
         } catch (error) {
             console.error('Failed to fetch discovered interfaces:', error);
             throw error;
@@ -126,12 +175,12 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
         try {
             const [totalDevicesRes, activeDevicesRes, totalInterfacesRes] = await Promise.all([
                 cachedQuery<{ results: [{ total: number }] }>(
-                    'in:devices discovery_sources:* stats:"count() as total" sort:total:desc time:last_7d',
+                    'in:devices stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
                 cachedQuery<{ results: [{ total: number }] }>(
-                    'in:devices discovery_sources:* is_available:true stats:"count() as total" sort:total:desc time:last_7d',
+                    'in:devices is_available:true stats:"count() as total" sort:total:desc time:last_7d',
                     token || undefined,
                     30000
                 ),
@@ -154,6 +203,13 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     }, [token]);
 
     // Fetch all data
+    const normalizeSrql = useCallback((value: string | null | undefined): string => {
+        if (typeof value !== 'string') {
+            return '';
+        }
+        return value.replace(/\s+/g, ' ').trim();
+    }, []);
+
     const fetchData = useCallback(async () => {
         setIsRefreshing(true);
         setError(null);
@@ -176,6 +232,75 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
             setIsLoading(false);
         }
     }, [fetchDevices, fetchInterfaces, fetchStats]);
+
+    const handleTotalDevicesCardClick = useCallback(() => {
+        if (filterType === 'all' && availabilityFilter === 'any') {
+            void fetchData();
+            return;
+        }
+        setDiscoverySrql('all', 'any');
+    }, [availabilityFilter, fetchData, filterType, setDiscoverySrql]);
+
+    const handleActiveDevicesCardClick = useCallback(() => {
+        if (filterType === 'devices' && availabilityFilter === 'available') {
+            void fetchData();
+            return;
+        }
+        setDiscoverySrql('devices', 'available');
+    }, [availabilityFilter, fetchData, filterType, setDiscoverySrql]);
+
+    const handleInterfacesCardClick = useCallback(() => {
+        if (filterType === 'interfaces') {
+            void fetchData();
+            return;
+        }
+        setDiscoverySrql('interfaces', 'any');
+    }, [fetchData, filterType, setDiscoverySrql]);
+
+    useEffect(() => {
+        if (activeViewId !== 'network:discovery') {
+            return;
+        }
+
+        const normalized = normalizeSrql(activeSrqlQuery);
+        const normalizedLower = normalized.toLowerCase();
+
+        let derivedFilter: FilterType = 'all';
+        let derivedAvailability: AvailabilityFilter = 'any';
+
+        if (normalizedLower.includes('in:interfaces')) {
+            derivedFilter = 'interfaces';
+        } else if (normalizedLower.includes('in:devices')) {
+            if (normalizedLower.includes('is_available:true')) {
+                derivedFilter = 'devices';
+                derivedAvailability = 'available';
+            } else {
+                derivedFilter = 'all';
+            }
+        }
+
+        if (filterType !== derivedFilter) {
+            setFilterType(derivedFilter);
+        }
+        if (availabilityFilter !== derivedAvailability) {
+            setAvailabilityFilter(derivedAvailability);
+        }
+    }, [activeSrqlQuery, activeViewId, availabilityFilter, filterType, normalizeSrql]);
+
+    useEffect(() => {
+        if (activeViewId && activeViewId !== 'network:discovery') {
+            return;
+        }
+
+        const normalizedActive = normalizeSrql(activeSrqlQuery);
+        const normalizedActiveLower = normalizedActive.toLowerCase();
+        const hasDevices = normalizedActiveLower.includes('in:devices');
+        const hasInterfaces = normalizedActiveLower.includes('in:interfaces');
+
+        if (!hasDevices && !hasInterfaces) {
+            setDiscoverySrql('all', 'any');
+        }
+    }, [activeViewId, activeSrqlQuery, setDiscoverySrql, normalizeSrql]);
 
     // Initial load
     useEffect(() => {
@@ -212,6 +337,10 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                 (i.device_ip && i.device_ip.toLowerCase().includes(search)) ||
                 (i.if_phys_address && i.if_phys_address.toLowerCase().includes(search))
             );
+        }
+
+        if (availabilityFilter === 'available') {
+            currentFilteredDevices = currentFilteredDevices.filter((d) => d.is_available);
         }
 
         // Sort function
@@ -263,7 +392,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
             devices: filterType === 'interfaces' ? [] : currentFilteredDevices,
             interfaces: filterType === 'devices' ? [] : currentFilteredInterfaces
         };
-    }, [devices, interfaces, searchTerm, filterType, sortBy, sortOrder]);
+    }, [availabilityFilter, devices, interfaces, searchTerm, filterType, sortBy, sortOrder]);
 
     // Convert interfaces to format expected by InterfaceTable
     const formattedInterfaces = useMemo(() => {
@@ -381,7 +510,11 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <button
+                    type="button"
+                    onClick={handleTotalDevicesCardClick}
+                    className={statCardButtonClass(filterType === 'all')}
+                >
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Total Devices</p>
@@ -391,9 +524,13 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                         </div>
                         <Monitor className="h-8 w-8 text-blue-500" />
                     </div>
-                </div>
+                </button>
 
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <button
+                    type="button"
+                    onClick={handleActiveDevicesCardClick}
+                    className={statCardButtonClass(filterType === 'devices' && availabilityFilter === 'available')}
+                >
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Active Devices</p>
@@ -403,9 +540,13 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                         </div>
                         <Activity className="h-8 w-8 text-green-500" />
                     </div>
-                </div>
+                </button>
 
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <button
+                    type="button"
+                    onClick={handleInterfacesCardClick}
+                    className={statCardButtonClass(filterType === 'interfaces')}
+                >
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Interfaces</p>
@@ -415,7 +556,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                         </div>
                         <Network className="h-8 w-8 text-green-500" />
                     </div>
-                </div>
+                </button>
 
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <div className="flex items-center justify-between">
@@ -449,7 +590,13 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                     <div className="flex gap-2">
                         <select
                             value={filterType}
-                            onChange={(e) => setFilterType(e.target.value as FilterType)}
+                            onChange={(e) => {
+                                const nextValue = e.target.value as FilterType;
+                                setFilterType(nextValue);
+                                if (nextValue !== 'devices') {
+                                    setAvailabilityFilter('any');
+                                }
+                            }}
                             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         >
                             <option value="all">All</option>
@@ -506,7 +653,9 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             <Monitor className="h-5 w-5" />
-                            Discovered Devices ({filteredData.devices.length})
+                            {availabilityFilter === 'available'
+                                ? `Active Devices (showing ${filteredData.devices.length} of ${stats.activeDevices.toLocaleString()})`
+                                : `Discovered Devices (showing ${filteredData.devices.length} of ${stats.totalDevices.toLocaleString()})`}
                         </h2>
                     </div>
 
@@ -629,7 +778,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             <Network className="h-5 w-5" />
-                            Network Interfaces ({filteredData.interfaces.length})
+                            {`Network Interfaces (showing ${filteredData.interfaces.length} of ${stats.totalInterfaces.toLocaleString()})`}
                         </h2>
                     </div>
                     <div className="p-4">
