@@ -99,6 +99,7 @@ const Dashboard = () => {
     const [filterStatus, setFilterStatus] = useState<'all' | 'online' | 'offline'>('all');
     const [sortBy, setSortBy] = useState<SortableKeys>('last_seen');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const pendingFilterRef = useRef<'all' | 'online' | 'offline' | null>(null);
     const postQuery = useCallback(async <T, >(query: string, cursor?: string, direction?: 'next' | 'prev'): Promise<T> => {
         const body: Record<string, unknown> = {
             query,
@@ -234,14 +235,11 @@ const Dashboard = () => {
     );
 
     useEffect(() => {
-        setSrqlQuery(DEFAULT_SRQL_QUERY, { origin: 'view', viewPath, viewId: 'devices:inventory' });
-        setCurrentQuery(DEFAULT_SRQL_QUERY);
-        suppressStateSyncRef.current = false;
-    }, [setSrqlQuery, viewPath]);
-
-    useEffect(() => {
+        if (activeViewId && activeViewId !== 'devices:inventory') {
+            return;
+        }
         fetchDevicesFromState();
-    }, [fetchDevicesFromState]);
+    }, [activeViewId, fetchDevicesFromState]);
 
     useEffect(() => {
         if (activeViewId !== 'devices:inventory') {
@@ -260,13 +258,49 @@ const Dashboard = () => {
 
         suppressStateSyncRef.current = true;
         void runDevicesQuery(activeSrqlQuery, { syncContext: false });
-    }, [
-        activeSrqlQuery,
-        activeViewId,
-        currentQuery,
-        normalizeQuery,
-        runDevicesQuery,
-    ]);
+    }, [activeSrqlQuery, activeViewId, currentQuery, normalizeQuery, runDevicesQuery]);
+
+    useEffect(() => {
+        if (activeViewId !== 'devices:inventory') {
+            return;
+        }
+
+        const normalized = normalizeQuery(activeSrqlQuery).toLowerCase();
+        const hasOnline = normalized.includes('is_available:true');
+        const hasOffline = normalized.includes('is_available:false');
+        const pending = pendingFilterRef.current;
+
+        if (pending) {
+            const matchesPending =
+                (pending === 'online' && hasOnline) ||
+                (pending === 'offline' && hasOffline) ||
+                (pending === 'all' && !hasOnline && !hasOffline);
+
+            if (matchesPending) {
+                pendingFilterRef.current = null;
+            } else {
+                return;
+            }
+        }
+
+        if (hasOnline) {
+            if (filterStatus !== 'online') {
+                setFilterStatus('online');
+            }
+            return;
+        }
+
+        if (hasOffline) {
+            if (filterStatus !== 'offline') {
+                setFilterStatus('offline');
+            }
+            return;
+        }
+
+        if (filterStatus !== 'all') {
+            setFilterStatus('all');
+        }
+    }, [activeSrqlQuery, activeViewId, filterStatus, normalizeQuery]);
 
     useEffect(() => {
         fetchStats();
@@ -283,16 +317,15 @@ const Dashboard = () => {
 
 
     const handleStatCardFilter = useCallback((status: 'all' | 'online' | 'offline') => {
-        setFilterStatus(prev => {
-            if (prev === status) {
-                // If the filter is already active, rerun the current query explicitly.
-                suppressStateSyncRef.current = false;
-                fetchDevicesFromState();
-                return prev;
-            }
-            return status;
-        });
-    }, [fetchDevicesFromState]);
+        if (filterStatus === status) {
+            suppressStateSyncRef.current = false;
+            fetchDevicesFromState();
+            return;
+        }
+
+        pendingFilterRef.current = status;
+        setFilterStatus(status);
+    }, [fetchDevicesFromState, filterStatus]);
 
     return (
         <div className="space-y-6">
