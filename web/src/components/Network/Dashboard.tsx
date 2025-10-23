@@ -292,7 +292,7 @@ const SNMPDevicesView: React.FC = React.memo(() => {
     }, [token]);
 
     useEffect(() => {
-        setSrqlQuery(SNMP_DEVICES_QUERY, { origin: 'view', viewPath: snmpViewPath });
+        setSrqlQuery(SNMP_DEVICES_QUERY, { origin: 'view', viewPath: snmpViewPath, viewId: 'network:snmp' });
     }, [setSrqlQuery, snmpViewPath]);
 
     const fetchDevices = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
@@ -314,7 +314,7 @@ const SNMPDevicesView: React.FC = React.memo(() => {
             }
 
             const query = queryParts.join(' ');
-            setSrqlQuery(query, { origin: 'view', viewPath: snmpViewPath });
+            setSrqlQuery(query, { origin: 'view', viewPath: snmpViewPath, viewId: 'network:snmp' });
             const data = await postQuery<DevicesApiResponse>(query, cursor, direction);
 
             setDevices(data.results || []);
@@ -454,6 +454,7 @@ const DeviceUpdatesView: React.FC = React.memo(() => {
         setSrqlQuery(buildSweepQueryWithLimit(currentFetchLimit), {
             origin: 'view',
             viewPath: sweepsViewPath,
+            viewId: 'network:sweeps',
         });
     }, [currentFetchLimit, setSrqlQuery, sweepsViewPath]);
 
@@ -1131,13 +1132,13 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         const viewPath = `${networkBasePath}#${activeTab}`;
         switch (activeTab) {
             case 'overview':
-                setSrqlQuery(DEFAULT_DEVICES_QUERY, { origin: 'view', viewPath });
+                setSrqlQuery(DEFAULT_DEVICES_QUERY, { origin: 'view', viewPath, viewId: 'network:overview' });
                 break;
             case 'applications':
-                setSrqlQuery(APPLICATION_SERVICES_QUERY, { origin: 'view', viewPath });
+                setSrqlQuery(APPLICATION_SERVICES_QUERY, { origin: 'view', viewPath, viewId: 'network:applications' });
                 break;
             case 'netflow':
-                setSrqlQuery(NETFLOW_DEFAULT_QUERY, { origin: 'view', viewPath });
+                setSrqlQuery(NETFLOW_DEFAULT_QUERY, { origin: 'view', viewPath, viewId: 'network:netflow' });
                 break;
             default:
                 // Other tabs manage their own SRQL synchronization.
@@ -1147,19 +1148,30 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
 
     // Click handlers for stat cards
     const handleDiscoveredDevicesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('in:devices discovery_sources:* time:last_7d sort:last_seen:desc limit:50'));
+        const query = 'in:devices discovery_sources:* time:last_7d sort:last_seen:desc limit:50';
+        setSrqlQuery(query, { origin: 'view', viewPath: '/devices', viewId: 'devices:inventory' });
+        router.push('/devices');
     };
 
     const handleDiscoveredInterfacesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('in:interfaces time:last_7d sort:timestamp:desc limit:50'));
+        const query = 'in:interfaces time:last_7d sort:timestamp:desc limit:50';
+        const viewPath = `${networkBasePath}#discovery`;
+        setSrqlQuery(query, { origin: 'view', viewPath, viewId: 'network:discovery' });
+        router.push(viewPath);
     };
 
     const handleActiveSweepsClick = () => {
-        router.push('/query?q=' + encodeURIComponent('in:sweep_results time:last_7d sort:last_seen:desc limit:50'));
+        const query = 'in:sweep_results time:last_7d sort:last_seen:desc limit:50';
+        const viewPath = `${networkBasePath}#sweeps`;
+        setSrqlQuery(query, { origin: 'view', viewPath, viewId: 'network:sweeps' });
+        router.push(viewPath);
     };
 
     const handleSNMPDevicesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('in:devices discovery_sources:(snmp) time:last_7d sort:last_seen:desc limit:50'));
+        const query = 'in:devices discovery_sources:(snmp) time:last_7d sort:last_seen:desc limit:50';
+        const viewPath = `${networkBasePath}#snmp`;
+        setSrqlQuery(query, { origin: 'view', viewPath, viewId: 'network:snmp' });
+        router.push(viewPath);
     };
 
     const { discoveryServices, sweepServices, snmpServices, applicationServices } = useMemo(() => {

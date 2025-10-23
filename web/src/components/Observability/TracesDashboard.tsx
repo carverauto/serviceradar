@@ -191,7 +191,7 @@ const TracesDashboard = () => {
     const [autoFollowLatest, setAutoFollowLatest] = useState(true);
 
     useEffect(() => {
-        setSrqlQuery(DEFAULT_TRACES_QUERY, { origin: 'view', viewPath: tracesViewPath });
+        setSrqlQuery(DEFAULT_TRACES_QUERY, { origin: 'view', viewPath: tracesViewPath, viewId: 'observability:traces' });
     }, [setSrqlQuery, tracesViewPath]);
 
     const stats: TraceStats = useMemo(
@@ -293,7 +293,7 @@ const TracesDashboard = () => {
 
             const query = queryParts.join(' ');
 
-            setSrqlQuery(query, { origin: 'view', viewPath: tracesViewPath });
+            setSrqlQuery(query, { origin: 'view', viewPath: tracesViewPath, viewId: 'observability:traces' });
             const response = await postQuery<TraceSummariesApiResponse>(query, cursor, direction);
             const normalizedResults = (response.results || []).map(normalizeTraceSummaryTimestamp);
             setTraces(normalizedResults);
@@ -396,7 +396,7 @@ const TracesDashboard = () => {
 
         const query = buildStreamingQuery();
         console.log('📡 Creating new streaming client for query:', query);
-        setSrqlQuery(query, { origin: 'view', viewPath: tracesViewPath });
+        setSrqlQuery(query, { origin: 'view', viewPath: tracesViewPath, viewId: 'observability:traces' });
         
         streamingClient.current = createStreamingClient({
             onData: (data) => {

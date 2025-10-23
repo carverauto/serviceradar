@@ -21,6 +21,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { ServerOff, AlertTriangle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAnalytics } from '@/contexts/AnalyticsContext';
+import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
 
 interface DeviceAvailabilityData {
     name: string;
@@ -54,6 +55,7 @@ const DeviceAvailabilityTooltip: React.FC<DeviceAvailabilityTooltipProps> = ({ a
 
 const DeviceAvailabilityWidget = () => {
     const router = useRouter();
+    const { setQuery: setSrqlQuery } = useSrqlQuery();
     const { data: analyticsData, loading: isLoading, error } = useAnalytics();
 
     const data = useMemo((): DeviceAvailabilityData[] => {
@@ -69,15 +71,19 @@ const DeviceAvailabilityWidget = () => {
     const offlineCount = data.find(item => item.name === 'Offline')?.value || 0;
     const availabilityPercentage = totalDevices > 0 ? ((totalDevices - offlineCount) / totalDevices * 100) : 100;
 
+    const navigateToDevices = useCallback((query: string) => {
+        setSrqlQuery(query, { origin: 'view', viewPath: '/devices', viewId: 'devices:inventory' });
+        router.push('/devices');
+    }, [router, setSrqlQuery]);
+
     const handlePieClick = useCallback((data: DeviceAvailabilityData) => {
         const isOffline = data.name === 'Offline';
-        const query = isOffline 
+        const query = isOffline
             ? 'in:devices is_available:false time:last_7d sort:last_seen:desc limit:100'
             : 'in:devices is_available:true time:last_7d sort:last_seen:desc limit:100';
-        
-        const encodedQuery = encodeURIComponent(query);
-        router.push(`/query?q=${encodedQuery}`);
-    }, [router]);
+
+        navigateToDevices(query);
+    }, [navigateToDevices]);
 
     if (error) {
         return (
@@ -103,9 +109,7 @@ const DeviceAvailabilityWidget = () => {
                     </h3>
                     <button
                         onClick={() => {
-                            const query = 'in:devices is_available:false time:last_7d sort:last_seen:desc limit:100';
-                            const encodedQuery = encodeURIComponent(query);
-                            router.push(`/query?q=${encodedQuery}`);
+                            navigateToDevices('in:devices is_available:false time:last_7d sort:last_seen:desc limit:100');
                         }}
                         className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                         title="View offline devices"

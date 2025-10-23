@@ -138,7 +138,7 @@ const LogsDashboard = () => {
     const [autoFollowLatest, setAutoFollowLatest] = useState(true);
 
     useEffect(() => {
-        setSrqlQuery(DEFAULT_LOGS_QUERY, { origin: 'view', viewPath: logsViewPath });
+        setSrqlQuery(DEFAULT_LOGS_QUERY, { origin: 'view', viewPath: logsViewPath, viewId: 'observability:logs' });
     }, [logsViewPath, setSrqlQuery]);
 
     const postQuery = useCallback(async <T,>(
@@ -256,7 +256,7 @@ const LogsDashboard = () => {
 
             const query = queryParts.join(' ');
 
-            setSrqlQuery(query, { origin: 'view', viewPath: logsViewPath });
+            setSrqlQuery(query, { origin: 'view', viewPath: logsViewPath, viewId: 'observability:logs' });
             const data = await postQuery<LogsApiResponse>(query, cursor, direction);
             setLogs(data.results || []);
             setPagination(data.pagination || null);
@@ -315,7 +315,7 @@ const LogsDashboard = () => {
 
         const query = buildStreamingQuery();
         console.log('📡 Creating new streaming client for query:', query);
-        setSrqlQuery(query, { origin: 'view', viewPath: logsViewPath });
+        setSrqlQuery(query, { origin: 'view', viewPath: logsViewPath, viewId: 'observability:logs' });
         
         streamingClient.current = createStreamingClient({
             onData: (data) => {

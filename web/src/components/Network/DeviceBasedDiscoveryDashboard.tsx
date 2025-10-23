@@ -184,7 +184,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
 
     useEffect(() => {
         const baseQuery = filterType === 'interfaces' ? DISCOVERY_INTERFACES_QUERY : DISCOVERY_DEVICES_QUERY;
-        setSrqlQuery(baseQuery, { origin: 'view', viewPath: discoveryViewPath });
+        setSrqlQuery(baseQuery, { origin: 'view', viewPath: discoveryViewPath, viewId: 'network:discovery' });
     }, [filterType, setSrqlQuery, discoveryViewPath]);
 
     // Initial load

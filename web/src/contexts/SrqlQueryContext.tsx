@@ -10,17 +10,19 @@ import React, {
 } from 'react';
 import { DEFAULT_DEVICES_QUERY } from '../lib/srqlQueries';
 
-type SrqlQueryOrigin = 'header' | 'view';
+export type SrqlQueryOrigin = 'header' | 'view';
 
 export interface SrqlQueryMeta {
     origin?: SrqlQueryOrigin;
     viewPath?: string | null;
+    viewId?: string | null;
 }
 
 interface SrqlQueryContextValue {
     query: string;
     origin: SrqlQueryOrigin;
     viewPath: string | null;
+    viewId: string | null;
     setQuery: (nextQuery: string, meta?: SrqlQueryMeta) => void;
 }
 
@@ -28,6 +30,7 @@ export interface SrqlQueryState {
     query: string;
     origin: SrqlQueryOrigin;
     viewPath: string | null;
+    viewId: string | null;
 }
 
 const SrqlQueryContext = createContext<SrqlQueryContextValue | undefined>(undefined);
@@ -49,11 +52,13 @@ export const computeNextSrqlQueryState = (
     const nextOrigin = meta.origin ?? prev.origin;
     const nextViewPath =
         meta.viewPath !== undefined ? meta.viewPath : prev.viewPath;
+    const nextViewId = meta.viewId !== undefined ? meta.viewId : prev.viewId;
 
     if (
         prev.query === nextQuery &&
         prev.origin === nextOrigin &&
-        prev.viewPath === nextViewPath
+        prev.viewPath === nextViewPath &&
+        prev.viewId === nextViewId
     ) {
         return prev;
     }
@@ -62,6 +67,7 @@ export const computeNextSrqlQueryState = (
         query: nextQuery,
         origin: nextOrigin,
         viewPath: nextViewPath ?? null,
+        viewId: nextViewId ?? null,
     };
 };
 
@@ -76,6 +82,7 @@ export function SrqlQueryProvider({
         query: normalizeSrqlQuery(initialQuery ?? undefined),
         origin: 'header',
         viewPath: null,
+        viewId: null,
     });
 
     useEffect(() => {
@@ -86,6 +93,7 @@ export function SrqlQueryProvider({
                 computeNextSrqlQueryState(prev, initialQuery, {
                     origin: 'header',
                     viewPath: null,
+                    viewId: null,
                 })
             );
         }
@@ -103,9 +111,10 @@ export function SrqlQueryProvider({
             query: state.query,
             origin: state.origin,
             viewPath: state.viewPath,
+            viewId: state.viewId,
             setQuery,
         }),
-        [setQuery, state.origin, state.query, state.viewPath]
+        [setQuery, state.origin, state.query, state.viewId, state.viewPath]
     );
 
     return (

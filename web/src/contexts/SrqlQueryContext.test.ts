@@ -12,6 +12,7 @@ describe('computeNextSrqlQueryState', () => {
             query: DEFAULT_SRQL_QUERY,
             origin: 'header',
             viewPath: null,
+            viewId: null,
         };
         const next = computeNextSrqlQueryState(
             prev,
@@ -27,9 +28,10 @@ describe('computeNextSrqlQueryState', () => {
             query: 'in:devices discovery_sources:(sweep)',
             origin: 'view',
             viewPath: '/network',
+            viewId: 'network:sweeps',
         };
 
-        const nextMeta: SrqlQueryMeta = { origin: 'header', viewPath: null };
+        const nextMeta: SrqlQueryMeta = { origin: 'header', viewPath: null, viewId: null };
         const next = computeNextSrqlQueryState(
             prev,
             'in:devices discovery_sources:(sweep)',
@@ -40,6 +42,7 @@ describe('computeNextSrqlQueryState', () => {
             query: 'in:devices discovery_sources:(sweep)',
             origin: 'header',
             viewPath: null,
+            viewId: null,
         });
     });
 
@@ -48,17 +51,20 @@ describe('computeNextSrqlQueryState', () => {
             query: 'in:devices discovery_sources:(sweep)',
             origin: 'view',
             viewPath: '/network',
+            viewId: 'network:sweeps',
         };
 
         const next = computeNextSrqlQueryState(prev, '', {
             origin: 'header',
             viewPath: null,
+            viewId: null,
         });
 
         expect(next).toEqual({
             query: DEFAULT_SRQL_QUERY,
             origin: 'header',
             viewPath: null,
+            viewId: null,
         });
     });
 
@@ -67,18 +73,20 @@ describe('computeNextSrqlQueryState', () => {
             query: DEFAULT_SRQL_QUERY,
             origin: 'header',
             viewPath: null,
+            viewId: null,
         };
 
         const next = computeNextSrqlQueryState(
             prev,
             'in:devices discovery_sources:(sweep) time:last_24h sort:last_seen:desc limit:100',
-            { origin: 'view', viewPath: '/network' }
+            { origin: 'view', viewPath: '/network', viewId: 'network:sweeps' }
         );
 
         expect(next).toEqual({
             query: 'in:devices discovery_sources:(sweep) time:last_24h sort:last_seen:desc limit:100',
             origin: 'view',
             viewPath: '/network',
+            viewId: 'network:sweeps',
         });
     });
 
@@ -87,6 +95,7 @@ describe('computeNextSrqlQueryState', () => {
             query: 'in:devices time:last_24h',
             origin: 'view',
             viewPath: '/network',
+            viewId: 'network:overview',
         };
 
         const next = computeNextSrqlQueryState(prev, 'in:devices time:last_7d', {
@@ -97,6 +106,29 @@ describe('computeNextSrqlQueryState', () => {
             query: 'in:devices time:last_7d',
             origin: 'view',
             viewPath: '/network',
+            viewId: 'network:overview',
+        });
+    });
+
+    it('updates the viewId when provided', () => {
+        const prev: SrqlQueryState = {
+            query: DEFAULT_SRQL_QUERY,
+            origin: 'header',
+            viewPath: null,
+            viewId: null,
+        };
+
+        const next = computeNextSrqlQueryState(prev, DEFAULT_SRQL_QUERY, {
+            origin: 'view',
+            viewPath: '/network#discovery',
+            viewId: 'network:discovery',
+        });
+
+        expect(next).toEqual({
+            query: DEFAULT_SRQL_QUERY,
+            origin: 'view',
+            viewPath: '/network#discovery',
+            viewId: 'network:discovery',
         });
     });
 });

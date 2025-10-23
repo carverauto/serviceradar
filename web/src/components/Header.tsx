@@ -23,6 +23,7 @@ import { useAuth } from './AuthProvider';
 import { useTheme } from '@/app/providers';
 import { cachedQuery } from '@/lib/cached-query';
 import { useSrqlQuery, DEFAULT_SRQL_QUERY } from '@/contexts/SrqlQueryContext';
+import shouldReuseViewForSearch from '@/lib/srqlNavigation';
 
 interface Poller {
     poller_id: string;
@@ -56,7 +57,12 @@ export default function Header() {
     const searchParams = useSearchParams();
     const { token, user, logout } = useAuth();
     const { darkMode, setDarkMode } = useTheme();
-    const { query: activeQuery, origin: queryOrigin, setQuery: setSrqlQuery } = useSrqlQuery();
+    const {
+        query: activeQuery,
+        viewPath,
+        viewId,
+        setQuery: setSrqlQuery,
+    } = useSrqlQuery();
     const [queryInput, setQueryInput] = useState(activeQuery);
 
     useEffect(() => {
@@ -68,7 +74,7 @@ export default function Header() {
 
     useEffect(() => {
         if (urlQuery && urlQuery.trim().length > 0) {
-            setSrqlQuery(urlQuery, { origin: 'header', viewPath: null });
+            setSrqlQuery(urlQuery, { origin: 'header', viewPath: null, viewId: null });
         }
     }, [setSrqlQuery, urlQuery]);
 
@@ -144,7 +150,7 @@ export default function Header() {
         setSelectedPoller(pollerId);
         setShowPollers(false);
         const newQuery = buildDevicesQueryWithFilters(pollerId, selectedPartition);
-        setSrqlQuery(newQuery, { origin: 'header', viewPath: null });
+        setSrqlQuery(newQuery, { origin: 'header', viewPath: null, viewId: null });
         setQueryInput(newQuery);
     };
 
@@ -152,24 +158,38 @@ export default function Header() {
         setSelectedPartition(partition);
         setShowPartitions(false);
         const newQuery = buildDevicesQueryWithFilters(selectedPoller, partition);
-        setSrqlQuery(newQuery, { origin: 'header', viewPath: null });
+        setSrqlQuery(newQuery, { origin: 'header', viewPath: null, viewId: null });
         setQueryInput(newQuery);
     };
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
         const trimmed = queryInput.trim();
-        if (trimmed) {
-            setQueryInput(trimmed);
-
-            if (queryOrigin === 'view' && trimmed === activeQuery) {
-                setSrqlQuery(trimmed, { origin: 'view' });
-                return;
-            }
-
-            setSrqlQuery(trimmed, { origin: 'header', viewPath: null });
-            router.push(`/query?q=${encodeURIComponent(trimmed)}`);
+        if (!trimmed) {
+            return;
         }
+
+        setQueryInput(trimmed);
+
+        const reuseView = shouldReuseViewForSearch(
+            {
+                activeQuery,
+                viewPath,
+                viewId,
+            },
+            trimmed,
+        );
+
+        if (reuseView) {
+            setSrqlQuery(trimmed, { origin: 'view', viewPath, viewId });
+            if (viewPath) {
+                router.push(viewPath);
+            }
+            return;
+        }
+
+        setSrqlQuery(trimmed, { origin: 'header', viewPath: null, viewId: null });
+        router.push(`/query?q=${encodeURIComponent(trimmed)}`);
     };
 
     // Get user initials for profile icon

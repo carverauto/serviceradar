@@ -136,7 +136,7 @@ const EventsDashboard = () => {
     const eventsViewPath = `${pathname ?? '/events'}`;
 
     useEffect(() => {
-        setSrqlQuery(DEFAULT_EVENTS_QUERY, { origin: 'view', viewPath: eventsViewPath });
+        setSrqlQuery(DEFAULT_EVENTS_QUERY, { origin: 'view', viewPath: eventsViewPath, viewId: 'observability:events' });
     }, [eventsViewPath, setSrqlQuery]);
 
     const fetchEvents = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
@@ -163,7 +163,7 @@ const EventsDashboard = () => {
 
             const query = queryParts.join(' ');
 
-            setSrqlQuery(query, { origin: 'view', viewPath: eventsViewPath });
+            setSrqlQuery(query, { origin: 'view', viewPath: eventsViewPath, viewId: 'observability:events' });
             const data = await postQuery<EventsApiResponse>(query, cursor, direction);
             setEvents(data.results || []);
             setPagination(data.pagination || null);
