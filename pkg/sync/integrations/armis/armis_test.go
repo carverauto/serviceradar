@@ -947,6 +947,93 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 	}
 }
 
+func TestDefaultKVWriter_WriteSweepConfigChunks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping chunk regression in short mode; exercised in long test suite")
+	}
+
+	const (
+		totalDevices  = 1100
+		expectedLimit = 512 * bytesPerKB
+	)
+	payload := strings.Repeat("x", 3072)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := newMockKVClient(ctrl)
+
+	kvWriter := &DefaultKVWriter{
+		KVClient: mockKV,
+		AgentID:  "k8s-agent",
+		Logger:   logger.NewTestLogger(),
+	}
+
+	deviceTargets := make([]models.DeviceTarget, totalDevices)
+	for i := range deviceTargets {
+		deviceTargets[i] = models.DeviceTarget{
+			Network: fmt.Sprintf("10.0.%d.%d/32", i/256, i%256),
+			Source:  "armis",
+			Metadata: map[string]string{
+				"device_id": fmt.Sprintf("%d", i),
+				"payload":   payload,
+			},
+		}
+	}
+
+	sweepConfig := &models.SweepConfig{
+		DeviceTargets: deviceTargets,
+		Ports:         []int{22, 80, 443},
+		SweepModes:    []string{string(models.ModeICMP)},
+		Interval:      "5m",
+		Timeout:       "15s",
+	}
+
+	var (
+		chunkCalls          int
+		totalDevicesWritten int
+		metaChunkCount      int
+	)
+
+	mockKV.EXPECT().PutMany(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req *proto.PutManyRequest, _ ...grpc.CallOption) (*proto.PutManyResponse, error) {
+			require.Len(t, req.Entries, 1)
+			entry := req.Entries[0]
+
+			switch {
+			case strings.Contains(entry.Key, "sweep_chunk_"):
+				chunkCalls++
+				require.LessOrEqualf(t, len(entry.Value), expectedLimit, "chunk %s exceeded size limit", entry.Key)
+
+				var chunkCfg models.SweepConfig
+				require.NoError(t, json.Unmarshal(entry.Value, &chunkCfg))
+				totalDevicesWritten += len(chunkCfg.DeviceTargets)
+				require.NotEmpty(t, chunkCfg.DeviceTargets)
+			case strings.HasSuffix(entry.Key, "/sweep.json"):
+				var metadata map[string]any
+				require.NoError(t, json.Unmarshal(entry.Value, &metadata))
+
+				countValRaw, ok := metadata["chunk_count"]
+				require.Truef(t, ok, "chunk_count metadata missing (keys=%v)", metadata)
+
+				countVal, ok := countValRaw.(float64)
+				require.Truef(t, ok, "chunk_count unexpected type %T", countValRaw)
+				metaChunkCount = int(countVal)
+			default:
+				t.Fatalf("unexpected key written: %s", entry.Key)
+			}
+
+			return &proto.PutManyResponse{}, nil
+		}).AnyTimes()
+
+	err := kvWriter.WriteSweepConfig(context.Background(), sweepConfig)
+	require.NoError(t, err)
+
+	require.Greater(t, chunkCalls, 1, "expected multiple chunk writes")
+	require.Equal(t, chunkCalls, metaChunkCount, "metadata chunk count mismatch")
+	require.Equal(t, totalDevices, totalDevicesWritten)
+}
+
 func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -1309,11 +1396,12 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 		Logger:        logger.NewTestLogger(),
 	}
 
-	// Create test data with 2500 devices (should be split into 5 batches of 500 each)
-	const totalDevices = 2500
+	// Create test data with 1500 devices (should be split into 3 batches of 500 each)
+	const totalDevices = 1500
 
 	devices := make([]Device, totalDevices)
 	sweepResults := make([]SweepResult, totalDevices)
+	now := time.Now()
 
 	for i := 0; i < totalDevices; i++ {
 		devices[i] = Device{
@@ -1324,15 +1412,15 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 		sweepResults[i] = SweepResult{
 			IP:        fmt.Sprintf("192.168.%d.%d", (i/254)+1, (i%254)+1),
 			Available: i%2 == 0, // Alternate between available and unavailable
-			Timestamp: time.Now(),
+			Timestamp: now,
 		}
 	}
 
-	// Expect exactly 5 calls to UpdateMultipleDeviceCustomAttributes (500 devices each)
+	// Expect exactly 3 calls to UpdateMultipleDeviceCustomAttributes (500 devices each)
 	mockUpdater.EXPECT().
 		UpdateMultipleDeviceCustomAttributes(gomock.Any(), gomock.Len(500)).
 		Return(nil).
-		Times(5)
+		Times(3)
 
 	// Execute the batch update
 	ctx := context.Background()

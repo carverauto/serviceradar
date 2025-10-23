@@ -49,10 +49,11 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 }
 
 const (
-	bytesPerKB          = 1024
-	bytesPerMB          = bytesPerKB * 1024
-	maxPayloadSize      = 3 * bytesPerMB // 3MB to stay well under gRPC 4MB limit
-	maxNetworksPerChunk = 1000           // Reduced from 10000 to stay under NATS limits
+	bytesPerKB           = 1024
+	bytesPerMB           = bytesPerKB * 1024
+	maxPayloadSize       = 3 * bytesPerMB   // 3MB to stay well under gRPC 4MB limit
+	maxNetworksPerChunk  = 1000             // Reduced from 10000 to stay under NATS limits
+	maxChunkPayloadBytes = 512 * bytesPerKB // Keep individual KV entries well under typical NATS payload limits
 )
 
 // canWriteAsSingleFile checks if the config can be written as a single file
@@ -91,80 +92,139 @@ func (kw *DefaultKVWriter) writeSingleConfig(ctx context.Context, configJSON []b
 func (kw *DefaultKVWriter) writeChunkedConfig(ctx context.Context, sweepConfig *models.SweepConfig, configJSON []byte) error {
 	payloadSize := len(configJSON)
 	kw.Logger.Info().
-		Int("total_networks", len(sweepConfig.Networks)).
+		Int("device_targets", len(sweepConfig.DeviceTargets)).
 		Int("payload_size_mb", payloadSize/bytesPerMB).
 		Msg("Large sweep config detected, writing in chunks")
 
-	// Calculate chunks based on device targets (networks array is now empty)
-	totalChunks := 1 // Default to 1 chunk
-	devicesPerChunk := len(sweepConfig.DeviceTargets)
-
-	if len(sweepConfig.DeviceTargets) > maxNetworksPerChunk {
-		totalChunks = (len(sweepConfig.DeviceTargets) + maxNetworksPerChunk - 1) / maxNetworksPerChunk
-		devicesPerChunk = (len(sweepConfig.DeviceTargets) + totalChunks - 1) / totalChunks
+	chunks, err := kw.buildSweepChunks(sweepConfig, configJSON)
+	if err != nil {
+		return err
 	}
 
-	// Write all chunks
-	for i := 0; i < totalChunks; i++ {
-		if err := kw.writeConfigChunk(ctx, sweepConfig, i, totalChunks, devicesPerChunk); err != nil {
+	for i, chunk := range chunks {
+		if err := kw.writeSweepChunk(ctx, i, chunk); err != nil {
 			return err
 		}
 	}
 
-	// Write metadata
-	return kw.writeChunkMetadata(ctx, totalChunks, len(sweepConfig.Networks))
+	return kw.writeChunkMetadata(ctx, len(chunks), len(sweepConfig.Networks))
 }
 
-// writeConfigChunk writes a single chunk of the config
-func (kw *DefaultKVWriter) writeConfigChunk(
-	ctx context.Context,
-	sweepConfig *models.SweepConfig,
-	chunkIndex int,
-	_ int, // totalChunks
-	devicesPerChunk int) error { //nolint:wsl // function signature requires multiline format
-	// Networks array is empty - only process device targets
+type sweepChunk struct {
+	data        []byte
+	deviceCount int
+}
 
-	// Calculate device target range for this chunk
-	var chunkDeviceTargets []models.DeviceTarget
+func (kw *DefaultKVWriter) buildSweepChunks(sweepConfig *models.SweepConfig, configJSON []byte) ([]sweepChunk, error) {
+	targets := sweepConfig.DeviceTargets
 
-	if len(sweepConfig.DeviceTargets) > 0 {
-		devStart := chunkIndex * devicesPerChunk
-		devEnd := devStart + devicesPerChunk
+	if len(targets) == 0 {
+		data, err := kw.marshalChunkConfig(sweepConfig, nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		return []sweepChunk{{data: data, deviceCount: 0}}, nil
+	}
 
-		if devEnd > len(sweepConfig.DeviceTargets) {
-			devEnd = len(sweepConfig.DeviceTargets)
+	avgBytesPerDevice := len(configJSON) / len(targets)
+	if avgBytesPerDevice <= 0 {
+		avgBytesPerDevice = 1
+	}
+
+	devicesPerChunk := maxChunkPayloadBytes / avgBytesPerDevice
+	if devicesPerChunk < 1 {
+		devicesPerChunk = 1
+	}
+	if devicesPerChunk > maxNetworksPerChunk {
+		devicesPerChunk = maxNetworksPerChunk
+	}
+
+	chunks := make([]sweepChunk, 0, (len(targets)+devicesPerChunk-1)/devicesPerChunk)
+
+	for start := 0; start < len(targets); {
+		end := start + devicesPerChunk
+		if end > len(targets) {
+			end = len(targets)
 		}
 
-		chunkDeviceTargets = sweepConfig.DeviceTargets[devStart:devEnd]
+		for {
+			chunkTargets := targets[start:end]
+			chunkIdx := len(chunks)
+
+			data, err := kw.marshalChunkConfig(sweepConfig, chunkTargets, chunkIdx)
+			if err != nil {
+				return nil, err
+			}
+
+			if len(data) <= maxChunkPayloadBytes || len(chunkTargets) <= 1 {
+				if len(data) > maxChunkPayloadBytes {
+					kw.Logger.Warn().
+						Int("chunk_index", chunkIdx).
+						Int("chunk_size_bytes", len(data)).
+						Str("agent_id", kw.AgentID).
+						Msg("Single-device chunk exceeds target size limit")
+				}
+
+				chunks = append(chunks, sweepChunk{
+					data:        data,
+					deviceCount: len(chunkTargets),
+				})
+
+				start = end
+				break
+			}
+
+			// Reduce the chunk size and retry to keep us under the payload limit.
+			newLen := len(chunkTargets) / 2
+			if newLen < 1 {
+				newLen = 1
+			}
+
+			kw.Logger.Debug().
+				Int("attempted_devices", len(chunkTargets)).
+				Int("chunk_size_bytes", len(data)).
+				Int("reduced_devices", newLen).
+				Msg("Chunk size exceeded limit, reducing device batch")
+
+			end = start + newLen
+		}
 	}
 
-	// Create chunk with subset of data
+	return chunks, nil
+}
+
+func (kw *DefaultKVWriter) marshalChunkConfig(base *models.SweepConfig, targets []models.DeviceTarget, chunkIndex int) ([]byte, error) {
 	chunkConfig := &models.SweepConfig{
-		Networks:      []string{}, // Always empty - using DeviceTargets only
-		DeviceTargets: chunkDeviceTargets,
-		Ports:         sweepConfig.Ports,
-		SweepModes:    sweepConfig.SweepModes,
-		Interval:      sweepConfig.Interval,
-		Concurrency:   sweepConfig.Concurrency,
-		Timeout:       sweepConfig.Timeout,
+		Networks:      []string{},
+		DeviceTargets: targets,
+		Ports:         base.Ports,
+		SweepModes:    base.SweepModes,
+		Interval:      base.Interval,
+		Concurrency:   base.Concurrency,
+		Timeout:       base.Timeout,
 	}
 
-	chunkJSON, marshalErr := json.Marshal(chunkConfig)
-	if marshalErr != nil {
+	chunkJSON, err := json.Marshal(chunkConfig)
+	if err != nil {
 		kw.Logger.Error().
-			Err(marshalErr).
+			Err(err).
 			Int("chunk_index", chunkIndex).
+			Int("device_count", len(targets)).
 			Msg("Failed to marshal sweep config chunk")
 
-		return fmt.Errorf("failed to marshal sweep config chunk %d: %w", chunkIndex, marshalErr)
+		return nil, fmt.Errorf("failed to marshal sweep config chunk %d: %w", chunkIndex, err)
 	}
 
+	return chunkJSON, nil
+}
+
+func (kw *DefaultKVWriter) writeSweepChunk(ctx context.Context, chunkIndex int, chunk sweepChunk) error {
 	chunkKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep_chunk_%d.json", kw.AgentID, chunkIndex)
 
 	_, err := kw.KVClient.PutMany(ctx, &proto.PutManyRequest{
 		Entries: []*proto.KeyValueEntry{{
 			Key:   chunkKey,
-			Value: chunkJSON,
+			Value: chunk.data,
 		}},
 	})
 	if err != nil {
@@ -174,8 +234,8 @@ func (kw *DefaultKVWriter) writeConfigChunk(
 	kw.Logger.Debug().
 		Str("chunk_key", chunkKey).
 		Int("chunk_index", chunkIndex).
-		Int("chunk_size_bytes", len(chunkJSON)).
-		Int("devices_in_chunk", len(chunkDeviceTargets)).
+		Int("chunk_size_bytes", len(chunk.data)).
+		Int("devices_in_chunk", chunk.deviceCount).
 		Msg("Successfully wrote sweep config chunk")
 
 	return nil
