@@ -152,3 +152,36 @@ export const canonicalizeServiceList = (names: string[]): string[] => {
 
     return canonical.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 };
+
+export type SrqlPostQuery = <T>(query: string, cursor?: string, direction?: 'next' | 'prev') => Promise<T>;
+
+export const SERVICES_SNAPSHOT_QUERY = 'in:services stats:"group_uniq_array(service_name) as services" limit:1';
+
+export const fetchCanonicalServiceNames = async (
+    postQuery: SrqlPostQuery
+): Promise<string[]> => {
+    const data = await postQuery<{ results?: unknown[] }>(SERVICES_SNAPSHOT_QUERY);
+    return extractServiceNamesFromResults(data.results ?? []);
+};
+
+export const getServiceQueryValues = (serviceName: string): string[] => {
+    if (typeof serviceName !== 'string') {
+        return [];
+    }
+
+    const canonical = canonicalizeName(serviceName);
+    if (!canonical) {
+        return [];
+    }
+
+    const canonicalLower = canonical.toLowerCase();
+    const aliases = Object.entries(SERVICE_NAME_MAP)
+        .filter(([, mapped]) => mapped.toLowerCase() === canonicalLower)
+        .map(([short]) => short);
+
+    const values = new Set<string>();
+    aliases.forEach((alias) => values.add(alias));
+    values.add(canonical);
+
+    return Array.from(values);
+};
