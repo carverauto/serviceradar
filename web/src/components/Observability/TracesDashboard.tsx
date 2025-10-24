@@ -35,6 +35,8 @@ import { normalizeTraceSummaryTimestamp, resolveTraceTimestampMs } from '@/utils
 import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
 import { DEFAULT_TRACES_QUERY } from '@/lib/srqlQueries';
 import { usePathname, useSearchParams } from 'next/navigation';
+import ServiceFilterSelect from '@/components/Common/ServiceFilterSelect';
+import { fetchCanonicalServiceNames, getServiceQueryValues } from '@/utils/logServiceOptions';
 
 const StatCard = ({
     title,
@@ -246,9 +248,7 @@ const TracesDashboard = () => {
 
     const fetchServices = useCallback(async () => {
         try {
-            const query = 'in:otel_trace_summaries root_service_name:* time:last_24h stats:"count() as total by root_service_name" limit:200';
-            const response = await postQuery<{ results: Array<{ root_service_name: string }> }>(query);
-            const serviceNames = response.results?.map(r => r.root_service_name).filter(Boolean) || [];
+            const serviceNames = await fetchCanonicalServiceNames(postQuery);
             setServices(serviceNames);
         } catch (e) {
             console.error("Failed to fetch services:", e);
@@ -270,8 +270,13 @@ const TracesDashboard = () => {
             ];
 
             if (filterService !== 'all') {
-                const escapedService = escapeSrqlValue(filterService);
-                queryParts.push(`root_service_name:"${escapedService}"`);
+                const serviceValues = getServiceQueryValues(filterService);
+                if (serviceValues.length === 1) {
+                    queryParts.push(`root_service_name:"${escapeSrqlValue(serviceValues[0])}"`);
+                } else if (serviceValues.length > 1) {
+                    const escapedValues = serviceValues.map((value) => escapeSrqlValue(value));
+                    queryParts.push(`root_service_name:(${escapedValues.join(',')})`);
+                }
             }
 
             if (filterStatus === 'success') {
@@ -352,8 +357,13 @@ const TracesDashboard = () => {
         ];
 
         if (filterService !== 'all') {
-            const escapedService = escapeSrqlValue(filterService);
-            queryParts.push(`root_service_name:"${escapedService}"`);
+            const serviceValues = getServiceQueryValues(filterService);
+            if (serviceValues.length === 1) {
+                queryParts.push(`root_service_name:"${escapeSrqlValue(serviceValues[0])}"`);
+            } else if (serviceValues.length > 1) {
+                const escapedValues = serviceValues.map((value) => escapeSrqlValue(value));
+                queryParts.push(`root_service_name:(${escapedValues.join(',')})`);
+            }
         }
 
         if (filterStatus === 'success') {
@@ -532,6 +542,12 @@ const TracesDashboard = () => {
         refreshTraceCounts();
         fetchServices();
     }, [refreshTraceCounts, fetchServices]);
+
+    useEffect(() => {
+        if (filterService !== 'all' && !services.includes(filterService)) {
+            setFilterService('all');
+        }
+    }, [services, filterService]);
 
     useEffect(() => {
         // Fetch traces when dependencies change (only if streaming is disabled)
@@ -720,24 +736,12 @@ const TracesDashboard = () => {
                                 </select>
                             </div>
 
-                            <div className="flex items-center gap-2">
-                                <label htmlFor="serviceFilter" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                                    Service:
-                                </label>
-                                <select
-                                    id="serviceFilter"
-                                    value={filterService}
-                                    onChange={(e) => setFilterService(e.target.value)}
-                                    className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1 focus:ring-green-500 focus:border-green-500"
-                                >
-                                    <option value="all">All</option>
-                                    {services.map((service) => (
-                                        <option key={service} value={service}>
-                                            {service}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                            <ServiceFilterSelect
+                                value={filterService}
+                                services={services}
+                                onChange={setFilterService}
+                                disabled={services.length === 0}
+                            />
 
                             <div className="flex items-center gap-2">
                                 <label htmlFor="streamingToggle" className="text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
