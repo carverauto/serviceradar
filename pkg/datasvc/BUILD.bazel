@@ -1,7 +1,7 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
-    name = "kv",
+    name = "datasvc",
     srcs = [
         "config.go",
         "errors.go",
@@ -12,7 +12,7 @@ go_library(
         "server.go",
         "types.go",
     ],
-    importpath = "github.com/carverauto/serviceradar/pkg/kv",
+    importpath = "github.com/carverauto/serviceradar/pkg/datasvc",
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/config/kv",

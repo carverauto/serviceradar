@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package kv
+package datasvc
 
 import (
 	"github.com/carverauto/serviceradar/pkg/models"
