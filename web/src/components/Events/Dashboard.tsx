@@ -212,13 +212,80 @@ const EventsDashboard = () => {
         }
     };
 
-    const formatDate = (dateString: string) => {
+    const parseEventRawData = useCallback((event: Event) => {
+        if (!event.raw_data) return null;
+
         try {
-            return new Date(dateString).toLocaleString();
+            const parsed = JSON.parse(event.raw_data);
+            return parsed?.root ?? parsed;
         } catch {
-            return 'Invalid Date';
+            return null;
         }
-    };
+    }, []);
+
+    const parseDateCandidate = useCallback((candidate?: string) => {
+        if (!candidate) return null;
+
+        const attempt = (value: string) => {
+            const parsed = new Date(value);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        };
+
+        // First try the candidate as-is.
+        const direct = attempt(candidate);
+        if (direct) return direct;
+
+        // Some OTEL payloads include fractional seconds > ms precision; trim to 3 decimals.
+        if (candidate.includes('.')) {
+            const trimmed = candidate.replace(/(\.\d{3})\d*(Z|[+-]\d{2}:?\d{2})?$/, '$1$2');
+            const trimmedDate = attempt(trimmed);
+            if (trimmedDate) return trimmedDate;
+        }
+
+        return null;
+    }, []);
+
+    const formatDate = useCallback((event: Event) => {
+        const candidates: Array<string | undefined> = [
+            event.event_timestamp,
+            event._tp_time
+        ];
+
+        const raw = parseEventRawData(event);
+        if (raw) {
+            candidates.push(raw?.time);
+            candidates.push(raw?.timestamp);
+            candidates.push(raw?.data?.timestamp);
+            candidates.push(raw?.data?.last_seen);
+        }
+
+        for (const candidate of candidates) {
+            const parsed = parseDateCandidate(candidate);
+            if (parsed) {
+                return parsed.toLocaleString();
+            }
+        }
+
+        return 'Invalid Date';
+    }, [parseDateCandidate, parseEventRawData]);
+
+    const getEventHost = useCallback((event: Event) => {
+        if (event.host) return event.host;
+
+        const raw = parseEventRawData(event);
+        if (raw) {
+            const hostCandidate =
+                raw?.data?.source_ip ||
+                raw?.data?.host ||
+                raw?.source_ip ||
+                raw?.host;
+            if (hostCandidate) {
+                return hostCandidate;
+            }
+        }
+
+        return 'Unknown';
+    }, [parseEventRawData]);
 
     const TableHeader = ({
                              aKey,
@@ -360,7 +427,7 @@ const EventsDashboard = () => {
                                             </button>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                            {formatDate(event.event_timestamp)}
+                                            {formatDate(event)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSeverityBadge(event.severity || 'unknown')}`}>
@@ -368,7 +435,7 @@ const EventsDashboard = () => {
                         </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                            {event.host}
+                                            {getEventHost(event)}
                                         </td>
                                         <td
                                             className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 font-mono max-w-lg truncate"
