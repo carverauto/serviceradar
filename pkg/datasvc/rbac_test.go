@@ -15,7 +15,7 @@
  */
 
 // Package kv pkg/kv/rbac_test.go
-package kv
+package datasvc
 
 import (
 	"context"

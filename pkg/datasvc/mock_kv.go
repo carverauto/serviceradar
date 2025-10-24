@@ -7,7 +7,7 @@
 //
 
 // Package kv is a generated GoMock package.
-package kv
+package datasvc
 
 import (
 	context "context"

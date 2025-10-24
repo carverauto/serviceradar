@@ -15,7 +15,7 @@
  */
 
 // Package kv pkg/kv/server_test.go
-package kv
+package datasvc
 
 import (
 	"context"
