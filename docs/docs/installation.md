@@ -69,9 +69,9 @@ Verify the NATS Server is running:
 sudo systemctl status serviceradar-nats
 ```
 
-##### Install ServiceRadar KV Service
+##### Install ServiceRadar Data Service Service
 
-To enable the KV store functionality in ServiceRadar, install the `serviceradar-datasvc` package:
+To enable the KV/Object store functionality in ServiceRadar, install the `serviceradar-datasvc` package:
 
 ```bash
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-datasvc_1.0.52.deb
@@ -165,10 +165,10 @@ systemctl status serviceradar-poller
 # Check core status
 systemctl status serviceradar-core
 
-# Check NATS Server status (if installed)
+# Check NATS Server status
 systemctl status nats
 
-# Check KV service status (if installed)
+# Check Data Service service status
 systemctl status serviceradar-datasvc
 ```
 

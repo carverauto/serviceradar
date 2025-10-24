@@ -55,7 +55,7 @@ serviceradar-poller: Pollers ask the agents to collect data from checkers and fo
 serviceradar-kong: API gateway, gets JWKS information from the Core via API and all API calls are routed and authorized before reaching their final destination. This allows us to easily bring in new APIs using shared AAA.
 serviceradar-mapper: Network discovery/mapper service, uses SNMP/CDP/LLDP and API to interrogate network devices, mapping interfaces to devices and adding newly discovered devices.
 serviceradar-nats: NATS JetStream offers message broker and KV services. Hub/Leaf configurations are fully supported at this time, allowing network operators to easily position message brokers in the edge or compartmented networks for ETL or aggregation functions.
-serviceradar-datasvc: gRPC API for the NATS JetStream KV service.
+serviceradar-datasvc: gRPC API for the NATS JetStream Data (KV/Object Store) service.
 serviceradar-nginx: nginx ingress configured to route /api calls through kong API gateway
 serviceradar-otel: lightweight OTEL processor, receives OTEL logs, traces, and metrics, puts messages on the NATS JetStream message bus for processing by consumers.
 serviceradar-zen: GoRules/zenEngine based stateless rule engine -- used to transform syslog messages and other events, transformed messages are turned into CloudEvents and placed into a new NATS JetStream stream to be processed by database consumers.
