@@ -45,6 +45,7 @@ type ArmisIntegration struct {
 	SweeperConfig *models.SweepConfig
 	Config        *models.SourceConfig
 	KVClient      proto.KVServiceClient
+	DataClient    proto.DataServiceClient
 	GRPCConn      *grpc.ClientConn
 	ServerName    string
 	PageSize      int // Number of devices to fetch per page
@@ -125,6 +126,7 @@ type DefaultArmisIntegration struct {
 // DefaultKVWriter provides the default implementation for KVWriter.
 type DefaultKVWriter struct {
 	KVClient   proto.KVServiceClient
+	DataClient proto.DataServiceClient
 	ServerName string
 	AgentID    string
 	Logger     logger.Logger

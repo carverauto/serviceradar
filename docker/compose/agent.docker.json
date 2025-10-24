@@ -11,7 +11,7 @@
   "kv_security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "kv.serviceradar",
+    "server_name": "datasvc.serviceradar",
     "role": "agent",
     "tls": {
       "cert_file": "agent.pem",

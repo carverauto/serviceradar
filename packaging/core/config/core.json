@@ -59,7 +59,7 @@
             "mode": "mtls",
             "cert_dir": "/etc/serviceradar/certs",
             "server_name": "PLACEHOLDER_NATS_SERVER_NAME",
-            "role": "kv",
+            "role": "datasvc",
             "tls": {
                 "cert_file": "nats.pem",
                 "key_file": "nats-key.pem",

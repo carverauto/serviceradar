@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-datasvc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-datasvc
+  template:
+    metadata:
+      labels:
+        app: serviceradar-datasvc
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: datasvc
+        image: ghcr.io/carverauto/serviceradar-datasvc:{{ .Values.image.tags.datasvc }}
+        ports:
+        - containerPort: 50057
+          name: grpc
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: datasvc-data
+          mountPath: /var/lib/serviceradar
+        env:
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/datasvc.json"
+        - name: WAIT_FOR_NATS
+          value: "true"
+        - name: LOG_LEVEL
+          value: "info"
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        livenessProbe:
+          exec:
+            command:
+            - grpcurl
+            - -cacert
+            - /etc/serviceradar/certs/root.pem
+            - -cert
+            - /etc/serviceradar/certs/datasvc.pem
+            - -key
+            - /etc/serviceradar/certs/datasvc-key.pem
+            - -servername
+            - datasvc.serviceradar
+            - localhost:50057
+            - grpc.health.v1.Health/Check
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - grpcurl
+            - -cacert
+            - /etc/serviceradar/certs/root.pem
+            - -cert
+            - /etc/serviceradar/certs/datasvc.pem
+            - -key
+            - /etc/serviceradar/certs/datasvc-key.pem
+            - -servername
+            - datasvc.serviceradar
+            - localhost:50057
+            - grpc.health.v1.Health/Check
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 3
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: datasvc-data
+        persistentVolumeClaim:
+          claimName: serviceradar-datasvc-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-datasvc
+spec:
+  selector:
+    app: serviceradar-datasvc
+  ports:
+  - name: grpc
+    port: 50057
+    targetPort: grpc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-datasvc-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

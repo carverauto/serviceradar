@@ -1,9 +1,0 @@
-load("//packaging:package_rules.bzl", "serviceradar_package_from_config")
-load("//packaging:packages.bzl", "PACKAGES")
-
-package(default_visibility = ["//visibility:public"])
-
-serviceradar_package_from_config(
-    name = "kv",
-    config = PACKAGES["kv"],
-)

@@ -35,7 +35,7 @@ You can inspect the JSON definitions in `packaging/zen/rules/` or the rendered C
 
 ## Managing Rules
 
-- Rules are stored in the NATS JetStream key-value bucket `serviceradar-kv` using the key pattern `agents/<agent-id>/<stream>/<subject>/<rule>.json`. The demo agent ID is `default-agent`, stream `events`, and subject `events.syslog`.
+- Rules are stored in the NATS JetStream key-value bucket `serviceradar-datasvc` using the key pattern `agents/<agent-id>/<stream>/<subject>/<rule>.json`. The demo agent ID is `default-agent`, stream `events`, and subject `events.syslog`.
 - The `zen-put-rule` helper (packaged in the `serviceradar-tools` container) publishes rule updates. Launch the toolbox pod and run:
 
   ```bash

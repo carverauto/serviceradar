@@ -1,0 +1,24 @@
+{
+  "listen_addr": ":50057",
+  "nats_url": "tls://nats:4222",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats.serviceradar",
+    "role": "datasvc",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/datasvc.pem",
+      "key_file": "/etc/serviceradar/certs/datasvc-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "client_ca_file": "/etc/serviceradar/certs/root.pem"
+    }
+  },
+  "rbac": {
+    "roles": [
+      {"identity": "CN=core.serviceradar,O=ServiceRadar", "role": "admin"},
+      {"identity": "CN=poller.serviceradar,O=ServiceRadar", "role": "reader"},
+      {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "reader"}
+    ]
+  },
+  "bucket": "serviceradar-datasvc"
+}

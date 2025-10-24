@@ -21,7 +21,7 @@ Follow the prompts to select your desired components and optional checkers.
 For automated deployments, use the following options:
 
 ### All-in-One Installation
-Installs all components (`serviceradar-agent`, `serviceradar-core`, `serviceradar-kv`, `serviceradar-nats`, `serviceradar-poller`, `serviceradar-web`, plus optional checkers).
+Installs all components (`serviceradar-agent`, `serviceradar-core`, `serviceradar-datasvc`, `serviceradar-nats`, `serviceradar-poller`, `serviceradar-web`, plus optional checkers).
 
 ```bash
 # Without checkers
@@ -32,7 +32,7 @@ curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/in
 ```
 
 ### Core + Web UI Installation
-Installs core components (`serviceradar-core`, `serviceradar-web`, `serviceradar-nats`, `serviceradar-kv`, plus optional checkers).
+Installs core components (`serviceradar-core`, `serviceradar-web`, `serviceradar-nats`, `serviceradar-datasvc`, plus optional checkers).
 
 ```bash
 # Without checkers

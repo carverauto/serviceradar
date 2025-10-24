@@ -10,7 +10,7 @@
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "kv.serviceradar",
+    "server_name": "datasvc.serviceradar",
     "role": "poller",
     "tls": {
       "cert_file": "/etc/serviceradar/certs/sync.pem",

@@ -227,11 +227,11 @@ data:
       "agent_name": "agent",
       "host_ip": "agent",
       "partition": "default",
-      "kv_address": "serviceradar-kv:50057",
+      "kv_address": "serviceradar-datasvc:50057",
       "kv_security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "kv.serviceradar",
+        "server_name": "datasvc.serviceradar",
         "role": "agent",
         "tls": {
           "cert_file": "agent.pem",
@@ -332,8 +332,8 @@ data:
         }
       ],
       "agent_id": "k8s-zen-consumer",
-      "kv_address": "serviceradar-kv:50057",
-      "kv_bucket": "serviceradar-kv",
+      "kv_address": "serviceradar-datasvc:50057",
+      "kv_bucket": "serviceradar-datasvc",
       "listen_addr": "0.0.0.0:50040",
       "result_subject_suffix": ".processed",
       "security": {
@@ -349,7 +349,7 @@ data:
       "kv_security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "kv.serviceradar",
+        "server_name": "datasvc.serviceradar",
         "role": "zen",
         "tls": {
           "cert_file": "zen.pem",
@@ -751,7 +751,7 @@ data:
           }
         },
         {
-          user: "CN=serviceradar-kv,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          user: "CN=serviceradar-datasvc,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
           permissions: {
             publish: {
               allow: [">"]
@@ -1036,8 +1036,8 @@ data:
       }
     }
 
-  # KV Service Configuration
-  kv.json: |
+  # Data Service Configuration
+  datasvc.json: |
     {
       "listen_addr": "0.0.0.0:50057",
       "nats_url": "tls://serviceradar-nats:4222",
@@ -1045,10 +1045,10 @@ data:
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
         "server_name": "serviceradar-nats",
-        "role": "kv",
+        "role": "datasvc",
         "tls": {
-          "cert_file": "kv.pem",
-          "key_file": "kv-key.pem",
+          "cert_file": "datasvc.pem",
+          "key_file": "datasvc-key.pem",
           "ca_file": "root.pem",
           "client_ca_file": "root.pem"
         }
@@ -1061,5 +1061,5 @@ data:
           {"identity": "CN=serviceradar-debug-client,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
         ]
       },
-      "bucket": "serviceradar-kv"
+      "bucket": "serviceradar-datasvc"
     }

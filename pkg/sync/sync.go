@@ -217,9 +217,15 @@ func NewArmisIntegration(
 		Logger:     log,
 	}
 
+	var dataClient proto.DataServiceClient
+	if grpcConn != nil {
+		dataClient = proto.NewDataServiceClient(grpcConn)
+	}
+
 	// Create the default KV writer
 	kvWriter := &armis.DefaultKVWriter{
 		KVClient:   kvClient,
+		DataClient: dataClient,
 		ServerName: serverName,
 		AgentID:    config.AgentID,
 		Logger:     log,
@@ -253,6 +259,7 @@ func NewArmisIntegration(
 	return &armis.ArmisIntegration{
 		Config:        config,
 		KVClient:      kvClient,
+		DataClient:    dataClient,
 		GRPCConn:      grpcConn,
 		ServerName:    serverName,
 		PageSize:      pageSize,

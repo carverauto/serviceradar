@@ -113,10 +113,10 @@ alias(
     actual = "//pkg/integration_test:integration_test",
 )
 
-# pkg/kv
+# pkg/datasvc
 alias(
-    name = "kv",
-    actual = "//pkg/kv:kv",
+    name = "datasvc",
+    actual = "//pkg/datasvc:datasvc",
 )
 
 # pkg/lifecycle

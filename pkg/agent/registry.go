@@ -85,6 +85,9 @@ func initRegistry(log logger.Logger) checker.Registry {
 				actualGrpcServiceCheckName = defaultMonitoringServiceName
 			case "sync":
 				actualGrpcServiceCheckName = defaultMonitoringServiceName
+			case "kv":
+				// Datasvc exposes standard gRPC health under the "datasvc" service name.
+				actualGrpcServiceCheckName = "datasvc"
 			default:
 				// For other services, use the standard health check
 				actualGrpcServiceCheckName = "" // Empty string means use standard gRPC health

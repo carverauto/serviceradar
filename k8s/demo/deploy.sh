@@ -513,7 +513,7 @@ data:
           }
         },
         {
-          user: "CN=serviceradar-kv,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          user: "CN=serviceradar-datasvc,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
           permissions: {
             publish: {
               allow: [">"]
@@ -585,7 +585,7 @@ data:
     debug: true
     trace: false
 
-  kv.json: |
+  datasvc.json: |
     {
       "listen_addr": ":50057",
       "nats_url": "tls://serviceradar-nats:4222",
@@ -593,10 +593,10 @@ data:
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
         "server_name": "nats.serviceradar",
-        "role": "kv",
+        "role": "datasvc",
         "tls": {
-          "cert_file": "kv.pem",
-          "key_file": "kv-key.pem",
+          "cert_file": "datasvc.pem",
+          "key_file": "datasvc-key.pem",
           "ca_file": "root.pem"
         }
       },
@@ -607,7 +607,7 @@ data:
           {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
         ]
       },
-      "bucket": "serviceradar-kv",
+      "bucket": "serviceradar-datasvc",
       "bucket_history": 1,
       "bucket_ttl": "24h",
       "bucket_max_bytes": 5368709120
@@ -623,11 +623,11 @@ data:
       "agent_name": "agent",
       "host_ip": "agent",
       "partition": "default",
-      "kv_address": "serviceradar-kv:50057",
+      "kv_address": "serviceradar-datasvc:50057",
       "kv_security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "kv.serviceradar",
+        "server_name": "datasvc.serviceradar",
         "role": "agent",
         "tls": {
           "cert_file": "agent.pem",
@@ -986,7 +986,7 @@ kubectl wait --for=condition=available --timeout=300s deployment/serviceradar-pr
 kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-nats -n $NAMESPACE
 
 # Wait for KV
-kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-kv -n $NAMESPACE
+kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-datasvc -n $NAMESPACE
 
 # Wait for Core
 kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-core -n $NAMESPACE

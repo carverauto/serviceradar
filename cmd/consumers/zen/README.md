@@ -31,7 +31,7 @@ Create a JSON file with the following fields:
     }
   ],
   "agent_id": "agent-01",
-  "kv_bucket": "serviceradar-kv",
+  "kv_bucket": "serviceradar-datasvc",
   "listen_addr": "0.0.0.0:50055",
   "result_subject_suffix": ".processed"
 }
@@ -87,7 +87,7 @@ Optionally add TLS settings:
     }
   ],
   "agent_id": "agent-01",
-  "kv_bucket": "serviceradar-kv",
+  "kv_bucket": "serviceradar-datasvc",
   "listen_addr": "0.0.0.0:50055",
   "result_subject_suffix": ".processed",
   "security": {

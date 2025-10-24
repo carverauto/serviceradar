@@ -91,13 +91,14 @@ alias nats-info='nats server info'
 alias nats-streams='nats stream ls'
 alias nats-consumers='nats consumer ls'
 alias nats-events='nats stream info events'
-alias nats-kv='nats stream info KV_serviceradar-kv'
+alias nats-kv='nats stream info KV_serviceradar-datasvc'
+alias nats-datasvc='nats stream info KV_serviceradar-datasvc'
 
 # gRPC debugging aliases
 alias grpc-core='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core:50052'
 alias grpc-agent='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051'
 alias grpc-poller='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-poller:50053'
-alias grpc-kv='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-kv:50057'
+alias grpc-datasvc='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-datasvc:50057'
 alias grpc-mapper='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper:50056'
 alias grpc-trapd='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043'
 
@@ -170,7 +171,7 @@ RUN cat > /etc/motd << 'EOF'
 ║    nats-info           - Show NATS server information                       ║
 ║    nats-streams        - List all JetStream streams                         ║
 ║    nats-events         - Show events stream details                         ║
-║    nats-kv             - Show KV store stream details                       ║
+║    nats-datasvc             - Show KV store stream details                       ║
 ║                                                                              ║
 ║  🔌 gRPC ALIASES:                                                            ║
 ║    grpc-core           - Connect to core gRPC (add method after)            ║

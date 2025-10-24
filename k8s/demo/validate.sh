@@ -48,7 +48,7 @@ fi
 # Check deployments
 echo ""
 echo "🚀 Checking deployment status:"
-DEPLOYMENTS=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-agent" "serviceradar-poller" "serviceradar-snmp-checker")
+DEPLOYMENTS=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-agent" "serviceradar-poller" "serviceradar-snmp-checker")
 ALL_READY=true
 
 for deployment in "${DEPLOYMENTS[@]}"; do
@@ -78,7 +78,7 @@ fi
 # Check services
 echo ""
 echo "🌐 Checking services:"
-SERVICES=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv")
+SERVICES=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc")
 for service in "${SERVICES[@]}"; do
     echo -n "   $service... "
     if kubectl get service $service -n $NAMESPACE >/dev/null 2>&1; then

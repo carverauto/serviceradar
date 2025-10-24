@@ -46,9 +46,10 @@ type Server struct {
 	done               chan struct{}
 	config             *ServerConfig
 	connections        map[string]*CheckerConnection
-	kvStore            KVStore
-	createSweepService func(ctx context.Context, sweepConfig *SweepConfig, kvStore KVStore) (Service, error)
-	setupKVStore       func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (KVStore, error)
+	configStore        KVStore
+	objectStore        ObjectStore
+	createSweepService func(ctx context.Context, sweepConfig *SweepConfig, configStore KVStore, objectStore ObjectStore) (Service, error)
+	setupDataStores    func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, ObjectStore, error)
 	logger             logger.Logger
 }
 
