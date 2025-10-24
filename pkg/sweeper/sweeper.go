@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/hashutil"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
@@ -975,10 +976,18 @@ func (s *NetworkSweeper) processConfigUpdate(ctx context.Context, value []byte) 
 			if expectedSHA, ok := metadata["sha256"].(string); ok && expectedSHA != "" {
 				actualHash := sha256.Sum256(objectData)
 				actualSHA := hex.EncodeToString(actualHash[:])
-				if !strings.EqualFold(expectedSHA, actualSHA) {
+
+				if canonicalSHA, err := hashutil.CanonicalHexSHA256(expectedSHA); err != nil {
 					s.logger.Warn().
 						Str("objectKey", objectKey).
-						Str("expected_sha", expectedSHA).
+						Str("expected_sha_raw", expectedSHA).
+						Str("actual_sha", actualSHA).
+						Err(err).
+						Msg("Failed to parse expected checksum for sweep config object")
+				} else if !strings.EqualFold(canonicalSHA, actualSHA) {
+					s.logger.Warn().
+						Str("objectKey", objectKey).
+						Str("expected_sha", canonicalSHA).
 						Str("actual_sha", actualSHA).
 						Msg("Checksum mismatch for sweep config object")
 				}

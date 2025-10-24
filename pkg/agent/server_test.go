@@ -19,7 +19,7 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -973,7 +973,7 @@ func TestServer_mergeKVUpdates_DataServiceObject(t *testing.T) {
 	metadata := map[string]any{
 		"storage":    "data_service",
 		"object_key": objectKey,
-		"sha256":     hex.EncodeToString(sha[:]),
+		"sha256":     base64.StdEncoding.EncodeToString(sha[:]),
 		"overrides": map[string]any{
 			"interval": "2m0s",
 		},
