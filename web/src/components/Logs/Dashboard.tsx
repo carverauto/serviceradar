@@ -34,6 +34,7 @@ import { escapeSrqlValue } from '@/lib/srql';
 import { parseOtelAttributes } from '@/utils/otelAttributes';
 import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
 import { DEFAULT_LOGS_QUERY } from '@/lib/srqlQueries';
+import { extractServiceNamesFromResults } from '@/utils/logServiceOptions';
 import { usePathname, useSearchParams } from 'next/navigation';
 
 const StatCard = ({
@@ -205,25 +206,15 @@ const LogsDashboard = () => {
 
     const fetchServices = useCallback(async () => {
         try {
-            // Use SRQL SHOW query with DISTINCT function to get unique service names efficiently
-            // This should translate to: SELECT DISTINCT service_name FROM table(logs) WHERE service_name IS NOT NULL
-            const query = 'in:logs service_name:* time:last_24h stats:"count() as total by service_name" limit:200';
-            const data = await postQuery<LogsApiResponse>(query);
-            
-            if (!data.results || data.results.length === 0) {
-                setServices([]);
-                return;
-            }
-            
-            // Extract service names from the distinct results
-            const serviceNames = data.results
-                .map(row => row.service_name)
-                .filter(name => name && name.trim() !== '')
-                .sort();
-                
+            // Pull the service inventory directly from SRQL so the picker matches the
+            // canonical list maintained by serviceradar-core. Aggregating with
+            // group_uniq_array keeps the payload small even when thousands of services exist.
+            const query = 'in:services stats:"group_uniq_array(service_name) as services" limit:1';
+            const data = await postQuery<{ results?: unknown[] }>(query);
+            const serviceNames = extractServiceNamesFromResults(data.results ?? []);
             setServices(serviceNames);
         } catch (e) {
-            console.error("Failed to fetch services with DISTINCT query:", e);
+            console.error("Failed to fetch services from in:services:", e);
             setServices([]);
         }
     }, [postQuery]);
@@ -452,6 +443,12 @@ const LogsDashboard = () => {
         fetchStats();
         fetchServices();
     }, [fetchStats, fetchServices]);
+
+    useEffect(() => {
+        if (filterService !== 'all' && !services.includes(filterService)) {
+            setFilterService('all');
+        }
+    }, [services, filterService]);
 
     useEffect(() => {
         // Fetch logs when dependencies change
