@@ -24,7 +24,7 @@ import (
 	ggrpc "google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/kv"
+	"github.com/carverauto/serviceradar/pkg/datasvc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -37,7 +37,7 @@ func main() {
 
 	cfgLoader := config.NewConfig(nil)
 
-	var cfg kv.Config
+	var cfg datasvc.Config
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -46,7 +46,7 @@ func main() {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
 
-	server, err := kv.NewServer(ctx, &cfg)
+	server, err := datasvc.NewServer(ctx, &cfg)
 	if err != nil {
 		log.Fatalf("Failed to create data service server: %v", err)
 	}

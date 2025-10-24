@@ -6,7 +6,7 @@ go_library(
         "config.go",
         "errors.go",
         "interfaces.go",
-        "mock_kv.go",
+        "mock_datasvc.go",
         "nats.go",
         "rbac.go",
         "server.go",
@@ -30,13 +30,13 @@ go_library(
 )
 
 go_test(
-    name = "kv_test",
+    name = "datasvc_test",
     srcs = [
         "rbac_test.go",
         "server_test.go",
         "watch_test.go",
     ],
-    embed = [":kv"],
+    embed = [":datasvc"],
     deps = [
         "//pkg/models",
         "//proto",

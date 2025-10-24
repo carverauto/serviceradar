@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package kv pkg/kv/server_test.go
+// Package datasvc contains unit tests for the data service server.
 package datasvc
 
 import (

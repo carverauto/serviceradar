@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-//go:generate mockgen -destination=mock_kv.go -package=kv github.com/carverauto/serviceradar/pkg/kv KVStore
+//go:generate mockgen -destination=mock_datasvc.go -package=datasvc github.com/carverauto/serviceradar/pkg/datasvc KVStore
 
-// Package kv pkg/kv/interfaces.go
+// Package datasvc contains interfaces and helpers for interacting with the ServiceRadar data service.
 package datasvc
 
 import (

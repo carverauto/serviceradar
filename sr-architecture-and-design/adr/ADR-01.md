@@ -102,9 +102,9 @@ Additionally, we will create synchronization services that will:
 
 ### KV Daemon (serviceradar-datasvc)
 
-- **Interface**: Create a generic KVStore interface in `pkg/kv/interfaces.go`
-- **Backend**: Implement NATS JetStream backend in `pkg/kv/nats.go`
-- **API**: Define and implement gRPC service in `proto/kv.proto` and `pkg/kv/server.go`
+- **Interface**: Create a generic KVStore interface in `pkg/datasvc/interfaces.go`
+- **Backend**: Implement NATS JetStream backend in `pkg/datasvc/nats.go`
+- **API**: Define and implement gRPC service in `proto/kv.proto` and `pkg/datasvc/server.go`
 - **Configuration**: Load from `/etc/serviceradar/datasvc.json`
 - **Systemd**: Provide `serviceradar-datasvc.service` file
 
