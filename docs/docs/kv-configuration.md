@@ -36,14 +36,14 @@ graph LR
 Before configuring the KV store, ensure you have:
 
 1. Installed NATS JetStream (via the `serviceradar-nats` package)
-2. Installed the KV service (via the `serviceradar-kv` package)
+2. Installed the KV service (via the `serviceradar-datasvc` package)
 3. Generated and deployed TLS certificates for mTLS security
 
 For installation instructions, see the [Installation Guide](./installation.md).
 
 ## KV Service Configuration
 
-The KV service configuration is stored in `/etc/serviceradar/kv.json`. Here's a complete example:
+The KV service configuration is stored in `/etc/serviceradar/datasvc.json`. Here's a complete example:
 
 ```json
 {
@@ -53,10 +53,10 @@ The KV service configuration is stored in `/etc/serviceradar/kv.json`. Here's a 
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "192.168.2.23",
-    "role": "kv",
+    "role": "datasvc",
     "tls": {
-      "cert_file": "kv.pem",
-      "key_file": "kv-key.pem",
+      "cert_file": "datasvc.pem",
+      "key_file": "datasvc-key.pem",
       "ca_file": "root.pem",
       "client_ca_file": "root.pem"
     }
@@ -66,7 +66,7 @@ The KV service configuration is stored in `/etc/serviceradar/kv.json`. Here's a 
       {"identity": "CN=192.168.2.23,O=ServiceRadar", "role": "reader"}
     ]
   },
-  "bucket": "serviceradar-kv"
+  "bucket": "serviceradar-datasvc"
 }
 ```
 
@@ -85,7 +85,7 @@ The KV service configuration is stored in `/etc/serviceradar/kv.json`. Here's a 
 | `security.tls.ca_file` | CA certificate file | N/A | Yes |
 | `security.tls.client_ca_file` | Client CA certificate file | N/A | Yes |
 | `rbac.roles` | List of role definitions | `[]` | No |
-| `bucket` | The name of the NATS JetStream bucket | `serviceradar-kv` | No |
+| `bucket` | The name of the NATS JetStream bucket | `serviceradar-datasvc` | No |
 
 ### Important Settings to Consider
 
@@ -110,10 +110,10 @@ The KV service **requires** mTLS for security. The following settings are mandat
   "mode": "mtls",
   "cert_dir": "/etc/serviceradar/certs",
   "server_name": "your-nats-server-ip-or-hostname",
-  "role": "kv",
+  "role": "datasvc",
   "tls": {
-    "cert_file": "kv.pem",
-    "key_file": "kv-key.pem",
+    "cert_file": "datasvc.pem",
+    "key_file": "datasvc-key.pem",
     "ca_file": "root.pem",
     "client_ca_file": "root.pem"
   }
@@ -213,8 +213,8 @@ When configuring a co-located deployment:
 
 The KV service needs the following certificate files:
 
-1. **`kv.pem`**: The KV service's certificate
-2. **`kv-key.pem`**: The KV service's private key
+1. **`datasvc.pem`**: The KV service's certificate
+2. **`datasvc-key.pem`**: The KV service's private key
 3. **`root.pem`**: The root CA certificate that signed all component certificates
 4. **`nats-server.pem`** and **`nats-server-key.pem`**: For the NATS server
 
@@ -272,14 +272,14 @@ After configuring both the KV service and NATS:
 
 ```bash
 sudo systemctl restart nats
-sudo systemctl restart serviceradar-kv
+sudo systemctl restart serviceradar-datasvc
 ```
 
 2. Check their status:
 
 ```bash
 sudo systemctl status nats
-sudo systemctl status serviceradar-kv
+sudo systemctl status serviceradar-datasvc
 ```
 
 3. Verify the KV service is listening on the configured port:
@@ -291,7 +291,7 @@ sudo netstat -tulpn | grep 50057
 4. Check the logs for any errors:
 
 ```bash
-sudo journalctl -u serviceradar-kv --since today
+sudo journalctl -u serviceradar-datasvc --since today
 sudo cat /var/log/nats/nats.log
 ```
 
@@ -302,7 +302,7 @@ sudo cat /var/log/nats/nats.log
 Check the logs for detailed error information:
 
 ```bash
-sudo journalctl -u serviceradar-kv -n 100
+sudo journalctl -u serviceradar-datasvc -n 100
 ```
 
 Common issues include:
@@ -319,7 +319,7 @@ Verify certificates are properly formatted and have correct permissions:
 ls -la /etc/serviceradar/certs/
 
 # Verify certificate content and expiration
-openssl x509 -in /etc/serviceradar/certs/kv.pem -text -noout
+openssl x509 -in /etc/serviceradar/certs/datasvc.pem -text -noout
 ```
 
 ### RBAC Issues
@@ -343,8 +343,8 @@ go install github.com/nats-io/natscli/nats@latest
 
 # Test the NATS connection with mTLS
 nats server check --server nats://localhost:4222 \
-  --tls-cert /etc/serviceradar/certs/kv.pem \
-  --tls-key /etc/serviceradar/certs/kv-key.pem \
+  --tls-cert /etc/serviceradar/certs/datasvc.pem \
+  --tls-key /etc/serviceradar/certs/datasvc-key.pem \
   --tls-ca /etc/serviceradar/certs/root.pem
 ```
 

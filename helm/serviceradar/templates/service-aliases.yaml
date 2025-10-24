@@ -16,7 +16,7 @@ metadata:
   name: kv
 spec:
   type: ExternalName
-  externalName: serviceradar-kv.{{ .Release.Namespace }}.svc.cluster.local
+  externalName: serviceradar-datasvc.{{ .Release.Namespace }}.svc.cluster.local
   ports:
   - port: 50057
     targetPort: 50057

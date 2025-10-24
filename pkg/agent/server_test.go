@@ -18,7 +18,11 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -32,6 +36,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker"
 	cconfig "github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -112,7 +117,7 @@ func TestNewServerBasic(t *testing.T) {
 	s := &Server{
 		configDir:    tmpDir,
 		config:       config,
-		kvStore:      kvStore,
+		configStore:  kvStore,
 		services:     make([]Service, 0),
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]*CheckerConfig),
@@ -123,13 +128,13 @@ func TestNewServerBasic(t *testing.T) {
 		logger:       testLogger,
 	}
 
-	s.setupKVStore = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig) (KVStore, error) {
+	s.setupDataStores = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig, _ logger.Logger) (KVStore, ObjectStore, error) {
 		t.Log("KVAddress not set, using mock KV store")
 
-		return kvStore, nil
+		return kvStore, nil, nil
 	}
 
-	s.createSweepService = func(_ context.Context, _ *SweepConfig, _ KVStore) (Service, error) {
+	s.createSweepService = func(_ context.Context, _ *SweepConfig, _ KVStore, _ ObjectStore) (Service, error) {
 		return nil, errSweepConfigNil // Default behavior for this test
 	}
 
@@ -146,7 +151,7 @@ func TestNewServerBasic(t *testing.T) {
 	assert.Equal(t, config.ListenAddr, server.ListenAddr())
 	assert.Equal(t, config.Security, server.SecurityConfig())
 
-	t.Logf("server.kvStore = %v", server.kvStore)
+	t.Logf("server.configStore = %v", server.configStore)
 }
 
 func TestServer_HandleSweepGetResults_Success(t *testing.T) {
@@ -438,7 +443,7 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 	s := &Server{
 		configDir:    tmpDir,
 		config:       config,
-		kvStore:      kvStore,
+		configStore:  kvStore,
 		services:     make([]Service, 0),
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]*CheckerConfig),
@@ -449,13 +454,13 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 		logger:       testLogger,
 	}
 
-	s.setupKVStore = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig) (KVStore, error) {
+	s.setupDataStores = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig, _ logger.Logger) (KVStore, ObjectStore, error) {
 		t.Log("KVAddress not set, using mock KV store")
 
-		return kvStore, nil
+		return kvStore, nil, nil
 	}
 
-	s.createSweepService = func(_ context.Context, sweepConfig *SweepConfig, _ KVStore) (Service, error) {
+	s.createSweepService = func(_ context.Context, sweepConfig *SweepConfig, _ KVStore, _ ObjectStore) (Service, error) {
 		t.Logf("Using mock createSweepService for sweep config: %+v", sweepConfig)
 
 		return &mockService{}, nil
@@ -472,7 +477,7 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 	assert.Len(t, s.services, 1)
 	assert.Equal(t, "mock_sweep", s.services[0].Name())
 
-	t.Logf("server.kvStore = %v", s.kvStore)
+	t.Logf("server.configStore = %v", s.configStore)
 }
 
 func TestServerGetStatus(t *testing.T) {
@@ -914,9 +919,10 @@ func TestServer_mergeKVUpdates_DeviceTargets(t *testing.T) {
 
 			// Create server with mock KV store
 			server := &Server{
-				kvStore: mockKVStore,
-				config:  &ServerConfig{},
-				logger:  createTestLogger(),
+				configStore: mockKVStore,
+				objectStore: mockKVStore,
+				config:      &ServerConfig{},
+				logger:      createTestLogger(),
 			}
 
 			// Execute merge
@@ -943,6 +949,101 @@ func TestServer_mergeKVUpdates_DeviceTargets(t *testing.T) {
 			assert.Equal(t, tt.fileConfig.Networks, result.Networks)
 		})
 	}
+}
+
+func TestServer_mergeKVUpdates_DataServiceObject(t *testing.T) {
+	objectKey := "agents/test/checkers/sweep/sweep.json"
+
+	objectConfig := SweepConfig{
+		Networks: []string{"10.255.0.0/16"},
+		DeviceTargets: []models.DeviceTarget{
+			{
+				Network:    "10.255.1.10/32",
+				SweepModes: []models.SweepMode{models.ModeICMP},
+				QueryLabel: "armis_sweep",
+				Source:     "armis",
+			},
+		},
+	}
+
+	objectBytes, err := json.Marshal(objectConfig)
+	require.NoError(t, err)
+
+	sha := sha256.Sum256(objectBytes)
+
+	metadata := map[string]any{
+		"storage":    "data_service",
+		"object_key": objectKey,
+		"sha256":     base64.StdEncoding.EncodeToString(sha[:]),
+		"overrides": map[string]any{
+			"interval": "2m0s",
+		},
+	}
+
+	metaBytes, err := json.Marshal(metadata)
+	require.NoError(t, err)
+
+	store := &testKVStore{
+		data:       map[string][]byte{objectKey: metaBytes},
+		objectData: map[string][]byte{objectKey: objectBytes},
+	}
+
+	server := &Server{
+		configStore: store,
+		objectStore: store,
+		config:      &ServerConfig{},
+		logger:      createTestLogger(),
+	}
+
+	fileConfig := &SweepConfig{
+		Networks: []string{"172.16.0.0/16"},
+		Interval: 0,
+		Timeout:  0,
+	}
+
+	result, err := server.mergeKVUpdates(context.Background(), objectKey, fileConfig)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, []string{"10.255.0.0/16"}, result.Networks)
+	require.Len(t, result.DeviceTargets, 1)
+	assert.Equal(t, "armis", result.DeviceTargets[0].Source)
+	assert.Equal(t, Duration(2*time.Minute), result.Interval)
+}
+
+func TestServer_mergeKVUpdates_DataServiceUnavailable(t *testing.T) {
+	objectKey := "agents/test/checkers/sweep/sweep.json"
+
+	metadata := map[string]any{
+		"storage":    "data_service",
+		"object_key": objectKey,
+	}
+
+	metaBytes, err := json.Marshal(metadata)
+	require.NoError(t, err)
+
+	store := &testKVStore{
+		data:        map[string][]byte{objectKey: metaBytes},
+		downloadErr: errDataServiceUnavailable,
+	}
+
+	server := &Server{
+		configStore: store,
+		objectStore: store,
+		config:      &ServerConfig{},
+		logger:      createTestLogger(),
+	}
+
+	fileConfig := &SweepConfig{
+		Networks: []string{"192.168.0.0/24"},
+	}
+
+	result, err := server.mergeKVUpdates(context.Background(), objectKey, fileConfig)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, fileConfig.Networks, result.Networks)
+	assert.Empty(t, result.DeviceTargets)
 }
 
 func TestServer_mergeDeviceTargets(t *testing.T) {
@@ -1047,7 +1148,9 @@ func TestServer_mergeDeviceTargets(t *testing.T) {
 
 // testKVStore implements KVStore interface for testing
 type testKVStore struct {
-	data map[string][]byte
+	data        map[string][]byte
+	objectData  map[string][]byte
+	downloadErr error
 }
 
 func (t *testKVStore) Get(_ context.Context, key string) ([]byte, bool, error) {
@@ -1072,6 +1175,29 @@ func (*testKVStore) Watch(context.Context, string) (<-chan []byte, error) {
 	return ch, nil
 }
 
+func (t *testKVStore) DownloadObject(_ context.Context, key string) ([]byte, error) {
+	if t.downloadErr != nil {
+		return nil, t.downloadErr
+	}
+
+	if t.objectData != nil {
+		if value, found := t.objectData[key]; found {
+			return value, nil
+		}
+	}
+
+	if value, found := t.data[key]; found {
+		return value, nil
+	}
+
+	return nil, fmt.Errorf("%w: %s", errTestObjectNotFound, key)
+}
+
 func (*testKVStore) Close() error {
 	return nil
 }
+
+var _ KVStore = (*testKVStore)(nil)
+var _ ObjectStore = (*testKVStore)(nil)
+
+var errTestObjectNotFound = errors.New("object not found")

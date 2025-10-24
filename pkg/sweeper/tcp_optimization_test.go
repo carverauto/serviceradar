@@ -99,7 +99,7 @@ func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
 			mockKVStore := NewMockKVStore(ctrl)
 			expectKVBootstrap(mockKVStore)
 
-			sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
+			sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, nil, testKVNamespace, log)
 
 			if tt.expectFallback {
 				// Should succeed with TCP fallback
@@ -145,7 +145,7 @@ func TestNetworkSweeper_HighConcurrencyConfig(t *testing.T) {
 	mockProcessor.EXPECT().Process(gomock.Any()).Return(nil).AnyTimes()
 	mockProcessor.EXPECT().GetSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).AnyTimes()
 
-	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
+	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, nil, testKVNamespace, log)
 	require.NoError(t, err)
 	assert.NotNil(t, sweeper)
 
@@ -211,7 +211,7 @@ func TestNetworkSweeper_DeviceTargetsWithTCPOptimization(t *testing.T) {
 	expectKVBootstrap(mockKVStore)
 	mockStore.EXPECT().PruneResults(gomock.Any(), time.Duration(0)).Return(nil).AnyTimes()
 
-	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
+	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, nil, testKVNamespace, log)
 	require.NoError(t, err)
 
 	targets, err := sweeper.generateTargets()
@@ -275,7 +275,7 @@ func TestNetworkSweeper_TimeoutOptimization(t *testing.T) {
 	expectKVBootstrap(mockKVStore)
 	mockStore.EXPECT().PruneResults(gomock.Any(), time.Duration(0)).Return(nil).AnyTimes()
 
-	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
+	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, nil, testKVNamespace, log)
 	require.NoError(t, err)
 
 	// Verify the sweep uses the optimized scan timeout (20 minutes)
@@ -335,7 +335,7 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 	}).AnyTimes()
 	mockProcessor.EXPECT().GetSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).AnyTimes()
 
-	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
+	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, nil, testKVNamespace, log)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -384,7 +384,7 @@ func BenchmarkNetworkSweeper_OptimizedTCPScan(b *testing.B) {
 	mockProcessor.EXPECT().Process(gomock.Any()).Return(nil).AnyTimes()
 	mockProcessor.EXPECT().GetSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).AnyTimes()
 
-	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, testKVNamespace, log)
+	sweeper, err := NewNetworkSweeper(config, mockStore, mockProcessor, mockKVStore, nil, nil, testKVNamespace, log)
 	require.NoError(b, err)
 
 	b.ResetTimer()

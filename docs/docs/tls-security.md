@@ -5,7 +5,7 @@ title: TLS Security
 
 # TLS Security
 
-ServiceRadar supports mutual TLS (mTLS) authentication to secure communications between its components, including the Timeplus Proton server used by ServiceRadar-core for data storage. This guide provides instructions for generating and configuring mTLS certificates for all ServiceRadar components using OpenSSL, tailored for environments without DNS resolution. Certificates use IP-based Subject Alternative Names (SANs) to ensure compatibility with Proton, ServiceRadar-core, Poller, Agent, NATS JetStream, and serviceradar-kv.
+ServiceRadar supports mutual TLS (mTLS) authentication to secure communications between its components, including the Timeplus Proton server used by ServiceRadar-core for data storage. This guide provides instructions for generating and configuring mTLS certificates for all ServiceRadar components using OpenSSL, tailored for environments without DNS resolution. Certificates use IP-based Subject Alternative Names (SANs) to ensure compatibility with Proton, ServiceRadar-core, Poller, Agent, NATS JetStream, and serviceradar-datasvc.
 
 ## Security Architecture
 
@@ -36,7 +36,7 @@ graph TB
     end
 
     subgraph "KV Store"
-        KV[serviceradar-kv<br/>Role: Client+Server<br/>:50057]
+        KV[serviceradar-datasvc<br/>Role: Client+Server<br/>:50057]
         NATS[NATS JetStream<br/>Role: Server<br/>:4222]
         KV -->|mTLS Client| NATS
         AG -->|mTLS Client| KV
@@ -344,14 +344,14 @@ openssl x509 -in nats-server.pem -text -noout | grep -E "Subject:|Issuer:|X509v3
 openssl verify -CAfile root.pem nats-server.pem
 ```
 
-#### serviceradar-kv Certificate (kv.pem)
+#### serviceradar-datasvc Certificate (datasvc.pem)
 
 The KV service acts as a client to NATS and a server for Agents, co-located on 192.168.2.23.
 
 Create SAN Configuration:
 
 ```bash
-cat > kv-san.cnf << EOF
+cat > datasvc-san.cnf << EOF
 [req]
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
@@ -363,7 +363,7 @@ ST = Your State
 L = Your Location
 O = ServiceRadar
 OU = Operations
-CN = kv.serviceradar
+CN = datasvc.serviceradar
 
 [v3_req]
 basicConstraints = CA:FALSE
@@ -376,16 +376,16 @@ EOF
 Generate Certificate:
 
 ```bash
-openssl ecparam -name prime256v1 -genkey -out kv-key.pem
-openssl req -new -key kv-key.pem -out kv.csr -config kv-san.cnf
-openssl x509 -req -in kv.csr -CA root.pem -CAkey root-key.pem -CAcreateserial -out kv.pem -days 365 -sha256 -extfile kv-san.cnf -extensions v3_req
+openssl ecparam -name prime256v1 -genkey -out datasvc-key.pem
+openssl req -new -key datasvc-key.pem -out datasvc.csr -config datasvc-san.cnf
+openssl x509 -req -in datasvc.csr -CA root.pem -CAkey root-key.pem -CAcreateserial -out datasvc.pem -days 365 -sha256 -extfile datasvc-san.cnf -extensions v3_req
 ```
 
 Verify:
 
 ```bash
-openssl x509 -in kv.pem -text -noout | grep -E "Subject:|Issuer:|X509v3 Subject Alternative Name:"
-openssl verify -CAfile root.pem kv.pem
+openssl x509 -in datasvc.pem -text -noout | grep -E "Subject:|Issuer:|X509v3 Subject Alternative Name:"
+openssl verify -CAfile root.pem datasvc.pem
 ```
 
 ### 4. Secure the CA Private Key
@@ -408,7 +408,7 @@ sudo chmod 600 /path/to/secure/location/root-key.pem
 | Poller | Client+Server | root.pem, poller.pem, poller-key.pem | /etc/serviceradar/certs/ |
 | Agent | Client+Server | root.pem, agent.pem, agent-key.pem | /etc/serviceradar/certs/ |
 | NATS JetStream | Server | root.pem, nats-server.pem, nats-server-key.pem | /etc/serviceradar/certs/ |
-| serviceradar-kv | Client+Server | root.pem, kv.pem, kv-key.pem | /etc/serviceradar/certs/ |
+| serviceradar-datasvc | Client+Server | root.pem, datasvc.pem, datasvc-key.pem | /etc/serviceradar/certs/ |
 
 ### Installation Steps
 
@@ -455,8 +455,8 @@ sudo cp /path/to/tls/core.pem /etc/serviceradar/certs/core.pem
 sudo cp /path/to/tls/core-key.pem /etc/serviceradar/certs/core-key.pem
 sudo cp /path/to/tls/nats-server.pem /etc/serviceradar/certs/nats-server.pem
 sudo cp /path/to/tls/nats-server-key.pem /etc/serviceradar/certs/nats-server-key.pem
-sudo cp /path/to/tls/kv.pem /etc/serviceradar/certs/kv.pem
-sudo cp /path/to/tls/kv-key.pem /etc/serviceradar/certs/kv-key.pem
+sudo cp /path/to/tls/datasvc.pem /etc/serviceradar/certs/datasvc.pem
+sudo cp /path/to/tls/datasvc-key.pem /etc/serviceradar/certs/datasvc-key.pem
 sudo chown serviceradar:serviceradar /etc/serviceradar/certs/*
 sudo chmod 644 /etc/serviceradar/certs/*.pem
 sudo chmod 600 /etc/serviceradar/certs/*-key.pem
@@ -705,9 +705,9 @@ logfile: "/var/log/nats/nats.log"
 debug: true
 ```
 
-### serviceradar-kv Configuration (on serviceradar-cloud)
+### serviceradar-datasvc Configuration (on serviceradar-cloud)
 
-Update `/etc/serviceradar/kv.json`:
+Update `/etc/serviceradar/datasvc.json`:
 
 ```json
 {
@@ -719,8 +719,8 @@ Update `/etc/serviceradar/kv.json`:
     "server_name": "nats-serviceradar",
     "role": "server",
     "tls": {
-      "cert_file": "kv.pem",
-      "key_file": "kv-key.pem",
+      "cert_file": "datasvc.pem",
+      "key_file": "datasvc-key.pem",
       "ca_file": "root.pem",
       "client_ca_file": "root.pem"
     }
@@ -730,7 +730,7 @@ Update `/etc/serviceradar/kv.json`:
       {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "reader"}
     ]
   },
-  "bucket": "serviceradar-kv"
+  "bucket": "serviceradar-datasvc"
 }
 ```
 
@@ -765,7 +765,7 @@ On serviceradar-cloud:
 sudo systemctl restart proton-server
 sudo systemctl restart serviceradar-core
 sudo systemctl restart nats
-sudo systemctl restart serviceradar-kv
+sudo systemctl restart serviceradar-datasvc
 ```
 
 On dusk01:

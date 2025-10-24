@@ -7,7 +7,7 @@ image:
     web: latest
     proton: latest
     nats: latest
-    kv: latest
+    datasvc: latest
     agent: latest
     poller: latest
     snmpChecker: latest

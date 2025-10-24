@@ -50,6 +50,7 @@ service KVService {
 
   // Info returns basic configuration details for this KV server (e.g., JetStream domain and bucket name).
   rpc Info(InfoRequest) returns (InfoResponse) {}
+
 }
 
 // GetRequest is the request message for the Get operation.
@@ -149,4 +150,5 @@ message InfoRequest {}
 message InfoResponse {
   string domain = 1;
   string bucket = 2;
+  string object_bucket = 3;
 }

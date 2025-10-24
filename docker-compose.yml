@@ -453,21 +453,21 @@ services:
           - nats.serviceradar
     restart: unless-stopped
 
-  # ServiceRadar KV Service (Key-Value store using NATS JetStream)
-  kv:
-    image: ghcr.io/carverauto/serviceradar-kv:latest
-    container_name: serviceradar-kv
+  # ServiceRadar Data Service (KV + object store via NATS JetStream)
+  datasvc:
+    image: ghcr.io/carverauto/serviceradar-datasvc:latest
+    container_name: serviceradar-datasvc
     cpus: "2.0"
     ports:
       - "50057:50057"  # gRPC port
     volumes:
-      - ./docker/compose/kv.docker.json:/etc/serviceradar/kv.json:ro
+      - ./docker/compose/datasvc.docker.json:/etc/serviceradar/datasvc.json:ro
       - cert-data:/etc/serviceradar/certs:ro
-      - kv-data:/var/lib/serviceradar
+      - datasvc-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
       # Config path
-      - CONFIG_PATH=/etc/serviceradar/kv.json
+      - CONFIG_PATH=/etc/serviceradar/datasvc.json
       # Wait for dependencies
       - WAIT_FOR_NATS=true
       # Logging
@@ -478,7 +478,7 @@ services:
       nats:
         condition: service_started
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/kv.pem", "-key", "/etc/serviceradar/certs/kv-key.pem", "-servername", "kv.serviceradar", "localhost:50057", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/datasvc.pem", "-key", "/etc/serviceradar/certs/datasvc-key.pem", "-servername", "datasvc.serviceradar", "localhost:50057", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -486,7 +486,7 @@ services:
     networks:
       serviceradar-net:
         aliases:
-          - kv.serviceradar
+          - datasvc.serviceradar
     restart: unless-stopped
 
   # ServiceRadar Sync Service (Device discovery synchronization)
@@ -504,14 +504,14 @@ services:
       # Config path
       - CONFIG_PATH=/etc/serviceradar/sync.json
       # Wait for dependencies
-      - WAIT_FOR_KV=true
+      - WAIT_FOR_DATASVC=true
       - WAIT_FOR_NATS=true
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-generator:
         condition: service_completed_successfully
-      kv:
+      datasvc:
         condition: service_healthy
       nats:
         condition: service_started
@@ -840,7 +840,7 @@ volumes:
     driver: local
   nats-data:
     driver: local
-  kv-data:
+  datasvc-data:
     driver: local
   sync-data:
     driver: local

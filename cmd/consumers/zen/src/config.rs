@@ -62,7 +62,7 @@ pub struct Config {
 }
 
 fn default_kv_bucket() -> String {
-    "serviceradar-kv".to_string()
+    "serviceradar-datasvc".to_string()
 }
 
 fn default_listen_addr() -> String {
@@ -175,7 +175,7 @@ mod tests {
         );
         assert_eq!(cfg.decision_groups[3].format, MessageFormat::OtelMetrics);
         assert_eq!(cfg.agent_id, "default-agent");
-        assert_eq!(cfg.kv_bucket, "serviceradar-kv");
+        assert_eq!(cfg.kv_bucket, "serviceradar-datasvc");
         assert_eq!(cfg.result_subject_suffix.as_deref(), Some(".processed"));
         assert_eq!(cfg.listen_addr, "0.0.0.0:50055");
         assert!(cfg.grpc_security.is_some());

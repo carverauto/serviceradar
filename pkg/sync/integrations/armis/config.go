@@ -19,7 +19,10 @@ package armis
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -29,7 +32,6 @@ import (
 
 // WriteSweepConfig generates and writes the sweep config to KV.
 func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *models.SweepConfig) error {
-	// Check size and potentially chunk the config
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
 		kw.Logger.Error().
@@ -39,21 +41,37 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 		return fmt.Errorf("failed to marshal sweep config: %w", err)
 	}
 
+	if kw.DataClient != nil {
+		if err := kw.writeObjectConfig(ctx, configJSON); err == nil {
+			return nil
+		} else {
+			kw.Logger.Warn().
+				Err(err).
+				Str("agent_id", kw.AgentID).
+				Msg("Falling back to KV entries after DataService upload failure")
+		}
+	}
+
 	// Try writing as a single file first
 	if kw.canWriteAsSingleFile(configJSON) {
 		return kw.writeSingleConfig(ctx, configJSON)
 	}
 
-	// Need to chunk the config
-	return kw.writeChunkedConfig(ctx, sweepConfig, configJSON)
+	return ErrSweepUploadFallbackExceeded
 }
 
 const (
-	bytesPerKB           = 1024
-	bytesPerMB           = bytesPerKB * 1024
-	maxPayloadSize       = 3 * bytesPerMB   // 3MB to stay well under gRPC 4MB limit
-	maxNetworksPerChunk  = 1000             // Reduced from 10000 to stay under NATS limits
-	maxChunkPayloadBytes = 512 * bytesPerKB // Keep individual KV entries well under typical NATS payload limits
+	bytesPerKB      = 1024
+	bytesPerMB      = bytesPerKB * 1024
+	maxPayloadSize  = 3 * bytesPerMB // 3MB to stay well under gRPC 4MB limit
+	objectChunkSize = 256 * bytesPerKB
+)
+
+var (
+	// ErrSweepUploadFallbackExceeded indicates both object and KV uploads failed due to size constraints.
+	ErrSweepUploadFallbackExceeded = errors.New("sweep config exceeds KV payload limits and DataService upload failed")
+	// ErrDataServiceObjectInfoMissing indicates the DataService response lacked object metadata.
+	ErrDataServiceObjectInfoMissing = errors.New("DataService response missing object info")
 )
 
 // canWriteAsSingleFile checks if the config can be written as a single file
@@ -88,186 +106,100 @@ func (kw *DefaultKVWriter) writeSingleConfig(ctx context.Context, configJSON []b
 	return nil
 }
 
-// writeChunkedConfig writes the config in chunks
-func (kw *DefaultKVWriter) writeChunkedConfig(ctx context.Context, sweepConfig *models.SweepConfig, configJSON []byte) error {
-	payloadSize := len(configJSON)
-	kw.Logger.Info().
-		Int("device_targets", len(sweepConfig.DeviceTargets)).
-		Int("payload_size_mb", payloadSize/bytesPerMB).
-		Msg("Large sweep config detected, writing in chunks")
+func (kw *DefaultKVWriter) writeObjectConfig(ctx context.Context, configJSON []byte) error {
+	objectKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.AgentID)
 
-	chunks, err := kw.buildSweepChunks(sweepConfig, configJSON)
+	stream, err := kw.DataClient.UploadObject(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open DataService stream: %w", err)
 	}
 
-	for i, chunk := range chunks {
-		if err := kw.writeSweepChunk(ctx, i, chunk); err != nil {
-			return err
-		}
+	hash := sha256.Sum256(configJSON)
+	metadata := &proto.ObjectMetadata{
+		Key:         objectKey,
+		ContentType: "application/json",
+		TotalSize:   int64(len(configJSON)),
+		Sha256:      hex.EncodeToString(hash[:]),
+		Attributes: map[string]string{
+			"agent_id": kw.AgentID,
+			"service":  "sweep",
+		},
 	}
 
-	return kw.writeChunkMetadata(ctx, len(chunks), len(sweepConfig.Networks))
-}
-
-type sweepChunk struct {
-	data        []byte
-	deviceCount int
-}
-
-func (kw *DefaultKVWriter) buildSweepChunks(sweepConfig *models.SweepConfig, configJSON []byte) ([]sweepChunk, error) {
-	targets := sweepConfig.DeviceTargets
-
-	if len(targets) == 0 {
-		data, err := kw.marshalChunkConfig(sweepConfig, nil, 0)
-		if err != nil {
-			return nil, err
-		}
-		return []sweepChunk{{data: data, deviceCount: 0}}, nil
+	chunkSize := objectChunkSize
+	if chunkSize <= 0 {
+		chunkSize = len(configJSON)
+	}
+	if chunkSize == 0 {
+		chunkSize = 1
 	}
 
-	avgBytesPerDevice := len(configJSON) / len(targets)
-	if avgBytesPerDevice <= 0 {
-		avgBytesPerDevice = 1
-	}
-
-	devicesPerChunk := maxChunkPayloadBytes / avgBytesPerDevice
-	if devicesPerChunk < 1 {
-		devicesPerChunk = 1
-	}
-	if devicesPerChunk > maxNetworksPerChunk {
-		devicesPerChunk = maxNetworksPerChunk
-	}
-
-	chunks := make([]sweepChunk, 0, (len(targets)+devicesPerChunk-1)/devicesPerChunk)
-
-	for start := 0; start < len(targets); {
-		end := start + devicesPerChunk
-		if end > len(targets) {
-			end = len(targets)
+	for idx, offset := 0, 0; offset < len(configJSON); idx++ {
+		end := offset + chunkSize
+		if end > len(configJSON) {
+			end = len(configJSON)
 		}
 
-		for {
-			chunkTargets := targets[start:end]
-			chunkIdx := len(chunks)
-
-			data, err := kw.marshalChunkConfig(sweepConfig, chunkTargets, chunkIdx)
-			if err != nil {
-				return nil, err
-			}
-
-			if len(data) <= maxChunkPayloadBytes || len(chunkTargets) <= 1 {
-				if len(data) > maxChunkPayloadBytes {
-					kw.Logger.Warn().
-						Int("chunk_index", chunkIdx).
-						Int("chunk_size_bytes", len(data)).
-						Str("agent_id", kw.AgentID).
-						Msg("Single-device chunk exceeds target size limit")
-				}
-
-				chunks = append(chunks, sweepChunk{
-					data:        data,
-					deviceCount: len(chunkTargets),
-				})
-
-				start = end
-				break
-			}
-
-			// Reduce the chunk size and retry to keep us under the payload limit.
-			newLen := len(chunkTargets) / 2
-			if newLen < 1 {
-				newLen = 1
-			}
-
-			kw.Logger.Debug().
-				Int("attempted_devices", len(chunkTargets)).
-				Int("chunk_size_bytes", len(data)).
-				Int("reduced_devices", newLen).
-				Msg("Chunk size exceeded limit, reducing device batch")
-
-			end = start + newLen
+		chunk := &proto.ObjectUploadChunk{
+			Data:       configJSON[offset:end],
+			ChunkIndex: uint32(idx),
+			IsFinal:    end == len(configJSON),
 		}
+
+		if idx == 0 {
+			chunk.Metadata = metadata
+		}
+
+		if err := stream.Send(chunk); err != nil {
+			return fmt.Errorf("failed to stream sweep config chunk %d: %w", idx, err)
+		}
+
+		offset = end
 	}
 
-	return chunks, nil
-}
-
-func (kw *DefaultKVWriter) marshalChunkConfig(base *models.SweepConfig, targets []models.DeviceTarget, chunkIndex int) ([]byte, error) {
-	chunkConfig := &models.SweepConfig{
-		Networks:      []string{},
-		DeviceTargets: targets,
-		Ports:         base.Ports,
-		SweepModes:    base.SweepModes,
-		Interval:      base.Interval,
-		Concurrency:   base.Concurrency,
-		Timeout:       base.Timeout,
-	}
-
-	chunkJSON, err := json.Marshal(chunkConfig)
+	resp, err := stream.CloseAndRecv()
 	if err != nil {
-		kw.Logger.Error().
-			Err(err).
-			Int("chunk_index", chunkIndex).
-			Int("device_count", len(targets)).
-			Msg("Failed to marshal sweep config chunk")
-
-		return nil, fmt.Errorf("failed to marshal sweep config chunk %d: %w", chunkIndex, err)
+		return fmt.Errorf("failed to finalize sweep config upload: %w", err)
 	}
 
-	return chunkJSON, nil
-}
+	info := resp.GetInfo()
+	if info == nil {
+		return fmt.Errorf("%w: %s", ErrDataServiceObjectInfoMissing, objectKey)
+	}
 
-func (kw *DefaultKVWriter) writeSweepChunk(ctx context.Context, chunkIndex int, chunk sweepChunk) error {
-	chunkKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep_chunk_%d.json", kw.AgentID, chunkIndex)
+	storedMeta := info.GetMetadata()
+	contentType := "application/json"
+	if storedMeta != nil && storedMeta.GetContentType() != "" {
+		contentType = storedMeta.GetContentType()
+	}
 
-	_, err := kw.KVClient.PutMany(ctx, &proto.PutManyRequest{
-		Entries: []*proto.KeyValueEntry{{
-			Key:   chunkKey,
-			Value: chunk.data,
-		}},
+	metadataJSON, err := json.Marshal(map[string]interface{}{
+		"storage":      "data_service",
+		"object_key":   objectKey,
+		"content_type": contentType,
+		"sha256":       info.GetSha256(),
+		"total_size":   info.GetSize(),
+		"chunks":       info.GetChunks(),
+		"updated_at":   time.Now().UTC().Format(time.RFC3339),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to write sweep config chunk %d to %s: %w", chunkIndex, chunkKey, err)
+		return fmt.Errorf("failed to marshal sweep metadata pointer: %w", err)
 	}
 
-	kw.Logger.Debug().
-		Str("chunk_key", chunkKey).
-		Int("chunk_index", chunkIndex).
-		Int("chunk_size_bytes", len(chunk.data)).
-		Int("devices_in_chunk", chunk.deviceCount).
-		Msg("Successfully wrote sweep config chunk")
-
-	return nil
-}
-
-// writeChunkMetadata writes the metadata file that tells the agent about chunks
-func (kw *DefaultKVWriter) writeChunkMetadata(ctx context.Context, totalChunks, totalNetworks int) error {
-	metadataKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.AgentID)
-	metadata := map[string]interface{}{
-		"chunked":      true,
-		"chunk_count":  totalChunks,
-		"total_chunks": totalChunks,
-		"timestamp":    time.Now().UTC().Format(time.RFC3339),
-	}
-	metadataJSON, _ := json.Marshal(metadata)
-
-	_, err := kw.KVClient.PutMany(ctx, &proto.PutManyRequest{
+	if _, err := kw.KVClient.PutMany(ctx, &proto.PutManyRequest{
 		Entries: []*proto.KeyValueEntry{{
-			Key:   metadataKey,
+			Key:   objectKey,
 			Value: metadataJSON,
 		}},
-	})
-	if err != nil {
-		kw.Logger.Warn().
-			Err(err).
-			Msg("Failed to write sweep metadata, agent may not detect chunked config")
+	}); err != nil {
+		return fmt.Errorf("failed to write sweep metadata pointer to KV: %w", err)
 	}
 
 	kw.Logger.Info().
-		Int("total_chunks", totalChunks).
-		Int("total_networks", totalNetworks).
-		Msg("Successfully wrote chunked sweep config to KV store")
+		Str("object_key", objectKey).
+		Int("payload_size_bytes", len(configJSON)).
+		Uint64("chunks", info.GetChunks()).
+		Msg("Successfully wrote sweep config to DataService object store")
 
 	return nil
 }

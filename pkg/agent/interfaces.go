@@ -24,7 +24,7 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-//go:generate mockgen -destination=mock_agent.go -package=agent github.com/carverauto/serviceradar/pkg/agent Service,SweepStatusProvider,KVStore
+//go:generate mockgen -destination=mock_agent.go -package=agent github.com/carverauto/serviceradar/pkg/agent Service,SweepStatusProvider,KVStore,ObjectStore
 
 // Service defines the interface for agent services that can be started, stopped, and configured.
 type Service interface {
@@ -46,4 +46,9 @@ type KVStore interface {
 	Delete(ctx context.Context, key string) error
 	Watch(ctx context.Context, key string) (<-chan []byte, error)
 	Close() error
+}
+
+// ObjectStore defines read access to the JetStream-backed object store.
+type ObjectStore interface {
+	DownloadObject(ctx context.Context, key string) ([]byte, error)
 }

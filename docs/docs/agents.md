@@ -118,6 +118,24 @@ After the reset:
     nats --context serviceradar stream ls
   ```
 
+## Sweep Config Distribution
+
+- Agents still read `agents/<id>/checkers/sweep/sweep.json` from disk first, then apply any JSON overrides stored in the KV bucket via `pkg/config`. This preserves the existing knobs for intervals, timeout, and protocol selection.
+- Sync now streams the per-device target list into JetStream object storage through the `proto.DataService/UploadObject` RPC before updating KV. The pointer that lands in KV carries `storage: "data_service"`, the object key, and the SHA-256 digest so downloads can be verified.
+- When the agent sees the pointer metadata it layers the downloaded object _after_ file + KV overlays. If the DataService call fails (for example older clusters that only expose the legacy KV service) the agent logs a warning and falls back to the KV/file configuration with no sweep targets.
+- Atomicity: the object is uploaded first; only after `UploadObject` returns do we write the metadata pointer. A partially written pointer is therefore either the previous revision or a fully verified new blob.
+- Manual inspection:
+  ```bash
+  # List sweep blobs (default bucket is serviceradar-sweeps)
+  kubectl exec -n demo deploy/serviceradar-tools -- \
+    nats --context serviceradar obj ls serviceradar-sweeps
+
+  # Fetch the latest sweep payload for an agent
+  kubectl exec -n demo deploy/serviceradar-tools -- \
+    nats --context serviceradar obj get serviceradar-sweeps agents/demo-agent/checkers/sweep/sweep.json |
+    jq '.device_targets | length'
+  ```
+
 ## Proton Streaming Safeguards
 
 - The demo Proton config now enforces conservative streaming thresholds: `queue_buffering_max_messages=50000`, `queue_buffering_max_kbytes=524288`, `fetch_message_max_bytes=524288`, `max_insert_block_size=2048` (with `max_block_size` matched in the server config), and JetStream flush caps of `shared_subscription_flush_threshold_count=2000`, `shared_subscription_flush_threshold_size=4194304 (4 MiB)`, `shared_subscription_flush_threshold_ms=500`.
@@ -135,7 +153,7 @@ After the reset:
 ## Canonical Identity Flow
 
 - Sync no longer BatchGets canonical identity keys; the `core` registry now hydrates canonical IDs per batch using the `device_canonical_map` KV (`WithIdentityResolver`).
-- Expect `serviceradar-core` logs to show non-zero `canonicalized_by_*` counters once batches replay. If they stay at 0, recheck KV health via `nats-kv` and ensure `serviceradar-core` pods run the latest image.
+- Expect `serviceradar-core` logs to show non-zero `canonicalized_by_*` counters once batches replay. If they stay at 0, recheck KV health via `nats-kv` (or the `nats-datasvc` alias) and ensure `serviceradar-core` pods run the latest image.
 - Toolbox helper to spot-check canonical entries:
   ```bash
   proton-sql "SELECT count(), uniq_exact(metadata['armis_device_id']) FROM table(unified_devices)"

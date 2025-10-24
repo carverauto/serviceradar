@@ -33,11 +33,11 @@ var (
 	errICMPCheck            = errors.New("ICMP check failed")
 
 	// Configuration errors.
-	errInvalidChunkCountFormat = errors.New("invalid chunk_count format in metadata")
-	errInvalidJSONResponse     = errors.New("invalid JSON response from checker")
+	errInvalidJSONResponse = errors.New("invalid JSON response from checker")
 
 	// KV.
 
 	errNoSecurityConfigKV         = errors.New("no security config provided for KV store")
 	errFailedToInitializeKVClient = errors.New("failed to initialize KV client")
+	errDataServiceUnavailable     = errors.New("data service unavailable")
 )

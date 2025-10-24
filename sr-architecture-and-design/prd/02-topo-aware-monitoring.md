@@ -148,7 +148,7 @@ The Topology-Aware Monitoring feature will address these needs by introducing a 
 #### Topology Discovery Service
 - Runs as a new systemd service (serviceradar-topology).
 - Uses SNMP, LLDP, and configuration parsing to build topology models.
-- Stores topology data in ServiceRadar's KV store (serviceradar-kv).
+- Stores topology data in ServiceRadar's KV store (serviceradar-datasvc).
 
 #### Topology Monitoring Checker
 - Extends ServiceRadar's checker framework.

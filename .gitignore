@@ -161,7 +161,7 @@ serviceradar-poller_*/
 serviceradar-cloud_*/
 serviceradar-core*/
 serviceradar-web*/
-serviceradar-kv*/
+serviceradar-datasvc*/
 serviceradar-nats*/
 nats-server-*/
 /pkg/cloud/api/web/dist/assets/

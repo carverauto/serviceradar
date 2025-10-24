@@ -21,7 +21,7 @@ We need a solution that enables dynamic, scalable configuration management while
 
 ## Decision
 
-We will implement a key-value (KV) store using NATS JetStream as the backend, wrapped in a dedicated service called `serviceradar-kv`. To ensure zero modifications to the agent, we will enhance `pkg/config` to transparently support both file-based and KV-based configuration sources.
+We will implement a key-value (KV) store using NATS JetStream as the backend, wrapped in a dedicated service called `serviceradar-datasvc`. To ensure zero modifications to the agent, we will enhance `pkg/config` to transparently support both file-based and KV-based configuration sources.
 
 ### Architecture
 
@@ -32,7 +32,7 @@ graph TD
     end
 
     subgraph "New Components"
-        KVDaemon[serviceradar-kv<br/>gRPC:50054<br/>NATS JetStream KV]
+        KVDaemon[serviceradar-datasvc<br/>gRPC:50054<br/>NATS JetStream KV]
         SyncService[serviceradar-sync]
         ExternalAPI -->|Polls| SyncService
         SyncService -->|gRPC Updates| KVDaemon
@@ -54,7 +54,7 @@ graph TD
 
 The solution will consist of:
 
-1. A `serviceradar-kv` service providing a gRPC interface on port 50054 for KV operations
+1. A `serviceradar-datasvc` service providing a gRPC interface on port 50054 for KV operations
 2. NATS JetStream as an embedded KV store for simplicity and performance
 3. Extending `pkg/config` with a `ConfigLoader` interface that supports multiple sources
 4. Implementing both file-based and KV-based loaders that implement this interface
@@ -100,13 +100,13 @@ Additionally, we will create synchronization services that will:
 
 ## Implementation Details
 
-### KV Daemon (serviceradar-kv)
+### KV Daemon (serviceradar-datasvc)
 
-- **Interface**: Create a generic KVStore interface in `pkg/kv/interfaces.go`
-- **Backend**: Implement NATS JetStream backend in `pkg/kv/nats.go`
-- **API**: Define and implement gRPC service in `proto/kv.proto` and `pkg/kv/server.go`
-- **Configuration**: Load from `/etc/serviceradar/kv.json`
-- **Systemd**: Provide `serviceradar-kv.service` file
+- **Interface**: Create a generic KVStore interface in `pkg/datasvc/interfaces.go`
+- **Backend**: Implement NATS JetStream backend in `pkg/datasvc/nats.go`
+- **API**: Define and implement gRPC service in `proto/kv.proto` and `pkg/datasvc/server.go`
+- **Configuration**: Load from `/etc/serviceradar/datasvc.json`
+- **Systemd**: Provide `serviceradar-datasvc.service` file
 
 ### Config Package Enhancements
 
