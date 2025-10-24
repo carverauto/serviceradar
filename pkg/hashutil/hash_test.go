@@ -48,7 +48,6 @@ func TestDecodeSHA256String(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			decoded, err := DecodeSHA256String(tc.input)
 			if tc.shouldFail {

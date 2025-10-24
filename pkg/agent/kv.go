@@ -19,6 +19,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"time"
 
@@ -109,7 +110,7 @@ func (s *grpcRemoteStore) DownloadObject(ctx context.Context, key string) ([]byt
 
 	for {
 		chunk, recvErr := stream.Recv()
-		if recvErr == io.EOF {
+		if errors.Is(recvErr, io.EOF) {
 			break
 		}
 
@@ -141,10 +142,15 @@ func translateDataServiceError(err error) error {
 	}
 
 	if st, ok := status.FromError(err); ok {
-		switch st.Code() {
-		case codes.Unimplemented, codes.NotFound, codes.PermissionDenied, codes.FailedPrecondition:
+		code := st.Code()
+		if code == codes.Unimplemented ||
+			code == codes.NotFound ||
+			code == codes.PermissionDenied ||
+			code == codes.FailedPrecondition {
 			return errDataServiceUnavailable
 		}
+
+		return err
 	}
 
 	return err

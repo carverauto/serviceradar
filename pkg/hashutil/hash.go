@@ -4,8 +4,15 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
+	"errors"
 	"strings"
+)
+
+var (
+	// ErrEmptyChecksum indicates the provided checksum string is empty.
+	ErrEmptyChecksum = errors.New("empty checksum string")
+	// ErrUnsupportedChecksumEncoding indicates the checksum string is not a supported encoding.
+	ErrUnsupportedChecksumEncoding = errors.New("unsupported checksum encoding")
 )
 
 // DecodeSHA256String attempts to decode the provided checksum string which may be
@@ -13,7 +20,7 @@ import (
 func DecodeSHA256String(s string) ([]byte, error) {
 	clean := strings.TrimSpace(s)
 	if clean == "" {
-		return nil, fmt.Errorf("empty checksum string")
+		return nil, ErrEmptyChecksum
 	}
 
 	if decoded, err := hex.DecodeString(clean); err == nil {
@@ -34,7 +41,7 @@ func DecodeSHA256String(s string) ([]byte, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("unsupported checksum encoding")
+	return nil, ErrUnsupportedChecksumEncoding
 }
 
 // CanonicalHexSHA256 decodes the input checksum and re-encodes it as a

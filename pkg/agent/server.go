@@ -48,6 +48,12 @@ var (
 	ErrAgentIDRequired = errors.New("agent_id is required in configuration")
 	// ErrInvalidJSONResponse indicates invalid JSON response from checker
 	ErrInvalidJSONResponse = errors.New("invalid JSON response from checker")
+	// ErrDataServiceClientInit indicates the DataService client could not be created.
+	ErrDataServiceClientInit = errors.New("failed to initialize DataService client")
+	// ErrInvalidSweepMetadata signals that stored sweep metadata is malformed.
+	ErrInvalidSweepMetadata = errors.New("invalid sweep metadata")
+	// ErrObjectStoreUnavailable is returned when the object store client is not available.
+	ErrObjectStoreUnavailable = errors.New("object store unavailable")
 )
 
 const (
@@ -209,7 +215,7 @@ func setupDataStores(ctx context.Context, cfgLoader *config.Config, cfg *ServerC
 			return nil, nil, err
 		}
 
-		return nil, nil, fmt.Errorf("failed to initialize DataService client")
+		return nil, nil, ErrDataServiceClientInit
 	}
 
 	cfgLoader.SetKVStore(store)
@@ -325,12 +331,11 @@ func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *
 	if err := json.Unmarshal(value, &metadata); err == nil {
 		if storage, ok := metadata["storage"].(string); ok && storage == "data_service" {
 			objectKey, hasKey := metadata["object_key"].(string)
-			if !hasKey || objectKey == "" {
-				return nil, fmt.Errorf("invalid sweep metadata at %s: missing object_key", kvPath)
-			}
-
-			if s.objectStore == nil {
-				return nil, fmt.Errorf("object store unavailable for sweep metadata at %s", kvPath)
+			switch {
+			case !hasKey || objectKey == "":
+				return nil, fmt.Errorf("%w: missing object_key (kvPath=%s)", ErrInvalidSweepMetadata, kvPath)
+			case s.objectStore == nil:
+				return nil, fmt.Errorf("%w: sweep metadata at %s", ErrObjectStoreUnavailable, kvPath)
 			}
 
 			objectData, err := s.objectStore.DownloadObject(ctx, objectKey)
@@ -550,14 +555,15 @@ func (s *Server) mergeKVUpdates(ctx context.Context, kvPath string, fileConfig *
 			isDataService = true
 
 			objectKey, hasKey := metadata["object_key"].(string)
-			if !hasKey || objectKey == "" {
+			switch {
+			case !hasKey || objectKey == "":
 				s.logger.Warn().Str("kvPath", kvPath).Msg("Invalid sweep metadata: missing object_key for DataService storage")
-			} else if s.objectStore == nil {
+			case s.objectStore == nil:
 				s.logger.Warn().
 					Str("kvPath", kvPath).
 					Str("object_key", objectKey).
 					Msg("Object store client unavailable; cannot download sweep config object")
-			} else {
+			default:
 				objectData, downloadErr := s.objectStore.DownloadObject(ctx, objectKey)
 				if downloadErr != nil {
 					if errors.Is(downloadErr, errDataServiceUnavailable) {
