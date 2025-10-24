@@ -229,7 +229,9 @@ func (s *Server) UploadObject(stream proto.DataService_UploadObjectServer) error
 
 	go func(initial *proto.ObjectUploadChunk) {
 		defer close(writeErrCh)
-		defer writer.Close()
+		defer func() {
+			_ = writer.Close()
+		}()
 
 		chunk := initial
 		for {
@@ -296,7 +298,9 @@ func (s *Server) DownloadObject(req *proto.DownloadObjectRequest, stream proto.D
 	if reader == nil {
 		return status.Errorf(codes.Internal, "object %s returned no data", req.GetKey())
 	}
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	protoInfo := objectInfoToProto(info)
 	buf := make([]byte, 1024*1024)

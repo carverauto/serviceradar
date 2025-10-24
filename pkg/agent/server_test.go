@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1189,7 +1190,7 @@ func (t *testKVStore) DownloadObject(_ context.Context, key string) ([]byte, err
 		return value, nil
 	}
 
-	return nil, fmt.Errorf("object %s not found", key)
+	return nil, fmt.Errorf("%w: %s", errTestObjectNotFound, key)
 }
 
 func (*testKVStore) Close() error {
@@ -1198,3 +1199,5 @@ func (*testKVStore) Close() error {
 
 var _ KVStore = (*testKVStore)(nil)
 var _ ObjectStore = (*testKVStore)(nil)
+
+var errTestObjectNotFound = errors.New("object not found")

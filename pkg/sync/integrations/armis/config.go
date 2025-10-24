@@ -22,6 +22,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -56,14 +57,21 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 		return kw.writeSingleConfig(ctx, configJSON)
 	}
 
-	return fmt.Errorf("sweep config exceeds KV payload limits and DataService upload failed")
+	return ErrSweepUploadFallbackExceeded
 }
 
 const (
-	bytesPerKB           = 1024
-	bytesPerMB           = bytesPerKB * 1024
-	maxPayloadSize       = 3 * bytesPerMB // 3MB to stay well under gRPC 4MB limit
-	objectChunkSize      = 256 * bytesPerKB
+	bytesPerKB      = 1024
+	bytesPerMB      = bytesPerKB * 1024
+	maxPayloadSize  = 3 * bytesPerMB // 3MB to stay well under gRPC 4MB limit
+	objectChunkSize = 256 * bytesPerKB
+)
+
+var (
+	// ErrSweepUploadFallbackExceeded indicates both object and KV uploads failed due to size constraints.
+	ErrSweepUploadFallbackExceeded = errors.New("sweep config exceeds KV payload limits and DataService upload failed")
+	// ErrDataServiceObjectInfoMissing indicates the DataService response lacked object metadata.
+	ErrDataServiceObjectInfoMissing = errors.New("DataService response missing object info")
 )
 
 // canWriteAsSingleFile checks if the config can be written as a single file
@@ -156,7 +164,7 @@ func (kw *DefaultKVWriter) writeObjectConfig(ctx context.Context, configJSON []b
 
 	info := resp.GetInfo()
 	if info == nil {
-		return fmt.Errorf("DataService response missing object info for %s", objectKey)
+		return fmt.Errorf("%w: %s", ErrDataServiceObjectInfoMissing, objectKey)
 	}
 
 	storedMeta := info.GetMetadata()
