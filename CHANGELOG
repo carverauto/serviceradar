@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.54-pre2
+
+UI and bug fixes.
+
+## Whats New
+
+**1.0.54-pre2*
+- Refactored KV service -> DataService, added support for NATS JetStream object store
+- UI bug fixes
+
 # ServiceRadar v1.0.54-pre1
 
 Dependency refresh and frontend framework upgrade ahead of the next stable cut.

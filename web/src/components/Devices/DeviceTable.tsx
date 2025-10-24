@@ -34,6 +34,8 @@ interface DeviceTableProps {
     sortOrder?: 'asc' | 'desc';
 }
 
+const METRICS_STATUS_REFRESH_INTERVAL_MS = 30_000;
+
 const DeviceTable: React.FC<DeviceTableProps> = ({ 
     devices,
     onSort,
@@ -59,8 +61,17 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
         const deviceIds = devices.map(device => device.device_id);
         console.log(`DeviceTable useEffect triggered with ${devices.length} devices: ${deviceIds.slice(0, 3).join(', ')}...`);
 
-        const fetchSysmonStatuses = async () => {
-            setSysmonStatusesLoading(true);
+        let cancelled = false;
+        const safeSetState = <T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: T) => {
+            if (!cancelled) {
+                setter(value);
+            }
+        };
+
+        const fetchSysmonStatuses = async (showSpinner: boolean) => {
+            if (showSpinner) {
+                safeSetState<boolean>(setSysmonStatusesLoading, true);
+            }
             try {
                 console.log(`DeviceTable: Fetching sysmon status for ${deviceIds.length} devices`);
                 const response = await fetch('/api/devices/sysmon/status', {
@@ -73,37 +84,49 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
 
                 if (response.ok) {
                     const data = await response.json();
-                    setSysmonStatuses(data.statuses || {});
+                    if (!cancelled) {
+                        setSysmonStatuses(data.statuses || {});
+                    }
                 } else {
                     console.error('Failed to fetch bulk sysmon statuses:', response.status);
                 }
             } catch (error) {
                 console.error('Error fetching bulk sysmon statuses:', error);
             } finally {
-                setSysmonStatusesLoading(false);
+                if (showSpinner) {
+                    safeSetState<boolean>(setSysmonStatusesLoading, false);
+                }
             }
         };
 
-        const fetchMetricsStatuses = async () => {
-            setMetricsStatusesLoading(true);
+        const fetchMetricsStatuses = async (showSpinner: boolean) => {
+            if (showSpinner) {
+                safeSetState<boolean>(setMetricsStatusesLoading, true);
+            }
             try {
                 const response = await fetch('/api/devices/metrics/status');
                 
                 if (response.ok) {
                     const data = await response.json();
-                    setMetricsStatuses(new Set(data.device_ids || []));
+                    if (!cancelled) {
+                        setMetricsStatuses(new Set(data.device_ids || []));
+                    }
                 } else {
                     console.error('Failed to fetch metrics statuses:', response.status);
                 }
             } catch (error) {
                 console.error('Error fetching metrics statuses:', error);
             } finally {
-                setMetricsStatusesLoading(false);
+                if (showSpinner) {
+                    safeSetState<boolean>(setMetricsStatusesLoading, false);
+                }
             }
         };
 
-        const fetchSnmpStatuses = async () => {
-            setSnmpStatusesLoading(true);
+        const fetchSnmpStatuses = async (showSpinner: boolean) => {
+            if (showSpinner) {
+                safeSetState<boolean>(setSnmpStatusesLoading, true);
+            }
             try {
                 console.log(`DeviceTable: Fetching SNMP status for ${deviceIds.length} devices`);
                 const response = await fetch('/api/devices/snmp/status', {
@@ -116,20 +139,31 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
 
                 if (response.ok) {
                     const data = await response.json();
-                    setSnmpStatuses(data.statuses || {});
+                    if (!cancelled) {
+                        setSnmpStatuses(data.statuses || {});
+                    }
                 } else {
                     console.error('Failed to fetch bulk SNMP statuses:', response.status);
                 }
             } catch (error) {
                 console.error('Error fetching bulk SNMP statuses:', error);
             } finally {
-                setSnmpStatusesLoading(false);
+                if (showSpinner) {
+                    safeSetState<boolean>(setSnmpStatusesLoading, false);
+                }
             }
         };
 
-        fetchSysmonStatuses();
-        fetchMetricsStatuses();
-        fetchSnmpStatuses();
+        fetchSysmonStatuses(true);
+        fetchMetricsStatuses(true);
+        fetchSnmpStatuses(true);
+
+        const metricsInterval = setInterval(() => fetchMetricsStatuses(false), METRICS_STATUS_REFRESH_INTERVAL_MS);
+
+        return () => {
+            cancelled = true;
+            clearInterval(metricsInterval);
+        };
     }, [deviceIdsString, devices]);
 
     const getSourceColor = (source: string) => {
