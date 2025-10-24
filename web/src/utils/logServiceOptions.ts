@@ -11,11 +11,12 @@ const SERVICE_NAME_MAP: Record<string, string> = {
     'zen': 'serviceradar-zen',
     'network_sweep': 'serviceradar-network-sweep',
     'kv': 'serviceradar-datasvc',
+    'datasvc': 'serviceradar-datasvc',
     'rperf-checker': 'serviceradar-rperf-checker',
     'mapper': 'serviceradar-mapper',
     'serviceradar-agent': 'serviceradar-agent',
-    'ping': 'serviceradar-ping',
-    'ssh': 'serviceradar-ssh',
+    'ping': 'serviceradar-agent',
+    'ssh': 'serviceradar-agent',
     'trapd': 'serviceradar-trapd'
 };
 
