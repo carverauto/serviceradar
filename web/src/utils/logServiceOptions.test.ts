@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractServiceNamesFromResults } from './logServiceOptions';
+import { extractServiceNamesFromResults, getServiceQueryValues } from './logServiceOptions';
 
 describe('extractServiceNamesFromResults', () => {
     it('returns an empty array when rows are empty', () => {
@@ -64,5 +64,20 @@ describe('extractServiceNamesFromResults', () => {
             'poller',
             'serviceradar-core'
         ]);
+    });
+});
+
+describe('getServiceQueryValues', () => {
+    it('returns canonical and short names when mapping exists', () => {
+        expect(getServiceQueryValues('sync')).toEqual(['sync', 'serviceradar-sync']);
+        expect(getServiceQueryValues('serviceradar-sync')).toEqual(['sync', 'serviceradar-sync']);
+    });
+
+    it('includes manual core entry', () => {
+        expect(getServiceQueryValues('core')).toEqual(['core', 'serviceradar-core']);
+    });
+
+    it('falls back to canonical name when no mapping exists', () => {
+        expect(getServiceQueryValues('custom-service')).toEqual(['custom-service']);
     });
 });
