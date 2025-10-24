@@ -59,6 +59,7 @@ spec:
           alias nats-info='nats --context serviceradar server info'
           alias nats-streams='echo "=== NATS Streams ==="; nats --context serviceradar stream ls 2>/dev/null || echo "Streams not available - check NATS connection and JetStream"'
           alias nats-events='echo "=== Events Stream Info ==="; nats --context serviceradar stream info events 2>/dev/null || echo "Events stream not found"'
+          alias nats-kv='echo "=== KV Stores ==="; nats --context serviceradar kv ls 2>/dev/null || echo "KV stores not available - check NATS connection and JetStream"'
           alias nats-datasvc='echo "=== KV Stores ==="; nats --context serviceradar kv ls 2>/dev/null || echo "KV stores not available - check NATS connection and JetStream"'
           alias nats-js-status='echo "=== NATS JetStream Status ==="; nats --context serviceradar server info 2>/dev/null | grep -E "(Cluster|JetStream|Storage|Memory)" || echo "JetStream info not available - check connection"'
           alias grpc-core='echo "Usage: grpc-core [METHOD] - Examples:"; echo "  grpc-core grpc.health.v1.Health/Check"; echo "  grpc-core list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core:50052'
@@ -263,7 +264,8 @@ data:
         nats-info            - Show NATS server information
         nats-streams         - List all JetStream streams
         nats-events          - Show events stream details
-        nats-datasvc              - Show KV store stream details
+        nats-kv                   - Show KV store stream details
+        nats-datasvc              - Alias for nats-kv (DataService-backed)
         nats --context serviceradar <cmd>  - Use preloaded TLS context
     
     [*] gRPC ALIASES:

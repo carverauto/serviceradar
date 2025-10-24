@@ -106,11 +106,12 @@ func (p *MTLSProvider) setCredentialNeeds() error {
 	roleNeeds := map[models.ServiceRole]struct {
 		needsClient, needsServer bool
 	}{
-		models.RolePoller:  {true, true},  // Client to Agent/Core, Server for health
-		models.RoleAgent:   {true, true},  // Client to checkers, Server for Poller
-		models.RoleCore:    {true, true},  // Core now dials external services (KV) and serves RPCs
-		models.RoleKVStore: {true, true},  // Client to NATS, Server for gRPC
-		models.RoleChecker: {false, true}, // Server only
+		models.RolePoller:      {true, true},  // Client to Agent/Core, Server for health
+		models.RoleAgent:       {true, true},  // Client to checkers, Server for Poller
+		models.RoleCore:        {true, true},  // Core now dials external services (KV/DataSvc) and serves RPCs
+		models.RoleKVStore:     {true, true},  // Client to NATS, Server for gRPC
+		models.RoleDataService: {true, true},  // Client to NATS, Server for gRPC
+		models.RoleChecker:     {false, true}, // Server only
 	}
 
 	needs, ok := roleNeeds[p.config.Role]

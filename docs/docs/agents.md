@@ -153,7 +153,7 @@ After the reset:
 ## Canonical Identity Flow
 
 - Sync no longer BatchGets canonical identity keys; the `core` registry now hydrates canonical IDs per batch using the `device_canonical_map` KV (`WithIdentityResolver`).
-- Expect `serviceradar-core` logs to show non-zero `canonicalized_by_*` counters once batches replay. If they stay at 0, recheck KV health via `nats-datasvc` and ensure `serviceradar-core` pods run the latest image.
+- Expect `serviceradar-core` logs to show non-zero `canonicalized_by_*` counters once batches replay. If they stay at 0, recheck KV health via `nats-kv` (or the `nats-datasvc` alias) and ensure `serviceradar-core` pods run the latest image.
 - Toolbox helper to spot-check canonical entries:
   ```bash
   proton-sql "SELECT count(), uniq_exact(metadata['armis_device_id']) FROM table(unified_devices)"
