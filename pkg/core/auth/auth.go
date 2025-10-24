@@ -138,6 +138,7 @@ func (a *Auth) RefreshToken(ctx context.Context, refreshToken string) (*models.T
 		ID:       claims.UserID,
 		Email:    claims.Email,
 		Provider: claims.Provider,
+		Roles:    claims.Roles,
 	}
 
 	return a.generateAndStoreToken(ctx, user)

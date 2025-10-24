@@ -162,6 +162,17 @@ const ensureArray = (value: string[] | string | undefined): string[] => {
     return value.split(',').map((item) => item.trim()).filter(Boolean);
 };
 
+const normalizeMetricValue = (metric: TimeseriesMetric): number => {
+    const rawValue = parseFloat(metric.value);
+    if (!Number.isFinite(rawValue)) {
+        return NaN;
+    }
+    if (metric.type?.toLowerCase() === 'icmp') {
+        return rawValue / 1_000_000;
+    }
+    return rawValue;
+};
+
 const safeNumber = (value: unknown): number | null => {
     if (value === null || value === undefined) return null;
     const num = Number(value);
@@ -734,7 +745,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
             const latestTs = new Date(latestMetric.timestamp).getTime();
             return ts > latestTs ? metric : latestMetric;
         }, icmpMetrics[0]);
-        const numericValue = parseFloat(latest.value);
+        const numericValue = normalizeMetricValue(latest);
         if (!Number.isFinite(numericValue)) return null;
         return {
             value: numericValue,
@@ -756,7 +767,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
         metrics.forEach((metric) => {
             const timestamp = new Date(metric.timestamp).getTime();
             const key = `${metric.type}_${metric.name}`;
-            const value = parseFloat(metric.value);
+            const value = normalizeMetricValue(metric);
             const existing = grouped.get(timestamp) ?? {
                 timestamp,
                 time: new Date(timestamp).toLocaleString(),
