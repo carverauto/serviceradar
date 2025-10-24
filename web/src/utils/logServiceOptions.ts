@@ -3,6 +3,42 @@ type ServiceRow = Partial<Record<string, unknown>>;
 const VALUE_KEYS = ['service_name', 'serviceName', 'name'] as const;
 const ARRAY_VALUE_KEYS = ['services', 'service_names', 'serviceSet', 'service_set'] as const;
 
+const SERVICE_NAME_MAP: Record<string, string> = {
+    'db-event-writer': 'serviceradar-db-event-writer',
+    'core': 'serviceradar-core',
+    'sync': 'serviceradar-sync',
+    'flowgger': 'serviceradar-flowgger',
+    'zen': 'serviceradar-zen',
+    'network_sweep': 'serviceradar-network-sweep',
+    'kv': 'serviceradar-datasvc',
+    'rperf-checker': 'serviceradar-rperf-checker',
+    'mapper': 'serviceradar-mapper',
+    'serviceradar-agent': 'serviceradar-agent',
+    'ping': 'serviceradar-ping',
+    'ssh': 'serviceradar-ssh',
+    'trapd': 'serviceradar-trapd'
+};
+
+const EXTRA_SERVICES = ['serviceradar-core'];
+
+const canonicalizeName = (name: string): string | undefined => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+
+    if (trimmed.toLowerCase().startsWith('serviceradar-')) {
+        return trimmed;
+    }
+
+    const mapped = SERVICE_NAME_MAP[trimmed.toLowerCase()];
+    if (mapped) {
+        return mapped;
+    }
+
+    return trimmed;
+};
+
 const normalizeServiceName = (value: unknown): string | undefined => {
     if (typeof value !== 'string') {
         return undefined;
@@ -13,10 +49,7 @@ const normalizeServiceName = (value: unknown): string | undefined => {
 };
 
 export const extractServiceNamesFromResults = (rows: unknown[]): string[] => {
-    if (!Array.isArray(rows) || rows.length === 0) {
-        return [];
-    }
-
+    const sourceRows = Array.isArray(rows) ? rows : [];
     const seen = new Set<string>();
     const names: string[] = [];
 
@@ -61,7 +94,7 @@ export const extractServiceNamesFromResults = (rows: unknown[]): string[] => {
         return [];
     };
 
-    rows.forEach((row) => {
+    sourceRows.forEach((row) => {
         if (!row || typeof row !== 'object') {
             return;
         }
@@ -90,5 +123,32 @@ export const extractServiceNamesFromResults = (rows: unknown[]): string[] => {
         }
     });
 
-    return names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return canonicalizeServiceList([...names, ...EXTRA_SERVICES]);
+};
+
+export const canonicalizeServiceList = (names: string[]): string[] => {
+    if (!Array.isArray(names) || names.length === 0) {
+        return [];
+    }
+
+    const seen = new Set<string>();
+    const canonical: string[] = [];
+
+    names.forEach((name) => {
+        if (typeof name !== 'string') {
+            return;
+        }
+        const normalized = canonicalizeName(name);
+        if (!normalized) {
+            return;
+        }
+        const lower = normalized.toLowerCase();
+        if (seen.has(lower)) {
+            return;
+        }
+        seen.add(lower);
+        canonical.push(normalized);
+    });
+
+    return canonical.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 };
