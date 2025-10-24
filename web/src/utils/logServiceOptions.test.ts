@@ -4,7 +4,7 @@ import { extractServiceNamesFromResults } from './logServiceOptions';
 
 describe('extractServiceNamesFromResults', () => {
     it('returns an empty array when rows are empty', () => {
-        expect(extractServiceNamesFromResults([])).toEqual([]);
+        expect(extractServiceNamesFromResults([])).toEqual(['serviceradar-core']);
     });
 
     it('deduplicates service names and trims whitespace', () => {
@@ -12,14 +12,18 @@ describe('extractServiceNamesFromResults', () => {
             { service_name: 'core' },
             { service_name: 'core ' },
             { serviceName: 'sync' },
-            { name: 'agent' },
+            { name: 'serviceradar-agent' },
             { service_name: '' },
             { service_name: undefined },
             null,
             'core'
         ];
 
-        expect(extractServiceNamesFromResults(rows)).toEqual(['agent', 'core', 'sync']);
+        expect(extractServiceNamesFromResults(rows)).toEqual([
+            'serviceradar-agent',
+            'serviceradar-core',
+            'serviceradar-sync'
+        ]);
     });
 
     it('falls back to alternate keys when service_name is missing', () => {
@@ -28,7 +32,11 @@ describe('extractServiceNamesFromResults', () => {
             { serviceName: 'tools' }
         ];
 
-        expect(extractServiceNamesFromResults(rows)).toEqual(['poller', 'tools']);
+        expect(extractServiceNamesFromResults(rows)).toEqual([
+            'poller',
+            'serviceradar-core',
+            'tools'
+        ]);
     });
 
     it('extracts names from group_uniq_array results (array)', () => {
@@ -38,7 +46,10 @@ describe('extractServiceNamesFromResults', () => {
             }
         ];
 
-        expect(extractServiceNamesFromResults(rows)).toEqual(['core', 'sync']);
+        expect(extractServiceNamesFromResults(rows)).toEqual([
+            'serviceradar-core',
+            'serviceradar-sync'
+        ]);
     });
 
     it('extracts names from group_uniq_array results (JSON string)', () => {
@@ -48,6 +59,10 @@ describe('extractServiceNamesFromResults', () => {
             }
         ];
 
-        expect(extractServiceNamesFromResults(rows)).toEqual(['agent', 'poller']);
+        expect(extractServiceNamesFromResults(rows)).toEqual([
+            'agent',
+            'poller',
+            'serviceradar-core'
+        ]);
     });
 });
