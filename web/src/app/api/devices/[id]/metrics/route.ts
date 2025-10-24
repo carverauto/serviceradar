@@ -30,19 +30,15 @@ export async function GET(req: NextRequest, props: RouteProps) {
   const apiUrl = getInternalApiUrl();
 
   try {
-    // Get authorization header
-    const authHeader = req.headers.get("authorization");
-
-    // Create headers for backend request
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-      "X-API-Key": apiKey,
+    const buildHeaders = (): HeadersInit => {
+      const baseHeaders: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+      if (apiKey) {
+        baseHeaders["X-API-Key"] = apiKey;
+      }
+      return baseHeaders;
     };
-
-    // Add Authorization header if it exists
-    if (authHeader) {
-      headers["Authorization"] = authHeader;
-    }
 
     // Get query parameters
     const { searchParams } = new URL(req.url);
@@ -58,11 +54,13 @@ export async function GET(req: NextRequest, props: RouteProps) {
     const queryString = params2.toString();
     const url = `${apiUrl}/api/devices/${encodeURIComponent(deviceId)}/metrics${queryString ? `?${queryString}` : ''}`;
     
-    const response = await fetch(url, {
+    const performFetch = async () => fetch(url, {
       method: "GET",
-      headers,
+      headers: buildHeaders(),
       cache: "no-store",
     });
+
+    const response = await performFetch();
 
     // Check for and handle errors
     if (!response.ok) {
