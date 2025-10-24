@@ -56,8 +56,11 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ statuses });
         }
 
+        // Get authorization header from incoming request
+        const authHeader = req.headers.get("authorization");
+
         // Create new request
-        const requestPromise = fetchICMPStatuses(apiUrl, apiKey, deviceIds);
+        const requestPromise = fetchICMPStatuses(apiUrl, apiKey, deviceIds, authHeader);
         inFlightRequests.set(cacheKey, requestPromise);
 
         try {
@@ -85,9 +88,10 @@ export async function POST(req: NextRequest) {
 }
 
 async function fetchICMPStatuses(
-    apiUrl: string, 
-    apiKey: string, 
-    deviceIds: string[]
+    apiUrl: string,
+    apiKey: string,
+    deviceIds: string[],
+    authHeader: string | null
 ): Promise<Record<string, { hasMetrics: boolean; status: number }>> {
     const buildHeaders = (): HeadersInit => {
         const baseHeaders: HeadersInit = {
@@ -96,6 +100,11 @@ async function fetchICMPStatuses(
 
         if (apiKey) {
             baseHeaders['X-API-Key'] = apiKey;
+        }
+
+        // Forward Authorization header if it exists
+        if (authHeader) {
+            baseHeaders['Authorization'] = authHeader;
         }
 
         return baseHeaders;

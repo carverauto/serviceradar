@@ -30,12 +30,19 @@ export async function GET(req: NextRequest, props: RouteProps) {
   const apiUrl = getInternalApiUrl();
 
   try {
+    // Get authorization header from incoming request
+    const authHeader = req.headers.get("authorization");
+
     const buildHeaders = (): HeadersInit => {
       const baseHeaders: HeadersInit = {
         "Content-Type": "application/json",
       };
       if (apiKey) {
         baseHeaders["X-API-Key"] = apiKey;
+      }
+      // Forward Authorization header if it exists
+      if (authHeader) {
+        baseHeaders["Authorization"] = authHeader;
       }
       return baseHeaders;
     };
