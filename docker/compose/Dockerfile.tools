@@ -91,6 +91,7 @@ alias nats-info='nats server info'
 alias nats-streams='nats stream ls'
 alias nats-consumers='nats consumer ls'
 alias nats-events='nats stream info events'
+alias nats-kv='nats stream info KV_serviceradar-datasvc'
 alias nats-datasvc='nats stream info KV_serviceradar-datasvc'
 
 # gRPC debugging aliases

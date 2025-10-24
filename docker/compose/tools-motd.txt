@@ -23,7 +23,8 @@
     nats-info            - Show NATS server information
     nats-streams         - List all JetStream streams
     nats-events          - Show events stream details
-    nats-datasvc              - Show KV store stream details
+    nats-kv              - Show KV store stream details
+    nats-datasvc         - Alias for nats-kv (DataService-backed)
     nats --context serviceradar <cmd>  - Run CLI with bundled TLS context
 
 [*] gRPC ALIASES:
