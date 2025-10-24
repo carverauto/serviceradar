@@ -154,19 +154,20 @@ EOF
 RUN cat > /etc/motd << 'EOF'
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                          ServiceRadar Debug Tools                           ║
+║                          ServiceRadar Debug Tools                            ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
 ║  🔧 DEBUGGING COMMANDS:                                                      ║
 ║    test-connectivity    - Test all service connectivity                     ║
-║    nats-js-status      - Show NATS JetStream status                        ║
-║    test-grpc           - Health check all gRPC services                    ║
+║    nats-js-status      - Show NATS JetStream status                         ║
+║    test-grpc           - Health check all gRPC services                     ║
 ║                                                                              ║
 ║  📡 NATS ALIASES:                                                            ║
 ║    nats-info           - Show NATS server information                       ║
 ║    nats-streams        - List all JetStream streams                         ║
 ║    nats-events         - Show events stream details                         ║
-║    nats-datasvc             - Show KV store stream details                       ║
+║    nats-kv             - Show kv store details                              ║
+║    nats-datasvc        - Show object store details                          ║
 ║                                                                              ║
 ║  🔌 gRPC ALIASES:                                                            ║
 ║    grpc-core           - Connect to core gRPC (add method after)            ║
