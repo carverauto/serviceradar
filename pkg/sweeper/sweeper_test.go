@@ -18,7 +18,11 @@ package sweeper
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -225,15 +229,15 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			Interval: 5 * time.Minute,
 		}
 
-        sweeper := &NetworkSweeper{
-            config:      initialConfig,
-            logger:      logger.NewTestLogger(),
-            configStore: subMockKVStore,
-            configKey:   "test-config-key",
-            watchDone:   make(chan struct{}),
-            done:        make(chan struct{}),
-            kvBackoff:   newTestKVBackoff(),
-        }
+		sweeper := &NetworkSweeper{
+			config:      initialConfig,
+			logger:      logger.NewTestLogger(),
+			configStore: subMockKVStore,
+			configKey:   "test-config-key",
+			watchDone:   make(chan struct{}),
+			done:        make(chan struct{}),
+			kvBackoff:   newTestKVBackoff(),
+		}
 
 		// Mock KV config with new networks
 		kvConfigJSON := `{"networks":["10.0.0.0/8","172.16.0.0/12"],"ports":null,"interval":""}`
@@ -291,13 +295,13 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 		}
 
 		sweeper := &NetworkSweeper{
-			config:    initialConfig,
-			logger:    logger.NewTestLogger(),
-            configStore:   nil, // No KV store
-			configKey: "test-config-key",
-			watchDone: make(chan struct{}),
-			done:      make(chan struct{}),
-			kvBackoff: newTestKVBackoff(),
+			config:      initialConfig,
+			logger:      logger.NewTestLogger(),
+			configStore: nil, // No KV store
+			configKey:   "test-config-key",
+			watchDone:   make(chan struct{}),
+			done:        make(chan struct{}),
+			kvBackoff:   newTestKVBackoff(),
 		}
 
 		configReady := make(chan struct{})
@@ -343,13 +347,13 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 		}
 
 		sweeper := &NetworkSweeper{
-			config:    initialConfig,
-			logger:    logger.NewTestLogger(),
-            configStore:   subMockKVStore,
-			configKey: "test-config-key",
-			watchDone: make(chan struct{}),
-			done:      make(chan struct{}),
-			kvBackoff: newTestKVBackoff(),
+			config:      initialConfig,
+			logger:      logger.NewTestLogger(),
+			configStore: subMockKVStore,
+			configKey:   "test-config-key",
+			watchDone:   make(chan struct{}),
+			done:        make(chan struct{}),
+			kvBackoff:   newTestKVBackoff(),
 		}
 
 		subMockKVStore.EXPECT().
@@ -920,20 +924,20 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 	mockKVStore := NewMockKVStore(ctrl)
 	log := logger.NewTestLogger()
 
-    sweeper := &NetworkSweeper{
-        config: &models.Config{
-            Networks:   []string{"192.168.1.0/24"},
-            Ports:      []int{22, 80},
-            SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
-            Interval:   5 * time.Minute,
-        },
-        configStore: mockKVStore,
-        configKey:   "test-config-key",
-        watchDone:   make(chan struct{}),
-        done:        make(chan struct{}),
-        logger:      log,
-        kvBackoff:   newTestKVBackoff(),
-    }
+	sweeper := &NetworkSweeper{
+		config: &models.Config{
+			Networks:   []string{"192.168.1.0/24"},
+			Ports:      []int{22, 80},
+			SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+			Interval:   5 * time.Minute,
+		},
+		configStore: mockKVStore,
+		configKey:   "test-config-key",
+		watchDone:   make(chan struct{}),
+		done:        make(chan struct{}),
+		logger:      log,
+		kvBackoff:   newTestKVBackoff(),
+	}
 
 	configReady := make(chan struct{})
 	ctx, cancel := context.WithTimeout(context.Background(), testWatchContextTimeout)
@@ -1001,6 +1005,67 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 	wg.Wait()
 }
 
+func TestNetworkSweeper_ProcessConfigUpdate_DataServicePointer(t *testing.T) {
+	log := logger.NewTestLogger()
+	objectKey := "agents/test/checkers/sweep/sweep.json"
+
+	objectConfig := models.SweepConfig{
+		Networks:   []string{"10.0.0.0/24"},
+		Ports:      []int{443},
+		SweepModes: []string{"icmp"},
+		DeviceTargets: []models.DeviceTarget{
+			{
+				Network:    "10.0.0.10/32",
+				SweepModes: []models.SweepMode{models.ModeICMP},
+				QueryLabel: "armis_sweep",
+				Source:     "armis",
+			},
+		},
+		Interval: "1m0s",
+	}
+
+	objectBytes, err := json.Marshal(objectConfig)
+	require.NoError(t, err)
+
+	sum := sha256.Sum256(objectBytes)
+
+	metadata := map[string]any{
+		"storage":    "data_service",
+		"object_key": objectKey,
+		"sha256":     base64.StdEncoding.EncodeToString(sum[:]),
+		"overrides": map[string]any{
+			"interval": "2m0s",
+		},
+	}
+
+	pointerBytes, err := json.Marshal(metadata)
+	require.NoError(t, err)
+
+	sweeper := &NetworkSweeper{
+		config: &models.Config{
+			Interval: 30 * time.Second,
+			Ports:    []int{80},
+		},
+		objectStore:   &stubObjectStore{entries: map[string][]byte{objectKey: objectBytes}},
+		configKey:     objectKey,
+		logger:        log,
+		kvBackoff:     defaultKVWatchBackoffSettings(),
+		done:          make(chan struct{}),
+		watchDone:     make(chan struct{}),
+		deviceResults: make(map[string]*DeviceResultAggregator),
+	}
+
+	sweeper.processConfigUpdate(context.Background(), pointerBytes)
+
+	sweeper.mu.RLock()
+	defer sweeper.mu.RUnlock()
+
+	require.Len(t, sweeper.config.DeviceTargets, 1)
+	assert.Equal(t, "armis", sweeper.config.DeviceTargets[0].Source)
+	assert.Equal(t, 2*time.Minute, sweeper.config.Interval)
+	assert.Equal(t, []string{"10.0.0.0/24"}, sweeper.config.Networks)
+}
+
 // TestKVWatchJitterDistribution tests that jitter is properly distributed
 func TestKVWatchJitterDistribution(t *testing.T) {
 	log := logger.NewTestLogger()
@@ -1045,4 +1110,16 @@ func TestKVWatchJitterDistribution(t *testing.T) {
 	}
 
 	assert.True(t, hasVariance, "Jittered backoffs should show variance")
+}
+
+type stubObjectStore struct {
+	entries map[string][]byte
+}
+
+func (s *stubObjectStore) DownloadObject(_ context.Context, key string) ([]byte, error) {
+	if data, ok := s.entries[key]; ok {
+		return data, nil
+	}
+
+	return nil, fmt.Errorf("object %s not found", key)
 }

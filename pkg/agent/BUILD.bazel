@@ -26,6 +26,7 @@ go_library(
         "//pkg/checker/snmp",
         "//pkg/config",
         "//pkg/grpc",
+        "//pkg/hashutil",
         "//pkg/logger",
         "//pkg/models",
         "//pkg/scan",
