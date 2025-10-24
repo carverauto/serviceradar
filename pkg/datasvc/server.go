@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package kv pkg/kv/server.go
+// Package datasvc implements the gRPC server for the data service (KV + object store).
 package datasvc
 
 import (

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package kv pkg/kv/rbac_test.go
+// Package datasvc includes RBAC unit tests for the data service.
 package datasvc
 
 import (

@@ -7,7 +7,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//alias:config",
-        "//alias:kv",
+        "//alias:datasvc",
         "//alias:lifecycle",
         "//proto",
         "@org_golang_google_grpc//:grpc",

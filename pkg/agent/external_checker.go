@@ -190,10 +190,33 @@ func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (
 
 	e.logger.Debug().Str("service", e.serviceName).Msg("Health check succeeded")
 
-	return e.getServiceDetails(ctx, req)
+	return e.getServiceDetails(ctx, req, healthy)
 }
 
-func (e *ExternalChecker) getServiceDetails(ctx context.Context, _ *proto.StatusRequest) (healthy bool, details json.RawMessage) {
+func (e *ExternalChecker) getServiceDetails(ctx context.Context, _ *proto.StatusRequest, healthy bool) (bool, json.RawMessage) {
+	// For generic gRPC services, surface health status without expecting monitoring.AgentService.
+	if e.grpcServiceCheckName != defaultMonitoringServiceName {
+		status := "SERVING"
+		if !healthy {
+			status = "NOT_SERVING"
+		}
+
+		resp := map[string]interface{}{
+			"service":       e.serviceName,
+			"grpc_service":  e.grpcServiceCheckName,
+			"status":        status,
+			"checked_at":    time.Now().UTC().Format(time.RFC3339Nano),
+			"address":       e.address,
+			"cached_status": e.healthStatus,
+		}
+
+		if message, err := json.Marshal(resp); err == nil {
+			return healthy, message
+		}
+
+		return healthy, jsonError(fmt.Sprintf("Failed to marshal health response for %s", e.serviceName))
+	}
+
 	agentClient := proto.NewAgentServiceClient(e.grpcClient.GetConnection())
 
 	status, err := agentClient.GetStatus(ctx, &proto.StatusRequest{
