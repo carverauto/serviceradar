@@ -24,6 +24,7 @@ import SysmonStatusIndicator from './SysmonStatusIndicator';
 import SNMPStatusIndicator from './SNMPStatusIndicator';
 import ICMPSparkline from './ICMPSparkline';
 import { formatTimestampForDisplay } from '@/utils/traceTimestamp';
+import { useAuth } from '@/components/AuthProvider';
 
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
@@ -42,11 +43,13 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     sortBy = 'last_seen',
     sortOrder = 'desc'
 }) => {
+    const { token } = useAuth();
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     const [sysmonStatuses, setSysmonStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
     const [sysmonStatusesLoading, setSysmonStatusesLoading] = useState(true);
     const [metricsStatuses, setMetricsStatuses] = useState<Set<string>>(new Set());
     const [metricsStatusesLoading, setMetricsStatusesLoading] = useState(true);
+    const [metricsStatusesAvailable, setMetricsStatusesAvailable] = useState(false);
     const [snmpStatuses, setSnmpStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
     const [snmpStatusesLoading, setSnmpStatusesLoading] = useState(true);
 
@@ -68,6 +71,8 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
             }
         };
 
+        const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
         const fetchSysmonStatuses = async (showSpinner: boolean) => {
             if (showSpinner) {
                 safeSetState<boolean>(setSysmonStatusesLoading, true);
@@ -78,7 +83,9 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        ...authHeaders,
                     },
+                    credentials: 'include',
                     body: JSON.stringify({ deviceIds }),
                 });
 
@@ -104,18 +111,43 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                 safeSetState<boolean>(setMetricsStatusesLoading, true);
             }
             try {
-                const response = await fetch('/api/devices/metrics/status');
-                
+                if (deviceIds.length === 0) {
+                    safeSetState<Set<string>>(setMetricsStatuses, new Set());
+                    safeSetState<boolean>(setMetricsStatusesAvailable, false);
+                    return;
+                }
+
+                const response = await fetch('/api/devices/icmp/status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...authHeaders,
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ deviceIds }),
+                });
+
                 if (response.ok) {
                     const data = await response.json();
+                    const statuses = (data?.statuses ?? {}) as Record<string, { hasMetrics?: boolean }>;
+                    const devicesWithMetrics = Object.entries(statuses)
+                        .filter(([, status]) => status?.hasMetrics)
+                        .map(([id]) => id);
                     if (!cancelled) {
-                        setMetricsStatuses(new Set(data.device_ids || []));
+                        setMetricsStatuses(new Set(devicesWithMetrics));
+                        setMetricsStatusesAvailable(true);
                     }
                 } else {
-                    console.error('Failed to fetch metrics statuses:', response.status);
+                    console.error('Failed to fetch ICMP metrics statuses:', response.status);
+                    if (!cancelled) {
+                        setMetricsStatusesAvailable(false);
+                    }
                 }
             } catch (error) {
-                console.error('Error fetching metrics statuses:', error);
+                console.error('Error fetching ICMP metrics statuses:', error);
+                if (!cancelled) {
+                    setMetricsStatusesAvailable(false);
+                }
             } finally {
                 if (showSpinner) {
                     safeSetState<boolean>(setMetricsStatusesLoading, false);
@@ -133,7 +165,9 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        ...authHeaders,
                     },
+                    credentials: 'include',
                     body: JSON.stringify({ deviceIds }),
                 });
 
@@ -164,7 +198,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
             cancelled = true;
             clearInterval(metricsInterval);
         };
-    }, [deviceIdsString, devices]);
+    }, [deviceIdsString, devices, token]);
 
     const getSourceColor = (source: string) => {
         const lowerSource = source.toLowerCase();
@@ -277,7 +311,13 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                         <ICMPSparkline 
                                             deviceId={device.device_id} 
                                             compact={false}
-                                            hasMetrics={metricsStatusesLoading ? undefined : metricsStatuses.has(device.device_id)}
+                                            hasMetrics={
+                                                metricsStatusesLoading
+                                                    ? undefined
+                                                    : metricsStatusesAvailable
+                                                        ? metricsStatuses.has(device.device_id)
+                                                        : undefined
+                                            }
                                         />
                                     </div>
                                 </td>

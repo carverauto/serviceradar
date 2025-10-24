@@ -20,6 +20,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import _ from 'lodash';
+import { useAuth } from '@/components/AuthProvider';
 
 const MAX_POINTS = 50;
 const REFRESH_INTERVAL = 10000; // 10 seconds
@@ -47,14 +48,16 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
     compact = false,
     hasMetrics
 }) => {
+    const { token } = useAuth();
     const [metrics, setMetrics] = useState<ICMPMetric[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
     const fetchMetrics = useCallback(async () => {
         if (!deviceId) return;
-        if (hasMetrics === false) return;
-        // Skip fetching if hasMetrics is still undefined (bulk status loading)
-        if (hasMetrics === undefined) return;
+        if (hasMetrics === false) {
+            setMetrics([]);
+            return;
+        }
         
         setIsLoading(true);
         try {
@@ -67,7 +70,13 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
                 end: endTime.toISOString()
             });
 
-            const response = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/metrics?${queryParams}`);
+            const response = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/metrics?${queryParams}`, {
+                credentials: 'include',
+                headers: {
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                method: 'GET',
+            });
             
             if (response.ok) {
                 const data = await response.json() as ICMPMetric[];
@@ -81,18 +90,14 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
         } finally {
             setIsLoading(false);
         }
-    }, [deviceId, hasMetrics]);
+    }, [deviceId, hasMetrics, token]);
 
     useEffect(() => {
         if (hasMetrics === false) {
+            setMetrics([]);
             return;
         }
-        
-        // Don't start fetching until we know the metrics status
-        if (hasMetrics === undefined) {
-            return;
-        }
-        
+
         fetchMetrics();
         const interval = setInterval(fetchMetrics, REFRESH_INTERVAL);
         return () => clearInterval(interval);

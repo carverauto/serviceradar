@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Create new request
-        const requestPromise = fetchICMPStatuses(apiUrl, apiKey, deviceIds, req.headers.get("authorization"));
+        const requestPromise = fetchICMPStatuses(apiUrl, apiKey, deviceIds);
         inFlightRequests.set(cacheKey, requestPromise);
 
         try {
@@ -87,17 +87,19 @@ export async function POST(req: NextRequest) {
 async function fetchICMPStatuses(
     apiUrl: string, 
     apiKey: string, 
-    deviceIds: string[], 
-    authHeader: string | null
+    deviceIds: string[]
 ): Promise<Record<string, { hasMetrics: boolean; status: number }>> {
-    const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-        'X-API-Key': apiKey,
-    };
+    const buildHeaders = (): HeadersInit => {
+        const baseHeaders: HeadersInit = {
+            'Content-Type': 'application/json',
+        };
 
-    if (authHeader) {
-        headers['Authorization'] = authHeader;
-    }
+        if (apiKey) {
+            baseHeaders['X-API-Key'] = apiKey;
+        }
+
+        return baseHeaders;
+    };
 
     const endTime = new Date();
     const startTime = new Date(endTime.getTime() - 60 * 60 * 1000); // Last hour
@@ -112,11 +114,13 @@ async function fetchICMPStatuses(
 
             const url = `${apiUrl}/api/devices/${encodeURIComponent(deviceId)}/metrics?${queryParams}`;
             
-            const response = await fetch(url, {
+            const performFetch = async () => fetch(url, {
                 method: 'GET',
-                headers,
+                headers: buildHeaders(),
                 cache: 'no-store',
             });
+
+            const response = await performFetch();
 
             if (response.ok) {
                 const metrics = await response.json() as Array<unknown>;
