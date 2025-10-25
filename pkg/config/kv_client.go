@@ -36,7 +36,7 @@ type KVManager struct {
 
 // NewKVManagerFromEnv creates a KV manager from environment variables
 func NewKVManagerFromEnv(ctx context.Context, role models.ServiceRole) *KVManager {
-	if os.Getenv("CONFIG_SOURCE") != "kv" || os.Getenv("KV_ADDRESS") == "" {
+	if os.Getenv("KV_ADDRESS") == "" {
 		return nil
 	}
 

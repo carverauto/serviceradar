@@ -33,6 +33,7 @@ cd serviceradar-cli-build
 # Create package directory structure (Debian paths)
 mkdir -p DEBIAN
 mkdir -p usr/local/bin
+mkdir -p usr/local/share/serviceradar
 
 echo "Building Go binary..."
 
@@ -42,6 +43,16 @@ GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-cli-build/usr/local/bin/
 cd "${BASE_DIR}"
 
 echo "Preparing ServiceRadar CLI package files..."
+
+# Copy embedded configuration bundle so the CLI can hydrate KV without rebuilding
+BUNDLE_SRC="${BASE_DIR}/pkg/cli/hydrate/bundle.json"
+if [ -f "$BUNDLE_SRC" ]; then
+    install -m 644 "$BUNDLE_SRC" usr/local/share/serviceradar/config-bundle.json
+    echo "Copied config bundle to /usr/local/share/serviceradar"
+else
+    echo "Error: bundle.json not found at $BUNDLE_SRC"
+    exit 1
+fi
 
 # Copy control file
 CONTROL_SRC="${PACKAGING_DIR}/cli/DEBIAN/control"

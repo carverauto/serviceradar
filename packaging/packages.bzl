@@ -759,13 +759,20 @@ PACKAGES = {
         "priority": "optional",
         "deb_depends": [],
         "rpm_requires": [],
-        "binary": {
-            "target": "//cmd/cli:cli",
-            "dest": "/usr/local/bin/serviceradar",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
+    "binary": {
+        "target": "//cmd/cli:cli",
+        "dest": "/usr/local/bin/serviceradar",
     },
+    "files": [
+        {
+            "src": "config/config-bundle.json",
+            "dest": "/usr/local/share/serviceradar/config-bundle.json",
+            "mode": "0644",
+        },
+    ],
+    "postinst": "scripts/postinstall.sh",
+    "prerm": "scripts/preremove.sh",
+},
     "srql": {
         "package_name": "serviceradar-srql",
         "description": "ServiceRadar SRQL OCaml query service",

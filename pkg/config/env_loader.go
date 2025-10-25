@@ -53,6 +53,21 @@ func NewEnvConfigLoader(log logger.Logger, prefix string) *EnvConfigLoader {
 	}
 }
 
+// hasEnvWithPrefix reports whether any environment variable begins with the given prefix.
+func hasEnvWithPrefix(prefix string) bool {
+	if prefix == "" {
+		return false
+	}
+
+	for _, env := range os.Environ() {
+		if strings.HasPrefix(env, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Load implements ConfigLoader by reading from environment variables.
 func (e *EnvConfigLoader) Load(_ context.Context, _ string, dst interface{}) error {
 	if e.logger != nil {
@@ -185,19 +200,26 @@ func (e *EnvConfigLoader) setFieldValue(field reflect.Value, fieldType *reflect.
 
 // handleNestedStruct handles nested struct and pointer to struct types.
 func (e *EnvConfigLoader) handleNestedStruct(field reflect.Value, envName string) error {
-	if field.Kind() == reflect.Struct || (field.Kind() == reflect.Ptr && field.Type().Elem().Kind() == reflect.Struct) {
+	if field.Kind() == reflect.Struct {
 		prefix := envName + "_"
-
-		// Initialize pointer if needed
-		if field.Kind() == reflect.Ptr {
-			if field.IsNil() {
-				field.Set(reflect.New(field.Type().Elem()))
-			}
-
-			return e.loadStruct(field.Elem(), prefix)
+		if !hasEnvWithPrefix(prefix) {
+			return nil
 		}
 
 		return e.loadStruct(field, prefix)
+	}
+
+	if field.Kind() == reflect.Ptr && field.Type().Elem().Kind() == reflect.Struct {
+		prefix := envName + "_"
+		if !hasEnvWithPrefix(prefix) {
+			return nil
+		}
+
+		if field.IsNil() {
+			field.Set(reflect.New(field.Type().Elem()))
+		}
+
+		return e.loadStruct(field.Elem(), prefix)
 	}
 
 	return nil

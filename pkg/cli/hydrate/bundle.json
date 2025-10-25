@@ -1,0 +1,1401 @@
+{
+  "generated_at": "2025-10-25T19:21:54.876418307Z",
+  "components": [
+    {
+      "name": "core",
+      "files": [
+        {
+          "kv_key": "config/core.json",
+          "source": "packaging/core/config/core.json",
+          "dest": "/etc/serviceradar/core.json",
+          "data": {
+            "listen_addr": ":8090",
+            "grpc_addr": ":50052",
+            "alert_threshold": "5m",
+            "known_pollers": [
+              "default-poller"
+            ],
+            "metrics": {
+              "enabled": true,
+              "retention": 100,
+              "max_pollers": 10000
+            },
+            "database": {
+              "addresses": [
+                "proton:9440"
+              ],
+              "name": "default",
+              "username": "default",
+              "password": "",
+              "max_conns": 10,
+              "idle_conns": 5,
+              "tls": {
+                "cert_file": "/etc/serviceradar/certs/core.pem",
+                "key_file": "/etc/serviceradar/certs/core-key.pem",
+                "ca_file": "/etc/serviceradar/certs/root.pem",
+                "server_name": "proton.serviceradar"
+              },
+              "settings": {
+                "max_execution_time": 60,
+                "output_format_json_quote_64bit_int": 0,
+                "allow_experimental_live_view": 1,
+                "idle_connection_timeout": 600,
+                "join_use_nulls": 1,
+                "input_format_defaults_for_omitted_fields": 1
+              }
+            },
+            "security": {
+              "mode": "mtls",
+              "cert_dir": "/etc/serviceradar/certs",
+              "role": "core",
+              "server_name": "core.serviceradar",
+              "tls": {
+                "cert_file": "/etc/serviceradar/certs/core.pem",
+                "key_file": "/etc/serviceradar/certs/core-key.pem",
+                "ca_file": "/etc/serviceradar/certs/root.pem",
+                "client_ca_file": "/etc/serviceradar/certs/root.pem",
+                "skip_verify": false
+              }
+            },
+            "cors": {
+              "allowed_origins": [
+                "*"
+              ],
+              "allow_credentials": true
+            },
+            "nats": {
+              "url": "nats://127.0.0.1:4222",
+              "security": {
+                "mode": "mtls",
+                "cert_dir": "/etc/serviceradar/certs",
+                "server_name": "PLACEHOLDER_NATS_SERVER_NAME",
+                "role": "datasvc",
+                "tls": {
+                  "cert_file": "nats.pem",
+                  "key_file": "nats-key.pem",
+                  "ca_file": "root.pem",
+                  "client_ca_file": "root.pem"
+                }
+              }
+            },
+            "events": {
+              "enabled": true,
+              "stream_name": "events",
+              "subjects": [
+                "poller.health.*",
+                "poller.status.*"
+              ]
+            },
+            "auth": {
+              "jwt_secret": "PLACEHOLDER_WILL_BE_REPLACED",
+              "jwt_expiration": "24h",
+              "local_users": {
+                "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
+              },
+              "rbac": {
+                "user_roles": {
+                  "admin": [
+                    "admin",
+                    "operator",
+                    "viewer"
+                  ],
+                  "operator": [
+                    "operator",
+                    "viewer"
+                  ],
+                  "user": [
+                    "viewer"
+                  ]
+                },
+                "role_permissions": {
+                  "admin": [
+                    "*"
+                  ],
+                  "operator": [
+                    "config:read",
+                    "config:write",
+                    "device:*",
+                    "alert:*"
+                  ],
+                  "viewer": [
+                    "config:read",
+                    "device:read",
+                    "alert:read",
+                    "metrics:read"
+                  ]
+                },
+                "route_protection": {
+                  "/api/admin/*": [
+                    "admin"
+                  ],
+                  "/api/config/*": {
+                    "GET": [
+                      "viewer",
+                      "operator",
+                      "admin"
+                    ],
+                    "POST": [
+                      "operator",
+                      "admin"
+                    ],
+                    "PUT": [
+                      "operator",
+                      "admin"
+                    ],
+                    "DELETE": [
+                      "admin"
+                    ]
+                  },
+                  "/api/devices/*": {
+                    "GET": [
+                      "viewer",
+                      "operator",
+                      "admin"
+                    ],
+                    "POST": [
+                      "operator",
+                      "admin"
+                    ],
+                    "PUT": [
+                      "operator",
+                      "admin"
+                    ],
+                    "DELETE": [
+                      "admin"
+                    ]
+                  },
+                  "/api/alerts/*": {
+                    "GET": [
+                      "viewer",
+                      "operator",
+                      "admin"
+                    ],
+                    "POST": [
+                      "operator",
+                      "admin"
+                    ],
+                    "PUT": [
+                      "operator",
+                      "admin"
+                    ],
+                    "DELETE": [
+                      "admin"
+                    ]
+                  }
+                }
+              }
+            },
+            "webhooks": [
+              {
+                "enabled": false,
+                "url": "https://your-webhook-url",
+                "cooldown": "15m",
+                "headers": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer PLACEHOLDER_TOKEN"
+                  }
+                ]
+              },
+              {
+                "enabled": false,
+                "url": "https://discord.com/api/webhooks/PLACEHOLDER_WEBHOOK_URL",
+                "cooldown": "15m",
+                "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
+              }
+            ],
+            "logging": {
+              "level": "info",
+              "debug": false,
+              "output": "stdout",
+              "time_format": "",
+              "otel": {
+                "enabled": true,
+                "endpoint": "127.0.0.1:4317",
+                "service_name": "serviceradar-core",
+                "batch_timeout": "5s",
+                "insecure": false,
+                "headers": {
+                  "x-api-key": "PLACEHOLDER_COLLECTOR_API_KEY"
+                },
+                "tls": {
+                  "cert_file": "/etc/serviceradar/certs/core.pem",
+                  "key_file": "/etc/serviceradar/certs/core-key.pem",
+                  "ca_file": "/etc/serviceradar/certs/root.pem"
+                }
+              }
+            },
+            "mcp": {
+              "enabled": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "event-writer",
+      "files": [
+        {
+          "kv_key": "config/db-event-writer.json",
+          "source": "packaging/event-writer/config/db-event-writer.json",
+          "dest": "/etc/serviceradar/consumers/db-event-writer.json",
+          "data": {
+            "listen_addr": "0.0.0.0:50041",
+            "nats_url": "nats://127.0.0.1:4222",
+            "partition": "default",
+            "stream_name": "events",
+            "consumer_name": "db-event-writer",
+            "agent_id": "agent-default",
+            "poller_id": "poller-default",
+            "streams": [
+              {
+                "subject": "events.poller.health",
+                "table": "events"
+              },
+              {
+                "subject": "events.syslog.processed",
+                "table": "events"
+              },
+              {
+                "subject": "events.snmp.processed",
+                "table": "events"
+              },
+              {
+                "subject": "events.otel.logs",
+                "table": "logs"
+              },
+              {
+                "subject": "events.otel.traces",
+                "table": "otel_traces"
+              },
+              {
+                "subject": "events.otel.metrics",
+                "table": "otel_metrics"
+              },
+              {
+                "subject": "events.otel.metrics.raw",
+                "table": "otel_metrics"
+              }
+            ],
+            "database": {
+              "addresses": [
+                "127.0.0.1:9440"
+              ],
+              "name": "default",
+              "username": "default",
+              "password": "PLACEHOLDER_WILL_BE_REPLACED"
+            },
+            "security": {
+              "mode": "mtls",
+              "cert_dir": "/etc/serviceradar/certs",
+              "server_name": "127.0.0.1",
+              "role": "core",
+              "tls": {
+                "cert_file": "/etc/serviceradar/certs/core.pem",
+                "key_file": "/etc/serviceradar/certs/core-key.pem",
+                "ca_file": "/etc/serviceradar/certs/root.pem"
+              }
+            },
+            "db_security": {
+              "mode": "mtls",
+              "cert_dir": "/etc/serviceradar/certs",
+              "server_name": "127.0.0.1",
+              "role": "client",
+              "tls": {
+                "cert_file": "/etc/serviceradar/certs/core.pem",
+                "key_file": "/etc/serviceradar/certs/core-key.pem",
+                "ca_file": "/etc/serviceradar/certs/root.pem"
+              }
+            },
+            "logging": {
+              "level": "info",
+              "debug": false,
+              "output": "stdout",
+              "time_format": "",
+              "otel": {
+                "enabled": true,
+                "endpoint": "127.0.0.1:4317",
+                "service_name": "serviceradar-event-writer",
+                "batch_timeout": "5s",
+                "insecure": false,
+                "tls": {
+                  "cert_file": "/etc/serviceradar/certs/core.pem",
+                  "key_file": "/etc/serviceradar/certs/core-key.pem",
+                  "ca_file": "/etc/serviceradar/certs/root.pem"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "web",
+      "files": [
+        {
+          "kv_key": "config/web.json",
+          "source": "packaging/web/config/web.json",
+          "dest": "/etc/serviceradar/web.json",
+          "data": {
+            "port": 3000,
+            "host": "0.0.0.0",
+            "api_url": "http://localhost:8090"
+          }
+        }
+      ]
+    },
+    {
+      "name": "faker",
+      "files": [
+        {
+          "kv_key": "config/faker.json",
+          "source": "packaging/faker/config/faker.json",
+          "dest": "/etc/serviceradar/faker.json",
+          "data": {
+            "service": {
+              "name": "faker",
+              "description": "ServiceRadar Fake Armis API Service",
+              "version": "1.0.0"
+            },
+            "server": {
+              "listen_address": "0.0.0.0:8080",
+              "read_timeout": "10s",
+              "write_timeout": "30s",
+              "idle_timeout": "30s"
+            },
+            "simulation": {
+              "total_devices": 50000,
+              "ip_shuffle": {
+                "enabled": true,
+                "interval": "60s",
+                "percentage": 5,
+                "log_changes": true
+              }
+            },
+            "storage": {
+              "data_dir": "/var/lib/serviceradar/faker",
+              "devices_file": "fake_armis_devices.json",
+              "persist_changes": true
+            },
+            "logging": {
+              "level": "info",
+              "file": "/var/log/serviceradar/faker.log",
+              "max_size": "100M",
+              "max_backups": 5,
+              "max_age": 30
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "agent",
+      "files": [
+        {
+          "kv_key": "config/agent.json",
+          "source": "packaging/agent/config/agent.json",
+          "dest": "/etc/serviceradar/agent.json",
+          "data": {
+            "checkers_dir": "/etc/serviceradar/checkers",
+            "listen_addr": ":50051",
+            "service_type": "grpc",
+            "service_name": "AgentService",
+            "agent_id": "default-agent",
+            "agent_name": "127.0.0.1",
+            "host_ip": "PLACEHOLDER_HOST_IP",
+            "partition": "default",
+            "security": {
+              "mode": "mtls",
+              "cert_dir": "/etc/serviceradar/certs",
+              "server_name": "127.0.0.1",
+              "role": "agent",
+              "tls": {
+                "cert_file": "agent.pem",
+                "key_file": "agent-key.pem",
+                "ca_file": "root.pem"
+              }
+            },
+            "logging": {
+              "level": "info",
+              "debug": false,
+              "output": "stdout",
+              "time_format": "",
+              "otel": {
+                "enabled": true,
+                "endpoint": "127.0.0.1:4317",
+                "service_name": "serviceradar-agent",
+                "batch_timeout": "5s",
+                "insecure": false,
+                "tls": {
+                  "cert_file": "/etc/serviceradar/certs/agent.pem",
+                  "key_file": "/etc/serviceradar/certs/agent-key.pem",
+                  "ca_file": "/etc/serviceradar/certs/root.pem"
+                }
+              }
+            }
+          }
+        },
+        {
+          "kv_key": "config/sweep.json",
+          "source": "packaging/agent/config/checkers/sweep/sweep.json",
+          "dest": "/etc/serviceradar/checkers/sweep/sweep.json",
+          "data": {
+            "networks": [],
+            "ports": [
+              21,
+              22,
+              23,
+              25,
+              53,
+              80,
+              110,
+              111,
+              135,
+              139,
+              143,
+              443,
+              445,
+              993,
+              995,
+              1433,
+              1521,
+              1723,
+              3306,
+              3389,
+              5432,
+              5900,
+              6379,
+              8080,
+              8443,
+              8888,
+              9200,
+              9300,
+              27017,
+              50051,
+              50052,
+              50053,
+              50054,
+              50055,
+              50056,
+              50057,
+              50058,
+              50059,
+              3000,
+              8090,
+              8123,
+              9090,
+              9093,
+              9094,
+              2375,
+              2376,
+              2377,
+              6443,
+              10250,
+              10251,
+              10252,
+              10255,
+              30000,
+              30001,
+              30002,
+              30003,
+              30004
+            ],
+            "sweep_modes": [
+              "tcp"
+            ],
+            "interval": "5m",
+            "concurrency": 50,
+            "timeout": "3s",
+            "icmp_count": 1,
+            "high_perf_icmp": true,
+            "icmp_rate_limit": 5000
+          }
+        }
+      ]
+    },
+    {
+      "name": "poller",
+      "files": [
+        {
+          "kv_key": "config/poller.json",
+          "source": "packaging/poller/config/poller.json",
+          "dest": "/etc/serviceradar/poller.json",
+          "optional": true,
+          "data": {
+            "agents": {
+              "local-agent": {
+                "address": ":50051",
+                "security": {
+                  "server_name": "127.0.0.1",
+                  "mode": "mtls",
+                  "cert_dir": "/etc/serviceradar/certs",
+                  "tls": {
+                    "cert_file": "agent.pem",
+                    "key_file": "agent-key.pem",
+                    "ca_file": "root.pem",
+                    "client_ca_file": "root.pem"
+                  }
+                },
+                "checks": [
+                  {
+                    "service_type": "process",
+                    "service_name": "serviceradar-agent",
+                    "details": "serviceradar-agent"
+                  },
+                  {
+                    "service_type": "port",
+                    "service_name": "SSH",
+                    "details": "127.0.0.1:22"
+                  },
+                  {
+                    "service_type": "icmp",
+                    "service_name": "ping",
+                    "details": "1.1.1.1"
+                  },
+                  {
+                    "service_type": "grpc",
+                    "service_name": "sysmon",
+                    "details": "127.0.0.1:50083"
+                  },
+                  {
+                    "service_type": "grpc",
+                    "service_name": "sysmon-vm",
+                    "details": "192.168.1.219:50110"
+                  },
+                  {
+                    "service_type": "sweep",
+                    "service_name": "network_sweep",
+                    "details": "",
+                    "results_interval": "18h"
+                  }
+                ]
+              },
+              "default-agent": {
+                "address": ":50058",
+                "security": {
+                  "server_name": "127.0.0.1",
+                  "mode": "mtls",
+                  "cert_dir": "/etc/serviceradar/certs",
+                  "tls": {
+                    "cert_file": "sync.pem",
+                    "key_file": "sync-key.pem",
+                    "ca_file": "root.pem",
+                    "client_ca_file": "root.pem"
+                  }
+                },
+                "checks": [
+                  {
+                    "service_type": "sync",
+                    "service_name": "sync",
+                    "details": "",
+                    "results_interval": "30m"
+                  }
+                ]
+              }
+            },
+            "core_address": "127.0.0.1:50052",
+            "listen_addr": ":50053",
+            "poll_interval": "30s",
+            "poller_id": "default-poller",
+            "partition": "default",
+            "source_ip": "127.0.0.1",
+            "service_name": "PollerService",
+            "service_type": "grpc",
+            "security": {
+              "mode": "mtls",
+              "cert_dir": "/etc/serviceradar/certs",
+              "server_name": "127.0.0.1",
+              "role": "poller",
+              "tls": {
+                "cert_file": "poller.pem",
+                "key_file": "poller-key.pem",
+                "ca_file": "root.pem",
+                "client_ca_file": "root.pem"
+              }
+            },
+            "logging": {
+              "level": "info",
+              "debug": false,
+              "output": "stdout",
+              "time_format": "",
+              "otel": {
+                "enabled": true,
+                "endpoint": "192.168.2.23:4317",
+                "service_name": "serviceradar-poller",
+                "batch_timeout": "5s",
+                "insecure": false,
+                "tls": {
+                  "cert_file": "/etc/serviceradar/certs/poller.pem",
+                  "key_file": "/etc/serviceradar/certs/poller-key.pem",
+                  "ca_file": "/etc/serviceradar/certs/root.pem"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "mapper",
+      "files": [
+        {
+          "kv_key": "config/mapper.json",
+          "source": "packaging/mapper/config/mapper.json",
+          "dest": "/etc/serviceradar/mapper.json",
+          "optional": true,
+          "data": {
+            "workers": 20,
+            "timeout": "30s",
+            "retries": 3,
+            "max_active_jobs": 100,
+            "result_retention": "24h",
+            "mapper_agent_id": "default-mapper",
+            "mapper_instance_id": "serviceradar-mapper-01",
+            "default_credentials": {
+              "version": "v2c",
+              "community": "public"
+            },
+            "oids": {
+              "basic": [
+                ".1.3.6.1.2.1.1.1.0",
+                ".1.3.6.1.2.1.1.2.0",
+                ".1.3.6.1.2.1.1.5.0",
+                ".1.3.6.1.2.1.1.4.0",
+                ".1.3.6.1.2.1.1.6.0",
+                ".1.3.6.1.2.1.1.3.0"
+              ],
+              "interfaces": [
+                ".1.3.6.1.2.1.2.2.1",
+                ".1.3.6.1.2.1.31.1.1.1",
+                ".1.3.6.1.2.1.4.20.1"
+              ],
+              "topology": [
+                ".1.0.8802.1.1.2.1",
+                ".1.3.6.1.4.1.9.9.23.1"
+              ]
+            },
+            "stream_config": {
+              "device_stream": "sweep_results",
+              "interface_stream": "discovered_interfaces",
+              "topology_stream": "topology_discovery_events",
+              "agent_id": "snmp-discovery-agent",
+              "publish_batch_size": 100,
+              "publish_retries": 3,
+              "publish_retry_interval": "5s"
+            },
+            "credentials": [
+              {
+                "targets": [
+                  "192.168.2.0/24"
+                ],
+                "version": "v2c",
+                "community": "public"
+              }
+            ],
+            "scheduled_jobs": [
+              {
+                "name": "primary-lan-discovery",
+                "interval": "1h",
+                "enabled": true,
+                "seeds": [
+                  "192.168.2.1"
+                ],
+                "type": "full",
+                "credentials": {
+                  "version": "v2c",
+                  "community": "public"
+                },
+                "concurrency": 10,
+                "timeout": "45s",
+                "retries": 2,
+                "options": {
+                  "trigger_discovery": "false"
+                }
+              }
+            ],
+            "unifi_apis": [
+              {
+                "name": "Main Controller",
+                "base_url": "https://192.168.1.1/proxy/network/integration/v1",
+                "api_key": "UbiquitiAPIkey",
+                "insecure_skip_verify": true
+              }
+            ],
+            "security": {
+              "mode": "mtls",
+              "cert_dir": "/etc/serviceradar/certs",
+              "role": "checker",
+              "server_name": "serviceradar.mapper",
+              "tls": {
+                "cert_file": "checkers.pem",
+                "key_file": "checkers-key.pem",
+                "ca_file": "root.pem",
+                "client_ca_file": "root.pem"
+              }
+            },
+            "logging": {
+              "level": "info",
+              "debug": false,
+              "output": "stdout",
+              "time_format": "",
+              "otel": {
+                "enabled": true,
+                "endpoint": "192.168.2.23:4317",
+                "service_name": "serviceradar-mapper",
+                "batch_timeout": "5s",
+                "insecure": false,
+                "tls": {
+                  "cert_file": "/etc/serviceradar/certs/mapper.pem",
+                  "key_file": "/etc/serviceradar/certs/mapper-key.pem",
+                  "ca_file": "/etc/serviceradar/certs/root.pem"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "datasvc",
+      "files": [
+        {
+          "kv_key": "config/datasvc.json",
+          "source": "packaging/datasvc/config/datasvc.json",
+          "dest": "/etc/serviceradar/datasvc.json",
+          "data": {
+            "listen_addr": ":50057",
+            "nats_url": "nats://127.0.0.1:4222",
+            "security": {
+              "mode": "mtls",
+              "cert_dir": "/etc/serviceradar/certs",
+              "server_name": "PLACEHOLDER_NATS_SERVER_NAME",
+              "role": "datasvc",
+              "tls": {
+                "cert_file": "datasvc.pem",
+                "key_file": "datasvc-key.pem",
+                "ca_file": "root.pem",
+                "client_ca_file": "root.pem"
+              }
+            },
+            "rbac": {
+              "roles": [
+                {
+                  "identity": "CN=PLACEHOLDER_IDENTITY,O=ServiceRadar",
+                  "role": "reader"
+                }
+              ]
+            },
+            "bucket": "serviceradar-datasvc",
+            "bucket_history": 1,
+            "bucket_ttl": "24h",
+            "bucket_max_bytes": 5368709120
+          }
+        }
+      ]
+    },
+    {
+      "name": "sync",
+      "files": [
+        {
+          "kv_key": "config/sync.json",
+          "source": "packaging/sync/config/sync.json",
+          "dest": "/etc/serviceradar/sync.json",
+          "data": {
+            "kv_address": "localhost:50057",
+            "listen_addr": ":50058",
+            "poll_interval": "30m",
+            "discovery_interval": "18h",
+            "update_interval": "18h30m",
+            "agent_id": "default-agent",
+            "poller_id": "default-poller",
+            "nats_url": "nats://127.0.0.1:4222",
+            "security": {
+              "mode": "mtls",
+              "cert_dir": "/etc/serviceradar/certs",
+              "server_name": "nats-serviceradar",
+              "role": "poller",
+              "tls": {
+                "cert_file": "sync.pem",
+                "key_file": "sync-key.pem",
+                "ca_file": "root.pem",
+                "client_ca_file": "root.pem"
+              }
+            },
+            "nats_security": {
+              "mode": "mtls",
+              "cert_dir": "/etc/serviceradar/certs",
+              "server_name": "nats-serviceradar",
+              "role": "poller",
+              "tls": {
+                "cert_file": "sync.pem",
+                "key_file": "sync-key.pem",
+                "ca_file": "root.pem",
+                "client_ca_file": "root.pem"
+              }
+            },
+            "sources": {
+              "armis": {
+                "type": "armis",
+                "endpoint": "https://api.armis.example.com",
+                "prefix": "armis/",
+                "poll_interval": "18h30m",
+                "sweep_interval": "18h",
+                "agent_id": "agent-prod-dc1",
+                "poller_id": "poller-prod-dc1",
+                "credentials": {
+                  "secret_key": "your-armis-secret-key-here",
+                  "boundary": "Corporate",
+                  "page_size": "100"
+                },
+                "network_blacklist": [
+                  "192.168.2.19/32"
+                ],
+                "queries": [
+                  {
+                    "label": "all_devices",
+                    "query": "in:devices orderBy=id boundaries:\"Corporate\"",
+                    "sweep_modes": [
+                      "tcp"
+                    ]
+                  }
+                ],
+                "custom_field": "OT_Isolation_Compliant"
+              }
+            },
+            "logging": {
+              "level": "info",
+              "debug": false,
+              "output": "stdout",
+              "time_format": "",
+              "otel": {
+                "enabled": true,
+                "endpoint": "localhost:4317",
+                "service_name": "serviceradar-sync",
+                "batch_timeout": "5s",
+                "insecure": true,
+                "headers": {
+                  "x-api-key": "your-collector-api-key"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "dusk-checker",
+      "files": [
+        {
+          "kv_key": "config/dusk.json",
+          "source": "packaging/dusk-checker/config/dusk.json",
+          "dest": "/etc/serviceradar/checkers/dusk.json",
+          "data": {
+            "name": "dusk",
+            "type": "grpc",
+            "node_address": "localhost:8080",
+            "listen_addr": ":50082",
+            "timeout": "5m",
+            "security": {
+              "server_name": "PLACEHOLDER_AGENT_SERVER_NAME",
+              "mode": "none",
+              "role": "checker",
+              "cert_dir": "/etc/serviceradar/certs",
+              "tls": {
+                "cert_file": "checkers.pem",
+                "key_file": "checkers-key.pem",
+                "ca_file": "root.pem",
+                "client_ca_file": "root.pem"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "snmp-checker",
+      "files": [
+        {
+          "kv_key": "config/snmp.json",
+          "source": "packaging/snmp-checker/config/checkers/snmp.json",
+          "dest": "/etc/serviceradar/checkers/snmp.json",
+          "data": {
+            "node_address": "localhost:50051",
+            "listen_addr": ":50054",
+            "security": {
+              "server_name": "PLACEHOLDER_AGENT_SERVER_NAME",
+              "mode": "none",
+              "role": "checker",
+              "cert_dir": "/etc/serviceradar/certs"
+            },
+            "timeout": "30s",
+            "logger": {
+              "level": "info",
+              "debug": false,
+              "output": "stdout",
+              "time_format": "",
+              "otel": {
+                "enabled": false,
+                "endpoint": "",
+                "headers": {},
+                "service_name": "serviceradar-snmp-checker",
+                "batch_timeout": "5s",
+                "insecure": false
+              }
+            },
+            "targets": [
+              {
+                "name": "test-router",
+                "host": "192.168.1.1",
+                "port": 161,
+                "community": "public",
+                "version": "v2c",
+                "interval": "30s",
+                "retries": 2,
+                "oids": [
+                  {
+                    "oid": ".1.3.6.1.2.1.2.2.1.10.4",
+                    "name": "ifInOctets_4",
+                    "type": "counter",
+                    "scale": 1.0
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "zen",
+      "files": [
+        {
+          "kv_key": "config/zen-consumer.json",
+          "source": "packaging/zen/config/zen-consumer.json",
+          "dest": "/etc/serviceradar/consumers/zen-consumer.json",
+          "data": {
+            "nats_url": "nats://127.0.0.1:4222",
+            "domain": "edge",
+            "stream_name": "events",
+            "consumer_name": "zen-consumer",
+            "subjects": [
+              "events.syslog",
+              "events.snmp",
+              "events.otel.logs",
+              "events.otel.metrics.raw"
+            ],
+            "decision_groups": [
+              {
+                "name": "syslog",
+                "subjects": [
+                  "events.syslog"
+                ],
+                "rules": [
+                  {
+                    "order": 1,
+                    "key": "strip_full_message"
+                  },
+                  {
+                    "order": 2,
+                    "key": "cef_severity"
+                  }
+                ],
+                "format": "json"
+              },
+              {
+                "name": "snmp",
+                "subjects": [
+                  "events.snmp"
+                ],
+                "rules": [
+                  {
+                    "order": 1,
+                    "key": "snmp_severity"
+                  }
+                ],
+                "format": "json"
+              },
+              {
+                "name": "otel_logs",
+                "subjects": [
+                  "events.otel.logs"
+                ],
+                "rules": [
+                  {
+                    "order": 1,
+                    "key": "passthrough"
+                  }
+                ],
+                "format": "protobuf"
+              },
+              {
+                "name": "otel_metrics_raw",
+                "subjects": [
+                  "events.otel.metrics.raw"
+                ],
+                "rules": [
+                  {
+                    "order": 1,
+                    "key": "passthrough"
+                  }
+                ],
+                "format": "otel_metrics"
+              }
+            ],
+            "agent_id": "default-agent",
+            "kv_bucket": "serviceradar-datasvc",
+            "listen_addr": "0.0.0.0:50040",
+            "result_subject_suffix": ".processed",
+            "security": {
+              "cert_file": "/etc/serviceradar/certs/zen-consumer.pem",
+              "key_file": "/etc/serviceradar/certs/zen-consumer-key.pem",
+              "ca_file": "/etc/serviceradar/certs/root.pem"
+            },
+            "grpc_security": {
+              "cert_file": "/etc/serviceradar/certs/core.pem",
+              "key_file": "/etc/serviceradar/certs/core-key.pem",
+              "ca_file": "/etc/serviceradar/certs/root.pem"
+            }
+          }
+        },
+        {
+          "kv_key": "config/cef_severity.json",
+          "source": "packaging/zen/rules/cef_severity.json",
+          "dest": "/etc/serviceradar/zen/rules/cef_severity.json",
+          "data": {
+            "nodes": [
+              {
+                "id": "inputNode",
+                "type": "inputNode",
+                "name": "Request",
+                "position": {
+                  "x": 80,
+                  "y": 150
+                }
+              },
+              {
+                "id": "cefTable",
+                "type": "decisionTableNode",
+                "name": "CEF Severity",
+                "position": {
+                  "x": 300,
+                  "y": 150
+                },
+                "content": {
+                  "hitPolicy": "first",
+                  "inputs": [
+                    {
+                      "field": "short_message",
+                      "id": "fld_msg",
+                      "name": "Short",
+                      "type": "expression"
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "field": "severity",
+                      "id": "fld_sev",
+                      "name": "Severity",
+                      "type": "expression"
+                    }
+                  ],
+                  "rules": [
+                    {
+                      "_id": "r0",
+                      "fld_msg": "contains(short_message, '|0|') or contains(short_message, '|1|') or contains(short_message, '|2|') or contains(short_message, '|3|')",
+                      "fld_sev": "'Low'"
+                    },
+                    {
+                      "_id": "r1",
+                      "fld_msg": "contains(short_message, '|4|') or contains(short_message, '|5|') or contains(short_message, '|6|')",
+                      "fld_sev": "'Medium'"
+                    },
+                    {
+                      "_id": "r2",
+                      "fld_msg": "contains(short_message, '|7|') or contains(short_message, '|8|')",
+                      "fld_sev": "'High'"
+                    },
+                    {
+                      "_id": "r3",
+                      "fld_msg": "contains(short_message, '|9|') or contains(short_message, '|10|')",
+                      "fld_sev": "'Very High'"
+                    },
+                    {
+                      "_id": "r4",
+                      "fld_msg": "",
+                      "fld_sev": "'Unknown'"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "outputNode",
+                "type": "outputNode",
+                "name": "Response",
+                "position": {
+                  "x": 560,
+                  "y": 150
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "sourceId": "inputNode",
+                "targetId": "cefTable",
+                "type": "edge"
+              },
+              {
+                "id": "e2",
+                "sourceId": "cefTable",
+                "targetId": "outputNode",
+                "type": "edge"
+              },
+              {
+                "id": "e3",
+                "sourceId": "inputNode",
+                "targetId": "outputNode",
+                "type": "edge"
+              }
+            ]
+          }
+        },
+        {
+          "kv_key": "config/passthrough.json",
+          "source": "packaging/zen/rules/passthrough.json",
+          "dest": "/etc/serviceradar/zen/rules/passthrough.json",
+          "data": {
+            "nodes": [
+              {
+                "id": "inputNode",
+                "type": "inputNode",
+                "name": "Request",
+                "position": {
+                  "x": 80,
+                  "y": 150
+                }
+              },
+              {
+                "id": "outputNode",
+                "type": "outputNode",
+                "name": "Response",
+                "position": {
+                  "x": 300,
+                  "y": 150
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "edge_1",
+                "sourceId": "inputNode",
+                "targetId": "outputNode",
+                "type": "edge"
+              }
+            ]
+          }
+        },
+        {
+          "kv_key": "config/snmp_severity.json",
+          "source": "packaging/zen/rules/snmp_severity.json",
+          "dest": "/etc/serviceradar/zen/rules/snmp_severity.json",
+          "data": {
+            "nodes": [
+              {
+                "id": "inputNode",
+                "type": "inputNode",
+                "name": "Request",
+                "position": {
+                  "x": 80,
+                  "y": 150
+                }
+              },
+              {
+                "id": "setSeverity",
+                "type": "expressionNode",
+                "name": "Set SNMP Severity",
+                "position": {
+                  "x": 300,
+                  "y": 150
+                },
+                "content": {
+                  "expressions": [
+                    {
+                      "id": "expr1",
+                      "key": "severity",
+                      "value": "coalesce(severity, 'Unknown')"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "outputNode",
+                "type": "outputNode",
+                "name": "Response",
+                "position": {
+                  "x": 560,
+                  "y": 150
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "sourceId": "inputNode",
+                "targetId": "setSeverity",
+                "type": "edge"
+              },
+              {
+                "id": "e2",
+                "sourceId": "setSeverity",
+                "targetId": "outputNode",
+                "type": "edge"
+              },
+              {
+                "id": "e3",
+                "sourceId": "inputNode",
+                "targetId": "outputNode",
+                "type": "edge"
+              }
+            ]
+          }
+        },
+        {
+          "kv_key": "config/strip_full_message.json",
+          "source": "packaging/zen/rules/strip_full_message.json",
+          "dest": "/etc/serviceradar/zen/rules/strip_full_message.json",
+          "data": {
+            "nodes": [
+              {
+                "id": "inputNode",
+                "type": "inputNode",
+                "name": "Request",
+                "position": {
+                  "x": 80,
+                  "y": 150
+                }
+              },
+              {
+                "id": "stripFullMessage",
+                "type": "expressionNode",
+                "name": "Strip Full Message",
+                "position": {
+                  "x": 300,
+                  "y": 150
+                },
+                "content": {
+                  "expressions": [
+                    {
+                      "id": "expr1",
+                      "key": "full_message",
+                      "value": "null"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "outputNode",
+                "type": "outputNode",
+                "name": "Response",
+                "position": {
+                  "x": 560,
+                  "y": 150
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "sourceId": "inputNode",
+                "targetId": "stripFullMessage",
+                "type": "edge"
+              },
+              {
+                "id": "e2",
+                "sourceId": "stripFullMessage",
+                "targetId": "outputNode",
+                "type": "edge"
+              },
+              {
+                "id": "e3",
+                "sourceId": "inputNode",
+                "targetId": "outputNode",
+                "type": "edge"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "rperf-checker",
+      "files": [
+        {
+          "kv_key": "config/rperf.json.example",
+          "source": "packaging/rperf-checker/config/checkers/rperf.json",
+          "dest": "/etc/serviceradar/checkers/rperf.json.example",
+          "data": {
+            "listen_addr": "PLACEHOLDER_HOST_IP:50081",
+            "name": "rperf-checker",
+            "type": "grpc",
+            "timeout": "30s",
+            "security": {
+              "tls_enabled": true,
+              "cert_file": "/etc/serviceradar/certs/rperf-checker.pem",
+              "key_file": "/etc/serviceradar/certs/rperf-checker-key.pem",
+              "ca_file": "/etc/serviceradar/certs/root.pem"
+            },
+            "default_poll_interval": 300,
+            "targets": [
+              {
+                "name": "TCP Test",
+                "address": "PLACEHOLDER_RPERF_TARGET_ADDRESS",
+                "port": 5199,
+                "tcp_port_pool": "5200-5210",
+                "protocol": "tcp",
+                "reverse": false,
+                "bandwidth": 1000000,
+                "duration": 10.0,
+                "parallel": 1,
+                "length": 0,
+                "omit": 1,
+                "no_delay": true,
+                "send_buffer": 0,
+                "receive_buffer": 0,
+                "send_interval": 0.05,
+                "poll_interval": 300
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "trapd",
+      "files": [
+        {
+          "kv_key": "config/trapd.json",
+          "source": "packaging/trapd/config/trapd.json",
+          "dest": "/etc/serviceradar/trapd.json",
+          "data": {
+            "listen_addr": "0.0.0.0:162",
+            "nats_url": "nats://127.0.0.1:4222",
+            "nats_domain": "edge",
+            "stream_name": "events",
+            "subject": "snmp.traps",
+            "nats_security": {
+              "cert_file": "/etc/serviceradar/certs/nats-client.pem",
+              "key_file": "/etc/serviceradar/certs/nats-client-key.pem",
+              "ca_file": "/etc/serviceradar/certs/root.pem"
+            },
+            "grpc_listen_addr": "0.0.0.0:50043",
+            "grpc_security": {
+              "cert_file": "/etc/serviceradar/certs/trapd.pem",
+              "key_file": "/etc/serviceradar/certs/trapd-key.pem",
+              "ca_file": "/etc/serviceradar/certs/root.pem"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -452,6 +453,36 @@ func (GenerateTLSHandler) Parse(args []string, cfg *CmdConfig) error {
 	return nil
 }
 
+// HydrateHandler handles flags for the hydrate subcommand.
+type HydrateHandler struct{}
+
+// Parse processes the command-line arguments for the hydrate subcommand.
+func (HydrateHandler) Parse(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("hydrate", flag.ExitOnError)
+	bundle := fs.String("bundle", "", "path to config bundle JSON (defaults to installed share path or embedded)")
+	services := fs.String("service", "", "comma-separated list of services to hydrate (default all)")
+	force := fs.Bool("force", false, "overwrite KV entries even when they already exist")
+	timeout := fs.Duration("timeout", 5*time.Second, "per-request timeout when talking to KV (e.g. 5s, 2m)")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing hydrate flags: %w", err)
+	}
+
+	cfg.HydrateBundlePath = *bundle
+	cfg.HydrateForce = *force
+	cfg.HydrateTimeout = *timeout
+
+	if *services != "" {
+		cfg.HydrateServices = append(cfg.HydrateServices, *services)
+	}
+
+	if remaining := fs.Args(); len(remaining) > 0 {
+		cfg.HydrateServices = append(cfg.HydrateServices, remaining...)
+	}
+
+	return nil
+}
+
 // ParseFlags parses command-line flags and subcommands
 func ParseFlags() (*CmdConfig, error) {
 	// Default flags for bcrypt generation
@@ -469,13 +500,14 @@ func ParseFlags() (*CmdConfig, error) {
 	}
 
 	// Define subcommands and their handlers
-    subcommands := map[string]SubcommandHandler{
-        "update-config": UpdateConfigHandler{},
-        "update-poller": UpdatePollerHandler{},
-        "generate-tls":  GenerateTLSHandler{},
-        "render-kong":   RenderKongHandler{},
-        "generate-jwt-keys": GenerateJWTKeysHandler{},
-    }
+	subcommands := map[string]SubcommandHandler{
+		"update-config":     UpdateConfigHandler{},
+		"update-poller":     UpdatePollerHandler{},
+		"generate-tls":      GenerateTLSHandler{},
+		"render-kong":       RenderKongHandler{},
+		"generate-jwt-keys": GenerateJWTKeysHandler{},
+		"hydrate":           HydrateHandler{},
+	}
 
 	// Parse subcommand flags if present
 	if handler, exists := subcommands[cfg.SubCmd]; exists {

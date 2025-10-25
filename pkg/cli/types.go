@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
@@ -29,6 +30,11 @@ type CmdConfig struct {
 	AddIPs          bool
 	NonInteractive  bool
 	Components      []string
+	// Hydration
+	HydrateServices   []string
+	HydrateBundlePath string
+	HydrateForce      bool
+	HydrateTimeout    time.Duration
 	// Kong/JWKS rendering
 	JWKSURL        string
 	KongServiceURL string

@@ -59,13 +59,15 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
         return cli.RunUpdatePoller(cfg)
     case "generate-tls":
         return cli.RunGenerateTLS(cfg)
-    case "render-kong":
-        return cli.RunRenderKongCmd(cfg)
-    case "generate-jwt-keys":
-        return cli.RunGenerateJWTKeysCmd(cfg)
-    default:
-        return runBcryptMode(cfg)
-    }
+	case "render-kong":
+		return cli.RunRenderKongCmd(cfg)
+	case "generate-jwt-keys":
+		return cli.RunGenerateJWTKeysCmd(cfg)
+	case "hydrate":
+		return cli.RunHydrate(cfg)
+	default:
+		return runBcryptMode(cfg)
+	}
 }
 
 // runBcryptMode handles bcrypt generation in non-interactive or interactive mode.

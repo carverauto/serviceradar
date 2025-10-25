@@ -1,0 +1,5 @@
+filegroup(
+    name = "config_bundle",
+    srcs = ["config-bundle.json"],
+    visibility = ["//visibility:public"],
+)

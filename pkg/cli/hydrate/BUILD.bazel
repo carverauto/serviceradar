@@ -1,0 +1,23 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "hydrate",
+    srcs = [
+        "bundle_data.go",
+        "run.go",
+    ],
+    embedsrcs = ["bundle.json"],
+    importpath = "github.com/carverauto/serviceradar/pkg/cli/hydrate",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/config:config",
+        "//pkg/config/kvgrpc:kvgrpc",
+        "//pkg/models:models",
+    ],
+)
+
+go_test(
+    name = "hydrate_test",
+    srcs = ["bundle_data_test.go"],
+    embed = [":hydrate"],
+)

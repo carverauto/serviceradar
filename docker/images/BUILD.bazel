@@ -873,10 +873,12 @@ pkg_tar(
     name = "config_updater_layer_amd64",
     files = {
         "//cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//packaging/cli/config:config_bundle": "usr/local/share/serviceradar/config-bundle.json",
         "//docker/compose:update-config.sh": "usr/local/bin/update-config.sh",
     },
     modes = {
         "usr/local/bin/serviceradar-cli": "0755",
+        "usr/local/share/serviceradar/config-bundle.json": "0644",
         "usr/local/bin/update-config.sh": "0755",
     },
     empty_dirs = [

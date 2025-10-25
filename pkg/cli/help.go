@@ -12,6 +12,7 @@ Usage:
   serviceradar generate-tls [options]
   serviceradar render-kong [options]
   serviceradar generate-jwt-keys [options]
+  serviceradar hydrate [options] [service...]
 
 Commands:
   (default)        Generate bcrypt hash from password
@@ -20,6 +21,7 @@ Commands:
   generate-tls     Generate mTLS certificates for ServiceRadar and Proton
   render-kong      Render Kong DB-less config from Core JWKS
   generate-jwt-keys Generate RS256 keypair and update core.json
+  hydrate          Push packaged default configs into the KV store
 
 Options for bcrypt generation:
   -help         show this help message
@@ -44,6 +46,12 @@ Options for generate-tls:
   -add-ips            add IPs to existing certificates
   -non-interactive    run in non-interactive mode (use 127.0.0.1)
 
+Options for hydrate:
+  -bundle string      path to config bundle JSON (default uses installed share path or embedded copy)
+  -service string     comma-separated list of services to hydrate (defaults to all; positional args also accepted)
+  -force              overwrite KV entries when they already exist
+  -timeout duration   per-request timeout to the KV service (default 5s)
+
 Examples:
   # Generate bcrypt hash
   serviceradar mypassword
@@ -66,6 +74,11 @@ Examples:
   serviceradar generate-tls -ip 192.168.1.10,10.0.0.5
   serviceradar generate-tls --non-interactive
   serviceradar generate-tls --add-ips -ip 10.0.0.5
+
+  # Hydrate KV defaults
+  serviceradar hydrate
+  serviceradar hydrate core sync
+  serviceradar hydrate --force --service poller
 
 Options for render-kong:
   -jwks string       JWKS URL (default http://core:8090/auth/jwks.json)
