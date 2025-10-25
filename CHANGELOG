@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.54-pre4
+
+Release automation updates.
+
+## Whats New
+
+**1.0.54-pre4**
+- Updated the GitHub release workflow to provide full BuildBuddy remote execution settings so release builds publish from the RBE cluster instead of the runner.
+- Ensured supporting scripts respect remote BuildBuddy configuration during artifact packaging.
+
 # ServiceRadar v1.0.54-pre3
 
 Proton logstore retention fix and release packaging.
