@@ -349,13 +349,13 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 
 	// iterate through allDeviceUpdates and print the device names
 	for sourceName, devices := range allDeviceUpdates {
-		s.logger.Info().
+		s.logger.Debug().
 			Str("source", sourceName).
 			Int("device_count", len(devices)).
 			Msg("Devices discovered in source")
 
 		for _, device := range devices {
-			logEvent := s.logger.Info().
+			logEvent := s.logger.Debug().
 				Str("source", sourceName).
 				Str("device_ip", device.IP)
 
