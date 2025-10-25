@@ -141,6 +141,7 @@ stage_artifacts() {
 
 main() {
   ensure_clone
+  configure_remote_exec
   local bazel_bin
   bazel_bin=$(ensure_bazel)
 
