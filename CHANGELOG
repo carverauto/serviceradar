@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.54-pre3
+
+Proton logstore retention fix and release packaging.
+
+## Whats New
+
+**1.0.54-pre3**
+- Capped Proton native log retention at 3 days/~50 GiB and shrank segment size to prevent PVC exhaustion in Kubernetes and Docker installs.
+- Rebuilt and published the Proton container image (`ghcr.io/carverauto/serviceradar-proton:sha-385b06cbd38c`) with the new defaults.
+- Added recovery guidance to the demo runbook covering one-time nativelog cleanup during resync.
+
 # ServiceRadar v1.0.54-pre2
 
 UI and bug fixes.
