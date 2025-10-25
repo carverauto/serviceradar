@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: spire
+
+resources:
+  - spire-namespace.yaml
+  - cluster-issuer.yaml
+  - cert-configmap.yaml
+  - spire-ca.yaml
+  - spire-root-issuer.yaml
+  - spire-ca-issuer.yaml
+  - spire-bundle-configmap.yaml
+  - server-account.yaml
+  - server-cluster-role.yaml
+  - server-configmap.yaml
+  - server-service.yaml
+  - server-statefulset.yaml
+  - agent-account.yaml
+  - agent-cluster-role.yaml
+  - agent-configmap.yaml
+  - agent-daemonset.yaml
