@@ -41,8 +41,9 @@ type SecurityConfig struct {
 	ServerName     string       `json:"server_name,omitempty"`
 	Role           ServiceRole  `json:"role"`
 	TLS            TLSConfig    `json:"tls"`
-	TrustDomain    string       `json:"trust_domain,omitempty"`    // For SPIFFE
-	WorkloadSocket string       `json:"workload_socket,omitempty"` // For SPIFFE
+	TrustDomain    string       `json:"trust_domain,omitempty"`     // For SPIFFE
+	ServerSPIFFEID string       `json:"server_spiffe_id,omitempty"` // Expected SPIFFE ID when acting as client
+	WorkloadSocket string       `json:"workload_socket,omitempty"`  // For SPIFFE
 }
 
 // SecurityMode defines the type of security to use.

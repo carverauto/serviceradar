@@ -42,6 +42,23 @@ spec:
         inherit: true
         replication: false
         bypassrls: false
+        passwordSecret:
+          name: kratos-db-credentials
+          key: password
+      - name: spire
+        ensure: present
+        login: true
+        createdb: false
+        createrole: false
+        inherit: true
+        replication: false
+        bypassrls: false
+        passwordSecret:
+          name: spire-db-credentials
+          key: password
+    databases:
+      - name: spire
+        owner: spire
 
   monitoring:
     enablePodMonitor: true

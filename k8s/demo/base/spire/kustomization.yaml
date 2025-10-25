@@ -20,3 +20,4 @@ resources:
   - agent-cluster-role.yaml
   - agent-configmap.yaml
   - agent-daemonset.yaml
+  - pg-secret-sync-job.yaml

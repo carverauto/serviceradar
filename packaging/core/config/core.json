@@ -39,6 +39,9 @@
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "server_name": "core.serviceradar",
+        "trust_domain": "",
+        "server_spiffe_id": "",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
             "cert_file": "/etc/serviceradar/certs/core.pem",
             "key_file": "/etc/serviceradar/certs/core-key.pem",

@@ -64,12 +64,13 @@ func TestFilterSensitiveFields(t *testing.T) {
 				},
 			},
 			expected: map[string]interface{}{
-				"mode":           SecurityMode("secure"),
-				"cert_dir":       "/path/to/certs",
-				"server_name":    "localhost",
-				"role":           ServiceRole("server"),
-				"trust_domain":   "",
-				"workload_socket": "",
+				"mode":             SecurityMode("secure"),
+				"cert_dir":         "/path/to/certs",
+				"server_name":      "localhost",
+				"role":             ServiceRole("server"),
+				"trust_domain":     "",
+				"server_spiffe_id": "",
+				"workload_socket":  "",
 				"tls": map[string]interface{}{
 					"cert_file":      "/path/to/cert",
 					"key_file":       "/path/to/key",
@@ -151,12 +152,12 @@ func TestFilterSensitiveFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := FilterSensitiveFields(tt.input)
-			
+
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
 			}
-			
+
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -180,9 +181,9 @@ func TestExtractSafeConfigMetadata(t *testing.T) {
 				RBAC:          RBACConfig{UserRoles: map[string][]string{"admin": {"admin", "user"}}},
 			},
 			expected: map[string]string{
-				"jwt_expiration":            "24h0m0s",
-				"callback_url":              "https://example.com/callback",
-				"rbac_configured":           "true",
+				"jwt_expiration":             "24h0m0s",
+				"callback_url":               "https://example.com/callback",
+				"rbac_configured":            "true",
 				"rbac_user_roles_configured": "true",
 			},
 		},
@@ -199,11 +200,11 @@ func TestExtractSafeConfigMetadata(t *testing.T) {
 				},
 			},
 			expected: map[string]string{
-				"mode":              "secure",
-				"cert_dir":          "/path/to/certs",
-				"server_name":       "localhost",
-				"role":              "server",
-				"tls_configured":    "true",
+				"mode":           "secure",
+				"cert_dir":       "/path/to/certs",
+				"server_name":    "localhost",
+				"role":           "server",
+				"tls_configured": "true",
 			},
 		},
 		{
@@ -242,22 +243,22 @@ func TestFilterSensitiveFields_EdgeCases(t *testing.T) {
 			Password *string     `json:"password" sensitive:"true"`
 			Config   *AuthConfig `json:"config"`
 		}
-		
+
 		password := "secret"
 		authConfig := &AuthConfig{
 			JWTSecret: "jwt-secret",
 			RBAC:      RBACConfig{UserRoles: map[string][]string{"admin": {"admin"}}},
 		}
-		
+
 		input := TestStruct{
 			Name:     "test",
 			Password: &password,
 			Config:   authConfig,
 		}
-		
+
 		result, err := FilterSensitiveFields(input)
 		require.NoError(t, err)
-		
+
 		expected := map[string]interface{}{
 			"name": "test",
 			"config": map[string]interface{}{
@@ -270,49 +271,49 @@ func TestFilterSensitiveFields_EdgeCases(t *testing.T) {
 				},
 			},
 		}
-		
+
 		assert.Equal(t, expected, result)
 	})
-	
+
 	t.Run("struct with slice fields", func(t *testing.T) {
 		type TestStruct struct {
 			Names   []string `json:"names"`
 			Secrets []string `json:"secrets" sensitive:"true"`
 		}
-		
+
 		input := TestStruct{
 			Names:   []string{"name1", "name2"},
 			Secrets: []string{"secret1", "secret2"},
 		}
-		
+
 		result, err := FilterSensitiveFields(input)
 		require.NoError(t, err)
-		
+
 		expected := map[string]interface{}{
 			"names": []interface{}{"name1", "name2"},
 		}
-		
+
 		assert.Equal(t, expected, result)
 	})
-	
+
 	t.Run("struct with map fields", func(t *testing.T) {
 		type TestStruct struct {
 			PublicData  map[string]string `json:"public_data"`
 			PrivateData map[string]string `json:"private_data" sensitive:"true"`
 		}
-		
+
 		input := TestStruct{
 			PublicData:  map[string]string{"key1": "value1"},
 			PrivateData: map[string]string{"secret": "hidden"},
 		}
-		
+
 		result, err := FilterSensitiveFields(input)
 		require.NoError(t, err)
-		
+
 		expected := map[string]interface{}{
 			"public_data": map[string]interface{}{"key1": "value1"},
 		}
-		
+
 		assert.Equal(t, expected, result)
 	})
 }
@@ -326,22 +327,22 @@ func TestSensitiveFieldDetection(t *testing.T) {
 		Field4 string `json:"field4,omitempty" sensitive:"true"`
 		Field5 string `sensitive:"true"` // No json tag
 	}
-	
+
 	structType := reflect.TypeOf(TestStruct{})
-	
+
 	// Test each field's sensitivity detection
 	field1, _ := structType.FieldByName("Field1")
 	assert.Equal(t, "true", field1.Tag.Get("sensitive"))
-	
-	field2, _ := structType.FieldByName("Field2") 
+
+	field2, _ := structType.FieldByName("Field2")
 	assert.Equal(t, "false", field2.Tag.Get("sensitive"))
-	
+
 	field3, _ := structType.FieldByName("Field3")
 	assert.Empty(t, field3.Tag.Get("sensitive"))
-	
+
 	field4, _ := structType.FieldByName("Field4")
 	assert.Equal(t, "true", field4.Tag.Get("sensitive"))
-	
+
 	field5, _ := structType.FieldByName("Field5")
 	assert.Equal(t, "true", field5.Tag.Get("sensitive"))
 }
