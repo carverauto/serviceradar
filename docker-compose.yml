@@ -656,7 +656,7 @@ services:
       - CONFIG_PATH=/etc/serviceradar/zen.json
       # Wait for dependencies
       - WAIT_FOR_NATS=true
-      - WAIT_FOR_KV=true
+      - WAIT_FOR_DATASVC=true
       # Logging
       - RUST_LOG=${RUST_LOG:-info}
     depends_on:
@@ -664,7 +664,7 @@ services:
         condition: service_completed_successfully
       nats:
         condition: service_started
-      kv:
+      datasvc:
         condition: service_healthy
     # Health check disabled - Zen service may not implement standard gRPC health service
     # Service logs show when it's ready and healthy
