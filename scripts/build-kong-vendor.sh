@@ -46,6 +46,30 @@ ensure_clone() {
   git -C "${KONG_CLONE_DIR}" clean -fdx >/dev/null
 }
 
+configure_remote_exec() {
+  if [[ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]]; then
+    return
+  fi
+
+  local remote_rc="${KONG_CLONE_DIR}/.bazelrc.remote"
+  info "Configuring BuildBuddy remote execution for Kong build" >&2
+  umask 077
+  cat <<'EOF' > "${remote_rc}"
+build --bes_results_url=https://carverauto.buildbuddy.io/invocation/
+build --bes_backend=grpcs://carverauto.buildbuddy.io
+build --remote_cache=grpcs://carverauto.buildbuddy.io
+build --remote_executor=grpcs://carverauto.buildbuddy.io
+build --remote_timeout=10m
+build --remote_download_minimal
+build --remote_upload_local_results
+build --jobs=100
+build --strategy=ExpandTemplate=local
+build --strategy=NpmPackageExtract=local
+build --strategy=CopyDirectory=local
+EOF
+  printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" >> "${remote_rc}"
+}
+
 ensure_bazel() {
   local bazel_bin="${KONG_CLONE_DIR}/bin/bazel"
   if [[ -x "${bazel_bin}" ]]; then
