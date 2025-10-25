@@ -7,6 +7,7 @@ Release automation fixes (BuildBuddy remote execution).
 **1.0.54-pre5**
 - Release workflow now writes the full BuildBuddy remote cache/executor configuration so Bazel invocations run on the RBE cluster during artifact publishing.
 - Applied the same remote defaults when seeding `.bazelrc.remote` to keep Docker image and package pushes off the GitHub runner.
+- macOS sysmon VM package is now excluded automatically when the build host lacks the macOS toolchain, fixing Linux release runs.
 
 # ServiceRadar v1.0.54-pre4
 
