@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: spiffe-test
+  namespace: default
+spec:
+  serviceAccount: default
+  containers:
+    - name: spiffe-test
+      image: nicolaka/netshoot
+      command: ["/bin/sh", "-c", "while true; do sleep 30; done"]
+      env:
+        - name: SPIFFE_ENDPOINT_SOCKET
+          value: /run/spire/sockets/agent.sock
+      volumeMounts:
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+  volumes:
+    - name: spire-agent-socket
+      hostPath:
+        path: /run/spire/sockets
+        type: Directory

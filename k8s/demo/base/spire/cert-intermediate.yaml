@@ -1,0 +1,18 @@
+# Create intermediate CA certificate signed by root
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: spire-ca
+  namespace: spire
+spec:
+  isCA: true
+  commonName: "Spire Intermediate CA"
+  dnsNames:
+    - "spire.carverauto.dev"
+  secretName: spire-ca-key-pair # This matches what the ClusterIssuer expects
+  duration: 8760h # 1 year
+  renewBefore: 720h # 30 days
+  issuerRef:
+    name: spire-root-issuer # Sign using our root issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
