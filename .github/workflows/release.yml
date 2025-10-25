@@ -213,6 +213,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUIRE_MAC_PKG: ${{ env.REQUIRE_MAC_PKG }}
         run: |
           set -euo pipefail
           api_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
@@ -230,7 +231,7 @@ jobs:
             echo "No .rpm assets detected for ${RELEASE_TAG}" >&2
             exit 1
           fi
-          if (( pkg_count == 0 )); then
+          if [[ "${REQUIRE_MAC_PKG:-false}" == "true" ]] && (( pkg_count == 0 )); then
             echo "No .pkg assets detected for ${RELEASE_TAG}" >&2
             exit 1
           fi
