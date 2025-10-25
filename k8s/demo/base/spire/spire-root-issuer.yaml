@@ -1,0 +1,7 @@
+# base/spire-root-issuer.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: spire-root-issuer
+spec:
+  selfSigned: {}
