@@ -39,6 +39,10 @@ def declare_release_artifacts():
     ]
 
     mac_pkg_targets = ["//packaging/sysmonvm_host:sysmonvm_host_pkg"]
+    mac_pkg_select = select({
+        "@platforms//os:macos": mac_pkg_targets,
+        "//conditions:default": [],
+    })
 
     native.filegroup(
         name = "package_debs",
@@ -54,18 +58,18 @@ def declare_release_artifacts():
 
     native.filegroup(
         name = "package_artifacts",
-        srcs = deb_targets + rpm_targets + mac_pkg_targets,
+        srcs = deb_targets + rpm_targets + mac_pkg_select,
         visibility = ["//visibility:public"],
     )
 
     native.filegroup(
         name = "package_macos",
-        srcs = mac_pkg_targets,
+        srcs = mac_pkg_select,
         visibility = ["//visibility:public"],
     )
 
     package_manifest(
         name = "package_manifest",
-        srcs = deb_targets + rpm_targets + mac_pkg_targets,
+        srcs = deb_targets + rpm_targets + mac_pkg_select,
         visibility = ["//visibility:public"],
     )
