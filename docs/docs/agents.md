@@ -91,6 +91,7 @@ After the reset:
 1. Spot-check counts with either `/api/query` or the Proton client (`SELECT count() FROM otel_traces`, `otel_spans_enriched`, `otel_metrics`, `otel_trace_summaries`).
 2. Tail `kubectl -n <ns> logs deploy/serviceradar-otel --tail=20` to confirm span batches stay in the single digits.
 3. Hard-refresh the dashboards so cached trace totals drop.
+4. If storage pressure was triggered by Proton's native log backlog, use the downtime to prune the large UUID folders under `/var/lib/proton/nativelog/log/default/`. This is a once-off recovery step; with the current retention caps the new pod will recreate lean segments automatically.
 
 ## Proton Client From `serviceradar-tools`
 

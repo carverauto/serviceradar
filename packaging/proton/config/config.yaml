@@ -1001,8 +1001,8 @@ settings:
     logstore_replication_factor: 1
     storage_type: "hybrid"
     logstore_codec: none
-    logstore_retention_bytes: -1 # when this threshold reaches, streaming storage delete old data. -1 means no limit
-    logstore_retention_ms: 86400000 # when this threshold reaches, streaming storage delete old data. -1 means no limit
+    logstore_retention_bytes: 53687091200 # cap backlog at ~50 GiB so 100 GiB disks keep headroom
+    logstore_retention_ms: 259200000 # keep logstore in sync with 3 day table TTL (3 * 24h)
 
 cluster_settings:
   logstore:
@@ -1069,9 +1069,9 @@ cluster_settings:
       fetch_max_wait_ms: 500 # max wait time if no records are available
       fetch_max_bytes: 65536 # max bytes to fetch per request
       log_max_record_size: 10485760
-      log_segment_size: 4294967296
-      log_retention_size: -1
-      log_retention_ms: 604800000
+      log_segment_size: 268435456 # shrink segments to 256 MiB so every stream doesn't pre-allocate 4 GiB chunks
+      log_retention_size: 53687091200 # align with global backlog cap
+      log_retention_ms: 259200000 # match the 3 day default retention used throughout the schema
       log_index_internal_bytes: 4096
       log_index_internal_records: 1000
       log_flush_interval_ms: 600000
