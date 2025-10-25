@@ -30,16 +30,6 @@ data:
         }
       }
 
-      UpstreamAuthority "cert-manager" {
-        plugin_data {
-          issuer_name = "spire-intermediate-issuer"
-          issuer_kind = "Issuer"
-          issuer_group = "cert-manager.io"
-          namespace = "spire"
-          ca_bundle_path = "/etc/cert-manager/ca/ca.crt"
-        }
-      }
-
       NodeAttestor "k8s_sat" {
         plugin_data {
           clusters = {
