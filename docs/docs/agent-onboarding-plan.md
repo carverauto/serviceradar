@@ -1,23 +1,42 @@
-# ServiceRadar Zero-Touch Edge Onboarding Plan
+# ServiceRadar Zero-Touch Onboarding Plan
 
 ## Background
 
 The current bootstrap story assumes every runtime already has the correct JSON configuration on disk (frequently delivered by ConfigMaps or baked images) before it can discover the KV, Proton, and security endpoints. That approach breaks down for large fleets and bare-metal installs because:
 
 - Agents and checkers cannot self-register without first knowing where KV or Core live.
+- Core-side services (poller, NATS, Data Service, SRQL, Proton, OTEL collector, trapd, flowgger, etc.) also need baked-in endpoints and TLS assets before they can talk to each other.
 - mTLS material has to be pre-provisioned and rotated manually.
 - Admins have no centralized workflow to review and approve newly deployed endpoints.
 - SPIFFE/SPIRE integration is still aspirational, so we fall back to static PEMs.
 
-As a result, the demo cluster still hydrates configs from files, Core crashes when Proton DNS is unavailable during install, and we can’t offer “drop a binary + point at Core” simplicity to customers.
+As a result, the demo cluster still hydrates configs from files, Core crashes when Proton DNS is unavailable during install, and we can’t offer “drop a binary + point at Core” simplicity to customers—whether they run everything on one server or split components between core and edge sites.
+
+## Current Status (October 25, 2025)
+
+- Core exposes no onboarding routes today; repo-wide searches for `/v1/onboard`, `register`, or `claim` only surface this document, and the HTTP handlers under `cmd/core` are still tied to static config distribution.
+- `serviceradar-cli` lacks enrollment helpers (`rg` shows no references to `enrollment` or `onboarding`), so bootstrap bundles cannot yet be generated or rotated programmatically.
+- The Next.js admin UI has no pending-device view or approval workflow, reinforcing the manual YAML/ConfigMap story in `docs/docs/agents.md`.
+- Agents, pollers, sysmon, and supporting services (NATS, DataSvc/KV, SRQL, trapd, flowgger, OTEL collector, Proton) continue to require baked-in endpoints and credentials; there is no handshake logic that posts to Core before credentials exist.
+- The gRPC security package ships both mTLS and SPIFFE helpers, but SPIRE agents/servers are not packaged, deployed, or documented for Linux/Windows targets; we currently rely on static PEMs.
+- Demo operations (faker → sync → core) still depend on manual Proton resets and KV hydration, so we have no “zero-touch” install path to validate the future flow end to end.
+- Container and Kubernetes manifests ship pre-generated secrets; SPIFFE is not wired in, and bare-metal scripts do not exist to bring the full stack online automatically.
 
 ## Goals
 
-- **Zero/low-touch onboarding** for agents, sysmon, pollers, and future edge services.
+- **Zero/low-touch onboarding** for agents, sysmon, pollers, and every supporting control-plane/data-plane service (NATS, DataSvc/KV, SRQL, Proton, OTEL collector, trapd, flowgger, etc.).
 - **Secure discovery** channel that works without pre-shared mTLS, but can escalate to SPIFFE/SPIRE once running.
 - **Scales to thousands** of endpoints rolling out via automation tools (Ansible, Fleet, SCCM, etc.).
 - **Admin approval flow** in the web UI to accept/reject new registrations (individually or in bulk).
 - **Progressive hardening**: start with HTTPS + bootstrap key, graduate to full SPIFFE-issued mTLS.
+- **Frictionless packaging**: container/K8s installs should configure themselves automatically; bare-metal installs should ship scripts to bootstrap SPIFFE and credentials with minimal manual work.
+
+## Deployment Scope
+
+- **Single-host stack** – most customers will start by running Core, Proton, SRQL, DataSvc (KV), NATS, OTEL collector, trapd, flowgger, and pollers on the same machine. The onboarding flow must issue identities and config for this bundle without hand-editing files.
+- **Hybrid core + edge** – edge sites may host additional NATS leaf nodes, agents, checkers, and pollers. The same bootstrap workflow should cover both central and remote services, with policy controlling auto-approval vs. manual review.
+- **Container/Kubernetes** – Helm/Compose/Bazel images should wire up SPIFFE from the moment pods start. Operators should not need to pre-create secrets beyond the minimal bootstrap credential.
+- **Bare metal / VM automation** – provide installation scripts (`serviceradar-cli install stack`, Ansible/Terraform modules) that install required binaries, register workloads with SPIRE, and request approval automatically.
 
 ## Proposed Architecture Overview
 
@@ -44,11 +63,11 @@ As a result, the demo cluster still hydrates configs from files, Core crashes wh
 
 1. **Pre-deployment**:
    - Admin generates a bootstrap package (`serviceradar-cli enrollment pack`) containing:
-     - Enrollment key / JWT template.
+     - Enrollment key / JWT template per service role (core stack, agent, poller, checker, NATS leaf).
      - Core HTTPS endpoint.
      - Optional SPIRE bootstrap bundle.
-   - Package distributed with automation tool.
-2. **Agent First Boot**:
+   - Package distributed with automation tool or injected into container env vars/secrets.
+2. **Service First Boot**:
    - Reads minimal config (endpoint URL, enrollment token).
    - Calls Core onboarding API over TLS (no client cert yet).
    - Submits identity: service type, hostname, hardware fingerprint, SPIFFE attestation if available.
@@ -59,9 +78,9 @@ As a result, the demo cluster still hydrates configs from files, Core crashes wh
    - Emits audit log and optional notification.
 4. **Admin Approval**:
    - Web UI lists pending endpoints with metadata and suggested configuration profiles.
-   - Admin can approve individually or bulk-apply template (e.g., “sysmon-linux-default”).
+   - Admin can approve individually or bulk-apply template (e.g., “core-stack-single-host”, “sysmon-linux-default”).
    - Upon approval, Core issues:
-     - Initial config payload (KV namespace, TLS mode, poll interval, etc.).
+     - Initial config payload (service-specific settings like NATS leaf routing, KV namespace, poll interval, etc.).
      - Short-lived bootstrap certificate or SPIFFE trust bundle instructions.
 5. **Device Activation**:
    - Agent receives signed response, writes config, switches to mTLS or SPIFFE channel.
@@ -116,12 +135,15 @@ As a result, the demo cluster still hydrates configs from files, Core crashes wh
 
 ## Next Steps
 
-1. Draft API design for onboarding endpoints and admin UI wireframes.
-2. Prototype CLI command to generate/bootstrap enrollment packages.
-3. Build PoC SPIRE deployment (K8s + bare metal) with automated agent registration.
-4. Define configuration template schema and KV layout.
-5. Update demo environment to showcase pending approvals flow.
-6. Revisit recent KV bootstrap changes; plan rollback or refactor to align with this onboarding model.
+1. **Stand up SPIFFE/SPIRE in demo K8s** – deploy SPIRE server/agent within the demo namespace, register initial workloads, and manually migrate core services to use SPIFFE credentials so we gain operational experience.
+2. **Finalize product brief** – capture detailed acceptance criteria, data model, audit requirements, and approval UX so Core, CLI, and web teams implement against the same contract.
+3. **Implement Core onboarding service** – add HTTP routes, persistence for pending registrations, token validation, SPIFFE entry creation hooks, and regression tests.
+4. **Extend services and CLI** – teach every runtime (core services, agents, pollers, checkers, NATS leaf nodes) to perform the bootstrap handshake, store returned credentials, and add `serviceradar-cli` commands for enrollment pack generation, rotation, and revocation.
+5. **Deliver admin UI workflow** – surface pending devices, bulk approvals, template assignment, and activity history in the Next.js web app with feature flags for staged rollouts.
+6. **Harden security story** – define bootstrap credential lifecycle, integrate SPIRE server/agent packaging, and document fallback paths when SPIRE is unavailable.
+7. **Template and config tooling** – finalize reusable configuration templates, publish schema validations, and wire KV/Data Service interactions into the approval path.
+8. **Packaging & automation** – update Docker/K8s manifests to auto-bootstrap via SPIFFE, and ship bare-metal scripts/Ansible roles that install SPIRE, register services, and validate handshake success.
+9. **Demo environment validation** – script an end-to-end onboarding scenario in the demo namespace, including automated Proton/KV seeding, to prove “drop a binary + point at Core” works before external release.
 
 ---
 
