@@ -31,6 +31,9 @@ spec:
           readOnly: true
         - name: zen-data
           mountPath: /var/lib/serviceradar
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/zen.json"
@@ -86,6 +89,10 @@ spec:
       - name: zen-data
         persistentVolumeClaim:
           claimName: serviceradar-zen-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

@@ -1,0 +1,35 @@
+{{- if and .Values.spire.enabled .Values.spire.bootstrap.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spire-bootstrap
+  namespace: {{ $ns }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spire-bootstrap
+  namespace: {{ $ns }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spire-bootstrap
+  namespace: {{ $ns }}
+subjects:
+  - kind: ServiceAccount
+    name: spire-bootstrap
+    namespace: {{ $ns }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spire-bootstrap
+{{- end }}
