@@ -25,8 +25,10 @@ graph TD
     subgraph "Service Layer"
         CoreAPI[Core Service<br/>:8090/:50052]
         SRQL[SRQL Service<br/>:8080/:api/query]
+        Datasvc[Datasvc<br/>:50057]
         Kong -->|Validated request| CoreAPI
         Kong -->|Validated request| SRQL
+        Datasvc -->|KV API| CoreAPI
     end
 
     subgraph "Monitoring Layer"
@@ -50,6 +52,18 @@ graph TD
         Agent3 --- Service3[Services<br/>Processes<br/>Ports]
     end
 
+    subgraph "Identity Plane"
+        SPIREServer[SPIRE Server
+(StatefulSet)]
+        SPIREController[Controller Manager
+Sidecar]
+        SPIREWorkloadAgent[SPIRE Workload Agent
+(DaemonSet)]
+
+        SPIREController --- SPIREServer
+        SPIREServer --- SPIREWorkloadAgent
+    end
+
     subgraph "Data Layer"
         Proton[Proton / Timeplus]
         CoreAPI -->|Ingest + Queries| Proton
@@ -61,16 +75,26 @@ graph TD
         CoreAPI -->|Webhooks| Other[Other<br/>Services]
     end
 
+    CoreAPI -. |Workload API| -> SPIREWorkloadAgent
+    Poller1 -. |Workload API| -> SPIREWorkloadAgent
+    Datasvc -. |Workload API| -> SPIREWorkloadAgent
+    Agent1 -. |Workload API| -> SPIREWorkloadAgent
+
     style Browser fill:#f9f,stroke:#333,stroke-width:1px
     style WebUI fill:#b9c,stroke:#333,stroke-width:1px
     style Kong fill:#f5b,stroke:#333,stroke-width:1px
     style JWKS fill:#ffd,stroke:#333,stroke-width:1px
     style CoreAPI fill:#9bc,stroke:#333,stroke-width:2px
+    style SRQL fill:#9bc,stroke:#333,stroke-width:1px
+    style Datasvc fill:#9bc,stroke:#333,stroke-width:1px
     style Poller1 fill:#adb,stroke:#333,stroke-width:1px
     style Poller2 fill:#adb,stroke:#333,stroke-width:1px
     style Agent1 fill:#fd9,stroke:#333,stroke-width:1px
     style Agent2 fill:#fd9,stroke:#333,stroke-width:1px
     style Agent3 fill:#fd9,stroke:#333,stroke-width:1px
+    style SPIREServer fill:#d6c9ff,stroke:#333,stroke-width:1px
+    style SPIREController fill:#d6c9ff,stroke:#333,stroke-width:1px
+    style SPIREWorkloadAgent fill:#d6c9ff,stroke:#333,stroke-width:1px
     style Proton fill:#cfc,stroke:#333,stroke-width:1px
     style Discord fill:#c9d,stroke:#333,stroke-width:1px
     style Other fill:#c9d,stroke:#333,stroke-width:1px

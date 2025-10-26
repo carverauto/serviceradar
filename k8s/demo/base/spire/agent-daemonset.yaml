@@ -33,7 +33,7 @@ spec:
             - name: MY_NODE_NAME
               valueFrom:
                 fieldRef:
-                  fieldPath: status.podIP
+                  fieldPath: spec.nodeName
           volumeMounts:
             - name: spire-config
               mountPath: /run/spire/config
@@ -43,6 +43,9 @@ spec:
             - name: spire-agent-socket
               mountPath: /run/spire/sockets
               readOnly: false
+            - name: spire-agent-token
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /live
@@ -68,3 +71,10 @@ spec:
           hostPath:
             path: /run/spire/sockets
             type: DirectoryOrCreate
+        - name: spire-agent-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: spire-agent
+                  audience: spire-server
+                  expirationSeconds: 7200

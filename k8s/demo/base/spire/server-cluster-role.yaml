@@ -8,6 +8,9 @@ rules:
 - apiGroups: [""]
   resources: ["configmaps"]
   verbs: ["patch", "get", "list"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get"]
 ---
 # Binds above role to spire-server service account
 kind: RoleBinding
@@ -33,6 +36,12 @@ rules:
 - apiGroups: ["authentication.k8s.io"]
   resources: ["tokenreviews"]
   verbs: ["create"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
 - apiGroups: ["cert-manager.io"]
   resources: ["certificaterequests"]
   verbs: ["create", "get", "list", "watch"]
