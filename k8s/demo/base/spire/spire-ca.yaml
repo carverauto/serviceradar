@@ -3,7 +3,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: spire-intermediate-ca
-  namespace: spire
+  namespace: demo
 spec:
   isCA: true
   commonName: "Spire Intermediate CA"
@@ -22,7 +22,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: spire-intermediate-issuer
-  namespace: spire
+  namespace: demo
 spec:
   ca:
     secretName: spire-intermediate-ca

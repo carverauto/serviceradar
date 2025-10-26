@@ -1,10 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: spire
-
 resources:
-  - spire-namespace.yaml
   - cluster-issuer.yaml
   - cert-configmap.yaml
   - spire-ca.yaml
@@ -20,4 +17,7 @@ resources:
   - agent-cluster-role.yaml
   - agent-configmap.yaml
   - agent-daemonset.yaml
-  - pg-secret-sync-job.yaml
+  - spire-postgres-cluster.yaml
+  - bootstrap-rbac.yaml
+  - bootstrap-configmap.yaml
+  - bootstrap-job.yaml

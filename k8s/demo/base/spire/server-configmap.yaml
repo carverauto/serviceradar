@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: spire-server
-  namespace: spire
+  namespace: demo
 data:
   server.conf: |
     server {
@@ -26,7 +26,7 @@ data:
       DataStore "sql" {
         plugin_data {
           database_type = "postgres"
-          connection_string = "dbname=spire user=spire password=__DB_PASSWORD__ host=cluster-pg-rw.cnpg-system.svc.cluster.local port=5432 sslmode=disable"
+          connection_string = "dbname=spire user=spire password=__DB_PASSWORD__ host=spire-pg-rw.demo.svc.cluster.local port=5432 sslmode=disable"
         }
       }
 
@@ -36,7 +36,7 @@ data:
             # NOTE: Change this to your cluster name
             "carverauto-cluster" = {
               use_token_review_api_validation = true
-              service_account_allow_list = ["spire:spire-agent"]
+              service_account_allow_list = ["demo:spire-agent"]
             }
           }
         }
@@ -50,7 +50,7 @@ data:
 
       Notifier "k8sbundle" {
         plugin_data {
-          namespace = "spire"
+          namespace = "demo"
           config_map = "spire-bundle"
         }
       }

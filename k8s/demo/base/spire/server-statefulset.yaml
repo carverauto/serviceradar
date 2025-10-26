@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: spire-server
-  namespace: spire
+  namespace: demo
   labels:
     app: spire-server
 spec:
@@ -13,7 +13,6 @@ spec:
   serviceName: spire-server
   template:
     metadata:
-      namespace: spire
       labels:
         app: spire-server
     spec:
@@ -30,8 +29,8 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: spire-postgres
-                  key: DB_PASSWORD
+                  name: spire-db-credentials
+                  key: password
           volumeMounts:
             - name: spire-config-template
               mountPath: /config-template
@@ -43,52 +42,9 @@ spec:
           args:
             - -config
             - /run/spire/config/server.conf
-          lifecycle:
-            postStart:
-              exec:
-                command:
-                  - /bin/sh
-                  - -c
-                  - |
-                    set -eu
-                    SOCKET_PATH="/tmp/spire-server/private/api.sock"
-
-                    echo "Waiting for SPIRE server socket at ${SOCKET_PATH}"
-                    for i in $(seq 1 30); do
-                      if /opt/spire/bin/spire-server healthcheck -socketPath "${SOCKET_PATH}" >/dev/null 2>&1; then
-                        break
-                      fi
-                      sleep 2
-                    done
-
-                    register_node() {
-                      /opt/spire/bin/spire-server entry create \
-                        -socketPath "${SOCKET_PATH}" \
-                        -node \
-                        -spiffeID spiffe://carverauto.dev/ns/spire/sa/spire-agent \
-                        -selector k8s_sat:cluster:carverauto-cluster \
-                        -selector k8s_sat:agent_ns:spire \
-                        -selector k8s_sat:agent_sa:spire-agent >/dev/null 2>&1 || true
-                    }
-
-                    register_workload() {
-                      SPIFFE_ID="$1"; shift
-                      /opt/spire/bin/spire-server entry create \
-                        -socketPath "${SOCKET_PATH}" \
-                        -parentID spiffe://carverauto.dev/ns/spire/sa/spire-agent \
-                        -spiffeID "${SPIFFE_ID}" \
-                        "$@" >/dev/null 2>&1 || true
-                    }
-
-                    register_node
-                    register_workload "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core" \
-                      -selector k8s:ns:demo \
-                      -selector k8s:sa:serviceradar-core
-                    register_workload "spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller" \
-                      -selector k8s:ns:demo \
-                      -selector k8s:sa:serviceradar-poller
           ports:
             - containerPort: 8081
+            - containerPort: 8080
           volumeMounts:
             - name: generated-config
               mountPath: /run/spire/config
@@ -119,7 +75,6 @@ spec:
   volumeClaimTemplates:
     - metadata:
         name: spire-data
-        namespace: spire
       spec:
         accessModes:
           - ReadWriteOnce

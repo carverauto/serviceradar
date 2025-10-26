@@ -22,6 +22,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"net/url"
 	"testing"
 	"time"
 
@@ -138,6 +139,25 @@ func TestCheckRBAC(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 		assert.Contains(t, err.Error(), "identity CN=unknown-client not authorized")
+	})
+
+	t.Run("SPIFFEIdentity", func(t *testing.T) {
+		uri, err := url.Parse("spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller")
+		require.NoError(t, err)
+
+		cert := &x509.Certificate{
+			URIs: []*url.URL{uri},
+		}
+
+		tlsInfo := credentials.TLSInfo{
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
+		}
+
+		p := &peer.Peer{AuthInfo: tlsInfo}
+		ctx := peer.NewContext(context.Background(), p)
+
+		err = s.checkRBAC(ctx, "/proto.KVService/Get")
+		assert.NoError(t, err)
 	})
 }
 

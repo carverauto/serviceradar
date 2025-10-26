@@ -1,0 +1,29 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: spire-pg
+  namespace: demo
+spec:
+  instances: 3
+
+  storage:
+    size: 5Gi
+    storageClass: local-path
+
+  bootstrap:
+    initdb:
+      database: spire
+      owner: spire
+      secret:
+        name: spire-db-credentials
+
+  managed:
+    roles:
+      - name: spire
+        ensure: present
+        login: true
+        passwordSecret:
+          name: spire-db-credentials
+
+  monitoring:
+    enablePodMonitor: true
