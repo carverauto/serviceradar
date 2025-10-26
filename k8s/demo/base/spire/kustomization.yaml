@@ -8,8 +8,13 @@ resources:
   - spire-root-issuer.yaml
   - spire-ca-issuer.yaml
   - spire-bundle-configmap.yaml
+  - spire-crd-clusterspiffeids.yaml
+  - spire-crd-clusterstaticentries.yaml
+  - spire-crd-clusterfederatedtrustdomains.yaml
   - server-account.yaml
   - server-cluster-role.yaml
+  - spire-controller-manager-rbac.yaml
+  - spire-controller-manager-configmap.yaml
   - server-configmap.yaml
   - server-service.yaml
   - server-statefulset.yaml
@@ -18,6 +23,6 @@ resources:
   - agent-configmap.yaml
   - agent-daemonset.yaml
   - spire-postgres-cluster.yaml
-  - bootstrap-rbac.yaml
-  - bootstrap-configmap.yaml
-  - bootstrap-job.yaml
+  - spire-clusterspiffeid-core.yaml
+  - spire-clusterspiffeid-poller.yaml
+  - spire-clusterspiffeid-serviceradar-agent.yaml

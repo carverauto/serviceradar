@@ -343,10 +343,12 @@ data:
       "partition": "default",
       "kv_address": "serviceradar-datasvc:50057",
       "kv_security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "datasvc.serviceradar",
         "role": "agent",
+        "trust_domain": "carverauto.dev",
+        "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "agent.pem",
           "key_file": "agent-key.pem",
@@ -354,14 +356,17 @@ data:
         }
       },
       "security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "agent.serviceradar",
         "role": "agent",
+        "trust_domain": "carverauto.dev",
+        "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-agent",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "agent.pem",
           "key_file": "agent-key.pem",
-          "ca_file": "root.pem"
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
         }
       },
       "logging": {

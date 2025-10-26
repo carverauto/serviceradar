@@ -41,55 +41,51 @@ Manifests in this directory bootstrap SPIFFE/SPIRE inside the `demo` Kubernetes 
    kubectl get pods -n demo -l app=spire-server -w
    ```
 
-4. **Automatic bootstrap**
+4. **Automatic registration**
 
-   Applying the kustomization now creates the `spire-bootstrap` Job, which waits
-   for the server pod to become Ready and seeds baseline registration entries
-   (agent node alias, `serviceradar-core`, `serviceradar-poller`). Inspect the
-   Job status with:
-
-   ```bash
-   kubectl get jobs -n demo spire-bootstrap
-   kubectl logs -n demo job/spire-bootstrap
-   ```
-
-   To rerun the bootstrap (for example after editing selectors), delete the job
-   and reapply it:
+   The SPIRE Controller Manager now runs as a sidecar in the server StatefulSet.
+   Once the server is Ready it reconciles the `ClusterSPIFFEID` custom resources
+   in this directory and creates the corresponding registration entries for the
+   demo workloads (core, poller, datasvc, serviceradar-agent). Observe the
+   controller’s view with:
 
    ```bash
-   kubectl delete job -n demo spire-bootstrap --ignore-not-found
-   kubectl apply -f k8s/demo/base/spire/bootstrap-job.yaml
+   kubectl get clusterspiffeids.spire.spiffe.io -n demo
+   kubectl describe clusterspiffeid.serviceradar-core -n demo
    ```
+
+   Updates to the manifests are picked up automatically; reapplying the
+   kustomization is idempotent.
 
 ## Registering Agents and Workloads
 
-The bootstrap Job provisions the defaults. If you need to re-run it or add
-additional identities, use the following commands as templates.
+The controller manager sources workload identities from `ClusterSPIFFEID`
+resources. To onboard a new deployment, author a manifest patterned after the
+existing `spire-clusterspiffeid-*.yaml` files and apply it to the cluster. For
+example, to issue `spiffe://carverauto.dev/ns/demo/sa/custom-checker` to pods
+labelled `app=custom-checker`:
 
-Create the node registration entry so the SPIRE agent running as a DaemonSet can establish trust with the server:
-
-```shell
-SPIRE_NAMESPACE=${SPIRE_NAMESPACE:-demo}
-kubectl exec -n "${SPIRE_NAMESPACE}" spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-  -node \
-  -spiffeID "spiffe://carverauto.dev/ns/${SPIRE_NAMESPACE}/sa/spire-agent" \
-  -selector k8s_sat:cluster:carverauto-cluster \
-  -selector "k8s_sat:agent_ns:${SPIRE_NAMESPACE}" \
-  -selector k8s_sat:agent_sa:spire-agent
+```bash
+cat <<'EOF' | kubectl apply -f -
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: custom-checker
+spec:
+  spiffeIDTemplate: spiffe://carverauto.dev/ns/demo/sa/custom-checker
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: demo
+  podSelector:
+    matchLabels:
+      app: custom-checker
+EOF
 ```
 
-Register additional workloads (replace the namespace/service account as needed):
-
-```shell
-SPIRE_NAMESPACE=${SPIRE_NAMESPACE:-demo}
-kubectl exec -n "${SPIRE_NAMESPACE}" spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-  -spiffeID spiffe://carverauto.dev/ns/default/sa/default \
-  -parentID "spiffe://carverauto.dev/ns/${SPIRE_NAMESPACE}/sa/spire-agent" \
-  -selector k8s:ns:default \
-  -selector k8s:sa:default
-```
+The Kubernetes PSAT node attestor continues to handle agent node registration,
+so manual `spire-server entry create -node` invocations are no longer required.
+You can still use the SPIRE CLI for ad-hoc entries, but declarative CRDs keep
+the demo environment reproducible.
 
 ## Additional Assets
 

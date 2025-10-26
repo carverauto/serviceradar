@@ -10,6 +10,19 @@
 {{- $pgHost := printf "%s-rw.%s.svc.cluster.local" (default "spire-pg" $pg.clusterName) $ns }}
 {{- $dbUser := default "spire" $pg.username }}
 {{- $dbName := default "spire" $pg.database }}
+{{- $cmVals := .Values.spire.controllerManager }}
+{{- $cmImageRepo := default "ghcr.io/spiffe/spire-controller-manager" $cmVals.image }}
+{{- $cmImageTag := default "0.6.3" $cmVals.tag }}
+{{- $cmImage := printf "%s:%s" $cmImageRepo $cmImageTag }}
+{{- $cmConfigName := default "spire-controller-manager-config" $cmVals.configMapName }}
+{{- $cmSocketPath := default "/spire-server/api.sock" $cmVals.spireServerSocketPath }}
+{{- $cmMetricsAddr := default "127.0.0.1:8082" $cmVals.metricsBindAddress }}
+{{- $cmHealthAddr := default "0.0.0.0:8083" $cmVals.healthProbeBindAddress }}
+{{- $cmLogLevel := default "info" $cmVals.logLevel }}
+{{- $cmWebhookName := default "" $cmVals.validatingWebhookConfigurationName }}
+{{- $cmLeaderName := default "spire-controller-manager" $cmVals.leaderElectionResourceName }}
+{{- $cmIgnoreNamespaces := default (list "kube-system" "kube-public" "local-path-storage" "kube-node-lease") $cmVals.ignoreNamespaces }}
+{{- $cmResources := $cmVals.resources }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -136,6 +149,33 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: {{ $cmConfigName }}
+  namespace: {{ $ns }}
+data:
+  config.yaml: |
+    apiVersion: spire.spiffe.io/v1alpha1
+    kind: ControllerManagerConfig
+    metrics:
+      bindAddress: {{ $cmMetricsAddr }}
+    health:
+      healthProbeBindAddress: {{ $cmHealthAddr }}
+    leaderElection:
+      leaderElect: true
+      resourceName: {{ $cmLeaderName }}
+      resourceNamespace: {{ $ns }}
+    clusterName: {{ $clusterName }}
+    trustDomain: {{ $trustDomain }}
+    spireServerSocketPath: {{ $cmSocketPath }}
+    ignoreNamespaces:
+{{- range $cmIgnoreNamespaces }}
+      - {{ . }}
+{{- end }}
+    validatingWebhookConfigurationName: {{ $cmWebhookName | quote }}
+    logLevel: {{ $cmLogLevel }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: {{ $bundle }}
   namespace: {{ $ns }}
 ---
@@ -194,6 +234,8 @@ spec:
               readOnly: true
             - name: spire-data
               mountPath: /run/spire/data
+            - name: spire-server-socket
+              mountPath: /tmp/spire-server/private
           livenessProbe:
             httpGet:
               path: /live
@@ -208,12 +250,44 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+        - name: spire-controller-manager
+          image: {{ $cmImage }}
+          args:
+            - --config=/spire-controller-manager/config.yaml
+          volumeMounts:
+            - name: spire-server-socket
+              mountPath: /spire-server
+              readOnly: true
+            - name: spire-controller-manager-config
+              mountPath: /spire-controller-manager
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+{{- with $cmResources }}
+          resources:
+{{ toYaml . | indent 12 }}
+{{- end }}
       volumes:
         - name: spire-config-template
           configMap:
             name: {{ $serverName }}
         - name: generated-config
           emptyDir: {}
+        - name: spire-server-socket
+          emptyDir: {}
+        - name: spire-controller-manager-config
+          configMap:
+            name: {{ $cmConfigName }}
   volumeClaimTemplates:
     - metadata:
         name: spire-data

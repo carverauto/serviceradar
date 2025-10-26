@@ -1,0 +1,132 @@
+{{- if .Values.spire.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spire-controller-manager
+  namespace: {{ $ns }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spire-controller-manager
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+      - namespaces
+      - nodes
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - list
+      - patch
+      - watch
+  - apiGroups:
+      - spire.spiffe.io
+    resources:
+      - clusterfederatedtrustdomains
+      - clusterspiffeids
+      - clusterstaticentries
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - spire.spiffe.io
+    resources:
+      - clusterfederatedtrustdomains/finalizers
+      - clusterspiffeids/finalizers
+      - clusterstaticentries/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - spire.spiffe.io
+    resources:
+      - clusterfederatedtrustdomains/status
+      - clusterspiffeids/status
+      - clusterstaticentries/status
+    verbs:
+      - get
+      - patch
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spire-controller-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spire-controller-manager
+subjects:
+  - kind: ServiceAccount
+    name: spire-controller-manager
+    namespace: {{ $ns }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spire-controller-manager-leader-election
+  namespace: {{ $ns }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spire-controller-manager-leader-election
+  namespace: {{ $ns }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spire-controller-manager-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: spire-controller-manager
+    namespace: {{ $ns }}
+{{- end }}

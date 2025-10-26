@@ -1,0 +1,12 @@
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: serviceradar-agent
+spec:
+  spiffeIDTemplate: spiffe://carverauto.dev/ns/demo/sa/serviceradar-agent
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: demo
+  podSelector:
+    matchLabels:
+      app: serviceradar-agent

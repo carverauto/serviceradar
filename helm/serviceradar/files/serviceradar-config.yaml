@@ -3,6 +3,8 @@
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
 {{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
+{{- $agentVals := default (dict) .Values.agent -}}
+{{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
 # base/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -252,14 +254,17 @@ data:
         }
       },
       "security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "agent.serviceradar",
         "role": "agent",
+        "trust_domain": "{{$trustDomain}}",
+        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$agentSA}}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "agent.pem",
           "key_file": "agent-key.pem",
-          "ca_file": "root.pem"
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
         }
       },
       "logging": {

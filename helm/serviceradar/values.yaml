@@ -32,6 +32,7 @@ spire:
   coreServiceAccount: serviceradar-core
   pollerServiceAccount: serviceradar-poller
   datasvcServiceAccount: serviceradar-datasvc
+  serviceradarAgentServiceAccount: serviceradar-agent
   bundleConfigMap: spire-bundle
   server:
     image: ghcr.io/spiffe/spire-server:1.11.2
@@ -56,11 +57,27 @@ spire:
     secretName: spire-db-credentials
     username: spire
     password: changeme
-  bootstrap:
-    enabled: true
-    image: ghcr.io/carverauto/serviceradar-tools
-    tag: latest
-    ttlSecondsAfterFinished: 600
+  controllerManager:
+    image: ghcr.io/spiffe/spire-controller-manager
+    tag: 0.6.3
+    configMapName: spire-controller-manager-config
+    spireServerSocketPath: /spire-server/api.sock
+    metricsBindAddress: 127.0.0.1:8082
+    healthProbeBindAddress: 0.0.0.0:8083
+    logLevel: info
+    leaderElectionResourceName: spire-controller-manager
+    ignoreNamespaces:
+      - kube-system
+      - kube-public
+      - local-path-storage
+      - kube-node-lease
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
 
 ingress:
   enabled: true

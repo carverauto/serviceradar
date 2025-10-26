@@ -52,6 +52,8 @@ spec:
             - name: spire-data
               mountPath: /run/spire/data
               readOnly: false
+            - name: spire-server-socket
+              mountPath: /tmp/spire-server/private
           livenessProbe:
             httpGet:
               path: /live
@@ -66,12 +68,47 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+        - name: spire-controller-manager
+          image: ghcr.io/spiffe/spire-controller-manager:0.6.3
+          args:
+            - --config=/spire-controller-manager/config.yaml
+          volumeMounts:
+            - name: spire-server-socket
+              mountPath: /spire-server
+              readOnly: true
+            - name: spire-controller-manager-config
+              mountPath: /spire-controller-manager
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
       volumes:
         - name: spire-config-template
           configMap:
             name: spire-server
         - name: generated-config
           emptyDir: {}
+        - name: spire-server-socket
+          emptyDir: {}
+        - name: spire-controller-manager-config
+          configMap:
+            name: spire-controller-manager-config
   volumeClaimTemplates:
     - metadata:
         name: spire-data
