@@ -2,7 +2,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: spire-ca
-  namespace: spire
+  namespace: demo
 spec:
   commonName: "Spire Intermediate CA"
   dnsNames:

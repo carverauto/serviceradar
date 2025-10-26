@@ -18,7 +18,9 @@ package datasvc
 
 import (
 	"context"
+	"crypto/x509"
 	"log"
+	"strings"
 
 	ggrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -99,6 +101,10 @@ func (*Server) extractIdentity(ctx context.Context) (string, error) {
 
 	cert := tlsInfo.State.PeerCertificates[0]
 
+	if id := spiffeIDFromCertificate(cert); id != "" {
+		return id, nil
+	}
+
 	return cert.Subject.String(), nil
 }
 
@@ -132,4 +138,28 @@ func (*Server) authorizeMethod(method string, role Role) error {
 	}
 
 	return status.Errorf(codes.PermissionDenied, "role %s cannot access %s", role, method)
+}
+
+func spiffeIDFromCertificate(cert *x509.Certificate) string {
+	if cert == nil {
+		return ""
+	}
+
+	for _, uri := range cert.URIs {
+		if uri == nil {
+			continue
+		}
+
+		if !strings.EqualFold(uri.Scheme, "spiffe") {
+			continue
+		}
+
+		if uri.Host == "" && uri.Opaque == "" && uri.Path == "" {
+			continue
+		}
+
+		return uri.String()
+	}
+
+	return ""
 }

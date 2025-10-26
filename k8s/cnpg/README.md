@@ -8,7 +8,6 @@ cluster definitions before deploying workloads that depend on them:
 
 ```bash
 kubectl apply -f k8s/cnpg/cnpg-auth.yaml
-kubectl apply -f k8s/cnpg/spire-db-credentials.yaml
 kubectl apply -f k8s/cnpg/new-pg-cluster.yaml
 ```
 

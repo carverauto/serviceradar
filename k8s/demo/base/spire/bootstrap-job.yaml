@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spire-bootstrap
+  namespace: demo
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        job: spire-bootstrap
+    spec:
+      serviceAccountName: spire-bootstrap
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: ghcr.io/carverauto/serviceradar-tools:latest
+          imagePullPolicy: Always
+          command: ["/bin/bash", "/scripts/bootstrap.sh"]
+          env:
+            - name: SPIRE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: bootstrap-script
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: bootstrap-script
+          configMap:
+            name: spire-bootstrap
+            defaultMode: 0755

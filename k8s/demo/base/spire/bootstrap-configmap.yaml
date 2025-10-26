@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-bootstrap
+  namespace: demo
+data:
+  bootstrap.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    command -v kubectl >/dev/null 2>&1 || { echo "kubectl is required"; exit 1; }
+    command -v jq >/dev/null 2>&1 || { echo "jq is required"; exit 1; }
+
+    NAMESPACE="${SPIRE_NAMESPACE:-demo}"
+    SERVER_SELECTOR="${SPIRE_SERVER_SELECTOR:-app=spire-server}"
+
+    echo "Waiting for SPIRE server pod (${SERVER_SELECTOR}) in namespace ${NAMESPACE}..."
+    kubectl wait --namespace "${NAMESPACE}" --for=condition=Ready pod -l "${SERVER_SELECTOR}" --timeout=180s
+
+    SERVER_POD="$(kubectl -n "${NAMESPACE}" get pods -l "${SERVER_SELECTOR}" -o jsonpath='{.items[0].metadata.name}')"
+    if [[ -z "${SERVER_POD}" ]]; then
+      echo "Unable to locate spire-server pod" >&2
+      exit 1
+    fi
+    echo "Found server pod ${SERVER_POD}"
+
+    run_server() {
+      kubectl -n "${NAMESPACE}" exec "${SERVER_POD}" -- /opt/spire/bin/spire-server "$@"
+    }
+
+    entry_exists() {
+      local spiffe_id="$1"
+      run_server entry show -spiffeID "${spiffe_id}" -output json | jq -e '.entries | length > 0' >/dev/null 2>&1
+    }
+
+    ensure_node_entry() {
+      local spiffe_id="$1"; shift
+      local selectors=("$@")
+      if entry_exists "${spiffe_id}"; then
+        echo "Node entry ${spiffe_id} already present"
+        return
+      fi
+      echo "Creating node entry ${spiffe_id}"
+      local args=(entry create -node -spiffeID "${spiffe_id}")
+      for selector in "${selectors[@]}"; do
+        args+=(-selector "${selector}")
+      done
+      run_server "${args[@]}"
+    }
+
+    ensure_workload_entry() {
+      local spiffe_id="$1"
+      local parent_id="$2"
+      shift 2
+      local selectors=("$@")
+      if entry_exists "${spiffe_id}"; then
+        echo "Workload entry ${spiffe_id} already present"
+        return
+      fi
+      echo "Creating workload entry ${spiffe_id}"
+      local args=(entry create -spiffeID "${spiffe_id}" -parentID "${parent_id}")
+      for selector in "${selectors[@]}"; do
+        args+=(-selector "${selector}")
+      done
+      run_server "${args[@]}"
+    }
+
+    TRUST_DOMAIN="${SPIRE_TRUST_DOMAIN:-carverauto.dev}"
+    CLUSTER_NAME="${SPIRE_CLUSTER_NAME:-carverauto-cluster}"
+    AGENT_SA="${SPIRE_AGENT_SERVICE_ACCOUNT:-spire-agent}"
+    CORE_SA="${SPIRE_CORE_SERVICE_ACCOUNT:-serviceradar-core}"
+    POLLER_SA="${SPIRE_POLLER_SERVICE_ACCOUNT:-serviceradar-poller}"
+
+    NODE_ID="spiffe://${TRUST_DOMAIN}/ns/${NAMESPACE}/sa/${AGENT_SA}"
+    ensure_node_entry "${NODE_ID}" \
+      "k8s_sat:cluster:${CLUSTER_NAME}" \
+      "k8s_sat:agent_ns:${NAMESPACE}" \
+      "k8s_sat:agent_sa:${AGENT_SA}"
+
+    ensure_workload_entry "spiffe://${TRUST_DOMAIN}/ns/${NAMESPACE}/sa/${CORE_SA}" \
+      "${NODE_ID}" \
+      "k8s:ns:${NAMESPACE}" \
+      "k8s:sa:${CORE_SA}"
+
+    ensure_workload_entry "spiffe://${TRUST_DOMAIN}/ns/${NAMESPACE}/sa/${POLLER_SA}" \
+      "${NODE_ID}" \
+      "k8s:ns:${NAMESPACE}" \
+      "k8s:sa:${POLLER_SA}"
+
+    echo "SPIRE bootstrap completed successfully"

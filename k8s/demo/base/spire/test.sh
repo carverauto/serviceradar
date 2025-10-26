@@ -9,6 +9,7 @@ green=$(tput setaf 2)
 yellow=$(tput setaf 3)
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+NAMESPACE=${SPIRE_NAMESPACE:-demo}
 
 MINIKUBEPROFILE="SPIRE-SYSTEMS-TEST"
 MINIKUBECMD="minikube -p ${MINIKUBEPROFILE}"
@@ -29,7 +30,7 @@ start_minikube() {
 }
 
 tear_down_config() {
-	kubectl delete namespace spire > /dev/null || true
+	kubectl delete namespace "${NAMESPACE}" > /dev/null || true
 }
 
 stop_minikube() {
@@ -53,7 +54,7 @@ cleanup() {
 # apply the k8s configuration
 apply_server_config() {
 	echo -n "${bold}Applying SPIRE server k8s configuration... ${norm}"
-	kubectl apply -f ${DIR}/spire-namespace.yaml > /dev/null
+	kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - > /dev/null
 	kubectl apply -f ${DIR}/server-account.yaml > /dev/null
 	kubectl apply -f ${DIR}/server-cluster-role.yaml > /dev/null
 	kubectl apply -f ${DIR}/server-configmap.yaml > /dev/null
@@ -77,7 +78,7 @@ wait_for_pod() {
 	local outvar=$2
 	for i in $(seq 60); do
 		echo -n "${bold}Checking ${prefix} pod status... ${norm}"
-		local getpods=$(kubectl -n spire get pods 2>/dev/null | grep ${prefix} || true)
+		local getpods=$(kubectl -n "${NAMESPACE}" get pods 2>/dev/null | grep ${prefix} || true)
 		if [ -z "${getpods}" ]; then
 			echo "${yellow}NotFound${norm}."
 			sleep ${CHECKINTERVAL}
@@ -114,7 +115,7 @@ check_for_node_attestation() {
 	for i in $(seq 60); do
 		sleep ${CHECKINTERVAL}
 		echo -n "${bold}Checking for node attestation... ${norm}"
-		kubectl -n spire logs ${SPIRE_SERVER_POD_NAME} > ${SERVERLOGS} || true
+		kubectl -n "${NAMESPACE}" logs ${SPIRE_SERVER_POD_NAME} > ${SERVERLOGS} || true
 		if  grep -sxq -e ".*Agent attestation request completed.*k8s_sat.*" ${SERVERLOGS}; then
 			echo "${green}ok${norm}."
 			return
