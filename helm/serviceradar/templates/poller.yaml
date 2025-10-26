@@ -21,6 +21,9 @@ spec:
           mountPath: /etc/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/poller.json"
@@ -62,3 +65,7 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate

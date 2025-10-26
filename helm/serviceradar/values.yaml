@@ -22,6 +22,46 @@ image:
     faker: latest
     rperfChecker: latest
 
+spire:
+  enabled: true
+  namespace: ""
+  serverSelector: app=spire-server
+  trustDomain: carverauto.dev
+  clusterName: carverauto-cluster
+  agentServiceAccount: spire-agent
+  coreServiceAccount: serviceradar-core
+  pollerServiceAccount: serviceradar-poller
+  datasvcServiceAccount: serviceradar-datasvc
+  bundleConfigMap: spire-bundle
+  server:
+    image: ghcr.io/spiffe/spire-server:1.11.2
+    logLevel: DEBUG
+    initConfigImage: busybox
+    serviceName: spire-server
+    serviceType: LoadBalancer
+    dataPVC:
+      size: 1Gi
+      storageClass: ""
+  agent:
+    image: ghcr.io/spiffe/spire-agent:1.11.2
+    logLevel: DEBUG
+    waitForImage: cgr.dev/chainguard/wait-for-it
+  postgres:
+    enabled: true
+    clusterName: spire-pg
+    database: spire
+    instances: 3
+    storageClass: local-path
+    storageSize: 5Gi
+    secretName: spire-db-credentials
+    username: spire
+    password: changeme
+  bootstrap:
+    enabled: true
+    image: ghcr.io/carverauto/serviceradar-tools
+    tag: latest
+    ttlSecondsAfterFinished: 600
+
 ingress:
   enabled: true
   host: staging.serviceradar.cloud

@@ -1,3 +1,8 @@
+{{- $lb := "{{" -}}
+{{- $rb := "}}" -}}
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
+{{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
 # base/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -121,7 +126,7 @@ data:
             "enabled": false,
             "url": "https://discord.com/api/webhooks/PLACEHOLDER_WEBHOOK_URL",
             "cooldown": "15m",
-            "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
+            "template": "{\"embeds\":[{\"title\":\"{{$lb}}.alert.Title{{$rb}}\",\"description\":\"{{$lb}}.alert.Message{{$rb}}\",\"color\":{{$lb}}if eq .alert.Level \\\"error\\\"{{$rb}}15158332{{$lb}}else if eq .alert.Level \\\"warning\\\"{{$rb}}16776960{{$lb}}else{{$rb}}3447003{{$lb}}end{{$rb}},\"timestamp\":\"{{$lb}}.alert.Timestamp{{$rb}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{$lb}}.alert.NodeID{{$rb}}\",\"inline\":true}{{$lb}}range $key, $value := .alert.Details{{$rb}},{\"name\":\"{{$lb}}$key{{$rb}}\",\"value\":\"{{$lb}}$value{{$rb}}\",\"inline\":true}{{$lb}}end{{$rb}}]}]}"
           }
         ]
     }
@@ -234,10 +239,12 @@ data:
       "partition": "default",
       "kv_address": "serviceradar-datasvc:50057",
       "kv_security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "datasvc.serviceradar",
         "role": "agent",
+        "trust_domain": "{{$trustDomain}}",
+        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$datasvcSA}}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "agent.pem",
           "key_file": "agent-key.pem",
@@ -352,10 +359,12 @@ data:
         "ca_file": "/etc/serviceradar/certs/root.pem"
       },
       "kv_security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "datasvc.serviceradar",
         "role": "zen",
+        "trust_domain": "{{$trustDomain}}",
+        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$datasvcSA}}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "zen.pem",
           "key_file": "zen-key.pem",
@@ -605,37 +614,47 @@ data:
   core-k8s-init.sh: |
     #!/bin/bash
     set -e
-    
+
     echo "🔑 Using API_KEY: ${API_KEY:0:8}... (${#API_KEY} chars)"
     echo "🔐 Using JWT_SECRET: ${JWT_SECRET:0:8}... (${#JWT_SECRET} chars)"
-    
-    # Default configuration path
-    CONFIG_PATH="${CONFIG_PATH:-/etc/serviceradar/core.json}"
-    echo "Using configuration from $CONFIG_PATH"
-    
-    # Get Proton password from Kubernetes secret (loaded as env var)
-    if [ -n "$PROTON_PASSWORD" ]; then
-        echo "Found Proton password from Kubernetes secret"
-    else
-        echo "Warning: PROTON_PASSWORD environment variable not found"
+
+    TEMPLATE_PATH="/etc/serviceradar/core.json"
+    CONFIG_PATH="${CONFIG_PATH:-/var/lib/serviceradar/core.json}"
+    CONFIG_DIR=$(dirname "$CONFIG_PATH")
+    mkdir -p "$CONFIG_DIR"
+
+    if [ ! -f "$CONFIG_PATH" ]; then
+        echo "Seeding runtime config from $TEMPLATE_PATH into $CONFIG_PATH"
+        cp "$TEMPLATE_PATH" "$CONFIG_PATH"
     fi
-    
-    # Update the config file with secrets using jq for in-place editing
+
+    echo "Using runtime configuration at $CONFIG_PATH"
+
     if [ -f "$CONFIG_PATH" ]; then
+        TEMPLATE_SECURITY=$(jq -c '.security // empty' "$TEMPLATE_PATH")
+        if [ -n "$TEMPLATE_SECURITY" ]; then
+            echo "Synchronizing security block from template"
+            TMP_CONFIG=$(mktemp)
+            jq --argjson security "$TEMPLATE_SECURITY" '.security = $security' "$CONFIG_PATH" > "$TMP_CONFIG"
+            mv "$TMP_CONFIG" "$CONFIG_PATH"
+        fi
+
         echo "Updating configuration with secrets..."
-        
-        # Use jq to update the existing config - match production auth format exactly  
+        TMP_CONFIG=$(mktemp)
         jq --arg pwd "$PROTON_PASSWORD" \
            --arg jwt "$JWT_SECRET" \
            --arg api_key "$API_KEY" \
            --arg bcrypt "$ADMIN_BCRYPT_HASH" \
            '.database.password = $pwd | .auth.jwt_secret = $jwt | .auth.jwt_expiration = "24h" | .auth.local_users.admin = $bcrypt | .api_key = $api_key' \
-           "$CONFIG_PATH" > /var/lib/serviceradar/core.json
-        CONFIG_PATH="/var/lib/serviceradar/core.json"
-        echo "Configuration updated with all secrets and saved to $CONFIG_PATH"
+           "$CONFIG_PATH" > "$TMP_CONFIG"
+        mv "$TMP_CONFIG" "$CONFIG_PATH"
+        echo "Configuration updated with secrets at $CONFIG_PATH"
+
+        if ! jq -e '.auth.jwt_private_key_pem // empty' "$CONFIG_PATH" >/dev/null 2>&1; then
+            echo "Warning: RS256 key material missing from $CONFIG_PATH; Core JWKS will be empty" >&2
+        fi
     fi
-    
-    # Wait for Proton to be ready
+
     if [ "${WAIT_FOR_PROTON:-true}" = "true" ]; then
         PROTON_TLS_ADDR="${PROTON_HOST:-serviceradar-proton}:9440"
         PROTON_HTTP_ADDR="${PROTON_HOST:-serviceradar-proton}:8123"
@@ -655,7 +674,6 @@ data:
             fi
             if [ "$TLS_READY" = "true" ]; then
                 echo "Proton TLS port is ready!"
-                # Also verify HTTP for initialization queries (optional)
                 if [ -n "$PROTON_PASSWORD" ]; then
                     if curl -sf "http://default:${PROTON_PASSWORD}@$PROTON_HTTP_ADDR/?query=SELECT%201" > /dev/null 2>&1; then
                         echo "Proton HTTP authentication is working!"
@@ -674,18 +692,16 @@ data:
             echo "Warning: Proton TLS port did not respond after 30 attempts; proceeding anyway" >&2
         fi
     fi
-    
-    # Initialize database if requested
+
     if [ "${INIT_DB:-false}" = "true" ]; then
         echo "Initializing database tables..."
     fi
-    
+
     echo "🔍 Final environment check:"
     echo "  API_KEY: ${API_KEY:0:8}... (${#API_KEY} chars)"
     echo "  JWT_SECRET: ${JWT_SECRET:0:8}... (${#JWT_SECRET} chars)"
     echo "  AUTH_ENABLED: ${AUTH_ENABLED:-true}"
-    
-    # Start the core service
+
     exec /usr/local/bin/serviceradar-core --config="$CONFIG_PATH"
   nats.conf: |
     # NATS Server Configuration for ServiceRadar Kubernetes Deployment
@@ -1047,10 +1063,11 @@ data:
       "listen_addr": "0.0.0.0:50057",
       "nats_url": "tls://serviceradar-nats:4222",
       "security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "serviceradar-nats",
         "role": "datasvc",
+        "trust_domain": "{{$trustDomain}}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "datasvc.pem",
           "key_file": "datasvc-key.pem",

@@ -1,0 +1,42 @@
+{{- if and .Values.spire.enabled .Values.spire.postgres.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+{{- $pg := .Values.spire.postgres }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $pg.secretName }}
+  namespace: {{ $ns }}
+type: Opaque
+stringData:
+  username: {{ default "spire" $pg.username }}
+  password: {{ default "changeme" $pg.password | quote }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ default "spire-pg" $pg.clusterName }}
+  namespace: {{ $ns }}
+spec:
+  instances: {{ default 3 $pg.instances }}
+  storage:
+    size: {{ default "5Gi" $pg.storageSize }}
+    {{- if $pg.storageClass }}
+    storageClass: {{ $pg.storageClass }}
+    {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ default "spire" $pg.database }}
+      owner: {{ default "spire" $pg.username }}
+      secret:
+        name: {{ $pg.secretName }}
+  managed:
+    roles:
+      - name: {{ default "spire" $pg.username }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ $pg.secretName }}
+  monitoring:
+    enablePodMonitor: true
+{{- end }}

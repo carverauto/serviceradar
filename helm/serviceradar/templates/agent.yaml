@@ -29,12 +29,15 @@ spec:
         - name: agent
           image: ghcr.io/carverauto/serviceradar-agent:{{ .Values.image.tags.agent }}
           volumeMounts:
-            - name: serviceradar-config
-              mountPath: /etc/serviceradar
-            - name: checkers-dir
-              mountPath: /etc/serviceradar/checkers
-            - name: cert-data
-              mountPath: /etc/serviceradar/certs
+          - name: serviceradar-config
+            mountPath: /etc/serviceradar
+          - name: checkers-dir
+            mountPath: /etc/serviceradar/checkers
+          - name: cert-data
+            mountPath: /etc/serviceradar/certs
+          - name: spire-agent-socket
+            mountPath: /run/spire/sockets
+            readOnly: true
           env:
             - name: CONFIG_PATH
               value: "/etc/serviceradar/agent.json"
@@ -54,14 +57,18 @@ spec:
               cpu: "100m"
               memory: "64Mi"
       volumes:
-        - name: serviceradar-config
-          configMap:
-            name: serviceradar-config
-        - name: checkers-dir
-          emptyDir: {}
-        - name: cert-data
-          persistentVolumeClaim:
-            claimName: serviceradar-cert-data
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: checkers-dir
+        emptyDir: {}
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
