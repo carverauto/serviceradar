@@ -28,3 +28,4 @@ resources:
   - spire-clusterspiffeid-serviceradar-agent.yaml
   - spire-clusterspiffeid-datasvc.yaml
   - spire-clusterspiffeid-sync.yaml
+  - spire-clusterspiffeid-zen.yaml
