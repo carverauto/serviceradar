@@ -375,6 +375,10 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log l
 	)
 
 	if idStr := strings.TrimSpace(config.ServerSPIFFEID); idStr != "" {
+		log.Debug().
+			Str("server_spiffe_id", idStr).
+			Str("role", string(config.Role)).
+			Msg("Validating SPIFFE server identity")
 		parsedID, parseErr := spiffeid.FromString(idStr)
 		if parseErr != nil {
 			_ = source.Close()
