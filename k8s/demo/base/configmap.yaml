@@ -209,7 +209,7 @@ data:
           "max_retries": 3,
           "retry_delay": "1s"
         },
-        "logging": {
+      "logging": {
           "level": "info",
           "debug": false,
           "output": "stdout",
@@ -574,10 +574,12 @@ data:
       "poller_id": "k8s-poller",
       "nats_url": "tls://serviceradar-nats:4222",
       "security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "datasvc.serviceradar",
         "role": "poller",
+        "trust_domain": "carverauto.dev",
+        "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "sync.pem",
           "key_file": "sync-key.pem",
@@ -1354,6 +1356,7 @@ data:
         "roles": [
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core", "role": "writer"},
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller", "role": "reader"},
+          {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-sync", "role": "reader"},
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-agent", "role": "reader"},
           {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
           {"identity": "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},

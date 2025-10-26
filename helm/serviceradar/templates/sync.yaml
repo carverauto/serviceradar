@@ -12,6 +12,7 @@ spec:
       labels:
         app: serviceradar-sync
     spec:
+      serviceAccountName: {{ .Values.spire.syncServiceAccount | default "serviceradar-sync" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: sync
@@ -24,6 +25,9 @@ spec:
           mountPath: /etc/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
           readOnly: true
         env:
         - name: CONFIG_PATH
@@ -58,6 +62,10 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -70,3 +78,9 @@ spec:
   - name: grpc
     port: 50058
     targetPort: grpc
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.syncServiceAccount | default "serviceradar-sync" }}

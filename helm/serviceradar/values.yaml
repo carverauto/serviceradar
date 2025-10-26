@@ -33,6 +33,7 @@ spire:
   pollerServiceAccount: serviceradar-poller
   datasvcServiceAccount: serviceradar-datasvc
   serviceradarAgentServiceAccount: serviceradar-agent
+  syncServiceAccount: serviceradar-sync
   bundleConfigMap: spire-bundle
   server:
     image: ghcr.io/spiffe/spire-server:1.11.2

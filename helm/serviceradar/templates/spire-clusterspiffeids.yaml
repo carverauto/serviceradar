@@ -6,6 +6,7 @@
   (dict "name" "serviceradar-poller" "label" "serviceradar-poller" "sa" (.Values.spire.pollerServiceAccount | default "serviceradar-poller"))
   (dict "name" "serviceradar-datasvc" "label" "serviceradar-datasvc" "sa" (.Values.spire.datasvcServiceAccount | default "serviceradar-datasvc"))
   (dict "name" "serviceradar-agent" "label" "serviceradar-agent" "sa" (.Values.spire.serviceradarAgentServiceAccount | default "serviceradar-agent"))
+  (dict "name" "serviceradar-sync" "label" "serviceradar-sync" "sa" (.Values.spire.syncServiceAccount | default "serviceradar-sync"))
 }}
 {{- range $entries }}
 ---
