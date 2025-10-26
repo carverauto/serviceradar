@@ -6,6 +6,7 @@
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
 {{- $syncSA := .Values.spire.syncServiceAccount | default "serviceradar-sync" -}}
+{{- $zenSA := .Values.spire.zenServiceAccount | default "serviceradar-zen" -}}
 # base/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -1168,6 +1169,8 @@ data:
           {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "admin"},
           {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.pollerServiceAccount | default "serviceradar-poller" }}", "role": "reader"},
           {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $syncSA }}", "role": "reader"},
+          {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "reader"},
+          {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $zenSA }}", "role": "reader"},
           {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
           {"identity": "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
           {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "admin"},
