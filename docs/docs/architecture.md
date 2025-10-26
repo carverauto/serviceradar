@@ -151,6 +151,15 @@ The Kong API gateway enforces edge security and traffic policy:
 - Applies rate limits, request shaping, and header normalization before forwarding to the Core API
 - Caches JWKS responses and refreshes keys automatically when the Core rotates signing material
 
+### SPIFFE Identity Plane
+
+Core, Poller, Datasvc, and Agent rely on SPIFFE identities issued by the SPIRE
+stack that ships with the demo kustomization and Helm chart. The SPIRE server
+StatefulSet now embeds the upstream controller manager to reconcile
+`ClusterSPIFFEID` resources and keep workload certificates synchronized. For a
+deep dive into the manifests, controller configuration, and operational
+workflow see [SPIFFE / SPIRE Identity Platform](spiffe-identity.md).
+
 ### SRQL Service (Query Engine)
 
 The SRQL microservice executes ServiceRadar Query Language requests:
