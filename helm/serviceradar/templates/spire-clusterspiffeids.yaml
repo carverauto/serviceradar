@@ -1,0 +1,25 @@
+{{- if .Values.spire.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+{{- $trustDomain := .Values.spire.trustDomain }}
+{{- $entries := list
+  (dict "name" "serviceradar-core" "label" "serviceradar-core" "sa" (.Values.spire.coreServiceAccount | default "serviceradar-core"))
+  (dict "name" "serviceradar-poller" "label" "serviceradar-poller" "sa" (.Values.spire.pollerServiceAccount | default "serviceradar-poller"))
+  (dict "name" "serviceradar-datasvc" "label" "serviceradar-datasvc" "sa" (.Values.spire.datasvcServiceAccount | default "serviceradar-datasvc"))
+  (dict "name" "serviceradar-agent" "label" "serviceradar-agent" "sa" (.Values.spire.serviceradarAgentServiceAccount | default "serviceradar-agent"))
+}}
+{{- range $entries }}
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: {{ .name }}
+spec:
+  spiffeIDTemplate: spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ .sa }}
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: {{ $ns }}
+  podSelector:
+    matchLabels:
+      app: {{ .label }}
+{{- end }}
+{{- end }}

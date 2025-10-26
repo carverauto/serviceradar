@@ -15,10 +15,12 @@ replace ad-hoc TLS bootstrap with SPIRE-issued SVIDs.
   `k8s/demo/base/spire/spire-postgres-cluster.yaml`. The backing credentials are
   provided via the `spire-db-credentials` secret (replace the placeholder
   password before applying).
-- **Registration:** The earlier `postStart` hook in the StatefulSet was removed
-  (distroless image lacks `/bin/sh`). Manual scripts under
-  `k8s/demo/base/spire/create-node-registration-entry.sh` seed node entries, but
-  there is no automated flow for ServiceRadar workloads yet.
+- **Registration:** The SPIRE Controller Manager now runs as a sidecar inside
+  the server StatefulSet and reconciles the `ClusterSPIFFEID` CRDs
+  (`spire-clusterspiffeid-*.yaml`) so demo workloads (core, poller, datasvc,
+  serviceradar-agent) receive SVIDs automatically. Legacy scripts remain under
+  `k8s/demo/base/spire/` for reference but are no longer part of the bootstrap
+  path.
 - **Workloads:** Core/poller still read mTLS material from static ConfigMaps.
   They do **not** request SVIDs from SPIRE, so switching them requires both an
   identity registration flow and application integration.
@@ -42,33 +44,33 @@ replace ad-hoc TLS bootstrap with SPIRE-issued SVIDs.
 
 | Option | Pros | Cons | Notes |
 |--------|------|------|-------|
-| **A. Kubernetes Job + CLI** | Simple to reason about, runs once per deploy, leverages existing manifests | Needs a shell-capable image that bundles `spire-server` CLI; must handle idempotency for repeated runs | Proposed near-term stopgap. |
-| **B. SPIRE Kubernetes Workload Registrar (controller-manager)** | Fully declarative via CRDs, production-proven, auto-syncs entries | Additional controller deployment, introduces CRDs we must package/test, learning curve for operators | Preferred medium-term once we are comfortable shipping CRDs. |
+| **A. Kubernetes Job + CLI (deprecated)** | Simple to reason about, runs once per deploy, leverages existing manifests | Required `kubectl` inside a bespoke image and cluster-admin RBAC; replaced by controller-manager | Kept in history only. |
+| **B. SPIRE Kubernetes Workload Registrar (controller-manager)** | Fully declarative via CRDs, production-proven, auto-syncs entries | Additional controller deployment, introduces CRDs we must package/test, learning curve for operators | **Adopted** – ships as a sidecar with the server. |
 | **C. External automation via `serviceradar-cli`** | Reuses our tooling, covers bare metal installs uniformly | Requires operators to remember an extra step; still need credentials and kube context | Useful fallback for air-gapped installs. |
 
-**Recommendation:** Implement Option A immediately for demo/Helm flows, while
-spiking Option B in parallel. We can keep the Job definition in Kustomize and
-mirror it into the Helm chart once validated.
+**Recommendation:** Continue investing in Option B (controller manager) for all
+Kubernetes flows. Option A has been removed; Option C remains a potential
+escape hatch for non-Kubernetes installs.
 
-### 3.1 Job Design (Option A)
+### 3.1 Controller Manager Deployment (Option B)
 
-- Image: extend `serviceradar-tools` to include the SPIRE CLI binaries and
-  `kubectl`. This keeps the job self-contained and matches the tooling already
-  shipped for operators.
-- Execution:
-  1. Wait for the SPIRE server pod to become Ready.
-  2. Discover the server pod name and run `spire-server entry show/create`
-     _inside the pod_ via `kubectl exec` so we can use the unix admin socket
-     without exposing it over the network.
-  3. Ensure workload entries exist for:
-     - `spiffe://carverauto.dev/ns/demo/sa/serviceradar-core`
-     - `spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller`
-     Additional services can be appended later.
-  4. Exit successfully without error if entries already exist (script remains
-     idempotent thanks to JSON inspection).
-- Trigger: Run as a `Job` with `backoffLimit: 4`, labeled so that we can hook it
-  into Helm post-install and demo `kustomize build`.
-- Future: Replace with the workload registrar once we adopt CRDs.
+- Packaging: the SPIRE Controller Manager binary ships as a sidecar container
+  (`ghcr.io/spiffe/spire-controller-manager:0.6.3`) inside the server
+  StatefulSet. We mount a shared emptyDir at `/tmp/spire-server/private` for
+  the admin socket and expose it to the controller under `/spire-server`.
+- Configuration: `spire-controller-manager-config` (ConfigMap) defines the
+  trust domain, cluster name, leader election settings, and ignores default
+  Kubernetes namespaces. The controller talks to the server via the unix socket
+  (`/spire-server/api.sock`) so nothing is exposed over the network.
+- RBAC: `spire-controller-manager` (ClusterRole + ClusterRoleBinding) grants
+  access to pods/nodes and the SPIRE CRDs. A namespace-scoped Role/RoleBinding
+  handles leader-election ConfigMaps/Leases.
+- Declarative identities: `spire-clusterspiffeid-*.yaml` resources describe the
+  SVIDs we need. The controller reconciles these CRDs and keeps SPIRE entries in
+  sync, pruning stale registrations automatically.
+- Helm/demo parity: both the Kustomize demo and the Helm chart ship the same
+  CRDs, RBAC, ConfigMap, and StatefulSet sidecar logic so upgrades behave the
+  same across packaging flows.
 
 ## 4. External/Edge Connectivity
 
@@ -98,20 +100,20 @@ mirror it into the Helm chart once validated.
 
 ## 6. Roadmap
 
-1. **Bootstrap Job (demo)** – ✅ Landed. `spire-bootstrap` seeds node/core/poller
-   entries automatically after apply.
-2. **Core/Poller integration** – Update service deployments to mount the agent
-   socket, request SVIDs, and switch gRPC security (see `pkg/grpc/security.go`).
-   Provide feature flags to fall back to static certs while we iterate.
-3. **Helm parity** – Mirror the SPIRE manifests, job, and service exposure into
-   the ServiceRadar Helm chart (new `spire.enabled` values block).
-4. **Workload registrar** – Evaluate `spire-controller-manager` for declarative
-   registration; migrate once comfortable.
-5. **Edge packaging** – Add `serviceradar-cli spire bootstrap` command that can
-   run against Kubernetes, Docker, or bare metal to generate the same entries
-   without cluster-admin privileges (reuses Option A logic).
-6. **SPIFFE everywhere** – Gradually migrate remaining services (sync, web,
-   agents) to trust SPIRE-issued identities, dropping legacy cert ConfigMaps.
+1. **Controller manager rollout** – ✅ Landed. SPIRE server now ships with the
+   controller-manager sidecar plus CRDs/RBAC in both the demo kustomization and
+   the Helm chart; declarative `ClusterSPIFFEID` resources replace the old
+   bootstrap job.
+2. **SPIFFE-enabled workloads** – Core/poller/datasvc/serviceradar-agent use
+   SPIRE-issued SVIDs. Finish migrating mapper, sync, and checker deployments
+   and prune legacy mTLS cert mounts once complete.
+3. **Helm parity** – ✅ Helm renders the same controller-manager resources and
+   ClusterSPIFFEID definitions; continue validating chart upgrades and values
+   overrides.
+4. **Edge packaging** – Add `serviceradar-cli` support (or another bootstrap
+   helper) for non-Kubernetes installs that cannot run the controller manager.
+5. **SPIFFE everywhere** – Track follow-up work to remove residual TLS material
+   from KV/configs and rely exclusively on SPIFFE identities across services.
 
 ## 7. Open Questions
 
@@ -124,10 +126,14 @@ mirror it into the Helm chart once validated.
 
 ## 8. Next Actions (tracked in serviceradar-52)
 
-- [x] Build `serviceradar-tools` with the SPIRE CLI and add the bootstrap Job.
-- [ ] Create helm values and documentation for SPIRE external exposure.
-- [x] Document password generation flow in the demo README.
-- [ ] Prototype workload socket mount for `serviceradar-core` and validate mTLS
-      handshake using SPIFFE identities.
+- [x] Ship the controller-manager sidecar, CRDs, and RBAC in demo/Helm so
+      declarative `ClusterSPIFFEID` objects register core/poller/datasvc/
+      serviceradar-agent automatically.
+- [ ] Finish SPIFFE migrations for mapper/sync/checker workloads and delete
+      their legacy mTLS cert mounts once tests pass.
+- [ ] Provide a `serviceradar-cli` (or similar) bootstrap path for
+      non-Kubernetes installs that cannot run the controller manager.
+- [ ] Backfill integration coverage for KV overlay stripping and SPIFFE
+      handshakes to catch regressions automatically.
 
 Please update this plan as we refine the SPIRE rollout strategy.

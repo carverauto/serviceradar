@@ -19,6 +19,7 @@ spec:
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: serviceradar-agent
       imagePullSecrets:
         - name: ghcr-io-cred
       initContainers:
@@ -47,6 +48,9 @@ spec:
               mountPath: /etc/serviceradar/checkers
             - name: cert-data
               mountPath: /etc/serviceradar/certs
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
           env:
             - name: CONFIG_PATH
               value: "/etc/serviceradar/agent.json"
@@ -74,6 +78,10 @@ spec:
         - name: cert-data
           persistentVolumeClaim:
             claimName: serviceradar-cert-data
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -86,3 +94,11 @@ spec:
   - name: grpc
     port: 50051
     targetPort: 50051
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-agent
+  labels:
+    app.kubernetes.io/part-of: serviceradar
