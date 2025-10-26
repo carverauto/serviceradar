@@ -1,12 +1,6 @@
 {{- if .Values.spire.enabled }}
 {{- $ns := default .Release.Namespace .Values.spire.namespace }}
 ---
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: spire-controller-manager
-  namespace: {{ $ns }}
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -75,7 +69,7 @@ roleRef:
   name: spire-controller-manager
 subjects:
   - kind: ServiceAccount
-    name: spire-controller-manager
+    name: spire-server
     namespace: {{ $ns }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -127,6 +121,6 @@ roleRef:
   name: spire-controller-manager-leader-election
 subjects:
   - kind: ServiceAccount
-    name: spire-controller-manager
+    name: spire-server
     namespace: {{ $ns }}
 {{- end }}

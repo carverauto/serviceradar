@@ -23,6 +23,7 @@
 {{- $cmLeaderName := default "spire-controller-manager" $cmVals.leaderElectionResourceName }}
 {{- $cmIgnoreNamespaces := default (list "kube-system" "kube-public" "local-path-storage" "kube-node-lease") $cmVals.ignoreNamespaces }}
 {{- $cmResources := $cmVals.resources }}
+{{- $cmWebhooksEnabled := not (eq ($cmVals.enableWebhooks | default true) false) }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -253,13 +254,19 @@ spec:
         - name: spire-controller-manager
           image: {{ $cmImage }}
           args:
-            - --config=/spire-controller-manager/config.yaml
+            - --config=/spire-controller-manager-config.yaml
+{{- if not $cmWebhooksEnabled }}
+          env:
+            - name: ENABLE_WEBHOOKS
+              value: "false"
+{{- end }}
           volumeMounts:
             - name: spire-server-socket
               mountPath: /spire-server
               readOnly: true
             - name: spire-controller-manager-config
-              mountPath: /spire-controller-manager
+              mountPath: /spire-controller-manager-config.yaml
+              subPath: config.yaml
               readOnly: true
           livenessProbe:
             httpGet:
