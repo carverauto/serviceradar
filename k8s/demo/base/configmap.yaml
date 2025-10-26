@@ -108,16 +108,29 @@ data:
           "role": "core",
           "server_name": "",
           "trust_domain": "carverauto.dev",
-          "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "/etc/serviceradar/certs/core.pem",
-            "key_file": "/etc/serviceradar/certs/core-key.pem",
-            "ca_file": "/etc/serviceradar/certs/root.pem",
-            "client_ca_file": "/etc/serviceradar/certs/root.pem",
-            "skip_verify": false
-          }
-        },
+      "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
+      "workload_socket": "unix:/run/spire/sockets/agent.sock",
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/core.pem",
+        "key_file": "/etc/serviceradar/certs/core-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem",
+        "client_ca_file": "/etc/serviceradar/certs/root.pem",
+        "skip_verify": false
+      }
+    },
+    "kv_security": {
+      "mode": "spiffe",
+      "cert_dir": "/etc/serviceradar/certs",
+      "role": "core",
+      "trust_domain": "carverauto.dev",
+      "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc",
+      "workload_socket": "unix:/run/spire/sockets/agent.sock",
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/core.pem",
+        "key_file": "/etc/serviceradar/certs/core-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      }
+    },
         "cors": {
           "allowed_origins": [
             "*"
