@@ -5,6 +5,7 @@
 {{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
+{{- $syncSA := .Values.spire.syncServiceAccount | default "serviceradar-sync" -}}
 # base/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -960,6 +961,88 @@ data:
       }
     }
 
+  sync.json: |
+    {
+      "kv_address": "serviceradar-datasvc:50057",
+      "listen_addr": ":50058",
+      "poll_interval": "5m",
+      "discovery_interval": "5m",
+      "update_interval": "5m",
+      "agent_id": "k8s-agent",
+      "poller_id": "k8s-poller",
+      "nats_url": "tls://serviceradar-nats:4222",
+      "security": {
+        "mode": "spiffe",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "poller",
+        "trust_domain": "{{ $trustDomain }}",
+        "server_spiffe_id": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $datasvcSA }}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
+        "tls": {
+          "cert_file": "sync.pem",
+          "key_file": "sync-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      },
+      "nats_security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "nats.serviceradar",
+        "role": "poller",
+        "tls": {
+          "cert_file": "sync.pem",
+          "key_file": "sync-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      },
+      "sources": {
+        "armis": {
+          "type": "armis",
+          "endpoint": "http://serviceradar-faker:8080",
+          "prefix": "armis/",
+          "poll_interval": "5m",
+          "sweep_interval": "5m",
+          "agent_id": "k8s-agent",
+          "poller_id": "k8s-poller",
+          "partition": "default",
+          "credentials": {
+            "username": "test",
+            "password": "test"
+          },
+          "page_size": 1000,
+          "network_blacklist": [],
+          "queries": [
+            {
+              "label": "all_devices",
+              "query": "in:devices",
+              "sweep_modes": ["icmp"]
+            }
+          ]
+        }
+      },
+      "logging": {
+        "level": "debug",
+        "debug": true,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+          "enabled": true,
+          "endpoint": "serviceradar-otel:4317",
+          "service_name": "serviceradar-sync",
+          "batch_timeout": "5s",
+          "insecure": false,
+          "headers": {},
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/sync.pem",
+            "key_file": "/etc/serviceradar/certs/sync-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem"
+          }
+        }
+      }
+    }
+
   mapper.json: |
     {
       "workers": 20,
@@ -1082,8 +1165,9 @@ data:
       },
       "rbac": {
         "roles": [
-          {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core", "role": "admin"},
-          {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller", "role": "reader"},
+          {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "admin"},
+          {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.pollerServiceAccount | default "serviceradar-poller" }}", "role": "reader"},
+          {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $syncSA }}", "role": "reader"},
           {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
           {"identity": "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
           {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "admin"},

@@ -379,7 +379,7 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log l
 			Str("server_spiffe_id", idStr).
 			Str("role", string(config.Role)).
 			Msg("Validating SPIFFE server identity")
-		parsedID, parseErr := spiffeid.FromString(idStr)
+		parsedID, parseErr := normalizeServerSPIFFEID(idStr, trustDomain, hasTrustDomain, log)
 		if parseErr != nil {
 			_ = source.Close()
 			_ = client.Close()
@@ -400,6 +400,27 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log l
 		hasServerID:    hasServerID,
 		logger:         log,
 	}, nil
+}
+
+func normalizeServerSPIFFEID(raw string, trustDomain spiffeid.TrustDomain, hasTrustDomain bool, log logger.Logger) (spiffeid.ID, error) {
+	trimmed := strings.TrimSpace(raw)
+	if strings.Contains(trimmed, "://") {
+		return spiffeid.FromString(trimmed)
+	}
+
+	if !hasTrustDomain {
+		return spiffeid.ID{}, fmt.Errorf("server SPIFFE ID %q is missing a scheme and no trust_domain is configured", trimmed)
+	}
+
+	normalized := "/" + strings.TrimPrefix(trimmed, "/")
+	fullID := fmt.Sprintf("spiffe://%s%s", trustDomain.String(), normalized)
+
+	log.Debug().
+		Str("original_server_spiffe_id", trimmed).
+		Str("normalized_server_spiffe_id", fullID).
+		Msg("Normalized SPIFFE server identity to include scheme and trust domain")
+
+	return spiffeid.FromString(fullID)
 }
 
 func (p *SpiffeProvider) GetClientCredentials(_ context.Context) (grpc.DialOption, error) {
