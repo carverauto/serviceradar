@@ -71,6 +71,8 @@ spire:
       - kube-public
       - local-path-storage
       - kube-node-lease
+    validatingWebhookConfigurationName: spire-controller-manager-webhook
+    enableWebhooks: false
     resources:
       limits:
         cpu: 200m

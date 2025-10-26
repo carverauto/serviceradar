@@ -71,13 +71,17 @@ spec:
         - name: spire-controller-manager
           image: ghcr.io/spiffe/spire-controller-manager:0.6.3
           args:
-            - --config=/spire-controller-manager/config.yaml
+            - --config=/spire-controller-manager-config.yaml
+          env:
+            - name: ENABLE_WEBHOOKS
+              value: "false"
           volumeMounts:
             - name: spire-server-socket
               mountPath: /spire-server
               readOnly: true
             - name: spire-controller-manager-config
-              mountPath: /spire-controller-manager
+              mountPath: /spire-controller-manager-config.yaml
+              subPath: config.yaml
               readOnly: true
           livenessProbe:
             httpGet:

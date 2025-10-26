@@ -23,5 +23,5 @@ data:
       - kube-public
       - local-path-storage
       - kube-node-lease
-    validatingWebhookConfigurationName: ""
+    validatingWebhookConfigurationName: spire-controller-manager-webhook
     logLevel: info
