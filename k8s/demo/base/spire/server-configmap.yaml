@@ -30,12 +30,11 @@ data:
         }
       }
 
-      NodeAttestor "k8s_sat" {
+      NodeAttestor "k8s_psat" {
         plugin_data {
           clusters = {
             # NOTE: Change this to your cluster name
             "carverauto-cluster" = {
-              use_token_review_api_validation = true
               service_account_allow_list = ["demo:spire-agent"]
             }
           }

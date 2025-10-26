@@ -1312,6 +1312,20 @@ data:
       "listen_addr": "0.0.0.0:50057",
       "nats_url": "tls://serviceradar-nats:4222",
       "security": {
+        "mode": "spiffe",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "datasvc",
+        "trust_domain": "carverauto.dev",
+        "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
+        "tls": {
+          "cert_file": "datasvc.pem",
+          "key_file": "datasvc-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      },
+      "nats_security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
         "server_name": "serviceradar-nats",
@@ -1327,6 +1341,7 @@ data:
         "roles": [
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core", "role": "writer"},
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller", "role": "reader"},
+          {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-agent", "role": "reader"},
           {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
           {"identity": "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
           {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
