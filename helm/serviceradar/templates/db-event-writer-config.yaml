@@ -1,4 +1,5 @@
 # Rendered as-is from staging overlay
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -29,10 +30,11 @@ data:
         "password": ""
       },
       "security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "localhost",
         "role": "core",
+        "trust_domain": "{{$trustDomain}}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
           "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",

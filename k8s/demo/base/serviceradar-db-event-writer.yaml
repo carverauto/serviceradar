@@ -15,6 +15,7 @@ spec:
         app: serviceradar-db-event-writer
         app.kubernetes.io/part-of: serviceradar
     spec:
+      serviceAccountName: serviceradar-db-event-writer
       imagePullSecrets:
         - name: ghcr-io-cred
       initContainers:
@@ -50,6 +51,9 @@ spec:
           readOnly: true
         - name: db-event-writer-data
           mountPath: /var/lib/serviceradar
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/templates/db-event-writer.json"
@@ -74,37 +78,15 @@ spec:
             cpu: "100m"
             memory: "128Mi"
         livenessProbe:
-          exec:
-            command:
-            - grpcurl
-            - -cacert
-            - /etc/serviceradar/certs/root.pem
-            - -cert
-            - /etc/serviceradar/certs/db-event-writer.pem
-            - -key
-            - /etc/serviceradar/certs/db-event-writer-key.pem
-            - -servername
-            - db-event-writer.serviceradar
-            - localhost:50041
-            - grpc.health.v1.Health/Check
+          tcpSocket:
+            port: 50041
           initialDelaySeconds: 60
           periodSeconds: 30
           timeoutSeconds: 10
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - grpcurl
-            - -cacert
-            - /etc/serviceradar/certs/root.pem
-            - -cert
-            - /etc/serviceradar/certs/db-event-writer.pem
-            - -key
-            - /etc/serviceradar/certs/db-event-writer-key.pem
-            - -servername
-            - db-event-writer.serviceradar
-            - localhost:50041
-            - grpc.health.v1.Health/Check
+          tcpSocket:
+            port: 50041
           initialDelaySeconds: 30
           periodSeconds: 15
           timeoutSeconds: 10
@@ -121,6 +103,10 @@ spec:
       - name: db-event-writer-data
         persistentVolumeClaim:
           claimName: serviceradar-db-event-writer-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -144,3 +130,10 @@ spec:
   resources:
     requests:
       storage: 5Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-db-event-writer
+  labels:
+    app.kubernetes.io/part-of: serviceradar

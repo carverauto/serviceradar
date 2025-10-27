@@ -30,7 +30,14 @@ spec:
           mkdir -p /etc/serviceradar/checkers/sweep &&
           cp /config/snmp.json /etc/serviceradar/checkers/snmp.json &&
           cp /config/external.json /etc/serviceradar/checkers/external.json &&
-          cp /config/sweep.json /etc/serviceradar/checkers/sweep/sweep.json
+          cp /config/sweep.json /etc/serviceradar/checkers/sweep/sweep.json &&
+          cp /config/sync-checker.json /etc/serviceradar/checkers/sync-checker.json &&
+          cp /config/rperf-checker.json /etc/serviceradar/checkers/rperf-checker.json &&
+          cp /config/mapper-checker.json /etc/serviceradar/checkers/mapper-checker.json &&
+          cp /config/zen-checker.json /etc/serviceradar/checkers/zen-checker.json &&
+          cp /config/flowgger-checker.json /etc/serviceradar/checkers/flowgger-checker.json &&
+          cp /config/trapd-checker.json /etc/serviceradar/checkers/trapd-checker.json &&
+          cp /config/db-event-writer-checker.json /etc/serviceradar/checkers/db-event-writer-checker.json
         ']
           volumeMounts:
             - name: serviceradar-config

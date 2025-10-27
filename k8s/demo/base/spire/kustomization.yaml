@@ -29,3 +29,6 @@ resources:
   - spire-clusterspiffeid-datasvc.yaml
   - spire-clusterspiffeid-sync.yaml
   - spire-clusterspiffeid-zen.yaml
+  - spire-clusterspiffeid-mapper.yaml
+  - spire-clusterspiffeid-db-event-writer.yaml
+  - spire-clusterspiffeid-rperf-checker.yaml

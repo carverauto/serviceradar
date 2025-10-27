@@ -12,6 +12,7 @@ spec:
       labels:
         app: serviceradar-rperf-client
     spec:
+      serviceAccountName: {{ .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
         - name: init-rperf-config
@@ -36,6 +37,9 @@ spec:
           readOnly: true
         - name: checkers-dir
           mountPath: /etc/serviceradar/checkers
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
         - name: RUST_LOG
           value: "info"
@@ -69,6 +73,10 @@ spec:
           claimName: serviceradar-cert-data
       - name: checkers-dir
         emptyDir: {}
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -81,6 +89,13 @@ spec:
   - name: grpc
     port: 50081
     targetPort: grpc
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 ---
 apiVersion: v1
 kind: Service
