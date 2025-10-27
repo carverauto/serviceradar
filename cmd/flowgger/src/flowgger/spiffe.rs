@@ -71,18 +71,28 @@ pub async fn load_server_credentials(
         .map_err(|err| anyhow!("failed to fetch X.509 bundle for trust domain: {err}"))?
         .ok_or_else(|| anyhow!("no X.509 bundle available for trust domain {trust_domain}"))?;
 
-    let cert_pem = encode_chain(svid.cert_chain());
-    let key_pem = encode_block(KEY_TAG, svid.private_key().as_ref());
-    let ca_pem = encode_chain(bundle.authorities());
-
-    let identity = Identity::from_pem(cert_pem.into_bytes(), key_pem.into_bytes());
-    let client_ca = Certificate::from_pem(ca_pem.into_bytes());
+    let (identity, client_ca) =
+        build_tls_identity(&svid, bundle.authorities());
 
     Ok(ServerCredentials {
         identity,
         client_ca,
         guard: SpiffeSourceGuard { source },
     })
+}
+
+fn build_tls_identity(
+    svid: &spiffe::X509Svid,
+    authorities: &[SpiffeCertificate],
+) -> (Identity, Certificate) {
+    let cert_pem = encode_chain(svid.cert_chain());
+    let key_pem = encode_block(KEY_TAG, svid.private_key().as_ref());
+    let ca_pem = encode_chain(authorities);
+
+    (
+        Identity::from_pem(cert_pem.into_bytes(), key_pem.into_bytes()),
+        Certificate::from_pem(ca_pem.into_bytes()),
+    )
 }
 
 fn encode_chain(items: &[SpiffeCertificate]) -> String {
@@ -113,8 +123,13 @@ fn map_grpc_error(action: &str, socket: &str, err: GrpcClientError) -> anyhow::E
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rcgen::{
+        BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose,
+        IsCa, KeyUsagePurpose, SanType,
+    };
     use rcgen::generate_simple_self_signed;
     use std::convert::TryFrom;
+    use tonic::transport::ServerTlsConfig;
 
     #[test]
     fn encode_block_wraps_pem_headers() {
@@ -168,5 +183,67 @@ mod tests {
             "expected original error preserved: {}",
             message
         );
+    }
+
+    #[test]
+    fn build_tls_identity_produces_pem_materials() {
+        let spiffe_id = "spiffe://carverauto.dev/ns/demo/sa/test";
+        let (svid, authorities) = build_test_svid(spiffe_id);
+        let (identity, client_ca) = build_tls_identity(&svid, &authorities);
+
+        // Ensure resulting materials can configure tonic TLS without panicking.
+        let _ = ServerTlsConfig::new()
+            .identity(identity.clone())
+            .client_ca_root(client_ca.clone());
+
+        let pem = String::from_utf8(client_ca.clone().into_inner()).expect("utf8 pem");
+        assert!(
+            pem.contains("BEGIN CERTIFICATE"),
+            "expected PEM formatted CA certificate"
+        );
+    }
+
+    fn build_test_svid(spiffe_id: &str) -> (spiffe::X509Svid, Vec<SpiffeCertificate>) {
+        let mut ca_params = CertificateParams::new(vec![]);
+        ca_params.distinguished_name = DistinguishedName::new();
+        ca_params
+            .distinguished_name
+            .push(DnType::CommonName, "flowgger-ca");
+        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        ca_params.key_usages = vec![
+            KeyUsagePurpose::KeyCertSign,
+            KeyUsagePurpose::CrlSign,
+            KeyUsagePurpose::DigitalSignature,
+        ];
+
+        let ca_cert = rcgen::Certificate::from_params(ca_params).expect("generate ca certificate");
+
+        let mut leaf_params = CertificateParams::new(vec![]);
+        leaf_params
+            .subject_alt_names
+            .push(SanType::URI(spiffe_id.to_string()));
+        leaf_params.distinguished_name = DistinguishedName::new();
+        leaf_params
+            .distinguished_name
+            .push(DnType::CommonName, "flowgger-test");
+        leaf_params.is_ca = IsCa::ExplicitNoCa;
+        leaf_params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+        leaf_params.extended_key_usages = vec![
+            ExtendedKeyUsagePurpose::ServerAuth,
+            ExtendedKeyUsagePurpose::ClientAuth,
+        ];
+
+        let leaf_cert =
+            rcgen::Certificate::from_params(leaf_params).expect("generate leaf certificate");
+        let cert_der = leaf_cert
+            .serialize_der_with_signer(&ca_cert)
+            .expect("sign certificate");
+        let key_der = leaf_cert.serialize_private_key_der();
+
+        let svid = spiffe::X509Svid::parse_from_der(&cert_der, &key_der).expect("valid svid");
+        let ca_der = ca_cert.serialize_der().expect("serialize ca certificate");
+        let authority = SpiffeCertificate::try_from(ca_der).expect("valid authority");
+
+        (svid, vec![authority])
     }
 }
