@@ -31,9 +31,10 @@ data:
     
     [grpc]
     listen_addr = "0.0.0.0:50044"
-    cert_file = "/etc/serviceradar/certs/flowgger.pem"
-    key_file = "/etc/serviceradar/certs/flowgger-key.pem"
-    ca_file = "/etc/serviceradar/certs/root.pem"
+    mode = "spiffe"
+    cert_dir = "/etc/serviceradar/certs"
+    trust_domain = "carverauto.dev"
+    workload_socket = "unix:/run/spire/sockets/agent.sock"
     
     [logging]
     level = "info"
@@ -68,6 +69,9 @@ spec:
         app: serviceradar-flowgger
         app.kubernetes.io/part-of: serviceradar
     spec:
+      serviceAccountName: serviceradar-flowgger
+      imagePullSecrets:
+      - name: ghcr-io-cred
       containers:
       - name: flowgger
         image: ghcr.io/carverauto/serviceradar-flowgger:latest
@@ -126,6 +130,9 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: logs
           mountPath: /var/log/serviceradar
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
       volumes:
       - name: flowgger-config
         configMap:
@@ -138,8 +145,10 @@ spec:
           claimName: serviceradar-flowgger-data
       - name: logs
         emptyDir: {}
-      imagePullSecrets:
-      - name: ghcr-io-cred
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -160,3 +169,10 @@ spec:
     targetPort: 50044
     protocol: TCP
   type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-flowgger
+  labels:
+    app.kubernetes.io/part-of: serviceradar

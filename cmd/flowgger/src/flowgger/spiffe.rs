@@ -1,0 +1,172 @@
+use anyhow::{anyhow, Result};
+use log::warn;
+use pem::Pem;
+use spiffe::cert::Certificate as SpiffeCertificate;
+use spiffe::error::GrpcClientError;
+use spiffe::workload_api::x509_source::X509SourceError;
+use spiffe::{
+    BundleSource, SvidSource, TrustDomain, WorkloadApiClient, X509Source, X509SourceBuilder,
+};
+use std::sync::Arc;
+use tonic::transport::{Certificate, Identity};
+
+const CERT_TAG: &str = "CERTIFICATE";
+const KEY_TAG: &str = "PRIVATE KEY";
+
+pub struct ServerCredentials {
+    pub identity: Identity,
+    pub client_ca: Certificate,
+    guard: SpiffeSourceGuard,
+}
+
+impl ServerCredentials {
+    pub fn into_parts(self) -> (Identity, Certificate, SpiffeSourceGuard) {
+        (self.identity, self.client_ca, self.guard)
+    }
+}
+
+pub struct SpiffeSourceGuard {
+    source: Arc<X509Source>,
+}
+
+impl Drop for SpiffeSourceGuard {
+    fn drop(&mut self) {
+        if let Err(err) = self.source.close() {
+            warn!("Failed to close SPIFFE X.509 source: {err}");
+        }
+    }
+}
+
+pub async fn load_server_credentials(
+    workload_socket: &str,
+    trust_domain: &str,
+) -> Result<ServerCredentials> {
+    let client = WorkloadApiClient::new_from_path(workload_socket)
+        .await
+        .map_err(|err| map_grpc_error("connect to SPIFFE Workload API", workload_socket, err))?;
+
+    let source = X509SourceBuilder::new()
+        .with_client(client)
+        .build()
+        .await
+        .map_err(|err| match err {
+            X509SourceError::GrpcError(grpc_err) => {
+                map_grpc_error("initialize SPIFFE X.509 source", workload_socket, grpc_err)
+            }
+            other => {
+                anyhow!("failed to initialize SPIFFE X.509 source via {workload_socket}: {other}")
+            }
+        })?;
+
+    let svid = source
+        .get_svid()
+        .map_err(|err| anyhow!("failed to fetch default X.509 SVID from workload API: {err}"))?
+        .ok_or_else(|| anyhow!("workload API returned no default X.509 SVID"))?;
+
+    let trust_domain = TrustDomain::new(trust_domain)
+        .map_err(|e| anyhow!("invalid trust domain {trust_domain}: {e}"))?;
+
+    let bundle = source
+        .get_bundle_for_trust_domain(&trust_domain)
+        .map_err(|err| anyhow!("failed to fetch X.509 bundle for trust domain: {err}"))?
+        .ok_or_else(|| anyhow!("no X.509 bundle available for trust domain {trust_domain}"))?;
+
+    let cert_pem = encode_chain(svid.cert_chain());
+    let key_pem = encode_block(KEY_TAG, svid.private_key().as_ref());
+    let ca_pem = encode_chain(bundle.authorities());
+
+    let identity = Identity::from_pem(cert_pem.into_bytes(), key_pem.into_bytes());
+    let client_ca = Certificate::from_pem(ca_pem.into_bytes());
+
+    Ok(ServerCredentials {
+        identity,
+        client_ca,
+        guard: SpiffeSourceGuard { source },
+    })
+}
+
+fn encode_chain(items: &[SpiffeCertificate]) -> String {
+    items
+        .iter()
+        .map(|cert| encode_block(CERT_TAG, cert.as_ref()))
+        .collect()
+}
+
+fn encode_block(tag: &str, der: &[u8]) -> String {
+    pem::encode(&Pem::new(tag.to_string(), der.to_vec()))
+}
+
+fn map_grpc_error(action: &str, socket: &str, err: GrpcClientError) -> anyhow::Error {
+    match &err {
+        GrpcClientError::Grpc(status) => anyhow!(
+            "failed to {action} at {socket}: gRPC status {:?} ({})",
+            status.code(),
+            status.message()
+        ),
+        GrpcClientError::Transport(transport) => {
+            anyhow!("failed to {action} at {socket}: transport error {transport}")
+        }
+        _ => anyhow!(err),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rcgen::generate_simple_self_signed;
+    use std::convert::TryFrom;
+
+    #[test]
+    fn encode_block_wraps_pem_headers() {
+        let pem = encode_block("TEST", &[0x00, 0x01, 0x02]);
+        assert!(
+            pem.starts_with("-----BEGIN TEST-----"),
+            "missing PEM begin header"
+        );
+        assert!(
+            pem.contains("AAEC"),
+            "expected base64 body to contain AAEC, got {:?}",
+            pem
+        );
+        assert!(
+            pem.trim_end().ends_with("-----END TEST-----"),
+            "missing PEM end footer"
+        );
+    }
+
+    #[test]
+    fn encode_chain_renders_all_certificates() {
+        let cert = generate_simple_self_signed(["example.test".into()]).unwrap();
+        let der = cert.serialize_der().unwrap();
+        let spiffe_cert = SpiffeCertificate::try_from(der.clone()).unwrap();
+        let chain = encode_chain(&[spiffe_cert.clone(), spiffe_cert]);
+        let begin_markers = chain.match_indices("-----BEGIN CERTIFICATE-----").count();
+        assert_eq!(begin_markers, 2, "expected two PEM certificates, got {chain}");
+        assert!(
+            chain.contains("-----END CERTIFICATE-----"),
+            "expected PEM footer"
+        );
+        assert!(!chain.contains("PRIVATE KEY"), "unexpected key block in chain");
+    }
+
+    #[test]
+    fn encode_chain_empty_is_empty_string() {
+        let chain = encode_chain(&[]);
+        assert!(chain.is_empty(), "expected empty string for empty chain");
+    }
+
+    #[test]
+    fn map_grpc_error_formats_status() {
+        let err = map_grpc_error(
+            "connect to SPIFFE Workload API",
+            "unix:/run/spire/sockets/agent.sock",
+            GrpcClientError::MissingEndpointSocketPath,
+        );
+        let message = err.to_string();
+        assert!(
+            message.contains("missing endpoint socket address"),
+            "expected original error preserved: {}",
+            message
+        );
+    }
+}

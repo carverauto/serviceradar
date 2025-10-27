@@ -3914,6 +3914,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcgen"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48406db8ac1f3cbc7dcdb56ec355343817958a356ff430259bb07baf7607e1e1"
+dependencies = [
+ "pem",
+ "ring",
+ "time",
+ "yasna",
+]
+
+[[package]]
 name = "rdrand"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4631,6 +4643,7 @@ dependencies = [
 name = "serviceradar-flowgger"
 version = "0.3.4"
 dependencies = [
+ "anyhow",
  "async-nats",
  "capnp 0.14.11",
  "capnpc",
@@ -4644,12 +4657,15 @@ dependencies = [
  "may",
  "notify",
  "openssl",
+ "pem",
  "prost 0.13.5",
  "quickcheck",
  "rand 0.8.5",
+ "rcgen",
  "redis",
  "serde 1.0.228",
  "serde_json 0.8.6",
+ "spiffe",
  "tempdir",
  "tempfile",
  "time",
@@ -4742,10 +4758,13 @@ dependencies = [
  "futures",
  "kvutil",
  "log 0.4.27",
+ "pem",
  "prost 0.13.5",
+ "rcgen",
  "serde 1.0.228",
  "serde_json 1.0.143",
  "snmp2",
+ "spiffe",
  "tokio",
  "tonic 0.12.3",
  "tonic-build 0.12.3",
@@ -6736,6 +6755,15 @@ name = "xml-rs"
 version = "0.8.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fd8403733700263c6eb89f192880191f1b83e332f7a20371ddcf421c4a337c7"
+
+[[package]]
+name = "yasna"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
+dependencies = [
+ "time",
+]
 
 [[package]]
 name = "yoke"

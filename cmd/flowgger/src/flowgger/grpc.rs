@@ -1,17 +1,26 @@
-use std::{fs, net::SocketAddr, thread};
+use std::{
+    fs,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    thread,
+};
 
+use anyhow::{anyhow, Context, Result};
 use log::{error, info, warn};
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tonic_health::{server::health_reporter, ServingStatus};
 
 use super::config::Config;
+use super::spiffe;
+
+const DEFAULT_WORKLOAD_SOCKET: &str = "unix:/run/spire/sockets/agent.sock";
 
 pub fn maybe_spawn(config: &Config) {
     let settings = match GrpcSettings::from_config(config) {
         Ok(Some(settings)) => settings,
         Ok(None) => return,
         Err(err) => {
-            error!("flowgger gRPC disabled: invalid configuration: {err}");
+            error!("flowgger gRPC disabled: invalid configuration: {err:#}");
             return;
         }
     };
@@ -22,24 +31,24 @@ pub fn maybe_spawn(config: &Config) {
     );
 
     if let Err(err) = spawn_server(settings) {
-        error!("flowgger gRPC disabled: failed to spawn server: {err}");
+        error!("flowgger gRPC disabled: failed to spawn server: {err:#}");
     }
 }
 
-fn spawn_server(settings: GrpcSettings) -> Result<(), Box<dyn std::error::Error>> {
+fn spawn_server(settings: GrpcSettings) -> Result<()> {
     thread::Builder::new()
         .name("flowgger-grpc".into())
         .spawn(move || {
             info!("flowgger gRPC server starting on {}", settings.listen_addr);
             if let Err(err) = run_server(settings) {
-                error!("flowgger gRPC server exited: {err}");
+                error!("flowgger gRPC server exited: {err:#}");
             }
         })?;
 
     Ok(())
 }
 
-fn run_server(settings: GrpcSettings) -> Result<(), Box<dyn std::error::Error>> {
+fn run_server(settings: GrpcSettings) -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .enable_io()
@@ -47,11 +56,11 @@ fn run_server(settings: GrpcSettings) -> Result<(), Box<dyn std::error::Error>> 
         .build()?;
 
     rt.block_on(async move {
-        let addr: SocketAddr = settings.listen_addr.parse()?;
+        let addr: SocketAddr = settings.listen_addr.parse().with_context(|| {
+            format!("failed to parse grpc.listen_addr {}", settings.listen_addr)
+        })?;
         let (mut reporter, health_service) = health_reporter();
 
-        // Mark both the overall service ("") and a named service as serving so clients
-        // using either convention receive a healthy status.
         reporter
             .set_service_status("", ServingStatus::Serving)
             .await;
@@ -60,12 +69,30 @@ fn run_server(settings: GrpcSettings) -> Result<(), Box<dyn std::error::Error>> 
             .await;
 
         let mut server = Server::builder();
-        match settings.tls.tls_config()? {
-            Some(tls) => {
+        let mut spiffe_guard: Option<spiffe::SpiffeSourceGuard> = None;
+        match settings.security {
+            SecuritySettings::None => {
+                warn!("flowgger gRPC server starting without TLS; clients must allow plaintext");
+            }
+            SecuritySettings::Mtls(tls) => {
+                let tls = tls
+                    .tls_config()
+                    .context("failed to configure mTLS for flowgger gRPC server")?;
                 server = server.tls_config(tls)?;
             }
-            None => {
-                warn!("flowgger gRPC server starting without TLS; clients must allow plaintext");
+            SecuritySettings::Spiffe(spiffe_cfg) => {
+                let credentials = spiffe::load_server_credentials(
+                    &spiffe_cfg.workload_socket,
+                    &spiffe_cfg.trust_domain,
+                )
+                .await
+                .context("failed to load SPIFFE credentials for flowgger gRPC server")?;
+                let (identity, client_ca, guard) = credentials.into_parts();
+                let tls = ServerTlsConfig::new()
+                    .identity(identity)
+                    .client_ca_root(client_ca);
+                spiffe_guard = Some(guard);
+                server = server.tls_config(tls)?;
             }
         }
 
@@ -73,92 +100,236 @@ fn run_server(settings: GrpcSettings) -> Result<(), Box<dyn std::error::Error>> 
             .add_service(health_service)
             .serve(addr)
             .await
-            .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)
+            .context("flowgger gRPC server failed")
+            .map(|_| drop(spiffe_guard))
     })
 }
 
+#[derive(Debug, PartialEq, Eq)]
 struct GrpcSettings {
     listen_addr: String,
-    tls: TlsSettings,
+    security: SecuritySettings,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 struct TlsSettings {
-    cert_file: Option<String>,
-    key_file: Option<String>,
-    ca_file: Option<String>,
-    client_ca_file: Option<String>,
+    cert_path: PathBuf,
+    key_path: PathBuf,
+    client_ca_path: PathBuf,
 }
 
-impl TlsSettings {
-    fn tls_config(&self) -> Result<Option<ServerTlsConfig>, Box<dyn std::error::Error>> {
-        match (&self.cert_file, &self.key_file) {
-            (None, None) => return Ok(None),
-            (Some(_), Some(_)) => {}
-            _ => {
-                return Err(
-                    "grpc.cert_file and grpc.key_file must both be provided when enabling TLS"
-                        .into(),
-                )
-            }
-        }
+#[derive(Debug, PartialEq, Eq)]
+struct SpiffeSettings {
+    workload_socket: String,
+    trust_domain: String,
+}
 
-        let cert_path = self.cert_file.as_ref().unwrap();
-        let key_path = self.key_file.as_ref().unwrap();
-
-        let client_ca_path = self
-            .client_ca_file
-            .as_ref()
-            .or(self.ca_file.as_ref())
-            .ok_or_else(|| "grpc.client_ca_file or grpc.ca_file is required when TLS is enabled")?;
-
-        let identity = Identity::from_pem(fs::read(cert_path)?, fs::read(key_path)?);
-        let client_ca = Certificate::from_pem(fs::read(client_ca_path)?);
-
-        let tls = ServerTlsConfig::new()
-            .identity(identity)
-            .client_ca_root(client_ca);
-
-        Ok(Some(tls))
-    }
+#[derive(Debug, PartialEq, Eq)]
+enum SecuritySettings {
+    None,
+    Mtls(TlsSettings),
+    Spiffe(SpiffeSettings),
 }
 
 impl GrpcSettings {
-    fn from_config(config: &Config) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        let listen = match config.lookup("grpc.listen_addr") {
-            Some(value) => value
-                .as_str()
-                .ok_or("grpc.listen_addr must be a string")?
-                .trim()
-                .to_string(),
-            None => return Ok(None),
+    fn from_config(config: &Config) -> Result<Option<Self>> {
+        let listen = match read_string(config, "grpc.listen_addr") {
+            Some(value) if !value.is_empty() => value,
+            _ => return Ok(None),
         };
 
-        if listen.is_empty() {
-            return Ok(None);
-        }
+        let cert_dir = read_string(config, "grpc.cert_dir");
+        let mode = read_string(config, "grpc.mode")
+            .map(|m| m.to_ascii_lowercase())
+            .unwrap_or_else(|| "mtls".to_string());
 
-        let tls = TlsSettings {
-            cert_file: config
-                .lookup("grpc.cert_file")
-                .and_then(|v| v.as_str().map(|s| s.trim().to_string()))
-                .filter(|s| !s.is_empty()),
-            key_file: config
-                .lookup("grpc.key_file")
-                .and_then(|v| v.as_str().map(|s| s.trim().to_string()))
-                .filter(|s| !s.is_empty()),
-            ca_file: config
-                .lookup("grpc.ca_file")
-                .and_then(|v| v.as_str().map(|s| s.trim().to_string()))
-                .filter(|s| !s.is_empty()),
-            client_ca_file: config
-                .lookup("grpc.client_ca_file")
-                .and_then(|v| v.as_str().map(|s| s.trim().to_string()))
-                .filter(|s| !s.is_empty()),
+        let security = match mode.as_str() {
+            "none" => SecuritySettings::None,
+            "spiffe" => {
+                let trust_domain = read_string(config, "grpc.trust_domain")
+                    .ok_or_else(|| anyhow!("grpc.trust_domain is required for SPIFFE mode"))?;
+                let workload_socket = read_string(config, "grpc.workload_socket")
+                    .unwrap_or_else(|| DEFAULT_WORKLOAD_SOCKET.to_string());
+                if workload_socket.trim().is_empty() {
+                    return Err(anyhow!(
+                        "grpc.workload_socket cannot be empty in SPIFFE mode"
+                    ));
+                }
+                SecuritySettings::Spiffe(SpiffeSettings {
+                    trust_domain,
+                    workload_socket,
+                })
+            }
+            "mtls" => match TlsSettings::from_config(cert_dir.as_deref(), config)? {
+                Some(tls) => SecuritySettings::Mtls(tls),
+                None => SecuritySettings::None,
+            },
+            other => return Err(anyhow!("unsupported grpc.mode '{other}'")),
         };
 
         Ok(Some(GrpcSettings {
             listen_addr: listen,
-            tls,
+            security,
         }))
+    }
+}
+
+impl TlsSettings {
+    fn from_config(cert_dir: Option<&str>, config: &Config) -> Result<Option<Self>> {
+        let cert = read_string(config, "grpc.cert_file");
+        let key = read_string(config, "grpc.key_file");
+        let client_ca = read_string(config, "grpc.client_ca_file")
+            .or_else(|| read_string(config, "grpc.ca_file"));
+
+        if cert.is_none() && key.is_none() && client_ca.is_none() {
+            return Ok(None);
+        }
+
+        let cert = cert.ok_or_else(|| anyhow!("grpc.cert_file is required in mTLS mode"))?;
+        let key = key.ok_or_else(|| anyhow!("grpc.key_file is required in mTLS mode"))?;
+        let client_ca = client_ca.ok_or_else(|| {
+            anyhow!("grpc.client_ca_file or grpc.ca_file is required in mTLS mode")
+        })?;
+
+        Ok(Some(TlsSettings {
+            cert_path: resolve_path(cert_dir, cert),
+            key_path: resolve_path(cert_dir, key),
+            client_ca_path: resolve_path(cert_dir, client_ca),
+        }))
+    }
+
+    fn tls_config(&self) -> Result<ServerTlsConfig> {
+        let cert_bytes = fs::read(&self.cert_path).with_context(|| {
+            format!(
+                "failed to read TLS certificate from {}",
+                self.cert_path.display()
+            )
+        })?;
+        let key_bytes = fs::read(&self.key_path)
+            .with_context(|| format!("failed to read TLS key from {}", self.key_path.display()))?;
+        let ca_bytes = fs::read(&self.client_ca_path).with_context(|| {
+            format!(
+                "failed to read client CA certificate from {}",
+                self.client_ca_path.display()
+            )
+        })?;
+
+        let identity = Identity::from_pem(cert_bytes, key_bytes);
+        let client_ca = Certificate::from_pem(ca_bytes);
+
+        Ok(ServerTlsConfig::new()
+            .identity(identity)
+            .client_ca_root(client_ca))
+    }
+}
+
+fn read_string(config: &Config, key: &str) -> Option<String> {
+    config
+        .lookup(key)
+        .and_then(|v| v.as_str().map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+}
+
+fn resolve_path(cert_dir: Option<&str>, value: String) -> PathBuf {
+    let trimmed = value.trim();
+    let path = Path::new(trimmed);
+    if path.is_absolute() || cert_dir.is_none() {
+        path.to_path_buf()
+    } else {
+        Path::new(cert_dir.unwrap()).join(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn load_config(toml: &str) -> Config {
+        Config::from_string(toml).expect("failed to parse config snippet")
+    }
+
+    #[test]
+    fn spiffe_defaults_workload_socket() {
+        let config = load_config(
+            r#"
+            [grpc]
+            listen_addr = "0.0.0.0:50044"
+            mode = "spiffe"
+            trust_domain = "example.test"
+        "#,
+        );
+
+        let settings = GrpcSettings::from_config(&config)
+            .expect("config parsing failed")
+            .expect("expected settings");
+
+        match settings.security {
+            SecuritySettings::Spiffe(spiffe) => {
+                assert_eq!(spiffe.trust_domain, "example.test");
+                assert_eq!(spiffe.workload_socket, DEFAULT_WORKLOAD_SOCKET);
+            }
+            other => panic!("expected SPIFFE security, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spiffe_honors_custom_socket() {
+        let config = load_config(
+            r#"
+            [grpc]
+            listen_addr = "0.0.0.0:50044"
+            mode = "spiffe"
+            trust_domain = "example.test"
+            workload_socket = "unix:/custom.sock"
+        "#,
+        );
+
+        let settings = GrpcSettings::from_config(&config)
+            .expect("config parsing failed")
+            .expect("expected settings");
+
+        match settings.security {
+            SecuritySettings::Spiffe(spiffe) => {
+                assert_eq!(spiffe.trust_domain, "example.test");
+                assert_eq!(spiffe.workload_socket, "unix:/custom.sock");
+            }
+            other => panic!("expected SPIFFE security, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spiffe_requires_trust_domain() {
+        let config = load_config(
+            r#"
+            [grpc]
+            listen_addr = "0.0.0.0:50044"
+            mode = "spiffe"
+        "#,
+        );
+
+        let err = GrpcSettings::from_config(&config).expect_err("expected failure");
+        assert!(
+            err.to_string().contains("trust_domain"),
+            "error message should reference trust_domain: {err}"
+        );
+    }
+
+    #[test]
+    fn mtls_without_paths_disables_tls() {
+        let config = load_config(
+            r#"
+            [grpc]
+            listen_addr = "0.0.0.0:50044"
+            mode = "mtls"
+        "#,
+        );
+
+        let settings = GrpcSettings::from_config(&config)
+            .expect("config parsing failed")
+            .expect("expected settings");
+        match settings.security {
+            SecuritySettings::None => {}
+            other => panic!("expected TLS to be disabled, got {other:?}"),
+        }
     }
 }
