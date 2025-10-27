@@ -263,16 +263,16 @@ func (s *Service) createConnection(ctx context.Context) (*nats.Conn, jetstream.J
 		}),
 	}
 
-	if s.cfg.Security != nil {
-		tlsConf, err := natsutil.TLSConfig(s.cfg.Security)
+	if s.cfg.NATSSecurity != nil {
+		tlsConf, err := natsutil.TLSConfig(s.cfg.NATSSecurity)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to build NATS TLS config: %w", err)
 		}
 
 		opts = append(opts,
 			nats.Secure(tlsConf),
-			nats.RootCAs(s.cfg.Security.TLS.CAFile),
-			nats.ClientCert(s.cfg.Security.TLS.CertFile, s.cfg.Security.TLS.KeyFile),
+			nats.RootCAs(s.cfg.NATSSecurity.TLS.CAFile),
+			nats.ClientCert(s.cfg.NATSSecurity.TLS.CertFile, s.cfg.NATSSecurity.TLS.KeyFile),
 		)
 	}
 

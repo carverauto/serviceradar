@@ -76,6 +76,9 @@ spec:
         - name: syslog
           containerPort: 514
           protocol: UDP
+        - name: grpc
+          containerPort: 50044
+          protocol: TCP
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/flowgger.toml"
@@ -152,4 +155,8 @@ spec:
     port: 514
     targetPort: 514
     protocol: UDP
+  - name: grpc
+    port: 50044
+    targetPort: 50044
+    protocol: TCP
   type: ClusterIP

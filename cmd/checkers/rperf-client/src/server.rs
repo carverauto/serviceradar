@@ -27,10 +27,11 @@ use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder as ReflectionBuilder;
 
-use crate::config::Config;
+use crate::config::{Config, SecurityMode};
 use crate::poller::TargetPoller;
 use crate::rperf::RPerfRunner;
 use crate::server::monitoring::agent_service_server::{AgentService, AgentServiceServer};
+use crate::spiffe;
 
 const FILE_DESCRIPTOR_SET_RPERF: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/rperf_descriptor.bin"));
@@ -143,25 +144,71 @@ impl RPerfTestOrchestrator {
 
         let mut server_builder = Server::builder();
 
+        let mut spiffe_guard: Option<spiffe::SpiffeSourceGuard> = None;
         if let Some(security) = &self.config.security {
-            if security.tls_enabled {
-                let cert = fs::read_to_string(security.cert_file.as_ref().unwrap())
-                    .context("Failed to read certificate file")?;
-                let key = fs::read_to_string(security.key_file.as_ref().unwrap())
-                    .context("Failed to read key file")?;
-                let identity =
-                    tonic::transport::Identity::from_pem(cert.as_bytes(), key.as_bytes());
+            match security.mode {
+                SecurityMode::None => {}
+                SecurityMode::Mtls => {
+                    let tls = security
+                        .tls
+                        .as_ref()
+                        .context("security.tls configuration is required for mTLS mode")?;
 
-                let ca_cert = fs::read_to_string(security.ca_file.as_ref().unwrap())
-                    .context("Failed to read CA certificate file")?;
-                let ca = tonic::transport::Certificate::from_pem(ca_cert.as_bytes());
+                    let cert_path = security.resolve_path(
+                        tls.cert_file
+                            .as_deref()
+                            .context("security.tls.cert_file is required for mTLS mode")?,
+                    );
+                    let key_path = security.resolve_path(
+                        tls.key_file
+                            .as_deref()
+                            .context("security.tls.key_file is required for mTLS mode")?,
+                    );
+                    let ca_path = security.resolve_path(
+                        tls.ca_file
+                            .as_deref()
+                            .context("security.tls.ca_file is required for mTLS mode")?,
+                    );
 
-                let tls_config = tonic::transport::ServerTlsConfig::new()
-                    .identity(identity)
-                    .client_ca_root(ca);
-                debug!("TLS config created: {tls_config:?}");
-                server_builder = server_builder.tls_config(tls_config)?;
-                info!("TLS configured with mTLS enabled");
+                    let cert = fs::read(&cert_path).with_context(|| {
+                        format!("Failed to read certificate file at {cert_path:?}")
+                    })?;
+                    let key = fs::read(&key_path)
+                        .with_context(|| format!("Failed to read key file at {key_path:?}"))?;
+                    let ca = fs::read(&ca_path).with_context(|| {
+                        format!("Failed to read CA certificate file at {ca_path:?}")
+                    })?;
+
+                    let identity = tonic::transport::Identity::from_pem(cert, key);
+                    let ca = tonic::transport::Certificate::from_pem(ca);
+
+                    let tls_config = tonic::transport::ServerTlsConfig::new()
+                        .identity(identity)
+                        .client_ca_root(ca);
+                    debug!("TLS config created");
+                    server_builder = server_builder.tls_config(tls_config)?;
+                    info!("TLS configured with mTLS enabled");
+                }
+                SecurityMode::Spiffe => {
+                    let workload_socket = security
+                        .workload_socket
+                        .as_deref()
+                        .context("security.workload_socket is required for spiffe mode")?;
+                    let trust_domain = security
+                        .trust_domain
+                        .as_deref()
+                        .context("security.trust_domain is required for spiffe mode")?;
+
+                    let credentials =
+                        spiffe::load_server_credentials(workload_socket, trust_domain).await?;
+                    let (identity, client_ca, guard) = credentials.into_parts();
+                    let tls = tonic::transport::ServerTlsConfig::new()
+                        .identity(identity)
+                        .client_ca_root(client_ca);
+                    spiffe_guard = Some(guard);
+                    server_builder = server_builder.tls_config(tls)?;
+                    info!("TLS configured with SPIFFE mode");
+                }
             }
         }
 
@@ -185,6 +232,7 @@ impl RPerfTestOrchestrator {
             join_handle: server_handle,
             poller_handle,
             pollers: self.target_pollers.clone(),
+            spiffe_guard,
         })
     }
 }
@@ -454,6 +502,8 @@ pub struct ServerHandle {
     join_handle: JoinHandle<Result<()>>,
     poller_handle: JoinHandle<()>,
     pollers: Arc<RwLock<Vec<TargetPoller>>>,
+    #[allow(dead_code)]
+    spiffe_guard: Option<spiffe::SpiffeSourceGuard>,
 }
 
 impl ServerHandle {

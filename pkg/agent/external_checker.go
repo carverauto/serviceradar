@@ -47,11 +47,12 @@ type ExternalChecker struct {
 	address              string
 	grpcServiceCheckName string             // NEW FIELD: Actual gRPC service name for health checks (e.g., "monitoring.AgentService")
 	clientConfig         ggrpc.ClientConfig // Pre-configured with SecurityProvider
-	grpcClient           *ggrpc.Client      // Managed connection
-	clientMu             sync.Mutex         // Protects grpcClient
-	healthCheckInterval  time.Duration      // Dynamic backoff interval
-	lastHealthCheck      time.Time          // Last health check timestamp
-	healthStatus         bool               // Last known health status
+	securityTemplate     *models.SecurityConfig
+	grpcClient           *ggrpc.Client // Managed connection
+	clientMu             sync.Mutex    // Protects grpcClient
+	healthCheckInterval  time.Duration // Dynamic backoff interval
+	lastHealthCheck      time.Time     // Last health check timestamp
+	healthStatus         bool          // Last known health status
 	logger               logger.Logger
 }
 
@@ -138,6 +139,7 @@ func NewExternalChecker(
 		address:              address,
 		grpcServiceCheckName: grpcServiceCheckName,
 		clientConfig:         clientCfg,
+		securityTemplate:     securityForService,
 		grpcClient:           nil,
 		healthCheckInterval:  initialHealthInterval,
 		lastHealthCheck:      time.Time{},
@@ -259,6 +261,7 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 		}
 
 		e.grpcClient = nil
+		e.clientConfig.SecurityProvider = nil
 	}
 
 	// Retry connection with backoff
@@ -267,6 +270,22 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 	delay := initialRetryDelay
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
+		if err := e.ensureSecurityProvider(ctx); err != nil {
+			lastErr = err
+			e.logger.Warn().Err(err).Str("service", e.serviceName).Int("attempt", attempt+1).Msg("Failed to initialize security provider")
+
+			if attempt < maxRetries-1 {
+				select {
+				case <-time.After(delay):
+					delay = min(delay*time.Duration(backoffFactor), maxRetryDelay)
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+
+			continue
+		}
+
 		e.logger.Info().
 			Str("service", e.serviceName).
 			Str("address", e.address).
@@ -280,6 +299,10 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 			e.logger.Info().Str("service", e.serviceName).Msg("Connected successfully")
 
 			return nil
+		}
+
+		if relErr := e.releaseSecurityProvider(); relErr != nil {
+			e.logger.Warn().Err(relErr).Str("service", e.serviceName).Msg("Security provider cleanup failed")
 		}
 
 		lastErr = err
@@ -302,6 +325,42 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 const (
 	defaultMonitoringServiceName = "monitoring.AgentService"
 )
+
+func (e *ExternalChecker) ensureSecurityProvider(ctx context.Context) error {
+	if e.clientConfig.SecurityProvider != nil {
+		return nil
+	}
+
+	if e.securityTemplate == nil {
+		return nil
+	}
+
+	provider, err := ggrpc.NewSecurityProvider(ctx, e.securityTemplate, e.logger)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errFailedToCreateSecurityProvider, err)
+	}
+
+	e.clientConfig.SecurityProvider = provider
+
+	return nil
+}
+
+func (e *ExternalChecker) releaseSecurityProvider() error {
+	if e.clientConfig.SecurityProvider == nil {
+		return nil
+	}
+
+	if err := e.clientConfig.SecurityProvider.Close(); err != nil {
+		e.logger.Error().Err(err).Str("service", e.serviceName).Msg("Failed to close security provider")
+		e.clientConfig.SecurityProvider = nil
+
+		return err
+	}
+
+	e.clientConfig.SecurityProvider = nil
+
+	return nil
+}
 
 func (e *ExternalChecker) performHealthCheck(ctx context.Context, _ string) (bool, error) {
 	// If grpcServiceCheckName is "monitoring.AgentService", use custom health check
@@ -353,10 +412,8 @@ func (e *ExternalChecker) Close() error {
 		e.grpcClient = nil
 	}
 
-	if e.clientConfig.SecurityProvider != nil {
-		if err := e.clientConfig.SecurityProvider.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("%w - %w", errFailedToCloseSecurityProvider, err))
-		}
+	if err := e.releaseSecurityProvider(); err != nil {
+		errs = append(errs, fmt.Errorf("%w - %w", errFailedToCloseSecurityProvider, err))
 	}
 
 	if len(errs) > 0 {

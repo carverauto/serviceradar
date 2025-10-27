@@ -4,10 +4,14 @@
   "type": "grpc",
   "timeout": "30s",
   "security": {
-    "tls_enabled": true,
-    "cert_file": "/etc/serviceradar/certs/rperf-checker.pem",
-    "key_file": "/etc/serviceradar/certs/rperf-checker-key.pem",
-    "ca_file": "/etc/serviceradar/certs/root.pem"
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "tls": {
+      "cert_file": "rperf-checker.pem",
+      "key_file": "rperf-checker-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
   },
   "default_poll_interval": 300,
   "targets": [

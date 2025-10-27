@@ -1,5 +1,6 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::Stream;
+use std::fs;
 use std::pin::Pin;
 use tonic::{
     transport::{Certificate, Identity, Server, ServerTlsConfig},
@@ -8,7 +9,8 @@ use tonic::{
 use tonic_health::server::health_reporter;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 
-use crate::config::Config;
+use crate::config::{Config, SecurityMode};
+use crate::spiffe;
 
 pub mod monitoring {
     tonic::include_proto!("monitoring");
@@ -98,15 +100,39 @@ pub async fn start_grpc_server(cfg: Config) -> Result<()> {
         .build_v1()?;
 
     let mut server_builder = Server::builder();
+    let mut _spiffe_guard: Option<spiffe::SpiffeSourceGuard> = None;
     if let Some(sec) = &cfg.grpc_security {
-        if let (Some(cert), Some(key), Some(ca)) = (&sec.cert_file, &sec.key_file, &sec.ca_file) {
-            let cert = std::fs::read_to_string(cert)?;
-            let key = std::fs::read_to_string(key)?;
-            let identity = Identity::from_pem(cert.as_bytes(), key.as_bytes());
-            let ca_cert = std::fs::read_to_string(ca)?;
-            let ca = Certificate::from_pem(ca_cert.as_bytes());
-            let tls = ServerTlsConfig::new().identity(identity).client_ca_root(ca);
-            server_builder = server_builder.tls_config(tls)?;
+        match sec.mode() {
+            SecurityMode::Spiffe => {
+                let trust_domain = sec
+                    .trust_domain()
+                    .context("grpc_security.trust_domain is required for spiffe mode")?;
+                let credentials =
+                    spiffe::load_server_credentials(sec.workload_socket(), trust_domain).await?;
+                let (identity, client_ca, guard) = credentials.into_parts();
+                let tls = ServerTlsConfig::new()
+                    .identity(identity)
+                    .client_ca_root(client_ca);
+                _spiffe_guard = Some(guard);
+                server_builder = server_builder.tls_config(tls)?;
+            }
+            SecurityMode::Mtls => {
+                let cert_path = sec
+                    .cert_file_path()
+                    .context("grpc_security.cert_file is required for mtls mode")?;
+                let key_path = sec
+                    .key_file_path()
+                    .context("grpc_security.key_file is required for mtls mode")?;
+                let ca_path = sec
+                    .ca_file_path()
+                    .context("grpc_security.ca_file is required for mtls mode")?;
+
+                let cert = Identity::from_pem(fs::read(&cert_path)?, fs::read(&key_path)?);
+                let ca = Certificate::from_pem(fs::read(&ca_path)?);
+                let tls = ServerTlsConfig::new().identity(cert).client_ca_root(ca);
+                server_builder = server_builder.tls_config(tls)?;
+            }
+            SecurityMode::None => {}
         }
     }
 

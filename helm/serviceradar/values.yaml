@@ -35,6 +35,9 @@ spire:
   serviceradarAgentServiceAccount: serviceradar-agent
   syncServiceAccount: serviceradar-sync
   zenServiceAccount: serviceradar-zen
+  mapperServiceAccount: serviceradar-mapper
+  dbEventWriterServiceAccount: serviceradar-db-event-writer
+  rperfCheckerServiceAccount: serviceradar-rperf-checker
   bundleConfigMap: spire-bundle
   server:
     image: ghcr.io/spiffe/spire-server:1.11.2
