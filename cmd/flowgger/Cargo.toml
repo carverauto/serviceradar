@@ -41,7 +41,7 @@ optional = true
 tonic-build = { workspace = true }
 
 [dependencies]
-capnp = { version = "0.14", optional = true }
+capnp = { version = "0.21", optional = true }
 clap = "4"
 flate2 = "1"
 glob = { version = "0.3", optional = true }
