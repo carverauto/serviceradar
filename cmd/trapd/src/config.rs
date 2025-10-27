@@ -21,19 +21,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SecurityMode {
+    #[default]
     #[serde(alias = "", alias = "mtls")]
     Mtls,
     Spiffe,
     None,
-}
-
-impl Default for SecurityMode {
-    fn default() -> Self {
-        SecurityMode::Mtls
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

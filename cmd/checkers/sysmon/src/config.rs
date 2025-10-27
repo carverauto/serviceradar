@@ -19,14 +19,69 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SecurityMode {
+    #[default]
+    #[serde(alias = "", alias = "mtls")]
+    Mtls,
+    Spiffe,
+    None,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SecurityConfig {
-    pub tls_enabled: bool,
+    #[serde(default)]
+    #[serde(alias = "tls_enabled")]
+    pub tls_enabled: Option<bool>,
+    #[serde(default)]
+    pub mode: Option<SecurityMode>,
+    #[serde(default)]
+    pub cert_dir: Option<String>,
+    #[serde(default)]
     pub cert_file: Option<String>,
+    #[serde(default)]
     pub key_file: Option<String>,
+    #[serde(default)]
     pub ca_file: Option<String>,
+    #[serde(default)]
+    pub client_ca_file: Option<String>,
+    #[serde(default)]
+    pub trust_domain: Option<String>,
+    #[serde(default)]
+    pub workload_socket: Option<String>,
+    #[serde(default)]
+    pub server_spiffe_id: Option<String>,
+}
+
+impl SecurityConfig {
+    pub fn effective_mode(&self) -> SecurityMode {
+        if let Some(mode) = self.mode {
+            mode
+        } else if self.tls_enabled.unwrap_or(false) {
+            SecurityMode::Mtls
+        } else {
+            SecurityMode::None
+        }
+    }
+
+    pub fn resolve_path(&self, path: &str) -> PathBuf {
+        let trimmed = path.trim();
+        let p = Path::new(trimmed);
+        match (&self.cert_dir, p.is_absolute()) {
+            (Some(base), false) => Path::new(base).join(p),
+            _ => p.to_path_buf(),
+        }
+    }
+
+    pub fn client_ca_path(&self) -> Option<PathBuf> {
+        self.client_ca_file
+            .as_ref()
+            .or(self.ca_file.as_ref())
+            .map(|p| self.resolve_path(p))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,12 +143,28 @@ impl Config {
             anyhow::bail!("poll_interval must be at least 10 seconds");
         }
         if let Some(security) = &self.security {
-            if security.tls_enabled
-                && (security.cert_file.is_none()
-                    || security.key_file.is_none()
-                    || security.ca_file.is_none())
-            {
-                anyhow::bail!("TLS requires cert_file, key_file, and ca_file");
+            match security.effective_mode() {
+                SecurityMode::None => {}
+                SecurityMode::Mtls => {
+                    if security.cert_file.is_none()
+                        || security.key_file.is_none()
+                        || security.client_ca_path().is_none()
+                    {
+                        anyhow::bail!(
+                            "mTLS requires cert_file, key_file, and client_ca_file or ca_file"
+                        );
+                    }
+                }
+                SecurityMode::Spiffe => {
+                    let trust_domain = security
+                        .trust_domain
+                        .as_ref()
+                        .map(|v| v.trim())
+                        .unwrap_or("");
+                    if trust_domain.is_empty() {
+                        anyhow::bail!("security.trust_domain is required in spiffe mode");
+                    }
+                }
             }
         }
         for fs in &self.filesystems {

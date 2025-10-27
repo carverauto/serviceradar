@@ -689,10 +689,13 @@ data:
       "listen_addr": ":50054",
       "partition": "k8s",
       "security": {
-        "server_name": "serviceradar-demo",
-        "mode": "none",
+        "mode": "spiffe",
+        "cert_dir": "/etc/serviceradar/certs",
         "role": "checker",
-        "cert_dir": "/etc/serviceradar/certs"
+        "server_name": "serviceradar-snmp-checker",
+        "trust_domain": "carverauto.dev",
+        "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-snmp-checker",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock"
       },
       "timeout": "30s",
       "targets": [
@@ -714,6 +717,27 @@ data:
           ]
         }
       ]
+    }
+
+  snmp-checker.json: |
+    {
+      "name": "snmp",
+      "type": "grpc",
+      "address": "serviceradar-snmp-checker:50054",
+      "security": {
+        "mode": "spiffe",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "poller",
+        "trust_domain": "carverauto.dev",
+        "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-snmp-checker",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
+        "tls": {
+          "cert_file": "agent.pem",
+          "key_file": "agent-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      }
     }
 
   sync.json: |
@@ -1518,6 +1542,7 @@ data:
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller", "role": "reader"},
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-sync", "role": "reader"},
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-mapper", "role": "reader"},
+          {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-snmp-checker", "role": "writer"},
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-db-event-writer", "role": "reader"},
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-zen", "role": "reader"},
           {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-agent", "role": "reader"},

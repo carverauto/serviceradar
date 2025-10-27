@@ -29,6 +29,7 @@ spec:
           command: ['sh', '-c', '
           mkdir -p /etc/serviceradar/checkers/sweep &&
           cp /config/snmp.json /etc/serviceradar/checkers/snmp.json &&
+          cp /config/snmp-checker.json /etc/serviceradar/checkers/snmp-checker.json &&
           cp /config/external.json /etc/serviceradar/checkers/external.json &&
           cp /config/sweep.json /etc/serviceradar/checkers/sweep/sweep.json &&
           cp /config/sync-checker.json /etc/serviceradar/checkers/sync-checker.json &&

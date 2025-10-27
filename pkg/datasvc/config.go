@@ -10,6 +10,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const (
+	securityModeMTLS   = "mtls"
+	securityModeSPIFFE = "spiffe"
+)
+
 // Validate ensures the configuration is valid.
 func (c *Config) Validate() error {
 	if err := c.validateRequiredFields(); err != nil {
@@ -63,8 +68,8 @@ func (c *Config) validateSecurity() error {
 	mode := strings.ToLower(string(c.Security.Mode))
 
 	switch mode {
-	case "mtls":
-	case "spiffe":
+	case securityModeMTLS:
+	case securityModeSPIFFE:
 	default:
 		return fmt.Errorf("%w: %s", errInvalidSecurityMode, c.Security.Mode)
 	}
@@ -83,7 +88,7 @@ func (c *Config) validateNATSSecurity() error {
 
 	mode := strings.ToLower(string(c.NATSSecurity.Mode))
 
-	if mode != "mtls" {
+	if mode != securityModeMTLS {
 		return errMTLSRequired
 	}
 
@@ -118,7 +123,7 @@ func (c *Config) normalizeSecurityCertPaths(sec *models.SecurityConfig) {
 		return
 	}
 
-	if strings.ToLower(string(sec.Mode)) != "mtls" {
+	if strings.ToLower(string(sec.Mode)) != securityModeMTLS {
 		return
 	}
 

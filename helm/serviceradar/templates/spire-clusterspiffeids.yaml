@@ -11,6 +11,7 @@
   (dict "name" "serviceradar-mapper" "label" "serviceradar-mapper" "sa" (.Values.spire.mapperServiceAccount | default "serviceradar-mapper"))
   (dict "name" "serviceradar-db-event-writer" "label" "serviceradar-db-event-writer" "sa" (.Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer"))
   (dict "name" "serviceradar-rperf-checker" "label" "serviceradar-rperf-client" "sa" (.Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker"))
+  (dict "name" "serviceradar-snmp-checker" "label" "serviceradar-snmp-checker" "sa" (.Values.spire.snmpCheckerServiceAccount | default "serviceradar-snmp-checker"))
   (dict "name" "serviceradar-flowgger" "label" "serviceradar-flowgger" "sa" (.Values.spire.flowggerServiceAccount | default "serviceradar-flowgger"))
   (dict "name" "serviceradar-trapd" "label" "serviceradar-trapd" "sa" (.Values.spire.trapdServiceAccount | default "serviceradar-trapd"))
 }}

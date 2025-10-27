@@ -5,18 +5,13 @@ use std::path::{Path, PathBuf};
 
 const DEFAULT_WORKLOAD_SOCKET: &str = "unix:/run/spire/sockets/agent.sock";
 
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SecurityMode {
+    #[default]
     None,
     Mtls,
     Spiffe,
-}
-
-impl Default for SecurityMode {
-    fn default() -> Self {
-        SecurityMode::None
-    }
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]

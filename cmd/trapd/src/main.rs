@@ -35,7 +35,6 @@ use tonic_reflection::server::Builder as ReflectionBuilder;
 mod config;
 mod spiffe;
 use config::{Config, SecurityMode};
-use spiffe::SpiffeSourceGuard;
 
 pub mod monitoring {
     tonic::include_proto!("monitoring");
@@ -271,21 +270,12 @@ async fn start_grpc_server(cfg: Config) -> Result<()> {
         None => return Ok(()),
     };
 
-    let service = TrapdAgentService;
-    let (mut health_reporter, health_service) = health_reporter();
-    health_reporter
-        .set_serving::<AgentServiceServer<TrapdAgentService>>()
-        .await;
-
-    let reflection_service = ReflectionBuilder::configure()
-        .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
-        .build_v1()?;
-
-    let mut server_builder = Server::builder();
-    let mut spiffe_guard: Option<SpiffeSourceGuard> = None;
-    if let Some(sec) = &cfg.grpc_security {
-        match sec.mode {
-            SecurityMode::None => {}
+    match cfg.grpc_security.as_ref() {
+        Some(sec) => match sec.mode {
+            SecurityMode::None => {
+                warn!("trapd gRPC server starting without TLS; clients must allow plaintext");
+                serve_with_tls(addr, None).await
+            }
             SecurityMode::Mtls => {
                 let cert_path = sec
                     .cert_file
@@ -304,7 +294,7 @@ async fn start_grpc_server(cfg: Config) -> Result<()> {
                 let identity = Identity::from_pem(cert, key);
                 let ca = Certificate::from_pem(fs::read(&ca_path)?);
                 let tls = ServerTlsConfig::new().identity(identity).client_ca_root(ca);
-                server_builder = server_builder.tls_config(tls)?;
+                serve_with_tls(addr, Some(tls)).await
             }
             SecurityMode::Spiffe => {
                 let trust_domain = sec.trust_domain.as_deref().expect("validated earlier");
@@ -313,17 +303,27 @@ async fn start_grpc_server(cfg: Config) -> Result<()> {
                     .as_deref()
                     .filter(|s| !s.trim().is_empty())
                     .unwrap_or(DEFAULT_WORKLOAD_SOCKET);
-                let credentials = spiffe::load_server_credentials(workload_socket, trust_domain)
-                    .await
-                    .context("failed to load SPIFFE credentials for trapd gRPC server")?;
-                let (identity, client_ca, guard) = credentials.into_parts();
-                let tls = ServerTlsConfig::new()
-                    .identity(identity)
-                    .client_ca_root(client_ca);
-                spiffe_guard = Some(guard);
-                server_builder = server_builder.tls_config(tls)?;
+                serve_with_spiffe(addr, workload_socket, trust_domain).await
             }
-        }
+        },
+        None => serve_with_tls(addr, None).await,
+    }
+}
+
+async fn serve_with_tls(addr: SocketAddr, tls: Option<ServerTlsConfig>) -> Result<()> {
+    let service = TrapdAgentService;
+    let (mut health_reporter, health_service) = health_reporter();
+    health_reporter
+        .set_serving::<AgentServiceServer<TrapdAgentService>>()
+        .await;
+
+    let reflection_service = ReflectionBuilder::configure()
+        .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
+        .build_v1()?;
+
+    let mut server_builder = Server::builder();
+    if let Some(tls) = tls {
+        server_builder = server_builder.tls_config(tls)?;
     }
 
     server_builder
@@ -331,9 +331,78 @@ async fn start_grpc_server(cfg: Config) -> Result<()> {
         .add_service(AgentServiceServer::new(service))
         .add_service(reflection_service)
         .serve(addr)
-        .await?;
+        .await
+        .context("trapd gRPC server failed")
+}
 
-    drop(spiffe_guard);
+async fn serve_with_spiffe(
+    addr: SocketAddr,
+    workload_socket: &str,
+    trust_domain: &str,
+) -> Result<()> {
+    let credentials = spiffe::load_server_credentials(workload_socket, trust_domain)
+        .await
+        .context("failed to load SPIFFE credentials for trapd gRPC server")?;
+    let mut updates = credentials.watch_updates();
+    updates.borrow_and_update();
+
+    loop {
+        let service = TrapdAgentService;
+        let (mut health_reporter, health_service) = health_reporter();
+        health_reporter
+            .set_serving::<AgentServiceServer<TrapdAgentService>>()
+            .await;
+
+        let reflection_service = ReflectionBuilder::configure()
+            .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
+            .build_v1()?;
+
+        let (identity, client_ca) = credentials.tls_materials()?;
+        let tls = ServerTlsConfig::new()
+            .identity(identity)
+            .client_ca_root(client_ca);
+
+        let mut shutdown_rx = updates.clone();
+        let server_future = Server::builder()
+            .tls_config(tls)?
+            .add_service(health_service)
+            .add_service(AgentServiceServer::new(service))
+            .add_service(reflection_service)
+            .serve_with_shutdown(addr, async move {
+                let _ = shutdown_rx.changed().await;
+            });
+
+        tokio::pin!(server_future);
+
+        let mut reload = false;
+        let mut channel_closed = false;
+
+        tokio::select! {
+            biased;
+            res = updates.changed() => {
+                match res {
+                    Ok(_) => reload = true,
+                    Err(_) => channel_closed = true,
+                }
+            }
+            res = &mut server_future => {
+                res.context("trapd gRPC server encountered an error during SPIFFE serve")?;
+                return Ok(());
+            }
+        }
+
+        if reload {
+            info!("SPIFFE update detected; reloading trapd gRPC server identity");
+            updates.borrow_and_update();
+            server_future.await?;
+            continue;
+        }
+
+        if channel_closed {
+            server_future.await?;
+            break;
+        }
+    }
 
     Ok(())
 }
