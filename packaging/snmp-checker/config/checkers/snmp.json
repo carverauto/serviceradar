@@ -3,9 +3,12 @@
     "listen_addr": ":50054",
     "security": {
         "server_name": "PLACEHOLDER_AGENT_SERVER_NAME",
-        "mode": "none",
+        "mode": "spiffe",
         "role": "checker",
-        "cert_dir": "/etc/serviceradar/certs"
+        "cert_dir": "/etc/serviceradar/certs",
+        "trust_domain": "PLACEHOLDER_TRUST_DOMAIN",
+        "server_spiffe_id": "spiffe://PLACEHOLDER_TRUST_DOMAIN/ns/PLACEHOLDER_NAMESPACE/sa/PLACEHOLDER_SNMP_CHECKER_SA",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock"
     },
     "timeout": "30s",
     "logger": {

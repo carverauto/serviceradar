@@ -1,26 +1,31 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use log::warn;
 use pem::Pem;
 use spiffe::cert::Certificate as SpiffeCertificate;
-use spiffe::error::GrpcClientError;
-use spiffe::workload_api::x509_source::X509SourceError;
-use spiffe::X509SourceBuilder;
-use spiffe::{BundleSource, SvidSource, TrustDomain, WorkloadApiClient, X509Source};
+use spiffe::{
+    BundleSource, SvidSource, TrustDomain, WorkloadApiClient, X509Source, X509SourceBuilder,
+};
 use std::sync::Arc;
-use tokio::sync::watch;
-use tokio::time::{sleep, Duration};
 use tonic::transport::{Certificate, Identity};
 
 const CERT_TAG: &str = "CERTIFICATE";
 const KEY_TAG: &str = "PRIVATE KEY";
 
 pub struct ServerCredentials {
+    pub identity: Identity,
+    pub client_ca: Certificate,
     guard: SpiffeSourceGuard,
 }
 
+impl ServerCredentials {
+    pub fn into_parts(self) -> (Identity, Certificate, SpiffeSourceGuard) {
+        (self.identity, self.client_ca, self.guard)
+    }
+}
+
+#[derive(Debug)]
 pub struct SpiffeSourceGuard {
     source: Arc<X509Source>,
-    trust_domain: TrustDomain,
 }
 
 impl Drop for SpiffeSourceGuard {
@@ -35,56 +40,38 @@ pub async fn load_server_credentials(
     workload_socket: &str,
     trust_domain: &str,
 ) -> Result<ServerCredentials> {
-    let trust_domain = TrustDomain::new(trust_domain)
+    let client = WorkloadApiClient::new_from_path(workload_socket)
+        .await
+        .with_context(|| {
+            format!("failed to connect to SPIFFE Workload API at {workload_socket}")
+        })?;
+
+    let source = X509SourceBuilder::new()
+        .with_client(client)
+        .build()
+        .await
+        .context("failed to initialize SPIFFE X.509 source")?;
+
+    let svid = source
+        .get_svid()
+        .map_err(|err| anyhow!("failed to fetch default X.509 SVID from workload API: {err}"))?
+        .ok_or_else(|| anyhow!("workload API returned no default X.509 SVID"))?;
+
+    let trust_domain = TrustDomain::try_from(trust_domain)
         .map_err(|e| anyhow!("invalid trust domain {trust_domain}: {e}"))?;
 
-    let retry_delay = Duration::from_secs(2);
+    let bundle = source
+        .get_bundle_for_trust_domain(&trust_domain)
+        .map_err(|err| anyhow!("failed to fetch X.509 bundle for trust domain: {err}"))?
+        .ok_or_else(|| anyhow!("no X.509 bundle available for trust domain {trust_domain}"))?;
 
-    loop {
-        let client = WorkloadApiClient::new_from_path(workload_socket)
-            .await
-            .map_err(|err| {
-                map_grpc_error("connect to SPIFFE Workload API", workload_socket, err)
-            })?;
+    let (identity, client_ca) = build_tls_identity(&svid, bundle.authorities());
 
-        let source = match X509SourceBuilder::new().with_client(client).build().await {
-            Ok(source) => source,
-            Err(X509SourceError::GrpcError(grpc_err)) => {
-                if should_retry_grpc(&grpc_err) {
-                    sleep(retry_delay).await;
-                    continue;
-                }
-                return Err(map_grpc_error(
-                    "initialize SPIFFE X.509 source",
-                    workload_socket,
-                    grpc_err,
-                ));
-            }
-            Err(other) => {
-                if is_retryable_source_error(&other) {
-                    sleep(retry_delay).await;
-                    continue;
-                }
-                return Err(anyhow!(
-                    "failed to initialize SPIFFE X.509 source via {workload_socket}: {other}"
-                ));
-            }
-        };
-
-        let guard = SpiffeSourceGuard {
-            source,
-            trust_domain: trust_domain.clone(),
-        };
-
-        match guard.tls_materials() {
-            Ok(_) => return Ok(ServerCredentials { guard }),
-            Err(err) if is_retryable_tls_error(&err) => {
-                sleep(retry_delay).await;
-                continue;
-            }
-            Err(err) => return Err(err),
-        }
-    }
+    Ok(ServerCredentials {
+        identity,
+        client_ca,
+        guard: SpiffeSourceGuard { source },
+    })
 }
 
 fn build_tls_identity(
@@ -112,77 +99,9 @@ fn encode_block(tag: &str, der: &[u8]) -> String {
     pem::encode(&Pem::new(tag.to_string(), der.to_vec()))
 }
 
-fn map_grpc_error(action: &str, socket: &str, err: GrpcClientError) -> anyhow::Error {
-    match &err {
-        GrpcClientError::Grpc(status) => anyhow!(
-            "failed to {action} at {socket}: gRPC status {:?} ({})",
-            status.code(),
-            status.message()
-        ),
-        GrpcClientError::Transport(transport) => {
-            anyhow!("failed to {action} at {socket}: transport error {transport}")
-        }
-        _ => anyhow!(err),
-    }
-}
-
-fn should_retry_grpc(err: &GrpcClientError) -> bool {
-    matches!(err, GrpcClientError::Grpc(_)) || matches!(err, GrpcClientError::Transport(_))
-}
-
-fn is_retryable_source_error(err: &X509SourceError) -> bool {
-    matches!(err, X509SourceError::NoSuitableSvid)
-}
-
-impl ServerCredentials {
-    pub fn tls_materials(&self) -> Result<(Identity, Certificate)> {
-        self.guard.tls_materials()
-    }
-
-    pub fn watch_updates(&self) -> watch::Receiver<()> {
-        self.guard.updated()
-    }
-}
-
-impl SpiffeSourceGuard {
-    fn tls_materials(&self) -> Result<(Identity, Certificate)> {
-        let svid = self
-            .source
-            .get_svid()
-            .map_err(|err| anyhow!("failed to fetch default X.509 SVID from workload API: {err}"))?
-            .ok_or_else(|| anyhow!("workload API returned no default X.509 SVID"))?;
-
-        let bundle = self
-            .source
-            .get_bundle_for_trust_domain(&self.trust_domain)
-            .map_err(|err| anyhow!("failed to fetch X.509 bundle for trust domain: {err}"))?
-            .ok_or_else(|| {
-                anyhow!(
-                    "no X.509 bundle available for trust domain {}",
-                    self.trust_domain
-                )
-            })?;
-
-        Ok(build_tls_identity(&svid, bundle.authorities()))
-    }
-
-    fn updated(&self) -> watch::Receiver<()> {
-        self.source.updated()
-    }
-}
-
-fn is_retryable_tls_error(err: &anyhow::Error) -> bool {
-    let message = err.to_string();
-    message.contains("no default X.509 SVID")
-        || message.contains("failed to fetch default X.509 SVID")
-        || message.contains("no X.509 bundle available")
-        || message.contains("failed to fetch X.509 bundle")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rcgen::generate_simple_self_signed;
     use rcgen::{
         BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose,
         IsCa, KeyUsagePurpose, SanType,
@@ -210,7 +129,7 @@ mod tests {
 
     #[test]
     fn encode_chain_renders_each_certificate() {
-        let cert = generate_simple_self_signed(["example.test".into()]).unwrap();
+        let cert = rcgen::generate_simple_self_signed(["example.test".into()]).unwrap();
         let der = cert.serialize_der().unwrap();
         let first = SpiffeCertificate::try_from(der.clone()).unwrap();
         let second = SpiffeCertificate::try_from(der).unwrap();
@@ -224,23 +143,8 @@ mod tests {
     }
 
     #[test]
-    fn map_grpc_error_emits_status_details() {
-        let err = map_grpc_error(
-            "connect to workload API",
-            "unix:/run/spire/sockets/agent.sock",
-            GrpcClientError::MissingEndpointSocketPath,
-        );
-        let message = err.to_string();
-        assert!(
-            message.contains("missing endpoint socket address"),
-            "expected original error preserved: {}",
-            message
-        );
-    }
-
-    #[test]
     fn build_tls_identity_produces_pem_materials() {
-        let spiffe_id = "spiffe://carverauto.dev/ns/demo/sa/trapd";
+        let spiffe_id = "spiffe://carverauto.dev/ns/demo/sa/sysmon";
         let (svid, authorities) = build_test_svid(spiffe_id);
         let (identity, client_ca) = build_tls_identity(&svid, &authorities);
 
@@ -248,7 +152,7 @@ mod tests {
             .identity(identity.clone())
             .client_ca_root(client_ca.clone());
 
-        let pem = String::from_utf8(client_ca.clone().into_inner()).expect("utf8 pem");
+        let pem = String::from_utf8(client_ca.into_inner()).expect("utf8 pem");
         assert!(
             pem.contains("BEGIN CERTIFICATE"),
             "expected PEM formatted CA certificate"
@@ -260,7 +164,7 @@ mod tests {
         ca_params.distinguished_name = DistinguishedName::new();
         ca_params
             .distinguished_name
-            .push(DnType::CommonName, "trapd-ca");
+            .push(DnType::CommonName, "sysmon-ca");
         ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         ca_params.key_usages = vec![
             KeyUsagePurpose::KeyCertSign,
@@ -277,7 +181,7 @@ mod tests {
         leaf_params.distinguished_name = DistinguishedName::new();
         leaf_params
             .distinguished_name
-            .push(DnType::CommonName, "trapd-test");
+            .push(DnType::CommonName, "sysmon-test");
         leaf_params.is_ca = IsCa::ExplicitNoCa;
         leaf_params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
         leaf_params.extended_key_usages = vec![

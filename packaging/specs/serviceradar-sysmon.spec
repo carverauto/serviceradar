@@ -81,7 +81,7 @@ if [ ! -f /etc/serviceradar/checkers/sysmon.json ]; then
         cat > /etc/serviceradar/checkers/sysmon.json << EOF
 {
     "listen_addr": "0.0.0.0:50060",
-    "security": {"tls_enabled": false},
+    "security": {"mode": "none"},
     "poll_interval": 30,
     "zfs": {
         "enabled": true,

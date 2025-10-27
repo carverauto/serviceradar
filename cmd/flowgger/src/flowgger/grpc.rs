@@ -59,49 +59,22 @@ fn run_server(settings: GrpcSettings) -> Result<()> {
         let addr: SocketAddr = settings.listen_addr.parse().with_context(|| {
             format!("failed to parse grpc.listen_addr {}", settings.listen_addr)
         })?;
-        let (mut reporter, health_service) = health_reporter();
 
-        reporter
-            .set_service_status("", ServingStatus::Serving)
-            .await;
-        reporter
-            .set_service_status("flowgger", ServingStatus::Serving)
-            .await;
-
-        let mut server = Server::builder();
-        let mut spiffe_guard: Option<spiffe::SpiffeSourceGuard> = None;
         match settings.security {
-            SecuritySettings::None => {
-                warn!("flowgger gRPC server starting without TLS; clients must allow plaintext");
-            }
+            SecuritySettings::Spiffe(spiffe_cfg) => serve_with_spiffe(addr, spiffe_cfg)
+                .await
+                .context("flowgger gRPC server failed"),
             SecuritySettings::Mtls(tls) => {
                 let tls = tls
                     .tls_config()
                     .context("failed to configure mTLS for flowgger gRPC server")?;
-                server = server.tls_config(tls)?;
+                serve_with_tls(addr, Some(tls)).await
             }
-            SecuritySettings::Spiffe(spiffe_cfg) => {
-                let credentials = spiffe::load_server_credentials(
-                    &spiffe_cfg.workload_socket,
-                    &spiffe_cfg.trust_domain,
-                )
-                .await
-                .context("failed to load SPIFFE credentials for flowgger gRPC server")?;
-                let (identity, client_ca, guard) = credentials.into_parts();
-                let tls = ServerTlsConfig::new()
-                    .identity(identity)
-                    .client_ca_root(client_ca);
-                spiffe_guard = Some(guard);
-                server = server.tls_config(tls)?;
+            SecuritySettings::None => {
+                warn!("flowgger gRPC server starting without TLS; clients must allow plaintext");
+                serve_with_tls(addr, None).await
             }
         }
-
-        server
-            .add_service(health_service)
-            .serve(addr)
-            .await
-            .context("flowgger gRPC server failed")
-            .map(|_| drop(spiffe_guard))
     })
 }
 
@@ -223,6 +196,92 @@ impl TlsSettings {
     }
 }
 
+async fn serve_with_tls(addr: SocketAddr, tls: Option<ServerTlsConfig>) -> Result<()> {
+    let (mut reporter, health_service) = health_reporter();
+
+    reporter
+        .set_service_status("", ServingStatus::Serving)
+        .await;
+    reporter
+        .set_service_status("flowgger", ServingStatus::Serving)
+        .await;
+
+    let mut server = Server::builder();
+    if let Some(tls) = tls {
+        server = server.tls_config(tls)?;
+    }
+
+    server
+        .add_service(health_service)
+        .serve(addr)
+        .await
+        .context("flowgger gRPC server failed")
+}
+
+async fn serve_with_spiffe(addr: SocketAddr, cfg: SpiffeSettings) -> Result<()> {
+    let credentials = spiffe::load_server_credentials(&cfg.workload_socket, &cfg.trust_domain)
+        .await
+        .context("failed to load SPIFFE credentials for flowgger gRPC server")?;
+    let mut updates = credentials.watch_updates();
+    updates.borrow_and_update();
+
+    loop {
+        let (mut reporter, health_service) = health_reporter();
+        reporter
+            .set_service_status("", ServingStatus::Serving)
+            .await;
+        reporter
+            .set_service_status("flowgger", ServingStatus::Serving)
+            .await;
+
+        let (identity, client_ca) = credentials.tls_materials()?;
+        let tls = ServerTlsConfig::new()
+            .identity(identity)
+            .client_ca_root(client_ca);
+
+        let mut shutdown_rx = updates.clone();
+        let server_future = Server::builder()
+            .tls_config(tls)?
+            .add_service(health_service)
+            .serve_with_shutdown(addr, async move {
+                let _ = shutdown_rx.changed().await;
+            });
+
+        tokio::pin!(server_future);
+
+        let mut reload = false;
+        let mut channel_closed = false;
+
+        tokio::select! {
+            biased;
+            res = updates.changed() => {
+                match res {
+                    Ok(_) => reload = true,
+                    Err(_) => channel_closed = true,
+                }
+            }
+            res = &mut server_future => {
+                res.context("flowgger gRPC server encountered an error during SPIFFE serve")?;
+                return Ok(());
+            }
+        }
+
+        if reload {
+            info!("SPIFFE update detected; reloading flowgger gRPC server identity");
+            updates.borrow_and_update();
+            server_future.await?;
+            continue;
+        }
+
+        if channel_closed {
+            server_future.await?;
+            break;
+        }
+    }
+
+    Ok(())
+}
+
 fn read_string(config: &Config, key: &str) -> Option<String> {
     config
         .lookup(key)
@@ -233,10 +292,10 @@ fn read_string(config: &Config, key: &str) -> Option<String> {
 fn resolve_path(cert_dir: Option<&str>, value: String) -> PathBuf {
     let trimmed = value.trim();
     let path = Path::new(trimmed);
-    if path.is_absolute() || cert_dir.is_none() {
-        path.to_path_buf()
-    } else {
-        Path::new(cert_dir.unwrap()).join(path)
+    match (path.is_absolute(), cert_dir) {
+        (true, _) => path.to_path_buf(),
+        (_, None) => path.to_path_buf(),
+        (_, Some(dir)) => Path::new(dir).join(path),
     }
 }
 

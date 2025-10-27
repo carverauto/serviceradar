@@ -1,39 +1,16 @@
 use anyhow::{anyhow, Context, Result};
-use log::warn;
+use log::{info, warn};
 use pem::Pem;
-use std::sync::Arc;
 use spiffe::cert::Certificate as SpiffeCertificate;
 use spiffe::{
     BundleSource, SvidSource, TrustDomain, WorkloadApiClient, X509Source, X509SourceBuilder,
 };
+use std::sync::Arc;
+use tokio::sync::watch;
 use tonic::transport::{Certificate, Identity};
 
 const CERT_TAG: &str = "CERTIFICATE";
 const KEY_TAG: &str = "PRIVATE KEY";
-
-pub struct ServerCredentials {
-    pub identity: Identity,
-    pub client_ca: Certificate,
-    guard: SpiffeSourceGuard,
-}
-
-impl ServerCredentials {
-    pub fn into_parts(self) -> (Identity, Certificate, SpiffeSourceGuard) {
-        (self.identity, self.client_ca, self.guard)
-    }
-}
-
-pub struct SpiffeSourceGuard {
-    source: Arc<X509Source>,
-}
-
-impl Drop for SpiffeSourceGuard {
-    fn drop(&mut self) {
-        if let Err(err) = self.source.close() {
-            warn!("Failed to close SPIFFE X.509 source: {err}");
-        }
-    }
-}
 
 pub async fn load_server_credentials(
     workload_socket: &str,
@@ -51,32 +28,19 @@ pub async fn load_server_credentials(
         .await
         .context("failed to initialize SPIFFE X.509 source")?;
 
-    let svid = source
-        .get_svid()
-        .map_err(|err| anyhow!("failed to fetch default X.509 SVID from workload API: {err}"))?
-        .ok_or_else(|| anyhow!("workload API returned no default X.509 SVID"))?;
-
     let trust_domain = TrustDomain::try_from(trust_domain)
         .map_err(|e| anyhow!("invalid trust domain {trust_domain}: {e}"))?;
 
-    let bundle = source
-        .get_bundle_for_trust_domain(&trust_domain)
-        .map_err(|err| anyhow!("failed to fetch X.509 bundle for trust domain: {err}"))?
-        .ok_or_else(|| anyhow!("no X.509 bundle available for trust domain {trust_domain}"))?;
+    let guard = SpiffeSourceGuard {
+        source,
+        trust_domain,
+    };
 
-    // build PEM encoded chain and key
-    let cert_pem = encode_chain(svid.cert_chain());
-    let key_pem = encode_block(KEY_TAG, svid.private_key().as_ref());
-    let ca_pem = encode_chain(bundle.authorities());
+    // Validate that we can build TLS materials up front so we fail fast if the
+    // Workload API does not have an SVID yet.
+    let _ = guard.tls_materials()?;
 
-    let identity = Identity::from_pem(cert_pem.into_bytes(), key_pem.into_bytes());
-    let client_ca = Certificate::from_pem(ca_pem.into_bytes());
-
-    Ok(ServerCredentials {
-        identity,
-        client_ca,
-        guard: SpiffeSourceGuard { source },
-    })
+    Ok(ServerCredentials { guard })
 }
 
 fn encode_chain(items: &[SpiffeCertificate]) -> String {
@@ -88,4 +52,70 @@ fn encode_chain(items: &[SpiffeCertificate]) -> String {
 
 fn encode_block(tag: &str, der: &[u8]) -> String {
     pem::encode(&Pem::new(tag.to_string(), der.to_vec()))
+}
+
+pub struct ServerCredentials {
+    guard: SpiffeSourceGuard,
+}
+
+impl ServerCredentials {
+    pub fn tls_materials(&self) -> Result<(Identity, Certificate)> {
+        self.guard.tls_materials()
+    }
+
+    pub fn watch_updates(&self) -> watch::Receiver<()> {
+        self.guard.updated()
+    }
+}
+
+pub struct SpiffeSourceGuard {
+    source: Arc<X509Source>,
+    trust_domain: TrustDomain,
+}
+
+impl SpiffeSourceGuard {
+    fn tls_materials(&self) -> Result<(Identity, Certificate)> {
+        let svid = self
+            .source
+            .get_svid()
+            .map_err(|err| anyhow!("failed to fetch default X.509 SVID from workload API: {err}"))?
+            .ok_or_else(|| anyhow!("workload API returned no default X.509 SVID"))?;
+
+        let bundle = self
+            .source
+            .get_bundle_for_trust_domain(&self.trust_domain)
+            .map_err(|err| anyhow!("failed to fetch X.509 bundle for trust domain: {err}"))?
+            .ok_or_else(|| {
+                anyhow!(
+                    "no X.509 bundle available for trust domain {}",
+                    self.trust_domain
+                )
+            })?;
+
+        let cert_pem = encode_chain(svid.cert_chain());
+        let key_pem = encode_block(KEY_TAG, svid.private_key().as_ref());
+        let ca_pem = encode_chain(bundle.authorities());
+
+        Ok((
+            Identity::from_pem(cert_pem.into_bytes(), key_pem.into_bytes()),
+            Certificate::from_pem(ca_pem.into_bytes()),
+        ))
+    }
+
+    fn updated(&self) -> watch::Receiver<()> {
+        self.source.updated()
+    }
+}
+
+impl Drop for SpiffeSourceGuard {
+    fn drop(&mut self) {
+        if let Err(err) = self.source.close() {
+            warn!("Failed to close SPIFFE X.509 source: {err}");
+        } else {
+            info!(
+                "Closed SPIFFE X.509 source for trust domain {}",
+                self.trust_domain
+            );
+        }
+    }
 }

@@ -54,17 +54,22 @@ type overlayTarget struct {
 	ServiceName  string             `json:"service_name"`
 }
 
+const (
+	securityModeSpiffe = "spiffe"
+	securityModeMTLS   = "mtls"
+)
+
 func TestOverlayFromKVStripsSecurityBlocks(t *testing.T) {
 	base := overlayTarget{
 		Security: testSecurityConfig{
-			Mode: "spiffe",
+			Mode: securityModeSpiffe,
 			TLS: testTLSConfig{
 				CertFile: "/etc/serviceradar/certs/core.pem",
 			},
 			Role: "core",
 		},
 		CoreSecurity: testSecurityConfig{
-			Mode: "spiffe",
+			Mode: securityModeSpiffe,
 			TLS: testTLSConfig{
 				CertFile: "/etc/serviceradar/certs/poller.pem",
 			},
@@ -75,13 +80,13 @@ func TestOverlayFromKVStripsSecurityBlocks(t *testing.T) {
 
 	overlayPayload := map[string]any{
 		"security": map[string]any{
-			"mode": "mtls",
+			"mode": securityModeMTLS,
 			"tls": map[string]any{
 				"cert_file": "/tmp/kv/core.pem",
 			},
 		},
 		"core_security": map[string]any{
-			"mode": "mtls",
+			"mode": securityModeMTLS,
 		},
 		"service_name": "kv-overridden",
 	}
@@ -105,16 +110,16 @@ func TestOverlayFromKVStripsSecurityBlocks(t *testing.T) {
 		t.Fatalf("OverlayFromKV returned error: %v", err)
 	}
 
-	if base.Security.Mode != "spiffe" {
-		t.Fatalf("expected security.mode to remain 'spiffe', got %q", base.Security.Mode)
+	if base.Security.Mode != securityModeSpiffe {
+		t.Fatalf("expected security.mode to remain %q, got %q", securityModeSpiffe, base.Security.Mode)
 	}
 
 	if base.Security.TLS.CertFile != "/etc/serviceradar/certs/core.pem" {
 		t.Fatalf("expected security TLS cert_file to remain unchanged, got %q", base.Security.TLS.CertFile)
 	}
 
-	if base.CoreSecurity.Mode != "spiffe" {
-		t.Fatalf("expected core_security.mode to remain 'spiffe', got %q", base.CoreSecurity.Mode)
+	if base.CoreSecurity.Mode != securityModeSpiffe {
+		t.Fatalf("expected core_security.mode to remain %q, got %q", securityModeSpiffe, base.CoreSecurity.Mode)
 	}
 
 	if base.ServiceName != "kv-overridden" {

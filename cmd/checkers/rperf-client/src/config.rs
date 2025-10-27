@@ -20,19 +20,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SecurityMode {
+    #[default]
     #[serde(alias = "", alias = "none")]
     None,
     Mtls,
     Spiffe,
-}
-
-impl Default for SecurityMode {
-    fn default() -> Self {
-        SecurityMode::None
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

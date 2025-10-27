@@ -409,7 +409,7 @@ func normalizeServerSPIFFEID(raw string, trustDomain spiffeid.TrustDomain, hasTr
 	}
 
 	if !hasTrustDomain {
-		return spiffeid.ID{}, fmt.Errorf("server SPIFFE ID %q is missing a scheme and no trust_domain is configured", trimmed)
+		return spiffeid.ID{}, fmt.Errorf("%w: %q", errMissingServerSPIFFEScheme, trimmed)
 	}
 
 	normalized := "/" + strings.TrimPrefix(trimmed, "/")
@@ -426,12 +426,13 @@ func normalizeServerSPIFFEID(raw string, trustDomain spiffeid.TrustDomain, hasTr
 func (p *SpiffeProvider) GetClientCredentials(_ context.Context) (grpc.DialOption, error) {
 	authorizer := tlsconfig.AuthorizeAny()
 
-	if p.hasServerID {
+	switch {
+	case p.hasServerID:
 		authorizer = tlsconfig.AuthorizeID(p.serverID)
-	} else if p.hasTrustDomain {
+	case p.hasTrustDomain:
 		authorizer = tlsconfig.AuthorizeMemberOf(p.trustDomain)
 		p.logger.Warn().Msg("SPIFFE client credentials using trust domain membership authorizer; set server_spiffe_id for stricter verification")
-	} else {
+	default:
 		p.logger.Warn().Msg("SPIFFE client credentials have no server_spiffe_id or trust_domain; allowing any SPIFFE endpoint")
 	}
 
