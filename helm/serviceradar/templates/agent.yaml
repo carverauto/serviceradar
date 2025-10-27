@@ -1,3 +1,5 @@
+{{- $agentVals := default (dict) .Values.agent -}}
+{{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,12 +16,13 @@ spec:
       labels:
         app: serviceradar-agent
     spec:
+      serviceAccountName: {{ $agentSA }}
       hostNetwork: true
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
         - name: init-checkers
           image: busybox:1.36
-          command: ['sh', '-c', 'mkdir -p /etc/serviceradar/checkers && cp /config/snmp.json /etc/serviceradar/checkers/snmp.json && cp /config/external.json /etc/serviceradar/checkers/external.json']
+          command: ['sh', '-c', 'mkdir -p /etc/serviceradar/checkers && cp /config/snmp.json /etc/serviceradar/checkers/snmp.json && cp /config/snmp-checker.json /etc/serviceradar/checkers/snmp-checker.json && cp /config/external.json /etc/serviceradar/checkers/external.json && cp /config/sync-checker.json /etc/serviceradar/checkers/sync-checker.json && cp /config/rperf-checker.json /etc/serviceradar/checkers/rperf-checker.json && cp /config/mapper-checker.json /etc/serviceradar/checkers/mapper-checker.json && cp /config/zen-checker.json /etc/serviceradar/checkers/zen-checker.json && cp /config/flowgger-checker.json /etc/serviceradar/checkers/flowgger-checker.json && cp /config/trapd-checker.json /etc/serviceradar/checkers/trapd-checker.json && cp /config/db-event-writer-checker.json /etc/serviceradar/checkers/db-event-writer-checker.json']
           volumeMounts:
             - name: serviceradar-config
               mountPath: /config
@@ -29,12 +32,15 @@ spec:
         - name: agent
           image: ghcr.io/carverauto/serviceradar-agent:{{ .Values.image.tags.agent }}
           volumeMounts:
-            - name: serviceradar-config
-              mountPath: /etc/serviceradar
-            - name: checkers-dir
-              mountPath: /etc/serviceradar/checkers
-            - name: cert-data
-              mountPath: /etc/serviceradar/certs
+          - name: serviceradar-config
+            mountPath: /etc/serviceradar
+          - name: checkers-dir
+            mountPath: /etc/serviceradar/checkers
+          - name: cert-data
+            mountPath: /etc/serviceradar/certs
+          - name: spire-agent-socket
+            mountPath: /run/spire/sockets
+            readOnly: true
           env:
             - name: CONFIG_PATH
               value: "/etc/serviceradar/agent.json"
@@ -54,14 +60,18 @@ spec:
               cpu: "100m"
               memory: "64Mi"
       volumes:
-        - name: serviceradar-config
-          configMap:
-            name: serviceradar-config
-        - name: checkers-dir
-          emptyDir: {}
-        - name: cert-data
-          persistentVolumeClaim:
-            claimName: serviceradar-cert-data
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: checkers-dir
+        emptyDir: {}
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -74,3 +84,11 @@ spec:
   - name: grpc
     port: 50051
     targetPort: 50051
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $agentSA }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar

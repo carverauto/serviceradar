@@ -1,0 +1,28 @@
+# First create an intermediate certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: spire-intermediate-ca
+  namespace: demo
+spec:
+  isCA: true
+  commonName: "Spire Intermediate CA"
+  secretName: spire-intermediate-ca
+  duration: 8760h # 1 year
+  renewBefore: 720h # 30 days
+  dnsNames:
+    - "spire.carverauto.dev"
+  issuerRef:
+    name: spire-root-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# Then create an issuer using the intermediate certificate
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: spire-intermediate-issuer
+  namespace: demo
+spec:
+  ca:
+    secretName: spire-intermediate-ca

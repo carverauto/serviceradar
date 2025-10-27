@@ -6,9 +6,12 @@
     "timeout": "5m",
     "security": {
         "server_name": "PLACEHOLDER_AGENT_SERVER_NAME",
-        "mode": "none",
+        "mode": "spiffe",
         "role": "checker",
         "cert_dir": "/etc/serviceradar/certs",
+        "trust_domain": "PLACEHOLDER_TRUST_DOMAIN",
+        "server_spiffe_id": "spiffe://PLACEHOLDER_TRUST_DOMAIN/ns/PLACEHOLDER_NAMESPACE/sa/PLACEHOLDER_DUSK_CHECKER_SA",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
             "cert_file": "checkers.pem",
             "key_file": "checkers-key.pem",

@@ -211,6 +211,7 @@ func copySecurityConfig(security *models.SecurityConfig) *models.SecurityConfig 
 		CertDir:        security.CertDir,
 		Role:           security.Role,
 		ServerName:     security.ServerName,
+		ServerSPIFFEID: security.ServerSPIFFEID,
 		WorkloadSocket: security.WorkloadSocket,
 		TrustDomain:    security.TrustDomain,
 		TLS: struct {

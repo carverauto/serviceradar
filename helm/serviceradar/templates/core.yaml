@@ -1,3 +1,6 @@
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
+{{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,6 +18,47 @@ spec:
         app: serviceradar-core
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+      - name: init-core-jwks
+        image: ghcr.io/carverauto/serviceradar-kong-config:latest
+        imagePullPolicy: Always
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          TEMPLATE=/etc/serviceradar/core.json
+          TARGET=/var/lib/serviceradar/core.json
+          mkdir -p /var/lib/serviceradar
+
+          PRESERVE_PRIV=""
+          PRESERVE_KID=""
+          if [ -f "$TARGET" ]; then
+            PRESERVE_PRIV=$(jq -r '.auth.jwt_private_key_pem // empty' "$TARGET")
+            PRESERVE_KID=$(jq -r '.auth.jwt_key_id // empty' "$TARGET")
+          fi
+
+          cp "$TEMPLATE" "${TARGET}.tmp"
+
+          if [ -n "$PRESERVE_PRIV" ]; then
+            jq --arg priv "$PRESERVE_PRIV" --arg kid "$PRESERVE_KID" '
+              .auth = (.auth // {}) |
+              .auth.jwt_algorithm = "RS256" |
+              .auth.jwt_private_key_pem = $priv |
+              (if $kid != "" then .auth.jwt_key_id = $kid else . end)
+            ' "${TARGET}.tmp" > "$TARGET"
+            rm -f "${TARGET}.tmp"
+          else
+            mv "${TARGET}.tmp" "$TARGET"
+          fi
+
+          serviceradar-cli generate-jwt-keys --file "$TARGET" --bits 2048
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+          readOnly: true
+        - name: core-data
+          mountPath: /var/lib/serviceradar
       containers:
       - name: core
         image: ghcr.io/carverauto/serviceradar-core:{{ .Values.image.tags.core }}
@@ -39,6 +83,9 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
         - name: WAIT_FOR_PROTON
           value: "true"
@@ -47,7 +94,7 @@ spec:
         - name: CONFIG_SOURCE
           value: "file"
         - name: CONFIG_PATH
-          value: "/etc/serviceradar/core.json"
+          value: "/var/lib/serviceradar/core.json"
         - name: PROTON_HOST
           value: "serviceradar-proton"
         - name: PROTON_USER
@@ -78,6 +125,18 @@ spec:
             secretKeyRef:
               name: serviceradar-secrets
               key: admin-bcrypt-hash
+        - name: KV_ADDRESS
+          value: "serviceradar-datasvc:50057"
+        - name: KV_SEC_MODE
+          value: "spiffe"
+        - name: KV_TRUST_DOMAIN
+          value: {{ $trustDomain | quote }}
+        - name: KV_SERVER_SPIFFE_ID
+          value: "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $datasvcSA }}"
+        - name: KV_WORKLOAD_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
+        - name: KV_CERT_DIR
+          value: "/etc/serviceradar/certs"
         resources:
           limits:
             cpu: "2"
@@ -131,6 +190,10 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

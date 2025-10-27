@@ -24,16 +24,19 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
-use tonic::transport::Server;
+use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder as ReflectionBuilder;
 
-use crate::config::Config;
+use crate::config::{Config, SecurityMode};
 use crate::poller::MetricsCollector;
 use crate::server::monitoring::agent_service_server::{AgentService, AgentServiceServer};
+use crate::spiffe::{self, SpiffeSourceGuard};
 
 const FILE_DESCRIPTOR_SET_MONITORING: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
+
+const DEFAULT_WORKLOAD_SOCKET: &str = "unix:/run/spire/sockets/agent.sock";
 
 pub mod monitoring {
     tonic::include_proto!("monitoring");
@@ -104,25 +107,71 @@ impl SysmonService {
         debug!("Reflection service configured");
 
         let mut server_builder = Server::builder();
+        let mut spiffe_guard: Option<SpiffeSourceGuard> = None;
         if let Some(security) = &config.security {
-            if security.tls_enabled {
-                debug!("Configuring TLS");
-                let cert = fs::read_to_string(security.cert_file.as_ref().unwrap())
-                    .context("Failed to read certificate file")?;
-                let key = fs::read_to_string(security.key_file.as_ref().unwrap())
-                    .context("Failed to read key file")?;
-                let identity =
-                    tonic::transport::Identity::from_pem(cert.as_bytes(), key.as_bytes());
+            match security.effective_mode() {
+                SecurityMode::None => {
+                    info!("Operating without gRPC TLS security");
+                }
+                SecurityMode::Mtls => {
+                    debug!("Configuring mTLS security");
+                    let cert_path = security
+                        .cert_file
+                        .as_ref()
+                        .map(|p| security.resolve_path(p))
+                        .context("mTLS cert_file must be set")?;
+                    let key_path = security
+                        .key_file
+                        .as_ref()
+                        .map(|p| security.resolve_path(p))
+                        .context("mTLS key_file must be set")?;
+                    let ca_path = security
+                        .client_ca_path()
+                        .context("mTLS requires client_ca_file or ca_file")?;
 
-                let ca_cert = fs::read_to_string(security.ca_file.as_ref().unwrap())
-                    .context("Failed to read CA certificate file")?;
-                let ca = tonic::transport::Certificate::from_pem(ca_cert.as_bytes());
+                    let cert = fs::read(&cert_path).with_context(|| {
+                        format!("Failed to read certificate file {cert_path:?}")
+                    })?;
+                    let key = fs::read(&key_path)
+                        .with_context(|| format!("Failed to read key file {key_path:?}"))?;
+                    let ca = fs::read(&ca_path)
+                        .with_context(|| format!("Failed to read CA file {ca_path:?}"))?;
 
-                let tls_config = tonic::transport::ServerTlsConfig::new()
-                    .identity(identity)
-                    .client_ca_root(ca);
-                server_builder = server_builder.tls_config(tls_config)?;
-                info!("TLS configured with mTLS enabled");
+                    let identity = Identity::from_pem(cert, key);
+                    let client_ca = Certificate::from_pem(ca);
+                    let tls_config = ServerTlsConfig::new()
+                        .identity(identity)
+                        .client_ca_root(client_ca);
+                    server_builder = server_builder.tls_config(tls_config)?;
+                    info!("TLS configured with mTLS enabled");
+                }
+                SecurityMode::Spiffe => {
+                    debug!("Configuring SPIFFE security");
+                    let trust_domain = security
+                        .trust_domain
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .expect("validated earlier");
+                    let workload_socket = security
+                        .workload_socket
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or(DEFAULT_WORKLOAD_SOCKET);
+
+                    let credentials =
+                        spiffe::load_server_credentials(workload_socket, trust_domain)
+                            .await
+                            .context("failed to load SPIFFE credentials for sysmon gRPC server")?;
+                    let (identity, client_ca, guard) = credentials.into_parts();
+                    let tls_config = ServerTlsConfig::new()
+                        .identity(identity)
+                        .client_ca_root(client_ca);
+                    spiffe_guard = Some(guard);
+                    server_builder = server_builder.tls_config(tls_config)?;
+                    info!("TLS configured with SPIFFE");
+                }
             }
         }
 
@@ -141,6 +190,7 @@ impl SysmonService {
         Ok(ServerHandle {
             join_handle: server_handle,
             collection_handle: Some(collection_handle),
+            _spiffe_guard: spiffe_guard,
         })
     }
 }
@@ -212,6 +262,7 @@ impl AgentService for Arc<SysmonService> {
 pub struct ServerHandle {
     join_handle: JoinHandle<Result<()>>,
     collection_handle: Option<JoinHandle<()>>,
+    _spiffe_guard: Option<SpiffeSourceGuard>,
 }
 
 impl ServerHandle {

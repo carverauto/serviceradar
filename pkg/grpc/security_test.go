@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -156,6 +157,39 @@ func TestMTLSProvider(t *testing.T) {
 		provider, err := NewMTLSProvider(noCertConfig, createTestLogger(t))
 		require.Error(t, err)
 		assert.Nil(t, provider)
+	})
+}
+
+func TestNormalizeServerSPIFFEID(t *testing.T) {
+	log := createTestLogger(t)
+	trustDomain := spiffeid.RequireTrustDomainFromString("carverauto.dev")
+
+	t.Run("alreadyQualified", func(t *testing.T) {
+		raw := "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
+		id, err := normalizeServerSPIFFEID(raw, trustDomain, true, log)
+		require.NoError(t, err)
+		assert.Equal(t, raw, id.String())
+	})
+
+	t.Run("missingSchemeWithLeadingSlash", func(t *testing.T) {
+		raw := "/ns/demo/sa/serviceradar-datasvc"
+		id, err := normalizeServerSPIFFEID(raw, trustDomain, true, log)
+		require.NoError(t, err)
+		assert.Equal(t, "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc", id.String())
+	})
+
+	t.Run("missingSchemeWithoutLeadingSlash", func(t *testing.T) {
+		raw := "ns/demo/sa/serviceradar-sync"
+		id, err := normalizeServerSPIFFEID(raw, trustDomain, true, log)
+		require.NoError(t, err)
+		assert.Equal(t, "spiffe://carverauto.dev/ns/demo/sa/serviceradar-sync", id.String())
+	})
+
+	t.Run("missingSchemeWithoutTrustDomain", func(t *testing.T) {
+		raw := "/ns/demo/sa/serviceradar-datasvc"
+		_, err := normalizeServerSPIFFEID(raw, spiffeid.TrustDomain{}, false, log)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "trust_domain")
 	})
 }
 

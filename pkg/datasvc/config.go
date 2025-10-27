@@ -5,6 +5,14 @@ import (
 	"log"
 	"math"
 	"path/filepath"
+	"strings"
+
+	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+const (
+	securityModeMTLS   = "mtls"
+	securityModeSPIFFE = "spiffe"
 )
 
 // Validate ensures the configuration is valid.
@@ -21,7 +29,12 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	c.normalizeCertPaths()
+	if err := c.validateNATSSecurity(); err != nil {
+		return err
+	}
+
+	c.normalizeSecurityCertPaths(c.Security)
+	c.normalizeSecurityCertPaths(c.NATSSecurity)
 	c.setDefaultBucket()
 	c.setDefaultObjectBucket()
 	c.setDefaultBucketOptions()
@@ -48,11 +61,46 @@ func (c *Config) validateRequiredFields() error {
 
 // validateSecurity ensures security settings are valid.
 func (c *Config) validateSecurity() error {
-	if c.Security == nil || c.Security.Mode != "mtls" {
+	if c.Security == nil {
 		return errSecurityRequired
 	}
 
-	tls := c.Security.TLS
+	mode := strings.ToLower(string(c.Security.Mode))
+
+	switch mode {
+	case securityModeMTLS:
+	case securityModeSPIFFE:
+	default:
+		return fmt.Errorf("%w: %s", errInvalidSecurityMode, c.Security.Mode)
+	}
+
+	if err := validateTLSConfig(c.Security); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Config) validateNATSSecurity() error {
+	if c.NATSSecurity == nil {
+		return errNATSSecurityRequired
+	}
+
+	mode := strings.ToLower(string(c.NATSSecurity.Mode))
+
+	if mode != securityModeMTLS {
+		return errMTLSRequired
+	}
+
+	if err := validateTLSConfig(c.NATSSecurity); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateTLSConfig(sec *models.SecurityConfig) error {
+	tls := sec.TLS
 
 	if tls.CertFile == "" {
 		return errCertFileRequired
@@ -69,14 +117,22 @@ func (c *Config) validateSecurity() error {
 	return nil
 }
 
-// normalizeCertPaths prepends CertDir to relative TLS file paths.
-func (c *Config) normalizeCertPaths() {
-	certDir := c.Security.CertDir
+// normalizeSecurityCertPaths prepends CertDir to relative TLS file paths for mTLS configs.
+func (c *Config) normalizeSecurityCertPaths(sec *models.SecurityConfig) {
+	if sec == nil {
+		return
+	}
+
+	if strings.ToLower(string(sec.Mode)) != securityModeMTLS {
+		return
+	}
+
+	certDir := sec.CertDir
 	if certDir == "" {
 		return
 	}
 
-	tls := &c.Security.TLS
+	tls := &sec.TLS
 
 	if !filepath.IsAbs(tls.CertFile) {
 		tls.CertFile = filepath.Join(certDir, tls.CertFile)

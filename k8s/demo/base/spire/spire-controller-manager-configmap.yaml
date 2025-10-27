@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-controller-manager-config
+  namespace: demo
+data:
+  config.yaml: |
+    apiVersion: spire.spiffe.io/v1alpha1
+    kind: ControllerManagerConfig
+    metrics:
+      bindAddress: 127.0.0.1:8082
+    health:
+      healthProbeBindAddress: 0.0.0.0:8083
+    leaderElection:
+      leaderElect: true
+      resourceName: spire-controller-manager
+      resourceNamespace: demo
+    clusterName: carverauto-cluster
+    trustDomain: carverauto.dev
+    spireServerSocketPath: /spire-server/api.sock
+    ignoreNamespaces:
+      - kube-system
+      - kube-public
+      - local-path-storage
+      - kube-node-lease
+    validatingWebhookConfigurationName: spire-controller-manager-webhook
+    logLevel: info

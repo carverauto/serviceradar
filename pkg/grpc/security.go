@@ -307,11 +307,15 @@ func (p *MTLSProvider) GetServerCredentials(_ context.Context) (grpc.ServerOptio
 
 // SpiffeProvider implements SecurityProvider using SPIFFE workload API.
 type SpiffeProvider struct {
-	config    *models.SecurityConfig
-	client    *workloadapi.Client
-	source    *workloadapi.X509Source
-	closeOnce sync.Once
-	logger    logger.Logger
+	config         *models.SecurityConfig
+	client         *workloadapi.Client
+	source         *workloadapi.X509Source
+	trustDomain    spiffeid.TrustDomain
+	serverID       spiffeid.ID
+	hasTrustDomain bool
+	hasServerID    bool
+	closeOnce      sync.Once
+	logger         logger.Logger
 }
 
 func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log logger.Logger) (*SpiffeProvider, error) {
@@ -336,21 +340,103 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log l
 		return nil, fmt.Errorf("%w: %w", errFailedToCreateX509Source, err)
 	}
 
+	var (
+		trustDomain    spiffeid.TrustDomain
+		hasTrustDomain bool
+	)
+
+	if td := strings.TrimSpace(config.TrustDomain); td != "" {
+		if strings.Contains(td, "://") {
+			id, parseErr := spiffeid.FromString(td)
+			if parseErr != nil {
+				_ = source.Close()
+				_ = client.Close()
+				return nil, fmt.Errorf("%w: %w", errInvalidTrustDomain, parseErr)
+			}
+
+			trustDomain = id.TrustDomain()
+			hasTrustDomain = true
+		} else {
+			parsedDomain, parseErr := spiffeid.TrustDomainFromString(td)
+			if parseErr != nil {
+				_ = source.Close()
+				_ = client.Close()
+				return nil, fmt.Errorf("%w: %w", errInvalidTrustDomain, parseErr)
+			}
+
+			trustDomain = parsedDomain
+			hasTrustDomain = true
+		}
+	}
+
+	var (
+		serverID    spiffeid.ID
+		hasServerID bool
+	)
+
+	if idStr := strings.TrimSpace(config.ServerSPIFFEID); idStr != "" {
+		log.Debug().
+			Str("server_spiffe_id", idStr).
+			Str("role", string(config.Role)).
+			Msg("Validating SPIFFE server identity")
+		parsedID, parseErr := normalizeServerSPIFFEID(idStr, trustDomain, hasTrustDomain, log)
+		if parseErr != nil {
+			_ = source.Close()
+			_ = client.Close()
+			return nil, fmt.Errorf("%w: %w", errInvalidServerSPIFFEID, parseErr)
+		}
+
+		serverID = parsedID
+		hasServerID = true
+	}
+
 	return &SpiffeProvider{
-		config: config,
-		client: client,
-		source: source,
-		logger: log,
+		config:         config,
+		client:         client,
+		source:         source,
+		trustDomain:    trustDomain,
+		hasTrustDomain: hasTrustDomain,
+		serverID:       serverID,
+		hasServerID:    hasServerID,
+		logger:         log,
 	}, nil
 }
 
-func (p *SpiffeProvider) GetClientCredentials(_ context.Context) (grpc.DialOption, error) {
-	serverID, err := spiffeid.FromString(p.config.TrustDomain)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidServerSPIFFEID, err)
+func normalizeServerSPIFFEID(raw string, trustDomain spiffeid.TrustDomain, hasTrustDomain bool, log logger.Logger) (spiffeid.ID, error) {
+	trimmed := strings.TrimSpace(raw)
+	if strings.Contains(trimmed, "://") {
+		return spiffeid.FromString(trimmed)
 	}
 
-	tlsConfig := tlsconfig.MTLSClientConfig(p.source, p.source, tlsconfig.AuthorizeID(serverID))
+	if !hasTrustDomain {
+		return spiffeid.ID{}, fmt.Errorf("%w: %q", errMissingServerSPIFFEScheme, trimmed)
+	}
+
+	normalized := "/" + strings.TrimPrefix(trimmed, "/")
+	fullID := fmt.Sprintf("spiffe://%s%s", trustDomain.String(), normalized)
+
+	log.Debug().
+		Str("original_server_spiffe_id", trimmed).
+		Str("normalized_server_spiffe_id", fullID).
+		Msg("Normalized SPIFFE server identity to include scheme and trust domain")
+
+	return spiffeid.FromString(fullID)
+}
+
+func (p *SpiffeProvider) GetClientCredentials(_ context.Context) (grpc.DialOption, error) {
+	authorizer := tlsconfig.AuthorizeAny()
+
+	switch {
+	case p.hasServerID:
+		authorizer = tlsconfig.AuthorizeID(p.serverID)
+	case p.hasTrustDomain:
+		authorizer = tlsconfig.AuthorizeMemberOf(p.trustDomain)
+		p.logger.Warn().Msg("SPIFFE client credentials using trust domain membership authorizer; set server_spiffe_id for stricter verification")
+	default:
+		p.logger.Warn().Msg("SPIFFE client credentials have no server_spiffe_id or trust_domain; allowing any SPIFFE endpoint")
+	}
+
+	tlsConfig := tlsconfig.MTLSClientConfig(p.source, p.source, authorizer)
 
 	return grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), nil
 }
@@ -358,13 +444,8 @@ func (p *SpiffeProvider) GetClientCredentials(_ context.Context) (grpc.DialOptio
 func (p *SpiffeProvider) GetServerCredentials(_ context.Context) (grpc.ServerOption, error) {
 	authorizer := tlsconfig.AuthorizeAny()
 
-	if p.config.TrustDomain != "" {
-		trustDomain, err := spiffeid.TrustDomainFromString(p.config.TrustDomain)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", errInvalidTrustDomain, err)
-		}
-
-		authorizer = tlsconfig.AuthorizeMemberOf(trustDomain)
+	if p.hasTrustDomain {
+		authorizer = tlsconfig.AuthorizeMemberOf(p.trustDomain)
 	}
 
 	tlsConfig := tlsconfig.MTLSServerConfig(p.source, p.source, authorizer)

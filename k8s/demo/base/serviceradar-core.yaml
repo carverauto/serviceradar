@@ -19,6 +19,7 @@ spec:
         app: serviceradar-core
         app.kubernetes.io/part-of: serviceradar
     spec:
+      serviceAccountName: serviceradar-core
       imagePullSecrets:
         - name: ghcr-io-cred
       initContainers:
@@ -87,6 +88,9 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
         - name: WAIT_FOR_PROTON
           value: "true"
@@ -129,15 +133,15 @@ spec:
         - name: KV_ADDRESS
           value: "serviceradar-datasvc:50057"
         - name: KV_SEC_MODE
-          value: "mtls"
-        - name: KV_CERT_FILE
-          value: "/etc/serviceradar/certs/core.pem"
-        - name: KV_KEY_FILE
-          value: "/etc/serviceradar/certs/core-key.pem"
-        - name: KV_CA_FILE
-          value: "/etc/serviceradar/certs/root.pem"
-        - name: KV_SERVER_NAME
-          value: "datasvc.serviceradar"
+          value: "spiffe"
+        - name: KV_TRUST_DOMAIN
+          value: "carverauto.dev"
+        - name: KV_SERVER_SPIFFE_ID
+          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
+        - name: KV_WORKLOAD_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
+        - name: KV_CERT_DIR
+          value: "/etc/serviceradar/certs"
         resources:
           limits:
             cpu: "3"
@@ -146,37 +150,15 @@ spec:
             cpu: "1"
             memory: "4Gi"
         livenessProbe:
-          exec:
-            command:
-            - grpcurl
-            - -cacert
-            - /etc/serviceradar/certs/root.pem
-            - -cert
-            - /etc/serviceradar/certs/core.pem
-            - -key
-            - /etc/serviceradar/certs/core-key.pem
-            - -servername
-            - core.serviceradar
-            - localhost:50052
-            - grpc.health.v1.Health/Check
+          tcpSocket:
+            port: 8090
           initialDelaySeconds: 180
           periodSeconds: 30
           timeoutSeconds: 10
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - grpcurl
-            - -cacert
-            - /etc/serviceradar/certs/root.pem
-            - -cert
-            - /etc/serviceradar/certs/core.pem
-            - -key
-            - /etc/serviceradar/certs/core-key.pem
-            - -servername
-            - core.serviceradar
-            - localhost:50052
-            - grpc.health.v1.Health/Check
+          tcpSocket:
+            port: 8090
           initialDelaySeconds: 60
           periodSeconds: 10
           timeoutSeconds: 5
@@ -191,6 +173,10 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -209,6 +195,14 @@ spec:
   - name: metrics
     port: 9090
     targetPort: metrics
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-core
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

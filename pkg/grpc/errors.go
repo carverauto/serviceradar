@@ -35,6 +35,7 @@ var (
 	errFailedWorkloadAPIClient    = errors.New("failed to create workload API client")
 	errFailedToCreateX509Source   = errors.New("failed to create X.509 source")
 	errInvalidServerSPIFFEID      = errors.New("invalid server SPIFFE ID")
+	errMissingServerSPIFFEScheme  = errors.New("server SPIFFE ID is missing a scheme and no trust_domain is configured")
 	errInvalidTrustDomain         = errors.New("invalid trust domain")
 	errFailedToCreateMTLSProvider = errors.New("failed to create mTLS provider")
 	errAddressRequired            = errors.New("address required")

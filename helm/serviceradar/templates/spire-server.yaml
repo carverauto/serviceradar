@@ -1,0 +1,329 @@
+{{- if .Values.spire.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+{{- $bundle := default "spire-bundle" .Values.spire.bundleConfigMap }}
+{{- $serverVals := .Values.spire.server }}
+{{- $pg := .Values.spire.postgres }}
+{{- $trustDomain := .Values.spire.trustDomain }}
+{{- $clusterName := .Values.spire.clusterName }}
+{{- $agentSA := .Values.spire.agentServiceAccount }}
+{{- $serverName := default "spire-server" $serverVals.serviceName }}
+{{- $pgHost := printf "%s-rw.%s.svc.cluster.local" (default "spire-pg" $pg.clusterName) $ns }}
+{{- $dbUser := default "spire" $pg.username }}
+{{- $dbName := default "spire" $pg.database }}
+{{- $cmVals := .Values.spire.controllerManager }}
+{{- $cmImageRepo := default "ghcr.io/spiffe/spire-controller-manager" $cmVals.image }}
+{{- $cmImageTag := default "0.6.3" $cmVals.tag }}
+{{- $cmImage := printf "%s:%s" $cmImageRepo $cmImageTag }}
+{{- $cmConfigName := default "spire-controller-manager-config" $cmVals.configMapName }}
+{{- $cmSocketPath := default "/spire-server/api.sock" $cmVals.spireServerSocketPath }}
+{{- $cmMetricsAddr := default "127.0.0.1:8082" $cmVals.metricsBindAddress }}
+{{- $cmHealthAddr := default "0.0.0.0:8083" $cmVals.healthProbeBindAddress }}
+{{- $cmLogLevel := default "info" $cmVals.logLevel }}
+{{- $cmWebhookName := default "" $cmVals.validatingWebhookConfigurationName }}
+{{- $cmLeaderName := default "spire-controller-manager" $cmVals.leaderElectionResourceName }}
+{{- $cmIgnoreNamespaces := default (list "kube-system" "kube-public" "local-path-storage" "kube-node-lease") $cmVals.ignoreNamespaces }}
+{{- $cmResources := $cmVals.resources }}
+{{- $cmWebhooksEnabled := not (eq ($cmVals.enableWebhooks | default true) false) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spire-server
+  namespace: {{ $ns }}
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: spire-server-configmap-role
+  namespace: {{ $ns }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["patch", "get", "list"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: spire-server-configmap-role-binding
+  namespace: {{ $ns }}
+subjects:
+  - kind: ServiceAccount
+    name: spire-server
+    namespace: {{ $ns }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spire-server-configmap-role
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: spire-server-trust-role
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificaterequests"]
+    verbs: ["create", "get", "list", "watch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["clusterissuers"]
+    verbs: ["get", "list", "watch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: spire-server-trust-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: spire-server
+    namespace: {{ $ns }}
+roleRef:
+  kind: ClusterRole
+  name: spire-server-trust-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $serverName }}
+  namespace: {{ $ns }}
+data:
+  server.conf: |
+    server {
+      bind_address = "0.0.0.0"
+      bind_port = "8081"
+      socket_path = "/tmp/spire-server/private/api.sock"
+      trust_domain = "{{ $trustDomain }}"
+      data_dir = "/run/spire/data"
+      log_level = "{{ default "DEBUG" $serverVals.logLevel }}"
+      ca_key_type = "rsa-2048"
+
+      ca_subject = {
+        country = ["US"],
+        organization = ["Carver Automation Corporation"],
+        common_name = "{{ $trustDomain }}",
+      }
+    }
+
+    plugins {
+      DataStore "sql" {
+        plugin_data {
+          database_type = "postgres"
+          connection_string = "dbname={{ $dbName }} user={{ $dbUser }} password=__DB_PASSWORD__ host={{ $pgHost }} port=5432 sslmode=disable"
+        }
+      }
+
+      NodeAttestor "k8s_sat" {
+        plugin_data {
+          clusters = {
+            "{{ $clusterName }}" = {
+              use_token_review_api_validation = true
+              service_account_allow_list = ["{{ $ns }}:{{ $agentSA }}"]
+            }
+          }
+        }
+      }
+
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "/run/spire/data/keys.json"
+        }
+      }
+
+      Notifier "k8sbundle" {
+        plugin_data {
+          namespace = "{{ $ns }}"
+          config_map = "{{ $bundle }}"
+        }
+      }
+    }
+
+    health_checks {
+      listener_enabled = true
+      bind_address = "0.0.0.0"
+      bind_port = "8080"
+      live_path = "/live"
+      ready_path = "/ready"
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $cmConfigName }}
+  namespace: {{ $ns }}
+data:
+  config.yaml: |
+    apiVersion: spire.spiffe.io/v1alpha1
+    kind: ControllerManagerConfig
+    metrics:
+      bindAddress: {{ $cmMetricsAddr }}
+    health:
+      healthProbeBindAddress: {{ $cmHealthAddr }}
+    leaderElection:
+      leaderElect: true
+      resourceName: {{ $cmLeaderName }}
+      resourceNamespace: {{ $ns }}
+    clusterName: {{ $clusterName }}
+    trustDomain: {{ $trustDomain }}
+    spireServerSocketPath: {{ $cmSocketPath }}
+    ignoreNamespaces:
+{{- range $cmIgnoreNamespaces }}
+      - {{ . }}
+{{- end }}
+    validatingWebhookConfigurationName: {{ $cmWebhookName | quote }}
+    logLevel: {{ $cmLogLevel }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $bundle }}
+  namespace: {{ $ns }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $serverName }}
+  namespace: {{ $ns }}
+  labels:
+    app: {{ $serverName }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $serverName }}
+  serviceName: {{ $serverName }}
+  template:
+    metadata:
+      labels:
+        app: {{ $serverName }}
+    spec:
+      serviceAccountName: spire-server
+      initContainers:
+        - name: init-config
+          image: {{ $serverVals.initConfigImage }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              cp /config-template/server.conf /config/server.conf
+              sed -i "s|__DB_PASSWORD__|$DB_PASSWORD|g" /config/server.conf
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $pg.secretName }}
+                  key: password
+          volumeMounts:
+            - name: spire-config-template
+              mountPath: /config-template
+            - name: generated-config
+              mountPath: /config
+      containers:
+        - name: spire-server
+          image: {{ $serverVals.image }}
+          args:
+            - -config
+            - /run/spire/config/server.conf
+          ports:
+            - containerPort: 8081
+              name: grpc
+            - containerPort: 8080
+              name: health
+          volumeMounts:
+            - name: generated-config
+              mountPath: /run/spire/config
+              readOnly: true
+            - name: spire-data
+              mountPath: /run/spire/data
+            - name: spire-server-socket
+              mountPath: /tmp/spire-server/private
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 8080
+            failureThreshold: 2
+            initialDelaySeconds: 15
+            periodSeconds: 60
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+        - name: spire-controller-manager
+          image: {{ $cmImage }}
+          args:
+            - --config=/spire-controller-manager-config.yaml
+{{- if not $cmWebhooksEnabled }}
+          env:
+            - name: ENABLE_WEBHOOKS
+              value: "false"
+{{- end }}
+          volumeMounts:
+            - name: spire-server-socket
+              mountPath: /spire-server
+              readOnly: true
+            - name: spire-controller-manager-config
+              mountPath: /spire-controller-manager-config.yaml
+              subPath: config.yaml
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+{{- with $cmResources }}
+          resources:
+{{ toYaml . | indent 12 }}
+{{- end }}
+      volumes:
+        - name: spire-config-template
+          configMap:
+            name: {{ $serverName }}
+        - name: generated-config
+          emptyDir: {}
+        - name: spire-server-socket
+          emptyDir: {}
+        - name: spire-controller-manager-config
+          configMap:
+            name: {{ $cmConfigName }}
+  volumeClaimTemplates:
+    - metadata:
+        name: spire-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ default "1Gi" $serverVals.dataPVC.size }}
+        {{- if $serverVals.dataPVC.storageClass }}
+        storageClassName: "{{ $serverVals.dataPVC.storageClass }}"
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $serverName }}
+  namespace: {{ $ns }}
+spec:
+  type: {{ default "LoadBalancer" $serverVals.serviceType }}
+  ports:
+    - name: grpc
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+    - name: health
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: {{ $serverName }}
+{{- end }}

@@ -12,6 +12,7 @@ spec:
       labels:
         app: serviceradar-snmp-checker
     spec:
+      serviceAccountName: {{ .Values.spire.snmpCheckerServiceAccount | default "serviceradar-snmp-checker" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
         - name: init-checkers
@@ -25,6 +26,9 @@ spec:
       containers:
       - name: snmp-checker
         image: ghcr.io/carverauto/serviceradar-snmp-checker:{{ .Values.image.tags.snmpChecker }}
+        ports:
+        - containerPort: 50054
+          name: grpc
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar
@@ -33,6 +37,9 @@ spec:
           readOnly: true
         - name: checkers-dir
           mountPath: /etc/serviceradar/checkers
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
         - name: SERVICERADAR_CONFIG_PATH
           value: "/etc/serviceradar/snmp.json"
@@ -58,3 +65,28 @@ spec:
           claimName: serviceradar-cert-data
       - name: checkers-dir
         emptyDir: {}
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-snmp-checker
+spec:
+  selector:
+    app: serviceradar-snmp-checker
+  ports:
+  - name: grpc
+    port: 50054
+    targetPort: grpc
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.snmpCheckerServiceAccount | default "serviceradar-snmp-checker" }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar

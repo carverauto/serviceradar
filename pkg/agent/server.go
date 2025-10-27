@@ -919,8 +919,13 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 		Logger:     s.logger,
 	}
 
-	if s.config.Security != nil {
-		provider, err := grpc.NewSecurityProvider(ctx, s.config.Security, s.logger)
+	securityConfig := checkerConfig.Security
+	if securityConfig == nil {
+		securityConfig = s.config.Security
+	}
+
+	if securityConfig != nil {
+		provider, err := grpc.NewSecurityProvider(ctx, securityConfig, s.logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create security provider: %w", err)
 		}
@@ -1638,6 +1643,12 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	} else {
 		// Use registry for other service types
 		checkSecurity := s.config.Security
+
+		// Datasvc health checks should reuse the dedicated KV security block so the
+		// agent dials the SPIFFE-enabled service with the correct trust settings.
+		if req.ServiceName == "kv" && s.config.KVSecurity != nil {
+			checkSecurity = s.config.KVSecurity
+		}
 
 		if conf, exists := s.checkerConfs[req.ServiceName]; exists && conf.Security != nil {
 			s.logger.Info().

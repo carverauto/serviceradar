@@ -1,0 +1,54 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: spire-ca
+  namespace: demo
+spec:
+  secretName: spire-ca-key-pair
+  duration: 8760h # 1 year
+  renewBefore: 720h # 30 days
+  commonName: "spire.carverauto.dev"
+  dnsNames:
+    - "spire.carverauto.dev"
+  isCA: true
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 4096
+  issuerRef:
+    name: letsencrypt-dns
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cert-manager-ca
+  namespace: demo
+data:
+  ca.crt: ""
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cert-manager-ca-sync
+  namespace: demo
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "update"]
+    resourceNames: ["cert-manager-ca"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cert-manager-ca-sync
+  namespace: demo
+subjects:
+  - kind: ServiceAccount
+    name: cert-manager
+    namespace: cert-manager
+roleRef:
+  kind: Role
+  name: cert-manager-ca-sync
+  apiGroup: rbac.authorization.k8s.io

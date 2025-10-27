@@ -21,6 +21,8 @@ tonic-reflection = "0.9"
 tonic = { version = "0.9", features = ["tls"] }
 clap = "~2.33.3"
 anyhow = "1.0"
+pem = "3"
+spiffe = { version = "0.6", default-features = false, features = ["spiffe-types", "workload-api"] }
 
 [build-dependencies]
 tonic-build = "0.9"

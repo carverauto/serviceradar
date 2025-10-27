@@ -25,9 +25,10 @@ data:
 
     [grpc]
     listen_addr = "0.0.0.0:50044"
-    cert_file = "/etc/serviceradar/certs/flowgger.pem"
-    key_file = "/etc/serviceradar/certs/flowgger-key.pem"
-    ca_file = "/etc/serviceradar/certs/root.pem"
+    mode = "spiffe"
+    cert_dir = "/etc/serviceradar/certs"
+    trust_domain = "{{ .Values.spire.trustDomain }}"
+    workload_socket = "unix:/run/spire/sockets/agent.sock"
 
     [logging]
     level = "info"
@@ -61,6 +62,7 @@ spec:
         app: serviceradar-flowgger
         app.kubernetes.io/part-of: serviceradar
     spec:
+      serviceAccountName: {{ .Values.spire.flowggerServiceAccount | default "serviceradar-flowgger" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: flowgger
@@ -70,6 +72,9 @@ spec:
         - name: syslog
           containerPort: 514
           protocol: UDP
+        - name: grpc
+          containerPort: 50044
+          protocol: TCP
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/flowgger.toml"
@@ -109,6 +114,9 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: logs
           mountPath: /var/log/serviceradar
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
       volumes:
       - name: flowgger-config
         configMap:
@@ -121,6 +129,10 @@ spec:
           claimName: serviceradar-flowgger-data
       - name: logs
         emptyDir: {}
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -136,4 +148,15 @@ spec:
     port: 514
     targetPort: 514
     protocol: UDP
+  - name: grpc
+    port: 50044
+    targetPort: 50044
+    protocol: TCP
   type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.flowggerServiceAccount | default "serviceradar-flowgger" }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar

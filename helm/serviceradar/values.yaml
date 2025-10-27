@@ -22,6 +22,73 @@ image:
     faker: latest
     rperfChecker: latest
 
+spire:
+  enabled: true
+  namespace: ""
+  serverSelector: app=spire-server
+  trustDomain: carverauto.dev
+  clusterName: carverauto-cluster
+  agentServiceAccount: spire-agent
+  coreServiceAccount: serviceradar-core
+  pollerServiceAccount: serviceradar-poller
+  datasvcServiceAccount: serviceradar-datasvc
+  serviceradarAgentServiceAccount: serviceradar-agent
+  syncServiceAccount: serviceradar-sync
+  zenServiceAccount: serviceradar-zen
+  mapperServiceAccount: serviceradar-mapper
+  dbEventWriterServiceAccount: serviceradar-db-event-writer
+  snmpCheckerServiceAccount: serviceradar-snmp-checker
+  rperfCheckerServiceAccount: serviceradar-rperf-checker
+  flowggerServiceAccount: serviceradar-flowgger
+  trapdServiceAccount: serviceradar-trapd
+  bundleConfigMap: spire-bundle
+  server:
+    image: ghcr.io/spiffe/spire-server:1.11.2
+    logLevel: DEBUG
+    initConfigImage: busybox
+    serviceName: spire-server
+    serviceType: LoadBalancer
+    dataPVC:
+      size: 1Gi
+      storageClass: ""
+  agent:
+    image: ghcr.io/spiffe/spire-agent:1.11.2
+    logLevel: DEBUG
+    waitForImage: cgr.dev/chainguard/wait-for-it
+  postgres:
+    enabled: true
+    clusterName: spire-pg
+    database: spire
+    instances: 3
+    storageClass: local-path
+    storageSize: 5Gi
+    secretName: spire-db-credentials
+    username: spire
+    password: changeme
+  controllerManager:
+    image: ghcr.io/spiffe/spire-controller-manager
+    tag: 0.6.3
+    configMapName: spire-controller-manager-config
+    spireServerSocketPath: /spire-server/api.sock
+    metricsBindAddress: 127.0.0.1:8082
+    healthProbeBindAddress: 0.0.0.0:8083
+    logLevel: info
+    leaderElectionResourceName: spire-controller-manager
+    ignoreNamespaces:
+      - kube-system
+      - kube-public
+      - local-path-storage
+      - kube-node-lease
+    validatingWebhookConfigurationName: spire-controller-manager-webhook
+    enableWebhooks: false
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+
 ingress:
   enabled: true
   host: staging.serviceradar.cloud

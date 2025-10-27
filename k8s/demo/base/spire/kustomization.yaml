@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - cluster-issuer.yaml
+  - cert-configmap.yaml
+  - spire-ca.yaml
+  - spire-root-issuer.yaml
+  - spire-ca-issuer.yaml
+  - spire-bundle-configmap.yaml
+  - spire-crd-clusterspiffeids.yaml
+  - spire-crd-clusterstaticentries.yaml
+  - spire-crd-clusterfederatedtrustdomains.yaml
+  - server-account.yaml
+  - server-cluster-role.yaml
+  - spire-controller-manager-rbac.yaml
+  - spire-controller-manager-configmap.yaml
+  - server-configmap.yaml
+  - server-service.yaml
+  - server-statefulset.yaml
+  - agent-account.yaml
+  - agent-cluster-role.yaml
+  - agent-configmap.yaml
+  - agent-daemonset.yaml
+  - spire-postgres-cluster.yaml
+  - spire-clusterspiffeid-core.yaml
+  - spire-clusterspiffeid-poller.yaml
+  - spire-clusterspiffeid-serviceradar-agent.yaml
+  - spire-clusterspiffeid-datasvc.yaml
+  - spire-clusterspiffeid-sync.yaml
+  - spire-clusterspiffeid-zen.yaml
+  - spire-clusterspiffeid-mapper.yaml
+  - spire-clusterspiffeid-db-event-writer.yaml
+  - spire-clusterspiffeid-rperf-checker.yaml
+  - spire-clusterspiffeid-flowgger.yaml
+  - spire-clusterspiffeid-trapd.yaml
+  - spire-clusterspiffeid-snmp-checker.yaml

@@ -871,6 +871,31 @@ exports_files(["nats"])
 )
 
 http_archive(
+    name = "spire_linux_amd64",
+    build_file_content = """
+exports_files([
+    "bin/spire-agent",
+    "bin/spire-server",
+])
+""",
+    sha256 = "ac53853d478175f15cec8a3757d71638d0821126c0d69583ed4141399e01c49f",
+    strip_prefix = "spire-1.11.2",
+    urls = [
+        "https://github.com/spiffe/spire/releases/download/v1.11.2/spire-1.11.2-linux-amd64-musl.tar.gz",
+    ],
+)
+
+http_file(
+    name = "kubectl_linux_amd64",
+    downloaded_file_path = "kubectl",
+    executable = True,
+    sha256 = "aaa7e6ff3bd28c262f2d95c8c967597e097b092e9b79bcb37de699e7488e3e7b",
+    urls = [
+        "https://dl.k8s.io/release/v1.32.5/bin/linux/amd64/kubectl",
+    ],
+)
+
+http_archive(
     name = "perl_src",
     build_file_content = """
 filegroup(

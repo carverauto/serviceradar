@@ -51,10 +51,12 @@ data:
         "password": ""
       },
       "security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "localhost",
         "role": "core",
+        "trust_domain": "carverauto.dev",
+        "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-db-event-writer",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
           "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",

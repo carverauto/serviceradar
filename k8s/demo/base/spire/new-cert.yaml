@@ -1,0 +1,17 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: spire-ca
+  namespace: demo
+spec:
+  commonName: "Spire Intermediate CA"
+  dnsNames:
+    - "spire.carverauto.dev"
+  duration: 8760h
+  isCA: true
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: spire-root-issuer
+  renewBefore: 720h
+  secretName: spire-ca-intermediate-key-pair # Changed secret name
