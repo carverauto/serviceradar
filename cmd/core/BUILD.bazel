@@ -12,6 +12,7 @@ go_library(
         "//alias:logger",
         "//alias:swagger",
         "//proto",
+        "//pkg/spireadmin",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//stats",
     ],

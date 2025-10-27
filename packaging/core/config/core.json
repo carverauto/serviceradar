@@ -50,6 +50,9 @@
             "skip_verify": false
         }
     },
+    "spire_admin": {
+        "enabled": false
+    },
     "cors": {
         "allowed_origins": [
             "*"

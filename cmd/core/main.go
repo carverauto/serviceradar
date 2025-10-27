@@ -48,6 +48,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -59,6 +60,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	_ "github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -205,6 +207,31 @@ func run() error {
 			}
 		}
 		apiOptions = append(apiOptions, api.WithKVEndpoints(eps))
+	}
+
+	var spireAdminClient spireadmin.Client
+	if cfg.SpireAdmin != nil && cfg.SpireAdmin.Enabled {
+		spireCfg := spireadmin.Config{
+			WorkloadSocket: cfg.SpireAdmin.WorkloadSocket,
+			ServerAddress:  cfg.SpireAdmin.ServerAddress,
+			ServerSPIFFEID: cfg.SpireAdmin.ServerSPIFFEID,
+		}
+
+		if spireCfg.ServerAddress == "" || spireCfg.ServerSPIFFEID == "" {
+			mainLogger.Warn().Msg("SPIRE admin config enabled but server address or SPIFFE ID missing; disabling admin client")
+		} else {
+			client, err := spireadmin.New(ctx, spireCfg)
+			if err != nil {
+				return fmt.Errorf("failed to initialize SPIRE admin client: %w", err)
+			}
+			spireAdminClient = client
+			apiOptions = append(apiOptions, api.WithSpireAdmin(spireAdminClient, cfg.SpireAdmin))
+			defer func() {
+				if err := spireAdminClient.Close(); err != nil {
+					mainLogger.Warn().Err(err).Msg("error closing SPIRE admin client")
+				}
+			}()
+		}
 	}
 
 	allOptions := []func(server *api.APIServer){

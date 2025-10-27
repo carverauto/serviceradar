@@ -35,11 +35,13 @@ data:
           clusters = {
             # NOTE: Change this to your cluster name
             "carverauto-cluster" = {
-              service_account_allow_list = ["demo:spire-agent"]
+              service_account_allow_list = ["demo:spire-agent", "demo:serviceradar-poller"]
             }
           }
         }
       }
+
+      NodeAttestor "join_token" {}
 
       KeyManager "disk" {
         plugin_data {

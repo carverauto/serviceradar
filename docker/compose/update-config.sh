@@ -170,8 +170,176 @@ cat > "$CHECKERS_DIR/sysmon-vm.json" <<EOF
 EOF
 echo "✅ Generated sysmon-vm checker config with address $SYSMON_VM_ADDRESS"
 
+POLLERS_SECURITY_MODE="${POLLERS_SECURITY_MODE:-mtls}"
+POLLERS_TRUST_DOMAIN="${POLLERS_TRUST_DOMAIN:-carverauto.dev}"
+POLLERS_AGENT_SPIFFE_ID="${POLLERS_AGENT_SPIFFE_ID:-spiffe://$POLLERS_TRUST_DOMAIN/services/agent}"
+POLLERS_CORE_SPIFFE_ID="${POLLERS_CORE_SPIFFE_ID:-spiffe://$POLLERS_TRUST_DOMAIN/services/core}"
+POLLERS_WORKLOAD_SOCKET="${POLLERS_WORKLOAD_SOCKET:-unix:/run/spire/nested/workload/agent.sock}"
+POLLERS_SPIRE_CONFIG_DIR="${POLLERS_SPIRE_CONFIG_DIR:-$CONFIG_DIR/poller-spire}"
+POLLERS_SPIRE_UPSTREAM_ADDRESS="${POLLERS_SPIRE_UPSTREAM_ADDRESS:-spire-server}"
+POLLERS_SPIRE_UPSTREAM_PORT="${POLLERS_SPIRE_UPSTREAM_PORT:-8081}"
+POLLERS_SPIRE_UPSTREAM_SOCKET_PATH="${POLLERS_SPIRE_UPSTREAM_SOCKET_PATH:-/run/spire/nested/upstream/agent.sock}"
+POLLERS_SPIRE_DOWNSTREAM_PORT="${POLLERS_SPIRE_DOWNSTREAM_PORT:-8083}"
+POLLERS_SPIRE_DOWNSTREAM_SOCKET_PATH="${POLLERS_SPIRE_DOWNSTREAM_SOCKET_PATH:-/run/spire/nested/server/api.sock}"
+POLLERS_SPIRE_WORKLOAD_SOCKET_PATH="${POLLERS_SPIRE_WORKLOAD_SOCKET_PATH:-/run/spire/nested/workload/agent.sock}"
+POLLERS_SPIRE_INSECURE_BOOTSTRAP="${POLLERS_SPIRE_INSECURE_BOOTSTRAP:-true}"
+POLLERS_SPIRE_SERVER_BIND_ADDRESS="${POLLERS_SPIRE_SERVER_BIND_ADDRESS:-0.0.0.0}"
+POLLERS_SPIRE_CA_COMMON_NAME="${POLLERS_SPIRE_CA_COMMON_NAME:-$POLLERS_TRUST_DOMAIN}"
+POLLERS_SPIRE_PARENT_ID="${POLLERS_SPIRE_PARENT_ID:-spiffe://$POLLERS_TRUST_DOMAIN/ns/serviceradar/poller-nested-spire}"
+POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID="${POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID:-spiffe://$POLLERS_TRUST_DOMAIN/services/poller}"
+POLLERS_SPIRE_SQLITE_PATH="${POLLERS_SPIRE_SQLITE_PATH:-/run/spire/nested/server/datastore.sqlite3}"
+POLLERS_SPIRE_SERVER_KEYS_PATH="${POLLERS_SPIRE_SERVER_KEYS_PATH:-/run/spire/nested/server/keys.json}"
+POLLERS_SPIRE_SERVER_SOCKET="${POLLERS_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}"
+
 # Prepare poller configuration with sysmon-vm override
-if [ -f /templates/poller.docker.json ]; then
+if [ "$POLLERS_SECURITY_MODE" = "spiffe" ] && [ -f /templates/poller.spiffe.json ]; then
+    cp /templates/poller.spiffe.json "$CONFIG_DIR/poller.json"
+    jq --arg addr "$SYSMON_VM_ADDRESS" \
+       --arg td "$POLLERS_TRUST_DOMAIN" \
+       --arg agentId "$POLLERS_AGENT_SPIFFE_ID" \
+       --arg coreId "$POLLERS_CORE_SPIFFE_ID" \
+       --arg socket "$POLLERS_WORKLOAD_SOCKET" '
+        (.agents[]?.security.trust_domain) = $td
+        | (.agents[]?.security.server_spiffe_id) = $agentId
+        | (.agents[]?.security.workload_socket) = $socket
+        | (.security.trust_domain) = $td
+        | (.security.server_spiffe_id) = $coreId
+        | (.security.workload_socket) = $socket
+        | (.agents[]?.checks[]? | select(.service_name == "sysmon-vm")).details = $addr
+    ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
+    mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
+    echo "✅ Generated poller.json (SPIFFE mode) with sysmon-vm address $SYSMON_VM_ADDRESS"
+    mkdir -p "$POLLERS_SPIRE_CONFIG_DIR"
+    cat > "$POLLERS_SPIRE_CONFIG_DIR/upstream-agent.conf" <<EOF
+agent {
+  data_dir = "/run/spire/nested/upstream-agent"
+  log_level = "INFO"
+  trust_domain = "$POLLERS_TRUST_DOMAIN"
+  server_address = "$POLLERS_SPIRE_UPSTREAM_ADDRESS"
+  server_port = "$POLLERS_SPIRE_UPSTREAM_PORT"
+  socket_path = "$POLLERS_SPIRE_UPSTREAM_SOCKET_PATH"
+  insecure_bootstrap = $POLLERS_SPIRE_INSECURE_BOOTSTRAP
+  retry_bootstrap = true
+}
+
+plugins {
+  NodeAttestor "join_token" {
+    plugin_data {}
+  }
+
+  KeyManager "memory" {
+    plugin_data {}
+  }
+
+  WorkloadAttestor "unix" {
+    plugin_data {}
+  }
+}
+
+health_checks {
+  listener_enabled = true
+  bind_address = "0.0.0.0"
+  bind_port = "18080"
+  live_path = "/live"
+  ready_path = "/ready"
+}
+EOF
+
+    cat > "$POLLERS_SPIRE_CONFIG_DIR/server.conf" <<EOF
+server {
+  bind_address = "$POLLERS_SPIRE_SERVER_BIND_ADDRESS"
+  bind_port = "$POLLERS_SPIRE_DOWNSTREAM_PORT"
+  socket_path = "$POLLERS_SPIRE_SERVER_SOCKET"
+  trust_domain = "$POLLERS_TRUST_DOMAIN"
+  data_dir = "/run/spire/nested/server"
+  log_level = "INFO"
+  ca_key_type = "rsa-2048"
+
+  ca_subject = {
+    country = ["US"],
+    organization = ["Carver Automation Corporation"],
+    common_name = "$POLLERS_SPIRE_CA_COMMON_NAME",
+  }
+}
+
+plugins {
+  DataStore "sql" {
+    plugin_data {
+      database_type = "sqlite3"
+      connection_string = "$POLLERS_SPIRE_SQLITE_PATH"
+    }
+  }
+
+  KeyManager "disk" {
+    plugin_data {
+      keys_path = "$POLLERS_SPIRE_SERVER_KEYS_PATH"
+    }
+  }
+
+  NodeAttestor "join_token" {
+    plugin_data {}
+  }
+
+  UpstreamAuthority "spire" {
+    plugin_data {
+      server_address = "$POLLERS_SPIRE_UPSTREAM_ADDRESS"
+      server_port = "$POLLERS_SPIRE_UPSTREAM_PORT"
+      workload_api_socket = "$POLLERS_SPIRE_UPSTREAM_SOCKET_PATH"
+    }
+  }
+}
+
+health_checks {
+  listener_enabled = true
+  bind_address = "0.0.0.0"
+  bind_port = "18082"
+  live_path = "/live"
+  ready_path = "/ready"
+}
+EOF
+
+    cat > "$POLLERS_SPIRE_CONFIG_DIR/downstream-agent.conf" <<EOF
+agent {
+  data_dir = "/run/spire/nested/downstream-agent"
+  log_level = "INFO"
+  trust_domain = "$POLLERS_TRUST_DOMAIN"
+  server_address = "127.0.0.1"
+  server_port = "$POLLERS_SPIRE_DOWNSTREAM_PORT"
+  socket_path = "$POLLERS_SPIRE_WORKLOAD_SOCKET_PATH"
+  insecure_bootstrap = true
+  retry_bootstrap = true
+}
+
+plugins {
+  NodeAttestor "join_token" {
+    plugin_data {}
+  }
+
+  KeyManager "memory" {
+    plugin_data {}
+  }
+
+  WorkloadAttestor "unix" {
+    plugin_data {}
+  }
+}
+
+health_checks {
+  listener_enabled = true
+  bind_address = "0.0.0.0"
+  bind_port = "18081"
+  live_path = "/live"
+  ready_path = "/ready"
+}
+EOF
+    cat > "$POLLERS_SPIRE_CONFIG_DIR/env" <<EOF
+POLLERS_TRUST_DOMAIN="$POLLERS_TRUST_DOMAIN"
+NESTED_SPIRE_PARENT_ID="$POLLERS_SPIRE_PARENT_ID"
+NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID="$POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID"
+NESTED_SPIRE_SERVER_SOCKET="$POLLERS_SPIRE_SERVER_SOCKET"
+EOF
+    echo "✅ Generated nested SPIRE configuration under $POLLERS_SPIRE_CONFIG_DIR"
+elif [ -f /templates/poller.docker.json ]; then
     cp /templates/poller.docker.json "$CONFIG_DIR/poller.json"
     jq --arg addr "$SYSMON_VM_ADDRESS" '
         (.agents[]?.checks[]? | select(.service_name == "sysmon-vm")).details = $addr

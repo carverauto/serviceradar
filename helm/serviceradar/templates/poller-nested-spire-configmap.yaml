@@ -1,0 +1,165 @@
+{{- if and .Values.spire.enabled .Values.spire.nestedPoller.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+{{- $trustDomain := .Values.spire.trustDomain }}
+{{- $cluster := .Values.spire.clusterName }}
+{{- $serverVals := .Values.spire.server }}
+{{- $nested := .Values.spire.nestedPoller }}
+{{- $serverAddress := coalesce $nested.upstreamServerAddress (and $serverVals (index $serverVals "serviceName")) "spire-server" }}
+{{- $serverPort := default 8081 $nested.upstreamServerPort }}
+{{- $nestedPort := default 8083 $nested.serverPort }}
+{{- $upstreamAgentSocket := default "/run/spire/nested/upstream/agent.sock" $nested.upstreamAgentSocketPath }}
+{{- $downstreamAgentSocket := default "/run/spire/nested/workload/agent.sock" $nested.downstreamAgentSocketPath }}
+{{- $upstreamAgentDir := default "/run/spire/nested/upstream-agent" $nested.upstreamAgentDataDir }}
+{{- $downstreamAgentDir := default "/run/spire/nested/downstream-agent" $nested.downstreamAgentDataDir }}
+{{- $serverDataDir := default "/run/spire/nested/server" $nested.serverDataDir }}
+{{- $logLevel := default "INFO" $nested.logLevel }}
+{{- $serverDatastore := printf "%s/datastore.sqlite3" $serverDataDir }}
+{{- $serverKeys := printf "%s/keys.json" $serverDataDir }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: poller-nested-spire-config
+  namespace: {{ $ns }}
+data:
+  upstream-agent.conf: |
+    agent {
+      data_dir = "{{ $upstreamAgentDir }}"
+      log_level = "{{ $logLevel }}"
+      server_address = "{{ $serverAddress }}"
+      server_port = "{{ $serverPort }}"
+      socket_path = "{{ $upstreamAgentSocket }}"
+      trust_domain = "{{ $trustDomain }}"
+      insecure_bootstrap = true
+      retry_bootstrap = true
+    }
+
+    plugins {
+      NodeAttestor "join_token" {
+        plugin_data {}
+      }
+
+      KeyManager "memory" {
+        plugin_data {}
+      }
+
+      WorkloadAttestor "k8s" {
+        plugin_data {
+          skip_kubelet_verification = true
+          node_name_env = "MY_NODE_NAME"
+        }
+      }
+
+      WorkloadAttestor "unix" {
+        plugin_data {}
+      }
+    }
+
+    health_checks {
+      listener_enabled = true
+      bind_address = "0.0.0.0"
+      bind_port = "18080"
+      live_path = "/live"
+      ready_path = "/ready"
+    }
+
+  downstream-agent.conf: |
+    agent {
+      data_dir = "{{ $downstreamAgentDir }}"
+      log_level = "{{ $logLevel }}"
+      server_address = "127.0.0.1"
+      server_port = "{{ $nestedPort }}"
+      socket_path = "{{ $downstreamAgentSocket }}"
+      trust_domain = "{{ $trustDomain }}"
+      insecure_bootstrap = true
+      retry_bootstrap = true
+    }
+
+    plugins {
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          cluster = "{{ $cluster }}"
+        }
+      }
+
+      KeyManager "memory" {
+        plugin_data {}
+      }
+
+      WorkloadAttestor "k8s" {
+        plugin_data {
+          skip_kubelet_verification = true
+          node_name_env = "MY_NODE_NAME"
+        }
+      }
+
+      WorkloadAttestor "unix" {
+        plugin_data {}
+      }
+    }
+
+    health_checks {
+      listener_enabled = true
+      bind_address = "0.0.0.0"
+      bind_port = "18081"
+      live_path = "/live"
+      ready_path = "/ready"
+    }
+
+  server.conf: |
+    server {
+      bind_address = "0.0.0.0"
+      bind_port = "{{ $nestedPort }}"
+      socket_path = "/run/spire/nested/server/api.sock"
+      trust_domain = "{{ $trustDomain }}"
+      data_dir = "{{ $serverDataDir }}"
+      log_level = "{{ $logLevel }}"
+      ca_key_type = "rsa-2048"
+
+      ca_subject = {
+        country = ["US"],
+        organization = ["Carver Automation Corporation"],
+        common_name = "{{ $trustDomain }}",
+      }
+    }
+
+    plugins {
+      DataStore "sql" {
+        plugin_data {
+          database_type = "sqlite3"
+          connection_string = "{{ $serverDatastore }}"
+        }
+      }
+
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "{{ $serverKeys }}"
+        }
+      }
+
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          clusters = {
+            "{{ $cluster }}" = {
+              service_account_allow_list = ["{{ $ns }}:{{ default "serviceradar-poller" .Values.spire.pollerServiceAccount }}"]
+            }
+          }
+        }
+      }
+
+      UpstreamAuthority "spire" {
+        plugin_data {
+          server_address = "{{ $serverAddress }}"
+          server_port = "{{ $serverPort }}"
+          workload_api_socket = "{{ $upstreamAgentSocket }}"
+        }
+      }
+    }
+
+    health_checks {
+      listener_enabled = true
+      bind_address = "0.0.0.0"
+      bind_port = "18082"
+      live_path = "/live"
+      ready_path = "/ready"
+    }
+{{- end }}

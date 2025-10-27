@@ -1,0 +1,13 @@
+services:
+  config-updater:
+    environment:
+      POLLERS_SECURITY_MODE: "spiffe"
+
+  poller:
+    environment:
+      POLLERS_SECURITY_MODE: "spiffe"
+      MANAGE_NESTED_SPIRE: "enabled"
+      NESTED_SPIRE_UPSTREAM_JOIN_TOKEN_FILE: "/etc/serviceradar/spire/upstream-join-token"
+      NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE_FILE: "/etc/serviceradar/spire/upstream-bundle.pem"
+    volumes:
+      - ./docker/compose/spire:/etc/serviceradar/spire:ro

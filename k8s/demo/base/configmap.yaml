@@ -131,6 +131,13 @@ data:
         "ca_file": "/etc/serviceradar/certs/root.pem"
       }
     },
+    "spire_admin": {
+      "enabled": true,
+      "server_address": "spire-server.demo.svc.cluster.local:8081",
+      "server_spiffe_id": "spiffe://carverauto.dev/spire/server",
+      "workload_socket": "unix:/run/spire/sockets/agent.sock",
+      "join_token_ttl": "15m"
+    },
         "cors": {
           "allowed_origins": [
             "*"

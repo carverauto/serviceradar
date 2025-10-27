@@ -1,3 +1,15 @@
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+{{- $nested := .Values.spire.nestedPoller }}
+{{- $join := $nested.joinToken }}
+{{- $trustDomain := .Values.spire.trustDomain }}
+{{- $nestedSpiffeIDDefault := printf "spiffe://%s/ns/%s/poller-nested-spire" $trustDomain $ns }}
+{{- $nestedSpiffeID := default $nestedSpiffeIDDefault (and $nested $nested.spiffeID) }}
+{{- $joinTTLSecs := default 900 (and $join $join.ttlSeconds) }}
+{{- $coreURL := default "http://serviceradar-core:8090" (and $join $join.coreURL) }}
+{{- $joinAPISecret := default "serviceradar-secrets" (and $join $join.apiKeySecret) }}
+{{- $joinAPIKeyRef := default "api-key" (and $join $join.apiKeyKey) }}
+{{- $downstreamX509TTL := default 14400 (and $nested $nested.downstreamX509TTLSeconds) }}
+{{- $downstreamJWTTTL := default 1800 (and $nested $nested.downstreamJWTTTLSeconds) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,6 +25,98 @@ spec:
         app: serviceradar-poller
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+{{- if and $nested $nested.enabled }}
+      initContainers:
+      - name: poller-join-token
+        image: ghcr.io/carverauto/serviceradar-tools:{{ default "latest" (and .Values.image .Values.image.tags .Values.image.tags.tools) }}
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -euo pipefail
+          TOKEN_DIR="/var/run/spire/join-token"
+          TOKEN_FILE="${TOKEN_DIR}/token"
+          mkdir -p "${TOKEN_DIR}"
+          REQUEST_FILE="$(mktemp)"
+          cat <<EOF > "${REQUEST_FILE}"
+          {
+            "ttl_seconds": ${JOIN_TOKEN_TTL},
+            "register_downstream": true,
+            "downstream": {
+              "spiffe_id": "${DOWNSTREAM_SPIFFE_ID}",
+              "selectors": [
+                "k8s:ns:${POD_NAMESPACE}",
+                "k8s:sa:{{ default "serviceradar-poller" .Values.spire.pollerServiceAccount }}",
+                "k8s:pod-label:{{ default "app" $nested.podLabelKey }}:{{ default "serviceradar-poller" $nested.podLabelValue }}",
+                "k8s:container-name:{{ default "poller-nested-spire" $nested.containerName }}"
+              ],
+              "x509_svid_ttl_seconds": {{ $downstreamX509TTL }},
+              "jwt_svid_ttl_seconds": {{ $downstreamJWTTTL }},
+              "admin": true,
+              "store_svid": true
+            }
+          }
+          EOF
+          RESPONSE_FILE="$(mktemp)"
+          HTTP_CODE="$(curl -sS -o "${RESPONSE_FILE}" -w '%{http_code}' \
+            -X POST "${CORE_API_URL}/api/admin/spire/join-tokens" \
+            -H 'Content-Type: application/json' \
+            -H "X-API-Key: ${CORE_API_KEY}" \
+            --data @"${REQUEST_FILE}")"
+          rm -f "${REQUEST_FILE}"
+          if [ "${HTTP_CODE}" != "201" ]; then
+            echo "Join token request failed with status ${HTTP_CODE}" >&2
+            cat "${RESPONSE_FILE}" >&2
+            rm -f "${RESPONSE_FILE}"
+            exit 1
+          fi
+          TOKEN="$(jq -r '.token // empty' "${RESPONSE_FILE}")"
+          rm -f "${RESPONSE_FILE}"
+          if [ -z "${TOKEN}" ]; then
+            echo "Join token response missing token" >&2
+            exit 1
+          fi
+          printf '%s' "${TOKEN}" > "${TOKEN_FILE}"
+          chmod 0600 "${TOKEN_FILE}"
+          echo "Generated join token for downstream ${DOWNSTREAM_SPIFFE_ID}"
+        env:
+        - name: CORE_API_URL
+          value: "{{ $coreURL }}"
+        - name: CORE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $joinAPISecret | quote }}
+              key: {{ $joinAPIKeyRef | quote }}
+        - name: DOWNSTREAM_SPIFFE_ID
+          value: "{{ $nestedSpiffeID }}"
+        - name: JOIN_TOKEN_TTL
+          value: "{{ printf "%v" $joinTTLSecs }}"
+        - name: DOWNSTREAM_X509_TTL
+          value: "{{ printf "%v" $downstreamX509TTL }}"
+        - name: DOWNSTREAM_JWT_TTL
+          value: "{{ printf "%v" $downstreamJWTTTL }}"
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+        - name: poller-join-token
+          mountPath: /var/run/spire/join-token
+      - name: prepare-poller-spire-run
+        image: busybox:1.36
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - |
+          set -eu
+          mkdir -p /run/spire/nested/upstream /run/spire/nested/upstream-agent /run/spire/nested/server /run/spire/nested/server/data /run/spire/nested/workload /run/spire/nested/downstream-agent
+          chmod -R 0777 /run/spire/nested
+        volumeMounts:
+        - name: poller-spire-run
+          mountPath: /run/spire/nested
+{{- end }}
       containers:
       - name: poller
         image: ghcr.io/carverauto/serviceradar-poller:{{ .Values.image.tags.poller }}
@@ -24,11 +128,21 @@ spec:
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
+{{- if .Values.spire.nestedPoller.enabled }}
+        - name: poller-spire-run
+          mountPath: /run/spire/nested
+{{- end }}
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/poller.json"
         - name: LOG_LEVEL
           value: "info"
+        - name: MANAGE_NESTED_SPIRE
+          value: "disabled"
+{{- if .Values.spire.nestedPoller.enabled }}
+        - name: NESTED_SPIRE_SOCKET
+          value: "/run/spire/nested/workload/agent.sock"
+{{- end }}
         resources:
           limits:
             cpu: "500m"
@@ -58,6 +172,88 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 3
           failureThreshold: 3
+{{- if .Values.spire.nestedPoller.enabled }}
+      - name: poller-nested-upstream-agent
+        image: ghcr.io/spiffe/spire-agent:1.11.2
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          mkdir -p /run/spire/nested/upstream /run/spire/nested/upstream-agent
+          TOKEN_FILE="/var/run/spire/join-token/token"
+          for _ in $(seq 1 30); do
+            if [ -s "${TOKEN_FILE}" ]; then
+              break
+            fi
+            echo "Waiting for join token to be written..." >&2
+            sleep 2
+          done
+          if [ ! -s "${TOKEN_FILE}" ]; then
+            echo "Join token was not generated" >&2
+            exit 1
+          fi
+          TOKEN="$(cat "${TOKEN_FILE}")"
+          exec /opt/spire/bin/spire-agent run -config /etc/poller-spire/upstream-agent.conf -joinToken "${TOKEN}"
+        env:
+        - name: MY_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: poller-spire-config
+          mountPath: /etc/poller-spire
+          readOnly: true
+        - name: poller-spire-run
+          mountPath: /run/spire/nested
+        - name: poller-spire-token
+          mountPath: /var/run/secrets/tokens
+          readOnly: true
+        - name: poller-join-token
+          mountPath: /var/run/spire/join-token
+          readOnly: true
+      - name: poller-nested-spire
+        image: ghcr.io/spiffe/spire-server:1.11.2
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          mkdir -p /run/spire/nested/server /run/spire/nested/server/data
+          exec /opt/spire/bin/spire-server run -config /etc/poller-spire/server.conf
+        ports:
+        - containerPort: 8083
+          name: nested-spire
+        volumeMounts:
+        - name: poller-spire-config
+          mountPath: /etc/poller-spire
+          readOnly: true
+        - name: poller-spire-run
+          mountPath: /run/spire/nested
+      - name: poller-nested-agent
+        image: ghcr.io/spiffe/spire-agent:1.11.2
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          mkdir -p /run/spire/nested/workload /run/spire/nested/downstream-agent
+          exec /opt/spire/bin/spire-agent run -config /etc/poller-spire/downstream-agent.conf
+        env:
+        - name: MY_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: poller-spire-config
+          mountPath: /etc/poller-spire
+          readOnly: true
+        - name: poller-spire-run
+          mountPath: /run/spire/nested
+        - name: poller-spire-token
+          mountPath: /var/run/secrets/tokens
+          readOnly: true
+{{- end }}
       volumes:
       - name: serviceradar-config
         configMap:
@@ -69,3 +265,19 @@ spec:
         hostPath:
           path: /run/spire/sockets
           type: DirectoryOrCreate
+{{- if .Values.spire.nestedPoller.enabled }}
+      - name: poller-spire-config
+        configMap:
+          name: poller-nested-spire-config
+      - name: poller-spire-run
+        emptyDir: {}
+      - name: poller-spire-token
+        projected:
+          sources:
+            - serviceAccountToken:
+                path: poller-nested-spire
+                audience: spire-server
+                expirationSeconds: 7200
+      - name: poller-join-token
+        emptyDir: {}
+{{- end }}
