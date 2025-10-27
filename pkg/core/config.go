@@ -96,6 +96,12 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 		normalized.Metrics.MaxPollers = defaultMetricsMaxPollers
 	}
 
+	if normalized.SpireAdmin != nil && normalized.SpireAdmin.Enabled {
+		if normalized.SpireAdmin.WorkloadSocket == "" {
+			normalized.SpireAdmin.WorkloadSocket = "unix:/run/spire/sockets/agent.sock"
+		}
+	}
+
 	return &normalized
 }
 

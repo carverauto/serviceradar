@@ -739,15 +739,25 @@ pkg_tar(
     files = {
         "//cmd/poller:poller": "usr/local/bin/serviceradar-poller",
         "//docker/compose:poller.docker.json": "etc/serviceradar/poller.json",
+        "//docker/compose:bootstrap-nested-spire.sh": "usr/local/bin/bootstrap-nested-spire",
+        "//docker/compose:entrypoint-poller.sh": "usr/local/bin/poller-entrypoint.sh",
+        "@spire_linux_amd64//:bin/spire-agent": "usr/local/bin/spire-agent",
+        "@spire_linux_amd64//:bin/spire-server": "usr/local/bin/spire-server",
     },
     modes = {
         "usr/local/bin/serviceradar-poller": "0755",
         "etc/serviceradar/poller.json": "0644",
+        "usr/local/bin/bootstrap-nested-spire": "0755",
+        "usr/local/bin/poller-entrypoint.sh": "0755",
+        "usr/local/bin/spire-agent": "0755",
+        "usr/local/bin/spire-server": "0755",
     },
     empty_dirs = [
         "etc/serviceradar/certs",
+        "etc/serviceradar/config/poller-spire",
         "var/log/serviceradar",
         "var/lib/serviceradar",
+        "run/spire/nested",
     ],
     package_dir = "/",
 )
@@ -756,6 +766,7 @@ oci_image(
     name = "poller_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
     tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":poller_layer_amd64"],
+    entrypoint = ["/usr/local/bin/poller-entrypoint.sh"],
     cmd = ["/usr/local/bin/serviceradar-poller", "-config", "/etc/serviceradar/poller.json"],
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",

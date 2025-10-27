@@ -119,11 +119,13 @@ data:
           clusters = {
             "{{ $clusterName }}" = {
               use_token_review_api_validation = true
-              service_account_allow_list = ["{{ $ns }}:{{ $agentSA }}"]
+              service_account_allow_list = ["{{ $ns }}:{{ $agentSA }}"{{- if .Values.spire.nestedPoller.enabled }}, "{{ $ns }}:{{ default "serviceradar-poller" .Values.spire.pollerServiceAccount }}"{{- end }}]
             }
           }
         }
       }
+
+      NodeAttestor "join_token" {}
 
       KeyManager "disk" {
         plugin_data {
