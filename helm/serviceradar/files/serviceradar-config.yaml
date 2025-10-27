@@ -10,6 +10,8 @@
 {{- $mapperSA := .Values.spire.mapperServiceAccount | default "serviceradar-mapper" -}}
 {{- $dbEventWriterSA := .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" -}}
 {{- $rperfCheckerSA := .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" -}}
+{{- $flowggerSA := .Values.spire.flowggerServiceAccount | default "serviceradar-flowgger" -}}
+{{- $trapdSA := .Values.spire.trapdServiceAccount | default "serviceradar-trapd" -}}
 # base/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -433,9 +435,12 @@ data:
       "type": "grpc",
       "address": "serviceradar-trapd:50043",
       "security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "poller",
+        "trust_domain": "{{$trustDomain}}",
+        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$trapdSA}}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "agent.pem",
           "key_file": "agent-key.pem",
@@ -451,9 +456,12 @@ data:
       "type": "grpc",
       "address": "serviceradar-flowgger:50044",
       "security": {
-        "mode": "mtls",
+        "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "poller",
+        "trust_domain": "{{$trustDomain}}",
+        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$flowggerSA}}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "agent.pem",
           "key_file": "agent-key.pem",
@@ -1087,12 +1095,18 @@ data:
       "stream_name": "events",
       "subject": "snmp.traps",
       "nats_security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
         "cert_file": "/etc/serviceradar/certs/trapd.pem",
         "key_file": "/etc/serviceradar/certs/trapd-key.pem",
         "ca_file": "/etc/serviceradar/certs/root.pem"
       },
       "grpc_listen_addr": "0.0.0.0:50043",
       "grpc_security": {
+        "mode": "spiffe",
+        "cert_dir": "/etc/serviceradar/certs",
+        "trust_domain": "{{ .Values.spire.trustDomain }}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "cert_file": "/etc/serviceradar/certs/trapd.pem",
         "key_file": "/etc/serviceradar/certs/trapd-key.pem",
         "ca_file": "/etc/serviceradar/certs/root.pem"

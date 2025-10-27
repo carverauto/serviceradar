@@ -23,6 +23,11 @@ tonic = { workspace = true }
 tonic-health = { workspace = true }
 tonic-reflection = { workspace = true }
 kvutil = { path = "../../rust/kvutil" }
+pem = "3"
+spiffe = { version = "0.6", default-features = false, features = ["spiffe-types", "workload-api"] }
 
 [build-dependencies]
 tonic-build = { workspace = true }
+
+[dev-dependencies]
+rcgen = "0.12"

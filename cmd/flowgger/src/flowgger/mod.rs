@@ -12,6 +12,8 @@ mod input;
 mod merger;
 #[cfg(not(test))]
 mod output;
+#[cfg(not(test))]
+mod spiffe;
 
 #[cfg(test)]
 pub mod config;
@@ -25,6 +27,8 @@ pub mod input;
 pub mod merger;
 #[cfg(test)]
 pub mod output;
+#[cfg(test)]
+pub mod spiffe;
 
 mod record;
 mod splitter;

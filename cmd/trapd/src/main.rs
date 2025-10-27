@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use env_logger::Env;
 use futures::Stream;
 use log::{info, warn};
 use serde::Serialize;
 use std::pin::Pin;
-use std::{net::SocketAddr, path::PathBuf};
+use std::{fs, net::SocketAddr};
 use tokio::net::UdpSocket;
 
 use kvutil::{overlay_json, KvClient};
@@ -33,7 +33,9 @@ use tonic_health::server::health_reporter;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 
 mod config;
-use config::Config;
+mod spiffe;
+use config::{Config, SecurityMode};
+use spiffe::SpiffeSourceGuard;
 
 pub mod monitoring {
     tonic::include_proto!("monitoring");
@@ -45,6 +47,7 @@ use monitoring::agent_service_server::{AgentService, AgentServiceServer};
 
 const FILE_DESCRIPTOR_SET_MONITORING: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
+const DEFAULT_WORKLOAD_SOCKET: &str = "unix:/run/spire/sockets/agent.sock";
 
 #[derive(Parser, Debug)]
 #[command(name = "serviceradar-trapd")]
@@ -111,7 +114,7 @@ async fn main() -> Result<()> {
         let grpc_cfg = cfg.clone();
         tokio::spawn(async move {
             if let Err(e) = start_grpc_server(grpc_cfg).await {
-                warn!("gRPC server error: {e}");
+                warn!("gRPC server error: {e:#}");
             }
         });
     }
@@ -119,14 +122,23 @@ async fn main() -> Result<()> {
     let socket = UdpSocket::bind(&cfg.listen_addr).await?;
 
     let nats_client = if let Some(sec) = &cfg.nats_security {
-        let mut opts = async_nats::ConnectOptions::new();
-        if let Some(ca) = &sec.ca_file {
-            opts = opts.add_root_certificates(PathBuf::from(ca));
+        match sec.mode {
+            SecurityMode::None => async_nats::connect(&cfg.nats_url).await?,
+            SecurityMode::Spiffe => {
+                anyhow::bail!("SPIFFE mode is not supported for NATS security")
+            }
+            SecurityMode::Mtls => {
+                let mut opts = async_nats::ConnectOptions::new();
+                if let Some(ca) = &sec.ca_file {
+                    opts = opts.add_root_certificates(sec.resolve_path(ca));
+                }
+                if let (Some(cert), Some(key)) = (&sec.cert_file, &sec.key_file) {
+                    opts =
+                        opts.add_client_certificate(sec.resolve_path(cert), sec.resolve_path(key));
+                }
+                opts.connect(&cfg.nats_url).await?
+            }
         }
-        if let (Some(cert), Some(key)) = (&sec.cert_file, &sec.key_file) {
-            opts = opts.add_client_certificate(PathBuf::from(cert), PathBuf::from(key));
-        }
-        opts.connect(&cfg.nats_url).await?
     } else {
         async_nats::connect(&cfg.nats_url).await?
     };
@@ -270,15 +282,47 @@ async fn start_grpc_server(cfg: Config) -> Result<()> {
         .build_v1()?;
 
     let mut server_builder = Server::builder();
+    let mut spiffe_guard: Option<SpiffeSourceGuard> = None;
     if let Some(sec) = &cfg.grpc_security {
-        if let (Some(cert), Some(key), Some(ca)) = (&sec.cert_file, &sec.key_file, &sec.ca_file) {
-            let cert = std::fs::read_to_string(cert)?;
-            let key = std::fs::read_to_string(key)?;
-            let identity = Identity::from_pem(cert.as_bytes(), key.as_bytes());
-            let ca_cert = std::fs::read_to_string(ca)?;
-            let ca = Certificate::from_pem(ca_cert.as_bytes());
-            let tls = ServerTlsConfig::new().identity(identity).client_ca_root(ca);
-            server_builder = server_builder.tls_config(tls)?;
+        match sec.mode {
+            SecurityMode::None => {}
+            SecurityMode::Mtls => {
+                let cert_path = sec
+                    .cert_file
+                    .as_ref()
+                    .map(|p| sec.resolve_path(p))
+                    .expect("validated earlier");
+                let key_path = sec
+                    .key_file
+                    .as_ref()
+                    .map(|p| sec.resolve_path(p))
+                    .expect("validated earlier");
+                let ca_path = sec.client_ca_path().expect("validated earlier");
+
+                let cert = fs::read(&cert_path)?;
+                let key = fs::read(&key_path)?;
+                let identity = Identity::from_pem(cert, key);
+                let ca = Certificate::from_pem(fs::read(&ca_path)?);
+                let tls = ServerTlsConfig::new().identity(identity).client_ca_root(ca);
+                server_builder = server_builder.tls_config(tls)?;
+            }
+            SecurityMode::Spiffe => {
+                let trust_domain = sec.trust_domain.as_deref().expect("validated earlier");
+                let workload_socket = sec
+                    .workload_socket
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or(DEFAULT_WORKLOAD_SOCKET);
+                let credentials = spiffe::load_server_credentials(workload_socket, trust_domain)
+                    .await
+                    .context("failed to load SPIFFE credentials for trapd gRPC server")?;
+                let (identity, client_ca, guard) = credentials.into_parts();
+                let tls = ServerTlsConfig::new()
+                    .identity(identity)
+                    .client_ca_root(client_ca);
+                spiffe_guard = Some(guard);
+                server_builder = server_builder.tls_config(tls)?;
+            }
         }
     }
 
@@ -288,6 +332,8 @@ async fn start_grpc_server(cfg: Config) -> Result<()> {
         .add_service(reflection_service)
         .serve(addr)
         .await?;
+
+    drop(spiffe_guard);
 
     Ok(())
 }

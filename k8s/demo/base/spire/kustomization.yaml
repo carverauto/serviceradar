@@ -32,3 +32,5 @@ resources:
   - spire-clusterspiffeid-mapper.yaml
   - spire-clusterspiffeid-db-event-writer.yaml
   - spire-clusterspiffeid-rperf-checker.yaml
+  - spire-clusterspiffeid-flowgger.yaml
+  - spire-clusterspiffeid-trapd.yaml
