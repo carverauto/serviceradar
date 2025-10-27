@@ -602,6 +602,8 @@ data:
       },
       "rbac": {
         "roles": [
+          {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core", "role": "admin"},
+          {"identity": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller", "role": "reader"},
           {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "admin"},
           {"identity": "CN=serviceradar-poller,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
           {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/config/kvgrpc"
 	coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
@@ -150,25 +151,46 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 		return nil, nil, nil
 	}
 
-	secMode := os.Getenv("KV_SEC_MODE")
-	cert := os.Getenv("KV_CERT_FILE")
-	key := os.Getenv("KV_KEY_FILE")
-	ca := os.Getenv("KV_CA_FILE")
-	serverName := os.Getenv("KV_SERVER_NAME")
+	secMode := strings.ToLower(strings.TrimSpace(os.Getenv("KV_SEC_MODE")))
+	var sec *models.SecurityConfig
 
-	if secMode != "mtls" || cert == "" || key == "" || ca == "" {
+	switch secMode {
+	case "mtls":
+		cert := strings.TrimSpace(os.Getenv("KV_CERT_FILE"))
+		key := strings.TrimSpace(os.Getenv("KV_KEY_FILE"))
+		ca := strings.TrimSpace(os.Getenv("KV_CA_FILE"))
+		if cert == "" || key == "" || ca == "" {
+			return nil, nil, nil
+		}
+
+		sec = &models.SecurityConfig{
+			Mode: "mtls",
+			TLS: models.TLSConfig{
+				CertFile: cert,
+				KeyFile:  key,
+				CAFile:   ca,
+			},
+			ServerName: strings.TrimSpace(os.Getenv("KV_SERVER_NAME")),
+			Role:       role,
+		}
+	case "spiffe":
+		trustDomain := strings.TrimSpace(os.Getenv("KV_TRUST_DOMAIN"))
+		serverID := strings.TrimSpace(os.Getenv("KV_SERVER_SPIFFE_ID"))
+		workloadSocket := strings.TrimSpace(os.Getenv("KV_WORKLOAD_SOCKET"))
+		if workloadSocket == "" {
+			workloadSocket = "unix:/run/spire/sockets/agent.sock"
+		}
+
+		sec = &models.SecurityConfig{
+			Mode:           "spiffe",
+			CertDir:        strings.TrimSpace(os.Getenv("KV_CERT_DIR")),
+			Role:           role,
+			TrustDomain:    trustDomain,
+			ServerSPIFFEID: serverID,
+			WorkloadSocket: workloadSocket,
+		}
+	default:
 		return nil, nil, nil
-	}
-
-	sec := &models.SecurityConfig{
-		Mode: "mtls",
-		TLS: models.TLSConfig{
-			CertFile: cert,
-			KeyFile:  key,
-			CAFile:   ca,
-		},
-		ServerName: serverName,
-		Role:       role,
 	}
 
 	provider, err := coregrpc.NewSecurityProvider(ctx, sec, logger.NewTestLogger())

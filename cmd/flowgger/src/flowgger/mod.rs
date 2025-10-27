@@ -5,11 +5,15 @@ mod decoder;
 #[cfg(not(test))]
 mod encoder;
 #[cfg(not(test))]
+mod grpc;
+#[cfg(not(test))]
 mod input;
 #[cfg(not(test))]
 mod merger;
 #[cfg(not(test))]
 mod output;
+#[cfg(not(test))]
+mod spiffe;
 
 #[cfg(test)]
 pub mod config;
@@ -23,6 +27,8 @@ pub mod input;
 pub mod merger;
 #[cfg(test)]
 pub mod output;
+#[cfg(test)]
+pub mod spiffe;
 
 mod record;
 mod splitter;
@@ -404,6 +410,8 @@ pub fn start(config_file: &str) {
         Ok(config) => config,
         Err(e) => panic!("Unable to read the config file [{}]: {}", config_file, e),
     };
+    #[cfg(not(test))]
+    grpc::maybe_spawn(&config);
     let input_format = config
         .lookup("input.format")
         .map_or(DEFAULT_INPUT_FORMAT, |x| {

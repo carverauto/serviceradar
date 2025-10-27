@@ -3,7 +3,17 @@
   "type": "grpc",
   "address": "${SYSMON_VM_ADDRESS:-sysmon-vm:50110}",
   "security": {
-    "mode": "none",
-    "role": "agent"
+    "mode": "spiffe",
+    "role": "poller",
+    "cert_dir": "/etc/serviceradar/certs",
+    "trust_domain": "carverauto.dev",
+    "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-sysmon-vm",
+    "workload_socket": "unix:/run/spire/sockets/agent.sock",
+    "tls": {
+      "cert_file": "agent.pem",
+      "key_file": "agent-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
   }
 }

@@ -14,19 +14,55 @@
  * limitations under the License.
  */
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// Security configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SecurityConfig {
-    pub tls_enabled: bool,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SecurityMode {
+    #[default]
+    #[serde(alias = "", alias = "none")]
+    None,
+    Mtls,
+    Spiffe,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TlsConfig {
     pub cert_file: Option<String>,
     pub key_file: Option<String>,
     pub ca_file: Option<String>,
+    pub client_ca_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SecurityConfig {
+    #[serde(default)]
+    pub mode: SecurityMode,
+    #[serde(default)]
+    pub cert_dir: Option<String>,
+    #[serde(default)]
+    pub trust_domain: Option<String>,
+    #[serde(default)]
+    pub workload_socket: Option<String>,
+    #[serde(default)]
+    pub server_spiffe_id: Option<String>,
+    #[serde(default)]
+    pub tls: Option<TlsConfig>,
+}
+
+impl SecurityConfig {
+    pub fn resolve_path(&self, path: &str) -> PathBuf {
+        let trimmed = path.trim();
+        if Path::new(trimmed).is_absolute() || self.cert_dir.is_none() {
+            PathBuf::from(trimmed)
+        } else {
+            PathBuf::from(self.cert_dir.as_ref().unwrap()).join(trimmed)
+        }
+    }
 }
 
 /// Configuration for individual targets to test
@@ -97,12 +133,34 @@ impl Config {
 
         // Check TLS configuration if enabled
         if let Some(security) = &self.security {
-            if security.tls_enabled {
-                if security.cert_file.is_none() || security.key_file.is_none() {
-                    anyhow::bail!("When TLS is enabled, cert_file and key_file are required");
+            match security.mode {
+                SecurityMode::None => {}
+                SecurityMode::Mtls => {
+                    let tls = security
+                        .tls
+                        .as_ref()
+                        .context("security.tls section is required for mTLS mode")?;
+                    Self::ensure_present(&tls.cert_file, "security.tls.cert_file")?;
+                    Self::ensure_present(&tls.key_file, "security.tls.key_file")?;
+                    Self::ensure_present(&tls.ca_file, "security.tls.ca_file")?;
                 }
-                if security.ca_file.is_none() {
-                    anyhow::bail!("When TLS is enabled, ca_file is required for mTLS");
+                SecurityMode::Spiffe => {
+                    if security
+                        .workload_socket
+                        .as_ref()
+                        .map(|s| s.trim().is_empty())
+                        .unwrap_or(true)
+                    {
+                        bail!("security.workload_socket is required for spiffe mode");
+                    }
+                    if security
+                        .trust_domain
+                        .as_ref()
+                        .map(|s| s.trim().is_empty())
+                        .unwrap_or(true)
+                    {
+                        bail!("security.trust_domain is required for spiffe mode");
+                    }
                 }
             }
         }
@@ -113,5 +171,12 @@ impl Config {
     /// Get poll interval for a target, or use default if not specified
     pub fn get_poll_interval(&self, target: &TargetConfig) -> Duration {
         Duration::from_secs(target.poll_interval.max(1))
+    }
+
+    fn ensure_present(value: &Option<String>, field: &str) -> Result<()> {
+        match value {
+            Some(val) if !val.trim().is_empty() => Ok(()),
+            _ => bail!("{field} is required"),
+        }
     }
 }

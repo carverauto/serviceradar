@@ -1,19 +1,17 @@
+use crate::config::Config;
 use anyhow::Result;
 use async_nats::{jetstream, Client, ConnectOptions};
 use log::info;
-use std::path::PathBuf;
-
-use crate::config::Config;
 
 pub async fn connect_nats(cfg: &Config) -> Result<(Client, jetstream::Context)> {
     let mut opts = ConnectOptions::new();
 
     if let Some(sec) = &cfg.security {
-        if let Some(ca) = &sec.ca_file {
-            opts = opts.add_root_certificates(PathBuf::from(ca));
+        if let Some(ca) = sec.ca_file_path() {
+            opts = opts.add_root_certificates(ca);
         }
-        if let (Some(cert), Some(key)) = (&sec.cert_file, &sec.key_file) {
-            opts = opts.add_client_certificate(PathBuf::from(cert), PathBuf::from(key));
+        if let (Some(cert), Some(key)) = (sec.cert_file_path(), sec.key_file_path()) {
+            opts = opts.add_client_certificate(cert, key);
         }
     }
 

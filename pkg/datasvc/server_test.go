@@ -22,6 +22,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,6 +56,7 @@ func setupServer(t *testing.T) (*Server, *MockKVStore) {
 			Roles []RBACRule `json:"roles"`
 		}{
 			Roles: []RBACRule{
+				{Identity: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller", Role: RoleReader},
 				{Identity: "CN=reader-client", Role: RoleReader},
 				{Identity: "CN=writer-client", Role: RoleWriter},
 			},
@@ -95,5 +97,28 @@ func TestExtractIdentity(t *testing.T) {
 		identity, err := s.extractIdentity(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, "CN=reader-client", identity)
+	})
+
+	t.Run("PrefersSPIFFE", func(t *testing.T) {
+		s, _ := setupServer(t)
+
+		uri, err := url.Parse("spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller")
+		require.NoError(t, err)
+
+		cert := &x509.Certificate{
+			Subject: pkix.Name{CommonName: "reader-client"},
+			URIs:    []*url.URL{uri},
+		}
+
+		tlsInfo := credentials.TLSInfo{
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
+		}
+
+		p := &peer.Peer{AuthInfo: tlsInfo}
+		ctx := peer.NewContext(context.Background(), p)
+
+		identity, err := s.extractIdentity(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, uri.String(), identity)
 	})
 }

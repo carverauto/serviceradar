@@ -12,6 +12,18 @@ const FLOWGGER_VERSION_STRING: &str = env!("CARGO_PKG_VERSION");
 
 #[tokio::main]
 async fn main() {
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} {} {}",
+                buf.timestamp_seconds(),
+                record.level(),
+                record.args()
+            )
+        })
+        .try_init();
+
     let matches = Command::new("Flowgger")
         .version(FLOWGGER_VERSION_STRING)
         .about("A fast, simple and lightweight data collector")

@@ -1,0 +1,33 @@
+{{- if .Values.spire.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+{{- $trustDomain := .Values.spire.trustDomain }}
+{{- $entries := list
+  (dict "name" "serviceradar-core" "label" "serviceradar-core" "sa" (.Values.spire.coreServiceAccount | default "serviceradar-core"))
+  (dict "name" "serviceradar-poller" "label" "serviceradar-poller" "sa" (.Values.spire.pollerServiceAccount | default "serviceradar-poller"))
+  (dict "name" "serviceradar-datasvc" "label" "serviceradar-datasvc" "sa" (.Values.spire.datasvcServiceAccount | default "serviceradar-datasvc"))
+  (dict "name" "serviceradar-agent" "label" "serviceradar-agent" "sa" (.Values.spire.serviceradarAgentServiceAccount | default "serviceradar-agent"))
+  (dict "name" "serviceradar-sync" "label" "serviceradar-sync" "sa" (.Values.spire.syncServiceAccount | default "serviceradar-sync"))
+  (dict "name" "serviceradar-zen" "label" "serviceradar-zen" "sa" (.Values.spire.zenServiceAccount | default "serviceradar-zen"))
+  (dict "name" "serviceradar-mapper" "label" "serviceradar-mapper" "sa" (.Values.spire.mapperServiceAccount | default "serviceradar-mapper"))
+  (dict "name" "serviceradar-db-event-writer" "label" "serviceradar-db-event-writer" "sa" (.Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer"))
+  (dict "name" "serviceradar-rperf-checker" "label" "serviceradar-rperf-client" "sa" (.Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker"))
+  (dict "name" "serviceradar-snmp-checker" "label" "serviceradar-snmp-checker" "sa" (.Values.spire.snmpCheckerServiceAccount | default "serviceradar-snmp-checker"))
+  (dict "name" "serviceradar-flowgger" "label" "serviceradar-flowgger" "sa" (.Values.spire.flowggerServiceAccount | default "serviceradar-flowgger"))
+  (dict "name" "serviceradar-trapd" "label" "serviceradar-trapd" "sa" (.Values.spire.trapdServiceAccount | default "serviceradar-trapd"))
+}}
+{{- range $entries }}
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: {{ .name }}
+spec:
+  spiffeIDTemplate: spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ .sa }}
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: {{ $ns }}
+  podSelector:
+    matchLabels:
+      app: {{ .label }}
+{{- end }}
+{{- end }}

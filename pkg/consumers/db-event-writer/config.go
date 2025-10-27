@@ -36,6 +36,7 @@ type DBEventWriterConfig struct {
     Table        string                 `json:"table"`   // Legacy field for backward compatibility
     Streams      []StreamConfig         `json:"streams" hot:"rebuild"` // New multi-stream configuration
     Security     *models.SecurityConfig `json:"security" hot:"rebuild"`
+    NATSSecurity *models.SecurityConfig `json:"nats_security"`
     DBSecurity   *models.SecurityConfig `json:"db_security"`
     Database     models.ProtonDatabase  `json:"database"`
     Logging      *logger.Config         `json:"logging"` // Logger configuration including OTEL settings

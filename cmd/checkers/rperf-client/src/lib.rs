@@ -19,6 +19,7 @@ pub mod config;
 pub mod poller;
 pub mod rperf;
 pub mod server;
+pub mod spiffe;
 
 // Public re-exports
 pub use config::Config;

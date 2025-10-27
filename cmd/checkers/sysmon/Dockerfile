@@ -50,7 +50,7 @@ RUN ls -l /usr/local/bin/ && \
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar/checkers
-RUN echo '{"listen_addr":"0.0.0.0:50083","security":{"tls_enabled":false},"poll_interval":30,"zfs":null,"filesystems":[{"name":"/","type":"ext4","monitor":true}]}' > sysmon.json.example
+RUN echo '{"listen_addr":"0.0.0.0:50083","security":{"mode":"none"},"poll_interval":30,"zfs":null,"filesystems":[{"name":"/","type":"ext4","monitor":true}]}' > sysmon.json.example
 RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar/checkers
 

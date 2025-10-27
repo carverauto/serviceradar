@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: spire-ca-issuer
+  namespace: demo
+spec:
+  ca:
+    secretName: spire-ca-key-pair
+

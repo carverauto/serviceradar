@@ -71,7 +71,7 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 	store := &NATSStore{
 		ctx:            ctx,
 		natsURL:        cfg.NATSURL,
-		security:       cloneSecurityConfig(cfg.Security),
+		security:       cloneSecurityConfig(cfg.NATSSecurity),
 		bucket:         cfg.Bucket,
 		defaultDomain:  cfg.Domain,
 		bucketHistory:  cfg.BucketHistory,
@@ -162,12 +162,12 @@ func (n *NATSStore) connect() (*nats.Conn, error) {
 	return conn, nil
 }
 
-const (
-	secModeMTLS = "mtls"
-)
-
 func getTLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
-	if sec == nil || sec.Mode != secModeMTLS {
+	if sec == nil {
+		return nil, errMTLSRequired
+	}
+
+	if strings.ToLower(string(sec.Mode)) != "mtls" {
 		return nil, errMTLSRequired
 	}
 

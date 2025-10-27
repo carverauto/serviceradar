@@ -56,6 +56,7 @@ const sidebars: SidebarsConfig = {
             {type: 'doc', id: 'sync'},
             {type: 'doc', id: 'tls-security'},
             {type: 'doc', id: 'self-signed'},
+            {type: 'doc', id: 'spiffe-identity', label: 'SPIFFE / SPIRE'},
             {type: 'doc', id: 'mcp-integration'},
             {type: 'doc', id: 'syn-scanner-tuning'},
           ],

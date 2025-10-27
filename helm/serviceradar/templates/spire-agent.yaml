@@ -1,0 +1,151 @@
+{{- if .Values.spire.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+{{- $serverName := default "spire-server" .Values.spire.server.serviceName }}
+{{- $agentVals := .Values.spire.agent }}
+{{- $bundle := default "spire-bundle" .Values.spire.bundleConfigMap }}
+{{- $trustDomain := .Values.spire.trustDomain }}
+{{- $clusterName := .Values.spire.clusterName }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.agentServiceAccount }}
+  namespace: {{ $ns }}
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: spire-agent-cluster-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "nodes/proxy"]
+    verbs: ["get"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: spire-agent-cluster-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.spire.agentServiceAccount }}
+    namespace: {{ $ns }}
+roleRef:
+  kind: ClusterRole
+  name: spire-agent-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-agent
+  namespace: {{ $ns }}
+data:
+  agent.conf: |
+    agent {
+      data_dir = "/run/spire"
+      log_level = "{{ default "DEBUG" $agentVals.logLevel }}"
+      server_address = "{{ $serverName }}"
+      server_port = "8081"
+      socket_path = "/run/spire/sockets/agent.sock"
+      trust_bundle_path = "/run/spire/bundle/bundle.crt"
+      trust_domain = "{{ $trustDomain }}"
+    }
+
+    plugins {
+      NodeAttestor "k8s_sat" {
+        plugin_data {
+          cluster = "{{ $clusterName }}"
+        }
+      }
+
+      KeyManager "memory" {
+        plugin_data {}
+      }
+
+      WorkloadAttestor "k8s" {
+        plugin_data {
+          skip_kubelet_verification = true
+          node_name_env = "MY_NODE_NAME"
+        }
+      }
+
+      WorkloadAttestor "unix" {
+        plugin_data {}
+      }
+    }
+
+    health_checks {
+      listener_enabled = true
+      bind_address = "0.0.0.0"
+      bind_port = "8080"
+      live_path = "/live"
+      ready_path = "/ready"
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: spire-agent
+  namespace: {{ $ns }}
+  labels:
+    app: spire-agent
+spec:
+  selector:
+    matchLabels:
+      app: spire-agent
+  template:
+    metadata:
+      labels:
+        app: spire-agent
+    spec:
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: {{ .Values.spire.agentServiceAccount }}
+      initContainers:
+        - name: wait-for-server
+          image: {{ default "cgr.dev/chainguard/wait-for-it" $agentVals.waitForImage }}
+          args: ["-t", "30", "{{ $serverName }}:8081"]
+      containers:
+        - name: spire-agent
+          image: {{ $agentVals.image }}
+          args: ["-config", "/run/spire/config/agent.conf"]
+          env:
+            - name: MY_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          volumeMounts:
+            - name: spire-config
+              mountPath: /run/spire/config
+              readOnly: true
+            - name: spire-bundle
+              mountPath: /run/spire/bundle
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 8080
+            failureThreshold: 2
+            initialDelaySeconds: 15
+            periodSeconds: 60
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: spire-config
+          configMap:
+            name: spire-agent
+        - name: spire-bundle
+          configMap:
+            name: {{ $bundle }}
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate
+{{- end }}

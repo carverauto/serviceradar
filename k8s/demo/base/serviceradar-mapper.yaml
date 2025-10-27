@@ -15,6 +15,7 @@ spec:
         app: serviceradar-mapper
         app.kubernetes.io/part-of: serviceradar
     spec:
+      serviceAccountName: serviceradar-mapper
       imagePullSecrets:
         - name: ghcr-io-cred
       containers:
@@ -32,6 +33,9 @@ spec:
           readOnly: true
         - name: mapper-data
           mountPath: /var/lib/serviceradar
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/mapper.json"
@@ -72,6 +76,10 @@ spec:
       - name: mapper-data
         persistentVolumeClaim:
           claimName: serviceradar-mapper-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -95,3 +103,10 @@ spec:
   resources:
     requests:
       storage: 5Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-mapper
+  labels:
+    app.kubernetes.io/part-of: serviceradar

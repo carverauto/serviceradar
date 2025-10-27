@@ -1246,6 +1246,8 @@ pkg_tar(
         "//docker/compose:proton-sql.sh": "usr/local/bin/proton-sql",
         "//docker/compose:proton-cli.sh": "usr/local/bin/proton-cli",
         "@natscli_linux_amd64//:nats": "usr/local/bin/nats",
+        "@spire_linux_amd64//:bin/spire-agent": "usr/local/bin/spire-agent",
+        "@spire_linux_amd64//:bin/spire-server": "usr/local/bin/spire-server",
         "@timeplus_proton_linux_x86_64//file": "usr/local/bin/proton.bin",
     },
     modes = {
@@ -1261,6 +1263,8 @@ pkg_tar(
         "etc/serviceradar/proton-client/config.xml": "0644",
         "usr/local/bin/proton.bin": "0755",
         "usr/local/bin/nats": "0755",
+        "usr/local/bin/spire-agent": "0755",
+        "usr/local/bin/spire-server": "0755",
     },
     empty_dirs = [
         "etc/serviceradar/certs",

@@ -32,6 +32,9 @@ spec:
           readOnly: true
         - name: datasvc-data
           mountPath: /var/lib/serviceradar
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/datasvc.json"
@@ -41,6 +44,8 @@ spec:
           value: "serviceradar-nats"
         - name: LOG_LEVEL
           value: "info"
+        - name: SPIFFE_ENDPOINT_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
         resources:
           limits:
             cpu: "2"
@@ -49,37 +54,15 @@ spec:
             cpu: "500m"
             memory: "128Mi"
         livenessProbe:
-          exec:
-            command:
-            - grpcurl
-            - -cacert
-            - /etc/serviceradar/certs/root.pem
-            - -cert
-            - /etc/serviceradar/certs/datasvc.pem
-            - -key
-            - /etc/serviceradar/certs/datasvc-key.pem
-            - -servername
-            - datasvc.serviceradar
-            - localhost:50057
-            - grpc.health.v1.Health/Check
+          tcpSocket:
+            port: grpc
           initialDelaySeconds: 60
           periodSeconds: 30
           timeoutSeconds: 10
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - grpcurl
-            - -cacert
-            - /etc/serviceradar/certs/root.pem
-            - -cert
-            - /etc/serviceradar/certs/datasvc.pem
-            - -key
-            - /etc/serviceradar/certs/datasvc-key.pem
-            - -servername
-            - datasvc.serviceradar
-            - localhost:50057
-            - grpc.health.v1.Health/Check
+          tcpSocket:
+            port: grpc
           initialDelaySeconds: 30
           periodSeconds: 15
           timeoutSeconds: 10
@@ -94,6 +77,10 @@ spec:
       - name: datasvc-data
         persistentVolumeClaim:
           claimName: serviceradar-datasvc-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

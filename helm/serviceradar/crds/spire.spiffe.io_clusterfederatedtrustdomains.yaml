@@ -1,0 +1,105 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: clusterfederatedtrustdomains.spire.spiffe.io
+spec:
+  group: spire.spiffe.io
+  names:
+    kind: ClusterFederatedTrustDomain
+    listKind: ClusterFederatedTrustDomainList
+    plural: clusterfederatedtrustdomains
+    singular: clusterfederatedtrustdomain
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.trustDomain
+      name: Trust Domain
+      type: string
+    - jsonPath: .spec.bundleEndpointURL
+      name: Endpoint URL
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ClusterFederatedTrustDomain is the Schema for the clusterfederatedtrustdomains
+          API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ClusterFederatedTrustDomainSpec defines the desired state
+              of ClusterFederatedTrustDomain
+            properties:
+              bundleEndpointProfile:
+                description: BundleEndpointProfile is the profile for the bundle endpoint.
+                properties:
+                  endpointSPIFFEID:
+                    description: |-
+                      EndpointSPIFFEID is the SPIFFE ID of the bundle endpoint. It is
+                      required for the "https_spiffe" profile.
+                    type: string
+                  type:
+                    description: Type is the type of the bundle endpoint profile.
+                    enum:
+                    - https_spiffe
+                    - https_web
+                    type: string
+                required:
+                - type
+                type: object
+              bundleEndpointURL:
+                description: |-
+                  BundleEndpointURL is the URL of the bundle endpoint. It must be an
+                  HTTPS URL and cannot contain userinfo (i.e. username/password).
+                type: string
+              className:
+                description: Set which Controller Class will act on this object
+                type: string
+              trustDomain:
+                description: TrustDomain is the name of the trust domain to federate
+                  with (e.g. example.org)
+                pattern: '[a-z0-9._-]{1,255}'
+                type: string
+              trustDomainBundle:
+                description: |-
+                  TrustDomainBundle is the contents of the bundle for the referenced trust
+                  domain. This field is optional when the resource is created.
+                type: string
+            required:
+            - bundleEndpointProfile
+            - bundleEndpointURL
+            - trustDomain
+            type: object
+          status:
+            description: ClusterFederatedTrustDomainStatus defines the observed state
+              of ClusterFederatedTrustDomain
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

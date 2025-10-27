@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spire-server
+  namespace: demo
+  labels:
+    app: spire-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spire-server
+  serviceName: spire-server
+  template:
+    metadata:
+      labels:
+        app: spire-server
+    spec:
+      serviceAccountName: spire-server
+      initContainers:
+        - name: init-config
+          image: busybox
+          command: ["sh", "-c"]
+          args:
+            - |
+              cp /config-template/server.conf /config/server.conf
+              sed -i "s|__DB_PASSWORD__|$DB_PASSWORD|g" /config/server.conf
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: spire-db-credentials
+                  key: password
+          volumeMounts:
+            - name: spire-config-template
+              mountPath: /config-template
+            - name: generated-config
+              mountPath: /config
+      containers:
+        - name: spire-server
+          image: ghcr.io/spiffe/spire-server:1.11.2
+          args:
+            - -config
+            - /run/spire/config/server.conf
+          ports:
+            - containerPort: 8081
+            - containerPort: 8080
+          volumeMounts:
+            - name: generated-config
+              mountPath: /run/spire/config
+              readOnly: true
+            - name: spire-data
+              mountPath: /run/spire/data
+              readOnly: false
+            - name: spire-server-socket
+              mountPath: /tmp/spire-server/private
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 8080
+            failureThreshold: 2
+            initialDelaySeconds: 15
+            periodSeconds: 60
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+        - name: spire-controller-manager
+          image: ghcr.io/spiffe/spire-controller-manager:0.6.3
+          args:
+            - --config=/spire-controller-manager-config.yaml
+          env:
+            - name: ENABLE_WEBHOOKS
+              value: "false"
+          volumeMounts:
+            - name: spire-server-socket
+              mountPath: /spire-server
+              readOnly: true
+            - name: spire-controller-manager-config
+              mountPath: /spire-controller-manager-config.yaml
+              subPath: config.yaml
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+      volumes:
+        - name: spire-config-template
+          configMap:
+            name: spire-server
+        - name: generated-config
+          emptyDir: {}
+        - name: spire-server-socket
+          emptyDir: {}
+        - name: spire-controller-manager-config
+          configMap:
+            name: spire-controller-manager-config
+  volumeClaimTemplates:
+    - metadata:
+        name: spire-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi

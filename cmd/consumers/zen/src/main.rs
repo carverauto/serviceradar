@@ -22,6 +22,7 @@ mod nats;
 mod otel_logs;
 mod otel_metrics;
 mod rule_watcher;
+mod spiffe;
 
 use config::Config;
 use engine::build_engine;
