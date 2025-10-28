@@ -38,7 +38,61 @@ DOWNSTREAM_PARENT_ID_DEFAULT="spiffe://${TRUST_DOMAIN}/ns/serviceradar/poller-ne
 DOWNSTREAM_PARENT_ID="${NESTED_SPIRE_PARENT_ID:-${DOWNSTREAM_PARENT_ID_DEFAULT}}"
 DOWNSTREAM_SPIFFE_ID_DEFAULT="spiffe://${TRUST_DOMAIN}/services/poller"
 DOWNSTREAM_SPIFFE_ID="${NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID:-${DOWNSTREAM_SPIFFE_ID_DEFAULT}}"
-DOWNSTREAM_TOKEN_TTL="${NESTED_SPIRE_DOWNSTREAM_TOKEN_TTL:-4h}"
+AGENT_SPIFFE_ID_DEFAULT="spiffe://${TRUST_DOMAIN}/services/agent"
+AGENT_SPIFFE_ID="${NESTED_SPIRE_AGENT_SPIFFE_ID:-${AGENT_SPIFFE_ID_DEFAULT}}"
+POLLER_WORKLOAD_SELECTORS="${NESTED_SPIRE_POLLER_SELECTORS:-unix:uid:0 unix:gid:0 unix:user:root unix:group:root}"
+AGENT_WORKLOAD_SELECTORS="${NESTED_SPIRE_AGENT_SELECTORS:-unix:uid:0 unix:gid:0 unix:user:root unix:group:root}"
+
+parse_duration_seconds() {
+    value="$1"
+    if [ -z "$value" ]; then
+        echo ""
+        return
+    fi
+    case "$value" in
+        *[!0-9smhd]*)
+            echo ""
+            return
+            ;;
+    esac
+    case "$value" in
+        *[smhd])
+            number=${value%?}
+            suffix=${value#$number}
+            case "$number" in
+                ''|*[!0-9]*)
+                    echo ""
+                    return
+                    ;;
+            esac
+            case "$suffix" in
+                s)
+                    echo "$number"
+                    ;;
+                m)
+                    echo $(( number * 60 ))
+                    ;;
+                h)
+                    echo $(( number * 3600 ))
+                    ;;
+                d)
+                    echo $(( number * 86400 ))
+                    ;;
+            esac
+            ;;
+        *)
+            echo "$value"
+            ;;
+    esac
+}
+
+DOWNSTREAM_TOKEN_TTL_DEFAULT="14400"
+DOWNSTREAM_TOKEN_TTL_RAW="${NESTED_SPIRE_DOWNSTREAM_TOKEN_TTL:-${DOWNSTREAM_TOKEN_TTL_DEFAULT}}"
+DOWNSTREAM_TOKEN_TTL="$(parse_duration_seconds "$DOWNSTREAM_TOKEN_TTL_RAW")"
+if [ -z "$DOWNSTREAM_TOKEN_TTL" ]; then
+    DOWNSTREAM_TOKEN_TTL="$DOWNSTREAM_TOKEN_TTL_DEFAULT"
+    log "WARN: invalid downstream token TTL '${DOWNSTREAM_TOKEN_TTL_RAW}', defaulting to ${DOWNSTREAM_TOKEN_TTL_DEFAULT}s"
+fi
 
 resolve_join_token() {
     value="$1"
@@ -100,11 +154,63 @@ wait_for_socket() {
     return 1
 }
 
+ensure_workload_entry() {
+    spiffe="$1"
+    parent="$2"
+    selectors="$3"
+
+    log "Ensuring workload entry for ${spiffe} (parent ${parent})"
+    if [ -z "$spiffe" ] || [ -z "$parent" ]; then
+        return
+    fi
+    if ! command -v spire-server >/dev/null 2>&1; then
+        return
+    fi
+    if [ ! -S "$SERVER_SOCKET" ]; then
+        return
+    fi
+    if [ -z "$selectors" ]; then
+        log "WARN: no selectors provided for workload ${spiffe}; skipping entry creation."
+        return
+    fi
+    set -- $selectors
+    entry_args=""
+    for sel in "$@"; do
+        entry_args="$entry_args -selector $sel"
+    done
+    existing_entry="$(spire-server entry show -socketPath "$SERVER_SOCKET" -spiffeID "$spiffe" 2>/dev/null || true)"
+    if [ -n "$existing_entry" ]; then
+        entry_id="$(printf '%s\n' "$existing_entry" | awk -F: '/Entry ID/ {gsub(/^[ \t]+/, "", $2); print $2; exit}')"
+        if [ -n "$entry_id" ]; then
+            if spire-server entry update -socketPath "$SERVER_SOCKET" -entryID "$entry_id" -spiffeID "$spiffe" -parentID "$parent" $entry_args >/dev/null 2>&1; then
+                log "Updated workload entry for ${spiffe} (entry ${entry_id})"
+            else
+                log "WARN: failed to update workload entry for ${spiffe} (entry ${entry_id})"
+            fi
+            return
+        fi
+    fi
+    if spire-server entry create -socketPath "$SERVER_SOCKET" -spiffeID "$spiffe" -parentID "$parent" $entry_args >/dev/null 2>&1; then
+        log "Created workload entry for ${spiffe}"
+    else
+        log "WARN: failed to create workload entry for ${spiffe}"
+    fi
+}
+
 if [ "$MODE" = "spiffe" ] && [ "$MANAGE" = "enabled" ]; then
     mkdir -p "$RUN_DIR/upstream" "$RUN_DIR/upstream-agent" "$RUN_DIR/server" "$RUN_DIR/workload" "$RUN_DIR/downstream-agent"
     UPSTREAM_JOIN_TOKEN="$(resolve_join_token "${NESTED_SPIRE_UPSTREAM_JOIN_TOKEN:-}" "${NESTED_SPIRE_UPSTREAM_JOIN_TOKEN_FILE:-}")"
+    UPSTREAM_AGENT_DATA_PATH="${RUN_DIR}/upstream-agent/agent-data.json"
     if [ -n "$UPSTREAM_JOIN_TOKEN" ]; then
-        UPSTREAM_AGENT_CMD="${UPSTREAM_AGENT_CMD} -joinToken ${UPSTREAM_JOIN_TOKEN}"
+        if [ -s "$UPSTREAM_AGENT_DATA_PATH" ] && \
+           grep -Eq '"svid":\["[^"]+"' "$UPSTREAM_AGENT_DATA_PATH" 2>/dev/null && \
+           grep -Eq '"reattestable":[[:space:]]*true' "$UPSTREAM_AGENT_DATA_PATH" 2>/dev/null; then
+            log "Existing reattestable upstream SVID detected; skipping join token flag."
+        else
+            UPSTREAM_AGENT_CMD="${UPSTREAM_AGENT_CMD} -joinToken ${UPSTREAM_JOIN_TOKEN}"
+        fi
+    elif [ ! -s "$UPSTREAM_AGENT_DATA_PATH" ]; then
+        log "WARN: no upstream join token provided and no cached SVID found; upstream agent may fail to attest."
     fi
     if [ -n "${NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE:-}" ] && [ -r "${NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE}" ]; then
         UPSTREAM_AGENT_CMD="${UPSTREAM_AGENT_CMD} -trustBundle ${NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE}"
@@ -128,8 +234,8 @@ if [ "$MODE" = "spiffe" ] && [ "$MANAGE" = "enabled" ]; then
         if [ -z "$DOWNSTREAM_JOIN_TOKEN" ] && [ -n "${NESTED_SPIRE_AUTO_GENERATE_DOWNSTREAM_TOKEN:-1}" ]; then
             if wait_for_socket "Nested SPIRE server" "$SERVER_SOCKET" "${NESTED_SPIRE_WAIT_ATTEMPTS:-30}" "${NESTED_SPIRE_WAIT_SLEEP:-1}"; then
                 if command -v spire-server >/dev/null 2>&1; then
-                    TOKEN_OUTPUT=$(spire-server token generate -socketPath "$SERVER_SOCKET" -spiffeID "$DOWNSTREAM_SPIFFE_ID" -parentID "$DOWNSTREAM_PARENT_ID" -downstream -ttl "$DOWNSTREAM_TOKEN_TTL" 2>/dev/null || true)
-                    DOWNSTREAM_JOIN_TOKEN=$(printf '%s' "$TOKEN_OUTPUT" | awk '/token:/ {print $2; exit}')
+                    TOKEN_OUTPUT=$(spire-server token generate -socketPath "$SERVER_SOCKET" -spiffeID "$DOWNSTREAM_SPIFFE_ID" -ttl "$DOWNSTREAM_TOKEN_TTL" 2>/dev/null || true)
+                    DOWNSTREAM_JOIN_TOKEN=$(printf '%s' "$TOKEN_OUTPUT" | awk '/Token:/ {print $2; exit}')
                     if [ -n "$DOWNSTREAM_JOIN_TOKEN" ]; then
                         log "Generated downstream join token for ${DOWNSTREAM_SPIFFE_ID}"
                     else
@@ -142,6 +248,11 @@ if [ "$MODE" = "spiffe" ] && [ "$MANAGE" = "enabled" ]; then
         fi
         if [ -n "$DOWNSTREAM_JOIN_TOKEN" ]; then
             DOWNSTREAM_AGENT_CMD="${DOWNSTREAM_AGENT_CMD} -joinToken ${DOWNSTREAM_JOIN_TOKEN}"
+            DOWNSTREAM_AGENT_SPIFFE_ID="spiffe://${TRUST_DOMAIN}/spire/agent/join_token/${DOWNSTREAM_JOIN_TOKEN}"
+            ensure_workload_entry "$DOWNSTREAM_SPIFFE_ID" "$DOWNSTREAM_AGENT_SPIFFE_ID" "$POLLER_WORKLOAD_SELECTORS"
+            ensure_workload_entry "$AGENT_SPIFFE_ID" "$DOWNSTREAM_AGENT_SPIFFE_ID" "$AGENT_WORKLOAD_SELECTORS"
+        else
+            DOWNSTREAM_AGENT_SPIFFE_ID=""
         fi
         start_component "downstream agent" "$DOWNSTREAM_AGENT_CMD"
     else

@@ -10,7 +10,9 @@ resources:
 - service-aliases.demo.yaml
 - ingress.yaml
 - serviceradar-core-grpc-external.yaml
+- serviceradar-datasvc-grpc-external.yaml
 - serviceradar-flowgger-external.yaml
+- spire-server-external.yaml
 - metallb-internal.yaml
 
 

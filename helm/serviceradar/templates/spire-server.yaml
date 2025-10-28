@@ -182,6 +182,7 @@ data:
     clusterName: {{ $clusterName }}
     trustDomain: {{ $trustDomain }}
     spireServerSocketPath: {{ $cmSocketPath }}
+    entryIDPrefix: k8s.
     ignoreNamespaces:
 {{- range $cmIgnoreNamespaces }}
       - {{ . }}
