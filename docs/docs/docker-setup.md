@@ -210,33 +210,29 @@ ServiceRadar ships with optional SPIFFE support for the poller when you deploy v
 
 When you need to run the poller away from the cluster (for example on an edge host) but still connect back to the demo namespace:
 
+> Need everything reset in one shot? Run:
+> ```bash
+> docker/compose/edge-poller-restart.sh
+> ```
+> The helper stops the stack, clears the nested SPIRE runtime volume,
+> regenerates configs, refreshes the upstream join token/bundle, and restarts
+> the poller/agent pair. Use `--skip-refresh` if you want to reuse an existing
+> join token or `--dry-run` to preview the steps.
+
 1. **Collect upstream credentials from the cluster.**
 
    ```bash
-   kubectl exec -n demo spire-server-0 -- \
-     /opt/spire/bin/spire-server token generate \
-     -ttl 600 \
-     -spiffeID spiffe://carverauto.dev/ns/edge/poller-nested-spire
-
-   kubectl exec -n demo spire-server-0 -- \
-     /opt/spire/bin/spire-server entry create \
-     -parentID spiffe://carverauto.dev/spire/agent/join_token/<TOKEN> \
-     -spiffeID spiffe://carverauto.dev/ns/edge/poller-nested-spire \
-     -selector unix:uid:0 \
-     -selector unix:gid:0 \
-     -selector unix:user:root \
-     -selector unix:group:root \
-     -downstream \
-     -admin
-
-   kubectl get configmap spire-bundle -n demo \
-     -o jsonpath='{.data.bundle\.crt}' \
-     > docker/compose/spire/upstream-bundle.pem
-
-   printf '<TOKEN>' > docker/compose/spire/upstream-join-token
+   docker/compose/refresh-upstream-credentials.sh \
+     --namespace demo \
+     --spiffe-id spiffe://carverauto.dev/ns/edge/poller-nested-spire
    ```
 
-   Replace `<TOKEN>` with the value returned by the `token generate` command.
+   The helper contacts the demo SPIRE server via `kubectl`, generates a fresh
+   downstream join token, recreates the registration entry with the standard
+   `unix:*` selectors, and writes the artifacts to
+   `docker/compose/spire/upstream-join-token` and
+   `docker/compose/spire/upstream-bundle.pem`. Use `--ttl`, `--selectors`, or
+   `--no-bundle` if you need different defaults.
 
 2. **Prime the Docker volumes with certs/config.**
 
@@ -251,10 +247,13 @@ When you need to run the poller away from the cluster (for example on an edge ho
    ```bash
    CORE_ADDRESS=23.138.124.18:50052 \
      POLLERS_AGENT_ADDRESS=agent:50051 \
-     docker/compose/setup-edge-poller.sh
+   docker/compose/setup-edge-poller.sh
    ```
 
    The helper copies the SPIFFE template into the config volume, updates `core_address`, and stages a nested SPIRE config from `docker/compose/edge/poller-spire/`.
+   When `KV_ADDRESS` is omitted, it also removes the sample sweep/sysmon checker
+   configs so the Docker agent only talks to the local services required for edge
+   validation.
 
 4. **Start the poller (and optional agent) without re-running the config-updater.**
 
