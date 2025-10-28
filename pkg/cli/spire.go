@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -89,7 +90,10 @@ func RunSpireJoinToken(cfg *CmdConfig) error {
 		return fmt.Errorf("encode join token request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -114,7 +118,9 @@ func RunSpireJoinToken(cfg *CmdConfig) error {
 	if err != nil {
 		return fmt.Errorf("call core API: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusCreated {
 		errorBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
@@ -122,7 +128,7 @@ func RunSpireJoinToken(cfg *CmdConfig) error {
 		if errorText == "" {
 			errorText = resp.Status
 		}
-		return fmt.Errorf("core API error: %s", errorText)
+		return fmt.Errorf("%w: %s", errCoreAPIError, errorText)
 	}
 
 	var result joinTokenResponse

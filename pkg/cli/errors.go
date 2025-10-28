@@ -26,6 +26,7 @@ var (
 	errConfigMarshalFailed  = errors.New("failed to serialize config")
 	errConfigWriteFailed    = errors.New("failed to write config file")
 	errInvalidAuthFormat    = errors.New("invalid auth configuration format")
+	errCoreAPIError         = errors.New("core API error")
 	errEmptyPassword        = fmt.Errorf("password cannot be empty")
 	errInvalidCost          = fmt.Errorf("cost must be a number between %d and %d", minCost, maxCost)
 	errHashFailed           = fmt.Errorf("failed to generate hash")

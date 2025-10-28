@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"time"
 
@@ -36,6 +36,8 @@ type createSpireJoinTokenResponse struct {
 	ParentSPIFFEID    string    `json:"parent_spiffe_id"`
 	DownstreamEntryID string    `json:"downstream_entry_id,omitempty"`
 }
+
+var errSelectorRequired = errors.New("at least one selector is required")
 
 func (s *APIServer) handleCreateSpireJoinToken(w http.ResponseWriter, r *http.Request) {
 	if s.spireAdminClient == nil || s.spireAdminConfig == nil || !s.spireAdminConfig.Enabled {
@@ -119,7 +121,7 @@ func (s *APIServer) handleCreateSpireJoinToken(w http.ResponseWriter, r *http.Re
 
 func buildSelectorList(raw []string) ([]*types.Selector, error) {
 	if len(raw) == 0 {
-		return nil, fmt.Errorf("at least one selector is required")
+		return nil, errSelectorRequired
 	}
 	selectors := make([]*types.Selector, 0, len(raw))
 	for _, s := range raw {

@@ -85,10 +85,10 @@ type client struct {
 // New instantiates a SPIRE administrative client backed by the Workload API.
 func New(ctx context.Context, cfg Config) (Client, error) {
 	if cfg.ServerAddress == "" {
-		return nil, fmt.Errorf("spire admin: server address is required")
+		return nil, ErrServerAddressRequired
 	}
 	if cfg.ServerSPIFFEID == "" {
-		return nil, fmt.Errorf("spire admin: server SPIFFE ID is required")
+		return nil, ErrServerSPIFFEIDRequired
 	}
 
 	serverID, err := spiffeid.FromString(cfg.ServerSPIFFEID)
@@ -109,7 +109,7 @@ func New(ctx context.Context, cfg Config) (Client, error) {
 	tlsConfig := tlsconfig.MTLSClientConfig(source, source, tlsconfig.AuthorizeID(serverID))
 	creds := credentials.NewTLS(tlsConfig)
 
-	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(cfg.ServerAddress, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		_ = source.Close()
 		return nil, fmt.Errorf("spire admin: dial server: %w", err)
@@ -175,10 +175,10 @@ func (c *client) CreateJoinToken(ctx context.Context, params JoinTokenParams) (*
 
 func (c *client) CreateDownstreamEntry(ctx context.Context, params DownstreamEntryParams) (*DownstreamEntryResult, error) {
 	if params.ParentID == "" {
-		return nil, fmt.Errorf("spire admin: downstream parent ID is required")
+		return nil, ErrDownstreamParentIDRequired
 	}
 	if params.SpiffeID == "" {
-		return nil, fmt.Errorf("spire admin: downstream spiffe_id is required")
+		return nil, ErrDownstreamSPIFFEIDRequired
 	}
 
 	parentProto, err := toProtoSPIFFEID(params.ParentID)
@@ -216,35 +216,35 @@ func (c *client) CreateDownstreamEntry(ctx context.Context, params DownstreamEnt
 	}
 
 	if len(resp.GetResults()) == 0 {
-		return nil, fmt.Errorf("spire admin: unexpected empty response creating downstream entry")
+		return nil, ErrDownstreamEntryEmptyResponse
 	}
 
 	result := resp.GetResults()[0]
 	status := result.GetStatus()
 	if status == nil {
-		return nil, fmt.Errorf("spire admin: missing status in downstream entry response")
+		return nil, ErrDownstreamEntryMissingStatus
 	}
 
-	switch codes.Code(status.GetCode()) {
-	case codes.OK, codes.AlreadyExists:
+	code := codes.Code(status.GetCode())
+	if code == codes.OK || code == codes.AlreadyExists {
 		if result.GetEntry() == nil {
-			return nil, fmt.Errorf("spire admin: downstream entry missing entry payload in response")
+			return nil, ErrDownstreamEntryMissingPayload
 		}
 		return &DownstreamEntryResult{EntryID: result.GetEntry().GetId()}, nil
-	default:
-		return nil, fmt.Errorf("spire admin: downstream entry create failed: %s", status.GetMessage())
 	}
+
+	return nil, fmt.Errorf("%w: %s", ErrDownstreamEntryCreateFailed, status.GetMessage())
 }
 
 // toProtoSelector converts a selector string (type:value) to a proto selector.
 func ToProtoSelector(raw string) (*types.Selector, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, fmt.Errorf("empty selector")
+		return nil, ErrEmptySelector
 	}
 	idx := strings.Index(raw, ":")
 	if idx <= 0 || idx == len(raw)-1 {
-		return nil, fmt.Errorf("invalid selector format: %q", raw)
+		return nil, fmt.Errorf("%w: %q", ErrInvalidSelectorFormat, raw)
 	}
 	typ := raw[:idx]
 	value := raw[idx+1:]
