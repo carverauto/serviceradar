@@ -2,7 +2,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "spireadmin",
-    srcs = ["client.go"],
+    srcs = [
+        "client.go",
+        "errors.go",
+    ],
     importpath = "github.com/carverauto/serviceradar/pkg/spireadmin",
     visibility = ["//visibility:public"],
     deps = [
