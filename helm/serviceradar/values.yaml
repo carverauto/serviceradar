@@ -54,6 +54,7 @@ spire:
     jwtTTL: 30m
     admin: true
     storeSVID: true
+    joinTokenMode: disabled
     serverPort: 8083
     upstreamServerAddress: ""
     upstreamServerPort: 8081
@@ -66,6 +67,13 @@ spire:
     extraSelectors: []
     downstreamX509TTLSeconds: 14400
     downstreamJWTTTLSeconds: 1800
+    downstreamWaitSeconds: 5
+    downstreamRefreshSeconds: 300
+    downstreamRegistrationMode: disabled
+    downstreamRetrySeconds: 5
+    adminUsername: admin
+    adminSecret: serviceradar-secrets
+    adminSecretKey: admin-password
     joinToken:
       enabled: true
       ttlSeconds: 900
@@ -76,6 +84,7 @@ spire:
   server:
     image: ghcr.io/spiffe/spire-server:1.11.2
     logLevel: DEBUG
+    adminIDs: []
     initConfigImage: busybox
     serviceName: spire-server
     serviceType: LoadBalancer

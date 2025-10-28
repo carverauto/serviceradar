@@ -74,8 +74,8 @@ Examples:
     -core-url https://core.demo.serviceradar.cloud \
     -api-key "$SERVICERADAR_API_KEY" \
     -downstream-spiffe-id spiffe://carverauto.dev/ns/demo/poller-nested-spire \
-    -selector k8s:ns:demo -selector k8s:sa:serviceradar-poller \
-    -selector k8s:pod-label:app:serviceradar-poller -selector k8s:container-name:poller-nested-spire
+    -selector unix:uid:0 -selector unix:gid:0 \
+    -selector unix:user:root -selector unix:path:/opt/spire/bin/spire-server
 
 Options for render-kong:
   -jwks string       JWKS URL (default http://core:8090/auth/jwks.json)

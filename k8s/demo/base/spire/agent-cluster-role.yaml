@@ -18,6 +18,9 @@ subjects:
 - kind: ServiceAccount
   name: spire-agent
   namespace: demo
+- kind: ServiceAccount
+  name: serviceradar-poller
+  namespace: demo
 roleRef:
   kind: ClusterRole
   name: spire-agent-cluster-role

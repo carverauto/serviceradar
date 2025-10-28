@@ -254,6 +254,7 @@ server {
   data_dir = "/run/spire/nested/server"
   log_level = "INFO"
   ca_key_type = "rsa-2048"
+  admin_ids = ["$POLLERS_CORE_SPIFFE_ID"]
 
   ca_subject = {
     country = ["US"],

@@ -24,6 +24,12 @@
 {{- $cmIgnoreNamespaces := default (list "kube-system" "kube-public" "local-path-storage" "kube-node-lease") $cmVals.ignoreNamespaces }}
 {{- $cmResources := $cmVals.resources }}
 {{- $cmWebhooksEnabled := not (eq ($cmVals.enableWebhooks | default true) false) }}
+{{- $coreSA := default "serviceradar-core" .Values.spire.coreServiceAccount }}
+{{- $adminIDs := $serverVals.adminIDs | default (list) }}
+{{- $adminIDs = append $adminIDs (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) }}
+{{- $coreSA := default "serviceradar-core" .Values.spire.coreServiceAccount }}
+{{- $adminIDs := $serverVals.adminIDs | default (list) }}
+{{- $adminIDs = append $adminIDs (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -98,6 +104,13 @@ data:
       data_dir = "/run/spire/data"
       log_level = "{{ default "DEBUG" $serverVals.logLevel }}"
       ca_key_type = "rsa-2048"
+{{- if $adminIDs }}
+      admin_ids = [
+{{- range $id := $adminIDs }}
+        "{{ $id }}",
+{{- end }}
+      ]
+{{- end }}
 
       ca_subject = {
         country = ["US"],

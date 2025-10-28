@@ -1,0 +1,4 @@
+POLLERS_TRUST_DOMAIN="carverauto.dev"
+NESTED_SPIRE_PARENT_ID="spiffe://carverauto.dev/ns/edge/poller-nested-spire"
+NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID="spiffe://carverauto.dev/services/poller"
+NESTED_SPIRE_SERVER_SOCKET="/run/spire/nested/server/api.sock"

@@ -10,6 +10,7 @@
 {{- $joinAPIKeyRef := default "api-key" (and $join $join.apiKeyKey) }}
 {{- $downstreamX509TTL := default 14400 (and $nested $nested.downstreamX509TTLSeconds) }}
 {{- $downstreamJWTTTL := default 1800 (and $nested $nested.downstreamJWTTTLSeconds) }}
+{{- $downstreamRegistrationMode := default "disabled" (and $nested $nested.downstreamRegistrationMode) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,6 +25,8 @@ spec:
       labels:
         app: serviceradar-poller
     spec:
+      serviceAccountName: {{ default "serviceradar-poller" .Values.spire.pollerServiceAccount }}
+      shareProcessNamespace: true
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
 {{- if and $nested $nested.enabled }}
       initContainers:
@@ -35,35 +38,48 @@ spec:
         - -c
         - |
           set -euo pipefail
+          BASE_CONFIG_DIR="/etc/poller-spire-base"
+          RUNTIME_CONFIG_DIR="/etc/poller-spire"
+          if [ "${ENABLE_POLLER_JOIN_TOKEN:-disabled}" != "enabled" ]; then
+            echo "Join token bootstrap disabled; syncing static poller SPIRE config."
+            rm -rf "${RUNTIME_CONFIG_DIR:?}"/*
+            cp -RL "${BASE_CONFIG_DIR}/." "${RUNTIME_CONFIG_DIR}/"
+            exit 0
+          fi
           TOKEN_DIR="/var/run/spire/join-token"
           TOKEN_FILE="${TOKEN_DIR}/token"
           mkdir -p "${TOKEN_DIR}"
+          LOGIN_FILE="$(mktemp)"
+          LOGIN_STATUS="$(curl -sS -o "${LOGIN_FILE}" -w '%{http_code}' \
+            -X POST "${CORE_API_URL}/auth/login" \
+            -H 'Content-Type: application/json' \
+            --data "{\"username\":\"${CORE_ADMIN_USERNAME}\",\"password\":\"${CORE_ADMIN_PASSWORD}\"}")"
+          if [ "${LOGIN_STATUS}" != "200" ]; then
+            echo "Core login failed with status ${LOGIN_STATUS}" >&2
+            cat "${LOGIN_FILE}" >&2
+            rm -f "${LOGIN_FILE}"
+            exit 1
+          fi
+          ACCESS_TOKEN="$(jq -r '.access_token // empty' \"${LOGIN_FILE}\")"
+          rm -f "${LOGIN_FILE}"
+          if [ -z \"${ACCESS_TOKEN}\" ]; then
+            echo \"Login response missing access token\" >&2
+            exit 1
+          fi
+
           REQUEST_FILE="$(mktemp)"
           cat <<EOF > "${REQUEST_FILE}"
           {
             "ttl_seconds": ${JOIN_TOKEN_TTL},
-            "register_downstream": true,
-            "downstream": {
-              "spiffe_id": "${DOWNSTREAM_SPIFFE_ID}",
-              "selectors": [
-                "k8s:ns:${POD_NAMESPACE}",
-                "k8s:sa:{{ default "serviceradar-poller" .Values.spire.pollerServiceAccount }}",
-                "k8s:pod-label:{{ default "app" $nested.podLabelKey }}:{{ default "serviceradar-poller" $nested.podLabelValue }}",
-                "k8s:container-name:{{ default "poller-nested-spire" $nested.containerName }}"
-              ],
-              "x509_svid_ttl_seconds": {{ $downstreamX509TTL }},
-              "jwt_svid_ttl_seconds": {{ $downstreamJWTTTL }},
-              "admin": true,
-              "store_svid": true
-            }
+            "client_spiffe_id": "${DOWNSTREAM_SPIFFE_ID}"
           }
           EOF
           RESPONSE_FILE="$(mktemp)"
           HTTP_CODE="$(curl -sS -o "${RESPONSE_FILE}" -w '%{http_code}' \
             -X POST "${CORE_API_URL}/api/admin/spire/join-tokens" \
             -H 'Content-Type: application/json' \
-            -H "X-API-Key: ${CORE_API_KEY}" \
-            --data @"${REQUEST_FILE}")"
+            -H \"Authorization: Bearer ${ACCESS_TOKEN}\" \
+            --data @\"${REQUEST_FILE}\")"
           rm -f "${REQUEST_FILE}"
           if [ "${HTTP_CODE}" != "201" ]; then
             echo "Join token request failed with status ${HTTP_CODE}" >&2
@@ -80,14 +96,29 @@ spec:
           printf '%s' "${TOKEN}" > "${TOKEN_FILE}"
           chmod 0600 "${TOKEN_FILE}"
           echo "Generated join token for downstream ${DOWNSTREAM_SPIFFE_ID}"
+          rm -rf "${RUNTIME_CONFIG_DIR:?}"/*
+          cp -RL "${BASE_CONFIG_DIR}/." "${RUNTIME_CONFIG_DIR}/"
+          awk -v token="${TOKEN}" '
+            /retry_bootstrap = true/ && !added {
+              print;
+              print "      join_token = \"" token "\"";
+              added = 1;
+              next;
+            }
+            { print }
+          ' "${RUNTIME_CONFIG_DIR}/upstream-agent.conf" > "${RUNTIME_CONFIG_DIR}/upstream-agent.conf.tmp"
+          mv "${RUNTIME_CONFIG_DIR}/upstream-agent.conf.tmp" "${RUNTIME_CONFIG_DIR}/upstream-agent.conf"
+          echo "Prepared upstream agent config with embedded join token"
         env:
         - name: CORE_API_URL
           value: "{{ $coreURL }}"
-        - name: CORE_API_KEY
+        - name: CORE_ADMIN_USERNAME
+          value: "{{ default "admin" .Values.spire.nestedPoller.adminUsername }}"
+        - name: CORE_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ $joinAPISecret | quote }}
-              key: {{ $joinAPIKeyRef | quote }}
+              name: {{ default $joinAPISecret .Values.spire.nestedPoller.adminSecret | quote }}
+              key: {{ default "admin-password" .Values.spire.nestedPoller.adminSecretKey | quote }}
         - name: DOWNSTREAM_SPIFFE_ID
           value: "{{ $nestedSpiffeID }}"
         - name: JOIN_TOKEN_TTL
@@ -103,6 +134,27 @@ spec:
         volumeMounts:
         - name: poller-join-token
           mountPath: /var/run/spire/join-token
+        - name: poller-spire-config
+          mountPath: /etc/poller-spire-base
+          readOnly: true
+        - name: poller-spire-config-runtime
+          mountPath: /etc/poller-spire
+      - name: sync-poller-spire-config
+        image: busybox:1.36
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -euo pipefail
+          rm -rf /etc/poller-spire/*
+          cp -RL /etc/poller-spire-base/. /etc/poller-spire/
+        volumeMounts:
+        - name: poller-spire-config
+          mountPath: /etc/poller-spire-base
+          readOnly: true
+        - name: poller-spire-config-runtime
+          mountPath: /etc/poller-spire
       - name: prepare-poller-spire-run
         image: busybox:1.36
         imagePullPolicy: IfNotPresent
@@ -131,6 +183,8 @@ spec:
 {{- if .Values.spire.nestedPoller.enabled }}
         - name: poller-spire-run
           mountPath: /run/spire/nested
+        - name: poller-spire-config-runtime
+          mountPath: /etc/poller-spire
 {{- end }}
         env:
         - name: CONFIG_PATH
@@ -176,41 +230,20 @@ spec:
       - name: poller-nested-upstream-agent
         image: ghcr.io/spiffe/spire-agent:1.11.2
         imagePullPolicy: IfNotPresent
-        command: ["/bin/sh", "-c"]
-        args:
-        - |
-          set -euo pipefail
-          mkdir -p /run/spire/nested/upstream /run/spire/nested/upstream-agent
-          TOKEN_FILE="/var/run/spire/join-token/token"
-          for _ in $(seq 1 30); do
-            if [ -s "${TOKEN_FILE}" ]; then
-              break
-            fi
-            echo "Waiting for join token to be written..." >&2
-            sleep 2
-          done
-          if [ ! -s "${TOKEN_FILE}" ]; then
-            echo "Join token was not generated" >&2
-            exit 1
-          fi
-          TOKEN="$(cat "${TOKEN_FILE}")"
-          exec /opt/spire/bin/spire-agent run -config /etc/poller-spire/upstream-agent.conf -joinToken "${TOKEN}"
+        command: ["/opt/spire/bin/spire-agent"]
+        args: ["run", "-config", "/etc/poller-spire/upstream-agent.conf"]
         env:
         - name: MY_NODE_NAME
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
         volumeMounts:
-        - name: poller-spire-config
+        - name: poller-spire-config-runtime
           mountPath: /etc/poller-spire
-          readOnly: true
         - name: poller-spire-run
           mountPath: /run/spire/nested
         - name: poller-spire-token
           mountPath: /var/run/secrets/tokens
-          readOnly: true
-        - name: poller-join-token
-          mountPath: /var/run/spire/join-token
           readOnly: true
       - name: poller-nested-spire
         image: ghcr.io/spiffe/spire-server:1.11.2
@@ -221,38 +254,177 @@ spec:
           set -euo pipefail
           mkdir -p /run/spire/nested/server /run/spire/nested/server/data
           exec /opt/spire/bin/spire-server run -config /etc/poller-spire/server.conf
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+          allowPrivilegeEscalation: false
         ports:
         - containerPort: 8083
           name: nested-spire
         volumeMounts:
-        - name: poller-spire-config
+        - name: poller-spire-config-runtime
           mountPath: /etc/poller-spire
-          readOnly: true
         - name: poller-spire-run
           mountPath: /run/spire/nested
       - name: poller-nested-agent
         image: ghcr.io/spiffe/spire-agent:1.11.2
         imagePullPolicy: IfNotPresent
-        command: ["/bin/sh", "-c"]
-        args:
-        - |
-          set -euo pipefail
-          mkdir -p /run/spire/nested/workload /run/spire/nested/downstream-agent
-          exec /opt/spire/bin/spire-agent run -config /etc/poller-spire/downstream-agent.conf
+        command: ["/opt/spire/bin/spire-agent"]
+        args: ["run", "-config", "/etc/poller-spire/downstream-agent.conf"]
         env:
         - name: MY_NODE_NAME
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
         volumeMounts:
-        - name: poller-spire-config
+        - name: poller-spire-config-runtime
           mountPath: /etc/poller-spire
-          readOnly: true
         - name: poller-spire-run
           mountPath: /run/spire/nested
         - name: poller-spire-token
           mountPath: /var/run/secrets/tokens
           readOnly: true
+{{- if eq $downstreamRegistrationMode "enabled" }}
+      - name: poller-downstream-register
+        image: ghcr.io/carverauto/serviceradar-tools:{{ default "latest" (and .Values.image .Values.image.tags .Values.image.tags.tools) }}
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -euo pipefail
+          if [ "${DOWNSTREAM_REGISTRATION_MODE:-disabled}" != "enabled" ]; then
+            echo "Downstream registration disabled; sleeping indefinitely."
+            while true; do sleep 3600; done
+          fi
+          SOCKET="/run/spire/nested/upstream/agent.sock"
+          echo "Waiting for upstream agent socket ${SOCKET}..."
+          until [ -S "${SOCKET}" ]; do
+            sleep 2
+          done
+          if [ "${DOWNSTREAM_WAIT_SECONDS}" -gt 0 ] 2>/dev/null; then
+            sleep "${DOWNSTREAM_WAIT_SECONDS}"
+          fi
+
+          login() {
+            local login_file status
+            login_file="$(mktemp)"
+            status="$(curl -sS -o "${login_file}" -w '%{http_code}' \
+              -X POST "${CORE_API_URL}/auth/login" \
+              -H 'Content-Type: application/json' \
+              --data "{\"username\":\"${CORE_ADMIN_USERNAME}\",\"password\":\"${CORE_ADMIN_PASSWORD}\"}")"
+            if [ "${status}" != "200" ]; then
+              echo "Core login failed with status ${status}" >&2
+              cat "${login_file}" >&2
+              rm -f "${login_file}"
+              return 1
+            fi
+            ACCESS_TOKEN="$(jq -r '.access_token // empty' "${login_file}")"
+            rm -f "${login_file}"
+            if [ -z "${ACCESS_TOKEN}" ]; then
+              echo "Login response missing access token" >&2
+              return 1
+            fi
+            return 0
+          }
+
+          if ! login; then
+            exit 1
+          fi
+
+          ATTEMPTS=0
+          while true; do
+            ATTEMPTS=$((ATTEMPTS + 1))
+            PAYLOAD="$(jq -n \
+              --arg ttl "${JOIN_TOKEN_TTL}" \
+              --arg spiffe "${DOWNSTREAM_SPIFFE_ID}" \
+              --arg x509 "{{ $downstreamX509TTL }}" \
+              --arg jwt "{{ $downstreamJWTTTL }}" '
+              {
+                ttl_seconds: ($ttl | tonumber),
+                register_downstream: true,
+                downstream: {
+                  spiffe_id: $spiffe,
+                  selectors: [
+                    "unix:uid:0",
+                    "unix:gid:0",
+                    "unix:user:root",
+                    "unix:path:/opt/spire/bin/spire-server"
+                  ],
+                  x509_svid_ttl_seconds: ($x509 | tonumber),
+                  jwt_svid_ttl_seconds: ($jwt | tonumber),
+                  admin: true,
+                  store_svid: true
+                }
+              }' | tr -d '\n')"
+            RESPONSE_FILE="$(mktemp)"
+            HTTP_CODE="$(curl -sS -o "${RESPONSE_FILE}" -w '%{http_code}' \
+              -X POST "${CORE_API_URL}/api/admin/spire/join-tokens" \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+              --data "${PAYLOAD}")"
+
+            if [ "${HTTP_CODE}" = "201" ]; then
+              ENTRY_ID="$(jq -r '.downstream_entry_id // empty' "${RESPONSE_FILE}")"
+              if [ -n "${ENTRY_ID}" ]; then
+                echo "Registered downstream entry ${ENTRY_ID}"
+              else
+                echo "Registered downstream entry for ${DOWNSTREAM_SPIFFE_ID}"
+              fi
+              rm -f "${RESPONSE_FILE}"
+              echo "Downstream registration complete (attempt ${ATTEMPTS}); sleeping ${DOWNSTREAM_REFRESH_SECONDS}s before re-checking."
+              ATTEMPTS=0
+              sleep "${DOWNSTREAM_REFRESH_SECONDS}"
+              continue
+            fi
+
+            if [ "${HTTP_CODE}" = "401" ]; then
+              echo "Downstream registration received 401; refreshing access token..." >&2
+              rm -f "${RESPONSE_FILE}"
+              if ! login; then
+                exit 1
+              fi
+            else
+              echo "Downstream registration attempt ${ATTEMPTS} failed with status ${HTTP_CODE}" >&2
+              cat "${RESPONSE_FILE}" >&2
+              rm -f "${RESPONSE_FILE}"
+              sleep "${DOWNSTREAM_RETRY_SECONDS}"
+            fi
+          done
+          echo "Downstream registration loop terminated unexpectedly" >&2
+          exit 1
+        env:
+        - name: CORE_API_URL
+          value: "{{ $coreURL }}"
+        - name: CORE_ADMIN_USERNAME
+          value: "{{ default "admin" .Values.spire.nestedPoller.adminUsername }}"
+        - name: CORE_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-secrets" (and $join $join.apiKeySecret) }}
+              key: {{ default "admin-password" (and $join $join.apiKeyKey) }}
+        - name: DOWNSTREAM_SPIFFE_ID
+          value: "{{ $nestedSpiffeID }}"
+        - name: JOIN_TOKEN_TTL
+          value: "{{ $joinTTLSecs }}"
+        - name: DOWNSTREAM_X509_TTL
+          value: "{{ $downstreamX509TTL }}"
+        - name: DOWNSTREAM_JWT_TTL
+          value: "{{ $downstreamJWTTTL }}"
+        - name: ENABLE_POLLER_JOIN_TOKEN
+          value: "{{ default "disabled" (and $nested $nested.joinTokenMode) }}"
+        - name: DOWNSTREAM_WAIT_SECONDS
+          value: "{{ default 5 (and $nested $nested.downstreamWaitSeconds) }}"
+        - name: DOWNSTREAM_RETRY_SECONDS
+          value: "{{ default 5 (and $nested $nested.downstreamRetrySeconds) }}"
+        - name: DOWNSTREAM_REFRESH_SECONDS
+          value: "{{ default 300 (and $nested $nested.downstreamRefreshSeconds) }}"
+        - name: DOWNSTREAM_REGISTRATION_MODE
+          value: "{{ $downstreamRegistrationMode }}"
+        volumeMounts:
+        - name: poller-spire-run
+          mountPath: /run/spire/nested
+{{- end }}
 {{- end }}
       volumes:
       - name: serviceradar-config
@@ -269,6 +441,8 @@ spec:
       - name: poller-spire-config
         configMap:
           name: poller-nested-spire-config
+      - name: poller-spire-config-runtime
+        emptyDir: {}
       - name: poller-spire-run
         emptyDir: {}
       - name: poller-spire-token

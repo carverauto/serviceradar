@@ -106,7 +106,7 @@ func New(ctx context.Context, cfg Config) (Client, error) {
 		return nil, fmt.Errorf("spire admin: create workload source: %w", err)
 	}
 
-	tlsConfig := tlsconfig.TLSClientConfig(source, tlsconfig.AuthorizeID(serverID))
+	tlsConfig := tlsconfig.MTLSClientConfig(source, source, tlsconfig.AuthorizeID(serverID))
 	creds := credentials.NewTLS(tlsConfig)
 
 	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, grpc.WithTransportCredentials(creds))

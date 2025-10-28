@@ -1,0 +1,98 @@
+services:
+  cert-generator:
+    image: alpine:3.20
+    container_name: serviceradar-poller-cert-generator
+    command: >
+      sh -c
+      "apk add --no-cache bash openssl &&
+       cp /generate-certs.sh /tmp/gen.sh &&
+       chmod +x /tmp/gen.sh &&
+       CERT_DIR=/certs bash /tmp/gen.sh"
+    volumes:
+      - poller-cert-data:/certs
+      - ./generate-certs.sh:/generate-certs.sh:ro
+    restart: "no"
+
+  config-updater:
+    image: ghcr.io/carverauto/serviceradar-config-updater:latest
+    container_name: serviceradar-poller-config-updater
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+    volumes:
+      - poller-cert-data:/etc/serviceradar/certs
+      - poller-generated-config:/etc/serviceradar/config
+      - ${SERVICERADAR_TEMPLATES:-../../packaging/core/config}:/config:ro
+      - ${TEMPLATES_ROOT:-.}:/templates:ro
+    environment:
+      - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
+      - POLLERS_TRUST_DOMAIN=${POLLERS_TRUST_DOMAIN:-carverauto.dev}
+      - POLLERS_SPIRE_UPSTREAM_ADDRESS=${POLLERS_SPIRE_UPSTREAM_ADDRESS:-host.docker.internal}
+      - POLLERS_SPIRE_UPSTREAM_PORT=${POLLERS_SPIRE_UPSTREAM_PORT:-18081}
+      - POLLERS_SPIRE_INSECURE_BOOTSTRAP=${POLLERS_SPIRE_INSECURE_BOOTSTRAP:-false}
+      - POLLERS_SPIRE_PARENT_ID=${POLLERS_SPIRE_PARENT_ID:-spiffe://carverauto.dev/ns/edge/poller-nested-spire}
+      - POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID=${POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID:-spiffe://carverauto.dev/services/poller}
+    restart: "no"
+
+  poller:
+    image: ghcr.io/carverauto/serviceradar-poller:latest
+    container_name: serviceradar-poller
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+    command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
+    volumes:
+      - poller-cert-data:/etc/serviceradar/certs:ro
+      - poller-generated-config:/etc/serviceradar/config:ro
+      - poller-data:/var/lib/serviceradar
+      - ${LOGS_DIR:-../../logs}:/var/log/serviceradar
+      - ${NESTED_SPIRE_ASSETS:-./spire}:/etc/serviceradar/spire:ro
+    environment:
+      - CONFIG_PATH=/etc/serviceradar/config/poller.json
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
+      - MANAGE_NESTED_SPIRE=${MANAGE_NESTED_SPIRE:-enabled}
+      - NESTED_SPIRE_CONFIG_DIR=/etc/serviceradar/config/poller-spire
+      - NESTED_SPIRE_PARENT_ID=${POLLERS_SPIRE_PARENT_ID:-spiffe://carverauto.dev/ns/edge/poller-nested-spire}
+      - NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID=${POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID:-spiffe://carverauto.dev/services/poller}
+      - NESTED_SPIRE_UPSTREAM_JOIN_TOKEN_FILE=${NESTED_SPIRE_UPSTREAM_JOIN_TOKEN_FILE:-/etc/serviceradar/spire/upstream-join-token}
+      - NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE_FILE=${NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE_FILE:-/etc/serviceradar/spire/upstream-bundle.pem}
+      - NESTED_SPIRE_AUTO_GENERATE_DOWNSTREAM_TOKEN=${NESTED_SPIRE_AUTO_GENERATE_DOWNSTREAM_TOKEN:-1}
+      - NESTED_SPIRE_SERVER_SOCKET=${NESTED_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}
+      - ENABLE_POLLER_JOIN_TOKEN=${ENABLE_POLLER_JOIN_TOKEN:-enabled}
+      - DOWNSTREAM_REGISTRATION_MODE=${DOWNSTREAM_REGISTRATION_MODE:-disabled}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  agent:
+    image: ghcr.io/carverauto/serviceradar-agent:latest
+    container_name: serviceradar-agent
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+    command: >
+      /bin/sh -c
+      "if [ -f /etc/serviceradar/config/checkers/sysmon-vm.json ];
+        then cp /etc/serviceradar/config/checkers/sysmon-vm.json /etc/serviceradar/checkers/sysmon-vm.json;
+      fi;
+      exec /usr/local/bin/serviceradar-agent -config /etc/serviceradar/agent.json"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    privileged: true
+    volumes:
+      - poller-cert-data:/etc/serviceradar/certs:ro
+      - poller-generated-config:/etc/serviceradar/config:ro
+      - agent-data:/var/lib/serviceradar
+      - ${LOGS_DIR:-../../logs}:/var/log/serviceradar
+    environment:
+      - CONFIG_PATH=/etc/serviceradar/agent.json
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    restart: unless-stopped
+
+volumes:
+  poller-cert-data:
+  poller-generated-config:
+  poller-data:
+  agent-data:
