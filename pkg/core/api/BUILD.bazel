@@ -6,6 +6,7 @@ go_library(
         "auth.go",
         "interfaces.go",
         "mock_api_server.go",
+        "edge_onboarding.go",
         "rperf.go",
         "server.go",
         "spire.go",

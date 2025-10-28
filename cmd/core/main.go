@@ -281,6 +281,9 @@ func run() error {
 	if cfg.Auth != nil {
 		allOptions = append(allOptions, api.WithRBACConfig(&cfg.Auth.RBAC))
 	}
+	if edgeSvc := server.EdgeOnboardingService(); edgeSvc != nil {
+		allOptions = append(allOptions, api.WithEdgeOnboarding(edgeSvc))
+	}
 	allOptions = append(allOptions, apiOptions...)
 
 	apiServer := api.NewAPIServer(cfg.CORS, allOptions...)

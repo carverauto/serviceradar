@@ -684,6 +684,99 @@ func (mr *MockServiceMockRecorder) PublishTopologyDiscoveryEvent(ctx, event any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishTopologyDiscoveryEvent", reflect.TypeOf((*MockService)(nil).PublishTopologyDiscoveryEvent), ctx, event)
 }
 
+// UpsertEdgeOnboardingPackage mocks base method.
+func (m *MockService) UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeOnboardingPackage) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertEdgeOnboardingPackage", ctx, pkg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertEdgeOnboardingPackage indicates an expected call of UpsertEdgeOnboardingPackage.
+func (mr *MockServiceMockRecorder) UpsertEdgeOnboardingPackage(ctx, pkg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertEdgeOnboardingPackage", reflect.TypeOf((*MockService)(nil).UpsertEdgeOnboardingPackage), ctx, pkg)
+}
+
+// GetEdgeOnboardingPackage mocks base method.
+func (m *MockService) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*models.EdgeOnboardingPackage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEdgeOnboardingPackage", ctx, packageID)
+	ret0, _ := ret[0].(*models.EdgeOnboardingPackage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEdgeOnboardingPackage indicates an expected call of GetEdgeOnboardingPackage.
+func (mr *MockServiceMockRecorder) GetEdgeOnboardingPackage(ctx, packageID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEdgeOnboardingPackage", reflect.TypeOf((*MockService)(nil).GetEdgeOnboardingPackage), ctx, packageID)
+}
+
+// ListEdgeOnboardingPackages mocks base method.
+func (m *MockService) ListEdgeOnboardingPackages(ctx context.Context, filter *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEdgeOnboardingPackages", ctx, filter)
+	ret0, _ := ret[0].([]*models.EdgeOnboardingPackage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEdgeOnboardingPackages indicates an expected call of ListEdgeOnboardingPackages.
+func (mr *MockServiceMockRecorder) ListEdgeOnboardingPackages(ctx, filter any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEdgeOnboardingPackages", reflect.TypeOf((*MockService)(nil).ListEdgeOnboardingPackages), ctx, filter)
+}
+
+// ListEdgeOnboardingPollerIDs mocks base method.
+func (m *MockService) ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...models.EdgeOnboardingStatus) ([]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range statuses {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ListEdgeOnboardingPollerIDs", varargs...)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEdgeOnboardingPollerIDs indicates an expected call of ListEdgeOnboardingPollerIDs.
+func (mr *MockServiceMockRecorder) ListEdgeOnboardingPollerIDs(ctx any, statuses ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, statuses...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEdgeOnboardingPollerIDs", reflect.TypeOf((*MockService)(nil).ListEdgeOnboardingPollerIDs), varargs...)
+}
+
+// InsertEdgeOnboardingEvent mocks base method.
+func (m *MockService) InsertEdgeOnboardingEvent(ctx context.Context, event *models.EdgeOnboardingEvent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertEdgeOnboardingEvent", ctx, event)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertEdgeOnboardingEvent indicates an expected call of InsertEdgeOnboardingEvent.
+func (mr *MockServiceMockRecorder) InsertEdgeOnboardingEvent(ctx, event any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertEdgeOnboardingEvent", reflect.TypeOf((*MockService)(nil).InsertEdgeOnboardingEvent), ctx, event)
+}
+
+// ListEdgeOnboardingEvents mocks base method.
+func (m *MockService) ListEdgeOnboardingEvents(ctx context.Context, packageID string, limit int) ([]*models.EdgeOnboardingEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEdgeOnboardingEvents", ctx, packageID, limit)
+	ret0, _ := ret[0].([]*models.EdgeOnboardingEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEdgeOnboardingEvents indicates an expected call of ListEdgeOnboardingEvents.
+func (mr *MockServiceMockRecorder) ListEdgeOnboardingEvents(ctx, packageID, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEdgeOnboardingEvents", reflect.TypeOf((*MockService)(nil).ListEdgeOnboardingEvents), ctx, packageID, limit)
+}
+
 // StoreMetric mocks base method.
 func (m *MockService) StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error {
 	m.ctrl.T.Helper()

@@ -136,6 +136,15 @@ type Service interface {
 	PublishDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error
 	PublishBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error
 
+	// Edge onboarding operations.
+
+	UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeOnboardingPackage) error
+	GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*models.EdgeOnboardingPackage, error)
+	ListEdgeOnboardingPackages(ctx context.Context, filter *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error)
+	ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...models.EdgeOnboardingStatus) ([]string, error)
+	InsertEdgeOnboardingEvent(ctx context.Context, event *models.EdgeOnboardingEvent) error
+	ListEdgeOnboardingEvents(ctx context.Context, packageID string, limit int) ([]*models.EdgeOnboardingEvent, error)
+
 	// Device-centric metric operations.
 
 	GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error)
