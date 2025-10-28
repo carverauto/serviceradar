@@ -22,10 +22,10 @@ if [[ -n "${NESTED_SELECTORS:-}" ]]; then
   IFS=',' read -r -a SELECTORS <<<"${NESTED_SELECTORS}"
 else
   SELECTORS=(
-    "k8s:ns:${NAMESPACE}"
-    "k8s:sa:${SERVICE_ACCOUNT}"
-    "k8s:pod-label:${POD_LABEL_KEY}:${POD_LABEL_VALUE}"
-    "k8s:container-name:${CONTAINER_NAME}"
+    "unix:uid:0"
+    "unix:gid:0"
+    "unix:user:root"
+    "unix:path:/opt/spire/bin/spire-server"
   )
 fi
 

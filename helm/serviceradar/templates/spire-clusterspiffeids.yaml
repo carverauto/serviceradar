@@ -33,4 +33,28 @@ spec:
     matchLabels:
       app: {{ .label }}
 {{- end }}
+{{- if and .Values.spire.nestedPoller .Values.spire.nestedPoller.enabled }}
+{{- $nestedSpiffe := default (printf "spiffe://%s/ns/%s/poller-nested-spire" $trustDomain $ns) .Values.spire.nestedPoller.spiffeID }}
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: serviceradar-poller-nested
+spec:
+  spiffeIDTemplate: {{ $nestedSpiffe }}
+  admin: true
+  downstream: true
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: {{ $ns }}
+  podSelector:
+    matchLabels:
+      app: serviceradar-poller
+  workloadSelectorTemplates:
+    - k8s:container-name:{{ default "poller-nested-spire" .Values.spire.nestedPoller.containerName }}
+    - unix:uid:0
+    - unix:gid:0
+    - unix:user:root
+    - unix:path:/opt/spire/bin/spire-server
+{{- end }}
 {{- end }}

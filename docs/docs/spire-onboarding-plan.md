@@ -239,6 +239,12 @@ To support remote onboarding from the ServiceRadar UI or CLI:
      "register_downstream": true,
      "downstream": {
        "spiffe_id": "spiffe://carverauto.dev/ns/demo/poller-nested-spire",
+       "selectors": [
+         "unix:uid:0",
+         "unix:gid:0",
+         "unix:user:root",
+         "unix:path:/opt/spire/bin/spire-server"
+       ],
        "x509_svid_ttl": "4h",
        "jwt_svid_ttl": "30m"
      }

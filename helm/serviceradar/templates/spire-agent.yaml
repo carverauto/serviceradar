@@ -29,6 +29,11 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Values.spire.agentServiceAccount }}
     namespace: {{ $ns }}
+  {{- if and .Values.spire.nestedPoller .Values.spire.nestedPoller.enabled }}
+  - kind: ServiceAccount
+    name: {{ default "serviceradar-poller" .Values.spire.pollerServiceAccount }}
+    namespace: {{ $ns }}
+  {{- end }}
 roleRef:
   kind: ClusterRole
   name: spire-agent-cluster-role

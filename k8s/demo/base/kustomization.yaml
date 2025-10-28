@@ -4,7 +4,6 @@ kind: Kustomization
 
 resources:
 - spire
-- poller-nested-spire-configmap.yaml
 - serviceradar-proton.yaml
 - serviceradar-nats.yaml
 - serviceradar-datasvc.yaml
