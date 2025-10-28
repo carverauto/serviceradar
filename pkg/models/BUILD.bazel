@@ -9,6 +9,7 @@ go_library(
         "cors.go",
         "db.go",
         "device.go",
+        "edge_onboarding.go",
         "discovery.go",
         "events.go",
         "grpc.go",

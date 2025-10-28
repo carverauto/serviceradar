@@ -7,6 +7,7 @@ go_library(
         "config.go",
         "devices.go",
         "discovery.go",
+        "edge_onboarding.go",
         "errors.go",
         "events.go",
         "flush.go",
@@ -30,6 +31,7 @@ go_library(
     deps = [
         "//pkg/checker/snmp",
         "//pkg/config",
+        "//pkg/crypto/secrets",
         "//pkg/core/alerts",
         "//pkg/core/api",
         "//pkg/core/auth",

@@ -146,6 +146,12 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 		canonicalCache:      newCanonicalCache(10 * time.Minute),
 	}
 
+	edgeSvc, err := newEdgeOnboardingService(ctx, normalizedConfig.EdgeOnboarding, database, log)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize edge onboarding service: %w", err)
+	}
+	server.edgeOnboarding = edgeSvc
+
 	// Initialize the cache on startup
 	if _, err := server.getPollerStatuses(ctx, true); err != nil {
 		server.logger.Warn().Err(err).Msg("Failed to initialize poller status cache")
@@ -260,6 +266,15 @@ func (s *Server) GetDeviceRegistry() registry.Manager {
 	return s.DeviceRegistry
 }
 
+// EdgeOnboardingService exposes the onboarding helper to other layers.
+func (s *Server) EdgeOnboardingService() api.EdgeOnboardingService {
+	if s == nil {
+		return nil
+	}
+
+	return s.edgeOnboarding
+}
+
 func (s *Server) runMetricsCleanup(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
@@ -323,6 +338,9 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 
 	s.apiServer = apiServer
 	apiServer.SetKnownPollers(s.config.KnownPollers)
+	if s.edgeOnboarding != nil {
+		apiServer.SetDynamicPollers(s.edgeOnboarding.allowedPollersSnapshot())
+	}
 
 	// MCP initialization removed; SRQL/MCP is now external
 

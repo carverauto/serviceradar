@@ -54,6 +54,18 @@ func (mr *MockServiceMockRecorder) SetKnownPollers(knownPollers any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetKnownPollers", reflect.TypeOf((*MockService)(nil).SetKnownPollers), knownPollers)
 }
 
+// SetDynamicPollers mocks base method.
+func (m *MockService) SetDynamicPollers(pollerIDs []string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetDynamicPollers", pollerIDs)
+}
+
+// SetDynamicPollers indicates an expected call of SetDynamicPollers.
+func (mr *MockServiceMockRecorder) SetDynamicPollers(pollerIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDynamicPollers", reflect.TypeOf((*MockService)(nil).SetDynamicPollers), pollerIDs)
+}
+
 // SetPollerHistoryHandler mocks base method.
 func (m *MockService) SetPollerHistoryHandler(ctx context.Context, handler func(string) ([]PollerHistoryPoint, error)) {
 	m.ctrl.T.Helper()

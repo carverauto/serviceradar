@@ -36,6 +36,11 @@ var (
 
 	ErrUserNotFound = errors.New("user not found")
 
+	// Edge onboarding.
+
+	ErrEdgePackageNotFound = errors.New("edge onboarding package not found")
+	ErrEdgePackageInvalid  = errors.New("edge onboarding package invalid")
+
 	// Validation errors for discovered interfaces
 
 	ErrDeviceIPRequired      = errors.New("device IP is required")

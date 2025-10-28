@@ -27,14 +27,15 @@ import (
 
 // Service represents the API server functionality.
 type Service interface {
-    Start(addr string) error
-    UpdatePollerStatus(pollerID string, status *PollerStatus)
-    SetPollerHistoryHandler(ctx context.Context, handler func(pollerID string) ([]PollerHistoryPoint, error))
-    SetKnownPollers(knownPollers []string)
+	Start(addr string) error
+	UpdatePollerStatus(pollerID string, status *PollerStatus)
+	SetPollerHistoryHandler(ctx context.Context, handler func(pollerID string) ([]PollerHistoryPoint, error))
+	SetKnownPollers(knownPollers []string)
+	SetDynamicPollers(pollerIDs []string)
 }
 
 // MCPRouteRegistrar interface for registering MCP routes
 type MCPRouteRegistrar interface {
-    RegisterRoutes(router *mux.Router)
-    Stop() error
+	RegisterRoutes(router *mux.Router)
+	Stop() error
 }
