@@ -148,6 +148,122 @@ After saving changes, redeploy Mapper so it reloads the file:
 docker-compose up -d mapper
 ```
 
+### Enabling a Nested SPIRE Poller (Docker Compose)
+
+ServiceRadar ships with optional SPIFFE support for the poller when you deploy via Docker Compose. The poller container can launch its own nested SPIRE server and agent pair and forward workloads through the upstream SPIRE control plane. To enable this mode:
+
+1. **Prepare upstream credentials.**
+   - Ensure the upstream SPIRE server is reachable from the poller host (default gRPC port `8081`).
+   - Request a join token (and downstream registration) from Core using the CLI. The example below stores the full response as JSON and extracts the token for the poller init container:
+
+     ```bash
+     mkdir -p docker/compose/spire
+     serviceradar spire-join-token \
+       -core-url https://core.demo.serviceradar.cloud \
+       -api-key "$SERVICERADAR_API_KEY" \
+       -downstream-spiffe-id spiffe://carverauto.dev/ns/demo/poller-nested-spire \
+       -selector unix:uid:0 \
+       -selector unix:gid:0 \
+       -selector unix:user:root \
+       -selector unix:path:/opt/spire/bin/spire-server \
+       -output docker/compose/spire/join-token.json
+
+     jq -r '.token' docker/compose/spire/join-token.json >docker/compose/spire/upstream-join-token
+     ```
+
+     The response also includes the downstream entry ID so you can audit or rotate it later. If you are operating in a lab environment without Core API access, you can fall back to the bootstrap script shipped in the repository (`docker/compose/bootstrap-nested-spire.sh`).
+   - Copy the upstream CA bundle beside the token as `docker/compose/spire/upstream-bundle.pem`.
+
+2. **Configure environment overrides.**
+   - Update your `.env` (or exported environment) with the upstream SPIRE details so the configuration updater can render SPIFFE-aware poller settings:
+
+     ```bash
+     cat >> .env <<'EOF'
+     POLLERS_SECURITY_MODE=spiffe
+     POLLERS_TRUST_DOMAIN=${POLLERS_TRUST_DOMAIN:-carverauto.dev}
+     POLLERS_SPIRE_UPSTREAM_ADDRESS=spire-server.example.org
+     POLLERS_SPIRE_UPSTREAM_PORT=8081
+     EOF
+     ```
+
+3. **Apply the SPIFFE override.**
+   - Use the provided override file to mount the token/bundle path and enable embedded SPIRE management for the poller:
+
+     ```bash
+     docker compose -f docker-compose.yml -f docker-compose.spiffe.yml up -d config-updater
+     docker compose -f docker-compose.yml -f docker-compose.spiffe.yml up -d poller
+     ```
+
+     The override sets `MANAGE_NESTED_SPIRE=enabled`, switches the poller to SPIFFE mode, and mounts `docker/compose/spire/` into the container.
+
+4. **Verify the workload socket.**
+   - After the poller restarts, the entrypoint launches the upstream agent, nested server, and downstream agent. Confirm the workload API is available:
+
+     ```bash
+     docker exec serviceradar-poller ls /run/spire/nested/workload/agent.sock
+     docker logs serviceradar-poller
+     ```
+
+     The logs should report `Downstream SPIRE workload API is ready` before the poller establishes gRPC sessions.
+
+### Edge Poller Against the Kubernetes Core
+
+When you need to run the poller away from the cluster (for example on an edge host) but still connect back to the demo namespace:
+
+> Need everything reset in one shot? Run:
+> ```bash
+> docker/compose/edge-poller-restart.sh
+> ```
+> The helper stops the stack, clears the nested SPIRE runtime volume,
+> regenerates configs, refreshes the upstream join token/bundle, and restarts
+> the poller/agent pair. Use `--skip-refresh` if you want to reuse an existing
+> join token or `--dry-run` to preview the steps.
+
+1. **Collect upstream credentials from the cluster.**
+
+   ```bash
+   docker/compose/refresh-upstream-credentials.sh \
+     --namespace demo \
+     --spiffe-id spiffe://carverauto.dev/ns/edge/poller-nested-spire
+   ```
+
+   The helper contacts the demo SPIRE server via `kubectl`, generates a fresh
+   downstream join token, recreates the registration entry with the standard
+   `unix:*` selectors, and writes the artifacts to
+   `docker/compose/spire/upstream-join-token` and
+   `docker/compose/spire/upstream-bundle.pem`. Use `--ttl`, `--selectors`, or
+   `--no-bundle` if you need different defaults.
+
+2. **Prime the Docker volumes with certs/config.**
+
+   ```bash
+   docker compose --env-file edge-poller.env \
+     -f docker/compose/poller-stack.compose.yml up -d config-updater
+   docker compose -f docker/compose/poller-stack.compose.yml stop config-updater
+   ```
+
+3. **Rewrite the generated poller configuration for the edge environment.**
+
+   ```bash
+   CORE_ADDRESS=23.138.124.18:50052 \
+     POLLERS_AGENT_ADDRESS=agent:50051 \
+   docker/compose/setup-edge-poller.sh
+   ```
+
+   The helper copies the SPIFFE template into the config volume, updates `core_address`, and stages a nested SPIRE config from `docker/compose/edge/poller-spire/`.
+   When `KV_ADDRESS` is omitted, it also removes the sample sweep/sysmon checker
+   configs so the Docker agent only talks to the local services required for edge
+   validation.
+
+4. **Start the poller (and optional agent) without re-running the config-updater.**
+
+   ```bash
+   docker compose --env-file edge-poller.env \
+     -f docker/compose/poller-stack.compose.yml up -d --no-deps poller agent
+   ```
+
+All generated nested SPIRE configuration lives under `generated-config/poller-spire/`. Re-run the `config-updater` container whenever you change trust domains or upstream addresses so the HCL files stay in sync.
+
 ## Device Configuration
 
 ### SNMP Device Setup

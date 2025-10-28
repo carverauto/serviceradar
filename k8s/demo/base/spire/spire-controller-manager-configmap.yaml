@@ -18,6 +18,7 @@ data:
     clusterName: carverauto-cluster
     trustDomain: carverauto.dev
     spireServerSocketPath: /spire-server/api.sock
+    entryIDPrefix: k8s.
     ignoreNamespaces:
       - kube-system
       - kube-public

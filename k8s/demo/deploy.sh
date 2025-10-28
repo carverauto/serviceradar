@@ -193,7 +193,7 @@ data:
         }
       },
       "alert_threshold": "5m",
-      "known_pollers": ["k8s-poller"],
+      "known_pollers": ["k8s-poller", "docker-poller"],
       "metrics": {
         "enabled": true,
         "retention": 100,

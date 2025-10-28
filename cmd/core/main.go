@@ -48,6 +48,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -59,9 +60,125 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	_ "github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+type coreFlags struct {
+	ConfigPath     string
+	Backfill       bool
+	BackfillDryRun bool
+	BackfillSeedKV bool
+	BackfillIPs    bool
+}
+
+func parseFlags() coreFlags {
+	configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
+	backfill := flag.Bool("backfill-identities", false, "Run one-time identity backfill (Armis/NetBox) and exit")
+	backfillDryRun := flag.Bool("backfill-dry-run", false, "If set with --backfill-identities, only log actions without writing")
+	backfillSeedKV := flag.Bool("seed-kv-only", false, "Seed canonical identity map without emitting tombstones")
+	backfillIPs := flag.Bool("backfill-ips", true, "Also backfill sweep-only device IDs by IP aliasing into canonical identities")
+	flag.Parse()
+
+	return coreFlags{
+		ConfigPath:     *configPath,
+		Backfill:       *backfill,
+		BackfillDryRun: *backfillDryRun,
+		BackfillSeedKV: *backfillSeedKV,
+		BackfillIPs:    *backfillIPs,
+	}
+}
+
+func runBackfill(ctx context.Context, server *core.Server, mainLogger logger.Logger, opts coreFlags) error {
+	startMsg := "Starting identity backfill (Armis/NetBox) ..."
+	if opts.BackfillDryRun {
+		startMsg = "Starting identity backfill (Armis/NetBox) in DRY-RUN mode ..."
+	}
+	mainLogger.Info().Msg(startMsg)
+
+	backfillOpts := core.BackfillOptions{
+		DryRun:     opts.BackfillDryRun,
+		SeedKVOnly: opts.BackfillSeedKV,
+	}
+
+	if err := core.BackfillIdentityTombstones(ctx, server.DB, server.IdentityKVClient(), mainLogger, backfillOpts); err != nil {
+		return err
+	}
+
+	if opts.BackfillIPs {
+		ipMsg := "Starting IP alias backfill ..."
+		if opts.BackfillDryRun {
+			ipMsg = "Starting IP alias backfill (DRY-RUN) ..."
+		} else if opts.BackfillSeedKV {
+			ipMsg = "Starting IP alias backfill (KV seeding only) ..."
+		}
+		mainLogger.Info().Msg(ipMsg)
+
+		if err := core.BackfillIPAliasTombstones(ctx, server.DB, server.IdentityKVClient(), mainLogger, backfillOpts); err != nil {
+			return err
+		}
+	}
+
+	completionMsg := "Backfill completed. Exiting."
+	if opts.BackfillDryRun {
+		completionMsg = "Backfill DRY-RUN completed. Exiting."
+	} else if opts.BackfillSeedKV {
+		completionMsg = "Backfill KV seeding completed. Exiting."
+	}
+	mainLogger.Info().Msg(completionMsg)
+	return nil
+}
+
+func buildAPIServerOptions(ctx context.Context, cfg *models.CoreServiceConfig, mainLogger logger.Logger) ([]func(*api.APIServer), spireadmin.Client, error) {
+	var apiOptions []func(*api.APIServer)
+
+	if kvAddr := os.Getenv("KV_ADDRESS"); kvAddr != "" {
+		apiOptions = append(apiOptions, api.WithKVAddress(kvAddr))
+	}
+
+	if cfg.Security != nil {
+		apiOptions = append(apiOptions, api.WithKVSecurity(cfg.Security))
+	}
+
+	if len(cfg.KVEndpoints) > 0 {
+		eps := make(map[string]*api.KVEndpoint, len(cfg.KVEndpoints))
+		for _, e := range cfg.KVEndpoints {
+			eps[e.ID] = &api.KVEndpoint{
+				ID:       e.ID,
+				Name:     e.Name,
+				Address:  e.Address,
+				Domain:   e.Domain,
+				Type:     e.Type,
+				Security: cfg.Security,
+			}
+		}
+		apiOptions = append(apiOptions, api.WithKVEndpoints(eps))
+	}
+
+	var spireAdminClient spireadmin.Client
+	if cfg.SpireAdmin != nil && cfg.SpireAdmin.Enabled {
+		spireCfg := spireadmin.Config{
+			WorkloadSocket: cfg.SpireAdmin.WorkloadSocket,
+			ServerAddress:  cfg.SpireAdmin.ServerAddress,
+			ServerSPIFFEID: cfg.SpireAdmin.ServerSPIFFEID,
+		}
+
+		if spireCfg.ServerAddress == "" || spireCfg.ServerSPIFFEID == "" {
+			mainLogger.Warn().Msg("SPIRE admin config enabled but server address or SPIFFE ID missing; disabling admin client")
+		} else {
+			client, err := spireadmin.New(ctx, spireCfg)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to initialize SPIRE admin client: %w", err)
+			}
+			spireAdminClient = client
+			apiOptions = append(apiOptions, api.WithSpireAdmin(spireAdminClient, cfg.SpireAdmin))
+		}
+	}
+
+	return apiOptions, spireAdminClient, nil
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -70,16 +187,9 @@ func main() {
 }
 
 func run() error {
-	// Parse command line flags
-	configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
-	backfill := flag.Bool("backfill-identities", false, "Run one-time identity backfill (Armis/NetBox) and exit")
-	backfillDryRun := flag.Bool("backfill-dry-run", false, "If set with --backfill-identities, only log actions without writing")
-	backfillSeedKV := flag.Bool("seed-kv-only", false, "Seed canonical identity map without emitting tombstones")
-	backfillIPs := flag.Bool("backfill-ips", true, "Also backfill sweep-only device IDs by IP aliasing into canonical identities")
-	flag.Parse()
+	opts := parseFlags()
 
-	// Load configuration
-	cfg, err := core.LoadConfig(*configPath)
+	cfg, err := core.LoadConfig(opts.ConfigPath)
 	if err != nil {
 		return err
 	}
@@ -142,69 +252,20 @@ func run() error {
 		return err
 	}
 
-	// If running backfill only, run job and exit
-	if *backfill {
-		startMsg := "Starting identity backfill (Armis/NetBox) ..."
-		if *backfillDryRun {
-			startMsg = "Starting identity backfill (Armis/NetBox) in DRY-RUN mode ..."
-		}
-		mainLogger.Info().Msg(startMsg)
-
-		opts := core.BackfillOptions{
-			DryRun:     *backfillDryRun,
-			SeedKVOnly: *backfillSeedKV,
-		}
-
-		if err := core.BackfillIdentityTombstones(ctx, server.DB, server.IdentityKVClient(), mainLogger, opts); err != nil {
-			return err
-		}
-
-		if *backfillIPs {
-			ipMsg := "Starting IP alias backfill ..."
-			if *backfillDryRun {
-				ipMsg = "Starting IP alias backfill (DRY-RUN) ..."
-			} else if *backfillSeedKV {
-				ipMsg = "Starting IP alias backfill (KV seeding only) ..."
-			}
-			mainLogger.Info().Msg(ipMsg)
-
-			if err := core.BackfillIPAliasTombstones(ctx, server.DB, server.IdentityKVClient(), mainLogger, opts); err != nil {
-				return err
-			}
-		}
-
-		completionMsg := "Backfill completed. Exiting."
-		if *backfillDryRun {
-			completionMsg = "Backfill DRY-RUN completed. Exiting."
-		} else if *backfillSeedKV {
-			completionMsg = "Backfill KV seeding completed. Exiting."
-		}
-		mainLogger.Info().Msg(completionMsg)
-
-		return nil
+	if opts.Backfill {
+		return runBackfill(ctx, server, mainLogger, opts)
 	}
 
-	// Optionally configure KV client for admin config endpoints
-	var apiOptions []func(*api.APIServer)
-	if kvAddr := os.Getenv("KV_ADDRESS"); kvAddr != "" {
-		apiOptions = append(apiOptions, api.WithKVAddress(kvAddr))
+	apiOptions, spireAdminClient, err := buildAPIServerOptions(ctx, &cfg, mainLogger)
+	if err != nil {
+		return err
 	}
-	if cfg.Security != nil {
-		apiOptions = append(apiOptions, api.WithKVSecurity(cfg.Security))
-	}
-	if len(cfg.KVEndpoints) > 0 {
-		eps := make(map[string]*api.KVEndpoint, len(cfg.KVEndpoints))
-		for _, e := range cfg.KVEndpoints {
-			eps[e.ID] = &api.KVEndpoint{
-				ID:       e.ID,
-				Name:     e.Name,
-				Address:  e.Address,
-				Domain:   e.Domain,
-				Type:     e.Type,
-				Security: cfg.Security,
+	if spireAdminClient != nil {
+		defer func() {
+			if err := spireAdminClient.Close(); err != nil {
+				mainLogger.Warn().Err(err).Msg("error closing SPIRE admin client")
 			}
-		}
-		apiOptions = append(apiOptions, api.WithKVEndpoints(eps))
+		}()
 	}
 
 	allOptions := []func(server *api.APIServer){

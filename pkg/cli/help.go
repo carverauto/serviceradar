@@ -12,6 +12,7 @@ Usage:
   serviceradar generate-tls [options]
   serviceradar render-kong [options]
   serviceradar generate-jwt-keys [options]
+  serviceradar spire-join-token [options]
 
 Commands:
   (default)        Generate bcrypt hash from password
@@ -20,6 +21,7 @@ Commands:
   generate-tls     Generate mTLS certificates for ServiceRadar and Proton
   render-kong      Render Kong DB-less config from Core JWKS
   generate-jwt-keys Generate RS256 keypair and update core.json
+  spire-join-token  Request a join token from Core and optionally register a downstream entry
 
 Options for bcrypt generation:
   -help         show this help message
@@ -67,6 +69,14 @@ Examples:
   serviceradar generate-tls --non-interactive
   serviceradar generate-tls --add-ips -ip 10.0.0.5
 
+  # Request a join token and downstream registration from core
+  serviceradar spire-join-token \
+    -core-url https://core.demo.serviceradar.cloud \
+    -api-key "$SERVICERADAR_API_KEY" \
+    -downstream-spiffe-id spiffe://carverauto.dev/ns/demo/poller-nested-spire \
+    -selector unix:uid:0 -selector unix:gid:0 \
+    -selector unix:user:root -selector unix:path:/opt/spire/bin/spire-server
+
 Options for render-kong:
   -jwks string       JWKS URL (default http://core:8090/auth/jwks.json)
   -service string    upstream service URL (default http://core:8090)
@@ -82,5 +92,23 @@ Options for generate-jwt-keys:
   -kid string        key id to embed in JWT header (default auto-derived)
   -bits int          RSA key size in bits (default 2048)
   -force             overwrite existing RS256 keys if present
+
+Options for spire-join-token:
+  -core-url string        Core API base URL (default http://localhost:8090)
+  -api-key string         API key used to authenticate with core
+  -bearer string          Bearer token used to authenticate with core
+  -tls-skip-verify        Skip TLS certificate verification
+  -ttl int                Join token TTL in seconds
+  -agent-spiffe-id string Optional alias SPIFFE ID to assign to the agent
+  -no-downstream          Do not register a downstream entry
+  -downstream-spiffe-id string  SPIFFE ID for the downstream poller SPIRE server
+  -selector value         Downstream selector (repeatable, e.g. k8s:ns:demo)
+  -x509-ttl int           Downstream X.509 SVID TTL in seconds
+  -jwt-ttl int            Downstream JWT SVID TTL in seconds
+  -downstream-admin       Mark downstream entry as admin
+  -downstream-store-svid  Request downstream SVID storage
+  -dns-name value         Downstream DNS name (repeatable)
+  -federates-with value   Downstream federated trust domain (repeatable)
+  -output string          Write the response JSON to the given file path
 `)
 }

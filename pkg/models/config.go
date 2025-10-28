@@ -108,12 +108,15 @@ type CloudConfig struct {
 }
 
 var (
-	errInvalidDuration         = fmt.Errorf("invalid duration")
-	errLoggingConfigRequired   = fmt.Errorf("logging configuration is required")
-	errDatabaseNameRequired    = fmt.Errorf("database name is required")
-	errDatabaseAddressRequired = fmt.Errorf("database address is required")
-	errListenAddrRequired      = fmt.Errorf("listen address is required")
-	errGRPCAddrRequired        = fmt.Errorf("grpc address is required")
+	errInvalidDuration                  = fmt.Errorf("invalid duration")
+	errLoggingConfigRequired            = fmt.Errorf("logging configuration is required")
+	errDatabaseNameRequired             = fmt.Errorf("database name is required")
+	errDatabaseAddressRequired          = fmt.Errorf("database address is required")
+	errListenAddrRequired               = fmt.Errorf("listen address is required")
+	errGRPCAddrRequired                 = fmt.Errorf("grpc address is required")
+	errSpireAdminServerAddressRequired  = fmt.Errorf("spire_admin.server_address is required when enabled")
+	errSpireAdminServerSPIFFEIDRequired = fmt.Errorf("spire_admin.server_spiffe_id is required when enabled")
+	errSpireAdminJoinTokenTTLInvalid    = fmt.Errorf("spire_admin.join_token_ttl must be non-negative")
 )
 
 // MCPConfigRef represents MCP configuration to avoid circular imports
@@ -146,75 +149,86 @@ type CoreServiceConfig struct {
 	NATS           *NATSConfig            `json:"nats,omitempty"`
 	Events         *EventsConfig          `json:"events,omitempty"`
 	Logging        *logger.Config         `json:"logging,omitempty"`
-    MCP            *MCPConfigRef          `json:"mcp,omitempty"`
-    // KV endpoints for admin config operations (hub/leaf mappings)
-    KVEndpoints    []KVEndpoint           `json:"kv_endpoints,omitempty"`
+	MCP            *MCPConfigRef          `json:"mcp,omitempty"`
+	// KV endpoints for admin config operations (hub/leaf mappings)
+	KVEndpoints []KVEndpoint      `json:"kv_endpoints,omitempty"`
+	SpireAdmin  *SpireAdminConfig `json:"spire_admin,omitempty"`
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint and its JetStream domain.
 type KVEndpoint struct {
-    ID      string          `json:"id"`
-    Name    string          `json:"name"`
-    Address string          `json:"address"`
-    Domain  string          `json:"domain"`
-    Type    string          `json:"type,omitempty"` // hub | leaf | other
-    // Optional security for dialing KV from core (falls back to Core.Security if omitted)
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Address string `json:"address"`
+	Domain  string `json:"domain"`
+	Type    string `json:"type,omitempty"` // hub | leaf | other
+	// Optional security for dialing KV from core (falls back to Core.Security if omitted)
+}
+
+// SpireAdminConfig captures SPIRE server access for administrative APIs.
+type SpireAdminConfig struct {
+	Enabled        bool     `json:"enabled"`
+	ServerAddress  string   `json:"server_address"`
+	ServerSPIFFEID string   `json:"server_spiffe_id"`
+	WorkloadSocket string   `json:"workload_socket,omitempty"`
+	BundlePath     string   `json:"bundle_path,omitempty"`
+	JoinTokenTTL   Duration `json:"join_token_ttl,omitempty"`
 }
 
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
 	type Alias CoreServiceConfig
 
-    aux := &struct {
-        AlertThreshold string `json:"alert_threshold"`
-        Auth           *struct {
-            JWTSecret     string               `json:"jwt_secret"`
-            JWTAlgorithm  string               `json:"jwt_algorithm,omitempty"`
-            JWTPrivateKey string               `json:"jwt_private_key_pem,omitempty"`
-            JWTPublicKey  string               `json:"jwt_public_key_pem,omitempty"`
-            JWTKeyID      string               `json:"jwt_key_id,omitempty"`
-            JWTExpiration string               `json:"jwt_expiration"`
-            LocalUsers    map[string]string    `json:"local_users"`
-            CallbackURL   string               `json:"callback_url,omitempty"`
-            SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
-            RBAC          RBACConfig           `json:"rbac,omitempty"`
-        } `json:"auth,omitempty"`
-        *Alias
-    }{
-        Alias: (*Alias)(c),
-    }
+	aux := &struct {
+		AlertThreshold string `json:"alert_threshold"`
+		Auth           *struct {
+			JWTSecret     string               `json:"jwt_secret"`
+			JWTAlgorithm  string               `json:"jwt_algorithm,omitempty"`
+			JWTPrivateKey string               `json:"jwt_private_key_pem,omitempty"`
+			JWTPublicKey  string               `json:"jwt_public_key_pem,omitempty"`
+			JWTKeyID      string               `json:"jwt_key_id,omitempty"`
+			JWTExpiration string               `json:"jwt_expiration"`
+			LocalUsers    map[string]string    `json:"local_users"`
+			CallbackURL   string               `json:"callback_url,omitempty"`
+			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+			RBAC          RBACConfig           `json:"rbac,omitempty"`
+		} `json:"auth,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
 
 	if c.AlertThreshold != 0 {
 		aux.AlertThreshold = c.AlertThreshold.String()
 	}
 
-    if c.Auth != nil {
-        aux.Auth = &struct {
-            JWTSecret     string               `json:"jwt_secret"`
-            JWTAlgorithm  string               `json:"jwt_algorithm,omitempty"`
-            JWTPrivateKey string               `json:"jwt_private_key_pem,omitempty"`
-            JWTPublicKey  string               `json:"jwt_public_key_pem,omitempty"`
-            JWTKeyID      string               `json:"jwt_key_id,omitempty"`
-            JWTExpiration string               `json:"jwt_expiration"`
-            LocalUsers    map[string]string    `json:"local_users"`
-            CallbackURL   string               `json:"callback_url,omitempty"`
-            SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
-            RBAC          RBACConfig           `json:"rbac,omitempty"`
-        }{
-            JWTSecret:    c.Auth.JWTSecret,
-            JWTAlgorithm: c.Auth.JWTAlgorithm,
-            JWTPrivateKey: c.Auth.JWTPrivateKeyPEM,
-            JWTPublicKey: c.Auth.JWTPublicKeyPEM,
-            JWTKeyID:     c.Auth.JWTKeyID,
-            LocalUsers:   c.Auth.LocalUsers,
-            CallbackURL:  c.Auth.CallbackURL,
-            SSOProviders: c.Auth.SSOProviders,
-            RBAC:         c.Auth.RBAC,
-        }
-        
-        if c.Auth.JWTExpiration != 0 {
-            aux.Auth.JWTExpiration = c.Auth.JWTExpiration.String()
-        }
-    }
+	if c.Auth != nil {
+		aux.Auth = &struct {
+			JWTSecret     string               `json:"jwt_secret"`
+			JWTAlgorithm  string               `json:"jwt_algorithm,omitempty"`
+			JWTPrivateKey string               `json:"jwt_private_key_pem,omitempty"`
+			JWTPublicKey  string               `json:"jwt_public_key_pem,omitempty"`
+			JWTKeyID      string               `json:"jwt_key_id,omitempty"`
+			JWTExpiration string               `json:"jwt_expiration"`
+			LocalUsers    map[string]string    `json:"local_users"`
+			CallbackURL   string               `json:"callback_url,omitempty"`
+			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+			RBAC          RBACConfig           `json:"rbac,omitempty"`
+		}{
+			JWTSecret:     c.Auth.JWTSecret,
+			JWTAlgorithm:  c.Auth.JWTAlgorithm,
+			JWTPrivateKey: c.Auth.JWTPrivateKeyPEM,
+			JWTPublicKey:  c.Auth.JWTPublicKeyPEM,
+			JWTKeyID:      c.Auth.JWTKeyID,
+			LocalUsers:    c.Auth.LocalUsers,
+			CallbackURL:   c.Auth.CallbackURL,
+			SSOProviders:  c.Auth.SSOProviders,
+			RBAC:          c.Auth.RBAC,
+		}
+
+		if c.Auth.JWTExpiration != 0 {
+			aux.Auth.JWTExpiration = c.Auth.JWTExpiration.String()
+		}
+	}
 
 	return json.Marshal(aux)
 }
@@ -222,24 +236,24 @@ func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
 func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 	type Alias CoreServiceConfig
 
-    aux := &struct {
-        AlertThreshold string `json:"alert_threshold"`
-        Auth           *struct {
-            JWTSecret     string               `json:"jwt_secret"`
-            JWTAlgorithm  string               `json:"jwt_algorithm,omitempty"`
-            JWTPrivateKey string               `json:"jwt_private_key_pem,omitempty"`
-            JWTPublicKey  string               `json:"jwt_public_key_pem,omitempty"`
-            JWTKeyID      string               `json:"jwt_key_id,omitempty"`
-            JWTExpiration string               `json:"jwt_expiration"`
-            LocalUsers    map[string]string    `json:"local_users"`
-            CallbackURL   string               `json:"callback_url,omitempty"`
-            SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
-            RBAC          RBACConfig           `json:"rbac,omitempty"`
-        } `json:"auth"`
-        *Alias
-    }{
-        Alias: (*Alias)(c),
-    }
+	aux := &struct {
+		AlertThreshold string `json:"alert_threshold"`
+		Auth           *struct {
+			JWTSecret     string               `json:"jwt_secret"`
+			JWTAlgorithm  string               `json:"jwt_algorithm,omitempty"`
+			JWTPrivateKey string               `json:"jwt_private_key_pem,omitempty"`
+			JWTPublicKey  string               `json:"jwt_public_key_pem,omitempty"`
+			JWTKeyID      string               `json:"jwt_key_id,omitempty"`
+			JWTExpiration string               `json:"jwt_expiration"`
+			LocalUsers    map[string]string    `json:"local_users"`
+			CallbackURL   string               `json:"callback_url,omitempty"`
+			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
+			RBAC          RBACConfig           `json:"rbac,omitempty"`
+		} `json:"auth"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
 
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
@@ -254,18 +268,18 @@ func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 		c.AlertThreshold = duration
 	}
 
-    if aux.Auth != nil {
-        c.Auth = &AuthConfig{
-            JWTSecret:       aux.Auth.JWTSecret,
-            JWTAlgorithm:    aux.Auth.JWTAlgorithm,
-            JWTPrivateKeyPEM: aux.Auth.JWTPrivateKey,
-            JWTPublicKeyPEM: aux.Auth.JWTPublicKey,
-            JWTKeyID:        aux.Auth.JWTKeyID,
-            LocalUsers:      aux.Auth.LocalUsers,
-            CallbackURL:     aux.Auth.CallbackURL,
-            SSOProviders:    aux.Auth.SSOProviders,
-            RBAC:            aux.Auth.RBAC,
-        }
+	if aux.Auth != nil {
+		c.Auth = &AuthConfig{
+			JWTSecret:        aux.Auth.JWTSecret,
+			JWTAlgorithm:     aux.Auth.JWTAlgorithm,
+			JWTPrivateKeyPEM: aux.Auth.JWTPrivateKey,
+			JWTPublicKeyPEM:  aux.Auth.JWTPublicKey,
+			JWTKeyID:         aux.Auth.JWTKeyID,
+			LocalUsers:       aux.Auth.LocalUsers,
+			CallbackURL:      aux.Auth.CallbackURL,
+			SSOProviders:     aux.Auth.SSOProviders,
+			RBAC:             aux.Auth.RBAC,
+		}
 
 		if aux.Auth.JWTExpiration != "" {
 			duration, err := time.ParseDuration(aux.Auth.JWTExpiration)
@@ -299,6 +313,18 @@ func (c *CoreServiceConfig) Validate() error {
 
 	if c.GrpcAddr == "" {
 		return errGRPCAddrRequired
+	}
+
+	if c.SpireAdmin != nil && c.SpireAdmin.Enabled {
+		if c.SpireAdmin.ServerAddress == "" {
+			return errSpireAdminServerAddressRequired
+		}
+		if c.SpireAdmin.ServerSPIFFEID == "" {
+			return errSpireAdminServerSPIFFEIDRequired
+		}
+		if c.SpireAdmin.JoinTokenTTL < 0 {
+			return errSpireAdminJoinTokenTTLInvalid
+		}
 	}
 
 	return nil

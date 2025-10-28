@@ -5,10 +5,12 @@ go_library(
     srcs = [
         "checker.go",
         "cli.go",
+        "flags.go",
         "errors.go",
         "help.go",
         "jwt_keys.go",
         "kong.go",
+        "spire.go",
         "tls.go",
         "types.go",
         "utils.go",

@@ -13,6 +13,8 @@
 {{- $rperfCheckerSA := .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" -}}
 {{- $flowggerSA := .Values.spire.flowggerServiceAccount | default "serviceradar-flowgger" -}}
 {{- $trapdSA := .Values.spire.trapdServiceAccount | default "serviceradar-trapd" -}}
+{{- $serverVals := default (dict) .Values.spire.server -}}
+{{- $spireServerService := default "spire-server" $serverVals.serviceName -}}
 # base/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -48,7 +50,7 @@ data:
         }
       },
       "alert_threshold": "5m",
-      "known_pollers": ["k8s-poller"],
+      "known_pollers": ["k8s-poller", "docker-poller"],
       "metrics": {
       "enabled": true,
       "retention": 100,
@@ -66,6 +68,17 @@ data:
             "client_ca_file": "/etc/serviceradar/certs/root.pem",
             "skip_verify": false
           }
+        },
+        "spire_admin": {
+{{- if .Values.spire.enabled }}
+          "enabled": true,
+          "server_address": "{{ $spireServerService }}.{{ $spireNamespace }}.svc.cluster.local:8081",
+          "server_spiffe_id": "spiffe://{{ $trustDomain }}/spire/server",
+          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "join_token_ttl": "{{ .Values.spire.joinTokenTTL | default "15m" }}"
+{{- else }}
+          "enabled": false
+{{- end }}
         },
         "cors": {
           "allowed_origins": [

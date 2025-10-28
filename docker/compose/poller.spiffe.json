@@ -1,0 +1,55 @@
+{
+  "agents": {
+    "docker-agent": {
+      "address": "agent:50051",
+      "security": {
+        "mode": "spiffe",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "poller",
+        "trust_domain": "carverauto.dev",
+        "server_spiffe_id": "spiffe://carverauto.dev/services/agent",
+        "workload_socket": "unix:/run/spire/nested/workload/agent.sock",
+        "tls": {
+          "cert_file": "poller.pem",
+          "key_file": "poller-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      },
+      "checks": [
+        {
+          "service_type": "process",
+          "service_name": "serviceradar-agent",
+          "details": "serviceradar-agent"
+        }
+      ]
+    }
+  },
+  "core_address": "core:50052",
+  "listen_addr": ":50053",
+  "poll_interval": "30s",
+  "poller_id": "docker-poller",
+  "partition": "default",
+  "source_ip": "poller",
+  "service_name": "PollerService",
+  "service_type": "grpc",
+  "security": {
+    "mode": "spiffe",
+    "cert_dir": "/etc/serviceradar/certs",
+    "role": "poller",
+    "trust_domain": "carverauto.dev",
+    "server_spiffe_id": "spiffe://carverauto.dev/services/core",
+    "workload_socket": "unix:/run/spire/nested/workload/agent.sock",
+    "tls": {
+      "cert_file": "poller.pem",
+      "key_file": "poller-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "logging": {
+    "level": "debug",
+    "debug": true,
+    "output": "stdout"
+  }
+}

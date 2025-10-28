@@ -96,12 +96,15 @@ data:
         }
       },
       "alert_threshold": "5m",
-      "known_pollers": ["k8s-poller"],
+      "known_pollers": [
+        "k8s-poller",
+        "docker-poller"
+      ],
       "metrics": {
-      "enabled": true,
-      "retention": 100,
-      "max_nodes": 10000
-        },
+        "enabled": true,
+        "retention": 100,
+        "max_nodes": 10000
+      },
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
@@ -130,6 +133,13 @@ data:
         "key_file": "/etc/serviceradar/certs/core-key.pem",
         "ca_file": "/etc/serviceradar/certs/root.pem"
       }
+    },
+    "spire_admin": {
+      "enabled": true,
+      "server_address": "spire-server.demo.svc.cluster.local:8081",
+      "server_spiffe_id": "spiffe://carverauto.dev/spire/server",
+      "workload_socket": "unix:/run/spire/sockets/agent.sock",
+      "join_token_ttl": "15m"
     },
         "cors": {
           "allowed_origins": [

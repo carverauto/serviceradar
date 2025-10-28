@@ -38,9 +38,25 @@ type CmdConfig struct {
 	SRQLServiceURL string
 	SRQLRoutePath  string
 	// JWT key generation
-	JWTKeyBits int
-	JWTKeyID   string
-	JWTForce   bool
+	JWTKeyBits               int
+	JWTKeyID                 string
+	JWTForce                 bool
+	CoreAPIURL               string
+	APIKey                   string
+	BearerToken              string
+	TLSSkipVerify            bool
+	JoinTokenTTLSeconds      int
+	AgentSPIFFEID            string
+	DownstreamSPIFFEID       string
+	DownstreamSelectors      []string
+	DownstreamX509TTLSeconds int
+	DownstreamJWTTTLSeconds  int
+	DownstreamAdmin          bool
+	DownstreamStoreSVID      bool
+	DownstreamDNSNames       []string
+	DownstreamFederates      []string
+	NoDownstream             bool
+	JoinTokenOutput          string
 }
 
 // logStyles defines styles for logging messages
