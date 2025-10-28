@@ -31,6 +31,7 @@ jwks.json
 *.key
 *.crt
 .env
+docker/compose/spire/upstream-join-token
 # Logs
 *.log
 npm-debug.log*
