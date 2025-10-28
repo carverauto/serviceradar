@@ -10,6 +10,7 @@ go_library(
         "//alias:api",
         "//alias:lifecycle",
         "//alias:logger",
+        "//alias:models",
         "//alias:swagger",
         "//proto",
         "//pkg/spireadmin",
