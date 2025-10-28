@@ -24,6 +24,12 @@
 {{- $cmIgnoreNamespaces := default (list "kube-system" "kube-public" "local-path-storage" "kube-node-lease") $cmVals.ignoreNamespaces }}
 {{- $cmResources := $cmVals.resources }}
 {{- $cmWebhooksEnabled := not (eq ($cmVals.enableWebhooks | default true) false) }}
+{{- $coreSA := default "serviceradar-core" .Values.spire.coreServiceAccount }}
+{{- $adminIDs := $serverVals.adminIDs | default (list) }}
+{{- $adminIDs = append $adminIDs (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) }}
+{{- $coreSA := default "serviceradar-core" .Values.spire.coreServiceAccount }}
+{{- $adminIDs := $serverVals.adminIDs | default (list) }}
+{{- $adminIDs = append $adminIDs (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -98,6 +104,13 @@ data:
       data_dir = "/run/spire/data"
       log_level = "{{ default "DEBUG" $serverVals.logLevel }}"
       ca_key_type = "rsa-2048"
+{{- if $adminIDs }}
+      admin_ids = [
+{{- range $id := $adminIDs }}
+        "{{ $id }}",
+{{- end }}
+      ]
+{{- end }}
 
       ca_subject = {
         country = ["US"],
@@ -119,11 +132,13 @@ data:
           clusters = {
             "{{ $clusterName }}" = {
               use_token_review_api_validation = true
-              service_account_allow_list = ["{{ $ns }}:{{ $agentSA }}"]
+              service_account_allow_list = ["{{ $ns }}:{{ $agentSA }}"{{- if .Values.spire.nestedPoller.enabled }}, "{{ $ns }}:{{ default "serviceradar-poller" .Values.spire.pollerServiceAccount }}"{{- end }}]
             }
           }
         }
       }
+
+      NodeAttestor "join_token" {}
 
       KeyManager "disk" {
         plugin_data {
@@ -167,6 +182,7 @@ data:
     clusterName: {{ $clusterName }}
     trustDomain: {{ $trustDomain }}
     spireServerSocketPath: {{ $cmSocketPath }}
+    entryIDPrefix: k8s.
     ignoreNamespaces:
 {{- range $cmIgnoreNamespaces }}
       - {{ . }}

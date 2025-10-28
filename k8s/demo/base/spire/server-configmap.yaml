@@ -14,6 +14,9 @@ data:
       log_level = "DEBUG"
       #AWS requires the use of RSA.  EC cryptography is not supported
       ca_key_type = "rsa-2048"
+      admin_ids = [
+        "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
+      ]
 
       ca_subject = {
         country = ["US"],
@@ -35,11 +38,13 @@ data:
           clusters = {
             # NOTE: Change this to your cluster name
             "carverauto-cluster" = {
-              service_account_allow_list = ["demo:spire-agent"]
+              service_account_allow_list = ["demo:spire-agent", "demo:serviceradar-poller"]
             }
           }
         }
       }
+
+      NodeAttestor "join_token" {}
 
       KeyManager "disk" {
         plugin_data {

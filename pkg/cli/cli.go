@@ -422,6 +422,57 @@ func (UpdatePollerHandler) Parse(args []string, cfg *CmdConfig) error {
 	return nil
 }
 
+// SpireJoinTokenHandler handles flags for the spire-join-token subcommand.
+type SpireJoinTokenHandler struct{}
+
+// Parse processes the command-line arguments for the spire-join-token subcommand.
+func (SpireJoinTokenHandler) Parse(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("spire-join-token", flag.ExitOnError)
+	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
+	apiKey := fs.String("api-key", "", "API key for authenticating with core")
+	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
+	tlsSkip := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
+	ttl := fs.Int("ttl", 0, "Join token TTL in seconds")
+	agentID := fs.String("agent-spiffe-id", "", "Optional alias SPIFFE ID to assign to the agent")
+	noDownstream := fs.Bool("no-downstream", false, "Do not register a downstream entry")
+	downstreamID := fs.String("downstream-spiffe-id", "", "SPIFFE ID for the downstream poller SPIRE server")
+	x509TTL := fs.Int("x509-ttl", 0, "Downstream X.509 SVID TTL in seconds")
+	jwtTTL := fs.Int("jwt-ttl", 0, "Downstream JWT SVID TTL in seconds")
+	downstreamAdmin := fs.Bool("downstream-admin", false, "Mark downstream entry as admin")
+	downstreamStore := fs.Bool("downstream-store-svid", false, "Request downstream SVID storage")
+	output := fs.String("output", "", "Write response JSON to the given file path")
+
+	var selectors stringSliceFlag
+	fs.Var(&selectors, "selector", "Downstream selector (repeatable, e.g. k8s:ns:demo)")
+	var dnsNames stringSliceFlag
+	fs.Var(&dnsNames, "dns-name", "Downstream DNS name (repeatable)")
+	var federates stringSliceFlag
+	fs.Var(&federates, "federates-with", "Downstream federated trust domain (repeatable)")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing spire-join-token flags: %w", err)
+	}
+
+	cfg.CoreAPIURL = *coreURL
+	cfg.APIKey = *apiKey
+	cfg.BearerToken = *bearer
+	cfg.TLSSkipVerify = *tlsSkip
+	cfg.JoinTokenTTLSeconds = *ttl
+	cfg.AgentSPIFFEID = *agentID
+	cfg.NoDownstream = *noDownstream
+	cfg.DownstreamSPIFFEID = *downstreamID
+	cfg.DownstreamSelectors = append([]string(nil), selectors...)
+	cfg.DownstreamX509TTLSeconds = *x509TTL
+	cfg.DownstreamJWTTTLSeconds = *jwtTTL
+	cfg.DownstreamAdmin = *downstreamAdmin
+	cfg.DownstreamStoreSVID = *downstreamStore
+	cfg.DownstreamDNSNames = append([]string(nil), dnsNames...)
+	cfg.DownstreamFederates = append([]string(nil), federates...)
+	cfg.JoinTokenOutput = *output
+
+	return nil
+}
+
 // GenerateTLSHandler handles flags for the generate-tls subcommand
 type GenerateTLSHandler struct{}
 
@@ -469,13 +520,14 @@ func ParseFlags() (*CmdConfig, error) {
 	}
 
 	// Define subcommands and their handlers
-    subcommands := map[string]SubcommandHandler{
-        "update-config": UpdateConfigHandler{},
-        "update-poller": UpdatePollerHandler{},
-        "generate-tls":  GenerateTLSHandler{},
-        "render-kong":   RenderKongHandler{},
-        "generate-jwt-keys": GenerateJWTKeysHandler{},
-    }
+	subcommands := map[string]SubcommandHandler{
+		"update-config":     UpdateConfigHandler{},
+		"update-poller":     UpdatePollerHandler{},
+		"generate-tls":      GenerateTLSHandler{},
+		"render-kong":       RenderKongHandler{},
+		"generate-jwt-keys": GenerateJWTKeysHandler{},
+		"spire-join-token":  SpireJoinTokenHandler{},
+	}
 
 	// Parse subcommand flags if present
 	if handler, exists := subcommands[cfg.SubCmd]; exists {
@@ -629,17 +681,17 @@ func RunUpdateConfig(configFile, adminHash, dbPasswordFile string) error {
 
 // RunGenerateTLS handles the generate-tls subcommand.
 func RunGenerateTLS(cfg *CmdConfig) error {
-    return GenerateTLSCerts(cfg)
+	return GenerateTLSCerts(cfg)
 }
 
 // RunRenderKong handles the render-kong subcommand.
 func RunRenderKongCmd(cfg *CmdConfig) error { // distinct name to avoid collision
-    return RunRenderKong(cfg)
+	return RunRenderKong(cfg)
 }
 
 // RunGenerateJWTKeys handles the generate-jwt-keys subcommand.
 func RunGenerateJWTKeysCmd(cfg *CmdConfig) error { // distinct name to avoid collision
-    return RunGenerateJWTKeys(cfg)
+	return RunGenerateJWTKeys(cfg)
 }
 
 // RunBcryptNonInteractive handles non-interactive bcrypt generation.

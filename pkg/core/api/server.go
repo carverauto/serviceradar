@@ -45,6 +45,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -258,6 +259,13 @@ func WithDeviceRegistry(dr DeviceRegistryService) func(server *APIServer) {
 func WithLogger(log logger.Logger) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.logger = log
+	}
+}
+
+func WithSpireAdmin(client spireadmin.Client, cfg *models.SpireAdminConfig) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.spireAdminClient = client
+		server.spireAdminConfig = cfg
 	}
 }
 
@@ -744,6 +752,7 @@ func (s *APIServer) setupProtectedRoutes() {
 
 	adminRoutes.HandleFunc("/config/{service}", s.handleGetConfig).Methods("GET")
 	adminRoutes.HandleFunc("/config/{service}", s.handleUpdateConfig).Methods("PUT")
+	adminRoutes.HandleFunc("/spire/join-tokens", s.handleCreateSpireJoinToken).Methods("POST")
 
 	// KV endpoints enumeration (optional, for Admin UI)
 	protected.HandleFunc("/kv/endpoints", s.handleListKVEndpoints).Methods("GET")
@@ -1486,6 +1495,14 @@ func (s *APIServer) Start(addr string) error {
 	}
 
 	return srv.ListenAndServe()
+}
+
+func (s *APIServer) writeJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to encode response")
+	}
 }
 
 // writeJSONResponse writes a JSON response to the HTTP writer

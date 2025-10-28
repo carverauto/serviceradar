@@ -21,6 +21,7 @@ image:
     rperfClient: latest
     faker: latest
     rperfChecker: latest
+    tools: latest
 
 spire:
   enabled: true
@@ -33,6 +34,7 @@ spire:
   pollerServiceAccount: serviceradar-poller
   datasvcServiceAccount: serviceradar-datasvc
   serviceradarAgentServiceAccount: serviceradar-agent
+  joinTokenTTL: 15m
   syncServiceAccount: serviceradar-sync
   zenServiceAccount: serviceradar-zen
   mapperServiceAccount: serviceradar-mapper
@@ -41,10 +43,48 @@ spire:
   rperfCheckerServiceAccount: serviceradar-rperf-checker
   flowggerServiceAccount: serviceradar-flowgger
   trapdServiceAccount: serviceradar-trapd
+  nestedPoller:
+    enabled: false
+    name: poller-nested-spire
+    containerName: poller-nested-spire
+    podLabelKey: app
+    podLabelValue: serviceradar-poller
+    spiffeID: ""
+    x509TTL: 4h
+    jwtTTL: 30m
+    admin: true
+    storeSVID: true
+    joinTokenMode: disabled
+    serverPort: 8083
+    upstreamServerAddress: ""
+    upstreamServerPort: 8081
+    upstreamAgentSocketPath: /run/spire/nested/upstream/agent.sock
+    downstreamAgentSocketPath: /run/spire/nested/workload/agent.sock
+    upstreamAgentDataDir: /run/spire/nested/upstream-agent
+    downstreamAgentDataDir: /run/spire/nested/downstream-agent
+    serverDataDir: /run/spire/nested/server
+    logLevel: INFO
+    extraSelectors: []
+    downstreamX509TTLSeconds: 14400
+    downstreamJWTTTLSeconds: 1800
+    downstreamWaitSeconds: 5
+    downstreamRefreshSeconds: 300
+    downstreamRegistrationMode: disabled
+    downstreamRetrySeconds: 5
+    adminUsername: admin
+    adminSecret: serviceradar-secrets
+    adminSecretKey: admin-password
+    joinToken:
+      enabled: true
+      ttlSeconds: 900
+      coreURL: http://serviceradar-core:8090
+      apiKeySecret: serviceradar-secrets
+      apiKeyKey: api-key
   bundleConfigMap: spire-bundle
   server:
     image: ghcr.io/spiffe/spire-server:1.11.2
     logLevel: DEBUG
+    adminIDs: []
     initConfigImage: busybox
     serviceName: spire-server
     serviceType: LoadBalancer

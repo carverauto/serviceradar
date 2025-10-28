@@ -4,6 +4,7 @@ metadata:
   name: serviceradar-core
 spec:
   spiffeIDTemplate: spiffe://carverauto.dev/ns/demo/sa/serviceradar-core
+  admin: true
   namespaceSelector:
     matchLabels:
       kubernetes.io/metadata.name: demo
