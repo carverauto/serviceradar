@@ -1,0 +1,17 @@
+# prod/spire-server-external.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: spire-server-external
+  namespace: demo
+  annotations:
+    metallb.universe.tf/address-pool: k3s-pool
+spec:
+  type: LoadBalancer
+  selector:
+    app: spire-server
+  ports:
+    - name: grpc
+      port: 18081
+      protocol: TCP
+      targetPort: 8081

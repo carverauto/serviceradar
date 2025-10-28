@@ -225,7 +225,7 @@ When you need to run the poller away from the cluster (for example on an edge ho
      -selector unix:uid:0 \
      -selector unix:gid:0 \
      -selector unix:user:root \
-     -selector unix:path:/opt/spire/bin/spire-server \
+     -selector unix:group:root \
      -downstream \
      -admin
 
@@ -235,6 +235,8 @@ When you need to run the poller away from the cluster (for example on an edge ho
 
    printf '<TOKEN>' > docker/compose/spire/upstream-join-token
    ```
+
+   Replace `<TOKEN>` with the value returned by the `token generate` command.
 
 2. **Prime the Docker volumes with certs/config.**
 

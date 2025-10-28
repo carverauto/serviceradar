@@ -47,6 +47,7 @@ services:
       - poller-data:/var/lib/serviceradar
       - ${LOGS_DIR:-../../logs}:/var/log/serviceradar
       - ${NESTED_SPIRE_ASSETS:-./spire}:/etc/serviceradar/spire:ro
+      - poller-spire-runtime:/run/spire/nested
     environment:
       - CONFIG_PATH=/etc/serviceradar/config/poller.json
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -59,6 +60,8 @@ services:
       - NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE_FILE=${NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE_FILE:-/etc/serviceradar/spire/upstream-bundle.pem}
       - NESTED_SPIRE_AUTO_GENERATE_DOWNSTREAM_TOKEN=${NESTED_SPIRE_AUTO_GENERATE_DOWNSTREAM_TOKEN:-1}
       - NESTED_SPIRE_SERVER_SOCKET=${NESTED_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}
+      - NESTED_SPIRE_WAIT_ATTEMPTS=${NESTED_SPIRE_WAIT_ATTEMPTS:-60}
+      - NESTED_SPIRE_WAIT_SLEEP=${NESTED_SPIRE_WAIT_SLEEP:-1}
       - ENABLE_POLLER_JOIN_TOKEN=${ENABLE_POLLER_JOIN_TOKEN:-enabled}
       - DOWNSTREAM_REGISTRATION_MODE=${DOWNSTREAM_REGISTRATION_MODE:-disabled}
     extra_hosts:
@@ -68,15 +71,23 @@ services:
   agent:
     image: ghcr.io/carverauto/serviceradar-agent:latest
     container_name: serviceradar-agent
+    pid: "service:poller"
     depends_on:
       config-updater:
         condition: service_completed_successfully
+      poller:
+        condition: service_started
     command: >
-      /bin/sh -c
-      "if [ -f /etc/serviceradar/config/checkers/sysmon-vm.json ];
-        then cp /etc/serviceradar/config/checkers/sysmon-vm.json /etc/serviceradar/checkers/sysmon-vm.json;
-      fi;
-      exec /usr/local/bin/serviceradar-agent -config /etc/serviceradar/agent.json"
+      /bin/sh -c '
+        TARGET="$${CONFIG_PATH:-/etc/serviceradar/agent.json}";
+        if [ -f /etc/serviceradar/config/agent.json ]; then
+          TARGET=/etc/serviceradar/config/agent.json;
+        fi;
+        if [ -f /etc/serviceradar/config/checkers/sysmon-vm.json ]; then
+          cp /etc/serviceradar/config/checkers/sysmon-vm.json /etc/serviceradar/checkers/sysmon-vm.json;
+        fi;
+        exec /usr/local/bin/serviceradar-agent -config "$$TARGET"
+      '
     cap_add:
       - NET_RAW
       - NET_ADMIN
@@ -86,9 +97,11 @@ services:
       - poller-generated-config:/etc/serviceradar/config:ro
       - agent-data:/var/lib/serviceradar
       - ${LOGS_DIR:-../../logs}:/var/log/serviceradar
+      - poller-spire-runtime:/run/spire/nested
     environment:
-      - CONFIG_PATH=/etc/serviceradar/agent.json
+      - CONFIG_PATH=/etc/serviceradar/config/agent.json
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CONFIG_SOURCE=file
     restart: unless-stopped
 
 volumes:
@@ -96,3 +109,4 @@ volumes:
   poller-generated-config:
   poller-data:
   agent-data:
+  poller-spire-runtime:
