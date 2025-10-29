@@ -83,7 +83,7 @@ func TestEdgeOnboardingCreatePackageSuccess(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
@@ -97,7 +97,14 @@ func TestEdgeOnboardingCreatePackageSuccess(t *testing.T) {
 
 	mockDB.EXPECT().ListEdgeOnboardingPackages(gomock.Any(), gomock.Any()).Return([]*models.EdgeOnboardingPackage{}, nil)
 	mockDB.EXPECT().UpsertEdgeOnboardingPackage(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, pkg *models.EdgeOnboardingPackage) error {
+		assert.Equal(t, "edge-poller", pkg.ComponentID)
 		assert.Equal(t, "edge-poller", pkg.PollerID)
+		assert.Equal(t, models.EdgeOnboardingComponentTypePoller, pkg.ComponentType)
+		assert.Equal(t, models.EdgeOnboardingComponentTypeNone, pkg.ParentType)
+		assert.Empty(t, pkg.ParentID)
+		assert.Empty(t, pkg.CheckerKind)
+		assert.Empty(t, pkg.CheckerConfigJSON)
+		assert.Zero(t, pkg.KVRevision)
 		assert.Equal(t, fakeSpire.entryID, pkg.DownstreamEntryID)
 		assert.Equal(t, models.EdgeOnboardingStatusIssued, pkg.Status)
 		assert.NotEmpty(t, pkg.JoinTokenCiphertext)
@@ -145,7 +152,7 @@ func TestEdgeOnboardingCreatePackagePollerConflict(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -155,7 +162,10 @@ func TestEdgeOnboardingCreatePackagePollerConflict(t *testing.T) {
 
 	svc.rand = bytes.NewReader(bytes.Repeat([]byte{0xFF}, 64))
 
-	mockDB.EXPECT().ListEdgeOnboardingPackages(gomock.Any(), gomock.Any()).Return([]*models.EdgeOnboardingPackage{{PollerID: "edge-conflict"}}, nil)
+	mockDB.EXPECT().ListEdgeOnboardingPackages(gomock.Any(), gomock.Any()).Return([]*models.EdgeOnboardingPackage{{
+		PollerID:      "edge-conflict",
+		ComponentType: models.EdgeOnboardingComponentTypePoller,
+	}}, nil)
 
 	_, err = svc.CreatePackage(context.Background(), &models.EdgeOnboardingCreateRequest{
 		Label:    "Edge Conflict",
@@ -188,7 +198,7 @@ func TestEdgeOnboardingDeliverPackageSuccess(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -207,6 +217,10 @@ func TestEdgeOnboardingDeliverPackageSuccess(t *testing.T) {
 	pkg := &models.EdgeOnboardingPackage{
 		PackageID:              "pkg-1",
 		Label:                  "Edge Poller",
+		ComponentID:            "edge-poller",
+		ComponentType:          models.EdgeOnboardingComponentTypePoller,
+		ParentType:             models.EdgeOnboardingComponentTypeNone,
+		ParentID:               "",
 		PollerID:               "edge-poller",
 		Status:                 models.EdgeOnboardingStatusIssued,
 		DownstreamEntryID:      fakeSpire.entryID,
@@ -276,7 +290,7 @@ func TestEdgeOnboardingDeliverPackageInvalidToken(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -294,6 +308,10 @@ func TestEdgeOnboardingDeliverPackageInvalidToken(t *testing.T) {
 
 	pkg := &models.EdgeOnboardingPackage{
 		PackageID:              "pkg-1",
+		ComponentID:            "edge-poller",
+		ComponentType:          models.EdgeOnboardingComponentTypePoller,
+		ParentType:             models.EdgeOnboardingComponentTypeNone,
+		ParentID:               "",
 		PollerID:               "edge-poller",
 		Status:                 models.EdgeOnboardingStatusIssued,
 		JoinTokenCiphertext:    joinCipher,
@@ -343,7 +361,7 @@ func TestEdgeOnboardingRevokePackageSuccess(t *testing.T) {
 	).Return([]string{}, nil).AnyTimes()
 	gomock.InOrder(firstCall, secondCall)
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -356,6 +374,10 @@ func TestEdgeOnboardingRevokePackageSuccess(t *testing.T) {
 
 	pkg := &models.EdgeOnboardingPackage{
 		PackageID:              "pkg-2",
+		ComponentID:            "edge-poller",
+		ComponentType:          models.EdgeOnboardingComponentTypePoller,
+		ParentType:             models.EdgeOnboardingComponentTypeNone,
+		ParentID:               "",
 		PollerID:               "edge-poller",
 		Status:                 models.EdgeOnboardingStatusIssued,
 		DownstreamEntryID:      "entry-edge",
@@ -419,7 +441,7 @@ func TestEdgeOnboardingRevokePackageAlreadyRevoked(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -429,6 +451,8 @@ func TestEdgeOnboardingRevokePackageAlreadyRevoked(t *testing.T) {
 
 	pkg := &models.EdgeOnboardingPackage{
 		PackageID:         "pkg-3",
+		ComponentID:       "edge-poller",
+		ComponentType:     models.EdgeOnboardingComponentTypePoller,
 		Status:            models.EdgeOnboardingStatusRevoked,
 		DownstreamEntryID: "entry-edge",
 	}

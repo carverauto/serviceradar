@@ -66,6 +66,10 @@ func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:              "pkg-1",
 				Label:                  "Edge Poller",
+				ComponentID:            "edge-poller",
+				ComponentType:          models.EdgeOnboardingComponentTypePoller,
+				ParentType:             models.EdgeOnboardingComponentTypeNone,
+				ParentID:               "",
 				PollerID:               "edge-poller",
 				Status:                 models.EdgeOnboardingStatusIssued,
 				DownstreamSPIFFEID:     "spiffe://example.org/ns/edge/edge-poller",
@@ -102,6 +106,7 @@ func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 	assert.Equal(t, "download-token", payload.DownloadToken)
 	assert.Equal(t, "PEM", payload.BundlePEM)
 	assert.Equal(t, "Edge Poller", payload.Package.Label)
+	assert.Equal(t, "edge-poller", payload.Package.ComponentID)
 }
 
 func TestHandleCreateEdgePackageInvalid(t *testing.T) {
@@ -149,6 +154,10 @@ func TestHandleDownloadEdgePackageSuccess(t *testing.T) {
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:              "pkg-1",
 				Label:                  "Edge Poller",
+				ComponentID:            "edge-poller",
+				ComponentType:          models.EdgeOnboardingComponentTypePoller,
+				ParentType:             models.EdgeOnboardingComponentTypeNone,
+				ParentID:               "",
 				PollerID:               "edge-poller",
 				Status:                 models.EdgeOnboardingStatusIssued,
 				DownstreamSPIFFEID:     "spiffe://example.org/ns/edge/edge-poller",
@@ -269,6 +278,8 @@ func TestHandleRevokeEdgePackageSuccess(t *testing.T) {
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:          "pkg-2",
 				Label:              "Edge Poller",
+				ComponentID:        "edge-poller",
+				ComponentType:      models.EdgeOnboardingComponentTypePoller,
 				PollerID:           "edge-poller",
 				Status:             models.EdgeOnboardingStatusRevoked,
 				DownstreamSPIFFEID: "spiffe://example.org/ns/edge/edge-poller",

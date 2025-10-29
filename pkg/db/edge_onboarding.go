@@ -26,6 +26,10 @@ func (db *DB) UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeO
 		INSERT INTO edge_onboarding_packages (
 			package_id,
 			label,
+			component_id,
+			component_type,
+			parent_type,
+			parent_id,
 			poller_id,
 			site,
 			status,
@@ -46,11 +50,18 @@ func (db *DB) UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeO
 			last_seen_spiffe_id,
 			revoked_at,
 			metadata_json,
+			checker_kind,
+			checker_config_json,
+			kv_revision,
 			notes
 		) VALUES`, func(batch driver.Batch) error {
 		return batch.Append(
 			pkg.PackageID,
 			pkg.Label,
+			pkg.ComponentID,
+			string(pkg.ComponentType),
+			string(pkg.ParentType),
+			pkg.ParentID,
 			pkg.PollerID,
 			pkg.Site,
 			string(pkg.Status),
@@ -71,6 +82,9 @@ func (db *DB) UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeO
 			optionalString(pkg.LastSeenSPIFFEID),
 			optionalTime(pkg.RevokedAt),
 			pkg.MetadataJSON,
+			pkg.CheckerKind,
+			pkg.CheckerConfigJSON,
+			pkg.KVRevision,
 			pkg.Notes,
 		)
 	})
@@ -82,6 +96,10 @@ func (db *DB) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*
 		SELECT
 			package_id,
 			label,
+			component_id,
+			component_type,
+			parent_type,
+			parent_id,
 			poller_id,
 			site,
 			status,
@@ -102,6 +120,9 @@ func (db *DB) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*
 			last_seen_spiffe_id,
 			revoked_at,
 			metadata_json,
+			checker_kind,
+			checker_config_json,
+			kv_revision,
 			notes
 		FROM table(edge_onboarding_packages) FINAL
 		WHERE package_id = $1
@@ -125,6 +146,10 @@ func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.Edg
 		SELECT
 			package_id,
 			label,
+			component_id,
+			component_type,
+			parent_type,
+			parent_id,
 			poller_id,
 			site,
 			status,
@@ -145,6 +170,9 @@ func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.Edg
 			last_seen_spiffe_id,
 			revoked_at,
 			metadata_json,
+			checker_kind,
+			checker_config_json,
+			kv_revision,
 			notes
 		FROM table(edge_onboarding_packages) FINAL`
 
@@ -161,6 +189,22 @@ func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.Edg
 	if filter != nil {
 		if filter.PollerID != "" {
 			conditions = append(conditions, fmt.Sprintf("poller_id = %s", param(filter.PollerID)))
+		}
+
+		if filter.ComponentID != "" {
+			conditions = append(conditions, fmt.Sprintf("component_id = %s", param(filter.ComponentID)))
+		}
+
+		if filter.ParentID != "" {
+			conditions = append(conditions, fmt.Sprintf("parent_id = %s", param(filter.ParentID)))
+		}
+
+		if len(filter.Types) > 0 {
+			types := make([]string, 0, len(filter.Types))
+			for _, typ := range filter.Types {
+				types = append(types, string(typ))
+			}
+			conditions = append(conditions, fmt.Sprintf("component_type IN %s", param(types)))
 		}
 
 		if len(filter.Statuses) > 0 {
@@ -223,6 +267,8 @@ func (db *DB) ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...model
 		}
 		conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(literals, ", ")))
 	}
+
+	conditions = append(conditions, "component_type = 'poller'")
 
 	if len(conditions) > 0 {
 		query += "\nWHERE " + strings.Join(conditions, " AND ")
@@ -324,16 +370,27 @@ func scanEdgeOnboardingPackage(rows Rows) (*models.EdgeOnboardingPackage, error)
 	var pkg models.EdgeOnboardingPackage
 
 	var (
+		componentID      string
+		componentType    string
+		parentType       string
+		parentID         string
 		deliveredAt      *time.Time
 		activatedAt      *time.Time
 		revokedAt        *time.Time
 		activatedFromIP  *string
 		lastSeenSPIFFEID *string
+		checkerKind      string
+		checkerConfig    string
+		kvRevision       uint64
 	)
 
 	err := rows.Scan(
 		&pkg.PackageID,
 		&pkg.Label,
+		&componentID,
+		&componentType,
+		&parentType,
+		&parentID,
 		&pkg.PollerID,
 		&pkg.Site,
 		&pkg.Status,
@@ -354,17 +411,27 @@ func scanEdgeOnboardingPackage(rows Rows) (*models.EdgeOnboardingPackage, error)
 		&lastSeenSPIFFEID,
 		&revokedAt,
 		&pkg.MetadataJSON,
+		&checkerKind,
+		&checkerConfig,
+		&kvRevision,
 		&pkg.Notes,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%w edge onboarding package row: %w", ErrFailedToScan, err)
 	}
 
+	pkg.ComponentID = componentID
+	pkg.ComponentType = models.EdgeOnboardingComponentType(componentType)
+	pkg.ParentType = models.EdgeOnboardingComponentType(parentType)
+	pkg.ParentID = parentID
 	pkg.DeliveredAt = deliveredAt
 	pkg.ActivatedAt = activatedAt
 	pkg.RevokedAt = revokedAt
 	pkg.ActivatedFromIP = activatedFromIP
 	pkg.LastSeenSPIFFEID = lastSeenSPIFFEID
+	pkg.CheckerKind = checkerKind
+	pkg.CheckerConfigJSON = checkerConfig
+	pkg.KVRevision = kvRevision
 
 	return &pkg, nil
 }

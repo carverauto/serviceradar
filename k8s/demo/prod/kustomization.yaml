@@ -22,15 +22,15 @@ images:
 - name: ghcr.io/carverauto/serviceradar-web
   newTag: latest
 - name: ghcr.io/carverauto/serviceradar-agent
-  newTag: sha-e7e6284778eecfc649c518fddbba908865e4ab5e
+  newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
 - name: ghcr.io/carverauto/serviceradar-poller
   newTag: latest
 - name: ghcr.io/carverauto/serviceradar-snmp-checker
   newTag: latest
 - name: ghcr.io/carverauto/serviceradar-datasvc
-  newTag: sha-93ac3bf4b323868daea290d9aea3a256918c16e1
+  newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
 - name: ghcr.io/carverauto/serviceradar-sync
-  newTag: sha-e7e6284778eecfc649c518fddbba908865e4ab5e
+  newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
 patches:
 - patch: |-
     - op: replace

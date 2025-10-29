@@ -24,6 +24,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 //nolint:gochecknoglobals // cached set of statuses for allowed pollers.
@@ -54,6 +55,8 @@ type edgeOnboardingService struct {
 	db          db.Service
 	logger      logger.Logger
 	cipher      *secrets.Cipher
+	kvClient    proto.KVServiceClient
+	kvCloser    func() error
 	now         func() time.Time
 	rand        io.Reader
 	trustDomain string
@@ -72,8 +75,11 @@ type edgeOnboardingService struct {
 	allowedCallback func([]string)
 }
 
-func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, log logger.Logger) (*edgeOnboardingService, error) {
+func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, kvClient proto.KVServiceClient, kvCloser func() error, log logger.Logger) (*edgeOnboardingService, error) {
 	if cfg == nil || !cfg.Enabled {
+		if kvCloser != nil {
+			_ = kvCloser()
+		}
 		return nil, nil
 	}
 
@@ -84,6 +90,9 @@ func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models
 
 	cipher, err := secrets.NewCipher(keyBytes)
 	if err != nil {
+		if kvCloser != nil {
+			_ = kvCloser()
+		}
 		return nil, fmt.Errorf("edge onboarding: init cipher: %w", err)
 	}
 
@@ -94,6 +103,8 @@ func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models
 		db:       database,
 		logger:   log,
 		cipher:   cipher,
+		kvClient: kvClient,
+		kvCloser: kvCloser,
 		now:      time.Now,
 		rand:     rand.Reader,
 		allowed:  make(map[string]struct{}),
@@ -164,6 +175,14 @@ func (s *edgeOnboardingService) Stop(context.Context) error {
 	}
 
 	s.refreshWg.Wait()
+
+	s.kvClient = nil
+	if closer := s.kvCloser; closer != nil {
+		if err := closer(); err != nil {
+			s.logger.Warn().Err(err).Msg("edge onboarding: failed to close kv client")
+		}
+		s.kvCloser = nil
+	}
 
 	return nil
 }
@@ -360,17 +379,85 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		return nil, fmt.Errorf("%w: metadata_json must be valid JSON", models.ErrEdgeOnboardingInvalidRequest)
 	}
 
-	now := s.now().UTC()
-
-	pollerID, err := s.resolvePollerID(ctx, label, req.PollerID)
-	if err != nil {
-		if errors.Is(err, models.ErrEdgeOnboardingPollerConflict) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("edge onboarding: resolve poller id: %w", err)
+	componentType := req.ComponentType
+	if componentType == models.EdgeOnboardingComponentTypeNone {
+		componentType = models.EdgeOnboardingComponentTypePoller
 	}
 
-	downstreamID, err := s.deriveDownstreamSPIFFEID(pollerID, strings.TrimSpace(req.DownstreamSPIFFEID))
+	parentType := req.ParentType
+	parentID := strings.TrimSpace(req.ParentID)
+	if parentID == "" {
+		parentType = models.EdgeOnboardingComponentTypeNone
+	}
+
+	componentID := strings.TrimSpace(req.ComponentID)
+	if componentID == "" {
+		componentID = strings.TrimSpace(req.PollerID)
+	}
+
+	checkerKind := strings.TrimSpace(req.CheckerKind)
+	checkerConfig := strings.TrimSpace(req.CheckerConfigJSON)
+	if checkerConfig != "" && !json.Valid([]byte(checkerConfig)) {
+		return nil, fmt.Errorf("%w: checker_config_json must be valid JSON", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	now := s.now().UTC()
+
+	var pollerID string
+	switch componentType {
+	case models.EdgeOnboardingComponentTypePoller:
+		resolvedPollerID, err := s.resolvePollerID(ctx, label, componentID)
+		if err != nil {
+			return nil, err
+		}
+		componentID = resolvedPollerID
+		pollerID = resolvedPollerID
+		parentType = models.EdgeOnboardingComponentTypeNone
+		parentID = ""
+		checkerKind = ""
+		checkerConfig = ""
+	case models.EdgeOnboardingComponentTypeAgent:
+		if strings.TrimSpace(parentID) == "" {
+			return nil, fmt.Errorf("%w: parent_id is required for agent packages", models.ErrEdgeOnboardingInvalidRequest)
+		}
+		parentType = models.EdgeOnboardingComponentTypePoller
+		resolvedID, err := s.resolveComponentIdentifier(ctx, models.EdgeOnboardingComponentTypeAgent, componentID, label, parentID)
+		if err != nil {
+			return nil, err
+		}
+		componentID = resolvedID
+		pollerID = parentID
+	case models.EdgeOnboardingComponentTypeChecker:
+		if strings.TrimSpace(parentID) == "" {
+			return nil, fmt.Errorf("%w: parent_id is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
+		}
+		parentType = models.EdgeOnboardingComponentTypeAgent
+		resolvedID, err := s.resolveComponentIdentifier(ctx, models.EdgeOnboardingComponentTypeChecker, componentID, label, parentID)
+		if err != nil {
+			return nil, err
+		}
+		componentID = resolvedID
+		pollerID = strings.TrimSpace(req.PollerID)
+		if pollerID == "" {
+			resolvedPoller, lookupErr := s.lookupPollerForAgent(ctx, parentID)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+			pollerID = resolvedPoller
+		}
+	default:
+		return nil, fmt.Errorf("%w: unsupported component_type %q", models.ErrEdgeOnboardingInvalidRequest, componentType)
+	}
+
+	if componentID == "" {
+		return nil, fmt.Errorf("%w: component_id could not be determined", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	if pollerID == "" {
+		pollerID = componentID
+	}
+
+	downstreamID, err := s.deriveDownstreamSPIFFEID(componentID, strings.TrimSpace(req.DownstreamSPIFFEID))
 	if err != nil {
 		return nil, fmt.Errorf("edge onboarding: derive downstream spiffe id: %w", err)
 	}
@@ -442,6 +529,10 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 	pkgModel := &models.EdgeOnboardingPackage{
 		PackageID:              uuid.NewString(),
 		Label:                  label,
+		ComponentID:            componentID,
+		ComponentType:          componentType,
+		ParentType:             parentType,
+		ParentID:               parentID,
 		PollerID:               pollerID,
 		Site:                   strings.TrimSpace(req.Site),
 		Status:                 models.EdgeOnboardingStatusIssued,
@@ -457,7 +548,13 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		CreatedAt:              now,
 		UpdatedAt:              now,
 		MetadataJSON:           metadata,
+		CheckerKind:            checkerKind,
+		CheckerConfigJSON:      checkerConfig,
 		Notes:                  strings.TrimSpace(req.Notes),
+	}
+
+	if err := s.applyComponentKVUpdates(ctx, pkgModel); err != nil {
+		return nil, fmt.Errorf("edge onboarding: apply kv updates: %w", err)
 	}
 
 	if err := s.db.UpsertEdgeOnboardingPackage(ctx, pkgModel); err != nil {
@@ -725,6 +822,7 @@ func (s *edgeOnboardingService) ensurePollerIDAvailable(ctx context.Context, pol
 	filter := &models.EdgeOnboardingListFilter{
 		PollerID: pollerID,
 		Statuses: onboardingAllowedStatuses,
+		Types:    []models.EdgeOnboardingComponentType{models.EdgeOnboardingComponentTypePoller},
 		Limit:    1,
 	}
 	pkgs, err := s.db.ListEdgeOnboardingPackages(ctx, filter)
@@ -737,7 +835,78 @@ func (s *edgeOnboardingService) ensurePollerIDAvailable(ctx context.Context, pol
 	return nil
 }
 
-func (s *edgeOnboardingService) deriveDownstreamSPIFFEID(pollerID, override string) (string, error) {
+func (s *edgeOnboardingService) ensureComponentAvailable(ctx context.Context, componentType models.EdgeOnboardingComponentType, componentID string) error {
+	filter := &models.EdgeOnboardingListFilter{
+		ComponentID: componentID,
+		Types:       []models.EdgeOnboardingComponentType{componentType},
+		Statuses:    onboardingAllowedStatuses,
+		Limit:       1,
+	}
+	pkgs, err := s.db.ListEdgeOnboardingPackages(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("edge onboarding: check component id: %w", err)
+	}
+	if len(pkgs) > 0 {
+		return models.ErrEdgeOnboardingComponentConflict
+	}
+	return nil
+}
+
+func (s *edgeOnboardingService) resolveComponentIdentifier(ctx context.Context, componentType models.EdgeOnboardingComponentType, candidate, label, parentID string) (string, error) {
+	base := sanitizePollerID(candidate)
+	if base == "" {
+		base = sanitizePollerID(label)
+	}
+	if base == "" && parentID != "" {
+		base = sanitizePollerID(fmt.Sprintf("%s-%s", parentID, string(componentType)))
+	}
+	if base == "" {
+		return "", fmt.Errorf("%w: component_id is required", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	if err := s.ensureComponentAvailable(ctx, componentType, base); err == nil {
+		return base, nil
+	} else if !errors.Is(err, models.ErrEdgeOnboardingComponentConflict) {
+		return "", err
+	}
+
+	for i := 0; i < 8; i++ {
+		suffix, err := s.randomSuffix(4)
+		if err != nil {
+			return "", err
+		}
+		candidateID := sanitizePollerID(fmt.Sprintf("%s-%s", base, strings.ToLower(suffix)))
+		if candidateID == "" {
+			continue
+		}
+		if err := s.ensureComponentAvailable(ctx, componentType, candidateID); err == nil {
+			return candidateID, nil
+		} else if !errors.Is(err, models.ErrEdgeOnboardingComponentConflict) {
+			return "", err
+		}
+	}
+
+	return "", fmt.Errorf("%w: unable to generate unique component_id", models.ErrEdgeOnboardingComponentConflict)
+}
+
+func (s *edgeOnboardingService) lookupPollerForAgent(ctx context.Context, agentID string) (string, error) {
+	filter := &models.EdgeOnboardingListFilter{
+		ComponentID: agentID,
+		Types:       []models.EdgeOnboardingComponentType{models.EdgeOnboardingComponentTypeAgent},
+		Statuses:    onboardingAllowedStatuses,
+		Limit:       1,
+	}
+	pkgs, err := s.db.ListEdgeOnboardingPackages(ctx, filter)
+	if err != nil {
+		return "", fmt.Errorf("edge onboarding: lookup agent %s: %w", agentID, err)
+	}
+	if len(pkgs) == 0 {
+		return "", fmt.Errorf("%w: parent agent %s not found", models.ErrEdgeOnboardingInvalidRequest, agentID)
+	}
+	return pkgs[0].PollerID, nil
+}
+
+func (s *edgeOnboardingService) deriveDownstreamSPIFFEID(componentID, override string) (string, error) {
 	if override != "" {
 		if _, err := spiffeid.FromString(override); err != nil {
 			return "", fmt.Errorf("%w: downstream_spiffe_id invalid: %w", models.ErrEdgeOnboardingInvalidRequest, err)
@@ -750,15 +919,15 @@ func (s *edgeOnboardingService) deriveDownstreamSPIFFEID(pollerID, override stri
 		if s.trustDomain == "" {
 			return "", fmt.Errorf("%w: downstream path template empty and trust domain unknown", models.ErrEdgeOnboardingInvalidRequest)
 		}
-		template = fmt.Sprintf("spiffe://%s/ns/edge/%s", s.trustDomain, pollerID)
+		template = fmt.Sprintf("spiffe://%s/ns/edge/%s", s.trustDomain, componentID)
 		if _, err := spiffeid.FromString(template); err != nil {
 			return "", fmt.Errorf("edge onboarding: build downstream spiffe id: %w", err)
 		}
 		return template, nil
 	}
 
-	slug := sanitizePollerID(pollerID)
-	result := strings.ReplaceAll(template, "{poller_id}", pollerID)
+	slug := sanitizePollerID(componentID)
+	result := strings.ReplaceAll(template, "{poller_id}", componentID)
 	result = strings.ReplaceAll(result, "{poller_id_slug}", slug)
 	if strings.Contains(result, "{trust_domain}") {
 		if s.trustDomain == "" {
@@ -771,6 +940,142 @@ func (s *edgeOnboardingService) deriveDownstreamSPIFFEID(pollerID, override stri
 		return "", fmt.Errorf("edge onboarding: downstream spiffe id invalid: %w", err)
 	}
 	return result, nil
+}
+
+func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg *models.EdgeOnboardingPackage) error {
+	if pkg == nil {
+		return models.ErrEdgeOnboardingInvalidRequest
+	}
+
+	if s.kvClient == nil {
+		return nil
+	}
+
+	key, err := s.kvKeyForPackage(pkg)
+	if err != nil {
+		return err
+	}
+
+	metadata := json.RawMessage(nil)
+	if strings.TrimSpace(pkg.MetadataJSON) != "" {
+		metadata = json.RawMessage(pkg.MetadataJSON)
+	}
+
+	checkerConfig := json.RawMessage(nil)
+	if strings.TrimSpace(pkg.CheckerConfigJSON) != "" {
+		checkerConfig = json.RawMessage(pkg.CheckerConfigJSON)
+	}
+
+	componentType := pkg.ComponentType
+	if componentType == models.EdgeOnboardingComponentTypeNone {
+		componentType = models.EdgeOnboardingComponentTypePoller
+	}
+
+	doc := map[string]interface{}{
+		"component_id":   pkg.ComponentID,
+		"component_type": string(componentType),
+		"status":         "pending",
+		"label":          pkg.Label,
+		"created_at":     pkg.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+
+	if pkg.ParentID != "" {
+		doc["parent_id"] = pkg.ParentID
+	}
+	if pkg.ParentType != models.EdgeOnboardingComponentTypeNone {
+		doc["parent_type"] = string(pkg.ParentType)
+	}
+	if pkg.PollerID != "" {
+		doc["poller_id"] = pkg.PollerID
+	}
+	if metadata != nil {
+		doc["metadata"] = metadata
+	}
+	if len(pkg.Selectors) > 0 {
+		doc["selectors"] = pkg.Selectors
+	}
+	if pkg.DownstreamSPIFFEID != "" {
+		doc["downstream_spiffe_id"] = pkg.DownstreamSPIFFEID
+	}
+	if pkg.Notes != "" {
+		doc["notes"] = pkg.Notes
+	}
+	if pkg.CreatedBy != "" {
+		doc["created_by"] = pkg.CreatedBy
+	}
+	if checkerConfig != nil {
+		doc["checker_config"] = checkerConfig
+	}
+	if pkg.CheckerKind != "" {
+		doc["checker_kind"] = pkg.CheckerKind
+	}
+
+	payload, err := json.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("edge onboarding: marshal kv payload: %w", err)
+	}
+
+	revision, err := s.upsertKVDocument(ctx, key, payload)
+	if err != nil {
+		return err
+	}
+
+	pkg.KVRevision = revision
+	return nil
+}
+
+func (s *edgeOnboardingService) kvKeyForPackage(pkg *models.EdgeOnboardingPackage) (string, error) {
+	componentID := sanitizePollerID(pkg.ComponentID)
+	if componentID == "" {
+		return "", fmt.Errorf("%w: component_id is required", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	switch pkg.ComponentType {
+	case models.EdgeOnboardingComponentTypeNone, models.EdgeOnboardingComponentTypePoller:
+		return fmt.Sprintf("config/pollers/%s.json", componentID), nil
+	case models.EdgeOnboardingComponentTypeAgent:
+		pollerID := sanitizePollerID(pkg.PollerID)
+		if pollerID == "" {
+			return "", fmt.Errorf("%w: poller_id is required for agent packages", models.ErrEdgeOnboardingInvalidRequest)
+		}
+		return fmt.Sprintf("config/pollers/%s/agents/%s.json", pollerID, componentID), nil
+	case models.EdgeOnboardingComponentTypeChecker:
+		agentID := sanitizePollerID(pkg.ParentID)
+		if agentID == "" {
+			return "", fmt.Errorf("%w: parent_id is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
+		}
+		return fmt.Sprintf("config/agents/%s/checkers/%s.json", agentID, componentID), nil
+	default:
+		return "", fmt.Errorf("%w: unsupported component_type %q", models.ErrEdgeOnboardingInvalidRequest, pkg.ComponentType)
+	}
+}
+
+func (s *edgeOnboardingService) upsertKVDocument(ctx context.Context, key string, value []byte) (uint64, error) {
+	existing, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: key})
+	if err != nil {
+		return 0, fmt.Errorf("edge onboarding: kv get %s: %w", key, err)
+	}
+
+	if existing.GetFound() {
+		resp, err := s.kvClient.Update(ctx, &proto.UpdateRequest{Key: key, Value: value, Revision: existing.GetRevision()})
+		if err != nil {
+			return 0, fmt.Errorf("edge onboarding: kv update %s: %w", key, err)
+		}
+		return resp.GetRevision(), nil
+	}
+
+	if _, err := s.kvClient.Put(ctx, &proto.PutRequest{Key: key, Value: value}); err != nil {
+		return 0, fmt.Errorf("edge onboarding: kv put %s: %w", key, err)
+	}
+
+	confirm, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: key})
+	if err != nil {
+		return 0, fmt.Errorf("edge onboarding: kv confirm %s: %w", key, err)
+	}
+	if confirm.GetFound() {
+		return confirm.GetRevision(), nil
+	}
+	return 0, nil
 }
 
 func (s *edgeOnboardingService) mergeSelectors(extra []string) []string {
