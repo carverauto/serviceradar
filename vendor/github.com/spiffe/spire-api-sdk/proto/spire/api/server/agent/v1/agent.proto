@@ -58,9 +58,35 @@ service Agent {
     //
     // The caller must be local or present an admin X509-SVID.
     rpc CreateJoinToken(CreateJoinTokenRequest) returns (spire.api.types.JoinToken);
+
+    // PostStatus post Agent status, informing what's the current
+    // bundle that is being used by the agent.
+    //
+    // The caller must present an active agent X509-SVID, i.e. the X509-SVID
+    // returned by the AttestAgent or the most recent RenewAgent call.
+    rpc PostStatus(PostStatusRequest) returns (PostStatusResponse);
 }
 
 message CountAgentsRequest {
+    message Filter {
+        // Filters agents to those matching the attestation type.
+        string by_attestation_type = 1;
+
+        // Filters agents to those satisfying the selector match.
+        spire.api.types.SelectorMatch by_selector_match = 2;
+
+        // Filters agents to those that are banned.
+        google.protobuf.BoolValue by_banned = 3;
+
+        // Filters agents that can re-attest.
+        google.protobuf.BoolValue by_can_reattest = 4;
+
+        // Filters agents by those expires before.
+        string by_expires_before = 5;
+    }
+
+    // Filters the agents returned by the list operation.
+    Filter filter = 1;
 }
 
 message CountAgentsResponse {
@@ -77,6 +103,12 @@ message ListAgentsRequest {
 
         // Filters agents to those that are banned.
         google.protobuf.BoolValue by_banned = 3;
+
+        // Filters agents that can re-attest.
+        google.protobuf.BoolValue by_can_reattest = 4;
+
+        // Filters agents by those expires before.
+        string by_expires_before = 5;
     }
 
     // Filters the agents returned by the list operation.
@@ -189,4 +221,12 @@ message AgentX509SVIDParams {
     // CSR is only used to convey the public key; other fields in the CSR are
     // ignored. The agent X509-SVID attributes are determined by the server.
     bytes csr = 1;
+}
+
+message PostStatusRequest {
+    // Required. Serial number of the bundle currently being served by the agent
+    uint64 current_bundle_serial = 1;
+}
+
+message PostStatusResponse {
 }

@@ -274,11 +274,11 @@ github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig
 github.com/spiffe/go-spiffe/v2/svid/jwtsvid
 github.com/spiffe/go-spiffe/v2/svid/x509svid
 github.com/spiffe/go-spiffe/v2/workloadapi
-# github.com/spiffe/spire-api-sdk v1.5.3
-## explicit; go 1.12
+# github.com/spiffe/spire-api-sdk v1.13.3
+## explicit; go 1.23.0
 github.com/spiffe/spire-api-sdk/proto/spire/api/server/agent/v1
-github.com/spiffe/spire-api-sdk/proto/spire/api/server/entry/v1
 github.com/spiffe/spire-api-sdk/proto/spire/api/server/bundle/v1
+github.com/spiffe/spire-api-sdk/proto/spire/api/server/entry/v1
 github.com/spiffe/spire-api-sdk/proto/spire/api/types
 # github.com/stretchr/testify v1.11.1
 ## explicit; go 1.17
@@ -517,10 +517,10 @@ golang.org/x/tools/internal/gopathwalk
 golang.org/x/tools/internal/imports
 golang.org/x/tools/internal/modindex
 golang.org/x/tools/internal/stdlib
-# google.golang.org/genproto/googleapis/api v0.0.0-20251020155222-88f65dc88635
+# google.golang.org/genproto/googleapis/api v0.0.0-20251022142026-3a174f9686a8
 ## explicit; go 1.24.0
 google.golang.org/genproto/googleapis/api/httpbody
-# google.golang.org/genproto/googleapis/rpc v0.0.0-20251020155222-88f65dc88635
+# google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8
 ## explicit; go 1.24.0
 google.golang.org/genproto/googleapis/rpc/errdetails
 google.golang.org/genproto/googleapis/rpc/status
