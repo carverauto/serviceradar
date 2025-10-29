@@ -317,6 +317,22 @@ export default function EdgePackagesPage() {
     setFormSubmitting(false);
   }, []);
 
+  const openFormFor = useCallback(
+    (type: EdgeComponentType) => {
+      setFormState({
+        ...defaultFormState,
+        componentType: type === 'agent' || type === 'checker' ? type : 'poller',
+        pollerId: type === 'poller' ? '' : '',
+        parentId: '',
+        componentId: '',
+      });
+      setFormError(null);
+      setFormSubmitting(false);
+      setFormOpen(true);
+    },
+    [],
+  );
+
   const handleFormChange = (field: keyof CreateFormState, value: string) => {
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
@@ -588,14 +604,14 @@ export default function EdgePackagesPage() {
               </p>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => setFormOpen((open) => !open)}
+              onClick={() => openFormFor(formState.componentType || 'poller')}
               className="inline-flex items-center gap-2 rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
               <Plus className="h-4 w-4" />
-              New package
+              Issue edge package
             </button>
             <button
               type="button"
@@ -626,9 +642,19 @@ export default function EdgePackagesPage() {
         {formOpen && (
           <div className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
             <form onSubmit={handleCreate} className="space-y-6 p-6">
-              <div className="flex items-center gap-2">
-                <PackageIcon className="h-5 w-5 text-blue-500" />
-                <h2 className="text-lg font-semibold">Issue new installer</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <PackageIcon className="h-5 w-5 text-blue-500" />
+                  <h2 className="text-lg font-semibold">Issue new installer</h2>
+                </div>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-2 self-start rounded-md border border-transparent bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70 sm:self-auto"
+                  disabled={formSubmitting}
+                >
+                  {formSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  Issue package
+                </button>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
@@ -674,9 +700,9 @@ export default function EdgePackagesPage() {
 
                 {formState.componentType === 'agent' ? (
                   <div className="flex flex-col gap-1 text-sm">
-                    <span className="font-medium">Poller ID</span>
+                    <span className="font-medium">Parent poller</span>
                     <p className="rounded border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
-                      Derived from the selected parent poller.
+                      Select or enter the poller identifier this agent will attach to.
                     </p>
                   </div>
                 ) : (
@@ -713,13 +739,14 @@ export default function EdgePackagesPage() {
                       }
                       list={formState.componentType === 'checker' ? parentAgentListId : parentPollerListId}
                     />
-                    {formState.componentType === 'checker' ? (
+                    {formState.componentType === 'checker' && (
                       <datalist id={parentAgentListId}>
                         {agentIds.map((id) => (
                           <option value={id} key={`parent-agent-${id}`} />
                         ))}
                       </datalist>
-                    ) : (
+                    )}
+                    {formState.componentType === 'agent' && (
                       <datalist id={parentPollerListId}>
                         {pollerIds.map((id) => (
                           <option value={id} key={`parent-poller-${id}`} />
@@ -894,6 +921,18 @@ export default function EdgePackagesPage() {
                   {packages.map((pkg) => {
                     const statusClass = getStatusBadgeClass(pkg.status);
                     const isSelected = selectedId === pkg.package_id;
+                    const parentLabel =
+                      pkg.component_type === 'checker'
+                        ? 'Parent agent'
+                        : pkg.component_type === 'agent'
+                        ? 'Parent poller'
+                        : '';
+                    const relationship =
+                      pkg.component_type === 'checker'
+                        ? `Poller: ${pkg.poller_id || '—'}`
+                        : pkg.component_type === 'agent'
+                        ? `Poller: ${pkg.parent_id || pkg.poller_id || '—'}`
+                        : '';
                     return (
                       <tr
                         key={pkg.package_id}
@@ -913,14 +952,17 @@ export default function EdgePackagesPage() {
                             <code className="inline-flex w-fit items-center rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                               {pkg.component_id || '—'}
                             </code>
-                            {pkg.parent_id ? (
+                            {pkg.parent_id && parentLabel ? (
                               <span className="text-xs text-gray-500 dark:text-gray-400">
-                                Parent:{' '}
+                                {parentLabel}:{' '}
                                 <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                                   {pkg.parent_id}
                                 </code>
                               </span>
                             ) : null}
+                            {relationship && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400">{relationship}</span>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
@@ -1051,6 +1093,18 @@ export default function EdgePackagesPage() {
                           </dd>
                         </div>
                       ) : null}
+                      <div className="sm:col-span-2">
+                        <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Relationship</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                          {selectedPackage.component_type === 'checker'
+                            ? `Checker → Agent (${selectedPackage.parent_id || '—'}) → Poller (${
+                                selectedPackage.poller_id || '—'
+                              })`
+                            : selectedPackage.component_type === 'agent'
+                            ? `Agent → Poller (${selectedPackage.parent_id || selectedPackage.poller_id || '—'})`
+                            : 'Poller (no parent component)'}
+                        </dd>
+                      </div>
                       <div>
                         <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Poller ID</dt>
                         <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">

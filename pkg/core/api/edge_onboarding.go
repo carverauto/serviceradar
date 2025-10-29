@@ -374,6 +374,14 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 		case errors.Is(err, models.ErrEdgeOnboardingDisabled):
 			writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
 		default:
+			s.logger.Error().
+				Err(err).
+				Str("label", req.Label).
+				Str("component_type", string(componentType)).
+				Str("component_id", componentID).
+				Str("parent_type", string(parentType)).
+				Str("parent_id", parentID).
+				Msg("edge onboarding: create package failed")
 			writeError(w, "failed to create edge package", http.StatusBadGateway)
 		}
 		return
