@@ -19,7 +19,7 @@ component-by-component breakdown and KV automation model.
 
 ## Component scope and relationships
 
-| Component | Parent association | Package artefacts | KV path updated on create | Notes |
+| Component | Parent association | Package artifacts | KV path updated on create | Notes |
 |-----------|-------------------|-------------------|---------------------------|-------|
 | Poller    | None              | `edge-poller.env`, SPIRE join token + bundle | `config/pollers/<poller-id>` | Establishes the edge site and acts as the control plane for downstream agents. |
 | Agent     | Poller            | `edge-agent.env`, SPIRE join token + bundle | `config/pollers/<poller-id>/agents/<agent-id>` | Agents inherit connectivity details from their parent poller and surface checker slots. |
@@ -112,7 +112,7 @@ serviceradar-cli edge package create \
   --metadata-json "$(cat metadata.json)"
 ```
 
-### 3.2 Download the artefacts
+### 3.2 Download the artifacts
 
 - **UI**: Click **Download** while the package status is *Issued*.
 - **CLI**:

@@ -763,6 +763,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	adminRoutes.HandleFunc("/edge-packages", s.handleListEdgePackages).Methods("GET")
 	adminRoutes.HandleFunc("/edge-packages", s.handleCreateEdgePackage).Methods("POST")
 	adminRoutes.HandleFunc("/edge-packages/{id}", s.handleGetEdgePackage).Methods("GET")
+	adminRoutes.HandleFunc("/edge-packages/{id}", s.handleDeleteEdgePackage).Methods("DELETE")
 	adminRoutes.HandleFunc("/edge-packages/{id}/events", s.handleListEdgePackageEvents).Methods("GET")
 	adminRoutes.HandleFunc("/edge-packages/{id}/download", s.handleDownloadEdgePackage).Methods("POST")
 	adminRoutes.HandleFunc("/edge-packages/{id}/revoke", s.handleRevokeEdgePackage).Methods("POST")

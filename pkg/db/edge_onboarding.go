@@ -326,7 +326,7 @@ func (db *DB) InsertEdgeOnboardingEvent(ctx context.Context, event *models.EdgeO
 		) VALUES`, func(batch driver.Batch) error {
 		return batch.Append(
 			event.EventTime,
-			packageUUID,
+			packageUUID.String(),
 			event.EventType,
 			event.Actor,
 			event.SourceIP,
@@ -346,6 +346,8 @@ func (db *DB) ListEdgeOnboardingEvents(ctx context.Context, packageID string, li
 		return nil, fmt.Errorf("%w edge onboarding events: invalid package_id %q: %v", ErrEdgePackageInvalid, packageID, err)
 	}
 
+	paramID := packageUUID.String()
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT
 			event_time,
@@ -357,7 +359,7 @@ func (db *DB) ListEdgeOnboardingEvents(ctx context.Context, packageID string, li
 		WHERE package_id = $1
 		ORDER BY event_time DESC
 		LIMIT $2`,
-		packageUUID, limit)
+		paramID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w edge onboarding events: %w", ErrFailedToQuery, err)
 	}
@@ -380,6 +382,30 @@ func (db *DB) ListEdgeOnboardingEvents(ctx context.Context, packageID string, li
 	}
 
 	return events, nil
+}
+
+// DeleteEdgeOnboardingPackage removes a package and its associated events.
+func (db *DB) DeleteEdgeOnboardingPackage(ctx context.Context, packageID string) error {
+	packageUUID, err := uuid.Parse(packageID)
+	if err != nil {
+		return fmt.Errorf("%w: invalid package_id %q: %w", ErrEdgePackageInvalid, packageID, err)
+	}
+
+	paramID := packageUUID.String()
+
+	if err := db.Conn.Exec(ctx, `
+        ALTER TABLE edge_onboarding_events
+        DELETE WHERE package_id = $1`, paramID); err != nil {
+		return fmt.Errorf("%w edge onboarding events delete: %w", ErrFailedToQuery, err)
+	}
+
+	if err := db.Conn.Exec(ctx, `
+        ALTER TABLE edge_onboarding_packages
+        DELETE WHERE package_id = $1`, paramID); err != nil {
+		return fmt.Errorf("%w edge onboarding packages delete: %w", ErrFailedToQuery, err)
+	}
+
+	return nil
 }
 
 func scanEdgeOnboardingPackage(rows Rows) (*models.EdgeOnboardingPackage, error) {

@@ -777,6 +777,20 @@ func (mr *MockServiceMockRecorder) ListEdgeOnboardingEvents(ctx, packageID, limi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEdgeOnboardingEvents", reflect.TypeOf((*MockService)(nil).ListEdgeOnboardingEvents), ctx, packageID, limit)
 }
 
+// DeleteEdgeOnboardingPackage mocks base method.
+func (m *MockService) DeleteEdgeOnboardingPackage(ctx context.Context, packageID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteEdgeOnboardingPackage", ctx, packageID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteEdgeOnboardingPackage indicates an expected call of DeleteEdgeOnboardingPackage.
+func (mr *MockServiceMockRecorder) DeleteEdgeOnboardingPackage(ctx, packageID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEdgeOnboardingPackage", reflect.TypeOf((*MockService)(nil).DeleteEdgeOnboardingPackage), ctx, packageID)
+}
+
 // StoreMetric mocks base method.
 func (m *MockService) StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error {
 	m.ctrl.T.Helper()

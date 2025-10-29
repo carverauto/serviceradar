@@ -31,6 +31,7 @@ import {
   Plus,
   RefreshCw,
   ShieldPlus,
+  Trash2,
 } from 'lucide-react';
 
 import RoleGuard from '@/components/Auth/RoleGuard';
@@ -265,9 +266,12 @@ export default function EdgePackagesPage() {
       }
       const data: EdgePackage[] = await response.json();
       setPackages(data);
-      if (data.length > 0 && !selectedId) {
-        setSelectedId(data[0].package_id);
-      }
+      setSelectedId((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return data.some((pkg) => pkg.package_id === prev) ? prev : null;
+      });
     } catch (err) {
       console.error('Error loading edge packages', err);
       setPackages([]);
@@ -275,7 +279,7 @@ export default function EdgePackagesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, []);
 
   const loadEvents = useCallback(async (packageId: string) => {
     setEventsLoading(true);
@@ -543,7 +547,7 @@ export default function EdgePackagesPage() {
     setActionMessage(null);
 
     const confirmed = window.confirm(
-      `Revoke package "${pkg.label}"? This deletes the downstream SPIRE entry and invalidates outstanding artefacts.`,
+      `Revoke package "${pkg.label}"? This deletes the downstream SPIRE entry and invalidates outstanding artifacts.`,
     );
     if (!confirmed) {
       return;
@@ -551,6 +555,7 @@ export default function EdgePackagesPage() {
 
     setActionLoading(true);
     try {
+      const wasSelected = pkg.package_id === selectedId;
       const response = await fetch(`/api/admin/edge-packages/${pkg.package_id}/revoke`, {
         method: 'POST',
         headers: buildHeaders('application/json', 'application/json'),
@@ -563,15 +568,71 @@ export default function EdgePackagesPage() {
 
       const updated: EdgePackage = await response.json();
       updatePackageInState(updated);
+      setSecrets((prev) => {
+        const next = { ...prev };
+        if (next[updated.package_id]) {
+          delete next[updated.package_id];
+        }
+        return next;
+      });
       setActionMessage(`Package ${updated.label} revoked.`);
 
-      if (pkg.package_id === selectedId) {
+      if (wasSelected) {
         setSelectedId(updated.package_id);
+      }
+
+      await loadPackages();
+
+      if (wasSelected) {
         await loadEvents(updated.package_id);
       }
     } catch (err) {
       console.error('Failed to revoke package', err);
       setActionError(err instanceof Error ? err.message : 'Failed to revoke package');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDelete = async (pkg: EdgePackage) => {
+    setActionError(null);
+    setActionMessage(null);
+
+    const confirmed = window.confirm(
+      `Permanently delete package "${pkg.label}"? This removes its audit history and cannot be undone.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const response = await fetch(`/api/admin/edge-packages/${pkg.package_id}`, {
+        method: 'DELETE',
+        headers: buildHeaders(),
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || 'Failed to delete package');
+      }
+
+      setPackages((prev) => prev.filter((item) => item.package_id !== pkg.package_id));
+      setSecrets((prev) => {
+        const next = { ...prev };
+        delete next[pkg.package_id];
+        return next;
+      });
+
+      if (selectedId === pkg.package_id) {
+        setSelectedId(null);
+        setEvents([]);
+      }
+
+      setActionMessage(`Package ${pkg.label} deleted.`);
+      await loadPackages();
+    } catch (err) {
+      console.error('Failed to delete edge package', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to delete package');
     } finally {
       setActionLoading(false);
     }
@@ -621,6 +682,7 @@ export default function EdgePackagesPage() {
                 void loadPackages();
               }}
               className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-gray-900 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-800"
+              disabled={loading}
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Refresh
@@ -1019,6 +1081,21 @@ export default function EdgePackagesPage() {
                               <Ban className="h-3.5 w-3.5" />
                               Revoke
                             </button>
+                            {pkg.status === 'revoked' && (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-900/10"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDelete(pkg);
+                                }}
+                                disabled={actionLoading}
+                                title="Delete package"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1046,7 +1123,7 @@ export default function EdgePackagesPage() {
                 {!selectedPackage ? (
                   <div className="flex flex-col items-center justify-center gap-3 py-10 text-center text-gray-500 dark:text-gray-400">
                     <Network className="h-8 w-8" />
-                    <p>Select a package to view details, download artefacts, and inspect the audit log.</p>
+                    <p>Select a package to view details, download artifacts, and inspect the audit log.</p>
                   </div>
                 ) : (
                   <div className="space-y-5">
@@ -1063,6 +1140,27 @@ export default function EdgePackagesPage() {
                       <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${getStatusBadgeClass(selectedPackage.status)}`}>
                         {titleCase(selectedPackage.status)}
                       </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                        onClick={() => setSelectedId(null)}
+                      >
+                        Back to list
+                      </button>
+                      {selectedPackage.status === 'revoked' && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-2 rounded border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-900/10"
+                          onClick={() => void handleDelete(selectedPackage)}
+                          disabled={actionLoading}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete package
+                        </button>
+                      )}
                     </div>
 
                     <dl className="grid gap-4 sm:grid-cols-2">
@@ -1248,7 +1346,7 @@ export default function EdgePackagesPage() {
               <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
                 <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
                   <Link2 className="h-4 w-4" />
-                  Installer artefacts
+                  Installer artifacts
                 </h3>
 
                 {!selectedPackage ? (

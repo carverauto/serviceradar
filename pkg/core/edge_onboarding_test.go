@@ -519,3 +519,86 @@ func TestEdgeOnboardingRevokePackageAlreadyRevoked(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, models.ErrEdgeOnboardingPackageRevoked)
 }
+
+func TestEdgeOnboardingDeletePackageSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0x88}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	spireCfg := &models.SpireAdminConfig{ServerSPIFFEID: "spiffe://example.org/spire/server"}
+	fakeSpire := newFakeSpireClient()
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	svc.SetAllowedPollerCallback(func([]string) {})
+
+	pkg := &models.EdgeOnboardingPackage{
+		PackageID:     "pkg-del",
+		Status:        models.EdgeOnboardingStatusRevoked,
+		PollerID:      "edge-poller",
+		ComponentType: models.EdgeOnboardingComponentTypePoller,
+	}
+
+	mockDB.EXPECT().GetEdgeOnboardingPackage(gomock.Any(), "pkg-del").Return(pkg, nil)
+	mockDB.EXPECT().DeleteEdgeOnboardingPackage(gomock.Any(), "pkg-del").Return(nil)
+
+	require.NoError(t, svc.DeletePackage(context.Background(), "pkg-del"))
+}
+
+func TestEdgeOnboardingDeletePackageRequiresRevoked(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0x89}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	spireCfg := &models.SpireAdminConfig{ServerSPIFFEID: "spiffe://example.org/spire/server"}
+	fakeSpire := newFakeSpireClient()
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	svc.SetAllowedPollerCallback(func([]string) {})
+
+	pkg := &models.EdgeOnboardingPackage{
+		PackageID:     "pkg-pending",
+		Status:        models.EdgeOnboardingStatusIssued,
+		PollerID:      "edge-poller",
+		ComponentType: models.EdgeOnboardingComponentTypePoller,
+	}
+
+	mockDB.EXPECT().GetEdgeOnboardingPackage(gomock.Any(), "pkg-pending").Return(pkg, nil)
+
+	err = svc.DeletePackage(context.Background(), "pkg-pending")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrEdgeOnboardingInvalidRequest)
+}
