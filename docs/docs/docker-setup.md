@@ -152,6 +152,9 @@ docker-compose up -d mapper
 
 ServiceRadar ships with optional SPIFFE support for the poller when you deploy via Docker Compose. The poller container can launch its own nested SPIRE server and agent pair and forward workloads through the upstream SPIRE control plane. To enable this mode:
 
+> Need the full edge onboarding workflow (poller package issuance, Docker restart scripts, and the upcoming agent/checker flows)? See the dedicated
+> [Secure Edge Onboarding](./edge-onboarding.md) runbook.
+
 1. **Prepare upstream credentials.**
    - Ensure the upstream SPIRE server is reachable from the poller host (default gRPC port `8081`).
    - Request a join token (and downstream registration) from Core using the CLI. The example below stores the full response as JSON and extracts the token for the poller init container:
