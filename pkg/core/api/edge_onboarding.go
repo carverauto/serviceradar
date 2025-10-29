@@ -1,7 +1,10 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -43,6 +47,33 @@ type edgeEventView struct {
 	Actor       string    `json:"actor"`
 	SourceIP    string    `json:"source_ip,omitempty"`
 	DetailsJSON string    `json:"details_json,omitempty"`
+}
+
+type edgePackageCreateRequest struct {
+	Label                   string   `json:"label"`
+	PollerID                string   `json:"poller_id,omitempty"`
+	Site                    string   `json:"site,omitempty"`
+	Selectors               []string `json:"selectors,omitempty"`
+	MetadataJSON            string   `json:"metadata_json,omitempty"`
+	Notes                   string   `json:"notes,omitempty"`
+	JoinTokenTTLSeconds     int64    `json:"join_token_ttl_seconds,omitempty"`
+	DownloadTokenTTLSeconds int64    `json:"download_token_ttl_seconds,omitempty"`
+	DownstreamSPIFFEID      string   `json:"downstream_spiffe_id,omitempty"`
+}
+
+type edgePackageCreateResponse struct {
+	Package       edgePackageView `json:"package"`
+	JoinToken     string          `json:"join_token"`
+	DownloadToken string          `json:"download_token"`
+	BundlePEM     string          `json:"bundle_pem"`
+}
+
+type edgePackageDownloadRequest struct {
+	DownloadToken string `json:"download_token"`
+}
+
+type edgePackageRevokeRequest struct {
+	Reason string `json:"reason,omitempty"`
 }
 
 func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Request) {
@@ -181,13 +212,213 @@ func (s *APIServer) handleListEdgePackageEvents(w http.ResponseWriter, r *http.R
 	s.writeJSON(w, http.StatusOK, views)
 }
 
-func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, _ *http.Request) {
+func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Request) {
 	if s.edgeOnboarding == nil {
 		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
 		return
 	}
 
-	writeError(w, "edge onboarding provisioning API is under construction", http.StatusNotImplemented)
+	var req edgePackageCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if req.Label == "" {
+		writeError(w, "label is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.JoinTokenTTLSeconds < 0 || req.DownloadTokenTTLSeconds < 0 {
+		writeError(w, "ttl values must be non-negative", http.StatusBadRequest)
+		return
+	}
+
+	var joinTTL, downloadTTL time.Duration
+	if req.JoinTokenTTLSeconds > 0 {
+		joinTTL = time.Duration(req.JoinTokenTTLSeconds) * time.Second
+	}
+	if req.DownloadTokenTTLSeconds > 0 {
+		downloadTTL = time.Duration(req.DownloadTokenTTLSeconds) * time.Second
+	}
+
+	createdBy := ""
+	if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
+		createdBy = strings.TrimSpace(user.Email)
+	}
+
+	createReq := &models.EdgeOnboardingCreateRequest{
+		Label:              req.Label,
+		PollerID:           req.PollerID,
+		Site:               req.Site,
+		Selectors:          req.Selectors,
+		MetadataJSON:       req.MetadataJSON,
+		Notes:              req.Notes,
+		CreatedBy:          createdBy,
+		JoinTokenTTL:       joinTTL,
+		DownloadTokenTTL:   downloadTTL,
+		DownstreamSPIFFEID: req.DownstreamSPIFFEID,
+	}
+
+	result, err := s.edgeOnboarding.CreatePackage(r.Context(), createReq)
+	if err != nil {
+		switch {
+		case errors.Is(err, models.ErrEdgeOnboardingInvalidRequest):
+			writeError(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, models.ErrEdgeOnboardingPollerConflict):
+			writeError(w, err.Error(), http.StatusConflict)
+		case errors.Is(err, models.ErrEdgeOnboardingSpireUnavailable):
+			writeError(w, "SPIRE admin integration unavailable", http.StatusServiceUnavailable)
+		case errors.Is(err, models.ErrEdgeOnboardingDisabled):
+			writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
+		default:
+			writeError(w, "failed to create edge package", http.StatusBadGateway)
+		}
+		return
+	}
+
+	response := edgePackageCreateResponse{
+		Package:       toEdgePackageView(result.Package),
+		JoinToken:     result.JoinToken,
+		DownloadToken: result.DownloadToken,
+		BundlePEM:     string(result.BundlePEM),
+	}
+
+	s.writeJSON(w, http.StatusCreated, response)
+}
+
+func (s *APIServer) handleDownloadEdgePackage(w http.ResponseWriter, r *http.Request) {
+	if s.edgeOnboarding == nil {
+		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := mux.Vars(r)["id"]
+	if strings.TrimSpace(id) == "" {
+		writeError(w, "package id is required", http.StatusBadRequest)
+		return
+	}
+
+	var req edgePackageDownloadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.DownloadToken) == "" {
+		writeError(w, "download_token is required", http.StatusBadRequest)
+		return
+	}
+
+	actor := ""
+	if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
+		actor = strings.TrimSpace(user.Email)
+	}
+
+	result, err := s.edgeOnboarding.DeliverPackage(r.Context(), &models.EdgeOnboardingDeliverRequest{
+		PackageID:     id,
+		DownloadToken: strings.TrimSpace(req.DownloadToken),
+		Actor:         actor,
+		SourceIP:      clientIPFromRequest(r),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, models.ErrEdgeOnboardingDownloadRequired),
+			errors.Is(err, models.ErrEdgeOnboardingInvalidRequest):
+			writeError(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, models.ErrEdgeOnboardingDownloadInvalid):
+			writeError(w, err.Error(), http.StatusUnauthorized)
+		case errors.Is(err, models.ErrEdgeOnboardingDownloadExpired):
+			writeError(w, err.Error(), http.StatusGone)
+		case errors.Is(err, models.ErrEdgeOnboardingPackageDelivered),
+			errors.Is(err, models.ErrEdgeOnboardingPackageRevoked):
+			writeError(w, err.Error(), http.StatusConflict)
+		case errors.Is(err, db.ErrEdgePackageNotFound):
+			writeError(w, "package not found", http.StatusNotFound)
+		case errors.Is(err, models.ErrEdgeOnboardingDisabled):
+			writeError(w, err.Error(), http.StatusServiceUnavailable)
+		case errors.Is(err, errEdgePackageArchive):
+			writeError(w, err.Error(), http.StatusInternalServerError)
+		default:
+			writeError(w, "failed to deliver edge package", http.StatusBadGateway)
+		}
+		return
+	}
+
+	archive, filename, err := buildEdgePackageArchive(result, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, errEdgePackageArchive) {
+			writeError(w, err.Error(), http.StatusInternalServerError)
+		} else {
+			writeError(w, "failed to render edge package artefacts", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if result.Package != nil {
+		w.Header().Set("X-Edge-Package-ID", result.Package.PackageID)
+		w.Header().Set("X-Edge-Poller-ID", result.Package.PollerID)
+	}
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", buildContentDisposition(filename))
+	w.Header().Set("Cache-Control", "no-store")
+
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(archive); err != nil && s.logger != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("package_id", result.Package.PackageID).
+			Msg("edge onboarding: failed to stream archive to client")
+	}
+}
+
+func (s *APIServer) handleRevokeEdgePackage(w http.ResponseWriter, r *http.Request) {
+	if s.edgeOnboarding == nil {
+		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := mux.Vars(r)["id"]
+	if strings.TrimSpace(id) == "" {
+		writeError(w, "package id is required", http.StatusBadRequest)
+		return
+	}
+
+	var req edgePackageRevokeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, "invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	actor := ""
+	if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
+		actor = strings.TrimSpace(user.Email)
+	}
+
+	result, err := s.edgeOnboarding.RevokePackage(r.Context(), &models.EdgeOnboardingRevokeRequest{
+		PackageID: id,
+		Actor:     actor,
+		Reason:    strings.TrimSpace(req.Reason),
+		SourceIP:  clientIPFromRequest(r),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, models.ErrEdgeOnboardingInvalidRequest):
+			writeError(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, models.ErrEdgeOnboardingPackageRevoked):
+			writeError(w, err.Error(), http.StatusConflict)
+		case errors.Is(err, models.ErrEdgeOnboardingSpireUnavailable):
+			writeError(w, err.Error(), http.StatusServiceUnavailable)
+		case errors.Is(err, db.ErrEdgePackageNotFound):
+			writeError(w, "package not found", http.StatusNotFound)
+		case errors.Is(err, models.ErrEdgeOnboardingDisabled):
+			writeError(w, err.Error(), http.StatusServiceUnavailable)
+		default:
+			writeError(w, "failed to revoke edge package", http.StatusBadGateway)
+		}
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, toEdgePackageView(result.Package))
 }
 
 func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {
@@ -225,4 +456,23 @@ func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {
 	}
 
 	return view
+}
+
+func clientIPFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if xfwd := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xfwd != "" {
+		parts := strings.Split(xfwd, ",")
+		if len(parts) > 0 {
+			if candidate := strings.TrimSpace(parts[0]); candidate != "" {
+				return candidate
+			}
+		}
+	}
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err == nil && host != "" {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
 }

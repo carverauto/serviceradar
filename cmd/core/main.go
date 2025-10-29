@@ -131,7 +131,31 @@ func runBackfill(ctx context.Context, server *core.Server, mainLogger logger.Log
 	return nil
 }
 
-func buildAPIServerOptions(ctx context.Context, cfg *models.CoreServiceConfig, mainLogger logger.Logger) ([]func(*api.APIServer), spireadmin.Client, error) {
+func initSpireAdminClient(ctx context.Context, cfg *models.CoreServiceConfig, mainLogger logger.Logger) (spireadmin.Client, error) {
+	if cfg.SpireAdmin == nil || !cfg.SpireAdmin.Enabled {
+		return nil, nil
+	}
+
+	spireCfg := spireadmin.Config{
+		WorkloadSocket: cfg.SpireAdmin.WorkloadSocket,
+		ServerAddress:  cfg.SpireAdmin.ServerAddress,
+		ServerSPIFFEID: cfg.SpireAdmin.ServerSPIFFEID,
+	}
+
+	if spireCfg.ServerAddress == "" || spireCfg.ServerSPIFFEID == "" {
+		mainLogger.Warn().Msg("SPIRE admin config enabled but server address or SPIFFE ID missing; disabling admin client")
+		return nil, nil
+	}
+
+	client, err := spireadmin.New(ctx, spireCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize SPIRE admin client: %w", err)
+	}
+
+	return client, nil
+}
+
+func buildAPIServerOptions(cfg *models.CoreServiceConfig, mainLogger logger.Logger, spireAdminClient spireadmin.Client) []func(*api.APIServer) {
 	var apiOptions []func(*api.APIServer)
 
 	if kvAddr := os.Getenv("KV_ADDRESS"); kvAddr != "" {
@@ -157,27 +181,15 @@ func buildAPIServerOptions(ctx context.Context, cfg *models.CoreServiceConfig, m
 		apiOptions = append(apiOptions, api.WithKVEndpoints(eps))
 	}
 
-	var spireAdminClient spireadmin.Client
 	if cfg.SpireAdmin != nil && cfg.SpireAdmin.Enabled {
-		spireCfg := spireadmin.Config{
-			WorkloadSocket: cfg.SpireAdmin.WorkloadSocket,
-			ServerAddress:  cfg.SpireAdmin.ServerAddress,
-			ServerSPIFFEID: cfg.SpireAdmin.ServerSPIFFEID,
-		}
-
-		if spireCfg.ServerAddress == "" || spireCfg.ServerSPIFFEID == "" {
-			mainLogger.Warn().Msg("SPIRE admin config enabled but server address or SPIFFE ID missing; disabling admin client")
+		if spireAdminClient == nil {
+			mainLogger.Warn().Msg("SPIRE admin config enabled but admin client unavailable; admin APIs disabled")
 		} else {
-			client, err := spireadmin.New(ctx, spireCfg)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to initialize SPIRE admin client: %w", err)
-			}
-			spireAdminClient = client
 			apiOptions = append(apiOptions, api.WithSpireAdmin(spireAdminClient, cfg.SpireAdmin))
 		}
 	}
 
-	return apiOptions, spireAdminClient, nil
+	return apiOptions
 }
 
 func main() {
@@ -246,17 +258,7 @@ func run() error {
 		}
 	}()
 
-	// Create core server
-	server, err := core.NewServer(ctx, &cfg)
-	if err != nil {
-		return err
-	}
-
-	if opts.Backfill {
-		return runBackfill(ctx, server, mainLogger, opts)
-	}
-
-	apiOptions, spireAdminClient, err := buildAPIServerOptions(ctx, &cfg, mainLogger)
+	spireAdminClient, err := initSpireAdminClient(ctx, &cfg, mainLogger)
 	if err != nil {
 		return err
 	}
@@ -267,6 +269,18 @@ func run() error {
 			}
 		}()
 	}
+
+	// Create core server
+	server, err := core.NewServer(ctx, &cfg, spireAdminClient)
+	if err != nil {
+		return err
+	}
+
+	if opts.Backfill {
+		return runBackfill(ctx, server, mainLogger, opts)
+	}
+
+	apiOptions := buildAPIServerOptions(&cfg, mainLogger, spireAdminClient)
 
 	allOptions := []func(server *api.APIServer){
 		api.WithMetricsManager(server.GetMetricsManager()),

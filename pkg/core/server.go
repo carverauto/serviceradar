@@ -18,25 +18,26 @@
 package core
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"time"
+    "context"
+    "fmt"
+    "os"
+    "time"
 
-	"go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel"
 
-	cfgutil "github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/core/alerts"
-	"github.com/carverauto/serviceradar/pkg/core/api"
-	"github.com/carverauto/serviceradar/pkg/core/auth"
-	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/identitymap"
-	"github.com/carverauto/serviceradar/pkg/lifecycle"
-	"github.com/carverauto/serviceradar/pkg/metrics"
-	"github.com/carverauto/serviceradar/pkg/metricstore"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/registry"
-	"github.com/carverauto/serviceradar/proto"
+    cfgutil "github.com/carverauto/serviceradar/pkg/config"
+    "github.com/carverauto/serviceradar/pkg/core/alerts"
+    "github.com/carverauto/serviceradar/pkg/core/api"
+    "github.com/carverauto/serviceradar/pkg/core/auth"
+    "github.com/carverauto/serviceradar/pkg/db"
+    "github.com/carverauto/serviceradar/pkg/identitymap"
+    "github.com/carverauto/serviceradar/pkg/lifecycle"
+    "github.com/carverauto/serviceradar/pkg/metrics"
+    "github.com/carverauto/serviceradar/pkg/metricstore"
+    "github.com/carverauto/serviceradar/pkg/models"
+    "github.com/carverauto/serviceradar/pkg/registry"
+    "github.com/carverauto/serviceradar/pkg/spireadmin"
+    "github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -61,7 +62,7 @@ const (
 	mapperDiscoveryServiceType      = "mapper_discovery"
 )
 
-func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, error) {
+func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClient spireadmin.Client) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 
 	// Initialize logger
@@ -146,7 +147,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig) (*Server, 
 		canonicalCache:      newCanonicalCache(10 * time.Minute),
 	}
 
-	edgeSvc, err := newEdgeOnboardingService(ctx, normalizedConfig.EdgeOnboarding, database, log)
+    edgeSvc, err := newEdgeOnboardingService(ctx, normalizedConfig.EdgeOnboarding, normalizedConfig.SpireAdmin, spireClient, database, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize edge onboarding service: %w", err)
 	}

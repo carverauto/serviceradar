@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // EdgeOnboardingStatus represents the lifecycle state of an onboarding package.
 type EdgeOnboardingStatus string
@@ -13,6 +16,18 @@ const (
 	EdgeOnboardingStatusExpired   EdgeOnboardingStatus = "expired"
 )
 
+var (
+	ErrEdgeOnboardingDisabled         = errors.New("edge onboarding: service disabled")
+	ErrEdgeOnboardingInvalidRequest   = errors.New("edge onboarding: invalid request")
+	ErrEdgeOnboardingPollerConflict   = errors.New("edge onboarding: poller already provisioned")
+	ErrEdgeOnboardingSpireUnavailable = errors.New("edge onboarding: spire admin unavailable")
+	ErrEdgeOnboardingDownloadRequired = errors.New("edge onboarding: download token required")
+	ErrEdgeOnboardingDownloadInvalid  = errors.New("edge onboarding: download token invalid")
+	ErrEdgeOnboardingDownloadExpired  = errors.New("edge onboarding: download token expired")
+	ErrEdgeOnboardingPackageDelivered = errors.New("edge onboarding: package already delivered")
+	ErrEdgeOnboardingPackageRevoked   = errors.New("edge onboarding: package revoked")
+)
+
 // EdgeOnboardingPackage models the material tracked for an edge poller bootstrap.
 type EdgeOnboardingPackage struct {
 	PackageID              string               `json:"package_id"`
@@ -20,6 +35,7 @@ type EdgeOnboardingPackage struct {
 	PollerID               string               `json:"poller_id"`
 	Site                   string               `json:"site,omitempty"`
 	Status                 EdgeOnboardingStatus `json:"status"`
+	DownstreamEntryID      string               `json:"downstream_entry_id,omitempty"`
 	DownstreamSPIFFEID     string               `json:"downstream_spiffe_id"`
 	Selectors              []string             `json:"selectors,omitempty"`
 	JoinTokenCiphertext    string               `json:"join_token_ciphertext"`
@@ -54,4 +70,55 @@ type EdgeOnboardingListFilter struct {
 	PollerID string
 	Statuses []EdgeOnboardingStatus
 	Limit    int
+}
+
+// EdgeOnboardingCreateRequest drives package provisioning.
+type EdgeOnboardingCreateRequest struct {
+	Label              string
+	PollerID           string
+	Site               string
+	Selectors          []string
+	MetadataJSON       string
+	Notes              string
+	CreatedBy          string
+	JoinTokenTTL       time.Duration
+	DownloadTokenTTL   time.Duration
+	DownstreamSPIFFEID string
+}
+
+// EdgeOnboardingCreateResult bundles the stored package and sensitive artifacts.
+type EdgeOnboardingCreateResult struct {
+	Package           *EdgeOnboardingPackage
+	JoinToken         string
+	DownloadToken     string
+	BundlePEM         []byte
+	DownstreamEntryID string
+}
+
+// EdgeOnboardingDeliverRequest captures download token verification.
+type EdgeOnboardingDeliverRequest struct {
+	PackageID     string
+	DownloadToken string
+	Actor         string
+	SourceIP      string
+}
+
+// EdgeOnboardingDeliverResult contains decrypted artefacts for installers.
+type EdgeOnboardingDeliverResult struct {
+	Package   *EdgeOnboardingPackage
+	JoinToken string
+	BundlePEM []byte
+}
+
+// EdgeOnboardingRevokeRequest describes a package revocation.
+type EdgeOnboardingRevokeRequest struct {
+	PackageID string
+	Actor     string
+	Reason    string
+	SourceIP  string
+}
+
+// EdgeOnboardingRevokeResult returns the updated package after revocation.
+type EdgeOnboardingRevokeResult struct {
+	Package *EdgeOnboardingPackage
 }

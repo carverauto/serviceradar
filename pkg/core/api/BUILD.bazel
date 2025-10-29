@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "api",
@@ -7,6 +7,7 @@ go_library(
         "interfaces.go",
         "mock_api_server.go",
         "edge_onboarding.go",
+        "edge_onboarding_archive.go",
         "rperf.go",
         "server.go",
         "spire.go",
@@ -28,6 +29,7 @@ go_library(
         "//pkg/spireadmin",
         "//pkg/swagger",
         "//proto",
+        "@com_github_spiffe_go_spiffe_v2//spiffeid:go_default_library",
         "@com_github_spiffe_spire_api_sdk//proto/spire/api/types:go_default_library",
         "@com_github_gorilla_mux//:mux",
         "@com_github_markbates_goth//:goth",
@@ -37,5 +39,16 @@ go_library(
         "@io_opentelemetry_go_otel//codes",
         "@io_opentelemetry_go_otel_trace//:trace",
         "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "api_test",
+    srcs = ["edge_onboarding_test.go"],
+    embed = [":api"],
+    deps = [
+        "//pkg/models",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
     ],
 )
