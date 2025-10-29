@@ -1,5 +1,3 @@
-"use server";
-
 import { NextRequest, NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
 import { getApiKey, getInternalApiUrl } from "@/lib/config";
