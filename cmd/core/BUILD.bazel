@@ -7,6 +7,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//alias:core",
+        "//alias:core-bootstrap",
         "//alias:api",
         "//alias:lifecycle",
         "//alias:logger",

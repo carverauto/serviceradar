@@ -48,9 +48,7 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	"google.golang.org/grpc"
@@ -58,10 +56,9 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/core"
 	"github.com/carverauto/serviceradar/pkg/core/api"
+	"github.com/carverauto/serviceradar/pkg/core/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	_ "github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -131,67 +128,6 @@ func runBackfill(ctx context.Context, server *core.Server, mainLogger logger.Log
 	return nil
 }
 
-func initSpireAdminClient(ctx context.Context, cfg *models.CoreServiceConfig, mainLogger logger.Logger) (spireadmin.Client, error) {
-	if cfg.SpireAdmin == nil || !cfg.SpireAdmin.Enabled {
-		return nil, nil
-	}
-
-	spireCfg := spireadmin.Config{
-		WorkloadSocket: cfg.SpireAdmin.WorkloadSocket,
-		ServerAddress:  cfg.SpireAdmin.ServerAddress,
-		ServerSPIFFEID: cfg.SpireAdmin.ServerSPIFFEID,
-	}
-
-	if spireCfg.ServerAddress == "" || spireCfg.ServerSPIFFEID == "" {
-		mainLogger.Warn().Msg("SPIRE admin config enabled but server address or SPIFFE ID missing; disabling admin client")
-		return nil, nil
-	}
-
-	client, err := spireadmin.New(ctx, spireCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize SPIRE admin client: %w", err)
-	}
-
-	return client, nil
-}
-
-func buildAPIServerOptions(cfg *models.CoreServiceConfig, mainLogger logger.Logger, spireAdminClient spireadmin.Client) []func(*api.APIServer) {
-	var apiOptions []func(*api.APIServer)
-
-	if kvAddr := os.Getenv("KV_ADDRESS"); kvAddr != "" {
-		apiOptions = append(apiOptions, api.WithKVAddress(kvAddr))
-	}
-
-	if cfg.Security != nil {
-		apiOptions = append(apiOptions, api.WithKVSecurity(cfg.Security))
-	}
-
-	if len(cfg.KVEndpoints) > 0 {
-		eps := make(map[string]*api.KVEndpoint, len(cfg.KVEndpoints))
-		for _, e := range cfg.KVEndpoints {
-			eps[e.ID] = &api.KVEndpoint{
-				ID:       e.ID,
-				Name:     e.Name,
-				Address:  e.Address,
-				Domain:   e.Domain,
-				Type:     e.Type,
-				Security: cfg.Security,
-			}
-		}
-		apiOptions = append(apiOptions, api.WithKVEndpoints(eps))
-	}
-
-	if cfg.SpireAdmin != nil && cfg.SpireAdmin.Enabled {
-		if spireAdminClient == nil {
-			mainLogger.Warn().Msg("SPIRE admin config enabled but admin client unavailable; admin APIs disabled")
-		} else {
-			apiOptions = append(apiOptions, api.WithSpireAdmin(spireAdminClient, cfg.SpireAdmin))
-		}
-	}
-
-	return apiOptions
-}
-
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("Fatal error: %v", err)
@@ -258,7 +194,7 @@ func run() error {
 		}
 	}()
 
-	spireAdminClient, err := initSpireAdminClient(ctx, &cfg, mainLogger)
+	spireAdminClient, err := bootstrap.InitSpireAdminClient(ctx, &cfg, mainLogger)
 	if err != nil {
 		return err
 	}
@@ -280,7 +216,7 @@ func run() error {
 		return runBackfill(ctx, server, mainLogger, opts)
 	}
 
-	apiOptions := buildAPIServerOptions(&cfg, mainLogger, spireAdminClient)
+	apiOptions := bootstrap.BuildAPIServerOptions(&cfg, mainLogger, spireAdminClient)
 
 	allOptions := []func(server *api.APIServer){
 		api.WithMetricsManager(server.GetMetricsManager()),

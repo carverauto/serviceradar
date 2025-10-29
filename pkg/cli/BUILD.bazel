@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "checker.go",
         "cli.go",
+        "edge_onboarding.go",
         "flags.go",
         "errors.go",
         "help.go",
