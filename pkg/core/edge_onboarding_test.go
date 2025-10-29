@@ -59,6 +59,16 @@ func (f *fakeSpireAdminClient) DeleteEntry(ctx context.Context, entryID string) 
 
 func (f *fakeSpireAdminClient) Close() error { return nil }
 
+func validPollerMetadataJSON() string {
+	return `{
+		"core_address": "core:50052",
+		"core_spiffe_id": "spiffe://example.org/ns/demo/sa/serviceradar-core",
+		"spire_upstream_address": "spire.example.org",
+		"spire_parent_id": "spiffe://example.org/spire/agent/upstream",
+		"agent_spiffe_id": "spiffe://example.org/services/agent"
+	}`
+}
+
 func TestEdgeOnboardingCreatePackageSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -114,8 +124,9 @@ func TestEdgeOnboardingCreatePackageSuccess(t *testing.T) {
 	mockDB.EXPECT().InsertEdgeOnboardingEvent(gomock.Any(), gomock.Any()).Return(nil)
 
 	result, err := svc.CreatePackage(context.Background(), &models.EdgeOnboardingCreateRequest{
-		Label:     "Edge Poller",
-		CreatedBy: "admin@example.com",
+		Label:        "Edge Poller",
+		CreatedBy:    "admin@example.com",
+		MetadataJSON: validPollerMetadataJSON(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -127,6 +138,48 @@ func TestEdgeOnboardingCreatePackageSuccess(t *testing.T) {
 	assert.Empty(t, fakeSpire.deleteIDs)
 
 	assert.True(t, svc.isPollerAllowed(context.Background(), "edge-poller"))
+}
+
+func TestEdgeOnboardingCreatePackageMissingMetadata(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0x99}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:          true,
+		EncryptionKey:    encKey,
+		DefaultSelectors: []string{"unix:uid:0"},
+	}
+
+	spireCfg := &models.SpireAdminConfig{ServerSPIFFEID: "spiffe://example.org/spire/server"}
+	fakeSpire := newFakeSpireClient()
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+
+	svc.refreshInterval = 0
+	svc.SetAllowedPollerCallback(func([]string) {})
+	require.NoError(t, svc.Start(context.Background()))
+	defer func() { assert.NoError(t, svc.Stop(context.Background())) }()
+
+	_, err = svc.CreatePackage(context.Background(), &models.EdgeOnboardingCreateRequest{
+		Label:     "Edge Missing Metadata",
+		CreatedBy: "admin@example.com",
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrEdgeOnboardingInvalidRequest)
+	assert.Contains(t, err.Error(), "metadata_json missing required key")
 }
 
 func TestEdgeOnboardingCreatePackagePollerConflict(t *testing.T) {
@@ -168,8 +221,9 @@ func TestEdgeOnboardingCreatePackagePollerConflict(t *testing.T) {
 	}}, nil)
 
 	_, err = svc.CreatePackage(context.Background(), &models.EdgeOnboardingCreateRequest{
-		Label:    "Edge Conflict",
-		PollerID: "edge-conflict",
+		Label:        "Edge Conflict",
+		PollerID:     "edge-conflict",
+		MetadataJSON: validPollerMetadataJSON(),
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, models.ErrEdgeOnboardingPollerConflict)

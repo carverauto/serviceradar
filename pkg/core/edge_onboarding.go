@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -379,6 +380,11 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		return nil, fmt.Errorf("%w: metadata_json must be valid JSON", models.ErrEdgeOnboardingInvalidRequest)
 	}
 
+	metadataMap, err := parseEdgeMetadataMap(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("%w: metadata_json must be valid JSON: %v", models.ErrEdgeOnboardingInvalidRequest, err)
+	}
+
 	componentType := req.ComponentType
 	if componentType == models.EdgeOnboardingComponentTypeNone {
 		componentType = models.EdgeOnboardingComponentTypePoller
@@ -406,6 +412,9 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 	var pollerID string
 	switch componentType {
 	case models.EdgeOnboardingComponentTypePoller:
+		if err := validatePollerMetadata(metadataMap); err != nil {
+			return nil, err
+		}
 		resolvedPollerID, err := s.resolvePollerID(ctx, label, componentID)
 		if err != nil {
 			return nil, err
@@ -940,6 +949,60 @@ func (s *edgeOnboardingService) deriveDownstreamSPIFFEID(componentID, override s
 		return "", fmt.Errorf("edge onboarding: downstream spiffe id invalid: %w", err)
 	}
 	return result, nil
+}
+
+func parseEdgeMetadataMap(raw string) (map[string]string, error) {
+	meta := make(map[string]string)
+	if strings.TrimSpace(raw) == "" {
+		return meta, nil
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return nil, err
+	}
+
+	for key, value := range decoded {
+		normalisedKey := strings.ToLower(strings.TrimSpace(key))
+		if normalisedKey == "" || value == nil {
+			continue
+		}
+
+		switch v := value.(type) {
+		case string:
+			if trimmed := strings.TrimSpace(v); trimmed != "" {
+				meta[normalisedKey] = trimmed
+			}
+		case bool:
+			meta[normalisedKey] = strconv.FormatBool(v)
+		case float64:
+			meta[normalisedKey] = strconv.FormatFloat(v, 'f', -1, 64)
+		default:
+			if encoded, err := json.Marshal(v); err == nil {
+				meta[normalisedKey] = string(encoded)
+			}
+		}
+	}
+
+	return meta, nil
+}
+
+func validatePollerMetadata(meta map[string]string) error {
+	required := []string{
+		"core_address",
+		"core_spiffe_id",
+		"spire_upstream_address",
+		"spire_parent_id",
+		"agent_spiffe_id",
+	}
+
+	for _, key := range required {
+		if strings.TrimSpace(meta[key]) == "" {
+			return fmt.Errorf("%w: metadata_json missing required key %q for poller packages", models.ErrEdgeOnboardingInvalidRequest, key)
+		}
+	}
+
+	return nil
 }
 
 func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg *models.EdgeOnboardingPackage) error {

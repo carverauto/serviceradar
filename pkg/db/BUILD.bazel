@@ -28,6 +28,7 @@ go_library(
         "//pkg/deviceupdate",
         "//pkg/logger",
         "//pkg/models",
+        "@com_github_google_uuid//:uuid",
         "@com_github_timeplus_io_proton_go_driver_v2//:proton-go-driver",
         "@com_github_timeplus_io_proton_go_driver_v2//lib/driver",
         "@org_uber_go_mock//gomock",
