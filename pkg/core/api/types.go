@@ -81,6 +81,9 @@ type EdgeOnboardingService interface {
 	ListPackages(ctx context.Context, filter *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error)
 	GetPackage(ctx context.Context, packageID string) (*models.EdgeOnboardingPackage, error)
 	ListEvents(ctx context.Context, packageID string, limit int) ([]*models.EdgeOnboardingEvent, error)
+	CreatePackage(ctx context.Context, req *models.EdgeOnboardingCreateRequest) (*models.EdgeOnboardingCreateResult, error)
+	DeliverPackage(ctx context.Context, req *models.EdgeOnboardingDeliverRequest) (*models.EdgeOnboardingDeliverResult, error)
+	RevokePackage(ctx context.Context, req *models.EdgeOnboardingRevokeRequest) (*models.EdgeOnboardingRevokeResult, error)
 }
 
 type APIServer struct {

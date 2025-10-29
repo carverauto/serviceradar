@@ -1,7 +1,9 @@
 package spireadmin
 
 import (
+	"bytes"
 	"context"
+	"encoding/pem"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	agentv1 "github.com/spiffe/spire-api-sdk/proto/spire/api/server/agent/v1"
+	bundlev1 "github.com/spiffe/spire-api-sdk/proto/spire/api/server/bundle/v1"
 	entryv1 "github.com/spiffe/spire-api-sdk/proto/spire/api/server/entry/v1"
 	types "github.com/spiffe/spire-api-sdk/proto/spire/api/types"
 	"google.golang.org/grpc"
@@ -70,16 +73,19 @@ type DownstreamEntryResult struct {
 type Client interface {
 	CreateJoinToken(ctx context.Context, params JoinTokenParams) (*JoinTokenResult, error)
 	CreateDownstreamEntry(ctx context.Context, params DownstreamEntryParams) (*DownstreamEntryResult, error)
+	FetchBundle(ctx context.Context) ([]byte, error)
+	DeleteEntry(ctx context.Context, entryID string) error
 	Close() error
 }
 
 type client struct {
-	cfg         Config
-	trustDomain spiffeid.TrustDomain
-	source      *workloadapi.X509Source
-	conn        *grpc.ClientConn
-	agentClient agentv1.AgentClient
-	entryClient entryv1.EntryClient
+	cfg          Config
+	trustDomain  spiffeid.TrustDomain
+	source       *workloadapi.X509Source
+	conn         *grpc.ClientConn
+	agentClient  agentv1.AgentClient
+	entryClient  entryv1.EntryClient
+	bundleClient bundlev1.BundleClient
 }
 
 // New instantiates a SPIRE administrative client backed by the Workload API.
@@ -116,12 +122,13 @@ func New(ctx context.Context, cfg Config) (Client, error) {
 	}
 
 	return &client{
-		cfg:         cfg,
-		trustDomain: serverID.TrustDomain(),
-		source:      source,
-		conn:        conn,
-		agentClient: agentv1.NewAgentClient(conn),
-		entryClient: entryv1.NewEntryClient(conn),
+		cfg:          cfg,
+		trustDomain:  serverID.TrustDomain(),
+		source:       source,
+		conn:         conn,
+		agentClient:  agentv1.NewAgentClient(conn),
+		entryClient:  entryv1.NewEntryClient(conn),
+		bundleClient: bundlev1.NewBundleClient(conn),
 	}, nil
 }
 
@@ -234,6 +241,71 @@ func (c *client) CreateDownstreamEntry(ctx context.Context, params DownstreamEnt
 	}
 
 	return nil, fmt.Errorf("%w: %s", ErrDownstreamEntryCreateFailed, status.GetMessage())
+}
+
+func (c *client) FetchBundle(ctx context.Context) ([]byte, error) {
+	if c.bundleClient == nil {
+		return nil, ErrBundleClientUnavailable
+	}
+
+	resp, err := c.bundleClient.GetBundle(ctx, &bundlev1.GetBundleRequest{
+		OutputMask: &types.BundleMask{X509Authorities: true},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("spire admin: get bundle: %w", err)
+	}
+
+	authorities := resp.GetX509Authorities()
+	if len(authorities) == 0 {
+		return nil, ErrBundleEmpty
+	}
+
+	var buf bytes.Buffer
+	for _, cert := range authorities {
+		der := cert.GetAsn1()
+		if len(der) == 0 {
+			continue
+		}
+		if err := pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrBundleEncodeFailed, err)
+		}
+	}
+
+	if buf.Len() == 0 {
+		return nil, ErrBundleEmpty
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (c *client) DeleteEntry(ctx context.Context, entryID string) error {
+	if entryID == "" {
+		return nil
+	}
+
+	resp, err := c.entryClient.BatchDeleteEntry(ctx, &entryv1.BatchDeleteEntryRequest{
+		Ids: []string{entryID},
+	})
+	if err != nil {
+		return fmt.Errorf("spire admin: delete entry: %w", err)
+	}
+
+	results := resp.GetResults()
+	if len(results) == 0 {
+		return ErrDeleteEntryEmptyResult
+	}
+
+	status := results[0].GetStatus()
+	if status == nil {
+		return ErrDeleteEntryMissingStatus
+	}
+
+	code := codes.Code(status.GetCode())
+	if code == codes.OK || code == codes.NotFound {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %s", ErrDeleteEntryFailed, status.GetMessage())
 }
 
 // toProtoSelector converts a selector string (type:value) to a proto selector.

@@ -57,6 +57,10 @@ type CmdConfig struct {
 	DownstreamFederates      []string
 	NoDownstream             bool
 	JoinTokenOutput          string
+	EdgePackageID            string
+	EdgePackageDownloadToken string
+	EdgePackageOutput        string
+	EdgePackageReason        string
 }
 
 // logStyles defines styles for logging messages

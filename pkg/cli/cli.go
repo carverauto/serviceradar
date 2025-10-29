@@ -473,6 +473,62 @@ func (SpireJoinTokenHandler) Parse(args []string, cfg *CmdConfig) error {
 	return nil
 }
 
+// EdgePackageDownloadHandler handles flags for downloading onboarding artefacts.
+type EdgePackageDownloadHandler struct{}
+
+// Parse reads flags for the edge-package-download subcommand.
+func (EdgePackageDownloadHandler) Parse(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("edge-package-download", flag.ExitOnError)
+	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
+	apiKey := fs.String("api-key", "", "API key for authenticating with core")
+	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
+	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
+	packageID := fs.String("id", "", "Edge package identifier")
+	downloadToken := fs.String("download-token", "", "Edge package download token")
+	output := fs.String("output", "", "Optional file path for writing onboarding artefacts (JSON)")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing edge-package-download flags: %w", err)
+	}
+
+	cfg.CoreAPIURL = *coreURL
+	cfg.APIKey = *apiKey
+	cfg.BearerToken = *bearer
+	cfg.TLSSkipVerify = *skipTLS
+	cfg.EdgePackageID = *packageID
+	cfg.EdgePackageDownloadToken = *downloadToken
+	cfg.EdgePackageOutput = *output
+
+	return nil
+}
+
+// EdgePackageRevokeHandler handles flags for revoking onboarding packages.
+type EdgePackageRevokeHandler struct{}
+
+// Parse reads flags for the edge-package-revoke subcommand.
+func (EdgePackageRevokeHandler) Parse(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("edge-package-revoke", flag.ExitOnError)
+	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
+	apiKey := fs.String("api-key", "", "API key for authenticating with core")
+	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
+	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
+	packageID := fs.String("id", "", "Edge package identifier")
+	reason := fs.String("reason", "", "Optional revocation reason")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing edge-package-revoke flags: %w", err)
+	}
+
+	cfg.CoreAPIURL = *coreURL
+	cfg.APIKey = *apiKey
+	cfg.BearerToken = *bearer
+	cfg.TLSSkipVerify = *skipTLS
+	cfg.EdgePackageID = *packageID
+	cfg.EdgePackageReason = *reason
+
+	return nil
+}
+
 // GenerateTLSHandler handles flags for the generate-tls subcommand
 type GenerateTLSHandler struct{}
 
@@ -521,12 +577,14 @@ func ParseFlags() (*CmdConfig, error) {
 
 	// Define subcommands and their handlers
 	subcommands := map[string]SubcommandHandler{
-		"update-config":     UpdateConfigHandler{},
-		"update-poller":     UpdatePollerHandler{},
-		"generate-tls":      GenerateTLSHandler{},
-		"render-kong":       RenderKongHandler{},
-		"generate-jwt-keys": GenerateJWTKeysHandler{},
-		"spire-join-token":  SpireJoinTokenHandler{},
+		"update-config":         UpdateConfigHandler{},
+		"update-poller":         UpdatePollerHandler{},
+		"generate-tls":          GenerateTLSHandler{},
+		"render-kong":           RenderKongHandler{},
+		"generate-jwt-keys":     GenerateJWTKeysHandler{},
+		"spire-join-token":      SpireJoinTokenHandler{},
+		"edge-package-download": EdgePackageDownloadHandler{},
+		"edge-package-revoke":   EdgePackageRevokeHandler{},
 	}
 
 	// Parse subcommand flags if present

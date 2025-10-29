@@ -764,6 +764,8 @@ func (s *APIServer) setupProtectedRoutes() {
 	adminRoutes.HandleFunc("/edge-packages", s.handleCreateEdgePackage).Methods("POST")
 	adminRoutes.HandleFunc("/edge-packages/{id}", s.handleGetEdgePackage).Methods("GET")
 	adminRoutes.HandleFunc("/edge-packages/{id}/events", s.handleListEdgePackageEvents).Methods("GET")
+	adminRoutes.HandleFunc("/edge-packages/{id}/download", s.handleDownloadEdgePackage).Methods("POST")
+	adminRoutes.HandleFunc("/edge-packages/{id}/revoke", s.handleRevokeEdgePackage).Methods("POST")
 
 	// KV endpoints enumeration (optional, for Admin UI)
 	protected.HandleFunc("/kv/endpoints", s.handleListKVEndpoints).Methods("GET")
